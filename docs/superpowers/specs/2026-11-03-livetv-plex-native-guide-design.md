@@ -253,7 +253,7 @@ them and PMS never sees them. Without it, blocks are today's. A provider's
 blocks are of one kind, so `status.blocks` keeps its `start` key and
 `blocks.Next` its rules.
 
-A Plex block's device id is `hdhr.BlockDeviceID(ns, name, "plex/"+start)`
+A Plex block's device id is `hdhr.BlockDeviceID(ns, name, "plex/"+lineupID+"/"+start)`
 (my call): turning `plexGuide` on gives every block a new device, so
 cluster-plex removes the old devices and their XMLTV DVRs as gone blocks
 and registers the new ones, through paths it already has, rather than

@@ -79,6 +79,11 @@ func activeNumbers(channels []clustarrv1.IPTVChannel) []string {
 	return slices.Compact(out)
 }
 
+// lineupIDOf is a block's cloud lineup id, from its lineup URI.
+func lineupIDOf(uri string) string {
+	return (&clustarrv1.PlexGuide{Lineup: uri}).LineupID()
+}
+
 // pairedStations is the active channels on Plex in the tuner's snapshot,
 // by number: the stations their blocks' channel maps carry.
 func pairedStations(channels []clustarrv1.IPTVChannel, snap tuner.Snapshot) map[string]plexguide.Station {
@@ -140,8 +145,14 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 	var lineup string
 	if plexOn {
 		snap, ok := r.Tuner.Snapshot(types.NamespacedName{Namespace: p.Namespace, Name: p.Name})
-		if !ok || !snap.Plex.Loaded {
+		switch {
+		case !ok || !snap.Plex.Loaded:
 			return keep(clustarrv1.ReasonLineupPending, "waiting for the Plex lineup "+p.Spec.PlexGuide.LineupID()), nil
+		case !snap.PlaylistFetched:
+			// A lineup read from its cache ahead of the playlist pairs no
+			// channel (a render places none before the first playlist): the
+			// published blocks stay, or every Plex DVR would go.
+			return keep(clustarrv1.ReasonLineupPending, "waiting for the playlist to pair the channels with the Plex lineup"), nil
 		}
 		paired := pairedStations(channels, snap)
 		numbers = numbers[:0:0]
@@ -155,9 +166,9 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 	prev := make([]string, 0, len(p.Status.Blocks))
 	byStart := map[string]clustarrv1.BlockStatus{}
 	for _, b := range p.Status.Blocks {
-		// A switch to or from Plex's guide packs afresh: the other kind's
-		// starts are no boundaries of this one.
-		if (b.Lineup != "") != plexOn {
+		// A switch to or from Plex's guide, or to another Plex lineup, packs
+		// afresh: the other blocks' starts are no boundaries of these.
+		if (b.Lineup != "") != plexOn || (plexOn && lineupIDOf(b.Lineup) != p.Spec.PlexGuide.LineupID()) {
 			continue
 		}
 		prev = append(prev, b.Start)
@@ -200,10 +211,11 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 		if bs.DeviceID == "" {
 			switch {
 			case plexOn:
-				// A device of its own, so turning Plex's guide on replaces the
-				// XMLTV devices and their DVRs rather than changing a DVR's
-				// lineup in place, which PMS has no call for.
-				bs.DeviceID = hdhr.BlockDeviceID(p.Namespace, p.Name, "plex/"+nb.Start)
+				// A device of its own, per lineup, so turning Plex's guide on,
+				// or naming another lineup, replaces the devices and their DVRs
+				// rather than changing a DVR's lineup in place, which PMS has
+				// no call for.
+				bs.DeviceID = hdhr.BlockDeviceID(p.Namespace, p.Name, "plex/"+p.Spec.PlexGuide.LineupID()+"/"+nb.Start)
 			case len(prev) == 0 && i == 0 && p.Spec.Device.ID != "":
 				bs.DeviceID = p.Spec.Device.ID
 			default:

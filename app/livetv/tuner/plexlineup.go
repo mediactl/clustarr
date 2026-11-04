@@ -69,6 +69,15 @@ func (t *Tuner) fetchPlexLineup(ctx context.Context, p *provider, cfg Config) {
 		p.mu.Unlock()
 		return
 	}
+	if p.cfg.Plex == nil || p.cfg.Plex.LineupID != cfg.Plex.LineupID {
+		// The configuration named another lineup while this one was
+		// fetched: its stations are another set, never held, paired
+		// against or stored; the configured one is fetched next.
+		p.plex.due = true
+		p.mu.Unlock()
+		t.poke()
+		return
+	}
 	now := t.o.Now()
 	if err != nil {
 		p.plex.err = clamp(cfg.scrub(fmt.Sprintf("fetch the Plex lineup: %v", err)))

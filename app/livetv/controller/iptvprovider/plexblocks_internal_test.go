@@ -91,7 +91,7 @@ func TestPlexBlocksHoldOnlyPairedChannelsUnderNewDeviceIDs(t *testing.T) {
 	require.Empty(t, pl.reason)
 	require.Len(t, pl.blocks, 1)
 	b := pl.blocks[0]
-	assert.Equal(t, hdhr.BlockDeviceID("media", "news", "plex/1001"), b.DeviceID)
+	assert.Equal(t, hdhr.BlockDeviceID("media", "news", "plex/"+plexLineupID+"/1001"), b.DeviceID)
 	assert.NotEqual(t, hdhr.BlockDeviceID("media", "news", "1001"), b.DeviceID, "never the XMLTV block's device")
 	assert.Equal(t, plexguide.LineupURI(plexLineupID, "DIRECTV Mobile (1009 channels)"), b.Lineup)
 	assert.Empty(t, b.GuidePath, "Plex's guide, not clustarr's")
@@ -169,4 +169,40 @@ func TestAPlexBlocksMapBudgetCountsItsStations(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pl.blocks, 1)
 	assert.Greater(t, pl.blocks[0].MapBytes, int32(100), "the lineup channel's 49-byte key counted, not the number twice")
+}
+
+// TestPlexBlocksWaitForThePlaylist: a lineup read from its cache before the
+// playlist (a restart whose playlist cache is gone or another account's)
+// pairs no channel, since a render places none before the first playlist;
+// the published blocks are kept, or every Plex DVR would go.
+func TestPlexBlocksWaitForThePlaylist(t *testing.T) {
+	p := plexProvider(true)
+	plexDev := hdhr.BlockDeviceID("media", "news", "plex/"+plexLineupID+"/1001")
+	p.Status.Blocks = []clustarrv1.BlockStatus{{Start: "1001", First: "1001", Last: "1003", DeviceID: plexDev, Lineup: plexguide.LineupURI(plexLineupID, "x")}}
+	r := fakeReconciler(t, testAddress, p)
+	r.Tuner = &snapTuner{snap: tuner.Snapshot{PlaylistFetched: false, Plex: tuner.PlexState{LineupID: plexLineupID, Loaded: true}}, ok: true}
+	pl, err := r.planBlocks(context.Background(), p, namedChannels("1001", "1002", "1003"))
+	require.NoError(t, err)
+	assert.Equal(t, clustarrv1.ReasonLineupPending, pl.reason)
+	require.Len(t, pl.blocks, 1, "the published Plex block is kept")
+	assert.Equal(t, plexDev, pl.blocks[0].DeviceID)
+}
+
+// TestALineupChangeGivesNewDevices: a DVR's lineup cannot change in place,
+// so another lineup is other devices, which cluster-plex registers beside
+// the old ones' removal, as for a switch of kind.
+func TestALineupChangeGivesNewDevices(t *testing.T) {
+	const otherLineup = "657cb9b8a698374a7a2dbca0"
+	p := plexProvider(true)
+	oldDev := hdhr.BlockDeviceID("media", "news", "plex/"+otherLineup+"/1001")
+	p.Status.Blocks = []clustarrv1.BlockStatus{{Start: "1001", First: "1001", Last: "1001", DeviceID: oldDev, Lineup: plexguide.LineupURI(otherLineup, "DIRECTV New York")}}
+	chans := namedChannels("1001", "1002")
+	r := fakeReconciler(t, testAddress, p)
+	r.Tuner = &snapTuner{snap: pairedSnapshot(chans, "1001", "1002"), ok: true}
+	pl, err := r.planBlocks(context.Background(), p, chans)
+	require.NoError(t, err)
+	require.Len(t, pl.blocks, 1)
+	assert.NotEqual(t, oldDev, pl.blocks[0].DeviceID, "the old lineup's device is not this lineup's")
+	assert.Equal(t, hdhr.BlockDeviceID("media", "news", "plex/"+plexLineupID+"/1001"), pl.blocks[0].DeviceID)
+	assert.Equal(t, plexguide.LineupURI(plexLineupID, "DIRECTV Mobile (1009 channels)"), pl.blocks[0].Lineup)
 }

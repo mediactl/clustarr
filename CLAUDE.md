@@ -578,7 +578,7 @@ Timeshifted, NotInLineup, Off, NoLineup); the provider's
 `status.plexGuide` counts them, condition `PlexGuideReady`. Only with
 `plexGuide.enabled` do the blocks move: they hold the `Manual` and
 `Automatic` channels alone, under device ids of their own
-(`hdhr.BlockDeviceID(ns, name, "plex/"+start)`, so cluster-plex replaces
+(`hdhr.BlockDeviceID(ns, name, "plex/"+lineupID+"/"+start)`, so cluster-plex replaces
 the XMLTV devices and DVRs, recording rules included, rather than changing
 a lineup in place), `status.blocks[].lineup` names the cloud lineup, each
 serves `/hdhr/<id>/plexmap.json` (its numbers' lineup channel ids and

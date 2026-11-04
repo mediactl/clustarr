@@ -41,7 +41,7 @@ const (
 	plexLineup   = "lineup://tv.plex.providers.epg.cloud/" + plexLineupID + "#Test%20Lineup"
 )
 
-var plexDevice = hdhr.BlockDeviceID("media", "news", "plex/1001")
+var plexDevice = hdhr.BlockDeviceID("media", "news", "plex/"+plexLineupID+"/1001")
 
 // plexCloud is Plex's cloud guide: the lineup and its stations, BBC One's
 // and News, Live's among them.
@@ -191,4 +191,54 @@ func TestARecordedPairingIsServedUntilTheLineupLands(t *testing.T) {
 		code, body := h.get(t, "tuner.example", device(plexDevice, "plexmap.json"))
 		return code == http.StatusOK && strings.Contains(body, `"channelKey":"`+st.ID+`"`)
 	}, 5*time.Second, 10*time.Millisecond, "a restart with no lineup keeps the block's map")
+}
+
+// TestALineupFetchOverTakenByAnotherLineupIsDropped: a fetch of the old
+// lineup that lands after the configuration named another is never held,
+// paired against or stored.
+func TestALineupFetchOverTakenByAnotherLineupIsDropped(t *testing.T) {
+	const other = "657cb9b8a698374a7a2dbca0"
+	p := newProvider(t)
+	release, releaseNew := make(chan struct{}), make(chan struct{})
+	var oldDone atomic.Int32
+	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/lineups/" + plexLineupID:
+			<-release // the old lineup's fetch is in flight when the configuration moves
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Lineup":[{"title":"Old"}]}}`))
+		case "/lineups/" + plexLineupID + "/channels":
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Channel":[{"id":"x-a","gridKey":"aaaaaaaaaaaaaaaaaaaaaaa1","callSign":"BBCONEH","title":"BBC One HD","vcn":"101"}]}}`))
+			oldDone.Add(1)
+		case "/lineups/" + other:
+			<-releaseNew
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Lineup":[{"title":"New"}]}}`))
+		case "/lineups/" + other + "/channels":
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Channel":[{"id":"y-a","gridKey":"aaaaaaaaaaaaaaaaaaaaaaa1","callSign":"BBCONEH","title":"BBC One HD","vcn":"201"}]}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(cloud.Close)
+	cfg := plexConfig(p.srv.URL)
+	h := startPlex(t, p, &plexCloud{srv: cloud}, cfg)
+	time.Sleep(100 * time.Millisecond) // the old lineup's fetch is waiting
+	cfg.Plex.LineupID = other
+	h.tn.Apply(cfg)
+	close(release)
+	require.Eventually(t, func() bool { return oldDone.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
+	time.Sleep(200 * time.Millisecond) // the old fetch's result, and any render it asked for
+	s, _ := h.tn.Snapshot(key)
+	assert.NotEqual(t, plexLineupID, s.Plex.LineupID, "the old lineup is never held")
+	close(releaseNew)
+	require.Eventually(t, func() bool {
+		s, _ := h.tn.Snapshot(key)
+		return s.Plex.Loaded && s.Plex.LineupID == other
+	}, 5*time.Second, 10*time.Millisecond)
+	s, _ = h.tn.Snapshot(key)
+	assert.Equal(t, "New", s.Plex.Title)
+	for obj, c := range s.Channels {
+		if c.Plex != nil && c.Plex.Match.OnPlex() {
+			assert.Equal(t, "201", c.Plex.Station.VCN, "%s paired against the new lineup only", obj)
+		}
+	}
 }
