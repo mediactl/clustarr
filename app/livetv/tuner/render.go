@@ -30,6 +30,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -135,6 +136,11 @@ func (t *Tuner) render(p *provider) {
 	logoSources := map[string]string{}
 	states := make(map[string]ChannelState, len(chans))
 	taken := map[string]bool{}
+	var plexChans []plexguide.Channel
+	numberOf := make(map[string]string, len(chans))
+	for _, ch := range chans {
+		numberOf[ch.Object] = ch.Number
+	}
 	// Before the first playlist no channel is placed: every one would read
 	// Missing, and its status flip there and back after each restart.
 	for _, ch := range chans {
@@ -202,7 +208,32 @@ func (t *Tuner) render(p *provider) {
 		languages[ch.Number] = languageCode(ch.Language)
 		lineupChans = append(lineupChans, lc)
 		states[ch.Object] = st
+		if cfg.Plex != nil {
+			pc := plexguide.Channel{
+				Object: ch.Object, Number: ch.Number, Name: name, ChannelID: e.TvgID,
+				Station: ch.PlexStation, Off: ch.PlexOff, Timeshifted: ch.TimeshiftMinutes != 0, Prev: ch.PlexPrev,
+			}
+			if lc.Map != nil {
+				pc.ChannelID = lc.Map.ChannelID
+			}
+			plexChans = append(plexChans, pc)
+		}
 	}
+	// The channels' pairings with the Plex lineup (the Plex native guide
+	// design §5.3): none until a lineup is held, so a restart before the
+	// cache or the first fetch moves nobody.
+	plexByNumber := map[string]plexguide.Station{}
+	if cfg.Plex != nil && p.plex.loaded {
+		for obj, pair := range plexguide.Pair(p.plex.lineup, plexChans, t.o.Now()) {
+			st := states[obj]
+			st.Plex = &pair
+			states[obj] = st
+			if pair.Match.OnPlex() {
+				plexByNumber[numberOf[obj]] = pair.Station
+			}
+		}
+	}
+	plexSnap := p.plexSnapshot()
 	from := guideFrom(t.o.Now())
 	enricher := t.enricher(p)
 	p.mu.Unlock()
@@ -230,8 +261,18 @@ func (t *Tuner) render(p *provider) {
 			blocks[b.DeviceID] = sf
 		}
 		sf.entries = blockEntries[i]
+		if b.Lineup != "" {
+			// A Plex block lists only its paired channels: a channel off Plex
+			// is on no device (owner, 2026-11-03: "Drop out of Plex").
+			sf.entries = slices.DeleteFunc(slices.Clone(sf.entries), func(e hdhr.LineupEntry) bool {
+				_, ok := plexByNumber[e.GuideNumber]
+				return !ok
+			})
+			sf.plexMap, sf.plexMapJSON = plexMap(sf.entries, plexByNumber)
+			sf.guideObject, sf.guideHash = "", ""
+		}
 		if fetched {
-			sf.lineupHash = sha(hdhr.Lineup(sf.entries))
+			sf.lineupHash = sha(append(hdhr.Lineup(sf.entries), sf.plexMapJSON...))
 		}
 		blockStates[i] = BlockState{Start: b.Start, Active: len(sf.entries), LineupHash: sf.lineupHash, GuideHash: sf.guideHash}
 	}
@@ -273,6 +314,7 @@ func (t *Tuner) render(p *provider) {
 		Blocks:          blockStates,
 		Tuners:          effectiveTuners(cfg, p.account),
 		Channels:        states,
+		Plex:            plexSnap,
 	}
 
 	putPlaylist := fetched && p.playlist.Hash != "" && p.playlist.Hash != p.storedPlaylistHash
@@ -325,6 +367,10 @@ func (t *Tuner) storeGuides(p *provider, cfg Config, lineupChans []xmltv.LineupC
 	}
 	for i, b := range cfg.Blocks {
 		sf := &surface{block: b}
+		if b.Lineup != "" {
+			blocks[b.DeviceID] = sf // a Plex block's guide is Plex's lineup
+			continue
+		}
 		if len(blockChans[i]) == len(lineupChans) {
 			// The blocks partition the lineup, so a block as long as it holds
 			// all of it, in the same order: the same bytes, built once (the

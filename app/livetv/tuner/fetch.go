@@ -55,9 +55,19 @@ const maxAccountBytes = 1 << 20
 // through cfg.redact, never with a credential in it, and unwraps to its
 // cause.
 func (t *Tuner) get(ctx context.Context, cfg Config, url string) (io.ReadCloser, error) {
+	return t.getWith(ctx, cfg, url, nil)
+}
+
+// getWith is get sending header as well (the Plex lineup's token).
+func (t *Tuner) getWith(ctx context.Context, cfg Config, url string, header http.Header) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, cfg.fetchError(fmt.Errorf("request %s: %w", cfg.redact(url), err))
+	}
+	for k, vs := range header {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
 	}
 	if cfg.UserAgent != "" {
 		req.Header.Set("User-Agent", cfg.UserAgent)
@@ -93,6 +103,14 @@ func (c Config) fetchError(err error) error {
 // (/lists/{username}.m3u).
 func (c Config) redact(raw string) string { return c.scrub(iptv.Redact(raw)) }
 
+// plexToken is Config.Plex's token, "" without one.
+func (c Config) plexToken() string {
+	if c.Plex == nil {
+		return ""
+	}
+	return c.Plex.Token
+}
+
 // scrub replaces the provider's username and password in s, as written or
 // escaped for a path or a query, with their placeholders.
 func (c Config) scrub(s string) string {
@@ -101,6 +119,7 @@ func (c Config) scrub(s string) string {
 	creds := []struct{ value, marker, placeholder string }{
 		{c.Password, "\x00p\x00", placeholderPassword},
 		{c.Username, "\x00u\x00", placeholderUsername},
+		{c.plexToken(), "\x00t\x00", "{plexToken}"},
 	}
 	for _, cr := range creds {
 		if cr.value == "" {

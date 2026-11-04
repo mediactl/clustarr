@@ -29,6 +29,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
@@ -87,6 +88,18 @@ type Config struct {
 	// Refresh is the clustarr.io/livetv-refresh annotation's value. A new
 	// value makes every source of the provider due now (spec §5.1).
 	Refresh string
+	// Plex is spec.plexGuide, its token read: the tuner fetches the lineup
+	// and pairs the channels with it (the Plex native guide design §5.2);
+	// nil for a provider on the XMLTV guide alone.
+	Plex *PlexConfig
+}
+
+// PlexConfig is spec.plexGuide as the controller resolves it. Enabled is
+// the controller's to act on (its blocks); the tuner fetches and pairs
+// either way, so a dry run shows the pairing.
+type PlexConfig struct {
+	LineupID, Token string
+	Enabled         bool
 }
 
 // BlockConfig is one block: one emulated HDHomeRun, served at its
@@ -95,6 +108,10 @@ type BlockConfig struct {
 	Start, DeviceID, FriendlyName string
 	// Numbers are the block's active channel numbers.
 	Numbers []string
+	// Lineup is a Plex block's cloud lineup (status.blocks[].lineup): the
+	// block lists only its paired channels, serves plexmap.json and no
+	// guide. Empty for a block on the XMLTV guide.
+	Lineup string
 }
 
 // DeviceEndpoint is the path a block's device is served under on the
@@ -113,6 +130,11 @@ type ChannelConfig struct {
 	// Language replaces the audio language the channel's stream declares;
 	// empty takes Config.Language, which only fills a missing one.
 	Language string
+	// PlexStation and PlexOff are spec.epg.plex; PlexPrev the pairing its
+	// status records, which the next pairing keeps (plexguide.Prev).
+	PlexStation string
+	PlexOff     bool
+	PlexPrev    plexguide.Prev
 }
 
 // m3u is an M3U provider: a playlist URL, no panel and no account.
@@ -181,6 +203,19 @@ type Snapshot struct {
 	TunersInUse int
 	// Channels is keyed by IPTVChannel object name.
 	Channels map[string]ChannelState
+	// Plex is the Plex lineup the tuner holds, for a provider with
+	// Config.Plex.
+	Plex PlexState
+}
+
+// PlexState is the Plex lineup held: Loaded once one was fetched or read
+// from the cache, Error the last fetch's failure (the last good one kept).
+type PlexState struct {
+	LineupID, Title string
+	Stations        int
+	FetchedAt       time.Time
+	Error           string
+	Loaded          bool
 }
 
 // PlaylistState describes the playlist served.
@@ -227,4 +262,7 @@ type BlockState struct {
 type ChannelState struct {
 	Missing, Duplicate bool
 	Guide              string
+	// Plex is the channel's pairing with the provider's Plex lineup; nil
+	// without one, or before the lineup is held.
+	Plex *plexguide.Pairing
 }

@@ -76,6 +76,12 @@ func GuideIndexObject(key types.NamespacedName) string {
 	return "guide-index/" + key.Namespace + "/" + key.Name
 }
 
+// PlexLineupObject is a provider's Plex lineup (plexguide.Lineup, JSON), so
+// a restart pairs from the cache and fetches only a stale one.
+func PlexLineupObject(key types.NamespacedName) string {
+	return "plex-lineup/" + key.Namespace + "/" + key.Name
+}
+
 // LogoObject is the object caching one provider's processed logo, by its
 // source URL.
 func LogoObject(key types.NamespacedName, source string) string {

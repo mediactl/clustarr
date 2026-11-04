@@ -144,9 +144,10 @@ func (t *Tuner) serveDevice(w http.ResponseWriter, r *http.Request, p *provider,
 		entries                []hdhr.LineupEntry
 		guideObject, guideHash string
 		block                  BlockConfig
+		plexMapJSON            []byte
 	)
 	if sf != nil {
-		entries, guideObject, guideHash, block = sf.entries, sf.guideObject, sf.guideHash, sf.block
+		entries, guideObject, guideHash, block, plexMapJSON = sf.entries, sf.guideObject, sf.guideHash, sf.block, sf.plexMapJSON
 	}
 	p.mu.Unlock()
 	if sf == nil {
@@ -167,6 +168,18 @@ func (t *Tuner) serveDevice(w http.ResponseWriter, r *http.Request, p *provider,
 			return
 		}
 		writeBody(w, "audio/x-mpegurl", withBase(playlistM3U(entries, t.logos(p), base), base))
+	case file == "plexmap.json":
+		// A Plex block's channel map, which cluster-plex saves on its DVR
+		// (the Plex native guide design §5.5).
+		if block.Lineup == "" {
+			http.NotFound(w, r)
+			return
+		}
+		if !fetched {
+			http.Error(w, "the playlist has not been fetched yet", http.StatusServiceUnavailable)
+			return
+		}
+		writeTagged(w, r, "application/json", plexMapJSON)
 	case file == "xmltv.xml":
 		if guideObject == "" {
 			http.NotFound(w, r)

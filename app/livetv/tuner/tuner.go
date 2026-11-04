@@ -185,6 +185,9 @@ type provider struct {
 
 	storedPlaylistHash string
 	storedGuideHash    string
+
+	// plex is the Plex lineup held for Config.Plex.
+	plex plexState
 }
 
 // surface is one block's rendered HDHomeRun surface and guide.
@@ -199,6 +202,10 @@ type surface struct {
 	// guide's sha256, its ETag.
 	guideObject           string
 	lineupHash, guideHash string
+	// plexMap is a Plex block's channel map (BlockConfig.Lineup set),
+	// plexMapJSON what plexmap.json serves.
+	plexMap     []PlexMapping
+	plexMapJSON []byte
 }
 
 type guide struct {
@@ -271,7 +278,7 @@ func (t *Tuner) Apply(c Config) {
 	t.mu.Lock()
 	p, ok := t.providers[c.Key]
 	if !ok {
-		p = &provider{key: c.Key, fetching: map[string]bool{}, logoMisses: map[string]time.Time{}, playlistDue: true, accountDue: true, guide: guide{due: true}}
+		p = &provider{key: c.Key, fetching: map[string]bool{}, logoMisses: map[string]time.Time{}, playlistDue: true, accountDue: true, guide: guide{due: true}, plex: plexState{due: true}}
 		t.providers[c.Key] = p
 	}
 	t.mu.Unlock()
@@ -287,6 +294,7 @@ func (t *Tuner) Apply(c Config) {
 	}
 	if first {
 		t.loadCache(p, c)
+		t.loadPlexLineup(p, c)
 	}
 
 	p.mu.Lock()
@@ -316,6 +324,14 @@ func (t *Tuner) Apply(c Config) {
 	// served until it lands.
 	if !first && guideFingerprint(c) != guideFingerprint(p.cfg) {
 		p.guide.due = true
+	}
+	// Another Plex lineup, or a new token, is fetched now; a changed lineup
+	// pairs nothing until it lands, since its stations are another set.
+	if c.Plex != nil && !first && (p.cfg.Plex == nil || c.Plex.LineupID != p.cfg.Plex.LineupID || c.Plex.Token != p.cfg.Plex.Token || refreshed) {
+		p.plex.due = true
+		if p.plex.lineup.ID != c.Plex.LineupID {
+			p.plex.loaded = false
+		}
 	}
 	p.cfg = c
 	t.markWantedGuideDue(p)
@@ -528,6 +544,11 @@ func (t *Tuner) dispatch(ctx context.Context) {
 			p.fetching["playlist"] = true
 			go t.fetchPlaylist(ctx, p, p.cfg)
 		}
+		if p.cfg.Plex != nil && p.cfg.Plex.LineupID != "" && isDue(p.plex.due, p.plex.next, now, p.fetching["plex"]) {
+			p.plex.due, p.plex.next = false, time.Time{}
+			p.fetching["plex"] = true
+			go t.fetchPlexLineup(ctx, p, p.cfg)
+		}
 		if p.playlistFetched && p.cfg.GuideSource() != "" && isDue(p.guide.due, p.guide.next, now, p.fetching["guide"]) {
 			p.guide.due, p.guide.next = false, time.Time{}
 			p.fetching["guide"] = true
@@ -579,6 +600,10 @@ func cloneConfig(c Config) Config {
 	c.Filters = slices.Clone(c.Filters)
 	for i := range c.Filters {
 		c.Filters[i].Include, c.Filters[i].Exclude = slices.Clone(c.Filters[i].Include), slices.Clone(c.Filters[i].Exclude)
+	}
+	if c.Plex != nil {
+		pc := *c.Plex
+		c.Plex = &pc
 	}
 	c.Channels = slices.Clone(c.Channels)
 	for i := range c.Channels {
