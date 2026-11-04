@@ -976,7 +976,10 @@ shadcn's "Bar Chart - Interactive" (`views.sectionCard`): the title and
 its one-line description at the header's left, square tabs at its right
 (one size on every card -- 4rem on a phone, 5 on a laptop, 6 on a wide
 screen -- so every header is as tall; on a phone a line of their own),
-each tab's colour a line along its bottom edge, dim until it is open, its
+each tab's colour a line along its bottom edge, dim until it is open, the
+open tab lit with the page's UltraBlur (input.css: the four corner
+colours lifted toward white, fixed to the viewport as the html background
+is, so the tab shows the patch of canvas behind it), its
 name and its figure (owner, 2026-11-04: "the tabs should be square ...
 the same size for all cards"; "moving the colored lines to the bottom";
 "Card height should be identical for all cards"). The cards of a grid row
