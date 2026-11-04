@@ -206,3 +206,24 @@ func TestALineupChangeGivesNewDevices(t *testing.T) {
 	assert.Equal(t, hdhr.BlockDeviceID("media", "news", "plex/"+plexLineupID+"/1001"), pl.blocks[0].DeviceID)
 	assert.Equal(t, plexguide.LineupURI(plexLineupID, "DIRECTV Mobile (1009 channels)"), pl.blocks[0].Lineup)
 }
+
+// TestAMissingPlexTokenLeavesTheProviderValid: the token's Secret is another
+// system's (cluster-plex's), and a dry-run setting must not take Live TV
+// down: a missing Secret or key is the Plex guide's failure, said in
+// PlexGuideReady through the tuner, never Valid=False.
+func TestAMissingPlexTokenLeavesTheProviderValid(t *testing.T) {
+	p := m3uProvider("https://lists.example/all.m3u", "")
+	p.Spec.PlexGuide = &clustarrv1.PlexGuide{Lineup: plexLineupID}
+	p.Spec.PlexGuide.CredentialsRef.Name, p.Spec.PlexGuide.CredentialsRef.Key = "plex-token", "token"
+	r := fakeReconciler(t, testAddress)
+	r.SecretReader = r.Client
+	res, valid := r.resolve(context.Background(), p)
+	assert.Equal(t, metav1.ConditionTrue, valid.Status, valid.Message)
+	assert.Empty(t, res.plexToken)
+	assert.Contains(t, res.plexTokenError, "plex-token")
+
+	c := buildConfig(p, nil, res, nil)
+	require.NotNil(t, c.Plex)
+	assert.Empty(t, c.Plex.Token)
+	assert.Contains(t, c.Plex.TokenError, "plex-token", "the tuner says why it fetches nothing")
+}

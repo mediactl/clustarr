@@ -544,7 +544,7 @@ func (t *Tuner) dispatch(ctx context.Context) {
 			p.fetching["playlist"] = true
 			go t.fetchPlaylist(ctx, p, p.cfg)
 		}
-		if p.cfg.Plex != nil && p.cfg.Plex.LineupID != "" && isDue(p.plex.due, p.plex.next, now, p.fetching["plex"]) {
+		if p.cfg.Plex != nil && p.cfg.Plex.LineupID != "" && p.cfg.Plex.Token != "" && isDue(p.plex.due, p.plex.next, now, p.fetching["plex"]) {
 			p.plex.due, p.plex.next = false, time.Time{}
 			p.fetching["plex"] = true
 			go t.fetchPlexLineup(ctx, p, p.cfg)

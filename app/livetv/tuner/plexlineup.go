@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tuner
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -144,7 +145,11 @@ func (t *Tuner) loadPlexLineup(p *provider, c Config) {
 // plexSnapshot is p's lineup for the snapshot; p.mu is held.
 func (p *provider) plexSnapshot() PlexState {
 	l := p.plex.lineup
-	return PlexState{LineupID: l.ID, Title: l.Title, Stations: len(l.Stations), FetchedAt: l.FetchedAt, Error: p.plex.err, Loaded: p.plex.loaded}
+	s := PlexState{LineupID: l.ID, Title: l.Title, Stations: len(l.Stations), FetchedAt: l.FetchedAt, Error: p.plex.err, Loaded: p.plex.loaded}
+	if c := p.cfg.Plex; c != nil && c.Token == "" {
+		s.Error = cmp.Or(c.TokenError, "no Plex token")
+	}
+	return s
 }
 
 // plexMap is a Plex block's channel map: each of entries' numbers paired

@@ -99,7 +99,10 @@ type Config struct {
 // either way, so a dry run shows the pairing.
 type PlexConfig struct {
 	LineupID, Token string
-	Enabled         bool
+	// TokenError is why there is no Token (its Secret or key missing): no
+	// lineup is fetched, and the snapshot says why.
+	TokenError string
+	Enabled    bool
 }
 
 // BlockConfig is one block: one emulated HDHomeRun, served at its

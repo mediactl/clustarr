@@ -41,8 +41,10 @@ import (
 // resolved is a provider's server and credentials, its Secrets read.
 type resolved struct {
 	server, username, password string
-	// plexToken is spec.plexGuide.credentialsRef's token.
-	plexToken string
+	// plexToken is spec.plexGuide.credentialsRef's token; plexTokenError
+	// why there is none. The Secret is another system's (cluster-plex's),
+	// so its absence is the Plex guide's failure, never Valid=False.
+	plexToken, plexTokenError string
 }
 
 // NormalizeServer is spec.server as the panel's root: a scheme (https when
@@ -97,21 +99,18 @@ func (r *Reconciler) resolve(ctx context.Context, p *clustarrv1.IPTVProvider) (r
 	ref := g.CredentialsRef
 	var s corev1.Secret
 	err := r.SecretReader.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: ref.Name}, &s)
-	invalid := func(reason, format string, args ...any) (resolved, metav1.Condition) {
-		return resolved{}, metav1.Condition{Type: clustarrv1.ConditionValid, Status: metav1.ConditionFalse, Reason: reason, Message: fmt.Sprintf(format, args...)}
-	}
 	switch {
 	case apierrors.IsNotFound(err):
-		return invalid(clustarrv1.ReasonSecretNotFound, "plexGuide: Secret %s/%s does not exist", p.Namespace, ref.Name)
+		out.plexTokenError = fmt.Sprintf("the Plex token Secret %s/%s does not exist", p.Namespace, ref.Name)
 	case err != nil:
-		return invalid(clustarrv1.ReasonSecretNotFound, "plexGuide: Secret %s/%s cannot be read: %v", p.Namespace, ref.Name, err)
+		out.plexTokenError = fmt.Sprintf("the Plex token Secret %s/%s cannot be read: %v", p.Namespace, ref.Name, err)
+	default:
+		if token := bytes.TrimSpace(s.Data[ref.Key]); len(token) > 0 {
+			out.plexToken = string(token)
+		} else {
+			out.plexTokenError = fmt.Sprintf("the Plex token Secret %s/%s has no key %q", p.Namespace, ref.Name, ref.Key)
+		}
 	}
-	token := bytes.TrimSpace(s.Data[ref.Key])
-	if len(token) == 0 {
-		return invalid(clustarrv1.ReasonSecretKeyNotFound, "plexGuide: Secret %s/%s has no key %q", p.Namespace, ref.Name, ref.Key)
-	}
-	out.plexToken = string(token)
-	valid.Message += "; the Plex token Secret holds its key"
 	return out, valid
 }
 
@@ -189,7 +188,7 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res res
 		Refresh:             p.Annotations[clustarrv1.AnnotationLiveTVRefresh],
 	}
 	if g := p.Spec.PlexGuide; g != nil {
-		c.Plex = &tuner.PlexConfig{LineupID: g.LineupID(), Token: res.plexToken, Enabled: g.Enabled}
+		c.Plex = &tuner.PlexConfig{LineupID: g.LineupID(), Token: res.plexToken, TokenError: res.plexTokenError, Enabled: g.Enabled}
 	}
 	for _, f := range p.Spec.Filters {
 		c.Filters = append(c.Filters, filter.Rule{
