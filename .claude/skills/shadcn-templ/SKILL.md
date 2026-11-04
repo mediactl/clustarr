@@ -1,0 +1,86 @@
+---
+name: shadcn-templ
+description: The shadcn-templ component catalogue and docs index. Use when building or changing anything in ui/ (views, components, styling), when choosing which vendored or registry component a piece of markup should be, or before running `shadcn-templ add`.
+---
+
+# shadcn-templ
+
+> shadcn-templ is a collection of beautifully-designed, accessible components and a code distribution platform for Go. It is built with Go, templ, Tailwind CSS, and vanilla JavaScript ports of Base UI behavior. It works with any Go web stack and pairs with htmx or plain server-side rendering. Open Source. Open Code. AI-Ready. It also comes with a command-line tool to install and manage components and a registry system to publish and distribute code.
+
+## Overview
+
+- [Introduction](https://shadcn-templ.com/docs/introduction): Core principles and getting started guide.
+- [CLI](https://shadcn-templ.com/docs/cli): Command-line tool for installing and managing components.
+- [Installation](https://shadcn-templ.com/docs/installation): Installation and setup guide.
+- [Components](https://shadcn-templ.com/docs/components): Component overview and catalog.
+- [GitHub](https://github.com/axadrn/shadcn-templ): Source code and issue tracker.
+
+## Form & Input
+
+- [Button](https://shadcn-templ.com/docs/components/button): Button component with multiple variants.
+- [Calendar](https://shadcn-templ.com/docs/components/calendar): Calendar component for date selection.
+- [Checkbox](https://shadcn-templ.com/docs/components/checkbox): Checkbox input component.
+- [Combobox](https://shadcn-templ.com/docs/components/combobox): An input with a filterable list of options.
+- [Date Picker](https://shadcn-templ.com/docs/components/date-picker): A date picker pattern composed of the Calendar, Popover and Button components.
+- [Field](https://shadcn-templ.com/docs/components/field): Compose accessible form fields with labels, descriptions and errors.
+- [Input](https://shadcn-templ.com/docs/components/input): Text input component.
+- [Input Group](https://shadcn-templ.com/docs/components/input-group): An input with leading or trailing addons — icons, text or buttons.
+- [Input OTP](https://shadcn-templ.com/docs/components/input-otp): One-time password input component.
+- [Label](https://shadcn-templ.com/docs/components/label): Form label component.
+- [Radio Group](https://shadcn-templ.com/docs/components/radio-group): A set of checkable buttons, known as radio buttons, where no more than one of the buttons can be checked at a time.
+- [Select](https://shadcn-templ.com/docs/components/select): Displays a list of options for the user to pick from, triggered by a button.
+- [Slider](https://shadcn-templ.com/docs/components/slider): Slider input component.
+- [Switch](https://shadcn-templ.com/docs/components/switch): Toggle switch component.
+- [Textarea](https://shadcn-templ.com/docs/components/textarea): Multi-line text input component.
+- [Toggle](https://shadcn-templ.com/docs/components/toggle): Two-state button, optionally grouped into a segmented control.
+- [Toggle Group](https://shadcn-templ.com/docs/components/toggle-group): A set of toggles grouped into a segmented control with single or multiple selection.
+
+## Layout & Navigation
+
+- [Accordion](https://shadcn-templ.com/docs/components/accordion): Collapsible accordion component.
+- [Breadcrumb](https://shadcn-templ.com/docs/components/breadcrumb): Breadcrumb navigation component.
+- [Button Group](https://shadcn-templ.com/docs/components/button-group): Group related buttons together with shared borders.
+- [Item](https://shadcn-templ.com/docs/components/item): A flexible row for lists — media, title, description and actions.
+- [Pagination](https://shadcn-templ.com/docs/components/pagination): Pagination component for lists and tables.
+- [Resizable](https://shadcn-templ.com/docs/components/resizable): Accessible resizable panel groups and layouts with keyboard support.
+- [Separator](https://shadcn-templ.com/docs/components/separator): Visual divider between content sections.
+- [Sidebar](https://shadcn-templ.com/docs/components/sidebar): Collapsible sidebar component for app layouts.
+- [Tabs](https://shadcn-templ.com/docs/components/tabs): Tabbed interface component.
+
+## Overlays & Dialogs
+
+- [Alert Dialog](https://shadcn-templ.com/docs/components/alert-dialog): A modal dialog that interrupts the user with important content and expects a response.
+- [Command](https://shadcn-templ.com/docs/components/command): Fast, composable command menu.
+- [Context Menu](https://shadcn-templ.com/docs/components/context-menu): Menu shown at the cursor on right click, with actions and shortcuts.
+- [Dialog](https://shadcn-templ.com/docs/components/dialog): Modal dialog component.
+- [Drawer](https://shadcn-templ.com/docs/components/drawer): A panel that slides in from the edge of the screen and can be swiped away.
+- [Dropdown Menu](https://shadcn-templ.com/docs/components/dropdown-menu): Displays a menu of actions or options triggered by a button.
+- [Hover Card](https://shadcn-templ.com/docs/components/hover-card): Displays rich content in a card when hovering over a trigger. Uses Popover for the popup.
+- [Popover](https://shadcn-templ.com/docs/components/popover): Floating popover component using the browser popover API and Floating UI positioning.
+- [Sheet](https://shadcn-templ.com/docs/components/sheet): Slide-out panel component (drawer).
+- [Tooltip](https://shadcn-templ.com/docs/components/tooltip): Tooltip component for additional context.
+
+## Feedback & Status
+
+- [Alert](https://shadcn-templ.com/docs/components/alert): Alert component for messages and notifications.
+- [Badge](https://shadcn-templ.com/docs/components/badge): Badge component for labels and status indicators.
+- [Empty](https://shadcn-templ.com/docs/components/empty): Placeholder for empty states — no results, first-run or offline screens.
+- [Progress](https://shadcn-templ.com/docs/components/progress): Progress bar component.
+- [Skeleton](https://shadcn-templ.com/docs/components/skeleton): Skeleton loading placeholder.
+- [Spinner](https://shadcn-templ.com/docs/components/spinner): Animated loading indicator built from a spinning icon.
+- [Toast](https://shadcn-templ.com/docs/components/toast): A succinct message that is displayed temporarily.
+
+## Display & Media
+
+- [Aspect Ratio](https://shadcn-templ.com/docs/components/aspect-ratio): Container that maintains aspect ratio.
+- [Avatar](https://shadcn-templ.com/docs/components/avatar): Avatar component for user profiles.
+- [Card](https://shadcn-templ.com/docs/components/card): Card container component.
+- [Carousel](https://shadcn-templ.com/docs/components/carousel): Carousel component with navigation controls.
+- [Chart](https://shadcn-templ.com/docs/components/chart): Beautiful charts. Composable chart elements with a Recharts compatible client renderer.
+- [Kbd](https://shadcn-templ.com/docs/components/kbd): Displays a keyboard key or shortcut.
+- [Table](https://shadcn-templ.com/docs/components/table): Table component for displaying data.
+
+## Misc
+
+- [Collapsible](https://shadcn-templ.com/docs/components/collapsible): Collapsible container component.
+- [Icon](https://shadcn-templ.com/docs/components/icon): SVG icon component library.

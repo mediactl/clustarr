@@ -1036,7 +1036,10 @@ the registry's own (`shadcn-templ add … --overwrite`, 2026-10-06: hooks are
 `data-templ-*` and `window.templ`, the select's hidden input follows its
 trigger and a read-only select is `ReadOnly` with a disabled trigger, so
 its value still posts); Clustarr no longer keeps its own navigationmenu or
-scrollarea. Since 2026-11-04 (owner: "determine what can migrate to a
+scrollarea. The registry's catalogue and docs index is the `shadcn-templ`
+project skill (`.claude/skills/shadcn-templ/SKILL.md`): read it before
+choosing a component or running `shadcn-templ add`. Since 2026-11-04
+(owner: "determine what can migrate to a
 native shadcn-templ component"; "use the select component from
 shadcn-templ"; "all inputs/forms ... input groups or field groups") every
 control a person sees is a component: `shadcn-templ add` (the registry
