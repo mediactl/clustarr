@@ -1,0 +1,1284 @@
+[
+ {
+  "number": "1001",
+  "name": "ABC",
+  "channelID": "ABCEast_WABC.us"
+ },
+ {
+  "number": "1002",
+  "name": "CBS",
+  "channelID": "CBSEast_WCBS.us"
+ },
+ {
+  "number": "1003",
+  "name": "NBC",
+  "channelID": "NBCEast_WNBC.us"
+ },
+ {
+  "number": "1004",
+  "name": "FOX",
+  "channelID": "FoxEast_WNYW.us"
+ },
+ {
+  "number": "1005",
+  "name": "PBS",
+  "channelID": "PBSWNET.us"
+ },
+ {
+  "number": "1006",
+  "name": "CW",
+  "channelID": "CWWPIX.us"
+ },
+ {
+  "number": "1007",
+  "name": "MyNetworkTV",
+  "channelID": "MYWWOR.us"
+ },
+ {
+  "number": "1020",
+  "name": "ABC NEWS",
+  "channelID": "ABCNewsLive.us"
+ },
+ {
+  "number": "1021",
+  "name": "AL JAZEERA ENGLISH",
+  "channelID": "AlJazeera.us"
+ },
+ {
+  "number": "1022",
+  "name": "BBC WORLD NEWS",
+  "channelID": "BBCWorldNews.us"
+ },
+ {
+  "number": "1023",
+  "name": "BLOOMBERG",
+  "channelID": "Bloomberg.us"
+ },
+ {
+  "number": "1027",
+  "name": "CHEDDAR NEWS",
+  "channelID": "Cheddar.us"
+ },
+ {
+  "number": "1028",
+  "name": "CNBC",
+  "channelID": "CNBC.us"
+ },
+ {
+  "number": "1029",
+  "name": "CNBC WORLD",
+  "channelID": "CNBCWorld.us"
+ },
+ {
+  "number": "1030",
+  "name": "CNN",
+  "channelID": "CNN.us"
+ },
+ {
+  "number": "1031",
+  "name": "EURONEWS",
+  "channelID": "Euronews.us"
+ },
+ {
+  "number": "1032",
+  "name": "FOX BUSINESS",
+  "channelID": "FoxBusiness.us"
+ },
+ {
+  "number": "1033",
+  "name": "FOX NEWS",
+  "channelID": "FoxNewsChannel.us"
+ },
+ {
+  "number": "1035",
+  "name": "MS NOW",
+  "channelID": "MSNOW.us"
+ },
+ {
+  "number": "1036",
+  "name": "NBC NEWS NOW",
+  "channelID": "NBCNewsNow.us"
+ },
+ {
+  "number": "1037",
+  "name": "NEWS NATION",
+  "channelID": "NewsNation.us"
+ },
+ {
+  "number": "1038",
+  "name": "NEWSMAX",
+  "channelID": "NewsmaxTV.us"
+ },
+ {
+  "number": "1039",
+  "name": "NEWSY",
+  "channelID": "ScrippsNews.us"
+ },
+ {
+  "number": "1040",
+  "name": "ONE AMERICA NEWS",
+  "channelID": "OneAmericaNewsNetwork.us"
+ },
+ {
+  "number": "1070",
+  "name": "A&E",
+  "channelID": "AandENetwork.us"
+ },
+ {
+  "number": "1071",
+  "name": "ACCUWEATHER",
+  "channelID": "Accuweather.us"
+ },
+ {
+  "number": "1072",
+  "name": "ADULT SWIM",
+  "channelID": "AdultSwim.us"
+ },
+ {
+  "number": "1073",
+  "name": "AMC",
+  "channelID": "AMC.us"
+ },
+ {
+  "number": "1074",
+  "name": "AMC PLUS",
+  "channelID": "AMCPlus.us"
+ },
+ {
+  "number": "1075",
+  "name": "AMERICAN HEROES CHANNEL",
+  "channelID": "AmericanHeroesChannel.us"
+ },
+ {
+  "number": "1076",
+  "name": "ANIMAL PLANET",
+  "channelID": "AnimalPlanet.us"
+ },
+ {
+  "number": "1077",
+  "name": "ANTENNA TV",
+  "channelID": "AntennaTV.us"
+ },
+ {
+  "number": "1078",
+  "name": "ASPIRE",
+  "channelID": "ASPiRE.us"
+ },
+ {
+  "number": "1079",
+  "name": "AWE",
+  "channelID": "AWE.us"
+ },
+ {
+  "number": "1080",
+  "name": "AXS TV",
+  "channelID": "AXSTV.us"
+ },
+ {
+  "number": "1081",
+  "name": "BBC AMERICA",
+  "channelID": "BBCAmerica.us"
+ },
+ {
+  "number": "1082",
+  "name": "BET",
+  "channelID": "BET.us"
+ },
+ {
+  "number": "1083",
+  "name": "BET GOSPEL",
+  "channelID": "BETGospel.us"
+ },
+ {
+  "number": "1084",
+  "name": "BET HER",
+  "channelID": "BETHer.us"
+ },
+ {
+  "number": "1085",
+  "name": "BET JAMS",
+  "channelID": "BETJams.us"
+ },
+ {
+  "number": "1086",
+  "name": "BET SOUL",
+  "channelID": "BETSOUL.us"
+ },
+ {
+  "number": "1087",
+  "name": "BLAZE TV",
+  "channelID": "BlazeTV.us"
+ },
+ {
+  "number": "1088",
+  "name": "BOUNCE TV",
+  "channelID": "BounceTV.us"
+ },
+ {
+  "number": "1089",
+  "name": "BRAVO",
+  "channelID": "Bravo.us"
+ },
+ {
+  "number": "1090",
+  "name": "BUZZR",
+  "channelID": "BuzzrTV.us"
+ },
+ {
+  "number": "1091",
+  "name": "CHARGE!",
+  "channelID": "Charge!.us"
+ },
+ {
+  "number": "1092",
+  "name": "CLEO TV",
+  "channelID": "CleoTV.us"
+ },
+ {
+  "number": "1093",
+  "name": "CMT",
+  "channelID": "CMT.us"
+ },
+ {
+  "number": "1094",
+  "name": "COMEDY CENTRAL",
+  "channelID": "ComedyCentral.us"
+ },
+ {
+  "number": "1095",
+  "name": "COMEDY TV",
+  "channelID": "ComedyTV.us"
+ },
+ {
+  "number": "1096",
+  "name": "COMET",
+  "channelID": "Comet.us"
+ },
+ {
+  "number": "1097",
+  "name": "COOKING CHANNEL",
+  "channelID": "CookingChannel.us"
+ },
+ {
+  "number": "1098",
+  "name": "COURT TV",
+  "channelID": "CourtTV.us"
+ },
+ {
+  "number": "1099",
+  "name": "COZI",
+  "channelID": "CoziTV.us"
+ },
+ {
+  "number": "1100",
+  "name": "CRIME AND INVESTIGATION",
+  "channelID": "CrimeandInvestigationNetwork.us"
+ },
+ {
+  "number": "1101",
+  "name": "DESTINATION AMERICA",
+  "channelID": "DestinationAmerica.us"
+ },
+ {
+  "number": "1102",
+  "name": "DISCOVERY CHANNEL",
+  "channelID": "DiscoveryChannel.us"
+ },
+ {
+  "number": "1103",
+  "name": "DISCOVERY FAMILY",
+  "channelID": "DiscoveryFamilyChannel.us"
+ },
+ {
+  "number": "1104",
+  "name": "DISCOVERY LIFE",
+  "channelID": "DiscoveryLifeChannel.us"
+ },
+ {
+  "number": "1105",
+  "name": "DISCOVERY SCIENCE",
+  "channelID": "ScienceChannel.us"
+ },
+ {
+  "number": "1106",
+  "name": "DISCOVERY TURBO",
+  "channelID": "DiscoveryTurbo.us"
+ },
+ {
+  "number": "1107",
+  "name": "DOG TV",
+  "channelID": "DogTV.us"
+ },
+ {
+  "number": "1108",
+  "name": "E! ENTERTAINMENT",
+  "channelID": "EEntertainmentTelevision.us"
+ },
+ {
+  "number": "1109",
+  "name": "EL REY",
+  "channelID": "ElReyNetwork.us"
+ },
+ {
+  "number": "1110",
+  "name": "FETV",
+  "channelID": "FETV.us"
+ },
+ {
+  "number": "1111",
+  "name": "FOOD NETWORK",
+  "channelID": "FoodNetwork.us"
+ },
+ {
+  "number": "1112",
+  "name": "FREEFORM",
+  "channelID": "Freeform.us"
+ },
+ {
+  "number": "1113",
+  "name": "FUSE",
+  "channelID": "Fuse.us"
+ },
+ {
+  "number": "1114",
+  "name": "FUSE MUSIC",
+  "channelID": "FuseMusic.us"
+ },
+ {
+  "number": "1115",
+  "name": "FX",
+  "channelID": "FX.us"
+ },
+ {
+  "number": "1116",
+  "name": "FXM",
+  "channelID": "FXMovies.us"
+ },
+ {
+  "number": "1117",
+  "name": "FXX",
+  "channelID": "FXX.us"
+ },
+ {
+  "number": "1118",
+  "name": "FYI",
+  "channelID": "FYIChannel.us"
+ },
+ {
+  "number": "1119",
+  "name": "GAME SHOW NETWORK",
+  "channelID": "GameShowNetwork.us"
+ },
+ {
+  "number": "1120",
+  "name": "GAME TV",
+  "channelID": "GameTV.ca"
+ },
+ {
+  "number": "1121",
+  "name": "GET TV",
+  "channelID": "getTVKFTHDT2.us"
+ },
+ {
+  "number": "1122",
+  "name": "GREAT AMERICAN COUNTRY",
+  "channelID": "GreatAmericanLiving.us"
+ },
+ {
+  "number": "1123",
+  "name": "GREAT AMERICAN FAMILY",
+  "channelID": "GreatAmericanFamily.us"
+ },
+ {
+  "number": "1124",
+  "name": "GRIT",
+  "channelID": "Grit.us"
+ },
+ {
+  "number": "1125",
+  "name": "HALLMARK",
+  "channelID": "HallmarkChannel.us"
+ },
+ {
+  "number": "1126",
+  "name": "HALLMARK FAMILY",
+  "channelID": "HallmarkFamily.us"
+ },
+ {
+  "number": "1127",
+  "name": "HALLMARK MYSTERY",
+  "channelID": "HallmarkMystery.us"
+ },
+ {
+  "number": "1128",
+  "name": "HDNET MOVIES",
+  "channelID": "HDNetMovies.us"
+ },
+ {
+  "number": "1129",
+  "name": "HEROES AND ICONS",
+  "channelID": "HeroesAndIconsNetwork.us"
+ },
+ {
+  "number": "1130",
+  "name": "HGTV",
+  "channelID": "HGTV.us"
+ },
+ {
+  "number": "1131",
+  "name": "HISTORY",
+  "channelID": "History.us"
+ },
+ {
+  "number": "1132",
+  "name": "HLN",
+  "channelID": "HLN.us"
+ },
+ {
+  "number": "1133",
+  "name": "IFC",
+  "channelID": "IFC.us"
+ },
+ {
+  "number": "1134",
+  "name": "INDIEPLEX",
+  "channelID": "IndiePlex.us"
+ },
+ {
+  "number": "1135",
+  "name": "INSP",
+  "channelID": "INSP.us"
+ },
+ {
+  "number": "1136",
+  "name": "INVESTIGATION DISCOVERY",
+  "channelID": "InvestigationDiscovery.us"
+ },
+ {
+  "number": "1137",
+  "name": "ION",
+  "channelID": "IonTV.us"
+ },
+ {
+  "number": "1138",
+  "name": "JUSTICE CENTRAL",
+  "channelID": "JusticeCentral.us"
+ },
+ {
+  "number": "1139",
+  "name": "LAFF",
+  "channelID": "Laff.us"
+ },
+ {
+  "number": "1140",
+  "name": "LAW AND CRIME",
+  "channelID": "LawAndCrime.us"
+ },
+ {
+  "number": "1141",
+  "name": "LIFETIME",
+  "channelID": "Lifetime.us"
+ },
+ {
+  "number": "1142",
+  "name": "LIFETIME MOVIE NETWORK",
+  "channelID": "LifetimeMoviesNetwork.us"
+ },
+ {
+  "number": "1143",
+  "name": "LIFETIME REAL WOMEN",
+  "channelID": "LifetimeRealWomen.us"
+ },
+ {
+  "number": "1144",
+  "name": "LOGO",
+  "channelID": "Logo.us"
+ },
+ {
+  "number": "1145",
+  "name": "MAGNOLIA NETWORK",
+  "channelID": "MagnoliaNetwork.us"
+ },
+ {
+  "number": "1146",
+  "name": "MGM",
+  "channelID": "US-MGM HD (USA)"
+ },
+ {
+  "number": "1147",
+  "name": "MILITARY HISTORY",
+  "channelID": "MilitaryHistoryChannel.us"
+ },
+ {
+  "number": "1148",
+  "name": "MOTORTREND",
+  "channelID": "MotorTrend.us"
+ },
+ {
+  "number": "1149",
+  "name": "MTV",
+  "channelID": "MTV.us"
+ },
+ {
+  "number": "1150",
+  "name": "MTV CLASSIC",
+  "channelID": "MTVClassic.us"
+ },
+ {
+  "number": "1151",
+  "name": "MTV LIVE",
+  "channelID": "MTVLive.us"
+ },
+ {
+  "number": "1152",
+  "name": "MTV2",
+  "channelID": "MTV2.us"
+ },
+ {
+  "number": "1153",
+  "name": "NAT GEO",
+  "channelID": "NationalGeographic.us"
+ },
+ {
+  "number": "1154",
+  "name": "NAT GEO WILD",
+  "channelID": "NationalGeographicWild.us"
+ },
+ {
+  "number": "1155",
+  "name": "OUTDOOR CHANNEL",
+  "channelID": "OutdoorChannel.us"
+ },
+ {
+  "number": "1156",
+  "name": "OUTSIDE TV",
+  "channelID": "OutsideTelevision.us"
+ },
+ {
+  "number": "1157",
+  "name": "OVATION",
+  "channelID": "OvationTV.us"
+ },
+ {
+  "number": "1158",
+  "name": "OWN",
+  "channelID": "OWN.us"
+ },
+ {
+  "number": "1159",
+  "name": "OXYGEN",
+  "channelID": "Oxygen.us"
+ },
+ {
+  "number": "1160",
+  "name": "PARAMOUNT",
+  "channelID": "ParamountNetwork.us"
+ },
+ {
+  "number": "1161",
+  "name": "PIXL",
+  "channelID": "PixL.us"
+ },
+ {
+  "number": "1162",
+  "name": "POP TV",
+  "channelID": "POP.us"
+ },
+ {
+  "number": "1163",
+  "name": "RECIPE TV",
+  "channelID": "RecipeTV.us"
+ },
+ {
+  "number": "1164",
+  "name": "RED BULL TV",
+  "channelID": "RedbullTV.us"
+ },
+ {
+  "number": "1165",
+  "name": "REELZ",
+  "channelID": "ReelzChannel.us"
+ },
+ {
+  "number": "1166",
+  "name": "RETRO TV",
+  "channelID": "RetroTV.us"
+ },
+ {
+  "number": "1167",
+  "name": "RETROPLEX",
+  "channelID": "RetroPlex.us"
+ },
+ {
+  "number": "1168",
+  "name": "REVOLT",
+  "channelID": "Revolt.us"
+ },
+ {
+  "number": "1169",
+  "name": "RFD-TV",
+  "channelID": "RFDTV.us"
+ },
+ {
+  "number": "1170",
+  "name": "SMITHSONIAN CHANNEL",
+  "channelID": "SmithsonianNetwork.us"
+ },
+ {
+  "number": "1171",
+  "name": "SO YUMMY!",
+  "channelID": "SoYummy.us"
+ },
+ {
+  "number": "1172",
+  "name": "SUNDANCE",
+  "channelID": "SundanceTV.us"
+ },
+ {
+  "number": "1173",
+  "name": "SYFY",
+  "channelID": "Syfy.us"
+ },
+ {
+  "number": "1174",
+  "name": "TASTEMADE",
+  "channelID": "Tastemade.us"
+ },
+ {
+  "number": "1175",
+  "name": "TBS",
+  "channelID": "TBS.us"
+ },
+ {
+  "number": "1176",
+  "name": "TCM",
+  "channelID": "TCM.us"
+ },
+ {
+  "number": "1177",
+  "name": "TLC",
+  "channelID": "TLC.us"
+ },
+ {
+  "number": "1178",
+  "name": "TNT",
+  "channelID": "TNT.us"
+ },
+ {
+  "number": "1179",
+  "name": "TRAVEL CHANNEL",
+  "channelID": "TravelChannel.us"
+ },
+ {
+  "number": "1180",
+  "name": "TRUTV",
+  "channelID": "truTV.us"
+ },
+ {
+  "number": "1181",
+  "name": "TV LAND",
+  "channelID": "TVLand.us"
+ },
+ {
+  "number": "1182",
+  "name": "TV ONE",
+  "channelID": "TVOne.us"
+ },
+ {
+  "number": "1183",
+  "name": "UP TV",
+  "channelID": "UP.us"
+ },
+ {
+  "number": "1184",
+  "name": "USA NETWORK",
+  "channelID": "USANetwork.us"
+ },
+ {
+  "number": "1185",
+  "name": "VH1",
+  "channelID": "VH1.us"
+ },
+ {
+  "number": "1186",
+  "name": "VICE",
+  "channelID": "Vice.us"
+ },
+ {
+  "number": "1187",
+  "name": "WE TV",
+  "channelID": "WeTV.us"
+ },
+ {
+  "number": "1188",
+  "name": "THE WEATHER CHANNEL",
+  "channelID": "TheWeatherChannel.us"
+ },
+ {
+  "number": "1189",
+  "name": "WORLD FISHING NETWORK",
+  "channelID": "WorldFishingNetwork.us"
+ },
+ {
+  "number": "1190",
+  "name": "Fox Weather",
+  "channelID": "FOXWeather.us"
+ },
+ {
+  "number": "1210",
+  "name": "CATCHY COMEDY",
+  "channelID": "CatchyComedy.us"
+ },
+ {
+  "number": "1211",
+  "name": "CINEMAX",
+  "channelID": "CineMAX.us"
+ },
+ {
+  "number": "1212",
+  "name": "CINEMAX ACTION EAST",
+  "channelID": "CinemaxAction.us"
+ },
+ {
+  "number": "1213",
+  "name": "CINEMAX MOREMAX",
+  "channelID": "US| CINEMAX MOREMAX HD"
+ },
+ {
+  "number": "1214",
+  "name": "HBO",
+  "channelID": "HBO.us"
+ },
+ {
+  "number": "1215",
+  "name": "HBO COMEDY",
+  "channelID": "HBOComedy.us"
+ },
+ {
+  "number": "1216",
+  "name": "HBO SIGNATURE",
+  "channelID": "HBOSignature.us"
+ },
+ {
+  "number": "1217",
+  "name": "ION MYSTERY",
+  "channelID": "IonMystery.us"
+ },
+ {
+  "number": "1218",
+  "name": "MeTV",
+  "channelID": "MeTV.us"
+ },
+ {
+  "number": "1219",
+  "name": "MeTV PLUS",
+  "channelID": "MeTV+.us"
+ },
+ {
+  "number": "1220",
+  "name": "MGM+ DRIVE",
+  "channelID": "MGM+DriveIn.us"
+ },
+ {
+  "number": "1221",
+  "name": "MGM+ HITS",
+  "channelID": "MGM+Hits.us"
+ },
+ {
+  "number": "1222",
+  "name": "MGM+ MARQUEE",
+  "channelID": "MGM+Marquee.us"
+ },
+ {
+  "number": "1223",
+  "name": "THE MOVIE CHANNEL",
+  "channelID": "TheMovieChannel.us"
+ },
+ {
+  "number": "1224",
+  "name": "SCREENPIX",
+  "channelID": "ScreenPix.us"
+ },
+ {
+  "number": "1225",
+  "name": "SCREENPIX ACTION",
+  "channelID": "ScreenPixAction.us"
+ },
+ {
+  "number": "1226",
+  "name": "SCREENPIX VOICES",
+  "channelID": "ScreenPixVoices.us"
+ },
+ {
+  "number": "1227",
+  "name": "SCREENPIX WESTERNS",
+  "channelID": "ScreenPixWesterns.us"
+ },
+ {
+  "number": "1228",
+  "name": "SHO X BET",
+  "channelID": "SHOxBET.us"
+ },
+ {
+  "number": "1229",
+  "name": "SHOWTIME",
+  "channelID": "Showtime.us"
+ },
+ {
+  "number": "1230",
+  "name": "SHOWTIME 2",
+  "channelID": "Showtime2.us"
+ },
+ {
+  "number": "1231",
+  "name": "SHOWTIME EXTREME",
+  "channelID": "ShowtimeExtreme.us"
+ },
+ {
+  "number": "1232",
+  "name": "SHOWTIME FAMILY ZONE",
+  "channelID": "ShowtimeFamilyzone.us"
+ },
+ {
+  "number": "1233",
+  "name": "SHOWTIME NEXT",
+  "channelID": "ShowtimeNext.us"
+ },
+ {
+  "number": "1234",
+  "name": "SHOWTIME SHOWCASE",
+  "channelID": "ShowtimeShowcase.us"
+ },
+ {
+  "number": "1235",
+  "name": "SHOWTIME WOMEN",
+  "channelID": "ShowtimeWomen.us"
+ },
+ {
+  "number": "1236",
+  "name": "START TV",
+  "channelID": "StartTV.us"
+ },
+ {
+  "number": "1237",
+  "name": "STARZ",
+  "channelID": "Starz.us"
+ },
+ {
+  "number": "1238",
+  "name": "STARZ BLACK",
+  "channelID": "StarzEncoreBlack.us"
+ },
+ {
+  "number": "1239",
+  "name": "STARZ CINEMA",
+  "channelID": "StarzCinema.us"
+ },
+ {
+  "number": "1240",
+  "name": "STARZ COMEDY",
+  "channelID": "StarzComedy.us"
+ },
+ {
+  "number": "1241",
+  "name": "STARZ EDGE",
+  "channelID": "StarzEdge.us"
+ },
+ {
+  "number": "1242",
+  "name": "STARZ ENCORE",
+  "channelID": "StarzEncore.us"
+ },
+ {
+  "number": "1243",
+  "name": "STARZ ENCORE ACTION",
+  "channelID": "StarzEncoreAction.us"
+ },
+ {
+  "number": "1244",
+  "name": "STARZ ENCORE CLASSIC",
+  "channelID": "StarzEncoreClassic.us"
+ },
+ {
+  "number": "1245",
+  "name": "STARZ ENCORE SUSPENSE",
+  "channelID": "StarzEncoreSuspense.us"
+ },
+ {
+  "number": "1246",
+  "name": "STARZ ENCORE WESTERNS",
+  "channelID": "StarzEncoreWesterns.us"
+ },
+ {
+  "number": "1247",
+  "name": "STARZ FAMILY",
+  "channelID": "StarzEncoreFamily.us"
+ },
+ {
+  "number": "1248",
+  "name": "STARZ KIDS AND FAMILY",
+  "channelID": "StarzKids.us"
+ },
+ {
+  "number": "1260",
+  "name": "BABY FIRST",
+  "channelID": "BabyFirst.us"
+ },
+ {
+  "number": "1261",
+  "name": "BABY TV",
+  "channelID": "BabyTV.us"
+ },
+ {
+  "number": "1262",
+  "name": "BOOMERANG",
+  "channelID": "Boomerang.us"
+ },
+ {
+  "number": "1263",
+  "name": "CARTOON NETWORK",
+  "channelID": "CartoonNetwork.us"
+ },
+ {
+  "number": "1264",
+  "name": "DISNEY CHANNEL",
+  "channelID": "DisneyChannel.us"
+ },
+ {
+  "number": "1265",
+  "name": "DISNEY JR",
+  "channelID": "DisneyJunior.us"
+ },
+ {
+  "number": "1266",
+  "name": "DISNEY XD",
+  "channelID": "DisneyXD.us"
+ },
+ {
+  "number": "1267",
+  "name": "METV TOONS",
+  "channelID": "MeTvToons.us"
+ },
+ {
+  "number": "1268",
+  "name": "NICK TOONS",
+  "channelID": "Nicktoons.us"
+ },
+ {
+  "number": "1269",
+  "name": "NICKELODEON",
+  "channelID": "Nickelodeon.us"
+ },
+ {
+  "number": "1270",
+  "name": "PBS KIDS",
+  "channelID": "PBSKidsNYC.us"
+ },
+ {
+  "number": "1271",
+  "name": "TEEN NICK",
+  "channelID": "TeenNick.us"
+ },
+ {
+  "number": "1280",
+  "name": "ACC NETWORK",
+  "channelID": "ACCNetwork.us"
+ },
+ {
+  "number": "1281",
+  "name": "AFN SPORT",
+  "channelID": "AFNSports.us"
+ },
+ {
+  "number": "1282",
+  "name": "ALTITUDE SPORTS",
+  "channelID": "AltitudeSports.us"
+ },
+ {
+  "number": "1283",
+  "name": "BEIN SPORTS",
+  "channelID": "beINSports.us"
+ },
+ {
+  "number": "1284",
+  "name": "BIG TEN NETWORK",
+  "channelID": "BigTen.us"
+ },
+ {
+  "number": "1285",
+  "name": "COWBOY CHANNEL",
+  "channelID": "TheCowboyChannel.us"
+ },
+ {
+  "number": "1286",
+  "name": "ESPN",
+  "channelID": "ESPN.us"
+ },
+ {
+  "number": "1287",
+  "name": "ESPN 2",
+  "channelID": "ESPN2.us"
+ },
+ {
+  "number": "1288",
+  "name": "ESPN NEWS",
+  "channelID": "ESPNEWS.us"
+ },
+ {
+  "number": "1289",
+  "name": "ESPN U",
+  "channelID": "ESPNU.us"
+ },
+ {
+  "number": "1290",
+  "name": "FANDUEL TV",
+  "channelID": "FanDuelTV.us"
+ },
+ {
+  "number": "1291",
+  "name": "FOX SPORTS 1",
+  "channelID": "FoxSports1.us"
+ },
+ {
+  "number": "1292",
+  "name": "FOX SPORTS 2",
+  "channelID": "FoxSports2.us"
+ },
+ {
+  "number": "1293",
+  "name": "FUBO SPORTS NETWORK",
+  "channelID": "fuboSportsNetwork.us"
+ },
+ {
+  "number": "1294",
+  "name": "GINX ESPORTS",
+  "channelID": "us.Ginx eSports TV Canada"
+ },
+ {
+  "number": "1295",
+  "name": "GOLF CHANNEL",
+  "channelID": "GolfChannel.us"
+ },
+ {
+  "number": "1296",
+  "name": "MAV TV",
+  "channelID": "MAVTV.us"
+ },
+ {
+  "number": "1297",
+  "name": "MLB NETWORK",
+  "channelID": "MLBNetwork.us"
+ },
+ {
+  "number": "1298",
+  "name": "MLB STRIKE ZONE",
+  "channelID": "MLBStrikeZone.us"
+ },
+ {
+  "number": "1299",
+  "name": "MSG 2",
+  "channelID": "MSG2.us"
+ },
+ {
+  "number": "1300",
+  "name": "NBA TV",
+  "channelID": "NBAtv.us"
+ },
+ {
+  "number": "1301",
+  "name": "NBC GOLF",
+  "channelID": "GolfChannel.us"
+ },
+ {
+  "number": "1302",
+  "name": "NBC SPORTS BAY AREA",
+  "channelID": "NBCSportsBayArea.us"
+ },
+ {
+  "number": "1303",
+  "name": "NBC SPORTS CALIFORNIA",
+  "channelID": "NBCSportsCalifornia.us"
+ },
+ {
+  "number": "1304",
+  "name": "NBC SPORTS PHILADELPHIA",
+  "channelID": "NBCSportsPhiladelphia.us"
+ },
+ {
+  "number": "1305",
+  "name": "NBC SPORTS PHILADELPHIA PLUS",
+  "channelID": "NBCSportsPhiladelphiaPlus.us"
+ },
+ {
+  "number": "1306",
+  "name": "NBC SPORTS WASHINGTON",
+  "channelID": "MonumentalSportsNetwork.us"
+ },
+ {
+  "number": "1307",
+  "name": "NESN",
+  "channelID": "NESN.us"
+ },
+ {
+  "number": "1308",
+  "name": "NESN PLUS",
+  "channelID": "NESNplus.us"
+ },
+ {
+  "number": "1309",
+  "name": "NEXT LEVEL SPORTS",
+  "channelID": "NextLevelSports.us"
+ },
+ {
+  "number": "1310",
+  "name": "NFL NETWORK",
+  "channelID": "NFLNetwork.us"
+ },
+ {
+  "number": "1311",
+  "name": "NFL REDZONE",
+  "channelID": "NFLRedZone.us"
+ },
+ {
+  "number": "1312",
+  "name": "NHL NETWORK",
+  "channelID": "NHLNetwork.us"
+ },
+ {
+  "number": "1313",
+  "name": "PURSUIT CHANNEL",
+  "channelID": "PursuitChannel.us"
+ },
+ {
+  "number": "1314",
+  "name": "SEC NETWORK",
+  "channelID": "SECNetwork.us"
+ },
+ {
+  "number": "1315",
+  "name": "SPECTRUM SPORTSNET",
+  "channelID": "SpectrumSportsNetLALakers.us"
+ },
+ {
+  "number": "1316",
+  "name": "SPORTSMAN CHANNEL",
+  "channelID": "SportsmanChannel.us"
+ },
+ {
+  "number": "1317",
+  "name": "STADIUM",
+  "channelID": "Stadium.us"
+ },
+ {
+  "number": "1318",
+  "name": "TENNIS CHANNEL",
+  "channelID": "TennisChannel.us"
+ },
+ {
+  "number": "1319",
+  "name": "TVG NETWORK",
+  "channelID": "FanDuelTV.us"
+ },
+ {
+  "number": "1320",
+  "name": "TVG NETWORK 2",
+  "channelID": "FanDuelRacing.us"
+ },
+ {
+  "number": "1321",
+  "name": "WILLOW CRICKET",
+  "channelID": "Willow.us"
+ },
+ {
+  "number": "1322",
+  "name": "YES NETWORK",
+  "channelID": "YesNetwork.us"
+ },
+ {
+  "number": "1324",
+  "name": "CBS Sports Network",
+  "channelID": "CBSSportsNetwork.us"
+ },
+ {
+  "number": "1325",
+  "name": "Chicago Sports Network",
+  "channelID": "ChicagoSportsNetwork.us"
+ },
+ {
+  "number": "1327",
+  "name": "FanDuel Sports Detroit",
+  "channelID": "FanDuelSportsNetworkDetroit.us"
+ },
+ {
+  "number": "1328",
+  "name": "Fight Network",
+  "channelID": "FightNetwork.us"
+ },
+ {
+  "number": "1329",
+  "name": "Fox Soccer Plus",
+  "channelID": "FoxSoccerPlus.us"
+ },
+ {
+  "number": "1330",
+  "name": "Marquee Sports Network",
+  "channelID": "MarqueeSports.us"
+ },
+ {
+  "number": "1331",
+  "name": "MASN",
+  "channelID": "MASN.us"
+ },
+ {
+  "number": "1332",
+  "name": "Monumental Sports Network",
+  "channelID": "MonumentalSportsNetwork.us"
+ },
+ {
+  "number": "1333",
+  "name": "MSG",
+  "channelID": "MSGZone1.us"
+ },
+ {
+  "number": "1334",
+  "name": "MSG Plus"
+ },
+ {
+  "number": "1335",
+  "name": "NBC Sports Boston",
+  "channelID": "NBCSportsBoston.us"
+ },
+ {
+  "number": "1336",
+  "name": "SportsNet New York",
+  "channelID": "SNY.us"
+ },
+ {
+  "number": "1337",
+  "name": "SportsNet Pittsburgh",
+  "channelID": "SportsNetPittsburgh.us"
+ },
+ {
+  "number": "1338",
+  "name": "Space City Home Network",
+  "channelID": "SpaceCityHomeNetwork.us"
+ },
+ {
+  "number": "1339",
+  "name": "SportsNet LA",
+  "channelID": "SpectrumSportsNetLADodgers.us"
+ },
+ {
+  "number": "1341",
+  "name": "UFC"
+ },
+ {
+  "number": "1342",
+  "name": "VSiN",
+  "channelID": "VSIN.us"
+ },
+ {
+  "number": "1344",
+  "name": "WWE"
+ }
+]
