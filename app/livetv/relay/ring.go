@@ -22,6 +22,8 @@ import (
 	"context"
 	"errors"
 	"sync"
+
+	"github.com/mediactl/clustarr/pkg/offheap"
 )
 
 // packetSize is an MPEG-TS packet's length.
@@ -34,24 +36,45 @@ var errSlow = errors.New("relay: viewer fell a buffer behind")
 
 // ring is one channel's fan-out buffer: the upstream writes, every viewer
 // reads at its own cursor, and the writer never waits for a reader.
+//
+// The buffer is mapped outside the Go heap (pkg/offheap): at 64 MiB a
+// channel it was a fifth of the manager's live heap on talos (2026-11-03),
+// and under GOGC a fifth of the headroom the collector kept beside it. It
+// goes back to the kernel once the ring is closed and its last viewer has
+// left (Leave), never at a collector's cycle; a viewer still draining a
+// closed ring keeps it mapped.
 type ring struct {
-	mu      sync.Mutex
-	buf     []byte
-	written int64         // total bytes ever written
-	align   int64         // where the current upstream connection began
-	index   tsIndex       // the current connection's tables and keyframes
-	notify  chan struct{} // closed and replaced on every write
-	err     error         // set by close
+	mu       sync.Mutex
+	buf      []byte // nil once released
+	capacity int
+	mapped   bool          // buf is offheap's, not the heap's
+	viewers  int           // between Join and Leave
+	written  int64         // total bytes ever written
+	align    int64         // where the current upstream connection began
+	index    tsIndex       // the current connection's tables and keyframes
+	notify   chan struct{} // closed and replaced on every write
+	err      error         // set by close
 }
 
 func newRing(size int) *ring {
-	return &ring{buf: make([]byte, size), index: newTSIndex(0), notify: make(chan struct{})}
+	r := &ring{capacity: size, index: newTSIndex(0), notify: make(chan struct{})}
+	if buf, err := offheap.Map(size); err == nil {
+		r.buf, r.mapped = buf, true
+	} else {
+		// The heap is the fallback, never a refusal to stream.
+		r.buf = make([]byte, size)
+	}
+	return r
 }
 
-// Write appends p, overwriting the oldest bytes, and wakes every reader.
+// Write appends p, overwriting the oldest bytes, and wakes every reader. A
+// released ring takes nothing.
 func (r *ring) Write(p []byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.buf == nil {
+		return
+	}
 	r.index.write(p)
 	size := int64(len(r.buf))
 	for len(p) > 0 {
@@ -84,11 +107,11 @@ func (r *ring) Realign() {
 // at its first byte (at most half the ring).
 const connectionStart = 1 << 20
 
-// Join returns a new viewer's cursor and the bytes to send it first. A
-// viewer starts where a decoder can (talos, 2026-10-21: one that started at
-// the newest packet began mid-GOP, so PMS discarded everything up to the next
-// keyframe, and the first viewer missed the tables and keyframe a provider
-// opens its stream with):
+// Join returns a new viewer's cursor and the bytes to send it first, and
+// counts the viewer until its Leave. A viewer starts where a decoder can
+// (talos, 2026-10-21: one that started at the newest packet began mid-GOP,
+// so PMS discarded everything up to the next keyframe, and the first viewer
+// missed the tables and keyframe a provider opens its stream with):
 //   - near the connection's start, at its first byte, so the provider's
 //     opening burst is the viewer's whole;
 //   - else at the latest keyframe, after copies of the latest PAT and PMT,
@@ -97,7 +120,8 @@ const connectionStart = 1 << 20
 func (r *ring) Join() (int64, []byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	half := int64(len(r.buf)) / 2
+	r.viewers++
+	half := int64(r.capacity) / 2
 	if r.written-r.align <= min(connectionStart, half) {
 		return r.align, nil
 	}
@@ -107,12 +131,29 @@ func (r *ring) Join() (int64, []byte) {
 	return r.written - (r.written-r.align)%packetSize, nil
 }
 
+// Leave ends a viewer's reads. The last viewer of a closed ring releases
+// its buffer.
+func (r *ring) Leave() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.viewers--
+	if r.viewers <= 0 && r.err != nil {
+		r.releaseLocked()
+	}
+}
+
 // Read copies the bytes after *cur into p and advances *cur, waiting for a
 // write when there are none. It returns errSlow when *cur's bytes are gone,
-// the close error once the ring is closed and drained, or ctx's error.
+// the close error once the ring is closed and drained (or released), or
+// ctx's error.
 func (r *ring) Read(ctx context.Context, cur *int64, p []byte) (int, error) {
 	for {
 		r.mu.Lock()
+		if r.buf == nil {
+			err := r.err
+			r.mu.Unlock()
+			return 0, err
+		}
 		size := int64(len(r.buf))
 		if r.written-*cur > size {
 			r.mu.Unlock()
@@ -144,7 +185,8 @@ func (r *ring) Read(ctx context.Context, cur *int64, p []byte) (int, error) {
 	}
 }
 
-// close ends the ring: readers drain what is left, then get err.
+// close ends the ring: readers drain what is left, then get err. With no
+// viewer reading, the buffer is released at once.
 func (r *ring) close(err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -153,11 +195,28 @@ func (r *ring) close(err error) {
 		close(r.notify)
 		r.notify = make(chan struct{})
 	}
+	if r.viewers <= 0 {
+		r.releaseLocked()
+	}
+}
+
+// releaseLocked gives the buffer back; r.mu is held, and the ring is closed.
+func (r *ring) releaseLocked() {
+	if r.buf == nil {
+		return
+	}
+	if r.mapped {
+		_ = offheap.Unmap(r.buf)
+	}
+	r.buf = nil
+}
+
+// released says whether the buffer has gone back.
+func (r *ring) released() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.buf == nil
 }
 
 // size is the ring's capacity in bytes.
-func (r *ring) size() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return len(r.buf)
-}
+func (r *ring) size() int { return r.capacity }

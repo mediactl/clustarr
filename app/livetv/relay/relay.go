@@ -326,6 +326,7 @@ func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, ups
 	failed := s.failed
 	r.mu.Unlock()
 	cur, tables := s.ring.Join()
+	defer s.ring.Leave()
 	if failed != "" && s.ring.Total() == 0 {
 		http.Error(w, "upstream: "+failed, http.StatusBadGateway)
 		return

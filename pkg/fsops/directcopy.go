@@ -28,6 +28,8 @@ import (
 	"syscall"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/mediactl/clustarr/pkg/offheap"
 )
 
 // A copy across filesystems -- MoveAtomic's EXDEV fallback, CopyDir,
@@ -75,9 +77,7 @@ func copyBuffers(size int64) (n, chunk int) {
 
 // mapBuffer maps n bytes of anonymous memory, page-aligned and so aligned
 // as O_DIRECT asks; a variable so a test can see the sizes.
-var mapBuffer = func(n int) ([]byte, error) {
-	return unix.Mmap(-1, 0, n, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_PRIVATE|unix.MAP_ANONYMOUS)
-}
+var mapBuffer = offheap.Map
 
 // mapBuffers maps n buffers of chunk bytes, and a release that unmaps them
 // all, which must run only once nothing holds one.
@@ -85,7 +85,7 @@ func mapBuffers(n, chunk int) ([][]byte, func(), error) {
 	bufs := make([][]byte, 0, n)
 	release := func() {
 		for _, b := range bufs {
-			_ = unix.Munmap(b)
+			_ = offheap.Unmap(b)
 		}
 	}
 	for range n {
