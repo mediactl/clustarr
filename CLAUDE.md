@@ -589,9 +589,40 @@ lineup is held the published blocks stay (`LineupPending`) and the tuner
 serves each channel's recorded pairing. Without `enabled` the pairing is a
 dry run the Channels page shows (station, number, or why off Plex, with a
 station picker and an "Off Plex" filter). On the owner's 257 channels 167
-pair; PMS's own guide work for a cloud lineup is unmeasured (the design's
-§5.8 check, held by the owner, runs before the cutover). `spec.epgSource`
-(XEPG or PMS, the latter Plex's setup wizard by hand) is gone.
+pair. **Live on talos since 2026-11-04 09:20Z** (DVR 32, device 1AED97B8,
+167 channels): the first cutover that morning (03:16Z) was undone because
+every cloud-guide load failed "Error 25 when binding to pos 1 on bulk
+operations" then "EPG[cloud]: Failed to load EPG", after which PMS replaced
+the DVR's map with its own pairing (NBC on CNBC 355). The cause was the
+plex-postgresql shim, not PMS: since upstream `ff63333` (2026-01-09, when
+the library was the only database it served) `prepare_real_sqlite_stmt`
+simplified and then blocked (`SELECT 1 WHERE 0`) any statement naming an
+`fts4_` table or a `MATCH` on *every* handle, and PMS's cloud loader
+prepares `select ... join fts4_metadata_titles_icu ... match ?` on its
+genuine-SQLite `-loading.db` (where PMS registers its own `collating`
+tokenizer through the passed-through `fts3_tokenizer`), so the first bind
+hit SQLITE_RANGE. Shim `v1.3.17-clusterplex.44` (`handle_is_pg_backed`,
+`fts_for_sqlite`) rewrites or refuses FTS only on a handle the shim serves
+from PostgreSQL, and its dummy shadow carries every parameter past the C
+shim's 4 KiB cap (about 225 placeholders). Measured then: a cloud load is
+13 s for one channel and 21 min for 167 (two 7-day steps, 60,398
+airings), against 10-13 min for the XMLTV guide's 257 channels, so the
+saving is in reloads, not loads (cluster-plex never reloads a cloud guide;
+XMLTV reloaded four times a day). The load is still PMS's SQLite
+`-loading.db` (the 2026-10-21 rename-hook design: an in-process load, a
+copy at the rename), and cluster-plex's copy of it into `epg_<uuid>` is
+354,116 rows in 35 s, held in the shim's `rename()` hook; PMS serves the
+guide from PostgreSQL from its reopen. Each DVR creation logs one "Failed
+to load EPG" on PMS's auto map, before our map is saved. **A block's device
+is published only once the tuner serves it** (`withBlocks`, `allServed`,
+`tuner.BlockState.DeviceID`; clustarr 3a646c10): the controller applies a
+plan and writes status in one reconcile, while the render serves a new
+`/hdhr/<id>` only when it ends (85 s for 257 channels), so cluster-plex
+had registered a device PMS could not fetch ("POST /media/grabbers/devices:
+plex: not found") and deleted the XMLTV DVR first, leaving Plex without
+Live TV for 90 s; cluster-plex 40dd555 also holds the removal of devices no
+block names while a block's add fails. `spec.epgSource` (XEPG or PMS, the
+latter Plex's setup wizard by hand) is gone.
 
 **Streams declare their language** (owner, 2026-10-27: Plex showed ESPN's
 audio as Unknown; its PMT said `und` where the Weather Channel's said

@@ -361,3 +361,50 @@ ended.
   the lineup.
 - Names of the store object, metrics and Events.
 - The ui's picker widget.
+
+## 7. As built (2026-11-04)
+
+- **Live on talos since 09:20Z:** argon-tv on DIRECTV Mobile, DVR 32 on
+  device 1AED97B8, 167 channels under DIRECTV's numbers, the other 90 off
+  Plex. cluster-bootstrap `clustarr/resources.yaml` carries
+  `plexGuide.enabled: true`.
+- **What blocked the first cutover (03:16Z) was the plex-postgresql shim.**
+  Every cloud-guide load failed "Error 25 when binding to pos 1 on bulk
+  operations" (`MediaProviderEpgCloud.cpp:148`), then "Failed to load EPG",
+  and PMS replaced the map with its own pairing. The shim's
+  `prepare_real_sqlite_stmt` simplified and then blocked any statement
+  naming an `fts4_` table or a `MATCH` on every handle (upstream `ff63333`,
+  2026-01-09), and the cloud loader prepares `select ... join
+  fts4_metadata_titles_icu on metadata_items.id =
+  fts4_metadata_titles_icu.rowid where ... match ?` on the genuine-SQLite
+  `-loading.db`. Fixed in `v1.3.17-clusterplex.44` (`handle_is_pg_backed`,
+  `fts_for_sqlite`; the dummy shadow's 4 KiB cap went too), shipped in
+  cluster-plex `aec56d4`. Found with the shim at DEBUG and a one-channel
+  HDHomeRun stub (Fox Soccer Plus, the smallest failing map).
+- **§5.8 measured:** 13 s for one channel; 21 min for 167 (09:22-09:43Z,
+  two 7-day steps, 60,398 airings over 14 days, 136 on air at once). XMLTV's
+  257 channels load in 10-13 min, so a cloud load is slower per channel; the
+  gain is that cluster-plex never reloads a cloud guide where the XMLTV
+  guide reloaded four times a day. The copy into `epg_<uuid>` is 354,116
+  rows in 35 s, in the rename hook. PMS reads the guide from PostgreSQL
+  (its table statistics move) and answers the grid from it.
+- **The load stays SQLite-staged.** The owner asked whether the native
+  guide could be loaded into PostgreSQL directly; it already lives there
+  from the rename on, and the 2026-10-21 design's reasons for staging the
+  load in SQLite (a round trip per INSERT against the library's database,
+  one translation gap losing a whole PMS transaction, a load registry on the
+  shim's hottest path) hold for the cloud guide as they did for XMLTV. The
+  stub's 1 MB and the real guide's 142 MB `-loading.db` are scratch files
+  PMS renames and reopens once.
+- **Cutover gap, fixed:** the controller published the Plex block's device
+  (status.blocks) the moment it planned it, 85 s before the tuner's render
+  served `/hdhr/1AED97B8`; cluster-plex registered it at once, PMS answered
+  not found, and the XMLTV DVR and device were deleted before the new one
+  was in. clustarr `3a646c10`: `withBlocks` keeps the status's blocks until
+  the tuner's snapshot serves every planned device
+  (`tuner.BlockState.DeviceID`, `allServed`). cluster-plex `40dd555`: a
+  pass on which a block fails holds the removal of devices no block names.
+- **Each DVR creation logs one "Failed to load EPG"** on PMS's automatic
+  map, before cluster-plex saves ours once the load ends; the load on our
+  map then succeeds. PMS also made an empty "This Event" subscription at
+  the cutover (deleted by hand).
