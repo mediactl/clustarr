@@ -201,20 +201,25 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	// range on screen over the whole list, not snapped to a letter.
 	require.NotContains(t, bar, "relative", "a second position utility would override fixed and drop the strip to the page's end")
 	// The thumb drags like a native scrollbar's (2026-09-24): a grab strip
-	// wider than the 2px line it draws, pointer events on (it is the drag
-	// handle), the browser's touch panning off so a touch drag moves the
-	// thumb and not the page. ui/static/jump.js does the dragging.
-	thumb := requireTag(t, body[barAt:], `data-jump-thumb`, `absolute`, `border-primary`, `cursor-grab`, `touch-none`, `select-none`)
+	// wider than the slim rounded bar it draws (Plex's, 2026-11-04),
+	// pointer events on (it is the drag handle), the browser's touch
+	// panning off so a touch drag moves the thumb and not the page.
+	// ui/static/jump.js does the dragging.
+	thumb := requireTag(t, body[barAt:], `data-jump-thumb`, `absolute`, `w-3`, `before:w-1`, `before:rounded-full`, `cursor-grab`, `touch-none`, `select-none`)
 	require.NotContains(t, thumb, "pointer-events-none", "the thumb takes the pointer; it is the drag handle")
 	require.NotContains(t, thumb, "w-0.5", "the grab strip is wider than the line it draws")
 	require.NotContains(t, body, `data-letter=`, "cards carry no letter; the thumb is positional")
 	headEnd := strings.Index(body, "</head>")
 	require.GreaterOrEqual(t, headEnd, 0)
 	require.Regexp(t, regexp.MustCompile(`<script[^>]*src="/static/jump.js"`), body[:headEnd], "the scroll tracker loads in the head")
-	group := tagWith(t, body[barAt:], `data-slot="button-group"`)
-	require.Contains(t, group, `data-orientation="vertical"`, "the bar is a vertical button group")
-	require.Contains(t, group, "h-full")
-	require.Contains(t, group, "w-full", "the group fills the strip, which runs to the right border")
+	// The letters are plain text in a column, as the Plex apps' A-Z bar
+	// is since their redesign (owner, 2026-11-04), not Radarr's button
+	// group.
+	letters := tagWith(t, body[barAt:], `data-jump-letters`)
+	require.Contains(t, letters, "flex-col", "the letters stand in a column")
+	require.Contains(t, letters, "h-full")
+	require.Contains(t, letters, "w-full", "the column fills the strip, which runs to the right border")
+	require.NotContains(t, body[barAt:strings.Index(body[barAt:], "</nav>")+barAt], `data-slot="button`, "no buttons")
 	// The native scrollbar is hidden on the library (design 2026-09-24): the
 	// A-Z strip is the only thing on the right edge, as in Radarr.
 	require.Contains(t, tagWith(t, body, `<html`), `data-scrollbar="hidden"`)
@@ -237,8 +242,8 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	requireTag(t, body, `id="library-rows"`, `data-page="1"`, `data-pages="1"`, `data-per="25"`)
 	hash := tagWith(t, body, `data-jump="#"`)
 	require.NotContains(t, hash, `href=`, "a letter no title starts with is not a link")
-	require.Contains(t, hash, `disabled`)
-	require.Contains(t, hash, "pointer-events-none", "a disabled button swallows wheel events in Chromium; scrolling must pass through it")
+	require.Contains(t, hash, `aria-disabled="true"`)
+	require.Contains(t, hash, "pointer-events-none", "the wheel over a letter without titles scrolls the page")
 }
 
 func TestLibraryJumpRedirectsToTheLetterPage(t *testing.T) {

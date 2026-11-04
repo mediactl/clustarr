@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -99,8 +100,6 @@ func TestTheDashboardShowsWhatIsRunningPendingFailedAndSkipped(t *testing.T) {
 		`data-download="04" data-phase="Failed"`,
 		"2.00 MiB/s",
 		"why johan",
-		`data-list="Pending"`,
-		"2 of 31", // one download and one transcode shown, 31 waiting
 	} {
 		assert.Contains(t, body, want, want)
 	}
@@ -115,9 +114,24 @@ func TestTheDashboardShowsWhatIsRunningPendingFailedAndSkipped(t *testing.T) {
 			assert.Regexp(t, `data-summary="`+summary+`"[\s\S]*?`+row, body, summary+": "+row)
 		}
 	}
+	// A section per subject (owner, 2026-11-04), in the order work flows:
+	// each kind's summary, lists and rows under its own heading; Plex's and
+	// Live TV's are charts alone, which need --metrics-url.
+	downloadsAt := strings.Index(body, `data-dashboard-section="downloads"`)
+	transcodesAt := strings.Index(body, `data-dashboard-section="transcodes"`)
+	require.True(t, downloadsAt >= 0 && transcodesAt > downloadsAt, "Downloads, then Transcodes")
+	assert.NotContains(t, body, `data-dashboard-section="plex"`)
+	downloads, transcodes := body[downloadsAt:transcodesAt], body[transcodesAt:]
+	for _, want := range []string{`data-summary="Downloads"`, `data-list="downloads-running"`, `data-list="downloads-queued"`, `data-list="downloads-failed"`, `data-download="03"`, `data-download="04"`} {
+		assert.Contains(t, downloads, want, "downloads: "+want)
+	}
+	for _, want := range []string{`data-summary="Transcodes"`, `data-list="transcodes-running"`, `data-list="transcodes-pending"`, `data-list="transcodes-failed"`, `data-list="transcodes-skipped"`, `data-transcode="nina"`} {
+		assert.Contains(t, transcodes, want, "transcodes: "+want)
+	}
+	assert.NotContains(t, transcodes, `data-download=`, "no download in the Transcodes section")
 	// A list's count sits at the right of its title, a row's percent at the
 	// right of the line under its bar.
-	assert.Regexp(t, `data-list="Pending"[\s\S]*?data-slot="card-action"[^>]*>2 of 31</div>`, body)
+	assert.Regexp(t, `data-list="transcodes-pending"[\s\S]*?data-slot="card-action"[^>]*>1 of 30</div>`, body)
 	assert.Regexp(t, `>why tenma</span>\s*<span[^>]*data-percent>42%</span>`, body)
 	assert.Regexp(t, `>2.00 MiB/s · ETA 1m30s</span>\s*<span[^>]*data-percent>0%</span>`, body)
 	assert.Contains(t, body, `hx-get="/dashboard/summary"`, "the summary refreshes itself")
@@ -132,7 +146,10 @@ func TestTheSummaryRefreshesAlone(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	assert.True(t, strings.HasPrefix(strings.TrimSpace(body), `<div id="dashboard-summary"`), "a fragment, not a page")
+	assert.True(t, strings.HasPrefix(strings.TrimSpace(body), `<div id="dashboard-live-downloads"`), "a fragment, not a page")
+	for _, group := range []string{"downloads", "transcodes"} {
+		assert.Regexp(t, `<div id="dashboard-live-`+group+`" class="contents" hx-swap-oob="true">`, body, "each section's live cards, out of band")
+	}
 	assert.Contains(t, body, `data-transcode="tenma"`)
 	assert.NotContains(t, body, "<html")
 }
@@ -177,6 +194,27 @@ func TestTheChartsQueryEveryPanelOverTheRange(t *testing.T) {
 	assert.Contains(t, body, `data-range="6h"`)
 	assert.Contains(t, body, `hx-get="/dashboard/charts?range=6h"`, "the charts refresh over the range picked")
 	assert.Contains(t, body, `data-panel="transcode-workers"`)
+	// Each chart stands in its subject's section, swapped out of band.
+	groups := []string{"downloads", "transcodes", "plex", "livetv"}
+	panels := map[string][]string{
+		"downloads": {"grabs"}, "transcodes": {"transcodes", "transcode-workers", "transcode-backlog"},
+		"plex": {"plex-sessions", "plex-bandwidth", "plex-plays"}, "livetv": {"livetv"},
+	}
+	for i, group := range groups {
+		open := `<div id="dashboard-charts-` + group + `" class="contents" hx-swap-oob="true">`
+		at := strings.Index(body, open)
+		require.GreaterOrEqual(t, at, 0, group)
+		end := len(body)
+		if i+1 < len(groups) {
+			end = strings.Index(body, `id="dashboard-charts-`+groups[i+1]+`"`)
+		}
+		got := regexp.MustCompile(`data-panel="([^"]+)"`).FindAllStringSubmatch(body[at:end], -1)
+		var ids []string
+		for _, m := range got {
+			ids = append(ids, m[1])
+		}
+		assert.Equal(t, panels[group], ids, group)
+	}
 	assert.Contains(t, body, `data-chart="chart-dash-transcode-workers"`)
 	assert.Contains(t, body, "--color-s-intel", "one series per tier, keyed for its color")
 	assert.Contains(t, body, "prom: 502 Bad Gateway", "a failing panel says why")

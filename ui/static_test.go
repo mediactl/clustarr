@@ -184,7 +184,7 @@ func TestStaticRouteServesTheJumpTracker(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.css", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Regexp(t, `html\[data-scrollbar="?hidden"?\][^{]*\{[^}]*scrollbar-width:\s*none`, rec.Body.String(), "the stylesheet hides the document scrollbar under data-scrollbar")
-	for _, class := range []string{".cursor-grab", ".touch-none", ".border-l-2"} {
+	for _, class := range []string{".cursor-grab", ".touch-none", `.before\:rounded-full`} {
 		require.Contains(t, rec.Body.String(), class, "ui/static/app.css lacks %s, which the draggable thumb wears; run `make css`", class)
 	}
 }

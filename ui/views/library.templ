@@ -26,7 +26,6 @@ import (
 	"github.com/mediactl/clustarr/ui/components/aspectratio"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
-	"github.com/mediactl/clustarr/ui/components/buttongroup"
 	"github.com/mediactl/clustarr/ui/components/checkbox"
 	"github.com/mediactl/clustarr/ui/components/dialog"
 	"github.com/mediactl/clustarr/ui/components/icon"
@@ -102,42 +101,42 @@ type Jump struct {
 	Index int
 }
 
-// jumpButtonClass makes every letter share the bar's height evenly and
-// fill its width, so the bar fills the strip to the right border as
-// Radarr's does.
-const jumpButtonClass = "min-h-0 w-full flex-1 px-0 py-0 text-[11px]"
+// jumpLetterClass makes every letter share the bar's height evenly and
+// its width: plain text, as the Plex apps' A-Z bar is (owner, 2026-11-04).
+const jumpLetterClass = "flex min-h-0 w-full flex-1 items-center justify-center text-xs leading-none transition-colors"
 
-// jumpBar is Radarr's A-Z bar as a vertical button group fixed to the
-// right edge of the screen, from beneath the top bar and the toolbar
-// where the page starts (3rem, the page's 1.5rem of padding and the
-// toolbar's 3.5rem, which is where 8rem comes from; a stuck toolbar sits
-// half a rem under the bar, so a rem of air opens below it) to the bottom of the
-// viewport, outside the grid's flow (the grid
-// keeps clear of it with lg:pr-10). ui/static/jump.js places the thumb
-// (data-jump-thumb) along it in proportion to the items on screen over
-// the whole list, from #library-rows' data-offset and data-total, and
-// drags it like a native scrollbar's thumb: a 12px grab strip (w-3) down
-// the strip's left edge drawing a 2px line, pointer events on, the
-// browser's touch panning off so a touch drag moves the thumb and not the
-// page. Then a link per
-// letter that has titles, a disabled button per letter that does not,
-// each carrying data-jump for the tests. A disabled letter lets pointer
-// events through: Chromium swallows wheel events over a disabled button,
-// which stalled scrolling whenever the pointer rested on one.
+// jumpBar is the A-Z bar, as the Plex apps draw it since their redesign
+// (owner, 2026-11-04: "much simpler" than Radarr's button group it was):
+// a column of plain letters fixed to the right edge of the screen, from
+// beneath the top bar and the toolbar where the page starts (3rem, the
+// page's 1.5rem of padding and the toolbar's 3.5rem, which is where 8rem
+// comes from; a stuck toolbar sits half a rem under the bar, so a rem of
+// air opens below it) to the bottom of the viewport, outside the grid's
+// flow (the grid keeps clear of it with lg:pr-10). A letter that has titles
+// is a muted link that lights on hover; one that has none is dimmer still
+// and no link. ui/static/jump.js places the thumb (data-jump-thumb) along
+// it in proportion to the items on screen over the whole list, from
+// #library-rows' data-offset and data-total, and drags it like a native
+// scrollbar's thumb: a 12px grab strip (w-3) down the strip's left edge
+// drawing Plex's slim rounded bar, pointer events on, the browser's touch
+// panning off so a touch drag moves the thumb and not the page. Each
+// letter carries data-jump for the tests and the script.
 templ jumpBar(jumpsFor []Jump) {
 	if len(jumpsFor) > 0 {
-		<div data-jump-bar class="fixed top-[8rem] right-0 bottom-0 z-10 hidden w-8 lg:block">
-			<div data-jump-thumb class="absolute left-0 z-10 w-3 cursor-grab touch-none select-none rounded-l-sm border-l-2 border-primary active:cursor-grabbing" style="top: 0; height: 16px"></div>
-			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical, Class: "h-full w-full"}) {
+		<nav data-jump-bar aria-label="Jump to a letter" class="fixed top-[8rem] right-0 bottom-0 z-10 hidden w-8 lg:block">
+			<div data-jump-thumb class="absolute left-0 z-10 w-3 cursor-grab touch-none select-none active:cursor-grabbing before:absolute before:inset-y-0 before:left-1 before:w-1 before:rounded-full before:bg-foreground/25 hover:before:bg-foreground/45 data-dragging:before:bg-foreground/60" style="top: 0; height: 16px"></div>
+			<div data-jump-letters class="flex h-full w-full flex-col pb-2">
 				for _, j := range jumpsFor {
 					if j.Enabled {
-						@button.Button(button.Props{Href: j.Href, Size: button.SizeXs, Variant: button.VariantOutline, Class: jumpButtonClass, Attributes: templ.Attributes{"data-jump": j.Letter, "data-page": fmt.Sprint(j.Page), "data-index": fmt.Sprint(j.Index)}}) { { j.Letter } }
+						<a href={ templ.SafeURL(j.Href) } class={ jumpLetterClass + " text-muted-foreground hover:text-foreground" } data-jump={ j.Letter } data-page={ fmt.Sprint(j.Page) } data-index={ fmt.Sprint(j.Index) }>{ j.Letter }</a>
 					} else {
-						@button.Button(button.Props{Size: button.SizeXs, Variant: button.VariantOutline, Disabled: true, Class: jumpButtonClass + " pointer-events-none", Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
+						// No link, and no pointer events: the wheel over it
+						// scrolls the page.
+						<span class={ jumpLetterClass + " pointer-events-none text-muted-foreground/35" } aria-disabled="true" data-jump={ j.Letter }>{ j.Letter }</span>
 					}
 				}
-			}
-		</div>
+			</div>
+		</nav>
 	}
 }
 

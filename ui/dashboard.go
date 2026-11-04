@@ -74,7 +74,9 @@ type panelSeries struct {
 
 // panelDef is one chart of the dashboard.
 type panelDef struct {
-	ID          string
+	ID string
+	// Section is the dashboard section it stands in (views.dashboardSections).
+	Section     string
 	Title       string
 	Description string
 	Kind        string
@@ -87,30 +89,30 @@ type panelDef struct {
 // as each step's peak (max_over_time): sampled once a step, the 7-day view's
 // two-hour points missed every stream shorter than that.
 var dashPanels = []panelDef{
-	{ID: "plex-sessions", Title: "Plex sessions", Description: "Peak playback sessions, and those Plex transcodes", Kind: "area", Series: []panelSeries{
+	{ID: "plex-sessions", Section: "plex", Title: "Plex sessions", Description: "Peak playback sessions, and those Plex transcodes", Kind: "area", Series: []panelSeries{
 		{Key: "sessions", Label: "Sessions", Query: `sum(max_over_time(clusterplex_plex_sessions[$step]))`},
 		{Key: "transcodes", Label: "Transcodes", Query: `sum(max_over_time(clusterplex_plex_transcode_sessions[$step]))`},
 	}},
-	{ID: "plex-bandwidth", Title: "Plex bandwidth", Description: "Peak streaming to clients, Mb/s", Kind: "area", Series: []panelSeries{
+	{ID: "plex-bandwidth", Section: "plex", Title: "Plex bandwidth", Description: "Peak streaming to clients, Mb/s", Kind: "area", Series: []panelSeries{
 		{Key: "bandwidth", Label: "Mb/s", Query: `sum(max_over_time(clusterplex_plex_stream_bandwidth_bytes_per_second[$step]))`, Scale: 8 / 1e6},
 	}},
-	{ID: "plex-plays", Title: "Plex plays", Description: "Plays started, by media type", Kind: "bar", Stacked: true, Series: []panelSeries{
+	{ID: "plex-plays", Section: "plex", Title: "Plex plays", Description: "Plays started, by media type", Kind: "bar", Stacked: true, Series: []panelSeries{
 		{Query: `sum by (media_type) (increase(clusterplex_plex_plays_total[$step]))`, By: "media_type"},
 	}},
-	{ID: "livetv", Title: "Live TV", Description: "Peak viewers, and the provider's tuners in use", Kind: "line", Series: []panelSeries{
+	{ID: "livetv", Section: "livetv", Title: "Live TV", Description: "Peak viewers, and the provider's tuners in use", Kind: "line", Series: []panelSeries{
 		{Key: "viewers", Label: "Viewers", Query: `sum(max_over_time(clustarr_livetv_viewers[$step]))`},
 		{Key: "tuners", Label: "Tuners", Query: `sum(max_over_time(clustarr_livetv_tuners_in_use[$step]))`},
 	}},
-	{ID: "transcodes", Title: "Transcodes finished", Description: "By outcome", Kind: "bar", Stacked: true, Series: []panelSeries{
+	{ID: "transcodes", Section: "transcodes", Title: "Transcodes finished", Description: "By outcome", Kind: "bar", Stacked: true, Series: []panelSeries{
 		{Query: `sum by (outcome) (increase(clustarr_transcode_duration_seconds_count[$step]))`, By: "outcome"},
 	}},
-	{ID: "transcode-workers", Title: "Transcode workers", Description: "Peak jobs running, by hardware tier", Kind: "area", Stacked: true, Series: []panelSeries{
+	{ID: "transcode-workers", Section: "transcodes", Title: "Transcode workers", Description: "Peak jobs running, by hardware tier", Kind: "area", Stacked: true, Series: []panelSeries{
 		{Query: `sum by (tier) (max_over_time(clustarr_transcode_jobs_active[$step]))`, By: "tier"},
 	}},
-	{ID: "transcode-backlog", Title: "Transcode backlog", Description: "Files waiting outside the window", Kind: "line", Series: []panelSeries{
+	{ID: "transcode-backlog", Section: "transcodes", Title: "Transcode backlog", Description: "Files waiting outside the window", Kind: "line", Series: []panelSeries{
 		{Key: "backlog", Label: "Files", Query: `sum(clustarr_transcode_backlog_files)`},
 	}},
-	{ID: "grabs", Title: "Grabs and imports", Description: "Releases grabbed and files imported", Kind: "bar", Series: []panelSeries{
+	{ID: "grabs", Section: "downloads", Title: "Grabs and imports", Description: "Releases grabbed and files imported", Kind: "bar", Series: []panelSeries{
 		{Key: "grabbed", Label: "Grabbed", Query: `sum(increase(clustarr_search_decisions_total{decision="grabbed"}[$step]))`},
 		{Key: "imported", Label: "Imported", Query: `sum(increase(clustarr_import_files_total{outcome="imported"}[$step]))`},
 	}},
@@ -194,7 +196,7 @@ func (s *Server) dashboardCharts(ctx context.Context, rg dashRange) views.Dashbo
 // step of the range, so the time axis is even; a missing sample reads 0
 // (these metrics are absent while nothing happens).
 func buildPanel(ctx context.Context, q prom.Querier, p panelDef, rg dashRange, start, end time.Time) views.ChartPanel {
-	out := views.ChartPanel{ID: p.ID, Title: p.Title, Description: p.Description, Kind: p.Kind, Stacked: p.Stacked}
+	out := views.ChartPanel{ID: p.ID, Section: p.Section, Title: p.Title, Description: p.Description, Kind: p.Kind, Stacked: p.Stacked}
 	type line struct {
 		key, label string
 		points     []prom.Point
