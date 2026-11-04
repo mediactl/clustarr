@@ -126,13 +126,13 @@ func imageSetDialog(d Detail) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, " <span>Image Set</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, " <span>Images</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: imageSetTriggerAttrs(ctx)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = button.Button(actionButtonProps(imageSetTriggerAttrs(ctx))).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -444,6 +444,7 @@ func imageSetTriggerAttrs(ctx context.Context) templ.Attributes {
 	attrs := dialog.Trigger(ctx)
 	attrs["data-action"] = "image-set"
 	attrs["data-toolbar-button"] = true
+	attrs["title"] = "Image Set"
 	return attrs
 }
 

@@ -41,9 +41,9 @@ func ImageSettable(d Detail) bool {
 // episode thumbnails (docs/superpowers/specs/2026-10-21-image-sets-design.md).
 templ imageSetDialog(d Detail) {
 	@dialog.Dialog(dialog.Props{ID: "imageset-" + d.Item.Ref.Name}) {
-		@button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: imageSetTriggerAttrs(ctx)}) {
+		@button.Button(actionButtonProps(imageSetTriggerAttrs(ctx))) {
 			@icon.Icon("images")()
-			<span>Image Set</span>
+			<span>Images</span>
 		}
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl", Attributes: templ.Attributes{"data-imageset-dialog": d.Item.Ref.Name}}) {
 			@dialog.Header() {
@@ -91,5 +91,6 @@ func imageSetTriggerAttrs(ctx context.Context) templ.Attributes {
 	attrs := dialog.Trigger(ctx)
 	attrs["data-action"] = "image-set"
 	attrs["data-toolbar-button"] = true
+	attrs["title"] = "Image Set"
 	return attrs
 }

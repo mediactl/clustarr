@@ -72,7 +72,7 @@ func excludable(d Detail) bool {
 // the files where the page lists them, and the two checkboxes, both off.
 templ deleteDialog(d Detail) {
 	@dialog.Dialog(dialog.Props{ID: "delete-" + d.Item.Ref.Name}) {
-		@button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: deleteTriggerAttrs(ctx)}) {
+		@button.Button(actionButtonProps(deleteTriggerAttrs(ctx))) {
 			@icon.Icon("trash-2")()
 			<span>Delete</span>
 		}

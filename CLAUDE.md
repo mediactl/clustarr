@@ -941,7 +941,16 @@ with the count (`#library-find-count`) out of band;
 `ui/static/find.js` gives it arrow keys, Enter and Escape and places the
 dropdown `position: fixed`. No match links to Add New with `?q=`, which
 fills and runs its search. The page toolbar is shadcn's menubar
-(`views.toolbar`; Options, Sort and Filter are its menus). The library has
+(`views.toolbar`; Options, Sort and Filter are its menus). An item page's
+bar -- a movie's, series', season's or episode's (`views.actionBar`, owner
+2026-11-04) -- is one shadcn-templ button group in a glass panel no wider
+than the group, centred under the top bar: outline buttons joined at their
+borders, each an icon over one word (Refresh, Search, Interactive, Preview,
+Rename, Edit, Images, Delete) with the whole action as its title. An
+action's form is hidden and named by its button's `form` attribute
+(`views.actionForm`), so the button is the group's own child and takes the
+joined borders while htmx still catches the submit; a dialog's trigger
+stands in the group itself, its portal hidden beside it. The library has
 Sonarr's mass editor: Select marks cards (`ui/static/library.js`, client
 side, re-applied over every stream frame) and a bottom bar posts the
 selection as `item=namespace/kind/name` to `POST /library/{tab}/bulk`

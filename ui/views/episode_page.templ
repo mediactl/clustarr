@@ -100,13 +100,12 @@ func episodeCrumbs(v EpisodeView) []Crumb {
 // which opens the episode's modal on its Search tab in #episode-modal.
 // Every form returns here.
 templ episodeToolbar(v EpisodeView) {
-	@toolbar(nil) {
-		@toolbarGroup() {
-			@toolbarForm(libraryActionURL(v.Item, "refresh"), []Field{{"return", v.Row.URL()}, {"scan", "true"}}, "refresh-cw", "Refresh & Scan Series", "refresh-metadata", nil)
-			@toolbarForm(v.Row.SearchURL(), []Field{{"return", v.Row.URL()}}, "search", "Search Episode", "search-now", nil)
-			@toolbarForm(v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive Search", "episode-interactive-search",
-				templ.Attributes{"hx-post": v.Row.InteractiveSearchURL(), "hx-target": "#episode-modal", "hx-swap": "innerHTML"})
-		}
+	{{ name, here := v.Row.Name, v.Row.URL() }}
+	@actionBar() {
+		@actionForm("refresh-"+name, libraryActionURL(v.Item, "refresh"), []Field{{"return", here}, {"scan", "true"}}, "refresh-cw", "Refresh", "Refresh & Scan Series", "refresh-metadata", nil)
+		@actionForm("search-"+name, v.Row.SearchURL(), []Field{{"return", here}}, "search", "Search", "Search Episode", "search-now", nil)
+		@actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "episode-interactive-search",
+			templ.Attributes{"hx-post": v.Row.InteractiveSearchURL(), "hx-target": "#episode-modal", "hx-swap": "innerHTML"})
 	}
 }
 

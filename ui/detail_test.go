@@ -221,26 +221,37 @@ func TestMoviePageToolbarHasRadarrsActions(t *testing.T) {
 	require.GreaterOrEqual(t, heroAt, 0)
 	bar = bar[:heroAt]
 
-	refresh := requireTag(t, bar, `data-action="refresh-metadata"`, `data-slot="button"`, `type="submit"`)
+	// The bar is one button group (owner, 2026-11-04): every action is a
+	// direct child of the group, its form hidden and named by the
+	// button's form attribute, and reads one word, the whole action in
+	// its title.
+	requireTag(t, bar, `data-slot="button-group"`, `role="group"`)
+	refresh := requireTag(t, bar, `data-action="refresh-metadata"`, `data-slot="button"`, `type="submit"`, `form="refresh-nerve"`, `title="Refresh &amp; Scan"`)
 	require.Contains(t, refresh, `data-toolbar-button`, "toolbar buttons are icon-over-label")
-	require.Contains(t, bar, `action="/library/default/movie/nerve/refresh"`)
+	requireTag(t, bar, `id="refresh-nerve"`, `action="/library/default/movie/nerve/refresh"`, `hidden`)
 	require.Contains(t, bar, `name="scan" value="true"`, "Refresh & Scan asks for the folder scan too")
-	require.Contains(t, bar, "Refresh &amp; Scan")
-	requireTag(t, bar, `data-action="search-now"`, `data-slot="button"`, `data-toolbar-button`)
-	require.Contains(t, bar, "Search Movie")
+	require.Regexp(t, `>\s*Refresh\s*<`, bar, "the button reads one word")
+	require.NotContains(t, bar, "Refresh &amp; Scan</span>")
+	requireTag(t, bar, `data-action="search-now"`, `data-slot="button"`, `data-toolbar-button`, `form="search-nerve"`, `title="Search Movie"`)
+	require.Regexp(t, `>\s*Search\s*<`, bar)
 	require.NotContains(t, bar, `data-action="rescan"`, "the RootFolder rescan is the library page's, not the movie's")
 	require.NotContains(t, bar, `data-action="set-monitored"`, "monitoring is the bookmark on the title")
 	require.Contains(t, bar, `<svg`, "every toolbar button has its icon")
+	require.NotContains(t, bar, `data-slot="menubar"`, "an item page's bar has no menus")
 
-	dryRun := requireTag(t, bar, `data-action="rename-dry-run"`, `data-slot="button"`, `type="submit"`)
+	dryRun := requireTag(t, bar, `data-action="rename-dry-run"`, `data-slot="button"`, `type="submit"`, `form="rename-dry-run-nerve"`, `title="Preview Rename (dry run)"`)
 	require.Contains(t, dryRun, `data-toolbar-button`)
 	require.Contains(t, bar, `action="/library/default/movie/nerve/rename"`)
 	require.Contains(t, bar, `name="rename" value="dryRun"`)
-	require.Contains(t, bar, "Rename (dry run)")
-	apply := requireTag(t, bar, `data-action="rename-apply"`, `data-slot="button"`, `type="submit"`)
+	require.Regexp(t, `>\s*Preview\s*<`, bar)
+	apply := requireTag(t, bar, `data-action="rename-apply"`, `data-slot="button"`, `type="submit"`, `form="rename-nerve"`)
 	require.Contains(t, apply, `data-toolbar-button`)
+	require.NotContains(t, apply, `title=`, "Rename says the whole action itself")
 	require.Contains(t, bar, `name="rename" value="apply"`)
 	require.Regexp(t, `>\s*Rename\s*<`, bar, "the apply button reads plain \"Rename\"")
+	for _, id := range []string{"search-nerve", "rename-dry-run-nerve", "rename-nerve"} {
+		requireTag(t, bar, `id="`+id+`"`, `hidden`)
+	}
 }
 
 func TestMoviePageListsFilesExtrasAndTitles(t *testing.T) {

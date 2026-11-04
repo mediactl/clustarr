@@ -41,8 +41,9 @@ func TestMovieToolbarOpensRadarrsInteractiveSearch(t *testing.T) {
 	bar := section(t, page, `data-toolbar`)
 	bar = bar[:strings.Index(bar, `data-hero`)]
 
-	requireTag(t, bar, `data-action="movie-interactive-search"`, `data-slot="button"`, `data-toolbar-button`, `type="submit"`)
-	require.Contains(t, bar, "Interactive Search")
+	requireTag(t, bar, `data-action="movie-interactive-search"`, `data-slot="button"`, `data-toolbar-button`, `type="submit"`, `form="interactive-search-nerve"`, `title="Interactive Search"`)
+	require.Regexp(t, `>\s*Interactive\s*<`, bar, "the button reads one word; the whole action is its title")
+	requireTag(t, bar, `id="interactive-search-nerve"`, `hx-post="/library/default/movie/nerve/search/interactive"`, `hx-target="#movie-modal"`, `hidden`)
 	require.Contains(t, bar, `hx-post="/library/default/movie/nerve/search/interactive"`)
 	require.Contains(t, bar, `hx-target="#movie-modal"`)
 	require.Contains(t, bar, `action="/library/default/movie/nerve/search/interactive"`, "a form post without JavaScript lands on the panel's page")

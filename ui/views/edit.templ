@@ -73,7 +73,7 @@ var (
 // patches those spec leaves and returns to the page.
 templ editDialog(d Detail) {
 	@dialog.Dialog(dialog.Props{ID: "edit-" + d.Item.Ref.Name}) {
-		@button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: editTriggerAttrs(ctx)}) {
+		@button.Button(actionButtonProps(editTriggerAttrs(ctx))) {
 			@icon.Icon("wrench")()
 			<span>Edit</span>
 		}
