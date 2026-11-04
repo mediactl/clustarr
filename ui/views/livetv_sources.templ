@@ -18,8 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package views
 
 import (
+	"cmp"
 	"fmt"
+	"time"
 
+	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/icon"
@@ -105,6 +108,9 @@ templ LiveTVSourcesTables(rows []projection.SourceRow) {
 						@table.Body() {
 							for _, r := range rows {
 								@guideRow(r)
+								if r.Plex != nil {
+									@plexGuideRow(r)
+								}
 							}
 						}
 					}
@@ -192,6 +198,56 @@ templ refreshButton(r projection.SourceRow) {
 	}) {
 		@icon.Icon("refresh-cw")()
 	}
+}
+
+// plexGuideRow is a provider's Plex lineup: the guide Plex shows for its
+// paired channels (the Plex native guide design §5.7).
+templ plexGuideRow(r projection.SourceRow) {
+	@table.Row(table.RowProps{Attributes: templ.Attributes{"data-plex-guide": r.Namespace + "/" + r.Name}}) {
+		@table.Cell(table.CellProps{Class: "font-medium"}) { { r.Name } }
+		@table.Cell() { Plex }
+		@table.Cell(table.CellProps{Class: "max-w-96"}) {
+			<div class="truncate text-sm" title={ r.PlexLineup }>{ cmp.Or(r.Plex.Title, r.PlexLineup) }</div>
+			<div class="text-xs text-muted-foreground">
+				if r.PlexOn {
+					paired channels are on Plex's guide; the rest are off Plex
+				} else {
+					dry run: channels stay on the XMLTV guide until plexGuide.enabled
+				}
+			</div>
+		}
+		@table.Cell() {
+			if r.PlexReason == "LineupFailed" || (r.Plex.Error != "" && r.Plex.FetchedAt == nil) {
+				@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { Error }
+				<div class="mt-1 max-w-72 truncate text-xs text-muted-foreground" title={ cmp.Or(r.Plex.Error, r.PlexMessage) }>{ cmp.Or(r.Plex.Error, r.PlexMessage) }</div>
+			} else if r.Plex.FetchedAt == nil {
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { Not fetched yet }
+			} else {
+				@badge.Badge() { Fetched }
+			}
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums"}) {
+			<div>{ fmt.Sprint(r.Plex.Paired) } paired</div>
+			<div class="text-xs text-muted-foreground">
+				{ fmt.Sprintf("%d ambiguous, %d taken, %d not in the lineup, %d off", r.Plex.Ambiguous, r.Plex.Taken, r.Plex.NotInLineup, r.Plex.Off) }
+			</div>
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums"}) { { fmt.Sprint(r.Plex.Stations) } stations }
+		@table.Cell(table.CellProps{Class: "hidden lg:table-cell"}) { @liveTVTime(plexFetched(r.Plex)) }
+		@table.Cell() {
+			<div class="flex justify-end">
+				@refreshButton(r)
+			</div>
+		}
+	}
+}
+
+func plexFetched(g *clustarrv1.PlexGuideStatus) *time.Time {
+	if g == nil || g.FetchedAt == nil {
+		return nil
+	}
+	t := g.FetchedAt.UTC()
+	return &t
 }
 
 templ guideRow(r projection.SourceRow) {

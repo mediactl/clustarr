@@ -65,10 +65,16 @@ type ChannelEdit struct {
 	// DisplayName is spec.name; "" removes the override, as do Group and
 	// Logo's.
 	DisplayName, Group, Logo *string
-	// EPG is the guide mapping: "" automatic (spec.epg removed, mapped by
-	// tvg-id), "dummy" a placeholder guide, else a guide channel id.
+	// EPG is the guide mapping: "" automatic (mapped by tvg-id), "dummy" a
+	// placeholder guide, else a guide channel id.
 	EPG *string
+	// Plex is the pairing with the provider's Plex lineup (spec.epg.plex):
+	// "" automatic, "off" kept off Plex, else a station's 24-hex gridKey.
+	Plex *string
 }
+
+// plexStation is a station's gridKey, as spec.epg.plex.station takes it.
+var plexStation = regexp.MustCompile(`^[0-9a-f]{24}$`)
 
 // channelSpecPatch is the spec half of a ChannelEdit's merge patch: a
 // field is sent when the edit names it, null to remove an override.
@@ -89,17 +95,32 @@ func (e ChannelEdit) channelSpecPatch() map[string]any {
 			spec[field] = *v
 		}
 	}
+	// A merge patch merges nested objects, so each choice clears the
+	// fields of the others it replaces, and leaves spec.epg.plex to the Plex
+	// choice: the CRD takes at most one of channelID and dummy.
+	epg := map[string]any{}
 	if e.EPG != nil {
 		switch *e.EPG {
 		case "":
-			spec["epg"] = nil
-		// A merge patch merges nested objects, so each choice clears the
-		// other's fields: the CRD takes exactly one of channelID and dummy.
+			epg["channelID"], epg["dummy"], epg["dummyMinutes"] = nil, nil, nil
 		case "dummy":
-			spec["epg"] = map[string]any{"dummy": true, "channelID": nil}
+			epg["dummy"], epg["channelID"] = true, nil
 		default:
-			spec["epg"] = map[string]any{"channelID": *e.EPG, "dummy": nil, "dummyMinutes": nil}
+			epg["channelID"], epg["dummy"], epg["dummyMinutes"] = *e.EPG, nil, nil
 		}
+	}
+	if e.Plex != nil {
+		switch *e.Plex {
+		case "":
+			epg["plex"] = nil
+		case "off":
+			epg["plex"] = map[string]any{"off": true, "station": nil}
+		default:
+			epg["plex"] = map[string]any{"station": *e.Plex, "off": nil}
+		}
+	}
+	if len(epg) > 0 {
+		spec["epg"] = epg
 	}
 	return spec
 }
@@ -116,6 +137,9 @@ func (e ChannelEdit) validate() error {
 	}
 	if e.EPG != nil && len(*e.EPG) > 256 {
 		return fmt.Errorf("%w: channel %s: guide channel id over 256 characters", ErrInvalid, e.Name)
+	}
+	if e.Plex != nil && *e.Plex != "" && *e.Plex != "off" && !plexStation.MatchString(*e.Plex) {
+		return fmt.Errorf("%w: channel %s: Plex station %q is not a 24-hex station id", ErrInvalid, e.Name, *e.Plex)
 	}
 	return nil
 }

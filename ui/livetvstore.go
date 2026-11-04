@@ -28,6 +28,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -203,4 +204,20 @@ func (l *liveTVStore) GuideIndex(ctx context.Context, key types.NamespacedName) 
 		return nil, false
 	}
 	return v.(*guideView), true
+}
+
+// PlexLineup is key's Plex lineup (spec.plexGuide), for the Plex station
+// picker; false before the tuner stored one.
+func (l *liveTVStore) PlexLineup(ctx context.Context, key types.NamespacedName) (*plexguide.Lineup, bool) {
+	v, ok := l.read(ctx, livetvstore.PlexLineupObject(key), func(r io.Reader) (any, error) {
+		var lu plexguide.Lineup
+		if err := livetvstore.Decode(r, &lu); err != nil {
+			return nil, err
+		}
+		return &lu, nil
+	})
+	if !ok {
+		return nil, false
+	}
+	return v.(*plexguide.Lineup), true
 }

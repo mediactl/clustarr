@@ -22,7 +22,9 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 
+	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/dialog"
@@ -35,7 +37,7 @@ import (
 // ChannelFilter is the Channels table's filters.
 type ChannelFilter struct {
 	Q, Provider, Group, State string
-	NoGuide, NoLogo           bool
+	NoGuide, NoLogo, OffPlex  bool
 }
 
 // Values is the filter as query values, empty ones left out.
@@ -51,6 +53,9 @@ func (f ChannelFilter) Values() url.Values {
 	}
 	if f.NoLogo {
 		v.Set("nologo", "1")
+	}
+	if f.OffPlex {
+		v.Set("offplex", "1")
 	}
 	return v
 }
@@ -103,12 +108,14 @@ type PlaylistPaneEntry struct {
 	Candidate                                               bool
 }
 
-// EPGPicker is a channel's guide picker.
+// EPGPicker is a channel's guide picker; with Plex its Plex station picker
+// (spec.epg.plex), whose choices post as "plex".
 type EPGPicker struct {
 	Namespace, Name, Q string
 	// Generation is the channel's metadata.generation the picker read.
 	Generation int64
 	Choices    []EPGChoice
+	Plex       bool
 }
 
 // EPGChoice is one guide choice: Value "" automatic, "dummy", or a guide
@@ -203,6 +210,7 @@ templ channelsFilterForm(p ChannelsPage) {
 		</select>
 		<label class="flex items-center gap-1 text-sm"><input type="checkbox" name="noguide" value="1" checked?={ p.Filter.NoGuide }/> No guide</label>
 		<label class="flex items-center gap-1 text-sm"><input type="checkbox" name="nologo" value="1" checked?={ p.Filter.NoLogo }/> No logo</label>
+		<label class="flex items-center gap-1 text-sm"><input type="checkbox" name="offplex" value="1" checked?={ p.Filter.OffPlex }/> Off Plex</label>
 	</form>
 }
 
@@ -386,6 +394,18 @@ templ ChannelRowView(r projection.ChannelRow) {
 			</button>
 		}
 		@table.Cell(table.CellProps{Class: "hidden text-sm lg:table-cell"}) {
+			if r.PlexGuide {
+				<button
+					type="button"
+					class="max-w-40 truncate rounded-md px-1 text-left text-sm hover:bg-muted"
+					hx-get={ "/livetv/channels/" + r.Namespace + "/" + r.Name + "/plex" }
+					hx-target="#epg-picker"
+					hx-swap="innerHTML"
+					title={ plexTitle(r) }
+				>
+					{ plexLabel(r) }
+				</button>
+			}
 			if r.BlockStart != "" {
 				<div>{ r.BlockStart + "+" }</div>
 				<div class="max-w-28 truncate text-xs text-muted-foreground" title={ r.Owner }>{ r.Owner }</div>
@@ -425,6 +445,43 @@ templ channelLogo(path, number string) {
 	} else {
 		<span data-logo-tile class="flex size-8 items-center justify-center rounded bg-muted text-[10px] tabular-nums text-muted-foreground">{ number }</span>
 	}
+}
+
+// plexLabel is a channel's pairing with its provider's Plex lineup, as the
+// Plex column shows it: the station and its number there, or why it is off
+// Plex.
+func plexLabel(r projection.ChannelRow) string {
+	switch {
+	case r.Plex == nil:
+		return "Not paired yet"
+	case r.OnPlex():
+		return r.Plex.CallSign + " " + r.Plex.VCN
+	case r.Plex.Match == clustarrv1.PlexMatchNotInLineup:
+		return "Not in the lineup"
+	case r.Plex.Match == clustarrv1.PlexMatchOff:
+		return "Off Plex"
+	case r.Plex.Match == clustarrv1.PlexMatchNoLineup:
+		return "No lineup yet"
+	}
+	return string(r.Plex.Match)
+}
+
+// plexTitle is plexLabel's tooltip: the station's title and how it was
+// chosen, the candidates or the holder.
+func plexTitle(r projection.ChannelRow) string {
+	switch {
+	case r.Plex == nil:
+		return "Change the Plex station"
+	case r.OnPlex():
+		return r.Plex.Title + " (" + strings.ToLower(string(r.Plex.Match)) + ")"
+	case r.Plex.Match == clustarrv1.PlexMatchAmbiguous:
+		return "Several stations match: " + strings.Join(r.Plex.Candidates, "; ")
+	case r.Plex.Match == clustarrv1.PlexMatchTaken:
+		return r.Plex.CallSign + " is channel " + r.Plex.TakenBy + "'s"
+	case r.Plex.Match == clustarrv1.PlexMatchTimeshifted:
+		return "Plex's guide cannot shift a channel's times"
+	}
+	return "Change the Plex station"
 }
 
 func epgLabel(epg string) string {
@@ -544,16 +601,21 @@ templ EPGPickerDialog(p EPGPicker) {
 	@dialog.Dialog(dialog.Props{ID: id, DefaultOpen: true}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl"}) {
 			@dialog.Header() {
-				@dialog.Title() { Guide }
-				@dialog.Description() { Which guide channel this channel takes its programmes from. }
+				if p.Plex {
+					@dialog.Title() { Plex guide }
+					@dialog.Description() { Which station of the Plex lineup this channel is on; Plex shows its programmes and its number. }
+				} else {
+					@dialog.Title() { Guide }
+					@dialog.Description() { Which guide channel this channel takes its programmes from. }
+				}
 			}
 			<input
 				type="search"
 				name="q"
 				value={ p.Q }
-				placeholder="Search the guide's channels"
+				placeholder={ pickerPlaceholder(p.Plex) }
 				class="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
-				hx-get={ "/livetv/channels/" + p.Namespace + "/" + p.Name + "/epg" }
+				hx-get={ "/livetv/channels/" + p.Namespace + "/" + p.Name + "/" + pickerRoute(p.Plex) }
 				hx-trigger="input changed delay:250ms"
 				hx-target={ "#epg-choices-" + p.Name }
 				hx-select={ "#epg-choices-" + p.Name }
@@ -564,7 +626,7 @@ templ EPGPickerDialog(p EPGPicker) {
 					{{ attrs := templ.Attributes{
 						"data-epg-choice": c.Value,
 						"hx-post":         "/livetv/channels/" + p.Namespace + "/" + p.Name,
-						"hx-vals":         hxVals("gen", strconv.FormatInt(p.Generation, 10), "epg", c.Value),
+						"hx-vals":         hxVals("gen", strconv.FormatInt(p.Generation, 10), pickerRoute(p.Plex), c.Value),
 						"hx-target":       "#channel-" + p.Name,
 						"hx-swap":         "outerHTML",
 					} }}
@@ -581,4 +643,20 @@ templ EPGPickerDialog(p EPGPicker) {
 			</div>
 		}
 	}
+}
+
+// pickerRoute is the picker's path segment and the field its choices post:
+// "epg" for the guide, "plex" for the Plex station.
+func pickerRoute(plex bool) string {
+	if plex {
+		return "plex"
+	}
+	return "epg"
+}
+
+func pickerPlaceholder(plex bool) string {
+	if plex {
+		return "Search the lineup's stations"
+	}
+	return "Search the guide's channels"
 }

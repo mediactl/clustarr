@@ -71,6 +71,20 @@ type ChannelRow struct {
 	// the cluster-plex installation holding it; StreamURL the tuner's
 	// <block uri>/stream/<number>.
 	BlockStart, Owner, StreamURL string
+	// PlexGuide is the provider pairing its channels with a Plex lineup
+	// (spec.plexGuide); PlexOn its blocks being on it (enabled), so only a
+	// paired channel is in a block.
+	PlexGuide, PlexOn bool
+	// PlexChoice is spec.epg.plex: "" automatic, "off", or a station.
+	PlexChoice string
+	// Plex is the channel's pairing (status.plex); nil before the tuner
+	// paired it.
+	Plex *clustarrv1.ChannelPlexStatus
+}
+
+// OnPlex is a channel paired with a station of its provider's Plex lineup.
+func (r ChannelRow) OnPlex() bool {
+	return r.Plex != nil && (r.Plex.Match == clustarrv1.PlexMatchManual || r.Plex.Match == clustarrv1.PlexMatchAutomatic)
 }
 
 // LiveTVChannels is every channel's row, by number, then provider.
@@ -101,7 +115,14 @@ func LiveTVChannels(in LiveTVInputs) []ChannelRow {
 			if e.Dummy {
 				r.EPG = "dummy"
 			}
+			if x := e.Plex; x != nil {
+				r.PlexChoice = x.Station
+				if x.Off {
+					r.PlexChoice = "off"
+				}
+			}
 		}
+		r.Plex = ch.Status.Plex
 		if c := meta.FindStatusCondition(ch.Status.Conditions, clustarrv1.ConditionReady); c != nil {
 			r.Ready, r.Reason, r.Message = c.Status == "True", c.Reason, c.Message
 			r.Missing = c.Reason == clustarrv1.ReasonMissing
@@ -114,7 +135,11 @@ func LiveTVChannels(in LiveTVInputs) []ChannelRow {
 		if r.Logo != "" {
 			r.LogoPath = LogoPath(pkey, r.Logo)
 		}
-		if p := providers[pkey]; p != nil && r.Active && r.Ready {
+		p := providers[pkey]
+		if p != nil && p.Spec.PlexGuide != nil {
+			r.PlexGuide, r.PlexOn = true, p.Spec.PlexGuide.Enabled
+		}
+		if p != nil && r.Active && r.Ready && (!r.PlexOn || r.OnPlex()) {
 			if b, ok := BlockOf(p.Status.Blocks, r.Number); ok {
 				r.BlockStart, r.Owner = b.Start, b.Owner
 				if b.URI != "" {
@@ -180,6 +205,13 @@ type SourceRow struct {
 	GuideUpdated                   *time.Time
 	GuideError                     string
 	Blocks                         []BlockRow
+	// Plex is the provider's Plex lineup (status.plexGuide) when spec names
+	// one; PlexOn its channels being on it, PlexLineup the lineup as spec
+	// names it.
+	Plex                    *clustarrv1.PlexGuideStatus
+	PlexOn                  bool
+	PlexLineup              string
+	PlexReason, PlexMessage string
 }
 
 // BlockRow is one of a provider's blocks: one Plex DVR.
@@ -239,6 +271,16 @@ func LiveTVSources(providers []clustarrv1.IPTVProvider, now time.Time) []SourceR
 		if g := p.Status.Guide; g != nil {
 			r.GuideChannels, r.GuideProgrammes, r.GuideError = g.Channels, g.Programmes, g.Error
 			r.GuideUpdated = timeOf(g.FetchedAt)
+		}
+		if g := p.Spec.PlexGuide; g != nil {
+			r.PlexOn, r.PlexLineup = g.Enabled, g.LineupID()
+			r.Plex = p.Status.PlexGuide
+			if r.Plex == nil {
+				r.Plex = &clustarrv1.PlexGuideStatus{}
+			}
+			if c := meta.FindStatusCondition(p.Status.Conditions, clustarrv1.ConditionPlexGuideReady); c != nil {
+				r.PlexReason, r.PlexMessage = c.Reason, c.Message
+			}
 		}
 		for _, b := range p.Status.Blocks {
 			r.Blocks = append(r.Blocks, BlockRow{

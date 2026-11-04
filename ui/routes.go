@@ -131,6 +131,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /livetv/channels/{namespace}/{name}", s.handleEditChannel)
 	mux.HandleFunc("POST /livetv/channels/{namespace}/{name}/delete", s.handleDeleteChannel)
 	mux.HandleFunc("GET /livetv/channels/{namespace}/{name}/epg", s.handleChannelEPG)
+	mux.HandleFunc("GET /livetv/channels/{namespace}/{name}/plex", s.handleChannelPlex)
 	mux.HandleFunc("GET /livetv/guide", s.handleLiveTVGuide)
 	mux.HandleFunc("GET /livetv/guide/window", s.handleLiveTVGuideWindow)
 	mux.HandleFunc("GET /livetv/guide/programme", s.handleLiveTVProgramme)

@@ -131,15 +131,17 @@ func TestSourcesPageNeverShowsTheAccount(t *testing.T) {
 	assert.NotContains(t, body, "password=")
 }
 
-func TestAnEPGSourcePMSProviderShowsPlexsGuide(t *testing.T) {
+func TestAPlexGuideProviderShowsItsLineup(t *testing.T) {
 	p := tvProvider()
-	p.Spec.EPGSource = clustarrv1.EPGSourcePMS
+	p.Spec.PlexGuide = &clustarrv1.PlexGuide{Lineup: "657c8183afd0f02cd353633f"}
+	p.Status.PlexGuide = &clustarrv1.PlexGuideStatus{LineupID: "657c8183afd0f02cd353633f", Title: "DIRECTV Mobile (1009 channels)", Stations: 1000, Paired: 167, NotInLineup: 87}
 	srv, _ := tvServer(t, p)
 	body := get(t, srv, "/livetv/sources").Body.String()
-	guide := tagWith(t, body, `data-guide="media/argon-tv"`)
-	require.NotEmpty(t, guide)
-	assert.Contains(t, body, "Plex's")
-	assert.NotContains(t, guide, "hx-post", "nothing to refresh: Plex fetches its own guide")
+	row := tagWith(t, body, `data-plex-guide="media/argon-tv"`)
+	require.NotEmpty(t, row)
+	assert.Contains(t, body, "DIRECTV Mobile (1009 channels)")
+	assert.Contains(t, body, "167 paired")
+	assert.Contains(t, body, "dry run", "enabled is false: the channels stay on the XMLTV guide")
 }
 
 func TestSourcesTablesRefreshThemselves(t *testing.T) {

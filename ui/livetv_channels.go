@@ -35,6 +35,7 @@ import (
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/actions"
@@ -56,7 +57,7 @@ const epgChoicesMax = 20
 func parseChannelFilter(q url.Values) views.ChannelFilter {
 	f := views.ChannelFilter{
 		Q: strings.TrimSpace(q.Get("q")), Provider: q.Get("provider"), Group: q.Get("group"),
-		NoGuide: q.Get("noguide") == "1", NoLogo: q.Get("nologo") == "1",
+		NoGuide: q.Get("noguide") == "1", NoLogo: q.Get("nologo") == "1", OffPlex: q.Get("offplex") == "1",
 	}
 	switch s := q.Get("state"); s {
 	case "active", "inactive":
@@ -79,6 +80,7 @@ func filterChannels(rows []projection.ChannelRow, f views.ChannelFilter) []proje
 		case f.State == "active" && !r.Active, f.State == "inactive" && r.Active:
 		case f.NoGuide && r.Guide != "" && !strings.HasPrefix(r.Guide, "dummy/"):
 		case f.NoLogo && r.Logo != "":
+		case f.OffPlex && (!r.PlexGuide || !r.Active || r.OnPlex()):
 		default:
 			out = append(out, r)
 		}
@@ -173,7 +175,7 @@ func (s *Server) handleEditChannel(w http.ResponseWriter, r *http.Request) {
 		v := strings.TrimSpace(r.PostForm.Get(k))
 		return &v
 	}
-	e.Number, e.DisplayName, e.Group, e.EPG = str("number"), str("name"), str("group"), str("epg")
+	e.Number, e.DisplayName, e.Group, e.EPG, e.Plex = str("number"), str("name"), str("group"), str("epg"), str("plex")
 	if r.PostForm.Has("active") {
 		switch r.PostForm.Get("active") {
 		case "true", "false":
@@ -522,6 +524,74 @@ func rankGuideChannels(gc *guideChannelsView, q string) []views.EPGChoice {
 		}
 		if score >= 0 {
 			out = append(out, scored{score, views.EPGChoice{Value: c.ID, Label: cmp.Or(c.DisplayName, c.ID), Hint: c.ID}})
+		}
+	}
+	slices.SortStableFunc(out, func(a, b scored) int {
+		if a.score != b.score {
+			return a.score - b.score
+		}
+		return strings.Compare(a.c.Label, b.c.Label)
+	})
+	choices := make([]views.EPGChoice, 0, min(len(out), epgChoicesMax))
+	for _, s := range out[:min(len(out), epgChoicesMax)] {
+		choices = append(choices, s.c)
+	}
+	return choices
+}
+
+// handleChannelPlex answers a channel's Plex station picker: automatic,
+// kept off Plex, or a station of its provider's Plex lineup matching the
+// search (the Plex native guide design §5.7).
+func (s *Server) handleChannelPlex(w http.ResponseWriter, r *http.Request) {
+	ns, name := r.PathValue("namespace"), r.PathValue("name")
+	var ch clustarrv1.IPTVChannel
+	if s.opts.Reader == nil || s.opts.Reader.Get(r.Context(), types.NamespacedName{Namespace: ns, Name: name}, &ch) != nil {
+		http.NotFound(w, r)
+		return
+	}
+	pkey := types.NamespacedName{Namespace: ns, Name: ch.Spec.ProviderRef}
+	q := r.URL.Query()
+	query := strings.TrimSpace(q.Get("q"))
+	if !q.Has("q") {
+		query = ch.Spec.Name
+	}
+	picker := views.EPGPicker{Namespace: ns, Name: name, Generation: ch.Generation, Q: query, Plex: true, Choices: []views.EPGChoice{
+		{Value: "", Label: "Automatic", Hint: "by the guide id's call sign and the name"},
+		{Value: "off", Label: "Keep off Plex", Hint: "on no Plex DVR"},
+	}}
+	if lu, ok := s.liveTV.PlexLineup(r.Context(), pkey); ok {
+		picker.Choices = append(picker.Choices, rankStations(lu.Stations, query)...)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.EPGPickerDialog(picker).Render(r.Context(), w); err != nil {
+		logging.FromContext(r.Context()).Error("render the Plex station picker", "error", err)
+	}
+}
+
+// rankStations is the stations matching q by call sign, title or number,
+// exact before prefix before substring, at most epgChoicesMax.
+func rankStations(stations []plexguide.Station, q string) []views.EPGChoice {
+	needle := strings.ToLower(q)
+	type scored struct {
+		score int
+		c     views.EPGChoice
+	}
+	var out []scored
+	for _, st := range stations {
+		cs, title := strings.ToLower(st.CallSign), strings.ToLower(st.Title)
+		score := -1
+		switch {
+		case needle == "":
+			score = 2
+		case cs == needle || title == needle || st.VCN == q:
+			score = 0
+		case strings.HasPrefix(cs, needle) || strings.HasPrefix(title, needle):
+			score = 1
+		case strings.Contains(cs, needle) || strings.Contains(title, needle):
+			score = 2
+		}
+		if score >= 0 {
+			out = append(out, scored{score, views.EPGChoice{Value: st.GridKey, Label: st.Title, Hint: st.CallSign + " " + st.VCN}})
 		}
 	}
 	slices.SortStableFunc(out, func(a, b scored) int {

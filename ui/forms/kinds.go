@@ -346,6 +346,7 @@ var kinds = []Kind{
 			{Title: "Xtream", When: &When{Path: "type", Values: []string{"Xtream"}}, Paths: []string{"server"}},
 			{Title: "M3U", When: &When{Path: "type", Values: []string{"M3U"}}, Paths: []string{"playlistURL"}},
 			{Title: "Guide", Paths: []string{"guideURL"}},
+			{Title: "Plex guide", Paths: []string{"plexGuide.lineup", "plexGuide.enabled", "plexGuide.credentialsRef.name", "plexGuide.credentialsRef.key"}, Advanced: true},
 			{Title: "Channels", Paths: []string{"filters", "channelNumberStart"}},
 			{Title: "Plex", Paths: []string{"device.friendlyName", "device.id", "dvr.maxChannels"}, Advanced: true},
 			{Title: "Stream", Paths: []string{"stream.buffer", "stream.linger", "stream.language"}, Advanced: true},
@@ -353,6 +354,8 @@ var kinds = []Kind{
 		Labels: map[string]string{
 			"guideURL": "Guide URL (XMLTV)", "channelNumberStart": "First channel number",
 			"dvr.maxChannels": "Channels per Plex DVR", "credentialsRef": "Account", "playlistURL": "Playlist URL (M3U)",
+			"plexGuide.lineup": "Plex lineup id", "plexGuide.enabled": "Channels on Plex's guide",
+			"plexGuide.credentialsRef.name": "Plex token Secret", "plexGuide.credentialsRef.key": "Plex token key",
 		},
 		// Not required here: an M3U provider names a Secret only when its
 		// URLs need one, and an Xtream provider without both keys reads
