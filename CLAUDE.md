@@ -652,7 +652,22 @@ PostgreSQL cancelled it ("canceling statement due to statement timeout"),
 PMS's loader died with an uncaught exception, its "Refreshing guide data,
 Initializing 0%" activity sat as a ghost until the next restart, and it
 retried every five minutes. Shim `v1.3.17-clusterplex.46` runs a guide's
-connection with no statement timeout. A load from scratch (a map save,
+connection with no statement timeout, and .47-.49 (talos rev 222,
+cluster-plex 8459523) fix the three translator misses the refresh's own
+statements then hit: an ICU `COLLATE` after an `IN (...)` list, an escaped
+`''` inside a literal, and backticks under a collation (`preprocess.rs`,
+`quotes.rs`). **A refresh is not atomic** (2026-11-04 19:34Z, the owner's
+cancel from Plex Web, `DELETE /livetv/dvrs/32/reloadGuide`, 83 of 248
+channels into the first 2-day chunk): PMS empties the chunk's window for
+every channel before it refills per channel, so the cancel left 165
+channels with no airings for the rest of the day and the next, and PMS
+wrote the provider row as refreshed through 11-18 anyway (a complete
+refresh writes it too, and the DVR's `refreshedAt` with it, so neither
+says the guide is whole); the repair is to stale the row and restart PMS
+(the re-run completed in 22 min under .49), and the finding is the case for a
+manager-written guide (cluster-plex's
+`docs/superpowers/specs/2026-11-04-cloud-guide-loader-design.md`, parked).
+A load from scratch (a map save,
 `reloadGuide`) reads nothing back and was never affected: it is two 7-day
 steps of one `GET /grid/bulk?channelGridKey=&startDate=&endDate=` per
 channel and one `GET /library/metadata/<id>` per programme, serial, with
