@@ -645,10 +645,10 @@ The DIRECTV mapping was extended by hand on 2026-11-04 (owner: "map out the
 remaining direct TV channels"): 65 IPTVChannels paired through
 `spec.epg.plex.station` (the Pensacola/Mobile and Los Angeles affiliates,
 CSPAN 1-3, CNNI, premium movie variants, shopping, Music Choice, F1,
-MotoGP, team feeds), 233 on the one block; a channel is served only when
+MotoGP, team feeds), then 12 more at 12:55Z whose stations the lineup lists under other names (ION Television HD; BBC News (North America), the former BBC World News; MSG National and YES Network's national feed; the outer-market feeds of NBC Sports Boston and Bay Area, Monumental and Space City; the blackout feeds of SNY, SportsNet Pittsburgh, SportsNet LA and Altitude, the only ones listed, whose blacked-out games differ), 245 on the one block; `status.plexGuide.notInLineup` counts the channels no station matched, a station listed under another name included, so read those channels against the station list before trusting the count; a channel is served only when
 some provider filter admits its playlist entry (51 read Missing, "not a
 candidate ... filtered out", until argon-tv admitted their groups), and the
-remaining 750-odd unpaired stations have no argon stream (DIRECTV
+remaining 740-odd unpaired stations have no argon stream (DIRECTV
 placeholders, PPV, regional sports, out-of-market locals); of the lineups
 Plex offers the owner's market, DIRECTV Mobile has the most
 argon-compatible networks (230, against U-verse 209, DISH 199, Cox 186,
