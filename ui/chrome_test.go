@@ -194,8 +194,8 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 		require.Contains(t, bar, class, "the bar is fixed to the right of the screen")
 	}
 	require.NotContains(t, bar, "sticky")
-	rows := requireTag(t, body, `id="library-rows"`, `data-offset="0"`, `data-total="120"`)
-	require.Contains(t, rows, "lg:pr-10", "the grid keeps clear of the bar")
+	requireTag(t, body, `id="library-rows"`, `data-offset="0"`, `data-total="120"`)
+	requireTag(t, body, `id="library-page"`, "lg:pr-10") // the page, its toolbar too, keeps clear of the bar
 	// The position thumb (design 2026-09-24, after Radarr's): a thin mark
 	// the tracker script places along the strip in proportion to the item
 	// range on screen over the whole list, not snapped to a letter.

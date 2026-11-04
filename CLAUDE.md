@@ -969,9 +969,11 @@ dropdown `position: fixed`. No match links to Add New with `?q=`, which
 fills and runs its search. The page toolbar is shadcn's menubar
 (`views.toolbar`; Options, Sort and Filter are its menus). An item page's
 bar -- a movie's, series', season's or episode's (`views.actionBar`, owner
-2026-11-04) -- is one shadcn-templ button group in a glass panel no wider
-than the group, centred under the top bar: outline buttons joined at their
-borders, each an icon over one word (Refresh, Search, Interactive, Preview,
+2026-11-04) -- is one shadcn-templ button group at its large size, the
+group itself the glass with no panel around it, centred under the top bar
+(owner, same day: "Simplify the toolbar ... like the large variant", then
+"a tad bit smaller"): outline buttons joined at their borders, each an
+icon over one word (Refresh, Search, Interactive, Preview,
 Rename, Edit, Images, Delete) with the whole action as its title. An
 action's form is hidden and named by its button's `form` attribute
 (`views.actionForm`), so the button is the group's own child and takes the

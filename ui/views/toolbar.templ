@@ -34,10 +34,10 @@ import (
 // forms (an action), links and menu triggers alike.
 //
 // An item page's bar (actionBar, owner 2026-11-04) is the other shape: it
-// has actions and no menus, so it is one shadcn-templ button group --
-// outline buttons joined at their borders, each an icon over one short
-// word -- in a glass panel no wider than the group, centred under the top
-// bar.
+// has actions and no menus, so it is one shadcn-templ button group in its
+// large size -- outline buttons joined at their borders, each an icon over
+// one short word -- the group itself the glass, centred under the top bar,
+// with no panel around it.
 
 // toolbarButtonClass turns a button into Radarr's toolbar button: the
 // icon above a small label, the whole thing a hover target.
@@ -123,30 +123,37 @@ templ toolbarButton(iconName, label string, attrs templ.Attributes) {
 }
 
 // actionBar is an item page's toolbar: the page's actions as one button
-// group in a floating glass panel that is only as wide as the group,
-// centred, sticky half a rem beneath the top bar as the library's bar is,
-// and scrolling sideways where a narrow window cannot hold it. It carries
-// data-toolbar, as the library's bar does. Its children are the group's
-// buttons -- actionForm's, and the dialogs' triggers, which stand in the
-// group themselves (a dialog root renders no element of its own, and its
-// portal is hidden until the script moves it to <body>).
+// group, shadcn's large size (owner, 2026-11-04: "Simplify the toolbar on
+// movie pages to use something like the large variant"), the group itself
+// the frosted glass -- no panel around it, so its buttons' hairlines are
+// the only frame -- only as wide as its buttons, centred, sticky half a rem
+// beneath the top bar as the library's bar is, and scrolling sideways
+// where a narrow window cannot hold it, with no scrollbar drawn under it
+// (the cut-off button says there is more), and never down: a pressed
+// button's 1px nudge would otherwise flash one. It carries data-toolbar,
+// as the library's bar does. Its children are the group's buttons --
+// actionForm's, and the dialogs' triggers, which stand in the group
+// themselves (a dialog root renders no element of its own, and its portal
+// is hidden until the script moves it to <body>).
 templ actionBar() {
-	<div data-toolbar class="glass panel sticky top-14 z-20 mx-auto mb-6 w-fit max-w-full overflow-x-auto rounded-xl border border-border bg-background/55 p-1 shadow-lg shadow-black/30">
-		@buttongroup.ButtonGroup() {
-			{ children... }
-		}
-	</div>
+	@buttongroup.ButtonGroup(buttongroup.Props{
+		Class:      "glass sticky top-14 z-20 mx-auto mb-6 max-w-full overflow-x-auto overflow-y-hidden rounded-md bg-background/55 [scrollbar-width:none] shadow-lg shadow-black/30",
+		Attributes: templ.Attributes{"data-toolbar": true},
+	}) {
+		{ children... }
+	}
 }
 
-// actionButtonClass is a button of the group: the icon above one short
-// word, the glass showing through (the outline variant's opaque fill and
-// its shadow dropped, since the group's hairlines are its only frame).
-const actionButtonClass = "h-auto min-w-16 flex-col gap-1 bg-transparent px-3 py-1.5 text-[11px] leading-tight font-normal text-muted-foreground shadow-none hover:bg-muted hover:text-foreground aria-expanded:bg-muted [&_svg]:size-5"
+// actionButtonClass is a button of the group: shadcn's large outline
+// button, its text and weight, stood up as a column -- the icon above one
+// short word, both centred -- with the glass showing through (the outline
+// variant's opaque fill and its shadow dropped).
+const actionButtonClass = "h-auto min-w-18 flex-col gap-1 bg-transparent px-3.5 py-2 shadow-none hover:bg-muted aria-expanded:bg-muted [&_svg]:size-[18px]!"
 
-// actionButtonProps is the group's button in its outline variant, the
-// one the group joins at the borders, with attrs on it.
+// actionButtonProps is the group's button: outline, the variant the group
+// joins at the borders, at the large size, with attrs on it.
 func actionButtonProps(attrs templ.Attributes) button.Props {
-	return button.Props{Variant: button.VariantOutline, Class: actionButtonClass, Attributes: attrs}
+	return button.Props{Variant: button.VariantOutline, Size: button.SizeLg, Class: actionButtonClass, Attributes: attrs}
 }
 
 // actionTitle is the hover title of a button whose word does not say the

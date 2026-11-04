@@ -221,11 +221,12 @@ func TestMoviePageToolbarHasRadarrsActions(t *testing.T) {
 	require.GreaterOrEqual(t, heroAt, 0)
 	bar = bar[:heroAt]
 
-	// The bar is one button group (owner, 2026-11-04): every action is a
-	// direct child of the group, its form hidden and named by the
-	// button's form attribute, and reads one word, the whole action in
-	// its title.
-	requireTag(t, bar, `data-slot="button-group"`, `role="group"`)
+	// The bar is one button group (owner, 2026-11-04), the group itself
+	// with no panel around it ("Simplify the toolbar ... like the large
+	// variant"), its buttons at the large size: every action is a direct
+	// child of the group, its form hidden and named by the button's form
+	// attribute, and reads one word, the whole action in its title.
+	requireTag(t, body, `data-toolbar`, `data-slot="button-group"`, `role="group"`, `glass`)
 	refresh := requireTag(t, bar, `data-action="refresh-metadata"`, `data-slot="button"`, `type="submit"`, `form="refresh-nerve"`, `title="Refresh &amp; Scan"`)
 	require.Contains(t, refresh, `data-toolbar-button`, "toolbar buttons are icon-over-label")
 	requireTag(t, bar, `id="refresh-nerve"`, `action="/library/default/movie/nerve/refresh"`, `hidden`)
