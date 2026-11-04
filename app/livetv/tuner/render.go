@@ -289,7 +289,7 @@ func (t *Tuner) render(p *provider) {
 		if fetched {
 			sf.lineupHash = sha(append(hdhr.Lineup(sf.entries), sf.plexMapJSON...))
 		}
-		blockStates[i] = BlockState{Start: b.Start, Active: len(sf.entries), LineupHash: sf.lineupHash, GuideHash: sf.guideHash}
+		blockStates[i] = BlockState{Start: b.Start, DeviceID: b.DeviceID, Active: len(sf.entries), LineupHash: sf.lineupHash, GuideHash: sf.guideHash}
 	}
 	t.startArtLookups(p) // the titles the builds found no artwork for
 	logos := map[string]bool{}

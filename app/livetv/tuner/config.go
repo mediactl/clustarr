@@ -254,7 +254,11 @@ type LineupState struct {
 // BlockState is one block's rendered lineup and guide. A change in a hash
 // tells cluster-plex to save that DVR's map or reload its guide.
 type BlockState struct {
-	Start                 string
+	Start string
+	// DeviceID is the device the render serves the block at: the status
+	// names a block's device only once it is served (a Plex block takes a
+	// device of its own at the same start as the XMLTV block it replaces).
+	DeviceID              string
 	Active                int
 	LineupHash, GuideHash string
 }

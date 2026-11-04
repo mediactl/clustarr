@@ -106,11 +106,24 @@ func render(p *clustarrv1.IPTVProvider, address string, pl plan, tn Tuner, valid
 
 // withBlocks writes the planned blocks, each with its lineup and guide hashes
 // from the snapshot, or, when the tuner does not answer, from the status.
+//
+// A planned block whose device the tuner does not serve yet keeps the
+// status as it is: the status names only devices Plex can reach. The
+// controller applies a new plan to the tuner and writes the status in the
+// same reconcile, while the tuner serves the plan's devices only once its
+// render ends -- 85 s for the owner's 257 channels on 2026-11-04, when
+// argon-tv moved onto Plex's own guide: cluster-plex read the new device's
+// URI from the status at once, PMS could not fetch it ("POST
+// /media/grabbers/devices: plex: not found"), and the old XMLTV DVR was
+// deleted before the new device registered. The tuner's Notify wakes the
+// controller when the render lands, and that reconcile publishes the plan.
 func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarrv1.IPTVProvider, pl plan, snap tuner.Snapshot, ok bool) {
 	rendered := map[string]tuner.BlockState{}
+	served := map[string]bool{}
 	if ok {
 		for _, b := range snap.Blocks {
 			rendered[b.Start] = b
+			served[b.DeviceID] = true
 		}
 	}
 	// By device: a Plex block may start where an XMLTV block did, and
@@ -119,7 +132,11 @@ func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarr
 	for _, b := range p.Status.Blocks {
 		known[b.DeviceID] = b
 	}
-	for _, b := range pl.blocks {
+	blocks := pl.blocks
+	if ok && snap.PlaylistFetched && !allServed(pl.blocks, served) {
+		blocks = p.Status.Blocks
+	}
+	for _, b := range blocks {
 		ac := clustarrac.BlockStatus().WithStart(b.Start).WithChannels(b.Channels).WithFirst(b.First).WithLast(b.Last).
 			WithMapBytes(b.MapBytes).WithDeviceID(b.DeviceID).WithFriendlyName(b.FriendlyName)
 		if b.Path != "" {
@@ -153,6 +170,18 @@ func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarr
 		}
 		st.WithBlocks(ac)
 	}
+}
+
+// allServed is whether the tuner's render serves every planned block's
+// device. A block without a device (a span no device was found for) needs
+// none.
+func allServed(blocks []clustarrv1.BlockStatus, served map[string]bool) bool {
+	for _, b := range blocks {
+		if b.DeviceID != "" && !served[b.DeviceID] {
+			return false
+		}
+	}
+	return true
 }
 
 // fetchConditions are PlaylistFetched and GuidesFetched: from the snapshot,

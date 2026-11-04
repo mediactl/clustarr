@@ -100,6 +100,44 @@ func TestATunerThatHasNotFetchedKeepsTheBlocksHashes(t *testing.T) {
 	assert.Equal(t, "guide-new", *st.Blocks[0].GuideHash)
 }
 
+// TestABlockTheTunerDoesNotServeYetIsNotPublished: a plan that moves a block
+// onto a device the tuner's render does not serve yet (argon-tv onto Plex's
+// own guide, 2026-11-04) keeps the status's blocks until the render lands,
+// so cluster-plex never registers a device PMS cannot fetch, nor deletes
+// the old DVR before the new device is there.
+func TestABlockTheTunerDoesNotServeYetIsNotPublished(t *testing.T) {
+	old := clustarrv1.BlockStatus{Start: "1001", DeviceID: "8246E54A", Path: "/hdhr/8246E54A", URI: "http://livetv/hdhr/8246E54A", LineupHash: "l-old", GuideHash: "g-old", Channels: 257}
+	p := &clustarrv1.IPTVProvider{Status: clustarrv1.IPTVProviderStatus{Blocks: []clustarrv1.BlockStatus{old}}}
+	pl := plan{blocks: []clustarrv1.BlockStatus{{Start: "1001", DeviceID: "1AED97B8", Path: "/hdhr/1AED97B8", URI: "http://livetv/hdhr/1AED97B8", Lineup: "lineup://tv.plex.providers.epg.cloud/657c8183afd0f02cd353633f", Channels: 167}}}
+
+	// The render still serves the XMLTV device at the same start.
+	snap := tuner.Snapshot{PlaylistFetched: true, Blocks: []tuner.BlockState{{Start: "1001", DeviceID: "8246E54A", LineupHash: "l-old", GuideHash: "g-old"}}}
+	st := clustarrac.IPTVProviderStatus()
+	withBlocks(st, p, pl, snap, true)
+	require.Len(t, st.Blocks, 1)
+	assert.Equal(t, "8246E54A", *st.Blocks[0].DeviceID, "the served device stays published")
+	assert.Equal(t, "http://livetv/hdhr/8246E54A", *st.Blocks[0].URI)
+	assert.Nil(t, st.Blocks[0].Lineup)
+	assert.Equal(t, int32(257), *st.Blocks[0].Channels)
+
+	// The render landed: the Plex device is served, and published.
+	snap.Blocks = []tuner.BlockState{{Start: "1001", DeviceID: "1AED97B8", LineupHash: "l-plex"}}
+	st = clustarrac.IPTVProviderStatus()
+	withBlocks(st, p, pl, snap, true)
+	require.Len(t, st.Blocks, 1)
+	assert.Equal(t, "1AED97B8", *st.Blocks[0].DeviceID)
+	assert.Equal(t, "lineup://tv.plex.providers.epg.cloud/657c8183afd0f02cd353633f", *st.Blocks[0].Lineup)
+	assert.Equal(t, "l-plex", *st.Blocks[0].LineupHash)
+	assert.Nil(t, st.Blocks[0].GuideHash, "a Plex block has no guide of its own")
+
+	// A tuner that has not rendered a playlist (a manager just started)
+	// publishes the plan, as before.
+	st = clustarrac.IPTVProviderStatus()
+	withBlocks(st, p, pl, tuner.Snapshot{}, true)
+	require.Len(t, st.Blocks, 1)
+	assert.Equal(t, "1AED97B8", *st.Blocks[0].DeviceID)
+}
+
 // TestABlockCarriesItsPathAndURI: the status names each block's device path
 // and the URI Plex registers.
 func TestABlockCarriesItsPathAndURI(t *testing.T) {
