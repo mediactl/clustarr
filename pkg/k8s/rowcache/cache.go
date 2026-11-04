@@ -68,10 +68,11 @@ type Options struct {
 
 // kind is one of Options.Kinds resolved against the scheme.
 type kind struct {
-	gvk   schema.GroupVersionKind
-	typ   reflect.Type // the kind's struct type
-	obj   client.Object
-	codec *codec
+	gvk      schema.GroupVersionKind
+	resource string       // the REST resource name (episodes)
+	typ      reflect.Type // the kind's struct type
+	obj      client.Object
+	codec    *codec
 }
 
 // Cache is the controller-runtime cache [New] builds.
@@ -101,10 +102,29 @@ func New(o Options) cache.NewCacheFunc {
 			kinds[reflect.TypeOf(obj)] = k
 			lists[listType] = k
 		}
+		// Each kind's own lister-watcher, over CBOR (cbor.go), where the
+		// cache's options let the row cache reproduce controller-runtime's.
+		streams := make(map[*kind]toolscache.ListerWatcher, len(kinds))
+		for _, k := range kinds {
+			ns, ok := cborNamespace(opts, k)
+			if !ok {
+				continue
+			}
+			lw, err := cborListerWatcher(cfg, opts.HTTPClient, opts.Scheme, k, ns)
+			if err != nil {
+				return nil, err
+			}
+			streams[k] = lw
+		}
 		next := opts.NewInformer
 		opts.NewInformer = func(lw toolscache.ListerWatcher, obj runtime.Object, resync time.Duration, indexers toolscache.Indexers) toolscache.SharedIndexInformer {
 			if k, ok := kinds[reflect.TypeOf(obj)]; ok {
-				return newInformer(lw, obj, k, resync, indexers)
+				inf := newInformer(lw, obj, k, resync, indexers)
+				if own := streams[k]; own != nil {
+					inf.lw = inf.listerWatcher(own)
+					inf.wire = runtime.ContentTypeCBOR
+				}
+				return inf
 			}
 			if next != nil {
 				return next(lw, obj, resync, indexers)
@@ -143,7 +163,7 @@ func resolve(obj client.Object, opts cache.Options) (*kind, reflect.Type, error)
 	if err != nil {
 		return nil, nil, err
 	}
-	return &kind{gvk: gvk, typ: t.Elem(), obj: obj, codec: c}, reflect.TypeOf(list), nil
+	return &kind{gvk: gvk, resource: mapping.Resource.Resource, typ: t.Elem(), obj: obj, codec: c}, reflect.TypeOf(list), nil
 }
 
 // informer is the row informer of a kind, started.

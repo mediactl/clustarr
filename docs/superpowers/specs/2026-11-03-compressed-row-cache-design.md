@@ -229,6 +229,31 @@ loop's workers starting within a minute of the lease; the drain's
 allocation down three to four times; one stream's 64 MiB out of the live
 heap and the GC goal.
 
+## 4d. As built: the stream in CBOR (2026-11-04)
+
+The owner asked for client-go's `ClientsAllowCBOR` and `ClientsPreferCBOR`.
+talos's apiserver (1.37) serves CBOR (`CBORServingAndStorage` is on), and
+client-go 0.37 decodes it behind `ClientsAllowCBOR`. controller-runtime
+0.25, though, builds the codec factories of its client and its cache with
+`serializer.NewCodecFactory(scheme)` alone, without the CBOR serializer, and
+overwrites the REST config's negotiated serializer with them, so neither
+gate reaches its clients: under `ClientsPreferCBOR` every lister-watcher it
+builds asks for CBOR and cannot decode the answer, no kind syncs, and the
+manager never becomes ready (seen live at 04:05Z when both variables were
+set on the Deployment). So `cbor.go` gives the row cache its own
+lister-watcher per kind -- the shape of controller-runtime's structured
+one, on a REST client whose codec factory carries the CBOR serializer and
+whose content types ask for CBOR with JSON as the fallback -- where the
+bytes are: the 44,000-object initial list and the watch. `ClientsAllowCBOR`
+is set on through client-go's own gates at init unless the environment
+names it (a set value outranks the environment); with it off, client-go
+rewrites the content types to JSON. `ClientsPreferCBOR` stays off. A kind
+keeps controller-runtime's lister-watcher when the cache's options give it
+a shape the row cache's does not reproduce (several namespaces, a default
+selector, a ByObject entry). Tests: a list over CBOR against an httptest
+apiserver, the same request as JSON with the gate off, a watch as a CBOR
+sequence decoded into the kind's objects, and the shapes that fall back.
+
 ## 5. Tests
 
 `pkg/k8s/rowcache`: the store holds rows and every reader gets an object (a

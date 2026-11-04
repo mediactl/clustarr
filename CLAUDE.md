@@ -2407,6 +2407,22 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   of one object from the first decode, by the same object (the planners
   read with `UnsafeDisableDeepCopy` already and never mutate what they
   read), counted in `clustarr_remediation_pass_reads_total{kind,result}`.
+  **The four kinds stream from the apiserver in CBOR** (owner, 2026-11-04;
+  `pkg/k8s/rowcache/cbor.go`): talos's apiserver serves it
+  (`CBORServingAndStorage`), and the row cache builds each kind's own
+  lister-watcher over a REST client whose codec factory carries the CBOR
+  serializer and asks for `application/cbor` first, JSON as the fallback,
+  with client-go's `ClientsAllowCBOR` gate on by default in the process
+  (`KUBE_FEATURE_ClientsAllowCBOR=false` in the environment turns it off,
+  and client-go then rewrites those content types to JSON itself). **Never
+  set `KUBE_FEATURE_ClientsPreferCBOR`**: controller-runtime 0.25 builds the
+  codec factories of its client and its cache without the CBOR serializer,
+  so under PreferCBOR every one of its lister-watchers asks for CBOR and
+  cannot decode the answer ("serializer for application/cbor doesn't
+  exist"), no kind syncs, and the manager never becomes ready -- which is
+  what the 04:05Z rollout of 2026-11-04 did until the variable came off.
+  Only the row cache's own stream, which carries the serializer, may use
+  CBOR until controller-runtime does.
 - **A watch's map function runs for every object at startup, and the
   source is not synced until it has.** controller-runtime's `Kind` source
   waits on `handlerRegistration.HasSynced`, and a cache's initial sync
