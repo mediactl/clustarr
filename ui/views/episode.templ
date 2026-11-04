@@ -25,10 +25,13 @@ import (
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/collapsible"
 	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/empty"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/spinner"
 	"github.com/mediactl/clustarr/ui/components/table"
 	"github.com/mediactl/clustarr/ui/components/tabs"
+	"github.com/mediactl/clustarr/ui/components/togglegroup"
+	"github.com/mediactl/clustarr/ui/components/utils"
 )
 
 // EpisodeModal is Sonarr's episode details modal, opened from an episode's
@@ -42,8 +45,12 @@ templ EpisodeModal(d EpisodeDetail) {
 			Attributes: templ.Attributes{"data-episode-modal": d.Row.Name},
 		}) {
 			@dialog.Header() {
-				@dialog.Title() { { episodeHeading(d) } }
-				@dialog.Description() { { episodeFacts(d) } }
+				@dialog.Title() {
+					{ episodeHeading(d) }
+				}
+				@dialog.Description() {
+					{ episodeFacts(d) }
+				}
 			}
 			@episodeTabs(d)
 		}
@@ -78,8 +85,12 @@ func episodeFacts(d EpisodeDetail) string {
 templ episodeTabs(d EpisodeDetail) {
 	@tabs.Tabs(tabs.Props{DefaultValue: d.Tab, Class: "min-w-0"}) {
 		@tabs.List() {
-			@tabs.Trigger(tabs.TriggerProps{Value: "details", Attributes: templ.Attributes{"data-tab": "details"}}) { Details }
-			@tabs.Trigger(tabs.TriggerProps{Value: "search", Attributes: templ.Attributes{"data-tab": "search"}}) { Search }
+			@tabs.Trigger(tabs.TriggerProps{Value: "details", Attributes: templ.Attributes{"data-tab": "details"}}) {
+				Details 
+			}
+			@tabs.Trigger(tabs.TriggerProps{Value: "search", Attributes: templ.Attributes{"data-tab": "search"}}) {
+				Search 
+			}
 		}
 		@tabs.Content(tabs.ContentProps{Value: "details", Class: "space-y-4 pt-2"}) {
 			@episodeSummary(d)
@@ -114,44 +125,68 @@ templ episodeSummary(d EpisodeDetail) {
 // warn), formats and score.
 templ fileTable(kind string, f *FileRow, warn bool) {
 	if f == nil {
-		<p class="rounded-md border border-border px-4 py-3 text-muted-foreground" { templ.Attributes{"data-" + kind + "-file": ""}... }>No file on disk.</p>
+		@emptyNote("No file on disk.", "rounded-md border border-border py-3", templ.Attributes{"data-" + kind + "-file": ""})
 	} else {
 		<div class="rounded-md border border-border" { templ.Attributes{"data-" + kind + "-file": f.Name}... }>
 			@table.Table() {
 				@table.Header() {
 					@table.Row() {
-						@table.Head() { Path }
-						@table.Head() { Size }
-						@table.Head() { Languages }
-						@table.Head() { Quality }
-						@table.Head() { Formats }
-						@table.Head(table.HeadProps{Class: "text-right"}) { Score }
+						@table.Head() {
+							Path 
+						}
+						@table.Head() {
+							Size 
+						}
+						@table.Head() {
+							Languages 
+						}
+						@table.Head() {
+							Quality 
+						}
+						@table.Head() {
+							Formats 
+						}
+						@table.Head(table.HeadProps{Class: "text-right"}) {
+							Score 
+						}
 					}
 				}
 				@table.Body() {
 					@table.Row() {
-						@table.Cell(table.CellProps{Class: "max-w-md break-all whitespace-normal"}) { { f.RelativePath } }
-						@table.Cell() { { formatBytes(f.SizeBytes) } }
+						@table.Cell(table.CellProps{Class: "max-w-md break-all whitespace-normal"}) {
+							{ f.RelativePath }
+						}
+						@table.Cell() {
+							{ formatBytes(f.SizeBytes) }
+						}
 						@table.Cell() {
 							<span class="flex flex-wrap gap-1">
 								for _, l := range f.Languages {
-									@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { l } }
+									@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+										{ l }
+									}
 								}
 							</span>
 						}
 						@table.Cell() {
 							if f.Quality != "" {
-								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(warn)}) { { f.Quality } }
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(warn)}) {
+									{ f.Quality }
+								}
 							}
 						}
 						@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
 							<span class="flex flex-wrap gap-1">
 								for _, format := range f.Formats {
-									@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { format } }
+									@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+										{ format }
+									}
 								}
 							</span>
 						}
-						@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) { { signed(f.Score) } }
+						@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+							{ signed(f.Score) }
+						}
 					}
 				}
 			}
@@ -227,7 +262,7 @@ templ SearchPanelView(p SearchPanel) {
 	>
 		@actionFailure(p.Error)
 		<p class="flex items-center gap-2 text-sm text-muted-foreground" data-search-summary>
-			switch {
+			switch  {
 				case p.Gone:
 					This search has expired; run it again.
 				case p.Pending():
@@ -245,21 +280,27 @@ templ SearchPanelView(p SearchPanel) {
 		if listed := p.Listed(); len(listed) > 0 {
 			@releaseTable(p, listed, "data-release-table")
 		} else if p.PacksOnly() && len(p.Results) > 0 {
-			<p class="rounded-md border border-border px-4 py-6 text-center text-muted-foreground" data-search-no-packs>
-				No season packs.
-				<a
-					href={ templ.URL(p.FilterURL("all")) }
-					hx-get={ p.FilterURL("all") }
-					hx-target="closest [data-search-panel]"
-					hx-swap="outerHTML"
-					class="text-foreground underline"
-					data-action="search-show-all"
-				>{ fmt.Sprintf("Show all %d releases", len(p.Results)) }</a>
-			</p>
+			@empty.Empty(empty.Props{Class: "rounded-md border border-border py-6", Attributes: templ.Attributes{"data-search-no-packs": true}}) {
+				@empty.Header() {
+					@empty.Description() {
+						No season packs.
+					}
+				}
+				@empty.Content() {
+					<a
+						href={ templ.URL(p.FilterURL("all")) }
+						hx-get={ p.FilterURL("all") }
+						hx-target="closest [data-search-panel]"
+						hx-swap="outerHTML"
+						class="text-foreground underline"
+						data-action="search-show-all"
+					>{ fmt.Sprintf("Show all %d releases", len(p.Results)) }</a>
+				}
+			}
 		} else if len(p.Results) > 0 {
-			<p class="rounded-md border border-border px-4 py-6 text-center text-muted-foreground" data-search-empty>No releases for this item; the others are below.</p>
+			@emptyNote("No releases for this item; the others are below.", "rounded-md border border-border", templ.Attributes{"data-search-empty": true})
 		} else if !p.Pending() && !p.Gone && p.Phase != "Failed" {
-			<p class="rounded-md border border-border px-4 py-6 text-center text-muted-foreground" data-search-empty>No results found.</p>
+			@emptyNote("No results found.", "rounded-md border border-border", templ.Attributes{"data-search-empty": true})
 		}
 		if others := p.OtherRows(); len(others) > 0 {
 			@collapsible.Collapsible(collapsible.Props{Class: "rounded-md border border-border", Attributes: templ.Attributes{"data-other-titles": fmt.Sprint(len(others))}}) {
@@ -280,17 +321,39 @@ templ releaseTable(p SearchPanel, rows []ReleaseRow, attr string) {
 		@table.Table(table.Props{Attributes: templ.Attributes{attr: ""}}) {
 			@table.Header() {
 				@table.Row() {
-					@table.Head() { Source }
-					@table.Head() { Age }
-					@table.Head() { Title }
-					@table.Head() { Indexer }
-					@table.Head(table.HeadProps{Class: "text-right"}) { Size }
-					@table.Head() { Peers }
-					@table.Head() { Languages }
-					@table.Head() { Quality }
-					@table.Head(table.HeadProps{Class: "text-right"}) { Score }
-					@table.Head() { <span class="sr-only">Rejections</span> }
-					@table.Head() { <span class="sr-only">Download</span> }
+					@table.Head() {
+						Source 
+					}
+					@table.Head() {
+						Age 
+					}
+					@table.Head() {
+						Title 
+					}
+					@table.Head() {
+						Indexer 
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Size 
+					}
+					@table.Head() {
+						Peers 
+					}
+					@table.Head() {
+						Languages 
+					}
+					@table.Head() {
+						Quality 
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Score 
+					}
+					@table.Head() {
+						<span class="sr-only">Rejections</span>
+					}
+					@table.Head() {
+						<span class="sr-only">Download</span>
+					}
 				}
 			}
 			@table.Body() {
@@ -303,32 +366,30 @@ templ releaseTable(p SearchPanel, rows []ReleaseRow, attr string) {
 }
 
 // seasonFilter is a season search's filter (Sonarr's season view): season
-// packs, the default, or all releases.
+// packs, the default, or all releases, as shadcn-templ's toggle group
+// (since 2026-11-04), the current one pressed; a press fetches the panel
+// filtered so.
 templ seasonFilter(p SearchPanel) {
-	<div class="flex items-center gap-1 text-sm" data-season-filter={ p.Filter }>
-		@filterLink(p, "packs", fmt.Sprintf("Season packs (%d)", p.Packs))
-		@filterLink(p, "all", fmt.Sprintf("All (%d)", len(p.Results)))
-	</div>
-}
-
-// filterLink is one of seasonFilter's two choices, the current one marked.
-templ filterLink(p SearchPanel, filter, label string) {
-	<a
-		href={ templ.URL(p.FilterURL(filter)) }
-		hx-get={ p.FilterURL(filter) }
-		hx-target="closest [data-search-panel]"
-		hx-swap="outerHTML"
-		class={ filterClass(p.Filter == filter) }
-		data-filter={ filter }
-	>{ label }</a>
-}
-
-// filterClass marks the current filter. Whole literals, for Tailwind.
-func filterClass(current bool) string {
-	if current {
-		return "rounded-md bg-muted px-2 py-1 font-medium text-foreground"
+	@togglegroup.ToggleGroup(togglegroup.Props{
+		Variant:    togglegroup.VariantOutline,
+		Size:       togglegroup.SizeSm,
+		Spacing:    utils.Ptr(0),
+		Value:      []string{p.Filter},
+		Attributes: templ.Attributes{"data-season-filter": p.Filter, "aria-label": "Releases"},
+	}) {
+		@filterItem(p, "packs", fmt.Sprintf("Season packs (%d)", p.Packs))
+		@filterItem(p, "all", fmt.Sprintf("All (%d)", len(p.Results)))
 	}
-	return "rounded-md px-2 py-1 text-muted-foreground hover:bg-muted/50"
+}
+
+// filterItem is one of seasonFilter's two choices.
+templ filterItem(p SearchPanel, filter, label string) {
+	@togglegroup.Item(togglegroup.ItemProps{
+		Value:      filter,
+		Attributes: templ.Attributes{"hx-get": p.FilterURL(filter), "hx-target": "closest [data-search-panel]", "hx-swap": "outerHTML", "data-filter": filter},
+	}) {
+		{ label }
+	}
 }
 
 // otherTitlesLabel is the collapsed band's summary.
@@ -361,9 +422,13 @@ templ releaseRow(p SearchPanel, r ReleaseRow) {
 		"data-other-title":   fmt.Sprintf("%t", r.OtherTitle),
 	}}) {
 		@table.Cell() {
-			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: protocolTone(r.Protocol)}) { { r.Protocol } }
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: protocolTone(r.Protocol)}) {
+				{ r.Protocol }
+			}
 		}
-		@table.Cell(table.CellProps{Class: "text-muted-foreground"}) { { r.Age } }
+		@table.Cell(table.CellProps{Class: "text-muted-foreground"}) {
+			{ r.Age }
+		}
 		@table.Cell(table.CellProps{Class: "max-w-xl break-all whitespace-normal"}) {
 			if r.InfoURL != "" {
 				<a href={ templ.URL(r.InfoURL) } target="_blank" rel="noopener noreferrer" class="hover:underline">{ r.Title }</a>
@@ -376,22 +441,34 @@ templ releaseRow(p SearchPanel, r ReleaseRow) {
 				}
 			}
 		}
-		@table.Cell() { { r.Indexer } }
-		@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) { { formatBytes(r.Size) } }
-		@table.Cell(table.CellProps{Class: "tabular-nums"}) { { r.Peers } }
+		@table.Cell() {
+			{ r.Indexer }
+		}
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+			{ formatBytes(r.Size) }
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums"}) {
+			{ r.Peers }
+		}
 		@table.Cell() {
 			<span class="flex flex-wrap gap-1">
 				for _, l := range r.Languages {
-					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { l } }
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						{ l }
+					}
 				}
 			</span>
 		}
 		@table.Cell() {
 			if r.Quality != "" {
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { r.Quality } }
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ r.Quality }
+				}
 			}
 		}
-		@table.Cell(table.CellProps{Class: "text-right tabular-nums", Attributes: templ.Attributes{"title": scoreTitle(r)}}) { { releaseScore(r) } }
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums", Attributes: templ.Attributes{"title": scoreTitle(r)}}) {
+			{ releaseScore(r) }
+		}
 		@table.Cell() {
 			if len(r.Rejections) > 0 {
 				<span class="text-red-300 [&_svg]:size-4" title={ strings.Join(r.Rejections, "\n") } data-rejections={ fmt.Sprint(len(r.Rejections)) }>

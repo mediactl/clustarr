@@ -45,16 +45,26 @@ templ bookRegions() {
 // fold away on a narrow screen.
 templ BookRows(books []BookRow) {
 	if len(books) == 0 {
-		<p class="px-4 py-3 text-sm text-muted-foreground">Nothing here yet.</p>
+		@emptyNote("Nothing here yet.", "py-3", nil)
 	} else {
 		@table.Table(table.Props{Attributes: templ.Attributes{"data-book-table": ""}}) {
 			@table.Header() {
 				@table.Row() {
-					@table.Head(table.HeadProps{Class: "w-10"}) { <span class="sr-only">Monitored</span> }
-					@table.Head() { Title }
-					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) { Release Date }
-					@table.Head(table.HeadProps{Class: "w-36"}) { Status }
-					@table.Head(table.HeadProps{Class: "w-20"}) { <span class="sr-only">Actions</span> }
+					@table.Head(table.HeadProps{Class: "w-10"}) {
+						<span class="sr-only">Monitored</span>
+					}
+					@table.Head() {
+						Title 
+					}
+					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) {
+						Release Date 
+					}
+					@table.Head(table.HeadProps{Class: "w-36"}) {
+						Status 
+					}
+					@table.Head(table.HeadProps{Class: "w-20"}) {
+						<span class="sr-only">Actions</span>
+					}
 				}
 			}
 			@table.Body() {
@@ -102,7 +112,9 @@ templ BookRowView(b BookRow) {
 					{ b.DisplayTitle() }
 				</a>
 				if b.Series != "" {
-					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-sky-300", Attributes: templ.Attributes{"data-book-series": b.Series}}) { { b.Series } }
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-sky-300", Attributes: templ.Attributes{"data-book-series": b.Series}}) {
+						{ b.Series }
+					}
 				}
 			</span>
 			@actionFailure(b.Error)
@@ -134,8 +146,12 @@ templ BookModal(d BookDetail) {
 			Attributes: templ.Attributes{"data-book-modal": d.Row.Name},
 		}) {
 			@dialog.Header() {
-				@dialog.Title() { { bookHeading(d) } }
-				@dialog.Description() { { bookFacts(d) } }
+				@dialog.Title() {
+					{ bookHeading(d) }
+				}
+				@dialog.Description() {
+					{ bookFacts(d) }
+				}
 			}
 			@bookTabs(d)
 		}
@@ -191,8 +207,12 @@ func bookFacts(d BookDetail) string {
 templ bookTabs(d BookDetail) {
 	@tabs.Tabs(tabs.Props{DefaultValue: d.Tab, Class: "min-w-0"}) {
 		@tabs.List() {
-			@tabs.Trigger(tabs.TriggerProps{Value: "details", Attributes: templ.Attributes{"data-tab": "details"}}) { Details }
-			@tabs.Trigger(tabs.TriggerProps{Value: "search", Attributes: templ.Attributes{"data-tab": "search"}}) { Search }
+			@tabs.Trigger(tabs.TriggerProps{Value: "details", Attributes: templ.Attributes{"data-tab": "details"}}) {
+				Details 
+			}
+			@tabs.Trigger(tabs.TriggerProps{Value: "search", Attributes: templ.Attributes{"data-tab": "search"}}) {
+				Search 
+			}
 		}
 		@tabs.Content(tabs.ContentProps{Value: "details", Class: "space-y-4 pt-2"}) {
 			@bookSummary(d)
@@ -216,7 +236,9 @@ templ bookSummary(d BookDetail) {
 	if len(d.Genres) > 0 {
 		<p class="flex flex-wrap gap-1">
 			for _, g := range d.Genres {
-				@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { g } }
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+					{ g }
+				}
 			}
 		</p>
 	}

@@ -22,7 +22,9 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/checkbox"
 	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/field"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/input"
 	"github.com/mediactl/clustarr/ui/components/textarea"
@@ -62,10 +64,14 @@ templ imageSetDialog(d Detail) {
 				<input type="hidden" name="return" value={ libraryDetailPath(d.Item) }/>
 				@textarea.Textarea(textarea.Props{ID: "imageset-yaml-" + d.Item.Ref.Name, Name: "yaml", Rows: 14,
 					Placeholder: "384541:\n  url_poster: https://api.mediux.pro/assets/…\n  seasons:\n    1:\n      url_poster: …\n      episodes:\n        1:\n          url_poster: …",
-					Class: "font-mono text-xs"})
+					Class:       "font-mono text-xs"})
 				@dialog.Footer() {
-					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) { Cancel }
-					@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "imageset-apply"}}) { Apply }
+					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) {
+						Cancel 
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "imageset-apply"}}) {
+						Apply 
+					}
 				}
 			</form>
 			<form method="post" action={ templ.URL(libraryActionURL(d.Item, "imageset/policy")) } class="space-y-3 border-t border-border pt-4" data-imageset-policy-form>
@@ -73,14 +79,18 @@ templ imageSetDialog(d Detail) {
 				<p class="text-sm text-muted-foreground">
 					Or let the MediUX provider choose. A pasted set above always wins over its choice.
 				</p>
-				<label class="flex items-center gap-2 text-sm">
-					<input type="checkbox" name="auto" value="true" checked?={ d.ImageSetAuto } data-imageset-auto/>
-					Choose a MediUX set automatically
-				</label>
+				@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+					@checkbox.Checkbox(checkbox.Props{ID: "imageset-auto-" + d.Item.Ref.Name, Name: "auto", Value: "true", DefaultChecked: d.ImageSetAuto, Attributes: templ.Attributes{"data-imageset-auto": true}})
+					@field.Label(field.LabelProps{For: "imageset-auto-" + d.Item.Ref.Name}) {
+						Choose a MediUX set automatically
+					}
+				}
 				@input.Input(input.Props{ID: "imageset-pin-" + d.Item.Ref.Name, Name: "set", Value: d.ImageSetPinned,
 					Placeholder: "Pin a set: 41471 or https://mediux.pro/sets/41471", Attributes: templ.Attributes{"data-imageset-pin": true}})
 				@dialog.Footer() {
-					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantSecondary, Attributes: templ.Attributes{"data-action": "imageset-policy"}}) { Save }
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantSecondary, Attributes: templ.Attributes{"data-action": "imageset-policy"}}) {
+						Save 
+					}
 				}
 			</form>
 		}

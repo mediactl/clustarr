@@ -28,6 +28,7 @@ import (
 	"github.com/mediactl/clustarr/ui/components/empty"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/components/utils"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -491,6 +492,18 @@ func totalSize(files []FileRow) int64 {
 }
 
 // sectionTitle is Radarr's ruled section heading.
+// emptyNote says a section holds nothing: shadcn-templ's empty (owner,
+// 2026-11-04) as one muted line, class on the box, attrs for the tests.
+templ emptyNote(text, class string, attrs templ.Attributes) {
+	@empty.Empty(empty.Props{Class: utils.CN("py-6", class), Attributes: attrs}) {
+		@empty.Header() {
+			@empty.Description() {
+				{ text }
+			}
+		}
+	}
+}
+
 templ sectionTitle(title string) {
 	<h2 class="mb-3 border-b border-border pb-2 text-2xl font-light">{ title }</h2>
 }
@@ -503,7 +516,7 @@ templ filesSection(d Detail) {
 	<section data-section="files" class="mb-8">
 		@sectionTitle("Files")
 		if len(d.Files) == 0 {
-			<p class="panel rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">No file on disk.</p>
+			@emptyNote("No file on disk.", "panel rounded-xl border border-border bg-card", nil)
 		} else {
 			<div class="panel rounded-xl border border-border bg-card">
 				@table.Table() {

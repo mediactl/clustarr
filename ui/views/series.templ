@@ -20,11 +20,13 @@ package views
 import (
 	"fmt"
 
+	"github.com/mediactl/clustarr/ui/components/alert"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/collapsible"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/components/skeleton"
 	"github.com/mediactl/clustarr/ui/components/table"
 )
 
@@ -41,7 +43,7 @@ templ SeriesDetail(d Detail, seasons []SeasonRow) {
 		@hero(d)
 		<div class="mt-6 space-y-4" data-seasons={ fmt.Sprint(len(seasons)) }>
 			if len(seasons) == 0 {
-				<p class="text-slate-400">No seasons yet: they arrive with the series' metadata.</p>
+				@emptyNote("No seasons yet: they arrive with the series' metadata.", "", nil)
 			}
 			for _, season := range seasons {
 				@SeasonComponent(season)
@@ -81,9 +83,19 @@ templ SeasonComponent(season SeasonRow) {
 		}) {
 			@expandTrigger("Show episodes", "Hide episodes")
 			@collapsible.Content(collapsible.ContentProps{Class: "episodes border-t border-border text-sm text-muted-foreground"}) {
-				<p class="px-4 py-3">Loading…</p>
+				@loadingRows()
 			}
 		}
+	</div>
+}
+
+// loadingRows stands in for a table that is being fetched: three
+// skeleton lines (shadcn-templ's, since 2026-11-04; "Loading…" before).
+templ loadingRows() {
+	<div class="space-y-2 px-4 py-3" data-loading aria-busy="true" aria-label="Loading">
+		@skeleton.Skeleton(skeleton.Props{Class: "h-4 w-1/3"})
+		@skeleton.Skeleton(skeleton.Props{Class: "h-4 w-2/3"})
+		@skeleton.Skeleton(skeleton.Props{Class: "h-4 w-1/2"})
 	</div>
 }
 
@@ -252,13 +264,20 @@ templ monitorToggle(monitored bool, action string) {
 	}
 }
 
-// actionFailure renders a failed toggle's error inside its component;
-// nothing for a zero value.
+// actionFailure renders a failed toggle's error inside its component --
+// the alert ActionError is (shadcn-templ's, since 2026-11-04); nothing
+// for a zero value.
 templ actionFailure(f ActionFailure) {
 	if f.Code != "" {
-		<p data-action-error={ f.Code } class="mt-2 rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-xs text-red-300">
-			Action failed: { f.Message }
-		</p>
+		@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Class: "mt-2", Attributes: templ.Attributes{"data-action-error": f.Code, "role": "alert"}}) {
+			@icon.CircleAlert()
+			@alert.Title() {
+				Action failed
+			}
+			@alert.Description() {
+				{ f.Message }
+			}
+		}
 	}
 }
 
@@ -283,7 +302,7 @@ templ SeasonPage(d Detail, season SeasonRow, episodes []EpisodeRow) {
 // Air dates fold away on a narrow screen.
 templ EpisodeRows(episodes []EpisodeRow) {
 	if len(episodes) == 0 {
-		<p class="px-4 py-3 text-sm text-muted-foreground">No episodes in this season yet.</p>
+		@emptyNote("No episodes in this season yet.", "py-3", nil)
 	} else {
 		@table.Table(table.Props{Attributes: templ.Attributes{"data-episode-table": ""}}) {
 			@table.Header() {

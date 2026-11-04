@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mediactl/clustarr/ui/components/aspectratio"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/icon"
@@ -142,9 +143,9 @@ templ episodeHero(v EpisodeView) {
 		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
 			if v.Still != "" {
 				<div class="w-full shrink-0 sm:w-80 md:w-96">
-					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
-						<img data-still src={ templ.URL(v.Still) } alt={ episodeTitle(ep) } loading="lazy" class="aspect-video w-full bg-muted object-cover"/>
-					</div>
+					@aspectratio.AspectRatio(aspectratio.Props{Ratio: "16/9", Class: "overflow-hidden rounded-xl bg-muted shadow-2xl shadow-black/60 ring-1 ring-white/10"}) {
+						<img data-still src={ templ.URL(v.Still) } alt={ episodeTitle(ep) } loading="lazy" class="size-full object-cover"/>
+					}
 				</div>
 			} else {
 				<div class="w-40 shrink-0 md:w-56">

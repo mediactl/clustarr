@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mediactl/clustarr/ui/components/alertdialog"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/card"
 	"github.com/mediactl/clustarr/ui/components/checkbox"
@@ -116,14 +117,42 @@ templ SettingsForm(p FormPage) {
 		if p.DeleteAction != "" {
 			<div class="mt-8 max-w-4xl space-y-6">
 				@separator.Separator()
-				<form method="post" action={ templ.URL(p.DeleteAction) } data-confirm={ fmt.Sprintf("Delete %s %q? This cannot be undone.", p.Form.Kind.Singular, p.Name) }>
-					<input type="hidden" name="return" value={ p.returnTo() }/>
-					@button.Button(button.Props{Type: "submit", Variant: button.VariantDestructive}) {
+				@alertdialog.AlertDialog() {
+					@button.Button(button.Props{Variant: button.VariantDestructive, Attributes: alertdialog.Trigger(ctx)}) {
 						Delete this { p.Form.Kind.Singular }
 					}
-				</form>
+					@deleteConfirm(p.DeleteAction, p.returnTo(), fmt.Sprintf("Delete %s %q?", p.Form.Kind.Singular, p.Name))
+				}
 			</div>
 		}
+	}
+}
+
+// deleteConfirm is a delete's question (shadcn-templ's alert dialog,
+// since 2026-11-04; settings.js's window.confirm on data-confirm before):
+// the form posting to action, with return, whose Delete sits in the
+// dialog's footer beside Cancel. The trigger is the caller's.
+templ deleteConfirm(action, returnTo, title string) {
+	@alertdialog.Content(alertdialog.ContentProps{Size: alertdialog.SizeSm}) {
+		@alertdialog.Header() {
+			@alertdialog.Title() {
+				{ title }
+			}
+			@alertdialog.Description() {
+				This cannot be undone.
+			}
+		}
+		<form method="post" action={ templ.URL(action) } data-delete-form>
+			<input type="hidden" name="return" value={ returnTo }/>
+			@alertdialog.Footer() {
+				@alertdialog.Cancel() {
+					Cancel 
+				}
+				@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-action": "delete-confirm"}}) {
+					Delete
+				}
+			}
+		</form>
 	}
 }
 
@@ -422,11 +451,11 @@ templ configActionsTo(slug, namespace, name, returnTo string) {
 		@button.Button(button.Props{Href: edit, Size: button.SizeXs, Variant: button.VariantOutline}) {
 			Edit
 		}
-		<form method="post" action={ templ.URL(fmt.Sprintf("/settings/delete/%s/%s/%s", slug, ns, name)) } data-confirm={ fmt.Sprintf("Delete %q? This cannot be undone.", name) }>
-			<input type="hidden" name="return" value={ returnTo }/>
-			@button.Button(button.Props{Type: "submit", Size: button.SizeXs, Variant: button.VariantGhost, Class: "text-destructive"}) {
+		@alertdialog.AlertDialog() {
+			@button.Button(button.Props{Size: button.SizeXs, Variant: button.VariantGhost, Class: "text-destructive", Attributes: alertdialog.Trigger(ctx)}) {
 				Delete
 			}
-		</form>
+			@deleteConfirm(fmt.Sprintf("/settings/delete/%s/%s/%s", slug, ns, name), returnTo, fmt.Sprintf("Delete %q?", name))
+		}
 	}
 }

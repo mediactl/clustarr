@@ -9,7 +9,6 @@
  * - [data-show-when="path=v1|v2"] hides an element until the input named
  *   path has one of the values ("" for unset); the inputs it watches are
  *   re-read on every change.
- * - A form with [data-confirm] asks before it submits.
  *
  * Bound once by delegation; re-run on htmx swaps.
  */
@@ -140,9 +139,6 @@
     if (form && form.hasAttribute && form.hasAttribute('data-settings-form') && !requiredSelects(form)) {
       e.preventDefault();
       return;
-    }
-    if (form && form.hasAttribute && form.hasAttribute('data-confirm')) {
-      if (!window.confirm(form.getAttribute('data-confirm'))) e.preventDefault();
     }
   });
 

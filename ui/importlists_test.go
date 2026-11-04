@@ -175,7 +175,7 @@ func TestImportListsPageHasAddEditAndDelete(t *testing.T) {
 	rows := strings.Index(body, `id="import-lists-rows"`)
 	edit := strings.Index(body, `href="/settings/edit/importlists/media/trakt-watchlist?return=/import-lists"`)
 	require.Greater(t, edit, rows, "Edit sits in the swapped rows")
-	form := requireTag(t, body, `action="/settings/delete/importlists/media/trakt-watchlist"`, `method="post"`, `data-confirm=`)
+	form := requireTag(t, body, `action="/settings/delete/importlists/media/trakt-watchlist"`, `method="post"`, `data-delete-form`)
 	_ = form
 	require.Regexp(t, `action="/settings/delete/importlists/media/trakt-watchlist"[^<]*<input[^>]*name="return"[^>]*value="/import-lists"`, body)
 }

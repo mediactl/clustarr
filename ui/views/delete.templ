@@ -24,16 +24,17 @@ import (
 	"slices"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/alertdialog"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/checkbox"
-	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/field"
 	"github.com/mediactl/clustarr/ui/components/icon"
 )
 
 // deleteTriggerAttrs are the Delete toolbar button's attributes: the
 // dialog trigger's plus the toolbar's own.
 func deleteTriggerAttrs(ctx context.Context) templ.Attributes {
-	attrs := dialog.Trigger(ctx)
+	attrs := alertdialog.Trigger(ctx)
 	attrs["data-action"] = "delete"
 	attrs["data-toolbar-button"] = true
 	return attrs
@@ -70,18 +71,20 @@ func excludable(d Detail) bool {
 // deleteDialog is the toolbar's Delete button and its confirmation
 // (docs/superpowers/specs/2026-09-30-library-delete-design.md): the folder,
 // the files where the page lists them, and the two checkboxes, both off.
+// It is shadcn-templ's alert dialog (since 2026-11-04): a destructive
+// question that a click beside it does not dismiss.
 templ deleteDialog(d Detail) {
-	@dialog.Dialog(dialog.Props{ID: "delete-" + d.Item.Ref.Name}) {
+	@alertdialog.AlertDialog(alertdialog.Props{ID: "delete-" + d.Item.Ref.Name}) {
 		@button.Button(actionButtonProps(deleteTriggerAttrs(ctx))) {
 			@icon.Icon("trash-2")()
 			<span>Delete</span>
 		}
-		@dialog.Content() {
-			@dialog.Header() {
-				@dialog.Title() {
+		@alertdialog.Content() {
+			@alertdialog.Header() {
+				@alertdialog.Title() {
 					{ "Delete " + d.Item.Title }
 				}
-				@dialog.Description() {
+				@alertdialog.Description() {
 					if dir := FilesFolder(d); dir != "" {
 						<span data-delete-folder>{ dir }</span>
 					} else if d.Path != "" {
@@ -94,22 +97,32 @@ templ deleteDialog(d Detail) {
 			}
 			<form method="post" action={ templ.URL(libraryActionURL(d.Item, "delete")) } class="space-y-3">
 				<input type="hidden" name="return" value={ "/library/" + string(d.Item.Tab) }/>
-				<label class="flex items-start gap-2">
+				@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
 					@checkbox.Checkbox(checkbox.Props{ID: "delete-files-" + d.Item.Ref.Name, Name: "files", Value: "true"})
-					<span>
-						Delete files and folders
-						<span class="block text-xs text-destructive">This permanently deletes the folder and cannot be undone.</span>
-					</span>
-				</label>
-				if excludable(d) {
-					<label class="flex items-center gap-2">
-						@checkbox.Checkbox(checkbox.Props{ID: "delete-exclude-" + d.Item.Ref.Name, Name: "exclude", Value: "true"})
-						<span>Add import list exclusion</span>
-					</label>
+					@field.Content() {
+						@field.Label(field.LabelProps{For: "delete-files-" + d.Item.Ref.Name}) {
+							Delete files and folders
+						}
+						@field.Description(field.DescriptionProps{Class: "text-destructive"}) {
+							This permanently deletes the folder and cannot be undone.
+						}
+					}
 				}
-				@dialog.Footer() {
-					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) { Cancel }
-					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-action": "delete-confirm"}}) { Delete }
+				if excludable(d) {
+					@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+						@checkbox.Checkbox(checkbox.Props{ID: "delete-exclude-" + d.Item.Ref.Name, Name: "exclude", Value: "true"})
+						@field.Label(field.LabelProps{For: "delete-exclude-" + d.Item.Ref.Name}) {
+							Add import list exclusion
+						}
+					}
+				}
+				@alertdialog.Footer() {
+					@alertdialog.Cancel() {
+						Cancel 
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-action": "delete-confirm"}}) {
+						Delete 
+					}
 				}
 			</form>
 		}
@@ -126,7 +139,9 @@ templ deleteRetry(d Detail) {
 		if d.Item.DeleteExclude {
 			<input type="hidden" name="exclude" value="true"/>
 		}
-		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeXs, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-action": "delete-retry"}}) { Retry }
+		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeXs, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-action": "delete-retry"}}) {
+			Retry 
+		}
 	</form>
 }
 
@@ -134,6 +149,8 @@ templ deleteRetry(d Detail) {
 templ deleteCancel(d Detail) {
 	<form method="post" action={ templ.URL(libraryActionURL(d.Item, "delete/cancel")) } class="inline">
 		<input type="hidden" name="return" value={ libraryDetailPath(d.Item) }/>
-		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeXs, Variant: button.VariantGhost, Attributes: templ.Attributes{"data-action": "delete-cancel"}}) { Cancel }
+		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeXs, Variant: button.VariantGhost, Attributes: templ.Attributes{"data-action": "delete-cancel"}}) {
+			Cancel 
+		}
 	</form>
 }

@@ -266,6 +266,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-slot="sidebar-inner"],
 [data-slot="sheet-content"],
 [data-slot="dialog-content"],
+[data-slot="alert-dialog-content"],
 [data-slot="dropdown-menu-content"],
 [data-slot="dropdown-menu-sub-content"],
 [data-slot="menubar-content"],
@@ -285,6 +286,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
 }
 [data-slot="dialog-content"],
+[data-slot="alert-dialog-content"],
 [data-slot="dropdown-menu-content"],
 [data-slot="dropdown-menu-sub-content"],
 [data-slot="menubar-content"],
@@ -355,6 +357,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 [data-slot="dialog-overlay"],
+[data-slot="alert-dialog-overlay"],
 [data-slot="sheet-overlay"] {
   background-color: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(6px);

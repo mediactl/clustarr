@@ -18,10 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package views
 
 import (
-	"github.com/mediactl/clustarr/ui/components/icon"
-	"github.com/mediactl/clustarr/ui/components/collapsible"
-	"github.com/mediactl/clustarr/ui/components/button"
 	"fmt"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
+	"github.com/mediactl/clustarr/ui/components/icon"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/badge"
@@ -62,7 +62,7 @@ templ ParentDetail(d Detail, label string) {
 					</a>
 				</div>
 				@collapsible.Content(collapsible.ContentProps{Class: "children border-t border-border text-sm text-muted-foreground"}) {
-					<p class="px-4 py-3">Loading…</p>
+					@loadingRows()
 				}
 			}
 		</div>
@@ -137,9 +137,13 @@ templ ChildRowView(child ChildRow) {
 		}
 		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
 			if child.HasFile {
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: phaseTone("Imported")}) { { child.Quality } }
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: phaseTone("Imported")}) {
+					{ child.Quality }
+				}
 			} else if child.Phase != "" {
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: phaseTone(child.Phase)}) { { child.Phase } }
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: phaseTone(child.Phase)}) {
+					{ child.Phase }
+				}
 			}
 		}
 		@item.Actions() {

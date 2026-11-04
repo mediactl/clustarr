@@ -86,10 +86,12 @@ templ editDialog(d Detail) {
 			<form method="post" action={ templ.URL(libraryActionURL(d.Item, "edit")) } class="space-y-4" data-edit-form>
 				<input type="hidden" name="return" value={ libraryDetailPath(d.Item) }/>
 				<input type="hidden" name="monitored" value="false"/>
-				<label class="flex items-center gap-3">
+				@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
 					@switchcomp.Switch(switchcomp.Props{ID: "edit-monitored-" + d.Item.Ref.Name, Name: "monitored", Value: "true", DefaultChecked: d.Item.Monitored})
-					<span>Monitored</span>
-				</label>
+					@field.Label(field.LabelProps{For: "edit-monitored-" + d.Item.Ref.Name}) {
+						Monitored
+					}
+				}
 				@editSelect("qualityProfile", d.Item.Ref.Name, "Quality Profile", d.Profiles, d.Item.QualityProfileRef)
 				if d.Item.Kind == commonv1.MediaKindSeries {
 					@editSelect("seriesType", d.Item.Ref.Name, "Series Type", seriesTypeOptions, d.SeriesType)
@@ -98,8 +100,12 @@ templ editDialog(d Detail) {
 					@editSelect("minimumAvailability", d.Item.Ref.Name, "Minimum Availability", availabilityOptions, d.MinimumAvailability)
 				}
 				@dialog.Footer() {
-					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) { Cancel }
-					@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "edit-save"}}) { Save }
+					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) {
+						Cancel 
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "edit-save"}}) {
+						Save 
+					}
 				}
 			</form>
 		}

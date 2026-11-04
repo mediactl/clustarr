@@ -20,12 +20,6 @@ package views
 import (
 	"fmt"
 
-	"github.com/mediactl/clustarr/ui/components/badge"
-	"github.com/mediactl/clustarr/ui/components/button"
-	"github.com/mediactl/clustarr/ui/components/card"
-	"github.com/mediactl/clustarr/ui/components/empty"
-	"github.com/mediactl/clustarr/ui/components/input"
-	"github.com/mediactl/clustarr/ui/components/label"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +29,12 @@ import (
 	indexv1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/empty"
+	"github.com/mediactl/clustarr/ui/components/field"
+	"github.com/mediactl/clustarr/ui/components/input"
 )
 
 // settingsReturnPath is every Settings-page form's "return" field: back to
@@ -259,12 +259,12 @@ templ rootFolderCard(rf catalogv1.RootFolder) {
 		@card.Content() {
 			<form method="post" action={ templ.URL(fmt.Sprintf("/settings/rootfolders/%s/%s", rf.Namespace, rf.Name)) } class="flex items-end gap-2">
 				<input type="hidden" name="return" value={ settingsReturnPath }/>
-				<div class="grid flex-1 gap-1.5">
-					@label.Label(label.Props{For: "scanSchedule-" + rf.Name, Class: "text-xs text-muted-foreground"}) {
+				@field.Field(field.Props{Class: "flex-1 gap-1.5"}) {
+					@field.Label(field.LabelProps{For: "scanSchedule-" + rf.Name, Class: "text-xs text-muted-foreground"}) {
 						Scan schedule (cron)
 					}
 					@input.Input(input.Props{ID: "scanSchedule-" + rf.Name, Name: "scanSchedule", Value: rf.Spec.ScanSchedule, Placeholder: "e.g. 0 3 * * *", Class: "h-8"})
-				</div>
+				}
 				@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "save"}}) {
 					Save
 				}
@@ -428,12 +428,12 @@ templ transcodeProfileCard(tp transcodev1.TranscodeProfile) {
 		@card.Content() {
 			<form method="post" action={ templ.URL(fmt.Sprintf("/settings/transcodeprofiles/%s", tp.Name)) } class="flex items-end gap-2">
 				<input type="hidden" name="return" value={ settingsReturnPath }/>
-				<div class="grid gap-1.5">
-					@label.Label(label.Props{For: "priority-" + tp.Name, Class: "text-xs text-muted-foreground"}) {
+				@field.Field(field.Props{Class: "w-auto gap-1.5"}) {
+					@field.Label(field.LabelProps{For: "priority-" + tp.Name, Class: "text-xs text-muted-foreground"}) {
 						Priority
 					}
 					@input.Input(input.Props{ID: "priority-" + tp.Name, Name: "priority", Type: "number", Value: fmt.Sprintf("%d", tp.Spec.Priority), Class: "h-8 w-24"})
-				</div>
+				}
 				@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "save"}}) {
 					Save
 				}
@@ -453,12 +453,12 @@ templ transcodeProfileCard(tp transcodev1.TranscodeProfile) {
 templ enabledPriorityForm(action string, enabled bool, priority int32, idPrefix string) {
 	<form method="post" action={ templ.URL(action) } class="flex items-end gap-2">
 		<input type="hidden" name="return" value={ settingsReturnPath }/>
-		<div class="grid gap-1.5">
-			@label.Label(label.Props{For: "priority-" + idPrefix, Class: "text-xs text-muted-foreground"}) {
+		@field.Field(field.Props{Class: "w-auto gap-1.5"}) {
+			@field.Label(field.LabelProps{For: "priority-" + idPrefix, Class: "text-xs text-muted-foreground"}) {
 				Priority
 			}
 			@input.Input(input.Props{ID: "priority-" + idPrefix, Name: "priority", Type: "number", Value: fmt.Sprintf("%d", priority), Class: "h-8 w-24"})
-		</div>
+		}
 		if enabled {
 			@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Variant: button.VariantSecondary, Attributes: templ.Attributes{"name": "enabled", "value": "false", "data-action": "disable"}}) {
 				Disable

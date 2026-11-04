@@ -21,10 +21,10 @@ import (
 	"fmt"
 
 	"github.com/mediactl/clustarr/pkg/pipeline"
-	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/components/progress"
+	"github.com/mediactl/clustarr/ui/paging"
 )
 
 // Pipeline renders the Pipeline page (§A3.4): one row per in-flight item,
@@ -95,19 +95,25 @@ templ pipelineRow(e pipeline.Entry) {
 		},
 	}) {
 		@item.Content() {
-			@item.Title() { { e.Title } }
+			@item.Title() {
+				{ e.Title }
+			}
 			if e.Percent >= 0 {
 				@progressBar(e.Percent)
 			}
 			if e.Detail != "" {
-				@item.Description() { { e.Detail } }
+				@item.Description() {
+					{ e.Detail }
+				}
 			}
 			if e.Stage == pipeline.StageFailed || e.Stage == pipeline.StageBlocked {
 				<div class="text-sm text-destructive">{ e.Failure }</div>
 			}
 		}
 		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
-			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: stageTone(e.Stage)}) { { string(e.Stage) } }
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: stageTone(e.Stage)}) {
+				{ string(e.Stage) }
+			}
 		}
 	}
 }

@@ -107,7 +107,8 @@ func TestSettingsPageLinksAddEditAndDelete(t *testing.T) {
 	require.Contains(t, body, `href="/settings/edit/downloadclients/media/eweka"`, "a namespaced kind's Edit link")
 	require.Contains(t, body, `href="/settings/edit/qualityprofiles/-/hd-1080p"`, "a cluster-scoped kind's Edit link has no namespace")
 	del := tagWith(t, body, `action="/settings/delete/downloadclients/media/eweka"`)
-	require.Contains(t, del, "data-confirm=", "a delete asks first")
+	require.Contains(t, del, "data-delete-form", "a delete's form sits in its alert dialog")
+	require.Contains(t, body, `data-slot="alert-dialog-content"`, "a delete asks first")
 	require.Contains(t, body, `action="/settings/delete/qualityprofiles/-/hd-1080p"`)
 }
 
