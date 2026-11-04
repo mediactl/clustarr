@@ -475,3 +475,19 @@ func TestEnsureDropsAnAudioPolicyWithNoLanguages(t *testing.T) {
 	f := forms.Build(k, rootOf(t, k), map[string]any{}, nil, forms.ModeNew)
 	_ = section(t, f, "Audio") // fails the test unless audio has a group of its own, not Other
 }
+
+// TestEnsureDropsAPlexGuideWithNoLineup: the form's checkbox always posts
+// plexGuide.enabled, which alone would be a plexGuide the CRD refuses
+// (lineup and credentialsRef are required): no lineup, no plexGuide.
+func TestEnsureDropsAPlexGuideWithNoLineup(t *testing.T) {
+	k := kind(t, "iptvproviders")
+	require.NotNil(t, k.Ensure)
+	spec := map[string]any{"server": "panel.example", "plexGuide": map[string]any{"enabled": false, "credentialsRef": map[string]any{"name": "", "key": ""}}}
+	k.Ensure(spec)
+	require.Equal(t, map[string]any{"server": "panel.example"}, spec)
+
+	g := map[string]any{"lineup": "657c8183afd0f02cd353633f", "enabled": true, "credentialsRef": map[string]any{"name": "plex-token", "key": "token"}}
+	spec = map[string]any{"plexGuide": g}
+	k.Ensure(spec)
+	require.Equal(t, map[string]any{"plexGuide": g}, spec, "a lineup is a Plex guide")
+}

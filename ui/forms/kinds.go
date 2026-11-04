@@ -364,6 +364,15 @@ var kinds = []Kind{
 			{Key: "username", Label: "Username"},
 			{Key: "password", Label: "Password"},
 		}}},
+		// The Plex guide's checkbox always posts plexGuide.enabled, which
+		// alone is a plexGuide the CRD refuses (lineup and credentialsRef
+		// are required): without a lineup there is no Plex guide.
+		Ensure: func(spec map[string]any) {
+			g, _ := spec["plexGuide"].(map[string]any)
+			if l, _ := g["lineup"].(string); l == "" {
+				delete(spec, "plexGuide")
+			}
+		},
 	},
 	{
 		ConfigKind: configKind("iptvchannels"),
