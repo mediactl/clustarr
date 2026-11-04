@@ -178,10 +178,20 @@ func TestAServerSideApplyRoundTripsInCBOR(t *testing.T) {
 		var err error
 		body, err = io.ReadAll(r.Body)
 		require.NoError(t, err)
+		// The answer carries what the apiserver's does and the apply
+		// configuration does not declare: managedFields (its fieldsV1 a
+		// byte string), which upstream's JSON decode dropped silently and
+		// a strict CBOR decode refused ("found unknown field", 2026-11-04).
 		applied := map[string]any{
 			"apiVersion": "catalog.clustarr.io/v1alpha1", "kind": "Series",
-			"metadata": map[string]any{"name": "kingdom", "namespace": "media", "resourceVersion": "42"},
-			"spec":     map[string]any{"tvdbID": int64(7), "seriesType": "anime"},
+			"metadata": map[string]any{
+				"name": "kingdom", "namespace": "media", "resourceVersion": "42",
+				"creationTimestamp": "2026-11-04T05:00:00Z",
+				"managedFields": []any{map[string]any{"manager": "test", "operation": "Apply", "apiVersion": "catalog.clustarr.io/v1alpha1",
+					"time": "2026-11-04T05:00:00Z", "fieldsType": "FieldsV1", "fieldsV1": []byte(`{"f:spec":{}}`)}},
+			},
+			"spec":   map[string]any{"tvdbID": int64(7), "seriesType": "anime"},
+			"status": map[string]any{"episodeCount": int64(12), "unknownToTheApplyConfiguration": true},
 		}
 		out, err := cbordirect.Marshal(applied)
 		require.NoError(t, err)
@@ -204,4 +214,9 @@ func TestAServerSideApplyRoundTripsInCBOR(t *testing.T) {
 	require.NotNil(t, ac.Spec)
 	require.NotNil(t, ac.Spec.SeriesType)
 	assert.Equal(t, catalogv1alpha1.SeriesTypeAnime, *ac.Spec.SeriesType)
+	require.NotNil(t, ac.CreationTimestamp)
+	assert.Equal(t, 2026, ac.CreationTimestamp.UTC().Year())
+	require.NotNil(t, ac.Status)
+	require.NotNil(t, ac.Status.EpisodeCount)
+	assert.EqualValues(t, 12, *ac.Status.EpisodeCount)
 }

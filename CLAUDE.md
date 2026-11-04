@@ -2418,13 +2418,17 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   exist"; the pods started with the two variables on 2026-11-04 never became
   ready): `go.mod` replaces it with the clustarr fork
   (`github.com/mediactl/controller-runtime v0.25.1-clustarr.N`, branch
-  `clustarr`, two commits on the upstream tag) whose two factories go through
-  `rest.CodecFactoryForGeneratedClient`, identical to upstream with the gate
-  off, and whose typed client decodes an apply's answer by its content type
-  (upstream read it as JSON only: with PreferCBOR the apiserver answers an
-  apply in CBOR, and the manager exited at its first server-side apply,
-  2026-11-04 04:5xZ). Bump the fork by rebasing those commits onto the next
-  upstream tag and tagging `v<upstream>-clustarr.1`, as ffgo's fork is bumped.
+  `clustarr`, three commits on the upstream tag) whose two factories go
+  through `rest.CodecFactoryForGeneratedClient`, identical to upstream with
+  the gate off, and whose typed client decodes an apply's answer by its
+  content type, a CBOR answer transcoded through a generic map and the JSON
+  path so that fields the apply configurations do not declare
+  (`metadata.managedFields`) are dropped as upstream's JSON decode dropped
+  them (upstream read the answer as JSON only, so the manager exited at its
+  first server-side apply at 04:5xZ; apimachinery's direct CBOR decoder is
+  strict, so every apply failed "found unknown field" at 05:18Z). Bump the
+  fork by rebasing those commits onto the next upstream tag and tagging
+  `v<upstream>-clustarr.1`, as ffgo's fork is bumped.
 - **A watch's map function runs for every object at startup, and the
   source is not synced until it has.** controller-runtime's `Kind` source
   waits on `handlerRegistration.HasSynced`, and a cache's initial sync

@@ -226,6 +226,6 @@ replace github.com/obinnaokechukwu/ffgo => github.com/mediactl/ffgo v0.0.0-clust
 // ClientsPreferCBOR gates never reach them (and PreferCBOR fails every
 // request); the fork routes both through rest.CodecFactoryForGeneratedClient
 // and its typed client decodes an apply's answer by its content type, CBOR
-// included (two commits on v0.25.1; pkg/k8s/rowcache/cbor.go turns the
-// gates on).
-replace sigs.k8s.io/controller-runtime => github.com/mediactl/controller-runtime v0.25.1-clustarr.2
+// included, dropping unknown fields as the JSON path does (three commits on
+// v0.25.1; pkg/k8s/rowcache/cbor.go turns the gates on).
+replace sigs.k8s.io/controller-runtime => github.com/mediactl/controller-runtime v0.25.1-clustarr.3
