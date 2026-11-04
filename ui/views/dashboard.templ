@@ -284,19 +284,38 @@ func selectedTab(list []statTab, asked string) string {
 // chart header does its series buttons: a block divided from its
 // neighbours, the label over the count, the open one shaded. It overrides
 // the tabs component's own pill (tailwind-merge drops what it replaces).
-const sectionTabClass = "h-auto flex-1 flex-col items-start justify-center gap-1 rounded-none border-0 border-t border-border px-6 py-4 text-left not-first:border-l hover:bg-muted/30 data-active:bg-muted/50 group-data-[variant=default]/tabs-list:data-active:shadow-none sm:border-t-0 sm:border-l sm:px-8 sm:py-5"
+// Its breakpoints are the card's width (@container on the card's tabs), not
+// the window's, since a card may be half a row.
+const sectionTabClass = "relative h-auto flex-1 flex-col items-start justify-center gap-1 rounded-none border-0 border-t border-border px-6 py-4 text-left not-first:border-l hover:bg-muted/30 data-active:bg-muted/50 group-data-[variant=default]/tabs-list:data-active:shadow-none @3xl:border-t-0 @3xl:border-l @3xl:px-8 @3xl:py-5"
+
+// sectionCardSpans are the section cards' widths in the section's grid:
+// Transcodes' two cards half a wide screen's row each (owner, 2026-11-04),
+// every other one the whole row.
+var sectionCardSpans = map[string]string{
+	"transcodes":        "col-span-full xl:col-span-4",
+	"transcodes-charts": "col-span-full xl:col-span-4",
+}
+
+// sectionCardSpan is a section card's width.
+func sectionCardSpan(key string) string {
+	if span, ok := sectionCardSpans[key]; ok {
+		return span
+	}
+	return "col-span-full"
+}
 
 // sectionCard is a section's tabbed card (owner, 2026-11-04, after
 // shadcn's "Bar Chart - Interactive"): the title and description at the
-// left of the header and the tabs at its right, each its colour as a line
-// down its left, its name and its figure; the open tab's content below. A tab switches in the browser
+// left of the header and the tabs at its right (above them on a card under
+// 48rem), each its colour as a line down its left edge, its name and its
+// figure; the open tab's content below. A tab switches in the browser
 // (ui/components/tabs); the pollers tell the server which tab each card
 // shows, so a refresh keeps it open. A section has two: its lists, and its
 // charts (chartCard). href links the title, when there is one.
 templ sectionCard(key, title, description, href string, tabList []statTab, selected string) {
-	@card.Card(card.Props{Class: "col-span-full gap-0 py-0", Attributes: templ.Attributes{"data-section-card": key}}) {
-		@tabs.Tabs(tabs.Props{ID: "dashboard-tabs-" + key, DefaultValue: selected, Class: "gap-0", Attributes: templ.Attributes{"data-dashboard-tabs": key}}) {
-			<div class="flex flex-col items-stretch border-b border-border sm:flex-row">
+	@card.Card(card.Props{Class: sectionCardSpan(key) + " gap-0 py-0", Attributes: templ.Attributes{"data-section-card": key}}) {
+		@tabs.Tabs(tabs.Props{ID: "dashboard-tabs-" + key, DefaultValue: selected, Class: "@container gap-0", Attributes: templ.Attributes{"data-dashboard-tabs": key}}) {
+			<div class="flex flex-col items-stretch border-b border-border @3xl:flex-row">
 				<div class="flex flex-1 flex-col justify-center gap-1 px-6 py-4">
 					if href != "" {
 						<a href={ templ.SafeURL(href) } class="font-semibold leading-snug hover:underline">{ title }</a>
@@ -305,26 +324,22 @@ templ sectionCard(key, title, description, href string, tabList []statTab, selec
 					}
 					<p class="text-sm text-muted-foreground">{ description }</p>
 				</div>
-				@tabs.List(tabs.ListProps{Class: "h-auto w-full items-stretch rounded-none bg-transparent p-0 group-data-horizontal/tabs:h-auto sm:w-auto"}) {
+				@tabs.List(tabs.ListProps{Class: "h-auto w-full items-stretch rounded-none bg-transparent p-0 group-data-horizontal/tabs:h-auto @3xl:w-auto"}) {
 					for _, t := range tabList {
 						@tabs.Trigger(tabs.TriggerProps{Value: t.Value, Class: sectionTabClass, Attributes: templ.Attributes{"data-stat": t.Label, "data-count": t.figure()}}) {
-							// The tab's colour is a line at its left, the height of
-							// its name and figure (owner, 2026-11-04), as an item
-							// page's Status stripe; a chart of several series has
-							// no one colour, and a neutral line keeps it aligned.
-							<span class="flex items-stretch gap-3">
-								if t.Color != "" {
-									<span data-stripe class={ "w-1 shrink-0 rounded-full " + t.Color } aria-hidden="true"></span>
-								} else if t.Swatch != "" {
-									<span data-stripe class="w-1 shrink-0 rounded-full" style={ templ.SafeCSS("background-color: " + t.Swatch + ";") } aria-hidden="true"></span>
-								} else {
-									<span data-stripe class="w-1 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden="true"></span>
-								}
-								<span class="flex flex-col items-start gap-1">
-									<span class="text-xs font-normal text-muted-foreground">{ t.Label }</span>
-									<span class="text-lg font-bold leading-none tabular-nums text-foreground sm:text-3xl">{ t.figure() }</span>
-								</span>
-							</span>
+							// The tab's colour is a line down its left edge, the
+							// tab's full height (owner, 2026-11-04); a chart of
+							// several series has no one colour, and a neutral line
+							// keeps the tabs alike.
+							if t.Color != "" {
+								<span data-stripe class={ "absolute inset-y-0 left-0 w-1 " + t.Color } aria-hidden="true"></span>
+							} else if t.Swatch != "" {
+								<span data-stripe class="absolute inset-y-0 left-0 w-1" style={ templ.SafeCSS("background-color: " + t.Swatch + ";") } aria-hidden="true"></span>
+							} else {
+								<span data-stripe class="absolute inset-y-0 left-0 w-1 bg-muted-foreground/40" aria-hidden="true"></span>
+							}
+							<span class="text-xs font-normal text-muted-foreground">{ t.Label }</span>
+							<span class="text-lg font-bold leading-none tabular-nums text-foreground @md:text-3xl">{ t.figure() }</span>
 						}
 					}
 				}
@@ -344,7 +359,7 @@ templ downloadRows(rows []DownloadView, total int, none, href string) {
 	if len(rows) == 0 {
 		<p class="text-sm text-muted-foreground">{ none }</p>
 	} else {
-		<div class="grid gap-x-8 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
+		<div class="grid gap-x-8 gap-y-4 @xl:grid-cols-2 @5xl:grid-cols-3">
 			for _, d := range rows {
 				@dashboardDownload(d)
 			}
@@ -358,7 +373,7 @@ templ transcodeRows(l projection.TranscodeList, none string) {
 	if len(l.Rows) == 0 {
 		<p class="text-sm text-muted-foreground">{ none }</p>
 	} else {
-		<div class="grid gap-x-8 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
+		<div class="grid gap-x-8 gap-y-4 @xl:grid-cols-2 @5xl:grid-cols-3">
 			for _, r := range l.Rows {
 				@dashboardTranscode(r)
 			}
