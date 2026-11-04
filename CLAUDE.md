@@ -652,7 +652,11 @@ remaining 750-odd unpaired stations have no argon stream (DIRECTV
 placeholders, PPV, regional sports, out-of-market locals); of the lineups
 Plex offers the owner's market, DIRECTV Mobile has the most
 argon-compatible networks (230, against U-verse 209, DISH 199, Cox 186,
-Mediacom 166, one network counted once across its SD and HD feeds). **A
+Mediacom 166, one network counted once across its SD and HD feeds), and
+DIRECTV is the provider with the most overlap nationally (213-218 networks
+in each of its market lineups, the markets differing only in locals;
+U-verse 203, DISH 194, Spectrum 189, Fios 188, Cox 180, Xfinity 175 over
+108 lineups of 20 major markets, 2026-11-04). **A
 paired channel's number is its station's DIRECTV number** (owner,
 2026-11-04: "channel numbers should match the direct tv mobile provided by
 plex instead of the 1000+ we have now"): `spec.number` is
