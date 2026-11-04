@@ -199,6 +199,9 @@ func TestStaticRouteServesTheClustarrMark(t *testing.T) {
 		"/static/favicon.svg":          {"image/svg+xml", "<svg"},
 		"/static/favicon-32.png":       {"image/png", "\x89PNG"},
 		"/static/apple-touch-icon.png": {"image/png", "\x89PNG"},
+		"/static/providers/imdb.svg":   {"image/svg+xml", "<svg"},
+		"/static/providers/tmdb.svg":   {"image/svg+xml", "<svg"},
+		"/static/providers/tvdb.svg":   {"image/svg+xml", "<svg"},
 	} {
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))

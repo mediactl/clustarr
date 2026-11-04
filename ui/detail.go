@@ -131,7 +131,7 @@ func (s *Server) getObject(ctx context.Context, ref types.NamespacedName, obj cl
 func fillMovie(d *views.Detail, m *catalogv1.Movie) {
 	d.Path = m.Status.Path
 	if m.Spec.TmdbID > 0 {
-		d.Links = append(d.Links, views.Link{Label: "TMDB", Href: fmt.Sprintf("https://www.themoviedb.org/movie/%d", m.Spec.TmdbID)})
+		d.Links = append(d.Links, views.Link{Label: "TMDB", Href: fmt.Sprintf("https://www.themoviedb.org/movie/%d", m.Spec.TmdbID), Provider: views.ProviderTMDB})
 	}
 	md := m.Status.Metadata
 	if md == nil {
@@ -142,14 +142,14 @@ func fillMovie(d *views.Detail, m *catalogv1.Movie) {
 	d.Backdrop = backdropArt(commonv1.MediaKindMovie, m.GetUID(), m.Status.Artwork)
 	d.AltTitles = md.AlternateTitles
 	if id := md.ExternalIDs[commonv1.IDKeyIMDB]; id != "" {
-		d.Links = append(d.Links, views.Link{Label: "IMDb", Href: "https://www.imdb.com/title/" + id + "/"})
+		d.Links = append(d.Links, views.Link{Label: "IMDb", Href: "https://www.imdb.com/title/" + id + "/", Provider: views.ProviderIMDb})
 	}
 }
 
 func fillSeries(d *views.Detail, sr *catalogv1.Series) {
 	d.Path = sr.Status.Path
 	if sr.Spec.TvdbID > 0 {
-		d.Links = append(d.Links, views.Link{Label: "TVDB", Href: fmt.Sprintf("https://thetvdb.com/dereferrer/series/%d", sr.Spec.TvdbID)})
+		d.Links = append(d.Links, views.Link{Label: "TVDB", Href: fmt.Sprintf("https://thetvdb.com/dereferrer/series/%d", sr.Spec.TvdbID), Provider: views.ProviderTVDB})
 	}
 	md := sr.Status.Metadata
 	if md == nil {
@@ -162,7 +162,7 @@ func fillSeries(d *views.Detail, sr *catalogv1.Series) {
 		d.AltTitles = append(d.AltTitles, t.Title)
 	}
 	if id := md.ExternalIDs[commonv1.IDKeyIMDB]; id != "" {
-		d.Links = append(d.Links, views.Link{Label: "IMDb", Href: "https://www.imdb.com/title/" + id + "/"})
+		d.Links = append(d.Links, views.Link{Label: "IMDb", Href: "https://www.imdb.com/title/" + id + "/", Provider: views.ProviderIMDb})
 	}
 }
 

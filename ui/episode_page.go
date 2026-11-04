@@ -98,7 +98,7 @@ func (s *Server) episodePage(ctx context.Context, ns, name string) (views.Episod
 	if v.Runtime == "" {
 		v.Runtime = seriesRuntime
 	}
-	v.Links = episodeLinks(&ep, v.Links)
+	v.Links, v.SeriesLinks = episodeLinks(&ep), seriesLinks(v.Links)
 	v.Audio = audioNote(ep.Status.Audio)
 	v.Still = s.episodeStill(&ep)
 	if ref := ep.Status.FileRef; ep.Status.HasFile && ref != nil && *ref != "" {
@@ -113,15 +113,20 @@ func (s *Server) episodePage(ctx context.Context, ns, name string) (views.Episod
 	return v, true
 }
 
-// episodeLinks are the episode's TVDB page, then its series' provider
-// pages, named as the series'.
-func episodeLinks(ep *catalogv1.Episode, series []views.Link) []views.Link {
-	var links []views.Link
-	if ep.Status.TvdbID > 0 {
-		links = append(links, views.Link{Label: "TVDB", Href: fmt.Sprintf("https://thetvdb.com/dereferrer/episode/%d", ep.Status.TvdbID)})
+// episodeLinks are the episode's own provider pages: its TVDB page.
+func episodeLinks(ep *catalogv1.Episode) []views.Link {
+	if ep.Status.TvdbID <= 0 {
+		return nil
 	}
+	return []views.Link{{Label: "TVDB", Href: fmt.Sprintf("https://thetvdb.com/dereferrer/episode/%d", ep.Status.TvdbID), Provider: views.ProviderTVDB}}
+}
+
+// seriesLinks are the series' provider pages as the episode's page names
+// them, "TVDB (series)", so a link's title says whose page it opens.
+func seriesLinks(series []views.Link) []views.Link {
+	links := make([]views.Link, 0, len(series))
 	for _, l := range series {
-		links = append(links, views.Link{Label: l.Label + " (series)", Href: l.Href})
+		links = append(links, views.Link{Label: l.Label + " (series)", Href: l.Href, Provider: l.Provider})
 	}
 	return links
 }

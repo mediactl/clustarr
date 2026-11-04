@@ -768,10 +768,16 @@ modal, on its Search tab, in the page's `#episode-modal`); its hero is on
 the series' fanart with the episode's still (TVDB's screenshot through
 `/art/search`, else the series' poster), the bookmark, title, series,
 season and `S01E03`, absolute number, air date, runtime, finale and
-provider links, and the movie page's facts -- the Status fact Transcoded
+provider links (its own TVDB page, then the series' under a "Series"
+caption), and the movie page's facts -- the Status fact Transcoded
 from `status.cutoffReason` whatever the phase -- then the movie page's own
 Files, extra files and Subtitles sections, and the episodes either side
-of it. Edit, Image Set, Delete and Rename stay on the series' page.
+of it. Edit, Image Set, Delete and Rename stay on the series' page. An item
+page's provider links are each site's logo, not a generic link icon
+(owner, 2026-11-04; `views.providerLinks`, `views.Link.Provider`): IMDb's
+yellow badge, TMDB's stacked mark and TheTVDB's dark-background logo,
+embedded under `ui/static/providers` (IMDb's letters and TMDB's mark from
+Simple Icons, CC0; TheTVDB's from its own site).
 An author's books are the same table (2026-10-07, `ui/book.go`,
 `ui/views/book.templ`): bookmark, title opening the book's modal
 (`/library/{ns}/book/{name}/details`, `#book-modal`), release date,

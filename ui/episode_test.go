@@ -275,6 +275,14 @@ func TestEpisodePageShowsWhatTheMoviePageShows(t *testing.T) {
 	require.Regexp(t, `data-still src="/art/search\?[^"]+"`, page, "the still, through the art proxy")
 	require.Contains(t, page, `href="https://thetvdb.com/dereferrer/episode/8911531"`)
 	require.Contains(t, page, `title="TVDB (series)"`)
+	// The episode's own TVDB page and its series' both show TVDB's logo,
+	// so the series' come after a "Series" caption, and their titles say
+	// whose page each opens.
+	require.Contains(t, page, `<img src="/static/providers/tvdb.svg" alt="TVDB"`)
+	series := section(t, page, `data-series-links`)
+	require.Contains(t, series, ">Series<")
+	require.Contains(t, series, `<img src="/static/providers/tvdb.svg" alt="TVDB (series)"`)
+	require.Less(t, strings.Index(page, `alt="TVDB"`), strings.Index(page, `data-series-links`), "the episode's own link comes first")
 	require.Contains(t, page, "Cassian Andor searches for his sister.")
 	require.NotContains(t, page, "The series' overview.", "the series' overview is its own page's")
 	for fact, want := range map[string]string{

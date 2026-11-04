@@ -40,10 +40,40 @@ import (
 // Artist or Author and, for a movie, its MediaFile); what the metadata
 // does not carry -- ratings, studio, cast, crew -- is not shown.
 
-// Link is one provider page for the item.
+// Link is one provider page for the item. Provider names the site
+// (ProviderIMDb, ProviderTMDB, ProviderTVDB), whose logo the link shows;
+// a link naming none shows the external-link icon.
 type Link struct {
-	Label string
-	Href  string
+	Label    string
+	Href     string
+	Provider string
+}
+
+// The providers whose logos ui/static/providers holds (owner, 2026-11-04:
+// "The imdb, tvdb, and tmdb links in the series page or movie page should
+// be the corresponding icon/logo").
+const (
+	ProviderIMDb = "imdb"
+	ProviderTMDB = "tmdb"
+	ProviderTVDB = "tvdb"
+)
+
+// providerLinks are an item's provider pages in its hero's meta line, each
+// its provider's logo (the file is /static/providers/<provider>.svg, its
+// alt text the link's label), else the external-link icon over the label
+// for a screen reader. The title says which page, as "TVDB (series)" does
+// on an episode's page beside the episode's own TVDB link.
+templ providerLinks(links []Link) {
+	for _, l := range links {
+		<a href={ templ.URL(l.Href) } target="_blank" rel="noreferrer" title={ l.Label } data-provider-link={ l.Provider } class="inline-flex items-center opacity-90 transition-opacity hover:text-foreground hover:opacity-100 [&_svg]:size-5">
+			if l.Provider != "" {
+				<img src={ "/static/providers/" + l.Provider + ".svg" } alt={ l.Label } class="h-6 w-auto"/>
+			} else {
+				@icon.Icon("external-link")()
+				<span class="sr-only">{ l.Label }</span>
+			}
+		</a>
+	}
 }
 
 // ImageSetNote is the item page's "Images" fact: which image set the
@@ -285,7 +315,9 @@ templ hero(d Detail) {
 				</div>
 				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
 					if d.Certification != "" {
-						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base"}) { { d.Certification } }
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base"}) {
+							{ d.Certification }
+						}
 					}
 					if li.Year > 0 {
 						<span>{ fmt.Sprint(li.Year) }</span>
@@ -293,12 +325,7 @@ templ hero(d Detail) {
 					if d.Runtime != "" {
 						<span>{ d.Runtime }</span>
 					}
-					for _, l := range d.Links {
-						<a href={ templ.URL(l.Href) } target="_blank" rel="noreferrer" title={ l.Label } class="[&_svg]:size-5 hover:text-foreground">
-							@icon.Icon("external-link")()
-							<span class="sr-only">{ l.Label }</span>
-						</a>
-					}
+					@providerLinks(d.Links)
 				</div>
 				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
 					if d.Path != "" {
@@ -329,7 +356,9 @@ templ hero(d Detail) {
 					}
 					if li.QualityProfileRef != "" {
 						@fact("profile", "Quality Profile") {
-							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) { { li.QualityProfileRef } }
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
+								{ li.QualityProfileRef }
+							}
 						}
 					}
 					if size := totalSize(d.Files); size > 0 {
@@ -480,49 +509,93 @@ templ filesSection(d Detail) {
 				@table.Table() {
 					@table.Header() {
 						@table.Row() {
-							@table.Head() { { "Relative Path" } }
-							@table.Head() { { "Video Codec" } }
-							@table.Head() { { "Audio Info" } }
-							@table.Head() { { "Size" } }
-							@table.Head() { { "Languages" } }
-							@table.Head() { { "Quality" } }
-							@table.Head() { { "Release Group" } }
-							@table.Head() { { "Formats" } }
-							@table.Head() { { "Markers" } }
-							@table.Head() { { "Transcode" } }
-							@table.Head(table.HeadProps{Class: "text-right"}) { { "Score" } }
+							@table.Head() {
+								{ "Relative Path" }
+							}
+							@table.Head() {
+								{ "Video Codec" }
+							}
+							@table.Head() {
+								{ "Audio Info" }
+							}
+							@table.Head() {
+								{ "Size" }
+							}
+							@table.Head() {
+								{ "Languages" }
+							}
+							@table.Head() {
+								{ "Quality" }
+							}
+							@table.Head() {
+								{ "Release Group" }
+							}
+							@table.Head() {
+								{ "Formats" }
+							}
+							@table.Head() {
+								{ "Markers" }
+							}
+							@table.Head() {
+								{ "Transcode" }
+							}
+							@table.Head(table.HeadProps{Class: "text-right"}) {
+								{ "Score" }
+							}
 						}
 					}
 					@table.Body() {
 						for _, f := range d.Files {
 							@table.Row(table.RowProps{Attributes: templ.Attributes{"data-file": f.Name}}) {
-								@table.Cell(table.CellProps{Class: "max-w-md break-all whitespace-normal"}) { { f.RelativePath } }
-								@table.Cell() { { f.VideoCodec } }
-								@table.Cell() { { f.Audio } }
-								@table.Cell() { { formatBytes(f.SizeBytes) } }
+								@table.Cell(table.CellProps{Class: "max-w-md break-all whitespace-normal"}) {
+									{ f.RelativePath }
+								}
+								@table.Cell() {
+									{ f.VideoCodec }
+								}
+								@table.Cell() {
+									{ f.Audio }
+								}
+								@table.Cell() {
+									{ formatBytes(f.SizeBytes) }
+								}
 								@table.Cell() {
 									<span class="flex flex-wrap gap-1">
 										for _, l := range f.Languages {
-											@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { l } }
+											@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+												{ l }
+											}
 										}
 									</span>
 								}
 								@table.Cell() {
 									if f.Quality != "" {
-										@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { f.Quality } }
+										@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+											{ f.Quality }
+										}
 									}
 								}
-								@table.Cell() { { f.ReleaseGroup } }
+								@table.Cell() {
+									{ f.ReleaseGroup }
+								}
 								@table.Cell() {
 									<span class="flex flex-wrap gap-1">
 										for _, format := range f.Formats {
-											@badge.Badge() { { format } }
+											@badge.Badge() {
+												{ format }
+											}
 										}
 									</span>
 								}
-								@table.Cell(table.CellProps{Class: "text-xs text-muted-foreground"}) { { f.Markers } }
-								@table.Cell() { { f.Transcode } }
-								@table.Cell(table.CellProps{Class: "text-right"}) { { fmt.Sprint(f.Score) } }
+								@table.Cell(table.CellProps{Class: "text-xs text-muted-foreground"}) {
+									{ f.Markers }
+								}
+								@table.Cell() {
+									{ f.Transcode }
+								}
+								@table.Cell(table.CellProps{Class: "text-right"}) {
+									{ fmt.Sprint(f.Score) }
+								}
 							}
 						}
 					}
@@ -539,7 +612,9 @@ templ extrasSection(d Detail) {
 		if len(d.Extras) == 0 {
 			@empty.Empty(empty.Props{Class: "panel rounded-xl border border-border bg-card py-6"}) {
 				@empty.Header() {
-					@empty.Title() { { "No extra files to manage." } }
+					@empty.Title() {
+						{ "No extra files to manage." }
+					}
 				}
 			}
 		} else {
@@ -547,17 +622,29 @@ templ extrasSection(d Detail) {
 				@table.Table() {
 					@table.Header() {
 						@table.Row() {
-							@table.Head() { { "Relative Path" } }
-							@table.Head() { { "Type" } }
-							@table.Head() { { "Language" } }
+							@table.Head() {
+								{ "Relative Path" }
+							}
+							@table.Head() {
+								{ "Type" }
+							}
+							@table.Head() {
+								{ "Language" }
+							}
 						}
 					}
 					@table.Body() {
 						for _, e := range d.Extras {
 							@table.Row(table.RowProps{Attributes: templ.Attributes{"data-extra": e.Path}}) {
-								@table.Cell(table.CellProps{Class: "break-all whitespace-normal"}) { { e.Path } }
-								@table.Cell() { { e.Kind } }
-								@table.Cell() { { e.Language } }
+								@table.Cell(table.CellProps{Class: "break-all whitespace-normal"}) {
+									{ e.Path }
+								}
+								@table.Cell() {
+									{ e.Kind }
+								}
+								@table.Cell() {
+									{ e.Language }
+								}
 							}
 						}
 					}
@@ -576,30 +663,56 @@ templ subtitlesSection(d Detail) {
 		<section data-section="subtitles" class="mb-8">
 			@sectionTitle("Subtitles")
 			<p class="mb-2 text-sm">
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { d.SubtitlesPhase } }
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ d.SubtitlesPhase }
+				}
 			</p>
 			if len(d.Subtitles) > 0 {
 				<div class="panel rounded-xl border border-border bg-card">
 					@table.Table() {
 						@table.Header() {
 							@table.Row() {
-								@table.Head() { { "Language" } }
-								@table.Head() { { "State" } }
-								@table.Head() { { "Score" } }
-								@table.Head() { { "Provider" } }
-								@table.Head() { { "Next search" } }
-								@table.Head() { { "Last error" } }
+								@table.Head() {
+									{ "Language" }
+								}
+								@table.Head() {
+									{ "State" }
+								}
+								@table.Head() {
+									{ "Score" }
+								}
+								@table.Head() {
+									{ "Provider" }
+								}
+								@table.Head() {
+									{ "Next search" }
+								}
+								@table.Head() {
+									{ "Last error" }
+								}
 							}
 						}
 						@table.Body() {
 							for _, s := range d.Subtitles {
 								@table.Row(table.RowProps{Attributes: templ.Attributes{"data-subtitle": s.LangKey}}) {
-									@table.Cell() { { s.LangKey } }
-									@table.Cell() { { s.State } }
-									@table.Cell() { { s.Score } }
-									@table.Cell() { { s.Provider } }
-									@table.Cell() { { s.NextSearch } }
-									@table.Cell(table.CellProps{Class: "max-w-md break-words whitespace-normal text-xs text-muted-foreground"}) { { s.LastError } }
+									@table.Cell() {
+										{ s.LangKey }
+									}
+									@table.Cell() {
+										{ s.State }
+									}
+									@table.Cell() {
+										{ s.Score }
+									}
+									@table.Cell() {
+										{ s.Provider }
+									}
+									@table.Cell() {
+										{ s.NextSearch }
+									}
+									@table.Cell(table.CellProps{Class: "max-w-md break-words whitespace-normal text-xs text-muted-foreground"}) {
+										{ s.LastError }
+									}
 								}
 							}
 						}
@@ -620,13 +733,17 @@ templ titlesSection(d Detail) {
 				@table.Table() {
 					@table.Header() {
 						@table.Row() {
-							@table.Head() { { "Alternative Title" } }
+							@table.Head() {
+								{ "Alternative Title" }
+							}
 						}
 					}
 					@table.Body() {
 						for _, title := range d.AltTitles {
 							@table.Row() {
-								@table.Cell() { { title } }
+								@table.Cell() {
+									{ title }
+								}
 							}
 						}
 					}

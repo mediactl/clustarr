@@ -54,6 +54,10 @@ type EpisodeView struct {
 	// CutoffReason is status.cutoffReason, said beside a file below the
 	// cutoff.
 	CutoffReason string
+	// SeriesLinks are the series' provider pages, shown after the
+	// episode's own (Links) under a "Series" caption, since both carry
+	// TVDB's logo.
+	SeriesLinks []Link
 }
 
 // EpisodePage is an episode's page.
@@ -169,7 +173,9 @@ templ episodeHero(v EpisodeView) {
 				</div>
 				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
 					if v.Certification != "" {
-						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base"}) { { v.Certification } }
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base"}) {
+							{ v.Certification }
+						}
 					}
 					if ep.AirDate != "" {
 						<time datetime={ ep.AirDate } title={ ep.AirDate } data-airdate>{ airedLabel(ep) }</time>
@@ -178,13 +184,16 @@ templ episodeHero(v EpisodeView) {
 						<span>{ v.Runtime }</span>
 					}
 					if ep.FinaleLabel() != "" {
-						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-base text-sky-300", Attributes: templ.Attributes{"data-finale": ep.FinaleType}}) { { ep.FinaleLabel() } }
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-base text-sky-300", Attributes: templ.Attributes{"data-finale": ep.FinaleType}}) {
+							{ ep.FinaleLabel() }
+						}
 					}
-					for _, l := range v.Links {
-						<a href={ templ.URL(l.Href) } target="_blank" rel="noreferrer" title={ l.Label } class="[&_svg]:size-5 hover:text-foreground">
-							@icon.Icon("external-link")()
-							<span class="sr-only">{ l.Label }</span>
-						</a>
+					@providerLinks(v.Links)
+					if len(v.SeriesLinks) > 0 {
+						<span class="inline-flex items-center gap-3" data-series-links>
+							<span class="text-sm">Series</span>
+							@providerLinks(v.SeriesLinks)
+						</span>
 					}
 				</div>
 				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
@@ -201,7 +210,9 @@ templ episodeHero(v EpisodeView) {
 					}
 					if li.QualityProfileRef != "" {
 						@fact("profile", "Quality Profile") {
-							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) { { li.QualityProfileRef } }
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
+								{ li.QualityProfileRef }
+							}
 						}
 					}
 					if size := totalSize(v.Files); size > 0 {

@@ -193,8 +193,13 @@ func TestMoviePageHeroReadsTheGatheredMetadata(t *testing.T) {
 	require.Regexp(t, regexp.MustCompile(`data-slot="badge"[^>]*>[^<]*PG-13`), heroBody, "the certification is a badge")
 	require.Contains(t, heroBody, ">2016<")
 	require.Contains(t, heroBody, "1h 36m")
-	requireTag(t, heroBody, `href="https://www.themoviedb.org/movie/328387"`, `rel="noreferrer"`, `target="_blank"`)
-	requireTag(t, heroBody, `href="https://www.imdb.com/title/tt3531824/"`, `rel="noreferrer"`)
+	requireTag(t, heroBody, `href="https://www.themoviedb.org/movie/328387"`, `rel="noreferrer"`, `target="_blank"`, `data-provider-link="tmdb"`)
+	requireTag(t, heroBody, `href="https://www.imdb.com/title/tt3531824/"`, `rel="noreferrer"`, `data-provider-link="imdb"`)
+	// Each provider link is its provider's logo (owner, 2026-11-04), not
+	// the generic external-link icon.
+	requireTag(t, heroBody, `src="/static/providers/tmdb.svg"`, `alt="TMDB"`)
+	requireTag(t, heroBody, `src="/static/providers/imdb.svg"`, `alt="IMDb"`)
+	require.NotContains(t, heroBody, "lucide-external-link", "a provider link shows its logo")
 
 	fact := func(name string) string {
 		return section(t, heroBody, `data-fact="`+name+`"`)
