@@ -51,6 +51,13 @@ const (
 	// time held 20% of one engine, in bursts, with the GPU asleep between
 	// them; a quarter leaves a margin for a heavier stream. A batch encode
 	// held one engine 97% busy (2026-11-03), so it is a whole engine.
+	// Measured again on 2026-11-05 (a benchmark pod, N parallel jobs of
+	// one episode): one encode spreads over both engines (149% of 200%),
+	// two fill them (195%) and throughput saturates there (22, 29, 30 MB/s
+	// of source at 1, 2, 3 jobs), so the whole-engine reservation is what
+	// is left to a stream, not how the hardware schedules; two encodes
+	// beside a stream would give it about a third of an engine, above its
+	// 20%, which is untested for a real-time stream.
 	videoStreamShare = 0.25
 )
 

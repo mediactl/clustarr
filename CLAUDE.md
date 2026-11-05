@@ -399,7 +399,21 @@ as the rule did until then (all evening on 2026-11-04 while one Apple TV
 watched Election Night: 32 Planned files read "waiting: Plex is converting
 video on the GPU" with 90% of the GPU idle). Running encodes always
 finish. The wait reason names the stream and encode counts when an
-allowance exists.
+allowance exists. **The 140T's throughput saturates at two encodes**
+(owner, 2026-11-05, "which concurrency is fastest": a benchmark pod on
+the NUC ran the standard's QSV pipeline as N parallel ffmpeg jobs on one
+1.5 GB 1080p H.264 episode with the pool held at zero slots): 22.3, 29.4,
+30.1, 30.2 and 29.9 MB/s of source at 1, 2, 3, 4 and 6 jobs (21x, 14x,
+9.5x, 7x, 4.7x real time each; 1.4 CPU cores in all), because the i915
+driver already spreads one hevc_qsv encode across both video engines
+(149% of their 200%) and two fill them (195%). So `--slots intel=2` is
+the throughput ceiling (about 28 such episodes an hour), three adds
+noise, and the "one engine per encode" reservation above is a model of
+what to leave a stream, not how the hardware schedules: the engines are
+time-sliced among contexts, and two encodes beside a stream would give it
+about a third of an engine against the 20% it needs, which is unproven
+for a real-time stream and is the test to run before relaxing the
+allowance.
 **There is no CUDA image** (2026-10-01, `docs/adr/0015-no-cuda-image.md`):
 every pool, nvidia's included, runs the one image `--native-image` names
 (chart `image.native`, built `FROM scratch` by `images/Dockerfile.native`, which
