@@ -101,6 +101,9 @@ func ProfileFields(st transcodev1alpha1.TranscodeProfileStatus) *transcodeac.Tra
 		if len(l.NVDEC) > 0 {
 			e.WithNVDEC(l.NVDEC...)
 		}
+		if l.VideoEngines > 0 {
+			e.WithVideoEngines(l.VideoEngines)
+		}
 		if l.Healthy != nil {
 			e.WithHealthy(*l.Healthy)
 		}
