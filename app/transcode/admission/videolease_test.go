@@ -24,8 +24,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
+	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
 const intel = transcodev1alpha1.HardwareIntel
@@ -99,4 +102,67 @@ func TestAdmissionResumesOnceTheCountIsZero(t *testing.T) {
 
 	l.Pass(intelIn(0))
 	assert.Equal(t, 1, l.dispatchGrants(intel), "the held file is admitted once no stream is live")
+}
+
+func TestVideoAllowanceReservesTheStreamsEnginesWhole(t *testing.T) {
+	for _, c := range []struct{ engines, streams, want int }{
+		{2, 1, 1}, {2, 4, 1}, {2, 5, 0}, {2, 8, 0}, {2, 9, 0},
+		{1, 1, 0}, {0, 1, 0}, {3, 1, 2}, {3, 5, 1}, {2, 0, 2}, {0, 0, 1},
+	} {
+		assert.Equal(t, c.want, VideoAllowance(c.engines, c.streams), "engines %d streams %d", c.engines, c.streams)
+	}
+}
+
+// twoEngines is a pass whose intel pods measured talos-88's Arc 140T.
+func twoEngines(streams int) PassInputs {
+	in := intelIn(streams)
+	in.Devices = map[transcodev1alpha1.Hardware]transcodeplan.Device{intel: {
+		Tier:   transcode.TierQSV,
+		Limits: map[transcode.Tier]transcode.Limits{transcode.TierQSV: {VideoEngines: 2}, transcode.TierVAAPI: {VideoEngines: 2}},
+	}}
+	return in
+}
+
+func TestOneEncodeRunsBesideAStreamOnATwoEngineGPU(t *testing.T) {
+	l, _ := newTestLedger(t, map[string]int32{"cpu": 0, "intel": 2}, 0)
+	for _, uid := range []string{"a", "b"} {
+		v := fv(uid, 1, planned)
+		v.Hardware = intel
+		l.Observe(v)
+	}
+	l.Pass(twoEngines(1))
+	assert.Equal(t, 1, l.dispatchGrants(intel), "the stream's engine is reserved; the other takes one encode")
+	held := 0
+	for _, uid := range []string{"a", "b"} {
+		if r := l.Snapshot(types.UID(uid)).WaitReason; r != "" {
+			held++
+			assert.Equal(t, YieldingToPlex+" (1 stream(s); 1 encode(s) run beside them)", r)
+		}
+	}
+	assert.Equal(t, 1, held)
+}
+
+func TestFiveStreamsTakeBothEngines(t *testing.T) {
+	l, _ := newTestLedger(t, map[string]int32{"cpu": 0, "intel": 2}, 0)
+	v := fv("a", 1, planned)
+	v.Hardware = intel
+	l.Observe(v)
+	l.Pass(twoEngines(5))
+	assert.Equal(t, 0, l.dispatchGrants(intel))
+	assert.Equal(t, YieldingToPlex, l.Snapshot("a").WaitReason)
+}
+
+func TestARunningEncodeFillsTheAllowanceBesideAStream(t *testing.T) {
+	l, _ := newTestLedger(t, map[string]int32{"cpu": 0, "intel": 2}, 0)
+	r := fv("r", 1, running)
+	r.Class = intel
+	l.Observe(r)
+	p := fv("p", 2, planned)
+	p.Hardware = intel
+	l.Observe(p)
+	l.Pass(twoEngines(1))
+	assert.Equal(t, 0, l.dispatchGrants(intel), "the running encode holds the one engine the stream leaves")
+	assert.Equal(t, running, l.phaseOf("r"))
+	l.Pass(twoEngines(0))
+	assert.Equal(t, 1, l.dispatchGrants(intel), "the second engine opens once no stream runs")
 }

@@ -89,6 +89,14 @@ type EncoderLimit struct {
 	// +kubebuilder:validation:items:MaxLength=32
 	NVDEC []string `json:"nvdec,omitempty"`
 
+	// VideoEngines is how many video (media) engines the node's device
+	// has, from the kernel's DRM accounting; admission reserves them for
+	// Plex's video conversions before clustarr's encodes. Absent is
+	// unmeasured, which admission reads as one.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	VideoEngines int32 `json:"videoEngines,omitempty"`
+
 	// Healthy is whether the node's pool pod could use its device when it
 	// last measured it (spec §4); false sends the class no work while every
 	// node reports so. Absent is a report from a worker that predates it.

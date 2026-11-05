@@ -96,8 +96,12 @@ type Report struct {
 // Limits are what a pool pod measured of its device. NVDEC is what its
 // decoder decodes; nil is unmeasured, and the static list decides. VAAPI is
 // what an Intel device decodes through VA-API into the QSV encode
-// (VAAPIDecodes); nil is unmeasured, and nothing is.
+// (VAAPIDecodes); nil is unmeasured, and nothing is. VideoEngines is how
+// many video (media) engines the device has, from the kernel's DRM fdinfo
+// (pkg/transcode/drminfo): admission shares them between Plex's streams and
+// clustarr's encodes; 0 is unmeasured, read as one.
 type Limits struct {
-	NVDEC *Decoders `json:"nvdec,omitempty"`
-	VAAPI *Decoders `json:"vaapi,omitempty"`
+	NVDEC        *Decoders `json:"nvdec,omitempty"`
+	VAAPI        *Decoders `json:"vaapi,omitempty"`
+	VideoEngines int       `json:"videoEngines,omitempty"`
 }

@@ -378,6 +378,28 @@ unschedulable or unusable GPU pool leaves it no `fallbackReason`
 How this cluster's GPU nodes are set up -- the NVIDIA device plugin and
 runtime class, NFD with Intel's rules and Intel's GPU plugin -- is
 `docs/gpu-nodes.md`.
+**Plex's Live TV conversions take the Intel GPU's video engines first**
+(owner, 2026-10-26, cluster-plex's gpu-video-transcode-pool design §6):
+cluster-plex counts the conversions its GPU pool runs in the Lease
+`cluster-plex-video-transcodes` (`clusterplex.io/active-video-transcodes`,
+renewed every 10 s, stale after 30 s), and while the count is above zero
+admission (`app/transcode/admission/videolease.go`) admits new files to
+the intel class only on the video engines the streams leave whole
+(`VideoAllowance`, owner 2026-11-05: "maximum transcode streams without
+throttling the streams"): each pool pod measures its device's engine count
+from the kernel's DRM fdinfo (`pkg/transcode/drminfo`, `Limits.VideoEngines`,
+shown in TranscodeProfile `status.encoderLimits[].videoEngines`), a
+stream is reserved a quarter of an engine (measured 20% of one on
+talos-88's Arc 140T for a 1080p H.264 conversion, in bursts), the
+streams' engines are reserved whole, and every engine left takes one
+encode (one held an engine 97% busy on 2026-11-03), so on the 140T's two
+engines one encode runs beside one to four streams and none beside five
+or more; an unmeasured count is one engine, which yields the whole device
+as the rule did until then (all evening on 2026-11-04 while one Apple TV
+watched Election Night: 32 Planned files read "waiting: Plex is converting
+video on the GPU" with 90% of the GPU idle). Running encodes always
+finish. The wait reason names the stream and encode counts when an
+allowance exists.
 **There is no CUDA image** (2026-10-01, `docs/adr/0015-no-cuda-image.md`):
 every pool, nvidia's included, runs the one image `--native-image` names
 (chart `image.native`, built `FROM scratch` by `images/Dockerfile.native`, which

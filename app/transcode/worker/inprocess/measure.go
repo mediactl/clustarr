@@ -30,7 +30,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/drminfo"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
+	"github.com/mediactl/clustarr/pkg/transcode/selfcheck"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
@@ -121,6 +123,7 @@ func measureTier(ctx context.Context, dir, sample string, tier transcode.Tier, d
 		}
 		m.Limits.VAAPI = v
 		decoders = v
+		m.Limits.VideoEngines = drminfo.VideoEngines(selfcheck.IntelRenderNode())
 	default:
 		return m, nil
 	}

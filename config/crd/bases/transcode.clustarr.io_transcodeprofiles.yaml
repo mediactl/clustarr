@@ -568,6 +568,15 @@ spec:
                       maxItems: 16
                       type: array
                       x-kubernetes-list-type: set
+                    videoEngines:
+                      description: |-
+                        VideoEngines is how many video (media) engines the node's device
+                        has, from the kernel's DRM accounting; admission reserves them for
+                        Plex's video conversions before clustarr's encodes. Absent is
+                        unmeasured, which admission reads as one.
+                      format: int32
+                      minimum: 0
+                      type: integer
                   required:
                   - class
                   - node

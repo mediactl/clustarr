@@ -78,6 +78,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             scalar: string
           elementRelationship: associative
+    - name: videoEngines
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.GPUSpec
   map:
     fields:

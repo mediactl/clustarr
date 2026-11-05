@@ -104,7 +104,7 @@ func encoderLimits(ctx context.Context, kv busevents.KV, now time.Time) []transc
 		}
 		sort.Strings(names)
 		for _, n := range names {
-			l := transcodev1alpha1.EncoderLimit{Class: class, Node: n, NVDEC: nodes[n].NVDEC.Decodable()}
+			l := transcodev1alpha1.EncoderLimit{Class: class, Node: n, NVDEC: nodes[n].NVDEC.Decodable(), VideoEngines: int32(nodes[n].VideoEngines)}
 			if h, ok := health[n]; ok {
 				l.Healthy, l.Message = new(h.Healthy), h.Error
 			}

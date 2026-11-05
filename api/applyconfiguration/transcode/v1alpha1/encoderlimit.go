@@ -37,6 +37,11 @@ type EncoderLimitApplyConfiguration struct {
 	// decodes those on the GPU. Absent is none measured or none decodable,
 	// and transcode decides an unmeasured format from a static list.
 	NVDEC []string `json:"nvdec,omitempty"`
+	// VideoEngines is how many video (media) engines the node's device
+	// has, from the kernel's DRM accounting; admission reserves them for
+	// Plex's video conversions before clustarr's encodes. Absent is
+	// unmeasured, which admission reads as one.
+	VideoEngines *int32 `json:"videoEngines,omitempty"`
 	// Healthy is whether the node's pool pod could use its device when it
 	// last measured it (spec §4); false sends the class no work while every
 	// node reports so. Absent is a report from a worker that predates it.
@@ -74,6 +79,14 @@ func (b *EncoderLimitApplyConfiguration) WithNVDEC(values ...string) *EncoderLim
 	for i := range values {
 		b.NVDEC = append(b.NVDEC, values[i])
 	}
+	return b
+}
+
+// WithVideoEngines sets the VideoEngines field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the VideoEngines field is set to the value of the last call.
+func (b *EncoderLimitApplyConfiguration) WithVideoEngines(value int32) *EncoderLimitApplyConfiguration {
+	b.VideoEngines = &value
 	return b
 }
 

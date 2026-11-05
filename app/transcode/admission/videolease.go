@@ -18,10 +18,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package admission
 
 import (
+	"fmt"
+	"math"
 	"strconv"
 	"time"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
+
+	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 )
 
 // Plex's video conversions share the Intel GPU with clustarr's batch
@@ -29,7 +33,10 @@ import (
 // cluster-plex's docs/superpowers/specs/2026-10-26-gpu-video-transcode-pool-design.md
 // §6). cluster-plex counts the conversions its GPU pool runs in a Lease it
 // alone writes; while that count is fresh and above zero, admission admits
-// no new file to the intel class, and the encodes already running finish.
+// new files to the intel class only on the video engines the streams
+// leave whole (VideoAllowance; owner, 2026-11-05: "maximum transcode
+// streams without throttling the streams"), and the encodes already
+// running finish.
 const (
 	// VideoTranscodesAnnotation is the Lease's count.
 	VideoTranscodesAnnotation = "clusterplex.io/active-video-transcodes"
@@ -38,7 +45,52 @@ const (
 	videoLeaseStale = 30 * time.Second
 	// YieldingToPlex is the wait reason of a file held for Plex's streams.
 	YieldingToPlex = "waiting: Plex is converting video on the GPU"
+	// videoStreamShare is the share of one video engine a Live TV
+	// conversion is reserved. Measured 2026-11-05 on talos-88's Arc 140T
+	// (two video engines): a 1080p H.264 stream converted to H.264 at real
+	// time held 20% of one engine, in bursts, with the GPU asleep between
+	// them; a quarter leaves a margin for a heavier stream. A batch encode
+	// held one engine 97% busy (2026-11-03), so it is a whole engine.
+	videoStreamShare = 0.25
 )
+
+// VideoAllowance is how many encodes may start beside streams conversions
+// on a device with engines video engines: the streams' engines are
+// reserved whole (each stream videoStreamShare of one, rounded up, at
+// least one engine while any stream runs), so a stream never shares an
+// engine with an encode, and every engine left takes one encode. An
+// unmeasured count (0: an older worker, or a driver that reports none) is
+// one engine, which yields the whole device while any stream runs, as
+// before the count. On the Arc 140T: one encode beside one to four
+// streams, none beside five or more; without streams the pool's own
+// parallelism decides.
+func VideoAllowance(engines, streams int) int {
+	engines = max(engines, 1)
+	if streams <= 0 {
+		return engines
+	}
+	reserved := max(int(math.Ceil(float64(streams)*videoStreamShare)), 1)
+	return max(engines-reserved, 0)
+}
+
+// videoEngines is the measured engine count of a class's device, from the
+// limits every tier of the class shares; 0 when no report carries one.
+func videoEngines(d transcodeplan.Device) int {
+	n := 0
+	for _, l := range d.Limits {
+		n = max(n, l.VideoEngines)
+	}
+	return n
+}
+
+// yieldMessage is the wait reason of a file held for Plex's streams: the
+// bare YieldingToPlex when no encode may run beside them, else how many do.
+func yieldMessage(streams, beside int) string {
+	if beside <= 0 {
+		return YieldingToPlex
+	}
+	return fmt.Sprintf("%s (%d stream(s); %d encode(s) run beside them)", YieldingToPlex, streams, beside)
+}
 
 // videoStreams is the Lease's count while it was renewed within
 // videoLeaseStale, else 0 -- cluster-plex's lease.Count, read the same way.
