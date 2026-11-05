@@ -75,6 +75,12 @@ type Options struct {
 	Backoff time.Duration
 	// ReadyTimeout bounds a new viewer's wait for the first byte. Default 15s.
 	ReadyTimeout time.Duration
+	// StallTimeout is how long an open upstream may send nothing before
+	// it is dropped and reopened, as one that closed is. Default 15s. A
+	// stalled connection was never reopened before: its viewers starved
+	// until PMS's recorder (30 s) or the conversion (30 s) gave the
+	// session up (talos, 2026-11-04 02:16Z, "input stalled").
+	StallTimeout time.Duration
 	// Reclaim is how long a channel whose watched stream a newer tune took
 	// may not take a watched stream's tuner in turn. Default 10s.
 	Reclaim time.Duration
@@ -152,6 +158,9 @@ func New(o Options) *Relay {
 	}
 	if o.ReadyTimeout <= 0 {
 		o.ReadyTimeout = 15 * time.Second
+	}
+	if o.StallTimeout <= 0 {
+		o.StallTimeout = 15 * time.Second
 	}
 	if o.Reclaim <= 0 {
 		o.Reclaim = 10 * time.Second
@@ -282,6 +291,9 @@ func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, ups
 		// under the manager's, while its own context carries none.
 		ctx, cancel := context.WithCancel(logging.NewContext(r.o.Context, logging.FromContext(req.Context())))
 		s = &stream{channel: channel, ring: newRing(r.buffer), ready: make(chan struct{}), cancel: cancel, userAgent: r.userAgent, lang: r.streamLanguage(lang)}
+		s.ring.onSplice = func(dropped int64, aligned bool) {
+			logging.FromContext(ctx).Info("livetv: upstream reopened and spliced", "channel", channel, "droppedBytes", dropped, "aligned", aligned)
+		}
 		r.streams[channel] = s
 		r.inUse++
 		inUse := r.inUse
@@ -500,10 +512,16 @@ func (r *Relay) pump(ctx context.Context, s *stream, upstream string) {
 	}
 }
 
+// errStalled ends an upstream connection that sent nothing for StallTimeout.
+var errStalled = errors.New("relay: upstream stalled")
+
 // fetch copies one upstream connection into s's ring. It returns the reason
 // the connection ended, whether that is final (an HLS answer), and whether
-// it delivered any bytes.
+// it delivered any bytes. A connection that sends nothing for StallTimeout
+// is dropped (ReasonTimeout) for the pump to reopen.
 func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason string, final, delivered bool) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstream, nil)
 	if err != nil {
 		return ReasonRefused, true, false
@@ -541,9 +559,14 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 	buf := make([]byte, 32<<10)
 	first := true
 	rw := newTSRewriter(s.lang) // each connection's packets start afresh
+	lastByte := time.Now()
+	stall := time.AfterFunc(r.o.StallTimeout, func() { cancel(errStalled) })
+	defer stall.Stop()
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
+			lastByte = time.Now()
+			stall.Reset(r.o.StallTimeout)
 			if first && bytes.HasPrefix(buf[:n], []byte("#EXTM3U")) {
 				return ReasonUnsupportedStream, true, delivered
 			}
@@ -563,6 +586,10 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 			}
 		}
 		if err != nil {
+			if errors.Is(context.Cause(ctx), errStalled) {
+				log.Warn("livetv: upstream stalled; reopening", "channel", s.channel, "silentFor", time.Since(lastByte))
+				return ReasonTimeout, false, delivered
+			}
 			return ReasonEOF, false, delivered
 		}
 	}

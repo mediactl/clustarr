@@ -35,10 +35,13 @@ type tsIndex struct {
 	codec    byte
 	pat, pmt []byte
 	key      int64 // the latest keyframe's position, -1 when none
+	// pts is the latest video PES's presentation time (90 kHz ticks, 33
+	// bits), -1 until one is seen; keyPTS the latest keyframe's.
+	pts, keyPTS int64
 }
 
 func newTSIndex(at int64) tsIndex {
-	return tsIndex{pos: at, pmtPID: -1, videoPID: -1, key: -1}
+	return tsIndex{pos: at, pmtPID: -1, videoPID: -1, key: -1, pts: -1, keyPTS: -1}
 }
 
 // write reads p, which continues the stream at the index's position.
@@ -58,15 +61,17 @@ func (x *tsIndex) write(p []byte) {
 	}
 }
 
-func (x *tsIndex) packet(p []byte) {
+// packet indexes one whole packet at the index's position and reports
+// whether it starts a keyframe.
+func (x *tsIndex) packet(p []byte) bool {
 	if p[0] != 0x47 {
 		x.lost, x.key = true, -1
-		return
+		return false
 	}
 	pid := int(p[1]&0x1f)<<8 | int(p[2])
 	start := p[1]&0x40 != 0
 	if !start || (pid != 0 && pid != x.pmtPID && pid != x.videoPID) {
-		return
+		return false
 	}
 	off, rai := 4, false
 	if p[3]&0x20 != 0 {
@@ -75,7 +80,7 @@ func (x *tsIndex) packet(p []byte) {
 		off = 5 + alen
 	}
 	if p[3]&0x10 == 0 || off >= packetSize {
-		return
+		return false
 	}
 	payload := p[off:]
 	switch pid {
@@ -88,10 +93,36 @@ func (x *tsIndex) packet(p []byte) {
 			x.videoPID, x.codec, x.pmt = video, codec, bytes.Clone(p)
 		}
 	case x.videoPID:
+		if pts, ok := pesPTS(payload); ok {
+			x.pts = pts
+		}
 		if keyframe(x.codec, pesData(payload), rai) {
-			x.key = x.pos
+			x.key, x.keyPTS = x.pos, x.pts
+			return true
 		}
 	}
+	return false
+}
+
+// ptsModulus is the span of a 33-bit PTS; ptsAhead reports whether a is
+// later than b, allowing for the wrap (every 26.5 h at 90 kHz).
+const ptsModulus = int64(1) << 33
+
+func ptsAhead(a, b int64) bool {
+	d := (a - b) & (ptsModulus - 1)
+	return d > 0 && d < ptsModulus/2
+}
+
+// pesPTS is the presentation time a PES packet's header carries, if any.
+func pesPTS(payload []byte) (int64, bool) {
+	if len(payload) < 14 || payload[0] != 0 || payload[1] != 0 || payload[2] != 1 || payload[7]&0x80 == 0 || payload[8] < 5 {
+		return 0, false
+	}
+	p := payload[9:14]
+	if p[0]&0x01 == 0 || p[2]&0x01 == 0 || p[4]&0x01 == 0 {
+		return 0, false // the marker bits
+	}
+	return int64(p[0]>>1&0x07)<<30 | int64(p[1])<<22 | int64(p[2]>>1&0x7f)<<15 | int64(p[3])<<7 | int64(p[4]>>1&0x7f), true
 }
 
 // psiSection is the PSI section a payload starting one carries, whole within

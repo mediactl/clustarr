@@ -199,9 +199,13 @@ func TestJoinNeverStartsBeforeAReopenedConnection(t *testing.T) {
 	assert.Equal(t, int64(len(first)), cur, "the reopened connection's first byte")
 	assert.Nil(t, tables)
 
-	writeChunked(r, cat(patPacket(), pmtPacket(0x1b), h264Key(), fill(testVideoPID, connectionStart/packetSize+1)))
+	// The frame and the fill above were the reopened connection's replay
+	// of time already delivered (every packet of pastTheStart is at PTS 0),
+	// dropped by the catch-up; its first keyframe past that time is where
+	// the ring resumes, behind copies of its tables.
+	writeChunked(r, cat(patPacket(), pmtPacket(0x1b), keyAt(3000), fill(testVideoPID, connectionStart/packetSize+1)))
 	cur, tables = r.Join()
-	assert.Equal(t, int64(len(first)+13*packetSize), cur, "its own keyframe")
+	assert.Equal(t, int64(len(first)+2*packetSize), cur, "its own keyframe, after the tables")
 	assert.Equal(t, cat(patPacket(), pmtPacket(0x1b)), tables)
 }
 

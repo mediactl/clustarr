@@ -47,7 +47,11 @@ One Go module, five binaries (ADR-0018,
 | `cmd/markers` | `native` | segment detection (`app/segments/worker`) on ffgo and ONNX Runtime |
 | `cmd/transcode` | `native` | transcode pool and graft Jobs (`app/transcode/worker`) on ffgo |
 
-Both images UPX-pack every Go binary; `native` is FROM scratch with FFmpeg 9's
+Both images UPX-pack every Go binary but the manager (owner, 2026-11-04: a
+packed ELF is decompressed into anonymous memory at exec, so the whole file
+was resident and unevictable in the manager pod, where the unpacked one is
+demand-paged and file-backed; `images/Dockerfile.clustarr` packs the ui
+alone); `native` is FROM scratch with FFmpeg 9's
 shared libraries, the ffgo shim and ONNX Runtime, and neither ships `ffmpeg`,
 `ffprobe` or `par2` (ADR-0017). `make run-dev` runs the manager, one agent per
 domain and the ui as local processes; there is no `clustarr all`.
@@ -523,6 +527,37 @@ and PMS failed every fresh tune as "Recording failed. Please check your
 tuner or antenna", while a tune that joined a warm stream (at the latest
 keyframe) held. A viewer cut off that way is logged ("fell a whole buffer
 behind") and counted (`clustarr_livetv_viewers_dropped_total`).
+
+**A reopened upstream is spliced in forward, and a stalled one is reopened**
+(2026-11-05, after the owner's "Plex Live TV session streams periodically
+disconnect with an error": six live sessions in seven days ended on a
+conversion failure, five of them an hour or two in, when the provider's
+connection ended or stalled). The provider (tvload.win's CDN) closes a
+stream's connection after about 65 minutes and opens every connection with
+its own burst of backlog; the relay reopened it (`pump`, `Retries` 3,
+`Backoff` 1 s) and appended the new connection's bytes to the viewers'
+stream as they came, so PMS's recorder and cluster-plex's GPU conversion
+saw time step back and the conversion's TS muxer refused it ("non
+monotonically increasing dts", `av_interleaved_write_frame: Invalid
+argument`), which PMS reports as "Recording failed. Please check your tuner
+or antenna". Now `ring.Realign` starts a catch-up (`relay.catchUp`) when a
+video presentation time was delivered before: the reopened connection's
+packets are indexed but dropped until a keyframe whose PTS (`tsIndex.pts`,
+`pesPTS`, wrap-aware `ptsAhead`) is past the last delivered, then its
+tables and that keyframe on are stored, so an attached viewer sees a short
+forward gap and never a step back; a connection without TS tables within
+`catchUpProbe` (1 MiB) passes through as it came, and one that never
+passes the time within the ring's capacity splices at its next keyframe
+("livetv: upstream reopened and spliced", `droppedBytes`, `aligned`).
+And a connection that sends nothing for `relay.Options.StallTimeout`
+(15 s) is dropped and reopened as one that closed is ("livetv: upstream
+stalled; reopening", reason `timeout`): the stream transport has only a
+header timeout, so a stalled connection was never reopened and its viewers
+starved until PMS's recorder (`-rw_timeout` 30 s) or the conversion's own
+stall watch (30 s, "input stalled") gave the session up. cluster-plex's
+cutter drops a packet whose decode time is not past its stream's last
+instead of failing the job (its `pkg/video/pipeline/cut.go`), the belt
+under this.
 
 discover.json advertises three tuners more than `tuners`
 (`tuner.SpareTuners`). The reason: on 2026-10-20 a grab PMS never ended held
