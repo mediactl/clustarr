@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
 #
-# ghcr.io/mediactl/clustarr -- the manager and ui binaries, static, cgo-free
-# and UPX-packed, on distroless (spec 2026-10-06 §10.1.2, R1). Everything
+# ghcr.io/mediactl/clustarr -- the manager and ui binaries, static and
+# cgo-free, on distroless (spec 2026-10-06 §10.1.2, R1); the ui UPX-packed,
+# the manager never (below). Everything
 # that loads FFmpeg, ONNX Runtime or par2 runs from images/Dockerfile.native.
 # The deps guards (test/guards/deps_test.go) keep both binaries free of a
 # dynamic loader, so they cross-compile from $BUILDPLATFORM.
@@ -20,11 +21,17 @@ FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
-# UPX packs both binaries after the build; it packs any architecture's ELF,
-# so it runs on $BUILDPLATFORM like the compiler. UPX_FLAGS sets the packing
+# UPX packs the ui after the build; it packs any architecture's ELF, so it
+# runs on $BUILDPLATFORM like the compiler. UPX_FLAGS sets the packing
 # ("--ultra-brute" squeezes a few percent more, at minutes per binary).
+# The manager is never packed (owner, 2026-11-04): a packed ELF is
+# decompressed into anonymous memory at exec, so the whole 66 MiB file was
+# resident, private and unevictable for the pod's life, where an unpacked
+# binary is demand-paged from the image layer, file-backed and dropped under
+# memory pressure; packing it saved 7 MiB of pull per architecture
+# (docs/superpowers/plans/2026-11-04-binary-size-reduction.md §5, R1).
 ARG UPX_FLAGS="--best --lzma"
-# UPX_ARM64=0 leaves the arm64 binaries unpacked: the control-plane placement
+# UPX_ARM64=0 leaves the arm64 ui unpacked too: the control-plane placement
 # design (2026-10-21, §6) runs the manager and ui on arm64 nodes, and a packed
 # binary is the one piece that kernel has not yet been shown to start.
 ARG UPX_ARM64=1
@@ -49,8 +56,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
  && GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
       -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
       -o /out/ui ./cmd/ui \
- && if [ "${TARGETARCH}" = arm64 ] && [ "${UPX_ARM64}" = 0 ]; then echo 'UPX_ARM64=0: arm64 binaries left unpacked'; \
-    else upx ${UPX_FLAGS} /out/manager /out/ui && upx -t /out/manager /out/ui; fi
+ && if [ "${TARGETARCH}" = arm64 ] && [ "${UPX_ARM64}" = 0 ]; then echo 'UPX_ARM64=0: arm64 ui left unpacked'; \
+    else upx ${UPX_FLAGS} /out/ui && upx -t /out/ui; fi
 
 # ---------------------------------------------------------------------------
 # clustarr: distroless static, non-root
