@@ -399,6 +399,25 @@ metrics:
   prometheusRule:
     enabled: false
     additionalLabels: {}
+  # A Grafana dashboard of the clustarr_* series (dashboards/clustarr.json:
+  # work queues and dispatch, search, downloads and imports, transcode,
+  # markers and subtitles, Live TV, the remediation loop, NATS, the manager's
+  # cache and each pod's resources), as a ConfigMap Grafana's dashboard
+  # sidecar loads -- the grafana chart's sidecar.dashboards, or
+  # kube-prometheus-stack's, which select on the label below by default. The
+  # dashboard picks a Prometheus data source in a variable and filters by
+  # namespace and pod; it needs no Prometheus Operator CRDs.
+  grafanaDashboard:
+    enabled: false
+    # The ConfigMap's namespace; empty is the release's. Name Grafana's own
+    # namespace when its sidecar searches only that one.
+    namespace: ""
+    # The labels the sidecar selects on.
+    labels:
+      grafana_dashboard: "1"
+    # For example grafana_folder: Media, where the sidecar's
+    # folderAnnotation is grafana_folder.
+    annotations: {}
 
 # --------------------------------------------------------------------------
 # Storage (§11)

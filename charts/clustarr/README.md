@@ -500,6 +500,10 @@ template.
 | `metrics.secure` | Serve the manager's and every agent's metrics on `:8443` over HTTPS. `false` passes `--metrics-secure=false` and serves plain HTTP, for a scraper that cannot speak TLS to a pod (Grafana Alloy's `discovery.kubelet` scrapes every declared port over http); the `ServiceMonitor`s then scrape http with no token. Anyone who can reach a pod can read its metrics then. | `true` |
 | `metrics.serviceMonitor.enabled` | Create `ServiceMonitor`s (needs the Prometheus Operator CRDs). | `false` |
 | `metrics.prometheusRule.enabled` | Create a `PrometheusRule` alerting on any NATS slow-consumer drop (`ClustarrNATSSlowConsumer`, ADR-0020 §3; needs the Prometheus Operator CRDs). | `false` |
+| `metrics.grafanaDashboard.enabled` | Create a ConfigMap holding the Grafana dashboard `Clustarr` (`dashboards/clustarr.json`, uid `clustarr`) for Grafana's dashboard sidecar (the grafana chart's or kube-prometheus-stack's `sidecar.dashboards`). It picks a Prometheus data source in a variable and filters by namespace and pod. | `false` |
+| `metrics.grafanaDashboard.namespace` | The ConfigMap's namespace: Grafana's own when its sidecar searches only that one. Empty is the release's. | `""` |
+| `metrics.grafanaDashboard.labels` | The labels the sidecar selects on. | `grafana_dashboard: "1"` |
+| `metrics.grafanaDashboard.annotations` | For example `grafana_folder: Media`, where the sidecar's `folderAnnotation` is `grafana_folder`. | `{}` |
 | `storage.data.existingClaim` | Bring your own `/data` claim instead of provisioning one. | `""` |
 | `storage.data.storageClass` | `StorageClass` for the chart-provisioned `/data` claim. **Read [Storage](#storage) before installing for real.** | `""` |
 | `storage.data.accessMode` | Must be `ReadWriteMany` when `existingClaim` is unset (`clustarr.validate` fails otherwise). | `ReadWriteMany` |

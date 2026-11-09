@@ -161,6 +161,21 @@ and the cardinality tests both walk the same `all` slice. Add its row to the tab
 the same change; an undocumented metric is not discoverable by an operator who only reads this
 file.
 
+### The dashboard
+
+`charts/clustarr/dashboards/clustarr.json` is a Grafana dashboard of these series (uid
+`clustarr`), which the chart ships as a ConfigMap for Grafana's dashboard sidecar when
+`metrics.grafanaDashboard.enabled` is set (the chart README's values table). It picks its
+Prometheus data source in a variable and filters every query by `$namespace`, and the
+Resources row's `process_*` and `go_*` series by `$pod`, so it works however the pods are
+scraped. Its rows follow the work: the overview, work queues and dispatch, search and
+indexers, downloads and imports, transcode, markers and subtitles, Live TV, then, collapsed,
+the remediation loop, NATS and the bus, the manager's row cache and each pod's resources.
+cluster-plex ships its own (`Cluster Plex`, uid `cluster-plex`); both carry the tag `media`
+and link to each other. A new metric worth watching gets a panel in the same change. Check
+a changed query with `promtool check rules` on a rule file holding it, with the dashboard's
+variables filled in: VictoriaMetrics accepts some MetricsQL that Prometheus does not.
+
 ## Traces
 
 Every binary installs an OpenTelemetry `TracerProvider` at startup, exporting over OTLP when
