@@ -29,6 +29,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/markers"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/segments"
 )
 
 // smokeFileMs is the smoke test's fixture runtime (status.mediaInfo.
@@ -110,4 +111,49 @@ func TestTheIntroDBSegmentsPastTheEndAreNotStored(t *testing.T) {
 		}
 		require.Same(t, in.Prev, markers.Plan(in).Markers, "an untagged legacy block is never rewritten for nothing")
 	})
+}
+
+// TestStoredImplausibleCreditsAreMergedAgain is To LOVE-Ru S01E06
+// (2026-11-09): TheIntroDB's credits {0, null} were stored as the whole
+// episode before the merge learned to drop them. A stored block holding
+// such credits is merged again though nothing else changed, its credits
+// taken from the file's ED chapter in the segments record.
+func TestStoredImplausibleCreditsAreMergedAgain(t *testing.T) {
+	const dur = 1_450_746
+	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	tidb := func(k catalogv1alpha1.MarkerKind, start, end int64) catalogv1alpha1.MarkerSegment {
+		return catalogv1alpha1.MarkerSegment{Kind: k, StartMs: start, EndMs: end, Source: catalogv1alpha1.SegmentSourceTheIntroDB, Confidence: 100}
+	}
+	chap := func(k catalogv1alpha1.MarkerKind, start, end int64) catalogv1alpha1.MarkerSegment {
+		return catalogv1alpha1.MarkerSegment{Kind: k, StartMs: start, EndMs: end, Source: catalogv1alpha1.SegmentSourceChapters, Confidence: 90}
+	}
+	in := probedInput(commonv1.MediaKindEpisode, now)
+	in.DurationMs = dur
+	in.Segments, in.SegmentsOK = segments.Record{ProbeHash: "hash-1", Version: 3, Result: "Found", Segments: []segments.Segment{
+		{Kind: segments.KindCredits, StartMs: 1_329_657, EndMs: 1_419_500, Source: segments.SourceChapters, Confidence: 90},
+		{Kind: segments.KindPreview, StartMs: 1_419_500, EndMs: 1_450_741, Source: segments.SourceChapters, Confidence: 90},
+	}}, true
+	in.Prev = &catalogv1alpha1.FileMarkers{
+		Result: catalogv1alpha1.MarkersFound, ForProbeHash: "hash-1", DurationMs: dur,
+		FetchedAt: metav1.NewTime(now.Add(-time.Hour)),
+		Analysis:  &catalogv1alpha1.SegmentAnalysis{Result: catalogv1alpha1.MarkersFound, ForProbeHash: "hash-1", Version: 3},
+		Segments: []catalogv1alpha1.MarkerSegment{
+			tidb(catalogv1alpha1.MarkerIntro, 0, 89_858),
+			tidb(catalogv1alpha1.MarkerCredits, 0, dur),
+			chap(catalogv1alpha1.MarkerPreview, 1_419_500, 1_450_741),
+		},
+	}
+	d := markers.Plan(in)
+	require.Nil(t, d.Request, "not due: TheIntroDB is not asked again")
+	require.NotNil(t, d.Markers)
+	require.Equal(t, []catalogv1alpha1.MarkerSegment{
+		tidb(catalogv1alpha1.MarkerIntro, 0, 89_858),
+		chap(catalogv1alpha1.MarkerCredits, 1_329_657, 1_419_500),
+		chap(catalogv1alpha1.MarkerPreview, 1_419_500, 1_450_741),
+	}, d.Markers.Segments)
+	require.Equal(t, in.Prev.FetchedAt, d.Markers.FetchedAt, "TheIntroDB's outcome is kept")
+
+	again := in
+	again.Prev = d.Markers
+	require.Same(t, again.Prev, markers.Plan(again).Markers, "the merged block is carried verbatim from then on")
 }

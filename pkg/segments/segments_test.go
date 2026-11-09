@@ -57,7 +57,9 @@ func TestChapterNames(t *testing.T) {
 		{"Recap", recap, true, 90},
 		{"Previously on", recap, true, 90},
 		{"Ending", credits, true, 100},
-		{"ED", credits, true, 90},
+		{"ED", credits, true, 100},
+		{" ed ", credits, true, 100},
+		{"ED 2", credits, true, 90},
 		{"End Credits", credits, true, 100},
 		{" credits ", credits, true, 100},
 		{"Credit", credits, true, 100},
@@ -169,7 +171,7 @@ func TestMergePrecedence(t *testing.T) {
 
 	// Credits: a chapter titled as credits outranks TheIntroDB (Arcane
 	// S01E07: "Credits" at 36:18, TheIntroDB 38:21); a pattern-only chapter
-	// ("ED") does not, but still outranks analysis.
+	// ("Credits Song") does not, but still outranks analysis.
 	assert.Equal(t, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 100)},
 		segments.Merge(
 			[]segments.Segment{seg(credits, 2_301_000, 2_403_000, tidb, 100)},
@@ -213,6 +215,52 @@ func TestMergeKeepsSegmentsWithinTheRuntime(t *testing.T) {
 	assert.Equal(t, []segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)},
 		segments.Merge([]segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)}, nil, 0),
 		"an unknown runtime keeps what it has")
+}
+
+// TestMergeDropsImplausibleTheIntroDBCredits is To LOVE-Ru's first season
+// (2026-11-09): TheIntroDB answers every episode with credits {start 0,
+// end null}, read as the whole episode, so Plex offered to skip the
+// credits once the intro ended. Credits starting before the intro ends, or
+// covering more than half the runtime, leave credits to the chapters and
+// analysis.
+func TestMergeDropsImplausibleTheIntroDBCredits(t *testing.T) {
+	const dur = 1_450_746 // S01E06
+	edChapter := seg(credits, 1_329_657, 1_419_500, chap, 90)
+	previewChapter := seg(preview, 1_419_500, 1_450_741, chap, 90)
+	assert.Equal(t, []segments.Segment{seg(intro, 0, 89_858, tidb, 100), edChapter, previewChapter},
+		segments.Merge(
+			[]segments.Segment{seg(intro, 0, 89_858, tidb, 100), seg(credits, 0, dur, tidb, 100)},
+			[]segments.Segment{edChapter, previewChapter}, dur),
+		"whole-episode credits leave credits to the ED chapter, even one analysed before ED was exact")
+
+	assert.Equal(t, []segments.Segment{seg(credits, 1_330_000, 1_418_000, anal, 80)},
+		segments.Merge(
+			[]segments.Segment{seg(credits, 0, dur, tidb, 100)},
+			[]segments.Segment{seg(credits, 1_330_000, 1_418_000, anal, 80)}, dur),
+		"with no intro, credits over half the runtime leave credits to analysis")
+	assert.Empty(t, segments.Merge([]segments.Segment{seg(credits, 600_000, dur, tidb, 100)}, nil, dur),
+		"credits over half the runtime are dropped with nothing to replace them")
+	assert.Equal(t, []segments.Segment{seg(intro, 0, 90_000, tidb, 100)},
+		segments.Merge([]segments.Segment{seg(intro, 0, 90_000, tidb, 100), seg(credits, 60_000, 150_000, tidb, 100)}, nil, dur),
+		"credits starting before the intro ends are dropped")
+	assert.Equal(t, []segments.Segment{seg(intro, 0, 90_000, chap, 90), seg(credits, 1_330_000, dur, tidb, 100)},
+		segments.Merge([]segments.Segment{seg(credits, 1_330_000, dur, tidb, 100)},
+			[]segments.Segment{seg(intro, 0, 90_000, chap, 90)}, dur),
+		"plausible TheIntroDB credits stand beside a chapter intro")
+	assert.Equal(t, []segments.Segment{seg(credits, 0, 3_000_000, tidb, 100)},
+		segments.Merge([]segments.Segment{seg(credits, 0, 3_000_000, tidb, 100)}, nil, 0),
+		"an unknown runtime judges against the intro alone")
+}
+
+func TestImplausibleCredits(t *testing.T) {
+	const dur = 1_450_746
+	assert.True(t, segments.ImplausibleCredits(
+		[]segments.Segment{seg(intro, 0, 89_858, tidb, 100), seg(credits, 0, dur, tidb, 100)}, dur))
+	assert.False(t, segments.ImplausibleCredits(
+		[]segments.Segment{seg(intro, 0, 89_858, tidb, 100), seg(credits, 1_329_657, 1_419_500, chap, 90)}, dur),
+		"only TheIntroDB's credits are judged")
+	assert.False(t, segments.ImplausibleCredits(
+		[]segments.Segment{seg(intro, 0, 89_858, tidb, 100), seg(credits, 1_330_000, dur, tidb, 100)}, dur))
 }
 
 // An anime episode's ED ends before its preview; with no preview chapter

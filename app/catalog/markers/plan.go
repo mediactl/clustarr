@@ -171,8 +171,10 @@ func Plan(in Input) Decision {
 	}
 	// A stored segment past the probe's runtime -- merged before the merge
 	// held segments to it (smoke finding 6) -- is merged again, though
-	// nothing else changed.
-	if !changed && !segments.PastTheEnd(storedSegments(m), in.DurationMs) {
+	// nothing else changed, and so are stored TheIntroDB credits the merge
+	// now drops as implausible (2026-11-09).
+	if !changed && !segments.PastTheEnd(storedSegments(m), in.DurationMs) &&
+		!segments.ImplausibleCredits(sourcedSegments(m), in.DurationMs) {
 		return d
 	}
 	m.Segments = markerSegments(segments.Merge(theintrodb, analysed, in.DurationMs))
@@ -250,6 +252,20 @@ func theIntroDBSegments(m *catalogv1alpha1.FileMarkers) []segments.Segment {
 				Source: segments.SourceTheIntroDB, Confidence: conf,
 			})
 		}
+	}
+	return out
+}
+
+// sourcedSegments are status's segments, every source, each with its source;
+// an untagged one is TheIntroDB's, as theIntroDBSegments reads it.
+func sourcedSegments(m *catalogv1alpha1.FileMarkers) []segments.Segment {
+	out := make([]segments.Segment, 0, len(m.Segments))
+	for _, s := range m.Segments {
+		src := segments.Source(s.Source)
+		if s.Source == "" {
+			src = segments.SourceTheIntroDB
+		}
+		out = append(out, segments.Segment{Kind: segments.Kind(s.Kind), StartMs: s.StartMs, EndMs: s.EndMs, Source: src, Confidence: s.Confidence})
 	}
 	return out
 }

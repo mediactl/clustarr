@@ -31,7 +31,9 @@ var kinds = []Kind{
 // has any, else the chapters' of that kind, else analysis's of at least 60;
 // except that a credits chapter wholly titled as credits
 // (ExactCreditsConfidence) outranks TheIntroDB's credits (owner's ruling,
-// 2026-10-01).
+// 2026-10-01), and TheIntroDB's credits that cannot be the closing credits
+// (implausibleCredits) are dropped, leaving credits to the chapters and
+// analysis (owner, 2026-11-09).
 // theintrodb holds TheIntroDB's segments; analysis holds the chapter and
 // analysis segments, told apart by Source. The result is ordered by start
 // and capped at 20.
@@ -46,11 +48,15 @@ func Merge(theintrodb, analysis []Segment, durationMs int64) []Segment {
 	theintrodb, analysis = Within(theintrodb, durationMs), Within(analysis, durationMs)
 	var out []Segment
 	for _, k := range kinds {
+		tidb := of(theintrodb, k, "", 0)
+		if k == KindCredits {
+			tidb = plausibleCredits(tidb, introEnd(out), durationMs)
+		}
 		switch {
 		case k == KindCredits && len(of(analysis, k, SourceChapters, ExactCreditsConfidence)) > 0:
 			out = append(out, of(analysis, k, SourceChapters, ExactCreditsConfidence)...)
-		case has(theintrodb, k, ""):
-			out = append(out, of(theintrodb, k, "", 0)...)
+		case len(tidb) > 0:
+			out = append(out, tidb...)
 		case has(analysis, k, SourceChapters):
 			out = append(out, of(analysis, k, SourceChapters, 0)...)
 		default:
@@ -62,6 +68,52 @@ func Merge(theintrodb, analysis []Segment, durationMs int64) []Segment {
 		out = out[:maxSegments]
 	}
 	return out
+}
+
+// implausibleCredits reports whether c cannot be a file's closing credits:
+// it starts before the intro ends (introEndMs), or it covers more than half
+// of a known runtime. TheIntroDB answers every first-season episode of
+// To LOVE-Ru with credits {start 0, end null}, which read as the whole
+// episode, so Plex offered to skip the credits as soon as the intro ended
+// (owner, 2026-11-09: 21 of 26 episodes).
+func implausibleCredits(c Segment, introEndMs, durationMs int64) bool {
+	return c.StartMs < introEndMs || (durationMs > 0 && 2*(c.EndMs-c.StartMs) > durationMs)
+}
+
+// plausibleCredits is s without its implausible credits segments.
+func plausibleCredits(s []Segment, introEndMs, durationMs int64) []Segment {
+	out := s[:0:0]
+	for _, x := range s {
+		if !implausibleCredits(x, introEndMs, durationMs) {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// introEnd is the latest end of s's intro segments, 0 for none.
+func introEnd(s []Segment) int64 {
+	var end int64
+	for _, x := range s {
+		if x.Kind == KindIntro {
+			end = max(end, x.EndMs)
+		}
+	}
+	return end
+}
+
+// ImplausibleCredits reports whether stored -- status.markers' segments
+// with their sources, held to durationMs -- holds a TheIntroDB credits
+// segment Merge now drops, so the markers planner merges again though
+// nothing else changed, as it does for a segment past the runtime.
+func ImplausibleCredits(stored []Segment, durationMs int64) bool {
+	end := introEnd(stored)
+	for _, x := range Within(stored, durationMs) {
+		if x.Kind == KindCredits && x.Source == SourceTheIntroDB && implausibleCredits(x, end, durationMs) {
+			return true
+		}
+	}
+	return false
 }
 
 func has(s []Segment, k Kind, src Source) bool {

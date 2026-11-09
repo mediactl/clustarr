@@ -39,11 +39,13 @@ const (
 // creditsTitle is a chapter title that is wholly a credits name. Such a
 // chapter was authored for this file's own timeline, so it outranks
 // TheIntroDB for credits (Merge); a title the credits pattern only matches
-// within ("ED", "Credits Song") does not. Of 107 files with both on the
+// within ("Credits Song", "ED 2") does not. Of 107 files with both on the
 // owner's library (2026-10-01), 36 disagreed by more than 5 s, the chapter
 // right in the worst cases (Game of Thrones S02E09: TheIntroDB mid-battle,
-// 8:44 early; Arcane S01E07: 2:03 late).
-var creditsTitle = compile(`^\s*((End|Closing)\s+)?Credits?\s*$|^\s*Ending\s*$|^\s*Outro\s*$`)
+// 8:44 early; Arcane S01E07: 2:03 late). A bare "ED", anime's own name for
+// its ending, is one since 2026-11-09 (owner): YakuboEncodes' To LOVE-Ru
+// Blu-rays title it so, beside TheIntroDB credits covering the whole episode.
+var creditsTitle = compile(`^\s*((End|Closing)\s+)?Credits?\s*$|^\s*Ending\s*$|^\s*Outro\s*$|^\s*ED\s*$`)
 
 // Chapter confidences: ExactCreditsConfidence for a chapter whose whole
 // title is a credits name, chapterConfidence for any other match.

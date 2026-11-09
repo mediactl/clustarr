@@ -1499,9 +1499,17 @@ the loop's markers planner merges them into `status.markers.segments` (each
 tagged `source` and `confidence`; `pkg/segments.Merge`) under
 TheIntroDB per kind, then chapters, then analysis at 60 or more -- except
 that a chapter wholly titled as credits ("Credits", "End Credits",
-"Ending", "Outro") outranks TheIntroDB's credits (2026-10-01: of 107 files
-with both, 36 disagreed by more than 5 s, the chapter right in the worst
-cases) -- in the loop's markers planner, which reads both records
+"Ending", "Outro", and since 2026-11-09 anime's bare "ED") outranks
+TheIntroDB's credits (2026-10-01: of 107 files with both, 36 disagreed by
+more than 5 s, the chapter right in the worst cases), and TheIntroDB credits
+that start before the intro ends or cover more than half the runtime are
+dropped, leaving credits to the next source (owner, 2026-11-09: TheIntroDB
+answers To LOVE-Ru's first season with credits `{start_ms: 0, end_ms:
+null}`, the whole episode, so Plex offered to skip the credits as the intro
+ended on 21 of 26 episodes; `segments.implausibleCredits`, and a stored
+block holding such credits is merged again, `segments.ImplausibleCredits`;
+the "ED" rule reaches a file at its next analysis, since chapter confidence
+is set in the segments record) -- in the loop's markers planner, which reads both records
 (TheIntroDB's in `clustarr-markers`, the analysis in `clustarr-segments`) and
 writes the merge in the loop's one apply (`app/catalog/segmenting.Applier`,
 the compare-and-swap path the two used to share, went with ADR-0016's fold).
