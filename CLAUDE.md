@@ -1508,8 +1508,9 @@ answers To LOVE-Ru's first season with credits `{start_ms: 0, end_ms:
 null}`, the whole episode, so Plex offered to skip the credits as the intro
 ended on 21 of 26 episodes; `segments.implausibleCredits`, and a stored
 block holding such credits is merged again, `segments.ImplausibleCredits`;
-the "ED" rule reaches a file at its next analysis, since chapter confidence
-is set in the segments record) -- in the loop's markers planner, which reads both records
+chapter confidence is set in the segments record, so the "ED" rule raised
+`AnalyzerVersion` to 4 and every file is analysed once more, its cached
+fingerprints kept) -- in the loop's markers planner, which reads both records
 (TheIntroDB's in `clustarr-markers`, the analysis in `clustarr-segments`) and
 writes the merge in the loop's one apply (`app/catalog/segmenting.Applier`,
 the compare-and-swap path the two used to share, went with ADR-0016's fold).

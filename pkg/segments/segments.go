@@ -35,11 +35,13 @@ import (
 // reach the end past the last keyframe, the DNN is asked whenever no
 // candidate holds, chapters are trusted by kind, anime EDs end before their
 // preview (2026-10-01). 3: a credits chapter wholly titled as credits is
-// 100 and outranks TheIntroDB, any other chapter 90 (2026-10-01). Merge's
-// bound to the runtime (Within, smoke finding 6) is not detection and raises
-// nothing: the records are unchanged and bounded at every merge, and the
-// markers planner merges a stored block past the end again.
-const AnalyzerVersion int32 = 3
+// 100 and outranks TheIntroDB, any other chapter 90 (2026-10-01). 4: a bare
+// "ED" chapter is such a title (owner, 2026-11-09: To LOVE-Ru's Blu-rays).
+// Merge's bound to the runtime (Within, smoke finding 6) and its drop of
+// implausible TheIntroDB credits are not detection and raise nothing: the
+// records are unchanged and judged at every merge, and the markers planner
+// merges a stored block holding either again.
+const AnalyzerVersion int32 = 4
 
 // FingerprintVersion versions the clustarr-fingerprints cache keys. 1 stands
 // for the unversioned keys the ffmpeg(1) decoder wrote; 2 is the in-process
