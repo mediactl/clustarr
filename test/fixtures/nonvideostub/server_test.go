@@ -27,11 +27,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/audible"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/audnexus"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/comicvine"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/coverart"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/musicbrainz"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/openlibrary"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/wikipedia"
 )
 
 const recordedDir = "../../data/metadata"
@@ -190,4 +194,152 @@ func TestUnrecordedRouteFourOhFours(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+// TestMusicBrainzArtistAnswersTheFullRecording: the artist lookup serves
+// the recording made with every sub-resource the gateway asks for
+// (musicbrainz.go's artistIncludes), so the real client maps the genres,
+// aliases and url-rels -- the wikidata one among them -- that
+// ArtistMetadata and artist.nfo read (2026-11-10 design §5.4, §8.1).
+func TestMusicBrainzArtistAnswersTheFullRecording(t *testing.T) {
+	srv := httptest.NewServer(NewHandler(recordedDir, discardLogger()))
+	defer srv.Close()
+
+	c, err := musicbrainz.New("Clustarr/0.1 (https://github.com/mediactl/clustarr)", srv.Client(), srv.URL+"/musicbrainz", noLimit())
+	require.NoError(t, err)
+
+	a, err := c.Artist(t.Context(), RadioheadMBID)
+	require.NoError(t, err)
+	require.Equal(t, "Radiohead", a.Name)
+	require.NotEmpty(t, a.Genres, "the full recording carries genres")
+	require.NotEmpty(t, a.Aliases, "the full recording carries aliases")
+	var wikidata string
+	for _, l := range a.Links {
+		if l.Type == wikipedia.LinkWikidata {
+			wikidata = l.URL
+		}
+	}
+	require.Equal(t, "https://www.wikidata.org/wiki/"+RadioheadWikidataID, wikidata,
+		"the wikidata url-rel is what the biography lookup follows")
+}
+
+// TestMusicBrainzAlbumsPagesEveryReleaseGroup drives the release-group
+// browse the way the gateway does -- pkg/metadata/clients/musicbrainz's
+// Albums, 100 a page, offset by what came before -- against the artist
+// whose recording spans two pages, and proves the stub serves each page by
+// its offset: 175 release groups, none twice.
+func TestMusicBrainzAlbumsPagesEveryReleaseGroup(t *testing.T) {
+	srv := httptest.NewServer(NewHandler(recordedDir, discardLogger()))
+	defer srv.Close()
+
+	c, err := musicbrainz.New("Clustarr/0.1 (https://github.com/mediactl/clustarr)", srv.Client(), srv.URL+"/musicbrainz", noLimit())
+	require.NoError(t, err)
+
+	a, err := c.Artist(t.Context(), MuseMBID)
+	require.NoError(t, err)
+	require.Equal(t, "Muse", a.Name)
+
+	albums, err := c.Albums(t.Context(), MuseMBID)
+	require.NoError(t, err)
+	require.Len(t, albums, MuseReleaseGroupCount)
+	seen := map[string]bool{}
+	for _, al := range albums {
+		require.False(t, seen[al.IDs[metadata.KeyMBReleaseGroup]], "release group %s listed twice: a page served for the wrong offset", al.IDs[metadata.KeyMBReleaseGroup])
+		seen[al.IDs[metadata.KeyMBReleaseGroup]] = true
+	}
+
+	// An offset no page starts at is refused, never answered with the
+	// first page again.
+	resp, err := http.Get(srv.URL + "/musicbrainz/release-group/?artist=" + MuseMBID + "&offset=50&limit=100") //nolint:noctx,gosec
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+// TestCoverArtArchiveServesKidAsFrontCover drives the Cover Art Archive
+// route with the real pkg/metadata/clients/coverart client: Kid A's
+// release group answers its approved front cover as the poster, and a
+// release group the archive has no art for is metadata.ErrNotFound, as the
+// live archive's 404 reads.
+func TestCoverArtArchiveServesKidAsFrontCover(t *testing.T) {
+	srv := httptest.NewServer(NewHandler(recordedDir, discardLogger()))
+	defer srv.Close()
+
+	c := coverart.New(coverart.Config{HTTPClient: srv.Client(), BaseURL: srv.URL + "/coverart", Limiter: noLimit()})
+
+	imgs, err := c.Artwork(t.Context(), commonv1.MediaKindAlbum, metadata.ExternalIDs{metadata.KeyMBReleaseGroup: KidAReleaseGroupMBID})
+	require.NoError(t, err)
+	require.Len(t, imgs, 1)
+	require.Equal(t, metadata.ImageTypePoster, imgs[0].Type)
+	require.Contains(t, imgs[0].URL, "57e1d657-a38d-3de5-b33e-45b661b0d5b0", "the cover is Kid A's own GB release's")
+
+	// The recorded Portishead index is served under its own id too.
+	imgs, err = c.Artwork(t.Context(), commonv1.MediaKindAlbum, metadata.ExternalIDs{metadata.KeyMBReleaseGroup: "1b022e01-4da6-387b-8658-8678046e4cef"})
+	require.NoError(t, err)
+	require.NotEmpty(t, imgs)
+
+	_, err = c.Artwork(t.Context(), commonv1.MediaKindAlbum, metadata.ExternalIDs{metadata.KeyMBReleaseGroup: "00000000-0000-0000-0000-000000000000"})
+	require.ErrorIs(t, err, metadata.ErrNotFound)
+}
+
+// TestWikipediaBiographyThroughWikidata drives both halves of the
+// biography lookup -- the Wikidata entity's sitelink, then the page's
+// summary -- with the real pkg/metadata/clients/wikipedia client pointed at
+// the stub for both hosts, for the Radiohead link the full MusicBrainz
+// recording carries and for the recorded Muse one; an entity the stub has
+// no sitelink for is metadata.ErrNotFound.
+func TestWikipediaBiographyThroughWikidata(t *testing.T) {
+	srv := httptest.NewServer(NewHandler(recordedDir, discardLogger()))
+	defer srv.Close()
+
+	c := wikipedia.New(wikipedia.Config{
+		HTTPClient: srv.Client(), WikidataBaseURL: srv.URL + "/wikipedia", WikipediaBaseURL: srv.URL + "/wikipedia", Limiter: noLimit(),
+	})
+
+	text, source, err := c.Biography(t.Context(), []metadata.Link{{Type: wikipedia.LinkWikidata, URL: "https://www.wikidata.org/wiki/" + RadioheadWikidataID}})
+	require.NoError(t, err)
+	require.Equal(t, wikipedia.Source, source)
+	require.Contains(t, text, "Radiohead are an English rock band")
+
+	text, _, err = c.Biography(t.Context(), []metadata.Link{{Type: wikipedia.LinkWikidata, URL: "https://www.wikidata.org/wiki/" + MuseWikidataID}})
+	require.NoError(t, err)
+	require.Contains(t, text, "Muse")
+
+	_, _, err = c.Biography(t.Context(), []metadata.Link{{Type: wikipedia.LinkWikidata, URL: "https://www.wikidata.org/wiki/Q999999999"}})
+	require.ErrorIs(t, err, metadata.ErrNotFound)
+}
+
+// TestAudibleSearchAnswersTheRecordedCatalog drives the catalog search
+// with the real pkg/metadata/clients/audible client: the recorded title
+// answers its products, keyed by ASIN, and a title the stub never recorded
+// answers no hits rather than an error.
+func TestAudibleSearchAnswersTheRecordedCatalog(t *testing.T) {
+	srv := httptest.NewServer(NewHandler(recordedDir, discardLogger()))
+	defer srv.Close()
+
+	c := audible.New(audible.Config{HTTPClient: srv.Client(), BaseURL: srv.URL + "/audible", Limiter: noLimit()})
+
+	hits, err := c.SearchAudiobooks(t.Context(), "The Left Hand of Darkness", "us")
+	require.NoError(t, err)
+	require.NotEmpty(t, hits)
+	require.Equal(t, "B01NH0D987", hits[0].IDs[metadata.KeyASIN])
+	require.Equal(t, "The Left Hand of Darkness", hits[0].Title)
+
+	hits, err = c.SearchAudiobooks(t.Context(), "A Title Nobody Recorded", "us")
+	require.NoError(t, err)
+	require.Empty(t, hits)
+}
+
+// TestAudnexusAuthor drives the author route with the real
+// pkg/metadata/clients/audnexus client (AudiobookAuthor, the registry's
+// AudiobookAuthors provider).
+func TestAudnexusAuthor(t *testing.T) {
+	srv := httptest.NewServer(NewHandler(recordedDir, discardLogger()))
+	defer srv.Close()
+
+	c := audnexus.New(srv.Client(), srv.URL+"/audnexus", noLimit())
+
+	author, err := c.AudiobookAuthor(t.Context(), AudnexusAuthorASIN, "us")
+	require.NoError(t, err)
+	require.Equal(t, "J.K. Rowling", author.Name)
 }
