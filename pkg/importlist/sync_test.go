@@ -59,6 +59,13 @@ func TestItemKeyPrecedence(t *testing.T) {
 			},
 			want: "musicbrainz:mb-1",
 		},
+		"openlibrary work used after isbn and ahead of asin": {
+			item: importlist.Item{
+				Title: "The Dispossessed", Year: 1974,
+				ExternalIDs: importlist.ExternalIDs{OpenLibrary: "OL1W", ASIN: "B000"},
+			},
+			want: "openlibrary:OL1W",
+		},
 		"title+year fallback when no IDs at all": {
 			item: importlist.Item{Title: "The Matrix", Year: 1999},
 			want: "title:the matrix:1999",

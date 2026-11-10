@@ -39,9 +39,11 @@ var ErrKindNotYieldable = errors.New("importlist: the list's provider cannot yie
 // provider yields album, book, audiobook or comic items -- the two that
 // could (arr against lidarr, readarr or clustarr, and custom) are stubs the
 // design spec defers (§17), whose Fetch fails first -- and creating those
-// kinds needs identities no Item carries yet (an Album's artistRef, a Book's
-// Open Library workID). A provider that starts returning them surfaces this
-// on status rather than having its items dropped.
+// kinds needs identities no Item carries yet (an Album's artistRef; a Book's
+// Open Library workID has had its field, ExternalIDs.OpenLibrary, since
+// 2026-11-10, which only the exclusion lookup reads). A provider that starts
+// returning them surfaces this on status rather than having its items
+// dropped.
 var ErrNoCatalogWriter = errors.New("importlist: no catalog writer for this kind")
 
 // allKinds is every value ImportListSpec.Kinds' enum admits.

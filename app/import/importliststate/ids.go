@@ -37,9 +37,11 @@ import (
 // one MBID per item, and an import list's only MusicBrainz-identified kind
 // is album -- release-group is the MBID a list entry for an album would
 // carry. ISBN becomes KeyISBN13: every provider that emits an ISBN on a list
-// entry emits ISBN-13. KeyIMDb, KeyTMDB, KeyTVDB, KeyASIN, KeyComicVine and
-// KeyAniList need no such judgement call, since pkg/metadata has exactly one
-// key for each.
+// entry emits ISBN-13. OpenLibrary is KeyOpenLibraryWork (a Book's identity,
+// catalog's Book.spec.workID, and the key its ImportExclusion carries since
+// 2026-11-10), never the edition's or the author's key. KeyIMDb, KeyTMDB,
+// KeyTVDB, KeyASIN, KeyComicVine and KeyAniList need no such judgement
+// call, since pkg/metadata has exactly one key for each.
 func ToMetadataExternalIDs(ids importlist.ExternalIDs) metadata.ExternalIDs {
 	out := make(metadata.ExternalIDs, 8)
 	set := func(key, value string) {
@@ -52,6 +54,7 @@ func ToMetadataExternalIDs(ids importlist.ExternalIDs) metadata.ExternalIDs {
 	set(metadata.KeyTVDB, ids.TVDB)
 	set(metadata.KeyMBReleaseGroup, ids.MusicBrainz)
 	set(metadata.KeyISBN13, ids.ISBN)
+	set(metadata.KeyOpenLibraryWork, ids.OpenLibrary)
 	set(metadata.KeyASIN, ids.ASIN)
 	set(metadata.KeyComicVine, ids.ComicVine)
 	set(metadata.KeyAniList, ids.AniList)
@@ -72,6 +75,7 @@ func FromMetadataExternalIDs(ids metadata.ExternalIDs) importlist.ExternalIDs {
 		TVDB:        ids[metadata.KeyTVDB],
 		MusicBrainz: ids[metadata.KeyMBReleaseGroup],
 		ISBN:        ids[metadata.KeyISBN13],
+		OpenLibrary: ids[metadata.KeyOpenLibraryWork],
 		ASIN:        ids[metadata.KeyASIN],
 		ComicVine:   ids[metadata.KeyComicVine],
 		AniList:     ids[metadata.KeyAniList],

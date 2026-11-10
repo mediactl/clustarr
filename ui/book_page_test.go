@@ -212,12 +212,14 @@ func TestStandaloneBookPageNamesNoAuthor(t *testing.T) {
 	requireTag(t, page, `data-edit-dialog="standalone"`)
 	// Delete too (design §9.3; catalogv1.DeletableKinds since 2026-11-10):
 	// the dialog posts to the book's delete route, names its folder, and
-	// offers no import list exclusion, since none is honoured for a book.
+	// offers the import list exclusion, keyed by the book's Open Library
+	// work (catalogv1.ExclusionKindFor, since 2026-11-10).
 	requireTag(t, page, `data-action="delete"`)
 	require.Contains(t, page, "Delete A Standalone Book")
 	requireTag(t, page, `action="/library/default/book/standalone/delete"`)
 	requireTag(t, page, `name="files"`, `value="true"`)
-	require.NotContains(t, page, `name="exclude"`, "a book has no exclusion kind")
+	requireTag(t, page, `name="exclude"`, `value="true"`)
+	require.Contains(t, page, "Add import list exclusion")
 
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/book/nope", false).Code)
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/book/neuromancer", false).Code,

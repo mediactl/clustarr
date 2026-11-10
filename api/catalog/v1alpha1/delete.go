@@ -36,18 +36,25 @@ func DeletableKinds() []commonv1.MediaKind {
 }
 
 // ExclusionKindFor is the ImportExclusion kind that keeps a deleted item of
-// kind out, and false for a kind with none (Artist, Author, Album, Book and
-// every child kind): the delete dialog offers "Add import list exclusion"
-// only for these. An Album and a Book have an ExclusionKind, but no reader
-// honours one -- the scan creates movies and series only, and an import
-// list's exclusion lookup names no Open Library id -- so their delete
-// offers none.
+// kind out, and false for a kind with none (Artist, Author and every child
+// kind): the delete dialog offers "Add import list exclusion" only for
+// these. An Album's exclusion is keyed by its MusicBrainz release-group id
+// (ExclusionIDKeyMusicBrainz, the one MBID a list entry for an album
+// carries) and a Book's by its Open Library work id
+// (ExclusionIDKeyOpenLibrary), which the import-list sync reads since
+// 2026-11-10 (the 2026-09-30 library-delete design's delete-add-exclusion
+// over the 2026-11-10 non-video libraries design's §9.2 and §9.3 deletes);
+// until then both read false, since no reader honoured either.
 func ExclusionKindFor(kind commonv1.MediaKind) (ExclusionKind, bool) {
 	switch kind {
 	case commonv1.MediaKindMovie:
 		return ExclusionKindMovie, true
 	case commonv1.MediaKindSeries:
 		return ExclusionKindSeries, true
+	case commonv1.MediaKindAlbum:
+		return ExclusionKindAlbum, true
+	case commonv1.MediaKindBook:
+		return ExclusionKindBook, true
 	case commonv1.MediaKindAudiobook:
 		return ExclusionKindAudiobook, true
 	case commonv1.MediaKindComic:

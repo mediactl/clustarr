@@ -421,13 +421,20 @@ func (r *Reconciler) applySyncDecision(
 // clustarr-import-exclusions bucket, the same lookup contract
 // events.ExclusionEntry documents. It returns the first match found; ids
 // with no recognised id at all (only a bare title+year Key()) can never be
-// excluded, since ImportExclusion requires at least one external id.
+// excluded, since ImportExclusion requires at least one external id. An
+// album's entry is keyed by its MusicBrainz release-group id (the one MBID
+// a list entry carries, ids.MusicBrainz) and a book's by its Open Library
+// work id (ids.OpenLibrary), the keys a deleted Album's and Book's
+// exclusions carry since 2026-11-10 (app/import/controller/librarydelete);
+// no list yields either kind yet (importliststate.ErrNoCatalogWriter stops
+// the kind before this lookup), so the two pairs wait for the one that does.
 func isExcluded(ctx context.Context, kv events.KV, ids pkgimportlist.ExternalIDs) (bool, events.ExclusionEntry, error) {
 	pairs := []struct{ provider, value string }{
 		{catalogv1alpha1.ExclusionIDKeyTMDB, ids.TMDB},
 		{catalogv1alpha1.ExclusionIDKeyIMDB, ids.IMDb},
 		{catalogv1alpha1.ExclusionIDKeyTVDB, ids.TVDB},
 		{catalogv1alpha1.ExclusionIDKeyMusicBrainz, ids.MusicBrainz},
+		{catalogv1alpha1.ExclusionIDKeyOpenLibrary, ids.OpenLibrary},
 		{catalogv1alpha1.ExclusionIDKeyASIN, ids.ASIN},
 		{catalogv1alpha1.ExclusionIDKeyComicVine, ids.ComicVine},
 	}

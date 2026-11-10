@@ -351,14 +351,16 @@ func TestAlbumPageShowsTracksFilesAndFacts(t *testing.T) {
 	// Delete is the album's own too (design §9.2; catalogv1.DeletableKinds
 	// since 2026-11-10): the dialog over the album's card names the album's
 	// folder and its two files, posts to the album's delete route, and
-	// offers no import list exclusion, since none is honoured for an album.
+	// offers the import list exclusion, keyed by the album's release group
+	// (catalogv1.ExclusionKindFor, since 2026-11-10).
 	requireTag(t, bar, `data-action="delete"`)
 	require.Contains(t, bar, "Delete The Dark Side of the Moon")
 	requireTag(t, bar, `action="/library/default/album/dsotm/delete"`)
 	require.Contains(t, section(t, bar, `data-delete-folder`), "/data/music/Pink Floyd/The Dark Side of the Moon (1973)")
 	require.Regexp(t, `data-delete-files>[^<]*2 file\(s\)`, bar)
 	requireTag(t, bar, `name="files"`, `value="true"`)
-	require.NotContains(t, bar, `name="exclude"`, "an album has no exclusion kind")
+	requireTag(t, bar, `name="exclude"`, `value="true"`)
+	require.Contains(t, bar, "Add import list exclusion")
 	require.NotContains(t, bar, `data-action="delete-cancel"`, "no delete is pending")
 
 	requireTag(t, body, `data-nav="next"`, `href="/library/default/album/money-single"`)

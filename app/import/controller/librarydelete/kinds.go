@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strconv"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -121,10 +122,21 @@ type parentSpec struct {
 
 const exclusionReason = "deleted from the library"
 
-// noExclusion is the exclusion of a kind with none (Artist, Author, Album,
-// Book): nothing reads one for them (catalogv1alpha1.ExclusionKindFor).
+// noExclusion is the exclusion of a kind with none (Artist, Author):
+// nothing reads one for them (catalogv1alpha1.ExclusionKindFor).
 func noExclusion(client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
 	return catalogv1alpha1.ImportExclusionSpec{}, false
+}
+
+// yearOf is the year of a metadata release date for an exclusion's display
+// field, 0 without one. The apiserver hands a metav1.Time back in the
+// replica's local zone, so the calendar field is read in UTC (CLAUDE.md's
+// gotcha: 1 January 00:30Z read as the previous year west of UTC).
+func yearOf(t *metav1.Time) int32 {
+	if t == nil || t.IsZero() {
+		return 0
+	}
+	return int32(t.UTC().Year())
 }
 
 func kindFor(kind commonv1.MediaKind) kindSpec {
@@ -256,7 +268,23 @@ func kinds() []kindSpec {
 				rootFolderRef: func(o client.Object) string { return o.(*catalogv1alpha1.Artist).Spec.RootFolderRef },
 				path:          func(o client.Object) string { return o.(*catalogv1alpha1.Artist).Status.Path },
 			},
-			exclusion: noExclusion,
+			// The exclusion is keyed by the album's MusicBrainz release-group
+			// id under the musicbrainz key: the one MBID a list entry for an
+			// album carries (app/import/importliststate's
+			// ToMetadataExternalIDs, metadata.KeyMBReleaseGroup), which the
+			// import-list sync's isExcluded looks up. It governs import
+			// lists alone: the Artist's fan-out above reads no exclusion.
+			exclusion: func(o client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
+				a := o.(*catalogv1alpha1.Album)
+				spec := catalogv1alpha1.ImportExclusionSpec{
+					Kind: catalogv1alpha1.ExclusionKindAlbum, Reason: exclusionReason,
+					ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyMusicBrainz: a.Spec.ReleaseGroupID},
+				}
+				if md := a.Status.Metadata; md != nil {
+					spec.Title, spec.Year = md.Title, yearOf(md.ReleaseDate)
+				}
+				return spec, true
+			},
 		},
 		{
 			// A Book (design §9.3) is deletable only standalone: its own
@@ -283,7 +311,21 @@ func kinds() []kindSpec {
 				}
 				return nil
 			},
-			exclusion: noExclusion,
+			// The exclusion is keyed by the book's Open Library work id
+			// under the openlibrary key (metadata.KeyOpenLibraryWork on a
+			// list entry, pkg/importlist.ExternalIDs.OpenLibrary), which the
+			// import-list sync's isExcluded looks up.
+			exclusion: func(o client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
+				b := o.(*catalogv1alpha1.Book)
+				spec := catalogv1alpha1.ImportExclusionSpec{
+					Kind: catalogv1alpha1.ExclusionKindBook, Reason: exclusionReason,
+					ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyOpenLibrary: b.Spec.WorkID},
+				}
+				if md := b.Status.Metadata; md != nil {
+					spec.Title, spec.Year = md.Title, yearOf(md.ReleaseDate)
+				}
+				return spec, true
+			},
 		},
 	}
 }

@@ -36,6 +36,10 @@ type ExternalIDs struct {
 	TVDB        string
 	MusicBrainz string
 	ISBN        string
+	// OpenLibrary is a book's Open Library work key ("OL45883W"), the id a
+	// Book carries (catalog's Book.spec.workID) and the one a Book's
+	// ImportExclusion is keyed by (2026-11-10). No provider emits it yet.
+	OpenLibrary string
 	ASIN        string
 	ComicVine   string
 	AniList     string

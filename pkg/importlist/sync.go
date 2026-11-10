@@ -73,8 +73,8 @@ var syncLevelActions = map[SyncLevel]SyncAction{
 
 // Key returns the identity used for de-duplication and sync matching: the
 // first non-empty of "tmdb:<id>", "imdb:<id>", "tvdb:<id>", then the other
-// kind-specific IDs (musicbrainz, isbn, asin, comicvine, anilist, in that
-// order) if Item carries one, else "title:<normalized title>:<year>"
+// kind-specific IDs (musicbrainz, isbn, openlibrary, asin, comicvine,
+// anilist, in that order) if Item carries one, else "title:<normalized title>:<year>"
 // (lower-case, a trailing "(YYYY)" annotation stripped, non-alphanumerics
 // collapsed to single spaces, trimmed).
 func (i Item) Key() string {
@@ -89,6 +89,8 @@ func (i Item) Key() string {
 		return "musicbrainz:" + i.ExternalIDs.MusicBrainz
 	case i.ExternalIDs.ISBN != "":
 		return "isbn:" + i.ExternalIDs.ISBN
+	case i.ExternalIDs.OpenLibrary != "":
+		return "openlibrary:" + i.ExternalIDs.OpenLibrary
 	case i.ExternalIDs.ASIN != "":
 		return "asin:" + i.ExternalIDs.ASIN
 	case i.ExternalIDs.ComicVine != "":

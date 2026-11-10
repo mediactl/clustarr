@@ -21,6 +21,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -126,7 +127,7 @@ func TestDeleteAlbumFilesRemovesItsTracksAndItsOwnFolderNeverTheArtists(t *testi
 	require.NoError(t, c.Get(context.Background(), key("pink-floyd"), &catalogv1alpha1.Artist{}), "the Artist is not the delete's")
 	var list catalogv1alpha1.ImportExclusionList
 	require.NoError(t, c.List(context.Background(), &list))
-	assert.Empty(t, list.Items, "an album has no exclusion kind a reader honours")
+	assert.Empty(t, list.Items, "no exclusion was asked for")
 }
 
 // An album whose files lie straight in the artist's folder -- its
@@ -328,7 +329,7 @@ func TestDeleteStandaloneBookFilesRemovesItsFolder(t *testing.T) {
 	assert.True(t, gone(t, c, key("dispossessed"), &catalogv1alpha1.Book{}))
 	var list catalogv1alpha1.ImportExclusionList
 	require.NoError(t, c.List(context.Background(), &list))
-	assert.Empty(t, list.Items, "a book has no exclusion kind a reader honours")
+	assert.Empty(t, list.Items, "no exclusion was asked for")
 }
 
 // A standalone book written before 2026-11-10 carries the root itself as
@@ -436,4 +437,81 @@ func TestKeepBoundsTheCheckAndThePrune(t *testing.T) {
 	assert.Equal(t, root, outside.keep(), "a Keep outside the Root is no bound")
 	assert.Equal(t, root, Target{Root: root}.keep())
 	assert.Equal(t, artist, tgt.keep())
+}
+
+// An album's delete can add an import list exclusion as a movie's can
+// (2026-11-10, the 2026-09-30 library-delete design's delete-add-exclusion
+// over design §9.2): the ImportExclusion is named after the album, of kind
+// album, keyed by the album's MusicBrainz release-group id under the
+// musicbrainz key -- the MBID a list entry for an album carries, which the
+// import-list sync's isExcluded looks up -- and carries the metadata's
+// title and release year for display.
+func TestDeleteAlbumWithExclusionKeysItByItsReleaseGroup(t *testing.T) {
+	root := t.TempDir()
+	artist := filepath.Join(root, "Pink Floyd")
+	dsotm := filepath.Join(artist, "The Dark Side of the Moon (1973)")
+	write(t, filepath.Join(dsotm, "01 - Speak to Me.flac"))
+	one := mediaFile("dsotm-01", albumRef("dsotm"), filepath.Join(dsotm, "01 - Speak to Me.flac"))
+	a := album("dsotm", dsotm, catalogv1alpha1.DeleteFiles)
+	a.Annotations[catalogv1alpha1.AnnotationDeleteAddExclusion] = "true"
+	a.Status.Metadata = &catalogv1alpha1.AlbumMetadata{
+		Title:       "The Dark Side of the Moon",
+		ReleaseDate: &metav1.Time{Time: time.Date(1973, 3, 1, 0, 0, 0, 0, time.UTC)},
+	}
+	c := newClient(t, musicRoot(root), pinkFloyd(artist), a, &one)
+
+	require.NoError(t, reconcileKind(t, c, commonv1.MediaKindAlbum, "dsotm"))
+
+	assert.NoDirExists(t, dsotm)
+	assert.True(t, gone(t, c, key("dsotm"), &catalogv1alpha1.Album{}))
+	var ex catalogv1alpha1.ImportExclusion
+	require.NoError(t, c.Get(context.Background(), key("dsotm"), &ex))
+	assert.Equal(t, catalogv1alpha1.ExclusionKindAlbum, ex.Spec.Kind)
+	assert.Equal(t, map[string]string{catalogv1alpha1.ExclusionIDKeyMusicBrainz: "rg-dsotm"}, ex.Spec.ExternalIDs)
+	assert.Equal(t, "The Dark Side of the Moon", ex.Spec.Title)
+	assert.Equal(t, int32(1973), ex.Spec.Year)
+	assert.Equal(t, exclusionReason, ex.Spec.Reason)
+}
+
+// A standalone book's delete can add one too (design §9.3): kind book,
+// keyed by the book's Open Library work id under the openlibrary key, the
+// key the import-list sync reads through pkg/importlist's
+// ExternalIDs.OpenLibrary. A records delete writes it as a files delete
+// does.
+func TestDeleteStandaloneBookWithExclusionKeysItByItsWork(t *testing.T) {
+	root := t.TempDir()
+	folder := filepath.Join(root, "The Dispossessed")
+	write(t, filepath.Join(folder, "The Dispossessed.epub"))
+	mf := mediaFile("dis-file", dispossessed, filepath.Join(folder, "The Dispossessed.epub"))
+	b := standaloneBook(folder, catalogv1alpha1.DeleteRecords)
+	b.Annotations[catalogv1alpha1.AnnotationDeleteAddExclusion] = "true"
+	b.Status.Metadata = &catalogv1alpha1.BookMetadata{
+		Title:       "The Dispossessed",
+		ReleaseDate: &metav1.Time{Time: time.Date(1974, 5, 1, 0, 0, 0, 0, time.UTC)},
+	}
+	c := newClient(t, booksRoot(root), b, &mf)
+
+	require.NoError(t, reconcileKind(t, c, commonv1.MediaKindBook, "dispossessed"))
+
+	assert.FileExists(t, filepath.Join(folder, "The Dispossessed.epub"), "a records delete leaves the disk alone")
+	assert.True(t, gone(t, c, key("dispossessed"), &catalogv1alpha1.Book{}))
+	var ex catalogv1alpha1.ImportExclusion
+	require.NoError(t, c.Get(context.Background(), key("dispossessed"), &ex))
+	assert.Equal(t, catalogv1alpha1.ExclusionKindBook, ex.Spec.Kind)
+	assert.Equal(t, map[string]string{catalogv1alpha1.ExclusionIDKeyOpenLibrary: "OL1W"}, ex.Spec.ExternalIDs)
+	assert.Equal(t, "The Dispossessed", ex.Spec.Title)
+	assert.Equal(t, int32(1974), ex.Spec.Year)
+}
+
+// The exclusion's display year is read off the release date in UTC: a
+// metav1.Time comes back from the apiserver in the replica's zone, and a
+// 1 January 01:00Z release read west of UTC is the previous year
+// (CLAUDE.md's gotcha). An unset date is year 0.
+func TestYearOfReadsTheCalendarInUTC(t *testing.T) {
+	west := time.FixedZone("west", -5*3600)
+	jan1 := time.Date(1973, 1, 1, 1, 0, 0, 0, time.UTC).In(west)
+	assert.Equal(t, 1972, jan1.Year(), "the fixture is 31 December in its own zone")
+	assert.Equal(t, int32(1973), yearOf(&metav1.Time{Time: jan1}))
+	assert.Equal(t, int32(0), yearOf(nil))
+	assert.Equal(t, int32(0), yearOf(&metav1.Time{}))
 }
