@@ -49,11 +49,16 @@ const (
 
 // searchArtHosts are the only hosts /art/search fetches from: the image
 // hosts of the providers Add New searches -- TMDB, TVDB, MusicBrainz's
-// Cover Art Archive and Open Library -- and the image-set hosts a Series'
+// Cover Art Archive and Open Library -- the image-set hosts a Series'
 // spec.seasonArtwork or status.imageSet names: MediUX's two asset hosts
 // (api.mediux.pro, which the YAML export links; images.mediux.io, which
 // the mediux provider's chosen sets link, spec 2026-10-22) and ThePosterDB
-// (docs/superpowers/specs/2026-10-21-image-sets-design.md).
+// (docs/superpowers/specs/2026-10-21-image-sets-design.md) -- and the hosts
+// the music and audiobook roots' `sourced` match results name
+// (2026-11-10 design §7.4): fanart.tv's asset host, where an artist's
+// images live, and Audible's image host (m.media-amazon.com), where an
+// Audnexus cover does. A Cover Art Archive cover starts at
+// coverartarchive.org and redirects to archive.org ([archiveHost]).
 var searchArtHosts = map[string]bool{
 	"image.tmdb.org":         true,
 	"artworks.thetvdb.com":   true,
@@ -62,6 +67,8 @@ var searchArtHosts = map[string]bool{
 	"api.mediux.pro":         true,
 	"images.mediux.io":       true,
 	"theposterdb.com":        true,
+	"assets.fanart.tv":       true,
+	"m.media-amazon.com":     true,
 }
 
 var errSearchArtRefused = errors.New("ui: search art: refused")
