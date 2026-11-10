@@ -70,7 +70,10 @@ templ ImportLists(entries []projection.ImportListEntry) {
 }
 
 // ImportListRows renders the dynamic part of the Import Lists page: the "no
-// import lists configured" placeholder or the row list. This is also what
+// import lists configured" placeholder or the lists' cards, a flexible grid
+// four to a row on a wide screen, three on a laptop, two on a tablet and one
+// on a phone (owner, 2026-11-10: "a flexible grid where the web page width
+// of the items starts at 4"). This is also what
 // /events/import-lists renders into each SSE event's data, so the initial
 // page render and every live update produce byte-for-byte the same markup
 // for #import-lists-rows's contents.
@@ -78,7 +81,7 @@ templ ImportListRows(entries []projection.ImportListEntry) {
 	if len(entries) == 0 {
 		@settingsEmpty("No import lists configured.")
 	}
-	<div class="grid gap-4">
+	<div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" data-import-lists-grid>
 		for _, e := range entries {
 			@importListRow(e)
 		}
@@ -102,9 +105,12 @@ templ importListRow(e projection.ImportListEntry) {
 		"data-last-sync":  importListTimeAttr(e.LastSyncAt),
 		"data-next-sync":  importListTimeAttr(e.NextSyncAt),
 		"data-auth-state": importListAuthState(e),
-	}, importListBadges(e), detailLines(strings.Join(e.Kinds, ", "))) {
-		@card.Content(card.ContentProps{Class: "space-y-3"}) {
-			<dl class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-4">
+	}, templ.NopComponent, importListDetails(e)) {
+		// The content grows so a card's actions sit at its foot, the cards of
+		// a row being as tall as the tallest; the facts stack, a quarter of a
+		// page being too narrow for them side by side.
+		@card.Content(card.ContentProps{Class: "flex-1 space-y-3"}) {
+			<dl class="grid gap-y-1 text-xs text-muted-foreground">
 				<div><dt class="inline">last sync </dt><dd class="inline text-foreground">{ importListTimeLabel(e.LastSyncAt) }</dd></div>
 				<div><dt class="inline">next sync </dt><dd class="inline text-foreground">{ importListTimeLabel(e.NextSyncAt) }</dd></div>
 				<div><dt class="inline">items </dt><dd class="inline text-foreground">{ fmt.Sprintf("%d", e.ItemCount) }</dd></div>
@@ -143,6 +149,18 @@ templ importListRow(e projection.ImportListEntry) {
 	}
 }
 
+// importListDetails is a list's description: its badges, then the kinds it
+// adds. The badges sit under the name rather than beside it, a card a
+// quarter of the page wide having no room for both (2026-11-10).
+templ importListDetails(e projection.ImportListEntry) {
+	<div class="mt-1 flex flex-wrap gap-1.5">
+		@importListBadges(e)
+	</div>
+	if kinds := strings.Join(e.Kinds, ", "); kinds != "" {
+		<div class="mt-2 break-all">{ kinds }</div>
+	}
+}
+
 // importListBadges are a list's state, provider and sync level.
 templ importListBadges(e projection.ImportListEntry) {
 	@enabledBadge(e.Enabled)
@@ -158,8 +176,6 @@ templ importListBadges(e projection.ImportListEntry) {
 func importListRef(e projection.ImportListEntry) string {
 	return fmt.Sprintf("%s/%s", e.Ref.Namespace, e.Ref.Name)
 }
-
-
 
 // importListAuthState reads e.Auth.State, or "" when no auth flow is
 // tracked at all -- distinct from the CRD's own explicit "none" state, which
