@@ -19,7 +19,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sort"
 	"time"
@@ -30,7 +29,6 @@ import (
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
@@ -40,8 +38,10 @@ import (
 // automatic and interactive searches, the episode's own routes and actions
 // for kind issue. The interactive search is the episode's
 // (startInteractiveSearch), its results drawn in comic columns by the
-// issue's own panel routes (handleIssueSearchPanel, handleIssueGrabRelease)
-// rather than the shared /searches ones, so a poll keeps the columns.
+// shared panel, which picks them for an issue's Search
+// (views.SearchPanel.Columns) and polls and grabs through the shared
+// /searches routes (handleSearchPanel, handleGrabRelease), so a poll keeps
+// the columns without routes of the issue's own.
 
 // handleIssueDetails serves GET /library/{namespace}/issue/{name}/details:
 // the modal on its Details tab, or the Search tab with ?tab=search, to
@@ -65,10 +65,9 @@ func (s *Server) handleIssueDetails(w http.ResponseWriter, r *http.Request) {
 // handleIssueInteractiveSearch serves POST
 // /library/{namespace}/issue/{name}/search/interactive: it starts an
 // interactive search for the issue (startInteractiveSearch) and answers
-// htmx with the issue's modal on its Search tab, the results panel polling
-// the issue's own panel route; a form post is sent to the shared panel's
-// page. An issue the cache does not hold is not found, and nothing is
-// created for it.
+// htmx with the issue's modal on its Search tab, the results panel
+// polling; a form post is sent to the panel's page. An issue the cache
+// does not hold is not found, and nothing is created for it.
 func (s *Server) handleIssueInteractiveSearch(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	d, ok := s.issueDetail(r.Context(), ns, name)
@@ -82,84 +81,6 @@ func (s *Server) handleIssueInteractiveSearch(w http.ResponseWriter, r *http.Req
 	}
 	d.Tab, d.Search = "search", &views.IssueSearchPanel{SearchPanel: *panel, Issue: name}
 	s.renderIssueModal(w, r, d)
-}
-
-// handleIssueSearchPanel serves GET
-// /library/{namespace}/issue/{name}/search/{search}: an issue's
-// interactive search results in comic columns, which the panel polls until
-// it is settled -- the shared /searches route draws Sonarr's columns. A
-// Search that is gone answers a panel that says so and stops polling.
-func (s *Server) handleIssueSearchPanel(w http.ResponseWriter, r *http.Request) {
-	ns, issue, name := r.PathValue("namespace"), r.PathValue("name"), r.PathValue("search")
-	var search catalogv1.Search
-	p := views.IssueSearchPanel{SearchPanel: views.SearchPanel{Namespace: ns, Name: name, Gone: true}, Issue: issue}
-	if s.getObject(r.Context(), types.NamespacedName{Namespace: ns, Name: name}, &search) {
-		p.SearchPanel = searchPanel(&search, time.Now())
-	}
-	s.renderIssueSearchPanel(w, r, p, search.Spec.MediaRef)
-}
-
-// handleIssueGrabRelease serves POST
-// /library/{namespace}/issue/{name}/search/{search}/grab with a "guid"
-// field, handleGrabRelease over the issue's panel: the download button in
-// comic columns. htmx gets the panel back with the grab requested; a
-// failure is rendered in the panel.
-func (s *Server) handleIssueGrabRelease(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
-		return
-	}
-	ns, issue, name, guid := r.PathValue("namespace"), r.PathValue("name"), r.PathValue("search"), r.FormValue("guid")
-	var search catalogv1.Search
-	if !s.getObject(r.Context(), types.NamespacedName{Namespace: ns, Name: name}, &search) {
-		if !isHTMX(r) {
-			http.NotFound(w, r)
-			return
-		}
-		s.renderIssueSearchPanel(w, r, views.IssueSearchPanel{SearchPanel: views.SearchPanel{Namespace: ns, Name: name, Gone: true}, Issue: issue}, nil)
-		return
-	}
-
-	var err error
-	release, found := resultByGUID(search.Status.Results, guid)
-	if !found {
-		err = fmt.Errorf("%w: release %q is not in the search's results", actions.ErrInvalid, guid)
-	} else {
-		var patched *catalogv1.Search
-		if patched, err = s.opts.Actions.GrabRelease(r.Context(), &search, guid, permanentlyRejected(release)); err == nil {
-			search = *patched
-		}
-	}
-	p := views.IssueSearchPanel{SearchPanel: searchPanel(&search, time.Now()), Issue: issue}
-	if !isHTMX(r) {
-		if err != nil {
-			s.finishAction(w, r, err)
-			return
-		}
-		http.Redirect(w, r, p.PanelURL(), http.StatusSeeOther)
-		return
-	}
-	if err != nil {
-		p.Error = failureOf(r, err)
-	}
-	s.renderIssueSearchPanel(w, r, p, search.Spec.MediaRef)
-}
-
-// renderIssueSearchPanel answers an issue's results panel: the panel to
-// htmx, a page titled by what was searched for otherwise.
-func (s *Server) renderIssueSearchPanel(w http.ResponseWriter, r *http.Request, p views.IssueSearchPanel, ref *commonv1.MediaRef) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	view := views.IssueSearchPanelView(p)
-	if !isHTMX(r) {
-		title := "Interactive search"
-		if ref != nil {
-			title += ": " + ref.Name
-		}
-		view = views.IssueSearchPage(p, title)
-	}
-	if err := view.Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render issue search panel", "error", err)
-	}
 }
 
 // renderIssueModal answers htmx with the issue's details modal.

@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -450,4 +451,80 @@ func TestGrabReleaseRequestsTheGrabAndPollsForItsOutcome(t *testing.T) {
 	rec = postForm(t, srv, "/searches/default/andor-s01e02-abc12/grab", url.Values{"guid": {"guid-queued"}}, false)
 	require.Equal(t, http.StatusSeeOther, rec.Code)
 	require.Equal(t, "/searches/default/andor-s01e02-abc12", rec.Header().Get("Location"))
+}
+
+// One panel serves every kind (2026-11-10 design §9.2-§9.5; C1): the
+// shared /searches route draws a Search's results in the columns of its
+// kind -- Sonarr's for a movie, an episode or a series (no
+// data-release-columns, so the video modals' markup is what it was), music
+// for an album, the audiobook's for an audiobook, and the format columns
+// for a book or an issue -- and its grab route answers in the same columns,
+// so a poll or a grab never swaps a kind's columns for the video ones. A
+// Search for a kind the panel does not know draws the video columns.
+func TestTheSharedSearchPanelDrawsEachKindsColumns(t *testing.T) {
+	srv, c := episodeFixture(t)
+	for _, kind := range []commonv1.MediaKind{
+		commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindAlbum,
+		commonv1.MediaKindAudiobook, commonv1.MediaKindBook, commonv1.MediaKindIssue, commonv1.MediaKind("mixtape"),
+	} {
+		search := &catalogv1.Search{
+			ObjectMeta: metav1.ObjectMeta{Name: "kind-" + string(kind), Namespace: "default"},
+			Spec:       catalogv1.SearchSpec{MediaRef: &commonv1.MediaRef{Kind: kind, Name: "item-" + string(kind)}},
+			Status: catalogv1.SearchStatus{
+				Phase:   catalogv1.SearchPhaseCompleted,
+				Results: []commonv1.ReleaseDecision{release("guid-"+string(kind), 1, "Release."+string(kind))},
+			},
+		}
+		require.NoError(t, c.Create(t.Context(), search))
+	}
+
+	columns := map[commonv1.MediaKind]string{
+		commonv1.MediaKindMovie: "", commonv1.MediaKindSeries: "", commonv1.MediaKind("mixtape"): "",
+		commonv1.MediaKindAlbum: "music", commonv1.MediaKindAudiobook: "audiobook",
+		commonv1.MediaKindBook: "format", commonv1.MediaKindIssue: "format",
+	}
+	heads := map[string][]string{
+		"":          {"Source", "Age", "Title", "Indexer", "Size", "Peers", "Languages", "Quality", "Score"},
+		"music":     {"Source", "Title", "Quality", "Size", "Age", "Indexer", "Peers", "Score"},
+		"audiobook": {"Source", "Title", "Format", "Bitrate", "Size", "Age", "Indexer", "Peers", "Score"},
+		"format":    {"Source", "Age", "Title", "Format", "Indexer", "Size", "Peers", "Score"},
+	}
+	// headAt is where a column head sits in the header row, -1 for none;
+	// the video table's heads carry a trailing space, the others' none.
+	headAt := func(headRow, head string) int {
+		return regexp.MustCompile(`>` + head + `\s*</th>`).FindStringIndex(headRow)[0]
+	}
+	hasHead := func(headRow, head string) bool {
+		return regexp.MustCompile(`>` + head + `\s*</th>`).MatchString(headRow)
+	}
+	for kind, want := range columns {
+		panelURL := "/searches/default/kind-" + string(kind)
+		polled := getPath(t, srv, panelURL, true).Body.String()
+		require.Contains(t, polled, `hx-post="`+panelURL+`/grab"`, "%s: every kind grabs through the shared route", kind)
+		grabbed := postForm(t, srv, panelURL+"/grab", url.Values{"guid": {"guid-" + string(kind)}}, true).Body.String()
+		requireTag(t, grabbed, `data-release="guid-`+string(kind)+`"`, `data-grab="requested"`)
+		for _, body := range []string{polled, grabbed} {
+			table := requireTag(t, body, `data-release-table`)
+			if want == "" {
+				require.NotContains(t, table, "data-release-columns", "%s: the video table carries no columns attribute", kind)
+			} else {
+				require.Contains(t, table, `data-release-columns="`+want+`"`, kind)
+			}
+			headRow := body[indexOf(body, `data-release-table`):indexOf(body, `data-release="guid-`+string(kind)+`"`)]
+			for i, head := range heads[want] {
+				require.True(t, hasHead(headRow, head), "%s: %s", kind, head)
+				if i > 0 {
+					require.Less(t, headAt(headRow, heads[want][i-1]), headAt(headRow, head), "%s: column order", kind)
+				}
+			}
+			for _, other := range []string{"Languages", "Quality", "Format", "Bitrate"} {
+				if !slices.Contains(heads[want], other) {
+					require.False(t, hasHead(headRow, other), "%s: not a %q column", kind, want)
+				}
+			}
+		}
+	}
+	// An audiobook the cache does not hold has no runtime, so its bitrate
+	// cell is empty rather than a guess.
+	require.Regexp(t, `data-cell="bitrate"[^>]*></td>`, getPath(t, srv, "/searches/default/kind-audiobook", true).Body.String())
 }

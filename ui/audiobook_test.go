@@ -284,9 +284,9 @@ func TestAudiobookDetailsServesTheModalToHTMXAndThePageOtherwise(t *testing.T) {
 
 // The bar's Interactive Search creates a Search for the audiobook that
 // grabs nothing and answers the modal on its Search tab, the results panel
-// polling the audiobook's own panel route. A form post lands on the
-// panel's page; an unknown audiobook creates nothing.
-func TestAudiobookInteractiveSearchOpensTheModalOnItsOwnPanel(t *testing.T) {
+// polling the shared /searches route. A form post lands on the panel's
+// page; an unknown audiobook creates nothing.
+func TestAudiobookInteractiveSearchOpensTheModalOnTheSharedPanel(t *testing.T) {
 	srv, c := audiobookFixture(t)
 	rec := postForm(t, srv, "/library/default/audiobook/earthsea-ab/search/interactive", url.Values{}, true)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -306,10 +306,10 @@ func TestAudiobookInteractiveSearchOpensTheModalOnItsOwnPanel(t *testing.T) {
 
 	require.Contains(t, body, `data-audiobook-modal="earthsea-ab"`)
 	requireTag(t, body, `data-tab="search"`, `aria-selected="true"`)
-	requireTag(t, body, `data-search-panel="`+created.Name+`"`, `data-audiobook-search-panel="earthsea-ab"`,
-		`hx-get="/library/default/audiobook/earthsea-ab/search/panel/`+created.Name+`"`, `hx-trigger="load delay:2s"`, `hx-swap="outerHTML"`)
+	requireTag(t, body, `data-search-panel="`+created.Name+`"`,
+		`hx-get="/searches/default/`+created.Name+`"`, `hx-trigger="load delay:2s"`, `hx-swap="outerHTML"`)
 	require.Contains(t, body, "Searching indexers")
-	require.Contains(t, body, `id="audiobook-search-body"`)
+	requireTag(t, body, `id="audiobook-search-body"`, `data-audiobook-search="earthsea-ab"`)
 
 	rec = postForm(t, srv, "/library/default/audiobook/earthsea-ab/search/interactive", url.Values{}, false)
 	require.Equal(t, http.StatusSeeOther, rec.Code)
@@ -321,22 +321,24 @@ func TestAudiobookInteractiveSearchOpensTheModalOnItsOwnPanel(t *testing.T) {
 	require.Len(t, list.Items, 3, "only the form post's Search; none for an unknown audiobook")
 }
 
-// The audiobook's panel route answers a Search's results under the
+// The shared /searches route answers an audiobook's Search under the
 // audiobook's columns -- Format, Bitrate (estimated from the size over the
-// runtime), Size, Age, Indexer, Peers, Score -- with the download button
-// posting to the audiobook's own grab route, which answers the same
-// columns with the grab requested; anyone but htmx gets the shared panel's
-// page, and a Search that is gone says so.
-func TestAudiobookSearchPanelKeepsItsColumnsThroughPollAndGrab(t *testing.T) {
+// audiobook's runtime, read from the Audiobook since the Search carries
+// none), Size, Age, Indexer, Peers, Score -- with the download button
+// posting to the shared grab route, which answers the same columns with the
+// grab requested; anyone but htmx gets the panel's page, a Search that is
+// gone says so, and the audiobook's own panel and grab routes are gone.
+func TestTheSharedPanelDrawsAnAudiobooksColumnsThroughPollAndGrab(t *testing.T) {
 	srv, c := audiobookFixture(t)
-	panelURL := "/library/default/audiobook/earthsea-ab/search/panel/earthsea-ab-abc12"
+	panelURL := "/searches/default/earthsea-ab-abc12"
 	rec := getPath(t, srv, panelURL, true)
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	require.NotContains(t, body, "<html")
-	requireTag(t, body, `data-search-panel="earthsea-ab-abc12"`, `data-audiobook-search-panel="earthsea-ab"`, `data-search-phase="Completed"`)
+	requireTag(t, body, `data-search-panel="earthsea-ab-abc12"`, `data-search-phase="Completed"`)
 	require.NotContains(t, body, `hx-trigger="load delay:2s"`, "a completed search with nothing requested stops polling")
 	require.Contains(t, body, "2 results from 0 indexers")
+	requireTag(t, body, `data-release-table`, `data-release-columns="audiobook"`)
 
 	heads := body[indexOf(body, `data-release-table`):indexOf(body, `data-release="m4b-1"`)]
 	for _, label := range []string{">Format<", ">Bitrate<", ">Size<", ">Age<", ">Indexer<", ">Peers<", ">Score<"} {
@@ -352,7 +354,7 @@ func TestAudiobookSearchPanelKeepsItsColumnsThroughPollAndGrab(t *testing.T) {
 
 	m4b := body[indexOf(body, `data-release="m4b-1"`):indexOf(body, `data-release="mp3-2"`)]
 	require.Regexp(t, `data-cell="format">.*>M4B<`, oneLine(m4b))
-	require.Regexp(t, `data-cell="bitrate"[^>]*>195 kbps<`, m4b, "300 MiB over 3h 35m")
+	require.Regexp(t, `data-cell="bitrate"[^>]*>195 kbps<`, m4b, "300 MiB over 3h 35m, the parts' durations")
 	require.Contains(t, m4b, ">300.00 MiB<")
 	require.Contains(t, m4b, ">3 days<")
 	require.Contains(t, m4b, ">nzbgeek<")
@@ -364,9 +366,9 @@ func TestAudiobookSearchPanelKeepsItsColumnsThroughPollAndGrab(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	after := rec.Body.String()
 	requireTag(t, after, `data-release="m4b-1"`, `data-grab="requested"`)
-	require.Contains(t, after, `data-audiobook-search-panel="earthsea-ab"`, "the grab answers the audiobook's columns")
-	require.Contains(t, after, ">Format<")
-	requireTag(t, after, `data-search-panel="earthsea-ab-abc12"`, `hx-trigger="load delay:2s"`) // a requested grab keeps the panel polling
+	require.Contains(t, after, `data-release-columns="audiobook"`, "the grab answers the audiobook's columns")
+	require.Regexp(t, `data-cell="bitrate"[^>]*>195 kbps<`, after, "and the runtime it estimates from")
+	requireTag(t, after, `data-search-panel="earthsea-ab-abc12"`, `hx-get="`+panelURL+`"`, `hx-trigger="load delay:2s"`) // a requested grab keeps the panel polling
 	var search catalogv1.Search
 	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "earthsea-ab-abc12"}, &search))
 	require.Equal(t, []string{"m4b-1"}, search.Spec.Grab)
@@ -378,13 +380,16 @@ func TestAudiobookSearchPanelKeepsItsColumnsThroughPollAndGrab(t *testing.T) {
 	page := getPath(t, srv, panelURL, false)
 	require.Equal(t, http.StatusOK, page.Code)
 	require.Contains(t, page.Body.String(), "<html")
+	require.Contains(t, page.Body.String(), `data-release-columns="audiobook"`, "the page draws the same columns")
 
-	gone := getPath(t, srv, "/library/default/audiobook/earthsea-ab/search/panel/earthsea-ab-gone", true)
+	gone := getPath(t, srv, "/searches/default/earthsea-ab-gone", true)
 	require.Equal(t, http.StatusOK, gone.Code)
 	require.Contains(t, gone.Body.String(), "This search has expired")
 	require.NotContains(t, gone.Body.String(), `hx-trigger="load delay:2s"`)
 
-	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/audiobook/nope/search/panel/earthsea-ab-abc12", true).Code)
+	// The audiobook's own panel and grab routes are gone (C1, 2026-11-10).
+	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/audiobook/earthsea-ab/search/panel/earthsea-ab-abc12", true).Code)
+	require.Equal(t, http.StatusNotFound, postForm(t, srv, "/library/default/audiobook/earthsea-ab/search/panel/earthsea-ab-abc12/grab", url.Values{"guid": {"m4b-1"}}, true).Code)
 }
 
 // oneLine folds a body onto one line so a regexp with "." can span the

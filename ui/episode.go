@@ -44,7 +44,12 @@ import (
 // Search controller sends the pick to the item's owner as a manual
 // Candidate (ADR-0019 §6.6), and status.grabbed names the grab entry the
 // owner's grab planner made of it, or the owner's refusal. Every route
-// serves htmx its component and anyone else a page.
+// serves htmx its component and anyone else a page. The /searches routes
+// here serve every kind's interactive search (2026-11-10 design
+// §9.2-§9.5): the panel carries the Search's kind, which picks its columns
+// (views.SearchPanel.Columns), so an album's, an audiobook's, a book's or an
+// issue's modal polls and grabs through the same two routes as an
+// episode's and keeps its columns; nothing per kind exists beside them.
 
 // handleEpisodeDetails serves GET /library/{namespace}/episode/{name}/details:
 // the modal on its Details tab, or the Search tab with ?tab=search, to
@@ -106,21 +111,21 @@ func (s *Server) startInteractiveSearch(
 	if err != nil {
 		return &views.SearchPanel{Phase: string(catalogv1.SearchPhaseFailed), Failed: "the search was not started", Error: failureOf(r, err)}, true
 	}
-	p := searchPanel(search, time.Now())
+	p := s.searchPanelFor(r.Context(), search, time.Now())
 	return &p, true
 }
 
 // handleSearchPanel serves GET /searches/{namespace}/{name}: an
 // interactive search's results panel, which polls this route until it
-// is settled. A Search that is gone (its TTL expired) answers a panel
-// that says so and stops polling.
+// is settled, in the columns of the Search's kind. A Search that is gone
+// (its TTL expired) answers a panel that says so and stops polling.
 func (s *Server) handleSearchPanel(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	var p views.SearchPanel
 	var search catalogv1.Search
 	if s.getObject(r.Context(), types.NamespacedName{Namespace: ns, Name: name}, &search) {
 		// A season search lists season packs unless ?filter=all (Wave S).
-		p = withFilter(searchPanel(&search, time.Now()), r.URL.Query().Get("filter"))
+		p = withFilter(s.searchPanelFor(r.Context(), &search, time.Now()), r.URL.Query().Get("filter"))
 	} else {
 		p = views.SearchPanel{Namespace: ns, Name: name, Gone: true}
 	}
@@ -128,10 +133,11 @@ func (s *Server) handleSearchPanel(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGrabRelease serves POST /searches/{namespace}/{name}/grab with a
-// "guid" field: the interactive search's download button. A release with
-// a permanent rejection is grabbed with spec.override -- the button asked
-// the person first. htmx gets the panel back, from the Search the patch
-// returned, with the grab requested; a failure is rendered in the panel.
+// "guid" field: the interactive search's download button, every kind's. A
+// release with a permanent rejection is grabbed with spec.override -- the
+// button asked the person first. htmx gets the panel back, from the Search
+// the patch returned, with the grab requested, in the same columns; a
+// failure is rendered in the panel.
 func (s *Server) handleGrabRelease(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
@@ -166,7 +172,7 @@ func (s *Server) handleGrabRelease(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, searchPanelURL(&search), http.StatusSeeOther)
 		return
 	}
-	p := withFilter(searchPanel(&search, time.Now()), r.URL.Query().Get("filter"))
+	p := withFilter(s.searchPanelFor(r.Context(), &search, time.Now()), r.URL.Query().Get("filter"))
 	if err != nil {
 		p.Error = failureOf(r, err)
 	}
@@ -230,19 +236,35 @@ func (s *Server) episodeDetail(ctx context.Context, ns, name string) (views.Epis
 	return d, true
 }
 
+// searchPanelFor is searchPanel with the facts of the item's kind the
+// Search's own status does not carry: an audiobook's runtime, read from the
+// Audiobook, which its columns estimate each release's bitrate from
+// (audiobookRuntimeMinutes). Every other kind is searchPanel alone.
+func (s *Server) searchPanelFor(ctx context.Context, search *catalogv1.Search, now time.Time) views.SearchPanel {
+	p := searchPanel(search, now)
+	if ref := search.Spec.MediaRef; ref != nil && ref.Kind == commonv1.MediaKindAudiobook {
+		p.RuntimeMinutes = s.audiobookRuntimeMinutes(ctx, search.Namespace, ref.Name)
+	}
+	return p
+}
+
 // searchPanel is a Search's results panel: its phase, the indexers' tally,
 // the results in their ranked order -- approved, rejected, then the
 // status.otherTitles releases for other titles, collapsed (Wave S) -- and
-// each one's grab. A season search's panel lists season packs by default
-// (withFilter). It polls while the Search has not answered, or a requested
-// grab has no outcome yet. The ui sorts nothing beyond the controller's
-// rank.
+// each one's grab. Its Kind is the item's (spec.mediaRef.kind), which picks
+// the panel's columns. A season search's panel lists season packs by
+// default (withFilter). It polls while the Search has not answered, or a
+// requested grab has no outcome yet. The ui sorts nothing beyond the
+// controller's rank.
 func searchPanel(search *catalogv1.Search, now time.Time) views.SearchPanel {
 	st := search.Status
 	p := views.SearchPanel{
 		Namespace: search.Namespace, Name: search.Name,
 		Phase: string(st.Phase), Indexers: len(st.IndexerOutcomes),
 		OtherTitles: int(st.OtherTitles), Season: search.Spec.Season != nil,
+	}
+	if ref := search.Spec.MediaRef; ref != nil {
+		p.Kind = ref.Kind
 	}
 	if p.Season {
 		p.Filter = "packs"

@@ -1,0 +1,354 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/table"
+)
+
+// The interactive search panel's release tables per kind (2026-11-10
+// design §9.2-§9.5): one panel (SearchPanelView) serves every kind through
+// the shared /searches routes, and the table it draws follows the Search's
+// kind (SearchPanel.Columns) -- Sonarr's video columns (releaseTable, in
+// episode.templ), an album's music columns, an audiobook's with its
+// estimated bitrate, and the format columns of a book or an issue. Every
+// row ends in the one grabCell, so a grab and a poll answer in the same
+// columns whatever the kind.
+
+// releaseTableFor is the panel's results table in the columns of its kind;
+// attr marks it (data-release-table, or data-other-titles-table for the
+// collapsed band). A table other than the video one also carries
+// data-release-columns naming its kind.
+templ releaseTableFor(p SearchPanel, rows []ReleaseRow, attr string) {
+	switch p.Columns() {
+		case "music":
+			@musicReleaseTable(p, rows, attr)
+		case "audiobook":
+			@audiobookReleaseTable(p, rows, attr)
+		case "format":
+			@formatReleaseTable(p, rows, attr)
+		default:
+			@releaseTable(p, rows, attr)
+	}
+}
+
+// musicReleaseTable is the results' table in Lidarr's columns (design
+// §9.2): Source, Title, Quality (FLAC 24bit, MP3-320), Size, Age, Indexer,
+// Peers, Score, then the rejections and the download button. No language
+// column: a music release names none.
+templ musicReleaseTable(p SearchPanel, rows []ReleaseRow, attr string) {
+	<div class="rounded-md border border-border">
+		@table.Table(table.Props{Attributes: templ.Attributes{attr: "", "data-release-columns": "music"}}) {
+			@table.Header() {
+				@table.Row() {
+					@table.Head() {
+						Source
+					}
+					@table.Head() {
+						Title
+					}
+					@table.Head() {
+						Quality
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Size
+					}
+					@table.Head() {
+						Age
+					}
+					@table.Head() {
+						Indexer
+					}
+					@table.Head() {
+						Peers
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Score
+					}
+					@table.Head() {
+						<span class="sr-only">Rejections</span>
+					}
+					@table.Head() {
+						<span class="sr-only">Download</span>
+					}
+				}
+			}
+			@table.Body() {
+				for _, r := range rows {
+					@musicReleaseRow(p, r)
+				}
+			}
+		}
+	</div>
+}
+
+// musicReleaseRow is one result in Lidarr's columns.
+templ musicReleaseRow(p SearchPanel, r ReleaseRow) {
+	@table.Row(table.RowProps{Attributes: kindReleaseRowAttrs(r)}) {
+		@table.Cell() {
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: protocolTone(r.Protocol)}) {
+				{ r.Protocol }
+			}
+		}
+		@releaseTitleCell(r)
+		@table.Cell(table.CellProps{Attributes: templ.Attributes{"data-cell": "quality"}}) {
+			if r.Quality != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ r.Quality }
+				}
+			}
+		}
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+			{ formatBytes(r.Size) }
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground"}) {
+			{ r.Age }
+		}
+		@table.Cell() {
+			{ r.Indexer }
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums"}) {
+			{ r.Peers }
+		}
+		@releaseTailCells(p, r)
+	}
+}
+
+// audiobookReleaseTable is the results' table under the audiobook's
+// columns (design §9.5): Source, Title, Format (the release's quality, M4B,
+// MP3 or FLAC), Bitrate (estimated from the size over the audiobook's
+// runtime, SearchPanel.RuntimeMinutes), Size, Age, Indexer, Peers (a
+// torrent's seeders/leechers; an indexer reports no grab count), Score,
+// then the rejections and the download button.
+templ audiobookReleaseTable(p SearchPanel, rows []ReleaseRow, attr string) {
+	<div class="rounded-md border border-border">
+		@table.Table(table.Props{Attributes: templ.Attributes{attr: "", "data-release-columns": "audiobook"}}) {
+			@table.Header() {
+				@table.Row() {
+					@table.Head() {
+						Source
+					}
+					@table.Head() {
+						Title
+					}
+					@table.Head() {
+						Format
+					}
+					@table.Head() {
+						Bitrate
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Size
+					}
+					@table.Head() {
+						Age
+					}
+					@table.Head() {
+						Indexer
+					}
+					@table.Head() {
+						Peers
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Score
+					}
+					@table.Head() {
+						<span class="sr-only">Rejections</span>
+					}
+					@table.Head() {
+						<span class="sr-only">Download</span>
+					}
+				}
+			}
+			@table.Body() {
+				for _, r := range rows {
+					@audiobookReleaseRow(p, r)
+				}
+			}
+		}
+	</div>
+}
+
+// audiobookReleaseRow is one result under the audiobook's columns.
+templ audiobookReleaseRow(p SearchPanel, r ReleaseRow) {
+	@table.Row(table.RowProps{Attributes: kindReleaseRowAttrs(r)}) {
+		@table.Cell() {
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: protocolTone(r.Protocol)}) {
+				{ r.Protocol }
+			}
+		}
+		@releaseTitleCell(r)
+		@table.Cell(table.CellProps{Attributes: templ.Attributes{"data-cell": "format"}}) {
+			if r.Quality != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ r.Quality }
+				}
+			}
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums", Attributes: templ.Attributes{"data-cell": "bitrate", "title": "Estimated from the release's size over the audiobook's runtime"}}) {
+			{ audiobookBitrate(r.Size, p.RuntimeMinutes) }
+		}
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+			{ formatBytes(r.Size) }
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground"}) {
+			{ r.Age }
+		}
+		@table.Cell() {
+			{ r.Indexer }
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums"}) {
+			{ r.Peers }
+		}
+		@releaseTailCells(p, r)
+	}
+}
+
+// formatReleaseTable is the results' table in a book's or an issue's
+// columns (design §9.3, §9.4; Readarr's and Mylar's): Source, Age, Title,
+// Format (the release's quality: the ebook ladder's EPUB, MOBI, AZW3, PDF,
+// the comic ladder's CBZ, CBR, PDF), Indexer, Size, Peers, Score, then the
+// rejections and the download button. A usenet post has no peers, and its
+// indexer reports no grab count, so the cell is empty for one.
+templ formatReleaseTable(p SearchPanel, rows []ReleaseRow, attr string) {
+	<div class="rounded-md border border-border">
+		@table.Table(table.Props{Attributes: templ.Attributes{attr: "", "data-release-columns": "format"}}) {
+			@table.Header() {
+				@table.Row() {
+					@table.Head() {
+						Source
+					}
+					@table.Head() {
+						Age
+					}
+					@table.Head() {
+						Title
+					}
+					@table.Head() {
+						Format
+					}
+					@table.Head() {
+						Indexer
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Size
+					}
+					@table.Head() {
+						Peers
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Score
+					}
+					@table.Head() {
+						<span class="sr-only">Rejections</span>
+					}
+					@table.Head() {
+						<span class="sr-only">Download</span>
+					}
+				}
+			}
+			@table.Body() {
+				for _, r := range rows {
+					@formatReleaseRow(p, r)
+				}
+			}
+		}
+	</div>
+}
+
+// formatReleaseRow is one result in the format columns: the release's
+// quality is its file format.
+templ formatReleaseRow(p SearchPanel, r ReleaseRow) {
+	@table.Row(table.RowProps{Attributes: kindReleaseRowAttrs(r)}) {
+		@table.Cell() {
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: protocolTone(r.Protocol)}) {
+				{ r.Protocol }
+			}
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground"}) {
+			{ r.Age }
+		}
+		@releaseTitleCell(r)
+		@table.Cell(table.CellProps{Attributes: templ.Attributes{"data-cell": "format", "data-format": r.Quality}}) {
+			if r.Quality != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ r.Quality }
+				}
+			}
+		}
+		@table.Cell() {
+			{ r.Indexer }
+		}
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+			{ formatBytes(r.Size) }
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums"}) {
+			{ r.Peers }
+		}
+		@releaseTailCells(p, r)
+	}
+}
+
+// releaseTitleCell is the title cell of a non-video row: the release's
+// title, linked to its indexer page when it has one.
+templ releaseTitleCell(r ReleaseRow) {
+	@table.Cell(table.CellProps{Class: "max-w-xl break-all whitespace-normal"}) {
+		if r.InfoURL != "" {
+			<a href={ templ.URL(r.InfoURL) } target="_blank" rel="noopener noreferrer" class="hover:underline">{ r.Title }</a>
+		} else {
+			{ r.Title }
+		}
+	}
+}
+
+// releaseTailCells are the last three cells of every non-video row: the
+// score with its parts as the tooltip, the rejections, and the one grabCell
+// -- the download button posting to the shared grab route, or how the grab
+// it made went.
+templ releaseTailCells(p SearchPanel, r ReleaseRow) {
+	@table.Cell(table.CellProps{Class: "text-right tabular-nums", Attributes: templ.Attributes{"title": scoreTitle(r)}}) {
+		{ releaseScore(r) }
+	}
+	@table.Cell() {
+		if len(r.Rejections) > 0 {
+			<span class="text-red-300 [&_svg]:size-4" title={ strings.Join(r.Rejections, "\n") } data-rejections={ fmt.Sprint(len(r.Rejections)) }>
+				@icon.Icon("circle-alert")()
+			</span>
+		}
+	}
+	@table.Cell(table.CellProps{Class: "py-1"}) {
+		@grabCell(p, r)
+	}
+}
+
+// kindReleaseRowAttrs are a non-video row's data attributes: the release,
+// its verdict, its grab's state and whether it is for another title. No
+// season pack flag: nothing but a series search has one.
+func kindReleaseRowAttrs(r ReleaseRow) templ.Attributes {
+	return templ.Attributes{
+		"data-release":     r.GUID,
+		"data-approved":    fmt.Sprintf("%t", r.Approved),
+		"data-grab":        r.Grab,
+		"data-other-title": fmt.Sprintf("%t", r.OtherTitle),
+	}
+}

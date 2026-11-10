@@ -392,13 +392,13 @@ func TestAlbumDetailsServesTheModalToHTMXAndAPageOtherwise(t *testing.T) {
 }
 
 // The interactive search creates a Search for the album that grabs nothing
-// and answers the album's search modal in Lidarr's columns, its panel
-// polling the album's own panel route (so the columns hold); the panel
-// route draws an answered search's results with Quality, Size, Age,
-// Indexer, Peers and Score and grabs through the album's own grab route; a
-// Search for another item reads as gone. A form post lands on the panel's
-// page; an unknown album creates nothing.
-func TestAlbumInteractiveSearchOpensLidarrsColumnsAndPollsItsOwnPanel(t *testing.T) {
+// and answers the album's search modal over the shared panel, which polls
+// the shared /searches route (so one panel serves every kind) and draws
+// Lidarr's columns for an album's Search: Quality, Size, Age, Indexer,
+// Peers and Score, grabbed through the shared grab route, which answers the
+// same columns. The album's own panel and grab routes are gone. A form post
+// lands on the panel's page; an unknown album creates nothing.
+func TestAlbumInteractiveSearchOpensLidarrsColumnsThroughTheSharedPanel(t *testing.T) {
 	srv, c := musicFixture(t)
 	rec := postForm(t, srv, "/library/default/album/wish/search/interactive", url.Values{}, true)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -420,11 +420,11 @@ func TestAlbumInteractiveSearchOpensLidarrsColumnsAndPollsItsOwnPanel(t *testing
 	require.Contains(t, body, `data-album-search-modal="wish"`)
 	require.Contains(t, body, "Interactive Search - Pink Floyd - Wish You Were Here")
 	requireTag(t, body, `id="album-search-body"`, `data-album-search="wish"`)
-	requireTag(t, body, `data-search-panel="`+created.Name+`"`, `data-album-search-panel="wish"`,
-		`hx-get="/library/default/album/wish/search/panel/`+created.Name+`"`, `hx-trigger="load delay:2s"`)
+	requireTag(t, body, `data-search-panel="`+created.Name+`"`,
+		`hx-get="/searches/default/`+created.Name+`"`, `hx-trigger="load delay:2s"`, `hx-swap="outerHTML"`)
 	require.Contains(t, body, "Searching indexers")
 
-	panel := getPath(t, srv, "/library/default/album/wish/search/panel/wish-answered", true)
+	panel := getPath(t, srv, "/searches/default/wish-answered", true)
 	require.Equal(t, http.StatusOK, panel.Code)
 	results := panel.Body.String()
 	require.NotContains(t, results, "<html")
@@ -444,33 +444,30 @@ func TestAlbumInteractiveSearchOpensLidarrsColumnsAndPollsItsOwnPanel(t *testing
 	require.Contains(t, results, "900.00 MiB")
 	require.Contains(t, results, "2 days")
 	require.Contains(t, results, `data-rejections="1"`)
-	require.Contains(t, results, `hx-post="/library/default/album/wish/search/panel/wish-answered/grab"`)
+	require.Contains(t, results, `hx-post="/searches/default/wish-answered/grab"`, "the download button grabs through the shared route")
 	require.Contains(t, results, `hx-confirm="This release was rejected:`, "a permanent rejection asks first")
 
-	gone := getPath(t, srv, "/library/default/album/wish/search/panel/andor-s01e02-abc12", true).Body.String()
-	require.Contains(t, gone, "This search has expired")
-	require.NotContains(t, gone, `data-release-table`)
-
-	redirect := getPath(t, srv, "/library/default/album/wish/search/panel/wish-answered", false)
-	require.Equal(t, http.StatusSeeOther, redirect.Code)
-	require.Equal(t, "/searches/default/wish-answered", redirect.Header().Get("Location"))
-
-	grab := postForm(t, srv, "/library/default/album/wish/search/panel/wish-answered/grab", url.Values{"guid": {"guid-flac"}}, true)
+	grab := postForm(t, srv, "/searches/default/wish-answered/grab", url.Values{"guid": {"guid-flac"}}, true)
 	require.Equal(t, http.StatusOK, grab.Code)
 	grabbed := grab.Body.String()
 	requireTag(t, grabbed, `data-release="guid-flac"`, `data-grab="requested"`)
 	require.Contains(t, grabbed, `data-grab-state="requested"`)
 	require.Contains(t, grabbed, `data-release-columns="music"`, "the grab keeps the columns")
-	// A requested grab polls until the owner answers, through the album's
-	// own panel route.
-	requireTag(t, grabbed, `data-search-panel="wish-answered"`, `hx-get="/library/default/album/wish/search/panel/wish-answered"`, `hx-trigger="load delay:2s"`)
+	// A requested grab polls until the owner answers, through the shared
+	// route, which keeps the columns too.
+	requireTag(t, grabbed, `data-search-panel="wish-answered"`, `hx-get="/searches/default/wish-answered"`, `hx-trigger="load delay:2s"`)
 	var got catalogv1.Search
 	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "wish-answered"}, &got))
 	require.Equal(t, []string{"guid-flac"}, got.Spec.Grab)
 
-	bad := postForm(t, srv, "/library/default/album/wish/search/panel/wish-answered/grab", url.Values{"guid": {"nope"}}, true)
+	bad := postForm(t, srv, "/searches/default/wish-answered/grab", url.Values{"guid": {"nope"}}, true)
 	require.Equal(t, http.StatusOK, bad.Code)
 	require.Contains(t, bad.Body.String(), `data-action-error="invalid"`)
+	require.Contains(t, bad.Body.String(), `data-release-columns="music"`, "a failed grab is rendered in the album's columns")
+
+	// The album's own panel and grab routes are gone (C1, 2026-11-10).
+	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/album/wish/search/panel/wish-answered", true).Code)
+	require.Equal(t, http.StatusNotFound, postForm(t, srv, "/library/default/album/wish/search/panel/wish-answered/grab", url.Values{"guid": {"guid-flac"}}, true).Code)
 
 	rec = postForm(t, srv, "/library/default/album/wish/search/interactive", url.Values{}, false)
 	require.Equal(t, http.StatusSeeOther, rec.Code)
@@ -478,6 +475,5 @@ func TestAlbumInteractiveSearchOpensLidarrsColumnsAndPollsItsOwnPanel(t *testing
 
 	rec = postForm(t, srv, "/library/default/album/nope/search/interactive", url.Values{}, true)
 	require.Equal(t, http.StatusNotFound, rec.Code)
-	require.NoError(t, c.List(t.Context(), &list, client.InNamespace("default")))
-	require.Len(t, list.Items, 4, "only the form post's Search; none for an unknown album")
+
 }

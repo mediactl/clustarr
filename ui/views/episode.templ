@@ -248,6 +248,11 @@ templ SearchPage(p SearchPanel, title string) {
 // search is, then the releases, best first, each with its verdict and its
 // download button. While Poll is set the panel replaces itself every two
 // seconds, until the results and every requested grab's outcome are in.
+// One panel serves every kind (2026-11-10 design §9.2-§9.5): the releases
+// are drawn in the columns of the Search's kind (releaseTableFor,
+// search_tables.templ) and the panel polls and grabs through the shared
+// /searches routes, so a poll or a grab keeps them. The swap stays a plain
+// outerHTML, since a morphed node never re-fires its load trigger.
 templ SearchPanelView(p SearchPanel) {
 	<div
 		class="min-w-0 space-y-3"
@@ -278,7 +283,7 @@ templ SearchPanelView(p SearchPanel) {
 			@seasonFilter(p)
 		}
 		if listed := p.Listed(); len(listed) > 0 {
-			@releaseTable(p, listed, "data-release-table")
+			@releaseTableFor(p, listed, "data-release-table")
 		} else if p.PacksOnly() && len(p.Results) > 0 {
 			@empty.Empty(empty.Props{Class: "rounded-md border border-border py-6", Attributes: templ.Attributes{"data-search-no-packs": true}}) {
 				@empty.Header() {
@@ -308,14 +313,16 @@ templ SearchPanelView(p SearchPanel) {
 					{ otherTitlesLabel(len(others)) }
 				}
 				@collapsible.Content() {
-					@releaseTable(p, others, "data-other-titles-table")
+					@releaseTableFor(p, others, "data-other-titles-table")
 				}
 			}
 		}
 	</div>
 }
 
-// releaseTable is the results' table, Sonarr's columns; attr marks it.
+// releaseTable is the results' table in Sonarr's columns, the video kinds'
+// (a movie's, an episode's, a season's or series'); attr marks it. The
+// other kinds' tables are in search_tables.templ.
 templ releaseTable(p SearchPanel, rows []ReleaseRow, attr string) {
 	<div class="rounded-md border border-border">
 		@table.Table(table.Props{Attributes: templ.Attributes{attr: ""}}) {
@@ -484,7 +491,8 @@ templ releaseRow(p SearchPanel, r ReleaseRow) {
 
 // grabCell is the download button, or how the grab it made went. A
 // release with a permanent rejection asks first, naming the rejections,
-// and is grabbed with spec.override.
+// and is grabbed with spec.override. Every kind's row ends in this one
+// cell, posting to the shared grab route (GrabURL).
 templ grabCell(p SearchPanel, r ReleaseRow) {
 	switch r.Grab {
 		case "grabbed":

@@ -172,10 +172,12 @@ func TestIssueDetailsServesTheModalToHTMXAndThePageOtherwise(t *testing.T) {
 }
 
 // The row's interactive search creates a Search for the issue that grabs
-// nothing and answers the modal on its Search tab, the results panel in
-// comic columns polling the issue's own panel route; that route lists a
-// settled search's releases with their format, and its grab route requests
-// a grab and answers the same panel. An unknown issue creates nothing.
+// nothing and answers the modal on its Search tab, the results panel
+// polling the shared /searches route, which draws an issue's Search in
+// comic columns -- Format, Size, Age, Indexer, Peers, Score -- lists a
+// settled search's releases with their format, and whose grab route
+// requests a grab and answers the same columns. The issue's own panel and
+// grab routes are gone. An unknown issue creates nothing.
 func TestIssueInteractiveSearchOpensTheModalInComicColumns(t *testing.T) {
 	srv, c := comicFixture(t)
 	rec := postForm(t, srv, "/library/default/issue/saga-004.0/search/interactive", url.Values{}, true)
@@ -196,20 +198,22 @@ func TestIssueInteractiveSearchOpensTheModalInComicColumns(t *testing.T) {
 
 	require.Contains(t, body, `data-issue-modal="saga-004.0"`)
 	requireTag(t, body, `data-tab="search"`, `aria-selected="true"`)
-	requireTag(t, body, `data-search-panel="`+created.Name+`"`, `data-search-columns="comic"`,
-		`hx-get="/library/default/issue/saga-004.0/search/`+created.Name+`"`, `hx-trigger="load delay:2s"`)
+	requireTag(t, body, `id="issue-search-body"`, `data-issue-search="saga-004.0"`)
+	requireTag(t, body, `data-search-panel="`+created.Name+`"`,
+		`hx-get="/searches/default/`+created.Name+`"`, `hx-trigger="load delay:2s"`, `hx-swap="outerHTML"`)
 	require.Contains(t, body, "Searching indexers")
 
-	// The panel route, for the search already answered: Mylar's columns,
+	// The shared route, for the search already answered: Mylar's columns,
 	// the format badge, no polling once settled.
-	panelURL := "/library/default/issue/saga-004.0/search/saga-004.0-abc12"
+	panelURL := "/searches/default/saga-004.0-abc12"
 	rec = getPath(t, srv, panelURL, true)
 	require.Equal(t, http.StatusOK, rec.Code)
 	panel := rec.Body.String()
 	require.NotContains(t, panel, "<html")
-	tag := requireTag(t, panel, `data-search-panel="saga-004.0-abc12"`, `data-search-phase="Completed"`, `data-search-columns="comic"`)
+	tag := requireTag(t, panel, `data-search-panel="saga-004.0-abc12"`, `data-search-phase="Completed"`)
 	require.NotContains(t, tag, "hx-get", "a settled search stops polling")
 	require.Contains(t, panel, "2 results from 1 indexers")
+	requireTag(t, panel, `data-release-table`, `data-release-columns="format"`)
 	for _, head := range []string{">Source<", ">Age<", ">Title<", ">Format<", ">Indexer<", ">Size<", ">Peers<", ">Score<"} {
 		require.Contains(t, panel, head)
 	}
@@ -221,23 +225,24 @@ func TestIssueInteractiveSearchOpensTheModalInComicColumns(t *testing.T) {
 	require.Contains(t, panel, "40.00 MiB")
 	require.Less(t, strings.Index(panel, `data-release="guid-best"`), strings.Index(panel, `data-release="guid-pdf"`), "ranked order")
 	requireTag(t, panel, `data-rejections="1"`, `title="Quality: PDF is not wanted in profile"`)
-	require.Contains(t, panel, `hx-post="`+panelURL+`/grab"`, "the download button grabs through the issue's own route")
+	require.Contains(t, panel, `hx-post="`+panelURL+`/grab"`, "the download button grabs through the shared route")
 	require.Contains(t, panel, `hx-confirm="This release was rejected:`)
 
-	// A form post lands on the panel's page.
+	// A form post lands on the panel's page, in the same columns.
 	page := getPath(t, srv, panelURL, false)
 	require.Equal(t, http.StatusOK, page.Code)
 	require.Contains(t, page.Body.String(), "<html")
 	require.Contains(t, page.Body.String(), "Interactive search: saga-004.0")
-	require.Contains(t, page.Body.String(), `data-search-columns="comic"`)
+	require.Contains(t, page.Body.String(), `data-release-columns="format"`)
 
 	// The grab route: the release is requested, the panel polls for its
-	// outcome at the issue's route.
+	// outcome at the shared route, still in comic columns.
 	rec = postForm(t, srv, panelURL+"/grab", url.Values{"guid": {"guid-best"}}, true)
 	require.Equal(t, http.StatusOK, rec.Code)
 	grabbed := rec.Body.String()
 	requireTag(t, grabbed, `data-release="guid-best"`, `data-grab="requested"`)
 	requireTag(t, grabbed, `data-search-panel="saga-004.0-abc12"`, `hx-get="`+panelURL+`"`, `hx-trigger="load delay:2s"`)
+	require.Contains(t, grabbed, `data-release-columns="format"`, "the grab keeps the columns")
 	var search catalogv1.Search
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "saga-004.0-abc12"}, &search))
 	require.Equal(t, []string{"guid-best"}, search.Spec.Grab)
@@ -247,13 +252,18 @@ func TestIssueInteractiveSearchOpensTheModalInComicColumns(t *testing.T) {
 	rec = postForm(t, srv, panelURL+"/grab", url.Values{"guid": {"guid-nope"}}, true)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), `data-action-error="invalid"`)
-	gone := getPath(t, srv, "/library/default/issue/saga-004.0/search/expired", true).Body.String()
+	gone := getPath(t, srv, "/searches/default/expired", true).Body.String()
 	require.Contains(t, gone, "This search has expired")
 	tag = requireTag(t, gone, `data-search-panel="expired"`)
 	require.NotContains(t, tag, "hx-get")
+
+	// The issue's own panel and grab routes are gone (C1, 2026-11-10).
+	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/issue/saga-004.0/search/saga-004.0-abc12", true).Code)
+	require.Equal(t, http.StatusNotFound, postForm(t, srv, "/library/default/issue/saga-004.0/search/saga-004.0-abc12/grab", url.Values{"guid": {"guid-best"}}, true).Code)
 
 	rec = postForm(t, srv, "/library/default/issue/nope/search/interactive", url.Values{}, true)
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	require.NoError(t, c.List(t.Context(), &list, client.InNamespace("default")))
 	require.Len(t, list.Items, 2, "the fixture's and the interactive search's; none for an unknown issue")
+
 }

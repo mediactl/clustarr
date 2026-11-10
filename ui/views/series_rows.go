@@ -17,7 +17,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package views
 
-import "fmt"
+import (
+	"fmt"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+)
 
 // SeasonRow is one season component on a series page (spec
 // 2026-09-23-library-page-design): the rollup's counts and the season's
@@ -268,12 +272,18 @@ type EpisodeDetail struct {
 // SearchPanel is an interactive search's results (Sonarr's
 // InteractiveSearch): the ranked releases with the decision engine's
 // verdicts and each one's download button. The panel polls itself while
-// Poll is set.
+// Poll is set. One panel serves every kind (2026-11-10 design §9.2-§9.5):
+// Kind chooses the release table's columns (Columns), and the panel polls
+// and grabs through the shared /searches routes whatever the kind, so a
+// poll keeps them.
 type SearchPanel struct {
 	// Namespace and Name are the Search's.
 	Namespace string
 	Name      string
-	Phase     string
+	// Kind is the kind of the item searched for (spec.mediaRef.kind), which
+	// picks the columns; empty on a panel for a search that did not start.
+	Kind  commonv1.MediaKind
+	Phase string
 	// Gone is set when the Search no longer exists (its TTL expired).
 	Gone bool
 	// Failed is the reason a failed Search gives.
@@ -298,6 +308,30 @@ type SearchPanel struct {
 	Season bool
 	Filter string
 	Packs  int
+	// RuntimeMinutes is an audiobook's runtime, which its columns estimate
+	// each release's bitrate from with the release's size
+	// (audiobookBitrate); 0, and unused, for every other kind.
+	RuntimeMinutes int32
+}
+
+// Columns names the release table the panel draws for its Kind
+// (releaseTableFor): "video" is Sonarr's and Radarr's table (a movie, an
+// episode, a season or series search, and any kind the panel does not
+// know, a search that did not start included); "music" an album's (design
+// §9.2: Quality, Size, Age, Indexer, Peers, Score); "audiobook" an
+// audiobook's (§9.5: Format, Bitrate, Size, Age, Indexer, Peers, Score);
+// and "format" a book's or an issue's (§9.3, §9.4: Format, Size, Age,
+// Indexer, Peers, Score), whose release's quality is its file format.
+func (p SearchPanel) Columns() string {
+	switch p.Kind {
+	case commonv1.MediaKindAlbum:
+		return "music"
+	case commonv1.MediaKindAudiobook:
+		return "audiobook"
+	case commonv1.MediaKindBook, commonv1.MediaKindIssue, commonv1.MediaKindComic:
+		return "format"
+	}
+	return "video"
 }
 
 // Pending is whether the Search has not answered yet.
