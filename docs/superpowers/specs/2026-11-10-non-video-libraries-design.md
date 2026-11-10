@@ -371,8 +371,8 @@ and the flatten script follow; `pkg/crdcheck` already walks these packages.
   `aliases` (MaxItems 32), `links []Link{type, url}` (MaxItems 32: wikidata,
   wikipedia, discogs, official homepage, bandcamp, last.fm, spotify, apple,
   youtube), `biographySource string`; `status.nfo *NFOStatus{hash,
-  writtenAt, path}`; `childSync` (the memo's generation/refresh stamp, as
-  Series records its fan-out).
+  writtenAt, path, files}`. (As built in W0: no `childSync` field; the
+  child-sync memo is in-process, as the Series' `episodeSyncMemo` is.)
 
 ### 4.3 Album
 
@@ -394,7 +394,7 @@ and the flatten script follow; `pkg/crdcheck` already walks these packages.
 - Spec: `addOptions.searchForMissing *bool` default true.
 - Status: `ContainerRollup`; `metadata` gains `schemaVersion, language,
   ratings, born, died, links (32)`; `status.nfo` (written only under an
-  audiobook root, §8); `childSync`.
+  audiobook root, §8). (As built in W0: no `childSync` field.)
 
 ### 4.5 Book
 
@@ -413,7 +413,8 @@ and the flatten script follow; `pkg/crdcheck` already walks these packages.
   true}`.
 - Status: `phase LeafPhase`; `cutoffReason`; **rename** `quality`->
   `fileQuality`, plus `fileFormatScore`; `partCount int32`;
-  `metadata` gains `schemaVersion, language, ratings, abridged (written),
+  `metadata` gains `schemaVersion, fetchLanguage (its `language` is the
+  recording's own), ratings, abridged (written),
   isbn (written), chapters (written; MaxItems 200), rating removed in
   favour of ratings, tags (32), isAdult`, `narrators` stays (strings) and
   `narratorRefs` is not added; `status.nfo`; `addOptionsApplied`.
@@ -426,9 +427,11 @@ and the flatten script follow; `pkg/crdcheck` already walks these packages.
   `metadata` gains `schemaVersion, language, ratings, volumeNumber
   (written), genres (30), status ComicRunStatus{continuing, ended},
   alternateTitles (16), startYear, endYear, originalLanguage, sortTitle,
-  countOfIssues`; `volumeSearch` (the Comic's pack-first search state, the
-  Series' `seasonSearch` shape without the season number, MaxItems 1);
-  `childSync`; `addOptionsApplied`.
+  countOfIssues`; `volumeSearch *SeasonSearchState` (the Comic's pack-first
+  search state: the Series' type reused with the one season that is the
+  whole volume, so the season planner serves both); `addOptionsApplied`.
+  (As built in W0: no `childSync` field; `countOfIssues` not added, since
+  `issueCount` already exists.)
 - Issue status: **remove** `state`; `phase LeafPhase`; `cutoffReason`;
   `fileFormat`, `fileFormatScore` beside `fileQuality`; `overview`,
   `coverURL` (the provider's image, through `/art/search`'s signing as
@@ -982,8 +985,13 @@ run is the single final one, owner 2026-10-08). CRD changes are applied on
 talos by hand before the deploy that carries them.
 
 - **W0 (serial): API.** §4 in full; `make generate manifests`; the apply
-  configurations, bases and the chart's `crds/` copies; `pkg/crdcheck` green;
-  the Terraform values note for the renamed fields.
+  configurations and bases (the chart's `crds/` is populated only at release
+  time, its README); `pkg/crdcheck` green; the Terraform values note for the
+  renamed fields. **Done 2026-11-10 (e6fc628d):** every §4 field,
+  `commonv1.LeafPhase` with the kinds' old constant names kept as aliases of
+  it, `issue.State` reading Unavailable from the date, the NFO schema,
+  consumer and bucket; the call sites follow the renames and nothing else
+  moved yet.
 - **W1: the manager.** D2 (Artist/Author loop keys, child sync memo,
   folder scan), D3 (monitoring), D4/D5 (phases, cutoffReason, file
   vocabulary, Issue phase), D7 (naming/rename), D10 (comic add options,
