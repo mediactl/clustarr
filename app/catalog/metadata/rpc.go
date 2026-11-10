@@ -232,6 +232,12 @@ func lookupEpisodes(ctx context.Context, reg *pkgmetadata.Registry, req schema.M
 // Comic's UUID under "comicvine" too (target.go) -- a provider cannot tell
 // whose id it was given, and one that could not use it had to recognise
 // that from the value's shape alone.
+//
+// req.Numbering (a pkgmetadata.IssueNumbering; "chapters" for a manga
+// Comic whose specialVersion is not volumeAsIssue, 2026-11-10 design D10)
+// reaches a provider that is a pkgmetadata.IssueNumberer through
+// IssuesNumbered; every other provider, and every request naming no
+// numbering, goes through Issues as before.
 func lookupIssues(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
 	ctx, span := tracing.Start(ctx, "metadata.rpc.lookupIssues")
 	defer span.End()
@@ -242,13 +248,20 @@ func lookupIssues(ctx context.Context, reg *pkgmetadata.Registry, req schema.Met
 		tracing.RecordError(span, err)
 		return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
 	}
+	numbering := pkgmetadata.IssueNumbering(req.Numbering)
 	var errs []error
 	for _, p := range reg.Comics {
 		if !slices.Contains(p.Capabilities().LookupBy, key) {
 			continue
 		}
 		isCtx, isSpan := tracing.Start(ctx, "metadata.ComicProvider.Issues")
-		issues, err := p.Issues(isCtx, volumeID)
+		var issues []pkgmetadata.ComicIssue
+		var err error
+		if n, ok := p.(pkgmetadata.IssueNumberer); ok && numbering != pkgmetadata.IssueNumberingDefault {
+			issues, err = n.IssuesNumbered(isCtx, volumeID, numbering)
+		} else {
+			issues, err = p.Issues(isCtx, volumeID)
+		}
 		if err != nil {
 			tracing.RecordError(isSpan, err)
 			isSpan.End()

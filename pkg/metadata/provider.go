@@ -174,6 +174,32 @@ type ComicProvider interface {
 	Issues(ctx context.Context, volumeID string) ([]ComicIssue, error)
 }
 
+// IssueNumbering says what an IssueNumberer lists as one issue where its
+// source numbers a series two ways: MangaDex holds chapters collected into
+// volumes, and a manga Comic numbers its Issues by chapter unless its
+// specialVersion is volumeAsIssue (2026-11-10 design D10). The empty value
+// is the provider's own default; ComicVine and Metron, which number by
+// issue alone, know no other.
+type IssueNumbering string
+
+// Issue numberings.
+const (
+	IssueNumberingDefault  IssueNumbering = ""
+	IssueNumberingVolumes  IssueNumbering = "volumes"
+	IssueNumberingChapters IssueNumbering = "chapters"
+)
+
+// IssueNumberer is a ComicProvider whose issues can be listed under a
+// chosen IssueNumbering. The gateway's lookupIssues asks it when the
+// request names one (schema.MetadataRequest.Numbering); a ComicProvider
+// that is not one lists under its own numbering whatever the request says,
+// so the signature every other implementer and fake carries is unchanged.
+// A numbering the provider does not know is ErrUnsupported.
+type IssueNumberer interface {
+	ComicProvider
+	IssuesNumbered(ctx context.Context, volumeID string, numbering IssueNumbering) ([]ComicIssue, error)
+}
+
 // ArtworkProvider fetches artwork for any media kind, independent of that
 // kind's primary metadata provider (Cover Art Archive and Fanart.tv are
 // artwork-only).

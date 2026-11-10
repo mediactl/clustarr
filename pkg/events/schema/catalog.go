@@ -381,6 +381,15 @@ type MetadataRequest struct {
 
 	// Language is the preferred metadata language.
 	Language string `json:"language,omitempty"`
+
+	// Numbering, on an issue lookup (Kind issue), names the numbering the
+	// issues are listed under where the source has two -- "chapters" or
+	// "volumes" for a MangaDex manga, pkg/metadata.IssueNumbering's values
+	// -- and is empty for the provider's own default. The Comic reconciler
+	// asks for chapters for a manga whose specialVersion is not
+	// volumeAsIssue (2026-11-10 design D10); a provider that numbers one
+	// way (ComicVine, Metron) ignores it.
+	Numbering string `json:"numbering,omitempty"`
 }
 
 // Schema implements Payload.

@@ -33,11 +33,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // {"volume","count","chapters"}}}; an unknown manga is a 404 with
 // {"result":"error","errors":[...]}.
 //
-// A MangaDex "issue" is a tankōbon volume, not a chapter: a chapter upload
-// is one scanlation group's translation, while releases of a series are
-// collected and named by volume, which is what ComicSpec's
-// "volumeAsIssue" special version expects. Chapters not yet collected into
-// a volume (MangaDex's "none" bucket) are no issue yet.
+// A MangaDex "issue" is a tankōbon volume by default: a chapter upload is
+// one scanlation group's translation, while releases of a series are
+// collected and named by volume, which is what ComicSpec's "volumeAsIssue"
+// special version expects. Chapters not yet collected into a volume
+// (MangaDex's "none" bucket) are no issue yet under that numbering. A manga
+// Comic whose specialVersion is not volumeAsIssue numbers its Issues by
+// chapter instead (2026-11-10 design D10): IssuesNumbered with
+// metadata.IssueNumberingChapters lists every numbered chapter of the
+// aggregate, the uncollected ones included, each carrying its MangaDex
+// chapter id.
 package mangadex
 
 import (
@@ -269,20 +274,56 @@ func (c *Client) manga(ctx context.Context, ids metadata.ExternalIDs) (*manga, e
 	return &out.Data, nil
 }
 
+// aggVolume is one volume of the aggregate, its chapters left raw: MangaDex
+// serializes them as an object keyed by chapter number, or as an empty
+// array when there are none, as it does the volumes themselves.
 type aggVolume struct {
-	Volume string `json:"volume"`
-	Count  int    `json:"count"`
+	Volume   string          `json:"volume"`
+	Count    int             `json:"count"`
+	Chapters json.RawMessage `json:"chapters"`
+}
+
+// aggChapter is one chapter of the aggregate: its number, the id of one
+// upload of it (the others are listed beside it) and the count of uploads.
+// isUnavailable marks a chapter whose every upload MangaDex has taken
+// down; the chapter is still a chapter of the series, so it is listed.
+type aggChapter struct {
+	Chapter       string `json:"chapter"`
+	ID            string `json:"id"`
+	Count         int    `json:"count"`
+	IsUnavailable bool   `json:"isUnavailable"`
 }
 
 // Issues lists a manga's collected volumes, in volume order, from
-// MangaDex's aggregate. volumeID must be a manga UUID; the gateway's
-// lookupIssues hands every ComicProvider a ComicVine id, which is refused
-// here -- as ErrUnsupported as well as ErrInvalidID -- rather than read as
-// a manga.
+// MangaDex's aggregate (the default numbering; IssuesNumbered). volumeID
+// must be a manga UUID; the gateway's lookupIssues hands every
+// ComicProvider a ComicVine id, which is refused here -- as ErrUnsupported
+// as well as ErrInvalidID -- rather than read as a manga.
 func (c *Client) Issues(ctx context.Context, volumeID string) ([]metadata.ComicIssue, error) {
+	return c.IssuesNumbered(ctx, volumeID, metadata.IssueNumberingDefault)
+}
+
+// IssuesNumbered lists a manga's issues from MangaDex's aggregate under
+// numbering: the collected volumes (metadata.IssueNumberingVolumes, the
+// default), or every numbered chapter (metadata.IssueNumberingChapters),
+// the uncollected "none" bucket's among them, in chapter order, each
+// carrying its MangaDex chapter id under extid.KeyMangaDex as a ComicVine
+// issue carries its own id under metadata.KeyComicVine. A chapter listed
+// under two volumes is listed once, the lower volume's; a chapter without a
+// number (a oneshot, "none") is no issue. metadata.ComicIssue has no field
+// for the volume a chapter belongs to, so that is not returned (a leftover
+// of task L2, 2026-11-10). Any other numbering is ErrUnsupported.
+func (c *Client) IssuesNumbered(ctx context.Context, volumeID string, numbering metadata.IssueNumbering) ([]metadata.ComicIssue, error) {
 	ctx, span := tracing.Start(ctx, "metadata.mangadex.Issues")
 	defer span.End()
 
+	switch numbering {
+	case metadata.IssueNumberingDefault, metadata.IssueNumberingVolumes, metadata.IssueNumberingChapters:
+	default:
+		err := fmt.Errorf("mangadex: no %q issue numbering: %w", numbering, metadata.ErrUnsupported)
+		tracing.RecordError(span, err)
+		return nil, err
+	}
 	if !uuidPattern.MatchString(volumeID) {
 		err := fmt.Errorf("%w: %q: %w", ErrInvalidID, volumeID, metadata.ErrUnsupported)
 		tracing.RecordError(span, err)
@@ -300,6 +341,19 @@ func (c *Client) Issues(ctx context.Context, volumeID string) ([]metadata.ComicI
 		tracing.RecordError(span, err)
 		return nil, err
 	}
+	if numbering == metadata.IssueNumberingChapters {
+		issues, err := chapterIssues(vols)
+		if err != nil {
+			tracing.RecordError(span, err)
+			return nil, err
+		}
+		return issues, nil
+	}
+	return volumeIssues(vols), nil
+}
+
+// volumeIssues is one issue per collected volume, in volume order.
+func volumeIssues(vols []aggVolume) []metadata.ComicIssue {
 	issues := make([]metadata.ComicIssue, 0, len(vols))
 	for _, v := range vols {
 		if v.Volume == "" || v.Volume == "none" {
@@ -308,7 +362,35 @@ func (c *Client) Issues(ctx context.Context, volumeID string) ([]metadata.ComicI
 		issues = append(issues, metadata.ComicIssue{Number: v.Volume})
 	}
 	slices.SortStableFunc(issues, func(a, b metadata.ComicIssue) int { return compareNumbers(a.Number, b.Number) })
-	return issues, nil
+	return issues
+}
+
+// chapterIssues is one issue per numbered chapter of every volume, the
+// "none" bucket's included, in chapter order; the volumes are walked in
+// volume order ("none" last) so a chapter two volumes list keeps the
+// lower one's entry.
+func chapterIssues(vols []aggVolume) ([]metadata.ComicIssue, error) {
+	slices.SortStableFunc(vols, func(a, b aggVolume) int { return compareNumbers(a.Volume, b.Volume) })
+	var issues []metadata.ComicIssue
+	for _, v := range vols {
+		chapters, err := decodeChapters(v.Chapters)
+		if err != nil {
+			return nil, err
+		}
+		slices.SortStableFunc(chapters, func(a, b aggChapter) int { return compareNumbers(a.Chapter, b.Chapter) })
+		for _, ch := range chapters {
+			if ch.Chapter == "" || ch.Chapter == "none" {
+				continue
+			}
+			issue := metadata.ComicIssue{Number: ch.Chapter}
+			if ch.ID != "" {
+				issue.IDs = metadata.ExternalIDs{extid.KeyMangaDex: ch.ID}
+			}
+			issues = append(issues, issue)
+		}
+	}
+	slices.SortStableFunc(issues, func(a, b metadata.ComicIssue) int { return compareNumbers(a.Number, b.Number) })
+	return slices.CompactFunc(issues, func(a, b metadata.ComicIssue) bool { return a.Number == b.Number }), nil
 }
 
 // decodeVolumes reads the aggregate's volumes, which MangaDex serializes as
@@ -331,6 +413,30 @@ func decodeVolumes(raw json.RawMessage) ([]aggVolume, error) {
 	var list []aggVolume
 	if err := json.Unmarshal(raw, &list); err != nil {
 		return nil, fmt.Errorf("mangadex: aggregate volumes: %w: %w", metadata.ErrDecode, err)
+	}
+	return list, nil
+}
+
+// decodeChapters reads a volume's chapters, serialized as the volumes are:
+// an object keyed by chapter number, else an empty array.
+func decodeChapters(raw json.RawMessage) ([]aggChapter, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var byKey map[string]aggChapter
+	if err := json.Unmarshal(raw, &byKey); err == nil {
+		out := make([]aggChapter, 0, len(byKey))
+		for k, ch := range byKey {
+			if ch.Chapter == "" {
+				ch.Chapter = k
+			}
+			out = append(out, ch)
+		}
+		return out, nil
+	}
+	var list []aggChapter
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("mangadex: aggregate chapters: %w: %w", metadata.ErrDecode, err)
 	}
 	return list, nil
 }
@@ -456,5 +562,6 @@ func sortedKeys(m localized) []string {
 
 var (
 	_ metadata.ComicProvider = (*Client)(nil)
+	_ metadata.IssueNumberer = (*Client)(nil)
 	_ metadata.IDResolver    = (*Client)(nil)
 )
