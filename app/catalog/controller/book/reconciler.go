@@ -376,8 +376,14 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 		stale = now.Sub(bk.Status.Metadata.RefreshedAt.Time) >= ttl
 	}
 	metaReady := !stale
+	// A recent document the gateway wrote before it learned a field is
+	// refreshed once, at once, and the item stays ready meanwhile: every
+	// item in an upgraded library would otherwise drop to Pending together
+	// (Movie's rule; the 2026-11-10 design D8 gives every kind a
+	// schemaVersion).
+	outdated := !stale && bk.Status.Metadata.SchemaVersion < metadata.SchemaVersion
 
-	if stale {
+	if stale || outdated {
 		// The task carries what the refresh asks for -- the item and its
 		// inputs, answered in clustarr-item-metadata (ADR-0019 §7.1) -- under
 		// Msg-Id metadata/<uid>/<inputsHash>.

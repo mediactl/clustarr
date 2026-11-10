@@ -97,8 +97,9 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 
 // SchemaVersion is the version of every kind's metadata document the
 // gateway writes (status.metadata.schemaVersion; Movie's and Series' since
-// 2026-09-30, the six non-video kinds' since the 2026-11-10 design D8 --
-// W2c raises it to 9 as their builders start writing the fields §4 names).
+// 2026-09-30, the six non-video kinds' since the 2026-11-10 design D8:
+// their documents carried none, so they read 0 and refresh once under 8,
+// which is what the design wants of them, with no Movie or Series touched).
 // Raise it when the gateway learns a field: an item whose document is
 // older is refreshed once,
 // bypassing the L2 cache (whose key carries it), instead of lacking the new
