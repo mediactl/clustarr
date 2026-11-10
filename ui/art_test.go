@@ -396,9 +396,12 @@ func (r *overwriteAfter) Read(p []byte) (int, error) {
 
 // TestArtRetriesAnObjectOverwrittenMidRead is research E14: an object
 // overwritten while /art reads it stalls the reader until its deadline,
-// then fails with "i/o timeout", never a digest error. /art reads whole
-// objects under a deadline and retries once with a fresh lookup, so the
-// client gets a 200 with the new bytes, never a truncated 200. Real server.
+// then fails with the read context's deadline error (natsbus's objectReader;
+// nats.go itself said "nats: timeout" or "i/o timeout" at random, and /art
+// retried only the second until 2026-11-10), never a digest error. /art
+// reads whole objects under a deadline and retries once with a fresh lookup,
+// so the client gets a 200 with the new bytes, never a truncated 200. Real
+// server.
 func TestArtRetriesAnObjectOverwrittenMidRead(t *testing.T) {
 	srv, err := natsserver.NewServer(&natsserver.Options{
 		ServerName: "clustarr-ui-art-test", Host: "127.0.0.1", Port: -1,

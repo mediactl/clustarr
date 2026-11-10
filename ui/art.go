@@ -177,9 +177,14 @@ func setArtCaching(w http.ResponseWriter, r *http.Request, digest, etag string) 
 }
 
 // artReadTimeout bounds one whole-object read. An object overwritten while it
-// is read stalls the reader until its deadline, then fails with an i/o
-// timeout, never a digest error (research E14): the bound is what turns that
-// into a retry. A var so tests can shorten it.
+// is read stalls the reader until its deadline, never a digest error
+// (research E14: Put purges the old chunks, and the ordered consumer the read
+// is bound to has nothing more to deliver), and the store reports that read
+// as the read context's own DeadlineExceeded (natsbus's objectReader;
+// nats.go itself said "nats: timeout" or the pipe's "i/o timeout" at random,
+// which is how this handler answered 500 on four reads in ten until
+// 2026-11-10): the bound is what turns the stall into a retry. A var so
+// tests can shorten it.
 var artReadTimeout = 10 * time.Second
 
 // errArtMoved is a read that did not return the chosen object's bytes: it

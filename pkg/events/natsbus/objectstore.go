@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -190,7 +192,56 @@ func (o *objectHandle) Get(ctx context.Context, name string) (events.ObjectInfo,
 		_ = res.Close()
 		return events.ObjectInfo{}, nil, err
 	}
-	return oi, res, nil
+	return oi, &objectReader{ReadCloser: res, ctx: ctx, bucket: o.name, name: name}, nil
+}
+
+// objectReader is the io.ReadCloser Get hands out over nats.go's
+// ObjectResult, so that a read bounded by the caller's ctx which outlives it
+// fails with ctx.Err(). nats.go names that end two ways at random:
+// objResult.Read copies the context's deadline onto its net.Pipe, and when
+// the pipe's deadline fires before the context's Done is observed it returns
+// the pipe's bare os.ErrDeadlineExceeded (its `err, ok := err.(net.Error)`
+// shadows the error it then means to clear), else its private
+// nats.ErrTimeout, a bare errors.New no caller matches without importing
+// nats.go. /art's retry (ui/art.go readArt) classified the first and not the
+// second, so an object overwritten while it was read -- Put purges the old
+// chunks, and the ordered consumer the read is bound to has nothing more to
+// deliver, so the pipe stalls to the deadline (research E14) -- answered 500
+// on about four reads in ten (2026-11-10). Once ctx is done, a failed read
+// is ctx.Err(), wrapped, with nats.go's own words kept in the message; so is
+// a timeout once ctx's deadline has passed by the clock, since the pipe's
+// timer and the context's fire at one instant and either may run first;
+// io.EOF passes through bare (io.ReadAll compares it by value), and a failure
+// while ctx lives is named by objectError.
+type objectReader struct {
+	io.ReadCloser
+	ctx          context.Context
+	bucket, name string
+}
+
+func (r *objectReader) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	if err == nil || errors.Is(err, io.EOF) {
+		return n, err
+	}
+	if cerr := r.ctx.Err(); cerr != nil {
+		return n, fmt.Errorf("natsbus: read %s/%s: %w (%v)", r.bucket, r.name, cerr, err)
+	}
+	if d, ok := r.ctx.Deadline(); ok && isReadTimeout(err) && !time.Now().Before(d) {
+		return n, fmt.Errorf("natsbus: read %s/%s: %w (%v)", r.bucket, r.name, context.DeadlineExceeded, err)
+	}
+	return n, objectError("read", r.bucket, r.name, err)
+}
+
+// isReadTimeout reports whether err is a read that ran out of time, in either
+// of nats.go's spellings: its own nats.ErrTimeout, or the pipe's net.Error
+// (os.ErrDeadlineExceeded).
+func isReadTimeout(err error) bool {
+	if errors.Is(err, nats.ErrTimeout) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // Put writes name unconditionally, reading r to completion. JetStream chunks
