@@ -49,10 +49,13 @@ var keyKinds = map[commonv1.MediaKind]remediation.KeyKind{
 	commonv1.MediaKindBook:      remediation.KindBook,
 	commonv1.MediaKindAudiobook: remediation.KindAudiobook,
 	commonv1.MediaKindComic:     remediation.KindComic,
+	commonv1.MediaKindArtist:    remediation.KindArtist,
+	commonv1.MediaKindAuthor:    remediation.KindAuthor,
 }
 
 // KeyOf is the loop key of an artwork object's item; false for a kind the
-// loop has no key for (Artist and Author wake their reconcilers).
+// loop has no key for (an episode still or a season poster is its
+// container's).
 func KeyOf(kind commonv1.MediaKind, namespace, name string) (remediation.Key, bool) {
 	k, ok := keyKinds[kind]
 	if !ok || name == "" {

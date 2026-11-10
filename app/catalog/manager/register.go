@@ -33,8 +33,6 @@ import (
 
 	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/backlog"
-	"github.com/mediactl/clustarr/app/catalog/controller/artist"
-	"github.com/mediactl/clustarr/app/catalog/controller/author"
 	"github.com/mediactl/clustarr/app/catalog/controller/backlogsearch"
 	"github.com/mediactl/clustarr/app/catalog/controller/delayprofile"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadataprovider"
@@ -46,7 +44,6 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/history/replay"
-	"github.com/mediactl/clustarr/app/catalog/metadataset"
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	historyworker "github.com/mediactl/clustarr/app/catalog/worker/history"
 	"github.com/mediactl/clustarr/app/intake"
@@ -68,9 +65,11 @@ type Options struct {
 	// builds one (NewDLQProjector).
 	DLQProjector *historyworker.DLQProjector
 	// Artwork is the manager's objindex over clustarr-artwork (ADR-0019
-	// §7.1, D13): the Artist and Author reconcilers render status.artwork
-	// from it and plan their fetches against it. Nil keeps their stored
-	// status.artwork and plans none.
+	// §7.1, D13). Nothing in the catalog manager reads it since the Artist
+	// and the Author became remediation-loop item keys (2026-11-10 design
+	// D2): the loop's metadata and artwork stages take the index through
+	// app/remediation/manager.Options.Artwork. Kept so cmd/manager's call
+	// keeps compiling until it drops the field.
 	Artwork *objindex.Index
 	// WantedWakes receives wantedcron's sweep (the remediation loop
 	// enqueues each item at low priority), and DonorBudget is the search
@@ -166,16 +165,18 @@ const metadataProbeTimeout = 30 * time.Second
 
 // registerControllers registers every catalog reconciler (§6.1, §16 M1 and M6),
 // plus the wantedcron sweep, which is a manager.Runnable rather than a
-// reconciler because it reconciles nothing -- only a clock. Movie, Episode,
-// Album, Book, Audiobook and Issue are the remediation loop's item keys
-// (app/remediation/manager, loop spec §3.12), not controllers here.
+// reconciler because it reconciles nothing -- only a clock. Every catalog
+// item kind -- Movie, Series, Episode, Artist, Album, Author, Book,
+// Audiobook, Comic and Issue -- is the remediation loop's item key
+// (app/remediation/manager, loop spec §3.12), not a controller here.
 //
 // The seven non-video reconcilers (plan tasks G2-2 and G2-3 built them, G2-5
 // wires them) sat in their own packages, tested and registered nowhere, until
 // this function named them: every Artist, Album, Author, Book, Audiobook,
 // Comic and Issue a user created was accepted by the apiserver and then
 // never reconciled -- no metadata task, no fan-out, no phase -- with nothing
-// in the logs to say so.
+// in the logs to say so. Each has since moved to the loop (ADR-0019 A3.2,
+// then the 2026-11-10 design D2 for Artist and Author).
 //
 // The importer, importlist and importexclusion controllers are NOT here:
 // amendment §A1.2/§A1.3 moved them to import, whose run.go registers them.
@@ -214,11 +215,10 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	c := mgr.GetClient()
 
 	// The Series is the remediation loop's item key now (ADR-0019 A3.2,
-	// app/remediation/manager), as are the Movie, Episode and the non-video
-	// items.
-	if err := registerNonVideoControllers(mgr, bus, o.Artwork); err != nil {
-		return err
-	}
+	// app/remediation/manager), as are the Movie, Episode and every
+	// non-video item: Album, Book, Audiobook, Issue, Comic and, since the
+	// 2026-11-10 design (D2), Artist and Author, whose standalone
+	// reconcilers registered here until then.
 
 	if err := rootfolder.NewReconciler(c, mgr.GetEventRecorder("rootfolder")).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalog: rootfolder: %w", err)
@@ -348,43 +348,5 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("catalog: segments sweeper: %w", err)
 	}
 
-	return nil
-}
-
-// registerNonVideoControllers registers the two non-video parents that are
-// not item keys (Artist, Author), each as its package's doc.go prescribes.
-// Album, Book, Audiobook, Issue and -- since it owns its issues' grabs
-// (ADR-0019 A3.2) -- Comic are the remediation loop's item keys
-// (app/remediation/manager, loop spec §3.12).
-//
-// Each parent fans out children through the metadata gateway's
-// rpc.catalog.metadata.lookup: Artist -> Album, Author -> Book and
-// Comic -> Issue. So each needs the bus for its Request as well as for
-// publishing its own MetadataTask; with a nil Bus every reconcile panics
-// into RecoverPanic before it lists a single child.
-//
-// Every recorder is named after its kind, the convention movie and series
-// set, so `kubectl get events` attributes each Event to the controller that
-// raised it.
-func registerNonVideoControllers(mgr ctrl.Manager, bus events.Bus, art *objindex.Index) error {
-	c := mgr.GetClient()
-	scheme := mgr.GetScheme()
-	// Neither is a loop key, so each incorporates its metadata record and
-	// artwork objects itself (ADR-0019 A5.1 step 4).
-	incorporator := metadataset.NewIncorporator(bus)
-	incorporator.Index, incorporator.Publisher = art, bus
-	incorporator.Recorder = mgr.GetEventRecorder(artwork.RecorderGateway)
-
-	if err := (&artist.Reconciler{
-		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("artist"), Bus: bus, Metadata: incorporator,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalog: artist: %w", err)
-	}
-	if err := (&author.Reconciler{
-		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("author"), Bus: bus, Metadata: incorporator,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalog: author: %w", err)
-	}
-	// The Comic is the remediation loop's item key now (ADR-0019 A3.2).
 	return nil
 }

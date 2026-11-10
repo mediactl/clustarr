@@ -18,9 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package nfo
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -48,8 +50,8 @@ import (
 // Durable is the import agent's consumer the stage dispatches to.
 const Durable = events.ConsumerImportNFO
 
-// albumByArtistRef is the manager's Album index by spec.artistRef (the
-// Artist reconciler registers it).
+// albumByArtistRef is the manager's Album index by spec.artistRef
+// (artist.RegisterIndexes, through remediation.RegisterIndexes).
 const albumByArtistRef = ".spec.artistRef"
 
 // Options is what the stage reads through.
@@ -83,13 +85,17 @@ func New(o Options) *Stage {
 // Name implements remediation.ItemStage.
 func (s *Stage) Name() remediation.ItemStageName { return remediation.StageNFO }
 
-// Applies implements remediation.ItemStage: an Album and an Audiobook
-// today; an Artist and an Author once they are loop keys (design W1.1,
-// W3.4), each rendered as the artist of its albums.
+// Applies implements remediation.ItemStage: the four kinds of design §8.1
+// -- an Artist and its Albums, and for an audiobook root an Author rendered
+// as the artist of its Audiobooks.
 func (s *Stage) Applies(k remediation.KeyKind) bool { return applies(k) }
 
 func applies(k remediation.KeyKind) bool {
-	return k == remediation.KindAlbum || k == remediation.KindAudiobook
+	switch k {
+	case remediation.KindArtist, remediation.KindAlbum, remediation.KindAuthor, remediation.KindAudiobook:
+		return true
+	}
+	return false
 }
 
 // DeclaresSets implements remediation.SetDeclarer: status.nfo under
@@ -178,6 +184,30 @@ func (s *Stage) gather(ctx context.Context, v *remediation.ItemView) (*Input, er
 	in := &Input{Item: metadatainputs.ItemRef(v.Item), Now: v.Now.Time}
 	var rootRef string
 	switch item := v.Item.(type) {
+	case *catalogv1alpha1.Artist:
+		if item.Status.Metadata == nil || item.Status.Path == "" {
+			return nil, nil
+		}
+		rootRef = item.Spec.RootFolderRef
+		in.Folder, in.Prev = item.Status.Path, item.Status.NFO
+		var albums catalogv1alpha1.AlbumList
+		if err := s.o.Reader.List(ctx, &albums, client.InNamespace(item.Namespace), client.MatchingFields{albumByArtistRef: item.Name}); err != nil {
+			return nil, err
+		}
+		in.Rendered = renderArtist(item, orderedAlbums(albums.Items))
+	case *catalogv1alpha1.Author:
+		// Only under an audiobook root, which Enabled decides below: a
+		// book root gets no artist.nfo (design §8.1).
+		if item.Status.Metadata == nil || item.Status.Path == "" {
+			return nil, nil
+		}
+		rootRef = item.Spec.RootFolderRef
+		in.Folder, in.Prev = item.Status.Path, item.Status.NFO
+		audiobooks, err := s.audiobooksOf(ctx, item)
+		if err != nil {
+			return nil, err
+		}
+		in.Rendered = renderAuthor(item, audiobooks)
 	case *catalogv1alpha1.Album:
 		if item.Status.Metadata == nil || item.Status.Path == "" {
 			return nil, nil
@@ -251,6 +281,110 @@ func fileMode(root *catalogv1alpha1.RootFolder) uint32 {
 	return uint32(v)
 }
 
+// renderArtist is artist.nfo and the artist image for a, its albums
+// listed as Kodi's scraped discography is.
+func renderArtist(a *catalogv1alpha1.Artist, albums []catalogv1alpha1.Album) *Rendered {
+	poster := entryOf(a.Status.Artwork, catalogv1alpha1.ImageTypePoster)
+	var thumb string
+	if poster != nil {
+		thumb = poster.SourceURL
+	}
+	r := &Rendered{Files: []schema.NFOFile{{Name: nfo.FileArtist, Content: nfo.Artist(a, albums, thumb)}}}
+	if poster != nil {
+		r.Images = append(r.Images, ImageFor(nfo.FileArtistImage, events.ArtworkKey(commonv1.MediaKindArtist, a.UID, string(catalogv1alpha1.ImageTypePoster), events.ArtworkVariantOriginal), poster.Digest))
+	}
+	r.Hash = HashOf(r.Files, r.Images)
+	return r
+}
+
+// renderAuthor is artist.nfo and the artist image for au on an audiobook
+// root: the author is the library's artist, each Audiobook an album.
+func renderAuthor(au *catalogv1alpha1.Author, audiobooks []catalogv1alpha1.Audiobook) *Rendered {
+	poster := entryOf(au.Status.Artwork, catalogv1alpha1.ImageTypePoster)
+	var thumb string
+	if poster != nil {
+		thumb = poster.SourceURL
+	}
+	r := &Rendered{Files: []schema.NFOFile{{Name: nfo.FileArtist, Content: nfo.AuthorAsArtist(au, audiobooks, thumb)}}}
+	if poster != nil {
+		r.Images = append(r.Images, ImageFor(nfo.FileArtistImage, events.ArtworkKey(commonv1.MediaKindAuthor, au.UID, string(catalogv1alpha1.ImageTypePoster), events.ArtworkVariantOriginal), poster.Digest))
+	}
+	r.Hash = HashOf(r.Files, r.Images)
+	return r
+}
+
+// orderedAlbums is albums in a stable order -- by release date, then title,
+// then name -- so the rendered document, and its hash, do not move with
+// the cache's listing order.
+func orderedAlbums(albums []catalogv1alpha1.Album) []catalogv1alpha1.Album {
+	out := slices.Clone(albums)
+	slices.SortStableFunc(out, func(a, b catalogv1alpha1.Album) int {
+		if c := cmp.Compare(releaseUnix(a.Status.Metadata), releaseUnix(b.Status.Metadata)); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(albumTitle(a), albumTitle(b)); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Name, b.Name)
+	})
+	return out
+}
+
+func albumTitle(a catalogv1alpha1.Album) string {
+	if a.Status.Metadata == nil {
+		return ""
+	}
+	return a.Status.Metadata.Title
+}
+
+func releaseUnix(md *catalogv1alpha1.AlbumMetadata) int64 {
+	if md == nil || md.ReleaseDate == nil {
+		return 0
+	}
+	return md.ReleaseDate.Unix()
+}
+
+// audiobooksOf lists au's Audiobooks (spec.authorRef) in a stable order --
+// by release date, then title, then name -- filtering a namespaced List in
+// Go: Audiobooks are few, and the audiobook package's own index on the
+// field would conflict with a second registration.
+func (s *Stage) audiobooksOf(ctx context.Context, au *catalogv1alpha1.Author) ([]catalogv1alpha1.Audiobook, error) {
+	var list catalogv1alpha1.AudiobookList
+	if err := s.o.Reader.List(ctx, &list, client.InNamespace(au.Namespace)); err != nil {
+		return nil, err
+	}
+	var out []catalogv1alpha1.Audiobook
+	for i := range list.Items {
+		if ptr.Deref(list.Items[i].Spec.AuthorRef, "") == au.Name {
+			out = append(out, list.Items[i])
+		}
+	}
+	slices.SortStableFunc(out, func(a, b catalogv1alpha1.Audiobook) int {
+		var ar, br int64
+		var at, bt string
+		if a.Status.Metadata != nil {
+			at = a.Status.Metadata.Title
+			if a.Status.Metadata.ReleaseDate != nil {
+				ar = a.Status.Metadata.ReleaseDate.Unix()
+			}
+		}
+		if b.Status.Metadata != nil {
+			bt = b.Status.Metadata.Title
+			if b.Status.Metadata.ReleaseDate != nil {
+				br = b.Status.Metadata.ReleaseDate.Unix()
+			}
+		}
+		if c := cmp.Compare(ar, br); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(at, bt); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Name, b.Name)
+	})
+	return out, nil
+}
+
 // renderAlbum is album.nfo and the cover for al by artist.
 func renderAlbum(al *catalogv1alpha1.Album, artist *catalogv1alpha1.Artist) *Rendered {
 	poster := entryOf(al.Status.Artwork, catalogv1alpha1.ImageTypePoster)
@@ -317,7 +451,7 @@ func entryOf(entries []catalogv1alpha1.ArtworkEntry, t catalogv1alpha1.ImageType
 }
 
 // Sources implements remediation.Watcher: an answer in clustarr-nfo wakes
-// its item.
+// its item, of any of the four kinds.
 func (s *Stage) Sources(ctrl.Manager) ([]remediation.Source, error) {
 	if s.o.Bus == nil {
 		return nil, nil

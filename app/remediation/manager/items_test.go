@@ -28,7 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
+	"github.com/mediactl/clustarr/app/catalog/controller/artist"
 	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
+	"github.com/mediactl/clustarr/app/catalog/controller/author"
 	"github.com/mediactl/clustarr/app/catalog/controller/book"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
@@ -42,9 +44,10 @@ import (
 )
 
 // TestItemsRunEveryItemKind: the loop's item path covers every item kind --
-// the six file-backed kinds and, since A3.2, the grab owners Series and
-// Comic -- each with its own recorder name (loop spec §3.12), every one on
-// the bus, and Album's track sync goes through its cache.
+// the six file-backed kinds, since A3.2 the grab owners Series and Comic,
+// and since the 2026-11-10 design (D2) the containers Artist and Author --
+// each with its own recorder name (loop spec §3.12), every one on the bus,
+// and Album's track sync goes through its cache.
 func TestItemsRunEveryItemKind(t *testing.T) {
 	var names []string
 	recorder := func(name string) k8sevents.EventRecorder { names = append(names, name); return nil }
@@ -54,7 +57,8 @@ func TestItemsRunEveryItemKind(t *testing.T) {
 	env := &remediation.Env{IO: remediation.NewIOExecutor(1), DataDir: "/data"}
 	got := items(c, k8s.MustNewScheme(), recorder, bus, env)
 	assert.ElementsMatch(t, []remediation.KeyKind{remediation.KindMovie, remediation.KindEpisode, remediation.KindAlbum,
-		remediation.KindBook, remediation.KindAudiobook, remediation.KindIssue, remediation.KindSeries, remediation.KindComic},
+		remediation.KindBook, remediation.KindAudiobook, remediation.KindIssue, remediation.KindSeries, remediation.KindComic,
+		remediation.KindArtist, remediation.KindAuthor},
 		slices.Collect(maps.Keys(got)))
 
 	mov, ok := got[remediation.KindMovie].(*movie.Reconciler)
@@ -85,7 +89,18 @@ func TestItemsRunEveryItemKind(t *testing.T) {
 	com, ok := got[remediation.KindComic].(*comic.Reconciler)
 	require.True(t, ok)
 	assert.Same(t, bus, com.Bus)
+	// The containers of albums and books (2026-11-10 design D2) ask the
+	// gateway for their children over the bus and scan their folder once
+	// the first are listed, as a Series does.
+	art, ok := got[remediation.KindArtist].(*artist.Reconciler)
+	require.True(t, ok)
+	assert.Same(t, bus, art.Bus)
+	assert.Equal(t, folderscan.Probe{IO: env.IO, DataDir: "/data"}, art.Folders)
+	aut, ok := got[remediation.KindAuthor].(*author.Reconciler)
+	require.True(t, ok)
+	assert.Same(t, bus, aut.Bus)
+	assert.Equal(t, folderscan.Probe{IO: env.IO, DataDir: "/data"}, aut.Folders)
 	assert.Same(t, c, mov.Client, "every kind reads and writes through the manager's client")
 
-	assert.ElementsMatch(t, []string{"movie", "episode", "album", "book", "audiobook", "issue", "series", "comic"}, names)
+	assert.ElementsMatch(t, []string{"movie", "episode", "album", "book", "audiobook", "issue", "series", "comic", "artist", "author"}, names)
 }

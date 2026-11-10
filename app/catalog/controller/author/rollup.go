@@ -18,14 +18,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package author
 
 import (
+	"k8s.io/utils/ptr"
+
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 )
 
-// Rollup derives status.bookCount and status.bookFileCount from an Author's
-// currently-owned Book list. Both status.hasFile and status.metadata on each
-// Book are written by that Book's own reconciler and the metadata gateway
-// respectively (this package's doc.go) -- this is a pure read of fields this
-// reconciler never itself sets.
+// Rollup counts the Author's books and those with an imported file
+// (status.bookCount, status.bookFileCount).
 func Rollup(books []catalogv1alpha1.Book) (bookCount, bookFileCount int32) {
 	bookCount = int32(len(books))
 	for _, b := range books {
@@ -34,4 +34,25 @@ func Rollup(books []catalogv1alpha1.Book) (bookCount, bookFileCount int32) {
 		}
 	}
 	return bookCount, bookFileCount
+}
+
+// Children is what the Author's container rollup reads from each Book
+// (rollup.Container, 2026-11-10 design §4.1): its monitor flag (true when
+// unset, the Book reconciler's reading), its phase, its file and the work's
+// first publication date.
+func Children(books []catalogv1alpha1.Book) []rollup.ContainerChild {
+	out := make([]rollup.ContainerChild, 0, len(books))
+	for i := range books {
+		bk := &books[i]
+		c := rollup.ContainerChild{
+			Monitored: ptr.Deref(bk.Spec.Monitored, true),
+			Phase:     bk.Status.Phase,
+			HasFile:   bk.Status.HasFile,
+		}
+		if bk.Status.Metadata != nil {
+			c.ReleaseDate = bk.Status.Metadata.ReleaseDate
+		}
+		out = append(out, c)
+	}
+	return out
 }

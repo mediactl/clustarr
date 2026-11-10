@@ -79,11 +79,10 @@ func newBareTestClient(t *testing.T) client.Client {
 }
 
 // startCacheOnly starts a real ctrl.Manager's cache (so syncAlbums'
-// field-indexed List works) WITHOUT wiring an artist.Reconciler's watches to
-// it, so nothing auto-reconciles. Used by tests that call r.Reconcile()
-// directly instead of going through a running controller. Mirrors
-// series_test.startCacheOnly; the one field index registered here must stay
-// in sync with artist.Reconciler.SetupWithManager's own registration.
+// field-indexed List works) WITHOUT starting the Artist's item path on it,
+// so nothing auto-reconciles. Used by tests that call r.ReconcileItem()
+// directly instead of going through the running loop. The index is the one
+// artist.RegisterIndexes registers for the remediation loop.
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -93,14 +92,7 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Album{}, ".spec.artistRef",
-		func(o client.Object) []string {
-			alb, ok := o.(*catalogv1alpha1.Album)
-			if !ok {
-				return nil
-			}
-			return []string{alb.Spec.ArtistRef}
-		}))
+	require.NoError(t, artist.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
@@ -215,7 +207,7 @@ func TestArtistReconcilerQueueFull(t *testing.T) {
 		Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeAlbumRPC{}},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "artist-queuefull-ns", Name: "radiohead"}}
-	res, err := r.Reconcile(ctx, req)
+	res, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -274,7 +266,7 @@ func TestArtistReconcilerNeverClaimsStatusMetadata(t *testing.T) {
 		Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeAlbumRPC{}},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: a.Namespace, Name: a.Name}}
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	var got catalogv1alpha1.Artist
@@ -345,7 +337,7 @@ func TestArtistReconcilerCreatesAlbumsFilteredByProfile(t *testing.T) {
 		Bus: combinedBus{Publisher: fakePublisher{}, requester: requester},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: a.Namespace, Name: a.Name}}
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	wantName := artist.AlbumName("radiohead", "b1392450-e5a3-37d1-83d3-b8b08ca6c4d9")
@@ -372,7 +364,7 @@ func TestArtistReconcilerCreatesAlbumsFilteredByProfile(t *testing.T) {
 	// (series.syncEpisodes' own doc comment). No controller is wired to
 	// this bare cache client (startCacheOnly), so nothing re-triggers that
 	// next reconcile automatically; call it explicitly.
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	var artistAfter catalogv1alpha1.Artist
@@ -451,7 +443,7 @@ func TestArtistReconcilerNeverTouchesAnExistingAlbumsSpec(t *testing.T) {
 		Bus: combinedBus{Publisher: fakePublisher{}, requester: requester},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: a.Namespace, Name: a.Name}}
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var got catalogv1alpha1.Artist
@@ -461,7 +453,7 @@ func TestArtistReconcilerNeverTouchesAnExistingAlbumsSpec(t *testing.T) {
 		return got.Status.AddOptionsApplied
 	}, 5*time.Second, 10*time.Millisecond)
 
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	var after catalogv1alpha1.Album
@@ -514,7 +506,7 @@ func TestArtistReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: "rg-" + name}, Title: "Album One", PrimaryType: "Album"},
 		}}
 		r := &artist.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: combinedBus{Publisher: fakePublisher{}, requester: requester}}
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		wantName := artist.AlbumName(name, "rg-"+name)
@@ -527,7 +519,7 @@ func TestArtistReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		// series.syncEpisodes' own "self correcting" doc comment. No
 		// controller is wired to this bare cache client, so nothing
 		// re-triggers that next reconcile automatically.
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		var got catalogv1alpha1.Artist
@@ -565,7 +557,7 @@ func TestArtistReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeAlbumRPC{}},
 		}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -605,7 +597,7 @@ func TestArtistReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeAlbumRPC{}},
 		}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -642,7 +634,7 @@ func TestArtistReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeAlbumRPC{}},
 		}
-		_, err := r.Reconcile(ctx, req)
+		_, err := r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		var got catalogv1alpha1.Artist
 		require.Eventually(t, func() bool {
@@ -659,7 +651,7 @@ func TestArtistReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			var g catalogv1alpha1.Artist
 			return c.Get(ctx, req.NamespacedName, &g) == nil && g.Annotations[k8s.AnnotationDeadLettered] == ""
 		}, 5*time.Second, 10*time.Millisecond)
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			return c.Get(ctx, req.NamespacedName, &got) == nil && k8s.FindCondition(got.Status.Conditions, k8s.ConditionDeadLettered) == nil

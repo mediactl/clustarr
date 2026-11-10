@@ -60,27 +60,33 @@ func TestItemKeysAreTheItemsAFileCovers(t *testing.T) {
 		remediation.ItemKeys(fileFor(commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-guards"})))
 	assert.Equal(t, []remediation.Key{key(remediation.KindIssue, "saga-1")},
 		remediation.ItemKeys(fileFor(commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "saga-1"})))
-	for _, k := range []commonv1.MediaKind{commonv1.MediaKindArtist, commonv1.MediaKindAuthor} {
-		assert.Nil(t, remediation.ItemKeys(fileFor(commonv1.MediaRef{Kind: k, Name: "x"})), "%s has no item key", k)
-	}
+	// No file refers to an artist or an author, but the key map is total
+	// over the catalog's kinds (2026-11-10 design D2), so such a ref would
+	// wake the container.
+	assert.Equal(t, []remediation.Key{key(remediation.KindArtist, "radiohead")},
+		remediation.ItemKeys(fileFor(commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: "radiohead"})))
+	assert.Equal(t, []remediation.Key{key(remediation.KindAuthor, "le-guin")},
+		remediation.ItemKeys(fileFor(commonv1.MediaRef{Kind: commonv1.MediaKindAuthor, Name: "le-guin"})))
 	assert.Nil(t, remediation.ItemKeys(fileFor(commonv1.MediaRef{Kind: commonv1.MediaKindMovie})), "a ref with no name")
 	assert.Nil(t, remediation.ItemKeys(nil))
 }
 
-// ItemKind covers the six F4 item kinds and the two grab owners A3.2 added;
-// Artist and Author hold neither files nor grabs of their own.
-func TestItemKindCoversTheSixItemKinds(t *testing.T) {
+// ItemKind covers the six F4 item kinds, the two grab owners A3.2 added and
+// the two containers the 2026-11-10 design (D2) added; nothing else is a
+// key.
+func TestItemKindCoversEveryItemKind(t *testing.T) {
 	for mk, want := range map[commonv1.MediaKind]remediation.KeyKind{
 		commonv1.MediaKindMovie: remediation.KindMovie, commonv1.MediaKindEpisode: remediation.KindEpisode,
 		commonv1.MediaKindAlbum: remediation.KindAlbum, commonv1.MediaKindBook: remediation.KindBook,
 		commonv1.MediaKindAudiobook: remediation.KindAudiobook, commonv1.MediaKindIssue: remediation.KindIssue,
 		commonv1.MediaKindSeries: remediation.KindSeries, commonv1.MediaKindComic: remediation.KindComic,
+		commonv1.MediaKindArtist: remediation.KindArtist, commonv1.MediaKindAuthor: remediation.KindAuthor,
 	} {
 		got, ok := remediation.ItemKind(mk)
 		require.True(t, ok, mk)
 		assert.Equal(t, want, got)
 	}
-	for _, mk := range []commonv1.MediaKind{commonv1.MediaKindArtist, commonv1.MediaKindAuthor, ""} {
+	for _, mk := range []commonv1.MediaKind{"", "mediafile", "season"} {
 		_, ok := remediation.ItemKind(mk)
 		assert.False(t, ok, mk)
 	}

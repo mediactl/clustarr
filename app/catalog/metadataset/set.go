@@ -18,8 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package metadataset renders catalog-metadata's one complete set on an item
 // (ADR-0019 §7.0, §7.1): status.metadata and status.artwork, declared
 // together in every apply because server-side apply releases whatever a
-// manager's apply omits. The loop's metadata stage and the Artist and Author
-// reconcilers share it, so the manager has one renderer of the set.
+// manager's apply omits. The loop's metadata stage is its one caller, for
+// every item kind with a document of its own: the Artist and Author
+// reconcilers that applied the set themselves (the Incorporator, ADR-0019
+// A5.1 step 4) went when they became loop keys (2026-11-10 design D2), so
+// the manager has one renderer and one applier of the set.
 package metadataset
 
 import (
@@ -37,6 +40,11 @@ import (
 
 // Manager is the set's field manager, the gateway's name kept (R7).
 const Manager = k8s.ManagerCatalogMetadata
+
+// EntriesFunc is status.artwork as the manager's artwork index has it for
+// one item (catalogartwork.Entries), and whether the index is synced (false
+// keeps the stored entries).
+type EntriesFunc func(item client.Object) ([]catalogv1alpha1.ArtworkEntry, bool)
 
 // foreignLeaves are status.metadata leaves another manager owns, which a
 // re-sent stored document must not claim (ForceOwnership would make

@@ -20,6 +20,7 @@ package remediation
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -187,37 +188,52 @@ func TestItemReconcilerDispatchesByKind(t *testing.T) {
 	assert.Equal(t, types.NamespacedName{Namespace: "media", Name: "ridley"}, movies.seen[len(movies.seen)-1], "the loop routes an item key to Items")
 }
 
-// TestSeriesAndComicAreItemKeys (ADR-0019 A3.2): the owners of their
-// episodes' and issues' grabs are loop keys like the six F4 kinds: a
-// MediaRef kind, a cached object, an ItemRef and a history target of
-// either kind all map to a key.
-func TestSeriesAndComicAreItemKeys(t *testing.T) {
-	for mk, want := range map[commonv1.MediaKind]KeyKind{commonv1.MediaKindSeries: KindSeries, commonv1.MediaKindComic: KindComic} {
+// TestEveryItemKindIsALoopKey (ADR-0019 A3.2; 2026-11-10 design D2): every
+// catalog item kind is a loop key -- the six file-backed kinds, the owners
+// of their episodes' and issues' grabs (Series, Comic) and the containers of
+// their albums and books (Artist, Author). A MediaRef kind, a cached object,
+// an ItemRef and a history target of each kind all map to a key, and the
+// four containers say so.
+func TestEveryItemKindIsALoopKey(t *testing.T) {
+	kinds := map[commonv1.MediaKind]struct {
+		key KeyKind
+		obj client.Object
+	}{
+		commonv1.MediaKindMovie:     {KindMovie, &catalogv1alpha1.Movie{}},
+		commonv1.MediaKindEpisode:   {KindEpisode, &catalogv1alpha1.Episode{}},
+		commonv1.MediaKindAlbum:     {KindAlbum, &catalogv1alpha1.Album{}},
+		commonv1.MediaKindBook:      {KindBook, &catalogv1alpha1.Book{}},
+		commonv1.MediaKindAudiobook: {KindAudiobook, &catalogv1alpha1.Audiobook{}},
+		commonv1.MediaKindIssue:     {KindIssue, &catalogv1alpha1.Issue{}},
+		commonv1.MediaKindSeries:    {KindSeries, &catalogv1alpha1.Series{}},
+		commonv1.MediaKindComic:     {KindComic, &catalogv1alpha1.Comic{}},
+		commonv1.MediaKindArtist:    {KindArtist, &catalogv1alpha1.Artist{}},
+		commonv1.MediaKindAuthor:    {KindAuthor, &catalogv1alpha1.Author{}},
+	}
+	for mk, want := range kinds {
 		got, ok := ItemKind(mk)
 		require.True(t, ok, mk)
-		assert.Equal(t, want, got)
+		assert.Equal(t, want.key, got)
+		assert.Equal(t, KeyKind(strings.ToUpper(string(mk[:1]))+string(mk[1:])), got, "the key kind is the object Kind's spelling")
 		obj, ok := newItemObject(got)
+		require.True(t, ok, got)
+		assert.IsType(t, want.obj, obj)
+		k, ok := itemRefKey(schema.ItemRef{Kind: string(want.key), Namespace: "media", Name: "x"})
 		require.True(t, ok)
-		switch want {
-		case KindSeries:
-			assert.IsType(t, &catalogv1alpha1.Series{}, obj)
-		case KindComic:
-			assert.IsType(t, &catalogv1alpha1.Comic{}, obj)
-		}
-		k, ok := itemRefKey(schema.ItemRef{Kind: string(want), Namespace: "media", Name: "x"})
+		assert.Equal(t, Key{Kind: want.key, Namespace: "media", Name: "x"}, k)
+		k, ok = targetKey(cataloghistory.Target{Kind: string(want.key), Namespace: "media", Name: "x"})
 		require.True(t, ok)
-		assert.Equal(t, Key{Kind: want, Namespace: "media", Name: "x"}, k)
-		k, ok = targetKey(cataloghistory.Target{Kind: string(want), Namespace: "media", Name: "x"})
-		require.True(t, ok)
-		assert.Equal(t, Key{Kind: want, Namespace: "media", Name: "x"}, k)
+		assert.Equal(t, Key{Kind: want.key, Namespace: "media", Name: "x"}, k)
 	}
-	assert.Equal(t, KeyKind("Series"), KindSeries)
-	assert.Equal(t, KeyKind("Comic"), KindComic)
-	for _, mk := range []commonv1.MediaKind{commonv1.MediaKindArtist, commonv1.MediaKindAuthor} {
-		_, ok := ItemKind(mk)
-		assert.False(t, ok, "%s holds no grabs of its own", mk)
+	for _, k := range []KeyKind{KindSeries, KindComic, KindArtist, KindAuthor} {
+		assert.True(t, k.Container(), "%s fans out and rolls up children", k)
 	}
-	_, ok := itemRefKey(schema.ItemRef{Kind: "MediaFile", Namespace: "media", Name: "x"})
+	for _, k := range []KeyKind{KindMovie, KindEpisode, KindAlbum, KindBook, KindAudiobook, KindIssue, KindMediaFile} {
+		assert.False(t, k.Container(), "%s holds files, not children", k)
+	}
+	_, ok := ItemKind("")
+	assert.False(t, ok, "no kind is no key")
+	_, ok = itemRefKey(schema.ItemRef{Kind: "MediaFile", Namespace: "media", Name: "x"})
 	assert.False(t, ok, "a file is not an item key")
 	_, ok = itemRefKey(schema.ItemRef{Kind: string(KindSeries), Namespace: "media"})
 	assert.False(t, ok, "a ref with no name names no item")

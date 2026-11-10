@@ -23,7 +23,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
+	"github.com/mediactl/clustarr/app/catalog/controller/artist"
 	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
+	"github.com/mediactl/clustarr/app/catalog/controller/author"
 	"github.com/mediactl/clustarr/app/catalog/controller/book"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
@@ -48,7 +50,9 @@ import (
 // item and file events, and a nil Bus publishes nothing.
 //
 // A Series reads its folder through env's /data executor when its first
-// episodes ask for a scan of it (folderscan, smoke finding O8).
+// episodes ask for a scan of it (folderscan, smoke finding O8); an Artist
+// and an Author, the containers of their albums and books (2026-11-10
+// design D2), do the same for their first children.
 func items(c client.Client, s *runtime.Scheme, recorder func(name string) k8sevents.EventRecorder, bus events.Bus, env *remediation.Env) map[remediation.KeyKind]rollup.Item {
 	return map[remediation.KeyKind]rollup.Item{
 		remediation.KindMovie:   &movie.Reconciler{Client: c, Scheme: s, Recorder: recorder("movie"), Bus: bus},
@@ -68,5 +72,17 @@ func items(c client.Client, s *runtime.Scheme, recorder func(name string) k8seve
 			Folders: folderscan.Probe{IO: env.IO, DataDir: env.DataDir},
 		},
 		remediation.KindComic: &comic.Reconciler{Client: c, Scheme: s, Recorder: recorder("comic"), Bus: bus},
+		// The containers of albums and books (2026-11-10 design D2): their
+		// metadata and artwork run as the loop's stages, their child
+		// fan-out behind the child-sync memo, their folder scanned once
+		// their first children are listed.
+		remediation.KindArtist: &artist.Reconciler{
+			Client: c, Scheme: s, Recorder: recorder("artist"), Bus: bus,
+			Folders: folderscan.Probe{IO: env.IO, DataDir: env.DataDir},
+		},
+		remediation.KindAuthor: &author.Reconciler{
+			Client: c, Scheme: s, Recorder: recorder("author"), Bus: bus,
+			Folders: folderscan.Probe{IO: env.IO, DataDir: env.DataDir},
+		},
 	}
 }

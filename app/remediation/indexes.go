@@ -25,7 +25,9 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
+	"github.com/mediactl/clustarr/app/catalog/controller/artist"
 	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
+	"github.com/mediactl/clustarr/app/catalog/controller/author"
 	"github.com/mediactl/clustarr/app/catalog/controller/book"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
@@ -46,7 +48,10 @@ import (
 // names (mediafile.RegisterIndexes: the two RootFolder naming indexes). Since Series
 // and Comic became item keys (ADR-0019 A3.2) it also registers
 // ".spec.seriesRef" (series.RegisterIndexes) and the Issue-by-comicRef index
-// (comic.RegisterIndexes): one registrar per process (split §3.5.2 step 9).
+// (comic.RegisterIndexes), and since Artist and Author did (2026-11-10
+// design D2) the Album-by-artistRef and Book-by-authorRef indexes
+// (artist.RegisterIndexes, author.RegisterIndexes): one registrar per
+// process (split §3.5.2 step 9).
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 	if err := mfindex.Register(ctx, idx); err != nil {
 		return err
@@ -76,6 +81,12 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 		return err
 	}
 	if err := comic.RegisterIndexes(ctx, idx); err != nil {
+		return err
+	}
+	if err := artist.RegisterIndexes(ctx, idx); err != nil {
+		return err
+	}
+	if err := author.RegisterIndexes(ctx, idx); err != nil {
 		return err
 	}
 	// The marker indexes a reader selects a few items by instead of

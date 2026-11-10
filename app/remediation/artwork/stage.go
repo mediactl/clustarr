@@ -78,14 +78,14 @@ func New(o Options) *Stage {
 // Name implements remediation.ItemStage.
 func (s *Stage) Name() remediation.ItemStageName { return remediation.StageArtwork }
 
-// Applies implements remediation.ItemStage: the six loop kinds with
-// artwork.
+// Applies implements remediation.ItemStage: the eight loop kinds with
+// artwork (catalogartwork.ItemOf).
 func (s *Stage) Applies(k remediation.KeyKind) bool { return applies(k) }
 
 func applies(k remediation.KeyKind) bool {
 	switch k {
 	case remediation.KindMovie, remediation.KindSeries, remediation.KindAlbum, remediation.KindBook,
-		remediation.KindAudiobook, remediation.KindComic:
+		remediation.KindAudiobook, remediation.KindComic, remediation.KindArtist, remediation.KindAuthor:
 		return true
 	}
 	return false

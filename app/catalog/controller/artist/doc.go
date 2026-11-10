@@ -15,18 +15,25 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package artist implements the Artist controller: metadata staleness
-// (publishing a MetadataTask when the cache is missing or past its
-// RefreshTTL), path, and a thin Reconciler that fans an Artist out into
-// owned Album objects per spec §4.2, mirroring app/catalog/controller/series
-// exactly (read that package first -- this one follows it, not the other
-// way around).
+// Package artist implements the Artist's item path on the remediation loop
+// (2026-11-10 design D2, §5.1; rollup.Item): metadata staleness
+// (publishing a MetadataTask, admitted by the dispatch ledger, when the
+// cache is missing or past its RefreshTTL), path, the fan-out of an Artist
+// into owned Album objects per spec §4.2 behind the child-sync memo
+// (app/remediation/childsync), the container rollup (rollup.Container) and
+// the folder scan a new artist's first albums ask for, mirroring
+// app/catalog/controller/series (read that package first -- this one
+// follows it, not the other way around). The standalone controller named
+// "artist" and its metadataset.Incorporator went with the move: the loop's
+// metadata, artwork and nfo stages run for an Artist as for an Album.
 //
-// Artist is the sole writer of status.path, status.albumCount,
-// status.albumFileCount and status.addOptionsApplied; status.metadata
-// belongs to the metadata gateway (k8s.ManagerCatalogMetadata) and this
-// reconciler never builds an ArtistStatusApplyConfiguration that calls
-// WithMetadata.
+// Artist is the sole writer, under catalog, of status.path,
+// status.albumCount, status.albumFileCount, status.addOptionsApplied, the
+// ContainerRollup fields and the conditions; status.metadata and
+// status.artwork belong to the loop's metadata stage
+// (k8s.ManagerCatalogMetadata), status.nfo to its nfo stage
+// (k8s.ManagerCatalogNFO), and this reconciler never builds an
+// ArtistStatusApplyConfiguration that calls WithMetadata.
 //
 // Unlike Series->Episode, this reconciler writes NOTHING onto the Album
 // objects it creates -- no k8s.ManagerCatalogFanout apply, no per-item

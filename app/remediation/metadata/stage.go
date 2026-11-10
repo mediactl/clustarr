@@ -59,14 +59,15 @@ func New(o Options) *Stage {
 // Name implements remediation.ItemStage.
 func (s *Stage) Name() remediation.ItemStageName { return remediation.StageMetadata }
 
-// Applies implements remediation.ItemStage: the six loop kinds with
-// metadata of their own.
+// Applies implements remediation.ItemStage: the eight loop kinds with
+// metadata of their own (an Episode's and an Issue's come from their
+// container's fan-out).
 func (s *Stage) Applies(k remediation.KeyKind) bool { return applies(k) }
 
 func applies(k remediation.KeyKind) bool {
 	switch k {
 	case remediation.KindMovie, remediation.KindSeries, remediation.KindAlbum, remediation.KindBook,
-		remediation.KindAudiobook, remediation.KindComic:
+		remediation.KindAudiobook, remediation.KindComic, remediation.KindArtist, remediation.KindAuthor:
 		return true
 	}
 	return false

@@ -15,15 +15,23 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package author implements the Author controller: metadata staleness
-// (publishing a MetadataTask when the cache is missing or past its
-// RefreshTTL), path, and the works-listing RPC fan-out into owned Book
-// objects per spec §4.2's Author/Book pair, gated by
-// AuthorSpec.MetadataProfile. It is the sole writer of status.path,
-// status.bookCount, status.bookFileCount and status.addOptionsApplied;
-// status.metadata belongs to the metadata gateway (task G2-1, field manager
-// k8s.ManagerCatalogMetadata) and this reconciler never builds an
-// AuthorStatusApplyConfiguration that calls WithMetadata.
+// Package author implements the Author's item path on the remediation loop
+// (2026-11-10 design D2, §5.1; rollup.Item): metadata staleness
+// (publishing a MetadataTask, admitted by the dispatch ledger, when the
+// cache is missing or past its RefreshTTL), path, the works-listing RPC
+// fan-out into owned Book objects per spec §4.2's Author/Book pair, gated
+// by AuthorSpec.MetadataProfile, behind the child-sync memo
+// (app/remediation/childsync), the container rollup (rollup.Container) and
+// the folder scan a new author's first books ask for. The standalone
+// controller named "author" and its metadataset.Incorporator went with the
+// move: the loop's metadata, artwork and nfo stages run for an Author as
+// for a Book. It is the sole writer, under catalog, of status.path,
+// status.bookCount, status.bookFileCount, status.addOptionsApplied, the
+// ContainerRollup fields and the conditions; status.metadata and
+// status.artwork belong to the loop's metadata stage (field manager
+// k8s.ManagerCatalogMetadata), status.nfo to its nfo stage, and this
+// reconciler never builds an AuthorStatusApplyConfiguration that calls
+// WithMetadata.
 //
 // Unlike Series->Episode, this reconciler writes NOTHING onto the Book
 // objects it fans out beyond their initial Create -- not even under a

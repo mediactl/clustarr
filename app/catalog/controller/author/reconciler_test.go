@@ -67,11 +67,11 @@ func newTestConfig(t *testing.T) *rest.Config {
 	return cfg
 }
 
-// startCacheOnly starts a real ctrl.Manager's cache, registering the same
-// field index author.Reconciler.SetupWithManager registers, WITHOUT wiring
-// any watches -- so nothing auto-reconciles and every scenario drives
-// r.Reconcile() directly. Mirrors series/reconciler_test.go's identical
-// helper and its rationale.
+// startCacheOnly starts a real ctrl.Manager's cache, registering the field
+// index author.RegisterIndexes registers for the remediation loop, WITHOUT
+// starting the Author's item path -- so nothing auto-reconciles and every
+// scenario drives r.ReconcileItem() directly. Mirrors
+// series/reconciler_test.go's identical helper and its rationale.
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -81,14 +81,7 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Book{}, ".spec.authorRef",
-		func(o client.Object) []string {
-			bk, ok := o.(*catalogv1alpha1.Book)
-			if !ok || bk.Spec.AuthorRef == nil {
-				return nil
-			}
-			return []string{*bk.Spec.AuthorRef}
-		}))
+	require.NoError(t, author.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
@@ -213,7 +206,7 @@ func TestAuthorReconcilerFanOutCreatesSpecOnlyBooks(t *testing.T) {
 		Bus: combinedBus{Publisher: fakePublisher{}, requester: requester},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "author-fanout-ns", Name: "tolkien"}}
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	bookName := author.BookName("tolkien", "OL45883W")
@@ -237,7 +230,7 @@ func TestAuthorReconcilerFanOutCreatesSpecOnlyBooks(t *testing.T) {
 	// mirroring series.syncEpisodes' identical contract (see this package's
 	// reconciler.go doc comment on syncBooks). A second pass is what
 	// actually completes BookCount/BookFileCount here.
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	var got catalogv1alpha1.Author
@@ -285,7 +278,7 @@ func TestAuthorReconcilerAppliesMetadataProfile(t *testing.T) {
 		Bus: combinedBus{Publisher: fakePublisher{}, requester: requester},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "author-profile-ns", Name: "profiled-author"}}
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	_ = waitForCondition(t, ctx, c, "author-profile-ns", "profiled-author", catalogv1alpha1.AuthorConditionBooksSynced, metav1.ConditionTrue)
@@ -302,7 +295,7 @@ func TestAuthorReconcilerAppliesMetadataProfile(t *testing.T) {
 
 	// Second pass rolls up the one book the profile let through (see the
 	// identical note in TestAuthorReconcilerFanOutCreatesSpecOnlyBooks).
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	var got catalogv1alpha1.Author
 	require.Eventually(t, func() bool {
@@ -361,12 +354,12 @@ func TestAuthorReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		Bus: combinedBus{Publisher: fakePublisher{}, requester: requester},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "author-transient-ns", Name: "steady-author"}}
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	// Rollup reads the pre-fanout List; a second pass is what actually
 	// completes BookCount, mirroring the identical note in
 	// TestAuthorReconcilerFanOutCreatesSpecOnlyBooks.
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	var before catalogv1alpha1.Author
@@ -405,7 +398,7 @@ func TestAuthorReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeBookListRPC{}},
 		}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -464,7 +457,7 @@ func TestAuthorReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeBookListRPC{}},
 		}
-		res, err := r3.Reconcile(ctx, req)
+		res, err := r3.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -496,7 +489,7 @@ func TestAuthorReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			return c.Get(ctx, req.NamespacedName, &got) == nil && got.Annotations[k8s.AnnotationDeadLettered] != ""
 		}, 5*time.Second, 10*time.Millisecond)
 
-		_, err := r.Reconcile(ctx, req)
+		_, err := r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		var got catalogv1alpha1.Author
 		require.Eventually(t, func() bool {
@@ -512,7 +505,7 @@ func TestAuthorReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			var g catalogv1alpha1.Author
 			return c.Get(ctx, req.NamespacedName, &g) == nil && g.Annotations[k8s.AnnotationDeadLettered] == ""
 		}, 5*time.Second, 10*time.Millisecond)
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			return c.Get(ctx, req.NamespacedName, &got) == nil && k8s.FindCondition(got.Status.Conditions, k8s.ConditionDeadLettered) == nil

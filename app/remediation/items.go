@@ -417,6 +417,10 @@ func newItemObject(kind KeyKind) (client.Object, bool) {
 		return &catalogv1alpha1.Series{}, true
 	case KindComic:
 		return &catalogv1alpha1.Comic{}, true
+	case KindArtist:
+		return &catalogv1alpha1.Artist{}, true
+	case KindAuthor:
+		return &catalogv1alpha1.Author{}, true
 	}
 	return nil, false
 }

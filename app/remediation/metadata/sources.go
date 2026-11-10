@@ -27,8 +27,8 @@ import (
 )
 
 // Sources implements remediation.Watcher: S25, a gateway answer in
-// clustarr-item-metadata wakes its item (§8.1). Artist and Author records
-// are their reconcilers' (A5.1 step 4), not the loop's.
+// clustarr-item-metadata wakes its item (§8.1), the Artist's and the
+// Author's included since they became loop keys (2026-11-10 design D2).
 func (s *Stage) Sources(ctrl.Manager) ([]remediation.Source, error) {
 	src := recordsource.NewItems(s.o.Bus, events.BucketItemMetadata, func(item schema.ItemRef, _ []byte) []remediation.Key {
 		k := remediation.KeyKind(item.Kind)
