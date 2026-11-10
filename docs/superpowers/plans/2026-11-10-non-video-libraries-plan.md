@@ -583,6 +583,24 @@ Comic's memo is childsync's (2ab57111). Pending: CLAUDE.md, the e2e
 scenarios, the remaining-work items, this plan's and the spec's final notes
 after W4.
 
+**Envtest run 2026-11-10 (after the push, before the talos deploy;
+envtest 1.37.0 with the CBOR client gates off, over app/remediation,
+app/catalog/controller, app/import, app/catalog/metadata, itemread,
+searchplan, grabplan):** 42 packages ok. Pre-existing test-batch debts,
+unrelated to this design and left alone: `app/catalog/metadata`'s 18
+envtests build a gateway with no item-metadata records writer (ADR-0019);
+`movie`'s two MetadataTask-on-the-bus assertions, `search`'s and
+`metadatarefresh`'s message-id shapes and `overlayprofile`'s render-task
+test predate the ledger; `librarydelete`'s fake client registers no
+`mfindex.Item`; `rescan`'s two series fixtures predate the series root's
+profile requirement and the `unmonitorSpecials` default. This wave's own:
+fixtures creating a standalone Book without profile and root (the W0 CEL
+rule), leaves that never reach Wanted/Imported for want of a metadata
+document (D4), the Comic/Issue tests' retired `status.state`, the Album
+watch test's Artist, the import agent's consumer count (import-nfo), and
+the new Artist/Author item-path tests' memo counts -- repaired by three
+agents the same afternoon (their commits follow this note).
+
 ## Order and gates
 
 ```
