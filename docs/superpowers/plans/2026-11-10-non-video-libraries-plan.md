@@ -269,8 +269,10 @@ Owns `pkg/mediainfo/` (every file), `test/data/mediainfo/` fixtures.
 
 **Done inline 2026-11-10 (a5774543):** the tag, sample-rate and bit-depth
 mapping in `pkg/mediainfo/tags.go` and `ProbeVersion` 4; the native probe
-already fills the stream facts. Left: `pageCount` (archives, PDF), the
-FLAC/MP3/CBZ/PDF fixtures and the native suite's tests.
+already fills the stream facts; `mediainfo.PageCount` (cbz, cbr, cb7, cbt,
+pdf; listing only). Left: calling `PageCount` from the import's inspect for
+comic and PDF files into `MediaInfo.PageCount` (W3.2's execute), the FLAC/MP3
+fixtures and the native suite's tests.
 
 ### W3.2 Track attribution and parts (D6, D11, §6)
 
