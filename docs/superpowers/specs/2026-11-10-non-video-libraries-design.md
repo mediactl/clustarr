@@ -968,6 +968,12 @@ opens; and Add New's three new searches answered live through talos's
 metadata gateway (MangaDex "Berserk" with source badges, Open Library "The
 Dispossessed" as a standalone Book, Audible "Wizard of Earthsea"). MangaDex
 hits carry no cover (volume covers not built), so their cards are blank.
+A second run at 6150558b (after waves C and D, the same rig): the album
+page renders its own Edit with the album block (the artist's profile,
+`anyReleaseOk`, the release select) and its Interactive modal polls the
+shared `/searches/{ns}/{name}`, as the comic's volume modal does with
+`filter=all`; Add New's hit details wait on the catalog agent that fills
+them (talos's gateway at rev 244 predates `SearchHit`'s new fields).
 
 ### 9.1 Tabs, cards, toolbar, bulk, typeahead
 
