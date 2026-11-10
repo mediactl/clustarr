@@ -18,7 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package metrics
 
 import (
+	"bufio"
+	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -26,9 +29,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// wantSeries is the amendment's §A2.3 table: every collector Register must
-// carry, by exact name. It is the source of truth for
-// TestCatalogueMatchesTheAmendmentTable.
+// wantSeries is the amendment's §A2.3 table: the 23 series the design named,
+// which every Register must still carry by exact name. The catalogue has
+// grown past it since (77 series on 2026-11-10), so the whole catalogue is
+// held to docs/observability.md instead, by TestCatalogueMatchesTheObservabilityDoc.
 var wantSeries = []string{
 	"clustarr_download_bytes_total",
 	"clustarr_download_speed_bytes_per_second",
@@ -107,20 +111,134 @@ func allDescs(t *testing.T) []*prometheus.Desc {
 	return descs
 }
 
-// TestCatalogueMatchesTheAmendmentTable is the shape test: exactly the
-// series the amendment tables, by name, no more and no fewer. The count is
-// taken from wantSeries rather than hard-coded, so adding a series means
-// updating the amendment table and this list together -- which is the point.
+// TestCatalogueMatchesTheAmendmentTable: every series the amendment's §A2.3
+// table named is still registered, by exact name. It no longer counts the
+// catalogue -- the amendment's 23 were the design's seed, and every series
+// added since is tabled in docs/observability.md, which the next test holds
+// the whole catalogue to.
 func TestCatalogueMatchesTheAmendmentTable(t *testing.T) {
 	descs := allDescs(t)
-	require.Len(t, descs, len(wantSeries), "amendment §A2.3 tables %d series", len(wantSeries))
-
 	got := make(map[string]bool, len(descs))
 	for _, d := range descs {
 		got[descFQName(t, d)] = true
 	}
 	for _, name := range wantSeries {
 		require.True(t, got[name], "missing series %s", name)
+	}
+}
+
+// catalogueDoc is the catalogue's authority: every series Register carries
+// has a row in its "Metric catalogue" tables, with the labels the collector
+// declares, and every row's series is registered -- except the rows
+// registeredElsewhere names, whose "Recorded by" column says another
+// registry carries them. "Adding a metric" in the doc says so: an
+// undocumented metric is not discoverable by an operator who only reads
+// that file.
+const catalogueDoc = "../../../docs/observability.md"
+
+// registeredElsewhere are the catalogue's rows Register does not carry,
+// each with the registry that does. The test checks each still has a row
+// and is still not registered here, so a series moved into this package
+// drops its entry.
+var registeredElsewhere = map[string]string{
+	"clustarr_ffgo_abandoned_calls":    "pkg/ffruntime/ffmetrics, on the registry of every binary that links ffgo",
+	"clustarr_segments_analyzed_total": "app/segments/worker, markers' own registry",
+	"clustarr_segments_stage_seconds":  "app/segments/worker, markers' own registry",
+	"clustarr_segments_dnn_available":  "app/segments/worker, markers' own registry",
+}
+
+var (
+	// catalogueRowRE matches a table row of the catalogue: its series name
+	// in the first cell, its type in the second, its labels in the third.
+	catalogueRowRE = regexp.MustCompile("^\\| `(clustarr_[a-z0-9_]+)` \\| ([a-z]+) \\| ([^|]*)\\|")
+	// parenthesisedRE strips a label's listed values, "`outcome` (`ok`,
+	// `error`)", so only the label names are read.
+	parenthesisedRE = regexp.MustCompile(`\([^)]*\)`)
+	backtickedRE    = regexp.MustCompile("`([^`]+)`")
+)
+
+// documentedSeries reads the catalogue tables of docs/observability.md:
+// each series' label names, in the order the row lists them.
+func documentedSeries(t *testing.T) map[string][]string {
+	t.Helper()
+	f, err := os.Open(catalogueDoc)
+	require.NoError(t, err)
+	defer f.Close()
+	out := map[string][]string{}
+	in := false
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "## Metric catalogue"):
+			in = true
+			continue
+		case strings.HasPrefix(line, "### Adding a metric"), strings.HasPrefix(line, "## Traces"):
+			in = false
+		}
+		if !in {
+			continue
+		}
+		m := catalogueRowRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		name := m[1]
+		_, dup := out[name]
+		require.False(t, dup, "%s is tabled twice in %s", name, catalogueDoc)
+		labels := []string{}
+		for _, l := range backtickedRE.FindAllStringSubmatch(parenthesisedRE.ReplaceAllString(m[3], ""), -1) {
+			labels = append(labels, l[1])
+		}
+		out[name] = labels
+	}
+	require.NoError(t, sc.Err())
+	require.NotEmpty(t, out, "no catalogue rows read from %s", catalogueDoc)
+	return out
+}
+
+// TestCatalogueMatchesTheObservabilityDoc is the shape test: the series
+// Register carries are exactly the catalogue's rows less registeredElsewhere,
+// each with the labels its row lists, in order. Adding a series means adding
+// its row in the same change -- which is the point.
+func TestCatalogueMatchesTheObservabilityDoc(t *testing.T) {
+	documented := documentedSeries(t)
+	registered := map[string][]string{}
+	for _, d := range allDescs(t) {
+		name := descFQName(t, d)
+		_, dup := registered[name]
+		require.False(t, dup, "%s is registered twice", name)
+		registered[name] = descLabelNames(t, d)
+	}
+
+	for name, where := range registeredElsewhere {
+		_, tabled := documented[name]
+		require.True(t, tabled, "%s is registeredElsewhere (%s) but has no row in %s", name, where, catalogueDoc)
+		_, here := registered[name]
+		require.False(t, here, "%s is registered here, not only %s; drop its registeredElsewhere entry", name, where)
+		delete(documented, name)
+	}
+
+	names := func(m map[string][]string) []string {
+		out := make([]string, 0, len(m))
+		for n := range m {
+			out = append(out, n)
+		}
+		sort.Strings(out)
+		return out
+	}
+	require.Equal(t, names(documented), names(registered),
+		"the catalogue's rows in %s and the series Register carries differ", catalogueDoc)
+	for name, labels := range registered {
+		want := documented[name]
+		if want == nil {
+			want = []string{}
+		}
+		if labels == nil {
+			labels = []string{}
+		}
+		require.Equal(t, want, labels, "%s's row in %s lists other labels than the collector declares", name, catalogueDoc)
 	}
 }
 
@@ -139,16 +257,40 @@ func TestEveryMetricUsesTheClustarrPrefix(t *testing.T) {
 // most: no metric may be labelled by anything unbounded. Media title, file
 // path and release name are the ones the amendment calls out by name; url
 // and query cover indexer/provider request details that carry the same
-// risk.
+// risk. A label is banned when one of its words -- the label name split on
+// underscores -- is one of these, so `file_path` and `release_title` are
+// caught while `profile` (a TranscodeProfile's name, 2026-09-30) is not:
+// the substring rule read "profile" as "file".
 func TestNoMetricIsLabelledByAnUnboundedDimension(t *testing.T) {
-	banned := []string{"title", "path", "file", "release", "name", "url", "query"}
+	banned := map[string]bool{"title": true, "path": true, "file": true, "release": true, "name": true, "url": true, "query": true}
 	for _, d := range allDescs(t) {
 		for _, l := range descLabelNames(t, d) {
-			for _, b := range banned {
-				require.NotContains(t, strings.ToLower(l), b,
+			for _, word := range strings.Split(strings.ToLower(l), "_") {
+				require.False(t, banned[word],
 					"metric %s labelled by unbounded dimension %s", descFQName(t, d), l)
 			}
 		}
+	}
+}
+
+// TestTheUnboundedDimensionRuleMatchesWholeWords pins the rule's shape on
+// label names the catalogue does not carry: a banned word anywhere in the
+// name fails, a banned word inside another word does not.
+func TestTheUnboundedDimensionRuleMatchesWholeWords(t *testing.T) {
+	banned := map[string]bool{"title": true, "path": true, "file": true, "release": true, "name": true, "url": true, "query": true}
+	hit := func(label string) bool {
+		for _, word := range strings.Split(strings.ToLower(label), "_") {
+			if banned[word] {
+				return true
+			}
+		}
+		return false
+	}
+	for _, l := range []string{"file", "file_path", "release_title", "item_name", "Query"} {
+		require.True(t, hit(l), "%s names an unbounded dimension", l)
+	}
+	for _, l := range []string{"profile", "released", "unnamed", "pathology", "filesystem"} {
+		require.False(t, hit(l), "%s only contains a banned word", l)
 	}
 }
 

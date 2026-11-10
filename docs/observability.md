@@ -49,7 +49,10 @@ one place the catalogue is defined, one place a cardinality regression is caught
 (`pkg/obs/metrics/metrics_test.go` fails the build if a label named `title`, `path`, `file`,
 `release`, `name`, `url` or `query` is ever added: those are unbounded by library size or by
 request content, and a series per movie title is how a `/metrics` endpoint takes down its own
-pod). Each process exposes the whole catalogue; the "Recorded by" column says which process
+pod). The tables below are the catalogue's record, held to the collectors by the same file's
+`TestCatalogueMatchesTheObservabilityDoc` (2026-11-10): a registered series without a row, a
+row without a series, or a row listing other labels than the collector declares fails the
+build. Each process exposes the whole catalogue; the "Recorded by" column says which process
 moves a series.
 
 Every name carries the `clustarr_` prefix and Prometheus's base units (bytes, seconds);
@@ -79,6 +82,8 @@ counters end in `_total`.
 | `clustarr_season_searches_total` | counter | `trigger` (`series`, `season`, `interactive`), `outcome` (`answered`, `skipped`, `failed`, `timedOut`, `paced`, `canceled`) | manager | A person's series and season searches (Wave S), once per season reaching a final phase. A rising `timedOut` or `failed` share means season tasks are not answered; `paced` means every indexer was at its pace both times. | `sum by (trigger, outcome) (increase(clustarr_season_searches_total[1d]))` |
 | `clustarr_search_results_total` | counter | `band` (`approved`, `rejected`, `otherTitles`) | manager (Search controller) | Interactive answers' results by band (Wave S). An `otherTitles` share near one means text queries reach mostly noise. | `sum by (band) (increase(clustarr_search_results_total[1d]))` |
 | `clustarr_metadata_cache_hits_total` | counter | `tier`, `outcome` | agent `metadata` | Whether the gateway spares the upstream providers; a hit ratio falling toward zero means the TTL or refresh heuristic is wrong. | `sum by (tier) (rate(clustarr_metadata_cache_hits_total{outcome="hit"}[1h])) / sum by (tier) (rate(clustarr_metadata_cache_hits_total[1h]))` |
+| `clustarr_backlog_searches_total` | counter | `reason` (`missing`, `cutoffUnmet`), `unit` (`item`, `season`) | manager's leader (BacklogSearch) | Backlog searches granted, by queue and unit (`docs/superpowers/specs/2026-11-10-backlog-search-design.md`): a rate at the queues' `hourlyLimit` means the backlog is still being worked through; zero while `clustarr_backlog_items{state="due"}` is above zero means the cycle is not running. | `sum by (reason, unit) (increase(clustarr_backlog_searches_total[1d]))` |
+| `clustarr_backlog_items` | gauge | `reason` (`missing`, `cutoffUnmet`), `state` (`candidate`, `due`) | manager's leader | The backlog as the last cycle found it: `candidate` is wanted and searched before, `due` past the queue's cooldown. Not by namespace (unbounded); with several BacklogSearches it is the last one to cycle, and each one's status is the per-namespace view. | `max by (reason, state) (clustarr_backlog_items)` |
 
 ### The remediation loop, records and probes (ADR-0016)
 
@@ -89,6 +94,9 @@ counters end in `_total`.
 | `clustarr_remediation_planner_seconds` | histogram | `planner`, `phase` | manager | A planner's `gather` p99 near its deadline (15 s probe, 30 s subtitles, 10 s the rest) means its reads are about to fail transiently. | `histogram_quantile(0.99, sum by (le, planner, phase) (rate(clustarr_remediation_planner_seconds_bucket[5m])))` |
 | `clustarr_remediation_effects_total` | counter | `planner`, `effect`, `outcome` | manager | The records and tasks the loop owes after its status lands: `cas_miss` is another writer winning a record (the next pass decides again); `transient` a bus or KV fault; `error` or `panic` sets the planner's condition on the next pass. | `sum by (planner, effect, outcome) (rate(clustarr_remediation_effects_total[1h]))` |
 | `clustarr_remediation_io_calls_total` | counter | `op`, `outcome` | manager | `/data` health seen from the manager: `timeout` is a slow or hung mount, `saturated` every I/O worker busy, `breaker_open` five timeouts in 30 s, after which `/data` calls fail fast for a minute. | `sum by (op, outcome) (rate(clustarr_remediation_io_calls_total[5m]))` |
+| `clustarr_remediation_pass_seconds` | histogram | `kind`, `phase` (`total`, `stages`, `item`, `sets`, `effects`) | manager | Where a key kind's pass spends its time: `stages` is the planners, `item` the item stages, `sets` the status applies, `effects` the records and tasks after them. A Series `total` p99 near the workers' budget means the fan-out is the bottleneck (2026-11-03: it was, until `episodeSyncMemo`). | `histogram_quantile(0.99, sum by (le, kind, phase) (rate(clustarr_remediation_pass_seconds_bucket[15m])))` |
+| `clustarr_remediation_effect_seconds` | histogram | `planner`, `effect` | manager | How long one item effect takes: an RPC, a `/data` removal or a publish runs inside the pass, so a slow effect holds a worker. | `histogram_quantile(0.95, sum by (le, planner, effect) (rate(clustarr_remediation_effect_seconds_bucket[15m])))` |
+| `clustarr_remediation_pass_reads_total` | counter | `kind`, `result` (`read`, `memo`) | manager | A pass's Gets, by whether the row cache decoded the object or the pass's own memo answered a repeat read of it (`passReader`, 2026-11-03). A low `memo` share on a kind the planners read several times means the memo is not covering the pass. | `sum by (kind, result) (rate(clustarr_remediation_pass_reads_total[15m]))` |
 | `clustarr_record_requests_total` | counter | `remediation`, `lane` | manager | What the loop asks its workers for. `remediation="probe",lane="high"` well above the import rate means files change under the library or renames are not recognised; `lane="low"` spikes once after a `mediainfo.ProbeVersion` raise. Requests far above incorporations for one remediation mean its workers are not answering. | `sum by (remediation, lane) (rate(clustarr_record_requests_total[1h]))` |
 | `clustarr_record_incorporations_total` | counter | `remediation`, `state` | manager | A rising `state="failed"` share for one remediation names a worker that cannot do its job. | `sum by (remediation, state) (rate(clustarr_record_incorporations_total[1h]))` |
 | `clustarr_record_timeouts_total` | counter | `remediation` | manager | Any sustained rate means that remediation's workers are missing or wedged: requests outlive their timeout and are asked again. | `sum by (remediation) (increase(clustarr_record_timeouts_total[1h])) > 0` |
@@ -140,6 +148,7 @@ counters end in `_total`.
 | `clustarr_task_deliveries` | histogram | `consumer` | manager's leader | Sampled deliveries an acked task took; a high median means handlers are failing and retrying. | `histogram_quantile(0.5, sum by (le, consumer) (rate(clustarr_task_deliveries_bucket[1h])))` |
 | `clustarr_agent_write_refused_total` | counter | `verb` | agents | Kubernetes writes an agent attempted and its read-only client refused (`k8s.ReadOnly`, ADR-0019). Any value above zero is a bug. | `sum by (pod, verb) (increase(clustarr_agent_write_refused_total[1h])) > 0` |
 | `clustarr_reconcile_errors_total` | counter | `controller` | registered, not recorded yet; use controller-runtime's `controller_runtime_reconcile_errors_total` | -- | `sum by (controller) (rate(controller_runtime_reconcile_errors_total[15m])) > 0` |
+| `clustarr_manager_leader` | gauge | -- | every manager replica | 1 on the replica holding `manager.clustarr.io`, 0 on a standby (control-plane placement design §5.4): the leader-only gauges appear on the leader's `/metrics` alone, and this one says which replica that is. | `max by (pod) (clustarr_manager_leader) == 1` |
 
 ### Object stores and artwork (ADR-0011, ADR-0021)
 
@@ -153,6 +162,21 @@ counters end in `_total`.
 controller-runtime's own metrics (`controller_runtime_reconcile_errors_total`,
 `workqueue_depth`, `rest_client_requests_total`, ...) are served on the same endpoint by the
 manager and every agent, and are worth alerting on too.
+
+### The manager's row cache (2026-11-03)
+
+The manager holds Episode, MediaFile, Movie and Series as compressed rows
+(`pkg/k8s/rowcache`, `docs/superpowers/specs/2026-11-03-compressed-row-cache-design.md`),
+one zstd frame per object, decoded for every Get, List entry and handler
+notification.
+
+| Metric | Type | Labels | Recorded by | What it signals | Example query |
+|---|---|---|---|---|---|
+| `clustarr_rowcache_rows` | gauge | `kind` | manager | Objects a kind's informer holds as rows: the library's size as the manager sees it. | `sum by (kind) (clustarr_rowcache_rows)` |
+| `clustarr_rowcache_bytes` | gauge | `kind` | manager | The compressed bytes a kind's rows take, the cache's share of the heap. | `sum by (kind) (clustarr_rowcache_bytes)` |
+| `clustarr_rowcache_object_bytes` | gauge | `kind` | manager | The same objects' serialized size before compression, so `bytes / object_bytes` is the compression ratio (4.9-8.3x with a dictionary on the owner's library). | `clustarr_rowcache_bytes / clustarr_rowcache_object_bytes` |
+| `clustarr_rowcache_dictionary_bytes` | gauge | `kind` | manager | The size of the dictionary a kind's rows are compressed with; 0 until one is built from the initial list, which is when the ratio is at its worst. | `min by (kind) (clustarr_rowcache_dictionary_bytes) == 0` |
+| `clustarr_rowcache_decodes_total` | counter | `kind`, `reason` (`read`, `event`, `index`, `sample`) | manager | Rows decoded back into objects. A high `read` rate on a kind means something lists the whole collection instead of a marker index (the first deploy OOM-looped on three such map functions). | `sum by (kind, reason) (rate(clustarr_rowcache_decodes_total[5m]))` |
 
 ### Adding a metric
 
