@@ -113,7 +113,8 @@ func TestFileCellsPerKind(t *testing.T) {
 // TestItemActionsComposeByName: a page composes its action bar from the
 // shared buttons by name (2026-11-10 design §9.6), in the order it asks,
 // each rendered only when the item takes it: Refresh reads "Refresh & Scan"
-// for an item with a folder, Rename appears only then, the interactive
+// for an item whose folder is on disk (views.Detail.HasFolder, beside
+// CanScan, which Editable reads), Rename appears only then, the interactive
 // search posts to the item's route and opens the kind's own modal region,
 // Edit and Images come only for the kinds their dialogs know, and Delete
 // only for a deletable kind.
@@ -121,7 +122,7 @@ func TestItemActionsComposeByName(t *testing.T) {
 	audiobook := views.Detail{Item: projection.LibraryItem{
 		Ref: types.NamespacedName{Namespace: "media", Name: "dune"}, Kind: commonv1.MediaKindAudiobook,
 		Tab: projection.TabAudiobooks, Title: "Dune", Monitored: true,
-	}, CanScan: true}
+	}, CanScan: true, HasFolder: true}
 	html := render(t, views.ItemActions(audiobook, []views.Action{views.ActionRefresh, views.ActionSearch, views.ActionInteractive, views.ActionRename, views.ActionImages, views.ActionDelete}))
 	actions := regexp.MustCompile(`data-action="([^"]+)"`).FindAllStringSubmatch(html, -1)
 	var names []string
