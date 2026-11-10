@@ -715,26 +715,45 @@ func (w *Worker) inspectNonVideo(
 	}
 	setRoot(insp, plan.rootFolder)
 	kind := plan.ref.Kind
-	if plan.singleTrack != "" {
-		// A one-track album's lone file is that track; two files for it
-		// are not both that track.
-		if n, err := countMedia(ctx, ClassifierFor(kind, root, w.SampleMaxBytes), root, 2); err != nil || n != 1 {
-			plan.singleTrack = ""
+	lone := false
+	if kind == commonv1.MediaKindAlbum {
+		// A one-track album's lone file is that track whatever its name
+		// says; two files for it are not both that track.
+		if n, err := countMedia(ctx, ClassifierFor(kind, root, w.SampleMaxBytes), root, 2); err == nil && n == 1 {
+			lone = true
 		}
 	}
+	// Every track takes one file (2026-11-10 design D6): the second file
+	// attributed to a track is held for a person with the first's name.
+	taken := map[string]string{}
 	proposed := &schema.ItemRef{Kind: objectKind(kind), Ref: schema.Ref{Namespace: ns, Name: plan.ref.Name}}
 	return w.walk(ctx, m, kind, root, task.Manual || task.Override, insp, func(path string, info os.FileInfo) error {
 		rel := relPath(root, path)
 		f := schema.InspectedFile{Path: path, SizeBytes: info.Size()}
 		var hbErr error
-		q, known := FrozenFileQuality(ctx, w.audioProbe(m, &hbErr), kind, path, task.Release.Title, rel)
+		q, known, ap := FrozenFileQualityProbe(ctx, w.audioProbe(m, &hbErr), kind, path, task.Release.Title, rel)
 		if hbErr != nil {
 			return hbErr
 		}
 		original := true
-		f.Frozen = schema.FrozenFields{ReleaseType: ReleaseTypeFor(kind), Original: &original, Track: plan.singleTrack}
+		f.Frozen = schema.FrozenFields{ReleaseType: ReleaseTypeFor(kind), Original: &original}
 		if known {
 			f.Frozen.Quality = &q
+		}
+		switch kind {
+		case commonv1.MediaKindAlbum:
+			id, reason := attributeTrack(plan.tracks, plan.media, ap, rel, lone)
+			switch {
+			case id == "":
+				f.Rejections = append(f.Rejections, needsPersonRejection("%s", reason))
+			case taken[id] != "":
+				f.Rejections = append(f.Rejections, needsPersonRejection("%s and %s are both track %s of the selected release", taken[id], rel, id))
+			default:
+				taken[id] = rel
+				f.Frozen.Track = id
+			}
+		case commonv1.MediaKindAudiobook:
+			f.Frozen.PartIndex = partIndexOf(ap, rel)
 		}
 		f.Proposed, f.Keys = proposed, []string{plan.ref.Name}
 		f.Dest = naming.SanitizePath(filepath.Join(plan.folder, plan.fileName(rel)), naming.DefaultSanitizeOptions())

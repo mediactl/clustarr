@@ -103,6 +103,8 @@ type Frozen struct {
 	// Track narrows an album MediaRef to one recording; see
 	// commonv1.MediaRef.Track.
 	Track string
+	// PartIndex orders an audiobook's parts (MediaFileSpec.PartIndex).
+	PartIndex int32
 }
 
 // ReassertFrozen reads every field this manager owns back off an existing
@@ -154,6 +156,7 @@ func ReassertFrozen(s *catalogv1alpha1.MediaFileSpec) Frozen {
 		}
 		f.ImportedFrom = ac
 	}
+	f.PartIndex = s.PartIndex
 	return f
 }
 
@@ -165,7 +168,7 @@ func FrozenFromSchema(f schema.FrozenFields, from catalogv1alpha1.ImportSource) 
 		Quality: f.Quality, Revision: f.Revision, ReleaseType: f.ReleaseType,
 		Edition: f.Edition, Languages: f.Languages, FormatScore: f.FormatScore,
 		MatchedFormats: f.MatchedFormats, ProfileHash: f.ProfileHash, Original: f.Original,
-		Track: f.Track,
+		Track: f.Track, PartIndex: f.PartIndex,
 	}
 	if f.ReleaseGroup != "" {
 		g := f.ReleaseGroup

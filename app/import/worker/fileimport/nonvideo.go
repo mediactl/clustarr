@@ -76,10 +76,11 @@ type nonVideoPlan struct {
 	// supply.
 	fileName func(srcRel string) string
 
-	// singleTrack is the recording MBID of an album whose selected release
-	// has exactly one track; empty otherwise. A lone audio file imported
-	// to such an album is that track (commonv1.MediaRef.Track).
-	singleTrack string
+	// tracks is an album's selected release's listing and media its disc
+	// count (2026-11-10 design D6): every audio file is attributed to one
+	// track (attributeTrack), a lone file to a one-track album's one.
+	tracks []catalogv1alpha1.Track
+	media  int32
 }
 
 // resolveNonVideo reads the target item and its parents and works out where
@@ -96,7 +97,7 @@ func (w *Worker) resolveNonVideo(ctx context.Context, ns string, target importta
 	)
 	switch ref.Kind {
 	case commonv1.MediaKindAlbum:
-		rootRef, profileRef, folder, plan.singleTrack, err = w.resolveAlbum(ctx, ns, ref.Name)
+		rootRef, profileRef, folder, plan.tracks, plan.media, err = w.resolveAlbum(ctx, ns, ref.Name)
 		fileName = keepRelative
 	case commonv1.MediaKindBook:
 		rootRef, profileRef, folder, fileName, err = w.resolveBook(ctx, ns, ref.Name)
@@ -183,34 +184,39 @@ func (w *Worker) getItem(ctx context.Context, ns, kind, name string, obj client.
 // from pkg/naming's album preset. Files keep their relative paths.
 // singleTrack is the recording MBID when the album's selected release has
 // exactly one track (status.tracks).
-func (w *Worker) resolveAlbum(ctx context.Context, ns, name string) (rootRef, profileRef, folder, singleTrack string, err error) {
+func (w *Worker) resolveAlbum(ctx context.Context, ns, name string) (rootRef, profileRef, folder string, tracks []catalogv1alpha1.Track, media int32, err error) {
 	var album catalogv1alpha1.Album
 	if err := w.getItem(ctx, ns, "album", name, &album); err != nil {
-		return "", "", "", "", err
+		return "", "", "", nil, 0, err
 	}
-	if len(album.Status.Tracks) == 1 {
-		singleTrack = album.Status.Tracks[0].RecordingID
+	tracks = album.Status.Tracks
+	if m := album.Status.Metadata; m != nil {
+		for _, rel := range m.Releases {
+			if rel.ID == m.SelectedReleaseID {
+				media = int32(len(rel.Media))
+			}
+		}
 	}
 	var artist catalogv1alpha1.Artist
 	if err := w.getItem(ctx, ns, "artist", album.Spec.ArtistRef, &artist); err != nil {
-		return "", "", "", "", err
+		return "", "", "", nil, 0, err
 	}
 	rootRef = artist.Spec.RootFolderRef
 	profileRef = ptr.Deref(album.Spec.QualityProfileRef, artist.Spec.QualityProfileRef)
 	if album.Status.Path != "" {
-		return rootRef, profileRef, album.Status.Path, singleTrack, nil
+		return rootRef, profileRef, album.Status.Path, tracks, media, nil
 	}
 	if album.Status.Metadata == nil || album.Status.Metadata.Title == "" {
-		return "", "", "", "", fmt.Errorf("fileimport: album %s/%s has no metadata yet", ns, name)
+		return "", "", "", nil, 0, fmt.Errorf("fileimport: album %s/%s has no metadata yet", ns, name)
 	}
 	root, err := w.getRoot(ctx, ns, rootRef)
 	if err != nil {
-		return "", "", "", "", err
+		return "", "", "", nil, 0, err
 	}
 	eng := catalogctx.EngineFor(root)
 	artistFolder, err := w.artistFolder(root, &artist, eng)
 	if err != nil {
-		return "", "", "", "", err
+		return "", "", "", nil, 0, err
 	}
 	nctx := naming.Context{
 		Kind:       commonv1.MediaKindAlbum,
@@ -220,9 +226,9 @@ func (w *Worker) resolveAlbum(ctx context.Context, ns, name string) (rootRef, pr
 	nctx.Year = ReleaseYear(album.Status.Metadata.ReleaseDate)
 	rendered, err := eng.BuildFolder(commonv1.MediaKindAlbum, nctx)
 	if err != nil {
-		return "", "", "", "", blocked("render album folder: %v", err)
+		return "", "", "", nil, 0, blocked("render album folder: %v", err)
 	}
-	return rootRef, profileRef, filepath.Join(artistFolder, path.Base(rendered)), singleTrack, nil
+	return rootRef, profileRef, filepath.Join(artistFolder, path.Base(rendered)), tracks, media, nil
 }
 
 // artistFolder mirrors the Artist controller's path rule: status.path when

@@ -203,6 +203,9 @@ type FrozenFields struct {
 	ProfileHash    string               `json:"profileHash,omitempty"`
 	Original       *bool                `json:"original,omitempty"`
 	Track          string               `json:"track,omitempty"`
+	// PartIndex orders an audiobook's parts (MediaFileSpec.PartIndex,
+	// 2026-11-10 design D11); 0 for a file that is not a part.
+	PartIndex int32 `json:"partIndex,omitempty"`
 }
 
 // MediaFileBasis is the MediaFile an agent's observation or plan was made

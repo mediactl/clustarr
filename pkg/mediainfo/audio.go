@@ -19,6 +19,7 @@ package mediainfo
 
 import (
 	"errors"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"math"
 	"strconv"
 
@@ -50,6 +51,15 @@ type AudioProbe struct {
 	// bits_per_sample (PCM), else 0 for unknown or not applicable (lossy
 	// codecs have none).
 	SampleBits int
+
+	// Tags are the container's format tags (title, artist, album, track and
+	// disc numbers, the MusicBrainz ids), nil when it carries none of the
+	// set: what attributes a track to its album at import (2026-11-10
+	// design D6).
+	Tags *commonv1.MediaTags
+
+	// DurationMs is the container's duration, 0 when unknown.
+	DurationMs int64
 }
 
 // AudioProbeFromRaw reduces a probe to its first audio stream's AudioProbe:
@@ -62,9 +72,12 @@ func AudioProbeFromRaw(raw *Raw) (AudioProbe, error) {
 	if s == nil {
 		return AudioProbe{}, ErrNoAudioStream
 	}
-	ap := AudioProbe{Codec: s.CodecName, BitrateKbps: roundKbps(s.BitRate)}
-	if ap.BitrateKbps == 0 && raw.Format != nil {
-		ap.BitrateKbps = roundKbps(raw.Format.BitRate)
+	ap := AudioProbe{Codec: s.CodecName, BitrateKbps: roundKbps(s.BitRate), Tags: formatTags(raw)}
+	if raw.Format != nil {
+		if ap.BitrateKbps == 0 {
+			ap.BitrateKbps = roundKbps(raw.Format.BitRate)
+		}
+		ap.DurationMs = int64(raw.Format.DurationSeconds*1000 + 0.5)
 	}
 	if bits, err := strconv.Atoi(s.BitsPerRawSample); err == nil && bits > 0 {
 		ap.SampleBits = bits

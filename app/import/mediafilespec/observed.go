@@ -80,7 +80,7 @@ func FrozenToSchema(f Frozen) *schema.FrozenFields {
 		Quality: f.Quality, Revision: f.Revision, ReleaseType: f.ReleaseType,
 		Edition: f.Edition, Languages: f.Languages, FormatScore: f.FormatScore,
 		MatchedFormats: f.MatchedFormats, ProfileHash: f.ProfileHash, Original: f.Original,
-		Track: f.Track,
+		Track: f.Track, PartIndex: f.PartIndex,
 	}
 	if f.ReleaseGroup != nil {
 		out.ReleaseGroup = *f.ReleaseGroup
@@ -98,7 +98,7 @@ func FrozenFromScan(f *schema.FrozenFields, manual bool, at time.Time) Frozen {
 			Quality: f.Quality, Revision: f.Revision, ReleaseType: f.ReleaseType,
 			Edition: f.Edition, Languages: f.Languages, FormatScore: f.FormatScore,
 			MatchedFormats: f.MatchedFormats, ProfileHash: f.ProfileHash, Original: f.Original,
-			Track: f.Track,
+			Track: f.Track, PartIndex: f.PartIndex,
 		}
 		if f.ReleaseGroup != "" {
 			g := f.ReleaseGroup

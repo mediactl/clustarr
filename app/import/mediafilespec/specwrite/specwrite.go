@@ -129,6 +129,9 @@ func applyFacts(
 	if f.Original != nil {
 		spec = spec.WithOriginal(*f.Original)
 	}
+	if f.PartIndex > 0 {
+		spec = spec.WithPartIndex(f.PartIndex)
+	}
 
 	ac := catalogac.MediaFile(name, namespace).WithSpec(spec)
 	if rv != "" {

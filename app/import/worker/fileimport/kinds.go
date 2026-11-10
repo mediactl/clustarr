@@ -189,18 +189,35 @@ const AudioProbeTimeout = 15 * time.Second
 func FrozenFileQuality(
 	ctx context.Context, probe AudioProber, fileKind commonv1.MediaKind, path string, declared ...string,
 ) (commonv1.Quality, bool) {
-	if fileKind == commonv1.MediaKindAlbum && probe != nil {
+	q, known, _ := FrozenFileQualityProbe(ctx, probe, fileKind, path, declared...)
+	return q, known
+}
+
+// FrozenFileQualityProbe is FrozenFileQuality that also hands back the audio
+// probe it ran (nil when the kind is not probed or the probe failed): an
+// album's track attribution and an audiobook's part order read its tags
+// (2026-11-10 design D6, D11), so the file is probed once. An audiobook is
+// probed for its tags alone; its quality stays the extension rule.
+func FrozenFileQualityProbe(
+	ctx context.Context, probe AudioProber, fileKind commonv1.MediaKind, path string, declared ...string,
+) (commonv1.Quality, bool, *mediainfo.AudioProbe) {
+	var probed *mediainfo.AudioProbe
+	if (fileKind == commonv1.MediaKindAlbum || fileKind == commonv1.MediaKindAudiobook) && probe != nil {
 		pctx, cancel := context.WithTimeout(ctx, AudioProbeTimeout)
 		ap, err := probe(pctx, path)
 		cancel()
 		if err == nil {
-			name := release.AudioFileQuality(ap.Codec, ap.BitrateKbps, ap.SampleBits).Name
-			if def, ok := quality.Lookup(ProfileKindFor(fileKind), name); ok {
-				return def.Quality, true
+			probed = &ap
+			if fileKind == commonv1.MediaKindAlbum {
+				name := release.AudioFileQuality(ap.Codec, ap.BitrateKbps, ap.SampleBits).Name
+				if def, ok := quality.Lookup(ProfileKindFor(fileKind), name); ok {
+					return def.Quality, true, probed
+				}
 			}
 		}
 	}
-	return FrozenQuality(fileKind, path, declared...)
+	q, known := FrozenQuality(fileKind, path, declared...)
+	return q, known, probed
 }
 
 // ReleaseYear is the calendar year of a provider release date, read in UTC,
