@@ -17,7 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package search is the remediation loop's search stage (ADR-0019 §7.3,
 // A4.2): the loop's adapter of app/catalog/searchplan on the searchable
-// item keys (Movie, Episode, Album, Book, Audiobook, Issue; ruling R12).
+// item keys (Movie, Episode, Album, Book, Audiobook, Issue; ruling R12)
+// and on the two containers whose children are searched as a pack first,
+// Series and Comic.
 // It runs after the downloads stage, whose outcome carries the owner's
 // fresh entries for a redownload (R25).
 //
@@ -51,4 +53,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // after a leader change. An Episode reads its Series' state: it waits for
 // a pending season and folds an answered one once. Nothing here publishes
 // an Episode search for a season.
+//
+// On a Comic it is the same planner over the one season that is the volume
+// (2026-11-10 design D10, the Series' season machinery with the season
+// layer removed): a Comic passing searchplan.VolumePackFirst (monitored,
+// two or more monitored, released issues missing) is asked for as a
+// volume pack by the automatic search -- a Comic has no planned request,
+// its Search CR fanning out per Issue -- in status.volumeSearch, which
+// joins catalog-grab's set beside pendingGrabs; its task names the Comic
+// (MediaRef kind comic, season VolumeNumber) and is answered at the Comic's
+// season key. An Issue reads its Comic's state as an Episode reads its
+// Series': it waits for a pending volume, waits for the automatic volume
+// search before its first live search while the Comic passes
+// VolumePackFirst, and folds an answered volume into its lastSearchedAt
+// and lastLiveSearchAt once. S33 wakes the Comic's Issues when its
+// volumeSearch moves. Nothing here publishes an Issue search for a volume.
 package search

@@ -33,6 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/comic"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/itemread"
@@ -41,6 +43,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/records/recordsource"
 )
 
@@ -48,11 +51,15 @@ import (
 // step 3). A record whose item is a searchable kind wakes it -- the search
 // stage incorporates the answer -- and its container too (an Episode's
 // Series, an Issue's Comic), whose grab stage reads it (R7); a season
-// record's item is its Series (Wave S), whose search stage incorporates it
-// and whose grab stage reads it. A record of a Search (an interactive
-// search) wakes no item: the Search controller has its own source.
-// S31: a planned Search wakes the Series it names. And S32: a searchable
-// item's own status write that turns it wanted, or not, wakes it.
+// record's item is its Series (Wave S), a volume record's its Comic
+// (2026-11-10 design D10), whose search stage incorporates it and whose
+// grab stage reads it. A record of a Search (an interactive search) wakes
+// no item: the Search controller has its own source. S31: a planned Search
+// wakes the Series it names. S32: a searchable item's own status write that
+// turns it wanted, or not, wakes it. And S33: a Comic whose volumeSearch
+// moved wakes its Issues, which fold the answer or stop waiting for it --
+// the volume half of the loop's S24, which wakes a Series' Episodes on its
+// seasonSearch.
 func (s *Stage) Sources(ctrl.Manager) ([]remediation.Source, error) {
 	src := recordsource.NewItems(s.o.Bus, events.BucketSearches, func(item schema.ItemRef, value []byte) []remediation.Key {
 		var keys []remediation.Key
@@ -73,6 +80,9 @@ func (s *Stage) Sources(ctrl.Manager) ([]remediation.Source, error) {
 		// grabBest -- created, changed (its phase settling is the
 		// handshake) or deleted wakes the Series it names, at once.
 		{Name: "S31/Search", Object: &catalogv1alpha1.Search{}, Handler: plannedSearchWakes()},
+		// S33 (design D10): a Comic's volumeSearch phase or reason moving
+		// wakes its Issues at low priority.
+		{Name: "S33/Comic", Object: &catalogv1alpha1.Comic{}, Handler: volumeWakes(s.o.Reader)},
 	}
 	// S32: a searchable item's own status write that moves what this stage
 	// reads of it wakes it (wantedWakes).
@@ -173,6 +183,40 @@ func plannedSearchWakes() handler.TypedEventHandler[client.Object, remediation.K
 		},
 		DeleteFunc: func(_ context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
 			add(q, e.Object)
+		},
+	}
+}
+
+// volumeWakes is S33's handler: a Comic whose volume search's phases or
+// reasons changed (rollup.SeasonSearchSignature over status.volumeSearch)
+// wakes every Issue of the Comic at low priority, so each folds the answer
+// into its own search or stops waiting for a volume no longer pending. The
+// Issues are listed through the Comic's issue index; a stage with no
+// reader wakes none.
+func volumeWakes(r client.Reader) handler.TypedEventHandler[client.Object, remediation.Key] {
+	return handler.TypedFuncs[client.Object, remediation.Key]{
+		UpdateFunc: func(ctx context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+			o, ok1 := e.ObjectOld.(*catalogv1alpha1.Comic)
+			n, ok2 := e.ObjectNew.(*catalogv1alpha1.Comic)
+			if !ok1 || !ok2 || r == nil {
+				return
+			}
+			if rollup.SeasonSearchSignature(o.Status.VolumeSearch) == rollup.SeasonSearchSignature(n.Status.VolumeSearch) {
+				return
+			}
+			var list catalogv1alpha1.IssueList
+			if err := r.List(ctx, &list, client.InNamespace(n.Namespace), client.MatchingFields{comic.IssueByComicRefIndex: n.Name}); err != nil {
+				logging.FromContext(ctx).Warn("search: S33 could not list a comic's issues", "comic", n.Name, "error", err)
+				return
+			}
+			for i := range list.Items {
+				k := remediation.Key{Kind: remediation.KindIssue, Namespace: list.Items[i].Namespace, Name: list.Items[i].Name}
+				if pq, ok := q.(priorityqueue.PriorityQueue[remediation.Key]); ok {
+					pq.AddWithOpts(priorityqueue.AddOpts{Priority: new(handler.LowPriority)}, k)
+					continue
+				}
+				q.Add(k)
+			}
 		},
 	}
 }

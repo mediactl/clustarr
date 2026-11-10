@@ -28,15 +28,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/comic"
+	"github.com/mediactl/clustarr/app/catalog/searchplan"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/remediation/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // wakeQueue records what a handler enqueues and at which priority.
@@ -93,8 +97,63 @@ func typeName(o client.Object) string {
 		return "Issue"
 	case *catalogv1alpha1.Search:
 		return "Search"
+	case *catalogv1alpha1.Comic:
+		return "Comic"
 	}
 	return "?"
+}
+
+// TestAVolumeAnswerWakesTheComicsIssues is S33 (2026-11-10 design D10): a
+// Comic whose volumeSearch phases moved -- the volume dispatched, then
+// answered -- wakes every Issue of the Comic at low priority, so each folds
+// the answer or stops waiting for it; a Comic status write that leaves the
+// volume search as it was wakes none, nor does another comic's change.
+func TestAVolumeAnswerWakesTheComicsIssues(t *testing.T) {
+	bus := membus.New(clockwork.NewRealClock())
+	require.NoError(t, bus.Ensure(context.Background(), events.Default()))
+	t.Cleanup(func() { _ = bus.Close() })
+	meta := func(name string) metav1.ObjectMeta { return metav1.ObjectMeta{Namespace: "media", Name: name} }
+	issue := func(name, comicName string) *catalogv1alpha1.Issue {
+		return &catalogv1alpha1.Issue{ObjectMeta: meta(name), Spec: catalogv1alpha1.IssueSpec{ComicRef: comicName, Number: name}}
+	}
+	reader := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
+		WithObjects(issue("saga-1", "saga"), issue("saga-2", "saga"), issue("other-1", "other")).
+		WithIndex(&catalogv1alpha1.Issue{}, comic.IssueByComicRefIndex, func(o client.Object) []string {
+			return []string{o.(*catalogv1alpha1.Issue).Spec.ComicRef}
+		}).Build()
+	srcs, err := search.New(search.Options{Bus: bus, Reader: reader}).Sources(nil)
+	require.NoError(t, err)
+
+	state := func(phase catalogv1alpha1.SeasonSearchPhase) *catalogv1alpha1.SeasonSearchState {
+		return &catalogv1alpha1.SeasonSearchState{
+			Request: catalogv1alpha1.SeasonSearchRequest{Name: "automatic"},
+			Seasons: []catalogv1alpha1.SeasonSearchSeason{{Number: searchplan.VolumeNumber, Phase: phase}},
+		}
+	}
+	comicWith := func(st *catalogv1alpha1.SeasonSearchState, missing int32) *catalogv1alpha1.Comic {
+		co := &catalogv1alpha1.Comic{ObjectMeta: meta("saga")}
+		co.Status.VolumeSearch, co.Status.MissingChildCount = st, missing
+		return co
+	}
+	key := func(name string) remediation.Key {
+		return remediation.Key{Kind: remediation.KindIssue, Namespace: "media", Name: name}
+	}
+
+	got := wakes(t, srcs, comicWith(nil, 3), comicWith(state(catalogv1alpha1.SeasonSearchSearching), 3))
+	require.Equal(t, map[remediation.Key]int{key("saga-1"): handler.LowPriority, key("saga-2"): handler.LowPriority}, got,
+		"the volume dispatched wakes the comic's issues, and only them, at the sweep's priority")
+
+	got = wakes(t, srcs, comicWith(state(catalogv1alpha1.SeasonSearchSearching), 3), comicWith(state(catalogv1alpha1.SeasonSearchAnswered), 3))
+	require.Len(t, got, 2, "the answer wakes them again, to fold it")
+
+	assert.Empty(t, wakes(t, srcs, comicWith(state(catalogv1alpha1.SeasonSearchAnswered), 3), comicWith(state(catalogv1alpha1.SeasonSearchAnswered), 2)),
+		"a status write that leaves the volume search as it was wakes none")
+
+	t.Run("a stage with no reader wakes none", func(t *testing.T) {
+		srcs, err := search.New(search.Options{Bus: bus}).Sources(nil)
+		require.NoError(t, err)
+		assert.Empty(t, wakes(t, srcs, comicWith(nil, 3), comicWith(state(catalogv1alpha1.SeasonSearchSearching), 3)))
+	})
 }
 
 // TestANewlyWantedItemWakesItsOwnSearch is smoke finding O1: the search

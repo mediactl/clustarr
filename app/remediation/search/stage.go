@@ -100,24 +100,26 @@ func New(o Options) *Stage {
 func (s *Stage) Name() remediation.ItemStageName { return remediation.StageSearch }
 
 // Applies implements remediation.ItemStage: the searchable kinds (R12),
-// and a Series, whose person-requested series and season searches it
-// plans (Wave S, planSeries).
+// a Series, whose person-requested series and season searches it plans
+// (Wave S, planContainer), and a Comic, whose automatic volume search it
+// plans (2026-11-10 design D10).
 func (s *Stage) Applies(k remediation.KeyKind) bool {
-	return itemread.Searchable(string(k)) || k == remediation.KindSeries
+	return itemread.Searchable(string(k)) || k == remediation.KindSeries || k == remediation.KindComic
 }
 
 // DeclaresSets implements remediation.SetDeclarer: searchDispatch,
 // lastSearchedAt and the attempt counters, in catalog-grab's set -- on a
-// Series, seasonSearch and lastSearchedAt beside the grab stage's
-// pendingGrabs.
+// Series, seasonSearch and lastSearchedAt, on a Comic volumeSearch, beside
+// the grab stage's pendingGrabs.
 func (s *Stage) DeclaresSets(remediation.KeyKind) []k8s.FieldManager {
 	return []k8s.FieldManager{k8s.ManagerCatalogGrab}
 }
 
 // Plan implements remediation.ItemStage.
 func (s *Stage) Plan(ctx context.Context, env *remediation.Env, v *remediation.ItemView) (remediation.ItemResult, error) {
-	if v.Key.Kind == remediation.KindSeries {
-		return s.planSeries(ctx, env, v)
+	switch v.Key.Kind {
+	case remediation.KindSeries, remediation.KindComic:
+		return s.planContainer(ctx, env, v)
 	}
 	item := v.Item
 	now := v.Now.Time
@@ -274,6 +276,13 @@ func (s *Stage) gather(ctx context.Context, item client.Object, v *remediation.I
 	prof, err := itemread.ItemProfile(ctx, r, item, cfg.QualityProfileRef)
 	if err == nil {
 		sv.Profile = cfg.QualityProfileRef
+	}
+	if _, ok := item.(*catalogv1alpha1.Issue); ok && owner != nil {
+		// Its Comic's volume search (design D10): wait for the pending
+		// volume, fold an answered one, and wait for the automatic volume
+		// search before a first live search of its own while the Comic
+		// passes VolumePackFirst.
+		sv.SeasonPending, sv.SeasonAnsweredAt, sv.SeasonPackFirst = volumeOf(owner, prof)
 	}
 	if ep, ok := item.(*catalogv1alpha1.Episode); ok && owner != nil {
 		// Its Series' season search (Wave S, §7): wait for a pending

@@ -28,6 +28,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/searchplan"
 	"github.com/mediactl/clustarr/app/dispatch"
+	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/records"
 )
@@ -77,8 +78,11 @@ func TestASeasonAnsweredWithReleasesAsksForTheNextPass(t *testing.T) {
 			require.True(t, plan.Answered, "the record answers the dispatch in flight")
 			require.Len(t, plan.Finals, 1)
 
-			res := (&Stage{}).seriesResult(v, plan, "", servedSearch{})
+			res := (&Stage{}).containerResult(remediation.KindSeries, v, plan, "", servedSearch{})
 			require.Equal(t, tc.again, res.Again)
+			require.Len(t, res.Sets, 1)
+			require.Contains(t, res.Sets[0].Fields, "seasonSearch", "a Series' set is seasonSearch and lastSearchedAt")
+			require.Contains(t, res.Sets[0].Fields, "lastSearchedAt")
 		})
 	}
 }
