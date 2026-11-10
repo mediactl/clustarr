@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,6 +48,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -554,6 +556,19 @@ func TestArtistReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond, "setup: artist never rolled up the accepted album")
 		require.NotEmpty(t, got.Status.Path)
 		require.True(t, k8s.IsConditionTrue(got.Status.Conditions, catalogv1alpha1.ArtistConditionAlbumsSynced))
+		// The written status.path is the folder the import places the
+		// artist's tracks under (catalogctx.TrackFilePath, the album's folder
+		// between), rendered from the object the apiserver holds: the
+		// reconciler's own naming context and the import's agree (the F1 fix
+		// round, 2026-11-10).
+		var rf catalogv1alpha1.RootFolder
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: got.Namespace, Name: got.Spec.RootFolderRef}, &rf))
+		album := &catalogv1alpha1.Album{Status: catalogv1alpha1.AlbumStatus{Metadata: &catalogv1alpha1.AlbumMetadata{Title: "Album One"}}}
+		tc, ok := catalogctx.Album(&got, album, &catalogv1alpha1.Track{Number: 1, Medium: 1, Title: "A Track", RecordingID: "r1"})
+		require.True(t, ok)
+		file, ferr := catalogctx.TrackFilePath(&rf, &got, album, tc, ".flac")
+		require.NoError(t, ferr)
+		assert.Equal(t, got.Status.Path, filepath.Dir(filepath.Dir(file)), "status.path is the folder the import places the tracks under")
 		return req
 	}
 
@@ -679,5 +694,68 @@ func TestArtistReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return c.Get(ctx, req.NamespacedName, &got) == nil && k8s.FindCondition(got.Status.Conditions, k8s.ConditionDeadLettered) == nil
 		}, 5*time.Second, 10*time.Millisecond, "removing the annotation never cleared the condition")
+	})
+
+	// Task F1's fix round (2026-11-10 design §5.5): a name the shared rule
+	// cannot render -- one of only dots, which the engine refuses as the
+	// root's parent -- is a reported problem, Ready False reason
+	// FolderUnrenderable with the steady state kept, never an error that
+	// would back the artist off for good; the name corrected, the next pass
+	// renders the folder again.
+	t.Run("a name the rule cannot render reports FolderUnrenderable and keeps the steady state", func(t *testing.T) {
+		req := driveToReady(t, "folder-steady", "mbid-folder")
+		var steady catalogv1alpha1.Artist
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &steady))
+		require.Equal(t, "/data/media/music/Steady State", steady.Status.Path)
+
+		rename := func(t *testing.T, name string) {
+			t.Helper()
+			ac := catalogac.Artist(req.Name, req.Namespace).WithStatus(catalogac.ArtistStatus().WithMetadata(
+				catalogac.ArtistMetadata().WithName(name).WithRefreshedAt(metav1.Now())))
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, ac)
+			require.NoError(t, err)
+			require.Eventually(t, func() bool {
+				var got catalogv1alpha1.Artist
+				return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.Metadata != nil && got.Status.Metadata.Name == name
+			}, 5*time.Second, 10*time.Millisecond)
+		}
+		rename(t, "...")
+
+		r := &artist.Reconciler{
+			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
+			Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeAlbumRPC{albums: []pkgmetadata.Album{
+				{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: "rg-folder-steady"}, Title: "Album One", PrimaryType: "Album"},
+			}}},
+		}
+		res, err := r.ReconcileItem(ctx, req.NamespacedName)
+		require.NoError(t, err, "an unrenderable folder is reported, never returned as an error")
+		assert.Equal(t, time.Minute, res.RequeueAfter)
+
+		var after catalogv1alpha1.Artist
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, req.NamespacedName, &after); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason == catalogctx.ReasonFolderUnrenderable
+		}, 5*time.Second, 10*time.Millisecond, "Ready never read FolderUnrenderable")
+		cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.Contains(t, cond.Message, `"..."`, "the message names the component the rule refused")
+		assert.Equal(t, steady.Status.Path, after.Status.Path, "FolderUnrenderable keeps the path the artist had")
+		assert.Equal(t, steady.Status.AlbumCount, after.Status.AlbumCount, "FolderUnrenderable must not release AlbumCount")
+		assert.Equal(t, steady.Status.AlbumFileCount, after.Status.AlbumFileCount, "FolderUnrenderable must not release AlbumFileCount")
+
+		rename(t, "Steady State")
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Artist
+			if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason != catalogctx.ReasonFolderUnrenderable && got.Status.Path == steady.Status.Path
+		}, 5*time.Second, 10*time.Millisecond, "Ready never recovered once the folder rendered again")
 	})
 }
