@@ -1144,7 +1144,7 @@ func TestTheStoredGuideCarriesTheLogosPlexIsGiven(t *testing.T) {
 		whole, err = io.ReadAll(zr)
 		return err == nil
 	}, 5*time.Second, 10*time.Millisecond)
-	assert.Contains(t, string(whole), `<channel id="1001"><display-name>BBC One</display-name><icon src="`+p.srv.URL+`/picons/news.png">`)
+	assert.Contains(t, string(whole), `<channel id="1001"><display-name>BBC One</display-name><display-name>1001 BBC One</display-name><icon src="`+p.srv.URL+`/picons/news.png">`)
 }
 
 // logoServer serves a dark wordmark on transparency at /dark.png, a red one

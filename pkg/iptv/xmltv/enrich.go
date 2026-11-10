@@ -84,7 +84,11 @@ type ArtResolver func(ArtQuery) (Art, bool)
 //     programmes on the off-Plex channels carried their episode only so).
 //
 // What the source already says is kept: an element present is never
-// duplicated or removed, and the result keeps XMLTV's element order.
+// duplicated or removed, the profile's image elements and plex guids
+// (Listing) included, and every programme comes out in XMLTV's element
+// order, one the Enricher adds nothing to too (iptv-epg.org writes its
+// elements alphabetically, title last), so every source's programmes reach
+// PMS and cluster-plex's builder in the one shape.
 type Enricher struct {
 	// Art resolves a programme's artwork; nil adds none.
 	Art ArtResolver
@@ -106,6 +110,9 @@ type programmeFacts struct {
 	descNumbered       bool
 	unnamedEpisodeNum  bool
 	onscreenEpisodeNum bool
+	// plexMovie is a programme whose plex guid (the profile's episode-num
+	// system="plex", Listing.PlexGUID) names a movie.
+	plexMovie bool
 }
 
 // element is one child of <programme>, kept verbatim.
@@ -187,11 +194,9 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 		}
 	}
 
-	changed := false
 	if live && title != f.title {
 		// The title loses its "Live:" prefix; the flag says it instead.
 		elems = replaceText(elems, "title", title)
-		changed = true
 	}
 	if f.descNumbered {
 		// The description loses its numbered first line, which the
@@ -201,7 +206,6 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 		} else {
 			elems = replaceText(elems, "desc", f.desc)
 		}
-		changed = true
 	}
 	if f.liftedSubtitle {
 		addText("sub-title", f.subtitle)
@@ -209,7 +213,6 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 	if f.season > 0 || f.episode > 0 {
 		if f.unnamedEpisodeNum {
 			elems = dropElements(elems, "episode-num", func(el element) bool { return el.attr("system") == "" })
-			changed = true
 		}
 		if !f.hasXMLTVNs {
 			addElem("episode-num", []byte(`<episode-num system="xmltv_ns">`+xmltvNS(f.season, f.episode)+`</episode-num>`))
@@ -261,6 +264,9 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 	}
 	if !f.hasEpisodeNum {
 		switch {
+		case f.plexMovie:
+			// A movie the profile names (plex://movie/…) is filed as one with
+			// no episode number at all (spec §2.3), as Plex itself says it is.
 		case sportsEvent:
 			addElem("episode-num", progID("SP", ch.Number, start.UTC().Format(time.RFC3339)))
 		case haveArt && art.Kind == ArtMovie:
@@ -276,10 +282,8 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 			addElem("episode-num", formatProgID("EP", series, episode/100000000))
 		}
 	}
-	if len(add) == 0 && !changed {
-		return inner
-	}
-
+	// Every programme is written again in XMLTV's order, whatever was
+	// added; the whitespace between its elements is dropped.
 	byName := map[string][]element{}
 	for _, el := range elems {
 		byName[el.name] = append(byName[el.name], el)
@@ -365,6 +369,16 @@ func facts(elems []element) programmeFacts {
 		case "category":
 			f.categories[strings.ToLower(el.text)] = true
 		case "episode-num":
+			switch el.attr("system") {
+			case systemPlex, systemPlexShow, systemPlexSeason:
+				// The profile's plex guids are no episode numbers: PMS
+				// ignores them (spec §2.3), so they neither number the
+				// programme nor stand in for the dd_progid it needs.
+				if el.attr("system") == systemPlex && strings.HasPrefix(el.text, plexMovieGUID) {
+					f.plexMovie = true
+				}
+				continue
+			}
 			f.hasEpisodeNum = true
 			switch el.attr("system") {
 			case "xmltv_ns":

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <tv generator-info-name="clustarr">
-<channel id="1001"><display-name>BBC One</display-name><icon src="http://logo.example/bbc1.png"></icon></channel>
-<channel id="1002"><display-name>Dummy Chan</display-name></channel>
+<channel id="1001"><display-name>BBC One</display-name><display-name>1001 BBC One</display-name><icon src="http://logo.example/bbc1.png"></icon></channel>
+<channel id="1002"><display-name>Dummy Chan</display-name><display-name>1002 Dummy Chan</display-name></channel>
 <programme start="20261007190000 +0000" stop="20261007200000 +0000" channel="1001"><title lang="en">Six O'Clock News</title><desc lang="en">Headlines &amp; weather.</desc><category>News</category></programme>
 <programme start="20261007200000 +0000" stop="20261007203000 +0000" channel="1001"><title>The One Show</title></programme>
 <programme start="20261007000000 +0000" stop="20261007010000 +0000" channel="1002"><title>Dummy Chan</title></programme>

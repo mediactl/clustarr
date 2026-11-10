@@ -17,6 +17,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package xmltv
 
+// DTDOrder is XMLTV's order of a programme's children, for the external
+// tests.
+var DTDOrder = dtdOrder
+
 // SetMaxBytes lowers the uncompressed cap for a test and returns a restore.
 func SetMaxBytes(n int64) func() {
 	old := maxBytes

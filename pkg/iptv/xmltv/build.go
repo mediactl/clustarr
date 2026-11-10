@@ -87,8 +87,13 @@ func BuildGuideWith(w io.Writer, lineup []LineupChannel, guides map[string]Guide
 	for _, c := range chans {
 		bw.WriteString(`<channel id="`)
 		escape(&bw, c.Number)
+		// The shown name first, which PMS takes as the channel's call sign
+		// (spec §2.3), then "<number> <name>" for the readers that list
+		// every display name.
 		bw.WriteString(`"><display-name>`)
 		escape(&bw, c.Name)
+		bw.WriteString(`</display-name><display-name>`)
+		escape(&bw, strings.TrimSpace(c.Number+" "+c.Name))
 		bw.WriteString(`</display-name>`)
 		if c.Logo != "" {
 			bw.WriteString(`<icon src="`)

@@ -47,7 +47,10 @@ type IndexChannel struct {
 }
 
 // IndexProgramme is one programme. Channel is its channel's number; Episode
-// reads as Plex shows it ("S01E02", "E05"); Image is the programme's icon.
+// reads as Plex shows it ("S01E02", "E05"); Image is the programme's icon;
+// Poster, Backdrop and Still are its <image type=...> elements, and
+// PlexGUID its episode-num system="plex" (xmltv.Listing's profile, the
+// custom-guides design's §5.4).
 type IndexProgramme struct {
 	Channel    string    `json:"channel"`
 	Start      time.Time `json:"start"`
@@ -57,6 +60,10 @@ type IndexProgramme struct {
 	Desc       string    `json:"desc,omitempty"`
 	Episode    string    `json:"episode,omitempty"`
 	Image      string    `json:"image,omitempty"`
+	Poster     string    `json:"poster,omitempty"`
+	Backdrop   string    `json:"backdrop,omitempty"`
+	Still      string    `json:"still,omitempty"`
+	PlexGUID   string    `json:"plexGuid,omitempty"`
 	Categories []string  `json:"categories,omitempty"`
 	Live       bool      `json:"live,omitempty"`
 	New        bool      `json:"new,omitempty"`
@@ -92,6 +99,10 @@ type xmlProgramme struct {
 	Icon []struct {
 		Src string `xml:"src,attr"`
 	} `xml:"icon"`
+	Images []struct {
+		Type string `xml:"type,attr"`
+		URL  string `xml:",chardata"`
+	} `xml:"image"`
 	Live *struct{} `xml:"live"`
 	New  *struct{} `xml:"new"`
 }
@@ -143,9 +154,27 @@ func IndexGuide(r io.Reader, from time.Time) (GuideIndex, error) {
 				ip.Image = p.Icon[0].Src
 			}
 			for _, e := range p.EpisodeNum {
-				if label := episodeLabel(e.System, e.Value); label != "" {
+				if label := episodeLabel(e.System, e.Value); label != "" && ip.Episode == "" {
 					ip.Episode = label
-					break
+				}
+				if e.System == "plex" && ip.PlexGUID == "" {
+					ip.PlexGUID = strings.TrimSpace(e.Value)
+				}
+			}
+			for _, im := range p.Images {
+				var dst *string
+				switch im.Type {
+				case "poster":
+					dst = &ip.Poster
+				case "backdrop":
+					dst = &ip.Backdrop
+				case "still":
+					dst = &ip.Still
+				default:
+					continue
+				}
+				if *dst == "" {
+					*dst = strings.TrimSpace(im.URL)
 				}
 			}
 			ix.Programmes = append(ix.Programmes, ip)

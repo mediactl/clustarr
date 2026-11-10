@@ -87,3 +87,32 @@ func TestIndexGuideCutsALongDescription(t *testing.T) {
 	assert.Len(t, d, 600)
 	assert.Equal(t, '…', d[599])
 }
+
+// The profile's images and plex guid reach the ui's index: the poster,
+// background and still of <image type=...>, and the programme's own
+// episode-num system="plex" (never the show's or the season's).
+func TestIndexGuideReadsImagesAndThePlexID(t *testing.T) {
+	l := xmltv.Listing{
+		Kind: xmltv.KindEpisode, Title: "Grimm", SubTitle: "To Protect and Serve Man", Season: 2, Episode: 11,
+		Poster: "https://img.example/show.jpg", Backdrop: "https://img.example/art.jpg", Still: "https://img.example/still.jpg",
+		PlexGUID: "plex://episode/5d9c0e3b46115600200e2e3a", PlexShowGUID: "plex://show/5d9c086c46115600200aa2fe",
+		PlexSeasonGUID: "plex://season/5d9c086c46115600200aa2fe/2",
+	}
+	ix, err := livetvstore.IndexGuide(bytes.NewReader(built(t, string(l.Inner()))), from)
+	require.NoError(t, err)
+	p := ix.Programmes[0]
+	assert.Equal(t, "https://img.example/show.jpg", p.Image, "the icon stays the image")
+	assert.Equal(t, "https://img.example/show.jpg", p.Poster)
+	assert.Equal(t, "https://img.example/art.jpg", p.Backdrop)
+	assert.Equal(t, "https://img.example/still.jpg", p.Still)
+	assert.Equal(t, "plex://episode/5d9c0e3b46115600200e2e3a", p.PlexGUID)
+	assert.Equal(t, "S02E11", p.Episode)
+	assert.Equal(t, []string{"Series"}, p.Categories)
+
+	// A source with neither leaves them empty.
+	ix, err = livetvstore.IndexGuide(bytes.NewReader(built(t, `<title>Show</title><icon src="https://img.example/i.jpg"/>`)), from)
+	require.NoError(t, err)
+	p = ix.Programmes[0]
+	assert.Equal(t, "https://img.example/i.jpg", p.Image)
+	assert.Empty(t, p.Poster+p.Backdrop+p.Still+p.PlexGUID)
+}

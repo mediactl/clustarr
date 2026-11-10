@@ -284,3 +284,44 @@ Hank remembers.</desc>`,
 		})
 	}
 }
+
+// iptv-epg.org writes a programme's elements alphabetically, title last.
+// One the enricher adds nothing to still comes out in XMLTV's order, every
+// element as the source wrote it, so PMS and the builder read every
+// source's programmes in one shape.
+func TestTheEnricherReordersAnUnchangedProgramme(t *testing.T) {
+	inner := []byte(`
+    <category lang="en">Drama</category>
+    <category lang="en">Series</category>
+    <desc lang="en">Hank remembers an arrest.</desc>
+    <episode-num system="onscreen">S02E11</episode-num>
+    <episode-num system="xmltv_ns">1.10.</episode-num>
+    <icon src="https://iptv-epg.org/images/0sJ"/>
+    <image type="backdrop" size="3" orient="L">https://iptv-epg.org/images/bg</image>
+    <previously-shown/>
+    <title lang="en">Grimm</title>
+  `)
+	out := string((&xmltv.Enricher{}).Enrich(inner, plain, t0, t0.Add(time.Hour)))
+	assert.Equal(t, `<title lang="en">Grimm</title>`+
+		`<desc lang="en">Hank remembers an arrest.</desc>`+
+		`<category lang="en">Drama</category><category lang="en">Series</category>`+
+		`<icon src="https://iptv-epg.org/images/0sJ"/>`+
+		`<episode-num system="onscreen">S02E11</episode-num><episode-num system="xmltv_ns">1.10.</episode-num>`+
+		`<previously-shown/>`+
+		`<image type="backdrop" size="3" orient="L">https://iptv-epg.org/images/bg</image>`, out)
+}
+
+// The profile's plex guids are no episode numbers: they pass through as
+// they are, never read as the episode-num naming no system, and leave a
+// numberless programme to the dd_progid rule.
+func TestPlexEpisodeNumsPassThroughAndNumberNothing(t *testing.T) {
+	inner := []byte(`<title>CNN Newsroom</title><episode-num system="plex">plex://episode/6720a1b2c3d4e5f6a7b8c9d0</episode-num>` +
+		`<episode-num system="plex.show">plex://show/5d9c08a0e9d5a1001f4f3c1b</episode-num><episode-num system="plex.season">plex://season/5d9c08a0e9d5a1001f4f3c1b/2026</episode-num>`)
+	out := string((&xmltv.Enricher{}).Enrich(inner, plain, t0, t0.Add(time.Hour)))
+	assert.Contains(t, out, `<episode-num system="plex">plex://episode/6720a1b2c3d4e5f6a7b8c9d0</episode-num>`+
+		`<episode-num system="plex.show">plex://show/5d9c08a0e9d5a1001f4f3c1b</episode-num>`+
+		`<episode-num system="plex.season">plex://season/5d9c08a0e9d5a1001f4f3c1b/2026</episode-num>`)
+	assert.Regexp(t, `<episode-num system="dd_progid">EP\d{8}\.\d{4}</episode-num>`, out)
+	assert.NotContains(t, out, `system="xmltv_ns"`)
+	assert.NotContains(t, out, `system="onscreen"`)
+}

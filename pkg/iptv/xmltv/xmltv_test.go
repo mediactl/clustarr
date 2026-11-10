@@ -90,7 +90,8 @@ func TestBuildGuide(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, xmltv.BuildGuide(&out, lineup, map[string]xmltv.Guide{"main": g}, from, 7))
 	s := out.String()
-	assert.Contains(t, s, `<channel id="1001"><display-name>BBC One</display-name><icon src="http://logo.example/bbc1.png"></icon></channel>`)
+	assert.Contains(t, s, `<channel id="1001"><display-name>BBC One</display-name><display-name>1001 BBC One</display-name><icon src="http://logo.example/bbc1.png"></icon></channel>`,
+		"the shown name first (PMS's call sign), then the number and the name")
 	assert.Contains(t, s, `<programme start="20261007190000 +0000" stop="20261007200000 +0000" channel="1001">`, "timeshifted by an hour")
 	assert.Less(t, strings.Index(s, `channel id="1001"`), strings.Index(s, `channel id="1002"`), "channels sorted by number")
 	assert.Equal(t, 7*24, strings.Count(s, `channel="1002"`), "one dummy block per hour for seven days")
@@ -107,6 +108,9 @@ func TestBuildGuide(t *testing.T) {
 	built, err := xmltv.Parse(bytes.NewReader(out.Bytes()), map[string]bool{"1001": true}, from, from.AddDate(0, 0, 7))
 	require.NoError(t, err, "the built guide parses as XMLTV")
 	assert.Len(t, built.Programmes["1001"], 2)
+	require.Len(t, built.Channels, 2)
+	assert.Equal(t, []string{"BBC One", "1001 BBC One"}, built.Channels[0].DisplayNames)
+	assert.Equal(t, []string{"Dummy Chan", "1002 Dummy Chan"}, built.Channels[1].DisplayNames)
 }
 
 func TestNumbersSortNumerically(t *testing.T) {
