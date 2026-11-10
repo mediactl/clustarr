@@ -412,3 +412,60 @@ func TestAlbumStopsAfterASinglePageThatHoldsEveryRelease(t *testing.T) {
 	require.Equal(t, 1, browses)
 	require.Len(t, album.Releases, 3)
 }
+
+// Albums pages the release-group browse to the end (2026-11-10 design
+// §5.4): Muse's 175 release groups come in a page of 100 and one of 75,
+// each carrying its artist credit; the default paginator's 25 fanned out
+// only the first 25 until then.
+func TestAlbumsPagesEveryReleaseGroup(t *testing.T) {
+	p1, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/browse_releasegroups_muse_p1.json")
+	require.NoError(t, err)
+	p2, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/browse_releasegroups_muse_p2.json")
+	require.NoError(t, err)
+	var offsets []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/release-group/", r.URL.Path)
+		require.Equal(t, "100", r.URL.Query().Get("limit"))
+		require.Contains(t, r.URL.Query().Get("inc"), "artist-credits")
+		offsets = append(offsets, r.URL.Query().Get("offset"))
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("offset") == "100" {
+			_, _ = w.Write(p2)
+			return
+		}
+		_, _ = w.Write(p1)
+	}))
+	defer srv.Close()
+
+	c, err := musicbrainz.New("Clustarr/0.1 (https://github.com/mediactl/clustarr)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+	albums, err := c.Albums(context.Background(), "9c9f1380-2516-4fc9-a3e6-f9f61941d090")
+	require.NoError(t, err)
+	require.Len(t, albums, 175)
+	require.Equal(t, []string{"0", "100"}, offsets, "two pages, the second offset by the first")
+	require.Equal(t, "Muse", albums[0].ArtistCredit)
+}
+
+// An artist's aliases reach the model (its own name left out) and its
+// annotation is its biography when there is one.
+func TestArtistMapsAliasesAndAnnotation(t *testing.T) {
+	body, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/artist_muse_annotation_aliases.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Contains(t, r.URL.Query().Get("inc"), "aliases")
+		require.Contains(t, r.URL.Query().Get("inc"), "annotation")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	c, err := musicbrainz.New("Clustarr/0.1 (https://github.com/mediactl/clustarr)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+	a, err := c.Artist(context.Background(), "9c9f1380-2516-4fc9-a3e6-f9f61941d090")
+	require.NoError(t, err)
+	require.Equal(t, "Muse", a.Name)
+	require.Contains(t, a.Aliases, "Rocket Baby Dolls")
+	require.NotContains(t, a.Aliases, "Muse", "the artist's own name is no alias")
+	require.Empty(t, a.Overview, "Muse's annotation is empty; the gateway asks wikipedia")
+	require.Empty(t, a.BiographySource)
+	require.Equal(t, "GB", a.Country)
+}

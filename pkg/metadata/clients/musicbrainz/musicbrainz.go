@@ -52,6 +52,8 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,7 +69,18 @@ import (
 // artistIncludes are the sub-resources requested on every artist lookup:
 // ratings and genres for Artist.Ratings/Genres, url-rels for Artist.Links
 // (a relation whose target is a URL entity), tags for Artist.Tags.
-var artistIncludes = []string{"ratings", "genres", "url-rels", "tags"}
+var artistIncludes = []string{"ratings", "genres", "url-rels", "tags", "annotation", "aliases"}
+
+// releaseGroupIncludes are the sub-resources requested when browsing an
+// artist's release groups: artist-credits for Album.ArtistCredit ("Simon &
+// Garfunkel", "Various Artists"), which album.nfo and the Plex album carry
+// when it differs from the Artist's name (2026-11-10 design §5.4).
+var releaseGroupIncludes = []string{"artist-credits"}
+
+// maxReleaseGroupPages bounds Albums' browse: 20 pages of mb.MaxLimit is
+// 2,000 release groups, more than any artist has; a prolific one costs a
+// request per 100 at 1 request/second.
+const maxReleaseGroupPages = 20
 
 // releaseIncludes are the sub-resources requested when browsing a release
 // group's releases (docs/research/metadata.md §2.3's release inc list,
@@ -223,19 +236,37 @@ func (c *Client) Albums(ctx context.Context, mbArtistID string) ([]metadata.Albu
 		return nil, err
 	}
 
-	ctx, outcome := withOutcome(ctx)
-	result, err := c.raw.BrowseReleaseGroups(ctx, mb.ReleaseGroupFilter{ArtistMBID: mbtypes.MBID(mbArtistID)}, mb.DefaultPaginator())
-	if err != nil {
-		mapped := mapError(err, outcome)
-		tracing.RecordError(span, mapped)
-		logger.ErrorContext(ctx, "musicbrainz: albums browse failed", "mbid", mbArtistID, "error", mapped)
-		return nil, mapped
+	// Every page, 100 release groups each, offset by what came before
+	// (releases() below pages the same way): the default paginator's 25
+	// fanned out only the first 25 of a prolific artist's albums until
+	// 2026-11-10 (design §5.4).
+	filter := mb.ReleaseGroupFilter{ArtistMBID: mbtypes.MBID(mbArtistID), Includes: releaseGroupIncludes}
+	var albums []metadata.Album
+	offset := 0
+	for page := 0; page < maxReleaseGroupPages; page++ {
+		if page > 0 {
+			if err := c.limiter.Wait(ctx); err != nil {
+				tracing.RecordError(span, err)
+				return nil, err
+			}
+		}
+		pageCtx, outcome := withOutcome(ctx)
+		result, err := c.raw.BrowseReleaseGroups(pageCtx, filter, mb.Paginator{Offset: offset, Limit: mb.MaxLimit})
+		if err != nil {
+			mapped := mapError(err, outcome)
+			tracing.RecordError(span, mapped)
+			logger.ErrorContext(ctx, "musicbrainz: albums browse failed", "mbid", mbArtistID, "offset", offset, "error", mapped)
+			return nil, mapped
+		}
+		for _, rg := range result.ReleaseGroups {
+			albums = append(albums, mapAlbum(rg))
+		}
+		offset += len(result.ReleaseGroups)
+		if len(result.ReleaseGroups) == 0 || offset >= result.Count {
+			return albums, nil
+		}
 	}
-
-	albums := make([]metadata.Album, 0, len(result.ReleaseGroups))
-	for _, rg := range result.ReleaseGroups {
-		albums = append(albums, mapAlbum(rg))
-	}
+	logger.WarnContext(ctx, "musicbrainz: release-group list truncated", "mbid", mbArtistID, "fetched", len(albums), "pages", maxReleaseGroupPages)
 	return albums, nil
 }
 
@@ -341,6 +372,21 @@ func mapArtist(raw mb.Artist) *metadata.Artist {
 	for _, tg := range raw.Tags {
 		a.Tags = append(a.Tags, tg.Name)
 	}
+	// The annotation is MusicBrainz's own free text about the artist, the
+	// biography when there is one (most are empty; the gateway asks
+	// wikipedia through the Wikidata url-rel otherwise).
+	if ann := strings.TrimSpace(raw.Annotation); ann != "" {
+		a.Overview, a.BiographySource = ann, "musicbrainz"
+	}
+	for _, al := range raw.Aliases {
+		if al.Name == "" || al.Name == raw.Name || slices.Contains(a.Aliases, al.Name) {
+			continue
+		}
+		a.Aliases = append(a.Aliases, al.Name)
+		if len(a.Aliases) == maxAliases {
+			break
+		}
+	}
 	for _, rel := range raw.Relations {
 		if rel.URL != nil {
 			a.Links = append(a.Links, metadata.Link{Type: rel.Type, URL: rel.URL.Resource})
@@ -370,6 +416,7 @@ func mapAlbum(rg mb.ReleaseGroup) metadata.Album {
 	if t, ok := partialDateToTime(rg.FirstReleaseDate); ok {
 		album.ReleaseDate = &t
 	}
+	album.ArtistCredit = strings.TrimSpace(rg.ArtistCredit.String())
 	for _, g := range rg.Genres {
 		album.Genres = append(album.Genres, g.Name)
 	}
@@ -583,3 +630,6 @@ func mapError(err error, outcome *callOutcome) error {
 		return fmt.Errorf("musicbrainz: %w", err)
 	}
 }
+
+// maxAliases bounds Artist.Aliases (the CRD's MaxItems=32).
+const maxAliases = 32
