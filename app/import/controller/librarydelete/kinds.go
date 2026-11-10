@@ -19,6 +19,7 @@ package librarydelete
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,31 +72,51 @@ type kindSpec struct {
 	newObject func() client.Object
 	newList   func() client.ObjectList
 	// rootFolderRef and path read the item's RootFolder and status.path.
+	// rootFolderRef is nil for a kind with no RootFolder of its own (an
+	// Album, whose parent names it).
 	rootFolderRef func(client.Object) string
 	path          func(client.Object) string
+	// parent is the container an item of this kind lives inside -- an
+	// Album's Artist -- whose RootFolder is the item's and whose folder
+	// holds the item's (nil for a kind with a folder of its own).
+	parent *parentSpec
 	// childKind is the kind of its children and newChildren a list of them
-	// ("" and nil for Movie and Audiobook).
+	// ("" and nil for Movie, Audiobook, Album and Book).
 	childKind   commonv1.MediaKind
 	newChildren func() client.ObjectList
 	// oneFolder is a kind whose files all sit in one folder (Movie,
-	// Audiobook): when status.path is not on disk, that folder is the
-	// item's (see Reconciler.target).
+	// Audiobook, a standalone Book): when status.path is not on disk, that
+	// folder is the item's (see Reconciler.target).
 	oneFolder bool
+	// guard refuses, wrapping ErrRefused, an item the kind does not delete
+	// on its own: an author's book, which goes with its author (nil for a
+	// kind that deletes every item).
+	guard func(client.Object) error
 	// exclusion is the ImportExclusion spec that keeps it out; ok false for
 	// a kind with none.
 	exclusion func(client.Object) (catalogv1alpha1.ImportExclusionSpec, bool)
 }
 
+// parentSpec is how a kind without a folder of its own reaches the
+// container it lives in (2026-11-10 non-video design §9.2: an album's
+// files live in its artist's folder, and its own subfolder is the one part
+// of that folder a delete may remove).
+type parentSpec struct {
+	kind commonv1.MediaKind
+	// newObject is an empty parent; ref reads the item's reference to it.
+	newObject func() client.Object
+	ref       func(client.Object) string
+	// rootFolderRef and path read the parent's RootFolder and status.path.
+	rootFolderRef func(client.Object) string
+	path          func(client.Object) string
+}
+
 const exclusionReason = "deleted from the library"
 
-// bookKind is a Book's path, for the occupant check only: a Book has its
-// own folder (under its Author's) but no Delete of its own.
-func bookKind() kindSpec {
-	return kindSpec{
-		kind:    commonv1.MediaKindBook,
-		newList: func() client.ObjectList { return &catalogv1alpha1.BookList{} },
-		path:    func(o client.Object) string { return o.(*catalogv1alpha1.Book).Status.Path },
-	}
+// noExclusion is the exclusion of a kind with none (Artist, Author, Album,
+// Book): nothing reads one for them (catalogv1alpha1.ExclusionKindFor).
+func noExclusion(client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
+	return catalogv1alpha1.ImportExclusionSpec{}, false
 }
 
 func kindFor(kind commonv1.MediaKind) kindSpec {
@@ -156,9 +177,7 @@ func kinds() []kindSpec {
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Artist).Status.Path },
 			childKind:     commonv1.MediaKindAlbum,
 			newChildren:   func() client.ObjectList { return &catalogv1alpha1.AlbumList{} },
-			exclusion: func(client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
-				return catalogv1alpha1.ImportExclusionSpec{}, false
-			},
+			exclusion:     noExclusion,
 		},
 		{
 			kind:          commonv1.MediaKindAuthor,
@@ -168,9 +187,7 @@ func kinds() []kindSpec {
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Author).Status.Path },
 			childKind:     commonv1.MediaKindBook,
 			newChildren:   func() client.ObjectList { return &catalogv1alpha1.BookList{} },
-			exclusion: func(client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
-				return catalogv1alpha1.ImportExclusionSpec{}, false
-			},
+			exclusion:     noExclusion,
 		},
 		{
 			kind:          commonv1.MediaKindAudiobook,
@@ -204,6 +221,52 @@ func kinds() []kindSpec {
 					ExternalIDs: map[string]string{string(cm.Spec.Source): cm.Spec.SourceID},
 				}, true
 			},
+		},
+		{
+			// An Album (2026-11-10 non-video design §9.2) lives in its
+			// Artist's folder, which names its RootFolder: a files delete
+			// removes the album's own track files and its own subfolder,
+			// never the artist's folder (Reconciler.target); a records
+			// delete its MediaFiles and the Album, the Artist's rollup
+			// following on its next pass.
+			kind:      commonv1.MediaKindAlbum,
+			newObject: func() client.Object { return &catalogv1alpha1.Album{} },
+			newList:   func() client.ObjectList { return &catalogv1alpha1.AlbumList{} },
+			path:      func(o client.Object) string { return o.(*catalogv1alpha1.Album).Status.Path },
+			parent: &parentSpec{
+				kind:          commonv1.MediaKindArtist,
+				newObject:     func() client.Object { return &catalogv1alpha1.Artist{} },
+				ref:           func(o client.Object) string { return o.(*catalogv1alpha1.Album).Spec.ArtistRef },
+				rootFolderRef: func(o client.Object) string { return o.(*catalogv1alpha1.Artist).Spec.RootFolderRef },
+				path:          func(o client.Object) string { return o.(*catalogv1alpha1.Artist).Status.Path },
+			},
+			exclusion: noExclusion,
+		},
+		{
+			// A Book (design §9.3) is deletable only standalone: its own
+			// folder under the root it names (spec.rootFolderRef, which
+			// the CEL rule requires of a book without an author;
+			// app/catalog/controller/book.Path), its one file's folder when
+			// status.path is not that (oneFolder). An author's book lives
+			// in its author's folder and goes with its author (guard).
+			kind:      commonv1.MediaKindBook,
+			newObject: func() client.Object { return &catalogv1alpha1.Book{} },
+			newList:   func() client.ObjectList { return &catalogv1alpha1.BookList{} },
+			rootFolderRef: func(o client.Object) string {
+				if ref := o.(*catalogv1alpha1.Book).Spec.RootFolderRef; ref != nil {
+					return *ref
+				}
+				return ""
+			},
+			path:      func(o client.Object) string { return o.(*catalogv1alpha1.Book).Status.Path },
+			oneFolder: true,
+			guard: func(o client.Object) error {
+				if ref := o.(*catalogv1alpha1.Book).Spec.AuthorRef; ref != nil && *ref != "" {
+					return fmt.Errorf("%w: an author's book is deleted with its author (%s)", ErrRefused, *ref)
+				}
+				return nil
+			},
+			exclusion: noExclusion,
 		},
 	}
 }

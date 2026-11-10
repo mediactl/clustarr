@@ -45,8 +45,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors;audiobooks;comics,verbs=get;list;watch;patch;delete
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes;albums;books;issues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors;audiobooks;comics;albums;books,verbs=get;list;watch;patch;delete
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=importexclusions,verbs=get;create
@@ -100,8 +100,10 @@ func deleteRequested() predicate.Predicate {
 }
 
 // Reconcile deletes an annotated item: exclusion, disk (for "files"),
-// MediaFiles, then the item. A refusal writes delete-error and is not
-// retried; an API or I/O error writes it and is retried with backoff.
+// MediaFiles, then the item. A refusal -- the kind's guard (an author's
+// book), or a files delete that would reach outside the item (Check) --
+// writes delete-error and is not retried; an API or I/O error writes it
+// and is retried with backoff.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := r.kind.newObject()
 	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
@@ -115,6 +117,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if mode != catalogv1alpha1.DeleteFiles && mode != catalogv1alpha1.DeleteRecords {
 		return ctrl.Result{}, r.fail(ctx, obj, fmt.Errorf("%w: %s=%q, want %q or %q", ErrRefused,
 			catalogv1alpha1.AnnotationDelete, mode, catalogv1alpha1.DeleteFiles, catalogv1alpha1.DeleteRecords))
+	}
+	if r.kind.guard != nil {
+		if err := r.kind.guard(obj); err != nil {
+			return ctrl.Result{}, r.fail(ctx, obj, err)
+		}
 	}
 
 	t, err := r.target(ctx, obj)
@@ -157,15 +164,48 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return ctrl.Result{}, nil
 }
 
-// target resolves what the delete acts on.
+// target resolves what the delete acts on: the item's RootFolder (its
+// parent's for an Album), its folder, its and its children's MediaFiles
+// and donor folders. An Album's folder is its own only strictly under its
+// Artist's folder (Target.Keep), never the artist's folder itself nor one
+// outside it -- an album with its files straight in the artist's folder
+// has no folder of its own, so only its files go; and with its Artist gone
+// or without a folder nothing bounds it, so the same. A standalone Book
+// written before 2026-11-10 carries the root itself as status.path
+// (app/catalog/controller/book.Path's old reading), which is no folder of
+// the book's: the folder its file is in is, as for a scanned movie.
 func (r *Reconciler) target(ctx context.Context, obj client.Object) (Target, error) {
 	t := Target{Folder: r.kind.path(obj), Keys: map[string]bool{TargetKey(r.kind.kind, obj.GetName()): true}}
+	rootRef, parentFolder := "", ""
+	if r.kind.rootFolderRef != nil {
+		rootRef = r.kind.rootFolderRef(obj)
+	}
+	if p := r.kind.parent; p != nil {
+		parent := p.newObject()
+		switch err := r.Get(ctx, types.NamespacedName{Namespace: obj.GetNamespace(), Name: p.ref(obj)}, parent); {
+		case err == nil:
+			rootRef, parentFolder = p.rootFolderRef(parent), p.path(parent)
+		case !apierrors.IsNotFound(err):
+			return t, fmt.Errorf("get %s %s of %s: %w", p.kind, p.ref(obj), obj.GetName(), err)
+		}
+	}
 	var rf catalogv1alpha1.RootFolder
-	switch err := r.Get(ctx, types.NamespacedName{Namespace: obj.GetNamespace(), Name: r.kind.rootFolderRef(obj)}, &rf); {
+	switch err := r.Get(ctx, types.NamespacedName{Namespace: obj.GetNamespace(), Name: rootRef}, &rf); {
 	case err == nil:
 		t.Root = rf.Spec.Path
 	case !apierrors.IsNotFound(err):
 		return t, err
+	}
+	if r.kind.parent != nil {
+		if parentFolder != "" && fsops.StrictlyUnder(parentFolder, t.Root) {
+			t.Keep = parentFolder
+		}
+		if t.Folder != "" && (t.Keep == "" || !fsops.StrictlyUnder(t.Folder, t.Keep)) {
+			t.Folder = ""
+		}
+	}
+	if r.kind.oneFolder && t.Folder != "" && t.Root != "" && filepath.Clean(t.Folder) == filepath.Clean(t.Root) {
+		t.Folder = ""
 	}
 	if r.kind.newChildren != nil {
 		children := r.kind.newChildren()
@@ -196,8 +236,8 @@ func (r *Reconciler) target(ctx context.Context, obj client.Object) (Target, err
 			}
 		}
 	}
-	if r.kind.oneFolder && !onDisk(t.Folder) {
-		if d := sharedDir(t.Files); d != "" && fsops.StrictlyUnder(d, t.Root) {
+	if (r.kind.oneFolder || r.kind.parent != nil) && !onDisk(t.Folder) {
+		if d := sharedDir(t.Files); d != "" && fsops.StrictlyUnder(d, t.keep()) {
 			t.Folder = d
 		}
 	}
@@ -216,7 +256,9 @@ func onDisk(path string) bool {
 // sharedDir is the one directory every file is in, or "" when they are in
 // several or there are none. A scanned movie's status.path is the naming
 // preset's folder rather than the one on disk (the scan pins spec.folder
-// for a series, not a movie), so this is where such a movie really is.
+// for a series, not a movie), so this is where such a movie really is; an
+// album's status.path is rendered from the preset the same way, and a
+// standalone book's was the root itself until 2026-11-10.
 func sharedDir(files []catalogv1alpha1.MediaFile) string {
 	dir := ""
 	for _, mf := range files {
@@ -232,10 +274,12 @@ func sharedDir(files []catalogv1alpha1.MediaFile) string {
 // occupants are the folders the item's folder must not hold: every other
 // library item's status.path -- in any namespace, since two namespaces'
 // RootFolders may share a path -- except the item's own children, and
-// every RootFolder's spec.path.
+// every RootFolder's spec.path. An album's artist and a book's author are
+// among them, which keeps an album's or a book's folder from reaching up
+// to its container's.
 func (r *Reconciler) occupants(ctx context.Context, obj client.Object, t Target) ([]Occupant, error) {
 	var out []Occupant
-	for _, k := range append(kinds(), bookKind()) {
+	for _, k := range kinds() {
 		list := k.newList()
 		if err := r.List(ctx, list); err != nil {
 			return nil, fmt.Errorf("list %s: %w", k.kind, err)

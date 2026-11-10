@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package ui_test
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -29,6 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/ui"
+	"github.com/mediactl/clustarr/ui/actions"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // bookXCardRef is a library card's reference.
@@ -102,6 +107,7 @@ func TestBookPageIsTheMoviePageForABook(t *testing.T) {
 	requireTag(t, page, `id="interactive-search-dispossessed"`, `hx-post="/library/default/book/dispossessed/search/interactive"`, `hx-target="#book-modal"`)
 	require.NotContains(t, page, `data-action="rename-apply"`)
 	require.NotContains(t, page, `data-edit-dialog="dispossessed"`, "an author's book is not editable (design §9.3)")
+	require.NotContains(t, page, `data-action="delete"`, "an author's book is deleted with its author (design §9.3)")
 	require.NotContains(t, page, `data-action="delete-confirm"`)
 
 	// The bookmark flips the book's monitoring and returns here.
@@ -204,7 +210,14 @@ func TestStandaloneBookPageNamesNoAuthor(t *testing.T) {
 	requireTag(t, page, `data-action="rename-dry-run"`, `form="rename-dry-run-standalone"`)
 	requireTag(t, page, `data-action="rename-apply"`, `form="rename-standalone"`)
 	requireTag(t, page, `data-edit-dialog="standalone"`)
-	require.NotContains(t, page, `data-action="delete-confirm"`, "a Book is no deletable kind (catalogv1.DeletableKinds)")
+	// Delete too (design §9.3; catalogv1.DeletableKinds since 2026-11-10):
+	// the dialog posts to the book's delete route, names its folder, and
+	// offers no import list exclusion, since none is honoured for a book.
+	requireTag(t, page, `data-action="delete"`)
+	require.Contains(t, page, "Delete A Standalone Book")
+	requireTag(t, page, `action="/library/default/book/standalone/delete"`)
+	requireTag(t, page, `name="files"`, `value="true"`)
+	require.NotContains(t, page, `name="exclude"`, "a book has no exclusion kind")
 
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/book/nope", false).Code)
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/book/neuromancer", false).Code,
@@ -295,3 +308,38 @@ func TestStandaloneBookScansAndRenamesItsOwnFolder(t *testing.T) {
 
 // bookXOneLine joins a page's lines, so a regexp can span tags.
 func bookXOneLine(s string) string { return strings.ReplaceAll(s, "\n", " ") }
+
+// While import carries a standalone book's delete out the page hides the
+// Delete button and the status fact reads Deleting with a Cancel; a refused
+// one reads why and offers Retry beside it -- the book's own card carries
+// the delete annotations, as the projection reads them.
+func TestStandaloneBookPageShowsAPendingDeleteAndHidesTheButton(t *testing.T) {
+	_, c := bookFixture(t)
+	item := projection.LibraryItem{
+		Ref: types.NamespacedName{Namespace: "default", Name: "standalone"}, Kind: commonv1.MediaKindBook,
+		Tab: projection.TabBooks, Title: "A Standalone Book", Monitored: true, DeleteMode: catalogv1.DeleteRecords,
+	}
+	serve := func(li projection.LibraryItem) string {
+		srv := ui.NewServer(t.Context(), ui.Options{
+			Reader:  c,
+			Actions: actions.New(c),
+			Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{li} },
+		})
+		return getPath(t, srv, "/library/default/book/standalone", false).Body.String()
+	}
+	page := serve(item)
+	require.NotContains(t, page, `data-action="delete"`, "no second request while one is pending")
+	status := section(t, page, `data-fact="status"`)
+	require.Contains(t, status, "Deleting")
+	requireTag(t, status, `data-action="delete-cancel"`)
+	requireTag(t, status, `action="/library/default/book/standalone/delete/cancel"`)
+	require.NotContains(t, status, `data-action="delete-retry"`)
+
+	item.DeleteError = "the item's root folder is unknown"
+	page = serve(item)
+	status = section(t, page, `data-fact="status"`)
+	require.Contains(t, status, "Delete failed: the item&#39;s root folder is unknown")
+	requireTag(t, status, `data-action="delete-retry"`)
+	requireTag(t, status, `action="/library/default/book/standalone/delete"`)
+	require.NotContains(t, status, `name="files"`, "retried as asked: records")
+}

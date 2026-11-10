@@ -19,18 +19,29 @@ package v1alpha1
 import commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 
 // DeletableKinds are the kinds the library delete acts on: every kind with a
-// library card and a folder of its own. Episode, Album, Book and Issue go
-// with their parent.
+// library card and a folder of its own, and the two leaves with a page of
+// their own that the 2026-11-10 non-video libraries design (§9.2, §9.3)
+// makes deletable -- an Album, whose files a delete removes from its
+// artist's folder along with its own subfolder but never the artist's, and
+// a Book, deletable only when standalone (no spec.authorRef): an author's
+// book goes with its author, which import's librarydelete refuses on the
+// Book itself and the ui's page never offers. Episode and Issue go with
+// their parent.
 func DeletableKinds() []commonv1.MediaKind {
 	return []commonv1.MediaKind{
 		commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist,
 		commonv1.MediaKindAuthor, commonv1.MediaKindAudiobook, commonv1.MediaKindComic,
+		commonv1.MediaKindAlbum, commonv1.MediaKindBook,
 	}
 }
 
 // ExclusionKindFor is the ImportExclusion kind that keeps a deleted item of
-// kind out, and false for a kind with none (Artist, Author, and every child
-// kind): the delete dialog offers "Add import list exclusion" only for these.
+// kind out, and false for a kind with none (Artist, Author, Album, Book and
+// every child kind): the delete dialog offers "Add import list exclusion"
+// only for these. An Album and a Book have an ExclusionKind, but no reader
+// honours one -- the scan creates movies and series only, and an import
+// list's exclusion lookup names no Open Library id -- so their delete
+// offers none.
 func ExclusionKindFor(kind commonv1.MediaKind) (ExclusionKind, bool) {
 	switch kind {
 	case commonv1.MediaKindMovie:

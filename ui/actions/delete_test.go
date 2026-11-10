@@ -88,3 +88,42 @@ func TestCancelDeleteClearsTheRequest(t *testing.T) {
 	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "heat"}, &m))
 	require.Equal(t, map[string]string{"keep": "me"}, m.Annotations)
 }
+
+// An album's and a standalone book's Delete (2026-11-10 non-video design
+// §9.2, §9.3) patch the three delete annotations and nothing else: the spec
+// -- the album's artist and release group, the book's work, profile and
+// root -- the status and the other annotations come back as they were,
+// and the patch is the kind's existing patch grant, no delete verb.
+func TestRequestDeleteOnAnAlbumAndAStandaloneBookPatchesOnlyTheAnnotations(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, catalogv1alpha1.AddToScheme(scheme))
+	album := &catalogv1alpha1.Album{
+		ObjectMeta: metav1.ObjectMeta{Name: "dsotm", Namespace: "default", Annotations: map[string]string{"keep": "me"}},
+		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "pink-floyd", ReleaseGroupID: "rg-dsotm", Monitored: new(true)},
+		Status:     catalogv1alpha1.AlbumStatus{Path: "/data/music/Pink Floyd/The Dark Side of the Moon (1973)", HasFile: true},
+	}
+	profile, root := "ebook", "books"
+	book := &catalogv1alpha1.Book{
+		ObjectMeta: metav1.ObjectMeta{Name: "standalone", Namespace: "default", Annotations: map[string]string{"keep": "me"}},
+		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL1W", QualityProfileRef: &profile, RootFolderRef: &root},
+		Status:     catalogv1alpha1.BookStatus{Path: "/data/books/A Standalone Book", HasFile: true},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(album, book).Build()
+	ctx := context.Background()
+
+	_, err := actions.RequestDelete(ctx, c, "default", commonv1.MediaKindAlbum, "dsotm", true, false)
+	require.NoError(t, err)
+	var gotAlbum catalogv1alpha1.Album
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "dsotm"}, &gotAlbum))
+	require.Equal(t, map[string]string{"keep": "me", catalogv1alpha1.AnnotationDelete: catalogv1alpha1.DeleteFiles}, gotAlbum.Annotations)
+	require.Equal(t, album.Spec, gotAlbum.Spec, "the spec is not the delete's to touch")
+	require.Equal(t, album.Status, gotAlbum.Status, "nor the status")
+
+	_, err = actions.RequestDelete(ctx, c, "default", commonv1.MediaKindBook, "standalone", false, false)
+	require.NoError(t, err)
+	var gotBook catalogv1alpha1.Book
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "standalone"}, &gotBook))
+	require.Equal(t, map[string]string{"keep": "me", catalogv1alpha1.AnnotationDelete: catalogv1alpha1.DeleteRecords}, gotBook.Annotations)
+	require.Equal(t, book.Spec, gotBook.Spec)
+	require.Equal(t, book.Status, gotBook.Status)
+}

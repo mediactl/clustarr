@@ -156,15 +156,23 @@ func (s *Server) albumPage(ctx context.Context, ns, name string) (views.AlbumVie
 // (views.Detail.Item; design §9.2): the album's ref, kind and title over
 // its artist's tab and root folder, the quality profile its spec overrides
 // else the artist's, its cover (through /art, ADR-0011), its release year,
-// and the live Album's monitoring, phase and file. The Edit dialog's
-// trigger, form and return are built from it (views.editDialog), and the
-// hero's profile fact reads it; the artist's own card is AlbumView.Artist,
-// for the poster, the fanart, the artist link and the rename pair.
+// the live Album's monitoring, phase and file, and its pending delete --
+// the three delete annotations, as the projection reads a card's -- so the
+// Delete button hides while import carries one out and the status fact
+// offers Retry and Cancel. The Edit and Delete dialogs' triggers, forms
+// and returns are built from it (views.editDialog, views.deleteDialog), and
+// the hero's profile fact reads it; the artist's own card is
+// AlbumView.Artist, for the poster, the fanart, the artist link and the
+// rename pair.
 func albumItem(a *catalogv1.Album, artist projection.LibraryItem, row views.AlbumRow) projection.LibraryItem {
+	ann := a.GetAnnotations()
 	item := projection.LibraryItem{
 		Ref: types.NamespacedName{Namespace: a.Namespace, Name: a.Name}, Kind: commonv1.MediaKindAlbum,
 		Title: row.DisplayTitle(), Tab: artist.Tab, RootFolder: artist.RootFolder, QualityProfileRef: artist.QualityProfileRef,
 		Monitored: row.Monitored, Phase: row.Phase, HasFile: row.HasFile,
+		DeleteMode:    ann[catalogv1.AnnotationDelete],
+		DeleteExclude: ann[catalogv1.AnnotationDeleteAddExclusion] == "true",
+		DeleteError:   ann[catalogv1.AnnotationDeleteError],
 	}
 	if ref := a.Spec.QualityProfileRef; ref != nil && *ref != "" {
 		item.QualityProfileRef = *ref

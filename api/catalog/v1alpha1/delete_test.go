@@ -36,15 +36,24 @@ func TestExclusionKindFor(t *testing.T) {
 		assert.True(t, ok, kind)
 		assert.Equal(t, want, got, kind)
 	}
-	for _, kind := range []commonv1.MediaKind{commonv1.MediaKindArtist, commonv1.MediaKindAuthor, commonv1.MediaKindEpisode} {
+	for _, kind := range []commonv1.MediaKind{
+		commonv1.MediaKindArtist, commonv1.MediaKindAuthor, commonv1.MediaKindEpisode,
+		commonv1.MediaKindAlbum, commonv1.MediaKindBook,
+	} {
 		_, ok := catalogv1alpha1.ExclusionKindFor(kind)
 		assert.False(t, ok, kind)
 	}
 }
 
+// An Album and a Book are deletable since the 2026-11-10 non-video
+// libraries design (§9.2, §9.3); Episode and Issue still go with their
+// parent.
 func TestDeletableKinds(t *testing.T) {
 	assert.ElementsMatch(t, []commonv1.MediaKind{
 		commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist,
 		commonv1.MediaKindAuthor, commonv1.MediaKindAudiobook, commonv1.MediaKindComic,
+		commonv1.MediaKindAlbum, commonv1.MediaKindBook,
 	}, catalogv1alpha1.DeletableKinds())
+	assert.NotContains(t, catalogv1alpha1.DeletableKinds(), commonv1.MediaKindEpisode)
+	assert.NotContains(t, catalogv1alpha1.DeletableKinds(), commonv1.MediaKindIssue)
 }

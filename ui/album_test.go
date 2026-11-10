@@ -337,8 +337,7 @@ func TestAlbumPageShowsTracksFilesAndFacts(t *testing.T) {
 	// card, its form posting to the album's edit route and returning to
 	// its page, its kind block fetched from the album's edit/fields route
 	// as the dialog opens, and no profile select beside Monitored (the
-	// profile is in the block, an override of the artist's). Delete acts
-	// on the artist and stays on its page.
+	// profile is in the block, an override of the artist's).
 	requireTag(t, bar, `data-edit-dialog="dsotm"`)
 	require.Contains(t, bar, "Edit - The Dark Side of the Moon")
 	requireTag(t, bar, `data-edit-form`, `action="/library/default/album/dsotm/edit"`)
@@ -346,7 +345,18 @@ func TestAlbumPageShowsTracksFilesAndFacts(t *testing.T) {
 	requireTag(t, bar, `data-edit-fields="album"`, `hx-get="/library/default/album/dsotm/edit/fields"`, `hx-trigger="intersect once"`)
 	require.NotContains(t, bar, `name="qualityProfile"`, "an album's profile is in its block")
 	require.NotContains(t, bar, `data-edit-dialog="pink-floyd"`, "the artist's Edit stays on the artist's page")
-	require.NotContains(t, bar, `data-action="delete"`, "Delete acts on the artist and stays on its page")
+	// Delete is the album's own too (design §9.2; catalogv1.DeletableKinds
+	// since 2026-11-10): the dialog over the album's card names the album's
+	// folder and its two files, posts to the album's delete route, and
+	// offers no import list exclusion, since none is honoured for an album.
+	requireTag(t, bar, `data-action="delete"`)
+	require.Contains(t, bar, "Delete The Dark Side of the Moon")
+	requireTag(t, bar, `action="/library/default/album/dsotm/delete"`)
+	require.Contains(t, section(t, bar, `data-delete-folder`), "/data/music/Pink Floyd/The Dark Side of the Moon (1973)")
+	require.Regexp(t, `data-delete-files>[^<]*2 file\(s\)`, bar)
+	requireTag(t, bar, `name="files"`, `value="true"`)
+	require.NotContains(t, bar, `name="exclude"`, "an album has no exclusion kind")
+	require.NotContains(t, bar, `data-action="delete-cancel"`, "no delete is pending")
 
 	requireTag(t, body, `data-nav="next"`, `href="/library/default/album/money-single"`)
 	require.NotContains(t, body, `data-nav="prev"`, "the earliest album has no previous")
@@ -523,4 +533,37 @@ func TestAlbumInteractiveSearchOpensLidarrsColumnsThroughTheSharedPanel(t *testi
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	require.NoError(t, c.List(t.Context(), &list, client.InNamespace("default")))
 	require.Len(t, list.Items, 4, "only the form post's Search; none for an unknown album")
+}
+
+// While import carries an album's delete out the page hides the Delete
+// button and the status fact reads Deleting with a Cancel; a refused one
+// reads why and offers Retry as it was asked (files, no exclusion) beside
+// the Cancel -- the album's card carries its delete annotations as a
+// projection card does (ui.albumItem).
+func TestAlbumPageShowsAPendingDeleteAndHidesTheButton(t *testing.T) {
+	srv, c := musicFixture(t)
+	var a catalogv1.Album
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "dsotm"}, &a))
+	a.Annotations = map[string]string{catalogv1.AnnotationDelete: catalogv1.DeleteFiles}
+	require.NoError(t, c.Update(t.Context(), &a))
+
+	body := getPath(t, srv, "/library/default/album/dsotm", false).Body.String()
+	require.NotContains(t, body, `data-action="delete"`, "no second request while one is pending")
+	status := section(t, body, `data-fact="status"`)
+	require.Contains(t, status, "Deleting")
+	requireTag(t, status, `data-action="delete-cancel"`)
+	requireTag(t, status, `action="/library/default/album/dsotm/delete/cancel"`)
+	require.NotContains(t, status, `data-action="delete-retry"`)
+
+	a.Annotations[catalogv1.AnnotationDeleteError] = "folder also holds media file wywh-01"
+	require.NoError(t, c.Update(t.Context(), &a))
+	body = getPath(t, srv, "/library/default/album/dsotm", false).Body.String()
+	status = section(t, body, `data-fact="status"`)
+	require.Contains(t, status, "Delete failed: folder also holds media file wywh-01")
+	retry := requireTag(t, status, `data-action="delete-retry"`)
+	require.NotEmpty(t, retry)
+	requireTag(t, status, `action="/library/default/album/dsotm/delete"`)
+	require.Contains(t, status, `name="files" value="true"`)
+	require.NotContains(t, status, `name="exclude"`)
+	requireTag(t, status, `data-action="delete-cancel"`)
 }

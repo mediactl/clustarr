@@ -95,7 +95,9 @@ func (e BookXEdition) URL() string { return "https://openlibrary.org/books/" + e
 
 // BookXActions are the book page's action bar: Refresh, Search,
 // Interactive, Rename, Edit and Delete, each rendered where the book takes
-// it (ItemActions).
+// it (ItemActions): Rename, Edit and Delete only on a standalone book,
+// which has a folder of its own (design §9.3), and Delete not while one is
+// pending, when the status fact carries Retry and Cancel instead.
 func BookXActions() []Action {
 	return []Action{ActionRefresh, ActionSearch, ActionInteractive, ActionRename, ActionEdit, ActionDelete}
 }
@@ -229,6 +231,12 @@ templ bookXHero(v BookXView) {
 							<span data-status={ episodeStripe(b.Status) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(episodeStripe(b.Status)) }></span>
 							{ bookXStatusLabel(v) }
 						</span>
+						if v.Item.DeleteError != "" {
+							@deleteRetry(v.Detail)
+						}
+						if v.Item.DeleteMode != "" {
+							@deleteCancel(v.Detail)
+						}
 					}
 					if v.Quality != "" {
 						@fact("quality", "Quality") {
@@ -289,6 +297,10 @@ func bookXReleasedLabel(b BookRow) string {
 // file is Downloaded or Cutoff Unmet (with the reason the catalog
 // recorded), else the status cell's own word.
 func bookXStatusLabel(v BookXView) string {
+	if v.Item.DeleteMode != "" {
+		// A standalone book's pending delete, as the movie page words it.
+		return statusLabel(v.Item)
+	}
 	s := v.Row.Status
 	if s.Kind != "file" {
 		return s.Label

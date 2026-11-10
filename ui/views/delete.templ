@@ -60,8 +60,17 @@ func FilesFolder(d Detail) string {
 	return dir
 }
 
-// deletable is whether the item's kind has the Delete button.
-func deletable(d Detail) bool { return slices.Contains(catalogv1.DeletableKinds(), d.Item.Kind) }
+// deletable is whether the item has the Delete button: a kind the library
+// delete acts on (catalogv1.DeletableKinds) -- a Book only when standalone,
+// the same spec.rootFolderRef that gives it a folder of its own and makes
+// it editable (d.CanScan, ui.bookHasFolder; 2026-11-10 design §9.3), since
+// an author's book goes with its author and librarydelete refuses it.
+func deletable(d Detail) bool {
+	if d.Item.Kind == commonv1.MediaKindBook {
+		return d.CanScan
+	}
+	return slices.Contains(catalogv1.DeletableKinds(), d.Item.Kind)
+}
 
 // excludable is whether the dialog offers "Add import list exclusion".
 func excludable(d Detail) bool {

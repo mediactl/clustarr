@@ -54,6 +54,23 @@ type Target struct {
 	// Donors are the item's and its children's audio donor folders,
 	// <Root>/.clustarr/donors/<uid> (anime dual-audio spec §6.2).
 	Donors []string
+	// Keep is a folder under Root the delete leaves standing and prunes no
+	// higher than, when the item's folder is only a part of another item's:
+	// an Album's Artist's folder (2026-11-10 non-video design §9.2), which
+	// the artist's other albums and its artist.nfo share. "" means Root.
+	// Folder, when set, is strictly under it (Check).
+	Keep string
+}
+
+// keep is the folder the delete never removes and never prunes past: Keep
+// when it is strictly under Root, else Root. A Keep outside the Root is no
+// bound at all -- pruning up to it could remove the Root -- so it is
+// ignored rather than trusted.
+func (t Target) keep() string {
+	if t.Keep != "" && fsops.StrictlyUnder(t.Keep, t.Root) {
+		return t.Keep
+	}
+	return t.Root
 }
 
 // TargetKey is the "<kind>/<name>" a MediaRef names: the remediation loop's
@@ -107,15 +124,20 @@ type Occupant struct {
 
 // Check refuses, wrapping ErrRefused, a delete of files that would reach
 // outside the item: no RootFolder, a folder or path not strictly under it,
-// a folder holding a MediaFile of another item (all is every MediaFile in
-// the namespace), or a folder at or above an occupant -- another item's
-// folder or a RootFolder, which may hold files no MediaFile records yet.
+// a folder not strictly under the Keep folder it is a part of (an album's
+// folder at or above its artist's), a folder holding a MediaFile of
+// another item (all is every MediaFile in the namespace), or a folder at
+// or above an occupant -- another item's folder or a RootFolder, which may
+// hold files no MediaFile records yet.
 func Check(t Target, all []catalogv1alpha1.MediaFile, occupants []Occupant) error {
 	if t.Root == "" {
 		return fmt.Errorf("%w: the item's root folder is unknown", ErrRefused)
 	}
 	if t.Folder != "" && !fsops.StrictlyUnder(t.Folder, t.Root) {
 		return fmt.Errorf("%w: folder %q is not inside root folder %q", ErrRefused, t.Folder, t.Root)
+	}
+	if t.Keep != "" && t.Folder != "" && !fsops.StrictlyUnder(t.Folder, t.Keep) {
+		return fmt.Errorf("%w: folder %q is not inside the folder it shares, %q", ErrRefused, t.Folder, t.Keep)
 	}
 	for _, p := range t.paths() {
 		if !fsops.StrictlyUnder(p, t.Root) {
@@ -150,9 +172,11 @@ func atOrUnder(path, dir string) bool {
 
 // RemoveFromDisk removes the folder, recursively, and each recorded path
 // outside it, permanently, then prunes the directories that leaves empty up
-// to (never including) the root. A path already gone is done, so a retry
-// after a partial run completes. Symlinks are never followed: a symlinked
-// folder loses the link, not its target's contents (fsops.SafeRemove).
+// to (never including) the root -- or the Keep folder, an album's artist's,
+// which stays whatever it is left holding. A path already gone is done, so
+// a retry after a partial run completes. Symlinks are never followed: a
+// symlinked folder loses the link, not its target's contents
+// (fsops.SafeRemove).
 func RemoveFromDisk(ctx context.Context, t Target) error {
 	var removed []string
 	remove := func(p string) error {
@@ -184,8 +208,9 @@ func RemoveFromDisk(ctx context.Context, t Target) error {
 			return err
 		}
 	}
+	keep := t.keep()
 	for _, p := range removed {
-		fsops.PruneEmptyDirs(t.Root, filepath.Dir(p))
+		fsops.PruneEmptyDirs(keep, filepath.Dir(p))
 	}
 	return nil
 }

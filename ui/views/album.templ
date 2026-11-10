@@ -33,7 +33,7 @@ import (
 
 // An album's page (2026-11-10 design §9.2; plan W4b.1) is the episode
 // page's analogue: the action bar (Refresh, Search, Interactive, Rename,
-// Edit), a hero on the artist's fanart -- the cover, the bookmark and title, the
+// Edit, Delete), a hero on the artist's fanart -- the cover, the bookmark and title, the
 // artist, release date, type, label, duration, track summary and
 // MusicBrainz logos, the facts -- then the Tracks table, the Files section
 // and the neighbouring albums. Its details modal (AlbumModal) is the book
@@ -55,10 +55,14 @@ templ AlbumPage(v AlbumView) {
 // metadata), Search Album, Interactive Search (AlbumSearchModal, into
 // #album-modal), for an artist with a folder the artist's Rename pair --
 // an album's files live in its artist's folder, which the rename restricts
-// itself to -- and the album's own Edit (editDialog over the album's card,
+// itself to -- the album's own Edit (editDialog over the album's card,
 // v.Item: Monitored, and in its block the profile override and the release
-// choice; design §9.2). Delete acts on the artist and stays on the artist's
-// page. Every form returns here.
+// choice; design §9.2) and its own Delete (deleteDialog over the same card,
+// posting to the album's delete route with the album's folder and files
+// named; hidden while a delete is pending, when the status fact carries
+// Retry and Cancel): import removes the album's track files and its own
+// subfolder, never the artist's folder, or its records alone. Every form
+// but the delete's returns here; the delete returns to the tab.
 templ albumToolbar(v AlbumView) {
 	{{ name, here := v.Row.Name, v.Row.URL() }}
 	@actionBar() {
@@ -71,6 +75,7 @@ templ albumToolbar(v AlbumView) {
 			@actionForm("rename-"+name, libraryActionURL(v.Artist, "rename"), []Field{{"return", here}, {"rename", "apply"}}, "file-symlink", "Rename", "Rename the artist's files", "rename-apply", nil)
 		}
 		@itemAction(v.Detail, ActionEdit)
+		@itemAction(v.Detail, ActionDelete)
 	}
 }
 
@@ -166,8 +171,14 @@ templ albumHero(v AlbumView) {
 					@fact("status", "Status") {
 						<span class="flex items-center gap-2">
 							<span data-status={ episodeStripe(a.Status) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(episodeStripe(a.Status)) }></span>
-							{ albumStatusLabel(a) }
+							{ albumPageStatusLabel(v) }
 						</span>
+						if li.DeleteError != "" {
+							@deleteRetry(v.Detail)
+						}
+						if li.DeleteMode != "" {
+							@deleteCancel(v.Detail)
+						}
 					}
 					if a.Quality != "" {
 						@fact("quality", "Quality") {
@@ -255,6 +266,16 @@ func monitoredFact(monitored bool) string {
 // albumStatusLabel is the Status fact in words, as the episode page's: a
 // file is Downloaded or Cutoff Unmet with the reason the catalog recorded
 // (TracksMissing reads "Tracks missing"), else the status cell's own word.
+// albumPageStatusLabel is the album page's Status fact: a pending delete's
+// state ("Deleting", "Delete failed: ..."; statusLabel over the album's
+// card) while import carries one out, else the row's label.
+func albumPageStatusLabel(v AlbumView) string {
+	if v.Item.DeleteMode != "" {
+		return statusLabel(v.Item)
+	}
+	return albumStatusLabel(v.Row)
+}
+
 func albumStatusLabel(a AlbumRow) string {
 	s := a.Status
 	if s.Kind != "file" {

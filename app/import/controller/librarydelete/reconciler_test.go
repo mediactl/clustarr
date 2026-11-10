@@ -34,6 +34,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -44,10 +45,15 @@ func (i builderIndexer) IndexField(_ context.Context, obj client.Object, field s
 	return nil
 }
 
+// newClient is a fake client with the controller's own indexes and the
+// remediation loop's MediaFile indexes, mfindex.Item among them, which the
+// loop registers in a process and a test running a reader without the loop
+// registers itself (mfindex.Index's doc).
 func newClient(t *testing.T, objs ...client.Object) client.Client {
 	t.Helper()
 	b := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(objs...)
 	require.NoError(t, RegisterIndexes(context.Background(), builderIndexer{b}))
+	require.NoError(t, mfindex.Register(context.Background(), builderIndexer{b}))
 	return b.Build()
 }
 
