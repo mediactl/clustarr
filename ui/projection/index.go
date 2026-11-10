@@ -230,7 +230,9 @@ func searchRank(s *catalogv1.Search) int {
 // ids a Plex match request's guid carries (tmdb, tvdb, imdb -- D.4), a
 // series' episodes (for the /children and /grandchildren routes, D.2), and
 // the movie and episode files by path suffix (rule 0 of the filename-match
-// spec, 2026-09-30). It is
+// spec, 2026-09-30) -- and, under [IndexOptions.Music], the same over
+// Artist, Album, Author and Audiobook for the music and audiobook roots
+// (2026-11-10 design §7.5). It is
 // built on demand (BuildIndex) rather than riding the shared Projection
 // ticker: unlike the streamed pages, the Plex provider is an occasional,
 // unauthenticated protocol call from Plex Media Server, not an open SSE
@@ -281,9 +283,61 @@ type Index struct {
 	movieByName   map[types.NamespacedName]*catalogv1.Movie
 	episodeByName map[types.NamespacedName]*catalogv1.Episode
 
-	// filesByBase buckets every movie and episode MediaFile by its file's
+	// filesByBase buckets every movie and episode MediaFile -- and, under
+	// [IndexOptions.Music], every album and audiobook one -- by its file's
 	// base name, for [Index.FilesEndingWith].
 	filesByBase map[string][]*catalogv1.MediaFile
+
+	// The music and audiobook roots' lookups (2026-11-10 design §7.5),
+	// built only under [IndexOptions.Music]: a cluster with the roots off
+	// lists no Artist, Album, Author or Audiobook and pays nothing for
+	// them. music records whether they were built ([Index.Music]).
+	music      bool
+	artists    map[types.UID]*catalogv1.Artist
+	albums     map[types.UID]*catalogv1.Album
+	authors    map[types.UID]*catalogv1.Author
+	audiobooks map[types.UID]*catalogv1.Audiobook
+
+	// The same objects by namespace and name: an Album's spec.artistRef,
+	// an Audiobook's spec.authorRef and a MediaFile's spec.mediaRef name
+	// their item that way, not by UID.
+	artistByName    map[types.NamespacedName]*catalogv1.Artist
+	albumByName     map[types.NamespacedName]*catalogv1.Album
+	authorByName    map[types.NamespacedName]*catalogv1.Author
+	audiobookByName map[types.NamespacedName]*catalogv1.Audiobook
+
+	// mbArtists and mbAlbums resolve a match request's "mbid://" guid
+	// ([Index.ByMBID]): an Artist by spec.musicBrainzID, an Album by
+	// spec.releaseGroupID. asins resolves an "asin://" guid
+	// ([Index.ByASIN]) by Audiobook spec.asin.
+	mbArtists map[string]*catalogv1.Artist
+	mbAlbums  map[string]*catalogv1.Album
+	asins     map[string]*catalogv1.Audiobook
+
+	// albumsByArtist buckets every Album by its Artist's UID, through
+	// spec.artistRef (the Artist's name in the Album's namespace), sorted
+	// by release date then title; albumArtist is its reverse. The
+	// audiobook pair is the same through spec.authorRef (design D11), and
+	// unlinkedAudiobooks buckets the Audiobooks with no authorRef by their
+	// first credited author's name, for the audiobooks root's synthetic
+	// artist (design §7.2).
+	albumsByArtist     map[types.UID][]*catalogv1.Album
+	albumArtist        map[types.UID]types.UID
+	audiobooksByAuthor map[types.UID][]*catalogv1.Audiobook
+	audiobookAuthor    map[types.UID]types.UID
+	unlinkedAudiobooks map[string][]*catalogv1.Audiobook
+
+	// mediaFileByName keys the album and audiobook MediaFiles by name, the
+	// way an Album's status.tracks[].fileRef and an Audiobook's
+	// status.fileRefs name them.
+	mediaFileByName map[types.NamespacedName]*catalogv1.MediaFile
+}
+
+// IndexOptions says what [BuildIndexWith] builds beyond the movie and TV
+// lookups. Music adds the music and audiobook roots' lists and maps
+// (2026-11-10 design §7.5), which only `--plex-music-provider` needs.
+type IndexOptions struct {
+	Music bool
 }
 
 // BuildIndex lists every Movie, Series and Episode once each and returns the
@@ -291,8 +345,16 @@ type Index struct {
 // cluster configured) returns an empty, still-usable Index rather than an
 // error, matching every other read-only seam in this package (a nil
 // Options.Reader renders "nothing to show", never a 500). opts are passed to
-// every List ([NewIndexMemo] passes client.UnsafeDisableDeepCopy).
+// every List ([NewIndexMemo] passes client.UnsafeDisableDeepCopy). It is
+// [BuildIndexWith] with no music lookups.
 func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption) (*Index, error) {
+	return BuildIndexWith(ctx, r, IndexOptions{}, opts...)
+}
+
+// BuildIndexWith is [BuildIndex] with [IndexOptions]: under o.Music it
+// also lists every Artist, Album, Author and Audiobook, for the music and
+// audiobook roots (2026-11-10 design §7.5).
+func BuildIndexWith(ctx context.Context, r client.Reader, o IndexOptions, opts ...client.ListOption) (*Index, error) {
 	idx := &Index{
 		movies:           map[types.UID]*catalogv1.Movie{},
 		series:           map[types.UID]*catalogv1.Series{},
@@ -313,6 +375,25 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 		collections:          map[int64][]*catalogv1.Movie{},
 		collectionPlex:       map[string]int64{},
 		collectionPlexShared: map[string]bool{},
+
+		music:              o.Music,
+		artists:            map[types.UID]*catalogv1.Artist{},
+		albums:             map[types.UID]*catalogv1.Album{},
+		authors:            map[types.UID]*catalogv1.Author{},
+		audiobooks:         map[types.UID]*catalogv1.Audiobook{},
+		artistByName:       map[types.NamespacedName]*catalogv1.Artist{},
+		albumByName:        map[types.NamespacedName]*catalogv1.Album{},
+		authorByName:       map[types.NamespacedName]*catalogv1.Author{},
+		audiobookByName:    map[types.NamespacedName]*catalogv1.Audiobook{},
+		mbArtists:          map[string]*catalogv1.Artist{},
+		mbAlbums:           map[string]*catalogv1.Album{},
+		asins:              map[string]*catalogv1.Audiobook{},
+		albumsByArtist:     map[types.UID][]*catalogv1.Album{},
+		albumArtist:        map[types.UID]types.UID{},
+		audiobooksByAuthor: map[types.UID][]*catalogv1.Audiobook{},
+		audiobookAuthor:    map[types.UID]types.UID{},
+		unlinkedAudiobooks: map[string][]*catalogv1.Audiobook{},
+		mediaFileByName:    map[types.NamespacedName]*catalogv1.MediaFile{},
 	}
 	if r == nil {
 		return idx, nil
@@ -388,6 +469,12 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 		}
 	}
 
+	if o.Music {
+		if err := idx.listMusic(ctx, r, opts...); err != nil {
+			return nil, err
+		}
+	}
+
 	var files catalogv1.MediaFileList
 	if err := r.List(ctx, &files, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list media files: %w", err)
@@ -396,6 +483,11 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 		f := &files.Items[i]
 		switch f.Spec.MediaRef.Kind {
 		case commonv1.MediaKindMovie, commonv1.MediaKindEpisode:
+		case commonv1.MediaKindAlbum, commonv1.MediaKindAudiobook:
+			if !o.Music {
+				continue
+			}
+			idx.mediaFileByName[types.NamespacedName{Namespace: f.Namespace, Name: f.Name}] = f
 		default:
 			continue
 		}
@@ -407,6 +499,159 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 	}
 
 	return idx, nil
+}
+
+// listMusic lists every Artist, Album, Author and Audiobook once each into
+// the music maps (design §7.5). Artists before Albums and Authors before
+// Audiobooks, since a child is bucketed under its container by the name
+// its spec names.
+func (idx *Index) listMusic(ctx context.Context, r client.Reader, opts ...client.ListOption) error {
+	var artists catalogv1.ArtistList
+	if err := r.List(ctx, &artists, opts...); err != nil {
+		return fmt.Errorf("projection: list artists: %w", err)
+	}
+	for i := range artists.Items {
+		a := &artists.Items[i]
+		idx.artists[a.UID] = a
+		idx.artistByName[types.NamespacedName{Namespace: a.Namespace, Name: a.Name}] = a
+		if a.Spec.MusicBrainzID != "" {
+			idx.mbArtists[a.Spec.MusicBrainzID] = a
+		}
+	}
+
+	var albums catalogv1.AlbumList
+	if err := r.List(ctx, &albums, opts...); err != nil {
+		return fmt.Errorf("projection: list albums: %w", err)
+	}
+	for i := range albums.Items {
+		al := &albums.Items[i]
+		idx.albums[al.UID] = al
+		idx.albumByName[types.NamespacedName{Namespace: al.Namespace, Name: al.Name}] = al
+		if al.Spec.ReleaseGroupID != "" {
+			idx.mbAlbums[al.Spec.ReleaseGroupID] = al
+		}
+		if artist, ok := idx.artistByName[types.NamespacedName{Namespace: al.Namespace, Name: al.Spec.ArtistRef}]; ok {
+			idx.albumsByArtist[artist.UID] = append(idx.albumsByArtist[artist.UID], al)
+			idx.albumArtist[al.UID] = artist.UID
+		}
+	}
+	for _, als := range idx.albumsByArtist {
+		slices.SortFunc(als, compareAlbums)
+	}
+
+	var authors catalogv1.AuthorList
+	if err := r.List(ctx, &authors, opts...); err != nil {
+		return fmt.Errorf("projection: list authors: %w", err)
+	}
+	for i := range authors.Items {
+		a := &authors.Items[i]
+		idx.authors[a.UID] = a
+		idx.authorByName[types.NamespacedName{Namespace: a.Namespace, Name: a.Name}] = a
+	}
+
+	var audiobooks catalogv1.AudiobookList
+	if err := r.List(ctx, &audiobooks, opts...); err != nil {
+		return fmt.Errorf("projection: list audiobooks: %w", err)
+	}
+	for i := range audiobooks.Items {
+		ab := &audiobooks.Items[i]
+		idx.audiobooks[ab.UID] = ab
+		idx.audiobookByName[types.NamespacedName{Namespace: ab.Namespace, Name: ab.Name}] = ab
+		if ab.Spec.ASIN != "" {
+			idx.asins[ab.Spec.ASIN] = ab
+		}
+		if ref := ab.Spec.AuthorRef; ref != nil && *ref != "" {
+			if author, ok := idx.authorByName[types.NamespacedName{Namespace: ab.Namespace, Name: *ref}]; ok {
+				idx.audiobooksByAuthor[author.UID] = append(idx.audiobooksByAuthor[author.UID], ab)
+				idx.audiobookAuthor[ab.UID] = author.UID
+				continue
+			}
+		}
+		name := FirstAuthorName(ab)
+		idx.unlinkedAudiobooks[name] = append(idx.unlinkedAudiobooks[name], ab)
+	}
+	for _, abs := range idx.audiobooksByAuthor {
+		slices.SortFunc(abs, compareAudiobooks)
+	}
+	for _, abs := range idx.unlinkedAudiobooks {
+		slices.SortFunc(abs, compareAudiobooks)
+	}
+	return nil
+}
+
+// FirstAuthorName is an Audiobook's first credited author's name
+// (status.metadata.authors[0]), "" when it has none: what the audiobooks
+// root's synthetic artist is keyed by for an Audiobook with no authorRef
+// (design §7.2).
+func FirstAuthorName(ab *catalogv1.Audiobook) string {
+	if md := ab.Status.Metadata; md != nil && len(md.Authors) > 0 {
+		return md.Authors[0].Name
+	}
+	return ""
+}
+
+// compareAlbums orders an artist's albums by release date, then title, then
+// name, so a listing is stable across builds.
+func compareAlbums(a, b *catalogv1.Album) int {
+	if c := compareDates(albumReleaseDate(a), albumReleaseDate(b)); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(albumTitle(a), albumTitle(b)); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.Name, b.Name)
+}
+
+// compareAudiobooks is [compareAlbums] for an author's audiobooks.
+func compareAudiobooks(a, b *catalogv1.Audiobook) int {
+	if c := compareDates(audiobookReleaseDate(a), audiobookReleaseDate(b)); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(audiobookTitle(a), audiobookTitle(b)); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.Name, b.Name)
+}
+
+// compareDates orders two optional dates, an unknown one last.
+func compareDates(a, b *metav1.Time) int {
+	switch {
+	case a == nil && b == nil:
+		return 0
+	case a == nil:
+		return 1
+	case b == nil:
+		return -1
+	}
+	return a.Time.Compare(b.Time)
+}
+
+func albumReleaseDate(a *catalogv1.Album) *metav1.Time {
+	if a.Status.Metadata == nil {
+		return nil
+	}
+	return a.Status.Metadata.ReleaseDate
+}
+
+func albumTitle(a *catalogv1.Album) string {
+	if a.Status.Metadata == nil {
+		return ""
+	}
+	return a.Status.Metadata.Title
+}
+
+func audiobookReleaseDate(a *catalogv1.Audiobook) *metav1.Time {
+	if a.Status.Metadata == nil {
+		return nil
+	}
+	return a.Status.Metadata.ReleaseDate
+}
+
+func audiobookTitle(a *catalogv1.Audiobook) string {
+	if a.Status.Metadata == nil {
+		return ""
+	}
+	return a.Status.Metadata.Title
 }
 
 // ByUID returns the Movie, Series or Episode with the given UID -- Plex's
@@ -422,6 +667,18 @@ func (idx *Index) ByUID(uid types.UID) (client.Object, bool) {
 	}
 	if e, ok := idx.episodes[uid]; ok {
 		return e, true
+	}
+	if a, ok := idx.artists[uid]; ok {
+		return a, true
+	}
+	if al, ok := idx.albums[uid]; ok {
+		return al, true
+	}
+	if a, ok := idx.authors[uid]; ok {
+		return a, true
+	}
+	if ab, ok := idx.audiobooks[uid]; ok {
+		return ab, true
 	}
 	return nil, false
 }
@@ -592,7 +849,8 @@ func (idx *Index) SeriesOfEpisode(episodeUID types.UID) (*catalogv1.Series, bool
 	return s, ok
 }
 
-// FilesEndingWith returns the movie and episode MediaFiles whose spec.path
+// FilesEndingWith returns the movie and episode MediaFiles -- and, under
+// [IndexOptions.Music], the album and audiobook ones -- whose spec.path
 // ends with "/"+rel. rel is a clean relative path to the file from some
 // folder above it, as Plex names a match request's file relative to its
 // own library folder; the caller cleans and vets it.
@@ -617,6 +875,176 @@ func (idx *Index) MovieByName(namespace, name string) (*catalogv1.Movie, bool) {
 func (idx *Index) EpisodeByName(namespace, name string) (*catalogv1.Episode, bool) {
 	e, ok := idx.episodeByName[types.NamespacedName{Namespace: namespace, Name: name}]
 	return e, ok
+}
+
+// Music reports whether the music and audiobook lookups below were built
+// ([IndexOptions.Music]); without them every one answers "not found".
+func (idx *Index) Music() bool { return idx.music }
+
+// ArtistByUID narrows [Index.ByUID] to an Artist.
+func (idx *Index) ArtistByUID(uid types.UID) (*catalogv1.Artist, bool) {
+	a, ok := idx.artists[uid]
+	return a, ok
+}
+
+// AlbumByUID narrows [Index.ByUID] to an Album.
+func (idx *Index) AlbumByUID(uid types.UID) (*catalogv1.Album, bool) {
+	a, ok := idx.albums[uid]
+	return a, ok
+}
+
+// AuthorByUID narrows [Index.ByUID] to an Author.
+func (idx *Index) AuthorByUID(uid types.UID) (*catalogv1.Author, bool) {
+	a, ok := idx.authors[uid]
+	return a, ok
+}
+
+// AudiobookByUID narrows [Index.ByUID] to an Audiobook.
+func (idx *Index) AudiobookByUID(uid types.UID) (*catalogv1.Audiobook, bool) {
+	a, ok := idx.audiobooks[uid]
+	return a, ok
+}
+
+// Artists returns every indexed Artist, for the music root's title match.
+// Order is unspecified; the caller sorts.
+func (idx *Index) Artists() []*catalogv1.Artist {
+	out := make([]*catalogv1.Artist, 0, len(idx.artists))
+	for _, a := range idx.artists {
+		out = append(out, a)
+	}
+	return out
+}
+
+// Albums returns every indexed Album. Order is unspecified.
+func (idx *Index) Albums() []*catalogv1.Album {
+	out := make([]*catalogv1.Album, 0, len(idx.albums))
+	for _, a := range idx.albums {
+		out = append(out, a)
+	}
+	return out
+}
+
+// Authors returns every indexed Author. Order is unspecified.
+func (idx *Index) Authors() []*catalogv1.Author {
+	out := make([]*catalogv1.Author, 0, len(idx.authors))
+	for _, a := range idx.authors {
+		out = append(out, a)
+	}
+	return out
+}
+
+// Audiobooks returns every indexed Audiobook. Order is unspecified.
+func (idx *Index) Audiobooks() []*catalogv1.Audiobook {
+	out := make([]*catalogv1.Audiobook, 0, len(idx.audiobooks))
+	for _, a := range idx.audiobooks {
+		out = append(out, a)
+	}
+	return out
+}
+
+// AlbumsOf returns the Albums whose spec.artistRef names the Artist with
+// the given UID, by release date then title (the music root's
+// artist->albums children). The slice is a copy, as [Index.Episodes]' is.
+func (idx *Index) AlbumsOf(artistUID types.UID) []*catalogv1.Album {
+	return append([]*catalogv1.Album(nil), idx.albumsByArtist[artistUID]...)
+}
+
+// ArtistOfAlbum returns the Artist an Album's spec.artistRef names,
+// [Index.AlbumsOf]'s reverse.
+func (idx *Index) ArtistOfAlbum(albumUID types.UID) (*catalogv1.Artist, bool) {
+	owner, ok := idx.albumArtist[albumUID]
+	if !ok {
+		return nil, false
+	}
+	a, ok := idx.artists[owner]
+	return a, ok
+}
+
+// AudiobooksOf returns the Audiobooks whose spec.authorRef names the Author
+// with the given UID, by release date then title. The slice is a copy.
+func (idx *Index) AudiobooksOf(authorUID types.UID) []*catalogv1.Audiobook {
+	return append([]*catalogv1.Audiobook(nil), idx.audiobooksByAuthor[authorUID]...)
+}
+
+// AuthorOfAudiobook returns the Author an Audiobook's spec.authorRef names,
+// false for an Audiobook without one (see [Index.UnlinkedAudiobooks]).
+func (idx *Index) AuthorOfAudiobook(audiobookUID types.UID) (*catalogv1.Author, bool) {
+	owner, ok := idx.audiobookAuthor[audiobookUID]
+	if !ok {
+		return nil, false
+	}
+	a, ok := idx.authors[owner]
+	return a, ok
+}
+
+// UnlinkedAudiobooks returns the Audiobooks with no resolvable
+// spec.authorRef, bucketed by their first credited author's name
+// ([FirstAuthorName]; "" for one crediting nobody), each bucket by release
+// date then title: the audiobooks root's synthetic artists (design §7.2).
+// The map and its slices are copies.
+func (idx *Index) UnlinkedAudiobooks() map[string][]*catalogv1.Audiobook {
+	out := make(map[string][]*catalogv1.Audiobook, len(idx.unlinkedAudiobooks))
+	for name, abs := range idx.unlinkedAudiobooks {
+		out[name] = append([]*catalogv1.Audiobook(nil), abs...)
+	}
+	return out
+}
+
+// ByMBID resolves a match request's "mbid://<id>" guid (design §7.3): an
+// Artist by spec.musicBrainzID for kind artist, an Album by
+// spec.releaseGroupID for kind album. A recording id names no object of
+// its own (a track is a slice of its Album's status.tracks), so no other
+// kind resolves.
+func (idx *Index) ByMBID(kind commonv1.MediaKind, id string) (client.Object, bool) {
+	switch kind {
+	case commonv1.MediaKindArtist:
+		a, ok := idx.mbArtists[id]
+		return a, ok
+	case commonv1.MediaKindAlbum:
+		a, ok := idx.mbAlbums[id]
+		return a, ok
+	default:
+		return nil, false
+	}
+}
+
+// ByASIN resolves a match request's "asin://<ASIN>" guid against Audiobook
+// spec.asin (design §7.3).
+func (idx *Index) ByASIN(asin string) (*catalogv1.Audiobook, bool) {
+	a, ok := idx.asins[asin]
+	return a, ok
+}
+
+// ArtistByName returns the Artist an Album's spec.artistRef names.
+func (idx *Index) ArtistByName(namespace, name string) (*catalogv1.Artist, bool) {
+	a, ok := idx.artistByName[types.NamespacedName{Namespace: namespace, Name: name}]
+	return a, ok
+}
+
+// AlbumByName returns the Album a MediaFile's spec.mediaRef names.
+func (idx *Index) AlbumByName(namespace, name string) (*catalogv1.Album, bool) {
+	a, ok := idx.albumByName[types.NamespacedName{Namespace: namespace, Name: name}]
+	return a, ok
+}
+
+// AuthorByName returns the Author an Audiobook's spec.authorRef names.
+func (idx *Index) AuthorByName(namespace, name string) (*catalogv1.Author, bool) {
+	a, ok := idx.authorByName[types.NamespacedName{Namespace: namespace, Name: name}]
+	return a, ok
+}
+
+// AudiobookByName returns the Audiobook a MediaFile's spec.mediaRef names.
+func (idx *Index) AudiobookByName(namespace, name string) (*catalogv1.Audiobook, bool) {
+	a, ok := idx.audiobookByName[types.NamespacedName{Namespace: namespace, Name: name}]
+	return a, ok
+}
+
+// MediaFileByName returns the album or audiobook MediaFile an Album's
+// status.tracks[].fileRef or an Audiobook's status.fileRefs names, under
+// [IndexOptions.Music] only.
+func (idx *Index) MediaFileByName(namespace, name string) (*catalogv1.MediaFile, bool) {
+	f, ok := idx.mediaFileByName[types.NamespacedName{Namespace: namespace, Name: name}]
+	return f, ok
 }
 
 // DownloadRow is one grab entry on the Downloads page (ADR-0019 §6.12): the
