@@ -42,7 +42,7 @@ One Go module, five binaries (ADR-0018,
 | Binary | Image | Runs |
 | --- | --- | --- |
 | `cmd/manager` (`internal/cli/manager`) | `clustarr` (static, distroless) | the control plane (ADR-0019): every reconciler and leader-only runnable of the six services, one lease (`manager.clustarr.io`) and one cache, registered by `app/<svc>/manager`; the MediaFile remediation loop with its file and item keys (`app/remediation`, ADR-0016) and transcode admission; task admission and routing (`app/dispatch`) and the intake of the agents' candidates, scan observations and advisories (`app/intake`); ensures the NATS topology; serves `external.metrics.k8s.io` and owns the agents' HPAs (`app/autoscale`); the object-store maintenance loop (`app/maintenance`) |
-| `cmd/agent --domain <d>` (`internal/cli/agent`) | `native` (cgo) | one domain per agent process, never leader-elected, registered by `app/<svc>/agent`, read-only to Kubernetes (`k8s.ReadOnly`): `catalog` (search answers, overlay renders), `events` (RSS matcher), `metadata` (gateway, TheIntroDB markers, artwork fetch), `import` (scan observations, inspect and execute imports, list snapshots, recycle sweep, probe tasks), `index` (release index and its blocklist, search/download/query/blocklist RPC, RSS poll, Torznab facade), `caption` (subtitle fetch, embedded extraction), `torrent-engine` and `usenet-engine` (rendered by the manager's DownloadClient controller: engine commands in, transfer and engine records out) |
+| `cmd/agent --domain <d>` (`internal/cli/agent`) | `native` (cgo) | one domain per agent process, never leader-elected, registered by `app/<svc>/agent`, read-only to Kubernetes (`k8s.ReadOnly`): `catalog` (search answers, overlay renders), `events` (RSS matcher), `metadata` (gateway, TheIntroDB markers, artwork fetch), `import` (scan observations, inspect and execute imports, list snapshots, recycle sweep, probe tasks, the NFO writes of ADR-0022), `index` (release index and its blocklist, search/download/query/blocklist RPC, RSS poll, Torznab facade), `caption` (subtitle fetch, embedded extraction), `torrent-engine` and `usenet-engine` (rendered by the manager's DownloadClient controller: engine commands in, transfer and engine records out) |
 | `cmd/ui` (`internal/cli/ui`) | `clustarr` | the web UI and the Plex provider |
 | `cmd/markers` | `native` | segment detection (`app/segments/worker`) on ffgo and ONNX Runtime |
 | `cmd/transcode` | `native` | transcode pool and graft Jobs (`app/transcode/worker`) on ffgo |
@@ -1874,6 +1874,101 @@ by TMDB id) into `collection.plexID`, and its summary, poster and background
 from TMDB into the movie's extended document. Both providers declare `match`,
 which Plex's provider docs require.
 
+## Music, books, comics and audiobooks
+
+The four non-video libraries reached the movies' and TV's parity on
+2026-11-10 (owner: "just like we did the movies and TV";
+`docs/superpowers/specs/2026-11-10-non-video-libraries-design.md`, D1-D15,
+with the plan's per-task "Done" notes naming every leftover). The shape:
+
+- **Containers are loop keys.** Artist, Author and Comic are container item
+  keys of the remediation loop beside Series (`remediation.KindArtist`,
+  `KindAuthor`, `KeyKind.Container()`); each pass fans its children out
+  behind the in-process `app/remediation/childsync` memo (due again only
+  when the spec generation, `metadata.refreshedAt` or `addOptionsApplied`
+  moved; a subpackage because `app/remediation` imports the three
+  controller packages for their indexes), folds them into
+  `rollup.Container` (one `ContainerRollup` inline on the three kinds:
+  phase, missing/downloading/cutoff-unmet child counts, next and previous
+  release dates) and records phase edges as Events (`rollup.Reporter`).
+  The standalone artist and author controllers and
+  `metadataset.Incorporator` are gone. A container's monitoring gates its
+  children (`itemread.Monitored`: an Album's Artist, a Book's or an
+  Audiobook's Author, an Issue's Comic), as a Series gates its episodes.
+- **One leaf vocabulary.** Album, Book, Audiobook and Issue read one
+  `commonv1.LeafPhase` (Pending, Unavailable, Wanted, Delayed, Downloading,
+  Imported, CutoffUnmet, CutoffUnevaluated, Unmonitored) and a
+  `cutoffReason` through `rollup.LeafPhase`, with `hasFile`,
+  `fileQuality`, `fileFormatScore`, `fileFormat` (Book, Issue), an Album's
+  `trackSummary` ("files/tracks", reason `TracksMissing` while short) and an
+  Audiobook's `partCount`. Issue's Mylar `state` and the leaves' HasFile and
+  CutoffMet conditions went cold turkey (2026-11-10); the leaves skip idle
+  items at start as Episode does (`rollup.LeafIdleAtStart`).
+- **Every album track is attributed, never guessed** (D6): an album
+  download's or folder's audio files are attributed to the selected
+  release's tracks by their tags (disc and track number, recording id), then
+  their name (`release.ParseTrackFileName`), then a lone file's one track;
+  a file for no track or a second file for one track is `needsPerson`
+  naming the track (`fileimport.AttributeTrack`; the rescan does the same
+  and lists an unattributable file in `status.unmatched`). An audiobook's
+  parts are ordered by `MediaFileSpec.partIndex` (tags' track number, else
+  the name's part through `release.PartOf`, else path order). The probe
+  records a music or audiobook file's format tags, sample rate and bit depth
+  and a comic archive's or PDF's page count (`pkg/mediainfo/pagecount`, the
+  import agent's alone; `ProbeVersion` 4, which re-probed every file once).
+- **Naming is kind-neutral** (D7): `{PartNumber}`, `{PartCount}`, `{Special
+  Version}`; `catalogctx.Album/Book/Audiobook/Issue` contexts and the
+  `TrackFilePath`/`BookFilePath`/`AudiobookFilePath`/`IssueFilePath` rules
+  under the container folder the import places by; the naming planner and
+  rename actuator cover album tracks, books, audiobook parts and issues
+  (`renameFiles` for every kind; `renameTranscoded` stays video-only).
+- **A Comic is searched as a volume** (D10): the Comic key's pack-first
+  search is its one season (`searchplan.VolumeNumber`,
+  `status.volumeSearch`, a `SeasonSearchState`), its Issues wait for it and
+  fold its answer, the grab stage reads the answered volume as a season
+  answer and `pkg/decision` approves a volume-search release whose series is
+  the comic's whatever its issue or year (`volumeRejection`); grabplan's
+  coverage and lifecycle's supersede take an Episode or an Issue. Comic
+  `spec.addOptions` (monitor mode, `searchForMissing`), `specialVersion`
+  (`volumeAsIssue` numbering) and `nextPullDate`; Audiobook `addOptions`
+  and `spec.authorRef`, linked once from its Book's Author.
+- **Metadata parity** (§5.4): every non-video document carries
+  `schemaVersion`, `language` (the primary provider's `spec.language`, else
+  en; an Audiobook's `fetchLanguage`), ratings through `enrichRatings` over
+  the kind's `RatingsProvider`s (sources musicbrainz, audnexus, hardcover,
+  anilist, comicvine beside the video seven), images chosen per (type,
+  language); MusicBrainz pages its browses (Muse's 175 albums came as 25),
+  carries aliases and the artist credit; keyless `wikipedia` (an artist's or
+  author's biography through its Wikidata sitelink when the primary's
+  overview is empty) and `audible` (the Add New audiobook search in the
+  root's region) are seeded like the other keyless types; ComicVine pages
+  its issues and the fan-out writes each Issue's store date, overview,
+  cover, credits and ids; Open Library gives an author's remote ids; an
+  Artist's and an Audiobook's extended documents hold members/similar and
+  narrators/authors. `pkg/metadata.SchemaVersion` stayed 8 so only the
+  non-video documents (reading 0) refreshed once.
+- **Plex reads music metadata from NFO files, not a provider** (ADR-0022,
+  D12, D13): every PMS build through 1.43.5.11079 refuses a custom provider
+  declaring artist/album/track (types 8, 9, 10: HTTP 400 "The provider
+  supports unsupported metadata types", spike §7.6), so the `/plex/music`
+  and `/plex/audiobooks` roots are built to the inferred shapes behind
+  `--plex-music-provider` (chart `ui.plex.musicProvider`, false) and PMS
+  1.43.5.11029's NFO reading is the live route: `pkg/nfo` renders Kodi-shape
+  `artist.nfo`/`album.nfo` (an Author as the artist, an Audiobook as the
+  album), the item key's `nfo` stage (`app/remediation/nfo`, after artwork,
+  field manager `catalog-nfo`, `status.nfo{hash,path,files,writtenAt}`)
+  plans a write when the rendered hash moves, and the import agent's
+  `import-nfo` consumer writes the bytes it was handed beside the music with
+  `folder.jpg`/`artist.jpg` copied from the artwork store, never over a file
+  it did not write (the task's `Owned` names and the record's last answer
+  are the allow-list), answering in the `clustarr-nfo` record.
+  `RootFolder.naming.writeNFO: false` plans nothing and removes nothing. The
+  Plex side (cluster-plex: `type: artist` sections on the Plex Music Scanner
+  with the NFO agent and "Prefer local metadata", §10) is not built yet.
+- **Deploying it:** the CRDs go on by hand first ([talos]); `ProbeVersion`
+  4 re-probes the library once through the low lane; the nfo stage writes
+  into every music and audiobook root at the first pass.
+
 ## Invariants — do not break these
 
 A guard name marked † is the one the plan gives a guard the test batch has yet
@@ -3045,6 +3140,19 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   binaries are UPX-packed: a packed executable hides the `DT_NEEDED` entries
   `lddtree` reads, so `images/distroless/stage.sh` traces the binaries before
   they are packed.
+- **Every envtest fails under the CBOR client gates unless the environment
+  turns them off.** `pkg/k8s/rowcache/cbor.go` sets client-go's
+  `ClientsAllowCBOR` and `ClientsPreferCBOR` at init in every process that
+  links it, every test binary included, and envtest's kube-apiserver (1.37.0)
+  serves no CBOR, so each suite died at its CRD install with "the body of
+  the request was in an unknown format" (2026-11-10). `make test` exports
+  `KUBE_FEATURE_ClientsAllowCBOR=false KUBE_FEATURE_ClientsPreferCBOR=false`
+  (`ENVTEST_ENV`); a hand-run envtest needs both beside `KUBEBUILDER_ASSETS`.
+- **`controller-gen ... > config/rbac/<role>.yaml` truncated a role to zero
+  bytes when a listed package did not compile** (2026-11-10, mid-wave,
+  another agent's broken package): the shell opens the output before the
+  generator fails. `make manifests` writes each role to a temp file and
+  moves it; keep that shape for any generator whose output lands in git.
 - **The unify branch was built implementation-first.** From Wave 2 on its tasks
   wrote no tests (owner, 2026-10-07): each recorded the tests and guards it
   skipped in `.superpowers/unify/progress.md`, test files that no longer compile
