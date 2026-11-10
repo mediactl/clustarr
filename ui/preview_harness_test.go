@@ -1,3 +1,5 @@
+//go:build preview
+
 /*
 Copyright 2026 The Clustarr Authors.
 
@@ -14,8 +16,6 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-
-//go:build preview
 
 package ui_test
 
@@ -75,7 +75,10 @@ func TestPreviewHarness(t *testing.T) {
 	c, err := client.New(cfg, client.Options{Scheme: libraryTestScheme(t)})
 	require.NoError(t, err)
 	ctx := context.Background()
-	date := func(y int, m time.Month, d int) *metav1.Time { tm := metav1.NewTime(time.Date(y, m, d, 0, 0, 0, 0, time.UTC)); return &tm }
+	date := func(y int, m time.Month, d int) *metav1.Time {
+		tm := metav1.NewTime(time.Date(y, m, d, 0, 0, 0, 0, time.UTC))
+		return &tm
+	}
 	now := metav1.Now()
 	create := func(o client.Object, status func()) {
 		require.NoError(t, c.Create(ctx, o), "%T %s", o, o.GetName())
@@ -107,7 +110,7 @@ func TestPreviewHarness(t *testing.T) {
 		al := &catalogv1.Album{ObjectMeta: meta(a.name), Spec: catalogv1.AlbumSpec{ArtistRef: "bjork", ReleaseGroupID: a.rg, Monitored: new(true)}}
 		create(al, func() {
 			al.Status = catalogv1.AlbumStatus{Metadata: &catalogv1.AlbumMetadata{Title: a.title, AlbumType: "Album", ReleaseDate: date(a.year, time.July, 5), Label: "One Little Indian", SchemaVersion: 8, RefreshedAt: now},
-				Tracks: []catalogv1.Track{{RecordingID: a.rg + "-1", Medium: 1, Number: 1, Title: "Human Behaviour", DurationMs: 250000}, {RecordingID: a.rg + "-2", Medium: 1, Number: 2, Title: "Crying", DurationMs: 290000}},
+				Tracks:  []catalogv1.Track{{RecordingID: a.rg + "-1", Medium: 1, Number: 1, Title: "Human Behaviour", DurationMs: 250000}, {RecordingID: a.rg + "-2", Medium: 1, Number: 2, Title: "Crying", DurationMs: 290000}},
 				HasFile: a.hasFile, TrackFileCount: 0, TrackSummary: "0/2 tracks", Phase: commonv1.LeafPhaseWanted, CutoffReason: "CutoffUnmet"}
 			if a.hasFile {
 				al.Status.TrackFileCount, al.Status.TrackSummary, al.Status.Phase, al.Status.CutoffMet = 2, "2/2 tracks", commonv1.LeafPhaseImported, true
@@ -120,11 +123,16 @@ func TestPreviewHarness(t *testing.T) {
 	create(author, func() {
 		author.Status = catalogv1.AuthorStatus{Path: "/data/media/books/Ursula K. Le Guin", BookCount: 2, Metadata: &catalogv1.AuthorMetadata{
 			Name: "Ursula K. Le Guin", SortName: "Le Guin, Ursula K.", Born: "1929-10-21", Died: "2018-01-22", Genres: []string{"Science Fiction", "Fantasy"},
-			Overview: "Ursula Kroeber Le Guin was an American author best known for her works of speculative fiction.",
+			Overview:    "Ursula Kroeber Le Guin was an American author best known for her works of speculative fiction.",
 			ExternalIDs: map[string]string{"openlibrary": "OL21594A"}, SchemaVersion: 8, Language: "en", RefreshedAt: now,
 		}}
 	})
-	for _, b := range []struct{ name, title, work string; year int; pages int32; standalone bool }{
+	for _, b := range []struct {
+		name, title, work string
+		year              int
+		pages             int32
+		standalone        bool
+	}{
 		{"the-dispossessed", "The Dispossessed", "OL138052W", 1974, 341, false}, {"the-left-hand-of-darkness", "The Left Hand of Darkness", "OL59799W", 1969, 304, false}, {"standalone", "A Standalone Book", "OL999W", 2001, 200, true}} {
 		bk := &catalogv1.Book{ObjectMeta: meta(b.name), Spec: catalogv1.BookSpec{WorkID: b.work, Monitored: new(true)}}
 		if b.standalone {
@@ -135,8 +143,8 @@ func TestPreviewHarness(t *testing.T) {
 		create(bk, func() {
 			bk.Status = catalogv1.BookStatus{Phase: commonv1.LeafPhaseWanted, CutoffReason: "CutoffUnmet", Metadata: &catalogv1.BookMetadata{
 				Title: b.title, ReleaseDate: date(b.year, time.May, 1), PageCount: b.pages, Publisher: "Harper & Row", Genres: []string{"Science Fiction"},
-				SeriesLinks: []catalogv1.SeriesLink{{Series: "Hainish Cycle", Position: fmt.Sprint(b.pages % 7), Primary: true}},
-				Editions: []catalogv1.Edition{{ID: "OL1M", Title: b.title, Language: "en", Format: "Hardcover", Publisher: "Harper & Row", PageCount: b.pages, ReleaseDate: date(b.year, time.May, 1)}},
+				SeriesLinks:   []catalogv1.SeriesLink{{Series: "Hainish Cycle", Position: fmt.Sprint(b.pages % 7), Primary: true}},
+				Editions:      []catalogv1.Edition{{ID: "OL1M", Title: b.title, Language: "en", Format: "Hardcover", Publisher: "Harper & Row", PageCount: b.pages, ReleaseDate: date(b.year, time.May, 1)}},
 				SchemaVersion: 8, Language: "en", RefreshedAt: now}}
 		})
 	}
