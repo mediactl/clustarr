@@ -144,6 +144,19 @@ type AudiobookSearcher interface {
 	SearchAudiobooks(ctx context.Context, q string, region string) ([]SearchHit, error)
 }
 
+// AudiobookAuthorProvider answers an Audible author by ASIN, scoped to a
+// marketplace region as Audiobook is -- Audnexus's /authors/{asin} -- as an
+// Author: name, description, image and genres (2026-11-10 design D11,
+// §5.4). It serves Add New's author link: an Audiobook whose bookRef
+// resolves no Book takes its authorRef from the Author the library holds
+// under the Audible author's name. It is an interface of its own, as
+// AudiobookSearcher is, so every AudiobookProvider implementer and fake
+// stands as it is.
+type AudiobookAuthorProvider interface {
+	Provider
+	AudiobookAuthor(ctx context.Context, asin string, region string) (*Author, error)
+}
+
 // BiographyProvider answers an artist's or author's biography from the
 // links its primary provider carries (a Wikidata or Wikipedia url-rel):
 // the text and the source name recorded in BiographySource. ErrNotFound

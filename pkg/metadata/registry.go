@@ -56,6 +56,11 @@ type Registry struct {
 	// AudiobookSearchers search a marketplace's catalogue for Add New
 	// (audible), first answer wins (2026-11-10 design §5.6).
 	AudiobookSearchers []AudiobookSearcher
+	// AudiobookAuthors answer an Audible author by ASIN (audnexus), first
+	// answer wins, for Add New's author link (2026-11-10 design D11). Nothing
+	// in the gateway dispatches to it yet: the ui's Add New (plan W4c) is
+	// its caller.
+	AudiobookAuthors []AudiobookAuthorProvider
 	// Plex supplies Plex's own season and episode ids for a series
 	// (PlexProvider), first answer wins. A plex client is also an
 	// IDResolver, which is how a Movie or Series gets its KeyPlex id.

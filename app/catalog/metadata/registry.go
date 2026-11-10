@@ -235,7 +235,11 @@ func addProvider(ctx context.Context, c client.Client, reg *pkgmetadata.Registry
 			reg.Books = append(reg.Books, openlibrary.New(p.Spec.ContactUserAgent, httpClient, baseURL(p, "https://openlibrary.org"), limiter).
 				WithLanguage(p.Spec.Language))
 		case catalogv1alpha1.MetadataProviderAudnexus:
-			reg.Audiobooks = append(reg.Audiobooks, audnexus.New(httpClient, baseURL(p, "https://api.audnex.us"), limiter))
+			// The one client answers audiobooks and, for Add New's author
+			// link, Audible authors by ASIN (2026-11-10 design D11).
+			cl := audnexus.New(httpClient, baseURL(p, "https://api.audnex.us"), limiter)
+			reg.Audiobooks = append(reg.Audiobooks, cl)
+			reg.AudiobookAuthors = append(reg.AudiobookAuthors, cl)
 		case catalogv1alpha1.MetadataProviderComicVine:
 			key, err := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyAPIKey)
 			if err != nil {

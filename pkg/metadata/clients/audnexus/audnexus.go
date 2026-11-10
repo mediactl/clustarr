@@ -162,7 +162,73 @@ func (c *Client) Chapters(ctx context.Context, asin string, region string) ([]me
 	return chapters, nil
 }
 
-var _ metadata.AudiobookProvider = (*Client)(nil)
+// authorResponse is Audnexus's author record (GET /authors/{asin}?region=,
+// recorded 2026-11-10 into test/data/metadata/audnexus/author_B000AP9A6K.json):
+// the Audible author page's name, biography, photo and genres, the region
+// it was read from, and the authors Audible lists as similar.
+type authorResponse struct {
+	ASIN        string `json:"asin"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Image       string `json:"image"`
+	Region      string `json:"region"`
+	Genres      []struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	} `json:"genres"`
+	Similar []struct {
+		ASIN string `json:"asin"`
+		Name string `json:"name"`
+	} `json:"similar"`
+}
+
+// AudiobookAuthor fetches an Audible author by ASIN, scoped to region as
+// Audiobook is, for Add New's author link (2026-11-10 design D11, §5.4).
+func (c *Client) AudiobookAuthor(ctx context.Context, asin string, region string) (*metadata.Author, error) {
+	ctx, span := tracing.Start(ctx, "metadata.audnexus.AudiobookAuthor")
+	defer span.End()
+	logger := logging.FromContext(ctx)
+
+	var raw authorResponse
+	path := "/authors/" + asin + "?region=" + region
+	if err := c.doGet(ctx, path, &raw); err != nil {
+		tracing.RecordError(span, err)
+		logger.ErrorContext(ctx, "audnexus: author fetch failed", "asin", asin, "region", region, "error", err)
+		return nil, err
+	}
+
+	a := mapAuthor(&raw)
+	logger.DebugContext(ctx, "audnexus: author fetched", "asin", asin, "region", region, "name", a.Name)
+	return a, nil
+}
+
+var (
+	_ metadata.AudiobookProvider       = (*Client)(nil)
+	_ metadata.AudiobookAuthorProvider = (*Client)(nil)
+)
+
+// mapAuthor converts a raw Audnexus author into the normalized model: the
+// ASIN as its id, the biography as Overview, the photo as its poster (the
+// slot Open Library's author photo takes too) and the genres of type
+// "genre" as Genres. Audnexus's tags and similar authors have no field on
+// Author and are left out.
+func mapAuthor(raw *authorResponse) *metadata.Author {
+	a := &metadata.Author{
+		IDs:      metadata.ExternalIDs{metadata.KeyASIN: raw.ASIN},
+		Name:     strings.TrimSpace(raw.Name),
+		Overview: strings.TrimSpace(raw.Description),
+	}
+	for _, g := range raw.Genres {
+		if g.Name == "" || strings.EqualFold(g.Type, "tag") {
+			continue
+		}
+		a.Genres = append(a.Genres, g.Name)
+	}
+	if raw.Image != "" {
+		a.Images = []metadata.Image{{Type: metadata.ImageTypePoster, URL: raw.Image}}
+	}
+	return a
+}
 
 // mapAudiobook converts a raw Audnexus response into the normalized model.
 //
