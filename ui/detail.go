@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 
 	"golang.org/x/text/language"
@@ -99,6 +101,16 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 			}
 			d.Backdrop = backdropArt(commonv1.MediaKindAuthor, a.GetUID(), a.Status.Artwork)
 		}
+	case commonv1.MediaKindComic:
+		var c catalogv1.Comic
+		if s.getObject(ctx, item.Ref, &c) {
+			d.Path = c.Status.Path
+		}
+	}
+	// A container's files, for its Delete dialog and its Size fact (the
+	// comic page fills the rest of its Detail itself).
+	if projection.IsContainer(item.Kind) || item.Kind == commonv1.MediaKindSeries {
+		d.Files = s.containerFiles(ctx, item, d.Path)
 	}
 	return d
 }
@@ -497,4 +509,90 @@ func clock(ms int64) string {
 		return fmt.Sprintf("%d:%02d:%02d", s/3600, s%3600/60, s%60)
 	}
 	return fmt.Sprintf("%d:%02d", s/60, s%60)
+}
+
+// containerFiles lists a container's files -- a series' episodes', an
+// artist's albums', an author's books', a comic's issues' -- for its
+// page's Delete dialog (the count and size the delete removes with the
+// folder; 2026-11-10 design §9.6) and its Size fact: the children through
+// the reader's parent indexes (never a namespace List filtered in
+// memory), then each file its status names, one cached Get each, as
+// rows relative to folder. A kind that is no container, or no reader, has
+// none.
+func (s *Server) containerFiles(ctx context.Context, item projection.LibraryItem, folder string) []views.FileRow {
+	if s.opts.Reader == nil {
+		return nil
+	}
+	refs := s.childFileRefs(ctx, item)
+	if len(refs) == 0 {
+		return nil
+	}
+	rows := make([]views.FileRow, 0, len(refs))
+	for _, ref := range refs {
+		var f catalogv1.MediaFile
+		if !s.getObject(ctx, types.NamespacedName{Namespace: item.Ref.Namespace, Name: ref}, &f) {
+			continue
+		}
+		fileRows, _ := fileRows(folder, &f)
+		rows = append(rows, fileRows...)
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Path < rows[j].Path })
+	return rows
+}
+
+// childFileRefs is the names of the MediaFiles a container's children
+// hold, each once, in a stable order.
+func (s *Server) childFileRefs(ctx context.Context, item projection.LibraryItem) []string {
+	ns, name := item.Ref.Namespace, item.Ref.Name
+	var refs []string
+	add := func(ref *string) {
+		if ref != nil && *ref != "" && !slices.Contains(refs, *ref) {
+			refs = append(refs, *ref)
+		}
+	}
+	switch item.Kind {
+	case commonv1.MediaKindSeries:
+		var list catalogv1.EpisodeList
+		if s.listChildren(ctx, &list, ns, EpisodeSeriesRefField, name) {
+			for i := range list.Items {
+				add(list.Items[i].Status.FileRef)
+			}
+		}
+	case commonv1.MediaKindArtist:
+		var list catalogv1.AlbumList
+		if s.listChildren(ctx, &list, ns, AlbumArtistRefField, name) {
+			for i := range list.Items {
+				for _, t := range list.Items[i].Status.Tracks {
+					add(t.FileRef)
+				}
+			}
+		}
+	case commonv1.MediaKindAuthor:
+		var list catalogv1.BookList
+		if s.listChildren(ctx, &list, ns, BookAuthorRefField, name) {
+			for i := range list.Items {
+				add(list.Items[i].Status.FileRef)
+			}
+		}
+	case commonv1.MediaKindComic:
+		var list catalogv1.IssueList
+		if s.listChildren(ctx, &list, ns, IssueComicRefField, name) {
+			for i := range list.Items {
+				add(list.Items[i].Status.FileRef)
+			}
+		}
+	}
+	sort.Strings(refs)
+	return refs
+}
+
+// listChildren lists a parent's children into list through the reader's
+// field index, reporting whether it could; a failure (a reader without
+// the index, as a test's fake may be) is logged and reads as none.
+func (s *Server) listChildren(ctx context.Context, list client.ObjectList, ns, field, parent string) bool {
+	if err := s.opts.Reader.List(ctx, list, client.InNamespace(ns), client.MatchingFields{field: parent}); err != nil {
+		logging.FromContext(ctx).Warn("list a container's children for its page", "namespace", ns, "field", field, "parent", parent, "error", err)
+		return false
+	}
+	return true
 }

@@ -86,8 +86,9 @@ func TestBookPageIsTheMoviePageForABook(t *testing.T) {
 	require.Contains(t, page, "Science fiction")
 
 	// The action bar: Refresh (no folder of the book's own), Search Book
-	// and the interactive search into #book-modal; Rename needs a folder,
-	// Edit and Delete a kind the dialogs take, so none is drawn.
+	// and the interactive search into #book-modal; Rename needs a folder
+	// and Delete a kind the dialog takes, so neither is drawn; Edit is
+	// (W4c: a book's profile and root folder, in the dialog's kind block).
 	refresh := requireTag(t, page, `data-action="refresh-metadata"`, `form="refresh-dispossessed"`)
 	require.NotContains(t, refresh, "Scan", "a book has no folder of its own to scan")
 	require.NotContains(t, page, `name="scan" value="true"`)
@@ -95,7 +96,7 @@ func TestBookPageIsTheMoviePageForABook(t *testing.T) {
 	requireTag(t, page, `data-action="book-interactive-search"`, `form="interactive-search-dispossessed"`)
 	requireTag(t, page, `id="interactive-search-dispossessed"`, `hx-post="/library/default/book/dispossessed/search/interactive"`, `hx-target="#book-modal"`)
 	require.NotContains(t, page, `data-action="rename-apply"`)
-	require.NotContains(t, page, `data-edit-dialog=`)
+	requireTag(t, page, `data-edit-dialog="dispossessed"`)
 	require.NotContains(t, page, `data-action="delete-confirm"`)
 
 	// The bookmark flips the book's monitoring and returns here.

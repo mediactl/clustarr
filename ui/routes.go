@@ -99,6 +99,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/{namespace}/series/{name}/seasons/{n}/search/interactive", s.handleSeasonInteractiveSearch)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/monitor", s.handleSetMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/edit", s.handleEditItem)
+	mux.HandleFunc("GET /library/{namespace}/{kind}/{name}/edit/fields", s.handleEditFields)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/imageset", s.handleImageSet)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/imageset/policy", s.handleImageSetPolicy)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
@@ -551,26 +552,26 @@ func (s *Server) unmonitoredSeries(ctx context.Context, ns string, kind commonv1
 // handleEditItem is the item page's Edit dialog (views.editDialog, Radarr's
 // Edit Movie): POST /library/{namespace}/{kind}/{name}/edit with
 // "qualityProfile", "monitored" ("true" when the switch is on, after the
-// form's "false"), and a series' "seriesType" or a movie's
-// "minimumAvailability". It calls Options.Actions.EditItem and finishes
-// as every toolbar form does, back on the page.
+// form's "false"), a series' "seriesType" or a movie's
+// "minimumAvailability", and the non-video kinds' own fields when the
+// dialog's kind block was loaded (editRequest, ui/editfields.go). It
+// calls Options.Actions.EditItem and finishes as every toolbar form does,
+// back on the page.
 func (s *Server) handleEditItem(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	monitored := slices.Contains(r.Form["monitored"], "true")
-	req := actions.EditRequest{
-		QualityProfileRef:   r.FormValue("qualityProfile"),
-		Monitored:           &monitored,
-		SeriesType:          r.FormValue("seriesType"),
-		MinimumAvailability: r.FormValue("minimumAvailability"),
-	}
 	kind := commonv1.MediaKind(r.PathValue("kind"))
-	if ser := s.unmonitoredSeries(r.Context(), r.PathValue("namespace"), kind, r.PathValue("name"), monitored); ser != nil {
+	req, err := editRequest(r, kind)
+	if err != nil {
+		s.finishAction(w, r, err)
+		return
+	}
+	if ser := s.unmonitoredSeries(r.Context(), r.PathValue("namespace"), kind, r.PathValue("name"), *req.Monitored); ser != nil {
 		req.Seasons, req.ResourceVersion = actions.AllSeasonsMonitored(ser), ser.ResourceVersion
 	}
-	_, err := s.opts.Actions.EditItem(r.Context(), r.PathValue("namespace"), kind, r.PathValue("name"), req)
+	_, err = s.opts.Actions.EditItem(r.Context(), r.PathValue("namespace"), kind, r.PathValue("name"), req)
 	s.finishAction(w, r, err)
 }
 

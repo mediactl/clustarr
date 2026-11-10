@@ -19,22 +19,30 @@ package views
 
 import (
 	"context"
+	"fmt"
+	"slices"
+	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/checkbox"
 	"github.com/mediactl/clustarr/ui/components/dialog"
 	"github.com/mediactl/clustarr/ui/components/field"
 	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/input"
 	selectcomp "github.com/mediactl/clustarr/ui/components/select"
+	"github.com/mediactl/clustarr/ui/components/spinner"
 	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
 )
 
 // editableKinds are the kinds whose page has the Edit dialog: the ones
-// with a quality profile of their own. ui/actions.EditableKinds is the
-// same list, held equal by ui/edit_test.go.
+// with a quality profile in their spec -- a Book's an override of its
+// author's, a standalone book's own (2026-11-10 design §9.3).
+// ui/actions.EditableKinds is the same list, held equal by ui/edit_test.go.
 var editableKinds = map[commonv1.MediaKind]bool{
 	commonv1.MediaKindMovie: true, commonv1.MediaKindSeries: true, commonv1.MediaKindArtist: true,
 	commonv1.MediaKindAuthor: true, commonv1.MediaKindComic: true, commonv1.MediaKindAudiobook: true,
+	commonv1.MediaKindBook: true,
 }
 
 // EditableKinds is every kind whose page has the Edit dialog.
@@ -58,19 +66,95 @@ func sortKinds(kinds []commonv1.MediaKind) {
 // Editable is whether d's item has the Edit dialog.
 func Editable(d Detail) bool { return editableKinds[d.Item.Kind] }
 
-// seriesTypeOptions and availabilityOptions are Sonarr's series types and
-// Radarr's minimum availabilities, by their spec values.
+// EditFields is the Edit dialog's kind block (2026-11-10 design
+// §9.2-§9.5): the item's current spec values and the choices its selects
+// offer, fetched as the dialog opens (GET .../edit/fields,
+// ui.handleEditFields; editFieldsPlaceholder) rather than rendered with
+// the page, so every page's dialog has them whatever its Detail carries,
+// and a save never writes a default over a value the dialog did not read:
+// the block posts a "fields" marker, and without it the handler leaves
+// every kind field alone. Item is the item's name, for the controls' ids.
+type EditFields struct {
+	Kind commonv1.MediaKind
+	Item string
+	// An artist's: spec.monitorNewItems and its metadata profile's three
+	// lists (which MusicBrainz release groups become Albums).
+	MonitorNewItems                               string
+	PrimaryTypes, SecondaryTypes, ReleaseStatuses []string
+	// An author's metadata profile: which Open Library works become Books.
+	AllowedLanguages                                                        []string
+	SkipMissingDate, SkipMissingISBN, SkipPartsAndSets, SkipSeriesSecondary bool
+	MinPages                                                                int32
+	// A comic's spec.kind, spec.specialVersion and spec.monitorNewIssues.
+	ComicKind, SpecialVersion string
+	MonitorNewIssues          bool
+	// An audiobook's spec.region and its links, with the Authors of its
+	// namespace and the linked author's Books to choose from.
+	Region, AuthorRef, BookRef string
+	Authors, Books             []AddOption
+	// A book's: Standalone when it has no author, so its profile and root
+	// folder are its own to edit, over the book profiles and book roots.
+	Standalone                       bool
+	QualityProfileRef, RootFolderRef string
+	Profiles, RootFolders            []AddOption
+}
+
+// EditFieldsNone is the value of an optional link's select that clears it
+// ("None"): a name no Kubernetes object can carry, so it never collides
+// with an Author's or a Book's.
+const EditFieldsNone = "__none__"
+
+// The Edit dialog's enumerations, labelled, as the CRDs spell them
+// (api/catalog/v1alpha1) and ui/actions.Choices admits them --
+// TestAddAndEditOptionsAreTheActionsChoices holds the two equal.
 var (
-	seriesTypeOptions   = []AddOption{{"standard", "Standard"}, {"daily", "Daily"}, {"anime", "Anime"}}
-	availabilityOptions = []AddOption{{"tba", "TBA"}, {"announced", "Announced"}, {"inCinemas", "In Cinemas"}, {"released", "Released"}}
+	seriesTypeOptions         = []AddOption{{"standard", "Standard"}, {"daily", "Daily"}, {"anime", "Anime"}}
+	availabilityOptions       = []AddOption{{"tba", "TBA"}, {"announced", "Announced"}, {"inCinemas", "In Cinemas"}, {"released", "Released"}}
+	artistMonitorNewOptions   = []AddOption{{"all", "All new albums"}, {"none", "None"}, {"new", "New albums only"}}
+	authorMonitorNewOptions   = []AddOption{{"all", "All new books"}, {"none", "None"}}
+	specialVersionOptions     = []AddOption{{"normal", "Normal"}, {"tpb", "Trade paperback"}, {"oneShot", "One-shot"}, {"hardCover", "Hardcover"}, {"omnibus", "Omnibus"}, {"volumeAsIssue", "Volume as issue"}}
+	musicPrimaryTypeOptions   = []AddOption{{"album", "Album"}, {"ep", "EP"}, {"single", "Single"}, {"broadcast", "Broadcast"}, {"other", "Other"}}
+	musicSecondaryTypeOptions = []AddOption{
+		{"studio", "Studio (no secondary type)"}, {"compilation", "Compilation"}, {"soundtrack", "Soundtrack"},
+		{"spokenword", "Spokenword"}, {"interview", "Interview"}, {"audiobook", "Audiobook"}, {"live", "Live"},
+		{"remix", "Remix"}, {"djMix", "DJ-mix"}, {"mixtape", "Mixtape/Street"}, {"demo", "Demo"},
+		{"audioDrama", "Audio drama"}, {"fieldRecording", "Field recording"},
+	}
+	musicReleaseStatusOptions = []AddOption{{"official", "Official"}, {"promotion", "Promotion"}, {"bootleg", "Bootleg"}, {"pseudoRelease", "Pseudo-release"}}
 )
+
+// EditOptions are the dialog's enumerations by form field, for the test
+// that holds them to ui/actions.Choices.
+func EditOptions() map[string][]AddOption {
+	return map[string][]AddOption{
+		"monitorNewItems (artist)": artistMonitorNewOptions, "monitorNewItems (author)": authorMonitorNewOptions,
+		"comicKind": comicKindOptions, "specialVersion": specialVersionOptions, "region": audiobookRegionOptions,
+		"primaryTypes": musicPrimaryTypeOptions, "secondaryTypes": musicSecondaryTypeOptions, "releaseStatuses": musicReleaseStatusOptions,
+	}
+}
+
+// lazyEditFields is whether kind's dialog has a kind block to fetch: the
+// non-video kinds; a movie's and a series' one field renders with the page.
+func lazyEditFields(kind commonv1.MediaKind) bool {
+	switch kind {
+	case commonv1.MediaKindArtist, commonv1.MediaKindAuthor, commonv1.MediaKindComic,
+		commonv1.MediaKindAudiobook, commonv1.MediaKindBook:
+		return true
+	}
+	return false
+}
 
 // editDialog is Radarr's Edit Movie and Sonarr's Edit Series, opened by
 // the toolbar's wrench: Monitored, Quality Profile over the cluster's
-// QualityProfiles, and the one more field the video kinds have -- a
-// series' type, a movie's minimum availability. Save posts the form to
-// the item's edit route (handleEditItem, ui/actions.EditItem), which
-// patches those spec leaves and returns to the page.
+// QualityProfiles, and the fields the kind has -- a series' type, a
+// movie's minimum availability, and for the non-video kinds the block
+// fetched as the dialog opens (EditKindFields: an artist's and an author's
+// monitor-new mode and metadata profile, a comic's kind, special version
+// and new-issues flag, an audiobook's region and links, a standalone
+// book's profile and root folder). Save posts the form to the item's edit
+// route (handleEditItem, ui/actions.EditItem), which patches those spec
+// leaves and returns to the page. A book's profile is in its block, since
+// an author's book inherits it.
 templ editDialog(d Detail) {
 	@dialog.Dialog(dialog.Props{ID: "edit-" + d.Item.Ref.Name}) {
 		@button.Button(actionButtonProps(editTriggerAttrs(ctx))) {
@@ -92,12 +176,17 @@ templ editDialog(d Detail) {
 						Monitored
 					}
 				}
-				@editSelect("qualityProfile", d.Item.Ref.Name, "Quality Profile", d.Profiles, d.Item.QualityProfileRef)
+				if d.Item.Kind != commonv1.MediaKindBook {
+					@editSelect("qualityProfile", d.Item.Ref.Name, "Quality Profile", d.Profiles, d.Item.QualityProfileRef)
+				}
 				if d.Item.Kind == commonv1.MediaKindSeries {
 					@editSelect("seriesType", d.Item.Ref.Name, "Series Type", seriesTypeOptions, d.SeriesType)
 				}
 				if d.Item.Kind == commonv1.MediaKindMovie {
 					@editSelect("minimumAvailability", d.Item.Ref.Name, "Minimum Availability", availabilityOptions, d.MinimumAvailability)
+				}
+				if lazyEditFields(d.Item.Kind) {
+					@editFieldsPlaceholder(d)
 				}
 				@dialog.Footer() {
 					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) {
@@ -110,6 +199,89 @@ templ editDialog(d Detail) {
 			</form>
 		}
 	}
+}
+
+// editFieldsPlaceholder stands where the kind block goes until the dialog
+// opens: an intersect trigger fires once the hidden content is shown, and
+// the block fetched from the item's edit/fields route takes its place. A
+// save before it lands carries no kind field, and leaves them as they are.
+templ editFieldsPlaceholder(d Detail) {
+	<div
+		data-edit-fields={ string(d.Item.Kind) }
+		hx-get={ libraryActionURL(d.Item, "edit/fields") }
+		hx-trigger="intersect once"
+		hx-swap="outerHTML"
+		class="flex min-h-6 items-center gap-2 text-sm text-muted-foreground"
+	>
+		@spinner.Spinner()
+		Loading…
+	</div>
+}
+
+// EditKindFields is the Edit dialog's kind block for f (handleEditFields'
+// answer): the kind's fields with their current values, and the "fields"
+// marker that says the block was loaded, so handleEditItem reads them.
+templ EditKindFields(f EditFields) {
+	<div data-edit-fields={ string(f.Kind) } data-edit-fields-loaded class="space-y-4">
+		<input type="hidden" name="fields" value={ string(f.Kind) }/>
+		switch f.Kind {
+			case commonv1.MediaKindArtist:
+				@editSelect("monitorNewItems", f.Item, "Monitor New Albums", artistMonitorNewOptions, f.MonitorNewItems)
+				@editCheckGroup("primaryTypes", f.Item, "Primary types", musicPrimaryTypeOptions, f.PrimaryTypes)
+				@editCheckGroup("secondaryTypes", f.Item, "Secondary types", musicSecondaryTypeOptions, f.SecondaryTypes)
+				@editCheckGroup("releaseStatuses", f.Item, "Release statuses", musicReleaseStatusOptions, f.ReleaseStatuses)
+			case commonv1.MediaKindAuthor:
+				@editSelect("monitorNewItems", f.Item, "Monitor New Books", authorMonitorNewOptions, f.MonitorNewItems)
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "edit-allowedLanguages-" + f.Item}) {
+						Allowed Languages
+					}
+					@input.Input(input.Props{ID: "edit-allowedLanguages-" + f.Item, Name: "allowedLanguages", Value: strings.Join(f.AllowedLanguages, ", "), Placeholder: "every language"})
+					@field.Description() {
+						BCP-47 codes, comma-separated; empty lists works in every language.
+					}
+				}
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "edit-minPages-" + f.Item}) {
+						Minimum Pages
+					}
+					@input.Input(input.Props{ID: "edit-minPages-" + f.Item, Name: "minPages", Type: "number", Value: fmt.Sprint(f.MinPages), Attributes: templ.Attributes{"min": "0", "step": "1"}})
+				}
+				@editSwitch("skipMissingDate", f.Item, "Skip works with no release date", f.SkipMissingDate)
+				@editSwitch("skipMissingISBN", f.Item, "Skip works with no ISBN", f.SkipMissingISBN)
+				@editSwitch("skipPartsAndSets", f.Item, "Skip parts and box sets", f.SkipPartsAndSets)
+				@editSwitch("skipSeriesSecondary", f.Item, "Skip secondary series entries", f.SkipSeriesSecondary)
+			case commonv1.MediaKindComic:
+				@editSelect("comicKind", f.Item, "Kind", comicKindOptions, f.ComicKind)
+				@editSelect("specialVersion", f.Item, "Special Version", specialVersionOptions, f.SpecialVersion)
+				@editSwitch("monitorNewIssues", f.Item, "Monitor new issues", f.MonitorNewIssues)
+			case commonv1.MediaKindAudiobook:
+				@editSelect("region", f.Item, "Audible Region", audiobookRegionOptions, f.Region)
+				@editSelect("authorRef", f.Item, "Author", withNone(f.Authors), noneFor(f.AuthorRef))
+				@editSelect("bookRef", f.Item, "Book", withNone(f.Books), noneFor(f.BookRef))
+			case commonv1.MediaKindBook:
+				if f.Standalone {
+					@editSelect("qualityProfile", f.Item, "Quality Profile", f.Profiles, f.QualityProfileRef)
+					@editSelect("rootFolder", f.Item, "Root Folder", f.RootFolders, f.RootFolderRef)
+				} else {
+					<p class="text-sm text-muted-foreground" data-edit-inherits>This book's quality profile and root folder are its author's.</p>
+				}
+		}
+	</div>
+}
+
+// withNone is opts behind a "None" choice, the one that clears a link.
+func withNone(opts []AddOption) []AddOption {
+	return append([]AddOption{{EditFieldsNone, "None"}}, opts...)
+}
+
+// noneFor is the select's value for a link: the name, or None for an
+// unset one.
+func noneFor(ref string) string {
+	if ref == "" {
+		return EditFieldsNone
+	}
+	return ref
 }
 
 // editSelect is one of the dialog's selects; an empty current value reads
@@ -133,6 +305,40 @@ templ editSelect(name, item, label string, opts []AddOption, current string) {
 				}
 			}
 		}
+	}
+}
+
+// editSwitch is one of the dialog's flags: the form's "false" and, when
+// on, the switch's "true", as the Monitored switch posts.
+templ editSwitch(name, item, label string, on bool) {
+	<input type="hidden" name={ name } value="false"/>
+	@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+		@switchcomp.Switch(switchcomp.Props{ID: "edit-" + name + "-" + item, Name: name, Value: "true", DefaultChecked: on})
+		@field.Label(field.LabelProps{For: "edit-" + name + "-" + item}) {
+			{ label }
+		}
+	}
+}
+
+// editCheckGroup is a list field as a set of checkboxes under one name,
+// the current values ticked: an artist's metadata profile's types and
+// statuses. Nothing posts for an unticked box; the block's "fields"
+// marker tells an untouched list from an emptied one.
+templ editCheckGroup(name, item, legend string, opts []AddOption, current []string) {
+	@field.Set(field.SetProps{Class: "gap-2", Attributes: templ.Attributes{"data-edit-group": name}}) {
+		@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+			{ legend }
+		}
+		<div class="grid gap-2 sm:grid-cols-2">
+			for _, o := range opts {
+				@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+					@checkbox.Checkbox(checkbox.Props{ID: "edit-" + name + "-" + o.Value + "-" + item, Name: name, Value: o.Value, DefaultChecked: slices.Contains(current, o.Value)})
+					@field.Label(field.LabelProps{For: "edit-" + name + "-" + o.Value + "-" + item}) {
+						{ o.Label }
+					}
+				}
+			}
+		</div>
 	}
 }
 
