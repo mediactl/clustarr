@@ -151,16 +151,17 @@ func bookFixture(t *testing.T) (*ui.Server, client.Client) {
 	return srv, c
 }
 
-// An author's books are the season table: the status cell says, in the
-// episode's order, what each book is waiting on, and every row has the
-// automatic and interactive searches and a title that opens the book's
-// details. The author's pages mount the modal and the action status.
+// An author's books are the season table, inline on the author's page
+// (2026-11-10 design §9.3; the lazily loaded /children fragment is gone):
+// the status cell says, in the episode's order, what each book is waiting
+// on, and every row has the automatic and interactive searches and a title
+// that opens the book's page. The page mounts the modal and the action
+// status once.
 func TestBookRowsAreTheSeasonTables(t *testing.T) {
 	srv, _ := bookFixture(t)
-	rec := getPath(t, srv, "/library/default/author/le-guin/children", true)
+	rec := getPath(t, srv, "/library/default/author/le-guin", false)
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	require.NotContains(t, body, "<html")
 	require.Equal(t, 1, strings.Count(body, `data-book-table`), "the books are one table")
 
 	for name, status := range map[string]string{
@@ -184,13 +185,8 @@ func TestBookRowsAreTheSeasonTables(t *testing.T) {
 	requireTag(t, body, `href="/library/default/book/left-hand"`, `data-book-title`, `preload="mouseover"`)
 	require.NotContains(t, body, `hx-get="/library/default/book/left-hand/details"`, "the title opens the book's page, not the modal (2026-11-10)")
 	require.Contains(t, body, `hx-post="/library/default/book/left-hand/monitor" hx-target="closest tr"`)
-	require.Contains(t, body, `name="return" value="/library/default/author/le-guin/children"`)
-
-	for _, path := range []string{"/library/default/author/le-guin", "/library/default/author/le-guin/children"} {
-		page := getPath(t, srv, path, false).Body.String()
-		require.Equal(t, 1, strings.Count(page, `id="book-modal"`), path)
-		require.Equal(t, 1, strings.Count(page, `id="action-status"`), path)
-	}
+	require.Equal(t, 1, strings.Count(body, `id="book-modal"`))
+	require.Equal(t, 1, strings.Count(body, `id="action-status"`))
 }
 
 // A book's monitor bookmark swaps the row it sits in, re-read from the

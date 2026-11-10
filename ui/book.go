@@ -20,7 +20,6 @@ package ui
 import (
 	"context"
 	"net/http"
-	"sort"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -29,7 +28,6 @@ import (
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
@@ -122,36 +120,6 @@ func (s *Server) bookDetail(ctx context.Context, ns, name string) (views.BookDet
 		}
 	}
 	return d, true
-}
-
-// bookRows lists an author's Books by spec.authorRef over a namespace List
-// filtered in memory: the author's children route (children.go's
-// handleChildren) alone still reads them this way, and goes with W4c's
-// removal of the parent-page fallbacks. The author's page lists them
-// through the reader's spec.authorRef index (bookXRows, author.go), which a
-// test's fake client must register (ui.BookAuthorRefField).
-func (s *Server) bookRows(ctx context.Context, author projection.LibraryItem) ([]views.BookRow, error) {
-	if s.opts.Reader == nil {
-		return nil, nil
-	}
-	var list catalogv1.BookList
-	if err := s.opts.Reader.List(ctx, &list, client.InNamespace(author.Ref.Namespace)); err != nil {
-		return nil, err
-	}
-	now := time.Now()
-	var rows []views.BookRow
-	for i := range list.Items {
-		if ref := list.Items[i].Spec.AuthorRef; ref != nil && *ref == author.Ref.Name {
-			rows = append(rows, bookRow(&list.Items[i], now))
-		}
-	}
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].ReleaseDate != rows[j].ReleaseDate {
-			return rows[i].ReleaseDate < rows[j].ReleaseDate
-		}
-		return rows[i].DisplayTitle() < rows[j].DisplayTitle()
-	})
-	return rows, nil
 }
 
 // bookRow is one book's row in its author's books table.
