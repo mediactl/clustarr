@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package lifecycle
 
 import (
+	"slices"
+
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
@@ -32,28 +34,42 @@ import (
 // (decision.ReasonPackDownloading). The grab planner grabs no pack beside a
 // single that outranks it by its audio (grabplan.Holds), and the pack's
 // files replace the singles' files at import (importplan's packRefit). A
-// person's pick is kept.
+// person's pick is kept. A Comic's volume pack supersedes its single-issue
+// grabs the same way (2026-11-10 design D10: Issues get Episodes' pack
+// rules), the single being an entry of exactly one issue the pack names.
 func (d *decider) supersede(entries []catalogv1alpha1.DownloadEntry) {
+	noun := "season pack"
+	if d.v.Kind == commonv1.MediaKindComic {
+		noun = "volume pack"
+	}
 	for i := range entries {
 		p := &entries[i]
 		if !p.Pack() || p.Purpose != "" || !nonTerminal(p) {
 			continue
 		}
-		covers := make(map[catalogv1alpha1.EpisodeNumber]bool, len(p.Episodes))
-		for _, n := range p.Episodes {
-			covers[n] = true
-		}
 		for j := range entries {
 			s := &entries[j]
-			if j == i || s.Purpose != "" || s.Manual || len(s.Episodes) != 1 || !covers[s.Episodes[0]] ||
+			if j == i || s.Purpose != "" || s.Manual || !coversSingle(p, s) ||
 				!transferring(s) || s.GrabbedAt.After(p.GrabbedAt.Time) {
 				continue
 			}
 			s.RemoveDataOnDelete = true
-			d.toRemoving(s, "superseded by the season pack "+p.Release.Title)
-			d.event(EventNormal, ReasonSupersededByPack, "removing "+s.Release.Title+": the season pack "+p.Release.Title+" replaces it")
+			d.toRemoving(s, "superseded by the "+noun+" "+p.Release.Title)
+			d.event(EventNormal, ReasonSupersededByPack, "removing "+s.Release.Title+": the "+noun+" "+p.Release.Title+" replaces it")
 		}
 	}
+}
+
+// coversSingle reports s a single -- an entry of exactly one episode or one
+// issue -- whose one item the pack p names.
+func coversSingle(p, s *catalogv1alpha1.DownloadEntry) bool {
+	switch {
+	case len(s.Episodes) == 1 && len(s.Issues) == 0:
+		return slices.Contains(p.Episodes, s.Episodes[0])
+	case len(s.Issues) == 1 && len(s.Episodes) == 0:
+		return slices.Contains(p.Issues, s.Issues[0])
+	}
+	return false
 }
 
 // transferring reports an entry whose payload is not yet complete.

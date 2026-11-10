@@ -50,7 +50,9 @@ type Inputs struct {
 	// PreferredProtocol: the release's protocol is the profile's preferred
 	// one (any is, under "any" or none).
 	PreferredProtocol bool
-	// WholeSeason: a season pack, or a batch covering the whole season.
+	// WholeSeason: a season pack, or a batch covering the whole season --
+	// on a Comic, a pack covering the whole volume (2026-11-10 design D10:
+	// a whole volume ranks as a whole season does).
 	WholeSeason bool
 	// Revision counts only when PreferRevision (ProperPolicy is not
 	// doNotPrefer).

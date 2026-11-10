@@ -460,7 +460,8 @@ func exempt(c Candidate, rej commonv1.Rejection) bool {
 // (rankscore.Score: the format score plus a bonus for complete audio
 // under a profile taking it first (Audio.CompleteFirst), the quality tier,
 // the revision unless the profile does not prefer it, on a Series a whole
-// season, and the profile's preferred protocol; owner, 2026-11-03), the
+// season and on a Comic a whole volume (design D10), and the profile's
+// preferred protocol; owner, 2026-11-03), the
 // smallest under a profile preferring it, then on a Series Sonarr's
 // CompareEpisodeCount (anime more episodes and any other series fewer;
 // Wave S) and elsewhere more items first, indexer priority, the agent's own
@@ -507,7 +508,7 @@ func (d *decider) rankScore(v verdict) int64 {
 	return rankscore.Score(rankscore.Inputs{
 		FormatScore:       int(v.c.Release.Score),
 		PreferredProtocol: preferredProtocol(p, rel.Protocol),
-		WholeSeason:       d.v.Kind == commonv1.MediaKindSeries && d.whole(v),
+		WholeSeason:       container(d.v.Kind) && d.whole(v),
 		PreferRevision:    p.ProperPolicy != "doNotPrefer",
 		Revision:          rel.Revision,
 		Tier:              tier(p, rel.Quality),

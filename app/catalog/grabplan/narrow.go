@@ -22,6 +22,8 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 // Narrowing (P23): which of a container's items a candidate covers, and
@@ -59,6 +61,9 @@ func covers(e *catalogv1alpha1.DownloadEntry, it Covered) bool {
 // answer or a season search's pick, the searched season's episodes its
 // parsed facts name; for a search answer, every episode of the same season
 // its parsed numbers name (a multi-episode release found for one of them).
+// On a Comic a volume answer (design D10: the Series' season machinery
+// with the season layer removed) covers the Issue its parsed issue number
+// names (issueFacts), since a comic release is keyed by series and issue.
 func (d *decider) coverage(c Candidate) []Covered {
 	if len(d.v.Covered) == 0 {
 		return nil
@@ -91,6 +96,10 @@ func (d *decider) coverage(c Candidate) []Covered {
 			return out
 		}
 	}
+	if d.v.Kind == commonv1.MediaKindComic && c.pending < 0 && c.Season != nil {
+		issueFacts(c.Release.Parsed, d.v.Covered, add)
+		return out
+	}
 	if c.MsgID == "" && c.pending < 0 && len(out) > 0 && strings.EqualFold(out[0].Ref.Kind, "Episode") {
 		season := out[0].Season
 		for _, n := range c.Release.Parsed.Episodes {
@@ -102,6 +111,21 @@ func (d *decider) coverage(c Candidate) []Covered {
 		}
 	}
 	return out
+}
+
+// issueFacts are the covered Issues a volume answer's parsed facts name:
+// the one whose number is the release's (decision.IssueNumberKey, so "001"
+// and "1" are one issue). A release naming no issue covers none.
+func issueFacts(p schema.ParsedFacts, covered []Covered, add func(Covered)) {
+	want := decision.IssueNumberKey(p.Issue)
+	if want == "" {
+		return
+	}
+	for _, it := range covered {
+		if it.Issue != "" && decision.IssueNumberKey(it.Issue) == want {
+			add(it)
+		}
+	}
 }
 
 func containsInt32(s []int32, v int32) bool {

@@ -29,7 +29,11 @@ import (
 // Coverage (Wave S, series search design §6.2-§6.3): which of a Series'
 // Episodes a candidate covers, read from the search agent's scene-mapped
 // coverage (schema.ParsedFacts.Coverage) when the record carries it, and
-// how the covered items' re-checks fold into the release's verdict.
+// how the covered items' re-checks fold into the release's verdict. A
+// Comic's Issues are covered items too (2026-11-10 design D10: Episodes'
+// pack rules, the volume being the one season), matched by the parsed
+// issue number (narrow.go's issueFacts); every rule here that filters on a
+// covered item's kind takes an Episode or an Issue (child).
 
 // The grab planner's decisions for the release-level refusals (the
 // clustarr_search_decisions_total decision label under reason="grabplan").
@@ -174,13 +178,19 @@ func coveredBy(cov *schema.ReleaseCoverage, covered []Covered, add func(Covered)
 		abs[a] = true
 	}
 	for _, it := range covered {
-		if !strings.EqualFold(it.Ref.Kind, "Episode") {
+		if !child(it.Ref.Kind) {
 			continue
 		}
 		if full[it.Season] || pairs[[2]int32{it.Season, it.Number}] || (it.Absolute != nil && abs[*it.Absolute]) {
 			add(it)
 		}
 	}
+}
+
+// child reports a container's covered child kind: an Episode of a Series or
+// an Issue of a Comic (design D10), as against the owner itself.
+func child(kind string) bool {
+	return strings.EqualFold(kind, "Episode") || strings.EqualFold(kind, "Issue")
 }
 
 // seasonFacts are the covered items of season the parsed facts of a
@@ -191,7 +201,7 @@ func seasonFacts(p schema.ParsedFacts, season int32, covered []Covered, add func
 		return
 	}
 	for _, it := range covered {
-		if it.Season != season || !strings.EqualFold(it.Ref.Kind, "Episode") {
+		if it.Season != season || !child(it.Ref.Kind) {
 			continue
 		}
 		switch {
@@ -270,9 +280,10 @@ func refusalDecision(rejs []commonv1.Rejection) string {
 }
 
 // whole reports a candidate that is a whole season for pack preference
-// (CompareEpisodeCount): a FullSeason release, or one whose coverage names
-// every aired episode -- more than one -- of a season it covers (an anime
-// batch).
+// (CompareEpisodeCount, rankscore.WholeSeason): a FullSeason release, or
+// one whose coverage names every aired episode -- more than one -- of a
+// season it covers (an anime batch); on a Comic, every released issue of
+// the volume (design D10: a whole volume ranks as a whole season does).
 func (d *decider) whole(vd verdict) bool {
 	if vd.c.Release.Parsed.FullSeason {
 		return true
@@ -289,7 +300,7 @@ func (d *decider) whole(vd verdict) bool {
 	for season, n := range got {
 		aired := 0
 		for _, it := range d.v.Covered {
-			if it.Season == season && it.Wanted && strings.EqualFold(it.Ref.Kind, "Episode") {
+			if it.Season == season && it.Wanted && child(it.Ref.Kind) {
 				aired++
 			}
 		}
