@@ -83,44 +83,20 @@ func grabEntry(id string, phase commonv1.DownloadPhase) catalogv1.DownloadEntry 
 	}
 }
 
-// receiveNonEmpty drains ch until it sees a projection with at least one
-// entry, or fails the test after timeout. Subscribe's own doc comment says
-// it delivers "the current projection immediately", which can race a
-// Projection's own first tick and arrive empty; a real update always
-// follows once that tick completes, so looping past an empty frame is the
-// correct way to wait for "the projection this test set up", not a retry
-// for flakiness's sake.
-func receiveNonEmpty(t *testing.T, ch <-chan []pipeline.Entry, timeout time.Duration) []pipeline.Entry {
+// receiveRows waits up to timeout for a stream's first non-empty frame:
+// a stream delivers the current (possibly empty) rows at once, then each
+// round's.
+func receiveRows[T any](t *testing.T, ch <-chan []T, timeout time.Duration) []T {
 	t.Helper()
 	deadline := time.After(timeout)
 	for {
 		select {
-		case entries := <-ch:
-			if len(entries) > 0 {
-				return entries
+		case got := <-ch:
+			if len(got) > 0 {
+				return got
 			}
 		case <-deadline:
-			t.Fatal("timed out waiting for a non-empty projection")
-			return nil
-		}
-	}
-}
-
-// receiveNonEmptyDownloads is [receiveNonEmpty]'s Task D3-3 counterpart for
-// SubscribeDownloads' channel, for the identical reason: Subscribe(Downloads)
-// delivers the current snapshot immediately, which can race the Projection's
-// own first tick and arrive empty.
-func receiveNonEmptyDownloads(t *testing.T, ch <-chan []projection.DownloadRow, timeout time.Duration) []projection.DownloadRow {
-	t.Helper()
-	deadline := time.After(timeout)
-	for {
-		select {
-		case downloads := <-ch:
-			if len(downloads) > 0 {
-				return downloads
-			}
-		case <-deadline:
-			t.Fatal("timed out waiting for a non-empty downloads projection")
+			t.Fatal("timed out waiting for a non-empty frame")
 			return nil
 		}
 	}
@@ -146,13 +122,13 @@ func TestSubscribersShareOneListRound(t *testing.T) {
 	defer cancel()
 	go func() { _ = proj.Run(ctx) }()
 
-	ch1, unsub1 := proj.Subscribe()
+	ch1, unsub1 := proj.SubscribeLibrary()
 	defer unsub1()
-	ch2, unsub2 := proj.Subscribe()
+	ch2, unsub2 := proj.SubscribeLibrary()
 	defer unsub2()
 
-	got1 := receiveNonEmpty(t, ch1, 2*time.Second)
-	got2 := receiveNonEmpty(t, ch2, 2*time.Second)
+	got1 := receiveRows(t, ch1, 2*time.Second)
+	got2 := receiveRows(t, ch2, 2*time.Second)
 	require.Equal(t, got1, got2, "both subscribers must see the identical slice from the same list round")
 	require.Len(t, got1, 1)
 
@@ -165,51 +141,7 @@ func TestSubscribersShareOneListRound(t *testing.T) {
 		"two subscribers must not cause more than one list round's worth of List calls")
 }
 
-// TestDownloadsSubscribersShareThePipelineListRound is Task D3-3's
-// generalisation of TestSubscribersShareOneListRound (ruling R4): a
-// SubscribeDownloads subscriber must see the grab rows read by the SAME tick
-// that already feeds Subscribe -- the owners' status.downloads entries off
-// listItems' Lists (ADR-0019 §6.12) -- not a List call of its own.
-// interval is an hour, exactly as above, so listCallsPerTick stays an exact
-// bound with both a pipeline and a downloads subscriber attached at once.
-func TestDownloadsSubscribersShareThePipelineListRound(t *testing.T) {
-	movie := &catalogv1.Movie{
-		ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption", Namespace: "default", UID: "movie-uid"},
-		Status:     catalogv1.MovieStatus{Metadata: &catalogv1.MovieMetadata{Title: "The Shawshank Redemption"}},
-	}
-	movie.Status.Downloads = []catalogv1.DownloadEntry{grabEntry("shawshank-download", commonv1.DownloadPhaseDownloading)}
-	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(movie).Build()
-
-	var calls atomic.Int64
-	reader := &countingReader{Reader: fakeClient, calls: &calls}
-
-	proj := projection.New(reader, time.Hour)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { _ = proj.Run(ctx) }()
-
-	entriesCh, unsubEntries := proj.Subscribe()
-	defer unsubEntries()
-	downloadsCh, unsubDownloads := proj.SubscribeDownloads()
-	defer unsubDownloads()
-
-	gotEntries := receiveNonEmpty(t, entriesCh, 2*time.Second)
-	require.Len(t, gotEntries, 1, "the pipeline stream must still see the one Movie")
-
-	gotDownloads := receiveNonEmptyDownloads(t, downloadsCh, 2*time.Second)
-	require.Len(t, gotDownloads, 1)
-	require.Equal(t, "shawshank-download", gotDownloads[0].Entry.ID)
-	require.Equal(t, "shawshank-redemption", gotDownloads[0].Owner.Name)
-
-	// Give any errant extra tick or extra List a moment to happen before
-	// asserting the call count, exactly as TestSubscribersShareOneListRound
-	// does: interval is an hour, so nothing further should arrive.
-	time.Sleep(50 * time.Millisecond)
-	require.EqualValues(t, listCallsPerTick, calls.Load(),
-		"a downloads subscriber must add no List call beyond the one round the pipeline subscriber already shares")
-}
-
-// TestUnsubscribeStopsDelivery proves the func Subscribe returns actually
+// TestUnsubscribeStopsDelivery proves the func a stream's Subscribe* returns actually
 // removes the caller from the broadcast set: after calling it, a fast ticker
 // must not deliver anything further to the channel the test still holds.
 func TestUnsubscribeStopsDelivery(t *testing.T) {
@@ -224,8 +156,8 @@ func TestUnsubscribeStopsDelivery(t *testing.T) {
 	defer cancel()
 	go func() { _ = proj.Run(ctx) }()
 
-	ch, unsubscribe := proj.Subscribe()
-	receiveNonEmpty(t, ch, 2*time.Second)
+	ch, unsubscribe := proj.SubscribeLibrary()
+	receiveRows(t, ch, 2*time.Second)
 
 	unsubscribe()
 
@@ -614,17 +546,12 @@ func TestLibraryAndUnmatchedSubscribersShareThePipelineListRound(t *testing.T) {
 	defer cancel()
 	go func() { _ = proj.Run(ctx) }()
 
-	entriesCh, unsubEntries := proj.Subscribe()
-	defer unsubEntries()
 	libraryCh, unsubLibrary := proj.SubscribeLibrary()
 	defer unsubLibrary()
 	unmatchedCh, unsubUnmatched := proj.SubscribeUnmatched()
 	defer unsubUnmatched()
 	importListsCh, unsubImportLists := proj.SubscribeImportLists()
 	defer unsubImportLists()
-
-	gotEntries := receiveNonEmpty(t, entriesCh, 2*time.Second)
-	require.Len(t, gotEntries, 1)
 
 	deadline := time.After(2 * time.Second)
 	var gotLibrary []projection.LibraryItem
@@ -663,8 +590,8 @@ func TestLibraryAndUnmatchedSubscribersShareThePipelineListRound(t *testing.T) {
 	require.Equal(t, "trakt-watchlist", gotImportLists[0].Ref.Name)
 
 	// Give any errant extra tick or extra List a moment to happen before
-	// asserting the call count, exactly as the downloads-stream analogue
-	// above does: interval is an hour, so nothing further should arrive.
+	// asserting the call count, exactly as TestSubscribersShareOneListRound
+	// does: interval is an hour, so nothing further should arrive.
 	time.Sleep(50 * time.Millisecond)
 	require.EqualValues(t, listCallsPerTick, calls.Load(),
 		"library, unmatched and import-list subscribers must add no List call beyond the one shared round")
@@ -735,10 +662,9 @@ func TestProjectionTrimsThePipelineToItsHistory(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = proj.Run(ctx) }()
-	ch, unsub := proj.Subscribe()
-	defer unsub()
 
-	got := receiveNonEmpty(t, ch, 2*time.Second)
+	var got []pipeline.Entry
+	require.Eventually(t, func() bool { got = proj.Entries(ctx); return len(got) > 0 }, 2*time.Second, 10*time.Millisecond)
 	require.Len(t, got, 2, "two results kept of three")
 	require.Equal(t, "episode-1", got[0].Ref.Name, "the newest result first")
 	require.Equal(t, "episode-2", got[1].Ref.Name)

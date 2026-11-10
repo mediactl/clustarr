@@ -21,9 +21,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Before this package existed, ui/sse.go polled pkg/pipeline.Project on a
 // ticker inside every /events/pipeline connection handler, so N open browser
 // tabs relisted and re-projected the whole catalogue N times a tick.
-// Projection.Run does it once, on its own ticker, and Subscribe fans the
-// SAME computed slice out to every listener; a slow or gone listener drops a
-// frame rather than stalling the loop for everyone else.
+// Projection.Run does it once, on its own ticker, and each Subscribe*
+// stream fans the SAME computed slice out to every listener; a slow or gone
+// listener drops a frame rather than stalling the loop for everyone else.
 package projection
 
 import (
@@ -48,17 +48,17 @@ import (
 // does not choose its own.
 const DefaultInterval = 5 * time.Second
 
-// Projection computes []pipeline.Entry over a client.Reader on a fixed
-// interval and broadcasts the result to every current [Subscribe]r. The
-// same tick also broadcasts the grab entries read off the same items (one
-// DownloadRow per entry, ADR-0019 §6.12) to every current
-// [SubscribeDownloads]r, plus -- Task
-// G3-3, same ruling -- the Library page's []LibraryItem to every current
-// [SubscribeLibrary]r and the Unmatched page's []UnmatchedEntry to every
-// current [SubscribeUnmatched]r, plus -- Task G3-4, same ruling -- the
-// Import Lists page's []ImportListEntry to every current
-// [SubscribeImportLists]r, so all five streams come from one list round
-// rather than each running its own.
+// Projection computes the ui's pages over a client.Reader on a fixed
+// interval, in one list round (ruling R4): the items' []pipeline.Entry, from
+// which the Library page's rows are built, the grab entries read off the
+// same items (one DownloadRow per entry, ADR-0019 §6.12) and the Dashboard
+// and Activity pages' summary. It broadcasts the Library page's
+// []LibraryItem to every current [SubscribeLibrary]r, the Unmatched page's
+// []UnmatchedEntry to every current [SubscribeUnmatched]r and the Import
+// Lists page's []ImportListEntry to every current [SubscribeImportLists]r,
+// so every stream comes from the one round rather than each running its
+// own. The pipeline and downloads streams went with the pipeline page
+// (owner, 2026-11-10: the Activity group).
 type Projection struct {
 	reader   client.Reader
 	interval time.Duration
@@ -90,8 +90,6 @@ type Projection struct {
 	unmatched      []UnmatchedEntry
 	importLists    []ImportListEntry
 	dashboard      Dashboard
-	subs           map[chan []pipeline.Entry]struct{}
-	downloadSubs   map[chan []DownloadRow]struct{}
 	librarySubs    map[chan []LibraryItem]struct{}
 	unmatchedSubs  map[chan []UnmatchedEntry]struct{}
 	importListSubs map[chan []ImportListEntry]struct{}
@@ -100,7 +98,7 @@ type Projection struct {
 // New builds a Projection over r, recomputed every interval once [Run] is
 // called. r may be nil -- see ui.Options.Reader's own doc comment -- in
 // which case every tick yields no rows rather than reaching for a client
-// that does not exist; [Entries] and [Subscribe] both stay legal to call,
+// that does not exist; [Entries] and the Subscribe* streams stay legal to call,
 // they just never see any rows. Nothing here starts anything; call [Run] to
 // begin projecting.
 func New(r client.Reader, interval time.Duration, opts ...Option) *Projection {
@@ -108,8 +106,6 @@ func New(r client.Reader, interval time.Duration, opts ...Option) *Projection {
 		reader:         r,
 		interval:       interval,
 		history:        DefaultPipelineHistory,
-		subs:           make(map[chan []pipeline.Entry]struct{}),
-		downloadSubs:   make(map[chan []DownloadRow]struct{}),
 		librarySubs:    make(map[chan []LibraryItem]struct{}),
 		unmatchedSubs:  make(map[chan []UnmatchedEntry]struct{}),
 		importListSubs: make(map[chan []ImportListEntry]struct{}),
@@ -204,7 +200,7 @@ func (p *Projection) isDirty() bool { return !p.tracked.Load() || p.dirty.Load()
 func (p *Projection) hasSubscribers() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return len(p.subs)+len(p.downloadSubs)+len(p.librarySubs)+len(p.unmatchedSubs)+len(p.importListSubs) > 0
+	return len(p.librarySubs)+len(p.unmatchedSubs)+len(p.importListSubs) > 0
 }
 
 // runRound computes one projection round -- one round of List calls -- and
@@ -242,12 +238,6 @@ func (p *Projection) runRound(ctx context.Context, due func() bool) {
 	p.unmatched = unmatched
 	p.importLists = importLists
 	p.dashboard = dashboard
-	for ch := range p.subs {
-		publish(ch, entries)
-	}
-	for ch := range p.downloadSubs {
-		publish(ch, downloads)
-	}
 	for ch := range p.librarySubs {
 		publish(ch, library)
 	}
@@ -361,59 +351,13 @@ func (p *Projection) ImportLists(ctx context.Context) []ImportListEntry {
 	return p.importLists
 }
 
-// Subscribe registers a new listener and returns a channel that receives
-// the current projection immediately, and again every time [Run] recomputes
-// it, plus a func that unsubscribes. The caller must call the returned func
-// exactly once when done listening (typically deferred) or the channel and
-// its slot in the subscriber set leak for the life of the Projection.
-func (p *Projection) Subscribe() (<-chan []pipeline.Entry, func()) {
-	ch := make(chan []pipeline.Entry, 1)
-
-	p.mu.Lock()
-	ch <- p.entries
-	p.subs[ch] = struct{}{}
-	p.mu.Unlock()
-
-	var once sync.Once
-	unsubscribe := func() {
-		once.Do(func() {
-			p.mu.Lock()
-			delete(p.subs, ch)
-			p.mu.Unlock()
-		})
-	}
-	return ch, unsubscribe
-}
-
-// SubscribeDownloads is [Subscribe]'s downloads-stream counterpart (Task
-// D3-3): same immediate-then-on-change delivery, same single-call
-// unsubscribe, but fed from the grab entries on the items [tick] already
-// lists for [Subscribe] -- ruling R4's "one list round feeds both streams"
-// -- rather than a List call of its own.
-func (p *Projection) SubscribeDownloads() (<-chan []DownloadRow, func()) {
-	ch := make(chan []DownloadRow, 1)
-
-	p.mu.Lock()
-	ch <- p.downloads
-	p.downloadSubs[ch] = struct{}{}
-	p.mu.Unlock()
-
-	var once sync.Once
-	unsubscribe := func() {
-		once.Do(func() {
-			p.mu.Lock()
-			delete(p.downloadSubs, ch)
-			p.mu.Unlock()
-		})
-	}
-	return ch, unsubscribe
-}
-
-// SubscribeLibrary is [Subscribe]'s Library-page counterpart (Task G3-3):
-// same immediate-then-on-change delivery, same single-call unsubscribe, but
-// fed from the catalog items [tick] already lists for [Subscribe] -- ruling
-// R4's "one list round feeds every stream" -- rather than a List call of its
-// own.
+// SubscribeLibrary registers a listener for the Library page (Task G3-3)
+// and returns a channel that receives the current rows immediately, and
+// again every time [Run] recomputes them, plus a func that unsubscribes. The
+// caller must call that func exactly once when done (typically deferred), or
+// the channel and its slot leak for the life of the Projection. The rows
+// come from the catalog items each round already lists -- ruling R4's "one
+// list round feeds every stream" -- not a List call of their own.
 func (p *Projection) SubscribeLibrary() (<-chan []LibraryItem, func()) {
 	ch := make(chan []LibraryItem, 1)
 
@@ -433,8 +377,8 @@ func (p *Projection) SubscribeLibrary() (<-chan []LibraryItem, func()) {
 	return ch, unsubscribe
 }
 
-// SubscribeUnmatched is [Subscribe]'s Unmatched-page counterpart (Task
-// G3-3): same immediate-then-on-change delivery, same single-call
+// SubscribeUnmatched is [SubscribeLibrary]'s Unmatched-page counterpart
+// (Task G3-3): same immediate-then-on-change delivery, same single-call
 // unsubscribe, fed from the one additional LibraryScan List call [project]
 // adds to the shared tick.
 func (p *Projection) SubscribeUnmatched() (<-chan []UnmatchedEntry, func()) {
@@ -456,8 +400,8 @@ func (p *Projection) SubscribeUnmatched() (<-chan []UnmatchedEntry, func()) {
 	return ch, unsubscribe
 }
 
-// SubscribeImportLists is [Subscribe]'s Import Lists page counterpart (Task
-// G3-4): same immediate-then-on-change delivery, same single-call
+// SubscribeImportLists is [SubscribeLibrary]'s Import Lists page counterpart
+// (Task G3-4): same immediate-then-on-change delivery, same single-call
 // unsubscribe, fed from the one additional ImportList List call [project]
 // adds to the shared tick.
 func (p *Projection) SubscribeImportLists() (<-chan []ImportListEntry, func()) {

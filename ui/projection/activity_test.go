@@ -109,8 +109,10 @@ func TestMarkersSortIntoTheirTabs(t *testing.T) {
 		{Kind: catalogv1.MarkerCredits, StartMs: 3_670_000, EndMs: 3_720_000, Source: "chapters"},
 	}}
 	none := activityFile("none", commonv1.MediaKindMovie)
-	none.Status.Markers = &catalogv1.FileMarkers{Result: catalogv1.MarkersNotFound, FetchedAt: *atAgo(-2 * time.Hour),
-		Analysis: &catalogv1.SegmentAnalysis{Result: catalogv1.MarkersNotFound, AnalyzedAt: *atAgo(-time.Minute)}}
+	none.Status.Markers = &catalogv1.FileMarkers{
+		Result: catalogv1.MarkersNotFound, FetchedAt: *atAgo(-2 * time.Hour),
+		Analysis: &catalogv1.SegmentAnalysis{Result: catalogv1.MarkersNotFound, AnalyzedAt: *atAgo(-time.Minute)},
+	}
 	failed := activityFile("failed", commonv1.MediaKindEpisode)
 	failed.Status.Markers = &catalogv1.FileMarkers{Result: catalogv1.MarkersError, Message: "theintrodb: 503", FetchedAt: *atAgo(-time.Hour)}
 	pending := activityFile("pending", commonv1.MediaKindEpisode)
