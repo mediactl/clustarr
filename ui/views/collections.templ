@@ -1,0 +1,536 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"slices"
+	"strconv"
+
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/plexfilter"
+	"github.com/mediactl/clustarr/ui/components/alert"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/checkbox"
+	"github.com/mediactl/clustarr/ui/components/field"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/input"
+	"github.com/mediactl/clustarr/ui/components/item"
+	selectcomp "github.com/mediactl/clustarr/ui/components/select"
+	"github.com/mediactl/clustarr/ui/components/textarea"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// The Collections page (docs/superpowers/specs/2026-11-10-plex-collections-design.md):
+// every PlexCollection by library, and its editor, laid out as Plex Web's
+// smart filter is. The editor is a page of its own: each of its buttons
+// posts the form back and is answered with the form redrawn
+// (/library/collections/editor), and Save is a plain form post.
+
+// CollectionsTab marks the Library sub-menu's Collections entry.
+const CollectionsTab projection.Tab = "collections"
+
+// CollectionsPage is the list, one section per Plex library.
+type CollectionsPage struct {
+	Libraries []CollectionLibrary
+}
+
+// CollectionLibrary is one library's collections.
+type CollectionLibrary struct {
+	Title string
+	Rows  []CollectionRow
+}
+
+// CollectionRow is one collection in the list.
+type CollectionRow struct {
+	Namespace, Name, Title string
+	// Reading is pkg/plexfilter.Describe's line.
+	Reading string
+	// Reason and Message are the Synced condition's; Synced is its status.
+	Reason, Message string
+	Synced          bool
+	Items           int32
+}
+
+// CollectionEditor is the editor's state.
+type CollectionEditor struct {
+	// Namespace and Name are the resource's; Name is empty for a new one.
+	Namespace, Name, ResourceVersion string
+	Spec                             catalogv1.PlexCollectionSpec
+	// Libraries are the library titles the existing collections name.
+	Libraries []string
+	// Suggestions are values for a field's value box, by field key.
+	Suggestions map[string][]string
+	// Error is why the last save was refused.
+	Error string
+}
+
+func collectionEditPath(namespace, name string) string {
+	return "/library/collections/" + namespace + "/" + name + "/edit"
+}
+
+func editorAction(e CollectionEditor) string {
+	if e.Name == "" {
+		return "/library/collections"
+	}
+	return "/library/collections/" + e.Namespace + "/" + e.Name
+}
+
+func editorTitle(e CollectionEditor) string {
+	if e.Name == "" {
+		return "New collection"
+	}
+	return e.Spec.Title
+}
+
+// SuggestionListID is the id of a field's value datalist.
+func SuggestionListID(field string) string {
+	out := []byte("suggest-")
+	for i := 0; i < len(field); i++ {
+		if field[i] == '.' {
+			out = append(out, '-')
+			continue
+		}
+		out = append(out, field[i])
+	}
+	return string(out)
+}
+
+func fieldChoices(t catalogv1.PlexItemType) []Choice {
+	var out []Choice
+	for _, f := range plexfilter.Fields(t) {
+		label := f.Title
+		if t != catalogv1.PlexItemMovie && len(f.Key) > 8 && f.Key[:8] == "episode." {
+			label = "Episode " + f.Title
+		}
+		out = append(out, Choice{Key: f.Key, Label: label})
+	}
+	return out
+}
+
+func operatorChoices(t catalogv1.PlexItemType, field string) []Choice {
+	f, ok := plexfilter.Lookup(t, field)
+	if !ok {
+		return nil
+	}
+	var out []Choice
+	for _, op := range plexfilter.Operators(f.Type) {
+		out = append(out, Choice{Key: string(op), Label: plexfilter.OperatorLabel(op)})
+	}
+	return out
+}
+
+func takesValue(op catalogv1.PlexOperator) bool {
+	return op != catalogv1.PlexOpIsTrue && op != catalogv1.PlexOpIsFalse
+}
+
+func valueAttrs(e CollectionEditor, field string) templ.Attributes {
+	a := templ.Attributes{"aria-label": "Value"}
+	if len(e.Suggestions[field]) > 0 {
+		a["list"] = SuggestionListID(field)
+	}
+	return a
+}
+
+func sortedSuggestionKeys(m map[string][]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+var itemTypeChoices = []Choice{
+	{Key: string(catalogv1.PlexItemMovie), Label: "Movies"},
+	{Key: string(catalogv1.PlexItemShow), Label: "Shows"},
+	{Key: string(catalogv1.PlexItemSeason), Label: "Seasons"},
+	{Key: string(catalogv1.PlexItemEpisode), Label: "Episodes"},
+}
+
+var kindChoices = []Choice{{Key: "smart", Label: "Smart (a filter)"}, {Key: "normal", Label: "Normal (chosen items)"}}
+
+var matchChoices = []Choice{
+	{Key: string(catalogv1.PlexMatchAll), Label: "Match all of the following"},
+	{Key: string(catalogv1.PlexMatchAny), Label: "Match any of the following"},
+}
+
+func editorKind(e CollectionEditor) string {
+	if e.Spec.Members != nil {
+		return "normal"
+	}
+	return "smart"
+}
+
+func filterMatch(e CollectionEditor) string {
+	if e.Spec.Filter == nil || e.Spec.Filter.Match == "" {
+		return string(catalogv1.PlexMatchAll)
+	}
+	return string(e.Spec.Filter.Match)
+}
+
+func sortField(e CollectionEditor) string {
+	if e.Spec.Sort == nil {
+		return ""
+	}
+	return e.Spec.Sort.Field
+}
+
+func limitValue(e CollectionEditor) string {
+	if e.Spec.Limit == nil {
+		return ""
+	}
+	return strconv.Itoa(int(*e.Spec.Limit))
+}
+
+func strValue(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// labelledTrigger is a select trigger's attributes: its label for a
+// screen reader, and disabled when read-only.
+func labelledTrigger(readOnly bool, label string) templ.Attributes {
+	a := templ.Attributes{"aria-label": label}
+	for k, v := range readOnlyTrigger(readOnly) {
+		a[k] = v
+	}
+	return a
+}
+
+// editorOpAttrs make a button post the form back for one editor op.
+func editorOpAttrs(op, at, label string) templ.Attributes {
+	return templ.Attributes{
+		"hx-post":        "/library/collections/editor?op=" + op + "&at=" + at,
+		"hx-include":     "closest form",
+		"hx-target":      "#collection-editor",
+		"hx-swap":        "outerHTML",
+		"aria-label":     label,
+		"title":          label,
+		"data-editor-op": op,
+	}
+}
+
+// collectionsShell is a Collections page's chrome, under Library.
+templ collectionsShell(title string) {
+	@Shell(Chrome{
+		Title:  title,
+		Crumbs: []Crumb{{Label: "Library", Href: "/library"}, {Label: "Collections", Href: "/library/collections"}, {Label: title}},
+		Tab:    CollectionsTab,
+	}) {
+		@ActionStatusRegion()
+		{ children... }
+	}
+}
+
+templ Collections(p CollectionsPage) {
+	@collectionsShell("Collections") {
+		<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+			<h1 class="text-2xl font-semibold tracking-tight">Collections</h1>
+			@button.Button(button.Props{Href: "/library/collections/new", Attributes: templ.Attributes{"data-action": "new-collection"}}) {
+				@icon.Icon("plus")()
+				New collection
+			}
+		</div>
+		@CollectionsList(p)
+	}
+}
+
+// CollectionsList is the list, refreshed after a delete
+// (collections-changed).
+templ CollectionsList(p CollectionsPage) {
+	<div id="collections-list" hx-get="/library/collections/list" hx-trigger="collections-changed from:body" hx-swap="outerHTML" class="space-y-8">
+		if len(p.Libraries) == 0 {
+			@emptyState("library-big", "No collections yet", "A collection declared here is created in Plex, or adopts the Plex collection of the same title.", nil)
+		}
+		for _, lib := range p.Libraries {
+			<section data-collection-library={ lib.Title }>
+				<h2 class="mb-3 text-lg font-medium">{ lib.Title }</h2>
+				@item.Group() {
+					for _, r := range lib.Rows {
+						@collectionRow(r)
+					}
+				}
+			</section>
+		}
+	</div>
+}
+
+templ collectionRow(r CollectionRow) {
+	@item.Item(item.Props{Variant: item.VariantOutline, Attributes: templ.Attributes{"data-collection": r.Namespace + "/" + r.Name}}) {
+		@item.Media(item.MediaProps{Variant: item.MediaVariantIcon}) {
+			@icon.Icon("library-big")()
+		}
+		@item.Content() {
+			@item.Title() {
+				<a href={ templ.URL(collectionEditPath(r.Namespace, r.Name)) } class="hover:underline">{ r.Title }</a>
+			}
+			@item.Description() {
+				{ r.Reading }
+			}
+		}
+		@item.Actions() {
+			if r.Items > 0 {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ fmt.Sprintf("%d items", r.Items) }
+				}
+			}
+			if r.Reason != "" {
+				@badge.Badge(badge.Props{Variant: syncedVariant(r.Synced), Attributes: templ.Attributes{"title": r.Message, "data-synced": r.Reason}}) {
+					{ r.Reason }
+				}
+			}
+			@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIconSm, Attributes: templ.Attributes{
+				"hx-post":    "/library/collections/" + r.Namespace + "/" + r.Name + "/delete",
+				"hx-target":  "#action-status",
+				"hx-swap":    "innerHTML",
+				"hx-confirm": "Delete the collection " + r.Title + "? Its Plex collection is deleted too.",
+				"aria-label": "Delete " + r.Title,
+				"title":      "Delete",
+			}}) {
+				@icon.Icon("trash-2")()
+			}
+		}
+	}
+}
+
+func syncedVariant(synced bool) badge.Variant {
+	if synced {
+		return badge.VariantOutline
+	}
+	return badge.VariantDestructive
+}
+
+templ CollectionEditorPage(e CollectionEditor) {
+	@collectionsShell(editorTitle(e)) {
+		<h1 class="mb-6 text-2xl font-semibold tracking-tight">{ editorTitle(e) }</h1>
+		@CollectionEditorForm(e)
+	}
+}
+
+// CollectionEditorForm is the editor: a change of item type, kind or a
+// condition's field redraws it (op=refresh), so each row offers the
+// operators its field takes.
+templ CollectionEditorForm(e CollectionEditor) {
+	<form
+		id="collection-editor"
+		method="post"
+		action={ templ.URL(editorAction(e)) }
+		class="max-w-4xl space-y-8"
+		hx-post="/library/collections/editor?op=refresh"
+		hx-trigger="change[target.name==='itemType'||target.name==='kind'||target.name.endsWith('.field')]"
+		hx-target="this"
+		hx-swap="outerHTML"
+	>
+		<input type="hidden" name="namespace" value={ e.Namespace }/>
+		<input type="hidden" name="name" value={ e.Name }/>
+		<input type="hidden" name="resourceVersion" value={ e.ResourceVersion }/>
+		if e.Error != "" {
+			@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Attributes: templ.Attributes{"data-editor-error": true}}) {
+				@icon.Icon("circle-alert")()
+				@alert.Title() {
+					The collection was not saved
+				}
+				@alert.Description() {
+					<p class="whitespace-pre-line">{ e.Error }</p>
+				}
+			}
+		}
+		@editorGeneral(e)
+		if editorKind(e) == "smart" {
+			@editorFilter(e)
+		}
+		<datalist id="collection-libraries">
+			for _, l := range e.Libraries {
+				<option value={ l }></option>
+			}
+		</datalist>
+		for _, k := range sortedSuggestionKeys(e.Suggestions) {
+			<datalist id={ SuggestionListID(k) }>
+				for _, v := range e.Suggestions[k] {
+					<option value={ v }></option>
+				}
+			</datalist>
+		}
+		<div class="flex gap-2">
+			@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "save-collection"}}) {
+				Save
+			}
+			@button.Button(button.Props{Href: "/library/collections", Variant: button.VariantOutline}) {
+				Cancel
+			}
+		</div>
+	</form>
+}
+
+templ editorGeneral(e CollectionEditor) {
+	<section class="panel space-y-4 p-4" data-editor-section="general">
+		@field.Group() {
+			@field.Field() {
+				@field.Label(field.LabelProps{For: "collection-title"}) {
+					Title
+				}
+				@input.Input(input.Props{ID: "collection-title", Name: "title", Value: e.Spec.Title, Required: true})
+			}
+			<div class="grid gap-4 sm:grid-cols-3">
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "collection-library"}) {
+						Library
+					}
+					@input.Input(input.Props{ID: "collection-library", Name: "library", Value: e.Spec.Library, Required: true, ReadOnly: e.Name != "", Attributes: templ.Attributes{"list": "collection-libraries"}})
+				}
+				@field.Field() {
+					@field.Label() {
+						Holds
+					}
+					@editorSelect("collection-itemType", "itemType", "Holds", itemTypeChoices, string(e.Spec.ItemType), e.Name != "")
+				}
+				@field.Field() {
+					@field.Label() {
+						Kind
+					}
+					@editorSelect("collection-kind", "kind", "Kind", kindChoices, editorKind(e), e.Name != "")
+				}
+			</div>
+			@field.Field() {
+				@field.Label(field.LabelProps{For: "collection-summary"}) {
+					Summary
+				}
+				@textarea.Textarea(textarea.Props{ID: "collection-summary", Name: "summary", Value: strValue(e.Spec.Summary), Rows: 3})
+				@field.Description() {
+					Left empty, Plex keeps its own.
+				}
+			}
+			@field.Field() {
+				@field.Label(field.LabelProps{For: "collection-sortTitle"}) {
+					Sort title
+				}
+				@input.Input(input.Props{ID: "collection-sortTitle", Name: "sortTitle", Value: strValue(e.Spec.SortTitle)})
+			}
+		}
+	</section>
+}
+
+// editorSelect is a labelled select; read-only once the collection exists
+// (its library, item type and kind never change).
+templ editorSelect(id, name, label string, choices []Choice, value string, readOnly bool) {
+	@selectcomp.Select(selectcomp.Props{ID: id, Name: name, DefaultValue: value, Items: choiceItems(choices), ReadOnly: readOnly}) {
+		@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full", Attributes: labelledTrigger(readOnly, label)}) {
+			@selectcomp.Value()
+		}
+		@selectcomp.Content() {
+			@selectcomp.Group() {
+				for _, c := range choices {
+					@selectcomp.Item(selectcomp.ItemProps{Value: c.Key}) {
+						{ c.Label }
+					}
+				}
+			}
+		}
+	}
+}
+
+templ editorFilter(e CollectionEditor) {
+	<section class="panel space-y-4 p-4" data-editor-section="filter">
+		<div class="flex flex-wrap items-center gap-2">
+			<div class="w-72">
+				@editorSelect("collection-match", "match", "Match", matchChoices, filterMatch(e), false)
+			</div>
+			@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantOutline, Size: button.SizeSm, Attributes: editorOpAttrs("add-rule", "", "Add a condition")}) {
+				@icon.Icon("plus")()
+				Condition
+			}
+			@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantOutline, Size: button.SizeSm, Attributes: editorOpAttrs("add-group", "", "Add a group")}) {
+				@icon.Icon("list-plus")()
+				Group
+			}
+		</div>
+		<div class="space-y-3" data-editor-rules>
+			for i, r := range e.Spec.Filter.Rules {
+				if r.Match != "" {
+					@editorGroup(e, i, r)
+				} else {
+					@editorCondition(e, fmt.Sprintf("rule.%d.", i), catalogv1.PlexCondition{Field: r.Field, Operator: r.Operator, Value: r.Value}, strconv.Itoa(i))
+				}
+			}
+		</div>
+		<div class="grid gap-4 border-t border-border pt-4 sm:grid-cols-[1fr_auto_10rem] sm:items-end">
+			@field.Field() {
+				@field.Label(field.LabelProps{For: "collection-sort"}) {
+					Sort by
+				}
+				@input.Input(input.Props{ID: "collection-sort", Name: "sort.field", Value: sortField(e), Placeholder: "Plex's own", Attributes: templ.Attributes{"list": "collection-sorts"}})
+				<datalist id="collection-sorts">
+					for _, s := range []string{"titleSort", "addedAt", "originallyAvailableAt", "rating", "audienceRating", "lastViewedAt", "random"} {
+						<option value={ s }></option>
+					}
+				</datalist>
+			}
+			@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+				@checkbox.Checkbox(checkbox.Props{ID: "collection-sort-desc", Name: "sort.descending", Value: "1", DefaultChecked: e.Spec.Sort != nil && e.Spec.Sort.Descending})
+				@field.Label(field.LabelProps{For: "collection-sort-desc"}) {
+					Descending
+				}
+			}
+			@field.Field() {
+				@field.Label(field.LabelProps{For: "collection-limit"}) {
+					Limit to
+				}
+				@input.Input(input.Props{ID: "collection-limit", Name: "limit", Type: "number", Value: limitValue(e), Placeholder: "Plex's own", Attributes: templ.Attributes{"min": "1"}})
+			}
+		</div>
+	</section>
+}
+
+templ editorGroup(e CollectionEditor, i int, r catalogv1.PlexFilterRule) {
+	<div class="space-y-3 rounded-lg border border-border p-3" data-editor-group={ strconv.Itoa(i) }>
+		<div class="flex flex-wrap items-center gap-2">
+			<div class="w-72">
+				@editorSelect(fmt.Sprintf("collection-rule-%d-match", i), fmt.Sprintf("rule.%d.match", i), "Group match", matchChoices, string(r.Match), false)
+			</div>
+			@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantOutline, Size: button.SizeSm, Attributes: editorOpAttrs("add-rule", strconv.Itoa(i), "Add a condition to the group")}) {
+				@icon.Icon("plus")()
+				Condition
+			}
+			@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantGhost, Size: button.SizeIconSm, Attributes: editorOpAttrs("remove", strconv.Itoa(i), "Remove the group")}) {
+				@icon.Icon("trash-2")()
+			}
+		</div>
+		for j, c := range r.Rules {
+			@editorCondition(e, fmt.Sprintf("rule.%d.%d.", i, j), c, fmt.Sprintf("%d.%d", i, j))
+		}
+	</div>
+}
+
+templ editorCondition(e CollectionEditor, prefix string, c catalogv1.PlexCondition, at string) {
+	<div class="grid grid-cols-1 items-start gap-2 sm:grid-cols-[13rem_11rem_1fr_auto]" data-editor-condition={ at }>
+		@conditionSelect(prefix+"field", "Field", fieldChoices(e.Spec.ItemType), c.Field)
+		@conditionSelect(prefix+"operator", "Operator", operatorChoices(e.Spec.ItemType, c.Field), string(c.Operator))
+		if takesValue(c.Operator) {
+			@input.Input(input.Props{Name: prefix + "value", Value: c.Value, Attributes: valueAttrs(e, c.Field)})
+		} else {
+			<div></div>
+		}
+		@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantGhost, Size: button.SizeIcon, Attributes: editorOpAttrs("remove", at, "Remove the condition")}) {
+			@icon.Icon("x")()
+		}
+	</div>
+}

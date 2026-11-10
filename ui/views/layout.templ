@@ -352,6 +352,16 @@ templ librarySubMenu(current projection.Tab) {
 				}
 			}
 		}
+		// Plex collections (docs/superpowers/specs/2026-11-10-plex-collections-design.md).
+		@sidebar.MenuSubItem() {
+			@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+				Href:       "/library/collections",
+				IsActive:   current == CollectionsTab,
+				Attributes: subNavAttrs("/library/collections"),
+			}) {
+				<span>Collections</span>
+			}
+		}
 	}
 }
 

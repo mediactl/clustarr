@@ -117,8 +117,8 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	require.Greater(t, sub, libraryEntry, "the sub-menu follows the Library entry")
 	require.Less(t, sub, liveTVEntry, "the sub-menu sits inside the Library item, before Live TV")
 	requireTag(t, sidebarHTML, `data-slot="sidebar-menu-sub"`, `id="library-subnav"`)
-	require.Equal(t, len(projection.Tabs())+3+4, strings.Count(sidebarHTML, `data-slot="sidebar-menu-sub-button"`),
-		"one sub-entry per library tab, Live TV's three and Activity's four")
+	require.Equal(t, len(projection.Tabs())+1+3+4, strings.Count(sidebarHTML, `data-slot="sidebar-menu-sub-button"`),
+		"one sub-entry per library tab and Collections, Live TV's three and Activity's four")
 	// The Activity group (owner, 2026-11-10): its four pages under it.
 	activityEntry := strings.Index(sidebarHTML, `href="/activity"`)
 	activitySub := strings.Index(sidebarHTML, `id="activity-subnav"`)
