@@ -112,7 +112,17 @@ func (r *Registry) Lookup(ctx context.Context, kind commonv1.MediaKind, ids Exte
 			region = "us"
 		}
 		return lookupFirst(r.Audiobooks, func(p AudiobookProvider) (*Audiobook, error) {
-			return p.Audiobook(ctx, asin, region)
+			a, err := p.Audiobook(ctx, asin, region)
+			if err != nil || a == nil || len(a.Chapters) > 0 {
+				return a, err
+			}
+			// The chapter markers are a request of their own (Audnexus's
+			// /books/{asin}/chapters); a failure leaves the audiobook
+			// without them rather than failing it (2026-11-10 design §5.4).
+			if ch, cerr := p.Chapters(ctx, asin, region); cerr == nil {
+				a.Chapters = ch
+			}
+			return a, nil
 		})
 	case commonv1.MediaKindComic:
 		return lookupFirst(r.Comics, func(p ComicProvider) (*ComicVolume, error) { return p.Volume(ctx, ids) })
