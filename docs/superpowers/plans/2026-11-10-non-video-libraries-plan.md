@@ -202,6 +202,11 @@ RootFolder fan-out lists whole kinds per event (a rootFolderRef index on
 the five kinds would make it key-only); a file covering several issues is
 Unrenderable; `Makefile`'s rbac render truncation fixed in b2732758.
 
+**Done 2026-11-10 (wave B, L3, 20f3cd4c):** the Comic's `naming.Context`
+carries `SpecialVersion` (and `Year`, matching `catalogctx.Issue`); the
+Issue adapter already passed `spec.specialVersion` through
+`catalogctx.Issue` (the leftover was half stale; a test pins it).
+
 ### W1.5 Comic and Audiobook parity (D10, D11, §5.1, §5.3)
 
 Owns `app/catalog/controller/comic/` (every file but the Issue-field writes
@@ -242,6 +247,16 @@ literal and the Issue naming adapter do not yet pass `spec.specialVersion`
 into W1.4's `Context.SpecialVersion`; `LinkAuthor` patches under
 `k8s.ManagerCatalog` (a manager of its own, as catalog-classify, is a
 `pkg/k8s` change).
+
+**Done 2026-11-10 (wave B, L3, 88e5369c, 92466a9e):** `searchForMissing`
+has a reader: the search stage's `searchplan.View.NoSearchOnAdd` makes an
+item added with it false ask the release index first (IndexOnly) rather
+than live, scoped to children released, aired or undated by the
+container's creationTimestamp, so a rescan-added Series (flag false) keeps
+live first searches for newly airing episodes; `audiobook.SearchOnAdd`
+dropped its `!addOptionsApplied` clause; no wake when the flag is edited
+after add (an add-time setting). The Comic reconciler's `MetadataRequest`
+names a manga's chapter numbering since 819dc23f (`issueNumbering`).
 
 ## W2: metadata (W2a serial, then W2b parallel, then W2c serial)
 
@@ -302,6 +317,16 @@ image, description and credits (dfa4b6e2; Metron/MangaDex remain); W2b.5's
 Open Library author links (4dcc89d3; Hardcover's author-id books and the
 book-level fields remain). What is left of W2b is one agent's work.
 
+**Done 2026-11-10 (wave B, L2, 5a5fea2d, 6f8701b0, df45c62f):**
+MusicBrainz's member-of-band relations as `Artist.Members`; Audnexus's
+author by ASIN (`metadata.AudiobookAuthorProvider`,
+`Registry.AudiobookAuthors`, no gateway dispatch yet); MangaDex's issues by
+chapter (`schema.MetadataRequest.Numbering`, `metadata.IssueNumberer`).
+Left (wave C): `metadata.Person` has no id or tenure, so a member's MBID
+and begin/end are decoded and dropped; `ComicIssue` has no `Volume`, so a
+chapter's volume is dropped; the two members fixtures are stored whole
+(44 KB, 30 KB).
+
 ### W2c Gateway (one agent)
 
 Owns `app/catalog/metadata/` (every file), `app/catalog/controller/comic/
@@ -359,6 +384,11 @@ pdf; listing only). Left: calling `PageCount` from the import's inspect for
 comic and PDF files into `MediaInfo.PageCount` (W3.2's execute), the FLAC/MP3
 fixtures and the native suite's tests.
 
+**Done 2026-11-10 (wave B, L1, 9628fa31):** an ebook the FFmpeg probe
+cannot read (the fsops book extensions: `.epub`, `.mobi`, `.azw`, `.azw3`,
+`.pdf`) is answered without FFmpeg; `.fb2` and `.djvu` are not classified
+as books (wave C adds them).
+
 ### W3.2 Track attribution and parts (D6, D11, §6)
 
 Owns `app/import/` (every file), `pkg/release/track.go` and `part.go`
@@ -387,6 +417,18 @@ same way and orders audiobook parts; the probe worker answers a comic
 archive or PDF with its page count. Left: the book quality freeze on the
 reconciler side (W1.2 reads `fileQuality`; the import freezes it already),
 and the integration tests of the inspect's attribution.
+
+**Done 2026-11-10 (wave B, L1, 1b3572b9):** a non-video file is placed
+where the loop's rename would put it (`catalogctx`); colliding canonical
+paths keep the files' own names (`keepOwnNamesOnCollision`), and the loop
+then refuses the collision (NamingCurrent False until the preset gains a
+medium token, the owner's decision). Left (wave C): `PartIndexOf`'s
+disc*1000+track leaks into `{PartNumber}` ("Title (1003).mp3", a lone file
+"(1001)"); `PartCount` is 0 at import; the import merges `catalogctx.File`
+with the frozen spec and nil MediaInfo, so a template override naming a
+release, MediaInfo or language token imports Stale and is renamed once;
+`rescan/manual.go`'s `assignManually` discards the probe, so a manual
+assignment freezes no track and no partIndex.
 
 ### W3.3 pkg/nfo, the import-nfo handler, the nfo stage (D13, §8)
 
@@ -472,6 +514,25 @@ filecells.templ` (new: `FileCells` for video/audio/book kinds),
 `ui/library_view.go` (`statusLabel`, `hasFolder`, year labels),
 `ui/library_find.go` (id prefixes).
 
+**Done 2026-11-10 (wave B, 05d74595, d178c8dd, 3f86929f):** six tabs
+(`TabComics`, `TabAudiobooks`; `RootFolderKinds` per tab), the container
+cards (`containerStatus`, `IsContainer`, the rollup's child counts and
+release dates on `LibraryItem`, `Released`), `ProviderID` for Comic,
+Audiobook and Book with the typeahead's prefixes, the new sorts, presets
+and custom-filter fields per tab, the reader indexes (`readerIndexes`
+table with retry; `AlbumArtistRefField`, `BookAuthorRefField`,
+`IssueComicRefField`, `AudiobookAuthorRefField`; the two authorRef indexes
+work on the cache alone, the fields not being selectable), one
+`libraryKindRoutes` line in routes.go with the per-kind route files,
+`hasFolder`/`itemFolder` for Comic and Audiobook, `FileRow`'s audio and
+book cells with `views.FileHeads`/`FileCells`/`FilesKind`, the action bar
+composed by name (`views.Action`, `ItemActions`, `DefaultActions`; the
+movie, series, season and episode pages byte-identical), thirteen provider
+logos, and `ui.PlexOptions.MusicProvider` through `NewIndexMemoWith`.
+Left: `ui/static_test.go`'s logo list covers imdb/tmdb/tvdb only (the new
+logos are held by `TestEveryProviderHasItsLogo`); a raw-client
+fieldSelector on `spec.authorRef` would need the selectablefield marker.
+
 ### W4b Pages (parallel; each owns its own files)
 
 - **W4b.1 Music**: `ui/artist.go`, `ui/album.go`, `ui/album_search.go`,
@@ -492,6 +553,26 @@ filecells.templ` (new: `FileCells` for video/audio/book kinds),
 - **W4b.4 Audiobooks**: `ui/audiobook.go`, `ui/views/audiobook.templ` (spec
   §9.5: hero, parts table, chapters, files, the audiobook search modal).
 
+**Done 2026-11-10 (wave B; W4b.1 28c48ef3, W4b.2 03de5c63, W4b.3
+65e1e2e0/d60aa8ea, W4b.4 4a8ede4c):** the artist page (albums grouped by
+type, status cells, both searches, `#album-modal`) and album page (tracks
+table with the file cells, files, neighbours, the music-column search
+modal through routes of its own, `ui/album_search.go`); the author page's
+hero facts and the book page (editions collapsible, files, series-order
+neighbours, the modal's details and search tabs; a standalone book from
+its own card); the comic page (Mylar's issues table, the volume search
+button as a plain grabBest Search on the Comic, the `status.volumeSearch`
+badge) and issue page (cover through `/art/search` since 819dc23f, credits,
+dates, comic-column files, neighbours, its own search routes); the
+audiobook page (parts, chapters, files, the modal with an estimated
+Bitrate column and its own panel routes). Left (wave C): one search panel
+per kind on `/searches` (`SearchPanel` has no column set); album Edit and
+Delete; `Track.ArtistCredit` (api) for a per-track credit; Peers/Grabs is
+Peers (no grab count in ReleaseInfo); the Metron logo unlinked; a planned
+volume pack search; the standalone book's scan and rename; the browser
+check of every modal and collapsible (no browser in the agents' sessions);
+`ui/run_test.go`'s `TestRunEndsAnOpenSSEStreamOnContextCancel` flaked once.
+
 ### W4c Shared actions and dialogs (one agent)
 
 Owns `ui/add.go`, `ui/actions/` (every file), `ui/views/add.templ`,
@@ -511,6 +592,30 @@ dispatch, `ui/views/downloads.templ`'s and `ui/dashboard.go`'s owner links,
    issue and audiobook pages; `handleSetMonitored` row replies for Album,
    Issue, Audiobook.
 4. Markup tests per page; a browser check of every new modal (CLAUDE.md).
+
+**Done 2026-11-10 (wave B, 63c57845, 21e30255, b51e98e1, 58c490fb; the
+controlling session's 819dc23f):** Add New on the Comics and Audiobooks
+tabs and a standalone Book on the Books tab (`?kind=book`, the kind switch,
+`AddKind.IDKeys` with the hit's source badge, the root's region, `justAdded`
+for the three kinds, `Grants()` and the role's creates); the Edit dialog's
+kind block fetched as the dialog opens (`GET .../edit/fields`,
+`ui/editfields.go`, saved only under the block's "fields" marker; Book
+joins `editableKinds`); the Delete dialog's count of a container's files
+(`containerFiles`); the shared item route delegating to each kind's page
+(`kindPage`), album and issue row replies, the parent-page fallback gone,
+`--plex-music-provider` reaching the Plex roots; and (819dc23f) the comic,
+audiobook and standalone book pages answering Add New's redirect with the
+"being added" page. Left (wave C): the children fragment's deletion
+(`ui/children.go`, `views.ChildrenPage`, `ChildrenURL`, `ui/book.go`'s
+`bookRows`, with `TestChildRowsAreItems` and `TestBookRowsAreTheSeasonTables`'
+/children assertions); `SearchHit`'s publisher, issue count, authors and
+narrators; one comic provider per search (a source selector on
+`MetadataRequest`); the audiobook's authorRef through an Audnexus author
+lookup (a bound `MetadataLookup` request in `internal/cli/ui`); the Edit
+dialog also on an author's book (design: standalone only); an audiobook's
+Book select lists only the linked author's books; `containerFiles`' one Get
+per child file on every render; the `intersect once` block fetch and every
+new modal unchecked in a browser.
 
 ## W5: the Plex roots (serial)
 
@@ -618,6 +723,15 @@ noted: `app/catalog/metadata`'s 17 envtests want a records writer in their
 harness (the audiobook tests now build one over membus, the pattern to
 copy); `series/episodesync.go` fans out before metadata on every pass as
 the Comic did (since 2026-10-28, untouched).
+
+**Progress 2026-11-10 (after wave B):** CLAUDE.md's UI section ("The four
+non-video libraries' pages") and the Music section's ui bullet written;
+scenario 11 extended (edbcb9e1; the nonvideostub's coverart, wikipedia and
+audible routes 9fc4eab4; config/e2e's three providers at the stub and the
+wikipedia registry's one baseURL, 819dc23f); the spec's §9 as-built note
+and §11 wave notes. Left: the remaining-work items (`:1265`, `:1268`,
+`:1285`), the e2e legs for a cover and a biography (none asserts one), and
+the final notes after wave C.
 
 ## Order and gates
 

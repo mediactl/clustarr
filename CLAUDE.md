@@ -843,11 +843,67 @@ and shapes are `pkg/iptv/livetvstore`. E2e scenario 19
 
 ## UI
 
-The library's media types -- Movies, TV, Music, Books -- are the Library
+The library's media types -- Movies, TV, Music, Books, Comics, Audiobooks
+(six since 2026-11-10, `projection.Tabs()`) -- are the Library
 entry's sub-menu in the sidebar (shadcn-templ `sidebar.MenuSub` under the
 Library `sidebar.MenuItem`, since 2026-09-24; before that a tab strip in
 the top bar). Each sub-entry swaps the page body through htmx so the
 sidebar stays put.
+**The four non-video libraries' pages are the movies' and TV's** (owner,
+2026-11-10, "just like we did the movies and TV"; the design's §9, built as
+plan W4a-W4c by ten agents in wave B): the Music tab lists Artists, the
+Books tab Authors and standalone Books, the Comics tab Comics, the
+Audiobooks tab Audiobooks, each card carrying the container rollup's status
+(`projection.containerStatus`: downloading, missing, cutoff-unmet,
+downloaded, unmonitored, so the Missing and Wanted presets match
+containers) and its provider id (`ProviderID`: a Comic's `<source>:<id>`,
+an Audiobook's `asin:`, a Book's `olid:`, which the typeahead matches by
+bare id or under its own prefix). Every kind has a page under its literal
+route, which beats the shared `/library/{ns}/{kind}/{name}` (`routes.go`'s
+`kindPage` sends the kind there however it is reached): an artist's
+(`ui/artist.go`) with Lidarr's albums table grouped by type and the album
+page (`ui/album.go`: the tracks table, a music-column search modal); an
+author's with its hero facts and the book page (`ui/book_page.go`:
+editions, files, neighbours in series order; a standalone Book is added,
+edited and shown from its own card); a comic's (`ui/comic.go`) with Mylar's
+issues table, the volume search button and the `status.volumeSearch`
+badge, and the issue page (`ui/issue_page.go`, its ComicVine or MangaDex
+cover through `/art/search`); an audiobook's (`ui/audiobook.go`) with its
+parts and chapters. Each child is listed through a reader field index
+(`ui/reader.go`: `AlbumArtistRefField`, `BookAuthorRefField`,
+`IssueComicRefField`, `AudiobookAuthorRefField`; a Book's and an
+Audiobook's `spec.authorRef` are not selectable at the apiserver, so those
+two work on the ui's cache alone), never a List filtered in memory. The
+Files table is kind-aware (`views.FileHeads`/`FileCells`: video cells for
+a movie or episode, codec, bitrate and sample rate for an album or
+audiobook, format and pages for a book or issue), the action bar is
+composed by name (`views.ItemActions` over `views.Action` slots;
+Interactive only for a leaf), and the provider logos under
+`ui/static/providers` cover MusicBrainz, Discogs, Wikipedia, Open Library,
+Hardcover, ComicVine, Metron, MangaDex, AniList, MyAnimeList, Audible,
+Audnexus and Goodreads (Simple Icons where CC0, else drawn). Add New
+serves every tab: Comics (ComicVine, then MangaDex; a hit's source badge
+names the Comic's immutable `spec.source`), Audiobooks (Audible, in the
+root's `defaults.region`) and on the Books tab an Author or a standalone
+Book (`?kind=book`); a page whose item Add New just created answers the
+"being added" page until the library view lists it
+(`notFoundUnlessJustAdded`; never an author's book, which Add New does not
+make). The Edit dialog fetches each kind's block as it opens
+(`GET .../edit/fields`, `ui/editfields.go`: an artist's metadata profile
+and monitor-new-albums, an author's languages, pages and skips, a comic's
+kind, special version and monitor-new-issues, an audiobook's region and
+its Author and Book links, a standalone book's profile and root) and saves
+a kind's fields only under the block's "fields" marker, so a save before
+the block lands leaves them alone; the Delete dialog counts a container's
+files from its children's MediaFiles (`containerFiles`, one cached Get per
+file). `--plex-music-provider` reaches the Plex roots
+(`ui.PlexOptions.MusicProvider`, off). Not yet, wave C's (2026-11-10): one
+search panel per kind (the album, audiobook and issue modals poll and grab
+through routes of their own, since the shared `/searches` panel draws
+Sonarr's columns), an album's Edit and Delete, a Comic's planned volume
+pack search (the button runs a plain grabBest Search on the Comic), the
+Metron and Hardcover logos' links, Add New hits' publisher, issue count,
+authors and narrators, and the children fragment's deletion.
 In the TV pane, only series should be shown. Clicking a series should present a page with the seasons and episodes.
 A season's episodes are Sonarr's table (2026-10-07, `ui/series.go`,
 `ui/episode.go`, `ui/views/episode.templ`): the monitor bookmark, number,
@@ -1984,6 +2040,10 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   `RootFolder.naming.writeNFO: false` plans nothing and removes nothing. The
   Plex side (cluster-plex: `type: artist` sections on the Plex Music Scanner
   with the NFO agent and "Prefer local metadata", §10) is not built yet.
+- **The ui is at parity** (§9, W4, 2026-11-10): six library tabs, a page
+  per kind under its literal route, kind-aware file cells, Add New for
+  every tab and the Edit dialog's kind blocks -- the UI section above,
+  "The four non-video libraries' pages".
 - **Deploying it:** the CRDs go on by hand first, as every CRD change on
   talos does; `ProbeVersion`
   4 re-probes the library once through the low lane; the nfo stage writes

@@ -868,6 +868,35 @@ morphing, and each new child listing through a field index registered in
 `ui/reader.go` (`albumArtistRef`, `bookAuthorRef`, `issueComicRef`,
 `audiobookAuthorRef`) -- never a namespace List filtered in memory.
 
+**As built (2026-11-10, wave B: W4a 05d74595/d178c8dd/3f86929f, W4b.1
+28c48ef3, W4b.2 03de5c63, W4b.3 65e1e2e0/d60aa8ea, W4b.4 4a8ede4c, W4c
+63c57845/21e30255/b51e98e1/58c490fb; the controlling session's 819dc23f):**
+§9.1-§9.6 page by page, with these departures, each a wave C task unless
+marked owner: the album, audiobook and issue search modals poll and grab
+through routes of their own (`ui/album_search.go`,
+`/library/{ns}/audiobook/{name}/search/panel/...`,
+`/library/{ns}/issue/{name}/search/...`), since `views.SearchPanel` has no
+column set and `/searches` draws Sonarr's columns; the album bar renders no
+Edit or Delete (no album EditItem, Album not deletable); a standalone
+Book's bar has Refresh without scan and no Rename (`hasFolder` reads no
+Book), and the Edit dialog also renders on an author's book; "Search
+volume" creates a plain grabBest Search on the Comic, fanning out per
+Issue, since the Search CEL admits `spec.season` on a series alone and
+`DecideSeasons` serves a Comic's automatic state only; the Metron and
+Hardcover logos have no link (no client records a page URL); the search
+tables' Peers/Grabs is Peers (ReleaseInfo carries no grab count -- owner:
+the indexer agent would record newznab's `grabs`), and the audiobook's
+Bitrate is size over runtime, titled so; Add New's hits show title, year,
+cover and source only (`SearchHit` carries no publisher, issue count,
+authors or narrators), one comic provider answers a search (no source
+selector on the request), and an Audiobook is added with no authorRef;
+`handleSetMonitored` answers no Audiobook row (no row lists audiobooks);
+the children fragment (`ui/children.go`, `views.ChildrenPage`) is reached
+by no page and awaits deletion. The kind pages' modals, the Edit dialog's
+`intersect once` block fetch inside the portaled dialog and the preloads
+were held by markup tests only: the browser check (CLAUDE.md's rule for
+portaled dialogs) is pending.
+
 ### 9.1 Tabs, cards, toolbar, bulk, typeahead
 
 D1's tabs. Cards: the year label reads an Author's nothing, an Artist's
@@ -1043,6 +1072,14 @@ talos by hand before the deploy that carries them.
   MusicBrainz `artist-rels` for members and similar artists (the Artist's
   extended document is written empty), MangaDex volume covers, Hardcover
   author ids in the Author's book-list request and fan-out.
+  **Wave B (L2, 2026-11-10):** Audnexus's author by ASIN (6f8701b0,
+  `metadata.AudiobookAuthorProvider`, `Registry.AudiobookAuthors`; nothing
+  dispatches to it until wave C's Add New link), MusicBrainz's member-of-band
+  relations as `Artist.Members` (5a5fea2d; a member's MBID and tenure are
+  decoded and dropped, `metadata.Person` carrying neither), MangaDex's
+  issues by chapter (df45c62f, `schema.MetadataRequest.Numbering`, which the
+  Comic reconciler sends for a manga since 819dc23f). Still not built:
+  MangaDex volume covers, Hardcover author ids.
 - **W3: import and probe.** §6: probe tags, sample rate, bit depth, page
   count, `ProbeVersion`; track attribution and part ordering; book quality
   freezing; `pkg/nfo` and the `import-nfo` consumer; the `nfo` stage.
@@ -1051,10 +1088,20 @@ talos by hand before the deploy that carries them.
   import agent's alone, so the manager links no archive reader. Not built:
   an ebook (`.epub/.mobi/.azw3`) probe, so a Book's file still fails its
   probe and is never named.
+  **Wave B (L1, 2026-11-10):** the ebook probe answer (9628fa31: the fsops
+  book extensions, answered without FFmpeg) and the import placing a
+  non-video file where the loop's rename would (1b3572b9, through
+  `catalogctx`; a tagged audiobook part still renders its ordering key as
+  `{PartNumber}`, wave C).
 - **W4: the ui.** §9 page by page: tabs and cards; Artist and Album; Author
   and Book; Comic and Issue; Audiobook; Add New for comics, audiobooks and
   standalone books; shared cells, logos, dialogs, reader indexes, projection
   rollups and owner links.
+  **Done 2026-11-10 (wave B, ten agents: W4a, then W4b.1-4 in parallel,
+  then W4c, with L1-L3 and the e2e extension beside them; gated and pushed
+  by the controlling session through 819dc23f):** §9's as-built note lists
+  the commits and the departures, the plan's W4 Done notes the leftovers;
+  wave C (nonvideo-implement-c) takes the departures.
 - **W5: Plex.** §7.6's spike first, then the roots, index, match, metadata,
   children, images, goldens and tests, the flag and chart values.
   **Done 2026-11-10, flagged off** (ea0d54d4, 7a8d17aa, 2c8676fb, 1df72500,
@@ -1066,7 +1113,13 @@ talos by hand before the deploy that carries them.
   writer (why the agent writes files the manager renders), the e2e
   scenarios 9-11 updated (written, not run), this document's "as built"
   notes.
-  **Progress 2026-11-10:** ADR-0022 (53559009); the rest after W4.
+  **Progress 2026-11-10:** ADR-0022 (53559009); CLAUDE.md's UI section
+  and Music section (after wave B); scenario 11 extended for the parity
+  (edbcb9e1, with the nonvideostub's Cover Art Archive, Wikidata/Wikipedia
+  and Audible routes, 9fc4eab4, and config/e2e's coverart, wikipedia and
+  audible providers, 819dc23f; written, not run; scenarios 9 and 10 touch
+  no non-video kind). Left: the remaining-work items and the final notes
+  after wave C.
 
 Order: W0, then W1 and W2 and W3 in parallel (disjoint packages: W1 owns
 `app/remediation`, `app/catalog/controller`, `app/catalog/{searchplan,
@@ -1096,7 +1149,11 @@ schema in `pkg/events/schema` written in W0.
   MP3 fixtures; `TestTagsAreBounded`; `TestPageCountOfACBZ`.
 - `ui`: markup tests per page (hero facts, table cells, modal regions,
   owner links), `TestTabsAreSix`, the role guard for the new creates; a
-  browser check of every new modal (CLAUDE.md's rule).
+  browser check of every new modal (CLAUDE.md's rule). As built: the
+  per-page markup tests W4b named, `TestEveryTabHasAnAddPage`,
+  `TestEveryKindsLibraryPathLandsOnItsPage`, `TestEditFieldsRouteServesEach
+  KindsBlock`, `TestNonVideoPagesWaitForAnItemAddNewJustCreated`; the tab
+  count is `chrome_test`'s `len(Tabs())`; the browser check is pending.
 - `ui/plex`: `root_music.json`, `root_audiobooks.json`, match and metadata
   goldens per type, the 503 loop over four roots, `TestMusicRootsRegister
   OnlyUnderTheFlag`, ratingKey grammar tables; the spike's record in §7.
