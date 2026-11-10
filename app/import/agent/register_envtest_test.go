@@ -110,12 +110,13 @@ func (b *recordingBus) subscribed() []string {
 	return slices.Clone(b.subs)
 }
 
-// TestRegisterWiresTheImportDomain (W3.9, W4.7, W8.6): Register builds the
-// domain's one prober, subscribes every work.import consumer and both probe
-// lanes on every replica -- nothing waits for a lease -- declares the two
-// MediaFile indexes they read (which the process registers, and which reach
-// the cache), and returns the import.data readiness check and the ffgo
-// liveness check.
+// TestRegisterWiresTheImportDomain (W3.9, W4.7, W8.6; the nfo consumer
+// since the 2026-11-10 design's W3.3): Register builds the domain's one
+// prober, subscribes every work.import consumer -- scan, fileimport, list,
+// recycle and nfo -- and both probe lanes on every replica -- nothing waits
+// for a lease -- declares the two MediaFile indexes they read (which the
+// process registers, and which reach the cache), and returns the
+// import.data readiness check and the ffgo liveness check.
 func TestRegisterWiresTheImportDomain(t *testing.T) {
 	if testCfg == nil {
 		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test`")
@@ -147,7 +148,7 @@ func TestRegisterWiresTheImportDomain(t *testing.T) {
 
 	reg, err := Register(ctx, mgr, bus, o)
 	require.NoError(t, err)
-	assert.Equal(t, 6, mgr.added, "four import consumers and two probe lanes")
+	assert.Equal(t, 7, mgr.added, "five import consumers and two probe lanes")
 	assert.Zero(t, mgr.leaderOnly, "the import domain added a runnable that waits for a lease")
 	require.NotNil(t, reg.Ready)
 	assert.Equal(t, []string{"import.data"}, reg.Ready.Names())
@@ -170,6 +171,7 @@ func TestRegisterWiresTheImportDomain(t *testing.T) {
 
 	want := []string{
 		events.ConsumerImportScan, events.ConsumerImportFile, events.ConsumerImportList, events.ConsumerImportRecycle,
+		events.ConsumerImportNFO,
 		events.ConsumerImportProbeHigh, events.ConsumerImportProbeLow,
 	}
 	require.Eventually(t, func() bool { return len(bus.subscribed()) >= len(want) }, 30*time.Second, 50*time.Millisecond,
