@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
@@ -135,6 +136,21 @@ func (w *Worker) probe(ctx context.Context, t schema.ProbeTask) (schema.ProbeRec
 		return fail(true, outcomeTransient, "stat: %v", err)
 	}
 	rec.ProbeHash = mediainfo.ProbeHash(t.Path, before.Size(), before.ModTime())
+
+	// A comic archive or a PDF is no media file FFmpeg opens: its probe is
+	// its page count, by listing alone (2026-11-10 design D9).
+	if n, err := mediainfo.PageCount(t.Path); !errors.Is(err, mediainfo.ErrNoPageCount) {
+		if err != nil {
+			return fail(false, outcomeFailed, "%v", err)
+		}
+		after, serr := os.Stat(t.Path)
+		if serr != nil || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+			return fail(true, outcomeTransient, "the file changed while it was probed")
+		}
+		rec.State, rec.ProbedAt = schema.ProbeProbed, time.Now().UTC()
+		rec.MediaInfo = &commonv1.MediaInfo{Container: strings.TrimPrefix(strings.ToLower(filepath.Ext(t.Path)), "."), PageCount: n}
+		return rec, outcomeProbed
+	}
 
 	pctx, cancel := context.WithTimeout(ctx, TaskTimeout)
 	mi, _, perr := w.Prober.Probe(pctx, t.Path)

@@ -228,7 +228,7 @@ func (w *Worker) assignManually(
 	ctx context.Context, st *scanState, path, rel string, info os.FileInfo, existing *catalogv1alpha1.MediaFile,
 ) error {
 	ref := st.manual.ref
-	fresh := w.freshNonVideoSpec(ctx, ref.Kind, path, rel)
+	fresh, _ := w.freshNonVideoSpec(ctx, ref.Kind, path, rel)
 	if ref.Kind == commonv1.MediaKindMovie || ref.Kind == commonv1.MediaKindEpisode {
 		// A movie or episode file's release identity still comes from its
 		// name when the name parses, scored like any scanned file; an

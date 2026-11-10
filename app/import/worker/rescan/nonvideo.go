@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/release"
 )
@@ -112,6 +113,12 @@ type AlbumCandidate struct {
 	// ArtistNames are the names the artist's folder may carry: its
 	// metadata name, spec.folder, and the last segment of status.path.
 	ArtistNames []string
+
+	// Tracks is the album's selected release's listing and Media its disc
+	// count, for the track a scanned file is attributed to
+	// (fileimport.AttributeTrack, 2026-11-10 design D6).
+	Tracks []catalogv1alpha1.Track
+	Media  int32
 }
 
 // BookCandidate is one existing Book.

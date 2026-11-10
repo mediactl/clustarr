@@ -65,7 +65,7 @@ func TestAttributeTrack(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			id, reason := attributeTrack(c.tracks, c.media, c.ap, c.rel, c.lone)
+			id, reason := AttributeTrack(c.tracks, c.media, c.ap, c.rel, c.lone)
 			assert.Equal(t, c.want, id)
 			assert.Equal(t, c.held, reason != "", reason)
 		})
@@ -73,9 +73,9 @@ func TestAttributeTrack(t *testing.T) {
 }
 
 func TestPartIndexOf(t *testing.T) {
-	assert.EqualValues(t, 1003, partIndexOf(tagged(1, 3, ""), "x.m4b"))
-	assert.EqualValues(t, 2001, partIndexOf(tagged(2, 1, ""), "x.m4b"))
-	assert.EqualValues(t, 1005, partIndexOf(tagged(0, 5, ""), "x.m4b"), "no disc reads as disc 1")
-	assert.EqualValues(t, 7, partIndexOf(nil, "The Left Hand of Darkness - Part 07.mp3"))
-	assert.EqualValues(t, 0, partIndexOf(&mediainfo.AudioProbe{}, "The Left Hand of Darkness.m4b"))
+	assert.EqualValues(t, 1003, PartIndexOf(tagged(1, 3, ""), "x.m4b"))
+	assert.EqualValues(t, 2001, PartIndexOf(tagged(2, 1, ""), "x.m4b"))
+	assert.EqualValues(t, 1005, PartIndexOf(tagged(0, 5, ""), "x.m4b"), "no disc reads as disc 1")
+	assert.EqualValues(t, 7, PartIndexOf(nil, "The Left Hand of Darkness - Part 07.mp3"))
+	assert.EqualValues(t, 0, PartIndexOf(&mediainfo.AudioProbe{}, "The Left Hand of Darkness.m4b"))
 }

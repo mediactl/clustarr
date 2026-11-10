@@ -41,12 +41,12 @@ import (
 // "Disc 2", "Disk 02").
 var discFolderRE = regexp.MustCompile(`(?i)^(?:cd|disc|disk)\s*0*(\d{1,2})\b`)
 
-// attributeTrack is the recording id of the track rel holds, or "" and the
+// AttributeTrack is the recording id of the track rel holds, or "" and the
 // reason it holds none. tracks is the album's selected release's listing,
 // media its disc count (0 when unknown, read off the tracks then), ap the
 // file's probe (nil when it failed) and lone whether the download holds one
 // audio file.
-func attributeTrack(tracks []catalogv1alpha1.Track, media int32, ap *mediainfo.AudioProbe, rel string, lone bool) (string, string) {
+func AttributeTrack(tracks []catalogv1alpha1.Track, media int32, ap *mediainfo.AudioProbe, rel string, lone bool) (string, string) {
 	if len(tracks) == 0 {
 		return "", "the album's selected release lists no tracks"
 	}
@@ -115,11 +115,11 @@ func discFromFolder(rel string) int32 {
 	return 0
 }
 
-// partIndexOf is an audiobook part's ordering key (MediaFileSpec.PartIndex):
+// PartIndexOf is an audiobook part's ordering key (MediaFileSpec.PartIndex):
 // the tags' disc and track as disc*1000+track when the file carries a track
 // number, else the name's part number (release.PartOf), else 0, which the
 // Audiobook's rollup orders by path.
-func partIndexOf(ap *mediainfo.AudioProbe, rel string) int32 {
+func PartIndexOf(ap *mediainfo.AudioProbe, rel string) int32 {
 	if ap != nil && ap.Tags != nil && ap.Tags.TrackNumber > 0 {
 		return max(ap.Tags.DiscNumber, 1)*1000 + ap.Tags.TrackNumber
 	}

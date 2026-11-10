@@ -31,6 +31,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -90,10 +91,15 @@ func (w *Worker) loadNonVideo(ctx context.Context, ns string, root *catalogv1alp
 			if ar == nil || ar.Spec.RootFolderRef != root.Name {
 				continue
 			}
-			c := AlbumCandidate{Name: al.Name, Path: al.Status.Path}
+			c := AlbumCandidate{Name: al.Name, Path: al.Status.Path, Tracks: al.Status.Tracks}
 			if m := al.Status.Metadata; m != nil {
 				c.Title = m.Title
 				c.Year = fileimport.ReleaseYear(m.ReleaseDate)
+				for _, rel := range m.Releases {
+					if rel.ID == m.SelectedReleaseID {
+						c.Media = int32(len(rel.Media))
+					}
+				}
 			}
 			if ar.Status.Metadata != nil {
 				c.ArtistNames = append(c.ArtistNames, ar.Status.Metadata.Name)
@@ -258,7 +264,31 @@ func (w *Worker) handleNonVideoFile(ctx context.Context, st *scanState, path, re
 		st.unmatched(rel, m.Code, m.Reason, m.Candidates, now)
 		return nil
 	}
-	return w.recordAttribution(ctx, st, path, rel, info, existing, m.Ref, w.freshNonVideoSpec(ctx, m.Ref.Kind, path, rel))
+	fresh, ap := w.freshNonVideoSpec(ctx, m.Ref.Kind, path, rel)
+	switch m.Ref.Kind {
+	case commonv1.MediaKindAlbum:
+		// The track the file is (2026-11-10 design D6): by its tags, its
+		// name, its recording id; a file naming none stays unmatched, with
+		// the reason, rather than backing the album as no track.
+		var cand *AlbumCandidate
+		for i := range st.nonVideo.albums {
+			if st.nonVideo.albums[i].Name == m.Ref.Name {
+				cand = &st.nonVideo.albums[i]
+				break
+			}
+		}
+		if cand != nil {
+			id, reason := fileimport.AttributeTrack(cand.Tracks, cand.Media, ap, rel, len(cand.Tracks) == 1)
+			if id == "" {
+				st.unmatched(rel, CodeNoMatch, reason, []string{m.Ref.Name}, now)
+				return nil
+			}
+			m.Ref.Track = id
+		}
+	case commonv1.MediaKindAudiobook:
+		fresh.PartIndex = fileimport.PartIndexOf(ap, rel)
+	}
+	return w.recordAttribution(ctx, st, path, rel, info, existing, m.Ref, fresh)
 }
 
 // freshNonVideoSpec is what a first sighting of a non-video file freezes:
@@ -268,12 +298,16 @@ func (w *Worker) handleNonVideoFile(ctx context.Context, st *scanState, path, re
 // kind's release type. There is no revision, group, edition or language to
 // parse from a track, part, ebook or issue file name, and no custom-format
 // score, which is TRaSH video data.
-func (w *Worker) freshNonVideoSpec(ctx context.Context, kind commonv1.MediaKind, path, rel string) mediafilespec.Frozen {
+//
+// The audio probe it ran comes back too (nil when none ran): an album
+// file's track and an audiobook part's order read its tags.
+func (w *Worker) freshNonVideoSpec(ctx context.Context, kind commonv1.MediaKind, path, rel string) (mediafilespec.Frozen, *mediainfo.AudioProbe) {
 	f := mediafilespec.Frozen{ReleaseType: fileimport.ReleaseTypeFor(kind)}
-	if q, ok := fileimport.FrozenFileQuality(ctx, w.ProbeAudio, kind, path, rel); ok {
+	q, ok, ap := fileimport.FrozenFileQualityProbe(ctx, w.ProbeAudio, kind, path, rel)
+	if ok {
 		f.Quality = &q
 	}
-	return f
+	return f, ap
 }
 
 // recordAttribution reports an attributed file to the manager's scan

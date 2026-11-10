@@ -742,7 +742,7 @@ func (w *Worker) inspectNonVideo(
 		}
 		switch kind {
 		case commonv1.MediaKindAlbum:
-			id, reason := attributeTrack(plan.tracks, plan.media, ap, rel, lone)
+			id, reason := AttributeTrack(plan.tracks, plan.media, ap, rel, lone)
 			switch {
 			case id == "":
 				f.Rejections = append(f.Rejections, needsPersonRejection("%s", reason))
@@ -753,7 +753,7 @@ func (w *Worker) inspectNonVideo(
 				f.Frozen.Track = id
 			}
 		case commonv1.MediaKindAudiobook:
-			f.Frozen.PartIndex = partIndexOf(ap, rel)
+			f.Frozen.PartIndex = PartIndexOf(ap, rel)
 		}
 		f.Proposed, f.Keys = proposed, []string{plan.ref.Name}
 		f.Dest = naming.SanitizePath(filepath.Join(plan.folder, plan.fileName(rel)), naming.DefaultSanitizeOptions())
