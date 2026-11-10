@@ -176,3 +176,39 @@ func TestRefreshedAtCoversEveryNewKind(t *testing.T) {
 		Metadata: &catalogv1alpha1.ComicMetadata{RefreshedAt: when},
 	}}).Equal(when.Time))
 }
+
+// knownRatings is enrichRatings' prior for every kind with ratings
+// (2026-11-10 design §4.1): a provider outage never strips a rating a past
+// refresh earned, on a Comic as on a Movie.
+func TestKnownRatingsCoversEveryKind(t *testing.T) {
+	ratings := []catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceMusicBrainz, ValueCentis: 860, Votes: 12}}
+	for name, obj := range map[string]client.Object{
+		"movie":     &catalogv1alpha1.Movie{Status: catalogv1alpha1.MovieStatus{Metadata: &catalogv1alpha1.MovieMetadata{Ratings: ratings}}},
+		"series":    &catalogv1alpha1.Series{Status: catalogv1alpha1.SeriesStatus{Metadata: &catalogv1alpha1.SeriesMetadata{Ratings: ratings}}},
+		"artist":    &catalogv1alpha1.Artist{Status: catalogv1alpha1.ArtistStatus{Metadata: &catalogv1alpha1.ArtistMetadata{Ratings: ratings}}},
+		"album":     &catalogv1alpha1.Album{Status: catalogv1alpha1.AlbumStatus{Metadata: &catalogv1alpha1.AlbumMetadata{Ratings: ratings}}},
+		"author":    &catalogv1alpha1.Author{Status: catalogv1alpha1.AuthorStatus{Metadata: &catalogv1alpha1.AuthorMetadata{Ratings: ratings}}},
+		"book":      &catalogv1alpha1.Book{Status: catalogv1alpha1.BookStatus{Metadata: &catalogv1alpha1.BookMetadata{Ratings: ratings}}},
+		"audiobook": &catalogv1alpha1.Audiobook{Status: catalogv1alpha1.AudiobookStatus{Metadata: &catalogv1alpha1.AudiobookMetadata{Ratings: ratings}}},
+		"comic":     &catalogv1alpha1.Comic{Status: catalogv1alpha1.ComicStatus{Metadata: &catalogv1alpha1.ComicMetadata{Ratings: ratings}}},
+	} {
+		require.Equal(t, ratings, knownRatings(obj), name)
+	}
+	require.Nil(t, knownRatings(&catalogv1alpha1.Comic{}), "no metadata yet, no prior")
+}
+
+// An Author's spec.hardcoverID rides beside its Open Library key
+// (2026-11-10 design §5.4), so Hardcover can answer for it and the id
+// reaches status.metadata.externalIDs; blank or absent, it is left out.
+func TestExternalIDsAuthorCarriesTheHardcoverID(t *testing.T) {
+	id := " 51942 "
+	author := &catalogv1alpha1.Author{Spec: catalogv1alpha1.AuthorSpec{OpenLibraryID: "OL23919A", HardcoverID: &id}}
+	ids, err := externalIDs(author)
+	require.NoError(t, err)
+	require.Equal(t, pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryAuthor: "OL23919A", "hardcover": "51942"}, ids)
+
+	blank := ""
+	ids, err = externalIDs(&catalogv1alpha1.Author{Spec: catalogv1alpha1.AuthorSpec{OpenLibraryID: "OL23919A", HardcoverID: &blank}})
+	require.NoError(t, err)
+	require.Equal(t, pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryAuthor: "OL23919A"}, ids)
+}

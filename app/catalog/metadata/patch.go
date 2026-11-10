@@ -68,27 +68,31 @@ func mapImageType(t pkgmetadata.ImageType) (catalogv1alpha1.ImageType, bool) {
 
 // ratingsMaxItems is MovieMetadata.ratings' and SeriesMetadata.ratings'
 // shared +kubebuilder:validation:MaxItems (api/catalog/v1alpha1/movie_types.go,
-// series_types.go) -- one entry per RatingSource, of which the CRD enum
-// has exactly seven.
-const ratingsMaxItems = 7
+// series_types.go) -- one entry per video RatingSource, of which the CRD
+// enum has exactly seven; nonVideoRatingsMaxItems is the six non-video
+// kinds' (2026-11-10 design §4.1: "ratings []Rating (MaxItems 8)").
+const (
+	ratingsMaxItems         = 7
+	nonVideoRatingsMaxItems = 8
+)
 
 // renderRatings maps enrichRatings' result onto the CRD's
 // RatingApplyConfiguration list, sorted by Source for a deterministic apply
 // (spec §C.2's own wording: "patch.go renders ... sorted by source") and
-// capped at ratingsMaxItems like every other list this file caps. An empty
-// input renders nothing, which is safe precisely because enrichRatings
-// never returns fewer sources than status.metadata.ratings already carried
-// (unfilled sources are carried forward from prior) -- so omitting
-// WithRatings entirely here can only happen when there was never anything
-// to release in the first place.
-func renderRatings(ratings []catalogv1alpha1.Rating) []*catalogac.RatingApplyConfiguration {
+// capped at the kind's MaxItems like every other list this file caps. An
+// empty input renders nothing, which is safe precisely because
+// enrichRatings never returns fewer sources than status.metadata.ratings
+// already carried (unfilled sources are carried forward from prior) -- so
+// omitting WithRatings entirely here can only happen when there was never
+// anything to release in the first place.
+func renderRatings(ratings []catalogv1alpha1.Rating, limit int) []*catalogac.RatingApplyConfiguration {
 	if len(ratings) == 0 {
 		return nil
 	}
 	sorted := append([]catalogv1alpha1.Rating(nil), ratings...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Source < sorted[j].Source })
-	if len(sorted) > ratingsMaxItems {
-		sorted = sorted[:ratingsMaxItems]
+	if len(sorted) > limit {
+		sorted = sorted[:limit]
 	}
 	out := make([]*catalogac.RatingApplyConfiguration, 0, len(sorted))
 	for _, r := range sorted {
@@ -185,7 +189,7 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, ratings []catalogv1alpha1.Rating
 			}
 		}
 	}
-	if rs := renderRatings(ratings); len(rs) > 0 {
+	if rs := renderRatings(ratings, ratingsMaxItems); len(rs) > 0 {
 		ac.WithRatings(rs...)
 	}
 	return ac
@@ -299,18 +303,26 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rati
 	if s.FirstAired != nil {
 		ac.WithFirstAired(metav1.NewTime(*s.FirstAired))
 	}
-	if rs := renderRatings(ratings); len(rs) > 0 {
+	if rs := renderRatings(ratings, ratingsMaxItems); len(rs) > 0 {
 		ac.WithRatings(rs...)
 	}
 	return ac
 }
 
+// withLanguage is the fetch language every non-video builder writes
+// (2026-11-10 design §5.4: MetadataProvider.spec.language, else "en", which
+// the gateway's FetchLanguages settles); an empty one is left unset, so a
+// test that builds without one sends no "language": "".
+func withLanguage(lang string) string { return strings.TrimSpace(lang) }
+
 // buildArtistMetadataAC maps a fetched provider Artist onto
-// ArtistStatus.metadata. pkg/metadata.Artist carries Begin/End (the
-// MusicBrainz life-span) and Tags/Aliases/Links/Ratings, none of which
-// ArtistMetadata has a field for (api/catalog/v1alpha1/artist_types.go)
-// -- they are read, not invented a home for.
-func buildArtistMetadataAC(a *pkgmetadata.Artist, now time.Time) *catalogac.ArtistMetadataApplyConfiguration {
+// ArtistStatus.metadata. pkg/metadata.Artist's Tags, Members and Similar
+// have no field there: the tags are read, not invented a home for, and the
+// members and similar artists go to the extended document
+// (pkg/metadata/extended.FromArtist). ratings is enrichRatings' result, as
+// buildMovieMetadataAC's is (MusicBrainz's own rating seeds it); lang the
+// fetch language (withLanguage).
+func buildArtistMetadataAC(a *pkgmetadata.Artist, ratings []catalogv1alpha1.Rating, lang string, now time.Time) *catalogac.ArtistMetadataApplyConfiguration {
 	ac := catalogac.ArtistMetadata().
 		WithName(a.Name).
 		WithSortName(a.SortName).
@@ -319,6 +331,9 @@ func buildArtistMetadataAC(a *pkgmetadata.Artist, now time.Time) *catalogac.Arti
 		WithOverview(a.Overview).
 		WithExternalIDs(a.IDs).
 		WithRefreshedAt(metav1.NewTime(now))
+	if l := withLanguage(lang); l != "" {
+		ac.WithLanguage(l)
+	}
 
 	if a.Status != "" {
 		// ArtistRunStatus is a CRD enum with no empty member
@@ -353,18 +368,13 @@ func buildArtistMetadataAC(a *pkgmetadata.Artist, now time.Time) *catalogac.Arti
 	if a.BiographySource != "" {
 		ac.WithBiographySource(a.BiographySource)
 	}
-	if rs := renderRatings(modelRatings(a.Ratings)); len(rs) > 0 {
+	if rs := renderRatings(ratings, nonVideoRatingsMaxItems); len(rs) > 0 {
 		ac.WithRatings(rs...)
 	}
-	for _, img := range a.Images {
-		if len(ac.Images) >= 50 {
-			break
+	for _, img := range selectImages(a.Images, maxItemImages) {
+		if ic, ok := imageAC(img); ok {
+			ac.WithImages(ic)
 		}
-		t, ok := mapImageType(img.Type)
-		if !ok {
-			continue
-		}
-		ac.WithImages(catalogac.Image().WithType(t).WithURL(img.URL))
 	}
 	return ac
 }
@@ -415,12 +425,15 @@ func buildArtistMetadataAC(a *pkgmetadata.Artist, now time.Time) *catalogac.Arti
 // RefreshAlbumService.MonitorSingleRelease). SSA tracks ownership per leaf,
 // so this renderer never sends that leaf and the gateway owns every other
 // one; the album envtest checks the split in managedFields.
-func buildAlbumMetadataAC(a *pkgmetadata.Album, now time.Time) *catalogac.AlbumMetadataApplyConfiguration {
+func buildAlbumMetadataAC(a *pkgmetadata.Album, ratings []catalogv1alpha1.Rating, lang string, now time.Time) *catalogac.AlbumMetadataApplyConfiguration {
 	ac := catalogac.AlbumMetadata().
 		WithTitle(a.Title).
 		WithDisambiguation(a.Disambiguation).
 		WithOverview(a.Overview).
 		WithRefreshedAt(metav1.NewTime(now))
+	if l := withLanguage(lang); l != "" {
+		ac.WithLanguage(l)
+	}
 
 	if a.PrimaryType != "" {
 		ac.WithAlbumType(a.PrimaryType)
@@ -461,7 +474,7 @@ func buildAlbumMetadataAC(a *pkgmetadata.Album, now time.Time) *catalogac.AlbumM
 			break
 		}
 	}
-	if rs := renderRatings(modelRatings(a.Ratings)); len(rs) > 0 {
+	if rs := renderRatings(ratings, nonVideoRatingsMaxItems); len(rs) > 0 {
 		ac.WithRatings(rs...)
 	}
 	for _, rel := range a.Releases {
@@ -514,24 +527,18 @@ func buildAlbumMetadataAC(a *pkgmetadata.Album, now time.Time) *catalogac.AlbumM
 		}
 		ac.WithReleases(rs)
 	}
-	for _, img := range a.Images {
-		if len(ac.Images) >= 50 {
-			break
+	for _, img := range selectImages(a.Images, maxItemImages) {
+		if ic, ok := imageAC(img); ok {
+			ac.WithImages(ic)
 		}
-		t, ok := mapImageType(img.Type)
-		if !ok {
-			continue
-		}
-		ac.WithImages(catalogac.Image().WithType(t).WithURL(img.URL))
 	}
 	return ac
 }
 
 // buildAuthorMetadataAC maps a fetched provider Author onto
-// AuthorStatus.metadata. pkg/metadata.Author carries Born/Died and Links,
-// none of which AuthorMetadata has a field for
-// (api/catalog/v1alpha1/author_types.go) -- read, not invented a home for.
-func buildAuthorMetadataAC(a *pkgmetadata.Author, now time.Time) *catalogac.AuthorMetadataApplyConfiguration {
+// AuthorStatus.metadata. ratings is enrichRatings' result and lang the
+// fetch language, as on every builder.
+func buildAuthorMetadataAC(a *pkgmetadata.Author, ratings []catalogv1alpha1.Rating, lang string, now time.Time) *catalogac.AuthorMetadataApplyConfiguration {
 	ac := catalogac.AuthorMetadata().
 		WithName(a.Name).
 		WithSortName(a.SortName).
@@ -539,6 +546,9 @@ func buildAuthorMetadataAC(a *pkgmetadata.Author, now time.Time) *catalogac.Auth
 		WithOverview(a.Overview).
 		WithExternalIDs(a.IDs).
 		WithRefreshedAt(metav1.NewTime(now))
+	if l := withLanguage(lang); l != "" {
+		ac.WithLanguage(l)
+	}
 
 	if len(a.Genres) > 0 {
 		ac.WithGenres(capStrings(a.Genres, 30)...) // Genres: +kubebuilder:validation:MaxItems=30 on every kind that has this field
@@ -554,18 +564,13 @@ func buildAuthorMetadataAC(a *pkgmetadata.Author, now time.Time) *catalogac.Auth
 	if links := linksAC(a.Links, 32); len(links) > 0 {
 		ac.WithLinks(links...)
 	}
-	if rs := renderRatings(modelRatings(a.Ratings)); len(rs) > 0 {
+	if rs := renderRatings(ratings, nonVideoRatingsMaxItems); len(rs) > 0 {
 		ac.WithRatings(rs...)
 	}
-	for _, img := range a.Images {
-		if len(ac.Images) >= 50 {
-			break
+	for _, img := range selectImages(a.Images, maxItemImages) {
+		if ic, ok := imageAC(img); ok {
+			ac.WithImages(ic)
 		}
-		t, ok := mapImageType(img.Type)
-		if !ok {
-			continue
-		}
-		ac.WithImages(catalogac.Image().WithType(t).WithURL(img.URL))
 	}
 	return ac
 }
@@ -585,18 +590,21 @@ func bookTitle(b *pkgmetadata.Book) string {
 
 // buildBookMetadataAC maps a fetched provider Book onto BookStatus.metadata.
 // See buildAlbumMetadataAC's doc comment for the field-manager split this
-// shares with Album. pkg/metadata.Book carries no top-level Subtitle or
-// Images (both live on an Edition, fetched separately by
-// BookProvider.Edition, out of this task's scope) and no top-level Ratings
-// home in BookMetadata -- read, not invented a home for. Book.Editions is
-// filled by openlibrary.Client.Book (one page of the work's editions); a
-// Books() listing entry carries none.
-func buildBookMetadataAC(b *pkgmetadata.Book, now time.Time) *catalogac.BookMetadataApplyConfiguration {
+// shares with Album. pkg/metadata.Book carries no top-level Subtitle (it
+// lives on an Edition, fetched separately by BookProvider.Edition, out of
+// this task's scope). Book.Editions is filled by openlibrary.Client.Book
+// (one page of the work's editions); a Books() listing entry carries none.
+// ratings is enrichRatings' result (Hardcover's, by the work's id or its
+// first edition's ISBN) and lang the fetch language, as on every builder.
+func buildBookMetadataAC(b *pkgmetadata.Book, ratings []catalogv1alpha1.Rating, lang string, now time.Time) *catalogac.BookMetadataApplyConfiguration {
 	ac := catalogac.BookMetadata().
 		WithTitle(bookTitle(b)).
 		WithOverview(b.Overview).
 		WithExternalIDs(b.IDs).
 		WithRefreshedAt(metav1.NewTime(now))
+	if l := withLanguage(lang); l != "" {
+		ac.WithLanguage(l)
+	}
 
 	if b.FirstPublished != nil {
 		ac.WithReleaseDate(metav1.NewTime(*b.FirstPublished))
@@ -628,7 +636,7 @@ func buildBookMetadataAC(b *pkgmetadata.Book, now time.Time) *catalogac.BookMeta
 	if links := linksAC(b.Links, 16); len(links) > 0 {
 		ac.WithLinks(links...)
 	}
-	if rs := renderRatings(modelRatings(b.Ratings)); len(rs) > 0 {
+	if rs := renderRatings(ratings, nonVideoRatingsMaxItems); len(rs) > 0 {
 		ac.WithRatings(rs...)
 	}
 	for _, sl := range b.Series {
@@ -669,28 +677,24 @@ func buildBookMetadataAC(b *pkgmetadata.Book, now time.Time) *catalogac.BookMeta
 		}
 		ac.WithEditions(edAC)
 	}
-	for _, img := range b.Images {
-		if len(ac.Images) >= 50 { // BookMetadata.Images: +kubebuilder:validation:MaxItems=50
-			break
+	for _, img := range selectImages(b.Images, maxItemImages) { // BookMetadata.Images: +kubebuilder:validation:MaxItems=50
+		if ic, ok := imageAC(img); ok {
+			ac.WithImages(ic)
 		}
-		t, ok := mapImageType(img.Type)
-		if !ok {
-			continue
-		}
-		ac.WithImages(catalogac.Image().WithType(t).WithURL(img.URL))
 	}
 	return ac
 }
 
 // buildAudiobookMetadataAC maps a fetched provider Audiobook onto
 // AudiobookStatus.metadata. pkg/metadata.Audiobook carries Summary (a short
-// blurb distinct from Description/Overview), Tags, Rating and IsAdult, none
-// of which AudiobookMetadata has a field for
-// (api/catalog/v1alpha1/audiobook_types.go) -- read, not invented a home
-// for. Runtime is a time.Duration; AudiobookMetadata.RuntimeMinutes is an
-// int32 of whole minutes, so it is floor-divided, not rounded, matching
-// mediainfo's own duration-to-minutes convention elsewhere in this project.
-func buildAudiobookMetadataAC(a *pkgmetadata.Audiobook, now time.Time) *catalogac.AudiobookMetadataApplyConfiguration {
+// blurb distinct from Description/Overview), which has no field there and
+// stands in for an empty Description. Runtime is a time.Duration;
+// AudiobookMetadata.RuntimeMinutes is an int32 of whole minutes, so it is
+// floor-divided, not rounded, matching mediainfo's own duration-to-minutes
+// convention elsewhere in this project. ratings is enrichRatings' result
+// (Audnexus's own rating seeds it); lang the fetch language, written as
+// fetchLanguage since language is the recording's own.
+func buildAudiobookMetadataAC(a *pkgmetadata.Audiobook, ratings []catalogv1alpha1.Rating, lang string, now time.Time) *catalogac.AudiobookMetadataApplyConfiguration {
 	overview := a.Description
 	if overview == "" {
 		overview = a.Summary
@@ -703,6 +707,9 @@ func buildAudiobookMetadataAC(a *pkgmetadata.Audiobook, now time.Time) *cataloga
 		WithOverview(overview).
 		WithExternalIDs(a.IDs).
 		WithRefreshedAt(metav1.NewTime(now))
+	if l := withLanguage(lang); l != "" {
+		ac.WithFetchLanguage(l)
+	}
 
 	if len(a.Authors) > 0 {
 		authors := a.Authors
@@ -740,7 +747,7 @@ func buildAudiobookMetadataAC(a *pkgmetadata.Audiobook, now time.Time) *cataloga
 	// The 2026-11-10 design's fields (§4.6): abridged, the ISBN, tags, the
 	// adult flag and the rating.
 	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
-	if strings.EqualFold(a.Format, "abridged") {
+	if a.Abridged || strings.EqualFold(strings.TrimSpace(a.Format), "abridged") {
 		ac.WithAbridged(true)
 	}
 	if isbn := a.IDs[pkgmetadata.KeyISBN13]; isbn != "" {
@@ -752,10 +759,8 @@ func buildAudiobookMetadataAC(a *pkgmetadata.Audiobook, now time.Time) *cataloga
 	if a.IsAdult {
 		ac.WithIsAdult(true)
 	}
-	if a.Rating != nil {
-		if rs := renderRatings(modelRatings(pkgmetadata.Ratings{a.Rating.Source: *a.Rating})); len(rs) > 0 {
-			ac.WithRatings(rs...)
-		}
+	if rs := renderRatings(ratings, nonVideoRatingsMaxItems); len(rs) > 0 {
+		ac.WithRatings(rs...)
 	}
 	for _, ch := range a.Chapters {
 		if len(ac.Chapters) >= 200 {
@@ -772,20 +777,23 @@ func buildAudiobookMetadataAC(a *pkgmetadata.Audiobook, now time.Time) *cataloga
 }
 
 // buildComicMetadataAC maps a fetched provider ComicVolume onto
-// ComicStatus.metadata. pkg/metadata.ComicVolume carries SortTitle,
-// AltTitles, EndYear, OriginalLanguage and Tags, none of which ComicMetadata
-// has a field for (api/catalog/v1alpha1/comic_types.go) -- read, not
-// invented a home for. ComicMetadata.VolumeNumber has no counterpart on
-// ComicVolume (ComicVine has no per-volume "volume number within the title"
-// concept this client surfaces) and stays unset for the same reason, in the
-// other direction.
-func buildComicMetadataAC(v *pkgmetadata.ComicVolume, now time.Time) *catalogac.ComicMetadataApplyConfiguration {
+// ComicStatus.metadata. pkg/metadata.ComicVolume's Tags have no field there
+// and are read, not invented a home for. ComicMetadata.VolumeNumber has no
+// counterpart on ComicVolume (ComicVine has no per-volume "volume number
+// within the title" concept this client surfaces) and stays unset for the
+// same reason, in the other direction. ratings is enrichRatings' result
+// (AniList's seeds it when the manga's resolver carries one) and lang the
+// fetch language, as on every builder.
+func buildComicMetadataAC(v *pkgmetadata.ComicVolume, ratings []catalogv1alpha1.Rating, lang string, now time.Time) *catalogac.ComicMetadataApplyConfiguration {
 	ac := catalogac.ComicMetadata().
 		WithTitle(v.Title).
 		WithPublisher(v.Publisher).
 		WithOverview(v.Description).
 		WithExternalIDs(v.IDs).
 		WithRefreshedAt(metav1.NewTime(now))
+	if l := withLanguage(lang); l != "" {
+		ac.WithLanguage(l)
+	}
 
 	if v.StartYear != nil {
 		ac.WithYear(*v.StartYear)
@@ -827,7 +835,7 @@ func buildComicMetadataAC(v *pkgmetadata.ComicVolume, now time.Time) *catalogac.
 	if v.SortTitle != "" && v.SortTitle != v.Title {
 		ac.WithSortTitle(v.SortTitle)
 	}
-	if rs := renderRatings(modelRatings(v.Ratings)); len(rs) > 0 {
+	if rs := renderRatings(ratings, nonVideoRatingsMaxItems); len(rs) > 0 {
 		ac.WithRatings(rs...)
 	}
 	if v.Kind != "" {
@@ -845,15 +853,10 @@ func buildComicMetadataAC(v *pkgmetadata.ComicVolume, now time.Time) *catalogac.
 			ac.WithManga(catalogv1alpha1.MangaFlagNo)
 		}
 	}
-	for _, img := range v.Images {
-		if len(ac.Images) >= 50 {
-			break
+	for _, img := range selectImages(v.Images, maxItemImages) {
+		if ic, ok := imageAC(img); ok {
+			ac.WithImages(ic)
 		}
-		t, ok := mapImageType(img.Type)
-		if !ok {
-			continue
-		}
-		ac.WithImages(catalogac.Image().WithType(t).WithURL(img.URL))
 	}
 	return ac
 }
@@ -871,7 +874,9 @@ const maxItemImages = 50
 const imagesPerKey = 5
 
 // selectImages chooses at most limit images the CRD can hold, in their
-// original order, so that every type in every language is represented:
+// original order, so that every type in every language is represented
+// (every builder's since the 2026-11-10 design §5.4; until then the six
+// non-video builders took the first fifty in provider order):
 // first the first image of each (type, language), then up to imagesPerKey
 // of each. Taking the first limit instead let one prolific source crowd out
 // the rest -- Your Name's English and untagged TMDB posters alone filled
@@ -980,34 +985,5 @@ func linksAC(links []pkgmetadata.Link, limit int) []*catalogac.LinkApplyConfigur
 			break
 		}
 	}
-	return out
-}
-
-// modelRatingSources maps the clients' own source names onto the CRD's
-// RatingSource enum; a source the enum lacks is dropped, since the apiserver
-// rejects the whole apply for an unknown one (2026-11-10 design D8).
-var modelRatingSources = map[string]catalogv1alpha1.RatingSource{
-	"mb":          catalogv1alpha1.RatingSourceMusicBrainz,
-	"musicbrainz": catalogv1alpha1.RatingSourceMusicBrainz,
-	"audnexus":    catalogv1alpha1.RatingSourceAudnexus,
-	"hardcover":   catalogv1alpha1.RatingSourceHardcover,
-	"anilist":     catalogv1alpha1.RatingSourceAniList,
-	"comicvine":   catalogv1alpha1.RatingSourceComicVine,
-}
-
-// modelRatings is a non-video kind's ratings as its own provider reports
-// them, in the CRD's vocabulary and a stable order. (A Movie's and a
-// Series' ratings go through enrichRatings over every RatingsProvider; the
-// non-video kinds' come with their one record, W2c wiring the enrichment.)
-func modelRatings(ratings pkgmetadata.Ratings) []catalogv1alpha1.Rating {
-	var out []catalogv1alpha1.Rating
-	for name, r := range ratings {
-		src, ok := modelRatingSources[strings.ToLower(name)]
-		if !ok || r.ValueCentis < 0 || r.ValueCentis > 10000 {
-			continue
-		}
-		out = append(out, catalogv1alpha1.Rating{Source: src, ValueCentis: r.ValueCentis, Votes: max(r.Votes, 0)})
-	}
-	slices.SortFunc(out, func(a, b catalogv1alpha1.Rating) int { return strings.Compare(string(a.Source), string(b.Source)) })
 	return out
 }

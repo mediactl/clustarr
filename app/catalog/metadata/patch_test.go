@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 )
@@ -271,7 +272,7 @@ func TestBuildArtistMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 			{Type: "wallpaper", URL: "https://x/wallpaper.jpg"}, // outside the CRD enum
 		},
 	}
-	ac := buildArtistMetadataAC(a, now)
+	ac := buildArtistMetadataAC(a, nil, "", now)
 
 	require.Equal(t, "Radiohead", *ac.Name)
 	require.Equal(t, "Radiohead", *ac.SortName)
@@ -287,7 +288,7 @@ func TestBuildArtistMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 }
 
 func TestBuildArtistMetadataACOmitsStatusWhenEmpty(t *testing.T) {
-	ac := buildArtistMetadataAC(&pkgmetadata.Artist{Name: "No Status"}, time.Now())
+	ac := buildArtistMetadataAC(&pkgmetadata.Artist{Name: "No Status"}, nil, "", time.Now())
 	require.Nil(t, ac.Status, "ArtistRunStatus has no empty enum member; \"\" must stay unset, not sent as a zero value")
 }
 
@@ -297,9 +298,11 @@ func TestBuildArtistMetadataACCapsGenresAndImagesAtTheCRDsMaxItems(t *testing.T)
 		a.Genres = append(a.Genres, "Genre")
 	}
 	for i := 0; i < 60; i++ {
-		a.Images = append(a.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/1.jpg"})
+		// One URL per image in its own language: selectImages keeps a URL
+		// once and five per (type, language), as the Movie builder's does.
+		a.Images = append(a.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/" + strconv.Itoa(i) + ".jpg", Language: "l" + strconv.Itoa(i)})
 	}
-	ac := buildArtistMetadataAC(a, time.Now())
+	ac := buildArtistMetadataAC(a, nil, "", time.Now())
 	require.Len(t, ac.Genres, 30, "ArtistMetadata.Genres: +kubebuilder:validation:MaxItems=30")
 	require.Len(t, ac.Images, 50, "ArtistMetadata.Images: +kubebuilder:validation:MaxItems=50")
 }
@@ -335,7 +338,7 @@ func TestBuildAlbumMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 			{Type: "", URL: "https://x/unclassified.jpg"}, // outside the CRD enum
 		},
 	}
-	ac := buildAlbumMetadataAC(a, now)
+	ac := buildAlbumMetadataAC(a, nil, "", now)
 
 	require.Equal(t, "OK Computer", *ac.Title)
 	require.Equal(t, "1997", *ac.Disambiguation)
@@ -373,7 +376,7 @@ func TestBuildAlbumMetadataACDropsAMediumWithNoPosition(t *testing.T) {
 			Media: []pkgmetadata.Medium{{Position: 0, Format: "digital"}, {Position: 1, Format: "CD"}},
 		}},
 	}
-	ac := buildAlbumMetadataAC(a, time.Now())
+	ac := buildAlbumMetadataAC(a, nil, "", time.Now())
 	require.Len(t, ac.Releases, 1)
 	require.Len(t, ac.Releases[0].Media, 1, "Medium.Number is +required with Minimum=1; a zero position must be dropped")
 	require.EqualValues(t, 1, *ac.Releases[0].Media[0].Number)
@@ -385,14 +388,16 @@ func TestBuildAlbumMetadataACCapsListsAtTheCRDsMaxItems(t *testing.T) {
 		a.SecondaryTypes = append(a.SecondaryTypes, "type")
 	}
 	for i := 0; i < 60; i++ {
-		a.Images = append(a.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/1.jpg"})
+		// One URL per image in its own language: selectImages keeps a URL
+		// once and five per (type, language), as the Movie builder's does.
+		a.Images = append(a.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/" + strconv.Itoa(i) + ".jpg", Language: "l" + strconv.Itoa(i)})
 	}
 	for i := 0; i < 60; i++ {
 		a.Releases = append(a.Releases, pkgmetadata.AlbumRelease{
 			IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "release"},
 		})
 	}
-	ac := buildAlbumMetadataAC(a, time.Now())
+	ac := buildAlbumMetadataAC(a, nil, "", time.Now())
 	require.Len(t, ac.SecondaryTypes, 16, "AlbumMetadata.SecondaryTypes: +kubebuilder:validation:MaxItems=16")
 	require.Len(t, ac.Images, 50, "AlbumMetadata.Images: +kubebuilder:validation:MaxItems=50")
 	require.Len(t, ac.Releases, 50, "AlbumMetadata.Releases: +kubebuilder:validation:MaxItems=50")
@@ -413,7 +418,7 @@ func TestBuildAuthorMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 			{Type: "", URL: "https://x/unclassified.jpg"}, // outside the CRD enum
 		},
 	}
-	ac := buildAuthorMetadataAC(a, now)
+	ac := buildAuthorMetadataAC(a, nil, "", now)
 
 	require.Equal(t, "Terry Pratchett", *ac.Name)
 	require.Equal(t, "Pratchett, Terry", *ac.SortName)
@@ -433,9 +438,11 @@ func TestBuildAuthorMetadataACCapsGenresAndImagesAtTheCRDsMaxItems(t *testing.T)
 		a.Genres = append(a.Genres, "Genre")
 	}
 	for i := 0; i < 60; i++ {
-		a.Images = append(a.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/1.jpg"})
+		// One URL per image in its own language: selectImages keeps a URL
+		// once and five per (type, language), as the Movie builder's does.
+		a.Images = append(a.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/" + strconv.Itoa(i) + ".jpg", Language: "l" + strconv.Itoa(i)})
 	}
-	ac := buildAuthorMetadataAC(a, time.Now())
+	ac := buildAuthorMetadataAC(a, nil, "", time.Now())
 	require.Len(t, ac.Genres, 30, "AuthorMetadata.Genres: +kubebuilder:validation:MaxItems=30")
 	require.Len(t, ac.Images, 50, "AuthorMetadata.Images: +kubebuilder:validation:MaxItems=50")
 }
@@ -464,7 +471,7 @@ func TestBuildBookMetadataACMapsFieldsAndEditions(t *testing.T) {
 			{Title: "no OL edition id, must be dropped"},
 		},
 	}
-	ac := buildBookMetadataAC(b, now)
+	ac := buildBookMetadataAC(b, nil, "", now)
 
 	require.Equal(t, "The Colour of Magic", *ac.Title)
 	require.Equal(t, "The first Discworld novel.", *ac.Overview)
@@ -497,7 +504,7 @@ func TestBuildBookMetadataACCapsListsAtTheCRDsMaxItems(t *testing.T) {
 	for i := 0; i < 150; i++ {
 		b.Editions = append(b.Editions, pkgmetadata.Edition{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryEdition: "ol"}})
 	}
-	ac := buildBookMetadataAC(b, time.Now())
+	ac := buildBookMetadataAC(b, nil, "", time.Now())
 	require.Len(t, ac.SeriesLinks, 10, "BookMetadata.SeriesLinks: +kubebuilder:validation:MaxItems=10")
 	require.Len(t, ac.Editions, 100, "BookMetadata.Editions: +kubebuilder:validation:MaxItems=100")
 }
@@ -516,7 +523,7 @@ func TestBuildBookMetadataACTitleCasesEnglishTitles(t *testing.T) {
 		{"notes from the underground", []string{"en", "fr"}, "Notes from the Underground"},
 		{"beyaz geceler", []string{"tr"}, "beyaz geceler"},
 	} {
-		ac := buildBookMetadataAC(&pkgmetadata.Book{Title: tc.title, Languages: tc.languages}, time.Now())
+		ac := buildBookMetadataAC(&pkgmetadata.Book{Title: tc.title, Languages: tc.languages}, nil, "", time.Now())
 		require.Equal(t, tc.want, *ac.Title, "title %q, languages %v", tc.title, tc.languages)
 	}
 }
@@ -540,7 +547,7 @@ func TestBuildAudiobookMetadataACMapsFields(t *testing.T) {
 		Chapters:    []pkgmetadata.Chapter{{Title: "Chapter 1", StartOffsetMs: 0}, {Title: "Chapter 2", StartOffsetMs: 600000}},
 		Image:       &pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/cover.jpg"},
 	}
-	ac := buildAudiobookMetadataAC(a, now)
+	ac := buildAudiobookMetadataAC(a, nil, "", now)
 
 	require.Equal(t, "The Hobbit", *ac.Title)
 	require.Equal(t, "or There and Back Again", *ac.Subtitle)
@@ -566,7 +573,7 @@ func TestBuildAudiobookMetadataACMapsFields(t *testing.T) {
 }
 
 func TestBuildAudiobookMetadataACFallsBackToSummaryWhenDescriptionIsEmpty(t *testing.T) {
-	ac := buildAudiobookMetadataAC(&pkgmetadata.Audiobook{Title: "T", Summary: "short blurb"}, time.Now())
+	ac := buildAudiobookMetadataAC(&pkgmetadata.Audiobook{Title: "T", Summary: "short blurb"}, nil, "", time.Now())
 	require.Equal(t, "short blurb", *ac.Overview)
 }
 
@@ -579,7 +586,7 @@ func TestBuildAudiobookMetadataACCapsListsAtTheCRDsMaxItems(t *testing.T) {
 	for i := 0; i < 250; i++ {
 		a.Chapters = append(a.Chapters, pkgmetadata.Chapter{Title: "Ch"})
 	}
-	ac := buildAudiobookMetadataAC(a, time.Now())
+	ac := buildAudiobookMetadataAC(a, nil, "", time.Now())
 	require.Len(t, ac.Authors, 30, "AudiobookMetadata.Authors: +kubebuilder:validation:MaxItems=30")
 	require.Len(t, ac.Narrators, 30, "AudiobookMetadata.Narrators: +kubebuilder:validation:MaxItems=30")
 	require.Len(t, ac.Chapters, 200, "AudiobookMetadata.Chapters: +kubebuilder:validation:MaxItems=200")
@@ -603,7 +610,7 @@ func TestBuildComicMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 			{Type: "", URL: "https://x/unclassified.jpg"}, // outside the CRD enum
 		},
 	}
-	ac := buildComicMetadataAC(v, now)
+	ac := buildComicMetadataAC(v, nil, "", now)
 
 	require.Equal(t, "Berserk", *ac.Title)
 	require.Equal(t, "Hakusensha", *ac.Publisher)
@@ -620,21 +627,21 @@ func TestBuildComicMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 }
 
 func TestBuildComicMetadataACMapsNonMangaKindToNo(t *testing.T) {
-	ac := buildComicMetadataAC(&pkgmetadata.ComicVolume{Title: "T", Kind: "comic"}, time.Now())
+	ac := buildComicMetadataAC(&pkgmetadata.ComicVolume{Title: "T", Kind: "comic"}, nil, "", time.Now())
 	require.Equal(t, catalogv1alpha1.MangaFlagNo, *ac.Manga)
 }
 
 func TestBuildComicMetadataACOmitsMangaWhenKindIsEmpty(t *testing.T) {
-	ac := buildComicMetadataAC(&pkgmetadata.ComicVolume{Title: "T"}, time.Now())
+	ac := buildComicMetadataAC(&pkgmetadata.ComicVolume{Title: "T"}, nil, "", time.Now())
 	require.Nil(t, ac.Manga, "ComicVolume.Kind is unpopulated by the current comicvine client; Manga must stay unset, not guessed")
 }
 
 func TestBuildComicMetadataACCapsImagesAtTheCRDsMaxItems(t *testing.T) {
 	v := &pkgmetadata.ComicVolume{Title: "Padded"}
 	for i := 0; i < 60; i++ {
-		v.Images = append(v.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/1.jpg"})
+		v.Images = append(v.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/" + strconv.Itoa(i) + ".jpg", Language: "l" + strconv.Itoa(i)})
 	}
-	ac := buildComicMetadataAC(v, time.Now())
+	ac := buildComicMetadataAC(v, nil, "", time.Now())
 	require.Len(t, ac.Images, 50, "ComicMetadata.Images: +kubebuilder:validation:MaxItems=50")
 }
 
@@ -672,7 +679,7 @@ func TestBuildBookMetadataACMapsImages(t *testing.T) {
 		Images: []pkgmetadata.Image{{Type: pkgmetadata.ImageTypePoster, URL: "https://covers.openlibrary.org/b/id/9411873-L.jpg"}},
 	}
 
-	ac := buildBookMetadataAC(b, time.Now())
+	ac := buildBookMetadataAC(b, nil, "", time.Now())
 
 	require.Len(t, ac.Images, 1)
 	require.Equal(t, catalogv1alpha1.ImageTypePoster, *ac.Images[0].Type)
@@ -774,4 +781,121 @@ func TestBuildMetadataACsRenderKeywordsCappedAt50(t *testing.T) {
 	s := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Tagged", Keywords: kw[:2]}, nil, time.Now())
 	require.Equal(t, []string{"kwaa", "kwba"}, s.Keywords)
 	require.Nil(t, buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Plain"}, nil, time.Now()).Keywords)
+}
+
+// Every non-video builder writes the fetch language (fetchLanguage on an
+// Audiobook, whose language is the recording's own) and enrichRatings'
+// result at the kind's eight-entry cap, sorted by source (2026-11-10 design
+// §4.1, §5.4); an empty language is left unset rather than sent as "".
+func TestNonVideoBuildersWriteTheFetchLanguageAndRatings(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	ratings := []catalogv1alpha1.Rating{
+		{Source: catalogv1alpha1.RatingSourceMusicBrainz, ValueCentis: 860, Votes: 12},
+		{Source: catalogv1alpha1.RatingSourceAniList, ValueCentis: 790, Votes: 3},
+	}
+	want := []catalogac.RatingApplyConfiguration{
+		*catalogac.Rating().WithSource(catalogv1alpha1.RatingSourceAniList).WithValueCentis(790).WithVotes(3),
+		*catalogac.Rating().WithSource(catalogv1alpha1.RatingSourceMusicBrainz).WithValueCentis(860).WithVotes(12),
+	}
+
+	artist := buildArtistMetadataAC(&pkgmetadata.Artist{Name: "A"}, ratings, "de", now)
+	require.Equal(t, "de", *artist.Language)
+	require.Equal(t, want, artist.Ratings)
+	require.Nil(t, buildArtistMetadataAC(&pkgmetadata.Artist{Name: "A"}, nil, "", now).Language, "no language is left unset")
+
+	album := buildAlbumMetadataAC(&pkgmetadata.Album{Title: "A"}, ratings, " fr ", now)
+	require.Equal(t, "fr", *album.Language, "trimmed")
+	require.Equal(t, want, album.Ratings)
+
+	author := buildAuthorMetadataAC(&pkgmetadata.Author{Name: "A"}, ratings, "en", now)
+	require.Equal(t, "en", *author.Language)
+	require.Equal(t, want, author.Ratings)
+
+	book := buildBookMetadataAC(&pkgmetadata.Book{Title: "b"}, ratings, "pt-BR", now)
+	require.Equal(t, "pt-BR", *book.Language)
+	require.Equal(t, want, book.Ratings)
+
+	audiobook := buildAudiobookMetadataAC(&pkgmetadata.Audiobook{Title: "A", Language: "english"}, ratings, "en", now)
+	require.Equal(t, "en", *audiobook.FetchLanguage, "the fetch language has its own field on an Audiobook")
+	require.Equal(t, "english", *audiobook.Language, "language stays the recording's own")
+	require.Equal(t, want, audiobook.Ratings)
+
+	comic := buildComicMetadataAC(&pkgmetadata.ComicVolume{Title: "C"}, ratings, "ja", now)
+	require.Equal(t, "ja", *comic.Language)
+	require.Equal(t, want, comic.Ratings)
+
+	var many []catalogv1alpha1.Rating
+	for _, src := range []catalogv1alpha1.RatingSource{
+		catalogv1alpha1.RatingSourceIMDb, catalogv1alpha1.RatingSourceTMDB, catalogv1alpha1.RatingSourceRTCritic,
+		catalogv1alpha1.RatingSourceRTAudience, catalogv1alpha1.RatingSourceMetacritic, catalogv1alpha1.RatingSourceTrakt,
+		catalogv1alpha1.RatingSourceLetterboxd, catalogv1alpha1.RatingSourceMusicBrainz, catalogv1alpha1.RatingSourceAudnexus,
+		catalogv1alpha1.RatingSourceHardcover, catalogv1alpha1.RatingSourceAniList, catalogv1alpha1.RatingSourceComicVine,
+	} {
+		many = append(many, catalogv1alpha1.Rating{Source: src, ValueCentis: 500, Votes: 1})
+	}
+	require.Len(t, buildComicMetadataAC(&pkgmetadata.ComicVolume{Title: "C"}, many, "", now).Ratings, nonVideoRatingsMaxItems,
+		"the non-video kinds' ratings: +kubebuilder:validation:MaxItems=8")
+	require.Len(t, buildMovieMetadataAC(&pkgmetadata.Movie{Title: "M"}, many, now).Ratings, ratingsMaxItems,
+		"a Movie's keep their seven")
+}
+
+// The Audiobook builder reads the 2026-11-10 design's fields (§4.6, §5.4):
+// abridged from the model's flag or Audnexus's formatType, the tags, the
+// adult flag, a validated ISBN; the Audnexus rating reaches it through
+// enrichRatings, never from the model directly, so a Rating alone renders
+// nothing.
+func TestBuildAudiobookMetadataACWritesAbridgedTagsAndAdult(t *testing.T) {
+	now := time.Now()
+	a := &pkgmetadata.Audiobook{
+		IDs:      pkgmetadata.ExternalIDs{pkgmetadata.KeyASIN: "B0036I54I6", pkgmetadata.KeyISBN13: "9780618968633"},
+		Title:    "The Hobbit",
+		Abridged: true,
+		Tags:     []string{"Epic", "Classics"},
+		IsAdult:  true,
+		Rating:   &pkgmetadata.Rating{Source: pkgmetadata.RatingSourceAudnexus, ValueCentis: 960},
+	}
+	ac := buildAudiobookMetadataAC(a, nil, "", now)
+	require.True(t, *ac.Abridged)
+	require.Equal(t, []string{"Epic", "Classics"}, ac.Tags)
+	require.True(t, *ac.IsAdult)
+	require.Equal(t, "9780618968633", *ac.ISBN)
+	require.Empty(t, ac.Ratings, "the model's own rating is enrichRatings' seed, not the builder's")
+	require.Nil(t, ac.FetchLanguage)
+
+	byFormat := buildAudiobookMetadataAC(&pkgmetadata.Audiobook{Title: "T", Format: "Abridged "}, nil, "", now)
+	require.True(t, *byFormat.Abridged, "formatType still says it for a cached document from before the flag")
+	plain := buildAudiobookMetadataAC(&pkgmetadata.Audiobook{Title: "T", Format: "unabridged"}, nil, "", now)
+	require.Nil(t, plain.Abridged)
+	require.Nil(t, plain.IsAdult)
+	require.Empty(t, plain.Tags)
+
+	for i := 0; i < 40; i++ {
+		a.Tags = append(a.Tags, "t")
+	}
+	require.Len(t, buildAudiobookMetadataAC(a, nil, "", now).Tags, 32, "AudiobookMetadata.Tags: +kubebuilder:validation:MaxItems=32")
+}
+
+// The non-video builders choose images per (type, language) as the Movie
+// builder does (2026-11-10 design §5.4), carrying each image's language and
+// keeping a URL once, where they took the first fifty in provider order.
+func TestNonVideoBuildersChooseImagesPerTypeAndLanguage(t *testing.T) {
+	var imgs []pkgmetadata.Image
+	for i := 0; i < 20; i++ {
+		imgs = append(imgs, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/en" + strconv.Itoa(i) + ".jpg", Language: "en"})
+	}
+	imgs = append(imgs,
+		pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/ja.jpg", Language: "ja"},
+		pkgmetadata.Image{Type: pkgmetadata.ImageTypeFanart, URL: "https://x/fanart.jpg"},
+		pkgmetadata.Image{Type: pkgmetadata.ImageTypeFanart, URL: "https://x/fanart.jpg"}, // the same URL twice
+	)
+	ac := buildArtistMetadataAC(&pkgmetadata.Artist{Name: "A", Images: imgs}, nil, "", time.Now())
+	require.Len(t, ac.Images, imagesPerKey+2, "five English posters, the Japanese one and the fanart once")
+	var langs []string
+	for _, img := range ac.Images {
+		if img.Language != nil {
+			langs = append(langs, *img.Language)
+		}
+	}
+	require.Contains(t, langs, "ja", "the one Japanese poster survives twenty English ones")
+	require.Contains(t, langs, "en", "an image's language is carried")
 }

@@ -19,6 +19,7 @@ package metadata
 
 import (
 	"context"
+	"strings"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -142,10 +143,57 @@ func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaK
 	}
 }
 
+// ratingSources maps a provider's source name onto the CRD's RatingSource
+// enum: every pkg/metadata.RatingSource* constant by its own name, in lower
+// case, plus the musicbrainz client's "mb". The two lists are held equal by
+// pkg/crdcheck's TestRatingSourceEnumMatchesPkgMetadata; a name outside
+// them is dropped by ratingSource, since the apiserver rejects the whole
+// status apply for an unknown one (2026-11-10 design D8), and a wrong badge
+// is worse than a missing one.
+var ratingSources = func() map[string]catalogv1alpha1.RatingSource {
+	m := map[string]catalogv1alpha1.RatingSource{
+		pkgmetadata.RatingSourceIMDb:        catalogv1alpha1.RatingSourceIMDb,
+		pkgmetadata.RatingSourceTMDB:        catalogv1alpha1.RatingSourceTMDB,
+		pkgmetadata.RatingSourceRTCritic:    catalogv1alpha1.RatingSourceRTCritic,
+		pkgmetadata.RatingSourceRTAudience:  catalogv1alpha1.RatingSourceRTAudience,
+		pkgmetadata.RatingSourceMetacritic:  catalogv1alpha1.RatingSourceMetacritic,
+		pkgmetadata.RatingSourceTrakt:       catalogv1alpha1.RatingSourceTrakt,
+		pkgmetadata.RatingSourceLetterboxd:  catalogv1alpha1.RatingSourceLetterboxd,
+		pkgmetadata.RatingSourceMusicBrainz: catalogv1alpha1.RatingSourceMusicBrainz,
+		pkgmetadata.RatingSourceAudnexus:    catalogv1alpha1.RatingSourceAudnexus,
+		pkgmetadata.RatingSourceHardcover:   catalogv1alpha1.RatingSourceHardcover,
+		pkgmetadata.RatingSourceAniList:     catalogv1alpha1.RatingSourceAniList,
+		pkgmetadata.RatingSourceComicVine:   catalogv1alpha1.RatingSourceComicVine,
+		"mb":                                catalogv1alpha1.RatingSourceMusicBrainz,
+	}
+	out := make(map[string]catalogv1alpha1.RatingSource, len(m))
+	for k, v := range m {
+		out[strings.ToLower(k)] = v
+	}
+	return out
+}()
+
+// ratingSource is the CRD RatingSource a provider's source name stands for,
+// case-insensitively; ok is false for a name the enum lacks.
+func ratingSource(name string) (catalogv1alpha1.RatingSource, bool) {
+	s, ok := ratingSources[strings.ToLower(strings.TrimSpace(name))]
+	return s, ok
+}
+
+// ratingValid reports whether a rating is worth recording: a source with a
+// zero ValueCentis and zero Votes is "nothing to report", not a genuine zero
+// score, and a value off the CRD's 0-10000 would be rejected whole.
+func ratingValid(r pkgmetadata.Rating) bool {
+	return (r.ValueCentis != 0 || r.Votes != 0) && r.ValueCentis >= 0 && r.ValueCentis <= 10000
+}
+
 // enrichRatings computes status.metadata.ratings for kind, from seed, then
 // reg.Ratings in priority order (spec §C.2), given the ids the primary
 // fetch and enrich's crosswalk settled on, and prior -- the target's
-// current status.metadata.ratings, read before this refresh started.
+// current status.metadata.ratings, read before this refresh started. Since
+// the 2026-11-10 design (§5.4) it runs for every kind with ratings: the six
+// non-video kinds seed it with their own provider's rating (MusicBrainz's
+// "mb", Audnexus's, AniList's), read through ratingSource.
 //
 // seed is the document's own Ratings, exactly as the primary fetch
 // (Registry.Lookup, in worker.go) already returned it -- mapMovie
@@ -189,13 +237,12 @@ func enrichRatings(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1
 	defer span.End()
 
 	filled := make(map[catalogv1alpha1.RatingSource]catalogv1alpha1.Rating, len(seed)+len(prior))
-	for src, r := range seed {
-		if r.ValueCentis == 0 && r.Votes == 0 {
+	for name, r := range seed {
+		src, ok := ratingSource(name)
+		if !ok || !ratingValid(r) {
 			continue
 		}
-		filled[catalogv1alpha1.RatingSource(src)] = catalogv1alpha1.Rating{
-			Source: catalogv1alpha1.RatingSource(src), ValueCentis: r.ValueCentis, Votes: r.Votes,
-		}
+		filled[src] = catalogv1alpha1.Rating{Source: src, ValueCentis: r.ValueCentis, Votes: max(r.Votes, 0)}
 	}
 
 	if reg != nil {
@@ -206,7 +253,11 @@ func enrichRatings(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1
 			}
 			var need []string
 			for _, s := range declared {
-				if _, ok := filled[catalogv1alpha1.RatingSource(s)]; !ok {
+				src, ok := ratingSource(s)
+				if !ok {
+					continue
+				}
+				if _, ok := filled[src]; !ok {
 					need = append(need, s)
 				}
 			}
@@ -226,17 +277,19 @@ func enrichRatings(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1
 
 			for _, s := range need {
 				r, ok := result[s]
-				if !ok || (r.ValueCentis == 0 && r.Votes == 0) {
+				if !ok || !ratingValid(r) {
 					continue
 				}
-				filled[catalogv1alpha1.RatingSource(s)] = catalogv1alpha1.Rating{
-					Source: catalogv1alpha1.RatingSource(s), ValueCentis: r.ValueCentis, Votes: r.Votes,
-				}
+				src, _ := ratingSource(s)
+				filled[src] = catalogv1alpha1.Rating{Source: src, ValueCentis: r.ValueCentis, Votes: max(r.Votes, 0)}
 			}
 		}
 	}
 
 	for _, r := range prior {
+		if _, ok := ratingSource(string(r.Source)); !ok {
+			continue
+		}
 		if _, ok := filled[r.Source]; !ok {
 			filled[r.Source] = r
 		}

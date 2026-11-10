@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	"golang.org/x/text/language"
 	"golang.org/x/text/language/display"
@@ -87,17 +88,8 @@ type RegistryDeps struct {
 
 // BuildRegistryWith is BuildRegistry with deps.
 func BuildRegistryWith(ctx context.Context, c client.Client, providers []catalogv1alpha1.MetadataProvider, httpClient *http.Client, deps RegistryDeps) (*pkgmetadata.Registry, error) {
-	sorted := make([]catalogv1alpha1.MetadataProvider, len(providers))
-	copy(sorted, providers)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		if sorted[i].Spec.Priority != sorted[j].Spec.Priority {
-			return sorted[i].Spec.Priority < sorted[j].Spec.Priority
-		}
-		return !isSupplementary(sorted[i].Spec.Type) && isSupplementary(sorted[j].Spec.Type)
-	})
-
 	reg := &pkgmetadata.Registry{}
-	for _, p := range sorted {
+	for _, p := range sortProviders(providers) {
 		if p.Spec.Enabled != nil && !*p.Spec.Enabled {
 			continue
 		}
@@ -126,6 +118,80 @@ func BuildRegistryWith(ctx context.Context, c client.Client, providers []catalog
 		}
 	}
 	return reg, nil
+}
+
+// sortProviders is providers in the Registry's order: ascending
+// spec.priority, a primary provider before a supplementary one on a tie,
+// then the list's own order (BuildRegistry's doc comment).
+func sortProviders(providers []catalogv1alpha1.MetadataProvider) []catalogv1alpha1.MetadataProvider {
+	sorted := make([]catalogv1alpha1.MetadataProvider, len(providers))
+	copy(sorted, providers)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].Spec.Priority != sorted[j].Spec.Priority {
+			return sorted[i].Spec.Priority < sorted[j].Spec.Priority
+		}
+		return !isSupplementary(sorted[i].Spec.Type) && isSupplementary(sorted[j].Spec.Type)
+	})
+	return sorted
+}
+
+// DefaultFetchLanguage is the language metadata is fetched in when the
+// kind's provider names none (2026-11-10 design §5.4: "the fetch language:
+// MetadataProvider.spec.language, else en").
+const DefaultFetchLanguage = "en"
+
+// FetchLanguages is each enabled provider type's spec.language, the highest
+// priority of its type first: the language a non-video document is fetched
+// in, which the gateway writes as status.metadata.language (fetchLanguage on
+// an Audiobook, whose language is the recording's own). It is keyed by
+// provider type rather than by kind because a Comic's primary provider is
+// the one its spec.source names. A Movie's and a Series' language is their
+// client's own (TMDB's and TheTVDB's locale), written from the document.
+type FetchLanguages map[catalogv1alpha1.MetadataProviderType]string
+
+// Languages reads providers into a FetchLanguages, in Registry order.
+func Languages(providers []catalogv1alpha1.MetadataProvider) FetchLanguages {
+	out := FetchLanguages{}
+	for _, p := range sortProviders(providers) {
+		if p.Spec.Enabled != nil && !*p.Spec.Enabled {
+			continue
+		}
+		if _, seen := out[p.Spec.Type]; seen {
+			continue
+		}
+		out[p.Spec.Type] = strings.TrimSpace(p.Spec.Language)
+	}
+	return out
+}
+
+// For is the language target's metadata is fetched in: its primary
+// provider's, else DefaultFetchLanguage. A nil FetchLanguages answers the
+// default for every kind.
+func (l FetchLanguages) For(target client.Object) string {
+	var t catalogv1alpha1.MetadataProviderType
+	switch o := target.(type) {
+	case *catalogv1alpha1.Movie:
+		t = catalogv1alpha1.MetadataProviderTMDB
+	case *catalogv1alpha1.Series:
+		t = catalogv1alpha1.MetadataProviderTVDB
+	case *catalogv1alpha1.Artist, *catalogv1alpha1.Album:
+		t = catalogv1alpha1.MetadataProviderMusicBrainz
+	case *catalogv1alpha1.Author, *catalogv1alpha1.Book:
+		t = catalogv1alpha1.MetadataProviderOpenLibrary
+	case *catalogv1alpha1.Audiobook:
+		t = catalogv1alpha1.MetadataProviderAudnexus
+	case *catalogv1alpha1.Comic:
+		t = catalogv1alpha1.MetadataProviderComicVine
+		if o.Spec.Source == catalogv1alpha1.ComicSourceMangaDex {
+			t = catalogv1alpha1.MetadataProviderMangaDex
+		}
+	default:
+		return DefaultFetchLanguage
+	}
+	if lang := l[t]; lang != "" {
+		return lang
+	}
+	return DefaultFetchLanguage
 }
 
 // addProvider wires one enabled provider into reg, or returns why it
@@ -222,7 +288,7 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 // client fills:
 //
 //   - coverart, fanart: Artwork.
-//   - hardcover: Books.
+//   - hardcover: Books and Ratings (a Book's Hardcover rating).
 //   - metron, mangadex: Comics and Resolvers.
 //   - anilist, kitsu, animelists: Resolvers. AniList is a ComicProvider
 //     too, but not registered as one: a Comic's source can only be
@@ -272,6 +338,7 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 			return fmt.Errorf("metadata: build hardcover client for %s/%s: %w", p.Namespace, p.Name, err)
 		}
 		reg.Books = append(reg.Books, cl)
+		reg.Ratings = append(reg.Ratings, cl) // 2026-11-10 design §5.4: a Book's Hardcover rating, by its id or ISBN.
 	case catalogv1alpha1.MetadataProviderMetron:
 		tok, err := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyBearer)
 		if err != nil {
@@ -290,6 +357,7 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 		cl := mangadex.New(mangadex.Config{
 			HTTPClient: httpClient, BaseURL: baseURL(p, mangadex.DefaultBaseURL),
 			Limiter: supplementaryLimiter(p, mangadex.DefaultRate, mangadex.DefaultBurst), UserAgent: ua,
+			Language: p.Spec.Language, // 2026-11-10 design §5.4: titles, descriptions and tags in spec.language.
 		})
 		reg.Comics = append(reg.Comics, cl)
 		reg.Resolvers = append(reg.Resolvers, cl)

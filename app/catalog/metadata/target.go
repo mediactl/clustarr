@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -90,7 +91,15 @@ func externalIDs(obj client.Object) (pkgmetadata.ExternalIDs, error) {
 	case *catalogv1alpha1.Album:
 		return pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: o.Spec.ReleaseGroupID}, nil
 	case *catalogv1alpha1.Author:
-		return pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryAuthor: o.Spec.OpenLibraryID}, nil
+		// spec.hardcoverID rides beside the Open Library key (2026-11-10
+		// design §5.4): Open Library still answers the Author first, and the
+		// id reaches status.metadata.externalIDs through enrich, where the
+		// Author's book list and Hardcover's own Author read it.
+		ids := pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryAuthor: o.Spec.OpenLibraryID}
+		if o.Spec.HardcoverID != nil && strings.TrimSpace(*o.Spec.HardcoverID) != "" {
+			ids[extid.KeyHardcover] = strings.TrimSpace(*o.Spec.HardcoverID)
+		}
+		return ids, nil
 	case *catalogv1alpha1.Book:
 		return pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryWork: o.Spec.WorkID}, nil
 	case *catalogv1alpha1.Audiobook:
@@ -153,9 +162,8 @@ func knownExternalIDs(obj client.Object) pkgmetadata.ExternalIDs {
 // knownRatings returns the target's current status.metadata.ratings --
 // enrichRatings' prior, carried forward for any source no provider can
 // fill this pass (CLAUDE.md: a transient failure must not gut a healthy
-// object). Only Movie and Series carry a Ratings field
-// (api/catalog/v1alpha1/movie_types.go, series_types.go); every other kind
-// returns nil, since enrichRatings is only ever called for those two.
+// object). Every kind with a status.metadata carries a Ratings field since
+// the 2026-11-10 design (§4.1), and enrichRatings runs for all eight.
 func knownRatings(obj client.Object) []catalogv1alpha1.Rating {
 	switch o := obj.(type) {
 	case *catalogv1alpha1.Movie:
@@ -163,6 +171,30 @@ func knownRatings(obj client.Object) []catalogv1alpha1.Rating {
 			return o.Status.Metadata.Ratings
 		}
 	case *catalogv1alpha1.Series:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.Ratings
+		}
+	case *catalogv1alpha1.Artist:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.Ratings
+		}
+	case *catalogv1alpha1.Album:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.Ratings
+		}
+	case *catalogv1alpha1.Author:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.Ratings
+		}
+	case *catalogv1alpha1.Book:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.Ratings
+		}
+	case *catalogv1alpha1.Audiobook:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.Ratings
+		}
+	case *catalogv1alpha1.Comic:
 		if o.Status.Metadata != nil {
 			return o.Status.Metadata.Ratings
 		}

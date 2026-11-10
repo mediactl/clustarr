@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -333,9 +334,14 @@ func lookupBooks(ctx context.Context, reg *pkgmetadata.Registry, req schema.Meta
 	ctx, span := tracing.Start(ctx, "metadata.rpc.lookupBooks")
 	defer span.End()
 
-	authorID := req.IDs[pkgmetadata.KeyOpenLibraryAuthor]
 	var lastErr error
+	asked := 0
 	for _, p := range reg.Books {
+		authorID := bookListAuthorID(p, req.IDs)
+		if authorID == "" {
+			continue
+		}
+		asked++
 		bCtx, bSpan := tracing.Start(ctx, "metadata.BookProvider.Books")
 		books, err := p.Books(bCtx, authorID)
 		if err != nil {
@@ -349,9 +355,27 @@ func lookupBooks(ctx context.Context, reg *pkgmetadata.Registry, req schema.Meta
 	}
 	if lastErr == nil {
 		lastErr = pkgmetadata.ErrNotFound
+		if asked == 0 {
+			lastErr = fmt.Errorf("metadata: no book provider lists an author by %v: %w", slices.Sorted(maps.Keys(req.IDs)), pkgmetadata.ErrUnsupported)
+		}
 	}
 	tracing.RecordError(span, lastErr)
 	return schema.MetadataResponse{Kind: req.Kind, Error: lastErr.Error()}
+}
+
+// bookListAuthorID is the author id p lists works by, from the request's
+// ids: a provider that looks up by Hardcover ids (its Capabilities name
+// extid.KeyHardcover) takes the Author's spec.hardcoverID, every other the
+// Open Library key, and a provider the request carries no id for is not
+// asked (2026-11-10 design §5.4: "spec.hardcoverID resolves the Hardcover
+// author for the book list when set"). Handing Hardcover the Open Library
+// key, as this once did, was refused before any request; handing Open
+// Library a Hardcover id would be a request for nobody's works.
+func bookListAuthorID(p pkgmetadata.BookProvider, ids map[string]string) string {
+	if slices.Contains(p.Capabilities().LookupBy, extid.KeyHardcover) {
+		return ids[extid.KeyHardcover]
+	}
+	return ids[pkgmetadata.KeyOpenLibraryAuthor]
 }
 
 // search dispatches by kind. Only the kinds whose Provider interface (go doc

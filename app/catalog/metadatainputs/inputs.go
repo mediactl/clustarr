@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,9 +43,12 @@ import (
 // MaxDeliver; no status block records it).
 const Durable = events.ConsumerCatalogMetadata
 
-// keyMangaDex is pkg/metadata/clients/extid.KeyMangaDex's value, restated so
-// this package links no provider client.
-const keyMangaDex = "mangadex"
+// keyMangaDex and keyHardcover are pkg/metadata/clients/extid's KeyMangaDex
+// and KeyHardcover, restated so this package links no provider client.
+const (
+	keyMangaDex  = "mangadex"
+	keyHardcover = "hardcover"
+)
 
 // For is what a refresh of obj asks for: its provider ids (the ids the
 // gateway looks it up by), the document schema version this binary wants
@@ -82,7 +86,14 @@ func providerIDs(obj client.Object) map[string]string {
 	case *catalogv1alpha1.Album:
 		return map[string]string{pkgmetadata.KeyMBReleaseGroup: o.Spec.ReleaseGroupID}
 	case *catalogv1alpha1.Author:
-		return map[string]string{pkgmetadata.KeyOpenLibraryAuthor: o.Spec.OpenLibraryID}
+		// spec.hardcoverID is part of the ask (2026-11-10 design §5.4): a
+		// pin or a change of it re-asks, as the gateway's externalIDs reads
+		// it beside the Open Library key.
+		ids := map[string]string{pkgmetadata.KeyOpenLibraryAuthor: o.Spec.OpenLibraryID}
+		if o.Spec.HardcoverID != nil && strings.TrimSpace(*o.Spec.HardcoverID) != "" {
+			ids[keyHardcover] = strings.TrimSpace(*o.Spec.HardcoverID)
+		}
+		return ids
 	case *catalogv1alpha1.Book:
 		return map[string]string{pkgmetadata.KeyOpenLibraryWork: o.Spec.WorkID}
 	case *catalogv1alpha1.Audiobook:

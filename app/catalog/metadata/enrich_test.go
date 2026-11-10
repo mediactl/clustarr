@@ -20,6 +20,7 @@ package metadata
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -458,4 +459,82 @@ func TestEnrichFillsAnArtistsBiographyFromItsLinks(t *testing.T) {
 	author := &pkgmetadata.Author{IDs: pkgmetadata.ExternalIDs{"openlibrary": "OL22242A"}, Links: links}
 	enrich(context.Background(), reg, commonv1.MediaKindAuthor, nil, nil, author)
 	require.Equal(t, "Muse are an English rock band.", author.Overview, "an author is served the same way")
+}
+
+// The ratings enum round-trips (2026-11-10 design D8): every
+// pkg/metadata.RatingSource* constant maps onto the CRD's RatingSource of
+// the same spelling and back, the musicbrainz client's "mb" onto
+// musicbrainz, case-insensitively, and a name the enum lacks maps onto
+// nothing -- the apiserver would reject the whole status apply for it.
+func TestRatingSourceRoundTripsTheEnum(t *testing.T) {
+	pairs := map[string]catalogv1alpha1.RatingSource{
+		pkgmetadata.RatingSourceIMDb:        catalogv1alpha1.RatingSourceIMDb,
+		pkgmetadata.RatingSourceTMDB:        catalogv1alpha1.RatingSourceTMDB,
+		pkgmetadata.RatingSourceRTCritic:    catalogv1alpha1.RatingSourceRTCritic,
+		pkgmetadata.RatingSourceRTAudience:  catalogv1alpha1.RatingSourceRTAudience,
+		pkgmetadata.RatingSourceMetacritic:  catalogv1alpha1.RatingSourceMetacritic,
+		pkgmetadata.RatingSourceTrakt:       catalogv1alpha1.RatingSourceTrakt,
+		pkgmetadata.RatingSourceLetterboxd:  catalogv1alpha1.RatingSourceLetterboxd,
+		pkgmetadata.RatingSourceMusicBrainz: catalogv1alpha1.RatingSourceMusicBrainz,
+		pkgmetadata.RatingSourceAudnexus:    catalogv1alpha1.RatingSourceAudnexus,
+		pkgmetadata.RatingSourceHardcover:   catalogv1alpha1.RatingSourceHardcover,
+		pkgmetadata.RatingSourceAniList:     catalogv1alpha1.RatingSourceAniList,
+		pkgmetadata.RatingSourceComicVine:   catalogv1alpha1.RatingSourceComicVine,
+	}
+	require.Len(t, pairs, 12, "one pair per RatingSource the CRD enum names")
+	for name, want := range pairs {
+		got, ok := ratingSource(name)
+		require.True(t, ok, name)
+		require.Equal(t, want, got, name)
+		require.Equal(t, name, string(got), "the two vocabularies spell a source the same way")
+		back, ok := ratingSource(string(want))
+		require.True(t, ok)
+		require.Equal(t, want, back)
+		upper, ok := ratingSource(strings.ToUpper(name))
+		require.True(t, ok, "case-insensitive")
+		require.Equal(t, want, upper)
+	}
+	mb, ok := ratingSource("mb")
+	require.True(t, ok)
+	require.Equal(t, catalogv1alpha1.RatingSourceMusicBrainz, mb, "the musicbrainz client's own key")
+	_, ok = ratingSource("goodreads")
+	require.False(t, ok, "a source the enum lacks is dropped, never sent")
+	_, ok = ratingSource("")
+	require.False(t, ok)
+}
+
+// A non-video kind's own rating seeds enrichRatings under its CRD name:
+// MusicBrainz's "mb" lands as musicbrainz, a source the enum lacks is
+// dropped rather than rejected by the apiserver, a value off the CRD's
+// range too, and a RatingsProvider declaring a source for the kind
+// (Hardcover's for a Book) fills what the seed did not.
+func TestEnrichRatingsReadsANonVideoSeedThroughTheEnum(t *testing.T) {
+	calls := 0
+	reg := &pkgmetadata.Registry{Ratings: []pkgmetadata.RatingsProvider{
+		stubRatingsProvider{name: "hardcover", declared: []string{pkgmetadata.RatingSourceHardcover},
+			ratings: pkgmetadata.Ratings{pkgmetadata.RatingSourceHardcover: {Source: "hardcover", ValueCentis: 822, Votes: 63}}, calls: &calls},
+	}}
+	seed := pkgmetadata.Ratings{
+		"mb":        {Source: "mb", ValueCentis: 860, Votes: 12},
+		"goodreads": {Source: "goodreads", ValueCentis: 900, Votes: 1000},
+		"anilist":   {Source: "anilist", ValueCentis: 12000, Votes: 5},
+	}
+	prior := []catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceAudnexus, ValueCentis: 940, Votes: 0}}
+
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindBook, pkgmetadata.ExternalIDs{"isbn13": "9781416971702"}, seed, prior)
+
+	require.Equal(t, 1, calls)
+	require.ElementsMatch(t, []catalogv1alpha1.Rating{
+		{Source: catalogv1alpha1.RatingSourceMusicBrainz, ValueCentis: 860, Votes: 12},
+		{Source: catalogv1alpha1.RatingSourceHardcover, ValueCentis: 822, Votes: 63},
+		{Source: catalogv1alpha1.RatingSourceAudnexus, ValueCentis: 940},
+	}, got, "mb reads as musicbrainz, goodreads and the out-of-range anilist are dropped, the prior audnexus is kept")
+
+	// A provider declaring a source the enum lacks is never asked for it.
+	calls = 0
+	reg = &pkgmetadata.Registry{Ratings: []pkgmetadata.RatingsProvider{
+		stubRatingsProvider{name: "odd", declared: []string{"goodreads"}, ratings: pkgmetadata.Ratings{"goodreads": {ValueCentis: 1}}, calls: &calls},
+	}}
+	require.Nil(t, enrichRatings(context.Background(), reg, commonv1.MediaKindBook, nil, nil, nil))
+	require.Zero(t, calls)
 }

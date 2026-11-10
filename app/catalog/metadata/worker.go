@@ -67,8 +67,15 @@ type Handler struct {
 
 	// Extended is the clustarr-metadata-extended bucket: every successful
 	// movie or series refresh replaces the item's people and similar titles
-	// there (pkg/metadata/extended). Nil writes none.
+	// there, an artist's its members and similar artists, an audiobook's its
+	// narrators and authors (pkg/metadata/extended). Nil writes none.
 	Extended events.KV
+
+	// Languages is the fetch language per provider type (Languages, from
+	// the MetadataProviders the Registry was built from), which every
+	// non-video builder writes as the document's language (2026-11-10
+	// design §5.4). Nil writes DefaultFetchLanguage.
+	Languages FetchLanguages
 
 	Now func() time.Time // nil = time.Now
 }
@@ -231,6 +238,12 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	// (ADR-0019 §7.1). refreshed is second-precision, what the apiserver
 	// keeps, so the record's refreshedAt and the block's are one instant.
 	refreshed := now().UTC().Truncate(time.Second)
+	// The six non-video kinds write the fetch language and run enrichRatings
+	// as the two video kinds do (2026-11-10 design §5.4), seeded with their
+	// own provider's rating so it is never asked for twice, over the
+	// RatingsProviders that declare a source for the kind (Hardcover's for a
+	// Book), carrying forward what status.metadata.ratings already holds.
+	lang := h.Languages.For(target)
 	var (
 		ttl time.Duration
 		md  any
@@ -269,24 +282,30 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		// RefreshStateCrosswalk) RefreshTTL special-cases ahead of its
 		// per-kind switch, not because it carries meaning for this kind.
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindArtist, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		md = buildArtistMetadataAC(v, refreshed)
+		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, v.Ratings, knownRatings(target))
+		md = buildArtistMetadataAC(v, ratings, lang, refreshed)
 	case *pkgmetadata.Album:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAlbum, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		md = buildAlbumMetadataAC(v, refreshed)
+		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, v.Ratings, knownRatings(target))
+		md = buildAlbumMetadataAC(v, ratings, lang, refreshed)
 	case *pkgmetadata.Author:
 		// MediaKindAuthor/Book/Audiobook are likewise a flat 30-day cadence
 		// regardless of state; see the Artist/Album comment above.
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAuthor, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		md = buildAuthorMetadataAC(v, refreshed)
+		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, v.Ratings, knownRatings(target))
+		md = buildAuthorMetadataAC(v, ratings, lang, refreshed)
 	case *pkgmetadata.Book:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindBook, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		md = buildBookMetadataAC(v, refreshed)
+		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, bookRatingIDs(v), v.Ratings, knownRatings(target))
+		md = buildBookMetadataAC(v, ratings, lang, refreshed)
 	case *pkgmetadata.Audiobook:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAudiobook, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		md = buildAudiobookMetadataAC(v, refreshed)
+		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, audiobookRatings(v), knownRatings(target))
+		md = buildAudiobookMetadataAC(v, ratings, lang, refreshed)
 	case *pkgmetadata.ComicVolume:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindComic, comicRefreshState(v), refreshedAt(target))
-		md = buildComicMetadataAC(v, refreshed)
+		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, v.Ratings, knownRatings(target))
+		md = buildComicMetadataAC(v, ratings, lang, refreshed)
 	default:
 		return events.Discard("registry returned an unexpected type", fmt.Errorf("%T", result))
 	}
@@ -317,10 +336,46 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	return nil
 }
 
+// bookRatingIDs is the ids a Book's ratings are asked by: the work's own
+// (an Open Library work, a Hardcover id when the work carries one) plus the
+// first edition's ISBN-13 when the work carries none, which is how Hardcover
+// finds an Open Library work (2026-11-10 design §5.4). The work's own ids
+// are never overwritten, and the document's map is never touched.
+func bookRatingIDs(b *pkgmetadata.Book) pkgmetadata.ExternalIDs {
+	ids := b.IDs.Merge(nil)
+	if ids == nil {
+		ids = pkgmetadata.ExternalIDs{}
+	}
+	for _, ed := range b.Editions {
+		if isbn := ed.IDs[pkgmetadata.KeyISBN13]; isbn != "" && ids[pkgmetadata.KeyISBN13] == "" {
+			ids[pkgmetadata.KeyISBN13] = isbn
+		}
+		if ids[pkgmetadata.KeyISBN13] != "" {
+			break
+		}
+	}
+	return ids
+}
+
+// audiobookRatings is an Audiobook's own rating as enrichRatings' seed:
+// Audnexus reports one, keyed by its source.
+func audiobookRatings(a *pkgmetadata.Audiobook) pkgmetadata.Ratings {
+	if a.Rating == nil {
+		return nil
+	}
+	src := a.Rating.Source
+	if src == "" {
+		src = pkgmetadata.RatingSourceAudnexus
+	}
+	return pkgmetadata.Ratings{src: *a.Rating}
+}
+
 // writeExtended replaces the item's extended-metadata document. Like the
 // cache write, a failure is recorded and never fails the task: the record is
 // what the rest of the system depends on, and the next refresh rewrites
-// the document.
+// the document. An Artist's and an Audiobook's documents (2026-11-10 design
+// §5.4) are written even when empty, so an earlier refresh's never
+// outlives its item's current provider answer.
 func (h *Handler) writeExtended(ctx context.Context, kind commonv1.MediaKind, target client.Object, result any) {
 	if h.Extended == nil {
 		return
@@ -332,6 +387,10 @@ func (h *Handler) writeExtended(ctx context.Context, kind commonv1.MediaKind, ta
 		doc.Collection = extended.FromCollection(v.Collection)
 	case *pkgmetadata.Series:
 		doc = extended.FromPeople(v.People, nil)
+	case *pkgmetadata.Artist:
+		doc = extended.FromArtist(v)
+	case *pkgmetadata.Audiobook:
+		doc = extended.FromAudiobook(v)
 	default:
 		return
 	}

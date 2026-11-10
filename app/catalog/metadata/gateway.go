@@ -124,8 +124,9 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 	}
 	h := &Handler{
 		Client: o.Client, Reader: o.Reader, Registry: reg, Cache: cache,
-		Records:  o.Records,
-		Extended: o.Bus.KV(events.BucketMetadataExtended),
+		Records:   o.Records,
+		Extended:  o.Bus.KV(events.BucketMetadataExtended),
+		Languages: Languages(providers.Items),
 	}
 	stopSub, err := o.Bus.Subscribe(ctx, spec.Subscription(), h.Handle)
 	if err != nil {

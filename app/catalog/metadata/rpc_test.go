@@ -20,6 +20,7 @@ package metadata
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -818,4 +819,52 @@ func mustServeRPC(t *testing.T, bus events.Requester, reg *pkgmetadata.Registry)
 	stop, err := ServeRPC(bus, reg)
 	require.NoError(t, err)
 	t.Cleanup(stop)
+}
+
+// hardcoverListProvider stands for the Hardcover client in lookupBooks: a
+// BookProvider whose Capabilities look up by Hardcover ids, so it is handed
+// the Author's spec.hardcoverID and never the Open Library key.
+type hardcoverListProvider struct{ stubBookListProvider }
+
+func (hardcoverListProvider) Name() string { return "hardcover" }
+func (hardcoverListProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{LookupBy: []string{"hardcover", pkgmetadata.KeyISBN13}}
+}
+
+// lookupBooks hands each BookProvider the author id in its own keyspace
+// (2026-11-10 design §5.4): Open Library its key, Hardcover the Author's
+// spec.hardcoverID -- so Hardcover lists the works when Open Library fails,
+// and is not asked at all for an Author without a Hardcover id.
+func TestServeRPCLookupBooksHandsHardcoverTheHardcoverID(t *testing.T) {
+	reg := &pkgmetadata.Registry{Books: []pkgmetadata.BookProvider{
+		stubBookListProvider{wantAuthorID: "OL23919A", err: errors.New("open library is down")},
+		hardcoverListProvider{stubBookListProvider{wantAuthorID: "51942", books: []pkgmetadata.Book{
+			{IDs: pkgmetadata.ExternalIDs{"hardcover": "141397"}, Title: "Out of My Mind"},
+		}}},
+	}}
+	bus := newTestBus(t)
+	mustServeRPC(t, bus, reg)
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{
+		Kind: commonv1.MediaKindBook,
+		IDs:  map[string]string{pkgmetadata.KeyOpenLibraryAuthor: "OL23919A", "hardcover": "51942"},
+	}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.Empty(t, resp.Error)
+	require.Equal(t, "hardcover", resp.Provider, "Open Library failed; Hardcover listed the works by the Hardcover id")
+	require.Len(t, resp.Results, 1)
+
+	// Without a Hardcover id the Author's works come from Open Library
+	// alone, and Hardcover is not asked (its stub would refuse the key).
+	resp = schema.MetadataResponse{}
+	req.IDs = map[string]string{pkgmetadata.KeyOpenLibraryAuthor: "OL23919A"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.Contains(t, resp.Error, "open library is down", "nothing else could be asked")
+
+	// Nothing to hand anyone is said as such.
+	resp = schema.MetadataResponse{}
+	req.IDs = map[string]string{pkgmetadata.KeyOpenLibraryAuthor: ""}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.Contains(t, resp.Error, "no book provider lists an author")
 }

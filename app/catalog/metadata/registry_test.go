@@ -459,3 +459,52 @@ func TestBuildRegistrySupplementaryProvidersLoseAPriorityTieToPrimaryOnes(t *tes
 	require.Equal(t, []string{"mangadex", "comicvine", "metron"}, names(len(reg.Comics), func(i int) string { return reg.Comics[i].Name() }),
 		"priority first; at a tie the provider a Comic can be keyed by answers before Metron")
 }
+
+// Languages is each enabled provider type's spec.language, the highest
+// priority of its type first, and For picks a kind's primary provider's --
+// a Comic's by its source -- defaulting to "en" (2026-11-10 design §5.4).
+func TestLanguagesReadTheProvidersInRegistryOrder(t *testing.T) {
+	off := false
+	providers := []catalogv1alpha1.MetadataProvider{
+		{ObjectMeta: metav1.ObjectMeta{Name: "mb-backup"}, Spec: catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderMusicBrainz, Enabled: enabled(), Priority: 90, Language: "fr"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "mb"}, Spec: catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderMusicBrainz, Enabled: enabled(), Priority: 10, Language: " de "}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "ol-off"}, Spec: catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderOpenLibrary, Enabled: &off, Priority: 1, Language: "it"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "ol"}, Spec: catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderOpenLibrary, Enabled: enabled(), Language: "pt-BR"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "mangadex"}, Spec: catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderMangaDex, Enabled: enabled(), Language: "ja"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "comicvine"}, Spec: catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderComicVine, Enabled: enabled()}},
+	}
+	langs := Languages(providers)
+
+	require.Equal(t, "de", langs.For(&catalogv1alpha1.Artist{}), "the higher-priority provider's language, trimmed")
+	require.Equal(t, "de", langs.For(&catalogv1alpha1.Album{}))
+	require.Equal(t, "pt-BR", langs.For(&catalogv1alpha1.Author{}), "a disabled provider's language is not read")
+	require.Equal(t, "pt-BR", langs.For(&catalogv1alpha1.Book{}))
+	require.Equal(t, DefaultFetchLanguage, langs.For(&catalogv1alpha1.Audiobook{}), "no audnexus provider: en")
+	require.Equal(t, DefaultFetchLanguage, langs.For(&catalogv1alpha1.Comic{Spec: catalogv1alpha1.ComicSpec{Source: catalogv1alpha1.ComicSourceComicVine}}), "comicvine names no language: en")
+	require.Equal(t, "ja", langs.For(&catalogv1alpha1.Comic{Spec: catalogv1alpha1.ComicSpec{Source: catalogv1alpha1.ComicSourceMangaDex}}), "a manga's language is MangaDex's")
+	require.Equal(t, DefaultFetchLanguage, FetchLanguages(nil).For(&catalogv1alpha1.Artist{}), "a nil table answers the default")
+}
+
+// Hardcover is wired as a RatingsProvider beside a BookProvider, and
+// MangaDex is built with the provider's language (2026-11-10 design §5.4).
+func TestBuildRegistryWiresHardcoverAsARatingsProvider(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "hc", Namespace: "clustarr"},
+		Data:       map[string][]byte{catalogv1alpha1.MetadataSecretKeyBearer: []byte("tok")},
+	}
+	providers := []catalogv1alpha1.MetadataProvider{{
+		ObjectMeta: metav1.ObjectMeta{Name: "hardcover", Namespace: "clustarr"},
+		Spec: catalogv1alpha1.MetadataProviderSpec{
+			Type: catalogv1alpha1.MetadataProviderHardcover, Enabled: enabled(),
+			SecretRef: &corev1.LocalObjectReference{Name: "hc"},
+		},
+	}}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(secret).Build()
+	reg, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
+	require.NoError(t, err)
+	require.Len(t, reg.Books, 1)
+	require.Len(t, reg.Ratings, 1, "a Book's Hardcover rating comes through enrichRatings")
+	require.Equal(t, "hardcover", reg.Ratings[0].Name())
+	require.Equal(t, []string{pkgmetadata.RatingSourceHardcover}, reg.Ratings[0].RatingSources(commonv1.MediaKindBook))
+	require.Empty(t, reg.Ratings[0].RatingSources(commonv1.MediaKindMovie))
+}
