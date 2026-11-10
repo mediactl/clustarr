@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -398,9 +399,15 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 			MultiEpisodeStyle: naming.MultiEpisodeStyle(rf.Spec.Naming.MultiEpisodeStyle),
 			Overrides:         rf.Spec.Naming.Overrides,
 		})
+		// The Comic's folder context carries what catalogctx.Issue gives its
+		// issues' file context (2026-11-10 design D7, D10): the year and
+		// the {Special Version} label of a collected edition, so a folder
+		// override naming either renders as the issue preset does.
 		nctx := naming.Context{
 			Kind:             commonv1.MediaKindComic,
 			ComicSeriesTitle: c.Status.Metadata.Title,
+			Year:             int(c.Status.Metadata.Year),
+			SpecialVersion:   catalogctx.SpecialVersionLabel(c.Spec.SpecialVersion),
 		}
 		pth, err := Path(rf.Spec.Path, c.Spec.Folder, eng, nctx)
 		if err != nil {
