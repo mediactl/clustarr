@@ -331,9 +331,10 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, a *catalogv1alpha1.Aut
 	return ctrl.Result{}, nil
 }
 
-// reconcileNormal mirrors the Series reconciler's structure (addOptions
-// recorded on every pass, metadata staleness decided and a MetadataTask
-// published when needed, path computed once metadata is cached), then adds
+// reconcileNormal mirrors the Series reconciler's structure (metadata
+// staleness decided and a MetadataTask published when needed, path computed
+// once metadata is cached, addOptionsApplied recorded from the first
+// complete fan-out on), then adds
 // the works-listing RPC fan-out, the container rollup and the folder scan
 // as the last steps: an RPC failure surfaces on BooksSynced/Ready/Phase but
 // never blocks the rest of this same status apply from landing.
@@ -347,16 +348,28 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Aut
 	k8s.MarkDeadLettered(a, &conditions)
 
 	// Announced before any apply, because the first apply records
-	// addOptionsApplied and so consumes the edge (rollup.ItemAction).
-	if action := rollup.ItemAction(a.Generation, a.Status.ObservedGeneration, a.Status.AddOptionsApplied); action != "" {
+	// observedGeneration and so consumes the edge (rollup.ItemAction, the
+	// Comic's rule). Read off observedGeneration, never addOptionsApplied:
+	// that flag stays false through every MetadataPending pass (below), and
+	// would announce the Author added on each of them.
+	if action := rollup.ItemAction(a.Generation, a.Status.ObservedGeneration, a.Status.ObservedGeneration != 0); action != "" {
 		r.publishItem(ctx, a, action, now)
 	}
 
 	statusAC := catalogac.AuthorStatus().WithObservedGeneration(a.Generation)
-	// Sent on every reconcile once the decision point is reached, not just
-	// the first -- see movie.Reconciler's reconcileNormal for why (SSA
-	// releases a field a manager stops sending).
-	statusAC = statusAC.WithAddOptionsApplied(true)
+	// The stored value until the fan-out below has run: the two early
+	// returns (QueueFull, RootFolderNotFound) send it unchanged, and a pass
+	// without metadata -- whose fan-out waits for the document -- flips
+	// nothing, since the first fan-out reads it to apply addOptions.monitor
+	// (DesiredBooks' `!addOptionsApplied` arm). Until 2026-11-10 every pass
+	// sent true, so once the fan-out waited for the metadata the first real
+	// fan-out ran with the flag already flipped and every new Author's
+	// Books were created under spec.monitorNewItems (all by default)
+	// instead of InitialBookMonitored -- every book monitored under none,
+	// future, missing or existing. Sent on every apply, because server-side
+	// apply releases a field a manager stops sending (movie.Reconciler's
+	// note on the same flag).
+	statusAC = statusAC.WithAddOptionsApplied(a.Status.AddOptionsApplied)
 
 	stale := a.Status.Metadata == nil
 	if !stale {
@@ -454,7 +467,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Aut
 	// Works-listing RPC fan-out (mirroring series' own ordering), behind the
 	// child-sync memo: a failure here surfaces on BooksSynced/Ready without
 	// blocking the apply.
+	// The fan-out reads the object's PRE-reconcile status.addOptionsApplied
+	// (DesiredBooks): the add-time monitor mode until one complete fan-out
+	// has applied it.
 	fan, syncErr := r.syncBooks(ctx, a, now)
+	// Applied once (the Comic's rule): true from the first complete fan-out
+	// on, and sent on every apply after that. A first pass whose fan-out
+	// failed, or waits for the metadata, leaves it false, so the next one
+	// still applies the add-time mode to the Books it has yet to create;
+	// a pass the memo skips reads synced because a complete fan-out of this
+	// process stands behind it, so the flip it sends is owed, a cache behind
+	// the flip's apply or a conflicted apply included (syncKey).
+	statusAC = statusAC.WithAddOptionsApplied(a.Status.AddOptionsApplied || fan.synced)
 	switch {
 	case syncErr != nil:
 		reason := events.ClassifyRequestError(syncErr).Reason()
@@ -577,17 +601,22 @@ type fanOut struct {
 	books   []catalogv1alpha1.Book
 }
 
-// syncKey is the child-sync memo's key for a: its generation, its metadata
-// refresh and whether its add options were applied -- addOptionsApplied as
-// the caller says, since the pass that completes the first fan-out also
-// flips the flag (every apply sends it true), so a sync recorded under true
-// matches the next pass's read and the flip costs no second fetch (Comic's
-// rule). An author without metadata has no key.
-func syncKey(a *catalogv1alpha1.Author, addOptionsApplied bool) (childsync.Key, bool) {
+// syncKey is the child-sync memo's key for a: its spec generation and its
+// metadata refresh. status.addOptionsApplied is no input, though
+// DesiredBooks reads it: the memo records only a complete fan-out, the
+// first of which applies the add-time mode and flips the flag in the same
+// pass (reconcileNormal sends stored || fan.synced), so the key carries
+// true whatever the pass read -- a pass reading false after that fan-out
+// (a Book's own Create wakes the Author before the flip's apply reaches
+// the cache; or the apply conflicted) skips the fetch, which would create
+// nothing, and sends the flip again (2026-11-10: keyed on the read value,
+// TestAuthorItemPath's fan-out fetched twice). An author without metadata
+// has no key: its fan-out waits for the document (syncBooks).
+func syncKey(a *catalogv1alpha1.Author) (childsync.Key, bool) {
 	if a.Status.Metadata == nil {
 		return childsync.Key{}, false
 	}
-	return childsync.KeyAt(a.Generation, a.Status.Metadata.RefreshedAt.Time, addOptionsApplied), true
+	return childsync.KeyAt(a.Generation, a.Status.Metadata.RefreshedAt.Time, true), true
 }
 
 // syncBooks lists a's currently owned Books and, once the metadata is
@@ -617,7 +646,7 @@ func (r *Reconciler) syncBooks(ctx context.Context, a *catalogv1alpha1.Author, n
 		existingNames[bk.Name] = true
 	}
 
-	key, hasMetadata := syncKey(a, a.Status.AddOptionsApplied)
+	key, hasMetadata := syncKey(a)
 	if !hasMetadata {
 		return out, nil
 	}
@@ -666,8 +695,7 @@ func (r *Reconciler) syncBooks(ctx context.Context, a *catalogv1alpha1.Author, n
 		}
 	}
 	out.synced = true
-	synced, _ := syncKey(a, true)
-	r.childSync.Synced(a.UID, synced, true)
+	r.childSync.Synced(a.UID, key, true)
 	return out, nil
 }
 

@@ -325,9 +325,10 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, s *catalogv1alpha1.Ser
 	return ctrl.Result{}, nil
 }
 
-// reconcileNormal mirrors the Movie reconciler's structure (addOptions
-// recorded on every pass, metadata staleness decided and a MetadataTask
-// published when needed, path computed once metadata is cached), then adds
+// reconcileNormal mirrors the Movie reconciler's structure (metadata
+// staleness decided and a MetadataTask published when needed, path computed
+// once metadata is cached, addOptionsApplied recorded from the first
+// complete fan-out on), then adds
 // the episode-listing RPC fan-out as the last step, per §8.1's ordering: an
 // RPC failure surfaces on EpisodesSynced/Phase but never blocks the rest of
 // this same status patch from landing.
@@ -339,9 +340,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	// early returns included); see the movie package's reconcileNormal.
 	k8s.MarkDeadLettered(s, &conditions)
 
-	// Announced before any apply: the first apply records addOptionsApplied
-	// and observedGeneration, which is what consumes the edge.
-	if action := rollup.ItemAction(s.Generation, s.Status.ObservedGeneration, s.Status.AddOptionsApplied); action != "" {
+	// Announced before any apply, because the first apply records
+	// observedGeneration and so consumes the edge (rollup.ItemAction, the
+	// Comic's rule). Read off observedGeneration, never addOptionsApplied:
+	// that flag stays false through every MetadataPending pass (below), and
+	// would announce the Series added on each of them.
+	if action := rollup.ItemAction(s.Generation, s.Status.ObservedGeneration, s.Status.ObservedGeneration != 0); action != "" {
 		r.publishItem(ctx, s, action, now)
 	}
 
@@ -349,10 +353,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	// status.classification is set once (series.Classify) and re-sent on
 	// every apply after that, this manager's own leaf.
 	classification := s.Status.Classification
-	// Sent on every reconcile once the decision point is reached, not just
-	// the first: see the identical rationale on movie.Reconciler's
-	// reconcileNormal (SSA releases a field a manager stops sending).
-	statusAC = statusAC.WithAddOptionsApplied(true)
+	// The stored value until the fan-out below has run: the two early
+	// returns (QueueFull, RootFolderNotFound) send it unchanged, and a pass
+	// without metadata -- whose fan-out waits for the document -- flips
+	// nothing, since the first fan-out reads it to apply addOptions.monitor
+	// (DesiredEpisodes' `!addOptionsApplied` arm). Until 2026-11-10 every
+	// pass sent true, so once the fan-out waited for the metadata the first
+	// real fan-out ran with the flag already flipped and every new Series'
+	// Episodes were created under spec.monitorNewItems instead -- the
+	// specials monitored under unmonitorSpecials, everything under none.
+	// Sent on every apply, because server-side apply releases a field a
+	// manager stops sending (movie.Reconciler's note on the same flag).
+	statusAC = statusAC.WithAddOptionsApplied(s.Status.AddOptionsApplied)
 
 	stale := s.Status.Metadata == nil
 	if !stale {
@@ -475,7 +487,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 
 	// Episode-listing RPC fan-out (last step, per §8.1): a failure here
 	// surfaces on EpisodesSynced/Phase without blocking the patch above.
+	// The fan-out reads the object's PRE-reconcile status.addOptionsApplied
+	// (DesiredEpisodes): the add-time monitor mode until one complete
+	// fan-out has applied it.
 	fan, syncErr := r.syncEpisodes(ctx, s, now)
+	// Applied once (the Comic's rule): true from the first complete fan-out
+	// on, and sent on every apply after that. A first pass whose fan-out
+	// failed, or waits for the metadata, leaves it false, so the next one
+	// still applies the add-time mode to the Episodes it has yet to create;
+	// a pass the memo skips reads synced because a complete fan-out of this
+	// process stands behind it, so the flip it sends is owed, a cache behind
+	// the flip's apply or a conflicted apply included (syncKey).
+	statusAC = statusAC.WithAddOptionsApplied(s.Status.AddOptionsApplied || fan.synced)
 	switch {
 	case syncErr != nil:
 		reason := events.ClassifyRequestError(syncErr).Reason()
@@ -740,7 +763,7 @@ func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series
 		return out
 	}
 
-	key, hasMetadata := syncKey(s, s.Status.AddOptionsApplied)
+	key, hasMetadata := syncKey(s)
 	if !hasMetadata {
 		return done(), nil
 	}
@@ -793,8 +816,7 @@ func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series
 		}
 	}
 	out.synced = true
-	synced, _ := syncKey(s, true)
-	r.episodeSync.Synced(s.UID, synced, true)
+	r.episodeSync.Synced(s.UID, key, true)
 	return done(), nil
 }
 

@@ -252,7 +252,7 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 	require.NoError(t, c.Create(ctx, testNamespace("series-ns")))
 	require.NoError(t, c.Create(ctx, testRootFolder("series-ns", "tv-root", "/data/media/tv")))
 
-	t.Run("finalizer add does not early-return, addOptions applied, metadata publish", func(t *testing.T) {
+	t.Run("finalizer add does not early-return, metadata publish, addOptions applied with the first fan-out", func(t *testing.T) {
 		requester.episodes, requester.err = nil, nil
 
 		s := &catalogv1alpha1.Series{
@@ -267,6 +267,11 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "catalog.clustarr.io/series", wantFinalizer)
 
+		// The metadata-less first pass: the finalizer and the status land
+		// from one pass and the metadata task is published, while the
+		// fan-out waits for the document (EpisodesSynced MetadataPending) and
+		// so flips nothing -- the first fan-out reads addOptionsApplied to
+		// apply addOptions.monitor.
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Series
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "series-ns", Name: "the-wire"}, &got); err != nil {
@@ -278,13 +283,35 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 					hasFinalizer = true
 				}
 			}
-			return hasFinalizer && got.Status.Phase == catalogv1alpha1.SeriesPhasePending && got.Status.AddOptionsApplied
+			return hasFinalizer && got.Status.Phase == catalogv1alpha1.SeriesPhasePending &&
+				k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SeriesConditionEpisodesSynced) != nil
 		}, 5*time.Second, 20*time.Millisecond,
-			"finalizer, addOptionsApplied and status.phase=Pending must all appear from the same reconcile pass")
+			"finalizer, status.phase=Pending and the conditions must all appear from the same reconcile pass")
 
-		cond := k8s.FindCondition(mustGet(t, ctx, c, "series-ns", "the-wire").Status.Conditions, catalogv1alpha1.SeriesConditionMetadataReady)
+		got := mustGet(t, ctx, c, "series-ns", "the-wire")
+		assert.False(t, got.Status.AddOptionsApplied, "no fan-out has run: the add-time monitor mode is still owed")
+		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SeriesConditionMetadataReady)
 		require.NotNil(t, cond)
 		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		synced := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SeriesConditionEpisodesSynced)
+		require.NotNil(t, synced)
+		assert.Equal(t, metav1.ConditionFalse, synced.Status)
+		assert.Equal(t, "MetadataPending", synced.Reason)
+
+		// A document older than metadata's hard refresh: the refresh stays
+		// requested while the fan-out runs on it, and the flag flips with
+		// that first complete fan-out (an empty list is still a complete
+		// one), the Series still Pending on its refresh.
+		cacheMetadata(t, ctx, c, "series-ns", "the-wire", "The Wire", time.Now().Add(-365*24*time.Hour))
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Series
+			return c.Get(ctx, types.NamespacedName{Namespace: "series-ns", Name: "the-wire"}, &got) == nil && got.Status.AddOptionsApplied
+		}, 5*time.Second, 20*time.Millisecond, "the first complete fan-out must record addOptionsApplied")
+		got = mustGet(t, ctx, c, "series-ns", "the-wire")
+		cond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SeriesConditionMetadataReady)
+		require.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status, "a stale document is still refreshed")
+		assert.Equal(t, catalogv1alpha1.SeriesPhasePending, got.Status.Phase)
 	})
 
 	t.Run("episode fan-out: anime absolute numbering, idempotent re-fanout, user edit survives", func(t *testing.T) {
@@ -1191,14 +1218,20 @@ func (p *subjectRecorder) Publish(_ context.Context, subject string, _ *events.E
 }
 
 func (p *subjectRecorder) has(prefix string) bool {
+	return p.count(prefix) > 0
+}
+
+// count is how many publishes went to a subject under prefix.
+func (p *subjectRecorder) count(prefix string) int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	n := 0
 	for _, s := range p.subjects {
 		if strings.HasPrefix(s, prefix) {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 // TestSeriesRollupIsPostFanOut is the carried "rollup from the pre-fan-out
@@ -1225,23 +1258,17 @@ func TestSeriesRollupIsPostFanOut(t *testing.T) {
 		},
 	}
 	require.NoError(t, c.Create(ctx, s))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series(s.Name, ns).WithStatus(
-		catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Severance").WithYear(2022).
-			WithStatus(catalogv1alpha1.SeriesRunStatusContinuing).WithRefreshedAt(metav1.Now()))))
-	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		var got catalogv1alpha1.Series
-		return c.Get(ctx, client.ObjectKeyFromObject(s), &got) == nil && got.Status.Metadata != nil
-	}, 5*time.Second, 10*time.Millisecond)
+	refreshed := time.Now().Add(-time.Minute)
+	cacheMetadata(t, ctx, c, ns, s.Name, "Severance", refreshed)
 
 	day := 24 * time.Hour
 	now := time.Now()
 	e1, e2, e3 := now.Add(-10*day), now.Add(-2*day), now.Add(5*day)
-	requester := &fakeEpisodeRPC{episodes: []metadata.Episode{
+	requester := &countingEpisodeRPC{fakeEpisodeRPC: fakeEpisodeRPC{episodes: []metadata.Episode{
 		{SeasonNumber: 1, EpisodeNumber: 1, Title: "Good News About Hell", AirDate: &e1},
 		{SeasonNumber: 1, EpisodeNumber: 2, Title: "Half Loop", AirDate: &e2},
 		{SeasonNumber: 1, EpisodeNumber: 3, Title: "In Perpetuity", AirDate: &e3},
-	}}
+	}}}
 	rec := k8sevents.NewFakeRecorder(32)
 	pub := &subjectRecorder{}
 	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: rec, Bus: combinedBus{Publisher: pub, requester: requester}}
@@ -1271,6 +1298,9 @@ func TestSeriesRollupIsPostFanOut(t *testing.T) {
 	// R-12: WithSeasons with zero elements. Remove every Episode and let the
 	// provider return none: the rollup is empty, the apply omits seasons,
 	// and -- this manager being the only owner -- the omission clears it.
+	// The memo skips a pass that moved no fan-out input, so the metadata
+	// refresh moves first and the provider's empty answer is what the
+	// fan-out reads, not the empty List alone.
 	requester.episodes = nil
 	var eps catalogv1alpha1.EpisodeList
 	require.NoError(t, c.List(ctx, &eps, client.InNamespace(ns)))
@@ -1282,8 +1312,10 @@ func TestSeriesRollupIsPostFanOut(t *testing.T) {
 		var left catalogv1alpha1.EpisodeList
 		return c.List(ctx, &left, client.InNamespace(ns)) == nil && len(left.Items) == 0
 	}, 5*time.Second, 10*time.Millisecond)
+	cacheMetadata(t, ctx, c, ns, s.Name, "Severance", refreshed.Add(time.Second))
 	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
+	assert.EqualValues(t, 2, requester.calls.Load(), "the refresh moved: the provider's empty answer is what the fan-out read")
 	require.Eventually(t, func() bool {
 		return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.EpisodeCount == 0
 	}, 5*time.Second, 10*time.Millisecond)

@@ -142,9 +142,10 @@ func TestAuthorItemPath(t *testing.T) {
 			return false
 		}
 		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.AuthorConditionMetadataReady)
-		return k8s.HasFinalizer(&got, wantFinalizer) && cond != nil && cond.Status == metav1.ConditionFalse && got.Status.AddOptionsApplied
-	}, 10*time.Second, 20*time.Millisecond, "the finalizer, MetadataReady=False and addOptionsApplied must all land from the first pass")
+		return k8s.HasFinalizer(&got, wantFinalizer) && cond != nil && cond.Status == metav1.ConditionFalse && got.Status.ObservedGeneration == got.Generation
+	}, 10*time.Second, 20*time.Millisecond, "the finalizer, MetadataReady=False and observedGeneration must all land from the first pass")
 	assert.Equal(t, catalogv1alpha1.ContainerPhasePending, got.Status.Phase, "no metadata yet: Pending")
+	assert.False(t, got.Status.AddOptionsApplied, "no fan-out has run: the add-time monitor mode is still owed")
 
 	// The gateway's write wakes the item; the fan-out creates the work's
 	// Book.
@@ -171,6 +172,7 @@ func TestAuthorItemPath(t *testing.T) {
 			k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionReady)
 	}, 10*time.Second, 20*time.Millisecond, "the Book's creation never rolled up into its Author")
 	assert.Equal(t, "/data/media/books/J. R. R. Tolkien", got.Status.Path)
+	assert.True(t, got.Status.AddOptionsApplied, "the first complete fan-out records addOptionsApplied")
 	assert.Equal(t, int64(1), requester.calls.Load(), "the child-sync memo: one gateway call for the metadata it read, however many passes ran")
 
 	// A Book's phase and release date moving wake the Author, which counts

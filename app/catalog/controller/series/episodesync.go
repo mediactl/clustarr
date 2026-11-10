@@ -29,17 +29,22 @@ import (
 // an episodeSyncMemo of its own, owner 2026-10-28: every Series pass asked
 // the metadata gateway for its whole list and patched every Episode, and
 // 11 of the remediation loop's 16 workers waited on that fetch): its spec
-// generation, its metadata refresh and whether its add options were
-// applied -- addOptionsApplied as the caller says, since the pass that
-// completes the first fan-out also flips the flag (every apply sends it
-// true), so a sync recorded under true matches the next pass's read and
-// the flip costs no second fetch (Comic's rule). A series without metadata
-// has no key: its fan-out waits for the document (syncEpisodes).
-func syncKey(s *catalogv1alpha1.Series, addOptionsApplied bool) (childsync.Key, bool) {
+// generation and its metadata refresh. status.addOptionsApplied is no
+// input, though DesiredEpisodes reads it: the memo records only a complete
+// fan-out, the first of which applies the add-time mode and flips the flag
+// in the same pass (reconcileNormal sends stored || fan.synced), so the key
+// carries true whatever the pass read -- a pass reading false after that
+// fan-out (an Episode's own Create wakes the Series before the flip's apply
+// reaches the cache; or the apply conflicted) skips the fetch, which would
+// create nothing, and sends the flip again (2026-11-10: keyed on the read
+// value, TestArtistItemPath's and TestAuthorItemPath's fan-outs fetched
+// twice). A series without metadata has no key: its fan-out waits for the
+// document (syncEpisodes).
+func syncKey(s *catalogv1alpha1.Series) (childsync.Key, bool) {
 	if s.Status.Metadata == nil {
 		return childsync.Key{}, false
 	}
-	return childsync.KeyAt(s.Generation, s.Status.Metadata.RefreshedAt.Time, addOptionsApplied), true
+	return childsync.KeyAt(s.Generation, s.Status.Metadata.RefreshedAt.Time, true), true
 }
 
 // providerStatusMatches reports whether ep already holds every provider field

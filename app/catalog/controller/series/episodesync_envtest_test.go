@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -48,43 +49,54 @@ func (c *countingEpisodeRPC) Request(ctx context.Context, subject string, in, ou
 	return c.fakeEpisodeRPC.Request(ctx, subject, in, out)
 }
 
-// episodeSyncFixture is a Series the test reconciles by hand through the
-// cache-only manager, with a counting gateway behind it.
-func episodeSyncFixture(t *testing.T, ctx context.Context, ns, name string) (client.Client, *series.Reconciler, *countingEpisodeRPC, types.NamespacedName) {
+// pilotOnly is the one-episode list the gateway answers with unless a test
+// says otherwise.
+var pilotOnly = []metadata.Episode{{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot", Runtime: 42}}
+
+// episodeSyncFixture is a Series added under monitor, the test reconciles
+// by hand through the cache-only manager, with a counting gateway answering
+// episodes behind it and a recorder of every subject the reconciler
+// publishes to.
+func episodeSyncFixture(t *testing.T, ctx context.Context, ns, name string, monitor catalogv1alpha1.SeriesMonitorMode, episodes []metadata.Episode) (client.Client, *series.Reconciler, *countingEpisodeRPC, *subjectRecorder, types.NamespacedName) {
 	t.Helper()
 	cfg := newTestConfig(t)
 	c := startCacheOnly(t, ctx, cfg)
 	require.NoError(t, c.Create(ctx, testNamespace(ns)))
 	require.NoError(t, c.Create(ctx, testRootFolder(ns, "tv-root", "/data/media/tv")))
-	rpc := &countingEpisodeRPC{fakeEpisodeRPC: fakeEpisodeRPC{episodes: []metadata.Episode{
-		{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot", Runtime: 42},
-	}}}
+	rpc := &countingEpisodeRPC{fakeEpisodeRPC: fakeEpisodeRPC{episodes: episodes}}
+	pub := &subjectRecorder{}
 	r := &series.Reconciler{
 		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(32),
-		Bus: combinedBus{Publisher: fakePublisher{}, requester: rpc},
+		Bus: combinedBus{Publisher: pub, requester: rpc},
 	}
 	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: catalogv1alpha1.SeriesSpec{
 			TvdbID: 81189, QualityProfileRef: "none", RootFolderRef: "tv-root",
-			AddOptions: catalogv1alpha1.SeriesAddOptions{Monitor: catalogv1alpha1.SeriesMonitorAll},
+			AddOptions: catalogv1alpha1.SeriesAddOptions{Monitor: monitor},
 		},
 	}))
-	return c, r, rpc, types.NamespacedName{Namespace: ns, Name: name}
+	return c, r, rpc, pub, types.NamespacedName{Namespace: ns, Name: name}
 }
 
 // episodesOf lists the Episodes of the series through the cache.
 func episodesOf(t *testing.T, ctx context.Context, c client.Client, nn types.NamespacedName) int {
 	t.Helper()
+	return len(episodesByNumber(t, ctx, c, nn))
+}
+
+// episodesByNumber is the series' Episodes by {season, episode}.
+func episodesByNumber(t *testing.T, ctx context.Context, c client.Client, nn types.NamespacedName) map[[2]int32]catalogv1alpha1.Episode {
+	t.Helper()
 	var eps catalogv1alpha1.EpisodeList
 	require.NoError(t, c.List(ctx, &eps, client.InNamespace(nn.Namespace)))
-	n := 0
+	out := map[[2]int32]catalogv1alpha1.Episode{}
 	for _, ep := range eps.Items {
 		if ep.Spec.SeriesRef == nn.Name {
-			n++
+			out[[2]int32{ep.Spec.SeasonNumber, ep.Spec.EpisodeNumber}] = ep
 		}
 	}
-	return n
+	return out
 }
 
 // A Series without metadata asks the gateway for no episode list (design
@@ -96,7 +108,7 @@ func episodesOf(t *testing.T, ctx context.Context, c client.Client, nn types.Nam
 func TestASeriesWithoutMetadataAsksForNoEpisodeList(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	c, r, rpc, nn := episodeSyncFixture(t, ctx, "episodesync-pending-ns", "breaking-bad")
+	c, r, rpc, _, nn := episodeSyncFixture(t, ctx, "episodesync-pending-ns", "breaking-bad", catalogv1alpha1.SeriesMonitorAll, pilotOnly)
 
 	_, err := r.ReconcileItem(ctx, nn)
 	require.NoError(t, err)
@@ -136,7 +148,7 @@ func TestASeriesWithoutMetadataAsksForNoEpisodeList(t *testing.T) {
 func TestTwoSeriesPassesWithNothingMovedFetchTheListOnce(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	c, r, rpc, nn := episodeSyncFixture(t, ctx, "episodesync-memo-ns", "severance")
+	c, r, rpc, _, nn := episodeSyncFixture(t, ctx, "episodesync-memo-ns", "severance", catalogv1alpha1.SeriesMonitorAll, pilotOnly)
 	refreshed := time.Now().Add(-time.Minute)
 	cacheMetadata(t, ctx, c, nn.Namespace, nn.Name, "Severance", refreshed)
 
@@ -161,4 +173,50 @@ func TestTwoSeriesPassesWithNothingMovedFetchTheListOnce(t *testing.T) {
 	_, err = r.ReconcileItem(ctx, nn)
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, rpc.calls.Load(), "a metadata refresh is a moved input")
+}
+
+// The first fan-out applies the add-time monitor mode though it runs a pass
+// after the Series was first reconciled (Sonarr's addOptions.monitor; design
+// D2): a pass without metadata flips status.addOptionsApplied for nothing,
+// since DesiredEpisodes reads it to choose between the add-time mode and
+// spec.monitorNewItems. Until 2026-11-10 every pass sent the flag true, so
+// once the fan-out waited for the document the first real one ran with it
+// flipped: under unmonitorSpecials every special started monitored, under
+// none every episode did (the 2026-09-29 search storm's class). And with the
+// flag false through the MetadataPending pass, the Series is announced added
+// off observedGeneration, once, not on each such pass.
+func TestTheFirstEpisodeFanOutAppliesTheAddTimeMonitorMode(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c, r, rpc, pub, nn := episodeSyncFixture(t, ctx, "episodesync-monitor-ns", "doctor-who",
+		catalogv1alpha1.SeriesMonitorUnmonitorSpecials, []metadata.Episode{
+			{SeasonNumber: 0, EpisodeNumber: 1, Title: "The Christmas Invasion", Runtime: 60},
+			{SeasonNumber: 1, EpisodeNumber: 1, Title: "Rose", Runtime: 45},
+		})
+
+	// The metadata-less pass: no list fetched, and the flag not flipped.
+	_, err := r.ReconcileItem(ctx, nn)
+	require.NoError(t, err)
+	assert.Zero(t, rpc.calls.Load())
+	var got catalogv1alpha1.Series
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, nn, &got) == nil && got.Status.ObservedGeneration == got.Generation
+	}, 5*time.Second, 10*time.Millisecond, "the pass never wrote its status")
+	assert.False(t, got.Status.AddOptionsApplied, "no fan-out has run: the add-time monitor mode is still owed")
+
+	cacheMetadata(t, ctx, c, nn.Namespace, nn.Name, "Doctor Who", time.Now().Add(-time.Minute))
+	_, err = r.ReconcileItem(ctx, nn)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, rpc.calls.Load())
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, nn, &got) == nil && got.Status.AddOptionsApplied
+	}, 5*time.Second, 10*time.Millisecond, "the first complete fan-out records addOptionsApplied")
+
+	eps := episodesByNumber(t, ctx, c, nn)
+	require.Len(t, eps, 2)
+	special, pilot := eps[[2]int32{0, 1}], eps[[2]int32{1, 1}]
+	require.NotNil(t, special.Spec.Monitored, "the first fan-out sets spec.monitored on every Episode it creates")
+	assert.False(t, *special.Spec.Monitored, "unmonitorSpecials: the special starts unmonitored")
+	assert.True(t, ptr.Deref(pilot.Spec.Monitored, true), "unmonitorSpecials: a regular episode starts monitored")
+	assert.Equal(t, 1, pub.count("clustarr.evt.catalog.series.added."), "announced added once, on the first pass, not again while the flag waits for the fan-out: %v", pub.subjects)
 }

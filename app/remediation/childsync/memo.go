@@ -15,16 +15,17 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package childsync is the in-process memo a container item key -- an
-// Artist, an Author, a Comic -- keeps of its last complete child fan-out
-// (2026-11-10 design D2, D14; the Series' episodeSyncMemo pattern, owner
-// 2026-10-28: every Series pass asked the metadata gateway for its whole
-// list). A pass that moved none of the fan-out's inputs lists the children
-// it already has instead of fetching the provider's list again.
+// Package childsync is the in-process memo a container item key -- a
+// Series, an Artist, an Author, a Comic -- keeps of its last complete child
+// fan-out (2026-11-10 design D2, D14; owner, 2026-10-28: every Series pass
+// asked the metadata gateway for its whole list). A pass that moved none of
+// the fan-out's inputs lists the children it already has instead of
+// fetching the provider's list again.
 //
 // It is a leaf package the item packages import (app/catalog/controller/
-// artist, author, comic); app/remediation itself imports those packages
-// for their indexes, so the memo cannot live there without a cycle.
+// series, artist, author, comic); app/remediation itself imports those
+// packages for their indexes, so the memo cannot live there without a
+// cycle.
 package childsync
 
 import (
@@ -36,7 +37,13 @@ import (
 
 // Key is what decides a fan-out's outcome besides the provider's list: the
 // spec (generation), the metadata refresh it read and whether the add
-// options were applied (the first fan-out's monitoring).
+// options were applied (the first fan-out's monitoring). The Series, the
+// Artist and the Author key every fan-out under AddOptionsApplied true
+// (their syncKey, 2026-11-10): the memo records only a complete fan-out,
+// the first of which applies the add-time mode and flips the flag in the
+// same pass, and a pass reading the flag before that flip reaches the cache
+// (a child's own Create wakes its container at once) would refetch to
+// create nothing; the Comic still keys the flag as read.
 type Key struct {
 	Generation        int64
 	RefreshedAt       time.Time

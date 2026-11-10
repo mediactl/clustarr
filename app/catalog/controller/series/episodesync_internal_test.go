@@ -73,28 +73,33 @@ func TestAnEpisodeHoldingItsProviderFieldsIsNotPatchedAgain(t *testing.T) {
 }
 
 // A Series' child-sync key is the containers' (childsync.KeyAt, design D2):
-// its spec generation, its metadata refresh to the apiserver's second and
-// the add options as the caller says; a series without metadata has none,
-// so its fan-out waits for the document instead of fetching on every wake.
+// its spec generation and its metadata refresh to the apiserver's second,
+// the add options no input (true before and after the flip, since the memo
+// records only a complete fan-out and the first one flips the flag; a pass
+// reading the flag before that flip reaches the cache would refetch to
+// create nothing); a series without metadata has none, so its fan-out waits
+// for the document instead of fetching on every wake.
 func TestTheSeriesSyncKeyIsTheContainersKey(t *testing.T) {
 	at := time.Date(2026, 10, 28, 9, 0, 0, 123456789, time.UTC)
 	s := &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{UID: "uid-pokemon", Generation: 2},
 		Status:     catalogv1alpha1.SeriesStatus{Metadata: &catalogv1alpha1.SeriesMetadata{RefreshedAt: metav1.NewTime(at)}},
 	}
-	k, ok := syncKey(s, false)
+	k, ok := syncKey(s)
 	require.True(t, ok)
-	assert.Equal(t, childsync.KeyAt(2, at, false), k)
+	assert.Equal(t, childsync.KeyAt(2, at, true), k)
 	assert.Equal(t, at.Truncate(time.Second), k.RefreshedAt, "the refresh to the second, as the apiserver stores it")
-	applied, _ := syncKey(s, true)
-	assert.NotEqual(t, k, applied, "the add options are part of the key")
+	flipped := s.DeepCopy()
+	flipped.Status.AddOptionsApplied = true
+	applied, _ := syncKey(flipped)
+	assert.Equal(t, k, applied, "the add options are no input: the key carries true before and after the flip")
 	edited := s.DeepCopy()
 	edited.Generation = 3
-	k3, _ := syncKey(edited, false)
+	k3, _ := syncKey(edited)
 	assert.NotEqual(t, k, k3, "a spec edit moves it")
 
 	bare := s.DeepCopy()
 	bare.Status.Metadata = nil
-	_, ok = syncKey(bare, true)
+	_, ok = syncKey(bare)
 	assert.False(t, ok, "no metadata, no key: the fan-out waits for the document")
 }

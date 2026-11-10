@@ -298,9 +298,10 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, a *catalogv1alpha1.Art
 	return ctrl.Result{}, nil
 }
 
-// reconcileNormal mirrors the Series reconciler's structure (addOptions
-// recorded on every pass, metadata staleness decided and a MetadataTask
-// published when needed, path computed once metadata is cached), then adds
+// reconcileNormal mirrors the Series reconciler's structure (metadata
+// staleness decided and a MetadataTask published when needed, path computed
+// once metadata is cached, addOptionsApplied recorded from the first
+// complete fan-out on), then adds
 // the release-group-listing RPC fan-out, the container rollup and the
 // folder scan as the last steps: an RPC failure surfaces on
 // AlbumsSynced/Ready/Phase but never blocks the rest of this same status
@@ -315,17 +316,28 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Art
 	k8s.MarkDeadLettered(a, &conditions)
 
 	// Announced before any apply, because the first apply records
-	// addOptionsApplied and so consumes the edge (rollup.ItemAction).
-	if action := rollup.ItemAction(a.Generation, a.Status.ObservedGeneration, a.Status.AddOptionsApplied); action != "" {
+	// observedGeneration and so consumes the edge (rollup.ItemAction, the
+	// Comic's rule). Read off observedGeneration, never addOptionsApplied:
+	// that flag stays false through every MetadataPending pass (below), and
+	// would announce the Artist added on each of them.
+	if action := rollup.ItemAction(a.Generation, a.Status.ObservedGeneration, a.Status.ObservedGeneration != 0); action != "" {
 		r.publishItem(ctx, a, action, now)
 	}
 
 	statusAC := catalogac.ArtistStatus().WithObservedGeneration(a.Generation)
-	// Sent on every reconcile once the decision point is reached, not just
-	// the first: see the identical rationale on movie.Reconciler's and
-	// series.Reconciler's reconcileNormal (SSA releases a field a manager
-	// stops sending).
-	statusAC = statusAC.WithAddOptionsApplied(true)
+	// The stored value until the fan-out below has run: the two early
+	// returns (QueueFull, RootFolderNotFound) send it unchanged, and a pass
+	// without metadata -- whose fan-out waits for the document -- flips
+	// nothing, since the first fan-out reads it to apply addOptions.monitor
+	// (DesiredAlbums' `!addOptionsApplied` arm). Until 2026-11-10 every
+	// pass sent true, so once the fan-out waited for the metadata the first
+	// real fan-out ran with the flag already flipped and every new Artist's
+	// Albums were created under spec.monitorNewItems (all by default)
+	// instead of InitialAlbumMonitored -- every album monitored under none,
+	// future, missing, existing, latest or first. Sent on every apply,
+	// because server-side apply releases a field a manager stops sending
+	// (movie.Reconciler's note on the same flag).
+	statusAC = statusAC.WithAddOptionsApplied(a.Status.AddOptionsApplied)
 
 	stale := a.Status.Metadata == nil
 	if !stale {
@@ -426,7 +438,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Art
 	// Release-group-listing RPC fan-out (per §8.1's Series/Episode
 	// ordering), behind the child-sync memo: a failure here surfaces on
 	// AlbumsSynced/Ready without blocking the apply.
+	// The fan-out reads the object's PRE-reconcile status.addOptionsApplied
+	// (DesiredAlbums): the add-time monitor mode until one complete fan-out
+	// has applied it.
 	fan, syncErr := r.syncAlbums(ctx, a, now)
+	// Applied once (the Comic's rule): true from the first complete fan-out
+	// on, and sent on every apply after that. A first pass whose fan-out
+	// failed, or waits for the metadata, leaves it false, so the next one
+	// still applies the add-time mode to the Albums it has yet to create;
+	// a pass the memo skips reads synced because a complete fan-out of this
+	// process stands behind it, so the flip it sends is owed, a cache behind
+	// the flip's apply or a conflicted apply included (syncKey).
+	statusAC = statusAC.WithAddOptionsApplied(a.Status.AddOptionsApplied || fan.synced)
 	switch {
 	case syncErr != nil:
 		reason := events.ClassifyRequestError(syncErr).Reason()
@@ -549,17 +572,22 @@ type fanOut struct {
 	albums  []catalogv1alpha1.Album
 }
 
-// syncKey is the child-sync memo's key for a: its generation, its metadata
-// refresh and whether its add options were applied -- addOptionsApplied as
-// the caller says, since the pass that completes the first fan-out also
-// flips the flag (every apply sends it true), so a sync recorded under true
-// matches the next pass's read and the flip costs no second fetch (Comic's
-// rule). An artist without metadata has no key.
-func syncKey(a *catalogv1alpha1.Artist, addOptionsApplied bool) (childsync.Key, bool) {
+// syncKey is the child-sync memo's key for a: its spec generation and its
+// metadata refresh. status.addOptionsApplied is no input, though
+// DesiredAlbums reads it: the memo records only a complete fan-out, the
+// first of which applies the add-time mode and flips the flag in the same
+// pass (reconcileNormal sends stored || fan.synced), so the key carries
+// true whatever the pass read -- a pass reading false after that fan-out
+// (an Album's own Create wakes the Artist before the flip's apply reaches
+// the cache; or the apply conflicted) skips the fetch, which would create
+// nothing, and sends the flip again (2026-11-10: keyed on the read value,
+// TestArtistItemPath's fan-out fetched twice). An artist without metadata
+// has no key: its fan-out waits for the document (syncAlbums).
+func syncKey(a *catalogv1alpha1.Artist) (childsync.Key, bool) {
 	if a.Status.Metadata == nil {
 		return childsync.Key{}, false
 	}
-	return childsync.KeyAt(a.Generation, a.Status.Metadata.RefreshedAt.Time, addOptionsApplied), true
+	return childsync.KeyAt(a.Generation, a.Status.Metadata.RefreshedAt.Time, true), true
 }
 
 // syncAlbums lists a's currently owned Albums and, once the metadata is
@@ -592,7 +620,7 @@ func (r *Reconciler) syncAlbums(ctx context.Context, a *catalogv1alpha1.Artist, 
 		existingIDs[alb.Spec.ReleaseGroupID] = true
 	}
 
-	key, hasMetadata := syncKey(a, a.Status.AddOptionsApplied)
+	key, hasMetadata := syncKey(a)
 	if !hasMetadata {
 		return out, nil
 	}
@@ -641,8 +669,7 @@ func (r *Reconciler) syncAlbums(ctx context.Context, a *catalogv1alpha1.Artist, 
 		}
 	}
 	out.synced = true
-	synced, _ := syncKey(a, true)
-	r.childSync.Synced(a.UID, synced, true)
+	r.childSync.Synced(a.UID, key, true)
 	return out, nil
 }
 
