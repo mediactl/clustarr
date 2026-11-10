@@ -892,7 +892,25 @@ authors or narrators), one comic provider answers a search (no source
 selector on the request), and an Audiobook is added with no authorRef;
 `handleSetMonitored` answers no Audiobook row (no row lists audiobooks);
 the children fragment (`ui/children.go`, `views.ChildrenPage`) is reached
-by no page and awaits deletion. **Browser check done (2026-11-10, the
+by no page and awaits deletion. **Wave C (nonvideo-implement-c, nine
+agents, 2026-11-10, closed most of these):** one panel per kind (d87083a4,
+aeab9c63: `views.SearchPanel.Kind`/`Columns`, `releaseTableFor` in
+`ui/views/search_tables.templ`, the per-kind routes gone, a book's modal
+drawing the format columns); the children fragment deleted and an Album
+editable, a standalone Book a folder kind and an author's book not editable,
+`containerFiles` bounded at 500 (57846bf7, 4bb329c4); the planned volume
+pack search's api, planner, stage, actions and comic page (df9d009e; the
+Search controller's half is wave D's, until then a planned one is failed
+as SeriesGone); the Hardcover page link recorded by its client and answered
+for an Open Library-keyed item (76246285, 39e70633; the Metron page reaches
+`ComicVolume.Links` and waits on a `ComicMetadata.Links` field, wave D's);
+`SearchHit`'s publisher, issue count, start year, authors, narrators and
+release date, `MetadataRequest.Source`, the gateway's author-by-ASIN lookup
+(a38899bf; the ui half is wave D's); `{PartNumber}` as the part's place,
+the manual assignment's attribution, `.fb2`/`.djvu` (dffe9cff); the Series
+fan-out on childsync (fbab16f7; its add-options flag defect, shared with
+the Artist and Author, is wave D's fix); `/art`'s retry on every stall
+(8a7d0566). **Browser check done (2026-11-10, the
 controlling session, headless Chrome against bin/ui at 819dc23f over an
 envtest apiserver filled by `ui/preview_harness_test.go`, with talos's NATS
 port-forwarded):** the artist, comic, issue, audiobook, author, book and
@@ -1112,7 +1130,9 @@ talos by hand before the deploy that carries them.
   then W4c, with L1-L3 and the e2e extension beside them; gated and pushed
   by the controlling session through 819dc23f):** §9's as-built note lists
   the commits and the departures, the plan's W4 Done notes the leftovers;
-  wave C (nonvideo-implement-c) takes the departures.
+  wave C (nonvideo-implement-c) took the departures -- §9's "Wave C"
+  sentence lists what it closed -- and wave D (nonvideo-implement-d) the
+  rest, with the five reviews wave C lost to the usage limit.
 - **W5: Plex.** §7.6's spike first, then the roots, index, match, metadata,
   children, images, goldens and tests, the flag and chart values.
   **Done 2026-11-10, flagged off** (ea0d54d4, 7a8d17aa, 2c8676fb, 1df72500,

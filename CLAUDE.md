@@ -903,13 +903,27 @@ a kind's fields only under the block's "fields" marker, so a save before
 the block lands leaves them alone; the Delete dialog counts a container's
 files from its children's MediaFiles (`containerFiles`, one cached Get per
 file). `--plex-music-provider` reaches the Plex roots
-(`ui.PlexOptions.MusicProvider`, off). Not yet, wave C's (2026-11-10): one
-search panel per kind (the album, audiobook and issue modals poll and grab
-through routes of their own, since the shared `/searches` panel draws
-Sonarr's columns), an album's Edit and Delete, a Comic's planned volume
-pack search (the button runs a plain grabBest Search on the Comic), the
-Metron and Hardcover logos' links, Add New hits' publisher, issue count,
-authors and narrators, and the children fragment's deletion.
+(`ui.PlexOptions.MusicProvider`, off). Since wave C (2026-11-10, the
+same day): **one interactive-search panel serves every kind** --
+`views.SearchPanel` carries the Search's kind and `SearchPanelView` draws
+that kind's release table (`releaseTableFor`, `ui/views/search_tables.templ`:
+the video columns, the album's music columns, the audiobook's with its
+estimated bitrate, the format columns for a book or issue), every modal
+polling and grabbing through the shared `/searches/{ns}/{name}` and `/grab`
+routes, the video markup byte-identical; the children fragment is gone
+(`ui/children.go`, `views.ChildrenPage`); an Album is editable
+(`actions.EditItem`: monitored, the profile or the artist's, `anyReleaseOk`,
+the release pin) and a standalone Book is a folder kind (Refresh & Scan,
+Rename and Edit on its bar; an author's book renders no Edit); a container
+page reads its children's files up to `maxContainerFiles` (500; a series
+page renders in 4 ms at 50 files, 13 at 500, 3 at 1,100 with nothing read)
+and the Delete dialog counts a series from its rollup past that; a Comic's
+"Volume" and "Interactive" buttons create a planned volume Search
+(`spec.season` 1 on the Comic, `catalogv1.VolumeSearchSeason`; the Music
+section below). Not yet, wave D's: Add New hits' publisher, issue count,
+authors and narrators and the audiobook's author link; the album page's
+Edit dialog (the action is ready); the Metron link on a comic page; the
+dead per-kind panel types.
 In the TV pane, only series should be shown. Clicking a series should present a page with the seasons and episodes.
 A season's episodes are Sonarr's table (2026-10-07, `ui/series.go`,
 `ui/episode.go`, `ui/views/episode.templ`): the monitor bookmark, number,
@@ -2003,6 +2017,16 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   under the container folder the import places by; the naming planner and
   rename actuator cover album tracks, books, audiobook parts and issues
   (`renameFiles` for every kind; `renameTranscoded` stays video-only).
+  `{PartNumber}` is an audiobook part's place among its parts (1..n in the
+  Audiobook controller's play order, `catalogctx.PartNumbers`; a lone part
+  renders none), never `spec.partIndex`, which keeps its disc*1000+track
+  ordering key (2026-11-10: a tagged disc 1 track 3 had imported as
+  "Title (1003).mp3"); the import numbers an inspect's parts once the walk
+  has found them all, the loop among the Audiobook's MediaFiles. A manual
+  assignment keeps the file's track attribution and part. `.fb2` and
+  `.djvu` are books to `pkg/fsops`, probed without FFmpeg, but
+  `pkg/quality`'s book ladder has no tier for them, so such a file is held
+  for a manual import (owner's call).
 - **A Comic is searched as a volume** (D10): the Comic key's pack-first
   search is its one season (`searchplan.VolumeNumber`,
   `status.volumeSearch`, a `SeasonSearchState`), its Issues wait for it and
@@ -2012,7 +2036,17 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   coverage and lifecycle's supersede take an Episode or an Issue. Comic
   `spec.addOptions` (monitor mode, `searchForMissing`), `specialVersion`
   (`volumeAsIssue` numbering) and `nextPullDate`; Audiobook `addOptions`
-  and `spec.authorRef`, linked once from its Book's Author.
+  and `spec.authorRef`, linked once from its Book's Author. Since wave C
+  (2026-11-10) a volume search is also a planned Search: the Search CEL
+  admits `spec.season` 1 on a comic (`catalogv1.VolumeSearchSeason`;
+  `SearchSpec.PlannedBySeries` covers a comic's grabBest one,
+  `PlannedByComic` names it, `FansOut` the Search that fans out per child),
+  the Comic key's season planner serves it as a Series' (trigger "volume",
+  S31 wakes the Comic), and the ui's `actions.SearchVolume` and
+  `InteractiveVolumeSearch` create it. The Search controller's half (reading
+  the container by kind instead of failing a comic's as SeriesGone,
+  mirroring `status.seasons`, one task for an interactive volume search) is
+  wave D's.
 - **Metadata parity** (§5.4): every non-video document carries
   `schemaVersion`, `language` (the primary provider's `spec.language`, else
   en; an Audiobook's `fetchLanguage`), ratings through `enrichRatings` over
@@ -3063,9 +3097,18 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   the whole list and patched every Episode on every pass (1,457 PATCHes a
   pass for Pokemon, about 110 a second on the control plane): a Series now
   fetches its list again only when its spec, metadata refresh or add options
-  moved since its last complete fan-out in the process (`episodeSyncMemo`),
-  and an Episode already holding its provider fields is not patched
-  (`providerStatusMatches`).
+  moved since its last complete fan-out in the process (the containers' one
+  memo, `app/remediation/childsync`, through `series.syncKey` since
+  2026-11-10; the fan-out also waits for `status.metadata`, reading
+  `EpisodesSynced` False/MetadataPending meanwhile, as the Artist's, Author's
+  and Comic's do), and an Episode already holding its provider fields is not
+  patched (`providerStatusMatches`). **A container's `status.addOptionsApplied`
+  flips only with the fan-out that applied them** (the Comic's rule: the
+  stored value on every early return, `stored || fan.synced` after; owner's
+  review 2026-11-10): a pass that flipped it while waiting for the metadata
+  document made the first real fan-out create every child under
+  `monitorNewItems` instead of `addOptions.monitor`, the 2026-09-29
+  search-storm class, on the Series, Artist and Author alike.
 - **Never list every Episode or MediaFile with kubectl: talos's apiservers
   read every page after the first from etcd (2026-11-03).** Each
   kube-apiserver sat at 5.0-5.7 GiB resident on the 16 GB control-plane
@@ -3194,9 +3237,16 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   complete declaration, like an SSA apply). Two concurrent `Put`s of one name
   leak a full copy for good, which only `PurgeOrphanChunks` reclaims, since the
   meta-level `List` cannot see it. A reader whose object is overwritten
-  mid-`Get` stalls until its deadline and fails with `i/o timeout`, never a
-  digest mismatch, so `/art` reads whole objects under a deadline before it
-  answers. A link fires no watch event when its target changes, and nats.go
+  mid-`Get` stalls until its deadline, never a digest mismatch, so `/art`
+  reads whole objects under a deadline before it answers -- and natsbus's
+  `Get` hands out a reader that reports a read outliving the caller's
+  context as `ctx.Err()` (2026-11-10, `objectReader`): nats.go v1.53.1's
+  `objResult.Read` copies the deadline onto its pipe and shadows `err` in
+  its timeout branch, so the same stall came back as `os.ErrDeadlineExceeded`
+  or `nats.ErrTimeout` depending on which timer fired first, and `/art`'s
+  retry fired only on the former (TestArtRetriesAnObjectOverwrittenMidRead,
+  6 of 15 runs). A store's read ends with the context's error; the contract
+  test holds natsbus to it. A link fires no watch event when its target changes, and nats.go
   refuses a link over any name a regular object ever held -- hence no links
   (ADR-0021). `ObjectStore.Watch` ignores `ResumeFromRevision` and `MetaOnly`
   (the bus refuses `WatchFromRevision`), and a bucket re-created under a

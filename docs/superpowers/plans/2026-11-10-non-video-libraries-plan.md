@@ -67,7 +67,12 @@ Artist's albums ordered by release date, title, name for a stable hash; an
 Author's Audiobooks by a filtered List, there being no authorRef index on
 Audiobook). Leftovers: `catalogmanager.Options.Artwork` is passed by
 `internal/cli/manager/run.go` and read by nothing; `series/episodesync.go`
-keeps its own memo (fold onto childsync when next touched).
+keeps its own memo (fold onto childsync when next touched). **Folded
+2026-11-10 (wave C, fbab16f7):** the Series fan-out waits for its document
+and keys childsync's memo through `series.syncKey`; its review found the
+add-options flag flipped on the metadata-less first pass (so the first fan-out
+ran under `monitorNewItems`), a defect the Artist and Author share since
+a625715f -- wave D's D1 applies the Comic's rule to all three.
 
 ### W1.2 Rollups, phases, cutoffReason, events, SkipInitial (D4, D5, D14, §5.2)
 
@@ -566,8 +571,12 @@ badge) and issue page (cover through `/art/search` since 819dc23f, credits,
 dates, comic-column files, neighbours, its own search routes); the
 audiobook page (parts, chapters, files, the modal with an estimated
 Bitrate column and its own panel routes). Left (wave C): one search panel
-per kind on `/searches` (`SearchPanel` has no column set); album Edit and
-Delete; `Track.ArtistCredit` (api) for a per-track credit; Peers/Grabs is
+per kind on `/searches` (`SearchPanel` has no column set) -- done, d87083a4
+and aeab9c63 (the dead `AlbumSearchPanel`/`AudiobookSearchPanel`/
+`IssueSearchPanel` URL methods and the audiobook's shadowing
+`RuntimeMinutes` are wave D's D5); album Edit (done as an action, 4bb329c4;
+the album page's dialog is D5's) and Delete (not built: `DeletableKinds`
+and `librarydelete` know no Album, whose folder is its Artist's); `Track.ArtistCredit` (api) for a per-track credit; Peers/Grabs is
 Peers (no grab count in ReleaseInfo); the Metron logo unlinked; a planned
 volume pack search; the standalone book's scan and rename; the browser
 check of every modal and collapsible (no browser in the agents' sessions;
@@ -610,7 +619,8 @@ audiobook and standalone book pages answering Add New's redirect with the
 "being added" page. Left (wave C): the children fragment's deletion
 (`ui/children.go`, `views.ChildrenPage`, `ChildrenURL`, `ui/book.go`'s
 `bookRows`, with `TestChildRowsAreItems` and `TestBookRowsAreTheSeasonTables`'
-/children assertions); `SearchHit`'s publisher, issue count, authors and
+/children assertions) -- done, 57846bf7 (`views.ChildRow`, `ChildrenURL`
+and `BookRow.ReturnURL`'s /children return are D5's); `SearchHit`'s publisher, issue count, authors and
 narrators; one comic provider per search (a source selector on
 `MetadataRequest`); the audiobook's authorRef through an Audnexus author
 lookup (a bound `MetadataLookup` request in `internal/cli/ui`); the Edit
@@ -733,7 +743,11 @@ audible routes 9fc4eab4; config/e2e's three providers at the stub and the
 wikipedia registry's one baseURL, 819dc23f); the spec's §9 as-built note
 and §11 wave notes. Left: the remaining-work items (`:1265`, `:1268`,
 `:1285`), the e2e legs for a cover and a biography (none asserts one), and
-the final notes after wave C.
+the final notes after wave C. **Wave C (2026-11-10):** nine tasks ran as
+workflow nonvideo-implement-c (implement, adversarial review, fix); the
+spec's §9 "Wave C" sentence lists the commits; seven agents (five reviews,
+the C4b ui half, the C9 fix) died on the account's usage limit and wave D
+(nonvideo-implement-d) re-runs them with the follow-through tasks D1-D6.
 
 ## Order and gates
 
