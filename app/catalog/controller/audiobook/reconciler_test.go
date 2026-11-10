@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -593,6 +594,18 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 		var got catalogv1alpha1.Audiobook
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "path-ns", Name: "guards-guards"}, &got))
 		assert.Equal(t, "/data/media/audiobooks/Terry Pratchett/Discworld/8 - 1989 - Guards! Guards! Nigel Planer", got.Status.Path)
+		// The written status.path is the folder the import places the
+		// audiobook's parts in (catalogctx.AudiobookFilePath), rendered from
+		// the object the apiserver holds: the reconciler's own naming context
+		// (namingContext) and the import's (catalogctx.Audiobook) agree (the
+		// F1 fix round, 2026-11-10).
+		var rf catalogv1alpha1.RootFolder
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: got.Namespace, Name: got.Spec.RootFolderRef}, &rf))
+		ac, ok := catalogctx.Audiobook(&got, 0)
+		require.True(t, ok)
+		file, ferr := catalogctx.AudiobookFilePath(&rf, &got, ac, ".m4b")
+		require.NoError(t, ferr)
+		assert.Equal(t, got.Status.Path, filepath.Dir(file), "status.path is the folder the import places the parts in")
 		// The seeded document carries no schemaVersion -- one written before
 		// design D8 gave Audiobooks a version -- so it is refreshed once while
 		// the Audiobook stays ready: MetadataReady True, reason Upgrading, as

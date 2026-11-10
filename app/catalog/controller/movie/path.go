@@ -27,8 +27,8 @@ import (
 // Path resolves the folder a Movie is stored under, which is the folder the
 // import places its file in (catalogctx.ItemFolder, the rule
 // catalogctx.MovieFilePath joins the file onto; 2026-11-10 non-video design
-// §5.5): folderOverride (spec.folder) under the root when it is set and
-// non-empty, otherwise the root's dialect preset rendered from c -- every
+// §5.5): folderOverride (spec.folder) as written under the root when it pins
+// one (a folder on disk, never sanitized), otherwise the root's dialect preset rendered from c -- every
 // component sanitized as the import sanitizes it and the result held under
 // the root, so a title with a "?", a trailing dot or 390 bytes names the
 // folder on disk, not the title as written. Until 2026-11-10 this joined

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -477,6 +478,22 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 		assert.Equal(t, metav1.ConditionTrue, metaReadyCond.Status, "MetadataReady must still be set correctly despite the episode RPC failure")
 		assert.Equal(t, "/data/media/tv/RPC Error Series (2020) [tvdbid-12345]", got.Status.Path,
 			"Path must still be computed despite the episode RPC failure")
+		// The written status.path is the folder the import places the
+		// series' episodes under (catalogctx.EpisodeFilePath, the season
+		// folder between), rendered from the object the apiserver holds: the
+		// reconciler's own naming context and the import's agree (the F1 fix
+		// round, 2026-11-10).
+		var rf catalogv1alpha1.RootFolder
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: got.Namespace, Name: got.Spec.RootFolderRef}, &rf))
+		ec, ok := catalogctx.Episode(&got, []catalogv1alpha1.Episode{{Spec: catalogv1alpha1.EpisodeSpec{SeasonNumber: 1, EpisodeNumber: 1}, Status: catalogv1alpha1.EpisodeStatus{Title: "Pilot"}}})
+		require.True(t, ok)
+		file, ferr := catalogctx.EpisodeFilePath(&rf, &got, ec, ".mkv")
+		require.NoError(t, ferr)
+		folder := filepath.Dir(file)
+		if got.Spec.SeasonFolder == nil || *got.Spec.SeasonFolder {
+			folder = filepath.Dir(folder)
+		}
+		assert.Equal(t, got.Status.Path, folder, "status.path is the folder the import places the episodes under")
 	})
 
 	// Series' Owns(&Episode{}) watch: an owned Episode's own HasFile flip

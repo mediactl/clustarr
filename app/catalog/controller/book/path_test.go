@@ -61,7 +61,7 @@ func TestPath(t *testing.T) {
 		custom.Spec.Folder = new("Tolkien, J.R.R.")
 		got, err := book.Path(root, custom, c)
 		require.NoError(t, err)
-		assert.Equal(t, "/data/books/Tolkien, J.R.R", got, "sanitized as the import sanitizes it: the trailing dot goes")
+		assert.Equal(t, "/data/books/Tolkien, J.R.R.", got, "a pinned folder is taken as written, its trailing dot kept: it names the folder on disk (the F1 fix round)")
 	})
 
 	t.Run("an author's book whose author's name is not known yet reads the root, never its own title", func(t *testing.T) {
@@ -175,5 +175,5 @@ func TestPathAgreesWithTheImport(t *testing.T) {
 	got, err = book.Path(root, author, c)
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Dir(filepath.Dir(file)), got, "an author's spec.folder decides the book's folder on both sides")
-	assert.Equal(t, "/data/books/Pratchett, Terry", got, "until 2026-11-10 the book's path ignored the author's spec.folder and read the name")
+	assert.Equal(t, "/data/books/Pratchett, Terry.", got, "until 2026-11-10 the book's path ignored the author's spec.folder and read the name; the pin is joined as written, trailing dot and all")
 }

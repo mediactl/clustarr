@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -318,6 +319,19 @@ func TestBookReconcilerStandalone(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "a standalone Book with fresh metadata and no file never read Wanted")
 	assert.Equal(t, "/data/media/books/The Hobbit", got.Status.Path,
 		"a standalone book's folder is its title under the root, the import's placement (2026-11-10 design §5.5, §9.3)")
+	// Rendered from the object the apiserver holds through the import's own
+	// render (catalogctx.BookFilePath with no author): the reconciler's
+	// context and the import's agree (the F1 fix round, 2026-11-10).
+	{
+		require.NotNil(t, got.Spec.RootFolderRef)
+		var rf catalogv1alpha1.RootFolder
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: got.Namespace, Name: *got.Spec.RootFolderRef}, &rf))
+		bc, ok := catalogctx.Book(nil, &got)
+		require.True(t, ok)
+		file, ferr := catalogctx.BookFilePath(&rf, nil, bc, ".epub")
+		require.NoError(t, ferr)
+		assert.Equal(t, got.Status.Path, filepath.Dir(file), "status.path is the folder the import places a standalone book's file in")
+	}
 	cond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.BookConditionMetadataReady)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionTrue, cond.Status, "an outdated document is still a fresh one")
@@ -373,6 +387,24 @@ func TestBookReconcilerOwnedInheritsAuthorRootFolderAndName(t *testing.T) {
 
 	got := waitForPhase(t, ctx, c, "book-owned-ns", "tolkien-hobbit")
 	assert.Equal(t, "/data/media/books/J.R.R. Tolkien", got.Status.Path)
+	// Rendered from the objects the apiserver holds through the import's own
+	// render (catalogctx.BookFilePath under the Author, the book's own folder
+	// between): the reconciler's context and the import's agree (the F1 fix
+	// round, 2026-11-10).
+	var author catalogv1alpha1.Author
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "book-owned-ns", Name: "tolkien"}, &author))
+	var rf catalogv1alpha1.RootFolder
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: author.Namespace, Name: author.Spec.RootFolderRef}, &rf))
+	// The book here has no document yet (the reconciler rendered from the
+	// author's name alone); the import renders only a titled book, and an
+	// author's book's folder is its author's whatever the title.
+	titled := got.DeepCopy()
+	titled.Status.Metadata = &catalogv1alpha1.BookMetadata{Title: "The Hobbit"}
+	bc, ok := catalogctx.Book(&author, titled)
+	require.True(t, ok)
+	file, err := catalogctx.BookFilePath(&rf, &author, bc, ".epub")
+	require.NoError(t, err)
+	assert.Equal(t, got.Status.Path, filepath.Dir(filepath.Dir(file)), "status.path is the folder the import places an author's book under")
 }
 
 // TestBookReconcilerStandaloneWithMissingRootFolderIsUnresolved proves the

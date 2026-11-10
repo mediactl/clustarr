@@ -31,7 +31,8 @@ import (
 // catalogctx.AudiobookFilePath joins a part's file onto when the
 // Audiobook's status.path is not yet written, and holds status.path to once
 // it is; 2026-11-10 non-video design §5.5): folderOverride (spec.folder)
-// under the root when it is set and non-empty, otherwise the audiobook
+// as written under the root when it pins one (a folder on disk, never
+// sanitized), otherwise the audiobook
 // preset (pkg/naming/preset.go's audiobookFolderTemplate, the one template
 // BuildFolder renders for every dialect, "{Author Name}/{Book Series}/...")
 // rendered from c -- every component sanitized as the import sanitizes it

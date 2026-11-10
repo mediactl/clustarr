@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -1723,6 +1724,17 @@ func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
 		assert.True(t, got.Status.Available)
 		assert.Equal(t, catalogv1alpha1.MoviePhaseWanted, got.Status.Phase)
 		assert.Equal(t, "/data/media/movies/Inception (2010) [tmdbid-27205]", got.Status.Path)
+		// The written status.path is the folder the import places the file
+		// in (catalogctx.MovieFilePath), rendered from the object the
+		// apiserver holds: the reconciler's own naming context and the
+		// import's agree (the F1 fix round, 2026-11-10).
+		var rf catalogv1alpha1.RootFolder
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: got.Namespace, Name: got.Spec.RootFolderRef}, &rf))
+		mc, ok := catalogctx.Movie(&got)
+		require.True(t, ok)
+		file, ferr := catalogctx.MovieFilePath(&rf, &got, mc, ".mkv")
+		require.NoError(t, ferr)
+		assert.Equal(t, got.Status.Path, filepath.Dir(file), "status.path is the folder the import places the file in")
 		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MovieConditionAvailable)
 		require.NotNil(t, cond)
 		assert.Equal(t, metav1.ConditionTrue, cond.Status)

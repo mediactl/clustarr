@@ -229,16 +229,21 @@ func FileExt(kind commonv1.MediaKind, mi *commonv1.MediaInfo, filePath string) s
 }
 
 // AlbumFolder is the folder an Album's tracks are placed in under its
-// Artist's folder (artistFolder: the Artist's status.path, else ItemFolder's
-// answer for it), as the import places them and as the Album controller
-// writes status.path (app/catalog/controller/album.Path): the album
-// segment of the album preset -- BuildFolder renders "<artist>/<album>" and
-// only its last segment is taken, so the Artist's spec.folder, which the
-// preset cannot see, still decides the folder above it -- sanitized and
-// held under root as ItemFolder's is. An album whose title has not arrived
+// Artist's folder (resolvedFolder for the Artist: its spec.folder as
+// written when it pins one, else its status.path, else ItemFolder's answer
+// for it), as the import places them and as the Album controller writes
+// status.path (app/catalog/controller/album.Path): the album segment of
+// the album preset -- BuildFolder renders "<artist>/<album>" and only its
+// last segment is taken, so the Artist's spec.folder, which the preset
+// cannot see, still decides the folder above it -- sanitized and held
+// under root as ItemFolder's is. An album whose title has not arrived
 // renders no segment of its own, which the preset joins away, so it is the
 // artist's folder while the title is unknown, as ItemFolder degrades.
-func AlbumFolder(root *catalogv1alpha1.RootFolder, artistFolder string, c naming.Context) (string, error) {
+func AlbumFolder(root *catalogv1alpha1.RootFolder, artist *catalogv1alpha1.Artist, c naming.Context) (string, error) {
+	artistFolder, err := resolvedFolder(root, artist.Status.Path, commonv1.MediaKindArtist, artist.Spec.Folder, c)
+	if err != nil {
+		return "", err
+	}
 	eng := EngineFor(root)
 	rendered, err := eng.BuildFolder(commonv1.MediaKindAlbum, c)
 	if err != nil {
@@ -295,9 +300,12 @@ func standaloneBook(root *catalogv1alpha1.RootFolder, c naming.Context) (folder,
 }
 
 // TrackFilePath is the canonical path of the track c describes, under
-// root: the album folder -- the Album's status.path, else AlbumFolder under
-// the artist folder (the Artist's status.path, else ItemFolder's rule for
-// it) -- and the track preset's file segment plus ext. The import places an
+// root: the album folder -- the Album's status.path, sanitized below the
+// root as a rendered folder is (renderedBase), unless the Artist pins its
+// folder, when it is AlbumFolder's join of the album segment onto the pin
+// as written (the Album's status.path is the same join, and a sanitize of
+// it would rewrite the pin); else AlbumFolder under the artist folder --
+// and the track preset's file segment plus ext. The import places an
 // album's files under the same folder with their own names (the TrackFile
 // preset is the rename's).
 func TrackFilePath(root *catalogv1alpha1.RootFolder, artist *catalogv1alpha1.Artist, album *catalogv1alpha1.Album, c naming.Context, ext string) (string, error) {
@@ -306,14 +314,10 @@ func TrackFilePath(root *catalogv1alpha1.RootFolder, artist *catalogv1alpha1.Art
 		return "", fmt.Errorf("catalogctx: render track file: %w", err)
 	}
 	file = path.Base(file) + ext
-	if album.Status.Path != "" {
-		return joinUnder(root.Spec.Path, album.Status.Path, file)
+	if _, pinned := pinnedFolder(artist.Spec.Folder); album.Status.Path != "" && !pinned {
+		return joinUnder(root.Spec.Path, renderedBase(root.Spec.Path, album.Status.Path), file)
 	}
-	artistFolder, err := resolvedFolder(root, artist.Status.Path, commonv1.MediaKindArtist, artist.Spec.Folder, c)
-	if err != nil {
-		return "", err
-	}
-	albumFolder, err := AlbumFolder(root, artistFolder, c)
+	albumFolder, err := AlbumFolder(root, artist, c)
 	if err != nil {
 		return "", err
 	}

@@ -123,4 +123,21 @@ func TestPathAgreesWithTheImport(t *testing.T) {
 	got, err := series.Path(root, nil, naming.Context{Kind: commonv1.MediaKindSeries, SeriesTitle: c.SeriesTitle, SeriesYear: c.SeriesYear, TvdbID: c.TvdbID})
 	require.NoError(t, err)
 	assert.Equal(t, "/data/media/tv/What If... (2021) [tvdbid-266189]", got, "the sanitized title, never the title as written")
+
+	// A scanned series is pinned to the folder on disk whose TheTVDB id
+	// named it (scanapply.seriesFolder), "?" and dot included: the pin is
+	// joined as written on both sides, so status.path is that folder and a
+	// new episode lands in it, not in a sanitized folder beside it (the F1
+	// fix round, 2026-11-10).
+	s.Spec.Folder = new("What If...? (2021) [tvdbid-266189]")
+	got, err = series.Path(root, s.Spec.Folder, naming.Context{Kind: commonv1.MediaKindSeries, SeriesTitle: c.SeriesTitle, SeriesYear: c.SeriesYear, TvdbID: c.TvdbID})
+	require.NoError(t, err)
+	assert.Equal(t, "/data/media/tv/What If...? (2021) [tvdbid-266189]", got, "the scanned folder as the scan applier pinned it")
+	file, err := catalogctx.EpisodeFilePath(root, s, c, ".mkv")
+	require.NoError(t, err)
+	assert.Equal(t, got, filepath.Dir(filepath.Dir(file)), "the episode lands in the scanned folder")
+	s.Status.Path = got
+	again, err := catalogctx.EpisodeFilePath(root, s, c, ".mkv")
+	require.NoError(t, err)
+	assert.Equal(t, file, again, "the written status.path places the episode the same")
 }

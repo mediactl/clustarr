@@ -76,24 +76,34 @@ const ReasonFolderUnrenderable = "FolderUnrenderable"
 // ItemFolder is the folder an item of kind lives in under root, as the
 // import places its files and as the item's controller writes status.path
 // (app/catalog/controller/<kind>.Path), so the two cannot diverge
-// (2026-11-10 design §5.5): folder (the item's spec.folder) under
-// root.spec.path when set and non-empty, else the kind's folder preset
-// rendered from c by the root's engine -- every component sanitized and
-// the result held strictly under the root exactly as the file path is
-// (joinUnder), so a title with a "?", a trailing dot or 390 bytes names the
-// folder the file lands in ("What If" for "What If...?"), not the title as
-// written. It is the rule of the kinds with a folder of their own under the
-// root -- a Movie, a Series, an Artist, an Author, an Audiobook and a Comic;
-// any other kind is naming.ErrNoFolder. A Book's folder is BookFolder's, an
-// Album's AlbumFolder's, and a file's path is its kind's *FilePath, which
-// joins the file onto this folder.
+// (2026-11-10 design §5.5). It is the rule of the kinds with a folder of
+// their own under the root -- a Movie, a Series, an Artist, an Author, an
+// Audiobook and a Comic; any other kind is naming.ErrNoFolder. A Book's
+// folder is BookFolder's, an Album's AlbumFolder's, and a file's path is
+// its kind's *FilePath, which joins the file onto this folder.
 //
-// A preset that renders nothing -- an Author or an Artist whose name has
-// not arrived -- is the root itself, the degraded answer while the title is
-// unknown (folderUnder); a known title the engine refuses (one of only
-// dots, naming.ErrUnsafeComponent) or the sanitizer empties ("???") is an
-// error, which each controller reports as ReasonFolderUnrenderable on
-// Ready, as is a spec.folder that would leave the root.
+// A pinned folder -- the item's spec.folder, when it is set and not blank
+// -- is taken as written: root.spec.path joined with its components, none
+// sanitized or shortened (pinnedFolder). It names a folder on disk, not a
+// title: the scan applier pins a scanned Series to the folder whose
+// TheTVDB id named it (app/import/manager/scanapply), and a person who
+// sets it names the folder they have, so "What If...? (2021)
+// [tvdbid-266189]" is that folder, where the sanitized "What If... (2021)
+// [tvdbid-266189]" would be one beside it that nothing created. Only a
+// component that walks the tree (".", "..") or is blank is refused
+// (naming.ErrUnsafeComponent), and the result must lie strictly under the
+// root (errOutsideRoot); a blank spec.folder is unset.
+//
+// Without a pin the folder is the kind's preset rendered from c by the
+// root's engine, every component sanitized and the result held strictly
+// under the root exactly as the file path is (joinUnder), so a title with
+// a "?", a trailing dot or 390 bytes names the folder the file lands in
+// ("What If" for "What If...?"), not the title as written. A preset that
+// renders nothing -- an Author or an Artist whose name has not arrived --
+// is the root itself, the degraded answer while the title is unknown
+// (folderUnder); a known title the engine refuses (one of only dots,
+// naming.ErrUnsafeComponent) or the sanitizer empties ("???") is an error,
+// which each controller reports as ReasonFolderUnrenderable on Ready.
 func ItemFolder(root *catalogv1alpha1.RootFolder, kind commonv1.MediaKind, folder *string, c naming.Context) (string, error) {
 	switch kind {
 	case commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist,
@@ -101,27 +111,84 @@ func ItemFolder(root *catalogv1alpha1.RootFolder, kind commonv1.MediaKind, folde
 	default:
 		return "", fmt.Errorf("catalogctx: %w: %s", naming.ErrNoFolder, kind)
 	}
-	rel := ptr.Deref(folder, "")
-	if rel == "" {
-		rendered, err := EngineFor(root).BuildFolder(kind, c)
-		if err != nil {
-			return "", fmt.Errorf("catalogctx: render %s folder: %w", kind, err)
-		}
-		rel = rendered
+	if pin, ok := pinnedFolder(folder); ok {
+		return literalFolder(root.Spec.Path, pin)
 	}
-	return folderUnder(root.Spec.Path, root.Spec.Path, rel)
+	rendered, err := EngineFor(root).BuildFolder(kind, c)
+	if err != nil {
+		return "", fmt.Errorf("catalogctx: render %s folder: %w", kind, err)
+	}
+	return folderUnder(root.Spec.Path, root.Spec.Path, rendered)
 }
 
-// resolvedFolder is a container's folder as its files are placed under it:
-// its resolved status.path when it has one (the controller's answer,
-// ItemFolder's rule as of its last pass; joinUnder still holds it to the
-// root), else ItemFolder from the same inputs, so a file imported before the
-// controller's first pass lands where the controller will say it lives.
+// pinnedFolder is an item's spec.folder as a pin: its value with the
+// surrounding whitespace removed, and whether it pins anything at all. A
+// nil, empty or blank spec.folder pins nothing, and the item's folder is
+// its preset's.
+func pinnedFolder(folder *string) (string, bool) {
+	pin := strings.TrimSpace(ptr.Deref(folder, ""))
+	return pin, pin != ""
+}
+
+// literalFolder is a pinned folder under root, as written: every
+// '/'-component kept as it is, a blank one or one that walks the tree
+// (".", "..") refused as naming.ErrUnsafeComponent, and the join held
+// strictly under root (errOutsideRoot). No component is sanitized or
+// shortened: the pin names a folder on disk, which the sanitizer's rewrite
+// of a "?" or a trailing dot would turn into another one.
+func literalFolder(root, pin string) (string, error) {
+	parts := []string{root}
+	for _, comp := range strings.Split(filepath.ToSlash(pin), "/") {
+		if comp == "" {
+			continue
+		}
+		if strings.TrimSpace(comp) == "" || comp == "." || comp == ".." {
+			return "", fmt.Errorf("catalogctx: %w: %q in spec.folder %q", naming.ErrUnsafeComponent, comp, pin)
+		}
+		parts = append(parts, comp)
+	}
+	full := filepath.Join(parts...)
+	if !fsops.StrictlyUnder(full, root) {
+		return "", fmt.Errorf("%w: spec.folder %q under %q", errOutsideRoot, pin, root)
+	}
+	return full, nil
+}
+
+// resolvedFolder is a container's folder as its files are placed under it,
+// so a file imported before the controller's first pass lands where the
+// controller will say it lives, and one imported after it lands where the
+// controller said: a pinned item's folder is its pin (ItemFolder, taken as
+// written, whatever status.path says -- the two are the same join); an
+// unpinned one's is its resolved status.path when it has one, the
+// controller's answer as of its last pass, sanitized below the root
+// (renderedBase) so a status.path a controller wrote by the rule before
+// 2026-11-10 -- the title as written, "What If...?" -- still names the
+// sanitized folder the files were placed in, as it did when the whole path
+// was sanitized at the join; else ItemFolder from the same inputs.
 func resolvedFolder(root *catalogv1alpha1.RootFolder, statusPath string, kind commonv1.MediaKind, folder *string, c naming.Context) (string, error) {
+	if _, pinned := pinnedFolder(folder); pinned {
+		return ItemFolder(root, kind, folder, c)
+	}
 	if statusPath != "" {
-		return statusPath, nil
+		return renderedBase(root.Spec.Path, statusPath), nil
 	}
 	return ItemFolder(root, kind, folder, c)
+}
+
+// renderedBase is a rendered folder -- a container's status.path, the
+// controller's render of its preset -- as a base for a join: its path below
+// root sanitized to the sanitizer's fixed point, the root itself as it is.
+// A status.path the new rule wrote is a fixed point already and comes back
+// unchanged; one the old rule wrote (the title as written, path.Join)
+// becomes the folder on disk, where the files were placed under the
+// whole-path sanitize every join ran until then. A status.path not under
+// the root is returned cleaned, for joinUnder to refuse.
+func renderedBase(root, statusPath string) string {
+	rel, err := filepath.Rel(root, statusPath)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.Clean(statusPath)
+	}
+	return filepath.Join(root, sanitizeFixed(rel, naming.DefaultSanitizeOptions()))
 }
 
 // Movie builds the naming.Context describing m's identity: title, year and
@@ -331,9 +398,9 @@ func ContainerExt(mi *commonv1.MediaInfo, fallbackPath string) string {
 }
 
 // MovieFilePath renders m's absolute library path under root: the movie's
-// folder (ItemFolder: m.spec.folder when set and non-empty, else the
+// folder (ItemFolder: m.spec.folder as written when it pins one, else the
 // dialect's movie-folder preset) joined with the dialect's movie-file
-// preset and ext. Every component is made filesystem-safe by
+// preset and ext. Every rendered component is made filesystem-safe by
 // naming.SanitizePath -- the one general-purpose sanitiser pkg/naming
 // exports, which no per-kind renderer calls on its own (see pkg/naming's
 // doc comment) -- before anything is joined, and the result must lie
@@ -353,10 +420,10 @@ func MovieFilePath(root *catalogv1alpha1.RootFolder, m *catalogv1alpha1.Movie, c
 }
 
 // EpisodeFilePath renders c's absolute library path under root: s' own
-// folder (status.path once the Series controller has resolved one, else
+// folder (resolvedFolder: its spec.folder as written when it pins one, else
+// status.path once the Series controller has resolved one, else
 // ItemFolder's rule, the one app/catalog/controller/series.Path writes it
-// by -- spec.folder under root.spec.path, else the dialect's series preset;
-// resolvedFolder), the season folder when the series keeps one
+// by, the dialect's series preset), the season folder when the series keeps one
 // (spec.seasonFolder, defaulted true), and the dialect's episode/anime/daily
 // file preset (selected by c's own fields, as Engine.EpisodeFile already
 // does) with ext, sanitized and held under root.spec.path exactly as
@@ -388,17 +455,20 @@ func EpisodeFilePath(root *catalogv1alpha1.RootFolder, s *catalogv1alpha1.Series
 var errOutsideRoot = errors.New("catalogctx: path is not under the root folder")
 
 // joinUnder joins rels onto base, every '/'-component of every rel
-// sanitized on its own (naming.SanitizePath) before the join, so a join
-// can never resolve a ".." a title or a spec.folder carried: a component
-// of only dots is refused (naming.ErrUnsafeComponent) rather than trimmed
-// to nothing and silently dropped, and so is one the sanitiser empties. The
-// joined path is sanitized once more as a whole, for the total-length cap
-// (and for base, which every caller rendered before this package
-// sanitized components), and must lie strictly under root
-// (fsops.StrictlyUnder) -- the defence that holds even a template override
-// or a status.path to the library.
+// sanitized on its own (sanitizeFixed over componentOptions) before the
+// join, so a join can never resolve a ".." a title carried: a component of
+// only dots is refused (naming.ErrUnsafeComponent) rather than trimmed to
+// nothing and silently dropped, and so is one the sanitiser empties. The
+// rels are capped together at what PATH_MAX leaves under base (the last
+// segment shrunk, as naming.SanitizePath caps a path). base is taken as
+// given -- the caller's folder: the root, a pinned folder as written, or a
+// rendered one sanitized by renderedBase or by this function before -- and
+// the result must lie strictly under root (fsops.StrictlyUnder), the
+// defence that holds even a template override or a status.path to the
+// library. Until 2026-11-10 the whole join was sanitized once more, base
+// included, which rewrote a pinned folder's "?" out of the path.
 func joinUnder(root, base string, rels ...string) (string, error) {
-	parts := []string{base}
+	var comps []string
 	for _, rel := range rels {
 		for _, comp := range strings.Split(rel, "/") {
 			if strings.TrimSpace(comp) == "" {
@@ -407,18 +477,51 @@ func joinUnder(root, base string, rels ...string) (string, error) {
 			if strings.Trim(comp, ". ") == "" {
 				return "", fmt.Errorf("catalogctx: %w: %q", naming.ErrUnsafeComponent, comp)
 			}
-			clean := naming.SanitizePath(comp, componentOptions)
+			clean := sanitizeFixed(comp, componentOptions)
 			if clean == "" {
 				return "", fmt.Errorf("catalogctx: component %q sanitizes to nothing", comp)
 			}
-			parts = append(parts, clean)
+			comps = append(comps, clean)
 		}
 	}
-	full := naming.SanitizePath(filepath.Join(parts...), naming.DefaultSanitizeOptions())
+	base = filepath.Clean(base)
+	rel := strings.Join(comps, "/")
+	if rel != "" {
+		budget := naming.DefaultMaxTotalBytes - len(base) - 1
+		if budget < 1 {
+			return "", fmt.Errorf("%w: %q leaves no room under PATH_MAX", errOutsideRoot, base)
+		}
+		opts := naming.DefaultSanitizeOptions()
+		opts.MaxTotalBytes = budget
+		rel = sanitizeFixed(rel, opts)
+	}
+	full := filepath.Join(base, rel)
 	if !fsops.StrictlyUnder(full, root) {
 		return "", fmt.Errorf("%w: %q under %q", errOutsideRoot, full, root)
 	}
 	return full, nil
+}
+
+// sanitizeFixed is naming.SanitizePath run to its fixed point: a result
+// that sanitizes to itself, so a path this package renders is the same
+// path sanitized again, and a stale status.path, a fresh render and a
+// written one all join alike (TestAStaleStatusPathRendersTheSameFilePath).
+// One pass is not that: it trims a component's trailing dots and spaces
+// before it cuts the component at 255 bytes, so a 390-byte title whose cut
+// lands on a space ("Long Long ... Long ") comes out of one pass 255 bytes
+// with a trailing space and out of a second 254, and the two name
+// different folders (the F1 review, 2026-11-10). Every pass is
+// non-increasing in length and replaces nothing a pass before it kept, so
+// the loop ends within a few passes; the bound is a belt.
+func sanitizeFixed(s string, opts naming.SanitizeOptions) string {
+	for range 8 {
+		next := naming.SanitizePath(s, opts)
+		if next == s {
+			return s
+		}
+		s = next
+	}
+	return s
 }
 
 // folderUnder is joinUnder for a folder rather than a file: rel's

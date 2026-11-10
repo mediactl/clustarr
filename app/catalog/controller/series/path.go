@@ -28,8 +28,8 @@ import (
 // the import places its episodes' files in (catalogctx.ItemFolder, the rule
 // catalogctx.EpisodeFilePath joins the season folder and the file onto when
 // status.path is not yet written, and holds status.path to once it is;
-// 2026-11-10 non-video design §5.5): folderOverride (spec.folder) under the
-// root when it is set and non-empty, otherwise the root's dialect preset
+// 2026-11-10 non-video design §5.5): folderOverride (spec.folder) as written under
+// the root when it pins one (a folder on disk, never sanitized), otherwise the root's dialect preset
 // rendered from c -- every component sanitized as the import sanitizes it
 // and the result held under the root. Until 2026-11-10 this joined the
 // rendered folder as written (path.Join), so a series titled "What If...?"

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -830,6 +831,17 @@ func TestComicReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			return got.Status.IssueFileCount == 1
 		}, 5*time.Second, 10*time.Millisecond, "setup: comic never rolled up the issue's file")
 		require.NotEmpty(t, got.Status.Path)
+		// The written status.path is the folder the import places the
+		// comic's issues in (catalogctx.IssueFilePath), rendered from the
+		// object the apiserver holds: the reconciler's own naming context
+		// and the import's agree (the F1 fix round, 2026-11-10).
+		var rf catalogv1alpha1.RootFolder
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: got.Namespace, Name: got.Spec.RootFolderRef}, &rf))
+		ic, ok := catalogctx.Issue(&got, &catalogv1alpha1.Issue{Spec: catalogv1alpha1.IssueSpec{Number: "1"}})
+		require.True(t, ok)
+		file, ferr := catalogctx.IssueFilePath(&rf, &got, ic, ".cbz")
+		require.NoError(t, ferr)
+		assert.Equal(t, got.Status.Path, filepath.Dir(file), "status.path is the folder the import places the issues in")
 		return req
 	}
 

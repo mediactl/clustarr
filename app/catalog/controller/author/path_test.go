@@ -120,4 +120,7 @@ func TestPathAgreesWithTheImport(t *testing.T) {
 	got, err := author.Path(root, nil, naming.Context{Kind: commonv1.MediaKindAuthor, AuthorName: "What If...?"})
 	require.NoError(t, err)
 	assert.Equal(t, "/data/books/What If", got, "the sanitized name, never the name as written")
+	got, err = author.Path(root, new("Pratchett, Terry."), naming.Context{Kind: commonv1.MediaKindAuthor, AuthorName: "What If...?"})
+	require.NoError(t, err)
+	assert.Equal(t, "/data/books/Pratchett, Terry.", got, "a pinned spec.folder is joined as written, trailing dot and all: it names the folder on disk (the F1 fix round)")
 }

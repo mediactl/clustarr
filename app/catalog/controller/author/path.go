@@ -28,8 +28,9 @@ import (
 // the import places its books' files in (catalogctx.ItemFolder, the rule
 // catalogctx.BookFilePath joins a book's two segments onto when the
 // Author's status.path is not yet written, and holds status.path to once it
-// is; 2026-11-10 non-video design §5.5): folderOverride (spec.folder) under
-// the root when it is set and non-empty, otherwise the author preset,
+// is; 2026-11-10 non-video design §5.5): folderOverride (spec.folder) as
+// written under the root when it pins one (a folder on disk, never
+// sanitized), otherwise the author preset,
 // "{Author Name}" (Readarr's convention: no separate book folder,
 // pkg/naming/book.go), rendered from c -- sanitized as the import sanitizes
 // a component and held under the root. An Author whose name has not

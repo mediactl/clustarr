@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -389,6 +390,19 @@ func TestAuthorReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		return before.Status.BookCount == 1
 	}, 5*time.Second, 10*time.Millisecond)
 	require.Equal(t, "/data/media/books/Steady State Author", before.Status.Path)
+	// The written status.path is the folder the import places the author's
+	// books under (catalogctx.BookFilePath, the book's own folder between),
+	// rendered from the object the apiserver holds: the reconciler's own
+	// naming context and the import's agree (the F1 fix round, 2026-11-10).
+	{
+		var rf catalogv1alpha1.RootFolder
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: before.Namespace, Name: before.Spec.RootFolderRef}, &rf))
+		bc, ok := catalogctx.Book(&before, &catalogv1alpha1.Book{Status: catalogv1alpha1.BookStatus{Metadata: &catalogv1alpha1.BookMetadata{Title: "A Book"}}})
+		require.True(t, ok)
+		file, ferr := catalogctx.BookFilePath(&rf, &before, bc, ".epub")
+		require.NoError(t, ferr)
+		assert.Equal(t, before.Status.Path, filepath.Dir(filepath.Dir(file)), "status.path is the folder the import places the books under")
+	}
 
 	t.Run("QueueFull does not release the steady state", func(t *testing.T) {
 		// reconcileNormal only reaches the Publish call at all when metadata

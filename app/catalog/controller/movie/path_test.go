@@ -117,6 +117,6 @@ func TestPathAgreesWithTheImport(t *testing.T) {
 	require.NoError(t, err)
 	got, err = movie.Path(root, m.Spec.Folder, c)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Dir(file), got, "a spec.folder is sanitized by component on both sides")
-	assert.Equal(t, "/data/media/movies/Marvel/What If", got)
+	assert.Equal(t, filepath.Dir(file), got, "a pinned spec.folder is joined as written on both sides")
+	assert.Equal(t, "/data/media/movies/Marvel/What If...?", got, "the pin names a folder on disk, which the sanitized name would stand beside (the F1 fix round)")
 }
