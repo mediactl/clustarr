@@ -242,10 +242,13 @@ W4c's -- not here.
 
 **Done inline 2026-11-10:** step 1's fields on every builder with
 `schemaVersion` and the model's own ratings in the CRD's vocabulary
-(`modelRatings`, `linksAC` in `patch.go`); `language`/`fetchLanguage`, the
-outdated refresh, the biography enrichment (registry `Biographies`), the
-`comic`/`audiobook` search verbs (registry `AudiobookSearchers`),
-`writeExtended` and the Comic fan-out's Issue fields remain.
+(`modelRatings`, `linksAC` in `patch.go`, 3e02d0e3); step 2's outdated
+refresh in the six reconcilers (every non-video document reads 0 and
+refreshes once under SchemaVersion 8); step 3's biography enrichment
+(a07d5444); step 4's `audiobook` search verb (c6ae42c1; `comic` existed).
+Left: `language`/`fetchLanguage` on the builders, `writeExtended` for
+Artist and Audiobook, the Comic fan-out's Issue fields, the Audnexus
+chapters hop and `enrichRatings` over `RatingsProvider`s for these kinds.
 
 ## W3: import, probe, NFO (parallel)
 
