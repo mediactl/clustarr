@@ -59,7 +59,7 @@ func (g *PlexGuide) LineupID() string {
 // playlist into IPTVChannels, numbered by category (custom guides design
 // §5.1). Without Enabled it is a dry run shown in the channels' status.
 //
-// +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.filter(c, has(c.base)).map(c, c.base).size() == self.categories.filter(c, has(c.base)).map(c, c.base).toSet().size()",message="category bases must be unique"
+// +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.filter(c, has(c.base)).all(c, self.categories.filter(d, has(d.base) && d.base == c.base).size() == 1)",message="category bases must be unique"
 // +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.all(c, has(c.base) || self.categories.exists(d, d.name == c.name && has(d.base)))",message="a category's first rule must carry base"
 type LineupSpec struct {
 	// Enabled lets the lineup controller create, number and retire

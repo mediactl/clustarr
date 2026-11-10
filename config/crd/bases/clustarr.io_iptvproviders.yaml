@@ -353,9 +353,9 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: category bases must be unique
-                  rule: '!has(self.categories) || self.categories.filter(c, has(c.base)).map(c,
-                    c.base).size() == self.categories.filter(c, has(c.base)).map(c,
-                    c.base).toSet().size()'
+                  rule: '!has(self.categories) || self.categories.filter(c, has(c.base)).all(c,
+                    self.categories.filter(d, has(d.base) && d.base == c.base).size()
+                    == 1)'
                 - message: a category's first rule must carry base
                   rule: '!has(self.categories) || self.categories.all(c, has(c.base)
                     || self.categories.exists(d, d.name == c.name && has(d.base)))'
