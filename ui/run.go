@@ -117,6 +117,10 @@ func Run(ctx context.Context, o Options) error {
 type silentConns struct {
 	mu    sync.Mutex
 	conns map[net.Conn]struct{}
+	// closing is set by closeAll: a connection accepted after the sweep
+	// -- the listener stays open until Shutdown closes it -- is closed as
+	// it arrives rather than joining a set nothing sweeps again.
+	closing bool
 }
 
 // track is the http.Server's ConnState hook: a new connection is silent
@@ -127,6 +131,10 @@ func (s *silentConns) track(c net.Conn, state http.ConnState) {
 	defer s.mu.Unlock()
 	switch state {
 	case http.StateNew:
+		if s.closing {
+			_ = c.Close()
+			return
+		}
 		if s.conns == nil {
 			s.conns = map[net.Conn]struct{}{}
 		}
@@ -142,6 +150,7 @@ func (s *silentConns) track(c net.Conn, state http.ConnState) {
 func (s *silentConns) closeAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.closing = true
 	for c := range s.conns {
 		_ = c.Close()
 	}
