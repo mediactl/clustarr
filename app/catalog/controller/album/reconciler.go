@@ -43,6 +43,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -110,9 +111,12 @@ type bus interface {
 // Reconciler reconciles an Album: metadata staleness (publishing its own
 // MetadataTask, exactly like Movie/Series/Artist -- Album is a first-class
 // metadata target, not a fan-out child like Episode), path (via the owning
-// Artist's own resolved path), the track-listing RPC sync, and the
+// Artist's own resolved path), the track-listing RPC sync, the
 // file/download rollup from its MediaFiles (the remediation loop wakes it
-// when one's rollup inputs move, loop spec §3.12) and Downloads. See this
+// when one's rollup inputs move, loop spec §3.12) and Downloads, and its
+// phase and cutoffReason through rollup.LeafPhase (2026-11-10 design D4,
+// D6). It records a Kubernetes Event on every phase edge and on the edge
+// into each transient failure (rollup.Reporter, design D14). See this
 // package's doc.go for the full field-manager and track-listing
 // rationale.
 type Reconciler struct {
@@ -177,13 +181,31 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 // item map function.
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
-		{Object: &catalogv1alpha1.Album{}, Map: rollup.Self, Predicates: []predicate.Predicate{albumPredicate()}},
+		{Object: &catalogv1alpha1.Album{}, Map: rollup.Self, Predicates: []predicate.Predicate{albumPredicate()}, SkipInitial: r.idleAtStart},
 		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 		{Object: &catalogv1alpha1.Artist{}, Map: r.mapArtist, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 	}
 }
 
 var _ rollup.Item = (*Reconciler)(nil)
+
+// idleAtStart is the Album watch's SkipInitial (2026-11-10 design D14, the
+// Episode's of 2026-10-28): an Album whose pass at a manager's start would
+// change nothing -- unmonitored, or imported, with its metadata fresh and
+// nothing in flight (rollup.LeafIdleAtStart) -- is left to its watches.
+func (r *Reconciler) idleAtStart(ctx context.Context, o client.Object) bool {
+	alb, ok := o.(*catalogv1alpha1.Album)
+	if !ok {
+		return false
+	}
+	monitored, err := itemread.Monitored(ctx, r.Client, alb)
+	if err != nil {
+		return false
+	}
+	return rollup.LeafIdleAtStart(IdleInputs(alb, monitored, time.Now().UTC()))
+}
+
+func (r *Reconciler) reporter() rollup.Reporter { return rollup.Reporter{Recorder: r.Recorder} }
 
 // albumPredicate wakes this controller on a spec change (GenerationChanged,
 // e.g. a user editing spec.monitored or pinning spec.releaseID), on the
@@ -369,8 +391,16 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, alb *catalogv1alpha1.A
 // rest of this same status patch, per §8.1's ordering.
 func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.Album) (ctrl.Result, error) {
 	now := time.Now().UTC()
-	monitored := ptr.Deref(alb.Spec.Monitored, true)
-	conditions := append([]metav1.Condition(nil), alb.Status.Conditions...)
+	// The Album's own flag, and its Artist's once design W1.3 lands in
+	// itemread.Monitored (D3).
+	monitored, err := itemread.Monitored(ctx, r.Client, alb)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// Ready, MetadataReady, QueueFull, TracksSynced, Invalid and DeadLettered
+	// are the Album's conditions; a condition the 2026-11-10 design (D4)
+	// retired on the leaves is dropped from an Album still carrying one.
+	conditions := rollup.DropRetiredLeafConditions(alb.Status.Conditions)
 	// The DLQ projector's clustarr.io/dead-lettered annotation becomes the
 	// DeadLettered condition here, on the one slice every status apply below
 	// declares -- early returns included -- so no apply releases it.
@@ -384,18 +414,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 
 	statusAC := catalogac.AlbumStatus().WithObservedGeneration(alb.Generation)
 
-	stale := alb.Status.Metadata == nil
-	if !stale {
-		ttl := pkgmetadata.RefreshTTL(commonv1.MediaKindAlbum, pkgmetadata.RefreshStateActive, alb.Status.Metadata.RefreshedAt.Time)
-		stale = now.Sub(alb.Status.Metadata.RefreshedAt.Time) >= ttl
-	}
+	// A stale document is refreshed and the Album reads Pending meanwhile; a
+	// recent one the gateway wrote before it learned a field is refreshed
+	// once, at once, and the Album stays ready meanwhile (MetadataStale).
+	stale, outdated := MetadataStale(alb, now)
 	metaReady := !stale
-	// A recent document the gateway wrote before it learned a field is
-	// refreshed once, at once, and the item stays ready meanwhile: every
-	// item in an upgraded library would otherwise drop to Pending together
-	// (Movie's rule; the 2026-11-10 design D8 gives every kind a
-	// schemaVersion).
-	outdated := !stale && alb.Status.Metadata.SchemaVersion < pkgmetadata.SchemaVersion
 
 	if stale || outdated {
 		// The task carries what the refresh asks for -- the item and its
@@ -412,6 +435,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 			_, pubErr := r.Bus.Publish(ctx, subject, env)
 			if pubErr != nil {
 				if errors.Is(pubErr, events.ErrQueueFull) {
+					r.reporter().WarnEdge(alb, alb.Status.Conditions, conditionQueueFull, metav1.ConditionTrue, "QueueFull", "metadata work queue is full; retrying the refresh in a minute")
 					k8s.MarkTrue(alb, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
 					statusAC = reassertKnownStatus(statusAC, alb)
 					statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
@@ -433,6 +457,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	var artistObj catalogv1alpha1.Artist
 	if err := r.Get(ctx, types.NamespacedName{Namespace: alb.Namespace, Name: alb.Spec.ArtistRef}, &artistObj); err != nil {
 		if apierrors.IsNotFound(err) {
+			r.reporter().WarnEdge(alb, alb.Status.Conditions, k8s.ConditionReady, metav1.ConditionFalse, "ArtistNotFound", "artist %q not found", alb.Spec.ArtistRef)
 			k8s.MarkFalse(alb, &conditions, k8s.ConditionReady, "ArtistNotFound", "artist %q not found", alb.Spec.ArtistRef)
 			statusAC = reassertKnownStatus(statusAC, alb)
 			statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
@@ -448,6 +473,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 		var rf catalogv1alpha1.RootFolder
 		if err := r.Get(ctx, types.NamespacedName{Namespace: alb.Namespace, Name: artistObj.Spec.RootFolderRef}, &rf); err != nil {
 			if apierrors.IsNotFound(err) {
+				r.reporter().WarnEdge(alb, alb.Status.Conditions, k8s.ConditionReady, metav1.ConditionFalse, "RootFolderNotFound", "rootFolder %q not found", artistObj.Spec.RootFolderRef)
 				k8s.MarkFalse(alb, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", artistObj.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, alb)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
@@ -495,11 +521,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	tracksSynced := false
 	switch {
 	case ts.err != nil:
-		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, events.ClassifyRequestError(ts.err).Reason(), "track listing RPC failed: %s", ts.err.Error())
+		reason := events.ClassifyRequestError(ts.err).Reason()
+		r.reporter().WarnEdge(alb, alb.Status.Conditions, conditionTracksSynced, metav1.ConditionFalse, reason, "track listing RPC failed: %s", ts.err.Error())
+		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, reason, "track listing RPC failed: %s", ts.err.Error())
 	case ts.selection == SelectionPinnedReleaseMissing:
+		r.reporter().WarnEdge(alb, alb.Status.Conditions, conditionTracksSynced, metav1.ConditionFalse, string(ts.selection),
+			"spec.releaseID %q is not a release of this group, and spec.anyReleaseOk is false", ptr.Deref(alb.Spec.ReleaseID, ""))
 		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, string(ts.selection),
 			"spec.releaseID %q is not a release of this group, and spec.anyReleaseOk is false", ptr.Deref(alb.Spec.ReleaseID, ""))
 	case ts.selection == SelectionNoAcceptedRelease:
+		r.reporter().WarnEdge(alb, alb.Status.Conditions, conditionTracksSynced, metav1.ConditionFalse, string(ts.selection),
+			"no release of this group has tracks and a status the artist's metadata profile accepts (releaseStatuses %v)",
+			artistObj.Spec.MetadataProfile.ReleaseStatuses)
 		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, string(ts.selection),
 			"no release of this group has tracks and a status the artist's metadata profile accepts (releaseStatuses %v)",
 			artistObj.Spec.MetadataProfile.ReleaseStatuses)
@@ -511,12 +544,17 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 		k8s.MarkTrue(alb, &conditions, conditionTracksSynced, string(ts.selection), "tracks taken from release %s", ts.selected)
 	}
 	if ts.truncated {
+		r.reporter().WarnEdge(alb, alb.Status.Conditions, catalogv1alpha1.AlbumConditionInvalid, metav1.ConditionTrue, "TooManyTracks", "the selected release has more than %d tracks", maxTracks)
 		k8s.MarkTrue(alb, &conditions, catalogv1alpha1.AlbumConditionInvalid, "TooManyTracks", "the selected release has more than %d tracks", maxTracks)
 	} else {
 		k8s.MarkFalse(alb, &conditions, catalogv1alpha1.AlbumConditionInvalid, k8s.ReasonReconciled, "track count within limits")
 	}
 	statusAC = statusAC.WithTracks(ts.tracks...)
 	statusAC = statusAC.WithTrackFileCount(countTracksWithFile(ts.tracks))
+	// The Tracks print column (design §4.3), "" while no release is selected.
+	if summary := TrackSummary(ts.tracks); summary != "" {
+		statusAC = statusAC.WithTrackSummary(summary)
+	}
 	if md := selectedReleaseAC(alb, ts.selected); md != nil {
 		statusAC = statusAC.WithMetadata(md)
 	}
@@ -532,7 +570,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 		logging.FromContext(ctx).Warn("quality profile unresolved; cutoff not evaluated",
 			"album", alb.Name, "namespace", alb.Namespace, "artistRef", alb.Spec.ArtistRef, "problem", profileProblem)
 	}
-	hasFile, fileQuality, fileFormatScore, cutoffMet := FileState(mfList.Items, profile)
+	hasFile, fileQuality, fileFormatScore, fileCutoffMet := FileState(mfList.Items, profile)
 	// Announced before the apply that records the new track fileRefs, so a
 	// failed apply re-announces the same edges under the same envelope ids
 	// (rollup.MediaFileEvent) rather than losing them.
@@ -541,16 +579,26 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	}
 
 	dl := activeDownload(ctx, alb)
-	overlay, active := rollup.EntryOverlay(dl)
+	overlayPhase, active := rollup.LeafOverlay(dl)
 
-	phase := Phase(monitored, hasFile, cutoffMet, alb.Status.PendingGrab != nil)
-	switch overlay {
-	case rollup.OverlayDelayed:
-		phase = catalogv1alpha1.AlbumPhaseDelayed
-	case rollup.OverlayDownloading:
-		phase = catalogv1alpha1.AlbumPhaseDownloading
+	// Lidarr's TracksWithoutFiles clause (design D6): a track of the
+	// selected release without a file holds the album below its cutoff
+	// whatever its files' quality, so it is searched again.
+	in := PhaseInputs(alb, monitored, metaReady, hasFile, fileCutoffMet, profile != nil, TracksMissing(ts.tracks), now)
+	phase, reason := rollup.LeafPhase(in)
+	if overlayPhase != "" {
+		phase = overlayPhase
+	}
+	cutoffMet := rollup.LeafCutoffMet(in)
+	// On the edge into an unresolved profile, never while it persists: the
+	// parse errors are reported authoritatively on the QualityProfile, and
+	// the cutoffReason carries the steady state (Movie's rule).
+	if reason == commonv1.CutoffReasonProfileUnresolved && alb.Status.CutoffReason != reason {
+		r.reporter().Warn(alb, commonv1.CutoffReasonProfileUnresolved, "cutoff not evaluated: %s", profileProblem)
 	}
 	statusAC = statusAC.WithPhase(phase)
+	statusAC = statusAC.WithCutoffReason(reason)
+	statusAC = statusAC.WithHasFile(hasFile)
 	statusAC = statusAC.WithCutoffMet(cutoffMet)
 	statusAC = statusAC.WithFileFormatScore(fileFormatScore)
 	if fileQuality != nil {
@@ -570,6 +618,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	if conflicted, err := itemstatus.Apply(ctx, r.Client, alb, catalogac.Album(alb.Name, alb.Namespace).WithStatus(withEntries(ctx, statusAC, alb))); err != nil || conflicted {
 		return itemstatus.Requeue(conflicted), err
 	}
+	// After the apply, so a phase that never landed is never announced.
+	r.reporter().PhaseEdge(alb, string(alb.Status.Phase), string(phase))
 
 	if ts.err != nil {
 		return ctrl.Result{RequeueAfter: metadataSyncRPCBackoff}, nil
@@ -613,10 +663,17 @@ func reassertKnownStatus(statusAC *catalogac.AlbumStatusApplyConfiguration, alb 
 	if alb.Status.Phase != "" {
 		statusAC = statusAC.WithPhase(alb.Status.Phase)
 	}
+	if alb.Status.CutoffReason != "" {
+		statusAC = statusAC.WithCutoffReason(alb.Status.CutoffReason)
+	}
 	if alb.Status.Path != "" {
 		statusAC = statusAC.WithPath(alb.Status.Path)
 	}
+	statusAC = statusAC.WithHasFile(alb.Status.HasFile)
 	statusAC = statusAC.WithTrackFileCount(alb.Status.TrackFileCount)
+	if alb.Status.TrackSummary != "" {
+		statusAC = statusAC.WithTrackSummary(alb.Status.TrackSummary)
+	}
 	if alb.Status.FileQuality != nil {
 		statusAC = statusAC.WithFileQuality(*alb.Status.FileQuality)
 	}

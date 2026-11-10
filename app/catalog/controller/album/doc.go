@@ -15,9 +15,11 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package album implements the Album controller: phase, path, track-listing
-// selection and the file/download rollup, plus a thin Reconciler around
-// them. Album objects are created and owned by the Artist controller
+// Package album implements the Album controller: the Album's view of the
+// shared leaf phase (PhaseInputs over rollup.LeafPhase, 2026-11-10 design
+// D4, D6), path, track-listing selection, the file/download rollup and the
+// start-time idle rule (IdleInputs, design D14), plus a thin Reconciler
+// around them. Album objects are created and owned by the Artist controller
 // (app/catalog/controller/artist sets spec.artistRef/releaseGroupID and, at
 // creation or per spec.monitorNewItems, spec.monitored) -- but unlike
 // Episode, Album fetches its OWN metadata: it is a first-class metadata
@@ -25,40 +27,46 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // MediaKindAlbum, keyed by spec.releaseGroupID) with its own
 // ConditionMetadataReady, exactly like Movie, Series and Artist. So this
 // package's reconciler follows movie.Reconciler's shape for the metadata
-// staleness half (publish a MetadataTask, mark MetadataReady) layered under
-// series.Reconciler's shape for the "resolve a parent for path/quality
-// inheritance" half (here, the owning Artist instead of a RootFolder
-// directly -- Album carries no rootFolderRef of its own).
+// staleness half (publish a MetadataTask, mark MetadataReady; the Album reads
+// Pending until the document is fresh) layered under series.Reconciler's
+// shape for the "resolve a parent for path/quality inheritance" half (here,
+// the owning Artist instead of a RootFolder directly -- Album carries no
+// rootFolderRef of its own).
 //
 // This reconciler is the sole writer of status.conditions, status.tracks,
-// status.phase, status.path, status.trackFileCount, status.quality,
-// status.formatScore, status.cutoffMet, status.activeDownloadRef (derived
-// from the Album's own non-terminal Downloads, gap-fix ruling R-5) and
-// status.metadata.selectedReleaseID, under
-// k8s.ManagerCatalog. Every other leaf of status.metadata belongs to the
-// metadata gateway (k8s.ManagerCatalogMetadata) -- see
-// buildAlbumMetadataAC's doc comment in app/catalog/metadata/patch.go for
-// why the Artist fan-out that creates this object never seeds it.
-// selectedReleaseID is the one exception because only this reconciler can
-// decide it (selectedReleaseAC in reconciler.go); server-side apply tracks
-// ownership per leaf, so sharing the struct releases nothing of the
-// gateway's. status.pendingGrab, status.lastSearchedAt and
-// status.searchAttempts belong to the grab path
-// (k8s.ManagerCatalogGrab); this reconciler only READS
-// status.pendingGrab (for Phase) and never writes it, mirroring
-// episode.Reconciler's identical read-only treatment.
+// status.phase, status.cutoffReason, status.path, status.hasFile,
+// status.trackFileCount, status.trackSummary, status.fileQuality,
+// status.fileFormatScore, status.cutoffMet, status.activeDownloadRef
+// (derived from the Album's own non-terminal grab entries, gap-fix ruling
+// R-5) and status.metadata.selectedReleaseID, under k8s.ManagerCatalog.
+// Every other leaf of status.metadata belongs to the metadata gateway
+// (k8s.ManagerCatalogMetadata) -- see buildAlbumMetadataAC's doc comment in
+// app/catalog/metadata/patch.go for why the Artist fan-out that creates this
+// object never seeds it. selectedReleaseID is the one exception because only
+// this reconciler can decide it (selectedReleaseAC in reconciler.go);
+// server-side apply tracks ownership per leaf, so sharing the struct
+// releases nothing of the gateway's. status.pendingGrab,
+// status.lastSearchedAt and status.searchAttempts belong to the grab path
+// (k8s.ManagerCatalogGrab); this reconciler only READS status.pendingGrab
+// (for the phase) and never writes it, mirroring episode.Reconciler's
+// identical read-only treatment.
 //
-// status.quality/status.formatScore/status.cutoffMet ARE genuinely
-// evaluated, not stubbed: pkg/quality.FromCRD resolves a QualityProfile
-// generically regardless of media kind, and pkg/quality/definition.go's
-// nonVideoDefinitions carries a real music ladder (Trash..WAV, spec §9),
-// seeded into QualityProfile objects by the Bootstrap runnable
-// (pkg/quality/catalogue/data/profiles/music-lossless.json,
+// status.fileQuality, status.fileFormatScore and status.cutoffMet ARE
+// genuinely evaluated, not stubbed: pkg/quality.FromCRD resolves a
+// QualityProfile generically regardless of media kind, and
+// pkg/quality/definition.go's nonVideoDefinitions carries a real music
+// ladder (Trash..WAV, spec §9), seeded into QualityProfile objects by the
+// Bootstrap runnable (pkg/quality/catalogue/data/profiles/music-lossless.json,
 // music-standard.json). resolveProfile and FileState wire this the way
 // movie.Reconciler and audiobook.Reconciler do, except that an album is
-// ranked by EVERY file backing it, not one representative: status.quality
-// is the lowest file's quality and status.cutoffMet needs every file to
-// meet the cutoff, Lidarr's CutoffSpecification (FileState's doc comment).
+// ranked by EVERY file backing it, not one representative: fileQuality is
+// the lowest file's quality and cutoffMet needs every file to meet the
+// cutoff, Lidarr's CutoffSpecification (FileState's doc comment) -- and,
+// since design D6, every track of the selected release to have a file
+// (TracksMissing, Lidarr's TracksWithoutFiles clause), else the album reads
+// CutoffUnmet with cutoffReason TracksMissing and is searched again. The
+// search worker searches an Album (app/catalog/worker/search/nonvideo.go);
+// an unreleased one reads Unavailable until its release group's date.
 //
 // Track listing: status.tracks comes from the pkg/metadata.Album the
 // gateway also fetches for status.metadata -- fetched independently here,
@@ -69,7 +77,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // keep-the-monitored-release, most-files, most-tracks rule over the
 // releases the Artist's metadata profile accepts) and flattened into
 // status.tracks (BuildTracks). A MediaFile addressing one track --
-// spec.mediaRef {kind: album, name: <album>, track: <recording MBID>} --
-// sets that track's fileRef (FilesByRecording, filestate.go), and
-// status.trackFileCount counts them.
+// spec.mediaRef {kind: album, name: <album>, track: <recording MBID>}, which
+// the import sets on every attributed file (design D6) -- sets that track's
+// fileRef (FilesByRecording, filestate.go), status.trackFileCount counts
+// them and status.trackSummary prints "<trackFileCount>/<tracks>".
 package album
