@@ -28,12 +28,15 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/extid"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/hardcover"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/metron"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/openlibrary"
 )
 
 // hardcoverFixtures serves the recorded Hardcover responses by operation
@@ -121,4 +124,59 @@ func TestTheMetronPageStopsAtTheComicVolume(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "metron.cloud/series", "ComicMetadata carries no links; the page is on the model alone")
 	require.Equal(t, "1", ac.ExternalIDs["metron"])
+}
+
+// TestTheHardcoverPageReachesAnOpenLibraryAuthorsStatusAsALink: the
+// gateway's Lookup is first-success and Open Library, the primary, answers
+// an Author CR ahead of Hardcover (registry.go's tie-break), so the
+// document carries Open Library's links and never the Hardcover page the
+// Hardcover client's own Author records -- an Author with a spec.hardcoverID
+// got Hardcover's rating and no logo. The lean hardcover.Client.Page, asked
+// with the ids the document and the spec carry (target.go threads
+// spec.hardcoverID beside the Open Library key), answers the page, and
+// appended to the document's Links it renders through linksAC as the type
+// ui/author.go's providerLinksOf reads, after Open Library's own links.
+// Both documents come through the real clients over the recorded fixtures.
+// The gateway's call (enrich.go, after the primary lookup, when the Links
+// name no "hardcover" page) is the PageProvider leftover this test is the
+// status half of.
+func TestTheHardcoverPageReachesAnOpenLibraryAuthorsStatusAsALink(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	ol := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/authors/OL21594A.json", r.URL.Path)
+		b, err := os.ReadFile("../../../test/data/metadata/openlibrary/author_OL21594A.json")
+		require.NoError(t, err)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(b)
+	}))
+	t.Cleanup(ol.Close)
+	primary := openlibrary.New("clustarr-test", ol.Client(), ol.URL, pkgmetadata.NewLimiter(rate.Inf, 1))
+	hc := hardcoverFixtures(t, map[string]string{"AuthorPageByID": "author_page_51942.json"})
+
+	// The spec's ids as target.go builds them: the Open Library key the CR
+	// is keyed by, and the hardcover id beside it.
+	specIDs := pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryAuthor: "OL21594A", extid.KeyHardcover: "51942"}
+	a, err := primary.Author(context.Background(), specIDs)
+	require.NoError(t, err)
+	require.Equal(t, "Jane Austen", a.Name)
+	for _, l := range a.Links {
+		require.NotEqual(t, "hardcover", l.Type, "Open Library records no Hardcover page: the primary's document is the one without the link")
+	}
+
+	// enrich merges the spec's ids into the document's before it asks the
+	// supplementary providers; the same ids address the page.
+	a.IDs = a.IDs.Merge(specIDs)
+	link, err := hc.Page(context.Background(), commonv1.MediaKindAuthor, a.IDs)
+	require.NoError(t, err)
+	require.Equal(t, pkgmetadata.Link{Type: "hardcover", URL: "https://hardcover.app/authors/sharon-m-draper"}, link)
+	a.Links = append(a.Links, link)
+
+	ac := buildAuthorMetadataAC(a, nil, "", now)
+	var got []catalogv1alpha1.Link
+	for _, l := range ac.Links {
+		got = append(got, catalogv1alpha1.Link{Type: *l.Type, URL: *l.URL})
+	}
+	require.Contains(t, got, catalogv1alpha1.Link{Type: "hardcover", URL: "https://hardcover.app/authors/sharon-m-draper"}, "the type the author page's providerLinksOf reads")
+	require.Equal(t, "hardcover", *ac.Links[len(ac.Links)-1].Type, "appended after the primary's own links")
+	require.Equal(t, "51942", ac.ExternalIDs["hardcover"], "the id that addressed the page rides in externalIDs too")
 }

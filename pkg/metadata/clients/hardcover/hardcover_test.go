@@ -324,3 +324,80 @@ func TestRatingsWithoutAUsableIDAsksNothing(t *testing.T) {
 	_, err = c.Ratings(context.Background(), commonv1.MediaKindMovie, metadata.ExternalIDs{extid.KeyHardcover: "1"})
 	require.ErrorIs(t, err, metadata.ErrUnsupported)
 }
+
+// Hardcover answers an Author's or a Book's own page for an item another
+// provider answered (2026-11-10 design §9.3): the gateway's Lookup is
+// first-success and Open Library answers a Book or Author CR ahead of
+// Hardcover, so the page link Author and Book record above never reaches
+// such a document, and Page is the lean lookup the gateway asks afterwards
+// -- one row and its slug, by the Hardcover id or, for a book, the ISBN-13.
+func TestPageAnswersAnAuthorOrBookByHardcoverIDOrISBN(t *testing.T) {
+	srv, calls := serve(t, map[string]string{
+		"AuthorPageByID": "author_page_51942.json",
+		"BookPageByID":   "book_page_141397.json",
+		"BookPageByISBN": "book_page_by_isbn_9781416971702.json",
+	})
+	c := newClient(t, srv, "good")
+	ctx := context.Background()
+
+	author, err := c.Page(ctx, commonv1.MediaKindAuthor, metadata.ExternalIDs{metadata.KeyOpenLibraryAuthor: "OL21594A", extid.KeyHardcover: "51942"})
+	require.NoError(t, err)
+	require.Equal(t, metadata.Link{Type: extid.KeyHardcover, URL: "https://hardcover.app/authors/sharon-m-draper"}, author)
+	require.Equal(t, "AuthorPageByID", (*calls)[0].op)
+	require.Equal(t, float64(51942), (*calls)[0].vars["id"])
+	require.Equal(t, `query AuthorPageByID($id: Int!) { authors_by_pk(id: $id) { id slug } }`, (*calls)[0].query, "the row and its slug, nothing else")
+
+	byID, err := c.Page(ctx, commonv1.MediaKindBook, metadata.ExternalIDs{extid.KeyHardcover: "141397", metadata.KeyISBN13: "9781416971702"})
+	require.NoError(t, err)
+	require.Equal(t, metadata.Link{Type: extid.KeyHardcover, URL: "https://hardcover.app/books/out-of-my-mind"}, byID)
+	require.Equal(t, "BookPageByID", (*calls)[1].op, "the Hardcover id is preferred over the ISBN")
+	require.Equal(t, float64(141397), (*calls)[1].vars["id"])
+	require.NotContains(t, (*calls)[1].query, "editions(order_by", "the lean query, not the work with its fifty editions")
+
+	byISBN, err := c.Page(ctx, commonv1.MediaKindBook, metadata.ExternalIDs{metadata.KeyISBN13: "9781416971702", metadata.KeyOpenLibraryWork: "OL1W"})
+	require.NoError(t, err)
+	require.Equal(t, byID, byISBN)
+	require.Equal(t, "BookPageByISBN", (*calls)[2].op)
+	require.Equal(t, "9781416971702", (*calls)[2].vars["isbn"])
+}
+
+// TestPageWithoutAUsableIDAsksNothing: an Open Library-keyed item without a
+// hardcover id or an ISBN is nothing to ask (no request, no error, as
+// Ratings); one Hardcover does not know, or whose row has no slug, links
+// nothing rather than the site's index; a kind Hardcover has no pages for
+// is ErrUnsupported; and an id that is no Hardcover id is refused before
+// any request.
+func TestPageWithoutAUsableIDAsksNothing(t *testing.T) {
+	srv, calls := serve(t, map[string]string{
+		"BookPageByID":   "book_null.json",
+		"BookPageByISBN": "book_rating_by_isbn_none.json",
+		"AuthorPageByID": "author_page_null_slug.json",
+	})
+	c := newClient(t, srv, "good")
+	ctx := context.Background()
+
+	link, err := c.Page(ctx, commonv1.MediaKindAuthor, metadata.ExternalIDs{metadata.KeyOpenLibraryAuthor: "OL21594A"})
+	require.NoError(t, err)
+	require.Empty(t, link)
+	link, err = c.Page(ctx, commonv1.MediaKindBook, metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL138052W"})
+	require.NoError(t, err)
+	require.Empty(t, link)
+	require.Empty(t, *calls, "an item Hardcover cannot address is no request and no failure")
+
+	link, err = c.Page(ctx, commonv1.MediaKindBook, metadata.ExternalIDs{extid.KeyHardcover: "1"})
+	require.NoError(t, err)
+	require.Empty(t, link, "a null primary key is nothing to link")
+	link, err = c.Page(ctx, commonv1.MediaKindBook, metadata.ExternalIDs{metadata.KeyISBN13: "9780000000000"})
+	require.NoError(t, err)
+	require.Empty(t, link, "an ISBN no edition carries is nothing to link")
+	link, err = c.Page(ctx, commonv1.MediaKindAuthor, metadata.ExternalIDs{extid.KeyHardcover: "7"})
+	require.NoError(t, err)
+	require.Empty(t, link, "a row without a slug links nothing, never https://hardcover.app/authors/")
+	require.Len(t, *calls, 3)
+
+	_, err = c.Page(ctx, commonv1.MediaKindMovie, metadata.ExternalIDs{extid.KeyHardcover: "1"})
+	require.ErrorIs(t, err, metadata.ErrUnsupported)
+	_, err = c.Page(ctx, commonv1.MediaKindAuthor, metadata.ExternalIDs{extid.KeyHardcover: "OL21594A"})
+	require.ErrorIs(t, err, hardcover.ErrInvalidID, "an Open Library id handed as a Hardcover one is refused, not queried")
+	require.Len(t, *calls, 3, "neither refusal reached the server")
+}

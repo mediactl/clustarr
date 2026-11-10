@@ -511,6 +511,109 @@ func (c *Client) Ratings(ctx context.Context, kind commonv1.MediaKind, ids metad
 	return bookRatings(raw.Rating, raw.RatingsCount), nil
 }
 
+// The page alone, for an Author or a Book another provider answered: the
+// gateway's Registry.Lookup is first-success and Open Library, the primary
+// (design §4.2 keys a Book or Author CR by its ids), answers ahead of
+// Hardcover, so the Author and Book above -- and the page link they record
+// -- are reached only when Hardcover itself answers. These are the lean
+// queries the gateway asks after the primary lookup, as it asks Ratings:
+// one row, its slug, nothing else.
+var (
+	authorPageByIDQuery = `query AuthorPageByID($id: Int!) { authors_by_pk(id: $id) { id slug } }`
+	bookPageByIDQuery   = `query BookPageByID($id: Int!) { books_by_pk(id: $id) { id slug } }`
+	bookPageByISBNQuery = `query BookPageByISBN($isbn: String!) { editions(where: {isbn_13: {_eq: $isbn}}, limit: 1) { book { id slug } } }`
+)
+
+type rawPage struct {
+	ID   int64  `json:"id"`
+	Slug string `json:"slug"`
+}
+
+// Page answers an Author's or a Book's page on Hardcover's site as a Link
+// of type extid.KeyHardcover (2026-11-10 design §9.3: the author and book
+// pages' Hardcover logo), for an item another provider answered -- an
+// Author by ids[extid.KeyHardcover] (spec.hardcoverID, which target.go
+// threads beside the Open Library key), a Book by ids[extid.KeyHardcover]
+// else by ids[metadata.KeyISBN13] through the edition that carries it (the
+// gateway adds the work's first edition's ISBN for Ratings, and the same
+// ids serve here). An item carrying neither, one Hardcover does not know
+// (Hasura answers a missing primary key with null) and a row without a slug
+// are answered with an empty Link and no error, as Ratings answers them:
+// nothing to link is not a failure, and the gateway asks on every refresh.
+// Any other kind is ErrUnsupported. It is the Page of the gateway's
+// PageProvider contract (Page(ctx, kind, ids) (Link, error)).
+func (c *Client) Page(ctx context.Context, kind commonv1.MediaKind, ids metadata.ExternalIDs) (metadata.Link, error) {
+	ctx, span := tracing.Start(ctx, "metadata.hardcover.Page")
+	defer span.End()
+
+	var (
+		raw  *rawPage
+		path string
+	)
+	switch kind {
+	case commonv1.MediaKindAuthor:
+		path = "authors"
+		if ids[extid.KeyHardcover] == "" {
+			return metadata.Link{}, nil
+		}
+		id, err := parseID(ids[extid.KeyHardcover])
+		if err != nil {
+			tracing.RecordError(span, err)
+			return metadata.Link{}, err
+		}
+		var out struct {
+			Author *rawPage `json:"authors_by_pk"`
+		}
+		if err := c.query(ctx, authorPageByIDQuery, map[string]any{"id": id}, &out); err != nil {
+			tracing.RecordError(span, err)
+			return metadata.Link{}, err
+		}
+		raw = out.Author
+	case commonv1.MediaKindBook:
+		path = "books"
+		switch {
+		case ids[extid.KeyHardcover] != "":
+			id, err := parseID(ids[extid.KeyHardcover])
+			if err != nil {
+				tracing.RecordError(span, err)
+				return metadata.Link{}, err
+			}
+			var out struct {
+				Book *rawPage `json:"books_by_pk"`
+			}
+			if err := c.query(ctx, bookPageByIDQuery, map[string]any{"id": id}, &out); err != nil {
+				tracing.RecordError(span, err)
+				return metadata.Link{}, err
+			}
+			raw = out.Book
+		case ids[metadata.KeyISBN13] != "":
+			var out struct {
+				Editions []struct {
+					Book *rawPage `json:"book"`
+				} `json:"editions"`
+			}
+			if err := c.query(ctx, bookPageByISBNQuery, map[string]any{"isbn": ids[metadata.KeyISBN13]}, &out); err != nil {
+				tracing.RecordError(span, err)
+				return metadata.Link{}, err
+			}
+			if len(out.Editions) > 0 {
+				raw = out.Editions[0].Book
+			}
+		default:
+			return metadata.Link{}, nil
+		}
+	default:
+		err := fmt.Errorf("hardcover: no pages for kind %q: %w", kind, metadata.ErrUnsupported)
+		tracing.RecordError(span, err)
+		return metadata.Link{}, err
+	}
+	if raw == nil {
+		return metadata.Link{}, nil
+	}
+	link, _ := pageLink(path, raw.Slug)
+	return link, nil
+}
+
 func mapEdition(raw *rawEdition) metadata.Edition {
 	e := metadata.Edition{
 		IDs:         metadata.ExternalIDs{extid.KeyHardcover: strconv.FormatInt(raw.ID, 10)},
