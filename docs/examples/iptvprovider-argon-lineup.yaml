@@ -1,0 +1,155 @@
+# An IPTVProvider with a custom lineup: argon-tv on talos, 2026-11-10.
+apiVersion: clustarr.io/v1alpha1
+kind: IPTVProvider
+metadata:
+  name: argon-tv
+  namespace: clustarr-system
+spec:
+  type: Xtream
+  server: tvload.win
+  credentialsRef:
+    name: argon-tv-credentials
+  guideURL: https://iptv-epg.org/files/epg-us.xml
+  device:
+    friendlyName: Clustarr Argon TV
+  stream:
+    buffer: 64Mi
+  tuners: 1
+  # The argon-tv lineup for talos (clustarr IPTVProvider spec.lineup and
+  # spec.guideSources), drafted 2026-11-10 from the playlist cached 05:45Z.
+  # Rules are tried in order; the first category whose groups and names match
+  # and whose exclude does not takes the entry. A rule whose name repeats an
+  # earlier one joins that category (the first carries the base).
+  lineup:
+    enabled: false            # the dry run; true at the cutover
+    trim:
+      - '\s*\[(1080p|720p|480p|4K[^\]]*|H265)\]'
+      - '^(USA|US|TV|VIS):\s*'
+      - '\s*\((E|EAST)\)$'
+      - '\s+EAST$'
+      - '\s*\(bk\)$'
+      - '\s*\(BK\)$'
+      - '\s+$'
+    exclude:                  # a trimmed name or its group matching any is left out everywhere
+      - '✶'
+      - '\bWEST\b'
+      - '\(W\)'
+      - '\bINFO$'
+      - '\[480p\]'
+      - 'EVENT ONLY'
+      - 'OVERFLOW'
+      - 'ALTERNATE'
+      - '\bALT[-. ]'
+      - 'ESPAÑOL'
+      - 'ESPANOL'
+      - 'LATINO'
+      - 'DEPORTES'
+      - '\(ES\)'
+      - 'TELEMUNDO'
+      - 'UNIVISION'
+      - 'UNIMAS'
+      - 'GALAVISION'
+      - 'UNIVERSO'
+      - 'TUDN'
+      - '\bVIX\b'
+      - 'ESTRELLA'
+      - 'SOMOS'
+      - 'NOTICIAS'
+      - '^MEGA TV'
+      - '^AMERICA TV'
+      - 'ARIRANG'
+      - '^RT '
+      - 'SCIENTOLOGY'
+      - 'BIG BROTHER'
+      - '\(VIRTUAL\)'
+      - '^A3 '
+      - '^ABC7 '
+      - '^[A-Z .\-]+, [A-Z]{2} '        # "ATLANTA, GA WSB ABC 2 A3 ..." out-of-market locals in the TV group
+      - '^(QVC|HSN|SHOP LC|JEWELRY|GEM SHOPPING|HOME SHOPPING|DEAL ZONE)'
+      - '^WNYC$'
+      - '^AFN '
+      - 'GINX'
+    categories:
+      - name: Premium
+        base: 10500
+        groups: ['USA: MOVIES NETWORK [1080p]', 'USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^HBO\b', '^CINEM[AÁ]X', '^MOREMAX', '^ACTION MAX', '^SHOWTIME', '^SHOXBET', '^STARZ', '^MGM\+', '^SCREENPIX', '^THE MOVIE CHANNEL', '^PARAMOUNT\+ WITH SHOWTIME', '^MOVIEPLEX', '^INDIEPLEX', '^RETROPLEX']
+      - name: News
+        base: 1000
+        groups: ['USA: NEWS NETWORK [1080p]']
+        exclude: ['^(CBS|FOX)$', '^(69 NEWS|7NEWS|CBS HARTFORD|CBS PHILADELPHIA|CW |FOX 29|FOX HARTFORD|FOX KANSAS|KTLA|NBC LOS ANGELES|NBC PHILADELPHIA|NEWS 12|SPECTRUM|VEGAS34|NESN|NBC SN|NECN)']
+      - name: News
+        groups: ['USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^ACCUWEATHER', '^BBC NEWS', '^BLOOMBERG', '^CHEDDAR', '^CNBC', '^CNN', '^CSPAN', '^C-SPAN', '^FOX BUSINESS', '^FOX NEWS', '^FOX WEATHER', '^HLN$', '^I24', '^MS NOW', '^NBC NEWS NOW', '^NEWSMAX', '^NEWSNATION', '^NEWS NATION', '^SCRIPPS NEWS', '^THE WEATHER CHANNEL', '^YAHOO FINANCE', '^ABC NEWS', '^THE FIRST$', '^LIVENOW', '^NEWSY', '^LOCAL NOW', '^THE BLAZE', '^BLAZE TV', '^REAL AMERICAN? VOICE', "^REAL AMERICA'S VOICE"]
+      - name: Sports
+        base: 2000
+        groups: ['USA: SPORTS NETWORK [1080p]', 'USA: MAX ESPN [720p]/']
+      - name: Sports
+        groups: ['USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^ACC ', '^ALTITUDE', '^BIG 12', '^BIG TEN', '^BTN$', '^BEIN SPORTS', '^BILLIARD', '^CBS SPORTS', '^CHICAGO SPORTS', '^COWBOY CHANNEL', '^DAZN', '^DP WORLD TOUR', '^DRAFTKINGS', '^ESPN', '^F1$', '^FANDUEL', '^FIGHT NETWORK', '^FOX SPORTS', '^FUEL TV', '^GOLF', '^MADISON SQUARE', '^MASN', '^MAV TV', '^MLB ', '^THE MLB', '^MONUMENTAL', '^MOTO GP', '^MOTORTREND', '^MSG', '^NBA ', '^NBC SPORTS', '^NESN', '^NEXT LEVEL SPORTS', '^NFL ', '^NHL ', '^OUTDOOR CHANNEL', '^OUTSIDE TV', '^PICKLEBALL', '^PLAYERS TV', '^POKERGO', '^PURSUIT', '^RACER ', '^RACING AMERICA', '^RED BULL TV', '^RYZ SPORTS', '^SEC NETWORK', '^SPECTRUM SPORTSNET', '^SPEEDVISION', '^SPORTS ILLUSTRATED', '^SPORTSGRID', '^SPORTSMAN', '^SPORTSNET', '^STADIUM', '^SWERVE', '^TENNIS', '^TNA$', '^TVG ', '^UFC', '^WILLOW', '^WIRED2FISH', '^WNBA', "^WOMEN'S SPORTS", '^WORLD FISHING', '^WORLD POKER', '^WWE', '^YAHOO SPORTS', '^YES$', '^THE JIM ROME', "^ALL WOMEN'S SPORTS", '^BRAVESVISION', '^SPACE CITY', '^HUNT CHANNEL', '^POWERNATION']
+      - name: Kids
+        base: 5000
+        groups: ['USA: KIDS NETWORK [1080p]']
+      - name: Kids
+        groups: ['USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^BABY ?FIRST', '^BABY TV', '^BOOMERANG', '^CARTOON NETWORK', '^DISNEY (CHANNEL|JUNIOR|JR|XD)', '^LOOLOO', '^METV TOONS', '^NICK', '^TEEN ?NICK', '^PBS KIDS', '^YU-GI-OH', '^DISCOVERY FAMILY', '^KARTOON', '^UNIVERSAL KIDS']
+      - name: Movies
+        base: 4000
+        groups: ['USA: MOVIES NETWORK [1080p]']
+      - name: Movies
+        groups: ['USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^TCM', '^FX MOVIE', '^FXM', '^IFC$', '^SUNDANCE', '^LIONSGATE', '^CLASSIC CINEMA', '^MOVIESPHERE', '^LMN$', '^LIFETIME MOVIE', '^MOVIE FAVORITES', '^NET MOVIES', '^FAMILY MOVIE', '^GREAT AMERICAN ROMCOMS', '^HORROR BY ALTER', '^SURF CINEMA', '^AT THE MOVIES', '^SHORTSTV', '^TRIBECA', '^REELZ', '^MGM$', '^PIXL', '^GRIT$', '^CHARGE', '^COMET$', '^DOVE (CHANNEL|MOVIES)', '^SONY MOVIE', '^THE FILM DETECTIVE', '^A-Z CLASSIC', '^FMC', '^HALLMARK MOVIES', '^50 CENT ACTION', '^ALIEN NATION']
+      - name: Entertainment / Comedy & Game Shows
+        base: 6000
+        groups: ['USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^COMEDY CENTRAL', '^TBS$', '^TRUTV', '^LAFF', '^CATCHY COMEDY', '^COMEDY TV', '^COMEDY DYNAMICS', '^ALWAYS FUNNY', '^FAIL ARMY', '^FXX', '^ADULT SWIM', "^AMERICA'S FUNNIEST", '^SNL VAULT', '^LOL! NETWORK', '^GAME SHOW', '^GSN$', '^GAME TV', '^BUZZR', '^FAMILY FEUD', "^LET'S MAKE A DEAL", '^THE PRICE IS RIGHT', '^SUPERMARKET SWEEP', '^DEAL OR NO DEAL', '^THREE STOOGES', '^PORTLANDIA', '^ANGER MANAGEMENT', '^ARE WE THERE YET']
+      - name: Entertainment / Drama & Crime
+        base: 6500
+        groups: ['USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^A&E$', '^AMC', '^BBC AMERICA', '^FX$', '^USA NETWORK', '^TNT', '^SYFY', '^PARAMOUNT NETWORK', '^PARAMOUNT$', '^ION', '^INVESTIGATION DISCOVERY', '^ID$', '^OXYGEN', '^COURT TV', '^LAW AND CRIME', '^JUSTICE CENTRAL', '^CRIME ', '^TRUE CRIME', '^TRUE CRMZ', '^COLD CASE', '^THE FIRST 48', '^LOVE KILLS', '^LIVING WITH EVIL', '^I \(ALMOST\)', '^ACORN TV', '^HALLMARK MYSTERY', '^STORIES BY AMC', '^THE WALKING DEAD', '^DANGER TV', '^EL REY', '^LIFETIME$', '^WE TV', '^POP$', '^FREEFORM', '^OVATION', '^STORY TV', '^UNXPLAINED', '^GHOSTS ARE REAL', '^MYSTERIOUS WORLDS', '^DATELINE', '^20/20', '^PRIMETIME SOAPS', '^THE U \(WCIU\)', '^WGN9', '^BOUNCE', '^DABL', '^CLEO TV', '^ASPIRE', '^TV ONE', '^BET$', '^BET HER', '^LOGO$', '^FOX SOUL', '^THEGRIO', '^EBONY TV', '^VICE$', '^GREAT$', '^AXS TV']
+      - name: Entertainment / Reality & Lifestyle
+        base: 7000
+        groups: ['USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^BRAVO', '^E!', '^HGTV', '^FOOD NETWORK', '^COOKING CHANNEL', '^TLC', '^OWN$', '^DISCOVERY LIFE', '^TRAVEL CHANNEL', '^MAGNOLIA', '^TASTEMADE', '^RECIPE TV', '^SO YUMMY', '^DIY ', '^(THE )?DESIGN NETWORK', '^FYI', '^ALL REALITY', '^LIFETIME REAL WOMEN', '^REAL HOUSEWIVES', '^MILLION DOLLAR LISTING', '^DANCE MOMS', '^LOVE AFTER LOCKUP', '^SAY YES', '^TINY HOUSE', '^AT HOME WITH', '^BIZARRE FOODS', '^JAMIE OLIVER', "^AMERICA'S TEST KITCHEN", '^GUSTO', '^GOTRAVELER', '^HOW TO$', '^DOG WHISPERER', '^THE PET COLLECTIVE', '^DOG TV', '^NOSEY', '^CONFESS', '^HERSPHERE', '^SWEET ESCAPES', '^BEACH', '^RVTV', '^CAR CHASE', '^TORQUE', "^AMERICA'S GOT TALENT", '^THE MASKED SINGER', '^TODAY ALL DAY', '^THE REPAIR SHOP', '^WAYPOINT', '^DESTINATION AMERICA', '^DUCK DYNASTY', '^AX MEN', '^ICE ROAD TRUCKERS', '^LOVE NATURE', '^MEATEATER', '^RFD TV', '^COWBOY WAY', '^HEARTLAND']
+      - name: Entertainment / Science, Nature & History
+        base: 7500
+        groups: ['USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^DISCOVERY', '^SCIENCE$', '^ANIMAL PLANET', '^NAT GEO', '^NATIONAL GEOGRAPHIC', '^HISTORY', '^MILITARY', '^AMERICAN? HEROES', '^SMITHSONIAN', '^CURIOSITY', '^COSMIC FRONTIERS', '^DOCUMENTARY', '^MAGELLAN', '^EARTHX', '^INWONDER', '^BBC EARTH', '^MODERN MARVELS', '^MYTHBUSTERS', '^AWE$', '^BOB ROSS', '^PBS$']
+      - name: Entertainment / Music
+        base: 8000
+        groups: ['USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^MTV', '^VH1', '^CMT', '^BET (JAMS|SOUL|GOSPEL)', '^FUSE', '^REVOLT', '^MUSIC CHOICE', '^GREAT AMERICAN COUNTRY', '^FM$']
+      - name: Entertainment / Faith & Family
+        base: 8500
+        groups: ['USA: BIBLICAL/RELIGIOUS [1080p]']
+      - name: Entertainment / Faith & Family
+        groups: ['USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^DAYSTAR$', '^DOVE TV', '^EWTN', '^TBN', '^HOPE CHANNEL', '^INSP', '^BYU', '^JOEL OSTEEN', '^IN TOUCH', '^PUREFLIX', '^UP ?TV', '^GREAT AMERICAN (FAMILY|LIVING)', '^HALLMARK( CHANNEL| FAMILY)?$', '^FAMILY ENTERTAINMENT', '^FETV', '^NBT$']
+      - name: Entertainment / Classic TV
+        base: 9000
+        groups: ['USA: TV   [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['^ME ?TV', '^METV$', '^ANTENNA TV', '^COZI', '^GET TV', '^HEROES AND ICONS', '^RETRO TV', '^START TV', '^TV LAND', '^JOHNNY CARSON', '^THE CAROL BURNETT']
+      - name: Entertainment / On Demand
+        base: 9500
+        groups: ['USA: HULU NETWORK [1080p]', 'USA: HBO MAX NETWORK [1080p]', 'USA: DISNEY+ NETWORK [1080p]', 'USA: PEACOCK NETWORK [1080p]', 'USA: PARAMOUNT+ [1080p]']
+      - name: Local
+        base: 10000
+        groups: ['USA: ABC NETWORK [1080p]', 'USA: CBS NETWORK [1080p]', 'USA: NBC NETWORK [1080p]', 'USA: FOX NETWORK [1080p]', 'USA: CW/MY NETWORK [1080p]', 'USA: PBS NETWORK [1080p]', 'USA: ENTERTAINMENT [1080p]']
+        names: ['\(WEAR\)', '\(WALA\)', '\(WKRG\)', '\(WPMI\)', '\(WABC\)', '\(WNYW\)', '\(WCBS\)', '\(WPIX\)', '\(WWOR\)', '\(WNBC\)', '\(WNET\)', '^ABC$']
+  guideSources:
+    plex:
+      credentialsRef: {name: plex-token, key: token}
+      refresh: 24h
+      rate: 2
+      lineups:
+        - 657c8183afd0f02cd353633f   # DIRECTV Mobile
+        - 657cb97c00fec317e3e246e1   # DISH Mobile
+        - 5fc76e2a7a5882002d878d49   # Cox Communications (Fort Walton Beach)
+        - 5fc76e87f26e2b002d32f6d6   # AT&T U-verse TV (Fort Walton Beach)
+        - 5fc76b68598c41002dbdf482   # Local Broadcast Listings (32548)
+        - 657cb9b8a698374a7a2dbca0   # DIRECTV New York
+        - 5fc76e2317b7aa002d062f03   # Verizon Fios New York Plus
+        - 5fc76c49ef776a002eca0b4a   # Local Broadcast Listings (10001)
+        - 5fc76bedef776a002ec9fd3e   # Xfinity Chicago
+        - 5fc76d71c8a5a5002ee47291   # Xfinity Boston
+        - 6034f1e2a24f08002ca5afe8   # Charter Spectrum Los Angeles
