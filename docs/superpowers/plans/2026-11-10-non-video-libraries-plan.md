@@ -749,7 +749,11 @@ spec's §9 "Wave C" sentence lists the commits; seven agents (five reviews,
 the C4b ui half, the C9 fix) died on the account's usage limit and wave D
 (nonvideo-implement-d) re-runs them with the follow-through tasks D1-D6.
 **Wave D (2026-11-10):** twenty agents, none lost; the spec's §9 "Wave D"
-paragraph lists the twelve commits and the open items. Leftovers recorded
+paragraph lists the twelve commits and the open items; the controlling
+session's integration commit bc4987f7 took the small cross-ownership edits
+the agents recorded (the audiobook page's part ordinal, Metron's search
+fields, the comic possessives, the Comic memo keyed under the flag, the
+guard's third request, two envtests re-aligned). Leftovers recorded
 by the agents for whoever next touches them: `app/catalog/controller/book/path.go`
 writes a standalone book's `status.path` as the root (render `{Book Title}`
 as `catalogctx.BookFilePath` does; the ui falls back to the file's
