@@ -112,7 +112,7 @@ func (s *Stage) Plan(ctx context.Context, _ *remediation.Env, v *remediation.Ite
 	if err != nil {
 		return remediation.ItemResult{}, remediation.Transient(err)
 	}
-	plan := grabplan.Decide(g.v)
+	plan := grabplan.DecideContext(ctx, g.v)
 	return s.result(ctx, v, g, plan), nil
 }
 

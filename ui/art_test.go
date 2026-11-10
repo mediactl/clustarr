@@ -406,6 +406,7 @@ func TestArtRetriesAnObjectOverwrittenMidRead(t *testing.T) {
 	srv, err := natsserver.NewServer(&natsserver.Options{
 		ServerName: "clustarr-ui-art-test", Host: "127.0.0.1", Port: -1,
 		JetStream: true, StoreDir: t.TempDir(), NoLog: true, NoSigs: true,
+		JetStreamMaxStore: 64 << 30, // the topology's reservations, not the host's free disk
 	})
 	require.NoError(t, err)
 	go srv.Start()

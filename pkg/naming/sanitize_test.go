@@ -63,3 +63,28 @@ func TestSanitizePathCapsTotalLengthByShrinkingLastSegment(t *testing.T) {
 	require.LessOrEqual(t, len(got), 4096)
 	require.True(t, strings.HasPrefix(got, "movies/"))
 }
+
+// TestSanitizePathIsIdempotent: a sanitized path sanitizes to itself, cut
+// on a space or a dot included (the component cap and the total cap both
+// trim after they cut), since every path the catalogue renders -- a
+// controller's status.path, the import's file path -- is sanitized once
+// from the same title and the two must agree byte for byte (2026-11-10,
+// catalogctx.ItemFolder; the F1 review's finding).
+func TestSanitizePathIsIdempotent(t *testing.T) {
+	opts := naming.DefaultSanitizeOptions()
+	for name, s := range map[string]string{
+		"a cut on a space":            strings.Repeat("Long ", 78),
+		"a cut on a dot":              strings.Repeat("Long.", 78),
+		"a path cut on a space":       "/data/movies/" + strings.Repeat("Long ", 78) + "/file.mkv",
+		"a total cap cut on a dot":    "movies/" + strings.Repeat("B.", 2100),
+		"illegal characters and dots": "/data/movies/What If...?/What If...?.mkv",
+	} {
+		once := naming.SanitizePath(s, opts)
+		require.Equal(t, once, naming.SanitizePath(once, opts), name)
+		require.Equal(t, strings.TrimRight(once, ". "), once, "%s: no trailing dot or space survives", name)
+	}
+	total := naming.SanitizeOptions{IsPath: true, MaxComponentBytes: 4096, MaxTotalBytes: 4096}
+	s := "movies/" + strings.Repeat("B ", 2100)
+	once := naming.SanitizePath(s, total)
+	require.Equal(t, once, naming.SanitizePath(once, total), "the total cap's cut")
+}

@@ -785,6 +785,19 @@ the controlling session. **Live on talos as Helm rev 248 since 2026-11-10 21:13Z
 58a75ef5 from 17:43Z): manager stable, the six tabs serve (the non-video
 ones empty until a music, comic or audiobook RootFolder exists), Live TV
 untouched.
+**Wave F (2026-11-10 night):** sixteen agents, none lost; the spec's §9
+"Wave F" sentence lists the commits and what stays open. The pre-existing
+reds this plan listed are closed but the movie controller's two
+MetadataTask assertions (TestMovieReconcilerRealController, red since the
+ledger) and the environmental ones (a full host: the embedded NATS test
+servers now declare JetStreamMaxStore). Leftovers the agents recorded: the
+Artist fan-out reads no ImportExclusion (app/catalog/controller/artist
+ensureAlbum; the scan applier's lookup is the pattern), so an album deleted
+with an exclusion returns; app/import/worker/fileimport/nonvideo.go's
+artist, author, audiobook and comic folder fallbacks re-implement the
+folder rule (join through catalogctx instead); ExternalIDs.MangaDex for a
+comic's exclusion; the four metadata failure-path tests still build no
+Records writer; pkg/decision's log lines under ctxBackground.
 
 ## Order and gates
 

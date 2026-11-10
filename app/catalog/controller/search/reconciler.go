@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package search owns the Search custom resource: the interactive search
 // trigger from spec §8.2. For a mediaRef-mode Search the reconciler
-// validates the request, publishes one catalog.SearchTask.v1 at high
+// validates the request, publishes one catalog.SearchTask.v2 at high
 // priority, and waits for the search worker to land its results. For a
 // query-mode Search (spec.query, free text against index's local release
 // index) there is no worker to wait for: the reconciler answers it directly

@@ -46,6 +46,11 @@ func startJetStream(t *testing.T) *nats.Conn {
 	srv, err := natsserver.NewServer(&natsserver.Options{
 		ServerName: "clustarr-history", Host: "127.0.0.1", Port: -1,
 		JetStream: true, StoreDir: dir, NoLog: true, NoSigs: true,
+		// events.Default().ForSingleNode() reserves file-backed object
+		// stores past 12 GiB; without a declared store cap nats-server
+		// caps the store at the host's free /tmp and refuses the topology
+		// on a full machine ("insufficient storage resources available").
+		JetStreamMaxStore: 64 << 30,
 	})
 	require.NoError(t, err)
 	go srv.Start()

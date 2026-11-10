@@ -2101,6 +2101,25 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   WrongItem in the modal's other-titles band, and a coverage rejection
   names the covered items' kind ("the release covers no issue of the
   comic"; `grabplan.CoverageRejections`' nouns, b903ea47).
+- **Every kind's `status.path` is the folder the import places files in**
+  (§5.5, wave F, 2026-11-10): one exported rule in `pkg/naming/catalogctx`
+  -- `ItemFolder` (movie, series, artist, author, audiobook, comic: a pinned
+  `spec.folder` joined as written on both sides, else the kind's preset,
+  every component sanitized and held strictly under the root), `BookFolder`
+  (an author's book under its Author's folder, a standalone one
+  `{Book Title}`), `AlbumFolder` (the album segment below the Artist's
+  folder) -- which the `*FilePath` functions join their file onto, so the
+  controller's folder and the import's file path cannot diverge (a "?" in a
+  title had put them one character apart; an agreement test per kind holds
+  them). A preset that renders nothing degrades to the root; a known title
+  the rule cannot render (only dots, or nothing once sanitized) reads Ready
+  False reason `FolderUnrenderable` with `reassertKnownStatus` and a
+  minute's requeue, never an endless backoff. A changed `status.path` moves
+  no file: the sanitizer is its own fixed point (`pkg/naming` trims after
+  the 255-byte cut as well as before), so a stale path renders the same
+  file path and the rename planner's proposal does not move; the ui's
+  folder, the delete's bound and the nfo stage's folder become the real one
+  at the item's next pass.
 - **A supplementary provider's own page** (§9.3, §9.4, 2026-11-10):
   `metadata.PageProvider` (`Page(ctx, kind, ids)`, a Link of the provider's
   own type -- Hardcover's for an Author or Book Open Library answered,
@@ -3302,6 +3321,17 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   envelope's ID rides in `Clustarr-Id` too, and `EnvelopeFromHeaders` drops every
   transport header (`Nats-Schedule*`, `Nats-Expected-*`, `Nats-TTL`,
   `Nats-Rollup`).
+- **net/http's Shutdown counts a silent (StateNew) connection as active
+  until it is 5 s old, so a browser preconnect open at SIGTERM made `ui.Run`
+  burn its whole `shutdownGrace` and exit "graceful shutdown: context
+  deadline exceeded" (Go issue 22682; 2026-11-10).** `Run` tracks silent
+  connections through the ConnState hook and closes them at the cancel, a
+  late accept closed as it arrives; and `/events/art` subscribes before it
+  writes its 200, since a change landing between the headers and the
+  subscribe was relayed to no one. An embedded NATS test server declares
+  `JetStreamMaxStore` (64 GiB): without it nats-server caps the store at
+  the host's free /tmp and refuses `ForSingleNode`'s 12 GiB of object-store
+  reservations on a full machine.
 - **The broker keys `InProgress`, `Ack` and `Nak` by stream sequence, not by
   delivery.** A lapsed handler could keep its redelivered copy from timing out,
   or move its deadline, so the bus mutes a lapsed delivery's `InProgress` and
@@ -3387,7 +3417,10 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   `logr.FromSlogHandler` bridge at startup.
 - Spans wrap every `Reconcile`, work handler, outbound provider call and ffmpeg
   run; propagation rides the `Clustarr-Trace` header already in `pkg/events`.
-- Prometheus metrics use the `clustarr_` prefix and base units. **Never label by
+- Prometheus metrics use the `clustarr_` prefix and base units; the catalogue
+  is held to `docs/observability.md`'s tables (`TestCatalogueMatchesTheObservabilityDoc`,
+  2026-11-10: a new series goes in the doc with it), and a label name is
+  refused by whole word, never substring (`profile` is not `file`). **Never label by
   title, path or release name** — unbounded cardinality.
 - **Every binary's Go memory limit is a share of its cgroup's** (owner,
   2026-11-03): each `cmd/*/main.go` has `import _

@@ -48,6 +48,10 @@ func startServer(t *testing.T) *natsserver.Server {
 		StoreDir:   dir,
 		NoLog:      true,
 		NoSigs:     true,
+		// The topology's file-backed reservations exceed 12 GiB; without a
+		// declared cap nats-server reads the host's free /tmp and refuses
+		// Ensure on a full machine ("insufficient storage resources").
+		JetStreamMaxStore: 64 << 30,
 	})
 	if err != nil {
 		t.Fatalf("new server: %v", err)

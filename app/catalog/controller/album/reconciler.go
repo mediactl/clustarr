@@ -51,6 +51,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -494,11 +495,6 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 			return ctrl.Result{}, err
 		}
 
-		eng := naming.NewEngine(naming.Config{
-			Dialect:          naming.Dialect(rf.Spec.Naming.Dialect),
-			ColonReplacement: naming.ColonReplacement(rf.Spec.Naming.ColonReplacement),
-			Overrides:        rf.Spec.Naming.Overrides,
-		})
 		nctx := naming.Context{
 			Kind:       commonv1.MediaKindAlbum,
 			ArtistName: artistObj.Status.Metadata.Name,
@@ -507,9 +503,22 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 			AlbumMbID:  alb.Spec.ReleaseGroupID,
 			Year:       ReleaseYear(alb.Status.Metadata.ReleaseDate),
 		}
-		pth, err := Path(artistObj.Status.Path, eng, nctx)
+		pth, err := Path(&rf, &artistObj, nctx)
 		if err != nil {
-			return ctrl.Result{}, err
+			// The folder rule cannot render the title it knows (one of only
+			// dots, or nothing once sanitized; catalogctx.AlbumFolder): the
+			// steady state is kept and the problem reported on Ready, as a
+			// missing RootFolder is, never an error that would back the item
+			// off for good; the next metadata refresh or spec edit renders
+			// it again.
+			r.reporter().WarnEdge(alb, alb.Status.Conditions, k8s.ConditionReady, metav1.ConditionFalse, catalogctx.ReasonFolderUnrenderable, "no folder under rootFolder %q: %v", artistObj.Spec.RootFolderRef, err)
+			k8s.MarkFalse(alb, &conditions, k8s.ConditionReady, catalogctx.ReasonFolderUnrenderable, "no folder under rootFolder %q: %v", artistObj.Spec.RootFolderRef, err)
+			statusAC = reassertKnownStatus(statusAC, alb)
+			statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+			if conflicted, perr := itemstatus.Apply(ctx, r.Client, alb, catalogac.Album(alb.Name, alb.Namespace).WithStatus(withEntries(ctx, statusAC, alb))); perr != nil || conflicted {
+				return itemstatus.Requeue(conflicted), perr
+			}
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 		statusAC = statusAC.WithPath(pth)
 	}

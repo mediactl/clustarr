@@ -969,7 +969,29 @@ PageProvider (7450a5f9, edcfd506). Still open: Album and Book import-list
 exclusions; a fileless standalone book's page still offers Refresh & Scan
 and Rename (dead until it has a file); the sibling controllers' `status.path`
 joins no sanitized component where the import's does (a "?" in a title);
-the grab check's refusal reason reaches no log. **Browser check done (2026-11-10, the
+the grab check's refusal reason reaches no log. **Wave F (nonvideo-implement-f,
+sixteen agents, 2026-11-10 night):** every kind's `status.path` through
+`catalogctx.ItemFolder`/`BookFolder`/`AlbumFolder` with `FolderUnrenderable`
+and the idempotent sanitizer (fb37ec34, 2b63e9bf, 2278c17f; the Album's by
+the controlling session); a standalone Book's import-list exclusion
+(a0432444: `ExclusionKindBook` by Open Library work id, read by the sync),
+the Album's written but withheld from the dialog until the Artist fan-out
+honours it (3511d14c); a fileless standalone book shows neither scan nor
+rename (`views.Detail.HasFolder`, 77ea5f3d); the grab check's refusal
+reason at settle (`grabplan.DecideContext`, fd6d561d, wired in the stage by
+the controlling session); `ui.Run`'s silent-connection shutdown and the art
+stream's subscribe-before-200 (59cff4f5, 1596e211); the pre-existing test
+reds repaired against the behaviour as built -- the metadata gateway's 17
+envtests over a records harness (738def0b), the search controller's two
+(5fa4de09), the metrics catalogue held to docs/observability.md (9e4677d2,
+5268eb7c), the schema guards (ff9d3191), crdcheck's Live TV rule (925794e1,
+77e14734); the book modal's return URL and the doc debts (8a19b362,
+053b2f23). Still open: the Artist fan-out honouring an Album's exclusion
+(and the Author's a Book's); a MangaDex exclusion pair for comics; the
+import's own non-video folder fallbacks re-implementing the folder rule
+(fileimport/nonvideo.go); the movie controller's two MetadataTask
+assertions (red since the ledger); `catalog.ImageSets.v1`'s wire name
+(owner). **Browser check done (2026-11-10, the
 controlling session, headless Chrome against bin/ui at 819dc23f over an
 envtest apiserver filled by `ui/preview_harness_test.go`, with talos's NATS
 port-forwarded):** the artist, comic, issue, audiobook, author, book and

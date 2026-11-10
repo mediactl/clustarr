@@ -18,12 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package album
 
 import (
-	"path"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 )
 
 // ReleaseYear extracts the calendar year naming.Context.Year needs from an
@@ -51,28 +50,15 @@ func ReleaseYear(releaseDate *metav1.Time) int {
 	return releaseDate.Time.UTC().Year()
 }
 
-// Path resolves the folder an Album is stored under, given artistPath (the
-// owning Artist's OWN already-resolved status.path) and a naming.Context
-// describing this album.
-//
-// naming.Engine.BuildFolder(MediaKindAlbum, ctx) renders
-// "<artist folder>/<album folder>" as one joined path (preset.go's own
-// path.Join) -- but its artist segment is recomputed from ctx.ArtistName
-// via the dialect's plain "{Artist Name}" template, which cannot see
-// Artist.Spec.Folder (a manual override the Artist reconciler's own Path
-// already resolved into artistPath). Recomputing it here would let the two
-// disagree whenever an operator sets spec.folder on the Artist. Rather than
-// add a second, artist-segment-only naming primitive to pkg/naming for this
-// one caller, this takes only the trailing (album-only) segment via
-// path.Base and joins it onto the Artist's own resolved path instead,
-// keeping the two always in agreement. ctx.ArtistName is still required
-// (BuildFolder's Album case renders it before path.Base discards it), so
-// callers must still set it even though its value never appears in the
-// result.
-func Path(artistPath string, engine naming.Engine, ctx naming.Context) (string, error) {
-	full, err := engine.BuildFolder(commonv1.MediaKindAlbum, ctx)
-	if err != nil {
-		return "", err
-	}
-	return path.Join(artistPath, path.Base(full)), nil
+// Path resolves the folder an Album is stored under: catalogctx.AlbumFolder,
+// the rule the import's TrackFilePath places files by (2026-11-10 non-video
+// design §5.5; wave F) -- the album segment of the preset, sanitized and
+// held under the root, below the Artist's own folder (its pinned spec.folder
+// as written, else its status.path, else the artist preset), so the
+// status.path this controller writes and the folder the import creates
+// cannot diverge. An album whose title has not arrived is the artist's
+// folder; a title the rule cannot render is an error the reconciler reports
+// as catalogctx.ReasonFolderUnrenderable.
+func Path(root *catalogv1alpha1.RootFolder, artist *catalogv1alpha1.Artist, c naming.Context) (string, error) {
+	return catalogctx.AlbumFolder(root, artist, c)
 }

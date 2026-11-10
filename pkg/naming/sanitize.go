@@ -115,7 +115,12 @@ func sanitizeComponent(s string, opts SanitizeOptions) string {
 		}
 	}
 	out := strings.TrimRight(b.String(), ". ")
-	return truncateBytes(out, opts.MaxComponentBytes)
+	// Trimmed again after the cut: a 255-byte cut landing on a space or a
+	// dot would leave a trailing one a second pass removes, and every
+	// path the catalogue renders must be the sanitizer's fixed point --
+	// the controllers' status.path and the import's file path sanitize the
+	// same title once each (2026-11-10, catalogctx.ItemFolder).
+	return strings.TrimRight(truncateBytes(out, opts.MaxComponentBytes), ". ")
 }
 
 // truncateBytes trims s to at most max bytes without splitting a
@@ -159,5 +164,5 @@ func capTotal(s string, max int, isPath bool) string {
 	if room <= 0 {
 		return truncateBytes(s, max) // pathological: head alone already over budget
 	}
-	return head + truncateBytes(tail, room)
+	return head + strings.TrimRight(truncateBytes(tail, room), ". ")
 }

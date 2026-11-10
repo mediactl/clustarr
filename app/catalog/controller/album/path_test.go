@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package album_test
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,23 +27,49 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 )
 
 func TestPathJoinsOnlyTheAlbumSegmentOntoTheArtistsOwnPath(t *testing.T) {
-	eng := naming.NewEngine(naming.Config{Dialect: naming.DialectPlex})
+	root := &catalogv1alpha1.RootFolder{Spec: catalogv1alpha1.RootFolderSpec{Path: "/music", Kind: "music", Naming: catalogv1alpha1.NamingSpec{Dialect: "plex"}}}
+	artist := &catalogv1alpha1.Artist{Spec: catalogv1alpha1.ArtistSpec{Folder: new("Radiohead (custom folder)")}, Status: catalogv1alpha1.ArtistStatus{Path: "/music/Radiohead (custom folder)"}}
 	ctx := naming.Context{
 		Kind:       commonv1.MediaKindAlbum,
 		ArtistName: "Radiohead",
 		AlbumTitle: "OK Computer",
 		Year:       1997,
 	}
-	got, err := album.Path("/music/Radiohead (custom folder)", eng, ctx)
+	got, err := album.Path(root, artist, ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "/music/Radiohead (custom folder)/OK Computer (1997)", got,
-		"the artist segment must come from artistPath, never re-rendered from ctx.ArtistName")
+		"the artist segment is the Artist's own pinned folder, never re-rendered from ctx.ArtistName")
+}
+
+// TestPathAgreesWithTheImport holds the Album controller's status.path to
+// the folder the import places the album's tracks in (catalogctx.TrackFilePath
+// with no status.path yet, the import's shape for a new album), over a plain
+// title, every illegal character, a trailing dot and a long title
+// (2026-11-10 non-video design §5.5; the F1 review's finding).
+func TestPathAgreesWithTheImport(t *testing.T) {
+	root := &catalogv1alpha1.RootFolder{Spec: catalogv1alpha1.RootFolderSpec{Path: "/music", Kind: "music", Naming: catalogv1alpha1.NamingSpec{Dialect: "plex"}}}
+	artist := &catalogv1alpha1.Artist{ObjectMeta: metav1.ObjectMeta{Name: "radiohead"}, Spec: catalogv1alpha1.ArtistSpec{MusicBrainzID: "mbid-artist"}, Status: catalogv1alpha1.ArtistStatus{Path: "/music/Radiohead", Metadata: &catalogv1alpha1.ArtistMetadata{Name: "Radiohead"}}}
+	for _, title := range []string{"OK Computer", "What If...?", `A:B*C"D<E>F|G`, "Trailing dot.", strings.Repeat("Long ", 78)} {
+		alb := &catalogv1alpha1.Album{ObjectMeta: metav1.ObjectMeta{Name: "ok-computer"}, Spec: catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg"},
+			Status: catalogv1alpha1.AlbumStatus{Metadata: &catalogv1alpha1.AlbumMetadata{Title: title}}}
+		track := &catalogv1alpha1.Track{RecordingID: "rec-1", Medium: 1, Number: 1, Title: "Airbag"}
+		c, ok := catalogctx.Album(artist, alb, track)
+		require.True(t, ok, title)
+		c.Year = 1997
+		folder, err := album.Path(root, artist, c)
+		require.NoError(t, err, title)
+		file, err := catalogctx.TrackFilePath(root, artist, alb, c, ".flac")
+		require.NoError(t, err, title)
+		assert.Equal(t, folder, filepath.Dir(file), "%q: the controller's folder is the import's", title)
+	}
 }
 
 // TestReleaseYearUsesUTCNotTheReconcilingReplicasLocalZone pins the

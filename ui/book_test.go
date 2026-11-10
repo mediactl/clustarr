@@ -212,7 +212,7 @@ func standaloneBookPath(t *testing.T, root *catalogv1.RootFolder, b *catalogv1.B
 	t.Helper()
 	c, ok := catalogctx.Book(nil, b)
 	require.True(t, ok, "the book has a title")
-	p, err := bookctl.Path(root.Spec.Path, nil, catalogctx.EngineFor(root), c)
+	p, err := bookctl.Path(root, nil, c)
 	require.NoError(t, err)
 	return p
 }
