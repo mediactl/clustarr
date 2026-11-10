@@ -26,6 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -173,8 +174,10 @@ func RenderNaming(mf *catalogv1alpha1.MediaFile, look NamingLookup, mi *commonv1
 		return out, false
 	}
 	// catalogctx.File's context carries only the catalogue's regexp deadline
-	// and logging, so the pure render passes context.Background().
-	expected, err := look.owner.render(look.root, catalogctx.File(context.Background(), look.owner.context, &spec, mi), catalogctx.ContainerExt(mi, spec.Path))
+	// and logging, so the pure render passes context.Background(). The
+	// extension is the probed container's for a video file and the file's
+	// own for every other kind (catalogctx.FileExt).
+	expected, err := look.owner.render(look.root, catalogctx.File(context.Background(), look.owner.context, &spec, mi), catalogctx.FileExt(spec.MediaRef.Kind, mi, spec.Path))
 	if err == nil && len(expected) > maxExpectedPathLen {
 		err = fmt.Errorf("the rendered path is %d bytes, over the %d status.naming.expectedPath holds", len(expected), maxExpectedPathLen)
 	}
@@ -201,12 +204,19 @@ func keepNaming(prev *catalogv1alpha1.NamingStatus, specPath string) *catalogv1a
 	return &out
 }
 
-// namingOwnerOf loads, through c, the item mf backs: a Movie, or every
-// Episode the file covers (spec.mediaRef.name plus keys, a multi-episode
-// file) and their Series. A missing item, or one whose metadata has not
-// arrived, is MetadataPending; an episode reference naming no episode, or
-// episodes of more than one series, is Unrenderable. It returns nil, "", nil
-// for any other kind.
+// namingOwnerOf loads, through c, the item mf backs: a Movie; every Episode
+// the file covers (spec.mediaRef.name plus keys, a multi-episode file) and
+// their Series; an Album's track (spec.mediaRef.track in the Album's
+// status.tracks) and its Artist; a Book and its Author, when it has one; an
+// Audiobook; or an Issue and its Comic (2026-11-10 design D7). A missing
+// item or container, or one whose metadata has not arrived, is
+// MetadataPending; an episode reference naming no episode, episodes of more
+// than one series, an album file naming no track or a track its Album does
+// not list, a standalone Book with no rootFolderRef, or a file covering more
+// than one issue is Unrenderable. It returns nil, "", nil for any other
+// kind. Each kind's RootFolder is its container's -- an Album's its
+// Artist's, a Book's its own override else its Author's, an Issue's its
+// Comic's, an Audiobook's its own -- as the rename actuator resolves it.
 func namingOwnerOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (*namingOwner, catalogv1alpha1.NamingReason, error) {
 	key := func(name string) types.NamespacedName {
 		return types.NamespacedName{Namespace: mf.Namespace, Name: name}
@@ -276,6 +286,131 @@ func namingOwnerOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.Med
 				return catalogctx.EpisodeFilePath(root, &s, c, ext)
 			},
 		}, "", nil
+
+	case commonv1.MediaKindAlbum:
+		var album catalogv1alpha1.Album
+		if err := c.Get(ctx, key(ref.Name), &album); err != nil {
+			return ownerNotLoaded(err)
+		}
+		var artist catalogv1alpha1.Artist
+		if err := c.Get(ctx, key(album.Spec.ArtistRef), &artist); err != nil {
+			return ownerNotLoaded(err)
+		}
+		if ref.Track == "" {
+			logging.FromContext(ctx).Warn("mediafile: the file's album reference names no track; it cannot be named", "album", album.Name)
+			return nil, catalogv1alpha1.NamingReasonUnrenderable, nil
+		}
+		// The tracks arrive with the Album's metadata (syncTracks); a file
+		// whose recording is on none of them is not on the release the Album
+		// holds, and no preset names it.
+		if len(album.Status.Tracks) == 0 {
+			return nil, catalogv1alpha1.NamingReasonMetadataPending, nil
+		}
+		i := slices.IndexFunc(album.Status.Tracks, func(t catalogv1alpha1.Track) bool { return t.RecordingID == ref.Track })
+		if i < 0 {
+			logging.FromContext(ctx).Warn("mediafile: the file's track is not on its album's release; it cannot be named",
+				"album", album.Name, "recording", ref.Track)
+			return nil, catalogv1alpha1.NamingReasonUnrenderable, nil
+		}
+		c, ok := catalogctx.Album(&artist, &album, &album.Status.Tracks[i])
+		if !ok {
+			return nil, catalogv1alpha1.NamingReasonMetadataPending, nil
+		}
+		return &namingOwner{
+			context:           c,
+			rootFolderRef:     artist.Spec.RootFolderRef,
+			qualityProfileRef: ptr.Deref(album.Spec.QualityProfileRef, artist.Spec.QualityProfileRef),
+			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
+				return catalogctx.TrackFilePath(root, &artist, &album, c, ext)
+			},
+		}, "", nil
+
+	case commonv1.MediaKindBook:
+		var book catalogv1alpha1.Book
+		if err := c.Get(ctx, key(ref.Name), &book); err != nil {
+			return ownerNotLoaded(err)
+		}
+		var author *catalogv1alpha1.Author
+		rootRef, profileRef := ptr.Deref(book.Spec.RootFolderRef, ""), ptr.Deref(book.Spec.QualityProfileRef, "")
+		if authorRef := ptr.Deref(book.Spec.AuthorRef, ""); authorRef != "" {
+			author = &catalogv1alpha1.Author{}
+			if err := c.Get(ctx, key(authorRef), author); err != nil {
+				return ownerNotLoaded(err)
+			}
+			if rootRef == "" {
+				rootRef = author.Spec.RootFolderRef
+			}
+			if profileRef == "" {
+				profileRef = author.Spec.QualityProfileRef
+			}
+		}
+		if rootRef == "" {
+			logging.FromContext(ctx).Warn("mediafile: a standalone book names no rootFolderRef; its file cannot be named", "book", book.Name)
+			return nil, catalogv1alpha1.NamingReasonUnrenderable, nil
+		}
+		c, ok := catalogctx.Book(author, &book)
+		if !ok {
+			return nil, catalogv1alpha1.NamingReasonMetadataPending, nil
+		}
+		return &namingOwner{
+			context:           c,
+			rootFolderRef:     rootRef,
+			qualityProfileRef: profileRef,
+			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
+				return catalogctx.BookFilePath(root, author, c, ext)
+			},
+		}, "", nil
+
+	case commonv1.MediaKindAudiobook:
+		var ab catalogv1alpha1.Audiobook
+		if err := c.Get(ctx, key(ref.Name), &ab); err != nil {
+			return ownerNotLoaded(err)
+		}
+		c, ok := catalogctx.Audiobook(&ab, mf.Spec.PartIndex)
+		if !ok {
+			return nil, catalogv1alpha1.NamingReasonMetadataPending, nil
+		}
+		return &namingOwner{
+			context:           c,
+			rootFolderRef:     ab.Spec.RootFolderRef,
+			qualityProfileRef: ab.Spec.QualityProfileRef,
+			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
+				return catalogctx.AudiobookFilePath(root, &ab, c, ext)
+			},
+		}, "", nil
+
+	case commonv1.MediaKindIssue:
+		names := coveredNames(ref)
+		switch {
+		case len(names) == 0:
+			logging.FromContext(ctx).Warn("mediafile: the file's issue reference names no issue; it cannot be named")
+			return nil, catalogv1alpha1.NamingReasonUnrenderable, nil
+		case len(names) > 1:
+			// The issue preset names one issue; a file holding several keeps
+			// the name the import gave it.
+			logging.FromContext(ctx).Warn("mediafile: the file covers more than one issue; it cannot be named", "issues", names)
+			return nil, catalogv1alpha1.NamingReasonUnrenderable, nil
+		}
+		var issue catalogv1alpha1.Issue
+		if err := c.Get(ctx, key(names[0]), &issue); err != nil {
+			return ownerNotLoaded(err)
+		}
+		var comic catalogv1alpha1.Comic
+		if err := c.Get(ctx, key(issue.Spec.ComicRef), &comic); err != nil {
+			return ownerNotLoaded(err)
+		}
+		c, ok := catalogctx.Issue(&comic, &issue)
+		if !ok {
+			return nil, catalogv1alpha1.NamingReasonMetadataPending, nil
+		}
+		return &namingOwner{
+			context:           c,
+			rootFolderRef:     comic.Spec.RootFolderRef,
+			qualityProfileRef: comic.Spec.QualityProfileRef,
+			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
+				return catalogctx.IssueFilePath(root, &comic, c, ext)
+			},
+		}, "", nil
 	}
 	return nil, "", nil
 }
@@ -293,8 +428,11 @@ func ownerNotLoaded(err error) (*namingOwner, catalogv1alpha1.NamingReason, erro
 // coveredEpisodeNames is every Episode an episode MediaRef covers, first
 // the one it names, then keys (a multi-episode file lists every episode it
 // holds there, its own name included -- fileimport.EpisodeFileRef),
-// without duplicates or empty names.
-func coveredEpisodeNames(ref commonv1.MediaRef) []string {
+// without duplicates or empty names. coveredNames is the same reading of an
+// issue MediaRef, whose keys list the issues of a pack.
+func coveredEpisodeNames(ref commonv1.MediaRef) []string { return coveredNames(ref) }
+
+func coveredNames(ref commonv1.MediaRef) []string {
 	out := make([]string, 0, 1+len(ref.Keys))
 	for _, n := range append([]string{ref.Name}, ref.Keys...) {
 		if n != "" && !slices.Contains(out, n) {
