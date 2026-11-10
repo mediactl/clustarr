@@ -31,6 +31,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
@@ -366,10 +367,15 @@ func namingOwnerOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.Med
 		if err := c.Get(ctx, key(ref.Name), &ab); err != nil {
 			return ownerNotLoaded(err)
 		}
-		c, ok := catalogctx.Audiobook(&ab, mf.Spec.PartIndex)
+		number, count, err := audiobookPartNumber(ctx, c, mf)
+		if err != nil {
+			return ownerNotLoaded(err)
+		}
+		c, ok := catalogctx.Audiobook(&ab, number)
 		if !ok {
 			return nil, catalogv1alpha1.NamingReasonMetadataPending, nil
 		}
+		c.PartCount = count
 		return &namingOwner{
 			context:           c,
 			rootFolderRef:     ab.Spec.RootFolderRef,
@@ -413,6 +419,47 @@ func namingOwnerOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.Med
 		}, "", nil
 	}
 	return nil, "", nil
+}
+
+// audiobookPartNumber is mf's place among its Audiobook's parts in play
+// order, and how many parts there are: catalogctx.PartNumbers over the
+// Audiobook's MediaFiles, listed through the item index (mfindex.Item) --
+// the one rule the import's placeParts and the Audiobook controller's
+// OrderParts order by -- 1..n, and 0 for a lone part, which is what
+// {PartNumber} renders (2026-11-10 design D7, D11). The file's own
+// spec.partIndex is the ordering key the import froze (the tags' disc and
+// track as disc*1000+track, else the name's part number, else 0), never the
+// number: disc 1 track 3 is the third part, not part 1003. The number is
+// built here, where every kind's naming context is, so no caller of
+// LoadNaming can hand the file a number of its own, and the naming planner
+// has no audiobook case. mf's own spec stands for it in the list, and a
+// file the cache has yet to list (its own create) counts itself; the count
+// is the listing's, as the import's is its own files', so number and count
+// come from one read, never from the status.partCount the Audiobook's next
+// pass writes. A listing that fails is the lookup's error, which
+// RenderNaming keeps the previous proposal over (ownerNotLoaded), never a
+// number from a partial list. A sibling appearing, going or changing its
+// key renumbers the part, which the naming planner's S12/MediaFile source
+// wakes it for (app/remediation/naming).
+func audiobookPartNumber(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (number int32, count int, err error) {
+	files, err := mfindex.FilesOf(ctx, c, mf.Namespace, commonv1.MediaKindAudiobook, mf.Spec.MediaRef.Name, client.UnsafeDisableDeepCopy)
+	if err != nil {
+		return 0, 0, err
+	}
+	parts := make([]catalogctx.Part, 0, len(files)+1)
+	self := -1
+	for i := range files {
+		if files[i].Name == mf.Name {
+			self = len(parts)
+		}
+		parts = append(parts, catalogctx.Part{Index: files[i].Spec.PartIndex, Path: files[i].Spec.Path})
+	}
+	if self < 0 {
+		self = len(parts)
+		parts = append(parts, catalogctx.Part{})
+	}
+	parts[self] = catalogctx.Part{Index: mf.Spec.PartIndex, Path: mf.Spec.Path}
+	return catalogctx.PartNumbers(parts)[self], len(parts), nil
 }
 
 // ownerNotLoaded maps a failed Get of the item a file backs: an item that

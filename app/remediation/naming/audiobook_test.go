@@ -43,8 +43,11 @@ import (
 // set's keys 1001, 1002, 2001 and 2002 (spec.partIndex, disc*1000+track)
 // are proposed as parts 01 to 04, never as "(2001)" -- so the loop proposes
 // the path the import placed the part at, and a one-file audiobook carries
-// no part. A listing the cache cannot answer is Gather's error, so the pass
-// keeps the file's previous proposal rather than number it from nothing.
+// no part. A listing the cache cannot answer is the lookup's error
+// (mediafile.LoadNaming, which numbers the part), so the pass keeps the
+// file's previous proposal and retries rather than number it from nothing;
+// and a sibling appearing renumbers a part once it is woken for it
+// (S12/MediaFile, partwake.go).
 func TestNamingNumbersAnAudiobooksPartsAmongItsFiles(t *testing.T) {
 	meta := func(name string) metav1.ObjectMeta { return metav1.ObjectMeta{Namespace: "media", Name: name} }
 	const folder = "/data/audiobooks/Terry Pratchett/Discworld/8 - 1989 - Guards! Guards! Nigel Planer/8 - 1989 - Guards! Guards! Nigel Planer"
@@ -118,12 +121,29 @@ func TestNamingNumbersAnAudiobooksPartsAmongItsFiles(t *testing.T) {
 		assert.Equal(t, folder+" (02).mp3", n.ExpectedPath, "the second of two, its sibling listed and itself not yet")
 	})
 
-	t.Run("a listing that fails is Gather's error", func(t *testing.T) {
+	t.Run("a listing that fails keeps the previous proposal and retries", func(t *testing.T) {
 		mf := part("d1c1", folder+" (01).mp3", 1001)
 		a := naming.New(naming.Options{})
-		view := &remediation.View{File: mf, Prev: &catalogv1alpha1.MediaFileStatus{}, Draft: &catalogv1alpha1.MediaFileStatus{}}
-		_, err := a.Gather(t.Context(), &remediation.Env{Reader: failingList{Reader: indexed(root, ab(2), mf)}}, view)
-		require.Error(t, err, "the pass keeps the previous proposal over a listing it cannot read")
+		prev := &catalogv1alpha1.NamingStatus{ExpectedPath: folder + " (01).mp3", Current: true}
+		view := &remediation.View{
+			File: mf, Prev: &catalogv1alpha1.MediaFileStatus{Naming: prev},
+			Draft: &catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{Container: "mp3"}}, Now: metav1.Now(),
+		}
+		in, err := a.Gather(t.Context(), &remediation.Env{Reader: failingList{Reader: indexed(root, ab(2), mf)}}, view)
+		require.NoError(t, err, "the lookup records the failure; nothing is rendered from a partial list")
+		var out catalogv1alpha1.MediaFileStatus
+		res, err := a.Plan(view, in, &out)
+		require.NoError(t, err)
+		assert.Equal(t, prev, out.Naming, "the pass keeps the previous proposal over a listing it cannot read")
+		assert.False(t, res.Due.IsZero(), "and asks for a retry")
+	})
+
+	t.Run("a sibling appearing renumbers a planned part", func(t *testing.T) {
+		first := part("d1c1", "/data/audiobooks/Pratchett/Chapter 01.mp3", 1001)
+		c := indexed(root, ab(1), first)
+		assert.Equal(t, folder+".mp3", name(t, c, first).ExpectedPath, "alone, the part has no number")
+		require.NoError(t, c.Create(t.Context(), part("d1c2", "/data/audiobooks/Pratchett/Chapter 02.mp3", 1002)))
+		assert.Equal(t, folder+" (01).mp3", name(t, c, first).ExpectedPath, "with a second part listed, the first is part 01")
 	})
 }
 

@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mediafile
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,6 +33,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -121,7 +125,21 @@ func nonVideoFixture(t *testing.T) client.Client {
 		&catalogv1alpha1.Issue{ObjectMeta: nvMeta("saga-001"), Spec: catalogv1alpha1.IssueSpec{ComicRef: "saga", Number: "001"}},
 		&catalogv1alpha1.Issue{ObjectMeta: nvMeta("saga-002"), Spec: catalogv1alpha1.IssueSpec{ComicRef: "saga", Number: "002"}},
 	}
-	return fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(objs...).Build()
+	// The Audiobook's first six parts, placed by the import, so a seventh
+	// file is numbered 7 among them (audiobookPartNumber lists them through
+	// the item index, which the loop registers once per process).
+	for i := int32(1); i <= 6; i++ {
+		objs = append(objs, &catalogv1alpha1.MediaFile{
+			ObjectMeta: nvMeta(fmt.Sprintf("guards-audio-%02d", i)),
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-audio"},
+				Path:      fmt.Sprintf("/data/audiobooks/Terry Pratchett/Discworld/8 - Guards! Guards! Nigel Planer/8 - Guards! Guards! Nigel Planer (%02d).m4b", i),
+				PartIndex: 1000 + i,
+			},
+		})
+	}
+	return fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(objs...).
+		WithIndex(&catalogv1alpha1.MediaFile{}, mfindex.Item, mfindex.Extract).Build()
 }
 
 func nvFile(path string, ref commonv1.MediaRef, part int32) *catalogv1alpha1.MediaFile {
@@ -205,8 +223,8 @@ func TestNamingOwnerOfTheNonVideoKinds(t *testing.T) {
 				assert.Equal(t, "Nigel Planer", o.context.Narrator)
 				assert.Equal(t, "Discworld", o.context.BookSeries)
 				assert.Equal(t, "8", o.context.BookSeriesPosition)
-				assert.Equal(t, 7, o.context.PartNumber, "the file's spec.partIndex")
-				assert.Equal(t, 12, o.context.PartCount, "the Audiobook's status.partCount")
+				assert.Equal(t, 7, o.context.PartNumber, "the file's place among the Audiobook's parts, never its key 1007")
+				assert.Equal(t, 7, o.context.PartCount, "the parts listed, the file itself counted, never status.partCount")
 			},
 		},
 		{
@@ -233,7 +251,7 @@ func TestNamingOwnerOfTheNonVideoKinds(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			owner, reason, err := namingOwnerOf(t.Context(), c, nvFile("/data/x/file.bin", tc.ref, 7))
+			owner, reason, err := namingOwnerOf(t.Context(), c, nvFile("/data/x/file.bin", tc.ref, 1007))
 			require.NoError(t, err)
 			if tc.wantNone {
 				assert.Nil(t, owner)
@@ -285,7 +303,7 @@ func TestRenderNamingForEveryKind(t *testing.T) {
 			"/data/books2/Dune/Dune.pdf",
 		},
 		{
-			"an audiobook part", nvFile("/data/audiobooks/incoming/guards-07.m4b", commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-audio"}, 7), m4b,
+			"an audiobook part", nvFile("/data/audiobooks/incoming/guards-07.m4b", commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-audio"}, 1007), m4b,
 			"/data/audiobooks/Terry Pratchett/Discworld/8 - Guards! Guards! Nigel Planer/8 - Guards! Guards! Nigel Planer (07).m4b",
 		},
 		{
@@ -320,7 +338,7 @@ func TestRenderNamingReportsAMissingRootForEveryKind(t *testing.T) {
 			Spec:       catalogv1alpha1.AudiobookSpec{ASIN: "B1", RootFolderRef: "gone"},
 			Status:     catalogv1alpha1.AudiobookStatus{Metadata: &catalogv1alpha1.AudiobookMetadata{Title: "Dune"}},
 		},
-	).Build()
+	).WithIndex(&catalogv1alpha1.MediaFile{}, mfindex.Item, mfindex.Extract).Build()
 	f := nvFile("/data/audiobooks/dune.m4b", commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "ab"}, 0)
 	look := LoadNaming(t.Context(), c, f)
 	require.NoError(t, look.err)
@@ -328,4 +346,68 @@ func TestRenderNamingReportsAMissingRootForEveryKind(t *testing.T) {
 	n, _ := RenderNaming(f, look, &commonv1.MediaInfo{Container: "mp4"}, nil, f.Spec.Path, false, false)
 	require.NotNil(t, n)
 	assert.Equal(t, catalogv1alpha1.NamingReasonUnrenderable, n.Reason)
+}
+
+// TestAnAudiobookPartIsNumberedAmongItsSiblings is audiobookPartNumber
+// (2026-11-10 design D7, D11; task D6): {PartNumber} is the file's place
+// among its Audiobook's MediaFiles in play order -- a two-disc set's keys
+// 1001, 1002 and 2001 and an unnumbered file are parts 1 to 4, never
+// "(2001)" -- and {PartCount} the parts listed, the file counted once when
+// the cache has yet to list it; a lone part has no number; and a listing
+// that fails is the lookup's error, over which RenderNaming keeps the
+// previous proposal and asks for a retry.
+func TestAnAudiobookPartIsNumberedAmongItsSiblings(t *testing.T) {
+	ref := commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-audio"}
+	part := func(name, path string, key int32) *catalogv1alpha1.MediaFile {
+		return &catalogv1alpha1.MediaFile{ObjectMeta: nvMeta(name), Spec: catalogv1alpha1.MediaFileSpec{MediaRef: ref, Path: path, PartIndex: key}}
+	}
+	indexed := func(objs ...client.Object) client.Client {
+		return fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(objs...).
+			WithIndex(&catalogv1alpha1.MediaFile{}, mfindex.Item, mfindex.Extract).Build()
+	}
+	d1c1, d1c2 := part("d1c1", "/dl/CD1/01.mp3", 1001), part("d1c2", "/dl/CD1/02.mp3", 1002)
+	d2c1, loose := part("d2c1", "/dl/CD2/01.mp3", 2001), part("loose", "/dl/Chapter 04.mp3", 0)
+
+	c := indexed(d1c1, d1c2, d2c1, loose)
+	for i, mf := range []*catalogv1alpha1.MediaFile{d1c1, d1c2, d2c1, loose} {
+		number, count, err := audiobookPartNumber(t.Context(), c, mf)
+		require.NoError(t, err)
+		assert.Equal(t, int32(i+1), number, "%s is part %d, not part %d", mf.Name, i+1, mf.Spec.PartIndex) //nolint:gosec // test
+		assert.Equal(t, 4, count)
+	}
+
+	fresh := part("fresh", "/dl/CD2/02.mp3", 2002)
+	number, count, err := audiobookPartNumber(t.Context(), c, fresh)
+	require.NoError(t, err)
+	assert.Equal(t, int32(4), number, "a file the cache has yet to list counts itself: the fourth numbered part, ahead of the unnumbered one")
+	assert.Equal(t, 5, count)
+
+	number, count, err = audiobookPartNumber(t.Context(), indexed(d2c1), d2c1)
+	require.NoError(t, err)
+	assert.Zero(t, number, "a lone part has no number")
+	assert.Equal(t, 1, count)
+
+	// Through LoadNaming: the item's fixture lists six parts, so a seventh
+	// renders "(07)" of 7, and a List the cache cannot answer keeps the
+	// previous proposal (ProbePending here) and asks for a retry.
+	seventh := nvFile("/data/audiobooks/incoming/guards-07.m4b", ref, 1007)
+	look := LoadNaming(t.Context(), nonVideoFixture(t), seventh)
+	require.NoError(t, look.err)
+	assert.Equal(t, 7, look.owner.context.PartNumber)
+	assert.Equal(t, 7, look.owner.context.PartCount)
+
+	prev := &catalogv1alpha1.NamingStatus{Reason: catalogv1alpha1.NamingReasonProbePending}
+	look = LoadNaming(t.Context(), failingList{nonVideoFixture(t)}, seventh)
+	require.Error(t, look.err)
+	assert.Nil(t, look.owner)
+	n, retry := RenderNaming(seventh, look, &commonv1.MediaInfo{Container: "mov,mp4,m4a,3gp,3g2,mj2"}, prev, seventh.Spec.Path, false, false)
+	assert.True(t, retry, "a failed listing is retried")
+	assert.Equal(t, prev, n, "the previous proposal stands over a listing that failed")
+}
+
+// failingList is a reader whose every List fails, as a cache blip would.
+type failingList struct{ client.Reader }
+
+func (failingList) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return errors.New("the cache is not synced")
 }

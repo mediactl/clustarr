@@ -22,15 +22,12 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/remediation"
-	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 )
 
 // namingRetry is how soon a pass whose render kept its previous proposal
@@ -74,55 +71,15 @@ func (*Adapter) Applies(mf *catalogv1alpha1.MediaFile) bool {
 // spec §6.4.3); whether a transcode holds the file is read off the draft in
 // Plan (F6.2), since Gather runs before the transcode planner's Plan.
 //
-// An audiobook part is numbered first (numberedPart): {PartNumber} is the
-// file's place among its Audiobook's parts, which only the loop, with the
-// Audiobook's files, can count. A failed listing is Gather's error, so the
-// pass keeps the proposal the file had rather than render a number from a
-// partial list.
+// An audiobook part's {PartNumber} is its place among its Audiobook's
+// MediaFiles, which mediafile.LoadNaming counts through the item index
+// (audiobookPartNumber, 2026-11-10 design D7, D11): the lookup is the one
+// rule for every kind, and a listing that fails is the lookup's error,
+// which RenderNaming keeps the previous proposal over and retries, so this
+// planner has no audiobook case. A sibling appearing, going or changing its
+// key is S12/MediaFile's wake (sources.go, audiobookPartWakes).
 func (*Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediation.View) (Input, error) {
-	file := v.File
-	if file.Spec.MediaRef.Kind == commonv1.MediaKindAudiobook {
-		numbered, err := numberedPart(ctx, env.Reader, file)
-		if err != nil {
-			return Input{}, err
-		}
-		file = numbered
-	}
-	return Input{Read: true, Lookup: mediafile.LoadNaming(ctx, env.Reader, file)}, nil
-}
-
-// numberedPart is file as mediafile.LoadNaming reads an audiobook part: a
-// copy whose spec.partIndex is the part's number among its Audiobook's
-// MediaFiles in play order (catalogctx.PartNumbers over the files the item
-// index lists: 1..n, 0 for a lone file), which is what {PartNumber} renders
-// (2026-11-10 design D7, D11) and what the import numbered the file by
-// when it placed it (fileimport's placeParts), so the loop proposes the
-// path the import gave. The file's own spec.partIndex is the ordering key
-// (disc*1000+track from the tags, else the name's part number), never the
-// number: LoadNaming hands catalogctx.Audiobook the field it is given as the
-// number, and nothing else on the naming path reads it, so the copy is
-// numbered here. A file the cache has yet to list (its own create) counts
-// itself.
-func numberedPart(ctx context.Context, r client.Reader, file *catalogv1alpha1.MediaFile) (*catalogv1alpha1.MediaFile, error) {
-	files, err := mfindex.FilesOf(ctx, r, file.Namespace, commonv1.MediaKindAudiobook, file.Spec.MediaRef.Name, client.UnsafeDisableDeepCopy)
-	if err != nil {
-		return nil, err
-	}
-	parts := make([]catalogctx.Part, 0, len(files)+1)
-	self := -1
-	for i := range files {
-		if files[i].Name == file.Name {
-			self = len(parts)
-		}
-		parts = append(parts, catalogctx.Part{Index: files[i].Spec.PartIndex, Path: files[i].Spec.Path})
-	}
-	if self < 0 {
-		self = len(parts)
-		parts = append(parts, catalogctx.Part{Index: file.Spec.PartIndex, Path: file.Spec.Path})
-	}
-	numbered := *file
-	numbered.Spec.PartIndex = catalogctx.PartNumbers(parts)[self]
-	return &numbered, nil
+	return Input{Read: true, Lookup: mediafile.LoadNaming(ctx, env.Reader, v.File)}, nil
 }
 
 // Plan renders status.naming and NamingCurrent against spec.path as of this

@@ -36,8 +36,10 @@ import (
 // transcode holds a rename through the file's own status.transcode (F6.2).
 // Since 2026-11-10 (design D7, §5.5) the non-video kinds have theirs too:
 // an Album and its Artist, a Book and its Author, an Audiobook, an Issue
-// and its Comic (nonvideo_sources.go), and S11 fans out to a music, book,
-// audiobook or comic root's files beside a movie or series root's.
+// and its Comic (nonvideo_sources.go), S11 fans out to a music, book,
+// audiobook or comic root's files beside a movie or series root's, and
+// S12/MediaFile wakes an audiobook part's siblings, whose {PartNumber} is
+// their place among the Audiobook's files (partwake.go).
 func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	// The cache itself, not the client over it: the file maps read keys
 	// through rowcache.Keys, which the cache answers without decoding.
@@ -84,6 +86,13 @@ func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 		{
 			Name: "S12/Audiobook", Object: &catalogv1alpha1.Audiobook{}, Handler: remediation.MapFiles(via(filesOfAudiobook)),
 			Predicates: []predicate.Predicate{audiobookNamingChanged()},
+		},
+		{
+			// An audiobook part's siblings, whose numbers its appearing,
+			// going or re-keying moves (partwake.go); a status write bumps
+			// no generation and wakes none.
+			Name: "S12/MediaFile", Object: &catalogv1alpha1.MediaFile{}, Handler: audiobookPartWakes(c),
+			Predicates: []predicate.Predicate{predicate.GenerationChangedPredicate{}},
 		},
 		{
 			Name: "S12/Issue", Object: &catalogv1alpha1.Issue{}, Handler: remediation.MapFiles(via(filesOfIssue)),

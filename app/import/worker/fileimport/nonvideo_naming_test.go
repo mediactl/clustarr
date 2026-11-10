@@ -19,6 +19,7 @@ package fileimport
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -206,22 +207,33 @@ func TestImportPlacesNonVideoFilesWhereTheRenameWould(t *testing.T) {
 			assert.Equal(t, tc.want, dest, "the import's destination")
 
 			// The MediaFile the execute materialises at dest, as the loop
-			// names it. mediafile.LoadNaming reads an audiobook part's
-			// number off the spec.partIndex it is handed, which the loop's
-			// naming planner numbers among the Audiobook's parts first
-			// (app/remediation/naming's numberedPart; the whole loop half is
-			// TestImportAndTheLoopNumberAnAudiobooksPartsAlike), so here the
-			// part arrives numbered.
+			// names it: its key on spec.partIndex, numbered by
+			// mediafile.LoadNaming among the Audiobook's MediaFiles through
+			// the item index -- here the parts placed before it, so the
+			// seventh of seven (the whole loop half is
+			// TestImportAndTheLoopNumberAnAudiobooksPartsAlike).
 			ref := plan.ref
 			ref.Track = tc.frozen.Track
 			mf := &catalogv1alpha1.MediaFile{
 				ObjectMeta: namingMeta("file"),
 				Spec: catalogv1alpha1.MediaFileSpec{
-					MediaRef: ref, Path: dest, PartIndex: tc.part.number,
+					MediaRef: ref, Path: dest, PartIndex: tc.frozen.PartIndex,
 					ImportedFrom: &catalogv1alpha1.ImportSource{ReleaseTitle: "Some.Release.Title-GRP"},
 				},
 			}
-			look := mediafile.LoadNaming(t.Context(), c, mf)
+			var loopReader client.Reader = c
+			if tc.part.number > 0 {
+				siblings := []client.Object{}
+				for i := int32(1); i < tc.part.number; i++ {
+					siblings = append(siblings, &catalogv1alpha1.MediaFile{
+						ObjectMeta: namingMeta(fmt.Sprintf("part-%02d", i)),
+						Spec:       catalogv1alpha1.MediaFileSpec{MediaRef: ref, Path: fmt.Sprintf("/data/audiobooks/parts/%02d.m4b", i), PartIndex: 1000 + i},
+					})
+				}
+				loopReader = twoReaders{items: c, files: fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
+					WithObjects(siblings...).WithIndex(&catalogv1alpha1.MediaFile{}, mfindex.Item, mfindex.Extract).Build()}
+			}
+			look := mediafile.LoadNaming(t.Context(), loopReader, mf)
 			n, retry := mediafile.RenderNaming(mf, look, tc.mi, nil, dest, false, false)
 			require.NotNil(t, n)
 			assert.False(t, retry)
