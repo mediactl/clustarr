@@ -1,0 +1,398 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
+	"github.com/mediactl/clustarr/ui/components/table"
+)
+
+// A book's page (2026-11-10 design §9.3) is the movie page for one book:
+// the action bar (Refresh, Search, Interactive, Rename, Edit, Delete, each
+// where the book takes it), a hero with the cover, the bookmark and title,
+// the subtitle, the author and the reading order, the release date, pages,
+// publisher and provider logos, the facts and the overview; then the
+// Editions collapsible, the Files table in its book columns and the
+// neighbouring books. #book-modal holds the interactive search (BookModal
+// on its Search tab).
+
+// BookXView is everything a book's page shows.
+type BookXView struct {
+	// Detail is what the movie page's sections read: Item the book's card
+	// (cover, art key, quality profile, tab; ui.bookXItem), Path, Overview,
+	// Genres and Links the Book's, Files its MediaFile, Prev and Next the
+	// neighbouring books.
+	Detail
+	Row BookRow
+	// Standalone is a book with no author (spec.authorRef unset): its card
+	// is its own and its page names no author.
+	Standalone bool
+	// AuthorTitle and AuthorURL are the author's name and page, "" for a
+	// standalone book.
+	AuthorTitle string
+	AuthorURL   string
+	// CutoffReason is status.cutoffReason, said beside a file below the
+	// cutoff.
+	CutoffReason string
+	// Quality is the file's frozen quality (EPUB, AZW3), else its format;
+	// "" without a file.
+	Quality string
+	// Pages, Publisher, ISBN and Languages are the work's: the
+	// representative edition's page count and publisher, the isbn13
+	// external id (else an edition's) and the languages it is published
+	// in, as names.
+	Pages     int32
+	Publisher string
+	ISBN      string
+	Languages []string
+	// Editions are the work's known editions, the pinned one first.
+	Editions []BookXEdition
+	// NeighbourOrder says how Prev and Next were chosen: "series" (the
+	// book's reading order), "release" (the author's books by date), or
+	// "" (a standalone book's tab neighbours).
+	NeighbourOrder string
+}
+
+// BookXEdition is one row of the Editions table.
+type BookXEdition struct {
+	ID        string
+	Title     string
+	Format    string
+	Language  string
+	Publisher string
+	ISBN13    string
+	Pages     int32
+	// Release is YYYY-MM-DD, or "".
+	Release string
+	// Ebook is a digital edition; Pinned the one spec.editionID names;
+	// Monitored its spec.editions override (true without one).
+	Ebook     bool
+	Pinned    bool
+	Monitored bool
+}
+
+// URL is the edition's Open Library page.
+func (e BookXEdition) URL() string { return "https://openlibrary.org/books/" + e.ID }
+
+// BookXActions are the book page's action bar: Refresh, Search,
+// Interactive, Rename, Edit and Delete, each rendered where the book takes
+// it (ItemActions).
+func BookXActions() []Action {
+	return []Action{ActionRefresh, ActionSearch, ActionInteractive, ActionRename, ActionEdit, ActionDelete}
+}
+
+// BookXPage is a book's page.
+templ BookXPage(v BookXView) {
+	@Shell(Chrome{Title: bookXPageTitle(v), Crumbs: bookXCrumbs(v), Tab: v.Item.Tab}) {
+		@ItemActions(v.Detail, BookXActions())
+		@bookXHero(v)
+		@bookXEditions(v)
+		@filesSection(v.Detail)
+		@bookRegions()
+	}
+}
+
+// bookXPageTitle is the page's title: "Author - Title: Subtitle", or the
+// title alone for a standalone book.
+func bookXPageTitle(v BookXView) string {
+	title := bookXTitle(v)
+	if v.AuthorTitle == "" {
+		return title
+	}
+	return v.AuthorTitle + " - " + title
+}
+
+// bookXTitle is the book's title with its subtitle.
+func bookXTitle(v BookXView) string {
+	title := v.Row.DisplayTitle()
+	if v.Row.Subtitle != "" {
+		title += ": " + v.Row.Subtitle
+	}
+	return title
+}
+
+// bookXCrumbs is the trail: the library, the tab, the author linked and the
+// book last; a standalone book's trail has no author.
+func bookXCrumbs(v BookXView) []Crumb {
+	if v.Standalone {
+		return itemCrumbs(v.Item)
+	}
+	return []Crumb{
+		{Label: "Library", Href: "/library"},
+		{Label: tabLabel(v.Item.Tab), Href: "/library/" + string(v.Item.Tab)},
+		{Label: v.AuthorTitle, Href: v.AuthorURL},
+		{Label: v.Row.DisplayTitle()},
+	}
+}
+
+// bookXHero is the movie page's header for a book: the cover, the bookmark
+// and title with the neighbouring books, the subtitle, the author and the
+// reading order, the release date, pages, publisher and provider logos, the
+// facts -- path, status, quality, quality profile, monitored, size, ISBN,
+// languages, genres -- and the overview. It carries the book's data
+// attributes for the tests.
+templ bookXHero(v BookXView) {
+	{{ li, b := v.Item, v.Row }}
+	<section
+		data-hero
+		data-book-page={ b.Name }
+		data-ref={ li.Ref.String() }
+		data-kind="book"
+		data-standalone={ fmt.Sprintf("%t", v.Standalone) }
+		data-monitored={ fmt.Sprintf("%t", b.Monitored) }
+		data-phase={ b.Phase }
+		data-hasfile={ fmt.Sprintf("%t", b.HasFile) }
+		data-status={ b.Status.Kind }
+		data-profile={ li.QualityProfileRef }
+		data-neighbours={ v.NeighbourOrder }
+		data-poster={ posterState(li.Poster) }
+		class="relative -mx-6 mb-8"
+	>
+		if v.Backdrop != "" {
+			<img data-backdrop src={ templ.URL(v.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
+			<div class="page-backdrop-shade" aria-hidden="true"></div>
+		}
+		if li.ArtKey != "" {
+			<div hidden hx-ext="sse" sse-connect={ artStreamURL(v.Detail) } hx-trigger="sse:art"></div>
+		}
+		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
+			<div class="w-40 shrink-0 md:w-56">
+				<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
+					@poster(li.Poster, b.DisplayTitle(), li.ArtKey)
+				</div>
+			</div>
+			<div class="min-w-0 flex-1">
+				<div class="flex items-start justify-between gap-4">
+					<div class="flex min-w-0 items-center gap-3">
+						@monitorBookmark(li)
+						<h1 class="min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl">{ b.DisplayTitle() }</h1>
+					</div>
+					@neighbours(v.Detail)
+				</div>
+				if b.Subtitle != "" {
+					<p data-subtitle class="mt-1 text-2xl text-muted-foreground">{ b.Subtitle }</p>
+				}
+				if v.AuthorTitle != "" || b.Series != "" {
+					<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
+						if v.AuthorTitle != "" {
+							<a href={ templ.URL(v.AuthorURL) } data-author-link class="font-medium hover:underline">{ v.AuthorTitle }</a>
+						}
+						if v.AuthorTitle != "" && b.Series != "" {
+							<span class="text-muted-foreground" aria-hidden="true">·</span>
+						}
+						if b.Series != "" {
+							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-base text-sky-300", Attributes: templ.Attributes{"data-book-series": b.Series}}) {
+								{ b.Series }
+							}
+						}
+					</div>
+				}
+				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+					if b.ReleaseDate != "" {
+						<time datetime={ b.ReleaseDate } title={ b.ReleaseDate } data-released>{ bookXReleasedLabel(b) }</time>
+					}
+					if v.Pages > 0 {
+						<span data-pages={ fmt.Sprint(v.Pages) }>{ fmt.Sprintf("%d pages", v.Pages) }</span>
+					}
+					if v.Publisher != "" {
+						<span data-publisher>{ v.Publisher }</span>
+					}
+					@providerLinks(v.Links)
+				</div>
+				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					if v.Path != "" {
+						@fact("path", "Path") {
+							<span class="break-all">{ v.Path }</span>
+						}
+					}
+					@fact("status", "Status") {
+						<span class="flex items-center gap-2">
+							<span data-status={ episodeStripe(b.Status) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(episodeStripe(b.Status)) }></span>
+							{ bookXStatusLabel(v) }
+						</span>
+					}
+					if v.Quality != "" {
+						@fact("quality", "Quality") {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(b.Status.Warn) + " text-sm"}) {
+								{ v.Quality }
+							}
+						}
+					}
+					if li.QualityProfileRef != "" {
+						@fact("profile", "Quality Profile") {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
+								{ li.QualityProfileRef }
+							}
+						}
+					}
+					@fact("monitored", "Monitored") {
+						{ monitoredTitle(b.Monitored) }
+					}
+					if size := totalSize(v.Files); size > 0 {
+						@fact("size", "Size") {
+							{ formatBytes(size) }
+						}
+					}
+					if v.ISBN != "" {
+						@fact("isbn", "ISBN") {
+							<span class="tabular-nums">{ v.ISBN }</span>
+						}
+					}
+					if len(v.Languages) > 0 {
+						@fact("languages", "Languages") {
+							{ strings.Join(v.Languages, ", ") }
+						}
+					}
+					if len(v.Genres) > 0 {
+						@fact("genres", "Genres") {
+							{ strings.Join(v.Genres, ", ") }
+						}
+					}
+				</dl>
+				if v.Overview != "" {
+					<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// bookXReleasedLabel is the release date as the hero says it: "Released
+// May 1 1974", or "Releases ..." for a book still to come.
+func bookXReleasedLabel(b BookRow) string {
+	if b.Status.Kind == "unreleased" {
+		return "Releases " + b.ReleaseDateLabel
+	}
+	return "Released " + b.ReleaseDateLabel
+}
+
+// bookXStatusLabel is the Status fact in words, as the episode page's: a
+// file is Downloaded or Cutoff Unmet (with the reason the catalog
+// recorded), else the status cell's own word.
+func bookXStatusLabel(v BookXView) string {
+	s := v.Row.Status
+	if s.Kind != "file" {
+		return s.Label
+	}
+	switch {
+	case s.Warn && v.CutoffReason != "" && v.CutoffReason != "CutoffUnmet":
+		return "Cutoff Unmet: " + v.CutoffReason
+	case s.Warn:
+		return "Cutoff Unmet"
+	default:
+		return "Downloaded"
+	}
+}
+
+// bookXEditions is the Editions section: a collapsible (closed, as the
+// season blocks are) over the work's editions -- id (its Open Library
+// page), title, format, language, publisher, pages and release -- the
+// pinned one marked and listed first, an edition unmonitored by
+// spec.editions dimmed. Nothing for a work with no editions.
+templ bookXEditions(v BookXView) {
+	if len(v.Editions) > 0 {
+		<section data-section="editions" class="mb-8">
+			@sectionTitle("Editions")
+			<div class="overflow-hidden panel rounded-xl border border-border bg-card">
+				@collapsible.Collapsible(collapsible.Props{Attributes: templ.Attributes{"data-editions": fmt.Sprint(len(v.Editions))}}) {
+					@expandTrigger(fmt.Sprintf("Show %d editions", len(v.Editions)), "Hide editions")
+					@collapsible.Content(collapsible.ContentProps{Class: "border-t border-border"}) {
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() {
+										ID
+									}
+									@table.Head() {
+										Title
+									}
+									@table.Head() {
+										Format
+									}
+									@table.Head() {
+										Language
+									}
+									@table.Head() {
+										Publisher
+									}
+									@table.Head(table.HeadProps{Class: "text-right"}) {
+										Pages
+									}
+									@table.Head() {
+										Release
+									}
+								}
+							}
+							@table.Body() {
+								for _, e := range v.Editions {
+									@table.Row(table.RowProps{Class: rowTone(e.Monitored), Attributes: templ.Attributes{"data-edition": e.ID, "data-edition-pinned": fmt.Sprintf("%t", e.Pinned)}}) {
+										@table.Cell(table.CellProps{Class: "whitespace-nowrap"}) {
+											<span class="flex items-center gap-2">
+												<a href={ templ.URL(e.URL()) } target="_blank" rel="noreferrer" class="font-mono text-xs hover:underline">{ e.ID }</a>
+												if e.Pinned {
+													@badge.Badge(badge.Props{Attributes: templ.Attributes{"data-pinned": e.ID}}) {
+														Pinned
+													}
+												}
+											</span>
+										}
+										@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+											{ e.Title }
+										}
+										@table.Cell() {
+											<span class="flex items-center gap-2">
+												if e.Format != "" {
+													@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+														{ e.Format }
+													}
+												}
+												if e.Ebook {
+													<span class="text-xs text-muted-foreground" data-ebook>ebook</span>
+												}
+											</span>
+										}
+										@table.Cell() {
+											{ e.Language }
+										}
+										@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+											{ e.Publisher }
+										}
+										@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+											if e.Pages > 0 {
+												{ fmt.Sprint(e.Pages) }
+											}
+										}
+										@table.Cell(table.CellProps{Class: "text-muted-foreground"}) {
+											if e.Release != "" {
+												<time datetime={ e.Release }>{ e.Release }</time>
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			</div>
+		</section>
+	}
+}

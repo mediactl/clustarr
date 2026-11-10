@@ -25,13 +25,14 @@ import (
 	"github.com/mediactl/clustarr/ui/components/dialog"
 	"github.com/mediactl/clustarr/ui/components/table"
 	"github.com/mediactl/clustarr/ui/components/tabs"
-	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // An author's books are the season table's shape (2026-10-07): a book's
-// row has the monitor bookmark, its title (opening the book's details
-// modal, Details and Search tabs), the release date, the status cell and
-// the automatic and interactive searches, exactly as an episode's does.
+// row has the monitor bookmark, its title (opening the book's page,
+// BookXPage, since 2026-11-10; the details modal before), the release date,
+// the status cell and the automatic and interactive searches, exactly as an
+// episode's does. The modal (BookModal: Details and Search tabs) stays for
+// the row's details to htmx and the interactive search's results.
 
 // bookRegions are what a book's actions answer into on an author's page:
 // the modal's mount point and the action status.
@@ -77,9 +78,9 @@ templ BookRows(books []BookRow) {
 }
 
 // BookRowView is one book, and what its monitor toggle swaps in place: the
-// bookmark, the title (opening the book's details) with its reading order,
-// the release date, the status cell, and the automatic and interactive
-// searches. An unmonitored book reads dimmed.
+// bookmark, the title (the book's page, preloaded on hover as an episode's
+// is) with its reading order, the release date, the status cell, and the
+// automatic and interactive searches. An unmonitored book reads dimmed.
 templ BookRowView(b BookRow) {
 	@table.Row(table.RowProps{
 		Class: rowTone(b.Monitored),
@@ -102,10 +103,8 @@ templ BookRowView(b BookRow) {
 		@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
 			<span class="flex flex-wrap items-center gap-2">
 				<a
-					href={ templ.URL(b.DetailsURL()) }
-					hx-get={ b.DetailsURL() }
-					hx-target="#book-modal"
-					hx-swap="innerHTML"
+					href={ templ.URL(b.URL()) }
+					preload="mouseover"
 					class="font-medium hover:underline"
 					data-book-title
 				>
@@ -158,24 +157,10 @@ templ BookModal(d BookDetail) {
 	}
 }
 
-// BookPage is the book's details as a page, for a browser without
-// JavaScript: the modal's tabs under the author's crumbs, or a standalone
-// book's own.
-templ BookPage(d BookDetail, parent projection.LibraryItem) {
-	@Shell(Chrome{Title: bookHeading(d), Crumbs: childCrumbs(parent, d.Row.DisplayTitle()), Tab: parent.Tab}) {
-		<div class="space-y-4" data-book-page={ d.Row.Name }>
-			<div>
-				<h1 class="text-xl font-semibold">{ bookHeading(d) }</h1>
-				<p class="text-sm text-muted-foreground">{ bookFacts(d) }</p>
-			</div>
-			@bookTabs(d)
-		</div>
-		@ActionStatusRegion()
-	}
-}
-
 // bookHeading is the modal's title: the author, then the book's title and
-// subtitle.
+// subtitle. (A browser without JavaScript gets the book's page, BookXPage,
+// from the details route since 2026-11-10; the modal's tabs were its page
+// before.)
 func bookHeading(d BookDetail) string {
 	title := d.Row.DisplayTitle()
 	if d.Row.Subtitle != "" {

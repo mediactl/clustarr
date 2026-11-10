@@ -1,0 +1,178 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// An author's page (2026-11-10 design §9.3) is the series page's shape
+// with the books as the one table: the action bar, a hero on the author's
+// photo -- name, born and died, genres, provider logos, the Status fact
+// from the container rollup, the book counts, the biography -- and the
+// books table inline (BookRows, the season table's shape), each title
+// opening its Book page. #book-modal holds a book's interactive search.
+
+// AuthorXView is everything an author's page shows.
+type AuthorXView struct {
+	// Detail is the item page's: Item the author's library card (photo, art
+	// key, quality profile, tab, the rollup's counts), Path, Overview and
+	// Genres the Author's, Links its provider pages, Prev and Next the
+	// neighbouring authors on the tab, Profiles the Edit dialog's.
+	Detail
+	// Born and Died are the author's dates as the provider spells them
+	// (status.metadata.born, .died), "" when unknown.
+	Born string
+	Died string
+	// Books are the author's books, in the table's order.
+	Books []BookRow
+	// BookCount and BookFileCount are status.bookCount and
+	// status.bookFileCount, the "Books" fact.
+	BookCount     int32
+	BookFileCount int32
+}
+
+// AuthorXActions are the author page's action bar: Refresh & Scan, Search
+// Monitored Books, Rename, Edit and Delete. An author has no interactive
+// search of its own (its books do) and no image set.
+func AuthorXActions() []Action {
+	return []Action{ActionRefresh, ActionSearch, ActionRename, ActionEdit, ActionDelete}
+}
+
+// AuthorXPage is an author's page.
+templ AuthorXPage(v AuthorXView) {
+	@Shell(Chrome{Title: v.Item.Title, Crumbs: itemCrumbs(v.Item), Tab: v.Item.Tab}) {
+		@ItemActions(v.Detail, AuthorXActions())
+		@authorXHero(v)
+		@card.Card(card.Props{Class: "mt-6 gap-0 py-0", Attributes: templ.Attributes{"data-author-books": fmt.Sprint(len(v.Books))}}) {
+			@card.Header(card.HeaderProps{Class: "px-4 py-3"}) {
+				@card.Title() {
+					Books
+				}
+			}
+			@card.Content(card.ContentProps{Class: "children border-t border-border p-0"}) {
+				@BookRows(v.Books)
+			}
+		}
+		@bookRegions()
+	}
+}
+
+// authorXHero is the movie page's header for an author: the photo, the
+// bookmark and name with the neighbouring authors, the born and died dates
+// and the provider logos, the facts -- path, status (the rollup's), quality
+// profile, books on disk over books, genres -- and the biography. It
+// carries the card's data attributes for the tests, as hero does.
+templ authorXHero(v AuthorXView) {
+	{{ li := v.Item }}
+	<section
+		data-hero
+		data-author-page={ li.Ref.Name }
+		data-ref={ li.Ref.String() }
+		data-kind={ string(li.Kind) }
+		data-monitored={ fmt.Sprintf("%t", li.Monitored) }
+		data-phase={ li.Phase }
+		data-hasfile={ fmt.Sprintf("%t", li.HasFile) }
+		data-profile={ li.QualityProfileRef }
+		data-poster={ posterState(li.Poster) }
+		class="relative -mx-6 mb-8"
+	>
+		if v.Backdrop != "" {
+			<img data-backdrop src={ templ.URL(v.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
+			<div class="page-backdrop-shade" aria-hidden="true"></div>
+		}
+		if li.ArtKey != "" {
+			<div hidden hx-ext="sse" sse-connect={ artStreamURL(v.Detail) } hx-trigger="sse:art"></div>
+		}
+		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
+			<div class="w-40 shrink-0 md:w-56">
+				<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
+					@poster(li.Poster, li.Title, li.ArtKey)
+				</div>
+			</div>
+			<div class="min-w-0 flex-1">
+				<div class="flex items-start justify-between gap-4">
+					<div class="flex min-w-0 items-center gap-3">
+						@monitorBookmark(li)
+						<h1 class="min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl">{ li.Title }</h1>
+					</div>
+					@neighbours(v.Detail)
+				</div>
+				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+					if v.Born != "" {
+						<span data-born={ v.Born }>{ "Born " + v.Born }</span>
+					}
+					if v.Died != "" {
+						<span data-died={ v.Died }>{ "Died " + v.Died }</span>
+					}
+					@providerLinks(v.Links)
+				</div>
+				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					if v.Path != "" {
+						@fact("path", "Path") {
+							<span class="break-all">{ v.Path }</span>
+						}
+					}
+					@fact("status", "Status") {
+						<span class="flex items-center gap-2">
+							<span data-status={ projection.LibraryStatus(li) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(projection.LibraryStatus(li)) }></span>
+							{ statusLabel(li) }
+						</span>
+						if li.DeleteError != "" {
+							@deleteRetry(v.Detail)
+						}
+						if li.DeleteMode != "" {
+							@deleteCancel(v.Detail)
+						}
+					}
+					if li.QualityProfileRef != "" {
+						@fact("profile", "Quality Profile") {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
+								{ li.QualityProfileRef }
+							}
+						}
+					}
+					if v.BookCount > 0 {
+						@fact("books", "Books") {
+							<span data-book-count={ authorXBookCount(v) }>{ authorXBookCount(v) }</span>
+						}
+					}
+					if len(v.Genres) > 0 {
+						@fact("genres", "Genres") {
+							{ strings.Join(v.Genres, ", ") }
+						}
+					}
+				</dl>
+				if v.Overview != "" {
+					<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// authorXBookCount is the Books fact, "files / books" as a season header
+// counts its episodes.
+func authorXBookCount(v AuthorXView) string {
+	return fmt.Sprintf("%d / %d", v.BookFileCount, v.BookCount)
+}

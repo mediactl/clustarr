@@ -19,8 +19,14 @@ package ui
 
 import "net/http"
 
-// bookRoutes registers the Books library's book page and the Author page's hero
-// facts (2026-11-10 design §9.3; plan W4b.2 owns this file): the
-// pages, their details and search routes, called from libraryKindRoutes.
-// Empty until W4b.2 lands.
-func (s *Server) bookRoutes(_ *http.ServeMux) {}
+// bookRoutes registers the Books library's pages (2026-11-10 design §9.3;
+// plan W4b.2 owns this file), called from libraryKindRoutes: the author's
+// page and the book's. Each is a literal route, so it wins over the generic
+// /library/{namespace}/{kind}/{name} item route under ServeMux precedence.
+// A book's details modal (GET .../book/{name}/details) and interactive
+// search (POST .../book/{name}/search/interactive) are registered in
+// routes.go and stay there.
+func (s *Server) bookRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /library/{namespace}/author/{name}", s.handleAuthorXPage)
+	mux.HandleFunc("GET /library/{namespace}/book/{name}", s.handleBookXPage)
+}

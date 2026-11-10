@@ -54,6 +54,19 @@ func bookFixture(t *testing.T) (*ui.Server, client.Client) {
 	author := &catalogv1.Author{
 		ObjectMeta: metav1.ObjectMeta{Name: "le-guin", Namespace: "default"},
 		Spec:       catalogv1.AuthorSpec{OpenLibraryID: "OL1A", QualityProfileRef: "ebook", RootFolderRef: "books"},
+		Status: catalogv1.AuthorStatus{
+			Path: "/data/books/Ursula K. Le Guin", BookCount: 9, BookFileCount: 1,
+			Metadata: &catalogv1.AuthorMetadata{
+				Name: "Ursula K. Le Guin", Born: "1929-10-21", Died: "2018-01-22",
+				Overview: "Ursula Kroeber Le Guin was an American author.",
+				Genres:   []string{"Science fiction", "Fantasy"},
+				Links: []catalogv1.Link{
+					{Type: "wikidata", URL: "https://www.wikidata.org/wiki/Q181659"},
+					{Type: "goodreads", URL: "https://www.goodreads.com/author/show/874602"},
+					{Type: "wikipedia", URL: "https://en.wikipedia.org/wiki/Ursula_K._Le_Guin"},
+				},
+			},
+		},
 	}
 	book := func(name, authorRef, title string, released *metav1.Time, status catalogv1.BookStatus) *catalogv1.Book {
 		status.Metadata = &catalogv1.BookMetadata{Title: title, ReleaseDate: released}
@@ -69,36 +82,61 @@ func bookFixture(t *testing.T) (*ui.Server, client.Client) {
 	}
 	dispossessed := book("dispossessed", "le-guin", "The Dispossessed", date(1974, time.May, 1), catalogv1.BookStatus{
 		HasFile: true, FileRef: new("dispossessed-file"), FileFormat: "EPUB", Phase: catalogv1.BookPhaseCutoffUnmet,
+		CutoffReason: "CutoffUnmet", FileQuality: &commonv1.Quality{Name: "EPUB"},
 		Path: "/data/books/Ursula K. Le Guin/The Dispossessed (1974)",
 	})
 	dispossessed.Status.Metadata.Subtitle = "An Ambiguous Utopia"
 	dispossessed.Status.Metadata.Overview = "Shevek, a physicist, travels from Anarres to Urras."
 	dispossessed.Status.Metadata.Genres = []string{"Science fiction"}
+	// The work's own facts and its editions (2026-11-10 design §9.3): the
+	// page count and publisher, the languages, the ids the logos link,
+	// and two editions, the German ebook pinned and the hardcover
+	// unmonitored.
+	dispossessed.Status.Metadata.PageCount, dispossessed.Status.Metadata.Publisher = 341, "HarperCollins"
+	dispossessed.Status.Metadata.Languages = []string{"en", "de"}
+	dispossessed.Status.Metadata.ExternalIDs = map[string]string{"olwork": "OL-dispossessed", "isbn13": "9780060125639", "goodreads": "13651"}
+	dispossessed.Status.Metadata.Editions = []catalogv1.Edition{
+		{ID: "OL7353617M", Title: "The Dispossessed", Format: "Hardcover", Language: "en", Publisher: "HarperCollins", PageCount: 341, ReleaseDate: date(1974, time.May, 1), ISBN13: "9780060125639"},
+		{ID: "OL24364628M", Title: "Planet der Habenichtse", Format: "EPUB", Language: "de", Publisher: "Heyne", IsEbook: true, ReleaseDate: date(2017, time.March, 1)},
+	}
+	dispossessed.Spec.EditionID = new("OL24364628M")
+	dispossessed.Spec.Editions = []catalogv1.EditionSpec{{ID: "OL7353617M", Monitored: new(false)}}
 	earthsea := book("wizard-of-earthsea", "le-guin", "A Wizard of Earthsea", date(1968, time.November, 1), catalogv1.BookStatus{
 		Phase: catalogv1.BookPhaseDownloading, ActiveDownloadRef: new("dl"),
 	})
 	earthsea.Status.Metadata.SeriesLinks = []catalogv1.SeriesLink{{Series: "Hainish"}, {Series: "Earthsea", Position: "1", Primary: true}}
+	// Two more of the reading order, so a book's neighbours in series
+	// order differ from its neighbours by date: Firelight, a late prequel
+	// story, reads before A Wizard of Earthsea in the order and fifty years
+	// after it by date.
+	tombs := book("tombs-of-atuan", "le-guin", "The Tombs of Atuan", date(1971, time.January, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted})
+	tombs.Status.Metadata.SeriesLinks = []catalogv1.SeriesLink{{Series: "Earthsea", Position: "2", Primary: true}}
+	firelight := book("firelight", "le-guin", "Firelight", date(2018, time.June, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted})
+	firelight.Status.Metadata.SeriesLinks = []catalogv1.SeriesLink{{Series: "Earthsea", Position: "0.5", Primary: true}}
 	lathe := book("lathe-of-heaven", "le-guin", "The Lathe of Heaven", date(1971, time.March, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseUnmonitored})
 	lathe.Spec.Monitored = new(false)
 	file := &catalogv1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: "dispossessed-file", Namespace: "default"},
 		Spec: catalogv1.MediaFileSpec{
+			MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "dispossessed"},
 			Path:      "/data/books/Ursula K. Le Guin/The Dispossessed (1974)/The Dispossessed.epub",
-			SizeBytes: 2 << 20, Quality: commonv1.Quality{Name: "EPUB"},
+			SizeBytes: 2 << 20, Quality: commonv1.Quality{Name: "EPUB"}, FormatScore: 25,
 		},
+		Status: catalogv1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{PageCount: 341}},
 	}
-	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(author, file, dispossessed, earthsea, lathe,
+	standalone := book("standalone", "", "A Standalone Book", date(2001, time.January, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted})
+	standalone.Spec.QualityProfileRef, standalone.Spec.RootFolderRef = new("ebook-standalone"), new("books")
+	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(author, file, dispossessed, earthsea, tombs, firelight, lathe, standalone,
 		book("left-hand", "le-guin", "The Left Hand of Darkness", date(1969, time.March, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),
 		book("lavinia", "le-guin", "Lavinia", date(2008, time.April, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseDelayed}),
 		book("forthcoming", "le-guin", "Forthcoming", &future, catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),
 		book("poems", "le-guin", "Collected Poems", nil, catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),
 		book("neuromancer", "gibson", "Neuromancer", date(1984, time.July, 1), catalogv1.BookStatus{}),
-		book("standalone", "", "A Standalone Book", date(2001, time.January, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),
-	).Build()
+	).WithIndex(&catalogv1.Book{}, ui.BookAuthorRefField, ui.IndexBookByAuthorRef).Build()
 	items := []projection.LibraryItem{
 		{
 			Ref: types.NamespacedName{Namespace: "default", Name: "le-guin"}, Kind: commonv1.MediaKindAuthor,
-			Tab: projection.TabBooks, Title: "Ursula K. Le Guin", QualityProfileRef: "ebook", Monitored: true,
+			Tab: projection.TabBooks, Title: "Ursula K. Le Guin", QualityProfileRef: "ebook", Monitored: true, HasFile: true,
 		},
 		{
 			Ref: types.NamespacedName{Namespace: "default", Name: "standalone"}, Kind: commonv1.MediaKindBook,
@@ -143,7 +181,8 @@ func TestBookRowsAreTheSeasonTables(t *testing.T) {
 	require.Contains(t, body, `<time datetime="1974-05-01" title="1974-05-01">May 1 1974</time>`)
 	require.Contains(t, body, `hx-post="/library/default/book/left-hand/search" hx-target="#action-status"`)
 	require.Contains(t, body, `hx-post="/library/default/book/left-hand/search/interactive" hx-target="#book-modal"`)
-	require.Contains(t, body, `hx-get="/library/default/book/left-hand/details" hx-target="#book-modal"`)
+	requireTag(t, body, `href="/library/default/book/left-hand"`, `data-book-title`, `preload="mouseover"`)
+	require.NotContains(t, body, `hx-get="/library/default/book/left-hand/details"`, "the title opens the book's page, not the modal (2026-11-10)")
 	require.Contains(t, body, `hx-post="/library/default/book/left-hand/monitor" hx-target="closest tr"`)
 	require.Contains(t, body, `name="return" value="/library/default/author/le-guin/children"`)
 
@@ -188,9 +227,10 @@ func TestBookAutomaticSearchAnswersInPlace(t *testing.T) {
 	require.True(t, list.Items[0].Spec.GrabBest, "an automatic search grabs its best")
 }
 
-// The title opens the book's details modal for htmx and a page for anyone
-// else: the heading, the overview, the genres and the file, Details open.
-// A standalone book's heading names no author.
+// The details route answers the book's modal to htmx -- the heading, the
+// overview, the genres and the file, Details open -- and the book's page
+// to anyone else (book_page_test.go). A standalone book's heading names no
+// author.
 func TestBookDetailsServesTheModalToHTMXAndAPageOtherwise(t *testing.T) {
 	srv, _ := bookFixture(t)
 	rec := getPath(t, srv, "/library/default/book/dispossessed/details", true)
@@ -219,7 +259,9 @@ func TestBookDetailsServesTheModalToHTMXAndAPageOtherwise(t *testing.T) {
 	page := getPath(t, srv, "/library/default/book/dispossessed/details", false)
 	require.Equal(t, http.StatusOK, page.Code)
 	require.Contains(t, page.Body.String(), "<html")
-	require.Contains(t, page.Body.String(), `data-book-page="dispossessed"`)
+	requireTag(t, page.Body.String(), `data-book-page="dispossessed"`, `data-hero`, `data-kind="book"`)
+	require.NotContains(t, page.Body.String(), `data-book-modal=`, "a browser without JavaScript gets the book's page (2026-11-10), not the modal's tabs")
+	require.Empty(t, page.Header().Get("Cache-Control"), "the details route is no preload target")
 
 	standalone := getPath(t, srv, "/library/default/book/standalone/details", true)
 	require.Equal(t, http.StatusOK, standalone.Code)

@@ -34,16 +34,23 @@ import (
 )
 
 // An author's books are the season table's shape (2026-10-07): each row
-// has the monitor bookmark, the title opening the book's details modal
-// (Details and Search tabs), the release date, the status cell and the
+// has the monitor bookmark, the title opening the book's page (book_page.go,
+// since 2026-11-10, design §9.3), the release date, the status cell and the
 // automatic and interactive searches, the episode's own routes and
 // actions for kind book. Interactive search and its grab are the
-// episode's (startInteractiveSearch, the /searches routes).
+// episode's (startInteractiveSearch, the /searches routes); the book's
+// modal (BookModal: Details and Search tabs) stays for the row's details
+// and the interactive search's results.
 
-// handleBookDetails serves GET /library/{namespace}/book/{name}/details,
-// on the Details tab, or the Search tab with ?tab=search.
+// handleBookDetails serves GET /library/{namespace}/book/{name}/details:
+// the book's modal to htmx, on the Details tab, or the Search tab with
+// ?tab=search; the book's page to anyone else, as an episode's details do.
 func (s *Server) handleBookDetails(w http.ResponseWriter, r *http.Request) {
-	d, parent, ok := s.bookDetail(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
+	if !isHTMX(r) {
+		s.renderBookXPage(w, r, false)
+		return
+	}
+	d, ok := s.bookDetail(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -51,7 +58,7 @@ func (s *Server) handleBookDetails(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("tab") == "search" {
 		d.Tab = "search"
 	}
-	s.renderBook(w, r, d, parent)
+	s.renderBookModal(w, r, d)
 }
 
 // handleBookInteractiveSearch serves POST
@@ -62,7 +69,7 @@ func (s *Server) handleBookDetails(w http.ResponseWriter, r *http.Request) {
 // created for it.
 func (s *Server) handleBookInteractiveSearch(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
-	d, parent, ok := s.bookDetail(r.Context(), ns, name)
+	d, ok := s.bookDetail(r.Context(), ns, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -72,30 +79,24 @@ func (s *Server) handleBookInteractiveSearch(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	d.Tab, d.Search = "search", panel
-	s.renderBook(w, r, d, parent)
+	s.renderBookModal(w, r, d)
 }
 
-// renderBook answers the book's details: the modal to htmx, a page
-// otherwise.
-func (s *Server) renderBook(w http.ResponseWriter, r *http.Request, d views.BookDetail, parent projection.LibraryItem) {
+// renderBookModal answers the book's modal, into the page's #book-modal.
+func (s *Server) renderBookModal(w http.ResponseWriter, r *http.Request, d views.BookDetail) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	view := views.BookPage(d, parent)
-	if isHTMX(r) {
-		view = views.BookModal(d)
-	}
-	if err := view.Render(r.Context(), w); err != nil {
+	if err := views.BookModal(d).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render book details", "error", err)
 	}
 }
 
-// bookDetail reads a book and builds the modal's view on its Details tab,
-// plus the library card a page's crumbs hang from: its author's, or a
-// standalone book's own. False when the book, that card or the reader is
-// missing.
-func (s *Server) bookDetail(ctx context.Context, ns, name string) (views.BookDetail, projection.LibraryItem, bool) {
+// bookDetail reads a book and builds the modal's view on its Details tab.
+// False when the book, the library card it hangs from (its author's, or a
+// standalone book's own) or the reader is missing.
+func (s *Server) bookDetail(ctx context.Context, ns, name string) (views.BookDetail, bool) {
 	var b catalogv1.Book
 	if !s.getObject(ctx, types.NamespacedName{Namespace: ns, Name: name}, &b) {
-		return views.BookDetail{}, projection.LibraryItem{}, false
+		return views.BookDetail{}, false
 	}
 	row := bookRow(&b, time.Now())
 	kind, parentName := commonv1.MediaKindBook, b.Name
@@ -104,7 +105,7 @@ func (s *Server) bookDetail(ctx context.Context, ns, name string) (views.BookDet
 	}
 	parent, ok := findLibraryItem(s.opts.Library(ctx), ns, string(kind), parentName)
 	if !ok {
-		return views.BookDetail{}, projection.LibraryItem{}, false
+		return views.BookDetail{}, false
 	}
 	d := views.BookDetail{Row: row, Tab: "details"}
 	if kind == commonv1.MediaKindAuthor {
@@ -120,11 +121,15 @@ func (s *Server) bookDetail(ctx context.Context, ns, name string) (views.BookDet
 			d.File = &rows[0]
 		}
 	}
-	return d, parent, true
+	return d, true
 }
 
-// bookRows lists an author's Books through the reader, by spec.authorRef:
-// oldest first, an undated book before them, then by title.
+// bookRows lists an author's Books by spec.authorRef over a namespace List
+// filtered in memory: the author's children route (children.go's
+// handleChildren) alone still reads them this way, and goes with W4c's
+// removal of the parent-page fallbacks. The author's page lists them
+// through the reader's spec.authorRef index (bookXRows, author.go), which a
+// test's fake client must register (ui.BookAuthorRefField).
 func (s *Server) bookRows(ctx context.Context, author projection.LibraryItem) ([]views.BookRow, error) {
 	if s.opts.Reader == nil {
 		return nil, nil
