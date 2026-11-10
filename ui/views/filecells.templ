@@ -1,0 +1,217 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/table"
+)
+
+// The Files table's columns per kind (2026-11-10 design §9.6: "FileRow
+// become kind-aware ... shared by every file table"): a movie's or an
+// episode's file has Radarr's video columns, an album's track or an
+// audiobook's part Lidarr's audio columns (codec, bitrate, sample rate and
+// bit depth, size), a book's or an issue's file Readarr's and Mylar's
+// (format, pages, size); every kind keeps the frozen quality, release
+// group, formats and score. FileHeads renders a table's header cells for a
+// kind and FileCells a row's cells, so the movie page, the episode page and
+// every new page draw one table. Both join their cells with one space, as
+// the cells written out in a row always rendered (joined).
+
+// fileColumns is the column set a kind's files take.
+type fileColumns int
+
+const (
+	videoColumns fileColumns = iota
+	audioColumns
+	bookColumns
+)
+
+// columnsFor picks a kind's columns; an unknown or empty kind takes the
+// video columns, as the movie page always did.
+func columnsFor(kind commonv1.MediaKind) fileColumns {
+	switch kind {
+	case commonv1.MediaKindAlbum, commonv1.MediaKindAudiobook:
+		return audioColumns
+	case commonv1.MediaKindBook, commonv1.MediaKindIssue:
+		return bookColumns
+	default:
+		return videoColumns
+	}
+}
+
+// FilesKind is the kind a Files table's header is drawn for: the first
+// row's, "" (the video columns) for no rows.
+func FilesKind(files []FileRow) commonv1.MediaKind {
+	if len(files) == 0 {
+		return ""
+	}
+	return files[0].Kind
+}
+
+// FileHeads are the Files table's header cells for kind's columns.
+func FileHeads(kind commonv1.MediaKind) templ.Component {
+	heads := []templ.Component{fileHead("Relative Path", "")}
+	switch columnsFor(kind) {
+	case audioColumns:
+		heads = append(heads, fileHead("Codec", ""), fileHead("Bitrate", ""), fileHead("Sample Rate", ""), fileHead("Size", ""))
+	case bookColumns:
+		heads = append(heads, fileHead("Format", ""), fileHead("Pages", ""), fileHead("Size", ""))
+	default:
+		heads = append(heads, fileHead("Video Codec", ""), fileHead("Audio Info", ""), fileHead("Size", ""), fileHead("Languages", ""))
+	}
+	heads = append(heads, fileHead("Quality", ""), fileHead("Release Group", ""), fileHead("Formats", ""))
+	if columnsFor(kind) == videoColumns {
+		heads = append(heads, fileHead("Markers", ""), fileHead("Transcode", ""))
+	}
+	return joined(append(heads, fileHead("Score", "text-right")))
+}
+
+// FileCells are one file's cells under FileHeads(f.Kind): the kind's own
+// columns between the path and the frozen import fields. The kind's own
+// cells carry data-cell for the tests.
+func FileCells(f FileRow) templ.Component {
+	cells := []templ.Component{textCell(f.RelativePath, "max-w-md break-all whitespace-normal", nil)}
+	switch columnsFor(f.Kind) {
+	case audioColumns:
+		cells = append(cells,
+			textCell(f.AudioCodec, "", dataCell("codec")),
+			textCell(bitrateLabel(f.BitrateKbps), "", dataCell("bitrate")),
+			textCell(sampleRateLabel(f.SampleRateHz, f.BitDepth), "", dataCell("sampleRate")),
+			textCell(formatBytes(f.SizeBytes), "", nil))
+	case bookColumns:
+		cells = append(cells,
+			badgeCell(f.Format, dataCell("format")),
+			textCell(pagesLabel(f.Pages), "", dataCell("pages")),
+			textCell(formatBytes(f.SizeBytes), "", nil))
+	default:
+		cells = append(cells,
+			textCell(f.VideoCodec, "", nil),
+			textCell(f.Audio, "", nil),
+			textCell(formatBytes(f.SizeBytes), "", nil),
+			badgesCell(f.Languages, true))
+	}
+	cells = append(cells, badgeCell(f.Quality, nil), textCell(f.ReleaseGroup, "", nil), badgesCell(f.Formats, false))
+	if columnsFor(f.Kind) == videoColumns {
+		cells = append(cells, textCell(f.Markers, "text-xs text-muted-foreground", nil), textCell(f.Transcode, "", nil))
+	}
+	return joined(append(cells, textCell(fmt.Sprint(f.Score), "text-right", nil)))
+}
+
+// dataCell is a kind's own cell's data-cell attribute.
+func dataCell(name string) templ.Attributes {
+	return templ.Attributes{"data-cell": name}
+}
+
+// fileHead is one header cell, right-aligned when class says so.
+templ fileHead(label, class string) {
+	if class != "" {
+		@table.Head(table.HeadProps{Class: class}) {
+			{ label }
+		}
+	} else {
+		@table.Head() {
+			{ label }
+		}
+	}
+}
+
+// textCell is one cell of text, with a class and attributes when given.
+templ textCell(text, class string, attrs templ.Attributes) {
+	if class != "" || attrs != nil {
+		@table.Cell(table.CellProps{Class: class, Attributes: attrs}) {
+			{ text }
+		}
+	} else {
+		@table.Cell() {
+			{ text }
+		}
+	}
+}
+
+// badgeCell is one value as a secondary badge, or an empty cell.
+templ badgeCell(value string, attrs templ.Attributes) {
+	if attrs != nil {
+		@table.Cell(table.CellProps{Attributes: attrs}) {
+			if value != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ value }
+				}
+			}
+		}
+	} else {
+		@table.Cell() {
+			if value != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ value }
+				}
+			}
+		}
+	}
+}
+
+// badgesCell is a list of values as badges, secondary ones when asked.
+templ badgesCell(values []string, secondary bool) {
+	@table.Cell() {
+		<span class="flex flex-wrap gap-1">
+			for _, v := range values {
+				if secondary {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						{ v }
+					}
+				} else {
+					@badge.Badge() {
+						{ v }
+					}
+				}
+			}
+		</span>
+	}
+}
+
+// bitrateLabel is Lidarr's "320 kbps"; "" for an unknown bitrate.
+func bitrateLabel(kbps int32) string {
+	if kbps <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d kbps", kbps)
+}
+
+// sampleRateLabel is Lidarr's "44.1 kHz", with the bit depth of a lossless
+// track after it, "96 kHz / 24-bit"; "" for an unknown rate.
+func sampleRateLabel(hz, bitDepth int32) string {
+	if hz <= 0 {
+		return ""
+	}
+	label := fmt.Sprintf("%g kHz", float64(hz)/1000)
+	if bitDepth > 0 {
+		label += fmt.Sprintf(" / %d-bit", bitDepth)
+	}
+	return label
+}
+
+// pagesLabel is a page count, "" when unknown.
+func pagesLabel(pages int32) string {
+	if pages <= 0 {
+		return ""
+	}
+	return fmt.Sprint(pages)
+}

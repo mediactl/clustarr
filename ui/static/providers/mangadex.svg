@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="MangaDex">
+  <!-- A cat on MangaDex's orange tile, drawn here: MangaDex has no CC0 mark. -->
+  <rect x="1.5" y="1.5" width="21" height="21" rx="4" fill="#FF6740"/>
+  <path fill="#2C2C2C" d="M6.2 6.1l3.1 2.6c.9-.3 1.8-.4 2.7-.4s1.8.1 2.7.4l3.1-2.6v6.3c0 3.5-2.6 6-5.8 6s-5.8-2.5-5.8-6zm3.6 6.2a.9.9 0 1 0 0 1.8.9.9 0 0 0 0-1.8zm4.4 0a.9.9 0 1 0 0 1.8.9.9 0 0 0 0-1.8zm-2.2 2.9l-1.1 1h2.2z"/>
+</svg>

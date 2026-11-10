@@ -18,7 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package views
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 
@@ -52,12 +54,40 @@ type Link struct {
 
 // The providers whose logos ui/static/providers holds (owner, 2026-11-04:
 // "The imdb, tvdb, and tmdb links in the series page or movie page should
-// be the corresponding icon/logo").
+// be the corresponding icon/logo"; the non-video providers since 2026-11-10,
+// design §9.6: Simple Icons' CC0 marks where the brand has one -- MusicBrainz,
+// Discogs, Wikipedia, Goodreads, Audible, AniList, MyAnimeList -- else a mark
+// drawn here). A mark whose brand colour is black or near-black is drawn in
+// currentColor, so it shows on the dark canvas.
 const (
-	ProviderIMDb = "imdb"
-	ProviderTMDB = "tmdb"
-	ProviderTVDB = "tvdb"
+	ProviderIMDb        = "imdb"
+	ProviderTMDB        = "tmdb"
+	ProviderTVDB        = "tvdb"
+	ProviderMusicBrainz = "musicbrainz"
+	ProviderDiscogs     = "discogs"
+	ProviderWikipedia   = "wikipedia"
+	ProviderOpenLibrary = "openlibrary"
+	ProviderHardcover   = "hardcover"
+	ProviderComicVine   = "comicvine"
+	ProviderMetron      = "metron"
+	ProviderMangaDex    = "mangadex"
+	ProviderAniList     = "anilist"
+	ProviderMAL         = "myanimelist"
+	ProviderAudible     = "audible"
+	ProviderAudnexus    = "audnexus"
+	ProviderGoodreads   = "goodreads"
 )
+
+// Providers lists every provider constant: each has its logo under
+// ui/static/providers/<provider>.svg (TestEveryProviderHasItsLogo).
+func Providers() []string {
+	return []string{
+		ProviderIMDb, ProviderTMDB, ProviderTVDB,
+		ProviderMusicBrainz, ProviderDiscogs, ProviderWikipedia, ProviderOpenLibrary, ProviderHardcover,
+		ProviderComicVine, ProviderMetron, ProviderMangaDex, ProviderAniList, ProviderMAL,
+		ProviderAudible, ProviderAudnexus, ProviderGoodreads,
+	}
+}
 
 // providerLinks are an item's provider pages in its hero's meta line, each
 // its provider's logo (the file is /static/providers/<provider>.svg, its
@@ -88,9 +118,16 @@ type ImageSetNote struct {
 	Pasted bool
 }
 
-// FileRow is one row of the Files table: a MediaFile as Radarr lists it.
+// FileRow is one row of the Files table: a MediaFile as Radarr lists it,
+// or as Lidarr, Readarr or Mylar would (2026-11-10 design §9.6): Kind is
+// the file's mediaRef kind, which picks the cells FileCells renders -- the
+// video cells for a movie's or an episode's, the audio cells for an album's
+// or an audiobook's, format and pages for a book's or an issue's.
 type FileRow struct {
 	Name string
+	// Kind is the MediaFile's spec.mediaRef.kind; "" and the video kinds
+	// render the video cells.
+	Kind commonv1.MediaKind
 	// Path is the file's absolute path (the delete dialog names its folder).
 	Path         string
 	RelativePath string
@@ -107,6 +144,18 @@ type FileRow struct {
 	// Transcode is the file's status.transcode phase, and its reason when
 	// it has one.
 	Transcode string
+	// The audio cells (an album's track, an audiobook's part): the first
+	// audio track's codec, bitrate, sample rate and bit depth (0 for a
+	// lossy codec).
+	AudioCodec   string
+	BitrateKbps  int32
+	SampleRateHz int32
+	BitDepth     int32
+	// The book cells (a book, an issue): the format as the quality ladder
+	// names it (EPUB, CBZ), else the file's extension, and the probe's page
+	// count (0 when unknown).
+	Format string
+	Pages  int32
 }
 
 // SubtitleRow is one language of a file's status.subtitles.
@@ -186,6 +235,40 @@ templ LibraryDetail(d Detail) {
 	}
 }
 
+// Action is one button of an item page's action bar, named so a page
+// composes its bar from the shared buttons (ItemActions; 2026-11-10 design
+// §9.6: "views.actionBar takes the kind's buttons").
+type Action string
+
+// The actions a page can ask for, in the bar's usual order. ActionRename
+// is the probe-driven naming design's pair, Preview (the dry run) and
+// Rename; ActionEdit, ActionImages and ActionDelete open their dialogs.
+const (
+	ActionRefresh     Action = "refresh"
+	ActionSearch      Action = "search"
+	ActionInteractive Action = "interactive"
+	ActionRename      Action = "rename"
+	ActionEdit        Action = "edit"
+	ActionImages      Action = "images"
+	ActionDelete      Action = "delete"
+)
+
+// DefaultActions are the movie, series, artist and author pages' bar: every
+// action, in the bar's order. ItemActions renders each only where the item
+// takes it.
+func DefaultActions(Detail) []Action {
+	return []Action{ActionRefresh, ActionSearch, ActionInteractive, ActionRename, ActionEdit, ActionImages, ActionDelete}
+}
+
+// InteractiveSearchable reports whether kind has an interactive search of
+// its own: a leaf (a movie, an episode, an album, a book, an issue, an
+// audiobook) does; a series' is its seasons' and a container's (an
+// artist's, an author's, a comic's) its children's, so neither bar shows
+// one.
+func InteractiveSearchable(kind commonv1.MediaKind) bool {
+	return kind != commonv1.MediaKindSeries && !projection.IsContainer(kind)
+}
+
 // itemToolbar is the item page's toolbar (actionBar): Radarr's "Refresh &
 // Scan" (the metadata refresh plus a scan of the item's own folder, when
 // it has one), "Search <kind>", a movie's "Interactive Search"
@@ -197,34 +280,81 @@ templ LibraryDetail(d Detail) {
 // quality profile), the Image Set dialog and Delete. Each button reads one
 // word -- Refresh, Search, Interactive, Preview, Rename, Edit, Images,
 // Delete (owner, 2026-11-04) -- and says the whole action on hover.
-// Monitoring is also the bookmark on the title, as in Radarr.
+// Monitoring is also the bookmark on the title, as in Radarr. It is
+// ItemActions over DefaultActions.
 templ itemToolbar(d Detail) {
-	{{ name, here := d.Item.Ref.Name, libraryDetailPath(d.Item) }}
-	@actionBar() {
-		if d.CanScan {
-			@actionForm("refresh-"+name, libraryActionURL(d.Item, "refresh"), []Field{{"return", here}, {"scan", "true"}}, "refresh-cw", "Refresh", "Refresh & Scan", "refresh-metadata", nil)
-		} else {
-			@actionForm("refresh-"+name, libraryActionURL(d.Item, "refresh"), []Field{{"return", here}}, "refresh-cw", "Refresh", "Refresh", "refresh-metadata", nil)
-		}
-		@actionForm("search-"+name, libraryActionURL(d.Item, "search"), []Field{{"return", here}}, "search", "Search", searchLabel(d.Item.Kind), "search-now", nil)
-		if d.Item.Kind == commonv1.MediaKindMovie {
-			@actionForm("interactive-search-"+name, libraryActionURL(d.Item, "search/interactive"), nil, "user-search", "Interactive", "Interactive Search", "movie-interactive-search",
-				templ.Attributes{"hx-post": libraryActionURL(d.Item, "search/interactive"), "hx-target": "#movie-modal", "hx-swap": "innerHTML"})
-		}
-		if d.CanScan {
-			@actionForm("rename-dry-run-"+name, libraryActionURL(d.Item, "rename"), []Field{{"return", here}, {"rename", "dryRun"}}, "eye", "Preview", "Preview Rename (dry run)", "rename-dry-run", nil)
-			@actionForm("rename-"+name, libraryActionURL(d.Item, "rename"), []Field{{"return", here}, {"rename", "apply"}}, "file-symlink", "Rename", "Rename", "rename-apply", nil)
-		}
-		if Editable(d) {
-			@editDialog(d)
-		}
-		if ImageSettable(d) {
-			@imageSetDialog(d)
-		}
-		if deletable(d) && d.Item.DeleteMode == "" {
-			@deleteDialog(d)
-		}
+	@ItemActions(d, DefaultActions(d))
+}
+
+// ItemActions is an item page's action bar composed by name (2026-11-10
+// design §9.6): the bar (actionBar) with the actions asked for, in the
+// order asked, each rendered only when the item takes it (itemAction) --
+// Refresh always (as "Refresh & Scan" when the item has a folder, d.CanScan,
+// else "Refresh"); Search always, worded by the kind (searchLabel);
+// Interactive for a kind with an interactive search of its own
+// (InteractiveSearchable), posting to the item's search/interactive route
+// and opening the kind's modal region, #<kind>-modal, as data-action
+// "<kind>-interactive-search"; Rename (the dry run and the apply) only for
+// an item with a folder; Edit only for a kind the Edit dialog knows
+// (Editable); Images only for a kind with image sets (ImageSettable);
+// Delete only for a deletable kind with no delete pending. A page's region
+// for the modal is its own to render. The slots are joined with one space
+// each, as the bar's buttons always rendered, an empty slot's included.
+func ItemActions(d Detail, actions []Action) templ.Component {
+	slots := make([]templ.Component, 0, len(actions))
+	for _, a := range actions {
+		slots = append(slots, itemAction(d, a))
 	}
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		return actionBar().Render(templ.WithChildren(ctx, joined(slots)), w)
+	})
+}
+
+// itemAction is one of the bar's slots: the action's button (and its
+// hidden form or its dialog), or nothing when the item does not take it.
+templ itemAction(d Detail, a Action) {
+	{{ name, here := d.Item.Ref.Name, libraryDetailPath(d.Item) }}
+	switch a {
+		case ActionRefresh:
+			if d.CanScan {
+				@actionForm("refresh-"+name, libraryActionURL(d.Item, "refresh"), []Field{{"return", here}, {"scan", "true"}}, "refresh-cw", "Refresh", "Refresh & Scan", "refresh-metadata", nil)
+			} else {
+				@actionForm("refresh-"+name, libraryActionURL(d.Item, "refresh"), []Field{{"return", here}}, "refresh-cw", "Refresh", "Refresh", "refresh-metadata", nil)
+			}
+		case ActionSearch:
+			@actionForm("search-"+name, libraryActionURL(d.Item, "search"), []Field{{"return", here}}, "search", "Search", searchLabel(d.Item.Kind), "search-now", nil)
+		case ActionInteractive:
+			if InteractiveSearchable(d.Item.Kind) {
+				@actionForm("interactive-search-"+name, libraryActionURL(d.Item, "search/interactive"), nil, "user-search", "Interactive", "Interactive Search", string(d.Item.Kind)+"-interactive-search",
+					templ.Attributes{"hx-post": libraryActionURL(d.Item, "search/interactive"), "hx-target": ModalRegion(d.Item.Kind), "hx-swap": "innerHTML"})
+			}
+		case ActionRename:
+			if d.CanScan {
+				@actionForm("rename-dry-run-"+name, libraryActionURL(d.Item, "rename"), []Field{{"return", here}, {"rename", "dryRun"}}, "eye", "Preview", "Preview Rename (dry run)", "rename-dry-run", nil)
+				@actionForm("rename-"+name, libraryActionURL(d.Item, "rename"), []Field{{"return", here}, {"rename", "apply"}}, "file-symlink", "Rename", "Rename", "rename-apply", nil)
+			}
+		case ActionEdit:
+			if Editable(d) {
+				@editDialog(d)
+			}
+		case ActionImages:
+			if ImageSettable(d) {
+				@imageSetDialog(d)
+			}
+		case ActionDelete:
+			if deletable(d) && d.Item.DeleteMode == "" {
+				@deleteDialog(d)
+			}
+	}
+}
+
+// ModalRegion is the selector of a page's modal region for kind,
+// "#<kind>-modal": where the interactive search (ItemActions) and a row's
+// details open. The movie page renders #movie-modal, the episode page
+// #episode-modal, an author's books #book-modal; a new page renders its
+// own.
+func ModalRegion(kind commonv1.MediaKind) string {
+	return "#" + string(kind) + "-modal"
 }
 
 // imageSetSource is the Images fact's data attribute: "pasted" or
@@ -535,7 +665,9 @@ templ sectionTitle(title string) {
 // filesSection is Radarr's Files table: the movie's file as import
 // froze it (path relative to the movie's folder, quality, languages,
 // release group, matched formats and score) and as it was probed (video
-// codec, first audio track).
+// codec, first audio track) -- and, since 2026-11-10 (design §9.6), the
+// same table for every kind, its columns the rows' kind's (FileHeads,
+// FileCells).
 templ filesSection(d Detail) {
 	<section data-section="files" class="mb-8">
 		@sectionTitle("Files")
@@ -546,93 +678,13 @@ templ filesSection(d Detail) {
 				@table.Table() {
 					@table.Header() {
 						@table.Row() {
-							@table.Head() {
-								{ "Relative Path" }
-							}
-							@table.Head() {
-								{ "Video Codec" }
-							}
-							@table.Head() {
-								{ "Audio Info" }
-							}
-							@table.Head() {
-								{ "Size" }
-							}
-							@table.Head() {
-								{ "Languages" }
-							}
-							@table.Head() {
-								{ "Quality" }
-							}
-							@table.Head() {
-								{ "Release Group" }
-							}
-							@table.Head() {
-								{ "Formats" }
-							}
-							@table.Head() {
-								{ "Markers" }
-							}
-							@table.Head() {
-								{ "Transcode" }
-							}
-							@table.Head(table.HeadProps{Class: "text-right"}) {
-								{ "Score" }
-							}
+							@FileHeads(FilesKind(d.Files))
 						}
 					}
 					@table.Body() {
 						for _, f := range d.Files {
 							@table.Row(table.RowProps{Attributes: templ.Attributes{"data-file": f.Name}}) {
-								@table.Cell(table.CellProps{Class: "max-w-md break-all whitespace-normal"}) {
-									{ f.RelativePath }
-								}
-								@table.Cell() {
-									{ f.VideoCodec }
-								}
-								@table.Cell() {
-									{ f.Audio }
-								}
-								@table.Cell() {
-									{ formatBytes(f.SizeBytes) }
-								}
-								@table.Cell() {
-									<span class="flex flex-wrap gap-1">
-										for _, l := range f.Languages {
-											@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
-												{ l }
-											}
-										}
-									</span>
-								}
-								@table.Cell() {
-									if f.Quality != "" {
-										@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
-											{ f.Quality }
-										}
-									}
-								}
-								@table.Cell() {
-									{ f.ReleaseGroup }
-								}
-								@table.Cell() {
-									<span class="flex flex-wrap gap-1">
-										for _, format := range f.Formats {
-											@badge.Badge() {
-												{ format }
-											}
-										}
-									</span>
-								}
-								@table.Cell(table.CellProps{Class: "text-xs text-muted-foreground"}) {
-									{ f.Markers }
-								}
-								@table.Cell() {
-									{ f.Transcode }
-								}
-								@table.Cell(table.CellProps{Class: "text-right"}) {
-									{ fmt.Sprint(f.Score) }
-								}
+								@FileCells(f)
 							}
 						}
 					}

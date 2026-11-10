@@ -275,8 +275,13 @@ func neighbours(all []projection.LibraryItem, item projection.LibraryItem) (prev
 	return "", ""
 }
 
-// fileRows turns a movie's MediaFile into its Files row and its extra
-// files, paths relative to the movie's folder as Radarr shows them.
+// fileRows turns an item's MediaFile into its Files row and its extra
+// files, paths relative to the item's folder as Radarr shows them. The row
+// carries every kind's cells (views.FileRow, 2026-11-10 design §9.6): the
+// video codec and first audio track of a video, the first track's codec,
+// bitrate, sample rate and bit depth of an album's or audiobook's file, the
+// format and page count of a book's or issue's; its Kind, the file's
+// mediaRef kind, picks which the table shows.
 func fileRows(folder string, f *catalogv1.MediaFile) ([]views.FileRow, []views.ExtraRow) {
 	rel := func(p string) string {
 		if folder != "" {
@@ -287,14 +292,19 @@ func fileRows(folder string, f *catalogv1.MediaFile) ([]views.FileRow, []views.E
 		return filepath.Base(p)
 	}
 	row := views.FileRow{
-		Name: f.Name, Path: f.Spec.Path, RelativePath: rel(f.Spec.Path), SizeBytes: f.Spec.SizeBytes,
+		Name: f.Name, Kind: f.Spec.MediaRef.Kind, Path: f.Spec.Path, RelativePath: rel(f.Spec.Path), SizeBytes: f.Spec.SizeBytes,
 		Languages: f.Spec.Languages, Quality: f.Spec.Quality.Name, ReleaseGroup: f.Spec.ReleaseGroup,
 		Formats: f.Spec.MatchedFormats, Score: f.Spec.FormatScore,
+		Format: fileFormat(f),
 	}
 	if mi := f.Status.MediaInfo; mi != nil {
 		row.VideoCodec = mi.VideoCodec
+		row.Pages = mi.PageCount
 		if len(mi.Audio) > 0 {
-			row.Audio = audioLabel(mi.Audio[0])
+			a := mi.Audio[0]
+			row.Audio = audioLabel(a)
+			row.AudioCodec = strings.ToUpper(a.Codec)
+			row.BitrateKbps, row.SampleRateHz, row.BitDepth = a.BitrateKbps, a.SampleRateHz, a.BitDepth
 		}
 	}
 	row.Markers = markersLabel(f.Status.Markers)
@@ -320,6 +330,18 @@ func fileRows(folder string, f *catalogv1.MediaFile) ([]views.FileRow, []views.E
 		extras = append(extras, e)
 	}
 	return []views.FileRow{row}, extras
+}
+
+// fileFormat is a book's or an issue's format as the quality ladder names
+// it (the frozen quality, EPUB or CBZ), else the file's extension upper-cased
+// (2026-11-10 design D5: fileFormat is "the extension as the quality ladder
+// names it").
+func fileFormat(f *catalogv1.MediaFile) string {
+	if f.Spec.Quality.Name != "" {
+		return f.Spec.Quality.Name
+	}
+	ext := strings.TrimPrefix(filepath.Ext(f.Spec.Path), ".")
+	return strings.ToUpper(ext)
 }
 
 // subtitleRows is the file's status.subtitles: its phase, and one row per

@@ -17,6 +17,33 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package views
 
+import (
+	"context"
+	"io"
+
+	"github.com/a-h/templ"
+)
+
+// joined renders parts in order with one space between them -- the
+// whitespace templ writes between sibling nodes of one block, which a
+// switch or a case drops -- so a table row or a button group composed from
+// a list renders byte for byte as the same cells written out did.
+func joined(parts []templ.Component) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		for i, c := range parts {
+			if i > 0 {
+				if _, err := io.WriteString(w, " "); err != nil {
+					return err
+				}
+			}
+			if err := c.Render(ctx, w); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // clampPercent keeps a progress bar's width inside [0, 100] even if a caller
 // passes Entry's "no percentage" sentinel (-1) or an out-of-range value.
 func clampPercent(p int32) int32 {
