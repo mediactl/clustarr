@@ -543,6 +543,27 @@ func (r *Reconciler) ensureIssue(ctx context.Context, c *catalogv1alpha1.Comic, 
 	if d.Date != nil {
 		statusAC = statusAC.WithDate(metav1.NewTime(*d.Date))
 	}
+	// The 2026-11-10 design's fields (§4.7, §5.4): each sent when the
+	// provider has it, so a provider that stops sending one releases it, as
+	// the dates above are handled.
+	if d.StoreDate != nil {
+		statusAC = statusAC.WithStoreDate(metav1.NewTime(*d.StoreDate))
+	}
+	if d.Overview != "" {
+		statusAC = statusAC.WithOverview(d.Overview)
+	}
+	if d.CoverURL != "" && len(d.CoverURL) <= 512 {
+		statusAC = statusAC.WithCoverURL(d.CoverURL)
+	}
+	for i, cr := range d.Credits {
+		if i == 32 || cr.Name == "" {
+			break
+		}
+		statusAC = statusAC.WithCredits(catalogac.Credit().WithName(cr.Name).WithRole(cr.Role))
+	}
+	if len(d.SourceIDs) > 0 {
+		statusAC = statusAC.WithSourceIDs(d.SourceIDs)
+	}
 
 	// k8s.ManagerCatalogFanout, not k8s.ManagerCatalog: this
 	// reconciler writes an Issue it owns but does not itself compute the

@@ -50,6 +50,15 @@ type DesiredIssue struct {
 	Title                  string
 	Date                   *time.Time
 
+	// The 2026-11-10 design's Issue fields (§4.7): the store date beside
+	// the cover date, the issue's own synopsis, its cover's URL, the people
+	// credited and the ids every provider holds for it.
+	StoreDate *time.Time
+	Overview  string
+	CoverURL  string
+	Credits   []metadata.Credit
+	SourceIDs map[string]string
+
 	// Monitored is non-nil only for an Issue object this pass is about to
 	// create; nil means "do not touch spec.monitored" -- see DesiredIssues'
 	// doc comment for the exact decision, and IssueSpec.Monitored's own doc
@@ -148,10 +157,18 @@ func DesiredIssues(
 			date = iss.StoreDate
 		}
 
-		out = append(out, DesiredIssue{
+		d := DesiredIssue{
 			Name: name, Number: iss.Number, CalculatedNumberCentis: centis,
 			SourceID: iss.IDs[sourceKey], Title: iss.Title, Date: date, Monitored: monitored,
-		})
+			StoreDate: iss.StoreDate, Overview: iss.Description, Credits: iss.Credits,
+		}
+		if iss.Image != nil {
+			d.CoverURL = iss.Image.URL
+		}
+		if len(iss.IDs) > 0 {
+			d.SourceIDs = map[string]string(iss.IDs)
+		}
+		out = append(out, d)
 	}
 	return out
 }
