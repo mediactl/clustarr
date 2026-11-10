@@ -22,9 +22,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/remediation/childsync"
 )
 
 // An Episode already holding the provider fields a fan-out would apply is
@@ -70,34 +72,29 @@ func TestAnEpisodeHoldingItsProviderFieldsIsNotPatchedAgain(t *testing.T) {
 	assert.False(t, providerStatusMatches(current(), gone, "5d9c0"), "values the provider stopped sending are released by an apply")
 }
 
-// A Series fetches its episode list again only when the inputs of its last
-// complete fan-out in this process moved: its spec, its metadata refresh, its
-// add options. 11 of the loop's 16 workers waited on that fetch, made on
-// every pass.
-func TestASeriesFetchesItsEpisodesOncePerMetadataRefresh(t *testing.T) {
+// A Series' child-sync key is the containers' (childsync.KeyAt, design D2):
+// its spec generation, its metadata refresh to the apiserver's second and
+// the add options as the caller says; a series without metadata has none,
+// so its fan-out waits for the document instead of fetching on every wake.
+func TestTheSeriesSyncKeyIsTheContainersKey(t *testing.T) {
+	at := time.Date(2026, 10, 28, 9, 0, 0, 123456789, time.UTC)
 	s := &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{UID: "uid-pokemon", Generation: 2},
-		Status: catalogv1alpha1.SeriesStatus{
-			Metadata:          &catalogv1alpha1.SeriesMetadata{RefreshedAt: metav1.NewTime(time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC))},
-			AddOptionsApplied: true,
-		},
+		Status:     catalogv1alpha1.SeriesStatus{Metadata: &catalogv1alpha1.SeriesMetadata{RefreshedAt: metav1.NewTime(at)}},
 	}
-	var m episodeSyncMemo
-	assert.True(t, m.due(s), "never synced in this process")
-	m.synced(s)
-	assert.False(t, m.due(s))
-
-	refreshed := s.DeepCopy()
-	refreshed.Status.Metadata.RefreshedAt = metav1.NewTime(time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC))
-	assert.True(t, m.due(refreshed), "a metadata refresh")
+	k, ok := syncKey(s, false)
+	require.True(t, ok)
+	assert.Equal(t, childsync.KeyAt(2, at, false), k)
+	assert.Equal(t, at.Truncate(time.Second), k.RefreshedAt, "the refresh to the second, as the apiserver stores it")
+	applied, _ := syncKey(s, true)
+	assert.NotEqual(t, k, applied, "the add options are part of the key")
 	edited := s.DeepCopy()
 	edited.Generation = 3
-	assert.True(t, m.due(edited), "a spec edit")
-	applied := s.DeepCopy()
-	applied.Status.AddOptionsApplied = false
-	assert.True(t, m.due(applied), "the first fan-out's add options")
+	k3, _ := syncKey(edited, false)
+	assert.NotEqual(t, k, k3, "a spec edit moves it")
+
 	bare := s.DeepCopy()
 	bare.Status.Metadata = nil
-	m.synced(bare)
-	assert.True(t, m.due(bare), "no metadata yet is never remembered")
+	_, ok = syncKey(bare, true)
+	assert.False(t, ok, "no metadata, no key: the fan-out waits for the document")
 }

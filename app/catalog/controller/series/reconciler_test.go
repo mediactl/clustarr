@@ -213,6 +213,27 @@ func waitForPhase(t *testing.T, ctx context.Context, c client.Client, ns, name s
 	return got
 }
 
+// cacheMetadata writes the series' metadata document under the gateway's
+// manager with the given refresh time and waits until the cached client
+// reads it, since the reconciler reads through the cache. A Series fans its
+// episodes out only once the document is cached, and again only when a
+// fan-out input moved (series.syncKey: the spec generation, the refresh,
+// the add options), so a test that drives several fan-outs by hand moves
+// the refresh a second each time.
+func cacheMetadata(t *testing.T, ctx context.Context, c client.Client, ns, name, title string, refreshedAt time.Time) {
+	t.Helper()
+	at := metav1.NewTime(refreshedAt.UTC().Truncate(time.Second))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series(name, ns).WithStatus(
+		catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle(title).WithYear(2020).
+			WithStatus(catalogv1alpha1.SeriesRunStatusContinuing).WithRefreshedAt(at))))
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Series
+		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got) == nil &&
+			got.Status.Metadata != nil && got.Status.Metadata.RefreshedAt.Time.Equal(at.Time)
+	}, 5*time.Second, 10*time.Millisecond, "the metadata document never reached the cache")
+}
+
 // TestSeriesReconcilerRealController is the one Test function that starts a
 // real, auto-wired series.Reconciler (see startManager's doc).
 func TestSeriesReconcilerRealController(t *testing.T) {
@@ -640,6 +661,7 @@ func TestSeriesEpisodeFieldManagersStayDisjoint(t *testing.T) {
 		},
 	}
 	require.NoError(t, c.Create(ctx, s))
+	cacheMetadata(t, ctx, c, s.Namespace, s.Name, "Field Manager Series", time.Now())
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "fieldmanager-ns", Name: "field-manager-series"}}
 	_, err := r.ReconcileItem(ctx, req.NamespacedName)
@@ -1093,6 +1115,8 @@ func TestSeriesEnsureEpisodeProviderFieldRefresh(t *testing.T) {
 		},
 	}
 	require.NoError(t, c.Create(ctx, s))
+	refreshed := time.Now().Add(-time.Minute)
+	cacheMetadata(t, ctx, c, s.Namespace, s.Name, "Refresh Series", refreshed)
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "refresh-ns", Name: "refresh-series"}}
 	_, err := r.ReconcileItem(ctx, req.NamespacedName)
@@ -1122,6 +1146,7 @@ func TestSeriesEnsureEpisodeProviderFieldRefresh(t *testing.T) {
 	requester.episodes = []metadata.Episode{
 		{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot"},
 	}
+	cacheMetadata(t, ctx, c, s.Namespace, s.Name, "Refresh Series", refreshed.Add(time.Second))
 	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
@@ -1292,6 +1317,8 @@ func TestSeriesEpisodeStillIsWrittenAndReleased(t *testing.T) {
 		},
 	}
 	require.NoError(t, c.Create(ctx, s))
+	refreshed := time.Now().Add(-time.Minute)
+	cacheMetadata(t, ctx, c, s.Namespace, s.Name, "Doctor Who", refreshed)
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "still-ns", Name: "still-series"}}
 	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
@@ -1305,6 +1332,7 @@ func TestSeriesEpisodeStillIsWrittenAndReleased(t *testing.T) {
 	assert.Equal(t, "Rose", ep.Status.Title)
 
 	requester.episodes = []metadata.Episode{{SeasonNumber: 1, EpisodeNumber: 1, Title: "Rose", Runtime: 44}}
+	cacheMetadata(t, ctx, c, s.Namespace, s.Name, "Doctor Who", refreshed.Add(time.Second))
 	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
@@ -1340,6 +1368,8 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 	}))
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "plexid-ns", Name: "firefly"}}
 	epKey := types.NamespacedName{Namespace: "plexid-ns", Name: "firefly-s01e01"}
+	refreshed := time.Now().Add(-time.Minute)
+	cacheMetadata(t, ctx, c, "plexid-ns", "firefly", "Firefly", refreshed)
 
 	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
@@ -1350,6 +1380,7 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 
 	// The next list carries no Plex id, and a changed runtime to wait on.
 	requester.episodes = []metadata.Episode{{SeasonNumber: 1, EpisodeNumber: 1, Title: "Serenity", Runtime: 43}}
+	cacheMetadata(t, ctx, c, "plexid-ns", "firefly", "Firefly", refreshed.Add(time.Second))
 	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
@@ -1372,6 +1403,7 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 	// Plex answered this time and has no id for the episode (renumbered,
 	// or now another episode's): the stale id is released, never kept.
 	requester.episodes = []metadata.Episode{{SeasonNumber: 1, EpisodeNumber: 1, Title: "Serenity", Runtime: 44, PlexConsulted: true}}
+	cacheMetadata(t, ctx, c, "plexid-ns", "firefly", "Firefly", refreshed.Add(2*time.Second))
 	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {

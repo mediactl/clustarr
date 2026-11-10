@@ -46,6 +46,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/episodeorder"
 	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
+	"github.com/mediactl/clustarr/app/remediation/childsync"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -166,8 +167,9 @@ type Reconciler struct {
 	OnReconcile func()
 
 	// episodeSync skips a fan-out whose inputs have not moved since the
-	// last complete one in this process.
-	episodeSync episodeSyncMemo
+	// last complete one in this process (the containers' one memo, design
+	// D2; syncKey).
+	episodeSync childsync.Memo
 }
 
 // Watches is the Series' item path on the remediation loop (ADR-0019 §6.1,
@@ -319,6 +321,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, s *catalogv1alpha1.Ser
 	if _, err := k8s.RemoveFinalizer(ctx, r.Client, s, name); err != nil {
 		return ctrl.Result{}, err
 	}
+	r.episodeSync.Forget(s.UID)
 	return ctrl.Result{}, nil
 }
 
@@ -473,13 +476,19 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	// Episode-listing RPC fan-out (last step, per §8.1): a failure here
 	// surfaces on EpisodesSynced/Phase without blocking the patch above.
 	fan, syncErr := r.syncEpisodes(ctx, s, now)
-	if syncErr != nil {
+	switch {
+	case syncErr != nil:
 		reason := events.ClassifyRequestError(syncErr).Reason()
 		if rollup.Transitioned(s.Status.Conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, metav1.ConditionFalse, reason) {
 			r.warn(s, "EpisodeSyncFailed", "episode listing RPC failed: %s", syncErr.Error())
 		}
 		k8s.MarkFalse(s, &conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, reason, "episode listing RPC failed: %s", syncErr.Error())
-	} else {
+	case !fan.synced:
+		// No metadata yet: the fan-out waits for it (syncEpisodes), and the
+		// gateway's write wakes this item (seriesPredicate's refreshedAt
+		// arm), as the Artist's and Author's do.
+		k8s.MarkFalse(s, &conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, "MetadataPending", "episodes are listed once the series' metadata is cached")
+	default:
 		k8s.MarkTrue(s, &conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, k8s.ReasonReconciled, "episodes synced")
 	}
 	if fan.created > 0 {
@@ -692,14 +701,25 @@ type fanOut struct {
 	episodes []catalogv1alpha1.Episode
 }
 
-// syncEpisodes lists s's currently owned Episodes, requests its episode list
-// from the metadata gateway, ensures each desired Episode exists with its
-// provider-sourced status fields, and returns the post-fan-out Episode list
-// for Rollup: every Episode the List found, with the ones this pass ensured
-// replaced by what it just wrote (a new Episode, or a fresh air date), so
-// the rollup reflects this reconcile rather than the one before it. On any
-// failure it still returns everything it knows -- the pre-fan-out list plus
-// whatever it ensured before failing.
+// syncEpisodes lists s's currently owned Episodes and, once the metadata is
+// cached and the memo says a fan-out input moved since the last complete
+// one, requests its episode list from the metadata gateway, ensures each
+// desired Episode exists with its provider-sourced status fields, and
+// returns the post-fan-out Episode list for Rollup: every Episode the List
+// found, with the ones this pass ensured replaced by what it just wrote (a
+// new Episode, or a fresh air date), so the rollup reflects this reconcile
+// rather than the one before it. On any failure it still returns everything
+// it knows -- the pre-fan-out list plus whatever it ensured before failing.
+//
+// A series without metadata lists no episodes (synced false, no error), as
+// the Artist, Author and Comic do (design D2, §5.1): the fan-out is keyed
+// on the metadata refresh, so a pass before it had nothing to key on and
+// fetched the list on every wake (the creation, the finalizer, each
+// Episode's own create), and the first fan-out's monitor rule
+// (InitialEpisodeMonitored under future) reads the run status from the
+// metadata at the one Create that sets spec.monitored. The gateway's write
+// wakes the item (seriesPredicate's refreshedAt arm), so nothing waits on a
+// timer.
 func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series, now time.Time) (fanOut, error) {
 	var episodeList catalogv1alpha1.EpisodeList
 	if err := r.List(ctx, &episodeList, client.InNamespace(s.Namespace), client.MatchingFields{episodeBySeriesRefIndexKey: s.Name}); err != nil {
@@ -720,7 +740,11 @@ func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series
 		return out
 	}
 
-	if !r.episodeSync.due(s) {
+	key, hasMetadata := syncKey(s, s.Status.AddOptionsApplied)
+	if !hasMetadata {
+		return done(), nil
+	}
+	if !r.episodeSync.Due(s.UID, key, true) {
 		// Nothing a fan-out reads has moved since the last complete one:
 		// the Episodes the List found are what it would leave.
 		out.synced = true
@@ -769,7 +793,8 @@ func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series
 		}
 	}
 	out.synced = true
-	r.episodeSync.synced(s)
+	synced, _ := syncKey(s, true)
+	r.episodeSync.Synced(s.UID, synced, true)
 	return done(), nil
 }
 

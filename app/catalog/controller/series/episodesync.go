@@ -18,68 +18,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package series
 
 import (
-	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
-
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/remediation/childsync"
 )
 
-// episodeSyncMemo remembers, per Series UID, the inputs of its last complete
-// episode fan-out in this process, so a pass that moved none of them does not
-// fetch the episode list again (owner, 2026-10-28: every Series pass asked
-// the metadata gateway for its whole list and patched every Episode; 11 of
-// the remediation loop's 16 workers waited on that fetch). A restart forgets
-// it, so each Series fans out once per process.
-type episodeSyncMemo struct {
-	mu   sync.Mutex
-	last map[types.UID]episodeSyncKey
-}
-
-// episodeSyncKey is what decides a fan-out's outcome besides the provider's
-// list: the spec (generation), the metadata refresh it read and whether the
-// add options were applied (the first fan-out's monitoring).
-type episodeSyncKey struct {
-	generation        int64
-	refreshedAt       time.Time
-	addOptionsApplied bool
-}
-
-func episodeSyncKeyOf(s *catalogv1alpha1.Series) (episodeSyncKey, bool) {
+// syncKey is the child-sync memo's key for s (app/remediation/childsync,
+// the one memo every container keeps; until 2026-11-10 this package kept
+// an episodeSyncMemo of its own, owner 2026-10-28: every Series pass asked
+// the metadata gateway for its whole list and patched every Episode, and
+// 11 of the remediation loop's 16 workers waited on that fetch): its spec
+// generation, its metadata refresh and whether its add options were
+// applied -- addOptionsApplied as the caller says, since the pass that
+// completes the first fan-out also flips the flag (every apply sends it
+// true), so a sync recorded under true matches the next pass's read and
+// the flip costs no second fetch (Comic's rule). A series without metadata
+// has no key: its fan-out waits for the document (syncEpisodes).
+func syncKey(s *catalogv1alpha1.Series, addOptionsApplied bool) (childsync.Key, bool) {
 	if s.Status.Metadata == nil {
-		return episodeSyncKey{}, false
+		return childsync.Key{}, false
 	}
-	return episodeSyncKey{
-		generation: s.Generation, refreshedAt: s.Status.Metadata.RefreshedAt.UTC(), addOptionsApplied: s.Status.AddOptionsApplied,
-	}, true
-}
-
-// due reports whether s's episodes must be fetched: never fanned out in this
-// process, or an input moved since; always while s has no metadata.
-func (m *episodeSyncMemo) due(s *catalogv1alpha1.Series) bool {
-	k, ok := episodeSyncKeyOf(s)
-	if !ok {
-		return true
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	last, seen := m.last[s.UID]
-	return !seen || last != k
-}
-
-// synced records a complete fan-out of s.
-func (m *episodeSyncMemo) synced(s *catalogv1alpha1.Series) {
-	k, ok := episodeSyncKeyOf(s)
-	if !ok {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.last == nil {
-		m.last = map[types.UID]episodeSyncKey{}
-	}
-	m.last[s.UID] = k
+	return childsync.KeyAt(s.Generation, s.Status.Metadata.RefreshedAt.Time, addOptionsApplied), true
 }
 
 // providerStatusMatches reports whether ep already holds every provider field
