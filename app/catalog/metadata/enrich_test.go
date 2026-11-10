@@ -122,34 +122,41 @@ func (p stubPageProvider) Page(_ context.Context, _ commonv1.MediaKind, ids pkgm
 }
 
 // A supplementary provider's page (2026-11-10 design §9.3: Hardcover's for
-// an Open Library-keyed Author or Book) is asked for after the primary
-// lookup and appended to the document's links as its own type; a document
-// already carrying a page of that type is not given a second, a provider
-// that fails adds nothing and stops nothing, an empty answer adds nothing,
-// and a Book is addressed by its first edition's ISBN-13 beside its own
-// ids, as its ratings are.
+// an Open Library-keyed Author or Book; §9.4: Metron's for a ComicVine-keyed
+// Comic) is asked for after the primary lookup and appended to the
+// document's links as its own type; a document already carrying a page of
+// that type -- a Link of the provider's Name(), the contract's type -- is
+// not given a second and the provider is not asked at all (the ask would
+// cost a request per cache miss for an answer thrown away), a provider that
+// fails adds nothing and stops nothing, an empty answer adds nothing, a
+// Book is addressed by its first edition's ISBN-13 beside its own ids, as
+// its ratings are, a Comic by the ids the crosswalk settled on, and no
+// other kind is asked.
 func TestEnrichAppendsASupplementaryProvidersPageLink(t *testing.T) {
 	page := pkgmetadata.Link{Type: "hardcover", URL: "https://hardcover.app/authors/jane-austen"}
-	calls := 0
+	downCalls, hcCalls := 0, 0
 	var seen []pkgmetadata.ExternalIDs
 	reg := &pkgmetadata.Registry{Pages: []pkgmetadata.PageProvider{
-		stubPageProvider{name: "down", err: errors.New("hardcover: 503"), calls: &calls},
-		stubPageProvider{name: "hardcover", link: page, calls: &calls, seen: &seen},
+		stubPageProvider{name: "down", err: errors.New("hardcover: 503"), calls: &downCalls},
+		stubPageProvider{name: "hardcover", link: page, calls: &hcCalls, seen: &seen},
 	}}
 	olLink := pkgmetadata.Link{Type: "wikipedia", URL: "https://en.wikipedia.org/wiki/Jane_Austen"}
 
 	author := &pkgmetadata.Author{IDs: pkgmetadata.ExternalIDs{"openlibrary": "OL21594A"}, Links: []pkgmetadata.Link{olLink}}
 	enrich(context.Background(), reg, commonv1.MediaKindAuthor, pkgmetadata.ExternalIDs{"hardcover": "51942"}, nil, author)
 	require.Equal(t, []pkgmetadata.Link{olLink, page}, author.Links, "the page is appended after the primary's own links")
-	require.Equal(t, 2, calls, "the failing provider is passed over")
+	require.Equal(t, 1, downCalls, "the failing provider is passed over")
+	require.Equal(t, 1, hcCalls)
 	require.Equal(t, []pkgmetadata.ExternalIDs{{"openlibrary": "OL21594A", "hardcover": "51942"}}, seen, "asked with the document's ids and the spec's")
 
-	calls, seen = 0, nil
+	downCalls, hcCalls, seen = 0, 0, nil
 	own := &pkgmetadata.Author{IDs: pkgmetadata.ExternalIDs{"hardcover": "51942"}, Links: []pkgmetadata.Link{{Type: "hardcover", URL: "https://hardcover.app/authors/other"}}}
 	enrich(context.Background(), reg, commonv1.MediaKindAuthor, nil, nil, own)
 	require.Equal(t, []pkgmetadata.Link{{Type: "hardcover", URL: "https://hardcover.app/authors/other"}}, own.Links, "a page of the type already carried is not doubled, and the primary's wins")
+	require.Zero(t, hcCalls, "the provider whose page the document already carries is not asked")
+	require.Equal(t, 1, downCalls, "the one whose page it lacks still is")
 
-	calls, seen = 0, nil
+	downCalls, hcCalls, seen = 0, 0, nil
 	book := &pkgmetadata.Book{
 		IDs:      pkgmetadata.ExternalIDs{"openlibrary": "OL27448W"},
 		Editions: []pkgmetadata.Edition{{IDs: pkgmetadata.ExternalIDs{"openlibrary": "OL1M"}}, {IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyISBN13: "9781416971702"}}},
@@ -167,10 +174,35 @@ func TestEnrichAppendsASupplementaryProvidersPageLink(t *testing.T) {
 	enrich(context.Background(), &pkgmetadata.Registry{Pages: []pkgmetadata.PageProvider{stubPageProvider{name: "down", err: errors.New("hardcover: 503")}}}, commonv1.MediaKindAuthor, nil, nil, failing)
 	require.Equal(t, []pkgmetadata.Link{olLink}, failing.Links, "a failing provider adds nothing and loses nothing")
 
-	comic := &pkgmetadata.ComicVolume{IDs: pkgmetadata.ExternalIDs{"comicvine": "1"}}
-	calls = 0
-	enrich(context.Background(), reg, commonv1.MediaKindComic, nil, nil, comic)
-	require.Zero(t, calls, "only an Author or a Book is asked for a page")
+	// A Comic: asked with the ids the document and the crosswalk settled on
+	// (a ComicVine-sourced comic's metron id comes from Metron's Resolve),
+	// the page appended after the primary's own links; a Metron-sourced
+	// comic, whose document carries the page, is not asked.
+	metronPage := pkgmetadata.Link{Type: "metron", URL: "https://metron.cloud/series/death-of-the-inhumans-2018/"}
+	mCalls := 0
+	var mSeen []pkgmetadata.ExternalIDs
+	comics := &pkgmetadata.Registry{
+		Resolvers: []pkgmetadata.IDResolver{chainResolver{name: "metron", add: func(pkgmetadata.ExternalIDs) pkgmetadata.ExternalIDs {
+			return pkgmetadata.ExternalIDs{"metron": "1"}
+		}}},
+		Pages: []pkgmetadata.PageProvider{stubPageProvider{name: "metron", link: metronPage, calls: &mCalls, seen: &mSeen}},
+	}
+	cvLink := pkgmetadata.Link{Type: "comicvine", URL: "https://comicvine.gamespot.com/death-of-the-inhumans/4050-111265/"}
+	comic := &pkgmetadata.ComicVolume{IDs: pkgmetadata.ExternalIDs{"comicvine": "4050-111265"}, Links: []pkgmetadata.Link{cvLink}}
+	enrich(context.Background(), comics, commonv1.MediaKindComic, pkgmetadata.ExternalIDs{"comicvine": "4050-111265"}, nil, comic)
+	require.Equal(t, []pkgmetadata.Link{cvLink, metronPage}, comic.Links, "a Comic is asked for its page, appended after the primary's own links")
+	require.Equal(t, []pkgmetadata.ExternalIDs{{"comicvine": "4050-111265", "metron": "1"}}, mSeen, "asked with the crosswalk's metron id beside the source's")
+
+	mCalls, mSeen = 0, nil
+	ownComic := &pkgmetadata.ComicVolume{IDs: pkgmetadata.ExternalIDs{"metron": "1"}, Links: []pkgmetadata.Link{metronPage}}
+	enrich(context.Background(), comics, commonv1.MediaKindComic, nil, nil, ownComic)
+	require.Equal(t, []pkgmetadata.Link{metronPage}, ownComic.Links)
+	require.Zero(t, mCalls, "a Metron-sourced comic carries its page already and is not asked")
+
+	movie := &pkgmetadata.Movie{IDs: pkgmetadata.ExternalIDs{"tmdb": "603"}}
+	downCalls, hcCalls = 0, 0
+	enrich(context.Background(), reg, commonv1.MediaKindMovie, nil, nil, movie)
+	require.Zero(t, downCalls+hcCalls, "only an Author, a Book or a Comic is asked for a page")
 }
 
 func TestEnrichAddsCrosswalkIDsWithoutOverridingAnyThePrimaryProviderGave(t *testing.T) {

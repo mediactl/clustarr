@@ -118,21 +118,27 @@ func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaK
 		}
 	}
 
-	// A supplementary provider's page for an Author or a Book another
-	// provider answered (Hardcover's for an Open Library-keyed item,
-	// 2026-11-10 design §9.3: the Lookup is first-success, so the primary's
-	// document never carries it): every PageProvider is asked with the ids
-	// the document settled on -- a Book's with its first edition's ISBN-13
-	// beside them, as its ratings are asked (bookRatingIDs) -- and its Link
-	// appended when the document's Links carry no page of that type, so a
-	// primary that recorded the page itself (Hardcover answering a
-	// Hardcover-keyed Book) is never doubled. Folded in before the cache
-	// write like the artwork, so a cache hit costs no request.
+	// A supplementary provider's page for an Author, a Book or a Comic
+	// another provider answered (Hardcover's for an Open Library-keyed
+	// item, 2026-11-10 design §9.3; Metron's for a ComicVine-keyed comic,
+	// §9.4: the Lookup is first-success with primaries ahead of
+	// supplementaries, so the primary's document never carries it): every
+	// PageProvider whose page the document's Links lack is asked with the
+	// ids the document settled on -- the crosswalk's additions among them
+	// (the metron id Metron's Resolve added for a ComicVine comic), a
+	// Book's with its first edition's ISBN-13 beside them, as its ratings
+	// are asked (bookRatingIDs) -- and its Link appended, so a primary that
+	// recorded the page itself (Hardcover answering a Hardcover-keyed Book,
+	// Metron a Metron-sourced Comic) is neither doubled nor asked for it
+	// again. Folded in before the cache write like the artwork, so a cache
+	// hit costs no request.
 	switch d := doc.(type) {
 	case *pkgmetadata.Author:
 		d.Links = pageLinks(ctx, reg.Pages, kind, *idsp, d.Links)
 	case *pkgmetadata.Book:
 		d.Links = pageLinks(ctx, reg.Pages, kind, bookRatingIDs(d), d.Links)
+	case *pkgmetadata.ComicVolume:
+		d.Links = pageLinks(ctx, reg.Pages, kind, *idsp, d.Links)
 	}
 
 	if imagesp == nil {
@@ -383,10 +389,14 @@ func seriesExtras(ctx context.Context, providers []pkgmetadata.SeriesExtrasProvi
 
 // pageLinks asks each PageProvider for kind's page addressed by ids and
 // returns links with every answered Link whose type links did not already
-// carry appended, in provider order. Best effort, as biography is: a
-// provider that fails is logged and skipped (ErrUnsupported, a kind it has
-// no pages for, silently), and an empty Link -- an item it cannot address
-// -- adds nothing.
+// carry appended, in provider order. A provider whose page the document
+// already carries -- a Link of its Name(), the type the PageProvider
+// contract has it answer -- is not asked at all: the primary recorded it
+// (Hardcover's own Author and Book, Metron's own Comic), and the ask would
+// cost a request per cache miss whose answer is thrown away. Best effort,
+// as biography is: a provider that fails is logged and skipped
+// (ErrUnsupported, a kind it has no pages for, silently), and an empty
+// Link -- an item it cannot address -- adds nothing.
 func pageLinks(ctx context.Context, providers []pkgmetadata.PageProvider, kind commonv1.MediaKind, ids pkgmetadata.ExternalIDs, links []pkgmetadata.Link) []pkgmetadata.Link {
 	if len(providers) == 0 {
 		return links
@@ -396,6 +406,9 @@ func pageLinks(ctx context.Context, providers []pkgmetadata.PageProvider, kind c
 		have[l.Type] = true
 	}
 	for _, p := range providers {
+		if have[p.Name()] {
+			continue
+		}
 		pCtx, span := tracing.Start(ctx, "metadata.PageProvider.Page")
 		link, err := p.Page(pCtx, kind, ids)
 		if err != nil {

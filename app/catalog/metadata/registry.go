@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/anilist"
@@ -41,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/audnexus"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/comicvine"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/coverart"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/extid"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/fanart"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/hardcover"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/kitsu"
@@ -294,7 +296,9 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 //   - coverart, fanart: Artwork.
 //   - hardcover: Books, Ratings (a Book's Hardcover rating) and Pages (an
 //     Open Library-keyed Author's or Book's Hardcover page).
-//   - metron, mangadex: Comics and Resolvers.
+//   - metron: Comics, Resolvers and Pages (a ComicVine-keyed Comic's
+//     Metron page, through metronPages below).
+//   - mangadex: Comics and Resolvers.
 //   - anilist, kitsu, animelists: Resolvers. AniList is a ComicProvider
 //     too, but not registered as one: a Comic's source can only be
 //     ComicVine or MangaDex, so AniList hits in a comic search would be
@@ -359,6 +363,7 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 		}
 		reg.Comics = append(reg.Comics, cl)
 		reg.Resolvers = append(reg.Resolvers, cl)
+		reg.Pages = append(reg.Pages, metronPages{cl}) // design §9.4: a ComicVine-keyed Comic's Metron page, by the id the crosswalk adds.
 	case catalogv1alpha1.MetadataProviderMangaDex:
 		cl := mangadex.New(mangadex.Config{
 			HTTPClient: httpClient, BaseURL: baseURL(p, mangadex.DefaultBaseURL),
@@ -459,6 +464,52 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 	}
 	return nil
 }
+
+// metronPages is the metron client as a pkgmetadata.PageProvider
+// (2026-11-10 design §9.4: the comic page's Metron logo). The client
+// records a series' Metron page -- addressed by a slug no id carries, so
+// only the detail's resource_url names it -- in Volume's document alone,
+// and the Registry's Lookup is first-success with primaries ahead of
+// supplementaries (sortProviders), so on a cluster that configures
+// ComicVine Metron's Volume is never asked for a Comic and the page never
+// recorded, while its Resolve, which the crosswalk does ask, reads the
+// series row by cv_id and answers ids alone. Page answers the page by the
+// one request Volume makes (GET /series/<id>/ by ids[metron], which the
+// crosswalk has just added, else by ids[comicvine] through the cv_id
+// filter), as the Link of type extid.KeyMetron Volume records -- the
+// client's Name(), the PageProvider contract's type, so a Metron-sourced
+// Comic, whose document carries it, is never asked. A Comic carrying
+// neither id, or one Metron does not know (ErrNotFound), is an empty Link
+// and no error, as hardcover.Client.Page answers them; a crosswalk that
+// names several series (metron.ErrAmbiguous) or a bad id is an error the
+// gateway logs; any other kind is ErrUnsupported. The client's own Page
+// would be the tidier home for this; the adapter leaves the client
+// untouched.
+type metronPages struct{ *metron.Client }
+
+func (m metronPages) Page(ctx context.Context, kind commonv1.MediaKind, ids pkgmetadata.ExternalIDs) (pkgmetadata.Link, error) {
+	if kind != commonv1.MediaKindComic {
+		return pkgmetadata.Link{}, fmt.Errorf("metron: no pages for kind %q: %w", kind, pkgmetadata.ErrUnsupported)
+	}
+	if ids[extid.KeyMetron] == "" && ids[pkgmetadata.KeyComicVine] == "" {
+		return pkgmetadata.Link{}, nil
+	}
+	v, err := m.Volume(ctx, ids)
+	if err != nil {
+		if errors.Is(err, pkgmetadata.ErrNotFound) {
+			return pkgmetadata.Link{}, nil
+		}
+		return pkgmetadata.Link{}, err
+	}
+	for _, l := range v.Links {
+		if l.Type == extid.KeyMetron {
+			return l, nil
+		}
+	}
+	return pkgmetadata.Link{}, nil
+}
+
+var _ pkgmetadata.PageProvider = metronPages{}
 
 // supplementaryLimiter is resolveLimiter when the provider sets a rate, and
 // the client package's own default when it does not.

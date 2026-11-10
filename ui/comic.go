@@ -118,8 +118,10 @@ func fillComic(v *views.ComicView, co *catalogv1.Comic) {
 // allow"): its source's page -- the ComicVine volume or the MangaDex title
 // -- then Metron's series page, which its site addresses by a slug the ids
 // do not carry, so it is the metadata's links entry of type "metron" (the
-// metron client records it; a Metron id alone makes no link), then the ids
-// the metadata's externalIDs carry for the other providers.
+// metron client records it for a Metron-sourced comic, and the gateway's
+// page ask for a ComicVine-sourced one by the id its crosswalk added; a
+// Metron id alone makes no link here), then the ids the metadata's
+// externalIDs carry for the other providers.
 func comicLinks(co *catalogv1.Comic) []views.Link {
 	ids := map[string]string{}
 	var metron string
