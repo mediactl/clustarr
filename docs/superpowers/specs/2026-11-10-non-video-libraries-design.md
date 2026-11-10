@@ -724,6 +724,22 @@ until a PMS build accepts the root, `--plex-music-provider` stays false
 everywhere and the chart's `plex.metadataProviders` lists the two uris
 commented out. **The spike never touches the talos PMS.**
 
+**As run, 2026-11-10 12:50Z** (`plexinc/pms-docker:beta`, PMS
+1.43.5.11079-b3b13e506 built 2026-10-22, unclaimed, host network; a stub
+provider on 127.0.0.1:8099 answering the MediaProvider root with match and
+metadata features): `POST /media/providers/metadata?uri=` registered the
+control root declaring type 1 (HTTP 200, id 7, `online: true`, PMS fetched
+the root once) and refused the roots declaring [8, 9, 10], [8], [9], [10]
+and [1, 8, 9, 10] alike, each `HTTP 400 The provider supports unsupported
+metadata types` after fetching the root. The same PMS lists its own
+`tv.plex.agents.music` with MetadataType 8, 9, 10, so the type table knows
+them and the refusal is the custom-provider whitelist. So no PMS build
+through 1.43.5.11079 accepts a music provider; W5.2 and W5.3 build the
+roots to the inferred shapes behind the flag, and the chart's uris stay
+commented out until a build accepts the registration (re-run this spike
+against each new beta: the stub is `stub.py` in the session's scratchpad,
+the recipe above).
+
 ## 8. NFO files for Plex's music agent
 
 ### 8.1 What is written

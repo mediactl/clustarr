@@ -380,6 +380,10 @@ capture every request PMS makes (match bodies, metadata, children,
 images). Write the findings as an "as built" note under spec §7.6. Then
 tear the container down.
 
+**Done 2026-11-10 12:50Z:** PMS 1.43.5.11079 refused every declaration of
+8, 9 or 10 (spec §7.6's as-run note); W5.2 and W5.3 proceed behind the flag
+and are the last implementation group.
+
 ### W5.2 Roots, index, keys (§7.1, §7.2, §7.5)
 
 Owns `ui/plex/` and `ui/projection/index.go`, `ui/searchart.go`'s host
