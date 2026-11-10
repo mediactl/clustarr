@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -45,6 +46,11 @@ type resolved struct {
 	// why there is none. The Secret is another system's (cluster-plex's),
 	// so its absence is the Plex guide's failure, never Valid=False.
 	plexToken, plexTokenError string
+	// guideToken is spec.guideSources.plex.credentialsRef's token, read the
+	// same way; guideTokenError says why there is none, and guideTokenReason
+	// is GuideSourcesReady's reason for it (SecretNotFound,
+	// SecretKeyNotFound).
+	guideToken, guideTokenError, guideTokenReason string
 }
 
 // NormalizeServer is spec.server as the panel's root: a scheme (https when
@@ -92,26 +98,34 @@ func ValidateSourceURL(raw string) error {
 // credential.
 func (r *Reconciler) resolve(ctx context.Context, p *clustarrv1.IPTVProvider) (resolved, metav1.Condition) {
 	out, valid := r.resolveAccount(ctx, p)
-	g := p.Spec.PlexGuide
-	if valid.Status != metav1.ConditionTrue || g == nil {
+	if valid.Status != metav1.ConditionTrue {
 		return out, valid
 	}
-	ref := g.CredentialsRef
-	var s corev1.Secret
-	err := r.SecretReader.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: ref.Name}, &s)
-	switch {
-	case apierrors.IsNotFound(err):
-		out.plexTokenError = fmt.Sprintf("the Plex token Secret %s/%s does not exist", p.Namespace, ref.Name)
-	case err != nil:
-		out.plexTokenError = fmt.Sprintf("the Plex token Secret %s/%s cannot be read: %v", p.Namespace, ref.Name, err)
-	default:
-		if token := bytes.TrimSpace(s.Data[ref.Key]); len(token) > 0 {
-			out.plexToken = string(token)
-		} else {
-			out.plexTokenError = fmt.Sprintf("the Plex token Secret %s/%s has no key %q", p.Namespace, ref.Name, ref.Key)
-		}
+	if g := p.Spec.PlexGuide; g != nil {
+		out.plexToken, _, out.plexTokenError = r.plexToken(ctx, p.Namespace, g.CredentialsRef)
+	}
+	if gs := p.Spec.GuideSources; gs != nil && gs.Plex != nil {
+		out.guideToken, out.guideTokenReason, out.guideTokenError = r.plexToken(ctx, p.Namespace, gs.Plex.CredentialsRef)
 	}
 	return out, valid
+}
+
+// plexToken reads a Plex account token from a Secret key, trimmed. Without
+// one, reason (SecretNotFound, SecretKeyNotFound) and message say why,
+// naming the Secret and key, never a value.
+func (r *Reconciler) plexToken(ctx context.Context, namespace string, ref corev1.SecretKeySelector) (token, reason, message string) {
+	var s corev1.Secret
+	err := r.SecretReader.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, &s)
+	switch {
+	case apierrors.IsNotFound(err):
+		return "", clustarrv1.ReasonSecretNotFound, fmt.Sprintf("the Plex token Secret %s/%s does not exist", namespace, ref.Name)
+	case err != nil:
+		return "", clustarrv1.ReasonSecretNotFound, fmt.Sprintf("the Plex token Secret %s/%s cannot be read: %v", namespace, ref.Name, err)
+	}
+	if v := bytes.TrimSpace(s.Data[ref.Key]); len(v) > 0 {
+		return string(v), "", ""
+	}
+	return "", clustarrv1.ReasonSecretKeyNotFound, fmt.Sprintf("the Plex token Secret %s/%s has no key %q", namespace, ref.Name, ref.Key)
 }
 
 // resolveAccount reads the panel's or playlist's settings and credentials.
@@ -190,6 +204,19 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res res
 	if g := p.Spec.PlexGuide; g != nil {
 		c.Plex = &tuner.PlexConfig{LineupID: g.LineupID(), Token: res.plexToken, TokenError: res.plexTokenError, Enabled: g.Enabled}
 	}
+	if l := p.Spec.Lineup; l != nil {
+		c.Trim = slices.Clone(l.Trim)
+	}
+	if gs := p.Spec.GuideSources; gs != nil && gs.Plex != nil {
+		c.GuideSources = &tuner.GuideSourcesConfig{
+			Lineups: slices.Clone(gs.Plex.Lineups), Token: res.guideToken, TokenError: res.guideTokenError,
+			Refresh: gs.Plex.RefreshOrDefault(), Rate: int(gs.Plex.RateOrDefault()),
+		}
+	}
+	// Under an enabled lineup a channel shows the planner's trimmed name and
+	// is classed by its category unless a person set its own; a dry run is
+	// shown in the channels' status alone, never in what Plex shows.
+	applied := lineupEnabled(p)
 	for _, f := range p.Spec.Filters {
 		c.Filters = append(c.Filters, filter.Rule{
 			Name: f.Name, Type: string(f.Type), Match: f.Match, Include: f.Include,
@@ -214,6 +241,15 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res res
 			}
 		}
 		cc.PlexPrev = plexPrev(ch.Status.Plex)
+		if lu := ch.Status.Lineup; applied && lu != nil {
+			cc.Category = lu.Category
+			if cc.Name == "" {
+				cc.Name = lu.Name
+			}
+			if cc.Group == "" {
+				cc.Group = lu.Category
+			}
+		}
 		c.Channels = append(c.Channels, cc)
 	}
 	return c

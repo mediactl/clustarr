@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/iptv/blocks"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
@@ -55,6 +57,116 @@ type plan struct {
 	blocks          []clustarrv1.BlockStatus
 	numbers         map[string][]string // start -> active numbers
 	reason, message string
+	// lineup is the stored lineup plan while spec.lineup is set; nil when
+	// none is stored (or spec.lineup is unset).
+	lineup *livetvstore.LineupPlan
+	// categoryChannels counts the active channels by status.lineup.category.
+	categoryChannels map[string]int32
+}
+
+// lineupEnabled reports whether spec.lineup numbers and categorises the
+// provider's channels, rather than showing a dry run.
+func lineupEnabled(p *clustarrv1.IPTVProvider) bool {
+	return p.Spec.Lineup != nil && p.Spec.Lineup.Enabled
+}
+
+// categoryOf is the lineup category the planner put ch in; "" is none.
+func categoryOf(ch *clustarrv1.IPTVChannel) string {
+	if ch.Status.Lineup == nil {
+		return ""
+	}
+	return ch.Status.Lineup.Category
+}
+
+// categoryNumbers is the active channels' numbers by their lineup category,
+// each list unique and sorted; a channel in no category is in none.
+func categoryNumbers(channels []clustarrv1.IPTVChannel) map[string][]string {
+	out := map[string][]string{}
+	for i := range channels {
+		ch := &channels[i]
+		if cat := categoryOf(ch); ch.Spec.Active && cat != "" {
+			out[cat] = append(out[cat], ch.Spec.Number)
+		}
+	}
+	for cat, ns := range out {
+		slices.SortFunc(ns, xmltv.CompareNumbers)
+		out[cat] = slices.Compact(ns)
+	}
+	return out
+}
+
+// countCategories counts the active channels in each lineup category.
+func countCategories(channels []clustarrv1.IPTVChannel) map[string]int32 {
+	out := map[string]int32{}
+	for i := range channels {
+		if cat := categoryOf(&channels[i]); channels[i].Spec.Active && cat != "" {
+			out[cat]++
+		}
+	}
+	return out
+}
+
+// readLineup is the provider's stored lineup plan while spec.lineup is set:
+// nil when it is unset, when no reader is wired, or when none is stored yet.
+func (r *Reconciler) readLineup(ctx context.Context, p *clustarrv1.IPTVProvider) (*livetvstore.LineupPlan, error) {
+	if p.Spec.Lineup == nil || r.PlanReader == nil {
+		return nil, nil
+	}
+	lp, ok, err := r.PlanReader(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name})
+	if err != nil || !ok {
+		return nil, err
+	}
+	return lp, nil
+}
+
+// categoryBlocks is a block per lineup category holding an active channel
+// (the custom guides design §5.5): its start the category's base+1, its
+// numbers the category's, in start order. A category the plan refuses as
+// TooMany has none, whatever its channels' status still says, and so has a
+// category the plan does not list (a channel's status not yet replanned).
+func categoryBlocks(lp *livetvstore.LineupPlan, channels []clustarrv1.IPTVChannel) (next []blocks.Block, categories map[string]string) {
+	byCat := categoryNumbers(channels)
+	categories = map[string]string{}
+	for _, c := range lp.Categories {
+		numbers := byCat[c.Name]
+		if c.TooMany || len(numbers) == 0 {
+			continue
+		}
+		start := strconv.Itoa(c.Base + 1)
+		if _, dup := categories[start]; dup {
+			continue // bases are unique (CEL); a second is no block
+		}
+		categories[start] = c.Name
+		next = append(next, blocks.Block{Start: start, Numbers: numbers})
+	}
+	slices.SortFunc(next, func(a, b blocks.Block) int { return xmltv.CompareNumbers(a.Start, b.Start) })
+	return next, categories
+}
+
+// expectsChannels reports whether lp places a channel in any category it
+// does not refuse.
+func expectsChannels(lp *livetvstore.LineupPlan) bool {
+	for _, c := range lp.Categories {
+		if !c.TooMany && c.Channels > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// bounds is the lowest and highest number of next's blocks.
+func bounds(next []blocks.Block) (first, last string) {
+	for _, b := range next {
+		for _, n := range b.Numbers {
+			if first == "" || xmltv.CompareNumbers(n, first) < 0 {
+				first = n
+			}
+			if last == "" || xmltv.CompareNumbers(n, last) > 0 {
+				last = n
+			}
+		}
+	}
+	return first, last
 }
 
 // older reports whether a was created before b: the older provider keeps a
@@ -114,14 +226,31 @@ func overlaps(a1, a2, b1, b2 string) bool {
 	return xmltv.CompareNumbers(a1, b2) <= 0 && xmltv.CompareNumbers(b1, a2) <= 0
 }
 
-// planBlocks renders p's next blocks (Live TV spec §3.1, §5.0, §6).
+// planBlocks renders p's next blocks (Live TV spec §3.1, §5.0, §6), with
+// the stored lineup plan they follow while spec.lineup is set.
 func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider, channels []clustarrv1.IPTVChannel) (plan, error) {
+	lp, err := r.readLineup(ctx, p)
+	if err != nil {
+		return plan{}, err
+	}
+	pl, err := r.packBlocks(ctx, p, channels, lp)
+	if err != nil {
+		return plan{}, err
+	}
+	pl.lineup, pl.categoryChannels = lp, countCategories(channels)
+	return pl, nil
+}
+
+// packBlocks renders p's next blocks: a block per lineup category while
+// spec.lineup is enabled and its plan applied (the custom guides design
+// §5.5), else packed by number.
+func (r *Reconciler) packBlocks(ctx context.Context, p *clustarrv1.IPTVProvider, channels []clustarrv1.IPTVChannel, lp *livetvstore.LineupPlan) (plan, error) {
 	keep := func(reason, message string) plan {
 		kept := slices.Clone(p.Status.Blocks)
 		for i := range kept {
 			r.address(&kept[i])
 		}
-		return plan{blocks: kept, numbers: keptNumbers(p.Status.Blocks, activeNumbers(channels)), reason: reason, message: message}
+		return plan{blocks: kept, numbers: keptNumbers(p.Status.Blocks, channels), reason: reason, message: message}
 	}
 
 	var all clustarrv1.IPTVProviderList
@@ -136,12 +265,40 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 		}
 	}
 
+	// With spec.lineup enabled and its plan applied, a block per category
+	// holding an active channel (the custom guides design §5.5). A plan that
+	// failed holds the published blocks: a rule that does not compile must
+	// not take a DVR off Plex. A dry run's plan, one not applied yet, or none
+	// stored packs by number as before.
+	var catOf map[string]string // start -> category
+	var next []blocks.Block
+	if lineupEnabled(p) && lp != nil {
+		switch {
+		case lp.Error != "":
+			return keep(clustarrv1.ReasonInvalidLineup, "spec.lineup is invalid: "+lp.Error), nil
+		case !lp.DryRun:
+			next, catOf = categoryBlocks(lp, channels)
+			if len(next) == 0 && expectsChannels(lp) {
+				// The plan is stored before the lineup controller applies it
+				// to the channels, so for a moment no channel carries a
+				// category: publishing no block then would take every DVR
+				// off Plex at once, before the categories' devices are
+				// served.
+				return keep(clustarrv1.ReasonLineupPending, "waiting for the lineup controller to apply its plan to the channels"), nil
+			}
+			if len(next) > blocks.MaxBlocks {
+				return keep(clustarrv1.ReasonTooManyChannels, fmt.Sprintf("%d lineup categories hold active channels, more than %d blocks", len(next), blocks.MaxBlocks)), nil
+			}
+		}
+	}
+
 	numbers := activeNumbers(channels)
 	lim := blocks.Limits{MaxChannels: int(p.Spec.MaxChannelsOrDefault()), MaxBytes: blocks.DefaultMaxBytes}
 	// With spec.plexGuide.enabled the blocks hold the channels paired with
 	// the Plex lineup alone, each a device whose DVR's guide is that lineup;
 	// a channel off Plex is in no block (the Plex native guide design §5.4).
-	plexOn := p.Spec.PlexGuide != nil && p.Spec.PlexGuide.Enabled
+	// A lineup's categories take the blocks over from Plex's.
+	plexOn := catOf == nil && p.Spec.PlexGuide != nil && p.Spec.PlexGuide.Enabled
 	var lineup string
 	if plexOn {
 		snap, ok := r.Tuner.Snapshot(types.NamespacedName{Namespace: p.Namespace, Name: p.Name})
@@ -165,7 +322,14 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 	}
 	prev := make([]string, 0, len(p.Status.Blocks))
 	byStart := map[string]clustarrv1.BlockStatus{}
+	byCategory := map[string]clustarrv1.BlockStatus{}
 	for _, b := range p.Status.Blocks {
+		if b.Category != "" {
+			// A category's block keeps its device across a new base; its
+			// start is no boundary of a packing by number.
+			byCategory[b.Category] = b
+			continue
+		}
 		// A switch to or from Plex's guide, or to another Plex lineup, packs
 		// afresh: the other blocks' starts are no boundaries of these.
 		if (b.Lineup != "") != plexOn || (plexOn && lineupIDOf(b.Lineup) != p.Spec.PlexGuide.LineupID()) {
@@ -174,12 +338,15 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 		prev = append(prev, b.Start)
 		byStart[b.Start] = b
 	}
-	next, err := blocks.Next(prev, numbers, lim)
-	if errors.Is(err, blocks.ErrTooManyBlocks) {
-		return keep(clustarrv1.ReasonTooManyChannels, fmt.Sprintf("%d active channels need more than %d blocks", len(numbers), blocks.MaxBlocks)), nil
-	}
-	if err != nil {
-		return plan{}, err
+	if catOf == nil {
+		var err error
+		next, err = blocks.Next(prev, numbers, lim)
+		if errors.Is(err, blocks.ErrTooManyBlocks) {
+			return keep(clustarrv1.ReasonTooManyChannels, fmt.Sprintf("%d active channels need more than %d blocks", len(numbers), blocks.MaxBlocks)), nil
+		}
+		if err != nil {
+			return plan{}, err
+		}
 	}
 
 	// The rule across providers: a span another provider has published
@@ -187,7 +354,7 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 	// or younger. Only when the published spans already overlap (a status
 	// lost and re-packed) does age decide: the younger is refused.
 	if len(next) > 0 {
-		first, last := next[0].Numbers[0], next[len(next)-1].Numbers[len(next[len(next)-1].Numbers)-1]
+		first, last := bounds(next)
 		pf, pl, published := span(p.Status.Blocks)
 		for _, o := range others {
 			of, ol, ok := span(o.Status.Blocks)
@@ -204,12 +371,18 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 	out := plan{numbers: map[string][]string{}}
 	friendly := p.Spec.Device.FriendlyNameOrDefault(p.Name)
 	for i, nb := range next {
-		bs := clustarrv1.BlockStatus{Start: nb.Start}
-		if old, ok := byStart[nb.Start]; ok {
+		bs := clustarrv1.BlockStatus{Start: nb.Start, Category: catOf[nb.Start]}
+		if bs.Category != "" {
+			bs.DeviceID = byCategory[bs.Category].DeviceID
+		} else if old, ok := byStart[nb.Start]; ok {
 			bs.DeviceID = old.DeviceID
 		}
 		if bs.DeviceID == "" {
 			switch {
+			case bs.Category != "":
+				// The category is the device's identity (the custom guides
+				// design §5.5): a renumbering or a new base keeps it.
+				bs.DeviceID = hdhr.BlockDeviceID(p.Namespace, p.Name, "cat/"+bs.Category)
 			case plexOn:
 				// A device of its own, per lineup, so turning Plex's guide on,
 				// or naming another lineup, replaces the devices and their DVRs
@@ -231,6 +404,9 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 			bs.MapBytes = int32(blocks.MapBytes(nb.Numbers))
 		}
 		bs.FriendlyName = friendly + " " + nb.Start + "+"
+		if bs.Category != "" {
+			bs.FriendlyName = friendly + " " + bs.Category
+		}
 		if plexOn {
 			bs.Lineup = lineup
 		} else {
@@ -264,17 +440,30 @@ func (r *Reconciler) address(b *clustarrv1.BlockStatus) {
 	}
 }
 
-// keptNumbers places numbers in the kept blocks, as blocks.Next would
-// without splitting, so the tuner keeps serving the last good blocks.
-func keptNumbers(bs []clustarrv1.BlockStatus, numbers []string) map[string][]string {
+// keptNumbers places the active channels' numbers in the kept blocks, so
+// the tuner keeps serving the last good blocks: a category's block its
+// category's channels, the others as blocks.Next would without splitting.
+func keptNumbers(bs []clustarrv1.BlockStatus, channels []clustarrv1.IPTVChannel) map[string][]string {
 	out := map[string][]string{}
 	if len(bs) == 0 {
 		return out
 	}
-	starts := make([]string, len(bs))
-	for i, b := range bs {
-		starts[i] = b.Start
+	var byCat map[string][]string
+	starts := make([]string, 0, len(bs))
+	for _, b := range bs {
+		if b.Category != "" {
+			if byCat == nil {
+				byCat = categoryNumbers(channels)
+			}
+			out[b.Start] = byCat[b.Category]
+			continue
+		}
+		starts = append(starts, b.Start)
 	}
+	if len(starts) == 0 {
+		return out
+	}
+	numbers := activeNumbers(channels)
 	next, err := blocks.Next(starts, numbers, blocks.Limits{MaxChannels: 1 << 30, MaxBytes: 1 << 30})
 	if err != nil {
 		return out
@@ -311,7 +500,10 @@ func (r *Reconciler) owners(ctx context.Context, namespace string, bs []clustarr
 func tunerBlocks(pl plan) []tuner.BlockConfig {
 	out := make([]tuner.BlockConfig, 0, len(pl.blocks))
 	for _, b := range pl.blocks {
-		out = append(out, tuner.BlockConfig{Start: b.Start, DeviceID: b.DeviceID, FriendlyName: b.FriendlyName, Numbers: pl.numbers[b.Start], Lineup: b.Lineup})
+		out = append(out, tuner.BlockConfig{
+			Start: b.Start, DeviceID: b.DeviceID, FriendlyName: b.FriendlyName, Numbers: pl.numbers[b.Start],
+			Lineup: b.Lineup, Category: b.Category,
+		})
 	}
 	return out
 }

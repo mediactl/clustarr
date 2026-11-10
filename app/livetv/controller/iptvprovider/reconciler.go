@@ -104,11 +104,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// not take a device off Plex.
 	case !p.Spec.EnabledOrDefault():
 		r.Tuner.Remove(key)
-		return ctrl.Result{}, r.writeStatus(ctx, &p, pl, valid, true)
+		return ctrl.Result{}, r.writeStatus(ctx, &p, pl, valid, res, true, now())
 	default:
 		r.Tuner.Apply(buildConfig(&p, tunerBlocks(pl), res, channels))
 	}
-	return ctrl.Result{}, r.writeStatus(ctx, &p, pl, valid, false)
+	return ctrl.Result{}, r.writeStatus(ctx, &p, pl, valid, res, false, now())
 }
 
 // SetupWithManager registers the controller, its channel index, and its
