@@ -42,6 +42,9 @@ type BlockStatusApplyConfiguration struct {
 	// Path is the block's device on Address: /hdhr/<deviceID>, which Plex
 	// is given (with Address) as the device's network address.
 	Path *string `json:"path,omitempty"`
+	// Category is the lineup category the block holds, when blocks are
+	// per category (§5.1).
+	Category *string `json:"category,omitempty"`
 	// URI is the block's device address as Plex registers it:
 	// http://<address><path>.
 	URI *string `json:"uri,omitempty"`
@@ -126,6 +129,14 @@ func (b *BlockStatusApplyConfiguration) WithDeviceID(value string) *BlockStatusA
 // If called multiple times, the Path field is set to the value of the last call.
 func (b *BlockStatusApplyConfiguration) WithPath(value string) *BlockStatusApplyConfiguration {
 	b.Path = &value
+	return b
+}
+
+// WithCategory sets the Category field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Category field is set to the value of the last call.
+func (b *BlockStatusApplyConfiguration) WithCategory(value string) *BlockStatusApplyConfiguration {
+	b.Category = &value
 	return b
 }
 

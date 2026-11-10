@@ -37,10 +37,14 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &clustarrv1alpha1.AccountStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("BlockStatus"):
 		return &clustarrv1alpha1.BlockStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CategoryStatus"):
+		return &clustarrv1alpha1.CategoryStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ChannelEPG"):
 		return &clustarrv1alpha1.ChannelEPGApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ChannelFilter"):
 		return &clustarrv1alpha1.ChannelFilterApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ChannelLineupStatus"):
+		return &clustarrv1alpha1.ChannelLineupStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ChannelPlex"):
 		return &clustarrv1alpha1.ChannelPlexApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ChannelPlexStatus"):
@@ -49,6 +53,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &clustarrv1alpha1.DeviceSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DVRSpec"):
 		return &clustarrv1alpha1.DVRSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("GuideSources"):
+		return &clustarrv1alpha1.GuideSourcesApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("GuideSourcesStatus"):
+		return &clustarrv1alpha1.GuideSourcesStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GuideStatus"):
 		return &clustarrv1alpha1.GuideStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("IPTVChannel"):
@@ -63,14 +71,22 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &clustarrv1alpha1.IPTVProviderSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("IPTVProviderStatus"):
 		return &clustarrv1alpha1.IPTVProviderStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LineupCategory"):
+		return &clustarrv1alpha1.LineupCategoryApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LineupSpec"):
+		return &clustarrv1alpha1.LineupSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("LineupStatus"):
 		return &clustarrv1alpha1.LineupStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlaylistStatus"):
 		return &clustarrv1alpha1.PlaylistStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlexGuide"):
 		return &clustarrv1alpha1.PlexGuideApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexGuideSource"):
+		return &clustarrv1alpha1.PlexGuideSourceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlexGuideStatus"):
 		return &clustarrv1alpha1.PlexGuideStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexSourceStatus"):
+		return &clustarrv1alpha1.PlexSourceStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("StreamSpec"):
 		return &clustarrv1alpha1.StreamSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TunerStatus"):

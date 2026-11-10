@@ -176,3 +176,77 @@ func TestLiveTVCEL(t *testing.T) {
 	_, err = channels.Create(ctx, bad, metav1.CreateOptions{})
 	require.Error(t, err, "a number is digits with an optional .minor")
 }
+
+// TestLineupCEL holds the custom guides design's §5.1 rules: category bases
+// are unique, the first rule of a name carries a base, the Plex source's
+// rate is 1-10 and its lineups 24 hex, and a channel's spec.category of ""
+// (off every DVR) survives the round trip as the empty string.
+func TestLineupCEL(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test` to install the CRDs")
+	}
+	env := &envtest.Environment{CRDDirectoryPaths: []string{"../../config/crd/bases"}, ErrorIfCRDPathMissing: true}
+	cfg, err := env.Start()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, env.Stop()) })
+	dyn, err := dynamic.NewForConfig(cfg)
+	require.NoError(t, err)
+	ctx := context.Background()
+	providers := dyn.Resource(schema.GroupVersionResource{Group: "clustarr.io", Version: "v1alpha1", Resource: "iptvproviders"}).Namespace("default")
+	channels := dyn.Resource(schema.GroupVersionResource{Group: "clustarr.io", Version: "v1alpha1", Resource: "iptvchannels"}).Namespace("default")
+
+	provider := func(name string, fields map[string]any) *unstructured.Unstructured {
+		spec := map[string]any{"server": "tvload.win", "credentialsRef": map[string]any{"name": "argon-tv"}, "tuners": int64(2)}
+		for k, v := range fields {
+			spec[k] = v
+		}
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "clustarr.io/v1alpha1", "kind": "IPTVProvider",
+			"metadata": map[string]any{"name": name}, "spec": spec,
+		}}
+	}
+	lineup := func(cats ...any) map[string]any {
+		return map[string]any{"lineup": map[string]any{"enabled": true, "categories": cats}}
+	}
+	cat := func(name string, base int64) map[string]any {
+		c := map[string]any{"name": name, "groups": []any{name}}
+		if base > 0 {
+			c["base"] = base
+		}
+		return c
+	}
+	_, err = providers.Create(ctx, provider("dup-base", lineup(cat("News", 1000), cat("Sports", 1000))), metav1.CreateOptions{})
+	require.ErrorContains(t, err, "category bases must be unique")
+	_, err = providers.Create(ctx, provider("no-base", lineup(cat("News", 0))), metav1.CreateOptions{})
+	require.ErrorContains(t, err, "a category's first rule must carry base")
+	_, err = providers.Create(ctx, provider("second-rule", lineup(cat("News", 1000), cat("News", 0))), metav1.CreateOptions{})
+	require.NoError(t, err, "a second rule of a name needs no base beside a first that has one")
+
+	plex := func(extra map[string]any) map[string]any {
+		p := map[string]any{"credentialsRef": map[string]any{"name": "plex", "key": "token"}, "lineups": []any{"657c8183afd0f02cd353633f"}}
+		for k, v := range extra {
+			p[k] = v
+		}
+		return map[string]any{"guideSources": map[string]any{"plex": p}}
+	}
+	_, err = providers.Create(ctx, provider("plex-ok", plex(map[string]any{"rate": int64(10), "refresh": "12h"})), metav1.CreateOptions{})
+	require.NoError(t, err)
+	_, err = providers.Create(ctx, provider("plex-rate", plex(map[string]any{"rate": int64(11)})), metav1.CreateOptions{})
+	require.Error(t, err, "rate is 1-10")
+	_, err = providers.Create(ctx, provider("plex-id", plex(map[string]any{"lineups": []any{"657c8183afd0f02cd353633"}})), metav1.CreateOptions{})
+	require.Error(t, err, "a lineup id is 24 hex")
+
+	ch := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "clustarr.io/v1alpha1", "kind": "IPTVChannel",
+		"metadata": map[string]any{"name": "off-dvr"},
+		"spec":     map[string]any{"providerRef": "plex-ok", "key": "t:x", "number": "1001", "category": ""},
+	}}
+	_, err = channels.Create(ctx, ch, metav1.CreateOptions{})
+	require.NoError(t, err)
+	got, err := channels.Get(ctx, "off-dvr", metav1.GetOptions{})
+	require.NoError(t, err)
+	v, found, err := unstructured.NestedString(got.Object, "spec", "category")
+	require.NoError(t, err)
+	require.True(t, found, "an empty category is kept, not pruned")
+	require.Equal(t, "", v)
+}

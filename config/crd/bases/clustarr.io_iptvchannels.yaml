@@ -73,6 +73,12 @@ spec:
                   Active puts the channel in the lineup. An inactive IPTVChannel keeps
                   its mapping for later.
                 type: boolean
+              category:
+                description: |-
+                  Category is the lineup category the channel's block follows. Nil is
+                  automatic; the empty string puts the channel on no DVR (§5.1).
+                maxLength: 64
+                type: string
               epg:
                 description: EPG is the guide mapping; unset means by tvg-id, else
                   a dummy guide.
@@ -249,6 +255,32 @@ spec:
                   "dummy/<minutes>".
                 maxLength: 512
                 type: string
+              lineup:
+                description: Lineup is what the lineup planner decided for the channel
+                  (§5.1).
+                properties:
+                  category:
+                    maxLength: 64
+                    type: string
+                  duplicateOf:
+                    description: DuplicateOf is the key of the winning entry this
+                      one duplicates.
+                    maxLength: 64
+                    type: string
+                  missingSince:
+                    format: date-time
+                    type: string
+                  name:
+                    maxLength: 256
+                    type: string
+                  number:
+                    maxLength: 16
+                    type: string
+                  rule:
+                    description: Rule is the rule that took the entry.
+                    maxLength: 64
+                    type: string
+                type: object
               observedGeneration:
                 description: ObservedGeneration is the generation the status describes.
                 format: int64
@@ -274,6 +306,10 @@ spec:
                   id:
                     description: ID is the lineup channel's id, <lineup id>-<gridKey>.
                     maxLength: 128
+                    type: string
+                  lineup:
+                    description: Lineup is the Plex lineup the station was taken from.
+                    maxLength: 64
                     type: string
                   match:
                     description: Match is how the channel was paired, or why it is

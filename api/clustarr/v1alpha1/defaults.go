@@ -29,6 +29,28 @@ const (
 	// lineup: LineupFetched, LineupFailed (the last good one kept) or
 	// LineupPending.
 	ConditionPlexGuideReady = "PlexGuideReady"
+	// ConditionLineupApplied is whether spec.lineup's plan was applied
+	// (ReasonApplied), is a dry run (ReasonDryRun) or is invalid
+	// (ReasonInvalidLineup).
+	ConditionLineupApplied = "LineupApplied"
+	// ConditionGuideSourcesReady is whether spec.guideSources is fetched.
+	ConditionGuideSourcesReady = "GuideSourcesReady"
+)
+
+// LabelOrigin marks an object a clustarr component created; OriginUI is
+// the ui's value, OriginLineup the lineup controller's.
+const (
+	LabelOrigin  = "clustarr.io/origin"
+	OriginUI     = "ui"
+	OriginLineup = "lineup"
+)
+
+// Lineup reasons (custom guides design §5.1).
+const (
+	ReasonInvalidLineup = "InvalidLineup"
+	ReasonDryRun        = "DryRun"
+	ReasonApplied       = "Applied"
+	ReasonTooMany       = "TooMany"
 )
 
 // Reasons of an IPTVChannel's Ready condition, and of a provider's.
@@ -84,7 +106,25 @@ const (
 	DefaultStreamLinger             = 10 * time.Second
 	DefaultDummyMinutes       int32 = 60
 	DefaultMaxChannels        int32 = 400
+	DefaultGridRefresh              = 24 * time.Hour
+	DefaultGridRate           int32 = 2
 )
+
+// RefreshOrDefault is the source's refresh, 24h when unset or not positive.
+func (s PlexGuideSource) RefreshOrDefault() time.Duration {
+	if s.Refresh == nil || s.Refresh.Duration <= 0 {
+		return DefaultGridRefresh
+	}
+	return s.Refresh.Duration
+}
+
+// RateOrDefault is the source's rate, 2 when unset.
+func (s PlexGuideSource) RateOrDefault() int32 {
+	if s.Rate == nil {
+		return DefaultGridRate
+	}
+	return *s.Rate
+}
 
 // EnabledOrDefault is spec.enabled, true when unset.
 func (s IPTVProviderSpec) EnabledOrDefault() bool { return s.Enabled == nil || *s.Enabled }

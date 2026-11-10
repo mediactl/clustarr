@@ -40,6 +40,8 @@ type IPTVChannelStatusApplyConfiguration struct {
 	// Plex is the channel's pairing with its provider's Plex lineup; unset
 	// when the provider names none.
 	Plex *ChannelPlexStatusApplyConfiguration `json:"plex,omitempty"`
+	// Lineup is what the lineup planner decided for the channel (§5.1).
+	Lineup *ChannelLineupStatusApplyConfiguration `json:"lineup,omitempty"`
 }
 
 // IPTVChannelStatusApplyConfiguration constructs a declarative configuration of the IPTVChannelStatus type for use with
@@ -82,5 +84,13 @@ func (b *IPTVChannelStatusApplyConfiguration) WithGuide(value string) *IPTVChann
 // If called multiple times, the Plex field is set to the value of the last call.
 func (b *IPTVChannelStatusApplyConfiguration) WithPlex(value *ChannelPlexStatusApplyConfiguration) *IPTVChannelStatusApplyConfiguration {
 	b.Plex = value
+	return b
+}
+
+// WithLineup sets the Lineup field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Lineup field is set to the value of the last call.
+func (b *IPTVChannelStatusApplyConfiguration) WithLineup(value *ChannelLineupStatusApplyConfiguration) *IPTVChannelStatusApplyConfiguration {
+	b.Lineup = value
 	return b
 }

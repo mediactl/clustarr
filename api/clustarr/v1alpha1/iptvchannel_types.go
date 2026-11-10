@@ -68,6 +68,12 @@ type IPTVChannelSpec struct {
 	// +optional
 	EPG *ChannelEPG `json:"epg,omitempty"`
 
+	// Category is the lineup category the channel's block follows. Nil is
+	// automatic; the empty string puts the channel on no DVR (§5.1).
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	Category *string `json:"category,omitempty"`
+
 	// TimeshiftMinutes moves this channel's programmes.
 	// +optional
 	// +kubebuilder:validation:Minimum=-720
@@ -178,6 +184,10 @@ type ChannelPlexStatus struct {
 	// +kubebuilder:validation:MaxItems=5
 	// +kubebuilder:validation:items:MaxLength=320
 	Candidates []string `json:"candidates,omitempty"`
+	// Lineup is the Plex lineup the station was taken from.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	Lineup string `json:"lineup,omitempty"`
 	// MissingSince is when the paired station was first absent from the
 	// lineup; the pairing stands for 7 days of absence.
 	// +optional
@@ -209,6 +219,33 @@ type IPTVChannelStatus struct {
 	// when the provider names none.
 	// +optional
 	Plex *ChannelPlexStatus `json:"plex,omitempty"`
+
+	// Lineup is what the lineup planner decided for the channel (§5.1).
+	// +optional
+	Lineup *ChannelLineupStatus `json:"lineup,omitempty"`
+}
+
+// ChannelLineupStatus is the planner's verdict on one channel (§5.1).
+type ChannelLineupStatus struct {
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Name string `json:"name,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	Category string `json:"category,omitempty"`
+	// Rule is the rule that took the entry.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	Rule string `json:"rule,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=16
+	Number string `json:"number,omitempty"`
+	// DuplicateOf is the key of the winning entry this one duplicates.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	DuplicateOf string `json:"duplicateOf,omitempty"`
+	// +optional
+	MissingSince *metav1.Time `json:"missingSince,omitempty"`
 }
 
 // IPTVChannel is one mapped channel of an IPTVProvider (Live TV spec §3).

@@ -53,6 +53,10 @@ type IPTVProviderStatusApplyConfiguration struct {
 	Tuners *TunerStatusApplyConfiguration `json:"tuners,omitempty"`
 	// PlexGuide describes spec.plexGuide's lineup and the pairing.
 	PlexGuide *PlexGuideStatusApplyConfiguration `json:"plexGuide,omitempty"`
+	// Categories are the lineup's category blocks (§5.1).
+	Categories []CategoryStatusApplyConfiguration `json:"categories,omitempty"`
+	// GuideSources reports spec.guideSources (§5.1).
+	GuideSources *GuideSourcesStatusApplyConfiguration `json:"guideSources,omitempty"`
 }
 
 // IPTVProviderStatusApplyConfiguration constructs a declarative configuration of the IPTVProviderStatus type for use with
@@ -148,5 +152,26 @@ func (b *IPTVProviderStatusApplyConfiguration) WithTuners(value *TunerStatusAppl
 // If called multiple times, the PlexGuide field is set to the value of the last call.
 func (b *IPTVProviderStatusApplyConfiguration) WithPlexGuide(value *PlexGuideStatusApplyConfiguration) *IPTVProviderStatusApplyConfiguration {
 	b.PlexGuide = value
+	return b
+}
+
+// WithCategories adds the given value to the Categories field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Categories field.
+func (b *IPTVProviderStatusApplyConfiguration) WithCategories(values ...*CategoryStatusApplyConfiguration) *IPTVProviderStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithCategories")
+		}
+		b.Categories = append(b.Categories, *values[i])
+	}
+	return b
+}
+
+// WithGuideSources sets the GuideSources field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GuideSources field is set to the value of the last call.
+func (b *IPTVProviderStatusApplyConfiguration) WithGuideSources(value *GuideSourcesStatusApplyConfiguration) *IPTVProviderStatusApplyConfiguration {
+	b.GuideSources = value
 	return b
 }

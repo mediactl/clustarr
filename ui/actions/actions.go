@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	clustarrv1alpha1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -46,8 +47,8 @@ const FieldManager = "clustarr-ui"
 // [OriginUI]. It is on every Search and LibraryScan the UI creates, and on
 // nothing else.
 const (
-	LabelOrigin = "clustarr.io/origin"
-	OriginUI    = "ui"
+	LabelOrigin = clustarrv1alpha1.LabelOrigin
+	OriginUI    = clustarrv1alpha1.OriginUI
 )
 
 // Sentinel errors. A handler maps [ErrInvalid] to 400 and [ErrNoWriter] to

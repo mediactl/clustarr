@@ -43,6 +43,9 @@ type IPTVChannelSpecApplyConfiguration struct {
 	Logo *string `json:"logo,omitempty"`
 	// EPG is the guide mapping; unset means by tvg-id, else a dummy guide.
 	EPG *ChannelEPGApplyConfiguration `json:"epg,omitempty"`
+	// Category is the lineup category the channel's block follows. Nil is
+	// automatic; the empty string puts the channel on no DVR (§5.1).
+	Category *string `json:"category,omitempty"`
 	// TimeshiftMinutes moves this channel's programmes.
 	TimeshiftMinutes *int32 `json:"timeshiftMinutes,omitempty"`
 	// Language is the language the relay declares for this channel's audio
@@ -119,6 +122,14 @@ func (b *IPTVChannelSpecApplyConfiguration) WithLogo(value string) *IPTVChannelS
 // If called multiple times, the EPG field is set to the value of the last call.
 func (b *IPTVChannelSpecApplyConfiguration) WithEPG(value *ChannelEPGApplyConfiguration) *IPTVChannelSpecApplyConfiguration {
 	b.EPG = value
+	return b
+}
+
+// WithCategory sets the Category field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Category field is set to the value of the last call.
+func (b *IPTVChannelSpecApplyConfiguration) WithCategory(value string) *IPTVChannelSpecApplyConfiguration {
+	b.Category = &value
 	return b
 }
 

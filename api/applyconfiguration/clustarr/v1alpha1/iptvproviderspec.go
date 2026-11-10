@@ -83,6 +83,10 @@ type IPTVProviderSpecApplyConfiguration struct {
 	// Plex, on DVRs whose guide is that lineup; the rest are on no DVR.
 	// Unset, every channel is on the XMLTV guide the tuner builds.
 	PlexGuide *PlexGuideApplyConfiguration `json:"plexGuide,omitempty"`
+	// Lineup is the automatic lineup (custom guides design §5.1).
+	Lineup *LineupSpecApplyConfiguration `json:"lineup,omitempty"`
+	// GuideSources are further guides programmes are built from (§5.1).
+	GuideSources *GuideSourcesApplyConfiguration `json:"guideSources,omitempty"`
 	// Filters choose which playlist entries reach the mapping table. An
 	// entry is a candidate when any enabled filter matches it; with no
 	// filter, nothing is a candidate (xTeVe's rule).
@@ -180,6 +184,22 @@ func (b *IPTVProviderSpecApplyConfiguration) WithUserAgent(value string) *IPTVPr
 // If called multiple times, the PlexGuide field is set to the value of the last call.
 func (b *IPTVProviderSpecApplyConfiguration) WithPlexGuide(value *PlexGuideApplyConfiguration) *IPTVProviderSpecApplyConfiguration {
 	b.PlexGuide = value
+	return b
+}
+
+// WithLineup sets the Lineup field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Lineup field is set to the value of the last call.
+func (b *IPTVProviderSpecApplyConfiguration) WithLineup(value *LineupSpecApplyConfiguration) *IPTVProviderSpecApplyConfiguration {
+	b.Lineup = value
+	return b
+}
+
+// WithGuideSources sets the GuideSources field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GuideSources field is set to the value of the last call.
+func (b *IPTVProviderSpecApplyConfiguration) WithGuideSources(value *GuideSourcesApplyConfiguration) *IPTVProviderSpecApplyConfiguration {
+	b.GuideSources = value
 	return b
 }
 

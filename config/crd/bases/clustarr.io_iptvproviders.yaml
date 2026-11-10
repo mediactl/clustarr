@@ -203,6 +203,64 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              guideSources:
+                description: GuideSources are further guides programmes are built
+                  from (§5.1).
+                properties:
+                  plex:
+                    description: Plex reads Plex's cloud grids for the channels paired
+                      with stations.
+                    properties:
+                      credentialsRef:
+                        description: |-
+                          CredentialsRef is a key of a Secret in the provider's namespace
+                          holding a Plex account token.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      lineups:
+                        description: |-
+                          Lineups are the Plex cloud lineup ids whose stations and grids are
+                          fetched.
+                        items:
+                          pattern: ^[0-9a-f]{24}$
+                          type: string
+                        maxItems: 32
+                        type: array
+                      rate:
+                        description: Rate is the requests per second made to Plex,
+                          1-10. Default 2.
+                        format: int32
+                        maximum: 10
+                        minimum: 1
+                        type: integer
+                      refresh:
+                        description: Refresh is how often the grids are fetched again.
+                          Default 24h.
+                        type: string
+                    required:
+                    - credentialsRef
+                    type: object
+                type: object
               guideURL:
                 description: |-
                   GuideURL is an XMLTV guide fetched instead of the panel's xmltv.php
@@ -216,6 +274,91 @@ spec:
                 maxLength: 2048
                 pattern: ^https?://
                 type: string
+              lineup:
+                description: Lineup is the automatic lineup (custom guides design
+                  §5.1).
+                properties:
+                  categories:
+                    description: |-
+                      Categories are the rules that sort entries into categories, first
+                      match wins. Several rules may share a name; the first of a name
+                      carries its base.
+                    items:
+                      description: LineupCategory is one categorising rule (§5.1).
+                      properties:
+                        base:
+                          description: |-
+                            Base is the number the category's channels begin at. Unique across
+                            categories; the first rule of a name carries it.
+                          format: int32
+                          maximum: 99999
+                          minimum: 1
+                          type: integer
+                        exclude:
+                          description: Exclude are patterns that stop the rule taking
+                            an entry.
+                          items:
+                            maxLength: 256
+                            type: string
+                          maxItems: 64
+                          type: array
+                        groups:
+                          description: Groups are playlist group-titles the rule takes.
+                          items:
+                            maxLength: 256
+                            type: string
+                          maxItems: 64
+                          type: array
+                        name:
+                          description: Name is the category, and the key of status.categories.
+                          maxLength: 64
+                          minLength: 1
+                          type: string
+                        names:
+                          description: Names are channel-name patterns the rule takes.
+                          items:
+                            maxLength: 256
+                            type: string
+                          maxItems: 256
+                          type: array
+                      required:
+                      - name
+                      type: object
+                    maxItems: 64
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  enabled:
+                    description: |-
+                      Enabled lets the lineup controller create, number and retire
+                      IPTVChannels. Until it is true the plan is a dry run (§5.1).
+                    type: boolean
+                  exclude:
+                    description: |-
+                      Exclude names playlist entries (by group or name) left out of the
+                      lineup altogether.
+                    items:
+                      maxLength: 256
+                      type: string
+                    maxItems: 128
+                    type: array
+                  trim:
+                    description: |-
+                      Trim are prefixes and patterns removed from playlist names before
+                      they are matched and shown.
+                    items:
+                      maxLength: 256
+                      type: string
+                    maxItems: 32
+                    type: array
+                type: object
+                x-kubernetes-validations:
+                - message: category bases must be unique
+                  rule: '!has(self.categories) || self.categories.filter(c, has(c.base)).map(c,
+                    c.base).size() == self.categories.filter(c, has(c.base)).map(c,
+                    c.base).toSet().size()'
+                - message: a category's first rule must carry base
+                  rule: '!has(self.categories) || self.categories.all(c, has(c.base)
+                    || self.categories.exists(d, d.name == c.name && has(d.base)))'
               playlistURL:
                 description: |-
                   PlaylistURL is an M3U provider's playlist, http or https; {username}
@@ -405,6 +548,12 @@ spec:
                     BlockStatus is one block: one emulated HDHomeRun and one Plex DVR (Live TV
                     spec §3.1, §3.2).
                   properties:
+                    category:
+                      description: |-
+                        Category is the lineup category the block holds, when blocks are
+                        per category (§5.1).
+                      maxLength: 64
+                      type: string
                     channels:
                       description: Channels counts the block's active channels.
                       format: int32
@@ -493,6 +642,40 @@ spec:
                 x-kubernetes-list-map-keys:
                 - start
                 x-kubernetes-list-type: map
+              categories:
+                description: Categories are the lineup's category blocks (§5.1).
+                items:
+                  description: CategoryStatus is one lineup category's block (§5.1).
+                  properties:
+                    base:
+                      description: Base is the category's first number.
+                      format: int32
+                      type: integer
+                    channels:
+                      description: Channels counts the category's active channels.
+                      format: int32
+                      type: integer
+                    deviceID:
+                      description: DeviceID is the category's HDHomeRun id.
+                      pattern: ^[0-9A-F]{8}$
+                      type: string
+                    name:
+                      maxLength: 64
+                      type: string
+                    reason:
+                      description: Reason is "" or TooMany.
+                      maxLength: 64
+                      type: string
+                  required:
+                  - base
+                  - channels
+                  - name
+                  type: object
+                maxItems: 64
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               conditions:
                 description: 'Conditions: Ready, Valid, PlaylistFetched, GuidesFetched.'
                 items:
@@ -572,6 +755,37 @@ spec:
                 required:
                 - channels
                 - programmes
+                type: object
+              guideSources:
+                description: GuideSources reports spec.guideSources (§5.1).
+                properties:
+                  plex:
+                    description: PlexSourceStatus reports the Plex grid source (§5.1).
+                    properties:
+                      error:
+                        maxLength: 1024
+                        type: string
+                      fetchedAt:
+                        format: date-time
+                        type: string
+                      grids:
+                        format: int32
+                        type: integer
+                      holdUntil:
+                        description: HoldUntil is when a rate limit lifts.
+                        format: date-time
+                        type: string
+                      lineups:
+                        format: int32
+                        type: integer
+                      stations:
+                        format: int32
+                        type: integer
+                    required:
+                    - grids
+                    - lineups
+                    - stations
+                    type: object
                 type: object
               lineup:
                 description: Lineup counts the rendered lineup.

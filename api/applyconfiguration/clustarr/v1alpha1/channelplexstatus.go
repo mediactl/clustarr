@@ -46,6 +46,8 @@ type ChannelPlexStatusApplyConfiguration struct {
 	// Candidates are the stations an Ambiguous match named, each
 	// "<callSign> <vcn> <title>".
 	Candidates []string `json:"candidates,omitempty"`
+	// Lineup is the Plex lineup the station was taken from.
+	Lineup *string `json:"lineup,omitempty"`
 	// MissingSince is when the paired station was first absent from the
 	// lineup; the pairing stands for 7 days of absence.
 	MissingSince *v1.Time `json:"missingSince,omitempty"`
@@ -120,6 +122,14 @@ func (b *ChannelPlexStatusApplyConfiguration) WithCandidates(values ...string) *
 	for i := range values {
 		b.Candidates = append(b.Candidates, values[i])
 	}
+	return b
+}
+
+// WithLineup sets the Lineup field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Lineup field is set to the value of the last call.
+func (b *ChannelPlexStatusApplyConfiguration) WithLineup(value string) *ChannelPlexStatusApplyConfiguration {
+	b.Lineup = &value
 	return b
 }
 

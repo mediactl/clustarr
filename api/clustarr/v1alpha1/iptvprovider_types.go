@@ -55,6 +55,147 @@ func (g *PlexGuide) LineupID() string {
 	return id
 }
 
+// LineupSpec is the provider's automatic lineup: the planner turns the
+// playlist into IPTVChannels, numbered by category (custom guides design
+// §5.1). Without Enabled it is a dry run shown in the channels' status.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.filter(c, has(c.base)).map(c, c.base).size() == self.categories.filter(c, has(c.base)).map(c, c.base).toSet().size()",message="category bases must be unique"
+// +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.all(c, has(c.base) || self.categories.exists(d, d.name == c.name && has(d.base)))",message="a category's first rule must carry base"
+type LineupSpec struct {
+	// Enabled lets the lineup controller create, number and retire
+	// IPTVChannels. Until it is true the plan is a dry run (§5.1).
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Trim are prefixes and patterns removed from playlist names before
+	// they are matched and shown.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MaxLength=256
+	Trim []string `json:"trim,omitempty"`
+
+	// Exclude names playlist entries (by group or name) left out of the
+	// lineup altogether.
+	// +optional
+	// +kubebuilder:validation:MaxItems=128
+	// +kubebuilder:validation:items:MaxLength=256
+	Exclude []string `json:"exclude,omitempty"`
+
+	// Categories are the rules that sort entries into categories, first
+	// match wins. Several rules may share a name; the first of a name
+	// carries its base.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=64
+	Categories []LineupCategory `json:"categories,omitempty"`
+}
+
+// LineupCategory is one categorising rule (§5.1).
+type LineupCategory struct {
+	// Name is the category, and the key of status.categories.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	Name string `json:"name"`
+
+	// Base is the number the category's channels begin at. Unique across
+	// categories; the first rule of a name carries it.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=99999
+	Base *int32 `json:"base,omitempty"`
+
+	// Groups are playlist group-titles the rule takes.
+	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:MaxLength=256
+	Groups []string `json:"groups,omitempty"`
+
+	// Names are channel-name patterns the rule takes.
+	// +optional
+	// +kubebuilder:validation:MaxItems=256
+	// +kubebuilder:validation:items:MaxLength=256
+	Names []string `json:"names,omitempty"`
+
+	// Exclude are patterns that stop the rule taking an entry.
+	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:MaxLength=256
+	Exclude []string `json:"exclude,omitempty"`
+}
+
+// GuideSources are the guides the tuner builds from besides the playlist's
+// own (§5.1).
+type GuideSources struct {
+	// Plex reads Plex's cloud grids for the channels paired with stations.
+	// +optional
+	Plex *PlexGuideSource `json:"plex,omitempty"`
+}
+
+// PlexGuideSource is Plex's cloud guide as a source of programmes (§5.1).
+type PlexGuideSource struct {
+	// CredentialsRef is a key of a Secret in the provider's namespace
+	// holding a Plex account token.
+	CredentialsRef corev1.SecretKeySelector `json:"credentialsRef"`
+
+	// Lineups are the Plex cloud lineup ids whose stations and grids are
+	// fetched.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:Pattern=`^[0-9a-f]{24}$`
+	Lineups []string `json:"lineups,omitempty"`
+
+	// Refresh is how often the grids are fetched again. Default 24h.
+	// +optional
+	Refresh *metav1.Duration `json:"refresh,omitempty"`
+
+	// Rate is the requests per second made to Plex, 1-10. Default 2.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=10
+	Rate *int32 `json:"rate,omitempty"`
+}
+
+// CategoryStatus is one lineup category's block (§5.1).
+type CategoryStatus struct {
+	// +required
+	// +kubebuilder:validation:MaxLength=64
+	Name string `json:"name"`
+	// Base is the category's first number.
+	Base int32 `json:"base"`
+	// Channels counts the category's active channels.
+	Channels int32 `json:"channels"`
+	// DeviceID is the category's HDHomeRun id.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9A-F]{8}$`
+	DeviceID string `json:"deviceID,omitempty"`
+	// Reason is "" or TooMany.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	Reason string `json:"reason,omitempty"`
+}
+
+// GuideSourcesStatus reports spec.guideSources (§5.1).
+type GuideSourcesStatus struct {
+	// +optional
+	Plex *PlexSourceStatus `json:"plex,omitempty"`
+}
+
+// PlexSourceStatus reports the Plex grid source (§5.1).
+type PlexSourceStatus struct {
+	Lineups  int32 `json:"lineups"`
+	Stations int32 `json:"stations"`
+	Grids    int32 `json:"grids"`
+	// +optional
+	FetchedAt *metav1.Time `json:"fetchedAt,omitempty"`
+	// HoldUntil is when a rate limit lifts.
+	// +optional
+	HoldUntil *metav1.Time `json:"holdUntil,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	Error string `json:"error,omitempty"`
+}
+
 // FilterType is how a ChannelFilter matches a playlist entry.
 // +kubebuilder:validation:Enum=groupTitle;custom
 type FilterType string
@@ -165,6 +306,14 @@ type IPTVProviderSpec struct {
 	// Unset, every channel is on the XMLTV guide the tuner builds.
 	// +optional
 	PlexGuide *PlexGuide `json:"plexGuide,omitempty"`
+
+	// Lineup is the automatic lineup (custom guides design §5.1).
+	// +optional
+	Lineup *LineupSpec `json:"lineup,omitempty"`
+
+	// GuideSources are further guides programmes are built from (§5.1).
+	// +optional
+	GuideSources *GuideSources `json:"guideSources,omitempty"`
 
 	// Filters choose which playlist entries reach the mapping table. An
 	// entry is a candidate when any enabled filter matches it; with no
@@ -341,6 +490,17 @@ type IPTVProviderStatus struct {
 	// PlexGuide describes spec.plexGuide's lineup and the pairing.
 	// +optional
 	PlexGuide *PlexGuideStatus `json:"plexGuide,omitempty"`
+
+	// Categories are the lineup's category blocks (§5.1).
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=64
+	Categories []CategoryStatus `json:"categories,omitempty"`
+
+	// GuideSources reports spec.guideSources (§5.1).
+	// +optional
+	GuideSources *GuideSourcesStatus `json:"guideSources,omitempty"`
 }
 
 // PlexGuideStatus is the Plex lineup the tuner holds and how the channels
@@ -491,6 +651,12 @@ type BlockStatus struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=512
 	Path string `json:"path,omitempty"`
+
+	// Category is the lineup category the block holds, when blocks are
+	// per category (§5.1).
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	Category string `json:"category,omitempty"`
 
 	// URI is the block's device address as Plex registers it:
 	// http://<address><path>.
