@@ -53,10 +53,16 @@ func (s *Server) handleBookXPage(w http.ResponseWriter, r *http.Request) {
 
 // renderBookXPage answers the book's page, preloadable when the route is
 // one a link preloads; not found when the book, its author's card (or its
-// own) or the reader is missing.
+// own) or the reader is missing -- unless Add New just created a standalone
+// Book the library view does not list yet, which is told to wait.
 func (s *Server) renderBookXPage(w http.ResponseWriter, r *http.Request, preload bool) {
-	v, ok := s.bookXPage(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
+	ns, name := r.PathValue("namespace"), r.PathValue("name")
+	v, ok := s.bookXPage(r.Context(), ns, name)
 	if !ok {
+		if s.standaloneBookJustAdded(r.Context(), ns, name) {
+			s.renderAddPending(w, r, name)
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -67,6 +73,15 @@ func (s *Server) renderBookXPage(w http.ResponseWriter, r *http.Request, preload
 	if err := views.BookXPage(v).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render book page", "error", err)
 	}
+}
+
+// standaloneBookJustAdded reports a Book without an authorRef that is in
+// the cluster but not yet in the library view: Add New's standalone Book,
+// told to wait rather than 404. An author's book the view does not hold
+// (its author's card missing) is still not found, as before.
+func (s *Server) standaloneBookJustAdded(ctx context.Context, ns, name string) bool {
+	var b catalogv1.Book
+	return s.getObject(ctx, types.NamespacedName{Namespace: ns, Name: name}, &b) && b.Spec.AuthorRef == nil
 }
 
 // bookXPage builds a book's page. The book's card is its author's card

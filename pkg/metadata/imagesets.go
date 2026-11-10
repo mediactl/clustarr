@@ -91,6 +91,17 @@ type ImageSet struct {
 	Sets   []ImageSetSource
 }
 
+// MediUXSetURL is a set's page on MediUX, https://mediux.pro/sets/<id>, the
+// same path for a show, movie or collection set. It lives here, not in the
+// mediux client, so the ui can build an item page's link from the set id
+// without linking the client (test/guards' R6: cmd/ui links no provider
+// client). Until 2026-11-04 the stored link was AURA's
+// https://mediux.io/<kind>-set/<id>, which mediux.io no longer serves, so a
+// reader builds the link from the id rather than trusting a stored one.
+func MediUXSetURL(id string) string {
+	return "https://mediux.pro/sets/" + id
+}
+
 // ImageSetProvider composes an item's images from its image sets
 // (MediUX). It returns ErrNotFound when it has no set for the item.
 type ImageSetProvider interface {

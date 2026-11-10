@@ -58,7 +58,10 @@ const (
 // (2026-11-10 design §7.4): fanart.tv's asset host, where an artist's
 // images live, and Audible's image host (m.media-amazon.com), where an
 // Audnexus cover does. A Cover Art Archive cover starts at
-// coverartarchive.org and redirects to archive.org ([archiveHost]).
+// coverartarchive.org and redirects to archive.org ([archiveHost]). An
+// Issue's status.coverURL is on ComicVine's image host
+// (comicvine.gamespot.com) or MangaDex's cover host (uploads.mangadex.org),
+// which the issue page serves through the same proxy (design §9.4).
 var searchArtHosts = map[string]bool{
 	"image.tmdb.org":         true,
 	"artworks.thetvdb.com":   true,
@@ -69,6 +72,8 @@ var searchArtHosts = map[string]bool{
 	"theposterdb.com":        true,
 	"assets.fanart.tv":       true,
 	"m.media-amazon.com":     true,
+	"comicvine.gamespot.com": true,
+	"uploads.mangadex.org":   true,
 }
 
 var errSearchArtRefused = errors.New("ui: search art: refused")

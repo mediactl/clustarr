@@ -1,15 +1,18 @@
-# The six metadata providers the e2e scenarios need, pointed at the
+# The nine metadata providers the e2e scenarios need, pointed at the
 # in-cluster stubs this overlay deploys. tmdb and tvdb's credentials are
 # placeholders: neither stub checks them, but pkg/metadata/clients/tmdb's
 # golang-tmdb Init rejects an empty api key and the TVDB client posts
 # apiKey+pin to /login, so both keys must be present and non-empty.
 #
-# musicbrainz, openlibrary, audnexus and comicvine (Phase G, G4-1) all point
-# at the ONE nonvideo-stub Service (nonvideo-stub.yaml), differing only in
-# spec.baseURL's path prefix -- see that Service's own doc comment for why
-# one process can serve all four real upstream shapes. Only comicvine needs
-# a secretRef; the other three need none (app/catalog/metadata/registry.go's
-# BuildRegistry).
+# musicbrainz, openlibrary, audnexus and comicvine (Phase G, G4-1), and
+# since the 2026-11-10 non-video parity coverart, wikipedia and audible, all
+# point at the ONE nonvideo-stub Service (nonvideo-stub.yaml), differing
+# only in spec.baseURL's path prefix -- see that Service's own doc comment
+# for why one process can serve every real upstream shape. Only comicvine
+# needs a secretRef; the others need none (app/catalog/metadata/registry.go's
+# BuildRegistry). The three keyless ones must exist before the manager
+# starts: metadataprovider.SeedDefaults would otherwise seed each type at
+# its live host, unreachable without egress.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -94,3 +97,36 @@ spec:
   secretRef:
     name: comicvine-fixture-credentials
   baseURL: http://nonvideo-stub.clustarr-system.svc/comicvine
+---
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: MetadataProvider
+metadata:
+  name: coverart
+  namespace: clustarr-system
+spec:
+  type: coverart
+  enabled: true
+  contactUserAgent: "Clustarr-e2e/0.1 (https://github.com/mediactl/clustarr)"
+  baseURL: http://nonvideo-stub.clustarr-system.svc/coverart
+---
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: MetadataProvider
+metadata:
+  name: wikipedia
+  namespace: clustarr-system
+spec:
+  type: wikipedia
+  enabled: true
+  contactUserAgent: "Clustarr-e2e/0.1 (https://github.com/mediactl/clustarr)"
+  baseURL: http://nonvideo-stub.clustarr-system.svc/wikipedia
+---
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: MetadataProvider
+metadata:
+  name: audible
+  namespace: clustarr-system
+spec:
+  type: audible
+  enabled: true
+  contactUserAgent: "Clustarr-e2e/0.1 (https://github.com/mediactl/clustarr)"
+  baseURL: http://nonvideo-stub.clustarr-system.svc/audible

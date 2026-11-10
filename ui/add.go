@@ -460,6 +460,29 @@ func (s *Server) justAdded(ctx context.Context, namespace, kind, name string) bo
 	return s.opts.Reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, obj) == nil
 }
 
+// notFoundUnlessJustAdded answers a page whose item the library view does
+// not list: Add New's pending page, which reloads, when the object is
+// already in the cluster (the view rebuilds within a round), else 404. Every
+// kind Add New creates goes through it, so an item just created never 404s
+// on the redirect that follows (W4c's leftover, 2026-11-10); a Book's page
+// asks only for a standalone one (renderBookXPage), since an author's book
+// is the fan-out's, never Add New's.
+func (s *Server) notFoundUnlessJustAdded(w http.ResponseWriter, r *http.Request, namespace, kind, name string) {
+	if s.justAdded(r.Context(), namespace, kind, name) {
+		s.renderAddPending(w, r, name)
+		return
+	}
+	http.NotFound(w, r)
+}
+
+// renderAddPending is Add New's "being added" page, which reloads itself.
+func (s *Server) renderAddPending(w http.ResponseWriter, r *http.Request, name string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.AddPending(name).Render(r.Context(), w); err != nil {
+		logging.FromContext(r.Context()).Error("render add pending page", "error", err)
+	}
+}
+
 // rejectAdd re-renders the Add New page with err and the owner's search and
 // form as they submitted them, the rejected hit's form open (spec: Errors).
 func (s *Server) rejectAdd(w http.ResponseWriter, r *http.Request, k views.AddKind, err error) {

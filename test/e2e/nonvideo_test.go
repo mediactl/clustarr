@@ -73,11 +73,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The Cover Art Archive, Wikidata/Wikipedia and Audible routes the stub
 // now serves are exercised by its own unit tests; config/e2e/
-// metadata-providers.yaml does not yet name a coverart, wikipedia or
-// audible MetadataProvider pointed at the stub, and app/catalog/metadata/
-// registry.go leaves the Wikipedia summary host at en.wikipedia.org, so
-// no leg here asserts an album cover or a biography. The Comic's volume
-// search (§4.7's volumeSearch) needs an Indexer and is not driven here.
+// metadata-providers.yaml names a coverart, a wikipedia and an audible
+// MetadataProvider pointed at the stub (since 2026-11-10, with the
+// registry's one spec.baseURL covering both Wikipedia hosts), but no leg
+// here asserts an album cover or a biography yet. The Comic's volume search
+// (§4.7's volumeSearch) needs an Indexer and is not driven here.
 //
 // Build-tagged e2e. Per the standing instruction, this suite is written and
 // has never been run against a kind cluster.

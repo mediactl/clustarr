@@ -442,8 +442,11 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 		}))
 	case catalogv1alpha1.MetadataProviderWikipedia:
 		reg.Biographies = append(reg.Biographies, wikipedia.New(wikipedia.Config{
+			// One spec.baseURL stands in for both hosts: nothing overrides
+			// it in production, and the e2e stub serves Wikidata's api.php
+			// and Wikipedia's page summary under one prefix.
 			HTTPClient: httpClient, WikidataBaseURL: baseURL(p, wikipedia.DefaultWikidataBaseURL),
-			WikipediaBaseURL: wikipedia.DefaultWikipediaBaseURL, Language: p.Spec.Language,
+			WikipediaBaseURL: baseURL(p, wikipedia.DefaultWikipediaBaseURL), Language: p.Spec.Language,
 			Limiter: supplementaryLimiter(p, 5, 5), UserAgent: ua,
 		}))
 	case catalogv1alpha1.MetadataProviderAudible:

@@ -35,6 +35,8 @@ func TestSearchArtAdmitsTheMusicAndAudiobookImageHosts(t *testing.T) {
 		"https://assets.fanart.tv/fanart/music/x/artistthumb/1.jpg",
 		"https://m.media-amazon.com/images/I/fake.jpg",
 		"https://coverartarchive.org/release/x/1-500.jpg",
+		"https://comicvine.gamespot.com/a/uploads/scale_large/x.jpg", // an Issue's ComicVine cover
+		"https://uploads.mangadex.org/covers/x/y.jpg",                // a MangaDex cover
 	} {
 		require.NotEmpty(t, a.URL(src), "signed: %s", src)
 		require.Equal(t, src, photo(src), "passed to PMS: %s", src)

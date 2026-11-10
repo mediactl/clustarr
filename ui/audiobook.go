@@ -42,11 +42,14 @@ import (
 // and nothing here writes.
 
 // handleAudiobookPage serves GET /library/{namespace}/audiobook/{name}, the
-// page an audiobook's card opens (and preloads).
+// page an audiobook's card opens (and preloads). An audiobook Add New just
+// created is in the cluster before the library view lists it, and is told
+// to wait rather than 404.
 func (s *Server) handleAudiobookPage(w http.ResponseWriter, r *http.Request) {
-	v, ok := s.audiobookView(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
+	ns, name := r.PathValue("namespace"), r.PathValue("name")
+	v, ok := s.audiobookView(r.Context(), ns, name)
 	if !ok {
-		http.NotFound(w, r)
+		s.notFoundUnlessJustAdded(w, r, ns, string(commonv1.MediaKindAudiobook), name)
 		return
 	}
 	preloadable(w)

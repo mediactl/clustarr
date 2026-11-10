@@ -49,14 +49,7 @@ func (s *Server) handleArtistPage(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	item, ok := findLibraryItem(s.opts.Library(r.Context()), ns, string(commonv1.MediaKindArtist), name)
 	if !ok {
-		if s.justAdded(r.Context(), ns, string(commonv1.MediaKindArtist), name) {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			if err := views.AddPending(name).Render(r.Context(), w); err != nil {
-				logging.FromContext(r.Context()).Error("render add pending page", "error", err)
-			}
-			return
-		}
-		http.NotFound(w, r)
+		s.notFoundUnlessJustAdded(w, r, ns, string(commonv1.MediaKindArtist), name)
 		return
 	}
 	preloadable(w)

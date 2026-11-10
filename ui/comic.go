@@ -47,11 +47,13 @@ const comicVolumeNumber int32 = 1
 
 // handleComicPage serves GET /library/{namespace}/comic/{name}: the comic's
 // page, which beats the shared item route by its literal segment. A comic
-// the projection does not list is not found.
+// the projection does not list is not found, unless Add New just created
+// it, when the page says so and reloads.
 func (s *Server) handleComicPage(w http.ResponseWriter, r *http.Request) {
-	item, ok := findLibraryItem(s.opts.Library(r.Context()), r.PathValue("namespace"), string(commonv1.MediaKindComic), r.PathValue("name"))
+	ns, name := r.PathValue("namespace"), r.PathValue("name")
+	item, ok := findLibraryItem(s.opts.Library(r.Context()), ns, string(commonv1.MediaKindComic), name)
 	if !ok {
-		http.NotFound(w, r)
+		s.notFoundUnlessJustAdded(w, r, ns, string(commonv1.MediaKindComic), name)
 		return
 	}
 	v, err := s.comicPage(r.Context(), item)

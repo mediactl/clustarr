@@ -675,9 +675,10 @@ type Policy struct {
 // AURA's https://mediux.io/<kind>-set/<id>; mediux.io answers a Cloudflare
 // tunnel error now (owner, 2026-11-04), so every stored link of that shape
 // is dead, and the item page derives its link from the id (ui.imageSetNote)
-// rather than trusting a stored one.
+// rather than trusting a stored one. The shape is metadata.MediUXSetURL's,
+// which the ui reads without linking this client.
 func SetURL(id string) string {
-	return "https://mediux.pro/sets/" + id
+	return metadata.MediUXSetURL(id)
 }
 
 // Ping proves the token is accepted: the smallest query the API answers

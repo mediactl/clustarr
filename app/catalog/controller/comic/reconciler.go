@@ -588,8 +588,9 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, n
 	}
 
 	req := schema.MetadataRequest{
-		Kind: commonv1.MediaKindIssue,
-		IDs:  map[string]string{SourceKey(c.Spec.Source): c.Spec.SourceID},
+		Kind:      commonv1.MediaKindIssue,
+		IDs:       map[string]string{SourceKey(c.Spec.Source): c.Spec.SourceID},
+		Numbering: issueNumbering(c),
 	}
 	rpcCtx, cancel := context.WithTimeout(ctx, issueSyncRPCBackoff)
 	defer cancel()
@@ -768,4 +769,17 @@ func downloadingPhase(p commonv1.DownloadPhase) bool {
 		return false
 	}
 	return true
+}
+
+// issueNumbering is how the gateway lists the comic's issues (2026-11-10
+// design D10): a manga's are its chapters (metadata.IssueNumberingChapters,
+// which the mangadex client serves; each Issue's sourceID is then the
+// chapter's id), unless spec.specialVersion asks for its volumes as issues,
+// and a comic's are its issues, the request's default. issueSyncKey keys on
+// the generation, so a kind or specialVersion edit lists them again.
+func issueNumbering(c *catalogv1alpha1.Comic) string {
+	if c.Spec.Kind == catalogv1alpha1.ComicKindManga && c.Spec.SpecialVersion != catalogv1alpha1.ComicSpecialVersionVolumeAsIssue {
+		return string(metadata.IssueNumberingChapters)
+	}
+	return ""
 }
