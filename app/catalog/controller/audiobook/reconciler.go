@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -329,9 +330,20 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 	// into reassertKnownStatus's WithConditions call) regardless of which
 	// return this reconcile takes. It never fails the reconcile -- see
 	// resolveBookRef's doc comment.
-	bookResolved, err := r.resolveBookRef(ctx, m)
+	book, bookResolved, err := r.resolveBookRef(ctx, m)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+	// An Audiobook naming a Book but no Author takes the Book's Author once
+	// (design D11): a one-field merge patch of spec.authorRef, which bumps
+	// the generation and wakes the item; this pass goes on with the spec it
+	// read, and the next finds the ref set. The Author's monitoring then
+	// gates the Audiobook (itemread.Monitored) and its artist.nfo lists it.
+	if ref, ok := AuthorRefFromBook(m, book); ok {
+		if err := LinkAuthor(ctx, r.Client, m, ref); err != nil {
+			return ctrl.Result{}, fmt.Errorf("link audiobook %s to author %s: %w", m.Name, ref, err)
+		}
+		r.reporter().Normal(m, "AuthorLinked", "spec.authorRef set to %q from book %q", ref, ptr.Deref(m.Spec.BookRef, ""))
 	}
 	switch {
 	case m.Spec.BookRef == nil || *m.Spec.BookRef == "":

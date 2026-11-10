@@ -442,6 +442,13 @@ func Monitored(ctx context.Context, r client.Reader, item client.Object) (bool, 
 			return true, nil
 		}
 		name, container = *t.Spec.AuthorRef, &catalogv1alpha1.Author{}
+	case *catalogv1alpha1.Audiobook:
+		// An Audiobook under an Author (spec.authorRef, design D11) is
+		// gated by it as a Book is; one naming none is its own.
+		if t.Spec.AuthorRef == nil || *t.Spec.AuthorRef == "" {
+			return true, nil
+		}
+		name, container = *t.Spec.AuthorRef, &catalogv1alpha1.Author{}
 	default:
 		return true, nil
 	}

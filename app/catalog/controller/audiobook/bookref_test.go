@@ -42,13 +42,13 @@ func TestResolveBookRefUnset(t *testing.T) {
 	r := &Reconciler{Client: c}
 
 	a := &catalogv1alpha1.Audiobook{ObjectMeta: metav1.ObjectMeta{Namespace: "media"}}
-	resolved, err := r.resolveBookRef(t.Context(), a)
+	_, resolved, err := r.resolveBookRef(t.Context(), a)
 	require.NoError(t, err)
 	assert.True(t, resolved, "no bookRef set resolves trivially")
 
 	empty := ""
 	a.Spec.BookRef = &empty
-	resolved, err = r.resolveBookRef(t.Context(), a)
+	_, resolved, err = r.resolveBookRef(t.Context(), a)
 	require.NoError(t, err)
 	assert.True(t, resolved, "an empty-string bookRef is treated the same as unset")
 }
@@ -64,7 +64,7 @@ func TestResolveBookRefFound(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: "media"},
 		Spec:       catalogv1alpha1.AudiobookSpec{BookRef: &ref},
 	}
-	resolved, err := r.resolveBookRef(t.Context(), a)
+	_, resolved, err := r.resolveBookRef(t.Context(), a)
 	require.NoError(t, err)
 	assert.True(t, resolved)
 }
@@ -78,7 +78,7 @@ func TestResolveBookRefDangling(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: "media"},
 		Spec:       catalogv1alpha1.AudiobookSpec{BookRef: &ref},
 	}
-	resolved, err := r.resolveBookRef(t.Context(), a)
+	_, resolved, err := r.resolveBookRef(t.Context(), a)
 	require.NoError(t, err, "a dangling bookRef is never a fatal error")
 	assert.False(t, resolved)
 }

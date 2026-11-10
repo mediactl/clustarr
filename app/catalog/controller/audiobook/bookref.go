@@ -36,19 +36,23 @@ import (
 // genuine API error for anything else. Callers turn the bool into
 // AudiobookConditionBookRefResolved; this function has no opinion on
 // conditions.
-func (r *Reconciler) resolveBookRef(ctx context.Context, m *catalogv1alpha1.Audiobook) (resolved bool, err error) {
+//
+// The Book found is returned too (nil when none is named or found), so the
+// pass can link the Audiobook to the Book's Author once (AuthorRefFromBook,
+// LinkAuthor; 2026-11-10 design D11).
+func (r *Reconciler) resolveBookRef(ctx context.Context, m *catalogv1alpha1.Audiobook) (book *catalogv1alpha1.Book, resolved bool, err error) {
 	if m.Spec.BookRef == nil || *m.Spec.BookRef == "" {
-		return true, nil
+		return nil, true, nil
 	}
-	var book catalogv1alpha1.Book
-	getErr := r.Get(ctx, types.NamespacedName{Namespace: m.Namespace, Name: *m.Spec.BookRef}, &book)
+	var bk catalogv1alpha1.Book
+	getErr := r.Get(ctx, types.NamespacedName{Namespace: m.Namespace, Name: *m.Spec.BookRef}, &bk)
 	if getErr == nil {
-		return true, nil
+		return &bk, true, nil
 	}
 	if apierrors.IsNotFound(getErr) {
-		return false, nil
+		return nil, false, nil
 	}
-	return false, getErr
+	return nil, false, getErr
 }
 
 // mapBookRef is the reverse direction from a watched Book to every

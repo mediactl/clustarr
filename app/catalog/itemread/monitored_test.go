@@ -59,6 +59,9 @@ func TestMonitoredCascadesFromTheContainer(t *testing.T) {
 	book := func(author *string, on bool) *catalogv1alpha1.Book {
 		return &catalogv1alpha1.Book{ObjectMeta: meta("b"), Spec: catalogv1alpha1.BookSpec{AuthorRef: author, Monitored: flag(on)}}
 	}
+	audiobook := func(author *string, on bool) *catalogv1alpha1.Audiobook {
+		return &catalogv1alpha1.Audiobook{ObjectMeta: meta("ab"), Spec: catalogv1alpha1.AudiobookSpec{AuthorRef: author, Monitored: flag(on)}}
+	}
 	for _, tc := range []struct {
 		name string
 		item client.Object
@@ -73,6 +76,10 @@ func TestMonitoredCascadesFromTheContainer(t *testing.T) {
 		{"standalone book reads its own flag", book(nil, true), true},
 		{"standalone book unmonitored", book(nil, false), false},
 		{"book whose author is gone", book(ptr.To("nobody"), true), false},
+		{"audiobook, both monitored", audiobook(ptr.To("herbert"), true), true},
+		{"audiobook of an unmonitored author", audiobook(ptr.To("asimov"), true), false},
+		{"audiobook without an author reads its own flag", audiobook(nil, true), true},
+		{"audiobook whose author is gone", audiobook(ptr.To("nobody"), true), false},
 		{"episode of a monitored series", &catalogv1alpha1.Episode{ObjectMeta: meta("e"), Spec: catalogv1alpha1.EpisodeSpec{SeriesRef: "show"}}, true},
 		{"issue of an unmonitored comic", &catalogv1alpha1.Issue{ObjectMeta: meta("i"), Spec: catalogv1alpha1.IssueSpec{ComicRef: "saga", Monitored: flag(true)}}, false},
 		{"a movie is its own container", &catalogv1alpha1.Movie{ObjectMeta: meta("m"), Spec: catalogv1alpha1.MovieSpec{Monitored: flag(true)}}, true},

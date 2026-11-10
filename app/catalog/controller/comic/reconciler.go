@@ -43,6 +43,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
+	"github.com/mediactl/clustarr/app/remediation/childsync"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -62,6 +63,17 @@ const conditionQueueFull = "QueueFull"
 // (spec.comicRef), so the reconciler can List a Comic's own Issues without
 // scanning the whole namespace.
 const issueByComicRefIndexKey = ".spec.comicRef"
+
+// issueSyncKey is the Comic's childsync key: its spec generation, its
+// metadata refresh and whether spec.addOptions were applied (the first
+// complete fan-out flips the flag, so it is part of the key).
+func issueSyncKey(c *catalogv1alpha1.Comic, addOptionsApplied bool) childsync.Key {
+	var refreshed time.Time
+	if c.Status.Metadata != nil {
+		refreshed = c.Status.Metadata.RefreshedAt.Time
+	}
+	return childsync.KeyAt(c.Generation, refreshed, addOptionsApplied)
+}
 
 // issueSyncRPCBackoff is the RequeueAfter used when the issue-listing RPC
 // fails, a concrete short backoff per §8.8 (RequeueAfter only, never a bare
@@ -92,7 +104,7 @@ type bus interface {
 // Reconciler reconciles a Comic: metadata staleness (publishing a
 // MetadataTask when the cache is missing or past its RefreshTTL), path and
 // conditions, the issue-listing RPC fan-out into owned Issue objects
-// (behind issueSyncMemo, so a pass that moved none of its inputs fetches
+// (behind the childsync memo, so a pass that moved none of its inputs fetches
 // nothing) and the rollup of its Issues. It is the sole writer of
 // status.observedGeneration, status.conditions (Ready/MetadataReady/
 // IssuesSynced), status.path, status.issueFileCount,
@@ -132,7 +144,7 @@ type Reconciler struct {
 
 	// issueSync remembers each Comic's last complete fan-out in this
 	// process; its zero value is ready to use.
-	issueSync issueSyncMemo
+	issueSync childsync.Memo
 }
 
 // RegisterIndexes registers the Issue-by-spec.comicRef index under its
@@ -256,6 +268,7 @@ func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName)
 // by the apiserver via their controller reference; there is nothing else
 // owned outside Kubernetes at this phase.
 func (r *Reconciler) reconcileDelete(ctx context.Context, c *catalogv1alpha1.Comic) (ctrl.Result, error) {
+	r.issueSync.Forget(c.UID)
 	// The grabs go first (ADR-0019 §6.8): while the downloads stage moves
 	// every entry to Removing, the pass applies its contribution over the
 	// stored status -- the complete declaration, so nothing is released --
@@ -430,7 +443,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 	// The ContainerRollup (2026-11-10 design §4.1, §5.2): the Series'
 	// rollup for the Comic, Pending while its metadata or its issue list is
 	// not in yet, as series.Phase reads it.
-	statusAC = withContainerRollup(statusAC, rollup.Container(monitored, metaReady && issuesSynced, children, now))
+	cr := rollup.Container(monitored, metaReady && issuesSynced, children, now)
+	statusAC = withContainerRollup(statusAC, cr)
 	if next := NextPullDate(issues, now); next != nil {
 		statusAC = statusAC.WithNextPullDate(*next)
 	}
@@ -441,6 +455,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 	if conflicted, err := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(withEntries(ctx, statusAC, c))); err != nil || conflicted {
 		return itemstatus.Requeue(conflicted), err
 	}
+	// The phase edge as a Kubernetes Event, as every kind records it
+	// (2026-11-10 design D14, §5.2; rollup.Reporter is Movie's recorder).
+	rollup.Reporter{Recorder: r.Recorder}.PhaseEdge(c, string(c.Status.Phase), string(cr.Phase))
 
 	if syncErr != nil {
 		return ctrl.Result{RequeueAfter: issueSyncRPCBackoff}, nil
@@ -508,7 +525,7 @@ func comicRefreshState(c *catalogv1alpha1.Comic) string {
 	return metadata.RefreshStateOngoing
 }
 
-// syncIssues lists c's currently owned Issues and, when issueSyncMemo says
+// syncIssues lists c's currently owned Issues and, when the childsync memo says
 // an input moved since the last complete fan-out in this process, requests
 // its issue list from the metadata gateway (lookupIssues,
 // app/catalog/metadata/rpc.go, task f665aa9) and ensures each desired Issue
@@ -540,7 +557,7 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, n
 		return out
 	}
 
-	if !r.issueSync.due(c) {
+	if !r.issueSync.Due(c.UID, issueSyncKey(c, c.Status.AddOptionsApplied), c.Status.Metadata != nil) {
 		// Nothing a fan-out reads has moved since the last complete one:
 		// the Issues the List found are what it would leave.
 		return true, done(), nil
@@ -579,7 +596,10 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, n
 		}
 		existing[d.Name] = ensuredIssue(existing[d.Name], c, d)
 	}
-	r.issueSync.synced(c)
+	// Recorded with addOptionsApplied true: the pass that completes the
+	// first fan-out also flips the flag, so the next pass's key matches
+	// and the flip costs no second fetch.
+	r.issueSync.Synced(c.UID, issueSyncKey(c, true), c.Status.Metadata != nil)
 	return true, done(), nil
 }
 
