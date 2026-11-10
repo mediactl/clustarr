@@ -64,6 +64,11 @@ var (
 	// still downloading, an upgrade included. Only the grab planner's
 	// coverage fold knows a release covers several episodes, so it is
 	// raised there (grabplan.CoverageRejections), never by queueRejection.
+	// Since 2026-11-10 (the non-video design D10) a Comic's Issues are
+	// covered items under the same rules, so this reason also renders
+	// beside an issue ("EpisodeDownloading: the pack covers an issue ...",
+	// worded by grabplan's nounsOf); the code stays as it is, a wire
+	// vocabulary every reader and record carries.
 	ReasonEpisodeDownloading           = Reason{"EpisodeDownloading", common.RejectionPermanent}
 	ReasonExistingHigherPreference     = Reason{"ExistingHigherPreference", common.RejectionPermanent}
 	ReasonUpgradesNotAllowed           = Reason{"UpgradesNotAllowed", common.RejectionPermanent}

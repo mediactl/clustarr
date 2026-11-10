@@ -142,9 +142,11 @@ func TestASeriesWithoutMetadataAsksForNoEpisodeList(t *testing.T) {
 
 // Two passes with nothing moved fetch the list once (design D2; owner,
 // 2026-10-28: every Series pass asked the gateway for its whole list). The
-// first complete fan-out flips addOptionsApplied, which the memo records as
-// the next pass reads it, so the flip costs no second fetch; a metadata
-// refresh is a moved input and fetches again.
+// memo keys every complete fan-out under the spec generation and the
+// metadata refresh alone (childsync.KeyAt; until 2026-11-10 the key also
+// carried addOptionsApplied, 7450a5f9 retired it), so the flag the first
+// complete fan-out flips is no input of the key and costs no second
+// fetch; a metadata refresh moves the key and fetches again.
 func TestTwoSeriesPassesWithNothingMovedFetchTheListOnce(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

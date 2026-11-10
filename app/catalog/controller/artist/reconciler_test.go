@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -126,9 +127,15 @@ func (f fakePublisher) Publish(_ context.Context, _ string, _ *events.Envelope, 
 type fakeAlbumRPC struct {
 	albums []pkgmetadata.Album
 	err    error
+	// calls counts the lookups when set, so a test can tell a fan-out that
+	// fetched from one the child-sync memo skipped.
+	calls *atomic.Int32
 }
 
 func (f fakeAlbumRPC) Request(_ context.Context, _ string, _, out any) error {
+	if f.calls != nil {
+		f.calls.Add(1)
+	}
 	if f.err != nil {
 		return f.err
 	}
@@ -400,17 +407,25 @@ func TestArtistReconcilerNeverTouchesAnExistingAlbumsSpec(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, a))
 
-	metaAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(catalogac.ArtistStatus().WithMetadata(
-		catalogac.ArtistMetadata().WithName("Radiohead").WithRefreshedAt(metav1.Now())))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
-	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		var got catalogv1alpha1.Artist
-		if err := c.Get(ctx, types.NamespacedName{Namespace: a.Namespace, Name: a.Name}, &got); err != nil {
-			return false
-		}
-		return got.Status.Metadata != nil
-	}, 5*time.Second, 10*time.Millisecond)
+	// The metadata is refreshed again between the two passes (below), so
+	// its first refresh lands a minute old: childsync.KeyAt keys the
+	// fan-out on the refresh to the second.
+	firstRefresh := metav1.NewTime(time.Now().Add(-time.Minute))
+	refreshMetadata := func(refreshedAt metav1.Time) {
+		t.Helper()
+		metaAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(catalogac.ArtistStatus().WithMetadata(
+			catalogac.ArtistMetadata().WithName("Radiohead").WithRefreshedAt(refreshedAt)))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Artist
+			if err := c.Get(ctx, types.NamespacedName{Namespace: a.Namespace, Name: a.Name}, &got); err != nil {
+				return false
+			}
+			return got.Status.Metadata != nil && got.Status.Metadata.RefreshedAt.Unix() == refreshedAt.Unix()
+		}, 5*time.Second, 10*time.Millisecond, "the cache never showed the refresh")
+	}
+	refreshMetadata(firstRefresh)
 
 	releaseGroupID := "b1392450-e5a3-37d1-83d3-b8b08ca6c4d9"
 	name := artist.AlbumName("radiohead", releaseGroupID)
@@ -424,26 +439,31 @@ func TestArtistReconcilerNeverTouchesAnExistingAlbumsSpec(t *testing.T) {
 		return c.Get(ctx, types.NamespacedName{Namespace: "artist-noupdate-ns", Name: name}, &catalogv1alpha1.Album{}) == nil
 	}, 5*time.Second, 10*time.Millisecond)
 
-	// addOptionsApplied starts false, so the FIRST fan-out pass would decide
+	// addOptionsApplied starts false, so the FIRST fan-out pass decides
 	// monitored via AddOptions.Monitor (unset -> zero value "", which
 	// InitialAlbumMonitored's default case reports false) -- consistent
-	// with the pre-existing Album's own Monitored=false, so this alone
-	// would not distinguish "never touched" from "recomputed the same
-	// value". Reconcile twice: the first pass also flips
-	// status.addOptionsApplied to true, so the second pass is governed by
-	// spec.monitorNewItems=All instead, which WOULD set true for a
-	// brand-new album -- proving the untouched false survives only because
+	// with the pre-existing Album's own Monitored=false, so that pass
+	// alone would not distinguish "never touched" from "recomputed the
+	// same value". That pass also flips status.addOptionsApplied to true.
+	// A second pass with nothing moved would run no fan-out at all: since
+	// a625715f the child-sync memo skips the fetch outright, keyed on the
+	// spec generation and the metadata refresh alone (7450a5f9). So the
+	// metadata is refreshed between the passes, and the second pass
+	// fetches again (the fake's second call, asserted) governed by
+	// spec.monitorNewItems=All, which WOULD set true for a brand-new album
+	// -- proving the untouched false survives only because DesiredAlbums
+	// decides nothing for a release group that already has its Album and
 	// ensureAlbum's Get-then-switch never reaches its Create branch for an
 	// object that already exists.
 	requester := fakeAlbumRPC{albums: []pkgmetadata.Album{
 		{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: releaseGroupID}, Title: "OK Computer", PrimaryType: "Album"},
-	}}
+	}, calls: new(atomic.Int32)}
 	r := &artist.Reconciler{
 		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 		Bus: combinedBus{Publisher: fakePublisher{}, requester: requester},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: a.Namespace, Name: a.Name}}
-	_, err = r.ReconcileItem(ctx, req.NamespacedName)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var got catalogv1alpha1.Artist
@@ -452,9 +472,12 @@ func TestArtistReconcilerNeverTouchesAnExistingAlbumsSpec(t *testing.T) {
 		}
 		return got.Status.AddOptionsApplied
 	}, 5*time.Second, 10*time.Millisecond)
+	require.EqualValues(t, 1, requester.calls.Load(), "the first pass fetches the list")
 
+	refreshMetadata(metav1.Now())
 	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
+	require.EqualValues(t, 2, requester.calls.Load(), "the refresh moved the memo's key: the second pass fetches again, under monitorNewItems")
 
 	var after catalogv1alpha1.Album
 	require.Eventually(t, func() bool {
