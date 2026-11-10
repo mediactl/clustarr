@@ -191,6 +191,8 @@ func TestAVolumeResultIsRejectedAsThePlannerWould(t *testing.T) {
 		rejectedAs(t, res[second], decision.ReasonQueueHigherPreference)
 		rejectedAs(t, res[third], decision.ReasonExistingFormatScore)
 		rejectedAs(t, res[seventh], decision.ReasonWrongItem)
+		require.Equal(t, []commonv1.Rejection{{Reason: "WrongItem: the release covers no issue of the comic", Type: commonv1.RejectionPermanent}},
+			res[seventh].Rejections, "the refusal is worded for the comic's issues (design D10, §9.4)")
 		for _, rd := range got {
 			require.False(t, rd.CoversSeason, "%s: a comic release is no season pack", rd.Title)
 		}

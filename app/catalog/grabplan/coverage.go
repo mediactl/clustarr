@@ -93,30 +93,35 @@ func (ic *ItemCheck) NoteQueue(rej commonv1.Rejection) {
 // item's when every item is rejected (P23: a pack covering no item that
 // wants it). The grab planner and the Search controller's interactive
 // season search both decide through it, so a person sees exactly what the
-// planner would decide.
-func CoverageRejections(items []ItemCheck, season int32, fullSeason, manual, override bool) []commonv1.Rejection {
+// planner would decide. child is the covered items' kind, an Episode's or
+// an Issue's, and words each refusal for it (design D10, §9.4): a volume
+// search's release naming an issue the comic lacks reads "covers no issue
+// of the comic" in the volume modal and at the grab check, never
+// television's words.
+func CoverageRejections(child commonv1.MediaKind, items []ItemCheck, season int32, fullSeason, manual, override bool) []commonv1.Rejection {
+	n := nounsOf(child)
 	if len(items) == 0 {
-		return []commonv1.Rejection{coverageRejection(decision.ReasonWrongItem, "the release covers no episode of the series")}
+		return []commonv1.Rejection{coverageRejection(decision.ReasonWrongItem, "the release covers no "+n.child+" of the "+n.container)}
 	}
 	if !override {
 		for _, it := range items {
 			if it.PackLive {
 				return []commonv1.Rejection{coverageRejection(decision.ReasonPackDownloading,
-					"the release covers an episode a pack still downloading holds; it is judged again once the pack has imported or failed")}
+					"the release covers an "+n.child+" a pack still downloading holds; it is judged again once the pack has imported or failed")}
 			}
 		}
 		if len(items) > 1 {
 			for _, it := range items {
 				if it.Queued {
 					return []commonv1.Rejection{coverageRejection(decision.ReasonEpisodeDownloading,
-						"the pack covers an episode a grab carrying every wanted language is still downloading, and the pack does not carry them")}
+						"the pack covers an "+n.child+" a grab carrying every wanted language is still downloading, and the pack does not carry them")}
 				}
 			}
 		}
 		for _, it := range items {
 			if it.Live {
 				return []commonv1.Rejection{coverageRejection(decision.ReasonQueueHigherPreference,
-					"the release covers an episode a grab of equal or higher preference is already downloading")}
+					"the release covers an "+n.child+" a grab of equal or higher preference is already downloading")}
 			}
 		}
 	}
@@ -141,12 +146,50 @@ func coverageRejection(r decision.Reason, detail string) commonv1.Rejection {
 	return commonv1.Rejection{Reason: r.Code + ": " + detail, Type: r.Type}
 }
 
-// Rejections an automatic candidate's covered item adds: not monitored
-// (Sonarr's MonitoredEpisodeSpecification) and not aired.
+// nouns are the words a coverage rejection names the covered items and
+// their container by: an episode of a series, or an issue of a comic
+// (design D10). Both children take "an".
+type nouns struct {
+	child, container string
+	// notOut says the child is not out yet: an episode has not aired, an
+	// issue has not been released.
+	notOut string
+}
+
 var (
-	rejectionNotMonitored = commonv1.Rejection{Reason: "NotMonitored: the episode is not monitored", Type: commonv1.RejectionPermanent}
-	rejectionNotAired     = coverageRejection(decision.ReasonUnavailable, "the episode has not aired")
+	episodeNouns = nouns{child: "episode", container: "series", notOut: "has not aired"}
+	issueNouns   = nouns{child: "issue", container: "comic", notOut: "has not been released"}
 )
+
+// nounsOf are the nouns for covered items of kind child: an Issue's, else
+// an Episode's -- the one other covered child; an owner covered by itself
+// (a Movie, an Album) keeps the series wording, which reaches only the
+// planner's verdict, whose reason is a guard (check) that nothing logs or
+// shows.
+func nounsOf(child commonv1.MediaKind) nouns {
+	if child == commonv1.MediaKindIssue {
+		return issueNouns
+	}
+	return episodeNouns
+}
+
+// coveredKind is a covered item's kind as a MediaKind ("Issue" is
+// commonv1.MediaKindIssue): the child kind the planner words its coverage
+// rejections by and judges its decision targets as.
+func coveredKind(it Covered) commonv1.MediaKind {
+	return commonv1.MediaKind(strings.ToLower(it.Ref.Kind))
+}
+
+// Rejections an automatic candidate's covered item adds, worded for its
+// kind: not monitored (Sonarr's MonitoredEpisodeSpecification) and not out
+// (aired, released).
+func rejectionNotMonitored(n nouns) commonv1.Rejection {
+	return commonv1.Rejection{Reason: "NotMonitored: the " + n.child + " is not monitored", Type: commonv1.RejectionPermanent}
+}
+
+func rejectionNotOut(n nouns) commonv1.Rejection {
+	return coverageRejection(decision.ReasonUnavailable, "the "+n.child+" "+n.notOut)
+}
 
 // FromSeasonRecord turns a season answer into candidates (series search
 // design §6.2): each approved release, GrabbedBy, Season set, NoDelay (a
@@ -225,11 +268,12 @@ func seasonFacts(p schema.ParsedFacts, season int32, covered []Covered, add func
 func (d *decider) itemCheck(c Candidate, it Covered, complete bool) ItemCheck {
 	ic := ItemCheck{Unaired: !it.Wanted}
 	if !c.Manual {
+		n := nounsOf(coveredKind(it))
 		if !it.Monitored {
-			ic.Rejections = append(ic.Rejections, rejectionNotMonitored)
+			ic.Rejections = append(ic.Rejections, rejectionNotMonitored(n))
 		}
 		if !it.Wanted {
-			ic.Rejections = append(ic.Rejections, rejectionNotAired)
+			ic.Rejections = append(ic.Rejections, rejectionNotOut(n))
 		}
 	}
 	ic.Queued = c.Purpose == "" && Holds(d.v.Profile, d.v.OriginalLanguageTag, d.queue(it, c.Purpose), complete)

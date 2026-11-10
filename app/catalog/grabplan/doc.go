@@ -49,9 +49,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // airing is refused unless picked by hand (FullSeasonSpecification), a
 // release covering more wanted episodes than an entry can name is refused,
 // never truncated, and pack preference is decision.CompareEpisodeCount;
-// CoverageRejections folds the per-episode re-checks, for the planner and
-// the Search controller alike. With the in-pass taken set over every
-// episode a payload brings, no episode is grabbed twice.
+// CoverageRejections folds the per-episode or per-issue re-checks, for the
+// planner and the Search controller alike. With the in-pass taken set over
+// every episode a payload brings, no episode is grabbed twice.
 //
 // StillWants is lifecycle's convergence input (§6.7): whether an unclaimed
 // transfer is still one the owner wants.

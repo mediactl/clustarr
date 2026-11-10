@@ -375,7 +375,7 @@ func (d *decider) check(c Candidate) verdict {
 	if c.Season != nil {
 		season = *c.Season
 	}
-	if rejs := CoverageRejections(checks, season, c.Release.Parsed.FullSeason, c.Manual, c.Override); rejs != nil {
+	if rejs := CoverageRejections(coveredKind(vd.covered[0]), checks, season, c.Release.Parsed.FullSeason, c.Manual, c.Override); rejs != nil {
 		vd.reason, vd.decision = rejs[0].Reason, refusalDecision(rejs)
 		if vd.decision == decisionRefused {
 			// P23: a pack covering no wanted episode is refused; one
@@ -406,7 +406,7 @@ func (d *decider) check(c Candidate) verdict {
 func (d *decider) itemStateRejections(c Candidate, it Covered) []commonv1.Rejection {
 	rel := c.Release.Decision.ReleaseInfo
 	t := decision.Target{
-		Kind:                commonv1.MediaKind(strings.ToLower(it.Ref.Kind)),
+		Kind:                coveredKind(it),
 		OriginalLanguageTag: d.v.OriginalLanguageTag,
 		Current:             it.Current,
 		Queue:               d.queue(it, c.Purpose),

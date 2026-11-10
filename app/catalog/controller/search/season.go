@@ -68,7 +68,7 @@ func (r *Reconciler) seasonItemState(ctx context.Context, s *catalogv1alpha1.Sea
 		for _, ep := range eps {
 			checks = append(checks, st.check(ctx, sr, ep))
 		}
-		if rejs := grabplan.CoverageRejections(checks, season, sr.Parsed.FullSeason, false, false); rejs != nil {
+		if rejs := grabplan.CoverageRejections(st.kind, checks, season, sr.Parsed.FullSeason, false, false); rejs != nil {
 			rd.Rejections = append(rd.Rejections, rejs...)
 			if len(rd.Rejections) > maxRejections {
 				rd.Rejections = rd.Rejections[:maxRejections]
