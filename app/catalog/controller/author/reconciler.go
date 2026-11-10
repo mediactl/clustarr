@@ -455,13 +455,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Aut
 	// child-sync memo: a failure here surfaces on BooksSynced/Ready without
 	// blocking the apply.
 	fan, syncErr := r.syncBooks(ctx, a, now)
-	if syncErr != nil {
+	switch {
+	case syncErr != nil:
 		reason := events.ClassifyRequestError(syncErr).Reason()
 		if rollup.Transitioned(a.Status.Conditions, catalogv1alpha1.AuthorConditionBooksSynced, metav1.ConditionFalse, reason) {
 			r.warn(a, "BookSyncFailed", "book listing RPC failed: %s", syncErr.Error())
 		}
 		k8s.MarkFalse(a, &conditions, catalogv1alpha1.AuthorConditionBooksSynced, reason, "book listing RPC failed: %s", syncErr.Error())
-	} else {
+	case !fan.synced:
+		// No metadata yet: the fan-out waits for it (syncBooks), and the
+		// gateway's write wakes this item.
+		k8s.MarkFalse(a, &conditions, catalogv1alpha1.AuthorConditionBooksSynced, "MetadataPending", "books are listed once the author's metadata is cached")
+	default:
 		k8s.MarkTrue(a, &conditions, catalogv1alpha1.AuthorConditionBooksSynced, k8s.ReasonReconciled, "books synced")
 	}
 	if fan.created > 0 {
@@ -573,21 +578,34 @@ type fanOut struct {
 }
 
 // syncKey is the child-sync memo's key for a: its generation, its metadata
-// refresh and whether its add options were applied.
-func syncKey(a *catalogv1alpha1.Author) (childsync.Key, bool) {
+// refresh and whether its add options were applied -- addOptionsApplied as
+// the caller says, since the pass that completes the first fan-out also
+// flips the flag (every apply sends it true), so a sync recorded under true
+// matches the next pass's read and the flip costs no second fetch (Comic's
+// rule). An author without metadata has no key.
+func syncKey(a *catalogv1alpha1.Author, addOptionsApplied bool) (childsync.Key, bool) {
 	if a.Status.Metadata == nil {
 		return childsync.Key{}, false
 	}
-	return childsync.KeyAt(a.Generation, a.Status.Metadata.RefreshedAt.Time, a.Status.AddOptionsApplied), true
+	return childsync.KeyAt(a.Generation, a.Status.Metadata.RefreshedAt.Time, addOptionsApplied), true
 }
 
-// syncBooks lists a's currently owned Books and, when the memo says a
-// fan-out input moved since the last complete one, requests its works list
-// from the metadata gateway and ensures each desired Book exists (spec
-// fields only, Create-or-leave-alone -- see ensureBook). It returns the
-// post-fan-out Book list for the rollups: every Book the List found plus
-// the ones this pass created. On any failure it still returns everything
-// it knows.
+// syncBooks lists a's currently owned Books and, once the metadata is
+// cached and the memo says a fan-out input moved since the last complete
+// one, requests its works list from the metadata gateway and ensures each
+// desired Book exists (spec fields only, Create-or-leave-alone -- see
+// ensureBook). It returns the post-fan-out Book list for the rollups:
+// every Book the List found plus the ones this pass created. On any
+// failure it still returns everything it knows.
+//
+// An author without metadata lists no books (synced false, no error):
+// design D2 keys the fan-out on the metadata refresh, so a pass before it
+// has nothing to key on and refetched the list on every wake (the
+// creation, the finalizer, each Book's own create: three gateway calls for
+// one author on 2026-11-10), and the container reads Pending until the
+// metadata is fetched and the books listed (§5.2). The gateway's write
+// wakes the item (authorPredicate's refreshedAt arm), so nothing waits on
+// a timer.
 func (r *Reconciler) syncBooks(ctx context.Context, a *catalogv1alpha1.Author, now time.Time) (fanOut, error) {
 	var bookList catalogv1alpha1.BookList
 	if err := r.List(ctx, &bookList, client.InNamespace(a.Namespace), client.MatchingFields{bookByAuthorRefIndexKey: a.Name}); err != nil {
@@ -599,8 +617,11 @@ func (r *Reconciler) syncBooks(ctx context.Context, a *catalogv1alpha1.Author, n
 		existingNames[bk.Name] = true
 	}
 
-	key, hasMetadata := syncKey(a)
-	if !r.childSync.Due(a.UID, key, hasMetadata) {
+	key, hasMetadata := syncKey(a, a.Status.AddOptionsApplied)
+	if !hasMetadata {
+		return out, nil
+	}
+	if !r.childSync.Due(a.UID, key, true) {
 		// Nothing a fan-out reads has moved since the last complete one:
 		// the Books the List found are what it would leave.
 		out.synced = true
@@ -645,7 +666,8 @@ func (r *Reconciler) syncBooks(ctx context.Context, a *catalogv1alpha1.Author, n
 		}
 	}
 	out.synced = true
-	r.childSync.Synced(a.UID, key, hasMetadata)
+	synced, _ := syncKey(a, true)
+	r.childSync.Synced(a.UID, synced, true)
 	return out, nil
 }
 

@@ -200,13 +200,15 @@ func TestArtistItemPath(t *testing.T) {
 	assert.True(t, statusFieldNames(metaFields)["metadata"])
 
 	// A spec edit refetches the list (the memo's generation input moved).
+	// The edit must move the spec: monitorNewItems defaults to all, so
+	// writing all is no change, no generation bump and no wake.
 	before := requester.calls.Load()
 	require.Eventually(t, func() bool {
 		var cur catalogv1alpha1.Artist
 		if err := c.Get(ctx, key, &cur); err != nil {
 			return false
 		}
-		cur.Spec.MonitorNewItems = catalogv1alpha1.MonitorNewItemsAll
+		cur.Spec.MonitorNewItems = catalogv1alpha1.MonitorNewItemsNone
 		return c.Update(ctx, &cur) == nil
 	}, 5*time.Second, 20*time.Millisecond)
 	require.Eventually(t, func() bool { return requester.calls.Load() > before }, 10*time.Second, 20*time.Millisecond, "a spec change never refetched the album list")

@@ -43,11 +43,14 @@ type Key struct {
 	AddOptionsApplied bool
 }
 
-// KeyAt is a Key over the inputs, the refresh time normalised to UTC so two
-// reads of one apiserver answer compare equal whatever zone the client
-// decoded them in (metav1.Time round-trips through time.Local).
+// KeyAt is a Key over the inputs, the refresh time normalised to UTC and to
+// the apiserver's precision: metav1.Time round-trips through time.Local and
+// is stored to the second (RFC 3339), so a refresh carried in memory at
+// nanoseconds -- a record just incorporated -- must compare equal to the
+// same refresh read back, else the pass after the incorporation refetches
+// once more. Truncate also drops a monotonic reading, which == would see.
 func KeyAt(generation int64, refreshedAt time.Time, addOptionsApplied bool) Key {
-	return Key{Generation: generation, RefreshedAt: refreshedAt.UTC(), AddOptionsApplied: addOptionsApplied}
+	return Key{Generation: generation, RefreshedAt: refreshedAt.UTC().Truncate(time.Second), AddOptionsApplied: addOptionsApplied}
 }
 
 // Memo remembers, per item UID, the Key of its last complete fan-out in
@@ -61,7 +64,9 @@ type Memo struct {
 // Due reports whether uid's children must be fetched: never fanned out in
 // this process, or an input moved since. A container with no metadata yet
 // has no Key to compare and is always due; callers pass hasMetadata false
-// for it.
+// for it -- or, as the Artist and Author do, list no children until the
+// metadata is cached, since D2 keys the fan-out on its refresh and the
+// first fan-out's monitor rules read it.
 func (m *Memo) Due(uid types.UID, k Key, hasMetadata bool) bool {
 	if !hasMetadata {
 		return true

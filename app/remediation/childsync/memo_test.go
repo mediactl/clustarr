@@ -48,6 +48,15 @@ func TestTheMemoIsDueOnlyWhenAFanOutInputMoved(t *testing.T) {
 		"the refresh read in another zone": {
 			&base, childsync.KeyAt(3, at.In(time.FixedZone("west", -5*3600)), true), false,
 		},
+		// metav1.Time is stored to the second: the refresh a pass carries
+		// at nanoseconds (a record just incorporated) is the one it reads
+		// back from the apiserver.
+		"the refresh carried at nanoseconds before its round trip": {
+			&base, childsync.KeyAt(3, at.Add(123*time.Millisecond), true), false,
+		},
+		"the refresh moved by a whole second": {
+			&base, childsync.KeyAt(3, at.Add(time.Second), true), true,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var m childsync.Memo

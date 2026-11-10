@@ -164,6 +164,22 @@ func (c combinedBus) Request(ctx context.Context, subject string, in, out any) e
 	return c.requester.Request(ctx, subject, in, out)
 }
 
+// seedMetadata writes the gateway's document for a under catalog-metadata
+// and waits for the cache to see it: the fan-out lists books only once the
+// metadata is cached (2026-11-10 design D2, syncBooks), as the loop's
+// metadata stage would have written it before the pass that fans out.
+func seedMetadata(t *testing.T, ctx context.Context, c client.Client, a *catalogv1alpha1.Author, name string) {
+	t.Helper()
+	metaAC := catalogac.Author(a.Name, a.Namespace).WithStatus(catalogac.AuthorStatus().WithMetadata(
+		catalogac.AuthorMetadata().WithName(name).WithRefreshedAt(metav1.Now())))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Author
+		return c.Get(ctx, client.ObjectKeyFromObject(a), &got) == nil && got.Status.Metadata != nil
+	}, 5*time.Second, 10*time.Millisecond, "cache never observed the metadata write")
+}
+
 func waitForCondition(t *testing.T, ctx context.Context, c client.Client, ns, name, condType string, want metav1.ConditionStatus) catalogv1alpha1.Author {
 	t.Helper()
 	var got catalogv1alpha1.Author
@@ -197,6 +213,7 @@ func TestAuthorReconcilerFanOutCreatesSpecOnlyBooks(t *testing.T) {
 		},
 	}
 	require.NoError(t, c.Create(ctx, a))
+	seedMetadata(t, ctx, c, a, "J. R. R. Tolkien")
 
 	requester := fakeBookListRPC{books: []metadata.Book{
 		{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL45883W"}, Title: "The Hobbit"},
@@ -266,6 +283,7 @@ func TestAuthorReconcilerAppliesMetadataProfile(t *testing.T) {
 		},
 	}
 	require.NoError(t, c.Create(ctx, a))
+	seedMetadata(t, ctx, c, a, "Profiled Author")
 
 	published := time.Date(1937, 9, 21, 0, 0, 0, 0, time.UTC)
 	requester := fakeBookListRPC{books: []metadata.Book{

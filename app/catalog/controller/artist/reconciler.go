@@ -427,13 +427,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Art
 	// ordering), behind the child-sync memo: a failure here surfaces on
 	// AlbumsSynced/Ready without blocking the apply.
 	fan, syncErr := r.syncAlbums(ctx, a, now)
-	if syncErr != nil {
+	switch {
+	case syncErr != nil:
 		reason := events.ClassifyRequestError(syncErr).Reason()
 		if rollup.Transitioned(a.Status.Conditions, catalogv1alpha1.ArtistConditionAlbumsSynced, metav1.ConditionFalse, reason) {
 			r.warn(a, "AlbumSyncFailed", "album listing RPC failed: %s", syncErr.Error())
 		}
 		k8s.MarkFalse(a, &conditions, catalogv1alpha1.ArtistConditionAlbumsSynced, reason, "album listing RPC failed: %s", syncErr.Error())
-	} else {
+	case !fan.synced:
+		// No metadata yet: the fan-out waits for it (syncAlbums), and the
+		// gateway's write wakes this item.
+		k8s.MarkFalse(a, &conditions, catalogv1alpha1.ArtistConditionAlbumsSynced, "MetadataPending", "albums are listed once the artist's metadata is cached")
+	default:
 		k8s.MarkTrue(a, &conditions, catalogv1alpha1.ArtistConditionAlbumsSynced, k8s.ReasonReconciled, "albums synced")
 	}
 	if fan.created > 0 {
@@ -545,22 +550,37 @@ type fanOut struct {
 }
 
 // syncKey is the child-sync memo's key for a: its generation, its metadata
-// refresh and whether its add options were applied.
-func syncKey(a *catalogv1alpha1.Artist) (childsync.Key, bool) {
+// refresh and whether its add options were applied -- addOptionsApplied as
+// the caller says, since the pass that completes the first fan-out also
+// flips the flag (every apply sends it true), so a sync recorded under true
+// matches the next pass's read and the flip costs no second fetch (Comic's
+// rule). An artist without metadata has no key.
+func syncKey(a *catalogv1alpha1.Artist, addOptionsApplied bool) (childsync.Key, bool) {
 	if a.Status.Metadata == nil {
 		return childsync.Key{}, false
 	}
-	return childsync.KeyAt(a.Generation, a.Status.Metadata.RefreshedAt.Time, a.Status.AddOptionsApplied), true
+	return childsync.KeyAt(a.Generation, a.Status.Metadata.RefreshedAt.Time, addOptionsApplied), true
 }
 
-// syncAlbums lists a's currently owned Albums and, when the memo says a
-// fan-out input moved since the last complete one, requests its
-// release-group list from the metadata gateway
+// syncAlbums lists a's currently owned Albums and, once the metadata is
+// cached and the memo says a fan-out input moved since the last complete
+// one, requests its release-group list from the metadata gateway
 // (rpc.catalog.metadata.lookup's lookupAlbums handler, keyed by
 // pkgmetadata.KeyMBArtist), filters it through AlbumAccepted and ensures
 // each desired Album exists. It returns the post-fan-out Album list for the
 // rollups: every Album the List found plus the ones this pass created. On
 // any failure it still returns everything it knows.
+//
+// An artist without metadata lists no albums (synced false, no error):
+// design D2 keys the fan-out on the metadata refresh, so a pass before it
+// has nothing to key on and refetched the list on every wake (the
+// creation, the finalizer, each Album's own create: three gateway calls for
+// one artist on 2026-11-10); the container reads Pending until the metadata
+// is fetched and the albums listed (§5.2); and the first fan-out's monitor
+// rule (InitialAlbumMonitored under future) reads the run status from the
+// metadata at the one Create that sets spec.monitored. The gateway's write
+// wakes the item (artistPredicate's refreshedAt arm), so nothing waits on
+// a timer.
 func (r *Reconciler) syncAlbums(ctx context.Context, a *catalogv1alpha1.Artist, now time.Time) (fanOut, error) {
 	var albumList catalogv1alpha1.AlbumList
 	if err := r.List(ctx, &albumList, client.InNamespace(a.Namespace), client.MatchingFields{albumByArtistRefIndexKey: a.Name}); err != nil {
@@ -572,8 +592,11 @@ func (r *Reconciler) syncAlbums(ctx context.Context, a *catalogv1alpha1.Artist, 
 		existingIDs[alb.Spec.ReleaseGroupID] = true
 	}
 
-	key, hasMetadata := syncKey(a)
-	if !r.childSync.Due(a.UID, key, hasMetadata) {
+	key, hasMetadata := syncKey(a, a.Status.AddOptionsApplied)
+	if !hasMetadata {
+		return out, nil
+	}
+	if !r.childSync.Due(a.UID, key, true) {
 		// Nothing a fan-out reads has moved since the last complete one:
 		// the Albums the List found are what it would leave.
 		out.synced = true
@@ -618,7 +641,8 @@ func (r *Reconciler) syncAlbums(ctx context.Context, a *catalogv1alpha1.Artist, 
 		}
 	}
 	out.synced = true
-	r.childSync.Synced(a.UID, key, hasMetadata)
+	synced, _ := syncKey(a, true)
+	r.childSync.Synced(a.UID, synced, true)
 	return out, nil
 }
 
