@@ -35,6 +35,8 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/extid"
 	"github.com/mediactl/clustarr/pkg/names"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/actions"
@@ -509,4 +511,13 @@ func TestEveryTabHasAnAddPage(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, tab)
 		require.Contains(t, rec.Body.String(), "Metadata search is not available", tab)
 	}
+}
+
+// The Comics tab reads a MangaDex hit by the key the MangaDex client keys
+// it with (extid.KeyMangaDex), which it spells as the comic source rather
+// than import -- the ui binary links no metadata client
+// (test/guards' TestUILinksNoAppOrManagerCode).
+func TestMangaDexHitsAreKeyedAsTheClientKeysThem(t *testing.T) {
+	require.Equal(t, string(catalogv1.ComicSourceMangaDex), extid.KeyMangaDex)
+	require.Equal(t, string(catalogv1.ComicSourceComicVine), metadata.KeyComicVine)
 }

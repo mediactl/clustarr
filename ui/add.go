@@ -35,7 +35,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/metadata"
-	"github.com/mediactl/clustarr/pkg/metadata/clients/extid"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -116,13 +115,17 @@ var addKinds = map[projection.Tab]views.AddKind{
 	// A comic's hits come from whichever comic provider answers (the
 	// metadata gateway asks its ComicProviders in priority order; a
 	// ComicVine hit carries a comicvine id, a MangaDex one a mangadex id),
-	// so the hit's id key says the source the Comic is created with.
+	// so the hit's id key says the source the Comic is created with. Each
+	// key is spelled as the source, which is how the clients key them
+	// (metadata.KeyComicVine; extid.KeyMangaDex, which the ui binary never
+	// links -- TestMangaDexHitsAreKeyedAsTheClientKeysThem holds the
+	// spelling).
 	projection.TabComics: {
 		Tab: projection.TabComics, Kind: commonv1.MediaKindComic, Label: "Comic", RootKind: catalogv1.RootFolderKindComic,
 		IDKey: metadata.KeyComicVine,
 		IDKeys: []views.AddIDKey{
 			{Key: metadata.KeyComicVine, Source: string(catalogv1.ComicSourceComicVine), Label: "ComicVine"},
-			{Key: extid.KeyMangaDex, Source: string(catalogv1.ComicSourceMangaDex), Label: "MangaDex"},
+			{Key: string(catalogv1.ComicSourceMangaDex), Source: string(catalogv1.ComicSourceMangaDex), Label: "MangaDex"},
 		},
 		ProfileKind: catalogv1.ProfileMediaKindComic,
 		Monitor: []views.AddOption{

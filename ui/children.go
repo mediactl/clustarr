@@ -23,7 +23,6 @@ import (
 	"sort"
 
 	"github.com/a-h/templ"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -33,15 +32,18 @@ import (
 	"github.com/mediactl/clustarr/ui/views"
 )
 
-// An artist's and an author's pages are the series page's shape with albums
-// and books as the children (spec 2026-09-23-library-page-design): one
-// component that loads them lazily, monitored through the existing item
-// action -- an artist's albums as rows, an author's books as the season
-// table (book.go). Reads go through Options.Reader at request time, like
-// the season route; nothing here writes.
+// The children fragment (spec 2026-09-23-library-page-design): an artist's
+// albums as item rows, an author's books as the season table (book.go),
+// monitored through the existing item action. Until the 2026-11-10 design
+// (§9.2, §9.3) it was the lazily loaded body of an artist's and an
+// author's page (renderParentPage, views.ParentDetail), which the artist
+// page (ui/artist.go) and the author page (ui/author.go) replaced with
+// their inline tables; the route alone stays, answering htmx the fragment
+// and anyone else a page, since a bookmarked link still reaches it. Reads
+// go through Options.Reader at request time; nothing here writes.
 
 // childrenLabel names a parent kind's children, and is false for a kind
-// that has no children page.
+// that has no children fragment.
 func childrenLabel(kind commonv1.MediaKind) (string, bool) {
 	switch kind {
 	case commonv1.MediaKindArtist:
@@ -50,15 +52,6 @@ func childrenLabel(kind commonv1.MediaKind) (string, bool) {
 		return "Books", true
 	default:
 		return "", false
-	}
-}
-
-// renderParentPage renders an artist's or an author's page for
-// handleLibraryItem.
-func (s *Server) renderParentPage(w http.ResponseWriter, r *http.Request, item projection.LibraryItem, label string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.ParentDetail(s.itemDetail(r.Context(), item), label).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render parent page", "error", err)
 	}
 }
 
@@ -147,36 +140,4 @@ func albumRow(a *catalogv1.Album) views.ChildRow {
 		row.Quality = a.Status.FileQuality.Name
 	}
 	return row
-}
-
-// replyChildRow answers an htmx album toggle with the row re-rendered,
-// replyEpisodeRow's counterpart.
-func (s *Server) replyChildRow(w http.ResponseWriter, r *http.Request, ns string, kind commonv1.MediaKind, name string, patched client.Object, err error) {
-	var row views.ChildRow
-	if a, ok := patched.(*catalogv1.Album); ok && err == nil {
-		row = albumRow(a)
-	}
-	if row.Name == "" {
-		row = s.currentChildRow(r.Context(), ns, kind, name)
-	}
-	if err != nil {
-		row.Error = failureOf(r, err)
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if rerr := views.ChildRowView(row).Render(r.Context(), w); rerr != nil {
-		logging.FromContext(r.Context()).Error("render child row", "error", rerr)
-	}
-}
-
-// currentChildRow reads a child as it stands, for a failed toggle's reply;
-// a bare row when it cannot be read.
-func (s *Server) currentChildRow(ctx context.Context, ns string, kind commonv1.MediaKind, name string) views.ChildRow {
-	key := types.NamespacedName{Namespace: ns, Name: name}
-	if s.opts.Reader != nil && kind == commonv1.MediaKindAlbum {
-		var a catalogv1.Album
-		if err := s.opts.Reader.Get(ctx, key, &a); err == nil {
-			return albumRow(&a)
-		}
-	}
-	return views.ChildRow{Namespace: ns, Name: name, Kind: string(kind), Title: name, Monitored: true}
 }

@@ -161,9 +161,12 @@ func (s *Server) routes() http.Handler {
 		mux.Handle("/plex/", plex.Handler(plex.Options{
 			ExternalURL: s.opts.Plex.ExternalURL,
 			PlexGUIDs:   s.opts.Plex.PlexGUIDs,
-			Index:       s.plexIndex.Get,
-			Extras:      s.opts.PlexExtras,
-			Extended:    s.opts.PlexExtended,
+			// The music and audiobook roots, whose index NewServer builds
+			// under the same flag (2026-11-10 design §7.1).
+			MusicProvider: s.opts.Plex.MusicProvider,
+			Index:         s.plexIndex.Get,
+			Extras:        s.opts.PlexExtras,
+			Extended:      s.opts.PlexExtended,
 			// Provider-hosted images (person photos, season posters,
 			// episode stills) are their own public URLs: PMS fetches a URL
 			// it keeps through images.plex.tv and refuses a private one
@@ -422,17 +425,46 @@ func (s *Server) listRootFolders(ctx context.Context) []catalogv1.RootFolder {
 	return rootFolders
 }
 
+// kindPage is the page handler of a kind with a page of its own, registered
+// on its literal route (ui/routes_library_kinds.go: an artist's, an
+// album's, an author's, a book's, a comic's, an issue's, an audiobook's;
+// 2026-11-10 design §9), which wins over the shared {kind} route under
+// ServeMux's precedence; an episode's is handleEpisodePage. handleLibraryItem
+// delegates to it too, so the shared route reaches the same page however it
+// is called. A movie and a series are the shared route's own.
+func (s *Server) kindPage(kind commonv1.MediaKind) (http.HandlerFunc, bool) {
+	switch kind {
+	case commonv1.MediaKindEpisode:
+		return s.handleEpisodePage, true
+	case commonv1.MediaKindArtist:
+		return s.handleArtistPage, true
+	case commonv1.MediaKindAlbum:
+		return s.handleAlbumPage, true
+	case commonv1.MediaKindAuthor:
+		return s.handleAuthorXPage, true
+	case commonv1.MediaKindBook:
+		return s.handleBookXPage, true
+	case commonv1.MediaKindComic:
+		return s.handleComicPage, true
+	case commonv1.MediaKindIssue:
+		return s.handleIssuePage, true
+	case commonv1.MediaKindAudiobook:
+		return s.handleAudiobookPage, true
+	}
+	return nil, false
+}
+
 // handleLibraryItem renders one catalog item's detail view (§A3.4's "detail
 // modal", Task G3-3). It looks the item up in the current library
 // projection rather than reading the cluster directly a second time, so the
 // detail view and the grid it was reached from always agree -- and so this
 // handler needs no per-kind Get, which ui/projection's describeLibraryItem
-// already solves once for the whole package.
+// already solves once for the whole package. A kind with a page of its own
+// (kindPage) is sent to it: the cards link to /library/{ns}/{kind}/{name},
+// the shape the pages' literal routes serve.
 func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
-	// An episode is no library item: its page is its series' card and its
-	// own Episode (handleEpisodePage).
-	if r.PathValue("kind") == string(commonv1.MediaKindEpisode) {
-		s.handleEpisodePage(w, r)
+	if page, ok := s.kindPage(commonv1.MediaKind(r.PathValue("kind"))); ok {
+		page(w, r)
 		return
 	}
 	item, ok := findLibraryItem(s.opts.Library(r.Context()),
@@ -453,10 +485,6 @@ func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
 	preloadable(w)
 	if item.Kind == commonv1.MediaKindSeries {
 		s.renderSeriesPage(w, r, item)
-		return
-	}
-	if label, ok := childrenLabel(item.Kind); ok {
-		s.renderParentPage(w, r, item, label)
 		return
 	}
 
@@ -500,18 +528,23 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 		s.finishActionWith(w, r, err, monitoredTitle(monitored))
 		return
 	}
-	// A row's toggle on a series', an artist's or an author's page swaps
-	// the row, not the page.
+	// A row's toggle on a series', an artist's, an author's or a comic's
+	// page swaps the row, not the page: each child kind's row as its page
+	// draws it (2026-11-10 design §9.6).
 	if isHTMX(r) {
+		ns, name := r.PathValue("namespace"), r.PathValue("name")
 		switch kind {
 		case commonv1.MediaKindEpisode:
-			s.replyEpisodeRow(w, r, r.PathValue("namespace"), r.PathValue("name"), patched, err)
+			s.replyEpisodeRow(w, r, ns, name, patched, err)
 			return
 		case commonv1.MediaKindBook:
-			s.replyBookRow(w, r, r.PathValue("namespace"), r.PathValue("name"), patched, err)
+			s.replyBookRow(w, r, ns, name, patched, err)
 			return
 		case commonv1.MediaKindAlbum:
-			s.replyChildRow(w, r, r.PathValue("namespace"), kind, r.PathValue("name"), patched, err)
+			s.replyAlbumRow(w, r, ns, name, patched, err)
+			return
+		case commonv1.MediaKindIssue:
+			s.replyIssueRow(w, r, ns, name, patched, err)
 			return
 		}
 	}

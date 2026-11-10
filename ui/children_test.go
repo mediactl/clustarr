@@ -38,13 +38,14 @@ import (
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
-// An artist's and an author's pages reuse the series page's shapes with
-// albums and books as the children (spec 2026-09-23-library-page-design):
-// one component that loads the children lazily -- album rows with title,
-// year, monitored, file and quality, an author's books the season table
-// (book_test.go) -- a toggle through the existing item action that swaps
-// the row back, and never another parent's children.
-func TestArtistAndAuthorPagesLoadTheirChildrenLazilyAndToggleThem(t *testing.T) {
+// An artist's and an author's pages list their children inline (2026-11-10
+// design §9.2, §9.3): the artist page's albums table grouped by type, the
+// author page's books as the season table, each listed through the
+// reader's parent index and never another parent's, and a row's toggle
+// swaps the row back as its page draws it. The lazily loaded children
+// fragment those pages replaced still answers at its route, for a
+// bookmarked link, and for no other kind.
+func TestArtistAndAuthorPagesListTheirChildrenInlineAndToggleARow(t *testing.T) {
 	year := func(y int) *metav1.Time {
 		tm := metav1.NewTime(time.Date(y, time.June, 1, 0, 0, 0, 0, time.UTC))
 		return &tm
@@ -58,7 +59,7 @@ func TestArtistAndAuthorPagesLoadTheirChildrenLazilyAndToggleThem(t *testing.T) 
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 			Spec:       catalogv1.AlbumSpec{ArtistRef: artistRef, ReleaseGroupID: "rg-" + name, Monitored: new(true)},
 			Status: catalogv1.AlbumStatus{
-				Metadata: &catalogv1.AlbumMetadata{Title: title, ReleaseDate: year(y)}, Phase: "Imported", TrackFileCount: files,
+				Metadata: &catalogv1.AlbumMetadata{Title: title, ReleaseDate: year(y), AlbumType: "Album"}, Phase: "Imported", TrackFileCount: files,
 			},
 		}
 		if files > 0 {
@@ -78,11 +79,14 @@ func TestArtistAndAuthorPagesLoadTheirChildrenLazilyAndToggleThem(t *testing.T) 
 			HasFile:  true, FileFormat: "epub", Phase: "Imported",
 		},
 	}
-	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(artist, author, book,
-		album("post", "bjork", "Post", 1995, 11),
-		album("debut", "bjork", "Debut", 1993, 0),
-		album("ok-computer", "radiohead", "OK Computer", 1997, 12),
-	).Build()
+	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).
+		WithIndex(&catalogv1.Album{}, ui.AlbumArtistRefField, ui.IndexAlbumByArtistRef).
+		WithIndex(&catalogv1.Book{}, ui.BookAuthorRefField, ui.IndexBookByAuthorRef).
+		WithObjects(artist, author, book,
+			album("post", "bjork", "Post", 1995, 11),
+			album("debut", "bjork", "Debut", 1993, 0),
+			album("ok-computer", "radiohead", "OK Computer", 1997, 12),
+		).Build()
 	items := []projection.LibraryItem{
 		{
 			Ref: types.NamespacedName{Namespace: "default", Name: "bjork"}, Kind: commonv1.MediaKindArtist,
@@ -103,42 +107,66 @@ func TestArtistAndAuthorPagesLoadTheirChildrenLazilyAndToggleThem(t *testing.T) 
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/default/artist/bjork", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	page := rec.Body.String()
-	require.Contains(t, page, `data-profile="music-lossless"`)
-	require.Contains(t, page, `hx-get="/library/default/artist/bjork/children"`)
-	require.Contains(t, page, `hx-trigger="collapsible-open-change[detail.open] once"`, "the children load on the collapsible's first open")
-	requireTag(t, page, `data-slot="collapsible-trigger"`, `aria-expanded="false"`)
-	requireTag(t, page, `data-children-page`, `href="/library/default/artist/bjork/children"`)
-	require.NotContains(t, page, `data-child=`, "children load lazily")
+	requireTag(t, page, `data-artist-page="bjork"`, `data-profile="music-lossless"`)
+	require.Contains(t, page, `data-album-table`, "the albums are inline, no children fragment to load")
+	require.NotContains(t, page, `hx-get="/library/default/artist/bjork/children"`)
+	requireTag(t, page, `data-album="debut"`, `data-slot="table-row"`, `data-monitored="true"`, `data-hasfile="false"`)
+	requireTag(t, page, `data-album="post"`, `data-slot="table-row"`, `data-monitored="true"`, `data-hasfile="true"`, `data-quality="FLAC"`)
+	require.Less(t, indexOf(page, `data-album="post"`), indexOf(page, `data-album="debut"`), "newest first")
+	require.NotContains(t, page, "OK Computer", "another artist's album is never listed")
+	require.Contains(t, page, `hx-post="/library/default/album/debut/monitor" hx-target="closest tr"`)
 
+	// An album's toggle swaps the table row its page draws (AlbumRowView),
+	// not the children fragment's item row.
+	rec = postForm(t, srv, "/library/default/album/debut/monitor", url.Values{"monitored": {"false"}}, true)
+	require.Equal(t, http.StatusOK, rec.Code)
+	row := rec.Body.String()
+	require.NotContains(t, row, "<html")
+	requireTag(t, row, `data-album="debut"`, `data-slot="table-row"`, `data-monitored="false"`)
+	require.NotContains(t, row, `data-child=`, "the fragment's row is not what the page swaps")
+	var debut catalogv1.Album
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "debut"}, &debut))
+	require.False(t, *debut.Spec.Monitored)
+
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/default/author/le-guin", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	page = rec.Body.String()
+	requireTag(t, page, `data-author-page="le-guin"`)
+	require.Contains(t, page, `data-book-table`, "an author's books are inline, as a table")
+	requireTag(t, page, `data-book="dispossessed"`, `data-slot="table-row"`, `data-monitored="true"`, `data-hasfile="true"`, `data-quality="epub"`)
+	require.NotContains(t, page, `hx-get="/library/default/author/le-guin/children"`)
+
+	// The children fragment still answers its route, for the two parent
+	// kinds and no other.
 	req := httptest.NewRequest(http.MethodGet, "/library/default/artist/bjork/children", nil)
 	req.Header.Set("HX-Request", "true")
 	rec = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
-	rows := rec.Body.String()
-	require.NotContains(t, rows, "<html")
-	requireTag(t, rows, `data-child="debut"`, `data-kind="album"`, `data-monitored="true"`, `data-hasfile="false"`)
-	requireTag(t, rows, `data-child="post"`, `data-kind="album"`, `data-monitored="true"`, `data-hasfile="true"`, `data-quality="FLAC"`)
-	require.Less(t, indexOf(rows, `data-child="debut"`), indexOf(rows, `data-child="post"`), "oldest first")
-	require.NotContains(t, rows, "OK Computer", "another artist's album is never listed")
-	require.Contains(t, rows, "1993")
-	require.Contains(t, rows, `hx-post="/library/default/album/debut/monitor"`)
-
-	rec = postForm(t, srv, "/library/default/album/debut/monitor", url.Values{"monitored": {"false"}}, true)
-	require.Equal(t, http.StatusOK, rec.Code)
-	requireTag(t, rec.Body.String(), `data-child="debut"`, `data-kind="album"`, `data-monitored="false"`)
 	require.NotContains(t, rec.Body.String(), "<html")
-
-	rec = httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/default/author/le-guin/children", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
-	books := rec.Body.String()
-	require.Contains(t, books, "<html", "a plain request gets the page")
-	require.Contains(t, books, `data-book-table`, "an author's books are a table")
-	requireTag(t, books, `data-book="dispossessed"`, `data-slot="table-row"`, `data-monitored="true"`, `data-hasfile="true"`, `data-quality="epub"`)
-	require.Contains(t, books, "The Dispossessed")
-
+	requireTag(t, rec.Body.String(), `data-child="post"`, `data-kind="album"`)
 	rec = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/default/movie/arrival/children", nil))
-	require.Equal(t, http.StatusNotFound, rec.Code, "only artists and authors have children pages")
+	require.Equal(t, http.StatusNotFound, rec.Code, "only artists and authors have a children fragment")
+}
+
+// An issue's toggle on the comic page swaps the issue row (IssueRowView),
+// as an episode's does on the series page.
+func TestIssueToggleSwapsItsRow(t *testing.T) {
+	srv, c := comicFixture(t)
+	rec := postForm(t, srv, "/library/default/issue/saga-001.0/monitor", url.Values{"monitored": {"false"}}, true)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	row := rec.Body.String()
+	require.NotContains(t, row, "<html")
+	requireTag(t, row, `data-issue="saga-001.0"`, `data-slot="table-row"`, `data-monitored="false"`, `data-number="1"`)
+	require.Contains(t, row, `hx-post="/library/default/issue/saga-001.0/monitor" hx-target="closest tr"`)
+	var iss catalogv1.Issue
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "saga-001.0"}, &iss))
+	require.False(t, *iss.Spec.Monitored)
+
+	// A plain form post redirects as every other action does.
+	rec = postForm(t, srv, "/library/default/issue/saga-001.0/monitor", url.Values{"monitored": {"true"}, "return": {"/library/default/comic/saga"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.Equal(t, "/library/default/comic/saga", rec.Header().Get("Location"))
 }
