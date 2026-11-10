@@ -288,6 +288,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 	}
 
 	statusAC := catalogac.AudiobookStatus().WithObservedGeneration(m.Generation)
+	// spec.addOptions applied once, recorded on every pass (2026-11-10
+	// design D11; ApplyAddOptions says how searchForMissing is read).
+	statusAC = ApplyAddOptions(statusAC, m)
 
 	// The bookRef check runs unconditionally, before either early-return
 	// path below, so its result is folded into `conditions` (and therefore
@@ -520,6 +523,7 @@ func (r *Reconciler) resolveProfile(ctx context.Context, m *catalogv1alpha1.Audi
 // unconditionally: an empty slice spreads to zero args and the field stays
 // released, exactly the outcome wanted when there is genuinely no file).
 func reassertKnownStatus(statusAC *catalogac.AudiobookStatusApplyConfiguration, m *catalogv1alpha1.Audiobook) *catalogac.AudiobookStatusApplyConfiguration {
+	statusAC = statusAC.WithAddOptionsApplied(m.Status.AddOptionsApplied)
 	if m.Status.Phase != "" {
 		statusAC = statusAC.WithPhase(m.Status.Phase)
 	}
