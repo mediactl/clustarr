@@ -291,3 +291,43 @@ func TestEditionRejectsMalformedResponseBodies(t *testing.T) {
 		})
 	}
 }
+
+// An author's remote ids become its Links (the Wikidata one leads the
+// biography provider to a page; the rest are the ui's provider logos), and
+// its free-form links its websites (2026-11-10 design §5.4). Dostoevsky's
+// record carries wikidata, goodreads, imdb, amazon, librarything,
+// musicbrainz and viaf ids and two websites.
+func TestAuthorMapsRemoteIDsAndWebsitesIntoLinks(t *testing.T) {
+	body, err := os.ReadFile("../../../../test/data/metadata/openlibrary/author_OL22242A.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/authors/OL22242A.json", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	c := openlibrary.New("Clustarr/0.1 (contact@example.invalid)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	a, err := c.Author(context.Background(), metadata.ExternalIDs{metadata.KeyOpenLibraryAuthor: "OL22242A"})
+	require.NoError(t, err)
+	byType := map[string]string{}
+	for _, l := range a.Links {
+		if _, dup := byType[l.Type]; !dup {
+			byType[l.Type] = l.URL
+		}
+	}
+	require.Equal(t, "https://www.wikidata.org/wiki/Q991", byType["wikidata"])
+	require.Equal(t, "https://www.goodreads.com/author/show/3137322", byType["goodreads"])
+	require.Equal(t, "https://www.imdb.com/name/nm0234502/", byType["imdb"])
+	require.Equal(t, "https://www.amazon.com/stores/author/B00Q2HTFX8", byType["amazon"])
+	require.Equal(t, "https://musicbrainz.org/artist/08dd4a10-f7c8-4da8-a724-8d261ebbd9e4", byType["musicbrainz"])
+	require.Equal(t, "https://viaf.org/viaf/104023256", byType["viaf"])
+	require.Contains(t, byType["website"], "love-books-review.com")
+	websites := 0
+	for _, l := range a.Links {
+		if l.Type == "website" {
+			websites++
+		}
+	}
+	require.Equal(t, 2, websites)
+}

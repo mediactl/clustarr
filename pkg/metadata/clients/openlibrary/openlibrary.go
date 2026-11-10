@@ -194,8 +194,18 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 		DeathDate string          `json:"death_date"`
 		Photos    []int           `json:"photos"`
 		RemoteIDs struct {
-			Wikidata string `json:"wikidata"`
+			Wikidata     string `json:"wikidata"`
+			VIAF         string `json:"viaf"`
+			Goodreads    string `json:"goodreads"`
+			IMDb         string `json:"imdb"`
+			Amazon       string `json:"amazon"`
+			LibraryThing string `json:"librarything"`
+			MusicBrainz  string `json:"musicbrainz"`
 		} `json:"remote_ids"`
+		Links []struct {
+			Title string `json:"title"`
+			URL   string `json:"url"`
+		} `json:"links"`
 	}
 	if err := c.doGet(ctx, "/authors/"+olid+".json", &raw); err != nil {
 		tracing.RecordError(span, err)
@@ -220,6 +230,30 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	}
 	if t, ok := parseLenientDate(raw.DeathDate); ok {
 		a.Died = &t
+	}
+	// The author's pages elsewhere (2026-11-10 design §5.4): the Wikidata
+	// link leads the wikipedia biography provider to a page; the rest are
+	// the ui's provider logos.
+	for _, l := range []struct{ typ, id, prefix, suffix string }{
+		{"wikidata", raw.RemoteIDs.Wikidata, "https://www.wikidata.org/wiki/", ""},
+		{"goodreads", raw.RemoteIDs.Goodreads, "https://www.goodreads.com/author/show/", ""},
+		{"imdb", raw.RemoteIDs.IMDb, "https://www.imdb.com/name/", "/"},
+		{"amazon", raw.RemoteIDs.Amazon, "https://www.amazon.com/stores/author/", ""},
+		{"librarything", raw.RemoteIDs.LibraryThing, "https://www.librarything.com/author/", ""},
+		{"musicbrainz", raw.RemoteIDs.MusicBrainz, "https://musicbrainz.org/artist/", ""},
+		{"viaf", raw.RemoteIDs.VIAF, "https://viaf.org/viaf/", ""},
+	} {
+		if id := strings.TrimSpace(l.id); id != "" && !strings.ContainsAny(id, "/?#& ") {
+			a.Links = append(a.Links, metadata.Link{Type: l.typ, URL: l.prefix + id + l.suffix})
+		}
+	}
+	for i, l := range raw.Links {
+		if i == maxAuthorWebsites {
+			break
+		}
+		if u := strings.TrimSpace(l.URL); strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+			a.Links = append(a.Links, metadata.Link{Type: "website", URL: u})
+		}
 	}
 	if c.language != "" && wikidataQID.MatchString(raw.RemoteIDs.Wikidata) {
 		name, err := c.wikidataLabel(ctx, raw.RemoteIDs.Wikidata)
@@ -850,3 +884,6 @@ func parseRetryAfter(v string) time.Duration {
 	}
 	return time.Duration(seconds) * time.Second
 }
+
+// maxAuthorWebsites bounds the free-form links an author record lists.
+const maxAuthorWebsites = 4
