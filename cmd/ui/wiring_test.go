@@ -98,13 +98,18 @@ func useUnreachableKubeconfig(t *testing.T) {
 // clustarr-imports over the read-only bus, which replaced the Download List.
 // Both are asserted by name as well, so the walk's premise (that a nil func
 // field is a wiring gap) cannot be loosened for them without this test
-// saying so.
+// saying so. So are the two bound metadata requests, MetadataSearch (Add
+// New's search) and MetadataLookup (an audiobook add's author by ASIN,
+// 2026-11-10 design D11): each is one request internal/cli/ui binds, since
+// the ui holds no requester of its own.
 func TestUIWiresEveryUIOption(t *testing.T) {
 	useUnreachableKubeconfig(t)
 	o := captureUIOptions(t, "--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous")
 	requireEveryUIOptionWired(t, "ui", o)
 	require.NotNil(t, o.TransferProgress, "ui.Options.TransferProgress: the Downloads page's transfer telemetry (A3.9)")
 	require.NotNil(t, o.ImportDetail, "ui.Options.ImportDetail: an entry's import records (A3.9)")
+	require.NotNil(t, o.MetadataSearch, "ui.Options.MetadataSearch: Add New's search, bound to rpc.catalog.metadata.search")
+	require.NotNil(t, o.MetadataLookup, "ui.Options.MetadataLookup: an audiobook add's author by ASIN, bound to rpc.catalog.metadata.lookup (D11)")
 }
 
 // uicliCommandRecording is the ui command with run in place of ui.Run.

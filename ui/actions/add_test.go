@@ -200,8 +200,20 @@ func TestAddItemBuildsTheNonVideoKinds(t *testing.T) {
 	require.Equal(t, catalogv1.AudiobookRegionUK, ab.Spec.Region)
 	require.False(t, *ab.Spec.Monitored, "false is sent, not dropped")
 	require.True(t, *ab.Spec.AddOptions.SearchForMissing)
-	require.Nil(t, ab.Spec.AuthorRef, "Add New links no author: the search hit names none")
+	require.Nil(t, ab.Spec.AuthorRef, "no author resolved: no authorRef at all, not an empty one")
 	require.Equal(t, "audiobooks", ab.Spec.RootFolderRef)
+
+	// The author link (design D11, §5.6): the Author the hit's first author
+	// resolved to, which ui/add.go passes as AuthorRef.
+	name, _, err = actions.AddItem(ctx, c, actions.AddRequest{
+		Kind: commonv1.MediaKindAudiobook, Namespace: "media", Title: "Children of Dune", ProviderID: "B002V0QK4C", Region: "us",
+		RootFolderRef: "audiobooks", QualityProfileRef: "m4b", Monitored: true, SearchOnAdd: false, AuthorRef: "frank-herbert-x",
+	})
+	require.NoError(t, err)
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: "media", Name: name}, &ab))
+	require.NotNil(t, ab.Spec.AuthorRef)
+	require.Equal(t, "frank-herbert-x", *ab.Spec.AuthorRef)
+	require.False(t, *ab.Spec.AddOptions.SearchForMissing, "false is sent, not dropped")
 
 	name, _, err = actions.AddItem(ctx, c, actions.AddRequest{
 		Kind: commonv1.MediaKindBook, Namespace: "media", Title: "Dune", ProviderID: "OL893415W",

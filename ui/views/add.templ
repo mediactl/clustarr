@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"net/url"
+	"strings"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -71,10 +72,47 @@ type AddPageData struct {
 // AddHit is one search result: InLibrary is the item's detail path when
 // the library already holds it, and Poster the /art/search path or "".
 // Source and SourceLabel name a comic hit's provider (comicvine, MangaDex).
+// Publisher and IssueCount are a comic volume's (2026-11-10 design §9.4;
+// its Year is the start year); Authors, Narrators and Release an
+// audiobook's (§9.5) -- Release its release date as shown, in place of the
+// bare year, and Authors each with the Audible author's ASIN, which the
+// audiobook's form carries so the add links the Author (D11). A manga's
+// creators are its Authors too, with no ASIN.
 type AddHit struct {
 	ID, Title, Poster, InLibrary string
 	Source, SourceLabel          string
 	Year                         int32
+	Publisher                    string
+	IssueCount                   int32
+	Authors                      []AddPerson
+	Narrators                    []string
+	Release                      string
+}
+
+// AddPerson is one credited person of a hit: an audiobook's author, with
+// the ASIN of their Audible page when the catalog names one.
+type AddPerson struct{ Name, ASIN string }
+
+// personNames joins a hit's people for its byline.
+func personNames(ps []AddPerson) string {
+	names := make([]string, 0, len(ps))
+	for _, p := range ps {
+		names = append(names, p.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
+// issueCountLabel is a comic volume's issue count, as Mylar shows it.
+func issueCountLabel(n int32) string {
+	if n == 1 {
+		return "1 issue"
+	}
+	return fmt.Sprintf("%d issues", n)
+}
+
+// hitMeta reports whether a hit has a second line beside its title.
+func hitMeta(h AddHit) bool {
+	return h.Year > 0 || h.Release != "" || h.Publisher != "" || h.IssueCount > 0 || h.SourceLabel != ""
 }
 
 // AddResultsData is what one search renders.
@@ -314,10 +352,31 @@ templ addHitCard(d AddResultsData, h AddHit) {
 			}
 			<div class="min-w-0 flex-1">
 				<p class="font-medium">{ h.Title }</p>
-				if h.Year > 0 || h.SourceLabel != "" {
+				if len(h.Authors) > 0 || len(h.Narrators) > 0 {
+					<p class="text-sm text-muted-foreground" data-hit-people>
+						if len(h.Authors) > 0 {
+							<span data-hit-authors>by { personNames(h.Authors) }</span>
+						}
+						if len(h.Authors) > 0 && len(h.Narrators) > 0 {
+							<span aria-hidden="true">· </span>
+						}
+						if len(h.Narrators) > 0 {
+							<span data-hit-narrators>narrated by { strings.Join(h.Narrators, ", ") }</span>
+						}
+					</p>
+				}
+				if hitMeta(h) {
 					<p class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-						if h.Year > 0 {
+						if h.Release != "" {
+							<span data-hit-release>{ h.Release }</span>
+						} else if h.Year > 0 {
 							<span>{ fmt.Sprint(h.Year) }</span>
+						}
+						if h.Publisher != "" {
+							<span data-hit-publisher>{ h.Publisher }</span>
+						}
+						if h.IssueCount > 0 {
+							<span data-hit-issues>{ issueCountLabel(h.IssueCount) }</span>
 						}
 						if h.SourceLabel != "" {
 							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Attributes: templ.Attributes{"data-hit-source": h.Source}}) {
@@ -345,7 +404,9 @@ templ addHitCard(d AddResultsData, h AddHit) {
 // post was refused. Each kind's own fields follow the root folder and the
 // profile: a movie's availability, a series' type and folders, a comic's
 // kind (comic or manga), an audiobook's Audible region; a kind with
-// monitor modes offers them, and one with add options the search.
+// monitor modes offers them, and one with add options the search. An
+// audiobook's form also carries its first author's name and ASIN, hidden,
+// which the add resolves to the Author it links (design D11).
 templ addForm(d AddResultsData, h AddHit) {
 	@collapsible.Collapsible(collapsible.Props{Class: "mt-2", DefaultOpen: d.OpenID != "" && d.OpenID == h.ID}) {
 		@button.Button(button.Props{Variant: button.VariantLink, Class: "h-auto p-0 text-sm", Attributes: collapsible.Trigger(ctx)}) {
@@ -361,6 +422,10 @@ templ addForm(d AddResultsData, h AddHit) {
 				}
 				if h.Source != "" {
 					<input type="hidden" name="source" value={ h.Source }/>
+				}
+				if d.Kind.Kind == commonv1.MediaKindAudiobook && len(h.Authors) > 0 {
+					<input type="hidden" name="authorName" value={ h.Authors[0].Name }/>
+					<input type="hidden" name="authorASIN" value={ h.Authors[0].ASIN }/>
 				}
 				@addSelect("rootFolder", h.ID, "Root folder", d.RootFolders, posted(d, h, "rootFolder", onlyValue(d.RootFolders)))
 				@addSelect("qualityProfile", h.ID, "Quality profile", d.Profiles, posted(d, h, "qualityProfile", onlyValue(d.Profiles)))

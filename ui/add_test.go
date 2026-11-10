@@ -19,9 +19,12 @@ package ui_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -314,11 +317,7 @@ var (
 // addServerWith is addServer over the given library.
 func addServerWith(t *testing.T, search ui.MetadataSearch, library []projection.LibraryItem, objs ...client.Object) (*ui.Server, client.Client) {
 	t.Helper()
-	c := fake.NewClientBuilder().WithScheme(ui.MustNewReaderScheme()).WithObjects(objs...).Build()
-	return ui.NewServer(t.Context(), ui.Options{
-		Reader: c, Actions: actions.New(c), Namespace: "media", MetadataSearch: search,
-		Library: func(context.Context) []projection.LibraryItem { return library },
-	}), c
+	return addServerOpts(t, search, nil, library, objs...)
 }
 
 // The Comics tab's Add New searches the comic providers through the one
@@ -367,6 +366,7 @@ func TestAddComicsReadsEachHitsSourceAndCreatesTheComic(t *testing.T) {
 	require.Equal(t, catalogv1.ComicMonitorMissing, co.Spec.AddOptions.Monitor)
 	require.False(t, *co.Spec.MonitorNewIssues)
 	require.True(t, *co.Spec.Monitored)
+	require.True(t, *co.Spec.AddOptions.SearchForMissing, "the form's search checkbox is spec.addOptions.searchForMissing, as a Series' is")
 
 	// The manga the library holds is not created twice: its add goes to it.
 	rec = post(t, srv, "/library/comics/add", url.Values{"title": {"Berserk"}, "id": {"801513ba"}, "source": {"mangadex"}, "rootFolder": {"library/comics"}, "qualityProfile": {"cbz"}, "monitor": {"all"}})
@@ -520,4 +520,271 @@ func TestEveryTabHasAnAddPage(t *testing.T) {
 func TestMangaDexHitsAreKeyedAsTheClientKeysThem(t *testing.T) {
 	require.Equal(t, string(catalogv1.ComicSourceMangaDex), extid.KeyMangaDex)
 	require.Equal(t, string(catalogv1.ComicSourceComicVine), metadata.KeyComicVine)
+}
+
+// addServerOpts is addServerWith with the lookup an audiobook's add asks
+// for its author (ui.Options.MetadataLookup).
+func addServerOpts(t *testing.T, search ui.MetadataSearch, lookup ui.MetadataLookup, library []projection.LibraryItem, objs ...client.Object) (*ui.Server, client.Client) {
+	t.Helper()
+	c := fake.NewClientBuilder().WithScheme(ui.MustNewReaderScheme()).WithObjects(objs...).Build()
+	return ui.NewServer(t.Context(), ui.Options{
+		Reader: c, Actions: actions.New(c), Namespace: "media", MetadataSearch: search, MetadataLookup: lookup,
+		Library: func(context.Context) []projection.LibraryItem { return library },
+	}), c
+}
+
+// recordingSearch answers each MetadataRequest.Source from answers, or
+// fails it from errs (a context.DeadlineExceeded waits the request out),
+// and records every request it was asked.
+func recordingSearch(answers map[string]schema.MetadataResponse, errs map[string]error) (ui.MetadataSearch, func() []schema.MetadataRequest) {
+	var (
+		mu    sync.Mutex
+		asked []schema.MetadataRequest
+	)
+	search := func(ctx context.Context, req schema.MetadataRequest) (schema.MetadataResponse, error) {
+		mu.Lock()
+		asked = append(asked, req)
+		mu.Unlock()
+		if err, ok := errs[req.Source]; ok {
+			if errors.Is(err, context.DeadlineExceeded) {
+				<-ctx.Done()
+				return schema.MetadataResponse{}, ctx.Err()
+			}
+			return schema.MetadataResponse{}, err
+		}
+		return answers[req.Source], nil
+	}
+	return search, func() []schema.MetadataRequest {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]schema.MetadataRequest(nil), asked...)
+	}
+}
+
+// The Comics tab's search asks the gateway once per source -- ComicVine and
+// MangaDex, MetadataRequest.Source naming each (task C4a) -- at once, and
+// merges the answers in the keys' order with each hit's source badge, so a
+// manga appears beside ComicVine's volumes where the unnamed search answered
+// from the first provider alone; a hit's id is read under the key of the
+// source that answered it. Each card shows the volume's publisher, issue
+// count and start year, and a manga's creators (design §9.4). A source no
+// provider is configured for, or one that is down or slow, is skipped while
+// another answers; every source unconfigured is the "no provider" prompt,
+// and every source failed the one search's error.
+func TestAddComicsAsksEachSourceAndShowsTheVolumesFields(t *testing.T) {
+	saga := `{"ids":{"comicvine":"56907"},"title":"Saga","year":2012,"publisher":"Image Comics","issueCount":66,"startYear":2012}`
+	berserk := `{"ids":{"mangadex":"801513ba","comicvine":"999"},"title":"Berserk","startYear":1989,"issueCount":41,"authors":[{"name":"Kentaro Miura"}]}`
+	comicVine := schema.MetadataResponse{Kind: commonv1.MediaKindComic, Results: [][]byte{[]byte(saga)}}
+	mangaDex := schema.MetadataResponse{Kind: commonv1.MediaKindComic, Results: [][]byte{[]byte(berserk)}}
+	noMangaDex := schema.MetadataResponse{Error: `metadata: no comic metadata provider of type "mangadex" is configured to search`}
+	noComicVine := schema.MetadataResponse{Error: `metadata: no comic metadata provider of type "comicvine" is configured to search`}
+
+	t.Run("both sources answer", func(t *testing.T) {
+		search, asked := recordingSearch(map[string]schema.MetadataResponse{"comicvine": comicVine, "mangadex": mangaDex}, nil)
+		srv, _ := addServerWith(t, search, nil, comicsRoot, cbzProfile)
+		rec := get(t, srv, "/library/comics/add/search?q=saga")
+		require.Equal(t, http.StatusOK, rec.Code)
+		body := rec.Body.String()
+
+		reqs := asked()
+		require.Len(t, reqs, 2, "one request per source")
+		var sources []string
+		for _, r := range reqs {
+			require.Equal(t, commonv1.MediaKindComic, r.Kind)
+			require.Equal(t, "saga", r.Text)
+			sources = append(sources, r.Source)
+		}
+		require.ElementsMatch(t, []string{"comicvine", "mangadex"}, sources)
+
+		require.Less(t, strings.Index(body, `data-add-hit="56907"`), strings.Index(body, `data-add-hit="801513ba"`),
+			"ComicVine's volumes first, then MangaDex's manga, whichever answered first")
+		requireTag(t, body, `data-add-hit="56907"`, `data-add-source="comicvine"`)
+		requireTag(t, body, `data-add-hit="801513ba"`, `data-add-source="mangadex"`)
+		require.Regexp(t, `data-hit-source="mangadex"[^>]*>\s*MangaDex`, body)
+		require.NotContains(t, body, `data-add-hit="999"`, "a hit MangaDex answered is a MangaDex comic, whatever other ids it names")
+		require.Regexp(t, `data-hit-publisher[^>]*>\s*Image Comics`, body)
+		require.Regexp(t, `data-hit-issues[^>]*>\s*66 issues`, body)
+		require.Contains(t, body, ">2012<", "the volume's start year")
+		require.Contains(t, body, ">1989<", "a start year with no year is the year shown")
+		require.Regexp(t, `data-hit-issues[^>]*>\s*41 issues`, body)
+		require.Regexp(t, `data-hit-authors[^>]*>\s*by Kentaro Miura`, body, "a manga's creators")
+		require.NotContains(t, body, `name="authorName"`, "only an audiobook's form carries its author")
+		requireThemedComponents(t, "/library/comics/add/search", `<div id="page-body">`+body)
+	})
+
+	t.Run("a source no provider is configured for is skipped", func(t *testing.T) {
+		search, _ := recordingSearch(map[string]schema.MetadataResponse{"comicvine": comicVine, "mangadex": noMangaDex}, nil)
+		srv, _ := addServerWith(t, search, nil, comicsRoot, cbzProfile)
+		body := get(t, srv, "/library/comics/add/search?q=saga").Body.String()
+		requireTag(t, body, `data-add-hit="56907"`)
+		require.NotContains(t, body, `href="/settings"`)
+		require.NotContains(t, body, `role="alert"`)
+	})
+
+	t.Run("a source that is down is skipped", func(t *testing.T) {
+		search, _ := recordingSearch(map[string]schema.MetadataResponse{"comicvine": noComicVine, "mangadex": mangaDex},
+			map[string]error{"comicvine": errors.New("comicvine: 503")})
+		srv, _ := addServerWith(t, search, nil, comicsRoot, cbzProfile)
+		body := get(t, srv, "/library/comics/add/search?q=berserk").Body.String()
+		requireTag(t, body, `data-add-hit="801513ba"`)
+		require.NotContains(t, body, "Metadata search failed")
+	})
+
+	t.Run("every source unconfigured is the no-provider prompt", func(t *testing.T) {
+		search, _ := recordingSearch(map[string]schema.MetadataResponse{"comicvine": noComicVine, "mangadex": noMangaDex}, nil)
+		srv, _ := addServerWith(t, search, nil, comicsRoot, cbzProfile)
+		body := get(t, srv, "/library/comics/add/search?q=saga").Body.String()
+		require.Contains(t, body, `href="/settings"`)
+		require.NotContains(t, body, "No matches")
+	})
+
+	t.Run("every source failed is the error", func(t *testing.T) {
+		search, _ := recordingSearch(nil, map[string]error{"comicvine": context.DeadlineExceeded, "mangadex": errors.New("mangadex: 503")})
+		srv, _ := addServerWith(t, search, nil, comicsRoot, cbzProfile)
+		ui.SetAddSearchTimeoutForTest(srv, 50*time.Millisecond)
+		body := get(t, srv, "/library/comics/add/search?q=saga").Body.String()
+		require.Contains(t, body, "Metadata search is not responding", "the first source's failure, in the keys' order")
+		requireTag(t, body, `data-action="retry-search"`, `hx-get="/library/comics/add/search?q=saga"`)
+
+		search, _ = recordingSearch(nil, map[string]error{"comicvine": errors.New("comicvine: 503"), "mangadex": errors.New("mangadex: 502")})
+		srv, _ = addServerWith(t, search, nil, comicsRoot, cbzProfile)
+		body = get(t, srv, "/library/comics/add/search?q=saga").Body.String()
+		require.Contains(t, body, "Metadata search failed: comicvine: 503")
+	})
+}
+
+// anAuthor is an Author of ns the gateway has named.
+func anAuthor(ns, name, metadataName string) *catalogv1.Author {
+	return &catalogv1.Author{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec:       catalogv1.AuthorSpec{OpenLibraryID: "OL79034A", RootFolderRef: "books", QualityProfileRef: "ebook"},
+		Status:     catalogv1.AuthorStatus{Metadata: &catalogv1.AuthorMetadata{Name: metadataName}},
+	}
+}
+
+// An audiobook hit shows its authors, narrators and release date (design
+// §9.5), and its form carries the first author's name and ASIN, which the
+// add resolves to the Author it links (D11, §5.6): the author is looked up
+// by ASIN through the bound MetadataLookup, in the form's region, and the
+// Author of the root's namespace whose name is the answer's -- through
+// release.TitleNorm, so case and punctuation do not part them -- is
+// spec.authorRef, beside the form's search as spec.addOptions.searchForMissing.
+// An author the lookup has no page for, a lookup that fails, no Author or
+// two of the name, another namespace's Author, a hit naming no author and a
+// ui with no lookup bound all link none and still add the audiobook.
+func TestAddAudiobooksShowThePeopleAndLinkTheAuthor(t *testing.T) {
+	dune := `{"ids":{"asin":"B002V1OF70"},"title":"Dune","year":2008,"releaseDate":"2008-08-12T00:00:00Z","publisher":"Macmillan Audio",` +
+		`"authors":[{"name":"Frank Herbert","asin":"B000AP9A6K"},{"name":"Somebody Else","asin":"B0ELSE"}],"narrators":["Scott Brick","Orlagh Cassidy"]}`
+	search := hits(commonv1.MediaKindAudiobook, dune)
+	herbert := anAuthor("library", "frank-herbert-x", "Frank Herbert")
+	elsewhere := anAuthor("media", "frank-herbert-media", "Frank Herbert")
+	unnamed := anAuthor("library", "unnamed-x", "")
+	namesake := anAuthor("library", "frank-herbert-ii", "Frank  Herbert.")
+
+	type lookupCall struct {
+		mu    sync.Mutex
+		asked []schema.MetadataRequest
+	}
+	lookupAnswering := func(calls *lookupCall, resp schema.MetadataResponse, err error) ui.MetadataLookup {
+		return func(_ context.Context, req schema.MetadataRequest) (schema.MetadataResponse, error) {
+			calls.mu.Lock()
+			defer calls.mu.Unlock()
+			calls.asked = append(calls.asked, req)
+			return resp, err
+		}
+	}
+	found := schema.MetadataResponse{Kind: commonv1.MediaKindAuthor, Provider: "audnexus", IDs: map[string]string{"asin": "B000AP9A6K"},
+		Result: []byte(`{"ids":{"asin":"B000AP9A6K"},"name":"frank herbert","genres":["Science Fiction & Fantasy"]}`)}
+	form := url.Values{
+		"title": {"Dune"}, "id": {"B002V1OF70"}, "rootFolder": {"library/audiobooks"}, "qualityProfile": {"m4b"},
+		"region": {"uk"}, "monitored": {"false", "true"}, "searchOnAdd": {"false", "true"},
+		"authorName": {"Frank Herbert"}, "authorASIN": {"B000AP9A6K"},
+	}
+	name := names.Audiobook("Dune", "B002V1OF70")
+	added := func(t *testing.T, c client.Client) catalogv1.Audiobook {
+		t.Helper()
+		var ab catalogv1.Audiobook
+		require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "library", Name: name}, &ab))
+		return ab
+	}
+
+	t.Run("the hit's people and the linked author", func(t *testing.T) {
+		calls := &lookupCall{}
+		srv, c := addServerOpts(t, search, lookupAnswering(calls, found, nil), nil, audiobooksRoot, m4bProfile, herbert, elsewhere, unnamed)
+		body := get(t, srv, "/library/audiobooks/add/search?q=dune").Body.String()
+		require.Regexp(t, `data-hit-authors[^>]*>\s*by Frank Herbert, Somebody Else`, body)
+		require.Regexp(t, `data-hit-narrators[^>]*>\s*narrated by Scott Brick, Orlagh Cassidy`, body)
+		require.Regexp(t, `data-hit-release[^>]*>\s*12 Aug 2008`, body)
+		require.NotContains(t, body, ">2008<", "the release date stands in for the bare year")
+		require.Regexp(t, `data-hit-publisher[^>]*>\s*Macmillan Audio`, body)
+		requireTag(t, body, `name="authorName"`, `value="Frank Herbert"`)
+		requireTag(t, body, `name="authorASIN"`, `value="B000AP9A6K"`)
+		require.NotContains(t, body, "B0ELSE", "only the first author rides the form")
+		requireThemedComponents(t, "/library/audiobooks/add/search", `<div id="page-body">`+body)
+
+		rec := post(t, srv, "/library/audiobooks/add", form)
+		require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+		require.Equal(t, "/library/library/audiobook/"+name, rec.Header().Get("Location"))
+		ab := added(t, c)
+		require.NotNil(t, ab.Spec.AuthorRef, "the Author of the root's namespace whose name the lookup answered")
+		require.Equal(t, "frank-herbert-x", *ab.Spec.AuthorRef)
+		require.True(t, *ab.Spec.AddOptions.SearchForMissing, "the form's search checkbox is spec.addOptions.searchForMissing")
+		require.Equal(t, catalogv1.AudiobookRegionUK, ab.Spec.Region)
+		require.Equal(t, []schema.MetadataRequest{{Kind: commonv1.MediaKindAuthor, IDs: map[string]string{"asin": "B000AP9A6K", "region": "uk"}}}, calls.asked,
+			"one lookup, Kind author by ASIN in the form's region")
+	})
+
+	for tc, want := range map[string]struct {
+		lookup ui.MetadataLookup
+		objs   []client.Object
+		form   url.Values
+	}{
+		"an author the provider has no page for": {lookup: lookupAnswering(&lookupCall{}, schema.MetadataResponse{Error: metadata.ErrNotFound.Error()}, nil), objs: []client.Object{herbert}},
+		"a lookup that fails":                    {lookup: lookupAnswering(&lookupCall{}, schema.MetadataResponse{}, errors.New("natsbus: timeout")), objs: []client.Object{herbert}},
+		"a lookup answering an error":            {lookup: lookupAnswering(&lookupCall{}, schema.MetadataResponse{Error: "metadata: no audiobook author metadata provider is configured"}, nil), objs: []client.Object{herbert}},
+		"no Author of the name":                  {lookup: lookupAnswering(&lookupCall{}, found, nil), objs: []client.Object{unnamed}},
+		"two Authors of the name":                {lookup: lookupAnswering(&lookupCall{}, found, nil), objs: []client.Object{herbert, namesake}},
+		"another namespace's Author":             {lookup: lookupAnswering(&lookupCall{}, found, nil), objs: []client.Object{elsewhere}},
+		"no lookup bound":                        {lookup: nil, objs: []client.Object{herbert}},
+	} {
+		t.Run(tc, func(t *testing.T) {
+			objs := append([]client.Object{audiobooksRoot, m4bProfile}, want.objs...)
+			srv, c := addServerOpts(t, search, want.lookup, nil, objs...)
+			rec := post(t, srv, "/library/audiobooks/add", form)
+			require.Equal(t, http.StatusSeeOther, rec.Code, "the add never fails for its author link: %s", rec.Body.String())
+			ab := added(t, c)
+			require.Nil(t, ab.Spec.AuthorRef, "no authorRef at all, not an empty one")
+			require.True(t, *ab.Spec.AddOptions.SearchForMissing)
+		})
+	}
+
+	t.Run("a hit naming no author asks no lookup", func(t *testing.T) {
+		calls := &lookupCall{}
+		srv, c := addServerOpts(t, search, lookupAnswering(calls, found, nil), nil, audiobooksRoot, m4bProfile, herbert)
+		plain := url.Values{}
+		for k, v := range form {
+			if k != "authorName" && k != "authorASIN" {
+				plain[k] = v
+			}
+		}
+		rec := post(t, srv, "/library/audiobooks/add", plain)
+		require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+		require.Nil(t, added(t, c).Spec.AuthorRef)
+		require.Empty(t, calls.asked)
+	})
+
+	t.Run("a rejected add keeps the author on the form", func(t *testing.T) {
+		srv, _ := addServerOpts(t, search, lookupAnswering(&lookupCall{}, found, nil), nil, audiobooksRoot, m4bProfile, herbert)
+		bad := url.Values{}
+		for k, v := range form {
+			bad[k] = v
+		}
+		bad["qualityProfile"] = []string{""}
+		bad["q"] = []string{"dune"}
+		rec := post(t, srv, "/library/audiobooks/add", bad)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		body := rec.Body.String()
+		requireTag(t, body, `name="authorName"`, `value="Frank Herbert"`)
+		requireTag(t, body, `name="authorASIN"`, `value="B000AP9A6K"`)
+	})
 }

@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -36,13 +37,23 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/release"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
-// defaultAddSearchTimeout bounds one Add New metadata search (spec: 10 s).
+// defaultAddSearchTimeout bounds one Add New metadata search (spec: 10 s),
+// and the author lookup an audiobook's add makes.
 const defaultAddSearchTimeout = 10 * time.Second
+
+// MetadataLookup is Options.MetadataLookup's type: one lookup of an item by
+// its ids through catalog's metadata gateway, the same shape as
+// MetadataSearch. cmd/ui binds it to rpc.catalog.metadata.lookup exactly as
+// it binds the search, so the ui still holds no requester (ui/guard_test.go).
+// Add New asks it for an Audible author by ASIN, the audiobook's author link
+// (2026-11-10 design D11, §5.6; audiobookAuthorRef).
+type MetadataLookup func(ctx context.Context, req schema.MetadataRequest) (schema.MetadataResponse, error)
 
 // monitorNewAllOrNone is the monitor-new choice of a kind with the flag
 // alone (a comic's spec.monitorNewIssues) or the two-mode enum (an
@@ -159,12 +170,32 @@ var altAddKinds = map[projection.Tab][]views.AddKind{
 
 // searchHit decodes one search result: a MovieHit's lower-case keys and a
 // SearchHit's field names alike, since encoding/json matches keys without
-// regard to case.
+// regard to case. The kind-specific fields are metadata.SearchHit's (task
+// C4a): a comic volume's publisher, issue count and start year (2026-11-10
+// design §9.4), an audiobook's authors -- each with the Audible author's
+// ASIN the author link looks up (D11) -- narrators and release date (§9.5),
+// and a manga's creators under authors; every one empty for a kind that
+// has none.
 type searchHit struct {
 	IDs    map[string]string `json:"ids"`
 	Title  string            `json:"title"`
 	Year   int32             `json:"year"`
 	Poster string            `json:"poster"`
+
+	Publisher   string      `json:"publisher"`
+	IssueCount  int32       `json:"issueCount"`
+	StartYear   *int32      `json:"startYear"`
+	Authors     []hitPerson `json:"authors"`
+	Narrators   []string    `json:"narrators"`
+	ReleaseDate *time.Time  `json:"releaseDate"`
+}
+
+// hitPerson is one credited person of a hit (metadata.NamedRef): an
+// audiobook's author with the ASIN of their Audible page, a manga's creator
+// with none.
+type hitPerson struct {
+	Name string `json:"name"`
+	ASIN string `json:"asin"`
 }
 
 // addKind is the kind the request's tab adds: the tab's own, or the
@@ -298,25 +329,7 @@ func (s *Server) handleAddSearch(w http.ResponseWriter, r *http.Request) {
 	case s.opts.MetadataSearch == nil:
 		res.Error = "Metadata search is not available: the ui has no connection to the catalog metadata service."
 	default:
-		ctx, cancel := context.WithTimeout(r.Context(), s.addSearchTimeout)
-		defer cancel()
-		resp, err := s.opts.MetadataSearch(ctx, schema.MetadataRequest{Kind: k.Kind, Text: q, Region: res.Region})
-		switch {
-		case err != nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, events.ErrNoResponders) || ctx.Err() != nil):
-			// Slow, or down: NATS answers "no responders" at once when
-			// nothing serves the subject.
-			res.Error = "Metadata search is not responding."
-			res.RetryURL = views.AddSearchURL(k, q)
-		case err != nil:
-			res.Error = clampMessage("Metadata search failed: " + err.Error())
-		case strings.Contains(resp.Error, "metadata provider is configured"):
-			res.NoProvider = true
-		case resp.Error != "":
-			res.Error = clampMessage(resp.Error)
-		default:
-			res.Hits = s.addHits(r.Context(), k, resp.Results)
-			res.RootFolders, res.Profiles = s.addChoices(r.Context(), k)
-		}
+		s.addSearch(r.Context(), k, q, &res)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.AddResults(res).Render(r.Context(), w); err != nil {
@@ -324,11 +337,105 @@ func (s *Server) handleAddSearch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// sourceAnswer is one metadata search's answer: the source it asked for
+// (a comic's ComicVine or MangaDex; the zero AddIDKey for a kind with one
+// provider set), the gateway's response and the request's own error.
+type sourceAnswer struct {
+	source views.AddIDKey
+	resp   schema.MetadataResponse
+	err    error
+}
+
+// addSearch runs k's metadata search for q into res: one request for a kind
+// whose gateway search asks its providers in priority order, and for a
+// kind with several id keys (a comic, design §9.4) one request per source,
+// MetadataRequest.Source naming it (task C4a), run at once under the one
+// search deadline and merged in the keys' order -- ComicVine's volumes,
+// then MangaDex's manga, each hit badged with its source -- so a manga
+// appears beside the volumes where the gateway's unnamed search answered
+// from the first provider alone.
+//
+// A source no provider is configured for is skipped as long as another
+// answered; every source unconfigured is the "no provider" prompt. A source
+// that failed or did not answer is logged and skipped while another
+// answered -- a reader sees ComicVine's hits when MangaDex is down -- and
+// says so, as the one search did, only when none did.
+func (s *Server) addSearch(ctx context.Context, k views.AddKind, q string, res *views.AddResultsData) {
+	// The searches run under the one deadline; the hits' library check and
+	// the form's choices read under the request's own, so a source that
+	// timed out never costs the hits another source answered their root
+	// folders and profiles.
+	searchCtx, cancel := context.WithTimeout(ctx, s.addSearchTimeout)
+	defer cancel()
+	sources := k.IDKeys
+	if len(sources) == 0 {
+		sources = []views.AddIDKey{{}}
+	}
+	answers := make([]sourceAnswer, len(sources))
+	var wg sync.WaitGroup
+	for i, src := range sources {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := s.opts.MetadataSearch(searchCtx, schema.MetadataRequest{Kind: k.Kind, Text: q, Region: res.Region, Source: src.Source})
+			answers[i] = sourceAnswer{source: src, resp: resp, err: err}
+		}()
+	}
+	wg.Wait()
+
+	var (
+		hits      []views.AddHit
+		answered  bool
+		noProv    int
+		firstFail *sourceAnswer
+	)
+	for i := range answers {
+		a := &answers[i]
+		switch {
+		case a.err == nil && a.resp.Error == "":
+			answered = true
+			hits = append(hits, s.addHits(ctx, k, a.source.Source, a.resp.Results)...)
+		case a.err == nil && noProviderConfigured(a.resp.Error):
+			noProv++
+		default:
+			if firstFail == nil {
+				firstFail = a
+			}
+			logging.FromContext(ctx).Warn("add new: metadata search failed", "kind", k.Kind, "source", a.source.Source, "error", a.err, "response", a.resp.Error)
+		}
+	}
+	switch {
+	case answered:
+		res.Hits = hits
+		res.RootFolders, res.Profiles = s.addChoices(ctx, k)
+	case firstFail == nil:
+		res.NoProvider = true
+	case firstFail.err != nil && (errors.Is(firstFail.err, context.DeadlineExceeded) || errors.Is(firstFail.err, events.ErrNoResponders) || searchCtx.Err() != nil):
+		// Slow, or down: NATS answers "no responders" at once when
+		// nothing serves the subject.
+		res.Error = "Metadata search is not responding."
+		res.RetryURL = views.AddSearchURL(k, q)
+	case firstFail.err != nil:
+		res.Error = clampMessage("Metadata search failed: " + firstFail.err.Error())
+	default:
+		res.Error = clampMessage(firstFail.resp.Error)
+	}
+}
+
+// noProviderConfigured reads the gateway's "no <kind> metadata provider is
+// configured to search" and its source-named form, "no <kind> metadata
+// provider of type <source> is configured to search" (task C4a).
+func noProviderConfigured(msg string) bool {
+	return strings.Contains(msg, "metadata provider") && strings.Contains(msg, "is configured to search")
+}
+
 // addHits decodes the search results, drops a hit with no id for k, and
 // marks one already in the library with its detail path. A kind with
-// several id keys (a comic's ComicVine or MangaDex id) takes the first a
-// hit carries, which also names the hit's source.
-func (s *Server) addHits(ctx context.Context, k views.AddKind, results [][]byte) []views.AddHit {
+// several id keys (a comic's ComicVine or MangaDex id) reads the key of
+// the source the search asked for, so a hit MangaDex answered is a MangaDex
+// comic whatever other ids it names; a search that named no source takes
+// the first key a hit carries, which also names the hit's source.
+func (s *Server) addHits(ctx context.Context, k views.AddKind, source string, results [][]byte) []views.AddHit {
 	library := s.inLibrary(ctx, k)
 	hits := make([]views.AddHit, 0, len(results))
 	for _, raw := range results {
@@ -336,25 +443,43 @@ func (s *Server) addHits(ctx context.Context, k views.AddKind, results [][]byte)
 		if json.Unmarshal(raw, &h) != nil {
 			continue
 		}
-		id, source, sourceLabel := hitID(k, h.IDs)
+		id, src, sourceLabel := hitID(k, source, h.IDs)
 		if id == "" {
 			continue
 		}
-		hits = append(hits, views.AddHit{
-			ID: id, Source: source, SourceLabel: sourceLabel, Title: h.Title, Year: h.Year,
-			Poster: s.searchArt.URL(h.Poster), InLibrary: library[providerKey(k, source, id)],
-		})
+		hit := views.AddHit{
+			ID: id, Source: src, SourceLabel: sourceLabel, Title: h.Title, Year: h.Year,
+			Poster: s.searchArt.URL(h.Poster), InLibrary: library[providerKey(k, src, id)],
+			Publisher: h.Publisher, IssueCount: h.IssueCount, Narrators: h.Narrators,
+		}
+		if hit.Year == 0 && h.StartYear != nil {
+			hit.Year = *h.StartYear
+		}
+		if h.ReleaseDate != nil {
+			hit.Release = h.ReleaseDate.UTC().Format("2 Jan 2006")
+		}
+		for _, p := range h.Authors {
+			if p.Name != "" {
+				hit.Authors = append(hit.Authors, views.AddPerson{Name: p.Name, ASIN: p.ASIN})
+			}
+		}
+		hits = append(hits, hit)
 	}
 	return hits
 }
 
 // hitID is the id a hit carries for k, and for a kind with several id keys
-// the source and its label the key names; "" when the hit has none.
-func hitID(k views.AddKind, ids map[string]string) (id, source, label string) {
+// the source and its label the key names: the key of source when the
+// search named one, else the first key the hit carries; "" when the hit
+// has none.
+func hitID(k views.AddKind, source string, ids map[string]string) (id, src, label string) {
 	if len(k.IDKeys) == 0 {
 		return ids[k.IDKey], "", ""
 	}
 	for _, key := range k.IDKeys {
+		if source != "" && key.Source != source {
+			continue
+		}
 		if id := ids[key.Key]; id != "" {
 			return id, key.Source, key.Label
 		}
@@ -412,12 +537,100 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 		SearchCutoffUnmet: checked(r, "searchCutoffUnmet"), MonitorNewItems: r.PostFormValue("monitorNewItems"),
 		ComicKind: r.PostFormValue("comicKind"), Region: r.PostFormValue("region"),
 	}
+	if k.Kind == commonv1.MediaKindAudiobook {
+		req.AuthorRef = s.audiobookAuthorRef(r.Context(), ns, r.PostFormValue("authorASIN"), req.Region)
+	}
 	name, _, err := s.opts.Actions.AddItem(r.Context(), req)
 	if err != nil {
 		s.rejectAdd(w, r, k, err)
 		return
 	}
 	http.Redirect(w, r, "/library/"+ns+"/"+string(k.Kind)+"/"+name, http.StatusSeeOther)
+}
+
+// audiobookAuthorRef is the Author an added audiobook is linked to
+// (spec.authorRef; 2026-11-10 design D11, §5.6): the hit's first author,
+// an Audible author by ASIN -- the form carries it as authorASIN -- is
+// looked up through the metadata gateway (Options.MetadataLookup, Kind
+// author with ids {asin, region}: Audnexus's /authors/{asin}, task C4a),
+// and the Author in ns whose name is the answer's is the ref, names
+// compared through release.TitleNorm so case, punctuation and accents do
+// not part "J.R.R. Tolkien" from "J. R. R. Tolkien". The form resolves no
+// Book (Add New sets no bookRef), from whose author the ref would
+// otherwise come.
+//
+// Exactly one Author of that name links. None, two (two authors of one
+// name: never a guess), an author Audnexus has no page for (ErrNotFound on
+// the wire), a lookup that failed or did not answer, and a ui with no
+// lookup or no reader bound all link none, logged, and never fail the add:
+// the Audiobook is still created, and its Edit dialog links an author by
+// hand.
+func (s *Server) audiobookAuthorRef(ctx context.Context, ns, asin, region string) string {
+	if asin == "" || s.opts.MetadataLookup == nil || s.opts.Reader == nil {
+		return ""
+	}
+	log := logging.FromContext(ctx).With("asin", asin, "namespace", ns)
+	ctx, cancel := context.WithTimeout(ctx, s.addSearchTimeout)
+	defer cancel()
+	ids := map[string]string{metadata.KeyASIN: asin}
+	if region != "" {
+		ids["region"] = region
+	}
+	resp, err := s.opts.MetadataLookup(ctx, schema.MetadataRequest{Kind: commonv1.MediaKindAuthor, IDs: ids})
+	switch {
+	case err != nil:
+		log.Warn("add new: audiobook author lookup failed; no author linked", "error", err)
+		return ""
+	case resp.Error == metadata.ErrNotFound.Error():
+		log.Info("add new: the audiobook's author has no provider page; no author linked")
+		return ""
+	case resp.Error != "":
+		log.Warn("add new: audiobook author lookup failed; no author linked", "error", resp.Error)
+		return ""
+	}
+	var author struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(resp.Result, &author); err != nil || author.Name == "" {
+		log.Warn("add new: audiobook author lookup answered no name; no author linked", "error", err)
+		return ""
+	}
+	var list catalogv1.AuthorList
+	if err := s.opts.Reader.List(ctx, &list, client.InNamespace(ns)); err != nil {
+		log.Warn("add new: list authors; no author linked", "error", err)
+		return ""
+	}
+	matches := authorsNamed(author.Name, list.Items)
+	switch len(matches) {
+	case 1:
+		return matches[0]
+	case 0:
+		log.Info("add new: no Author of the audiobook author's name; no author linked", "author", author.Name)
+	default:
+		log.Info("add new: several Authors of the audiobook author's name; no author linked", "author", author.Name, "authors", matches)
+	}
+	return ""
+}
+
+// authorsNamed is the names of the Authors whose metadata name is name
+// through release.TitleNorm; an Author without metadata yet has no name to
+// match.
+func authorsNamed(name string, authors []catalogv1.Author) []string {
+	want := release.TitleNorm(name)
+	if want == "" {
+		return nil
+	}
+	var out []string
+	for i := range authors {
+		md := authors[i].Status.Metadata
+		if md == nil || md.Name == "" {
+			continue
+		}
+		if release.TitleNorm(md.Name) == want {
+			out = append(out, authors[i].Name)
+		}
+	}
+	return out
 }
 
 // checked reads a checkbox the add form posts as a hidden "false" followed
@@ -489,9 +702,15 @@ func (s *Server) rejectAdd(w http.ResponseWriter, r *http.Request, k views.AddKi
 	code, status := actionErrorCode(err)
 	logging.FromContext(r.Context()).Error("add rejected", "kind", k.Kind, "error", err, "code", code)
 	id, q := r.PostFormValue("id"), r.PostFormValue("q")
+	hit := views.AddHit{ID: id, Source: r.PostFormValue("source"), Title: r.PostFormValue("title")}
+	if name, asin := r.PostFormValue("authorName"), r.PostFormValue("authorASIN"); name != "" || asin != "" {
+		// An audiobook's author rides the form again, so a second post
+		// still links the Author.
+		hit.Authors = []views.AddPerson{{Name: name, ASIN: asin}}
+	}
 	res := &views.AddResultsData{
 		Kind: k, Query: q, OpenID: id, Posted: r.PostForm, Region: s.addRegion(r.Context(), k),
-		Hits: []views.AddHit{{ID: id, Source: r.PostFormValue("source"), Title: r.PostFormValue("title")}},
+		Hits: []views.AddHit{hit},
 	}
 	res.RootFolders, res.Profiles = s.addChoices(r.Context(), k)
 	s.renderAddPage(w, r, k, status, views.AddPageData{ErrorCode: code, Error: err.Error(), Query: q, Results: res})

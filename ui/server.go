@@ -185,10 +185,19 @@ type Options struct {
 
 	// MetadataSearch asks catalog's metadata gateway to search one kind
 	// by title (Add New, 2026-09-29). cmd/ui binds it to
-	// rpc.catalog.metadata.search; the ui never holds a bus requester,
-	// so it can ask nothing else (ui/guard_test.go). nil renders the Add
+	// rpc.catalog.metadata.search; the ui never holds a bus requester, so
+	// it can ask nothing but the requests cmd/ui binds here (this,
+	// MetadataLookup and PlexExtras; ui/guard_test.go). nil renders the Add
 	// page's search as unavailable.
 	MetadataSearch MetadataSearch
+
+	// MetadataLookup asks catalog's metadata gateway for one item by its
+	// ids: Add New's audiobook author link (2026-11-10 design D11, §5.6),
+	// an Audible author by ASIN whose name picks the Author the audiobook
+	// is linked to. cmd/ui binds it to rpc.catalog.metadata.lookup exactly
+	// as it binds MetadataSearch, so the ui still holds no requester
+	// (ui/guard_test.go). nil links no author.
+	MetadataLookup MetadataLookup
 
 	// PlexExtended reads an item's people and similar titles from the
 	// clustarr-metadata-extended bucket for the Plex provider (full-metadata

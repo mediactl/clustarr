@@ -42,8 +42,9 @@ import (
 // artwork object store ui/art.go's handleArt serves every image from --
 // events.ObjectStore bound to events.BucketArtwork -- and the metadata
 // search Add New asks, bound here to events.RPCMetadataSearch so the ui
-// never holds a requester (2026-09-29), and the Plex provider's extras,
-// bound to events.RPCMetadataExtras.
+// never holds a requester (2026-09-29), the lookup an audiobook's add asks
+// for its author (events.RPCMetadataLookup, 2026-11-10 design D11), and
+// the Plex provider's extras, bound to events.RPCMetadataExtras.
 //
 // ui never imports pkg/k8s (ui/guard_test.go bans it): this is why the bus
 // is connected and bound here, in cmd/ui's command tree, and only the
@@ -84,6 +85,14 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 	search := func(ctx context.Context, req schema.MetadataRequest) (schema.MetadataResponse, error) {
 		var resp schema.MetadataResponse
 		err := requestIdempotent(ctx, bus, events.RPCMetadataSearch, req, &resp)
+		return resp, err
+	}
+	// The one lookup the ui makes, Add New's Audible author by ASIN
+	// (ui.Options.MetadataLookup): bound as the search is, a read the
+	// gateway answers from its providers, so a busy refusal is asked again.
+	lookup := func(ctx context.Context, req schema.MetadataRequest) (schema.MetadataResponse, error) {
+		var resp schema.MetadataResponse
+		err := requestIdempotent(ctx, bus, events.RPCMetadataLookup, req, &resp)
 		return resp, err
 	}
 	// The extended-metadata read is a closure over Get alone: ui is handed
@@ -174,6 +183,7 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		artwork:   bus.ObjectStore(events.BucketArtwork),
 		liveTV:    bus.ObjectStore(events.BucketLiveTV),
 		search:    search,
+		lookup:    lookup,
 		extended:  extendedRead,
 		extras:    extras,
 		progress:  progress,
@@ -192,7 +202,7 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 var idempotentRetries = []time.Duration{250 * time.Millisecond, time.Second}
 
 // requestIdempotent sends one of the metadata gateway's idempotent verbs
-// (search, extras) and asks again on idempotentRetries while it is refused
+// (search, lookup, extras) and asks again on idempotentRetries while it is refused
 // as busy and ctx allows (ADR-0020 §4). No responder fails fast -- no
 // metadata agent is up, and waiting cannot change that inside one page
 // load -- and a timeout has spent the request's deadline; both are named in
@@ -233,8 +243,11 @@ type uiBus struct {
 	artwork events.ObjectStore
 	// liveTV is the clustarr-livetv store the Live TV pages read the
 	// tuner's objects from.
-	liveTV   events.ObjectStore
-	search   ui.MetadataSearch
+	liveTV events.ObjectStore
+	search ui.MetadataSearch
+	// lookup asks the metadata gateway for one item by its ids
+	// (rpc.catalog.metadata.lookup): Add New's audiobook author link.
+	lookup   ui.MetadataLookup
 	extended func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
 	// extras asks the metadata gateway for a Plex id's extras
 	// (rpc.catalog.metadata.extras); an answer carrying an error is one.

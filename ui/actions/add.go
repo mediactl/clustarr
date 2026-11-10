@@ -65,6 +65,12 @@ type AddRequest struct {
 	// Region is an Audiobook's Audible marketplace (spec.region); empty
 	// takes the CRD default, us.
 	Region string
+	// AuthorRef is an Audiobook's spec.authorRef: the Author in Namespace
+	// the hit's first author resolved to (2026-11-10 design D11, §5.6;
+	// ui/add.go's audiobookAuthorRef, through the bound MetadataLookup and
+	// the namespace's Authors by name). Empty links none; every other kind
+	// ignores it.
+	AuthorRef string
 }
 
 // AddableKinds are the kinds AddItem creates: the four library types of
@@ -206,14 +212,21 @@ func buildItem(req AddRequest) (client.Object, error) {
 			Spec:       spec,
 		}, nil
 	case commonv1.MediaKindAudiobook:
+		spec := catalogv1alpha1.AudiobookSpec{
+			ASIN: req.ProviderID, Region: catalogv1alpha1.AudiobookRegion(req.Region), Monitored: new(req.Monitored),
+			QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
+			AddOptions: catalogv1alpha1.AudiobookAddOptions{SearchForMissing: ptr.To(req.SearchOnAdd)},
+			Source:     source,
+		}
+		// The author link, when the hit's author resolved to an Author of
+		// the namespace (D11); unset, not "", so an unlinked audiobook
+		// carries no authorRef at all.
+		if req.AuthorRef != "" {
+			spec.AuthorRef = ptr.To(req.AuthorRef)
+		}
 		return &catalogv1alpha1.Audiobook{
 			ObjectMeta: metav1.ObjectMeta{Name: names.Audiobook(req.Title, req.ProviderID), Namespace: req.Namespace},
-			Spec: catalogv1alpha1.AudiobookSpec{
-				ASIN: req.ProviderID, Region: catalogv1alpha1.AudiobookRegion(req.Region), Monitored: new(req.Monitored),
-				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
-				AddOptions: catalogv1alpha1.AudiobookAddOptions{SearchForMissing: ptr.To(req.SearchOnAdd)},
-				Source:     source,
-			},
+			Spec:       spec,
 		}, nil
 	case commonv1.MediaKindBook:
 		// A standalone book: no author, so its profile and root folder are

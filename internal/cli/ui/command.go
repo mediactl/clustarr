@@ -149,6 +149,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			LiveTV:               b.liveTV,
 			ArtCacheBytes:        artCacheBytes,
 			MetadataSearch:       b.search,
+			MetadataLookup:       b.lookup,
 			PlexExtended:         b.extended,
 			PlexExtras:           b.extras,
 			ArtSigningKey:        signingKey,

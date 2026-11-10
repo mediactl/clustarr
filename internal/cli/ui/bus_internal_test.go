@@ -65,6 +65,7 @@ func TestBuildBusLogsAnUnconnectedBus(t *testing.T) {
 		b := buildBus(ctx, url)
 		require.NotNil(t, b.artwork)
 		require.NotNil(t, b.search)
+		require.NotNil(t, b.lookup)
 		require.NotNil(t, b.extended)
 		require.NotNil(t, b.extras)
 		require.NotNil(t, b.progress)
