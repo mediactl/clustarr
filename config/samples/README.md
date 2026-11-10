@@ -43,3 +43,16 @@ them in that order in the kustomization rather than relying on retry.
 `make install` (the CRDs) and `kustomize build config/default` (the full
 install) are the things to try. `hack/kind.sh` brings up a local cluster with
 NATS for both.
+
+## PlexCollection samples
+
+`catalog_v1alpha1_plexcollection_{anime_dubbed,netflix,up}.yaml` are the
+design's three reference collections
+(`docs/superpowers/specs/2026-11-10-plex-collections-design.md`), reconciled
+by cluster-plex with `plex.clustarr.enabled`. They are deliberately not in
+`kustomization.yaml`: cluster-plex adopts a person-made collection of the
+same title, and its finalizer deletes the Plex collection with the
+resource, so a `kubectl delete -k config/samples` would delete the owner's
+collections in Plex. Apply each with `kubectl apply --server-side -f`.
+`TestThePlexCollectionSamplesAreTheReferences` (`pkg/plexfilter`) holds them
+to the design.

@@ -67,7 +67,8 @@ func collectionsServerWith(t *testing.T, funcs *interceptor.Funcs, tweak func(*u
 }
 
 func plexCollection(name string, spec catalogv1.PlexCollectionSpec) *catalogv1.PlexCollection {
-	return &catalogv1.PlexCollection{ObjectMeta: metav1.ObjectMeta{Namespace: pcolNS, Name: name}, Spec: spec}
+	// Generation 1, as the apiserver sets it on create.
+	return &catalogv1.PlexCollection{ObjectMeta: metav1.ObjectMeta{Namespace: pcolNS, Name: name, Generation: 1}, Spec: spec}
 }
 
 func refAnimeDubbed() catalogv1.PlexCollectionSpec {
@@ -495,4 +496,24 @@ func TestCreateRefusesAnImageURLTheRuleRefuses(t *testing.T) {
 	var list catalogv1.PlexCollectionList
 	require.NoError(t, c.List(t.Context(), &list))
 	assert.Empty(t, list.Items)
+}
+
+func TestUpdateRefusesASpecEditedSinceTheEditorOpened(t *testing.T) {
+	srv, c := collectionsServerWith(t, nil, withArtBase, plexCollection("ghibli", refGhibli()))
+	values := editorValues(t, get(t, srv, "/library/collections/"+pcolNS+"/ghibli/edit").Body.String())
+	assert.Equal(t, "1", values.Get("generation"))
+
+	// Someone else's edit moves the generation (the fake client does not).
+	var pc catalogv1.PlexCollection
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pcolNS, Name: "ghibli"}, &pc))
+	pc.Spec.Title = "Ghibli (theirs)"
+	pc.Generation = 2
+	require.NoError(t, c.Update(t.Context(), &pc))
+
+	values.Set("title", "Ghibli (mine)")
+	rec := post(t, srv, "/library/collections/"+pcolNS+"/ghibli", values)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "edited since this editor opened it")
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pcolNS, Name: "ghibli"}, &pc))
+	assert.Equal(t, "Ghibli (theirs)", pc.Spec.Title)
 }

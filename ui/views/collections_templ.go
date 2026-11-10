@@ -111,8 +111,11 @@ type CollectionRow struct {
 // CollectionEditor is the editor's state.
 type CollectionEditor struct {
 	// Namespace and Name are the resource's; Name is empty for a new one.
-	Namespace, Name, ResourceVersion string
-	Spec                             catalogv1.PlexCollectionSpec
+	Namespace, Name string
+	// Generation is the spec's generation the editor read, which a save
+	// must still find.
+	Generation int64
+	Spec       catalogv1.PlexCollectionSpec
 	// Libraries are the library titles the existing collections name.
 	Libraries []string
 	// Suggestions are values for a field's value box, by field key.
@@ -530,7 +533,7 @@ func CollectionsList(p CollectionsPage) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(lib.Title)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 346, Col: 47}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 349, Col: 47}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 			if templ_7745c5c3_Err != nil {
@@ -543,7 +546,7 @@ func CollectionsList(p CollectionsPage) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(lib.Title)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 347, Col: 52}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 350, Col: 52}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -680,7 +683,7 @@ func collectionRow(r CollectionRow) templ.Component {
 					var templ_7745c5c3_Var15 templ.SafeURL
 					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(collectionEditPath(r.Namespace, r.Name)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 365, Col: 64}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 368, Col: 64}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 					if templ_7745c5c3_Err != nil {
@@ -693,7 +696,7 @@ func collectionRow(r CollectionRow) templ.Component {
 					var templ_7745c5c3_Var16 string
 					templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(r.Title)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 365, Col: 100}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 368, Col: 100}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 					if templ_7745c5c3_Err != nil {
@@ -728,7 +731,7 @@ func collectionRow(r CollectionRow) templ.Component {
 					var templ_7745c5c3_Var18 string
 					templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(r.Reading)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 368, Col: 15}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 371, Col: 15}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 					if templ_7745c5c3_Err != nil {
@@ -778,7 +781,7 @@ func collectionRow(r CollectionRow) templ.Component {
 						var templ_7745c5c3_Var21 string
 						templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d items", r.Items))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 374, Col: 39}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 377, Col: 39}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 						if templ_7745c5c3_Err != nil {
@@ -811,7 +814,7 @@ func collectionRow(r CollectionRow) templ.Component {
 						var templ_7745c5c3_Var23 string
 						templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(r.Reason)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 379, Col: 15}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 382, Col: 15}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 						if templ_7745c5c3_Err != nil {
@@ -920,7 +923,7 @@ func CollectionEditorPage(e CollectionEditor) templ.Component {
 			var templ_7745c5c3_Var27 string
 			templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(editorTitle(e))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 405, Col: 73}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 408, Col: 73}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 			if templ_7745c5c3_Err != nil {
@@ -975,7 +978,7 @@ func CollectionEditorForm(e CollectionEditor) templ.Component {
 		var templ_7745c5c3_Var29 templ.SafeURL
 		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(editorAction(e)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 417, Col: 37}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 420, Col: 37}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 		if templ_7745c5c3_Err != nil {
@@ -988,7 +991,7 @@ func CollectionEditorForm(e CollectionEditor) templ.Component {
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue(e.Namespace)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 424, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 427, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var30)
 		if templ_7745c5c3_Err != nil {
@@ -1001,20 +1004,20 @@ func CollectionEditorForm(e CollectionEditor) templ.Component {
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue(e.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 425, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 428, Col: 49}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "\"> <input type=\"hidden\" name=\"resourceVersion\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "\"> <input type=\"hidden\" name=\"generation\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var32 string
-		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(e.ResourceVersion)
+		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(strconv.FormatInt(e.Generation, 10))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 426, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 429, Col: 84}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 		if templ_7745c5c3_Err != nil {
@@ -1090,7 +1093,7 @@ func CollectionEditorForm(e CollectionEditor) templ.Component {
 					var templ_7745c5c3_Var36 string
 					templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(e.Error)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 434, Col: 45}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 437, Col: 45}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 					if templ_7745c5c3_Err != nil {
@@ -1148,7 +1151,7 @@ func CollectionEditorForm(e CollectionEditor) templ.Component {
 			var templ_7745c5c3_Var37 string
 			templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue(l)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 448, Col: 21}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 451, Col: 21}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 			if templ_7745c5c3_Err != nil {
@@ -1171,7 +1174,7 @@ func CollectionEditorForm(e CollectionEditor) templ.Component {
 			var templ_7745c5c3_Var38 string
 			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue(SuggestionListID(k))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 452, Col: 37}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 455, Col: 37}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
 			if templ_7745c5c3_Err != nil {
@@ -1189,7 +1192,7 @@ func CollectionEditorForm(e CollectionEditor) templ.Component {
 				var templ_7745c5c3_Var39 string
 				templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.ResolveAttributeValue(v)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 454, Col: 22}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 457, Col: 22}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var39)
 				if templ_7745c5c3_Err != nil {
@@ -1739,7 +1742,7 @@ func editorSelect(id, name, label string, choices []Choice, value string, readOn
 							var templ_7745c5c3_Var63 string
 							templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 528, Col: 15}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 531, Col: 15}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 							if templ_7745c5c3_Err != nil {
@@ -1934,7 +1937,7 @@ func editorFilter(e CollectionEditor) templ.Component {
 				var templ_7745c5c3_Var69 string
 				templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.ResolveAttributeValue(s)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 568, Col: 23}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 571, Col: 23}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var69)
 				if templ_7745c5c3_Err != nil {
@@ -2087,7 +2090,7 @@ func editorGroup(e CollectionEditor, i int, r catalogv1.PlexFilterRule) templ.Co
 		var templ_7745c5c3_Var75 string
 		templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.ResolveAttributeValue(strconv.Itoa(i))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 589, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 592, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var75)
 		if templ_7745c5c3_Err != nil {
@@ -2199,7 +2202,7 @@ func editorCondition(e CollectionEditor, prefix string, c catalogv1.PlexConditio
 		var templ_7745c5c3_Var79 string
 		templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.ResolveAttributeValue(at)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 609, Col: 111}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 612, Col: 111}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var79)
 		if templ_7745c5c3_Err != nil {
@@ -2369,7 +2372,7 @@ func editorMembers(e CollectionEditor) templ.Component {
 			var templ_7745c5c3_Var84 string
 			templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.ResolveAttributeValue(m.Kind + "/" + m.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 653, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 656, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var84)
 			if templ_7745c5c3_Err != nil {
@@ -2382,7 +2385,7 @@ func editorMembers(e CollectionEditor) templ.Component {
 			var templ_7745c5c3_Var85 string
 			templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("member.%d.kind", i))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 654, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 657, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var85)
 			if templ_7745c5c3_Err != nil {
@@ -2395,7 +2398,7 @@ func editorMembers(e CollectionEditor) templ.Component {
 			var templ_7745c5c3_Var86 string
 			templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.ResolveAttributeValue(m.Kind)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 654, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 657, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var86)
 			if templ_7745c5c3_Err != nil {
@@ -2408,7 +2411,7 @@ func editorMembers(e CollectionEditor) templ.Component {
 			var templ_7745c5c3_Var87 string
 			templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("member.%d.name", i))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 655, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 658, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var87)
 			if templ_7745c5c3_Err != nil {
@@ -2421,7 +2424,7 @@ func editorMembers(e CollectionEditor) templ.Component {
 			var templ_7745c5c3_Var88 string
 			templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.ResolveAttributeValue(m.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 655, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 658, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var88)
 			if templ_7745c5c3_Err != nil {
@@ -2442,7 +2445,7 @@ func editorMembers(e CollectionEditor) templ.Component {
 			var templ_7745c5c3_Var89 string
 			templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs(memberLabel(m))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 657, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 660, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 			if templ_7745c5c3_Err != nil {
@@ -2516,7 +2519,7 @@ func memberPoster(m CollectionMember) templ.Component {
 			var templ_7745c5c3_Var92 string
 			templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.URL(m.Poster))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 669, Col: 32}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 672, Col: 32}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var92)
 			if templ_7745c5c3_Err != nil {
@@ -2580,7 +2583,7 @@ func CollectionMemberHits(hits []CollectionMember) templ.Component {
 				var templ_7745c5c3_Var94 string
 				templ_7745c5c3_Var94, templ_7745c5c3_Err = templ.JoinStringErrs(memberLabel(h))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 683, Col: 59}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 686, Col: 59}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var94))
 				if templ_7745c5c3_Err != nil {
@@ -2719,7 +2722,7 @@ func editorImage(name, label, value, preview, size string) templ.Component {
 				var templ_7745c5c3_Var100 string
 				templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 704, Col: 10}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 707, Col: 10}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var100))
 				if templ_7745c5c3_Err != nil {
@@ -2810,7 +2813,7 @@ func editorImage(name, label, value, preview, size string) templ.Component {
 				var templ_7745c5c3_Var104 string
 				templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.URL(preview))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 720, Col: 33}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 723, Col: 33}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var104)
 				if templ_7745c5c3_Err != nil {
@@ -2836,7 +2839,7 @@ func editorImage(name, label, value, preview, size string) templ.Component {
 				var templ_7745c5c3_Var106 string
 				templ_7745c5c3_Var106, templ_7745c5c3_Err = templ.ResolveAttributeValue(name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 720, Col: 133}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 723, Col: 133}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var106)
 				if templ_7745c5c3_Err != nil {
@@ -3123,7 +3126,7 @@ func visibilitySwitch(name, label string, on bool) templ.Component {
 				var templ_7745c5c3_Var117 string
 				templ_7745c5c3_Var117, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 766, Col: 10}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/collections.templ`, Line: 769, Col: 10}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var117))
 				if templ_7745c5c3_Err != nil {

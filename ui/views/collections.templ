@@ -73,8 +73,11 @@ type CollectionRow struct {
 // CollectionEditor is the editor's state.
 type CollectionEditor struct {
 	// Namespace and Name are the resource's; Name is empty for a new one.
-	Namespace, Name, ResourceVersion string
-	Spec                             catalogv1.PlexCollectionSpec
+	Namespace, Name string
+	// Generation is the spec's generation the editor read, which a save
+	// must still find.
+	Generation int64
+	Spec       catalogv1.PlexCollectionSpec
 	// Libraries are the library titles the existing collections name.
 	Libraries []string
 	// Suggestions are values for a field's value box, by field key.
@@ -423,7 +426,7 @@ templ CollectionEditorForm(e CollectionEditor) {
 	>
 		<input type="hidden" name="namespace" value={ e.Namespace }/>
 		<input type="hidden" name="name" value={ e.Name }/>
-		<input type="hidden" name="resourceVersion" value={ e.ResourceVersion }/>
+		<input type="hidden" name="generation" value={ strconv.FormatInt(e.Generation, 10) }/>
 		if e.Error != "" {
 			@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Attributes: templ.Attributes{"data-editor-error": true}}) {
 				@icon.Icon("circle-alert")()

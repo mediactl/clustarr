@@ -71,6 +71,7 @@ func TestUpdatePlexCollectionReplacesTheWholeSpec(t *testing.T) {
 	spec.Summary = ptr.To("Every Up film.")
 	_, err := actions.CreatePlexCollection(t.Context(), c, "clustarr-system", "up", spec)
 	require.NoError(t, err)
+	bumpGeneration(t, c, "up") // the apiserver's 1 on create
 	var read catalogv1.PlexCollection
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "clustarr-system", Name: "up"}, &read))
 
@@ -78,7 +79,7 @@ func TestUpdatePlexCollectionReplacesTheWholeSpec(t *testing.T) {
 	// spec would leave them standing.
 	edited := upSpec()
 	edited.Title = "Up Series"
-	require.NoError(t, actions.UpdatePlexCollection(t.Context(), c, "clustarr-system", "up", read.ResourceVersion, edited))
+	require.NoError(t, actions.UpdatePlexCollection(t.Context(), c, "clustarr-system", "up", read.Generation, edited))
 
 	var got catalogv1.PlexCollection
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "clustarr-system", Name: "up"}, &got))
@@ -91,21 +92,60 @@ func TestUpdatePlexCollectionRefusesAStaleRead(t *testing.T) {
 	c := plexCollectionClient(t)
 	_, err := actions.CreatePlexCollection(t.Context(), c, "clustarr-system", "up", upSpec())
 	require.NoError(t, err)
+	bumpGeneration(t, c, "up") // the apiserver's 1 on create
 	var read catalogv1.PlexCollection
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "clustarr-system", Name: "up"}, &read))
 
-	// Someone else's edit lands first.
+	// Someone else's edit lands first. The apiserver moves the generation
+	// with every spec change; the fake client does not, so the test does.
 	other := upSpec()
 	other.Title = "UP (theirs)"
-	require.NoError(t, actions.UpdatePlexCollection(t.Context(), c, "clustarr-system", "up", read.ResourceVersion, other))
+	require.NoError(t, actions.UpdatePlexCollection(t.Context(), c, "clustarr-system", "up", read.Generation, other))
+	bumpGeneration(t, c, "up")
 
 	mine := upSpec()
 	mine.Title = "UP (mine)"
-	require.Error(t, actions.UpdatePlexCollection(t.Context(), c, "clustarr-system", "up", read.ResourceVersion, mine))
+	require.Error(t, actions.UpdatePlexCollection(t.Context(), c, "clustarr-system", "up", read.Generation, mine))
 
 	var got catalogv1.PlexCollection
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "clustarr-system", Name: "up"}, &got))
 	assert.Equal(t, "UP (theirs)", got.Spec.Title)
+}
+
+// bumpGeneration does what the apiserver does on a spec change.
+func bumpGeneration(t *testing.T, c client.Client, name string) {
+	t.Helper()
+	var pc catalogv1.PlexCollection
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "clustarr-system", Name: name}, &pc))
+	pc.Generation++
+	require.NoError(t, c.Update(t.Context(), &pc))
+}
+
+// cluster-plex writes the status within seconds of every save and every
+// 10 minutes; that moves the resourceVersion, never the generation, and
+// must not refuse an edit.
+func TestUpdatePlexCollectionIgnoresAStatusWrite(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, catalogv1.AddToScheme(scheme))
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&catalogv1.PlexCollection{}).Build()
+	_, err := actions.CreatePlexCollection(t.Context(), c, "clustarr-system", "up", upSpec())
+	require.NoError(t, err)
+	bumpGeneration(t, c, "up") // the apiserver's 1 on create
+	var read catalogv1.PlexCollection
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "clustarr-system", Name: "up"}, &read))
+
+	synced := read.DeepCopy()
+	synced.Status.RatingKey = "26252"
+	require.NoError(t, c.Status().Update(t.Context(), synced))
+	var now catalogv1.PlexCollection
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "clustarr-system", Name: "up"}, &now))
+	require.NotEqual(t, read.ResourceVersion, now.ResourceVersion)
+
+	edited := upSpec()
+	edited.Title = "Up Series"
+	require.NoError(t, actions.UpdatePlexCollection(t.Context(), c, "clustarr-system", "up", read.Generation, edited))
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "clustarr-system", Name: "up"}, &now))
+	assert.Equal(t, "Up Series", now.Spec.Title)
 }
 
 func TestDeletePlexCollection(t *testing.T) {

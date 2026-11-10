@@ -19,6 +19,7 @@ package plexfilter_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,4 +49,13 @@ func TestThePlexCollectionSamplesAreTheReferences(t *testing.T) {
 		assert.Equal(t, want, pc.Spec, file)
 		assert.NoError(t, plexfilter.Validate(pc.Spec), file)
 	}
+}
+
+// The collection samples stay out of config/samples' kustomization:
+// kubectl delete -k on it would delete the owner's collections in Plex
+// through cluster-plex's finalizer. They are applied one by one.
+func TestThePlexCollectionSamplesAreNotInTheKustomization(t *testing.T) {
+	raw, err := os.ReadFile("../../config/samples/kustomization.yaml")
+	require.NoError(t, err)
+	assert.False(t, strings.Contains(string(raw), "plexcollection"), "config/samples/kustomization.yaml lists a PlexCollection")
 }

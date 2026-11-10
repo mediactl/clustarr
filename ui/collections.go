@@ -104,8 +104,8 @@ func (s *Server) handleCollectionsList(w http.ResponseWriter, r *http.Request) {
 
 // editorModel is the editor for spec: the libraries the existing
 // collections name and the value suggestions for its item type.
-func (s *Server) editorModel(ctx context.Context, namespace, name, rv string, spec catalogv1.PlexCollectionSpec, why string) views.CollectionEditor {
-	e := views.CollectionEditor{Namespace: namespace, Name: name, ResourceVersion: rv, Spec: spec, Error: why}
+func (s *Server) editorModel(ctx context.Context, namespace, name string, generation int64, spec catalogv1.PlexCollectionSpec, why string) views.CollectionEditor {
+	e := views.CollectionEditor{Namespace: namespace, Name: name, Generation: generation, Spec: spec, Error: why}
 	libs := map[string]bool{}
 	if spec.Library != "" {
 		libs[spec.Library] = true
@@ -259,7 +259,7 @@ func (s *Server) handleCollectionNew(w http.ResponseWriter, r *http.Request) {
 	spec := catalogv1.PlexCollectionSpec{ItemType: t, Filter: &catalogv1.PlexFilter{
 		Match: catalogv1.PlexMatchAll, Rules: []catalogv1.PlexFilterRule{{Field: c.Field, Operator: c.Operator}},
 	}}
-	s.renderEditorPage(w, r, http.StatusOK, s.editorModel(r.Context(), s.opts.Namespace, "", "", spec, ""))
+	s.renderEditorPage(w, r, http.StatusOK, s.editorModel(r.Context(), s.opts.Namespace, "", 0, spec, ""))
 }
 
 func (s *Server) handleCollectionEdit(w http.ResponseWriter, r *http.Request) {
@@ -277,7 +277,7 @@ func (s *Server) handleCollectionEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.renderEditorPage(w, r, http.StatusOK, s.editorModel(r.Context(), pc.Namespace, pc.Name, pc.ResourceVersion, pc.Spec, ""))
+	s.renderEditorPage(w, r, http.StatusOK, s.editorModel(r.Context(), pc.Namespace, pc.Name, pc.Generation, pc.Spec, ""))
 }
 
 // handleCollectionEditor answers an editor button: the form as posted,
@@ -301,7 +301,7 @@ func (s *Server) handleCollectionEditor(w http.ResponseWriter, r *http.Request) 
 	if perr != nil {
 		why = perr.Error()
 	}
-	e := s.editorModel(r.Context(), r.PostForm.Get("namespace"), r.PostForm.Get("name"), r.PostForm.Get("resourceVersion"), spec, why)
+	e := s.editorModel(r.Context(), r.PostForm.Get("namespace"), r.PostForm.Get("name"), formGeneration(r.PostForm), spec, why)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.CollectionEditorForm(e).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render the collection editor", "error", err)
@@ -351,7 +351,7 @@ func (s *Server) handleCollectionCreate(w http.ResponseWriter, r *http.Request) 
 		if apierrors.IsAlreadyExists(err) {
 			err = fmt.Errorf("a collection named %q exists already: choose another title", name)
 		}
-		s.renderEditorPage(w, r, http.StatusBadRequest, s.editorModel(r.Context(), ns, "", "", spec, err.Error()))
+		s.renderEditorPage(w, r, http.StatusBadRequest, s.editorModel(r.Context(), ns, "", 0, spec, err.Error()))
 		return
 	}
 	http.Redirect(w, r, collectionsPath, http.StatusSeeOther)
@@ -360,15 +360,15 @@ func (s *Server) handleCollectionCreate(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleCollectionUpdate(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	spec, err := s.savedSpec(r)
-	rv := r.PostForm.Get("resourceVersion")
+	gen := formGeneration(r.PostForm)
 	if err == nil {
-		err = s.opts.Actions.UpdatePlexCollection(r.Context(), ns, name, rv, spec)
-		if apierrors.IsConflict(err) || apierrors.IsInvalid(err) && strings.Contains(err.Error(), "resourceVersion") {
-			err = errors.New("the collection changed since this editor opened it: reload it and edit again")
+		err = s.opts.Actions.UpdatePlexCollection(r.Context(), ns, name, gen, spec)
+		if apierrors.IsConflict(err) || err != nil && strings.Contains(err.Error(), "/metadata/generation") {
+			err = errors.New("the collection was edited since this editor opened it: reload it and edit again")
 		}
 	}
 	if err != nil {
-		s.renderEditorPage(w, r, http.StatusBadRequest, s.editorModel(r.Context(), ns, name, rv, spec, err.Error()))
+		s.renderEditorPage(w, r, http.StatusBadRequest, s.editorModel(r.Context(), ns, name, gen, spec, err.Error()))
 		return
 	}
 	http.Redirect(w, r, collectionsPath, http.StatusSeeOther)

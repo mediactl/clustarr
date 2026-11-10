@@ -91,13 +91,13 @@ func CreatePlexCollection(
 }
 
 // UpdatePlexCollection replaces a PlexCollection's whole spec, as long as
-// the resource is still at resourceVersion, the version the editor read: a
+// the resource's spec is still at generation, the one the editor read: a
 // JSON patch testing it, then replacing /spec. A merge patch of the spec
 // would leave a field the editor cleared (a poster, the summary) standing,
-// and a version that moved since the read fails the test instead of
-// overwriting someone else's edit.
+// and a spec edited since the read fails the test instead of being
+// overwritten.
 func UpdatePlexCollection(
-	ctx context.Context, p Patcher, namespace, name, resourceVersion string, spec catalogv1alpha1.PlexCollectionSpec,
+	ctx context.Context, p Patcher, namespace, name string, generation int64, spec catalogv1alpha1.PlexCollectionSpec,
 ) error {
 	ctx, span := tracing.Start(ctx, "ui.actions.UpdatePlexCollection")
 	defer span.End()
@@ -105,13 +105,16 @@ func UpdatePlexCollection(
 		tracing.RecordError(span, err)
 		return err
 	}
-	if resourceVersion == "" {
-		err := fmt.Errorf("%w: no resourceVersion read", ErrInvalid)
+	if generation < 1 {
+		err := fmt.Errorf("%w: no generation read", ErrInvalid)
 		tracing.RecordError(span, err)
 		return err
 	}
+	// The generation, not the resourceVersion: cluster-plex writes the
+	// status within seconds of every save and every 10 minutes, which
+	// moves the resourceVersion alone (as actions.EditChannels found).
 	raw, err := json.Marshal([]map[string]any{
-		{"op": "test", "path": "/metadata/resourceVersion", "value": resourceVersion},
+		{"op": "test", "path": "/metadata/generation", "value": generation},
 		{"op": "replace", "path": "/spec", "value": spec},
 	})
 	if err != nil {
@@ -186,12 +189,12 @@ func (a *Actions) CreatePlexCollection(
 
 // UpdatePlexCollection is [UpdatePlexCollection] over the Actions' writer.
 func (a *Actions) UpdatePlexCollection(
-	ctx context.Context, namespace, name, resourceVersion string, spec catalogv1alpha1.PlexCollectionSpec,
+	ctx context.Context, namespace, name string, generation int64, spec catalogv1alpha1.PlexCollectionSpec,
 ) error {
 	if a == nil || a.w == nil {
 		return ErrNoWriter
 	}
-	return UpdatePlexCollection(ctx, a.w, namespace, name, resourceVersion, spec)
+	return UpdatePlexCollection(ctx, a.w, namespace, name, generation, spec)
 }
 
 // DeletePlexCollection is [DeletePlexCollection] over the Actions' writer.

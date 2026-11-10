@@ -304,3 +304,13 @@ func memberOp(spec *catalogv1.PlexCollectionSpec, op, at string) error {
 	}
 	return nil
 }
+
+// formGeneration is the generation the editor read, posted back with the
+// form; 0 when absent or not a number.
+func formGeneration(v url.Values) int64 {
+	n, err := strconv.ParseInt(v.Get("generation"), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}

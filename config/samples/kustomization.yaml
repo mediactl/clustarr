@@ -4,7 +4,6 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - catalog_v1alpha1_overlayprofile.yaml
-  # Plex collections, reconciled by cluster-plex (plex.clustarr.enabled).
-  - catalog_v1alpha1_plexcollection_anime_dubbed.yaml
-  - catalog_v1alpha1_plexcollection_netflix.yaml
-  - catalog_v1alpha1_plexcollection_up.yaml
+# The PlexCollection samples are not listed: kubectl delete -k here would
+# delete those collections in Plex through cluster-plex's finalizer. Apply
+# each one by itself (README.md).
