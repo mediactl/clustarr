@@ -1,0 +1,330 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// A comic's page (2026-11-10 design §9.4) is the series page for a volume:
+// the action bar -- Refresh & Scan, Search, Search Volume (the pack
+// search), Rename, Edit, Delete -- a hero on the cover with the publisher,
+// the run's years, the volume number, the issue count, the publication
+// status, the kind (comic or manga and how it reads), the age rating, the
+// genres and the provider logos, then Mylar's issues table. An issue's
+// actions answer into #issue-modal and #action-status.
+
+// ComicPage is a comic's page.
+templ ComicPage(v ComicView) {
+	@Shell(Chrome{Title: v.Item.Title, Crumbs: itemCrumbs(v.Item), Tab: v.Item.Tab}) {
+		@comicActions(v)
+		@comicHero(v)
+		@comicIssuesSection(v)
+		@issueRegions()
+	}
+}
+
+// issueRegions are what an issue's actions answer into on a comic's page:
+// the modal's mount point and the action status.
+templ issueRegions() {
+	<div id="issue-modal"></div>
+	@ActionStatusRegion()
+}
+
+// comicActions is the comic page's action bar: the shared slots by name
+// (ItemActions' Refresh & Scan, Search Monitored Issues, Rename, Edit,
+// Delete) with "Search Volume" between Search and Rename -- the pack
+// search of every missing issue, answered into #action-status as a season's
+// magnifier is. A comic has no interactive search of its own
+// (InteractiveSearchable): its issues have theirs.
+templ comicActions(v ComicView) {
+	{{ d := v.Detail }}
+	@actionBar() {
+		@itemAction(d, ActionRefresh)
+		@itemAction(d, ActionSearch)
+		@actionForm("volume-search-"+d.Item.Ref.Name, v.VolumeSearchURL(), []Field{{"return", libraryDetailPath(d.Item)}}, "layers", "Volume", "Search Volume: one search for a pack of every missing issue", "comic-volume-search",
+			templ.Attributes{"hx-post": v.VolumeSearchURL(), "hx-target": "#action-status"})
+		@itemAction(d, ActionRename)
+		@itemAction(d, ActionEdit)
+		@itemAction(d, ActionDelete)
+	}
+}
+
+// comicHero is the movie page's hero for a comic: the cover, the bookmark
+// and title with the neighbouring comics, the age rating, the run's
+// years, the volume number, the issue count, the kind and the provider
+// logos, then the facts -- path, status, profile, publisher, publication,
+// issues on disk, the next pull date, language, genres -- and the
+// overview. It carries the card's data attributes (ruling R8) so the tests
+// key on them, not on copy.
+templ comicHero(v ComicView) {
+	{{ li := v.Item }}
+	<section
+		data-hero
+		data-ref={ li.Ref.String() }
+		data-kind="comic"
+		data-monitored={ fmt.Sprintf("%t", li.Monitored) }
+		data-phase={ li.Phase }
+		data-hasfile={ fmt.Sprintf("%t", li.HasFile) }
+		data-year={ fmt.Sprint(li.Year) }
+		data-profile={ li.QualityProfileRef }
+		data-poster={ posterState(li.Poster) }
+		class="relative -mx-6 mb-8"
+	>
+		if v.Backdrop != "" {
+			<img data-backdrop src={ templ.URL(v.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
+			<div class="page-backdrop-shade" aria-hidden="true"></div>
+		}
+		if li.ArtKey != "" {
+			<div hidden hx-ext="sse" sse-connect={ artStreamURL(v.Detail) } hx-trigger="sse:art"></div>
+		}
+		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
+			<div class="w-40 shrink-0 md:w-56">
+				<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
+					@poster(li.Poster, li.Title, li.ArtKey)
+				</div>
+			</div>
+			<div class="min-w-0 flex-1">
+				<div class="flex items-start justify-between gap-4">
+					<div class="flex min-w-0 items-center gap-3">
+						@monitorBookmark(li)
+						<h1 class="min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl">{ li.Title }</h1>
+					</div>
+					@neighbours(v.Detail)
+				</div>
+				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+					if v.AgeRating != "" {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base", Attributes: templ.Attributes{"data-age-rating": v.AgeRating}}) {
+							{ v.AgeRating }
+						}
+					}
+					if years := v.YearsLabel(); years != "" {
+						<span data-years>{ years }</span>
+					}
+					if v.VolumeNumber > 0 {
+						<span data-volume>{ fmt.Sprintf("Vol. %d", v.VolumeNumber) }</span>
+					}
+					if v.IssueCount > 0 {
+						<span data-issue-count>{ issuesWord(v.IssueCount) }</span>
+					}
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-base text-sky-300", Attributes: templ.Attributes{"data-comic-kind": v.Kind, "data-manga": v.Manga}}) {
+						{ v.KindLabel() }
+					}
+					@providerLinks(v.Links)
+				</div>
+				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					if v.Path != "" {
+						@fact("path", "Path") {
+							<span class="break-all">{ v.Path }</span>
+						}
+					}
+					@fact("status", "Status") {
+						<span class="flex items-center gap-2">
+							<span data-status={ projection.LibraryStatus(li) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(projection.LibraryStatus(li)) }></span>
+							{ statusLabel(li) }
+						</span>
+						if li.DeleteError != "" {
+							@deleteRetry(v.Detail)
+						}
+						if li.DeleteMode != "" {
+							@deleteCancel(v.Detail)
+						}
+					}
+					if li.QualityProfileRef != "" {
+						@fact("profile", "Quality Profile") {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
+								{ li.QualityProfileRef }
+							}
+						}
+					}
+					if v.Publisher != "" {
+						@fact("publisher", "Publisher") {
+							{ v.Publisher }
+						}
+					}
+					if v.RunStatusLabel() != "" {
+						@fact("publication", "Publication") {
+							{ v.RunStatusLabel() }
+						}
+					}
+					@fact("issues", "Issues") {
+						<span data-issues={ v.IssuesLabel() }>{ v.IssuesLabel() }</span>
+					}
+					if v.NextPull != "" {
+						@fact("nextpull", "Next Issue") {
+							<time datetime={ v.NextPull }>{ v.NextPull }</time>
+						}
+					}
+					if v.Language != "" {
+						@fact("language", "Original Language") {
+							{ v.Language }
+						}
+					}
+					if len(v.Genres) > 0 {
+						@fact("genres", "Genres") {
+							{ strings.Join(v.Genres, ", ") }
+						}
+					}
+				</dl>
+				if v.Overview != "" {
+					<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// issuesWord is the hero's issue count, "54 issues".
+func issuesWord(n int32) string {
+	if n == 1 {
+		return "1 issue"
+	}
+	return fmt.Sprintf("%d issues", n)
+}
+
+// comicIssuesSection is Mylar's issues table in a card: its header
+// carries the volume search's badge (Queued, Searching, "Searched: N
+// approved"), as a season header carries the season's.
+templ comicIssuesSection(v ComicView) {
+	@card.Card(card.Props{Class: "mt-6 gap-0 py-0"}) {
+		@card.Header(card.HeaderProps{Class: "flex flex-row flex-wrap items-center gap-3 px-4 py-3"}) {
+			@card.Title() {
+				Issues
+			}
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Attributes: templ.Attributes{"data-issue-files": v.IssuesLabel()}}) {
+				{ v.IssuesLabel() }
+			}
+			if v.Volume.Label != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: seasonSearchTone(v.Volume.Phase), Attributes: templ.Attributes{
+					"data-volume-search": v.Volume.Phase, "title": v.Volume.Title,
+				}}) {
+					{ v.Volume.Label }
+				}
+			}
+		}
+		@card.Content(card.ContentProps{Class: "issues border-t border-border p-0"}) {
+			@ComicIssueRows(v.Issues)
+		}
+	}
+}
+
+// ComicIssueRows is a comic's issues table, Mylar's: the dates fold away
+// on a narrow screen, the store date first.
+templ ComicIssueRows(issues []IssueRow) {
+	if len(issues) == 0 {
+		@emptyNote("No issues yet: they arrive with the comic's metadata.", "py-3", nil)
+	} else {
+		@table.Table(table.Props{Attributes: templ.Attributes{"data-issue-table": ""}}) {
+			@table.Header() {
+				@table.Row() {
+					@table.Head(table.HeadProps{Class: "w-10"}) {
+						<span class="sr-only">Monitored</span>
+					}
+					@table.Head(table.HeadProps{Class: "w-16"}) {
+						#
+					}
+					@table.Head() {
+						Title
+					}
+					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) {
+						Cover Date
+					}
+					@table.Head(table.HeadProps{Class: "hidden w-32 md:table-cell"}) {
+						In Shops
+					}
+					@table.Head(table.HeadProps{Class: "w-36"}) {
+						Status
+					}
+					@table.Head(table.HeadProps{Class: "w-20"}) {
+						<span class="sr-only">Actions</span>
+					}
+				}
+			}
+			@table.Body() {
+				for _, iss := range issues {
+					@IssueRowView(iss)
+				}
+			}
+		}
+	}
+}
+
+// IssueRowView is one issue, and what its monitor toggle swaps in place:
+// the bookmark, the number, the title (opening the issue's page, which a
+// hover preloads), the cover and store dates, the status cell, and the
+// automatic and interactive searches. An unmonitored issue reads dimmed.
+templ IssueRowView(iss IssueRow) {
+	@table.Row(table.RowProps{
+		Class: rowTone(iss.Monitored),
+		Attributes: templ.Attributes{
+			"data-issue":     iss.Name,
+			"data-number":    iss.Number,
+			"data-monitored": fmt.Sprintf("%t", iss.Monitored),
+			"data-hasfile":   fmt.Sprintf("%t", iss.HasFile),
+			"data-quality":   iss.Format,
+			"data-phase":     iss.Phase,
+			"data-status":    iss.Status.Kind,
+		},
+	}) {
+		@table.Cell(table.CellProps{Class: "py-1"}) {
+			<form hx-post={ iss.MonitorURL() } hx-target="closest tr" hx-swap="outerHTML" method="post" action={ templ.URL(iss.MonitorURL()) } class="contents">
+				<input type="hidden" name="return" value={ iss.ReturnURL() }/>
+				<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !iss.Monitored) }/>
+				@bookmarkToggle(iss.Monitored, "set-monitored", false)
+			</form>
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums text-muted-foreground"}) {
+			{ iss.Label() }
+		}
+		@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+			<a
+				href={ templ.URL(iss.URL()) }
+				preload="mouseover"
+				class="font-medium hover:underline"
+				data-issue-title
+			>
+				{ iss.DisplayTitle() }
+			</a>
+			@actionFailure(iss.Error)
+		}
+		@table.Cell(table.CellProps{Class: "hidden text-muted-foreground sm:table-cell"}) {
+			if iss.CoverDate != "" {
+				<time datetime={ iss.CoverDate } title={ iss.CoverDate } data-cover-date>{ iss.CoverDateLabel }</time>
+			}
+		}
+		@table.Cell(table.CellProps{Class: "hidden text-muted-foreground md:table-cell"}) {
+			if iss.StoreDate != "" {
+				<time datetime={ iss.StoreDate } title={ iss.StoreDate } data-store-date>{ iss.StoreDateLabel }</time>
+			}
+		}
+		@table.Cell() {
+			@statusCell(iss.Status)
+		}
+		@table.Cell(table.CellProps{Class: "py-1"}) {
+			<span class="flex justify-end">
+				@searchButtons("issue", iss.SearchURL(), iss.InteractiveSearchURL(), iss.ReturnURL())
+			</span>
+		}
+	}
+}

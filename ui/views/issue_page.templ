@@ -1,0 +1,250 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/components/aspectratio"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/icon"
+)
+
+// An issue's page (2026-11-10 design §9.4) is the movie page for one
+// issue, the episode page's shape: the action bar -- Refresh & Scan Comic,
+// Search Issue, Interactive Search -- a hero on the comic's background
+// with the issue's cover (else the comic's), the bookmark and title, the
+// comic, the number, the cover and store dates, the credits and the
+// provider logos, the facts and the overview, then the Files table in the
+// issue's columns (format, pages, size, score) and the neighbouring issues.
+// What belongs to the comic -- Edit, Rename, Delete -- stays on its page.
+
+// IssuePage is an issue's page.
+templ IssuePage(v IssueView) {
+	@Shell(Chrome{Title: issuePageTitle(v), Crumbs: issueCrumbs(v), Tab: v.Item.Tab}) {
+		@issueToolbar(v)
+		@issueHero(v)
+		@filesSection(v.Detail)
+		<div id="issue-modal"></div>
+		@ActionStatusRegion()
+	}
+}
+
+// issuePageTitle is the page's title: "Comic - #12 - Title", the number
+// alone for an untitled issue.
+func issuePageTitle(v IssueView) string {
+	title := v.Item.Title + " - " + v.Row.Label()
+	if v.Row.Title != "" {
+		title += " - " + v.Row.Title
+	}
+	return title
+}
+
+// issueCrumbs is the trail: the library, the tab, the comic linked, the
+// issue's number last.
+func issueCrumbs(v IssueView) []Crumb {
+	return []Crumb{
+		{Label: "Library", Href: "/library"},
+		{Label: tabLabel(v.Item.Tab), Href: "/library/" + string(v.Item.Tab)},
+		{Label: v.Item.Title, Href: libraryDetailPath(v.Item)},
+		{Label: v.Row.Label()},
+	}
+}
+
+// issueToolbar is the movie page's toolbar for an issue: "Refresh & Scan
+// Comic" (an issue's metadata is its comic's, and the scan is of the
+// comic's folder), the automatic search, and the interactive search, which
+// opens the issue's modal on its Search tab in #issue-modal. Every form
+// returns here.
+templ issueToolbar(v IssueView) {
+	{{ name, here := v.Row.Name, v.Row.URL() }}
+	@actionBar() {
+		@actionForm("refresh-"+name, libraryActionURL(v.Item, "refresh"), []Field{{"return", here}, {"scan", "true"}}, "refresh-cw", "Refresh", "Refresh & Scan Comic", "refresh-metadata", nil)
+		@actionForm("search-"+name, v.Row.SearchURL(), []Field{{"return", here}}, "search", "Search", "Search Issue", "search-now", nil)
+		@actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "issue-interactive-search",
+			templ.Attributes{"hx-post": v.Row.InteractiveSearchURL(), "hx-target": "#issue-modal", "hx-swap": "innerHTML"})
+	}
+}
+
+// issueHero is the movie page's header for an issue, on its comic's
+// background: the cover (else the comic's poster), the bookmark and title
+// with the neighbouring issues, the comic and the number, the cover and
+// store dates and the provider links, the facts and the overview. It
+// carries the issue's data attributes for the tests.
+templ issueHero(v IssueView) {
+	{{ li, iss := v.Item, v.Row }}
+	<section
+		data-hero
+		data-issue-page={ iss.Name }
+		data-kind="issue"
+		data-number={ iss.Number }
+		data-monitored={ fmt.Sprintf("%t", iss.Monitored) }
+		data-phase={ iss.Phase }
+		data-hasfile={ fmt.Sprintf("%t", iss.HasFile) }
+		data-status={ iss.Status.Kind }
+		data-profile={ li.QualityProfileRef }
+		class="relative -mx-6 mb-8"
+	>
+		if v.Backdrop != "" {
+			<img data-backdrop src={ templ.URL(v.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
+			<div class="page-backdrop-shade" aria-hidden="true"></div>
+		}
+		if li.ArtKey != "" {
+			<div hidden hx-ext="sse" sse-connect={ artStreamURL(v.Detail) } hx-trigger="sse:art"></div>
+		}
+		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
+			<div class="w-40 shrink-0 md:w-56">
+				if v.Cover != "" {
+					@aspectratio.AspectRatio(aspectratio.Props{Ratio: "2/3", Class: "overflow-hidden rounded-xl bg-muted shadow-2xl shadow-black/60 ring-1 ring-white/10"}) {
+						<img data-cover src={ templ.URL(v.Cover) } alt={ iss.DisplayTitle() } loading="lazy" class="size-full object-cover"/>
+					}
+				} else {
+					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
+						@poster(li.Poster, li.Title, li.ArtKey)
+					</div>
+				}
+			</div>
+			<div class="min-w-0 flex-1">
+				<div class="flex items-start justify-between gap-4">
+					<div class="flex min-w-0 items-center gap-3">
+						@issueBookmark(iss)
+						<h1 class="min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl">{ iss.DisplayTitle() }</h1>
+					</div>
+					@neighbours(v.Detail)
+				</div>
+				<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
+					<a href={ templ.URL(libraryDetailPath(li)) } data-comic-link class="font-medium hover:underline">{ li.Title }</a>
+					<span class="text-muted-foreground" aria-hidden="true">·</span>
+					<span data-issue-code>{ iss.Label() }</span>
+				</div>
+				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+					if iss.CoverDate != "" {
+						<time datetime={ iss.CoverDate } title={ iss.CoverDate } data-cover-date>{ "Cover " + iss.CoverDateLabel }</time>
+					}
+					if iss.StoreDate != "" {
+						<time datetime={ iss.StoreDate } title={ iss.StoreDate } data-store-date>{ shopsLabel(iss) }</time>
+					}
+					@providerLinks(v.Links)
+					if len(v.ComicLinks) > 0 {
+						<span class="inline-flex items-center gap-3" data-comic-links>
+							<span class="text-sm">Comic</span>
+							@providerLinks(v.ComicLinks)
+						</span>
+					}
+				</div>
+				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					if v.Path != "" {
+						@fact("path", "Path") {
+							<span class="break-all">{ v.Path }</span>
+						}
+					}
+					@fact("status", "Status") {
+						<span class="flex items-center gap-2">
+							<span data-status={ episodeStripe(iss.Status) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(episodeStripe(iss.Status)) }></span>
+							{ issueStatusLabel(v) }
+						</span>
+					}
+					if li.QualityProfileRef != "" {
+						@fact("profile", "Quality Profile") {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
+								{ li.QualityProfileRef }
+							}
+						}
+					}
+					if size := totalSize(v.Files); size > 0 {
+						@fact("size", "Size") {
+							{ formatBytes(size) }
+						}
+					}
+					if v.Publisher != "" {
+						@fact("publisher", "Publisher") {
+							{ v.Publisher }
+						}
+					}
+					if len(v.Credits) > 0 {
+						@fact("credits", "Credits") {
+							@issueCredits(v.Credits)
+						}
+					}
+					if v.Language != "" {
+						@fact("language", "Original Language") {
+							{ v.Language }
+						}
+					}
+					if len(v.Genres) > 0 {
+						@fact("genres", "Genres") {
+							{ strings.Join(v.Genres, ", ") }
+						}
+					}
+				</dl>
+				if v.Overview != "" {
+					<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// issueBookmark is the movie page's bookmark for the issue: filled when
+// monitored, and the form that flips it, returning here.
+templ issueBookmark(iss IssueRow) {
+	<form method="post" action={ templ.URL(iss.MonitorURL()) } class="contents">
+		<input type="hidden" name="return" value={ iss.URL() }/>
+		<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !iss.Monitored) }/>
+		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconLg, Attributes: templ.Attributes{"data-action": "set-monitored", "aria-label": bookmarkLabel(iss.Monitored), "title": bookmarkLabel(iss.Monitored)}}) {
+			if iss.Monitored {
+				<span class="[&_svg]:size-8 [&_svg]:fill-current">
+					@icon.Icon("bookmark")()
+				</span>
+			} else {
+				<span class="[&_svg]:size-8">
+					@icon.Icon("bookmark")()
+				</span>
+			}
+		}
+	</form>
+}
+
+// shopsLabel is the store date as the hero says it: "In shops Jan 2 2020",
+// or "In shops from ..." before then.
+func shopsLabel(iss IssueRow) string {
+	if iss.Status.Kind == "unreleased" {
+		return "In shops from " + iss.StoreDateLabel
+	}
+	return "In shops " + iss.StoreDateLabel
+}
+
+// issueStatusLabel is the Status fact in words, as the movie page's: a
+// file is Downloaded or Cutoff Unmet (with the reason the catalog
+// recorded), else the status cell's own word.
+func issueStatusLabel(v IssueView) string {
+	s := v.Row.Status
+	if s.Kind != "file" {
+		return s.Label
+	}
+	switch {
+	case s.Warn && v.CutoffReason != "" && v.CutoffReason != "CutoffUnmet":
+		return "Cutoff Unmet: " + v.CutoffReason
+	case s.Warn:
+		return "Cutoff Unmet"
+	default:
+		return "Downloaded"
+	}
+}
