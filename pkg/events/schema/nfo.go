@@ -40,6 +40,10 @@ type NFOWriteTask struct {
 	Files []NFOFile `json:"files"`
 	// Images are the artwork objects to copy beside them.
 	Images []NFOImage `json:"images,omitempty"`
+	// Owned are the names the agent wrote for this item before
+	// (status.nfo.files): the only existing files it may replace. A name
+	// not in it that already exists is an operator's and is kept.
+	Owned []string `json:"owned,omitempty"`
 	// Hash is pkg/nfo's hash of the documents and the images' digests; the
 	// answer echoes it and the loop records it in status.nfo.hash.
 	Hash string `json:"hash"`

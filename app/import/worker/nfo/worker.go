@@ -105,11 +105,13 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return events.Discard("NFO folder refused", err)
 	}
 
-	// The names this worker wrote before are the only ones it rewrites;
-	// anything else already in the folder is somebody's and is kept.
-	var mine []string
+	// The names this worker wrote before (status.nfo.files, carried as
+	// task.Owned; the record's last answer too, while it still has one) are
+	// the only ones it rewrites; anything else already in the folder is
+	// somebody's and is kept.
+	mine := slices.Clone(task.Owned)
 	if cur, _, ok, err := w.reader.Get(ctx, key); err == nil && ok && cur.Answer != nil {
-		mine = cur.Answer.Files
+		mine = append(mine, cur.Answer.Files...)
 	}
 
 	stop := w.keepAlive(ctx, m)

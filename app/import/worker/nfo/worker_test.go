@@ -129,6 +129,7 @@ func TestWritesDocumentsAndImagesAndAnswers(t *testing.T) {
 	// fact) rewrites the worker's own files and still keeps the operator's.
 	request(t, ctx, req, 2, rev2, records.IncorporatedThrough(1))
 	task.Seq = 2
+	task.Owned = rec.Answer.Files // what the loop recorded in status.nfo.files
 	task.Files[0].Content = []byte("<album><title>Absolution</title></album>")
 	require.NoError(t, w.Handle(ctx, message(t, task)))
 	got, err = os.ReadFile(filepath.Join(folder, "album.nfo"))
