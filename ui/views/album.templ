@@ -1,0 +1,730 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/aspectratio"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
+	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/spinner"
+	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/components/tabs"
+)
+
+// An album's page (2026-11-10 design §9.2; plan W4b.1) is the episode
+// page's analogue: the action bar (Refresh, Search, Interactive, Rename),
+// a hero on the artist's fanart -- the cover, the bookmark and title, the
+// artist, release date, type, label, duration, track summary and
+// MusicBrainz logos, the facts -- then the Tracks table, the Files section
+// and the neighbouring albums. Its details modal (AlbumModal) is the book
+// modal's shape for a row's title, and its interactive search modal
+// (AlbumSearchModal) lists Lidarr's columns.
+
+// AlbumPage is an album's page.
+templ AlbumPage(v AlbumView) {
+	@Shell(Chrome{Title: v.PageTitle(), Crumbs: childCrumbs(v.Item, v.Row.DisplayTitle()), Tab: v.Item.Tab}) {
+		@albumToolbar(v)
+		@albumHero(v)
+		@tracksSection(v)
+		@filesSection(v.Detail)
+		@albumRegions()
+	}
+}
+
+// albumToolbar is the album page's action bar: Refresh (the album's own
+// metadata), Search Album, Interactive Search (AlbumSearchModal, into
+// #album-modal) and, for an artist with a folder, the artist's Rename pair
+// -- an album's files live in its artist's folder, which the rename
+// restricts itself to. Edit and Delete act on the artist and stay on the
+// artist's page. Every form returns here.
+templ albumToolbar(v AlbumView) {
+	{{ name, here := v.Row.Name, v.Row.URL() }}
+	@actionBar() {
+		@actionForm("refresh-"+name, v.Row.RefreshURL(), []Field{{"return", here}}, "refresh-cw", "Refresh", "Refresh Album", "refresh-metadata", nil)
+		@actionForm("search-"+name, v.Row.SearchURL(), []Field{{"return", here}}, "search", "Search", "Search Album", "search-now", nil)
+		@actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "album-interactive-search",
+			templ.Attributes{"hx-post": v.Row.InteractiveSearchURL(), "hx-target": ModalRegion(commonv1.MediaKindAlbum), "hx-swap": "innerHTML"})
+		if v.CanScan {
+			@actionForm("rename-dry-run-"+name, libraryActionURL(v.Item, "rename"), []Field{{"return", here}, {"rename", "dryRun"}}, "eye", "Preview", "Preview Rename of the artist's files (dry run)", "rename-dry-run", nil)
+			@actionForm("rename-"+name, libraryActionURL(v.Item, "rename"), []Field{{"return", here}, {"rename", "apply"}}, "file-symlink", "Rename", "Rename the artist's files", "rename-apply", nil)
+		}
+	}
+}
+
+// albumHero is the item page's hero for an album, on its artist's fanart:
+// the cover (else the artist's poster), the bookmark and title with the
+// neighbouring albums, the artist link, release date, type, label and
+// artist credit, the duration, track summary and provider logos, the facts
+// and the overview. It carries the album's data attributes for the tests.
+templ albumHero(v AlbumView) {
+	{{ li, a := v.Item, v.Row }}
+	<section
+		data-hero
+		data-album-page={ a.Name }
+		data-kind="album"
+		data-monitored={ fmt.Sprintf("%t", a.Monitored) }
+		data-phase={ a.Phase }
+		data-hasfile={ fmt.Sprintf("%t", a.HasFile) }
+		data-status={ a.Status.Kind }
+		data-profile={ li.QualityProfileRef }
+		class="relative -mx-6 mb-8"
+	>
+		if v.Backdrop != "" {
+			<img data-backdrop src={ templ.URL(v.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
+			<div class="page-backdrop-shade" aria-hidden="true"></div>
+		}
+		if li.ArtKey != "" {
+			<div hidden hx-ext="sse" sse-connect={ albumArtStreamURL(v) } hx-trigger="sse:art"></div>
+		}
+		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
+			if v.Cover != "" {
+				<div class="w-40 shrink-0 md:w-56">
+					@aspectratio.AspectRatio(aspectratio.Props{Ratio: "1/1", Class: "overflow-hidden rounded-xl bg-muted shadow-2xl shadow-black/60 ring-1 ring-white/10"}) {
+						<img data-cover src={ templ.URL(v.Cover) } data-art={ v.CoverKey } alt={ a.DisplayTitle() } loading="lazy" class="size-full object-cover"/>
+					}
+				</div>
+			} else {
+				<div class="w-40 shrink-0 md:w-56">
+					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
+						@poster(li.Poster, li.Title, li.ArtKey)
+					</div>
+				</div>
+			}
+			<div class="min-w-0 flex-1">
+				<div class="flex items-start justify-between gap-4">
+					<div class="flex min-w-0 items-center gap-3">
+						@albumBookmark(a)
+						<h1 class="min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl">{ a.DisplayTitle() }</h1>
+					</div>
+					@neighbours(v.Detail)
+				</div>
+				<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
+					<a href={ templ.URL(libraryDetailPath(li)) } data-artist-link class="font-medium hover:underline">{ li.Title }</a>
+					if v.ArtistCredit != "" {
+						<span class="text-muted-foreground" data-artist-credit>{ "(" + v.ArtistCredit + ")" }</span>
+					}
+					if a.Disambiguation != "" {
+						<span class="text-muted-foreground" aria-hidden="true">·</span>
+						<span class="text-muted-foreground" data-album-disambiguation>{ a.Disambiguation }</span>
+					}
+				</div>
+				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+					if a.TypeLabel() != "" {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base", Attributes: templ.Attributes{"data-album-type": a.Type}}) {
+							{ a.TypeLabel() }
+						}
+					}
+					for _, st := range a.SecondaryTypes {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-base text-sky-300", Attributes: templ.Attributes{"data-secondary-type": st}}) {
+							{ st }
+						}
+					}
+					if a.ReleaseDate != "" {
+						<time datetime={ a.ReleaseDate } title={ a.ReleaseDate } data-release-date>{ releasedLabel(a) }</time>
+					}
+					if v.Label != "" {
+						<span data-album-label>{ v.Label }</span>
+					}
+					if v.Duration != "" {
+						<span data-album-duration>{ v.Duration }</span>
+					}
+					if v.TrackCount > 0 {
+						<span data-track-summary>{ fmt.Sprintf("%d of %d tracks", v.TrackFileCount, v.TrackCount) }</span>
+					}
+					@providerLinks(v.Links)
+				</div>
+				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					if v.Path != "" {
+						@fact("path", "Path") {
+							<span class="break-all">{ v.Path }</span>
+						}
+					}
+					@fact("status", "Status") {
+						<span class="flex items-center gap-2">
+							<span data-status={ episodeStripe(a.Status) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(episodeStripe(a.Status)) }></span>
+							{ albumStatusLabel(a) }
+						</span>
+					}
+					if a.Quality != "" {
+						@fact("quality", "Quality") {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(a.Status.Warn) + " text-sm"}) {
+								{ a.Quality }
+							}
+						}
+					}
+					if li.QualityProfileRef != "" {
+						@fact("profile", "Quality Profile") {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
+								{ li.QualityProfileRef }
+							}
+						}
+					}
+					@fact("monitored", "Monitored") {
+						<span data-monitored-fact={ fmt.Sprintf("%t", a.Monitored) }>{ monitoredFact(a.Monitored) }</span>
+					}
+					if size := totalSize(v.Files); size > 0 {
+						@fact("size", "Size") {
+							{ formatBytes(size) }
+						}
+					}
+					if len(v.Genres) > 0 {
+						@fact("genres", "Genres") {
+							{ strings.Join(v.Genres, ", ") }
+						}
+					}
+				</dl>
+				if v.Overview != "" {
+					<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// albumArtStreamURL is the album page's GET /events/art: the artist's
+// poster and fanart keys, and the album's own cover when it shows one.
+func albumArtStreamURL(v AlbumView) string {
+	u := artStreamURL(v.Detail)
+	if v.CoverKey != "" {
+		u += "&key=" + v.CoverKey
+	}
+	return u
+}
+
+// albumBookmark is the hero's bookmark for the album: filled when
+// monitored, and the form that flips it, returning here.
+templ albumBookmark(a AlbumRow) {
+	<form method="post" action={ templ.URL(a.MonitorURL()) } class="contents">
+		<input type="hidden" name="return" value={ a.URL() }/>
+		<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !a.Monitored) }/>
+		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconLg, Attributes: templ.Attributes{"data-action": "set-monitored", "aria-label": bookmarkLabel(a.Monitored), "title": bookmarkLabel(a.Monitored)}}) {
+			if a.Monitored {
+				<span class="[&_svg]:size-8 [&_svg]:fill-current">
+					@icon.Icon("bookmark")()
+				</span>
+			} else {
+				<span class="[&_svg]:size-8">
+					@icon.Icon("bookmark")()
+				</span>
+			}
+		}
+	</form>
+}
+
+// releasedLabel is the release date as the hero says it: "Released Mar 1
+// 1973", or "Releases ..." before then.
+func releasedLabel(a AlbumRow) string {
+	if a.Status.Kind == "unreleased" {
+		return "Releases " + a.ReleaseDateLabel
+	}
+	return "Released " + a.ReleaseDateLabel
+}
+
+// monitoredFact is the Monitored fact's word.
+func monitoredFact(monitored bool) string {
+	if monitored {
+		return "Monitored"
+	}
+	return "Unmonitored"
+}
+
+// albumStatusLabel is the Status fact in words, as the episode page's: a
+// file is Downloaded or Cutoff Unmet with the reason the catalog recorded
+// (TracksMissing reads "Tracks missing"), else the status cell's own word.
+func albumStatusLabel(a AlbumRow) string {
+	s := a.Status
+	if s.Kind != "file" {
+		return s.Label
+	}
+	switch {
+	case s.Warn && a.CutoffReason == "TracksMissing":
+		return "Cutoff Unmet: tracks missing"
+	case s.Warn && a.CutoffReason != "" && a.CutoffReason != "CutoffUnmet":
+		return "Cutoff Unmet: " + a.CutoffReason
+	case s.Warn:
+		return "Cutoff Unmet"
+	default:
+		return "Downloaded"
+	}
+}
+
+// tracksSection is the album's Tracks table (design §9.2): the disc and
+// number, title, duration, and the attributed file's audio cells -- codec,
+// bitrate, sample rate and bit depth, size -- with a dot saying whether a
+// file is attributed or the track is missing.
+templ tracksSection(v AlbumView) {
+	<section data-section="tracks" data-tracks={ fmt.Sprint(len(v.Tracks)) } class="mb-8">
+		@sectionTitle("Tracks")
+		if len(v.Tracks) == 0 {
+			@emptyNote("No tracks yet: they arrive with the album's metadata.", "panel rounded-xl border border-border bg-card", nil)
+		} else {
+			<div class="panel rounded-xl border border-border bg-card">
+				@table.Table(table.Props{Attributes: templ.Attributes{"data-track-table": ""}}) {
+					@table.Header() {
+						@table.Row() {
+							@table.Head(table.HeadProps{Class: "w-10"}) {
+								<span class="sr-only">File</span>
+							}
+							@table.Head(table.HeadProps{Class: "w-14"}) {
+								#
+							}
+							@table.Head() {
+								Title
+							}
+							@table.Head(table.HeadProps{Class: "w-20 text-right"}) {
+								Duration
+							}
+							@table.Head(table.HeadProps{Class: "hidden md:table-cell"}) {
+								Codec
+							}
+							@table.Head(table.HeadProps{Class: "hidden md:table-cell"}) {
+								Bitrate
+							}
+							@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) {
+								Sample Rate
+							}
+							@table.Head(table.HeadProps{Class: "hidden text-right sm:table-cell"}) {
+								Size
+							}
+						}
+					}
+					@table.Body() {
+						for _, t := range v.Tracks {
+							@trackRowView(t, v.Discs)
+						}
+					}
+				}
+			</div>
+		}
+	</section>
+}
+
+// trackRowView is one track: the status dot, its position, title (with an
+// explicit badge), duration and its file's cells, empty for a missing
+// track.
+templ trackRowView(t TrackRow, discs bool) {
+	@table.Row(table.RowProps{Attributes: templ.Attributes{
+		"data-track":        t.Position(discs),
+		"data-track-status": trackState(t),
+	}}) {
+		@table.Cell(table.CellProps{Class: "py-1"}) {
+			<span class={ "inline-block size-2 rounded-full " + trackDot(t) } title={ trackTitle(t) } aria-label={ trackTitle(t) }></span>
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums text-muted-foreground"}) {
+			{ t.Position(discs) }
+		}
+		@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+			<span class="flex flex-wrap items-center gap-2">
+				<span class="font-medium" data-track-title>{ t.Title }</span>
+				if t.Explicit {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-xs", Attributes: templ.Attributes{"data-explicit": true}}) {
+						Explicit
+					}
+				}
+			</span>
+		}
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums text-muted-foreground"}) {
+			{ t.Duration }
+		}
+		if t.File != nil {
+			@textCell(t.File.AudioCodec, "hidden md:table-cell", dataCell("codec"))
+			@textCell(bitrateLabel(t.File.BitrateKbps), "hidden md:table-cell", dataCell("bitrate"))
+			@textCell(sampleRateLabel(t.File.SampleRateHz, t.File.BitDepth), "hidden lg:table-cell", dataCell("sampleRate"))
+			@textCell(formatBytes(t.File.SizeBytes), "hidden text-right tabular-nums sm:table-cell", dataCell("size"))
+		} else {
+			@textCell("", "hidden md:table-cell", nil)
+			@textCell("", "hidden md:table-cell", nil)
+			@textCell("", "hidden lg:table-cell", nil)
+			@textCell("", "hidden sm:table-cell", nil)
+		}
+	}
+}
+
+// trackState is a track's data-track-status: attributed or missing.
+func trackState(t TrackRow) string {
+	if t.File != nil {
+		return "attributed"
+	}
+	return "missing"
+}
+
+// trackDot colours the status dot: green for a file, red for a missing
+// track.
+func trackDot(t TrackRow) string {
+	if t.File != nil {
+		return "bg-emerald-500"
+	}
+	return "bg-red-500"
+}
+
+// trackTitle is the dot's tooltip.
+func trackTitle(t TrackRow) string {
+	if t.File != nil {
+		return "On disk: " + t.File.RelativePath
+	}
+	return "Missing from disk"
+}
+
+// AlbumModal is an album's details modal, opened from its title on the
+// artist's page: "Artist - Title", then the Details and Search tabs. It is
+// swapped into the page's #album-modal and opens as it lands; the next one
+// swapped in retires it.
+templ AlbumModal(d AlbumDetail) {
+	@dialog.Dialog(dialog.Props{DefaultOpen: true}) {
+		@dialog.Content(dialog.ContentProps{
+			Class:      "max-h-[90vh] overflow-y-auto sm:max-w-6xl",
+			Attributes: templ.Attributes{"data-album-modal": d.Row.Name},
+		}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ albumHeading(d) }
+				}
+				@dialog.Description() {
+					{ albumFacts(d) }
+				}
+			}
+			@albumTabs(d)
+		}
+	}
+}
+
+// albumHeading is the modal's title: the artist, then the album's title.
+func albumHeading(d AlbumDetail) string {
+	title := d.Row.DisplayTitle()
+	if d.ArtistTitle == "" {
+		return title
+	}
+	return d.ArtistTitle + " - " + title
+}
+
+// albumFacts is the line under the title: release date, type, tracks,
+// status.
+func albumFacts(d AlbumDetail) string {
+	var facts []string
+	if d.Row.ReleaseDate != "" {
+		facts = append(facts, "Released "+d.Row.ReleaseDateLabel)
+	}
+	if t := d.Row.TypeLabel(); t != "" {
+		facts = append(facts, t)
+	}
+	if d.Row.TrackSummary != "" {
+		facts = append(facts, d.Row.TrackSummary+" tracks")
+	}
+	if d.Row.Status.Label != "" {
+		facts = append(facts, d.Row.Status.Label)
+	}
+	return strings.Join(facts, " · ")
+}
+
+// albumTabs are the modal's Details and Search tabs, d.Tab open.
+templ albumTabs(d AlbumDetail) {
+	@tabs.Tabs(tabs.Props{DefaultValue: d.Tab, Class: "min-w-0"}) {
+		@tabs.List() {
+			@tabs.Trigger(tabs.TriggerProps{Value: "details", Attributes: templ.Attributes{"data-tab": "details"}}) {
+				Details
+			}
+			@tabs.Trigger(tabs.TriggerProps{Value: "search", Attributes: templ.Attributes{"data-tab": "search"}}) {
+				Search
+			}
+		}
+		@tabs.Content(tabs.ContentProps{Value: "details", Class: "space-y-4 pt-2"}) {
+			@albumSummary(d)
+		}
+		@tabs.Content(tabs.ContentProps{Value: "search", Class: "pt-2"}) {
+			@AlbumSearchTab(d)
+		}
+	}
+}
+
+// albumSummary is the book summary's counterpart: the overview, the genres
+// and the album's files in Lidarr's columns.
+templ albumSummary(d AlbumDetail) {
+	<p class="leading-relaxed" data-album-overview>
+		if d.Overview != "" {
+			{ d.Overview }
+		} else {
+			<span class="text-muted-foreground">No overview.</span>
+		}
+	</p>
+	if len(d.Genres) > 0 {
+		<p class="flex flex-wrap gap-1">
+			for _, g := range d.Genres {
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+					{ g }
+				}
+			}
+		</p>
+	}
+	@albumFilesTable(d.Files)
+}
+
+// albumFilesTable is the album's files in the details modal, the Files
+// section's columns for an album (FileHeads, FileCells); data-album-files
+// counts them.
+templ albumFilesTable(files []FileRow) {
+	if len(files) == 0 {
+		@emptyNote("No files on disk.", "rounded-md border border-border py-3", templ.Attributes{"data-album-files": "0"})
+	} else {
+		<div class="rounded-md border border-border" data-album-files={ fmt.Sprint(len(files)) }>
+			@table.Table() {
+				@table.Header() {
+					@table.Row() {
+						@FileHeads(commonv1.MediaKindAlbum)
+					}
+				}
+				@table.Body() {
+					for _, f := range files {
+						@table.Row(table.RowProps{Attributes: templ.Attributes{"data-file": f.Name}}) {
+							@FileCells(f)
+						}
+					}
+				}
+			}
+		</div>
+	}
+}
+
+// AlbumSearchTab is the album's searches on its modal: the two buttons,
+// whose Interactive one swaps in the album panel (#album-search-body) the
+// interactive search's modal carries.
+templ AlbumSearchTab(d AlbumDetail) {
+	@searchTab("album", d.Row.Name, d.Row.SearchURL(), d.Row.InteractiveSearchURL(), d.Row.ReturnURL(), d.Search)
+}
+
+// AlbumSearchModal is the album's interactive search (design §9.2):
+// "Interactive Search - Artist - Album" over the album panel, Lidarr's
+// columns, in a modal swapped into the page's #album-modal, opening as it
+// lands. The panel sits in #album-search-body, so the details modal's
+// Interactive Search button (searchTab's hx-select) takes it too.
+templ AlbumSearchModal(p AlbumSearchPanel) {
+	@dialog.Dialog(dialog.Props{DefaultOpen: true}) {
+		@dialog.Content(dialog.ContentProps{
+			Class:      "max-h-[90vh] overflow-y-auto sm:max-w-6xl",
+			Attributes: templ.Attributes{"data-album-search-modal": p.Album.Name},
+		}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ p.Heading() }
+				}
+			}
+			<div id="album-search-body" data-album-search={ p.Album.Name }>
+				@AlbumSearchPanelView(p)
+			</div>
+		}
+	}
+}
+
+// AlbumSearchPanelView is SearchPanelView with Lidarr's columns: a line
+// saying where the search is, then the releases, best first -- Quality
+// (FLAC 24bit, MP3-320), Size, Age, Indexer, Peers, Score -- each with its
+// verdict and its download button, the other titles collapsed. While Poll
+// is set the panel replaces itself every two seconds through the album's
+// own panel route, so the columns hold.
+templ AlbumSearchPanelView(p AlbumSearchPanel) {
+	<div
+		class="min-w-0 space-y-3"
+		data-search-panel={ p.Name }
+		data-search-phase={ p.Phase }
+		data-album-search-panel={ p.Album.Name }
+		if p.Poll {
+			hx-get={ p.PanelURL() }
+			hx-trigger="load delay:2s"
+			hx-swap="outerHTML"
+		}
+	>
+		@actionFailure(p.Error)
+		<p class="flex items-center gap-2 text-sm text-muted-foreground" data-search-summary>
+			switch  {
+				case p.Gone:
+					This search has expired; run it again.
+				case p.Pending():
+					@spinner.Spinner(spinner.Props{Attributes: templ.Attributes{"aria-label": "Searching"}})
+					Searching indexers…
+				case p.Phase == "Failed":
+					<span class="text-red-300">Search failed: { p.Failed }</span>
+				default:
+					{ searchSummary(p.SearchPanel) }
+			}
+		</p>
+		if listed := p.Listed(); len(listed) > 0 {
+			@albumReleaseTable(p, listed, "data-release-table")
+		} else if len(p.Results) > 0 {
+			@emptyNote("No releases for this album; the others are below.", "rounded-md border border-border", templ.Attributes{"data-search-empty": true})
+		} else if !p.Pending() && !p.Gone && p.Phase != "Failed" {
+			@emptyNote("No results found.", "rounded-md border border-border", templ.Attributes{"data-search-empty": true})
+		}
+		if others := p.OtherRows(); len(others) > 0 {
+			@collapsible.Collapsible(collapsible.Props{Class: "rounded-md border border-border", Attributes: templ.Attributes{"data-other-titles": fmt.Sprint(len(others))}}) {
+				@button.Button(button.Props{Variant: button.VariantGhost, Class: "h-auto w-full justify-start rounded-md px-4 py-2 text-sm font-normal text-muted-foreground hover:bg-muted/50", Attributes: collapsible.Trigger(ctx)}) {
+					{ otherTitlesLabel(len(others)) }
+				}
+				@collapsible.Content() {
+					@albumReleaseTable(p, others, "data-other-titles-table")
+				}
+			}
+		}
+	</div>
+}
+
+// albumReleaseTable is the results' table in Lidarr's columns; attr marks
+// it.
+templ albumReleaseTable(p AlbumSearchPanel, rows []ReleaseRow, attr string) {
+	<div class="rounded-md border border-border">
+		@table.Table(table.Props{Attributes: templ.Attributes{attr: "", "data-release-columns": "music"}}) {
+			@table.Header() {
+				@table.Row() {
+					@table.Head() {
+						Source
+					}
+					@table.Head() {
+						Title
+					}
+					@table.Head() {
+						Quality
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Size
+					}
+					@table.Head() {
+						Age
+					}
+					@table.Head() {
+						Indexer
+					}
+					@table.Head() {
+						Peers
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Score
+					}
+					@table.Head() {
+						<span class="sr-only">Rejections</span>
+					}
+					@table.Head() {
+						<span class="sr-only">Download</span>
+					}
+				}
+			}
+			@table.Body() {
+				for _, r := range rows {
+					@albumReleaseRow(p, r)
+				}
+			}
+		}
+	</div>
+}
+
+// albumReleaseRow is one result in Lidarr's columns.
+templ albumReleaseRow(p AlbumSearchPanel, r ReleaseRow) {
+	@table.Row(table.RowProps{Attributes: templ.Attributes{
+		"data-release":     r.GUID,
+		"data-approved":    fmt.Sprintf("%t", r.Approved),
+		"data-grab":        r.Grab,
+		"data-other-title": fmt.Sprintf("%t", r.OtherTitle),
+	}}) {
+		@table.Cell() {
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: protocolTone(r.Protocol)}) {
+				{ r.Protocol }
+			}
+		}
+		@table.Cell(table.CellProps{Class: "max-w-xl break-all whitespace-normal"}) {
+			if r.InfoURL != "" {
+				<a href={ templ.URL(r.InfoURL) } target="_blank" rel="noopener noreferrer" class="hover:underline">{ r.Title }</a>
+			} else {
+				{ r.Title }
+			}
+		}
+		@table.Cell(table.CellProps{Attributes: templ.Attributes{"data-cell": "quality"}}) {
+			if r.Quality != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ r.Quality }
+				}
+			}
+		}
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+			{ formatBytes(r.Size) }
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground"}) {
+			{ r.Age }
+		}
+		@table.Cell() {
+			{ r.Indexer }
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums"}) {
+			{ r.Peers }
+		}
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums", Attributes: templ.Attributes{"title": scoreTitle(r)}}) {
+			{ releaseScore(r) }
+		}
+		@table.Cell() {
+			if len(r.Rejections) > 0 {
+				<span class="text-red-300 [&_svg]:size-4" title={ strings.Join(r.Rejections, "\n") } data-rejections={ fmt.Sprint(len(r.Rejections)) }>
+					@icon.Icon("circle-alert")()
+				</span>
+			}
+		}
+		@table.Cell(table.CellProps{Class: "py-1"}) {
+			@albumGrabCell(p.GrabURL(), r)
+		}
+	}
+}
+
+// albumGrabCell is grabCell posting to the album panel's own grab route:
+// the download button, or how the grab it made went; a release with a
+// permanent rejection asks first and is grabbed with spec.override.
+templ albumGrabCell(grabURL string, r ReleaseRow) {
+	switch r.Grab {
+		case "grabbed":
+			<span class="text-emerald-300 [&_svg]:size-4" title="Grabbed" data-grab-state="grabbed">
+				@icon.Icon("check")()
+			</span>
+		case "requested":
+			@spinner.Spinner(spinner.Props{Class: "text-muted-foreground", Attributes: templ.Attributes{"title": "Grabbing…", "aria-label": "Grabbing", "data-grab-state": "requested"}})
+		default:
+			<form
+				hx-post={ grabURL }
+				hx-target="closest [data-search-panel]"
+				hx-swap="outerHTML"
+				if r.Override {
+					hx-confirm={ "This release was rejected:\n" + strings.Join(r.Rejections, "\n") + "\n\nGrab it anyway?" }
+				}
+				method="post"
+				action={ templ.URL(grabURL) }
+				class="contents"
+			>
+				<input type="hidden" name="guid" value={ r.GUID }/>
+				@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconSm,
+					Attributes: templ.Attributes{"data-action": "grab-release", "aria-label": "Download", "title": grabTitle(r)}}) {
+					if r.Grab == "failed" {
+						<span class="text-red-300">
+							@icon.Icon("download")()
+						</span>
+					} else {
+						@icon.Icon("download")()
+					}
+				}
+			</form>
+	}
+}
