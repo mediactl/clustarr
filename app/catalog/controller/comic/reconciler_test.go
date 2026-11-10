@@ -555,6 +555,72 @@ func TestComicReconcilerRealController(t *testing.T) {
 		}, 5*time.Second, 20*time.Millisecond)
 	})
 
+	// The 2026-11-10 design's Comic status (D10, §4.1): the add options read
+	// as applied once the first fan-out completed, the pull date is the next
+	// store date among the Issues, and the ContainerRollup folds the Issues'
+	// phases and cover dates, waking on an Issue's phase.
+	t.Run("the first fan-out applies the add options; the rollup and the pull date follow the Issues", func(t *testing.T) {
+		// The reconciler reads the wall clock, so the dates are placed
+		// around it, to the second a metav1.Time keeps.
+		base := time.Now().UTC().Truncate(time.Second)
+		past := base.AddDate(0, 0, -40)
+		pastCover := base.AddDate(0, 0, -10)
+		soon := base.AddDate(0, 0, 14)
+		soonCover := base.AddDate(0, 0, 60)
+		requester.err = nil
+		requester.issues = []metadata.ComicIssue{
+			{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "3001"}, Number: "1", StoreDate: &past, CoverDate: &pastCover},
+			{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "3002"}, Number: "2", StoreDate: &soon, CoverDate: &soonCover},
+		}
+		cm := &catalogv1alpha1.Comic{
+			ObjectMeta: metav1.ObjectMeta{Name: "pulllist", Namespace: "comic-ns"},
+			Spec: catalogv1alpha1.ComicSpec{
+				Source: catalogv1alpha1.ComicSourceComicVine, SourceID: "4050-30",
+				QualityProfileRef: "none", RootFolderRef: "comic-root",
+				AddOptions: catalogv1alpha1.ComicAddOptions{Monitor: catalogv1alpha1.ComicMonitorMissing},
+			},
+		}
+		require.NoError(t, c.Create(ctx, cm))
+		metaAC := catalogac.Comic(cm.Name, cm.Namespace).WithStatus(
+			catalogac.ComicStatus().WithMetadata(
+				catalogac.ComicMetadata().WithTitle("Pull List").WithRefreshedAt(metav1.Now()),
+			),
+		)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
+		require.NoError(t, err)
+
+		key := types.NamespacedName{Namespace: "comic-ns", Name: "pulllist"}
+		var got catalogv1alpha1.Comic
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, key, &got) == nil && got.Status.AddOptionsApplied &&
+				k8s.IsConditionTrue(got.Status.Conditions, catalogv1alpha1.ComicConditionIssuesSynced)
+		}, 5*time.Second, 20*time.Millisecond, "the first complete fan-out never recorded addOptionsApplied")
+		require.NotNil(t, got.Status.NextPullDate, "the issue in two weeks is the next pull")
+		assert.True(t, got.Status.NextPullDate.Time.Equal(soon), "nextPullDate is the store date, not the cover date")
+		assert.Equal(t, catalogv1alpha1.ContainerPhaseReady, got.Status.Phase)
+
+		var iss1, iss2 catalogv1alpha1.Issue
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "comic-ns", Name: comic.IssueName("pulllist", "1")}, &iss1))
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "comic-ns", Name: comic.IssueName("pulllist", "2")}, &iss2))
+		require.NotNil(t, iss1.Spec.Monitored)
+		assert.True(t, *iss1.Spec.Monitored, "missing: the issue in the shops is wanted")
+		require.NotNil(t, iss2.Spec.Monitored)
+		assert.False(t, *iss2.Spec.Monitored, "missing: the issue to come is not")
+
+		// The Issue reconciler is not running here; its phase write is
+		// stood in for under its own manager, and wakes the Comic.
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Issue(iss1.Name, iss1.Namespace).WithStatus(
+			catalogac.IssueStatus().WithPhase(commonv1.LeafPhaseWanted)))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, key, &got) == nil && got.Status.MissingChildCount == 1
+		}, 5*time.Second, 20*time.Millisecond, "the Issue's phase never reached the Comic's rollup")
+		require.NotNil(t, got.Status.PreviousReleaseDate)
+		assert.True(t, got.Status.PreviousReleaseDate.Time.Equal(pastCover), "the rollup's dates are the cover dates the Issues' phases read")
+		assert.Nil(t, got.Status.NextReleaseDate, "the unmonitored issue counts toward no release date")
+		assert.Zero(t, got.Status.DownloadingChildCount)
+	})
+
 	t.Run("metadata refresh triggers reconcile but the controller's own write does not loop", func(t *testing.T) {
 		requester.issues, requester.err = nil, nil
 

@@ -22,13 +22,25 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // G2-2, see .superpowers/sdd/2026-09-23-phases-efg/g2-controllers-brief.md).
 //
 // Comic is the sole writer of status.observedGeneration, status.conditions
-// (Ready/MetadataReady/IssuesSynced), status.path and status.issueFileCount;
-// status.metadata belongs to the metadata gateway (k8s.ManagerCatalogMetadata,
-// task G2-1) and this reconciler never builds a ComicStatusApplyConfiguration
-// that calls WithMetadata. status.nextPullDate is left unset by this task: no
-// registered ComicVine call surfaces a "next issue" release calendar (Volume
-// and Issues both return already-published issues only), so there is nothing
-// to compute it from -- reported, not invented.
+// (Ready/MetadataReady/IssuesSynced), status.path, status.issueFileCount,
+// status.downloadingIssueCount, status.addOptionsApplied, the
+// ContainerRollup fields and status.nextPullDate; status.metadata belongs to
+// the metadata gateway (k8s.ManagerCatalogMetadata, task G2-1) and this
+// reconciler never builds a ComicStatusApplyConfiguration that calls
+// WithMetadata. Since the 2026-11-10 design (D10) status.nextPullDate is the
+// earliest store date still to come among the Issues (NextPullDate): the
+// fan-out writes each Issue's store date, so the next pull is read from the
+// Issues rather than from a provider's release calendar, which ComicVine
+// has none of.
+//
+// The issue fan-out runs behind issueSyncMemo (design D2, D14): a pass
+// fetches the list only when the spec, the metadata refresh or the add
+// options moved since the last complete fan-out in this process, and the
+// first complete fan-out applies spec.addOptions (D10: the monitor mode
+// choosing which Issues start monitored, InitialIssueMonitored; recorded in
+// status.addOptionsApplied). spec.specialVersion volumeAsIssue numbers the
+// Issues by volume (VolumeIssueNumber); spec.kind is the gateway's to read
+// (status.metadata.manga) and names no rule here.
 //
 // The per-Issue provider fields this reconciler writes (sourceID/title/date)
 // are applied under the distinct k8s.ManagerCatalogFanout field manager,

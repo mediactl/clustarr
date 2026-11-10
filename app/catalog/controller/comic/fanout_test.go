@@ -42,10 +42,15 @@ func newComic(name string, monitorNewIssues *bool, unmonitored ...string) *catal
 
 func boolPtr(b bool) *bool { return &b }
 
-// TestDesiredIssuesInitialFanOut: on a Comic that has never completed an
-// issue sync (issuesSynced=false), every discovered issue is monitored
-// unless explicitly listed in spec.unmonitoredIssues -- spec.monitorNewIssues
-// plays no part yet, matching DesiredIssues' documented precedence.
+// now is the clock every fan-out test reads; the dated issues below are
+// placed around it.
+var now = time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+
+// TestDesiredIssuesInitialFanOut: on a Comic whose add options are not yet
+// applied (addOptionsApplied=false), every discovered issue is monitored
+// under the default mode ("all") unless explicitly listed in
+// spec.unmonitoredIssues -- spec.monitorNewIssues plays no part yet,
+// matching DesiredIssues' documented precedence.
 func TestDesiredIssuesInitialFanOut(t *testing.T) {
 	c := newComic("batman", boolPtr(false), "2")
 	issues := []metadata.ComicIssue{
@@ -53,7 +58,7 @@ func TestDesiredIssuesInitialFanOut(t *testing.T) {
 		{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "2"}, Number: "2", Title: "Issue Two"},
 	}
 
-	got := comic.DesiredIssues(c, false, map[string]bool{}, issues)
+	got := comic.DesiredIssues(c, false, map[string]bool{}, issues, now)
 	require.Len(t, got, 2)
 
 	byNumber := map[string]comic.DesiredIssue{}
@@ -70,8 +75,8 @@ func TestDesiredIssuesInitialFanOut(t *testing.T) {
 	assert.Equal(t, "Issue One", byNumber["1"].Title)
 }
 
-// TestDesiredIssuesLaterRefreshFollowsMonitorNewIssues: once issuesSynced is
-// true, a genuinely new issue (not in existingNames) follows
+// TestDesiredIssuesLaterRefreshFollowsMonitorNewIssues: once the add options
+// are applied, a genuinely new issue (not in existingNames) follows
 // spec.monitorNewIssues rather than the initial "monitor everything" policy.
 func TestDesiredIssuesLaterRefreshFollowsMonitorNewIssues(t *testing.T) {
 	c := newComic("batman", boolPtr(false))
@@ -79,7 +84,7 @@ func TestDesiredIssuesLaterRefreshFollowsMonitorNewIssues(t *testing.T) {
 		{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "3"}, Number: "3", Title: "Issue Three"},
 	}
 
-	got := comic.DesiredIssues(c, true, map[string]bool{}, issues)
+	got := comic.DesiredIssues(c, true, map[string]bool{}, issues, now)
 	require.Len(t, got, 1)
 	require.NotNil(t, got[0].Monitored)
 	assert.False(t, *got[0].Monitored, "a new issue after the first sync must follow monitorNewIssues=false")
@@ -92,7 +97,7 @@ func TestDesiredIssuesDefaultMonitorNewIssuesIsTrue(t *testing.T) {
 	c := newComic("batman", nil)
 	issues := []metadata.ComicIssue{{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "4"}, Number: "4"}}
 
-	got := comic.DesiredIssues(c, true, map[string]bool{}, issues)
+	got := comic.DesiredIssues(c, true, map[string]bool{}, issues, now)
 	require.Len(t, got, 1)
 	require.NotNil(t, got[0].Monitored)
 	assert.True(t, *got[0].Monitored)
@@ -105,7 +110,7 @@ func TestDesiredIssuesExistingIssueMonitoredIsNil(t *testing.T) {
 	c := newComic("batman", boolPtr(true))
 	issues := []metadata.ComicIssue{{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "1"}, Number: "1"}}
 
-	got := comic.DesiredIssues(c, true, map[string]bool{"batman-001.0": true}, issues)
+	got := comic.DesiredIssues(c, true, map[string]bool{"batman-001.0": true}, issues, now)
 	require.Len(t, got, 1)
 	assert.Nil(t, got[0].Monitored)
 }
@@ -120,7 +125,7 @@ func TestDesiredIssuesDedupeByNumber(t *testing.T) {
 		{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "1dup"}, Number: "1", Title: "Duplicate"},
 	}
 
-	got := comic.DesiredIssues(c, true, map[string]bool{}, issues)
+	got := comic.DesiredIssues(c, true, map[string]bool{}, issues, now)
 	require.Len(t, got, 1)
 	assert.Equal(t, "First", got[0].Title)
 }
@@ -135,19 +140,19 @@ func TestDesiredIssuesDatePrefersCoverDate(t *testing.T) {
 
 	withBoth := comic.DesiredIssues(c, true, map[string]bool{}, []metadata.ComicIssue{
 		{Number: "1", CoverDate: &cover, StoreDate: &store},
-	})
+	}, now)
 	require.Len(t, withBoth, 1)
 	require.NotNil(t, withBoth[0].Date)
 	assert.True(t, withBoth[0].Date.Equal(cover))
 
 	withStoreOnly := comic.DesiredIssues(c, true, map[string]bool{}, []metadata.ComicIssue{
 		{Number: "2", StoreDate: &store},
-	})
+	}, now)
 	require.Len(t, withStoreOnly, 1)
 	require.NotNil(t, withStoreOnly[0].Date)
 	assert.True(t, withStoreOnly[0].Date.Equal(store))
 
-	withNeither := comic.DesiredIssues(c, true, map[string]bool{}, []metadata.ComicIssue{{Number: "3"}})
+	withNeither := comic.DesiredIssues(c, true, map[string]bool{}, []metadata.ComicIssue{{Number: "3"}}, now)
 	require.Len(t, withNeither, 1)
 	assert.Nil(t, withNeither[0].Date)
 }
@@ -159,7 +164,7 @@ func TestDesiredIssuesSourceIDFollowsTheComicsSource(t *testing.T) {
 	got := comic.DesiredIssues(cv, false, map[string]bool{}, []metadata.ComicIssue{
 		{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "1001", "metron": "9"}, Number: "1"},
 		{IDs: metadata.ExternalIDs{"metron": "10"}, Number: "2"},
-	})
+	}, now)
 	require.Len(t, got, 2)
 	assert.Equal(t, "1001", got[0].SourceID)
 	assert.Empty(t, got[1].SourceID, "a Metron-only id is not a ComicVine issue id")
@@ -169,7 +174,7 @@ func TestDesiredIssuesSourceIDFollowsTheComicsSource(t *testing.T) {
 	got = comic.DesiredIssues(md, false, map[string]bool{}, []metadata.ComicIssue{
 		{Number: "1"},
 		{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "3"}, Number: "2"},
-	})
+	}, now)
 	require.Len(t, got, 2)
 	assert.Empty(t, got[0].SourceID, "a MangaDex volume has no id")
 	assert.Empty(t, got[1].SourceID, "a ComicVine id is not a MangaDex one")

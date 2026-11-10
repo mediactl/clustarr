@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -90,12 +91,28 @@ type bus interface {
 
 // Reconciler reconciles a Comic: metadata staleness (publishing a
 // MetadataTask when the cache is missing or past its RefreshTTL), path and
-// conditions, and the issue-listing RPC fan-out into owned Issue objects. It
-// is the sole writer of status.observedGeneration, status.conditions
-// (Ready/MetadataReady/IssuesSynced), status.path and status.issueFileCount;
+// conditions, the issue-listing RPC fan-out into owned Issue objects
+// (behind issueSyncMemo, so a pass that moved none of its inputs fetches
+// nothing) and the rollup of its Issues. It is the sole writer of
+// status.observedGeneration, status.conditions (Ready/MetadataReady/
+// IssuesSynced), status.path, status.issueFileCount,
+// status.downloadingIssueCount, status.addOptionsApplied, the
+// ContainerRollup fields (phase, the child counts, the release dates;
+// 2026-11-10 design §4.1, §5.2) and status.nextPullDate (D10);
 // status.metadata belongs to the metadata gateway (k8s.ManagerCatalogMetadata,
 // task G2-1) and this reconciler never builds a ComicStatusApplyConfiguration
 // that calls WithMetadata.
+//
+// spec.addOptions is applied once (D10): the first complete fan-out gives
+// each Issue spec.addOptions.monitor's answer (DesiredIssues,
+// InitialIssueMonitored) and the pass records status.addOptionsApplied,
+// after which a new issue follows spec.monitorNewIssues. The
+// searchForMissing half is read as the Series reads its own, which is as
+// the search planner does: a monitored Issue never searched gets its one
+// live search, and a Comic with two or more missing is asked for as a
+// volume pack first (W1.3 of the design's plan), so an added comic is
+// searched without this reconciler asking; nothing reads a false yet
+// (neither here nor for a Series).
 //
 // The per-Issue provider fields this reconciler writes
 // (sourceID/title/date) are applied under the distinct
@@ -112,6 +129,10 @@ type Reconciler struct {
 	// OnReconcile is a test-only hook, called at the top of every Reconcile.
 	// It is nil-checked so production callers never need to set it.
 	OnReconcile func()
+
+	// issueSync remembers each Comic's last complete fan-out in this
+	// process; its zero value is ready to use.
+	issueSync issueSyncMemo
 }
 
 // RegisterIndexes registers the Issue-by-spec.comicRef index under its
@@ -136,9 +157,10 @@ const IssueByComicRefIndex = issueByComicRefIndexKey
 // Watches is the Comic's item path on the remediation loop (ADR-0019 §6.1,
 // A3.2): the Comic itself (a spec change, the metadata gateway's write, the
 // DLQ annotation, a person's download intent) and its Issues by
-// spec.comicRef when one's HasFile flips -- never this reconciler's own
-// writes to them (SourceID/Title/Date), which would loop it. The controller
-// named "comic" is gone; the recorder keeps the name.
+// spec.comicRef when one's rollup inputs move (issueRollupKey) -- never
+// this reconciler's own writes to them (SourceID/Title/Date), which would
+// loop it. The controller named "comic" is gone; the recorder keeps the
+// name.
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Comic{}, Map: rollup.Self, Predicates: []predicate.Predicate{
@@ -150,22 +172,29 @@ func (r *Reconciler) Watches() []rollup.Watch {
 
 var _ rollup.Item = (*Reconciler)(nil)
 
-// issueRollupKey is what of an Issue the Comic's rollup reads: its file, and
-// its download phase for downloadingIssueCount.
+// issueRollupKey is what of an Issue the Comic's rollup reads: its file and
+// its download phase (issueFileCount, downloadingIssueCount), its phase
+// (the ContainerRollup's counts) and its own monitor flag (which child
+// counts toward the release dates). Its dates are left out on purpose: the
+// fan-out writes them, and reads what it wrote in the same pass.
 type issueRollupKey struct {
 	hasFile       bool
 	downloadPhase commonv1.DownloadPhase
+	phase         commonv1.LeafPhase
+	monitored     bool
 }
 
-// issueRollupChanged wakes the Comic when an Issue's file or download phase
-// changes.
+// issueRollupChanged wakes the Comic when an Issue's rollup inputs change.
 func issueRollupChanged() predicate.Predicate {
 	return k8s.StatusFieldChanged(func(o client.Object) issueRollupKey {
 		iss, ok := o.(*catalogv1alpha1.Issue)
 		if !ok {
 			return issueRollupKey{}
 		}
-		return issueRollupKey{hasFile: iss.Status.HasFile, downloadPhase: iss.Status.DownloadPhase}
+		return issueRollupKey{
+			hasFile: iss.Status.HasFile, downloadPhase: iss.Status.DownloadPhase,
+			phase: iss.Status.Phase, monitored: ptr.Deref(iss.Spec.Monitored, true),
+		}
 	})
 }
 
@@ -266,6 +295,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, c *catalogv1alpha1.Com
 // the id the issue listing is keyed by differs (sourceIDs).
 func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Comic) (ctrl.Result, error) {
 	now := time.Now().UTC()
+	monitored := ptr.Deref(c.Spec.Monitored, true)
 	conditions := append([]metav1.Condition(nil), c.Status.Conditions...)
 	// The DLQ projector's clustarr.io/dead-lettered annotation becomes the
 	// DeadLettered condition here, on the one slice every status apply below
@@ -281,17 +311,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 
 	stale := c.Status.Metadata == nil
 	if !stale {
-		// RefreshStateOngoing, not a bucket derived from c.Status.Metadata:
-		// ComicMetadata carries no run-status field to derive one from (see
-		// this package's doc.go and app/catalog/metadata/refreshstate.go's
-		// comicRefreshState, which the metadata worker uses on the FRESHLY
-		// FETCHED provider value it has and this reconciler does not). Both
-		// sides agree today because pkg/metadata/clients/comicvine.Client.
-		// Volume does not map ComicVine's status field yet (the TODO on
-		// Volume) so the worker's own comicRefreshState always answers
-		// RefreshStateOngoing too -- an honest reflection of the data
-		// actually available, not a mismatch to work around here.
-		ttl := metadata.RefreshTTL(commonv1.MediaKindComic, metadata.RefreshStateOngoing, c.Status.Metadata.RefreshedAt.Time)
+		ttl := metadata.RefreshTTL(commonv1.MediaKindComic, comicRefreshState(c), c.Status.Metadata.RefreshedAt.Time)
 		stale = now.Sub(c.Status.Metadata.RefreshedAt.Time) >= ttl
 	}
 	metaReady := !stale
@@ -368,20 +388,26 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 	}
 
 	// Issue-listing RPC fan-out (last step, per §8.1): a failure here
-	// surfaces on IssuesSynced/Ready without blocking the patch above.
-	// issuesSyncedBefore reads the object's PRE-reconcile condition (never
-	// the local, in-progress `conditions` copy, which has not touched
-	// IssuesSynced yet at this point regardless) -- see DesiredIssues' doc
-	// comment for why this stands in for Series' status.addOptionsApplied.
-	issuesSyncedBefore := k8s.IsConditionTrue(c.Status.Conditions, catalogv1alpha1.ComicConditionIssuesSynced)
-	issuesSynced, issues, syncErr := r.syncIssues(ctx, c, issuesSyncedBefore)
+	// surfaces on IssuesSynced/Ready without blocking the patch above. The
+	// fan-out reads the object's PRE-reconcile status.addOptionsApplied
+	// (DesiredIssues): the add-time monitor mode until one complete fan-out
+	// has applied it.
+	issuesSynced, issues, syncErr := r.syncIssues(ctx, c, now)
 	if syncErr != nil {
 		k8s.MarkFalse(c, &conditions, catalogv1alpha1.ComicConditionIssuesSynced, events.ClassifyRequestError(syncErr).Reason(), "issue listing RPC failed: %s", syncErr.Error())
 	} else {
 		k8s.MarkTrue(c, &conditions, catalogv1alpha1.ComicConditionIssuesSynced, k8s.ReasonReconciled, "issues synced")
 	}
+	// Applied once (2026-11-10 design D10): true from the first complete
+	// fan-out on, and sent on every apply after that -- server-side apply
+	// releases a field a manager stops sending (movie.Reconciler's note on
+	// the same flag). A first pass whose fan-out failed leaves it false, so
+	// the next one still applies the add-time mode to the issues it missed.
+	addOptionsApplied := c.Status.AddOptionsApplied || issuesSynced
+	statusAC = statusAC.WithAddOptionsApplied(addOptionsApplied)
 
 	var issueFileCount, downloading int32
+	children := make([]rollup.ContainerChild, 0, len(issues))
 	for _, iss := range issues {
 		if iss.Status.HasFile {
 			issueFileCount++
@@ -391,8 +417,23 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 		if downloadingPhase(iss.Status.DownloadPhase) {
 			downloading++
 		}
+		// The release date the Issue's own phase reads (its cover date,
+		// issue/reconciler.go's released), so the rollup's dates and its
+		// counts agree on what is out; the pull date below is the store
+		// date, the day it reaches the shops.
+		children = append(children, rollup.ContainerChild{
+			Monitored: ptr.Deref(iss.Spec.Monitored, true), Phase: iss.Status.Phase,
+			HasFile: iss.Status.HasFile, ReleaseDate: iss.Status.Date,
+		})
 	}
 	statusAC = statusAC.WithIssueFileCount(issueFileCount).WithDownloadingIssueCount(downloading)
+	// The ContainerRollup (2026-11-10 design §4.1, §5.2): the Series'
+	// rollup for the Comic, Pending while its metadata or its issue list is
+	// not in yet, as series.Phase reads it.
+	statusAC = withContainerRollup(statusAC, rollup.Container(monitored, metaReady && issuesSynced, children, now))
+	if next := NextPullDate(issues, now); next != nil {
+		statusAC = statusAC.WithNextPullDate(*next)
+	}
 
 	k8s.MarkReady(c, &conditions, metaReady && issuesSynced, k8s.ReasonReconciled, "metadataReady=%t issuesSynced=%t", metaReady, issuesSynced)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
@@ -412,8 +453,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 // (pre-reconcile) status. Used on every early-return path (QueueFull,
 // RootFolderNotFound): each is a transient failure, and without this,
 // PatchStatus's apply would omit every field it does not mention, releasing
-// (zeroing) a healthy Comic's Path/IssueFileCount/NextPullDate the next time
-// either happens.
+// (zeroing) a healthy Comic's Path/IssueFileCount/NextPullDate/
+// AddOptionsApplied and its ContainerRollup the next time either happens.
 // Same mechanism as series.reassertKnownStatus; see CLAUDE.md's "Gotchas
 // found the hard way" for the general rule and its cost history.
 func reassertKnownStatus(statusAC *catalogac.ComicStatusApplyConfiguration, c *catalogv1alpha1.Comic) *catalogac.ComicStatusApplyConfiguration {
@@ -422,30 +463,87 @@ func reassertKnownStatus(statusAC *catalogac.ComicStatusApplyConfiguration, c *c
 	}
 	statusAC = statusAC.WithIssueFileCount(c.Status.IssueFileCount)
 	statusAC = statusAC.WithDownloadingIssueCount(c.Status.DownloadingIssueCount)
+	statusAC = statusAC.WithAddOptionsApplied(c.Status.AddOptionsApplied)
+	statusAC = withContainerRollup(statusAC, c.Status.ContainerRollup)
 	if c.Status.NextPullDate != nil {
 		statusAC = statusAC.WithNextPullDate(*c.Status.NextPullDate)
 	}
 	return statusAC
 }
 
-// syncIssues lists c's currently owned Issues, requests its issue list from
-// the metadata gateway (lookupIssues, app/catalog/metadata/rpc.go, task
-// f665aa9), ensures each desired Issue exists with its provider-sourced
-// status fields, and returns the full (pre-fan-out) owned Issue list for the
-// IssueFileCount rollup -- self-correcting: a newly created Issue's own
-// Create event passes Owns()'s StatusFieldChanged predicate (Creates always
-// pass), so a rollup based on the pre-fan-out list here is completed by the
-// very next reconcile it triggers, rather than needing a second List call
-// against a cache that may not yet see this pass's own creates. This is
-// series.syncEpisodes' exact shape.
-func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, issuesSyncedBefore bool) (synced bool, existing []catalogv1alpha1.Issue, err error) {
+// withContainerRollup declares the ContainerRollup fields this manager owns
+// (2026-11-10 design §4.1) on statusAC: the phase and the three counts
+// always (a zero count is a value, not an absence), each release date only
+// when there is one, so a date that is no more is released.
+func withContainerRollup(statusAC *catalogac.ComicStatusApplyConfiguration, cr catalogv1alpha1.ContainerRollup) *catalogac.ComicStatusApplyConfiguration {
+	if cr.Phase != "" {
+		statusAC = statusAC.WithPhase(cr.Phase)
+	}
+	statusAC = statusAC.
+		WithMissingChildCount(cr.MissingChildCount).
+		WithDownloadingChildCount(cr.DownloadingChildCount).
+		WithCutoffUnmetChildCount(cr.CutoffUnmetChildCount)
+	if cr.NextReleaseDate != nil {
+		statusAC = statusAC.WithNextReleaseDate(*cr.NextReleaseDate)
+	}
+	if cr.PreviousReleaseDate != nil {
+		statusAC = statusAC.WithPreviousReleaseDate(*cr.PreviousReleaseDate)
+	}
+	return statusAC
+}
+
+// comicRefreshState is the metadata.RefreshTTL bucket a Comic's own cached
+// metadata puts it in (app/catalog/metadata/refreshstate.go's
+// comicRefreshState, which the gateway applies to the freshly fetched
+// volume): a volume whose run has ended (status.metadata.status, written
+// since the 2026-11-10 design §4.7; ComicVine's from Mylar3's 55-day rule
+// on the latest issue, MangaDex's from its own status) drops to the 30-day
+// cadence, and anything else -- continuing, or a status the provider did
+// not say -- stays on the daily one, the conservative answer when the
+// status is unknown.
+func comicRefreshState(c *catalogv1alpha1.Comic) string {
+	if c.Status.Metadata != nil && c.Status.Metadata.Status == catalogv1alpha1.ComicRunStatusEnded {
+		return metadata.RefreshStateCompleted
+	}
+	return metadata.RefreshStateOngoing
+}
+
+// syncIssues lists c's currently owned Issues and, when issueSyncMemo says
+// an input moved since the last complete fan-out in this process, requests
+// its issue list from the metadata gateway (lookupIssues,
+// app/catalog/metadata/rpc.go, task f665aa9) and ensures each desired Issue
+// exists with its provider-sourced status fields. It returns the Issues as
+// this pass leaves them, for the rollup: every Issue the List found, with
+// the ones this pass ensured carrying the dates, number and monitor flag
+// it just wrote (a new Issue is built from what ensureIssue created; its
+// own reconciler writes its phase next, which wakes this Comic again), so
+// the rollup reflects this reconcile rather than the one before it. On a
+// failure it still returns everything it knows -- the pre-fan-out list plus
+// whatever it ensured before failing -- and the memo records nothing, so
+// the next pass fetches again. This is series.syncEpisodes' shape.
+func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, now time.Time) (synced bool, issues []catalogv1alpha1.Issue, err error) {
 	var issueList catalogv1alpha1.IssueList
 	if err := r.List(ctx, &issueList, client.InNamespace(c.Namespace), client.MatchingFields{issueByComicRefIndexKey: c.Name}); err != nil {
 		return false, nil, err
 	}
+	existing := make(map[string]catalogv1alpha1.Issue, len(issueList.Items))
 	existingNames := make(map[string]bool, len(issueList.Items))
 	for _, iss := range issueList.Items {
+		existing[iss.Name] = iss
 		existingNames[iss.Name] = true
+	}
+	done := func() []catalogv1alpha1.Issue {
+		out := make([]catalogv1alpha1.Issue, 0, len(existing))
+		for _, iss := range existing {
+			out = append(out, iss)
+		}
+		return out
+	}
+
+	if !r.issueSync.due(c) {
+		// Nothing a fan-out reads has moved since the last complete one:
+		// the Issues the List found are what it would leave.
+		return true, done(), nil
 	}
 
 	req := schema.MetadataRequest{
@@ -459,28 +557,53 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, i
 	// An idempotent lookup: every class retries on the reconciler's
 	// requeue, and the condition names the class (ADR-0020 §4).
 	if rpcErr := r.Bus.Request(rpcCtx, events.RPCMetadataLookup, req, &resp); rpcErr != nil {
-		return false, issueList.Items, events.DescribeRequestError(events.RPCMetadataLookup, rpcErr)
+		return false, done(), events.DescribeRequestError(events.RPCMetadataLookup, rpcErr)
 	}
 	if resp.Error != "" {
-		return false, issueList.Items, fmt.Errorf("metadata gateway: %s", resp.Error)
+		return false, done(), fmt.Errorf("metadata gateway: %s", resp.Error)
 	}
 
 	fetched := make([]metadata.ComicIssue, 0, len(resp.Results))
 	for _, raw := range resp.Results {
 		var iss metadata.ComicIssue
 		if err := json.Unmarshal(raw, &iss); err != nil {
-			return false, issueList.Items, fmt.Errorf("decode issue: %w", err)
+			return false, done(), fmt.Errorf("decode issue: %w", err)
 		}
 		fetched = append(fetched, iss)
 	}
 
-	desired := DesiredIssues(c, issuesSyncedBefore, existingNames, fetched)
+	desired := DesiredIssues(c, c.Status.AddOptionsApplied, existingNames, fetched, now)
 	for _, d := range desired {
 		if err := r.ensureIssue(ctx, c, d); err != nil {
-			return false, issueList.Items, err
+			return false, done(), err
 		}
+		existing[d.Name] = ensuredIssue(existing[d.Name], c, d)
 	}
-	return true, issueList.Items, nil
+	r.issueSync.synced(c)
+	return true, done(), nil
+}
+
+// ensuredIssue is the Issue named d.Name as ensureIssue leaves it, for the
+// rollup of the pass that wrote it: the listed object (was, the zero Issue
+// for one this pass created) with the fields ensureIssue applied -- the
+// dates, and for a created one its spec too. Its phase is its own
+// reconciler's to write.
+func ensuredIssue(was catalogv1alpha1.Issue, c *catalogv1alpha1.Comic, d DesiredIssue) catalogv1alpha1.Issue {
+	iss := was
+	if iss.Name == "" {
+		iss.Name, iss.Namespace = d.Name, c.Namespace
+		iss.Spec = catalogv1alpha1.IssueSpec{ComicRef: c.Name, Number: d.Number, CalculatedNumberCentis: d.CalculatedNumberCentis, Monitored: d.Monitored}
+	}
+	iss.Status.Date, iss.Status.StoreDate = nil, nil
+	if d.Date != nil {
+		t := metav1.NewTime(*d.Date)
+		iss.Status.Date = &t
+	}
+	if d.StoreDate != nil {
+		t := metav1.NewTime(*d.StoreDate)
+		iss.Status.StoreDate = &t
+	}
+	return iss
 }
 
 // ensureIssue gets or creates the Issue named d.Name, then patches its

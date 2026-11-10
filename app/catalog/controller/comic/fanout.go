@@ -70,21 +70,13 @@ type DesiredIssue struct {
 // DesiredIssues projects a provider's issue list into the Issue objects the
 // Comic reconciler should ensure exist for c. existingNames is the set of
 // Issue object names already owned by c (from the reconciler's own List
-// call); issuesSynced is c's own pre-reconcile IssuesSynced condition, read
-// as True once one full fan-out pass has already succeeded.
-//
-// Unlike Series, which persists a dedicated status.addOptionsApplied bool to
-// tell "the very first fan-out" apart from "a later refresh", ComicStatus has
-// no such field (confirmed against comic_types.go) and ComicSpec has no
-// per-kind add-time Monitor enum to gate in the first place -- only the
-// plain bool MonitorNewIssues, "issues discovered after the comic was
-// added". IssuesSynced is used as the equivalent signal instead: it is
-// already persisted, already this reconciler's own condition, and -- unlike
-// existingNames being merely non-empty -- keeps re-applying the "at add"
-// policy across a partially-failed first pass (one issue created, the next
-// Create failing transiently) rather than switching to the "after add"
-// policy for whichever issues simply had not been created yet when a prior
-// pass was interrupted.
+// call); addOptionsApplied is c's own pre-reconcile status.addOptionsApplied,
+// true once one full fan-out has applied spec.addOptions (2026-11-10 design
+// D10; the Series' flag, which until then the IssuesSynced condition stood
+// in for). It stays false across a partially-failed first pass (one issue
+// created, the next Create failing transiently), so the add-time policy is
+// re-applied to the issues that pass never reached rather than the
+// "after add" one.
 //
 // Per issue, in order of precedence:
 //  1. An Issue object already exists for this name: Monitored stays nil, the
@@ -93,13 +85,16 @@ type DesiredIssue struct {
 //     regardless of add-time vs. later -- ComicSpec.UnmonitoredIssues' own
 //     doc comment says this choice must survive an Issue object being
 //     recreated, so it outranks both policies below unconditionally.
-//  3. issuesSynced is false (this Comic has never completed a fan-out):
-//     Monitored is set true -- every issue known at add time is wanted,
-//     matching Kapowarr's add-flow model (docs/research/quality.md:512),
-//     where unmonitored is a positive per-issue exclusion, not a policy
-//     knob, for the initial back catalog.
+//  3. addOptionsApplied is false (this Comic has never completed a fan-out):
+//     Monitored is spec.addOptions.monitor's answer for the issue
+//     (InitialIssueMonitored: all, future, missing, existing, none; "all"
+//     by default -- every issue known at add time is wanted, Kapowarr's
+//     add-flow model, docs/research/quality.md §13).
 //  4. Otherwise (a genuinely new issue discovered on a later refresh):
 //     Monitored follows spec.monitorNewIssues (default true).
+//
+// Number is the provider's, or under specialVersion volumeAsIssue the
+// volume it spells (VolumeIssueNumber), read before the name is made.
 //
 // SourceID is the issue's id under the comic's own source key (SourceKey):
 // the ComicVine issue id for a ComicVine comic. A MangaDex comic's issues
@@ -113,9 +108,10 @@ type DesiredIssue struct {
 // same posture as series.DesiredEpisodes.
 func DesiredIssues(
 	c *catalogv1alpha1.Comic,
-	issuesSynced bool,
+	addOptionsApplied bool,
 	existingNames map[string]bool,
 	issues []metadata.ComicIssue,
+	now time.Time,
 ) []DesiredIssue {
 	unmonitored := make(map[string]bool, len(c.Spec.UnmonitoredIssues))
 	for _, n := range c.Spec.UnmonitoredIssues {
@@ -125,27 +121,33 @@ func DesiredIssues(
 	if c.Spec.MonitorNewIssues != nil {
 		monitorNew = *c.Spec.MonitorNewIssues
 	}
+	var runStatus catalogv1alpha1.ComicRunStatus
+	if c.Status.Metadata != nil {
+		runStatus = c.Status.Metadata.Status
+	}
 
 	sourceKey := SourceKey(c.Spec.Source)
 	seen := make(map[string]bool, len(issues))
 	out := make([]DesiredIssue, 0, len(issues))
 	for _, iss := range issues {
-		if seen[iss.Number] {
+		number := VolumeIssueNumber(c.Spec, iss.Number, iss.Title)
+		if seen[number] {
 			continue
 		}
-		seen[iss.Number] = true
+		seen[number] = true
 
-		centis := CalculatedNumberCentis(iss.Number)
-		name := IssueName(c.Name, iss.Number)
+		centis := CalculatedNumberCentis(number)
+		name := IssueName(c.Name, number)
 
 		var monitored *bool
 		if !existingNames[name] {
 			v := true
 			switch {
-			case unmonitored[iss.Number]:
+			case unmonitored[number]:
 				v = false
-			case !issuesSynced:
-				v = true
+			case !addOptionsApplied:
+				v = InitialIssueMonitored(c.Spec.AddOptions.Monitor,
+					IssueCandidate{Number: number, Released: ReleaseDate(iss)}, runStatus, now)
 			default:
 				v = monitorNew
 			}
@@ -158,7 +160,7 @@ func DesiredIssues(
 		}
 
 		d := DesiredIssue{
-			Name: name, Number: iss.Number, CalculatedNumberCentis: centis,
+			Name: name, Number: number, CalculatedNumberCentis: centis,
 			SourceID: iss.IDs[sourceKey], Title: iss.Title, Date: date, Monitored: monitored,
 			StoreDate: iss.StoreDate, Overview: iss.Description, Credits: iss.Credits,
 		}
