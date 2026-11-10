@@ -920,10 +920,25 @@ page renders in 4 ms at 50 files, 13 at 500, 3 at 1,100 with nothing read)
 and the Delete dialog counts a series from its rollup past that; a Comic's
 "Volume" and "Interactive" buttons create a planned volume Search
 (`spec.season` 1 on the Comic, `catalogv1.VolumeSearchSeason`; the Music
-section below). Not yet, wave D's: Add New hits' publisher, issue count,
-authors and narrators and the audiobook's author link; the album page's
-Edit dialog (the action is ready); the Metron link on a comic page; the
-dead per-kind panel types.
+section below). Since wave D (2026-11-10, the same day): Add New shows a
+comic hit's publisher, issue count and start year and an audiobook hit's
+authors, narrators and release date, asks ComicVine then MangaDex (one
+search per source, `MetadataRequest.Source`, a source without a provider
+skipped) and merges the hits under their source badges, and links an added
+audiobook to the one Author of the hit's author's name in its namespace
+(`release.TitleNorm`; the Audnexus lookup by ASIN through the third bound
+request, `ui.Options.MetadataLookup`, only renders the name when the hit
+carries none, and runs after the add's inputs are checked; no `bookRef`,
+since Add New resolves no Book); the album page renders its own Edit over
+the album's card (`ui.albumItem`; the artist's card is `AlbumView.Artist`);
+a book row's forms return to the author's page (`views.AuthorURL`); the
+per-kind search-panel types are gone; the comic page's Metron logo links
+`status.metadata.links[type=metron]`; and an author's book whose
+`spec.rootFolderRef` overrides its author's root is not a standalone book
+(`bookHasFolder`: no authorRef), while a standalone book's folder is read
+from its file's directory when `status.path` is the root itself (the Book
+reconciler's `book.Path` writes the root for a book without an author; the
+controller fix is open).
 In the TV pane, only series should be shown. Clicking a series should present a page with the seasons and episodes.
 A season's episodes are Sonarr's table (2026-10-07, `ui/series.go`,
 `ui/episode.go`, `ui/views/episode.templ`): the monitor bookmark, number,
@@ -1055,7 +1070,7 @@ an undated book reads missing) and both searches, the interactive one
 through the same `startInteractiveSearch` and `/searches` routes. The
 episode and book templates share `searchButtons`, `searchTab`,
 `fileTable` and `statusCell` (`views.RowStatus`); an artist's albums are
-still `ChildRows`. A movie's interactive search is Radarr's (2026-10-20,
+`AlbumRows` (`views.AlbumRow`, the same table, since 2026-11-10). A movie's interactive search is Radarr's (2026-10-20,
 `ui/movie_search.go`): "Interactive Search" beside "Search Movie" in the
 movie page's toolbar opens `views.MovieSearchModal` ("Interactive Search -"
 and the title) in `#movie-modal`, the same results panel and `/searches` routes.
@@ -2028,7 +2043,15 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   renders none), never `spec.partIndex`, which keeps its disc*1000+track
   ordering key (2026-11-10: a tagged disc 1 track 3 had imported as
   "Title (1003).mp3"); the import numbers an inspect's parts once the walk
-  has found them all, the loop among the Audiobook's MediaFiles. A manual
+  has found them all, and the loop in `mediafile.LoadNaming`'s audiobook
+  case (`audiobookPartNumber`, over the Audiobook's MediaFiles through
+  `mfindex.FilesOf`, number and count from one read); the naming planner's
+  S12/MediaFile source (`app/remediation/naming/partwake.go`) wakes a
+  part's siblings at low priority on any change of its mediaRef, partIndex
+  or path, since a numbered part's path is the tie-break among equal keys
+  (a disc rip without disc tags keys every disc's track 1 as 1001);
+  `release.PartOf` reads parts 1..99. The audiobook page shows the same
+  ordinal (never `spec.partIndex`). A manual
   assignment keeps the file's track attribution and part. `.fb2` and
   `.djvu` are books to `pkg/fsops`, probed without FFmpeg, but
   `pkg/quality`'s book ladder has no tier for them, so such a file is held
@@ -2049,10 +2072,26 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   `PlannedByComic` names it, `FansOut` the Search that fans out per child),
   the Comic key's season planner serves it as a Series' (trigger "volume",
   S31 wakes the Comic), and the ui's `actions.SearchVolume` and
-  `InteractiveVolumeSearch` create it. The Search controller's half (reading
-  the container by kind instead of failing a comic's as SeriesGone,
-  mirroring `status.seasons`, one task for an interactive volume search) is
-  wave D's.
+  `InteractiveVolumeSearch` create it. The Search controller's half landed
+  the same day (bd9f4d79): it reads the container by the Search's kind (a
+  Comic gone is `ComicGone`), mirrors `status.volumeSearch` into the
+  Search's `status.seasons` with the Series' Event reasons and comic-worded
+  messages, and runs an interactive volume Search as one season task of
+  the Comic (`SearchSpec.FansOut` decides the fan-out), so both buttons
+  work end to end; a release naming an issue the comic lacks reads
+  WrongItem in the modal's other-titles band (grabplan's coverage messages
+  still say "episode", open).
+- **A supplementary provider's own page** (§9.3, §9.4, 2026-11-10):
+  `metadata.PageProvider` (`Page(ctx, kind, ids)`, a Link of the provider's
+  own type -- Hardcover's for an Author or Book Open Library answered,
+  Metron's for a ComicVine-keyed Comic through its crosswalk) is asked by
+  the gateway's `enrich` after the primary lookup when the document names
+  no page of that type; `ComicMetadata.Links` carries it to the comic page
+  and `IssueStatus.Volume` a chapter's tankobon volume (written by the Comic
+  fan-out on every apply). `pkg/metadata.SchemaVersion` stays 8 (a raise
+  refreshes every Movie and Series once), so a document already cached
+  shows its new links at its next refresh or a per-item Refresh (owner's
+  call).
 - **Metadata parity** (§5.4): every non-video document carries
   `schemaVersion`, `language` (the primary provider's `spec.language`, else
   en; an Audiobook's `fetchLanguage`), ratings through `enrichRatings` over
@@ -2215,17 +2254,20 @@ Until the guard lands, review holds the invariant; drop the mark when it does.
   create, replace the spec of (a JSON patch testing `metadata.generation`)
   and delete a PlexCollection, whose status and finalizer are
   cluster-plex's. So anything the UI does, `kubectl` can do.
-- **The UI may hold a bus connection for reads plus two requests.** `cmd/ui`
+- **The UI may hold a bus connection for reads plus three requests.** `cmd/ui`
   (`internal/cli/ui/bus.go`) calls `busconn.Connect` and passes
   `Bus.ObjectStore(...)` into `ui.Options.Artwork` to serve `/art` (indexed by a
   read-only watch, `pkg/events/objindex`, which also feeds the SSE `art`
   event); closures over KV `Get` alone for the Plex provider's extended
   documents (`clustarr-metadata-extended`), a transfer's and a transcode's
   progress (`clustarr-progress`) and an import's detail (`clustarr-imports`);
-  and two requests, `ui.Options.MetadataSearch`, bound to
-  `clustarr.rpc.catalog.metadata.search` (Add New, 2026-09-29), and
-  `ui.Options.PlexExtras`, bound to `clustarr.rpc.catalog.metadata.extras`
-  (2026-10-06), so the ui never holds a requester and can ask nothing else --
+  and three requests, `ui.Options.MetadataSearch`, bound to
+  `clustarr.rpc.catalog.metadata.search` (Add New, 2026-09-29),
+  `ui.Options.MetadataLookup`, bound to `clustarr.rpc.catalog.metadata.lookup`
+  (the audiobook add's author by ASIN, 2026-11-10, the non-video design's
+  D11; `requestIdempotent` as the search), and `ui.Options.PlexExtras`,
+  bound to `clustarr.rpc.catalog.metadata.extras` (2026-10-06), so the ui
+  never holds a requester and can ask nothing else --
   `TestUINeverWrites` bans `Request`, `Publish` and `Serve` anywhere in `ui/`.
   `ui/` still never imports `pkg/k8s`.
   `TestUINeverWrites`' AST guard extends its banned-selector list with every
@@ -3110,11 +3152,17 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   and Comic's do), and an Episode already holding its provider fields is not
   patched (`providerStatusMatches`). **A container's `status.addOptionsApplied`
   flips only with the fan-out that applied them** (the Comic's rule: the
-  stored value on every early return, `stored || fan.synced` after; owner's
-  review 2026-11-10): a pass that flipped it while waiting for the metadata
-  document made the first real fan-out create every child under
-  `monitorNewItems` instead of `addOptions.monitor`, the 2026-09-29
-  search-storm class, on the Series, Artist and Author alike.
+  stored value on every early return, `stored || fan.synced` after; the
+  Series, Artist and Author since 308f974c, 2026-11-10): a pass that flipped
+  it while waiting for the metadata document made the first real fan-out
+  create every child under `monitorNewItems` instead of
+  `addOptions.monitor`, the 2026-09-29 search-storm class, on all three.
+  Those three key every childsync fan-out under the flag true, since a
+  child's own Create wakes the container before the flip's apply reaches
+  the cache and a key read as false would refetch the list to create
+  nothing; the Comic still keys the flag as read (a latent double fetch,
+  open), and the "added" Event reads `observedGeneration == 0`, never the
+  flag.
 - **Never list every Episode or MediaFile with kubectl: talos's apiservers
   read every page after the first from etcd (2026-11-03).** Each
   kube-apiserver sat at 5.0-5.7 GiB resident on the 16 GB control-plane

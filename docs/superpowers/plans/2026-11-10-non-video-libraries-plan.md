@@ -748,6 +748,27 @@ workflow nonvideo-implement-c (implement, adversarial review, fix); the
 spec's §9 "Wave C" sentence lists the commits; seven agents (five reviews,
 the C4b ui half, the C9 fix) died on the account's usage limit and wave D
 (nonvideo-implement-d) re-runs them with the follow-through tasks D1-D6.
+**Wave D (2026-11-10):** twenty agents, none lost; the spec's §9 "Wave D"
+paragraph lists the twelve commits and the open items. Leftovers recorded
+by the agents for whoever next touches them: `app/catalog/controller/book/path.go`
+writes a standalone book's `status.path` as the root (render `{Book Title}`
+as `catalogctx.BookFilePath` does; the ui falls back to the file's
+directory meanwhile); `grabplan.CoverageRejections`' messages name episodes
+for a Comic's Issues; `app/remediation/rename/actuator.go`'s refusedBefore
+never retries a remembered collision once the colliding file moved on
+(remember it with a time, retry after a minute); the Comic reconciler keys
+its memo on `addOptionsApplied` as read (pass true, then retire
+`childsync.Key.AddOptionsApplied`); `metron.Client.Page` would replace the
+gateway's `metronPages` adapter; `TestBuildRegistryWiresEveryProviderType`
+could cover `reg.Pages`; `ui/run_test.go`'s SSE-cancel test flakes under
+load; `events.ObjectStore.Get`'s doc could state the context-bound read
+contract natsbus honours; pre-existing red seen on clean exports:
+`app/catalog/controller/search`'s TestReconcilePublishesOneInteractiveSearchTaskAtHighPriority
+(Msg-Id shape) and TestReconcileCompletesLateResultsAfterATimeout (the
+pick goes to the owner's intake since ADR-0019), `pkg/obs/metrics`'
+TestCatalogueMatchesTheAmendmentTable and
+TestNoMetricIsLabelledByAnUnboundedDimension, `pkg/crdcheck`'s
+TestLiveTVCEL, `pkg/events/schema`'s version expectations.
 
 ## Order and gates
 

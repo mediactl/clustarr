@@ -468,7 +468,15 @@ caller needs or is deleted (`TestOnlyTheLoopIncorporatesRecords`†).
 and comic packages for their indexes, so they import the memo from a leaf
 package -- shared by Artist, Author and Comic; `metadataset.Incorporator`
 is deleted; the nfo stage runs for Artist, Album, Author and Audiobook, an
-Author's only under an audiobook root, as §8.1 says.)
+Author's only under an audiobook root, as §8.1 says. D1, 308f974c, the same
+day: the Series, Artist and Author flip `status.addOptionsApplied` only with
+their first complete fan-out -- the stored value on every early return,
+`stored || fan.synced` after -- where fbab16f7 and a625715f had flipped it
+on the metadata-less first pass, so every child was created under
+`monitorNewItems`; and they key every fan-out under the flag true, since the
+memo records only complete fan-outs and a child's own Create wakes the
+container before the flip reaches the cache, where a key read as false
+refetched to create nothing; the Comic still keys the flag as read.)
 
 ### 5.2 Rollups, phases, events
 
@@ -574,6 +582,12 @@ profile kinds) and Audiobook (ASIN, region from the root's `defaults.region`,
 `bookRef` when an Open Library ISBN lookup finds the work -- one request,
 best effort); `justAdded` knows both; the role gains `create` on comics and
 audiobooks (`actions.Grants()`, `ui_role.yaml`, the chart copy).
+(As built 2026-11-10, D2 d1d60a8f/97feb025: the name matches through
+`release.TitleNorm` and links only when exactly one Author of the name
+exists in the namespace; the Audnexus lookup by ASIN -- the ui's third bound
+request, `ui.Options.MetadataLookup` -- renders the name when the hit
+carries none and runs only after the add's inputs are checked; no `bookRef`,
+since Add New resolves no Book and the ISBN lookup is not built.)
 
 ## 6. Import and probe (the import agent)
 
@@ -910,7 +924,36 @@ release date, `MetadataRequest.Source`, the gateway's author-by-ASIN lookup
 the manual assignment's attribution, `.fb2`/`.djvu` (dffe9cff); the Series
 fan-out on childsync (fbab16f7; its add-options flag defect, shared with
 the Artist and Author, is wave D's fix); `/art`'s retry on every stall
-(8a7d0566). **Browser check done (2026-11-10, the
+(8a7d0566). **Wave D (nonvideo-implement-d, twenty agents, 2026-11-10: the
+five reviews wave C lost, D1-D6, each reviewed and fixed):** the
+add-options flag on the Series, Artist and Author (308f974c, §5.1's note);
+Add New's hit details, per-source comic searches and the audiobook author
+link (d1d60a8f, 97feb025, §5.6's note); the Search controller serving a
+Comic's planned volume Search and running its interactive one as one
+season task (bd9f4d79; both comic-page buttons work end to end; messages
+say "comic'" where "comic's" is wanted, open); `ComicMetadata.Links`,
+`IssueStatus.Volume` and `metadata.PageProvider` -- Hardcover for an Open
+Library-keyed Author or Book, Metron for a ComicVine-keyed Comic through
+its crosswalk -- so the Metron and Hardcover logos link (1deae283,
+ca89d7af; `SchemaVersion` kept at 8, so a cached document shows them at
+its next refresh); the dead per-kind panel types, `ChildRow`/`ChildrenURL`,
+`BookRow.ReturnURL` to the author's page (`views.AuthorURL`), the album
+page's own Edit over the album's card, the hero's Size fallback to the
+card's bytes, and a standalone book's folder read from its file when
+`status.path` is the root (6d0056b9; the Book reconciler's `book.Path`
+still writes the root for a book without an author, open); the part
+numbered in `mediafile.LoadNaming`'s audiobook case with the S12/MediaFile
+sibling wake and `release.PartOf` reading 1..99 (11dfc511, 09928e4a,
+a17e2391), the usenet engine's extension list derived from `pkg/fsops`
+(a4e615f8), the two stale rescan envtests re-aligned (76ab8e3d). Still
+open after wave D: Album Delete (`DeletableKinds` and `librarydelete` know
+no Album; a standalone Book is likewise not deletable though §9.3 says
+so); grabplan's coverage messages worded for episodes; the rename
+actuator's remembered collision never retried once the target is free;
+`metron.Client.Page` as the client's own method (the gateway adapts it);
+FB2/DJVU quality tiers (owner); the Comic memo keyed on the flag; the ui's
+audiobook Parts table showing the ordinal (done by the controlling
+session's integration commit). **Browser check done (2026-11-10, the
 controlling session, headless Chrome against bin/ui at 819dc23f over an
 envtest apiserver filled by `ui/preview_harness_test.go`, with talos's NATS
 port-forwarded):** the artist, comic, issue, audiobook, author, book and
@@ -1132,7 +1175,9 @@ talos by hand before the deploy that carries them.
   the commits and the departures, the plan's W4 Done notes the leftovers;
   wave C (nonvideo-implement-c) took the departures -- §9's "Wave C"
   sentence lists what it closed -- and wave D (nonvideo-implement-d) the
-  rest, with the five reviews wave C lost to the usage limit.
+  rest, with the five reviews wave C lost to the usage limit. **Done
+  2026-11-10 (wave D):** §9's "Wave D" paragraph lists the commits and
+  what stays open.
 - **W5: Plex.** §7.6's spike first, then the roots, index, match, metadata,
   children, images, goldens and tests, the flag and chart values.
   **Done 2026-11-10, flagged off** (ea0d54d4, 7a8d17aa, 2c8676fb, 1df72500,
