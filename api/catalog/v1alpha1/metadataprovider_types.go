@@ -35,7 +35,7 @@ const (
 
 // MetadataProviderType is the upstream metadata service a provider talks to.
 //
-// +kubebuilder:validation:Enum=tmdb;tvdb;musicbrainz;coverart;fanart;openlibrary;hardcover;audnexus;comicvine;metron;mangadex;anilist;kitsu;animelists;mdblist;omdb;theintrodb;plex;mediux
+// +kubebuilder:validation:Enum=tmdb;tvdb;musicbrainz;coverart;fanart;openlibrary;hardcover;audnexus;audible;comicvine;metron;mangadex;anilist;kitsu;animelists;mdblist;omdb;theintrodb;plex;mediux;wikipedia
 type MetadataProviderType string
 
 // Metadata provider types.
@@ -83,6 +83,16 @@ const (
 	// MediUX personal (or the shared testing) bearer token; spec.mediux
 	// is its policy.
 	MetadataProviderMediux MetadataProviderType = "mediux"
+
+	// MetadataProviderWikipedia reads an artist's or author's biography
+	// from the English Wikipedia page its Wikidata or Wikipedia link names
+	// (2026-11-10 design §5.4). Keyless; seeded by default.
+	MetadataProviderWikipedia MetadataProviderType = "wikipedia"
+	// MetadataProviderAudible searches Audible's public catalog by title and
+	// author for Add New's audiobooks (2026-11-10 design §5.6); Audnexus,
+	// keyed by ASIN, answers the rest. Keyless; seeded by default.
+	// spec.region is the marketplace searched, else the root folder's.
+	MetadataProviderAudible MetadataProviderType = "audible"
 )
 
 // ImageQuality is which rendering of a set's images MediUX is asked for.

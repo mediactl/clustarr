@@ -203,6 +203,7 @@ spec:
                 - openlibrary
                 - hardcover
                 - audnexus
+                - audible
                 - comicvine
                 - metron
                 - mangadex
@@ -214,6 +215,7 @@ spec:
                 - theintrodb
                 - plex
                 - mediux
+                - wikipedia
                 type: string
                 x-kubernetes-validations:
                 - message: type is immutable
