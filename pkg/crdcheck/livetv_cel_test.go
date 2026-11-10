@@ -30,9 +30,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
 
-// TestLiveTVCEL holds the clustarr.io kinds' CEL rules (Live TV spec §3.1):
-// exactly one of url and urlFrom, exactly one of guide and dummy, channelID
-// with guide, and an immutable providerRef and key. It writes through a
+// TestLiveTVCEL holds the clustarr.io kinds' CEL rules as built. An
+// IPTVProvider is an Xtream account by default (e98589e7, 2026-10-20:
+// spec.server and spec.credentialsRef, the panel's playlist, guide and
+// account fetched from them) or, since 51b02260 (2026-10-27, the
+// direct-tuners and ui design §5.7), a plain M3U playlist (spec.type M3U,
+// spec.playlistURL; a credentialsRef only when its URLs take one); the
+// 3771faa9 playlist url/urlFrom pair is gone. An IPTVChannel's epg maps by
+// channelID or draws a dummy guide, at most one of the two, neither being
+// by tvg-id (1e4244ae, 2026-11-03, which added epg.plex: a station or off,
+// exactly one); providerRef and key are immutable. It writes through a
 // dynamic client so an absent key stays absent on the wire.
 func TestLiveTVCEL(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
@@ -48,26 +55,48 @@ func TestLiveTVCEL(t *testing.T) {
 	providers := dyn.Resource(schema.GroupVersionResource{Group: "clustarr.io", Version: "v1alpha1", Resource: "iptvproviders"}).Namespace("default")
 	channels := dyn.Resource(schema.GroupVersionResource{Group: "clustarr.io", Version: "v1alpha1", Resource: "iptvchannels"}).Namespace("default")
 
-	provider := func(name string, playlist map[string]any) *unstructured.Unstructured {
+	provider := func(name string, fields map[string]any) *unstructured.Unstructured {
+		spec := map[string]any{"tuners": int64(2)}
+		for k, v := range fields {
+			spec[k] = v
+		}
 		return &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "clustarr.io/v1alpha1", "kind": "IPTVProvider",
 			"metadata": map[string]any{"name": name},
-			"spec":     map[string]any{"tuners": int64(2), "playlist": playlist},
+			"spec":     spec,
 		}}
 	}
-	_, err = providers.Create(ctx, provider("by-url", map[string]any{"url": "http://p.example/get.php"}), metav1.CreateOptions{})
-	require.NoError(t, err, "url alone is accepted")
-	_, err = providers.Create(ctx, provider("by-secret", map[string]any{"urlFrom": map[string]any{"name": "s", "key": "playlist-url"}}), metav1.CreateOptions{})
-	require.NoError(t, err, "urlFrom alone is accepted")
-	_, err = providers.Create(ctx, provider("both", map[string]any{"url": "http://p.example", "urlFrom": map[string]any{"name": "s", "key": "k"}}), metav1.CreateOptions{})
-	require.ErrorContains(t, err, "set exactly one of url and urlFrom")
-	_, err = providers.Create(ctx, provider("neither", map[string]any{}), metav1.CreateOptions{})
-	require.ErrorContains(t, err, "set exactly one of url and urlFrom")
+	creds := map[string]any{"name": "argon-tv"}
+	const typeRule = "an Xtream provider needs server and credentialsRef; an M3U provider needs playlistURL"
+	_, err = providers.Create(ctx, provider("xtream", map[string]any{"server": "tvload.win", "credentialsRef": creds}), metav1.CreateOptions{})
+	require.NoError(t, err, "an Xtream provider is the default type: server and credentialsRef")
+	_, err = providers.Create(ctx, provider("xtream-typed", map[string]any{"type": "Xtream", "server": "http://panel.example:8080", "credentialsRef": creds}), metav1.CreateOptions{})
+	require.NoError(t, err, "typed Xtream, a URL server")
+	_, err = providers.Create(ctx, provider("m3u", map[string]any{"type": "M3U", "playlistURL": "https://p.example/list.m3u"}), metav1.CreateOptions{})
+	require.NoError(t, err, "an M3U provider needs its playlistURL alone")
+	_, err = providers.Create(ctx, provider("m3u-creds", map[string]any{"type": "M3U", "playlistURL": "https://p.example/get.php?username={username}&password={password}", "credentialsRef": creds}), metav1.CreateOptions{})
+	require.NoError(t, err, "an M3U provider may name a credentialsRef for its URLs' placeholders")
+	for name, fields := range map[string]map[string]any{
+		"xtream-no-creds":  {"server": "tvload.win"},
+		"xtream-no-server": {"credentialsRef": creds},
+		"xtream-empty-ref": {"server": "tvload.win", "credentialsRef": map[string]any{"name": ""}},
+		"m3u-no-url":       {"type": "M3U"},
+		"m3u-account-only": {"type": "M3U", "server": "tvload.win", "credentialsRef": creds},
+		"url-untyped":      {"playlistURL": "https://p.example/list.m3u"},
+		"neither":          {},
+	} {
+		_, err := providers.Create(ctx, provider(name, fields), metav1.CreateOptions{})
+		require.ErrorContains(t, err, typeRule, name)
+	}
+	_, err = providers.Create(ctx, provider("bad-type", map[string]any{"type": "Plain", "playlistURL": "https://p.example/list.m3u"}), metav1.CreateOptions{})
+	require.Error(t, err, "type is Xtream or M3U")
+	_, err = providers.Create(ctx, provider("bad-guide", map[string]any{"server": "tvload.win", "credentialsRef": creds, "guideURL": "ftp://p.example/epg.xml"}), metav1.CreateOptions{})
+	require.Error(t, err, "guideURL is http or https")
 
 	// spec.device.id is eight uppercase hex digits; spec.dvr.maxChannels
 	// is 1-450 (PMS takes ~454 channels in one device's map, recorded).
 	with := func(name string, path []string, v any) *unstructured.Unstructured {
-		p := provider(name, map[string]any{"url": "http://p.example"})
+		p := provider(name, map[string]any{"server": "tvload.win", "credentialsRef": creds})
 		require.NoError(t, unstructured.SetNestedField(p.Object, v, append([]string{"spec"}, path...)...))
 		return p
 	}
@@ -96,7 +125,7 @@ func TestLiveTVCEL(t *testing.T) {
 	}
 
 	channel := func(name string, epg map[string]any) *unstructured.Unstructured {
-		spec := map[string]any{"providerRef": "by-url", "key": "t:bbc1.uk", "number": "1001", "active": true}
+		spec := map[string]any{"providerRef": "xtream", "key": "t:bbc1.uk", "number": "1001", "active": true}
 		if epg != nil {
 			spec["epg"] = epg
 		}
@@ -105,16 +134,28 @@ func TestLiveTVCEL(t *testing.T) {
 			"metadata": map[string]any{"name": name}, "spec": spec,
 		}}
 	}
-	_, err = channels.Create(ctx, channel("guide", map[string]any{"guide": "main", "channelID": "bbc1.uk"}), metav1.CreateOptions{})
-	require.NoError(t, err)
-	_, err = channels.Create(ctx, channel("dummy", map[string]any{"dummy": true}), metav1.CreateOptions{})
-	require.NoError(t, err)
-	_, err = channels.Create(ctx, channel("both-epg", map[string]any{"guide": "main", "channelID": "x", "dummy": true}), metav1.CreateOptions{})
-	require.ErrorContains(t, err, "set exactly one of guide and dummy")
-	_, err = channels.Create(ctx, channel("no-id", map[string]any{"guide": "main"}), metav1.CreateOptions{})
-	require.ErrorContains(t, err, "channelID is required with guide")
+	_, err = channels.Create(ctx, channel("guide", map[string]any{"channelID": "bbc1.uk"}), metav1.CreateOptions{})
+	require.NoError(t, err, "channelID maps the channel to the provider's guide")
+	_, err = channels.Create(ctx, channel("dummy", map[string]any{"dummy": true, "dummyMinutes": int64(120)}), metav1.CreateOptions{})
+	require.NoError(t, err, "dummy draws a placeholder guide")
+	_, err = channels.Create(ctx, channel("both-epg", map[string]any{"channelID": "x", "dummy": true}), metav1.CreateOptions{})
+	require.ErrorContains(t, err, "set at most one of channelID and dummy")
+	_, err = channels.Create(ctx, channel("empty-epg", map[string]any{}), metav1.CreateOptions{})
+	require.NoError(t, err, "an epg naming neither maps by tvg-id, as an absent one does")
 	_, err = channels.Create(ctx, channel("no-epg", nil), metav1.CreateOptions{})
 	require.NoError(t, err, "no epg means by tvg-id, else dummy")
+	_, err = channels.Create(ctx, channel("bad-minutes", map[string]any{"dummy": true, "dummyMinutes": int64(45)}), metav1.CreateOptions{})
+	require.Error(t, err, "dummyMinutes is 30, 60, 120 or 180")
+	_, err = channels.Create(ctx, channel("plex-station", map[string]any{"plex": map[string]any{"station": "657c8183afd0f02cd353633f"}}), metav1.CreateOptions{})
+	require.NoError(t, err, "a hand-picked station beside a tvg-id mapping")
+	_, err = channels.Create(ctx, channel("plex-off", map[string]any{"channelID": "bbc1.uk", "plex": map[string]any{"off": true}}), metav1.CreateOptions{})
+	require.NoError(t, err, "off Plex beside a guide mapping")
+	_, err = channels.Create(ctx, channel("plex-both", map[string]any{"plex": map[string]any{"station": "657c8183afd0f02cd353633f", "off": true}}), metav1.CreateOptions{})
+	require.ErrorContains(t, err, "set exactly one of station and off")
+	_, err = channels.Create(ctx, channel("plex-neither", map[string]any{"plex": map[string]any{}}), metav1.CreateOptions{})
+	require.ErrorContains(t, err, "set exactly one of station and off")
+	_, err = channels.Create(ctx, channel("plex-bad-station", map[string]any{"plex": map[string]any{"station": "WABC"}}), metav1.CreateOptions{})
+	require.Error(t, err, "a station is a 24-hex gridKey")
 
 	got, err := channels.Get(ctx, "guide", metav1.GetOptions{})
 	require.NoError(t, err)
