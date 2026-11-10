@@ -126,7 +126,7 @@ func (s *Server) albumPage(ctx context.Context, ns, name string) (views.AlbumVie
 	}
 	row := albumTableRow(a, time.Now())
 	v := views.AlbumView{
-		Detail: views.Detail{Item: albumItem(a, item, row), CanScan: hasFolder(item.Kind)},
+		Detail: views.Detail{Item: albumItem(a, item, row), CanScan: hasFolder(item.Kind), HasFolder: hasFolder(item.Kind)},
 		Artist: item,
 		Row:    row,
 	}

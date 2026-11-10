@@ -183,9 +183,13 @@ func TestBookPageNeighboursFollowTheReadingOrder(t *testing.T) {
 // A standalone book (no authorRef) renders the same page from its own
 // card: no author link, its own profile, the tab's neighbours, a trail
 // without an author -- and, since it has a folder of its own under its
-// own root (design §9.3), its bar renders Refresh & Scan, Rename and Edit
-// where an author's book's renders Refresh alone. A book whose author the
-// library does not hold, or no book, is not found.
+// own root (design §9.3), its bar renders Edit and Delete where an author's
+// book's does not -- and, without a file yet, Refresh alone and no Rename:
+// its folder is the import's making when it places the file (ba7c7256's
+// status.path, which ui.itemFolder admits only once status.hasFile is
+// true), so until 2026-11-10 (task F3) the page offered a scan and a rename
+// that did nothing. A book whose author the library does not hold, or no
+// book, is not found.
 func TestStandaloneBookPageNamesNoAuthor(t *testing.T) {
 	srv, _ := bookFixture(t)
 	rec := getPath(t, srv, "/library/default/book/standalone", false)
@@ -204,11 +208,12 @@ func TestStandaloneBookPageNamesNoAuthor(t *testing.T) {
 	require.Contains(t, page, "No file on disk.")
 	require.NotContains(t, page, `data-section="editions"`, "no editions known")
 	requireTag(t, page, `data-action="book-interactive-search"`, `form="interactive-search-standalone"`)
-	requireTag(t, page, `data-action="refresh-metadata"`, `title="Refresh &amp; Scan"`)
+	requireTag(t, page, `data-action="refresh-metadata"`, `form="refresh-standalone"`)
 	requireTag(t, page, `id="refresh-standalone"`, `action="/library/default/book/standalone/refresh"`)
-	require.Contains(t, page, `name="scan" value="true"`)
-	requireTag(t, page, `data-action="rename-dry-run"`, `form="rename-dry-run-standalone"`)
-	requireTag(t, page, `data-action="rename-apply"`, `form="rename-standalone"`)
+	require.NotContains(t, page, "Refresh &amp; Scan", "no file placed, so no folder on disk to scan: Refresh alone")
+	require.NotContains(t, page, `name="scan"`)
+	require.NotContains(t, page, `data-action="rename-dry-run"`, "nothing to rename yet")
+	require.NotContains(t, page, `data-action="rename-apply"`)
 	requireTag(t, page, `data-edit-dialog="standalone"`)
 	// Delete too (design §9.3; catalogv1.DeletableKinds since 2026-11-10):
 	// the dialog posts to the book's delete route, names its folder, and
@@ -264,7 +269,36 @@ func TestStandaloneBookScansAndRenamesItsOwnFolder(t *testing.T) {
 	require.Equal(t, 1, renames)
 
 	// A standalone book with no file yet: nothing on disk to scan or
-	// rename, and never the whole root.
+	// rename, and never the whole root -- so its page offers neither
+	// button (Refresh alone, no scan field, no Rename; views.Detail
+	// HasFolder) while it stays editable and deletable (CanScan).
+	page := getPath(t, srv, "/library/default/book/standalone", false)
+	require.Equal(t, http.StatusOK, page.Code)
+	body := page.Body.String()
+	requireTag(t, body, `data-book-page="standalone"`, `data-standalone="true"`)
+	requireTag(t, body, `data-action="refresh-metadata"`, `form="refresh-standalone"`)
+	require.NotContains(t, body, "Refresh &amp; Scan", "a fileless standalone book has no folder on disk to scan")
+	require.NotContains(t, body, `name="scan"`)
+	require.NotContains(t, body, `data-action="rename-dry-run"`, "nothing to rename yet")
+	require.NotContains(t, body, `data-action="rename-apply"`)
+	requireTag(t, body, `data-edit-dialog`)
+	requireTag(t, body, `data-action="delete"`)
+	// Its sibling with a file placed offers both (served over the same
+	// cluster by a server whose library lists it, as the projection would
+	// once its scan has run).
+	onDisk := ui.NewServer(t.Context(), ui.Options{Reader: c, Actions: actions.New(c), Library: func(context.Context) []projection.LibraryItem {
+		return []projection.LibraryItem{{
+			Ref: types.NamespacedName{Namespace: "default", Name: "standalone-on-disk"}, Kind: commonv1.MediaKindBook,
+			Tab: projection.TabBooks, Title: "A Standalone Book on Disk", Monitored: true, HasFile: true,
+		}}
+	}})
+	page = getPath(t, onDisk, "/library/default/book/standalone-on-disk", false)
+	require.Equal(t, http.StatusOK, page.Code)
+	body = page.Body.String()
+	requireTag(t, body, `data-book-page="standalone-on-disk"`, `data-standalone="true"`)
+	require.Contains(t, body, "Refresh &amp; Scan", "a standalone book with its file placed has a folder on disk")
+	requireTag(t, body, `data-action="rename-dry-run"`)
+	requireTag(t, body, `data-action="rename-apply"`)
 	rec = postForm(t, srv, "/library/default/book/standalone/refresh",
 		url.Values{"return": {"/library/default/book/standalone"}, "scan": {"true"}}, false)
 	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
@@ -289,9 +323,9 @@ func TestStandaloneBookScansAndRenamesItsOwnFolder(t *testing.T) {
 	// An author's book whose root overrides the author's: still the
 	// author's, so no Edit dialog, no Rename, Refresh without a scan, and
 	// never a scan or a rename of the author's whole folder.
-	page := getPath(t, srv, "/library/default/book/lavinia", false)
+	page = getPath(t, srv, "/library/default/book/lavinia", false)
 	require.Equal(t, http.StatusOK, page.Code)
-	body := page.Body.String()
+	body = page.Body.String()
 	requireTag(t, body, `data-book-page="lavinia"`, `data-standalone="false"`)
 	require.NotContains(t, body, `data-edit-dialog`, "an author's book is not editable (design §9.3)")
 	require.NotContains(t, body, `data-action="rename-dry-run"`)

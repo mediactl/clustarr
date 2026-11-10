@@ -48,7 +48,7 @@ import (
 // itemDetail builds views.Detail for item. With no reader (no cluster) the
 // page shows the projection's item alone.
 func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) views.Detail {
-	d := views.Detail{Item: item, CanScan: hasFolder(item.Kind), ShowFiles: item.Kind == commonv1.MediaKindMovie}
+	d := views.Detail{Item: item, CanScan: hasFolder(item.Kind), HasFolder: hasFolder(item.Kind), ShowFiles: item.Kind == commonv1.MediaKindMovie}
 	d.Prev, d.Next = neighbours(s.opts.Library(ctx), item)
 	if s.opts.Reader == nil {
 		return d
@@ -128,7 +128,9 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 // kinds, the containers and, since 2026-11-10 (design §9.1), a Comic and
 // an Audiobook. An Album's folder is its Artist's; a Book's is its
 // Author's unless it is standalone, which the kind alone cannot tell, so
-// a Book reads bookHasFolder.
+// a Book reads bookHasFolder. For these kinds the folder is the item's
+// from its first pass, so the page's scan and rename buttons
+// (views.Detail.HasFolder) read it too.
 func hasFolder(kind commonv1.MediaKind) bool {
 	switch kind {
 	case commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist, commonv1.MediaKindAuthor,
@@ -142,7 +144,9 @@ func hasFolder(kind commonv1.MediaKind) bool {
 // bookHasFolder reports whether b has a folder of its own: a standalone
 // Book (2026-11-10 design §9.3) -- no spec.authorRef -- whose
 // spec.rootFolderRef names its root and whose folder under it "Refresh &
-// Scan" and Rename work on (itemFolder), and whose profile and root the
+// Scan" and Rename work on (itemFolder, once the book has a file: the
+// folder is the import's making, so its page offers neither button before
+// then, views.Detail.HasFolder), and whose profile and root the
 // Edit dialog edits (views.Editable). An author's book lives in its
 // author's folder and has none of the three, even when its own
 // spec.rootFolderRef overrides the author's root (which the CRD allows):

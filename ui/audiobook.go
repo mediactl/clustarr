@@ -99,7 +99,7 @@ func (s *Server) audiobookView(ctx context.Context, ns, name string) (views.Audi
 	}
 	now := time.Now()
 	v := views.AudiobookView{
-		Detail:       views.Detail{Item: item, CanScan: hasFolder(item.Kind), ShowFiles: true, Path: a.Status.Path},
+		Detail:       views.Detail{Item: item, CanScan: hasFolder(item.Kind), HasFolder: hasFolder(item.Kind), ShowFiles: true, Path: a.Status.Path},
 		CutoffReason: a.Status.CutoffReason,
 		Phase:        string(a.Status.Phase),
 		PartCount:    a.Status.PartCount,

@@ -70,7 +70,7 @@ templ albumToolbar(v AlbumView) {
 		@actionForm("search-"+name, v.Row.SearchURL(), []Field{{"return", here}}, "search", "Search", "Search Album", "search-now", nil)
 		@actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "album-interactive-search",
 			templ.Attributes{"hx-post": v.Row.InteractiveSearchURL(), "hx-target": ModalRegion(commonv1.MediaKindAlbum), "hx-swap": "innerHTML"})
-		if v.CanScan {
+		if v.HasFolder {
 			@actionForm("rename-dry-run-"+name, libraryActionURL(v.Artist, "rename"), []Field{{"return", here}, {"rename", "dryRun"}}, "eye", "Preview", "Preview Rename of the artist's files (dry run)", "rename-dry-run", nil)
 			@actionForm("rename-"+name, libraryActionURL(v.Artist, "rename"), []Field{{"return", here}, {"rename", "apply"}}, "file-symlink", "Rename", "Rename the artist's files", "rename-apply", nil)
 		}

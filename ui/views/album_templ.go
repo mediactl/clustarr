@@ -229,7 +229,7 @@ func albumToolbar(v AlbumView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if v.CanScan {
+			if v.HasFolder {
 				templ_7745c5c3_Err = actionForm("rename-dry-run-"+name, libraryActionURL(v.Artist, "rename"), []Field{{"return", here}, {"rename", "dryRun"}}, "eye", "Preview", "Preview Rename of the artist's files (dry run)", "rename-dry-run", nil).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err

@@ -205,9 +205,16 @@ type Detail struct {
 	// phase, and one row per language.
 	SubtitlesPhase string
 	Subtitles      []SubtitleRow
-	// CanScan is whether "Refresh & Scan" can scan a folder of the item's
-	// own: the kinds with a path under a RootFolder.
-	CanScan bool
+	// CanScan is whether the item has a folder of its own under a
+	// RootFolder: the kinds with a path under one (ui.hasFolder) and a
+	// standalone Book (ui.bookHasFolder), which Editable and deletable read
+	// for a Book. HasFolder is whether that folder is on disk for "Refresh
+	// & Scan" and Rename to work on (ui.itemFolder): CanScan for every kind
+	// but a standalone Book, whose folder is the import's own making when
+	// it places the book's file, so a fileless one (2026-11-10) shows
+	// Refresh alone and no Rename, and stays editable.
+	CanScan   bool
+	HasFolder bool
 	// Prev and Next are the neighbouring items on the tab, in its order.
 	Prev string
 	Next string
@@ -295,13 +302,13 @@ templ itemToolbar(d Detail) {
 // ItemActions is an item page's action bar composed by name (2026-11-10
 // design §9.6): the bar (actionBar) with the actions asked for, in the
 // order asked, each rendered only when the item takes it (itemAction) --
-// Refresh always (as "Refresh & Scan" when the item has a folder, d.CanScan,
-// else "Refresh"); Search always, worded by the kind (searchLabel);
+// Refresh always (as "Refresh & Scan" when the item's folder is on disk,
+// d.HasFolder, else "Refresh"); Search always, worded by the kind (searchLabel);
 // Interactive for a kind with an interactive search of its own
 // (InteractiveSearchable), posting to the item's search/interactive route
 // and opening the kind's modal region, #<kind>-modal, as data-action
 // "<kind>-interactive-search"; Rename (the dry run and the apply) only for
-// an item with a folder; Edit only for a kind the Edit dialog knows
+// an item whose folder is on disk; Edit only for a kind the Edit dialog knows
 // (Editable); Images only for a kind with image sets (ImageSettable);
 // Delete only for a deletable kind with no delete pending. A page's region
 // for the modal is its own to render. The slots are joined with one space
@@ -322,7 +329,7 @@ templ itemAction(d Detail, a Action) {
 	{{ name, here := d.Item.Ref.Name, libraryDetailPath(d.Item) }}
 	switch a {
 		case ActionRefresh:
-			if d.CanScan {
+			if d.HasFolder {
 				@actionForm("refresh-"+name, libraryActionURL(d.Item, "refresh"), []Field{{"return", here}, {"scan", "true"}}, "refresh-cw", "Refresh", "Refresh & Scan", "refresh-metadata", nil)
 			} else {
 				@actionForm("refresh-"+name, libraryActionURL(d.Item, "refresh"), []Field{{"return", here}}, "refresh-cw", "Refresh", "Refresh", "refresh-metadata", nil)
@@ -335,7 +342,7 @@ templ itemAction(d Detail, a Action) {
 					templ.Attributes{"hx-post": libraryActionURL(d.Item, "search/interactive"), "hx-target": ModalRegion(d.Item.Kind), "hx-swap": "innerHTML"})
 			}
 		case ActionRename:
-			if d.CanScan {
+			if d.HasFolder {
 				@actionForm("rename-dry-run-"+name, libraryActionURL(d.Item, "rename"), []Field{{"return", here}, {"rename", "dryRun"}}, "eye", "Preview", "Preview Rename (dry run)", "rename-dry-run", nil)
 				@actionForm("rename-"+name, libraryActionURL(d.Item, "rename"), []Field{{"return", here}, {"rename", "apply"}}, "file-symlink", "Rename", "Rename", "rename-apply", nil)
 			}

@@ -107,10 +107,15 @@ func (s *Server) bookXPage(ctx context.Context, ns, name string) (views.BookXVie
 		return views.BookXView{}, false
 	}
 	// A standalone book has a folder of its own (bookHasFolder), so its
-	// bar renders Refresh & Scan, Rename and Edit (design §9.3); an
+	// bar renders Edit and Delete (design §9.3), and Refresh & Scan and
+	// Rename once its file is placed, when the folder is on disk (as
+	// itemFolder admits it; a fileless one shows Refresh alone); an
 	// author's book takes its author's folder, profile and root, and its
 	// bar renders Refresh alone and no Edit dialog.
-	v.Detail = views.Detail{Item: bookXItem(&b, row, parent, v.Standalone), Path: b.Status.Path, Links: bookXLinks(&b), CanScan: bookHasFolder(&b)}
+	v.Detail = views.Detail{
+		Item: bookXItem(&b, row, parent, v.Standalone), Path: b.Status.Path, Links: bookXLinks(&b),
+		CanScan: bookHasFolder(&b), HasFolder: bookHasFolder(&b) && b.Status.HasFile,
+	}
 	if !v.Standalone {
 		v.AuthorTitle, v.AuthorURL = parent.Title, views.DetailPath(parent)
 	}
