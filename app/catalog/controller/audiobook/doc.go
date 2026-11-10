@@ -15,9 +15,11 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package audiobook implements the Audiobook controller: phase, naming and
-// the MediaFile/Download rollup as pure functions (Phase, Path,
-// FileState, DownloadOverlay), and a thin Reconciler around them, following
+// Package audiobook implements the Audiobook controller: the Audiobook's
+// view of the shared leaf phase (PhaseInputs over rollup.LeafPhase,
+// 2026-11-10 design D4), naming, the MediaFile/Download rollup and the
+// start-time idle rule (Path, FileState, PartRefs, IdleInputs) as pure
+// functions, and a thin Reconciler around them, following
 // app/catalog/controller/movie -- task G2-3's assigned precedent for a leaf
 // kind with no parent fan-out (spec §8.1, amendment-1 §A1.5).
 //
@@ -28,23 +30,30 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     gateway's concern (app/catalog/metadata/target.go's externalIDs) -- this
 //     package only ever names the item by kind and reads whatever
 //     status.metadata the gateway already wrote.
-//   - AudiobookPhase has no Pending or Unavailable value (unlike MoviePhase):
-//     there is no minimumAvailability concept for an Audible release, and the
-//     type was not given a distinct "metadata not fetched yet" phase. See
-//     Phase's doc comment for how this package handles that gap without
-//     inventing an enum value the CRD does not accept.
+//   - its phase is the four non-video leaves' LeafPhase, with Movie's
+//     precedence: Pending until the metadata is fresh, Unavailable before
+//     the publication date, CutoffUnevaluated for files no profile judged,
+//     and never Transcoded, since an audiobook's parts are never transcoded
+//     (design D9). See PhaseInputs for how each input is read.
 //   - status.fileRefs is a list (≤200 audio parts, spec §4.2), not a single
 //     fileRef: an audiobook release commonly ships as N tracks importing as N
-//     MediaFiles. See FileState's doc comment for how the list is ordered and
-//     how the single status.quality/cutoffMet verdict is derived from it.
+//     MediaFiles, in play order by each part's spec.partIndex (PartRefs,
+//     parts.go; design D11), counted in status.partCount. See FileState's
+//     doc comment for how the single status.fileQuality, fileFormatScore and
+//     cutoffMet verdict is derived from them.
 //
-// Audiobook is the sole writer of status.phase, status.path, status.hasFile,
-// status.fileRefs, status.quality, status.cutoffMet and
-// status.activeDownloadRef (§3's single-writer rule, and the ownership
-// decision recorded in .superpowers/sdd/2026-09-23-phases-efg/
-// g2-controllers-brief.md, settled by G2-1); status.metadata belongs to the
-// metadata gateway (field manager k8s.ManagerCatalogMetadata) and this
-// package never writes it. status.pendingGrab is read only, for phase and
-// wake purposes -- it is written by the grab path, not this controller,
-// mirroring Movie exactly (see reconciler.go's field-manager note).
+// Audiobook is the sole writer of status.phase, status.cutoffReason,
+// status.path, status.hasFile, status.fileRefs, status.partCount,
+// status.fileQuality, status.fileFormatScore, status.cutoffMet,
+// status.addOptionsApplied and status.activeDownloadRef (§3's single-writer
+// rule, and the ownership decision recorded in
+// .superpowers/sdd/2026-09-23-phases-efg/g2-controllers-brief.md, settled by
+// G2-1); status.metadata belongs to the metadata gateway (field manager
+// k8s.ManagerCatalogMetadata) and this package never writes it.
+// status.pendingGrab is read only, for phase and wake purposes -- it is
+// written by the grab path, not this controller, mirroring Movie exactly (see
+// reconciler.go's field-manager note). The HasFile and CutoffMet conditions
+// were retired on 2026-11-10 (design D4): status.hasFile and
+// status.cutoffReason say what they restated, and Ready, MetadataReady,
+// QueueFull, BookRefResolved and DeadLettered stay.
 package audiobook

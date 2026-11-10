@@ -18,36 +18,87 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package audiobook
 
 import (
+	"time"
+
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
+	"github.com/mediactl/clustarr/pkg/metadata"
 )
 
-// Phase computes the coarse lifecycle state of an Audiobook. Its shape
-// mirrors movie.Phase (hasFile-and-cutoffMet outranks a pending grab, which
-// outranks a bare hasFile, which outranks the default Wanted), but it takes
-// no metadataReady or available argument -- AudiobookPhase's kubebuilder enum
-// (Wanted;Delayed;Downloading;Imported;CutoffUnmet;Unmonitored) has neither a
-// Pending value for "metadata not fetched yet" nor an Unavailable value for
-// "not released yet", unlike MoviePhase and unlike EpisodePhase's Unaired.
-// There is no minimumAvailability concept for an Audible recording, so the
-// missing Unavailable value is expected; the missing Pending value looks
-// like an oversight against Movie's shape, but the type is frozen (spec
-// §4.2) and inventing a phase value the CRD's Enum validation rejects is not
-// an option. The reconciler folds "metadata not yet fetched" into the
-// ordinary Wanted bucket instead (an audiobook with no cached title still
-// reads as "wanted", which is not false) and reports the gap on
-// AudiobookConditionMetadataReady, the condition this state actually
-// belongs on.
-func Phase(monitored, hasFile, cutoffMet, pendingGrab bool) commonv1.LeafPhase {
-	switch {
-	case !monitored:
-		return commonv1.LeafPhaseUnmonitored
-	case hasFile && cutoffMet:
-		return commonv1.LeafPhaseImported
-	case pendingGrab:
-		return commonv1.LeafPhaseDelayed
-	case hasFile:
-		return commonv1.LeafPhaseCutoffUnmet
-	default:
-		return commonv1.LeafPhaseWanted
+// PhaseInputs is the Audiobook's view for rollup.LeafPhase, the one phase
+// and cutoffReason the four non-video leaves share (2026-11-10 design D4;
+// until then AudiobookPhase had neither Pending nor Unavailable). The facts
+// the reconcile computed are passed in; the ones the Audiobook carries are
+// read here:
+//
+//   - monitored is the Audiobook's own flag (itemread.Monitored; its
+//     Author's too once design W1.3 lands there).
+//   - metadataReady is whether status.metadata is fresh (MetadataStale): an
+//     Audiobook without a document, or past its RefreshTTL, reads Pending
+//     until the gateway answers, Movie's rule.
+//   - Released is whether the publication date has passed, an unknown date
+//     counting as out (itemread.Available); an unreleased Audiobook with
+//     nothing on disk or in flight reads Unavailable.
+//   - CutoffEvaluated is whether the QualityProfile resolved; with files
+//     and no profile the Audiobook reads CutoffUnevaluated, never
+//     CutoffUnmet, which would put it in the upgrade rotation on a verdict
+//     that was never reached.
+//   - PendingGrab is status.pendingGrab: a release chosen and waiting out a
+//     DelayProfile delay, read-only here (the grab path writes it).
+//
+// A live grab entry overlays Downloading over the result (rollup.LeafOverlay),
+// the caller's step.
+func PhaseInputs(m *catalogv1alpha1.Audiobook, monitored, metadataReady, hasFile, cutoffMet, profileResolved bool, now time.Time) rollup.LeafInputs {
+	return rollup.LeafInputs{
+		Monitored:       monitored,
+		MetadataReady:   metadataReady,
+		Released:        itemread.Available(m, now),
+		HasFile:         hasFile,
+		CutoffMet:       cutoffMet,
+		CutoffEvaluated: profileResolved,
+		PendingGrab:     m.Status.PendingGrab != nil,
+	}
+}
+
+// MetadataStale is the Audiobook's metadata staleness as the reconcile
+// decides it: stale when the document is missing or past its RefreshTTL
+// (the Audiobook then reads Pending and a refresh is asked for), outdated
+// when a recent document was written before the gateway learned a field
+// (metadata.SchemaVersion; refreshed once, at once, the Audiobook staying
+// ready meanwhile -- design D8, Movie's rule). MediaKindAudiobook is a flat
+// 30-day cadence regardless of state (pkg/metadata/refresh.go), so
+// RefreshStateActive is passed only to avoid metadata.RefreshTTL's two
+// magic-string special cases ahead of its per-kind switch -- exactly the
+// reasoning app/catalog/metadata/worker.go's own Audiobook branch gives.
+func MetadataStale(m *catalogv1alpha1.Audiobook, now time.Time) (stale, outdated bool) {
+	md := m.Status.Metadata
+	if md == nil {
+		return true, false
+	}
+	ttl := metadata.RefreshTTL(commonv1.MediaKindAudiobook, metadata.RefreshStateActive, md.RefreshedAt.Time)
+	stale = now.Sub(md.RefreshedAt.Time) >= ttl
+	return stale, !stale && md.SchemaVersion < metadata.SchemaVersion
+}
+
+// IdleInputs is the Audiobook's view for rollup.LeafIdleAtStart, the
+// Audiobook watch's SkipInitial (design D14): the object as the cache lists
+// it at a manager's start, with monitored read as the pass would read it,
+// and a refresh due whenever the pass would ask the gateway for one
+// (MetadataStale).
+func IdleInputs(m *catalogv1alpha1.Audiobook, monitored bool, now time.Time) rollup.LeafIdle {
+	stale, outdated := MetadataStale(m, now)
+	return rollup.LeafIdle{
+		Generation:         m.Generation,
+		ObservedGeneration: m.Status.ObservedGeneration,
+		Monitored:          monitored,
+		Phase:              m.Status.Phase,
+		RefreshDue:         stale || outdated,
+		ActiveDownloadRef:  m.Status.ActiveDownloadRef,
+		DownloadPhase:      m.Status.DownloadPhase,
+		PendingGrab:        m.Status.PendingGrab != nil,
+		SearchInFlight:     m.Status.SearchDispatch.InFlight(),
+		Conditions:         m.Status.Conditions,
 	}
 }
