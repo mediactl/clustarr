@@ -53,12 +53,17 @@ const (
 	// status.imageSet (spec 2026-10-22), before artwork so a chosen poster
 	// is fetched on the pass that sees it.
 	StageImageSet ItemStageName = "imageset"
+	// StageNFO writes an Artist's, Album's, Author's or Audiobook's
+	// artist.nfo/album.nfo and images beside its files through the import
+	// agent, once per change of the rendered documents (2026-11-10 design
+	// §8.2); last, since it reads the artwork the stages before it fetch.
+	StageNFO ItemStageName = "nfo"
 )
 
 // StageOrder: grab decides new entries from candidates, downloads runs the
 // state machine over stored and new entries, search reads the downloads
 // outcome (redownloads, R25), then metadata, artwork and overlay.
-var StageOrder = []ItemStageName{StageGrab, StageDownloads, StageSearch, StageMetadata, StageImageSet, StageArtwork, StageOverlay}
+var StageOrder = []ItemStageName{StageGrab, StageDownloads, StageSearch, StageMetadata, StageImageSet, StageArtwork, StageOverlay, StageNFO}
 
 // setOrder is the order the other managers' sets apply in, each
 // preconditioned on the resourceVersion the one before returned (§7.0).

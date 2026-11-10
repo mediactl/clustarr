@@ -50,6 +50,7 @@ import (
 	markersplanner "github.com/mediactl/clustarr/app/remediation/markers"
 	metadatastage "github.com/mediactl/clustarr/app/remediation/metadata"
 	"github.com/mediactl/clustarr/app/remediation/naming"
+	nfostage "github.com/mediactl/clustarr/app/remediation/nfo"
 	"github.com/mediactl/clustarr/app/remediation/probe"
 	"github.com/mediactl/clustarr/app/remediation/rename"
 	replayactuator "github.com/mediactl/clustarr/app/remediation/replay"
@@ -257,6 +258,11 @@ func Stages(d Deps) []remediation.ItemStage {
 		art := artworkstage.Options{Bus: d.Env.Bus, Index: d.Options.Artwork, Dispatch: d.Options.Dispatch}
 		stages = append(stages, artworkstage.New(art), artworkstage.NewOverlay(art))
 	}
+	// The nfo stage (2026-11-10 design §8.2): an album's or audiobook's
+	// artist.nfo/album.nfo and images, written by the import agent.
+	stages = append(stages, nfostage.New(nfostage.Options{
+		Reader: d.Manager.GetClient(), Bus: d.Env.Bus, Dispatch: d.Options.Dispatch,
+	}))
 	return stages
 }
 

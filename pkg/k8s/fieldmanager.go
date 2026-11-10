@@ -160,6 +160,12 @@ const (
 	// (spec.imageSet: none) touches no other manager's field.
 	ManagerCatalogImageSet FieldManager = "catalog-imageset"
 
+	// ManagerCatalogNFO is the remediation loop's nfo stage: it owns exactly
+	// status.nfo on an Artist, Album, Author or Audiobook -- the
+	// artist.nfo/album.nfo the import agent last wrote -- and nothing else
+	// (2026-11-10 design §8.2).
+	ManagerCatalogNFO FieldManager = "catalog-nfo"
+
 	// ManagerCatalogBacklog is the BacklogSearch controller: it owns
 	// BacklogSearch status, the cycle it runs and the searches it started
 	// (docs/superpowers/specs/2026-11-10-backlog-search-design.md).
@@ -331,6 +337,7 @@ func FieldManagers() []FieldManager {
 		ManagerCatalogArtwork,
 		ManagerCatalogClassify,
 		ManagerCatalogImageSet,
+		ManagerCatalogNFO,
 		ManagerCatalogBacklog,
 		ManagerImport,
 		ManagerImportWorker,

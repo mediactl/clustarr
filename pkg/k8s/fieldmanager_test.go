@@ -32,11 +32,12 @@ func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 	// the cold turkey deleted each outright rather than keeping it valid
 	// (TestRetiredFieldManagersStayValid). clustarr-autoscale joined last
 	// (W4.62); Wave U unbranded every value (U3); catalog-backlog is the
-	// BacklogSearch controller's (2026-11-10).
+	// BacklogSearch controller's and catalog-nfo the remediation loop's nfo
+	// stage (2026-11-10).
 	want := []string{
 		"catalog", "catalog-series", "catalog-worker",
 		"catalog-metadata", "catalog-grab", "catalog-fanout",
-		"catalog-artwork", "catalog-classify", "catalog-imageset", "catalog-backlog",
+		"catalog-artwork", "catalog-classify", "catalog-imageset", "catalog-nfo", "catalog-backlog",
 		"import", "import-worker",
 		"index", "index-worker",
 		"grab",
