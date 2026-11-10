@@ -29,7 +29,13 @@ const (
 	SeriesConditionReady = "Ready"
 	// SeriesConditionMetadataReady is True once metadata has been fetched.
 	SeriesConditionMetadataReady = "MetadataReady"
-	// SeriesConditionEpisodesSynced is True once the Episode objects match the metadata.
+	// SeriesConditionEpisodesSynced is True once the Episode objects match
+	// the metadata (reason Reconciled). False with reason MetadataPending
+	// while the series has no metadata document yet (the episodes are
+	// listed once it is cached), or, when the episode listing RPC failed,
+	// with the request's error class as its reason -- NoAgent, AgentBusy,
+	// RPCTimeout or RPCError (events.RequestErrorClass.Reason) -- and the
+	// error in its message.
 	SeriesConditionEpisodesSynced = "EpisodesSynced"
 	// SeriesConditionFolderScanned records the one scan of the series'
 	// folder its first episodes ask for (Sonarr's RefreshSeries, then

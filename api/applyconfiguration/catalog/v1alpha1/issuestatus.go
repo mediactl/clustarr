@@ -52,6 +52,13 @@ type IssueStatusApplyConfiguration struct {
 	// SourceIDs maps provider names (comicvine, metron, mangadex) to the
 	// issue's ids there.
 	SourceIDs map[string]string `json:"sourceIDs,omitempty"`
+	// Volume is the tankobon volume a chapter is collected in, when the
+	// issue is a chapter of a source that collects them (a MangaDex manga
+	// numbered by chapter, 2026-11-10 design D10): the volume's number, or
+	// "none" for a chapter not yet collected. Empty for an issue that is
+	// itself the unit (ComicVine, Metron, a manga numbered by volume).
+	// Written by the Comic's fan-out with the other provider fields.
+	Volume *string `json:"volume,omitempty"`
 	// Phase is the coarse lifecycle state of the issue (commonv1.LeafPhase,
 	// 2026-11-10 design D4).
 	Phase *commonv1alpha1.LeafPhase `json:"phase,omitempty"`
@@ -193,6 +200,14 @@ func (b *IssueStatusApplyConfiguration) WithSourceIDs(entries map[string]string)
 	for k, v := range entries {
 		b.SourceIDs[k] = v
 	}
+	return b
+}
+
+// WithVolume sets the Volume field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Volume field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithVolume(value string) *IssueStatusApplyConfiguration {
+	b.Volume = &value
 	return b
 }
 

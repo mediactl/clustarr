@@ -83,9 +83,12 @@ func (s *Server) authorXPage(ctx context.Context, item projection.LibraryItem) v
 // authorXLinks are the author's provider pages, each with a logo the ui
 // holds (views.Providers): Open Library from spec.openLibraryID, then the
 // Goodreads, Wikipedia and Hardcover pages the metadata's links name. A
-// Hardcover page is linked only when the metadata carries its URL:
-// spec.hardcoverID is Hardcover's numeric id, and its site addresses an
-// author by slug, which the gateway does not record.
+// Hardcover page is the metadata's links entry of type hardcover, which
+// the Hardcover client records from the row's slug (or the gateway's
+// PageProvider ask, for an author Open Library answered, by the
+// spec.hardcoverID the gateway threads beside the Open Library key); the
+// numeric spec.hardcoverID alone makes no link, since Hardcover's site
+// addresses an author by slug.
 func authorXLinks(a *catalogv1.Author) []views.Link {
 	var links []views.Link
 	if a.Spec.OpenLibraryID != "" {

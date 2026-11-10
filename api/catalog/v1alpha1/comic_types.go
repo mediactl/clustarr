@@ -122,6 +122,15 @@ type ComicMetadata struct {
 	// +optional
 	ExternalIDs map[string]string `json:"externalIDs,omitempty"`
 
+	// Links are the volume's external pages a provider records by something
+	// the ids do not carry: Metron's series page by its slug, type "metron"
+	// (2026-11-10 design §9.4, the comic page's logos).
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +kubebuilder:validation:MaxItems=16
+	Links []Link `json:"links,omitempty"`
+
 	// Images lists the cover art published by the provider.
 	// +optional
 	// +kubebuilder:validation:MaxItems=50

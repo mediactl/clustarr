@@ -66,7 +66,10 @@ func comicFixture(t *testing.T) (*ui.Server, client.Client) {
 				Manga: catalogv1.MangaFlagNo, AgeRating: "Mature", Status: catalogv1.ComicRunStatusContinuing,
 				Genres: []string{"Science Fiction", "Fantasy"}, OriginalLanguage: "en",
 				Overview:    "Two soldiers from opposite sides of a galactic war fall in love.",
-				ExternalIDs: map[string]string{"anilist": "98765"},
+				ExternalIDs: map[string]string{"anilist": "98765", "metron": "1"},
+				// Metron's series page, by the slug the metron client
+				// records (the id alone addresses nothing on its site).
+				Links: []catalogv1.Link{{Type: "metron", URL: "https://metron.cloud/series/saga-2012/"}},
 			},
 			Artwork: []catalogv1.ArtworkEntry{
 				{Type: catalogv1.ImageTypePoster, Digest: "p0st3r"},
@@ -193,7 +196,9 @@ func TestComicPageIsMylarsIssuesTable(t *testing.T) {
 	require.Contains(t, page, `<img src="/static/providers/comicvine.svg" alt="ComicVine"`)
 	require.Contains(t, page, `href="https://anilist.co/manga/98765"`)
 	require.Contains(t, page, `<img src="/static/providers/anilist.svg" alt="AniList"`)
-	require.NotContains(t, page, "providers/metron.svg", "no Metron id, no Metron logo")
+	require.Contains(t, page, `href="https://metron.cloud/series/saga-2012/"`, "the metadata's links entry of type metron, the slug page the client recorded")
+	require.Contains(t, page, `<img src="/static/providers/metron.svg" alt="Metron"`)
+	require.NotContains(t, page, "metron.cloud/series/1", "the Metron id alone builds no page")
 	require.Contains(t, page, "Two soldiers from opposite sides of a galactic war fall in love.")
 	for fact, want := range map[string]string{
 		"path":        "/data/comics/Saga (2012)",

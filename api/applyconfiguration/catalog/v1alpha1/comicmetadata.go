@@ -48,6 +48,10 @@ type ComicMetadataApplyConfiguration struct {
 	// ExternalIDs maps provider names (comicvine, metron, mangadex, anilist,
 	// mal) to their IDs.
 	ExternalIDs map[string]string `json:"externalIDs,omitempty"`
+	// Links are the volume's external pages a provider records by something
+	// the ids do not carry: Metron's series page by its slug, type "metron"
+	// (2026-11-10 design §9.4, the comic page's logos).
+	Links []LinkApplyConfiguration `json:"links,omitempty"`
 	// Images lists the cover art published by the provider.
 	Images []ImageApplyConfiguration `json:"images,omitempty"`
 	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
@@ -154,6 +158,19 @@ func (b *ComicMetadataApplyConfiguration) WithExternalIDs(entries map[string]str
 	}
 	for k, v := range entries {
 		b.ExternalIDs[k] = v
+	}
+	return b
+}
+
+// WithLinks adds the given value to the Links field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Links field.
+func (b *ComicMetadataApplyConfiguration) WithLinks(values ...*LinkApplyConfiguration) *ComicMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithLinks")
+		}
+		b.Links = append(b.Links, *values[i])
 	}
 	return b
 }

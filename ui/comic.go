@@ -116,14 +116,21 @@ func fillComic(v *views.ComicView, co *catalogv1.Comic) {
 // comicLinks are the comic's provider pages, each with its logo (design
 // §9.4: ComicVine, Metron, MangaDex, AniList, MAL "as the externalIDs/links
 // allow"): its source's page -- the ComicVine volume or the MangaDex title
-// -- then the ids the metadata's externalIDs carry for the other providers.
-// Metron's site addresses a series by slug, which the ids do not carry, so
-// no Metron link is made.
+// -- then Metron's series page, which its site addresses by a slug the ids
+// do not carry, so it is the metadata's links entry of type "metron" (the
+// metron client records it; a Metron id alone makes no link), then the ids
+// the metadata's externalIDs carry for the other providers.
 func comicLinks(co *catalogv1.Comic) []views.Link {
 	ids := map[string]string{}
+	var metron string
 	if md := co.Status.Metadata; md != nil {
 		for k, v := range md.ExternalIDs {
 			ids[k] = v
+		}
+		for _, l := range md.Links {
+			if l.Type == views.ProviderMetron && l.URL != "" {
+				metron = l.URL
+			}
 		}
 	}
 	if co.Spec.SourceID != "" {
@@ -134,6 +141,9 @@ func comicLinks(co *catalogv1.Comic) []views.Link {
 	var links []views.Link
 	if id := ids["comicvine"]; id != "" {
 		links = append(links, views.Link{Label: "ComicVine", Href: "https://comicvine.gamespot.com/volume/" + comicVineGUID("4050", id) + "/", Provider: views.ProviderComicVine})
+	}
+	if metron != "" {
+		links = append(links, views.Link{Label: "Metron", Href: metron, Provider: views.ProviderMetron})
 	}
 	if id := ids["mangadex"]; id != "" {
 		links = append(links, views.Link{Label: "MangaDex", Href: "https://mangadex.org/title/" + id, Provider: views.ProviderMangaDex})

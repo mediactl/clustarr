@@ -53,6 +53,11 @@ type Registry struct {
 	// (wikipedia), first answer wins; the gateway asks only when the
 	// primary provider's own overview is empty (2026-11-10 design §5.4).
 	Biographies []BiographyProvider
+	// Pages answer an Author's or a Book's page on a supplementary
+	// provider's site (hardcover, for an Open Library-keyed item); the
+	// gateway asks every one after the primary lookup and appends each
+	// Link whose type the document's Links lack (2026-11-10 design §9.3).
+	Pages []PageProvider
 	// AudiobookSearchers search a marketplace's catalogue for Add New
 	// (audible), first answer wins (2026-11-10 design §5.6).
 	AudiobookSearchers []AudiobookSearcher

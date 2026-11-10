@@ -186,6 +186,21 @@ type BiographyProvider interface {
 	Biography(ctx context.Context, links []Link) (text string, source string, err error)
 }
 
+// PageProvider answers an item's page on a supplementary provider's own
+// site, for an item another provider answered: Hardcover's author and book
+// pages for an Open Library-keyed Author or Book (2026-11-10 design §9.3),
+// which the primary's document never carries since the gateway's Lookup is
+// first-success. The gateway asks every registered PageProvider after the
+// primary lookup, with the ids the document settled on, and appends the
+// Link when the document's Links carry no page of its type. An item the
+// provider cannot address (no id of its own among ids, or one it does not
+// know) answers an empty Link and no error; a kind it has no pages for is
+// ErrUnsupported.
+type PageProvider interface {
+	Provider
+	Page(ctx context.Context, kind commonv1.MediaKind, ids ExternalIDs) (Link, error)
+}
+
 // ComicProvider fetches comic volumes and their issues.
 type ComicProvider interface {
 	Provider

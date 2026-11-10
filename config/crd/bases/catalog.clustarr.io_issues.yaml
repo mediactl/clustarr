@@ -763,6 +763,16 @@ spec:
               title:
                 description: Title is the issue title.
                 type: string
+              volume:
+                description: |-
+                  Volume is the tankobon volume a chapter is collected in, when the
+                  issue is a chapter of a source that collects them (a MangaDex manga
+                  numbered by chapter, 2026-11-10 design D10): the volume's number, or
+                  "none" for a chapter not yet collected. Empty for an issue that is
+                  itself the unit (ComicVine, Metron, a manga numbered by volume).
+                  Written by the Comic's fan-out with the other provider fields.
+                maxLength: 32
+                type: string
             type: object
         type: object
     selectableFields:

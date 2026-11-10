@@ -707,7 +707,13 @@ func (r *Reconciler) ensureIssue(ctx context.Context, c *catalogv1alpha1.Comic, 
 	}
 	statusAC := catalogac.IssueStatus().
 		WithSourceID(sourceID).
-		WithTitle(d.Title)
+		WithTitle(d.Title).
+		// Volume rides with the title on every apply, the complete
+		// declaration (design D10): a chapter's tankobon volume, "none"
+		// while uncollected, "" for an issue that is itself the unit, so a
+		// chapter collected since is re-stated and an issue never says a
+		// volume it lost. Cut to the CRD's bound, never dropped.
+		WithVolume(clampVolume(d.Volume))
 	if d.Date != nil {
 		statusAC = statusAC.WithDate(metav1.NewTime(*d.Date))
 	}
@@ -739,6 +745,24 @@ func (r *Reconciler) ensureIssue(ctx context.Context, c *catalogv1alpha1.Comic, 
 	// k8s.ManagerCatalogFanout's own doc comment for the full reasoning.
 	_, err = k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogFanout, catalogac.Issue(d.Name, c.Namespace).WithStatus(statusAC))
 	return err
+}
+
+// issueVolumeMaxLength is IssueStatus.Volume's MaxLength.
+const issueVolumeMaxLength = 32
+
+// clampVolume cuts a provider's volume string to IssueStatus.Volume's
+// bound on a rune boundary, as download.ClampMessage does, so an apply is
+// never refused for it; a volume is a number or "none", so the cut is a
+// defence, not a case.
+func clampVolume(v string) string {
+	if len(v) <= issueVolumeMaxLength {
+		return v
+	}
+	r := []rune(v)
+	for len(r) > 0 && len(string(r)) > issueVolumeMaxLength {
+		r = r[:len(r)-1]
+	}
+	return string(r)
 }
 
 // withEntries folds the grab entries, the download phase, the intent nonces

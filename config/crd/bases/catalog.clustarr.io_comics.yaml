@@ -1232,6 +1232,36 @@ spec:
                     description: Language is the BCP-47 language the metadata was
                       fetched in.
                     type: string
+                  links:
+                    description: |-
+                      Links are the volume's external pages a provider records by something
+                      the ids do not carry: Metron's series page by its slug, type "metron"
+                      (2026-11-10 design §9.4, the comic page's logos).
+                    items:
+                      description: |-
+                        Link is one external page of an item: a MusicBrainz url-rel, an Open
+                        Library link, a provider's own page.
+                      properties:
+                        type:
+                          description: |-
+                            Type names the site: wikidata, wikipedia, discogs, homepage,
+                            bandcamp, lastfm, spotify, apple, youtube, goodreads, hardcover,
+                            audible, comicvine, metron, mangadex, anilist, mal.
+                          maxLength: 32
+                          type: string
+                        url:
+                          description: URL is the page.
+                          maxLength: 512
+                          type: string
+                      required:
+                      - type
+                      - url
+                      type: object
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - type
+                    x-kubernetes-list-type: map
                   manga:
                     description: Manga says whether the volume is manga and how it
                       reads.

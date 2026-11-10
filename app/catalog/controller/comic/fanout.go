@@ -59,6 +59,12 @@ type DesiredIssue struct {
 	Credits   []metadata.Credit
 	SourceIDs map[string]string
 
+	// Volume is the tankobon volume a chapter is collected in (design
+	// D10): metadata.ComicIssue.Volume, the volume's number or "none" for
+	// a chapter not yet collected, empty for an issue that is itself the
+	// unit.
+	Volume string
+
 	// Monitored is non-nil only for an Issue object this pass is about to
 	// create; nil means "do not touch spec.monitored" -- see DesiredIssues'
 	// doc comment for the exact decision, and IssueSpec.Monitored's own doc
@@ -163,6 +169,7 @@ func DesiredIssues(
 			Name: name, Number: number, CalculatedNumberCentis: centis,
 			SourceID: iss.IDs[sourceKey], Title: iss.Title, Date: date, Monitored: monitored,
 			StoreDate: iss.StoreDate, Overview: iss.Description, Credits: iss.Credits,
+			Volume: iss.Volume,
 		}
 		if iss.Image != nil {
 			d.CoverURL = iss.Image.URL

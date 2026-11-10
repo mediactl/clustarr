@@ -126,6 +126,16 @@ type IssueStatus struct {
 	// +optional
 	SourceIDs map[string]string `json:"sourceIDs,omitempty"`
 
+	// Volume is the tankobon volume a chapter is collected in, when the
+	// issue is a chapter of a source that collects them (a MangaDex manga
+	// numbered by chapter, 2026-11-10 design D10): the volume's number, or
+	// "none" for a chapter not yet collected. Empty for an issue that is
+	// itself the unit (ComicVine, Metron, a manga numbered by volume).
+	// Written by the Comic's fan-out with the other provider fields.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32
+	Volume string `json:"volume,omitempty"`
+
 	// Phase is the coarse lifecycle state of the issue (commonv1.LeafPhase,
 	// 2026-11-10 design D4).
 	// +optional

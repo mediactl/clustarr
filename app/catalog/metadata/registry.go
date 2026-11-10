@@ -292,7 +292,8 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 // client fills:
 //
 //   - coverart, fanart: Artwork.
-//   - hardcover: Books and Ratings (a Book's Hardcover rating).
+//   - hardcover: Books, Ratings (a Book's Hardcover rating) and Pages (an
+//     Open Library-keyed Author's or Book's Hardcover page).
 //   - metron, mangadex: Comics and Resolvers.
 //   - anilist, kitsu, animelists: Resolvers. AniList is a ComicProvider
 //     too, but not registered as one: a Comic's source can only be
@@ -343,6 +344,7 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 		}
 		reg.Books = append(reg.Books, cl)
 		reg.Ratings = append(reg.Ratings, cl) // 2026-11-10 design §5.4: a Book's Hardcover rating, by its id or ISBN.
+		reg.Pages = append(reg.Pages, cl)     // design §9.3: an Open Library-keyed Author's or Book's Hardcover page, by the same ids.
 	case catalogv1alpha1.MetadataProviderMetron:
 		tok, err := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyBearer)
 		if err != nil {

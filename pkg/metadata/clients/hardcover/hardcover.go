@@ -887,4 +887,5 @@ func parseDate(s string) *time.Time {
 var (
 	_ metadata.BookProvider    = (*Client)(nil)
 	_ metadata.RatingsProvider = (*Client)(nil)
+	_ metadata.PageProvider    = (*Client)(nil)
 )

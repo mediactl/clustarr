@@ -95,6 +95,84 @@ func (a stubArtworkProvider) Artwork(context.Context, commonv1.MediaKind, pkgmet
 	return a.images, a.err
 }
 
+// stubPageProvider is a fake metadata.PageProvider: it answers the link
+// fixed at construction (or err) and records the ids it was asked with, so
+// a test can prove what addressed the page.
+type stubPageProvider struct {
+	name  string
+	link  pkgmetadata.Link
+	err   error
+	calls *int
+	seen  *[]pkgmetadata.ExternalIDs
+}
+
+func (p stubPageProvider) Name() string                           { return p.name }
+func (p stubPageProvider) Capabilities() pkgmetadata.Capabilities { return pkgmetadata.Capabilities{} }
+func (p stubPageProvider) Page(_ context.Context, _ commonv1.MediaKind, ids pkgmetadata.ExternalIDs) (pkgmetadata.Link, error) {
+	if p.calls != nil {
+		*p.calls++
+	}
+	if p.seen != nil {
+		*p.seen = append(*p.seen, ids.Merge(nil))
+	}
+	if p.err != nil {
+		return pkgmetadata.Link{}, p.err
+	}
+	return p.link, nil
+}
+
+// A supplementary provider's page (2026-11-10 design §9.3: Hardcover's for
+// an Open Library-keyed Author or Book) is asked for after the primary
+// lookup and appended to the document's links as its own type; a document
+// already carrying a page of that type is not given a second, a provider
+// that fails adds nothing and stops nothing, an empty answer adds nothing,
+// and a Book is addressed by its first edition's ISBN-13 beside its own
+// ids, as its ratings are.
+func TestEnrichAppendsASupplementaryProvidersPageLink(t *testing.T) {
+	page := pkgmetadata.Link{Type: "hardcover", URL: "https://hardcover.app/authors/jane-austen"}
+	calls := 0
+	var seen []pkgmetadata.ExternalIDs
+	reg := &pkgmetadata.Registry{Pages: []pkgmetadata.PageProvider{
+		stubPageProvider{name: "down", err: errors.New("hardcover: 503"), calls: &calls},
+		stubPageProvider{name: "hardcover", link: page, calls: &calls, seen: &seen},
+	}}
+	olLink := pkgmetadata.Link{Type: "wikipedia", URL: "https://en.wikipedia.org/wiki/Jane_Austen"}
+
+	author := &pkgmetadata.Author{IDs: pkgmetadata.ExternalIDs{"openlibrary": "OL21594A"}, Links: []pkgmetadata.Link{olLink}}
+	enrich(context.Background(), reg, commonv1.MediaKindAuthor, pkgmetadata.ExternalIDs{"hardcover": "51942"}, nil, author)
+	require.Equal(t, []pkgmetadata.Link{olLink, page}, author.Links, "the page is appended after the primary's own links")
+	require.Equal(t, 2, calls, "the failing provider is passed over")
+	require.Equal(t, []pkgmetadata.ExternalIDs{{"openlibrary": "OL21594A", "hardcover": "51942"}}, seen, "asked with the document's ids and the spec's")
+
+	calls, seen = 0, nil
+	own := &pkgmetadata.Author{IDs: pkgmetadata.ExternalIDs{"hardcover": "51942"}, Links: []pkgmetadata.Link{{Type: "hardcover", URL: "https://hardcover.app/authors/other"}}}
+	enrich(context.Background(), reg, commonv1.MediaKindAuthor, nil, nil, own)
+	require.Equal(t, []pkgmetadata.Link{{Type: "hardcover", URL: "https://hardcover.app/authors/other"}}, own.Links, "a page of the type already carried is not doubled, and the primary's wins")
+
+	calls, seen = 0, nil
+	book := &pkgmetadata.Book{
+		IDs:      pkgmetadata.ExternalIDs{"openlibrary": "OL27448W"},
+		Editions: []pkgmetadata.Edition{{IDs: pkgmetadata.ExternalIDs{"openlibrary": "OL1M"}}, {IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyISBN13: "9781416971702"}}},
+	}
+	enrich(context.Background(), reg, commonv1.MediaKindBook, nil, nil, book)
+	require.Equal(t, []pkgmetadata.Link{page}, book.Links)
+	require.Equal(t, []pkgmetadata.ExternalIDs{{"openlibrary": "OL27448W", pkgmetadata.KeyISBN13: "9781416971702"}}, seen, "a Book is addressed by its first edition's ISBN-13 beside its own ids")
+	require.Equal(t, pkgmetadata.ExternalIDs{"openlibrary": "OL27448W"}, book.IDs, "the document's own ids are not touched")
+
+	empty := &pkgmetadata.Author{IDs: pkgmetadata.ExternalIDs{"openlibrary": "OL1A"}}
+	enrich(context.Background(), &pkgmetadata.Registry{Pages: []pkgmetadata.PageProvider{stubPageProvider{name: "nothing"}}}, commonv1.MediaKindAuthor, nil, nil, empty)
+	require.Empty(t, empty.Links, "an empty answer -- an item the provider cannot address -- adds nothing")
+
+	failing := &pkgmetadata.Author{IDs: pkgmetadata.ExternalIDs{"openlibrary": "OL1A"}, Links: []pkgmetadata.Link{olLink}}
+	enrich(context.Background(), &pkgmetadata.Registry{Pages: []pkgmetadata.PageProvider{stubPageProvider{name: "down", err: errors.New("hardcover: 503")}}}, commonv1.MediaKindAuthor, nil, nil, failing)
+	require.Equal(t, []pkgmetadata.Link{olLink}, failing.Links, "a failing provider adds nothing and loses nothing")
+
+	comic := &pkgmetadata.ComicVolume{IDs: pkgmetadata.ExternalIDs{"comicvine": "1"}}
+	calls = 0
+	enrich(context.Background(), reg, commonv1.MediaKindComic, nil, nil, comic)
+	require.Zero(t, calls, "only an Author or a Book is asked for a page")
+}
+
 func TestEnrichAddsCrosswalkIDsWithoutOverridingAnyThePrimaryProviderGave(t *testing.T) {
 	var seen []pkgmetadata.ExternalIDs
 	reg := &pkgmetadata.Registry{Resolvers: []pkgmetadata.IDResolver{

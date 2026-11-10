@@ -1858,6 +1858,11 @@ func (in *ComicMetadata) DeepCopyInto(out *ComicMetadata) {
 			(*out)[key] = val
 		}
 	}
+	if in.Links != nil {
+		in, out := &in.Links, &out.Links
+		*out = make([]Link, len(*in))
+		copy(*out, *in)
+	}
 	if in.Images != nil {
 		in, out := &in.Images, &out.Images
 		*out = make([]Image, len(*in))

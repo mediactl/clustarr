@@ -948,6 +948,8 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 			CoverDate: &cover, StoreDate: &store, Description: "How it began.",
 			Image:   &metadata.Image{URL: "https://comicvine.gamespot.com/a/uploads/origins.jpg"},
 			Credits: []metadata.Credit{{Name: "Jane Writer", Role: "writer"}},
+			// The tankobon volume a chapter is collected in (design D10).
+			Volume: "1",
 		},
 	}}
 	bus := combinedBus{Publisher: &fakePublisher{}, requester: requester}
@@ -984,7 +986,7 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 	// reconciler's own (its phase since D4, where Mylar's state was; its
 	// file rollup). Each manager owns exactly its own and claims none of
 	// the other's.
-	fanoutOwned := []string{"sourceID", "title", "date", "storeDate", "overview", "coverURL", "credits", "sourceIDs"}
+	fanoutOwned := []string{"sourceID", "title", "date", "storeDate", "overview", "coverURL", "credits", "sourceIDs", "volume"}
 	catalogOwned := []string{"phase", "hasFile"}
 
 	// Comic's write landed under catalog-fanout, claiming exactly the
@@ -1028,8 +1030,29 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 	assert.True(t, iss.Status.StoreDate.Time.Equal(store))
 	assert.Equal(t, []catalogv1alpha1.Credit{{Name: "Jane Writer", Role: "writer"}}, iss.Status.Credits)
 	assert.Equal(t, map[string]string{metadata.KeyComicVine: "2001"}, iss.Status.SourceIDs)
+	assert.Equal(t, "1", iss.Status.Volume, "the chapter's volume reaches Issue status (design D10)")
 	assert.Equal(t, catalogv1alpha1.IssuePhaseImported, iss.Status.Phase)
 	assert.True(t, iss.Status.HasFile)
+
+	// Volume is sent on every apply, the complete declaration: a provider
+	// that names no volume for the issue any more (the chapter's listing
+	// now says nothing of it) has it re-stated as "", still owned by
+	// catalog-fanout -- which the managedFields assertions below tell from
+	// a partial declaration's release, since the value alone reads "" either
+	// way (CLAUDE.md: an under-declaration shows only in managedFields). A
+	// fresh Reconciler, so its fan-out memo asks the listing again.
+	requester.issues[0].Volume = ""
+	again := &comic.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: bus}
+	_, err = again.ReconcileItem(ctx, req.NamespacedName)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		if err := c.Get(ctx, issKey, &iss); err != nil {
+			return false
+		}
+		return iss.Status.Volume == ""
+	}, 5*time.Second, 10*time.Millisecond, "the second fan-out never landed status.volume as empty")
+	assert.Equal(t, "Origins", iss.Status.Title, "the rest of the fan-out's set stands")
+	assert.Equal(t, catalogv1alpha1.IssuePhaseImported, iss.Status.Phase, "the Issue reconciler's own field stands")
 
 	for _, want := range []string{string(k8s.ManagerCatalogFanout), string(k8s.ManagerCatalog)} {
 		if !managesField(iss.ManagedFields, want, "status") {

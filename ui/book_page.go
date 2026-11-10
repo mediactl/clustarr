@@ -186,8 +186,12 @@ func bookXItem(b *catalogv1.Book, row views.BookRow, parent projection.LibraryIt
 // bookXLinks are the book's provider pages with a logo: its Open Library
 // work (spec.workID), then the Hardcover, Goodreads and Wikipedia pages the
 // metadata's links name, and a Goodreads page built from the goodreads
-// external id when the links name none. A Hardcover id alone makes no link:
-// Hardcover addresses a book by slug, which the gateway does not record.
+// external id when the links name none. A Hardcover page is the metadata's
+// links entry of type hardcover, which the Hardcover client records from
+// the row's slug (or the gateway's PageProvider ask, for a work Open
+// Library answered, by its Hardcover id or its first edition's ISBN-13);
+// the numeric Hardcover id alone makes no link, since Hardcover's site
+// addresses a book by slug.
 func bookXLinks(b *catalogv1.Book) []views.Link {
 	var links []views.Link
 	if b.Spec.WorkID != "" {

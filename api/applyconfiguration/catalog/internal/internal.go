@@ -1749,6 +1749,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: language
       type:
         scalar: string
+    - name: links
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Link
+          elementRelationship: associative
+          keys:
+          - type
     - name: manga
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MangaFlag
@@ -3213,6 +3221,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: title
+      type:
+        scalar: string
+    - name: volume
       type:
         scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LibraryScan

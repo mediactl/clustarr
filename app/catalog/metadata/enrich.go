@@ -19,6 +19,7 @@ package metadata
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -80,7 +81,7 @@ func resolveIDs(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.Me
 // carries no images in pkg/metadata and an Audiobook a single one, so
 // neither takes artwork; no artwork provider serves those kinds anyway.
 func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaKind, specIDs, known pkgmetadata.ExternalIDs, doc any) {
-	if reg == nil || (len(reg.Resolvers) == 0 && len(reg.Artwork) == 0 && len(reg.Extras) == 0 && len(reg.Biographies) == 0) {
+	if reg == nil || (len(reg.Resolvers) == 0 && len(reg.Artwork) == 0 && len(reg.Extras) == 0 && len(reg.Biographies) == 0 && len(reg.Pages) == 0) {
 		return
 	}
 	ctx, span := tracing.Start(ctx, "metadata.enrich")
@@ -115,6 +116,23 @@ func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaK
 		if d.Overview == "" {
 			d.Overview, _ = biography(ctx, reg.Biographies, d.Links)
 		}
+	}
+
+	// A supplementary provider's page for an Author or a Book another
+	// provider answered (Hardcover's for an Open Library-keyed item,
+	// 2026-11-10 design §9.3: the Lookup is first-success, so the primary's
+	// document never carries it): every PageProvider is asked with the ids
+	// the document settled on -- a Book's with its first edition's ISBN-13
+	// beside them, as its ratings are asked (bookRatingIDs) -- and its Link
+	// appended when the document's Links carry no page of that type, so a
+	// primary that recorded the page itself (Hardcover answering a
+	// Hardcover-keyed Book) is never doubled. Folded in before the cache
+	// write like the artwork, so a cache hit costs no request.
+	switch d := doc.(type) {
+	case *pkgmetadata.Author:
+		d.Links = pageLinks(ctx, reg.Pages, kind, *idsp, d.Links)
+	case *pkgmetadata.Book:
+		d.Links = pageLinks(ctx, reg.Pages, kind, bookRatingIDs(d), d.Links)
 	}
 
 	if imagesp == nil {
@@ -361,6 +379,41 @@ func seriesExtras(ctx context.Context, providers []pkgmetadata.SeriesExtrasProvi
 		}
 	}
 	return pkgmetadata.SeriesExtras{}
+}
+
+// pageLinks asks each PageProvider for kind's page addressed by ids and
+// returns links with every answered Link whose type links did not already
+// carry appended, in provider order. Best effort, as biography is: a
+// provider that fails is logged and skipped (ErrUnsupported, a kind it has
+// no pages for, silently), and an empty Link -- an item it cannot address
+// -- adds nothing.
+func pageLinks(ctx context.Context, providers []pkgmetadata.PageProvider, kind commonv1.MediaKind, ids pkgmetadata.ExternalIDs, links []pkgmetadata.Link) []pkgmetadata.Link {
+	if len(providers) == 0 {
+		return links
+	}
+	have := make(map[string]bool, len(links))
+	for _, l := range links {
+		have[l.Type] = true
+	}
+	for _, p := range providers {
+		pCtx, span := tracing.Start(ctx, "metadata.PageProvider.Page")
+		link, err := p.Page(pCtx, kind, ids)
+		if err != nil {
+			tracing.RecordError(span, err)
+			span.End()
+			if !errors.Is(err, pkgmetadata.ErrUnsupported) {
+				logging.FromContext(ctx).Warn("page provider failed", "provider", p.Name(), "kind", kind, "error", err)
+			}
+			continue
+		}
+		span.End()
+		if link.Type == "" || link.URL == "" || have[link.Type] {
+			continue
+		}
+		have[link.Type] = true
+		links = append(links, link)
+	}
+	return links
 }
 
 // biography asks each provider in turn for a biography from links; the

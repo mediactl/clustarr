@@ -98,13 +98,15 @@ func TestTheHardcoverPageReachesAuthorAndBookStatusAsALink(t *testing.T) {
 	require.Equal(t, catalogv1alpha1.Link{Type: "hardcover", URL: "https://hardcover.app/books/out-of-my-mind"}, link)
 }
 
-// TestTheMetronPageStopsAtTheComicVolume records where the Metron link
-// ends today: the metron client puts the series page on ComicVolume.Links,
-// and ComicMetadata has no links field for buildComicMetadataAC to carry
-// it into (api/ leftover; the comic page builds its logos from the
-// externalIDs alone until then). When ComicMetadata gains Links, this
-// test is the one to flip.
-func TestTheMetronPageStopsAtTheComicVolume(t *testing.T) {
+// TestTheMetronPageReachesComicStatusAsALink: the comic page renders its
+// Metron logo from a status.metadata.links entry of type "metron"
+// (ui/comic.go comicLinks; 2026-11-10 design §9.4), which the metron
+// client records from the series' slug -- no id addresses a series on its
+// site -- and buildComicMetadataAC carries through linksAC into
+// ComicMetadata.Links. The document comes through the real client over
+// the recorded fixture, so the type the ui names is the one the client
+// emits.
+func TestTheMetronPageReachesComicStatusAsALink(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/series/1/", r.URL.Path)
 		b, err := os.ReadFile("../../../test/data/metadata/metron/series_1.json")
@@ -120,10 +122,17 @@ func TestTheMetronPageStopsAtTheComicVolume(t *testing.T) {
 	require.Equal(t, []pkgmetadata.Link{{Type: "metron", URL: "https://metron.cloud/series/death-of-the-inhumans-2018/"}}, v.Links)
 
 	ac := buildComicMetadataAC(v, nil, "", time.Now())
-	raw, err := json.Marshal(ac)
+	require.Len(t, ac.Links, 1)
+	require.Equal(t, "metron", *ac.Links[0].Type, "the type the comic page's comicLinks reads")
+	require.Equal(t, "https://metron.cloud/series/death-of-the-inhumans-2018/", *ac.Links[0].URL)
+	require.Equal(t, "1", ac.ExternalIDs["metron"], "the id rides in externalIDs beside it")
+
+	// The status shape: the CRD's Link, listType=map by type.
+	var link catalogv1alpha1.Link
+	raw, err := json.Marshal(ac.Links[0])
 	require.NoError(t, err)
-	require.NotContains(t, string(raw), "metron.cloud/series", "ComicMetadata carries no links; the page is on the model alone")
-	require.Equal(t, "1", ac.ExternalIDs["metron"])
+	require.NoError(t, json.Unmarshal(raw, &link))
+	require.Equal(t, catalogv1alpha1.Link{Type: "metron", URL: "https://metron.cloud/series/death-of-the-inhumans-2018/"}, link)
 }
 
 // TestTheHardcoverPageReachesAnOpenLibraryAuthorsStatusAsALink: the
@@ -131,15 +140,15 @@ func TestTheMetronPageStopsAtTheComicVolume(t *testing.T) {
 // an Author CR ahead of Hardcover (registry.go's tie-break), so the
 // document carries Open Library's links and never the Hardcover page the
 // Hardcover client's own Author records -- an Author with a spec.hardcoverID
-// got Hardcover's rating and no logo. The lean hardcover.Client.Page, asked
-// with the ids the document and the spec carry (target.go threads
-// spec.hardcoverID beside the Open Library key), answers the page, and
-// appended to the document's Links it renders through linksAC as the type
-// ui/author.go's providerLinksOf reads, after Open Library's own links.
-// Both documents come through the real clients over the recorded fixtures.
-// The gateway's call (enrich.go, after the primary lookup, when the Links
-// name no "hardcover" page) is the PageProvider leftover this test is the
-// status half of.
+// got Hardcover's rating and no logo. The gateway's enrich, after the
+// primary lookup, asks every Registry.Pages provider with the ids the
+// document and the spec carry (target.go threads spec.hardcoverID beside
+// the Open Library key); the lean hardcover.Client.Page answers the page,
+// and appended to the document's Links it renders through linksAC as the
+// type ui/author.go's providerLinksOf reads, after Open Library's own
+// links. Both documents come through the real clients over the recorded
+// fixtures, and the page through enrich itself, so the ids it is asked
+// with are the ones the gateway sends.
 func TestTheHardcoverPageReachesAnOpenLibraryAuthorsStatusAsALink(t *testing.T) {
 	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	ol := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -163,13 +172,20 @@ func TestTheHardcoverPageReachesAnOpenLibraryAuthorsStatusAsALink(t *testing.T) 
 		require.NotEqual(t, "hardcover", l.Type, "Open Library records no Hardcover page: the primary's document is the one without the link")
 	}
 
-	// enrich merges the spec's ids into the document's before it asks the
-	// supplementary providers; the same ids address the page.
-	a.IDs = a.IDs.Merge(specIDs)
-	link, err := hc.Page(context.Background(), commonv1.MediaKindAuthor, a.IDs)
-	require.NoError(t, err)
-	require.Equal(t, pkgmetadata.Link{Type: "hardcover", URL: "https://hardcover.app/authors/sharon-m-draper"}, link)
-	a.Links = append(a.Links, link)
+	// The gateway's own path: enrich merges the spec's ids into the
+	// document's, asks the registered PageProvider with them and appends
+	// the page it answers (registry.go registers the hardcover client in
+	// reg.Pages; the worker calls enrich right after the Lookup).
+	reg := &pkgmetadata.Registry{Books: []pkgmetadata.BookProvider{primary}, Pages: []pkgmetadata.PageProvider{hc}}
+	enrich(context.Background(), reg, commonv1.MediaKindAuthor, specIDs, nil, a)
+	require.Contains(t, a.Links, pkgmetadata.Link{Type: "hardcover", URL: "https://hardcover.app/authors/sharon-m-draper"})
+	require.Equal(t, "51942", a.IDs[extid.KeyHardcover], "the spec's id merged into the document's")
+
+	// Asked again (a refresh), the page is already carried, so it is not
+	// doubled.
+	before := len(a.Links)
+	enrich(context.Background(), reg, commonv1.MediaKindAuthor, specIDs, nil, a)
+	require.Len(t, a.Links, before)
 
 	ac := buildAuthorMetadataAC(a, nil, "", now)
 	var got []catalogv1alpha1.Link

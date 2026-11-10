@@ -180,6 +180,24 @@ func TestDesiredIssuesSourceIDFollowsTheComicsSource(t *testing.T) {
 	assert.Empty(t, got[1].SourceID, "a ComicVine id is not a MangaDex one")
 }
 
+// A chapter's tankobon volume (design D10: MangaDex's chapter numbering
+// says which volume collects each chapter, "none" while uncollected) rides
+// the DesiredIssue onto Issue status; an issue that is itself the unit
+// carries none.
+func TestDesiredIssuesCarryTheChaptersVolume(t *testing.T) {
+	md := newComic("one-piece", nil)
+	md.Spec.Source = catalogv1alpha1.ComicSourceMangaDex
+	got := comic.DesiredIssues(md, false, map[string]bool{}, []metadata.ComicIssue{
+		{Number: "1", Volume: "1"},
+		{Number: "1100", Volume: "none"},
+		{Number: "2"},
+	}, now)
+	require.Len(t, got, 3)
+	assert.Equal(t, "1", got[0].Volume)
+	assert.Equal(t, "none", got[1].Volume, "a chapter not yet collected says so")
+	assert.Empty(t, got[2].Volume, "an issue that is the unit names no volume")
+}
+
 func TestSourceKey(t *testing.T) {
 	assert.Equal(t, "comicvine", comic.SourceKey(catalogv1alpha1.ComicSourceComicVine))
 	assert.Equal(t, "mangadex", comic.SourceKey(catalogv1alpha1.ComicSourceMangaDex))
