@@ -79,6 +79,10 @@ func Kind(o client.Object) string {
 		return "Issue"
 	case *catalogv1alpha1.Comic:
 		return "Comic"
+	case *catalogv1alpha1.Artist:
+		return "Artist"
+	case *catalogv1alpha1.Author:
+		return "Author"
 	}
 	return ""
 }
@@ -383,7 +387,8 @@ func Covers(e *catalogv1alpha1.DownloadEntry, item client.Object) bool {
 }
 
 // OwnMonitored is item's own spec.monitored (default true), its container's
-// left out.
+// left out. The three non-video containers (Artist, Author, Comic) read
+// theirs too, since their children's Monitored consults them.
 func OwnMonitored(item client.Object) bool {
 	switch t := item.(type) {
 	case *catalogv1alpha1.Movie:
@@ -391,6 +396,10 @@ func OwnMonitored(item client.Object) bool {
 	case *catalogv1alpha1.Series:
 		return ptr.Deref(t.Spec.Monitored, true)
 	case *catalogv1alpha1.Comic:
+		return ptr.Deref(t.Spec.Monitored, true)
+	case *catalogv1alpha1.Artist:
+		return ptr.Deref(t.Spec.Monitored, true)
+	case *catalogv1alpha1.Author:
 		return ptr.Deref(t.Spec.Monitored, true)
 	case *catalogv1alpha1.Album:
 		return ptr.Deref(t.Spec.Monitored, true)
@@ -406,31 +415,40 @@ func OwnMonitored(item client.Object) bool {
 	return false
 }
 
-// Monitored reports item monitored, and an Episode's Series or an Issue's
-// Comic monitored too (Sonarr's MonitoredEpisodeSpecification, P2).
+// Monitored reports item monitored, and its container monitored too: an
+// Episode's Series, an Issue's Comic (Sonarr's
+// MonitoredEpisodeSpecification, P2), and since 2026-11-10 (design D3,
+// Lidarr's and Readarr's semantics, which the RSS matcher already applied)
+// an Album's Artist and a Book's Author -- a standalone Book has none and
+// reads its own flag alone. A container that is gone reads as unmonitored.
 func Monitored(ctx context.Context, r client.Reader, item client.Object) (bool, error) {
+	if !OwnMonitored(item) {
+		return false, nil
+	}
 	ns := item.GetNamespace()
+	var (
+		name      string
+		container client.Object
+	)
 	switch t := item.(type) {
 	case *catalogv1alpha1.Episode:
-		if !ptr.Deref(t.Spec.Monitored, true) {
-			return false, nil
-		}
-		var s catalogv1alpha1.Series
-		if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: t.Spec.SeriesRef}, &s); err != nil {
-			return false, client.IgnoreNotFound(err)
-		}
-		return ptr.Deref(s.Spec.Monitored, true), nil
+		name, container = t.Spec.SeriesRef, &catalogv1alpha1.Series{}
 	case *catalogv1alpha1.Issue:
-		if !ptr.Deref(t.Spec.Monitored, true) {
-			return false, nil
+		name, container = t.Spec.ComicRef, &catalogv1alpha1.Comic{}
+	case *catalogv1alpha1.Album:
+		name, container = t.Spec.ArtistRef, &catalogv1alpha1.Artist{}
+	case *catalogv1alpha1.Book:
+		if t.Spec.AuthorRef == nil || *t.Spec.AuthorRef == "" {
+			return true, nil
 		}
-		var co catalogv1alpha1.Comic
-		if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: t.Spec.ComicRef}, &co); err != nil {
-			return false, client.IgnoreNotFound(err)
-		}
-		return ptr.Deref(co.Spec.Monitored, true), nil
+		name, container = *t.Spec.AuthorRef, &catalogv1alpha1.Author{}
+	default:
+		return true, nil
 	}
-	return OwnMonitored(item), nil
+	if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, container); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return OwnMonitored(container), nil
 }
 
 // Available is §8.2's availability input: a Movie's status.available; an
@@ -573,10 +591,13 @@ func Tombstoned(entries []catalogv1alpha1.DownloadEntry, item client.Object, rel
 }
 
 // HasFile is an item's status.hasFile: Movie, Episode, Book, Audiobook,
-// Issue; false for any other (an Album holds tracks, not a file).
+// Issue, and an Album with any track file (design D6: its hasFile is true
+// while at least one track has one); false for any other.
 func HasFile(o client.Object) bool {
 	switch t := o.(type) {
 	case *catalogv1alpha1.Movie:
+		return t.Status.HasFile
+	case *catalogv1alpha1.Album:
 		return t.Status.HasFile
 	case *catalogv1alpha1.Episode:
 		return t.Status.HasFile
@@ -600,7 +621,8 @@ const (
 	// is in flight, with IndexTrue.
 	SearchInFlightIndex = "remediation.item.searchInFlight"
 	// SeasonSearchInFlightIndex marks a Series whose status.seasonSearch
-	// dispatch is in flight, with IndexTrue.
+	// dispatch, or a Comic whose status.volumeSearch dispatch, is in flight,
+	// with IndexTrue.
 	SeasonSearchInFlightIndex = "remediation.series.seasonSearchInFlight"
 	// AnimeIndex marks an anime Series or Movie with IndexTrue.
 	AnimeIndex = "remediation.item.anime"
@@ -659,13 +681,29 @@ func LastLiveSearchAt(o client.Object) *metav1.Time {
 	return nil
 }
 
-// SeasonSearchInFlightValues is SeasonSearchInFlightIndex's extractor.
+// SeasonSearchInFlightValues is SeasonSearchInFlightIndex's extractor: a
+// Series' seasonSearch dispatch in flight, or a Comic's volumeSearch
+// (ContainerSearch).
 func SeasonSearchInFlightValues(o client.Object) []string {
-	s, ok := o.(*catalogv1alpha1.Series)
-	if !ok || s.Status.SeasonSearch == nil || !s.Status.SeasonSearch.Dispatch.InFlight() {
+	st := ContainerSearch(o)
+	if st == nil || !st.Dispatch.InFlight() {
 		return nil
 	}
 	return []string{IndexTrue}
+}
+
+// ContainerSearch is a container's pack-first search state: a Series'
+// status.seasonSearch, a Comic's status.volumeSearch (2026-11-10 design
+// D10: the Series' season machinery with the season layer removed, the one
+// season being the volume); nil for any other object.
+func ContainerSearch(o client.Object) *catalogv1alpha1.SeasonSearchState {
+	switch t := o.(type) {
+	case *catalogv1alpha1.Series:
+		return t.Status.SeasonSearch
+	case *catalogv1alpha1.Comic:
+		return t.Status.VolumeSearch
+	}
+	return nil
 }
 
 // AnimeValues is AnimeIndex's extractor.

@@ -35,6 +35,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -232,7 +233,7 @@ var searchedKinds = []commonv1.MediaKind{
 // candidates are the namespace's backlog items as a cycle reads them:
 // listed by reason through the index, judged again at now (an Issue's
 // cover date, a stale index value), searched before, nothing in flight,
-// monitored with their container.
+// monitored with their container (a Series, Comic, Artist or Author).
 func (r *Reconciler) candidates(ctx context.Context, bs *catalogv1alpha1.BacklogSearch, now time.Time) ([]backlog.Candidate, error) {
 	containers := map[string]container{} // read once per cycle: every Get decodes a row
 	var out []backlog.Candidate
@@ -349,11 +350,26 @@ func (r *Reconciler) candidate(ctx context.Context, o client.Object, reason sche
 		if err != nil || !co.monitored {
 			return backlog.Candidate{}, false, err
 		}
+	case *catalogv1alpha1.Album:
+		// Monitoring cascades from the Artist (2026-11-10 design D3), as
+		// itemread.Monitored reads it for the search planner.
+		ar, err := r.container(ctx, &catalogv1alpha1.Artist{}, t.Namespace, t.Spec.ArtistRef, containers)
+		if err != nil || !ar.monitored {
+			return backlog.Candidate{}, false, err
+		}
+	case *catalogv1alpha1.Book:
+		// A standalone Book (no authorRef) is governed by its own flag alone.
+		if name := ptr.Deref(t.Spec.AuthorRef, ""); name != "" {
+			au, err := r.container(ctx, &catalogv1alpha1.Author{}, t.Namespace, name, containers)
+			if err != nil || !au.monitored {
+				return backlog.Candidate{}, false, err
+			}
+		}
 	}
 	return cand, true, nil
 }
 
-// container is a Series or Comic as a cycle needs it.
+// container is a Series, Comic, Artist or Author as a cycle needs it.
 type container struct {
 	monitored bool
 	ref       schema.ItemRef
@@ -478,7 +494,7 @@ func queueAC(q *catalogv1alpha1.BacklogQueueStatus) *catalogac.BacklogQueueStatu
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=backlogsearches,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=backlogsearches/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;albums;books;audiobooks;issues;series;comics,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;albums;books;audiobooks;issues;series;comics;artists;authors,verbs=get;list;watch
 
 // SetupWithManager registers the controller. A status write changes no
 // generation, so it does not wake the controller; its RequeueAfter is the
