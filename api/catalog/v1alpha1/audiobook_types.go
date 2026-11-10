@@ -29,10 +29,6 @@ const (
 	AudiobookConditionReady = "Ready"
 	// AudiobookConditionMetadataReady is True once metadata has been fetched.
 	AudiobookConditionMetadataReady = "MetadataReady"
-	// AudiobookConditionHasFile is True while MediaFiles back the audiobook.
-	AudiobookConditionHasFile = "HasFile"
-	// AudiobookConditionCutoffMet is True when the imported files meet the profile cutoff.
-	AudiobookConditionCutoffMet = "CutoffMet"
 	// AudiobookConditionQueueFull is True while metadata-refresh publishes are
 	// being throttled. Controller-introduced, not spec-listed -- mirrors
 	// MovieConditionQueueFull (movie_types.go), added by a later task there

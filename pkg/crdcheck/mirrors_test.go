@@ -142,7 +142,7 @@ func imageTypeConstants(t *testing.T, path string) []string {
 // here.
 func TestRatingSourceEnumMatchesPkgMetadata(t *testing.T) {
 	want := ratingSourceConstants(t, "../metadata/model.go")
-	require.Len(t, want, 7, "pkg/metadata should declare seven RatingSource* constants; update this guard if that changed deliberately")
+	require.Len(t, want, 12, "pkg/metadata should declare twelve RatingSource* constants (seven video, five non-video since the 2026-11-10 design); update this guard if that changed deliberately")
 
 	schema := crdSchemaAt(t, "catalog.clustarr.io_movies.yaml", "status", "metadata", "ratings")
 	require.NotNil(t, schema.Items)

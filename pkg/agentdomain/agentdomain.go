@@ -131,7 +131,7 @@ func Domains() []Domain {
 		// (ADR-0007).
 		{Name: Metadata, Consumers: []string{
 			events.ConsumerCatalogMetadata, events.ConsumerCatalogArtworkFetch,
-			events.ConsumerCatalogMarkers,
+			events.ConsumerCatalogMarkers, events.ConsumerCatalogImageSet,
 		}, Serves: []string{
 			events.RPCMetadataLookup, events.RPCMetadataSearch, events.RPCMetadataResolve,
 			events.RPCMetadataExtras,
@@ -140,7 +140,7 @@ func Domains() []Domain {
 		// ProbeVersion raise's backlog scales the import domain out.
 		{Name: Import, Autoscaled: true, Consumers: []string{
 			events.ConsumerImportScan, events.ConsumerImportFile, events.ConsumerImportList,
-			events.ConsumerImportRecycle,
+			events.ConsumerImportRecycle, events.ConsumerImportNFO,
 			events.ConsumerImportProbeHigh, events.ConsumerImportProbeLow,
 		}},
 		// One replica: the release index, the RPC responders, the facade

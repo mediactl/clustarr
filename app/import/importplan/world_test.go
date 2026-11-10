@@ -144,7 +144,16 @@ func newWorld(t *testing.T) *world {
 	album := &catalogv1alpha1.Album{
 		ObjectMeta: metav1.ObjectMeta{Name: "ok-computer", Namespace: ns, UID: "ok-computer-uid"},
 		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", QualityProfileRef: ptr.To("lossless")},
-		Status:     catalogv1alpha1.AlbumStatus{Path: filepath.Join(wd.lib("music"), "Radiohead", "OK Computer (1997)")},
+		Status: catalogv1alpha1.AlbumStatus{
+			Path: filepath.Join(wd.lib("music"), "Radiohead", "OK Computer (1997)"),
+			// The selected release's tracks: since 2026-11-10 (design D6)
+			// every album file is attributed to one of them, by its tags,
+			// then its name, so an album without tracks takes no file.
+			Tracks: []catalogv1alpha1.Track{
+				{RecordingID: "airbag", Medium: 1, Number: 1, Title: "Airbag"},
+				{RecordingID: "paranoid-android", Medium: 1, Number: 2, Title: "Paranoid Android"},
+			},
+		},
 	}
 	objs := []client.Object{
 		profile("hd", catalogv1alpha1.ProfileMediaKindVideo, "hd", video...),

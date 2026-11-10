@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package mediainfo
+package pagecount
 
 import (
 	"archive/tar"
@@ -63,13 +63,13 @@ func TestPageCountOfComicArchives(t *testing.T) {
 	dir := t.TempDir()
 	cbz := filepath.Join(dir, "Saga 001 (2012).cbz")
 	writeCBZ(t, cbz, "Saga 001/001.jpg", "Saga 001/002.JPG", "Saga 001/003.png", "Saga 001/ComicInfo.xml", "__MACOSX/Saga 001/._001.jpg", "Saga 001/.hidden.jpg")
-	n, err := PageCount(cbz)
+	n, err := Of(cbz)
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, n)
 
 	cbt := filepath.Join(dir, "issue.cbt")
 	writeCBT(t, cbt, "01.webp", "02.webp", "notes.txt")
-	n, err = PageCount(cbt)
+	n, err = Of(cbt)
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, n)
 }
@@ -88,26 +88,26 @@ func TestPageCountOfAPDF(t *testing.T) {
 	b.WriteString(strings.Repeat("%", pad))
 	b.WriteString("4 0 obj << /Type /Page /Parent 2 0 R >> endobj\n%%EOF\n")
 	require.NoError(t, os.WriteFile(pdf, []byte(b.String()), 0o644))
-	n, err := PageCount(pdf)
+	n, err := Of(pdf)
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, n)
 }
 
 func TestPageCountRefusesOtherFiles(t *testing.T) {
-	_, err := PageCount("movie.mkv")
+	_, err := Of("movie.mkv")
 	assert.ErrorIs(t, err, ErrNoPageCount)
-	_, err = PageCount(filepath.Join(t.TempDir(), "missing.cbz"))
+	_, err = Of(filepath.Join(t.TempDir(), "missing.cbz"))
 	assert.Error(t, err)
 }
 
 // The committed fixtures (2026-11-10 design D9, W3.1 step 2): a CBZ of two
 // PNG pages beside its ComicInfo.xml, and a two-page PDF.
 func TestPageCountOfACBZ(t *testing.T) {
-	n, err := PageCount("../../test/data/mediainfo/comic_two_pages.cbz")
+	n, err := Of("../../../test/data/mediainfo/comic_two_pages.cbz")
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, n, "two images; ComicInfo.xml is no page")
 
-	n, err = PageCount("../../test/data/mediainfo/book_two_pages.pdf")
+	n, err = Of("../../../test/data/mediainfo/book_two_pages.pdf")
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, n, "two page objects; the page tree node is no page")
 }

@@ -87,5 +87,8 @@ func Payloads() []schema.Payload {
 		schema.AgentPresence{},
 		schema.ListSnapshot{},
 		schema.RecycleFilesTask{},
+		// The NFO write task and its record (2026-11-10 design §8.2).
+		schema.NFOWriteTask{},
+		schema.NFORecord{},
 	}
 }

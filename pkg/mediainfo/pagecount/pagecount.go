@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package mediainfo
+package pagecount
 
 import (
 	"archive/tar"
@@ -35,7 +35,7 @@ import (
 
 // ErrNoPageCount is PageCount's answer for a file that is no comic archive
 // or PDF.
-var ErrNoPageCount = errors.New("mediainfo: no page count for this file type")
+var ErrNoPageCount = errors.New("pagecount: no page count for this file type")
 
 // pageImageExtensions are the entries of a comic archive that are pages.
 var pageImageExtensions = map[string]bool{
@@ -53,7 +53,7 @@ const maxPDFScan = 512 << 20
 // by listing alone: nothing is extracted) or a PDF (its page objects), for
 // MediaInfo.PageCount (2026-11-10 design D9). ErrNoPageCount for any other
 // file; a .cb7 or .cbr the library cannot open is an error, never a guess.
-func PageCount(path string) (int32, error) {
+func Of(path string) (int32, error) {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".cbz":
 		return zipPages(path)
@@ -80,7 +80,7 @@ func isPage(name string) bool {
 func zipPages(path string) (int32, error) {
 	r, err := zip.OpenReader(path)
 	if err != nil {
-		return 0, fmt.Errorf("mediainfo: open %s: %w", path, err)
+		return 0, fmt.Errorf("pagecount: open %s: %w", path, err)
 	}
 	defer r.Close()
 	var n int32
@@ -95,7 +95,7 @@ func zipPages(path string) (int32, error) {
 func rarPages(path string) (int32, error) {
 	r, err := rardecode.OpenReader(path)
 	if err != nil {
-		return 0, fmt.Errorf("mediainfo: open %s: %w", path, err)
+		return 0, fmt.Errorf("pagecount: open %s: %w", path, err)
 	}
 	defer r.Close()
 	var n int32
@@ -105,7 +105,7 @@ func rarPages(path string) (int32, error) {
 			return n, nil
 		}
 		if err != nil {
-			return 0, fmt.Errorf("mediainfo: list %s: %w", path, err)
+			return 0, fmt.Errorf("pagecount: list %s: %w", path, err)
 		}
 		if !h.IsDir && isPage(h.Name) {
 			n++
@@ -116,7 +116,7 @@ func rarPages(path string) (int32, error) {
 func sevenZipPages(path string) (int32, error) {
 	r, err := sevenzip.OpenReader(path)
 	if err != nil {
-		return 0, fmt.Errorf("mediainfo: open %s: %w", path, err)
+		return 0, fmt.Errorf("pagecount: open %s: %w", path, err)
 	}
 	defer r.Close()
 	var n int32
@@ -131,7 +131,7 @@ func sevenZipPages(path string) (int32, error) {
 func tarPages(path string) (int32, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return 0, fmt.Errorf("mediainfo: open %s: %w", path, err)
+		return 0, fmt.Errorf("pagecount: open %s: %w", path, err)
 	}
 	defer f.Close()
 	tr := tar.NewReader(bufio.NewReader(f))
@@ -142,7 +142,7 @@ func tarPages(path string) (int32, error) {
 			return n, nil
 		}
 		if err != nil {
-			return 0, fmt.Errorf("mediainfo: list %s: %w", path, err)
+			return 0, fmt.Errorf("pagecount: list %s: %w", path, err)
 		}
 		if h.Typeflag == tar.TypeReg && isPage(h.Name) {
 			n++
@@ -156,7 +156,7 @@ func tarPages(path string) (int32, error) {
 func pdfPages(path string) (int32, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return 0, fmt.Errorf("mediainfo: open %s: %w", path, err)
+		return 0, fmt.Errorf("pagecount: open %s: %w", path, err)
 	}
 	defer f.Close()
 	const chunk = 1 << 20
@@ -181,7 +181,7 @@ func pdfPages(path string) (int32, error) {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				return n, nil
 			}
-			return 0, fmt.Errorf("mediainfo: read %s: %w", path, err)
+			return 0, fmt.Errorf("pagecount: read %s: %w", path, err)
 		}
 		if len(window) >= tail {
 			carry = append(carry[:0], window[len(window)-tail:]...)

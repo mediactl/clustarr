@@ -249,6 +249,7 @@ var neverDeadLettered = map[string]string{
 	schema.QueryResponse{}.Schema():     "RPC reply, clustarr.rpc.index.query",
 	schema.DownloadProgress{}.Schema():  "KV telemetry, clustarr-progress download.<uid>",
 	schema.TranscodeProgress{}.Schema(): "KV telemetry, clustarr-progress transcode.<uid>",
+	schema.NFORecord{}.Schema():         "KV record, clustarr-nfo (an import-nfo task's answer, never a message)",
 }
 
 // TestEveryPayloadHasAResolver ranges over the bus's whole payload list

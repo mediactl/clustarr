@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/pagecount"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/probestore"
@@ -139,7 +140,7 @@ func (w *Worker) probe(ctx context.Context, t schema.ProbeTask) (schema.ProbeRec
 
 	// A comic archive or a PDF is no media file FFmpeg opens: its probe is
 	// its page count, by listing alone (2026-11-10 design D9).
-	if n, err := mediainfo.PageCount(t.Path); !errors.Is(err, mediainfo.ErrNoPageCount) {
+	if n, err := pagecount.Of(t.Path); !errors.Is(err, pagecount.ErrNoPageCount) {
 		if err != nil {
 			return fail(false, outcomeFailed, "%v", err)
 		}

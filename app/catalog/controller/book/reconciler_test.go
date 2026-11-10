@@ -86,18 +86,11 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 	})
 	require.NoError(t, err)
 
+	// remediation.RegisterIndexes registers author.Reconciler's Book-by-
+	// spec.authorRef index too (since 2026-11-10 the Author is a loop key),
+	// which the real author.Reconciler this file also drives reads; a second
+	// IndexField under the same name is an indexer conflict at start.
 	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
-	// author.Reconciler's own index, needed here too because this test file
-	// also drives a real author.Reconciler directly against the same cache
-	// (TestBookReconcilerFieldManagerNeverIncludesFanout).
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Book{}, ".spec.authorRef",
-		func(o client.Object) []string {
-			bk, ok := o.(*catalogv1alpha1.Book)
-			if !ok || bk.Spec.AuthorRef == nil {
-				return nil
-			}
-			return []string{*bk.Spec.AuthorRef}
-		}))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))

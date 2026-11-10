@@ -29,10 +29,6 @@ const (
 	BookConditionReady = "Ready"
 	// BookConditionMetadataReady is True once metadata has been fetched.
 	BookConditionMetadataReady = "MetadataReady"
-	// BookConditionHasFile is True while a MediaFile backs the book.
-	BookConditionHasFile = "HasFile"
-	// BookConditionCutoffMet is True when the imported file meets the profile cutoff.
-	BookConditionCutoffMet = "CutoffMet"
 )
 
 // The book's phase values, commonv1.LeafPhase since 2026-11-10 (design D4).

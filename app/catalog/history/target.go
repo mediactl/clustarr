@@ -172,6 +172,7 @@ var resolvers = map[string]resolver{
 	schema.AnalyzeTask{}.Schema():       resolveAnalyzeTask,
 	schema.MarkersTask{}.Schema():       resolveMarkersTask,
 	schema.ProbeTask{}.Schema():         resolveProbeTask,
+	schema.NFOWriteTask{}.Schema():      resolveNFOWriteTask,
 	// ADR-0019's tasks and intake (dispatch.go): each resolves to its
 	// owner, or to the LibraryScan of a scan observation.
 	schema.EngineCommand{}.Schema():     resolveEngineCommand,
@@ -320,6 +321,16 @@ func resolveProbeTask(key string, data []byte) Target {
 		return Target{Namespace: namespaceOf(key)}
 	}
 	return mediaFileTarget(p.MediaFile.Namespace, p.MediaFile.Name)
+}
+
+// resolveNFOWriteTask names the Artist, Album, Author or Audiobook whose
+// NFO files the import agent was to write (2026-11-10 design §8.2).
+func resolveNFOWriteTask(key string, data []byte) Target {
+	var p schema.NFOWriteTask
+	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return mediaTarget(p.Item.Namespace, p.Item.Name, commonv1.MediaKind(p.Item.Kind))
 }
 
 func resolveMetadataTask(key string, data []byte) Target {
