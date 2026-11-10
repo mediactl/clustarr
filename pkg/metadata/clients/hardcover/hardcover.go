@@ -46,6 +46,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -63,6 +64,13 @@ import (
 
 // DefaultBaseURL is Hardcover's GraphQL endpoint.
 const DefaultBaseURL = "https://api.hardcover.app/v1/graphql"
+
+// SiteURL is Hardcover's site, which addresses a book by its slug at
+// /books/<slug> and an author at /authors/<slug> (Books.mdx and
+// Authors.mdx each list slug; the site's own links are built from it).
+// A Book's or Author's Link of type extid.KeyHardcover is that page
+// (2026-11-10 design §9.3: the author and book pages' Hardcover logo).
+const SiteURL = "https://hardcover.app"
 
 // DefaultRate and DefaultBurst are Hardcover's documented Free-plan limits
 // (Getting-Started.mdx, "Rate Limits": 60 per minute, burst 10, 5,000 per
@@ -255,7 +263,7 @@ func (c *Client) SearchBooks(ctx context.Context, q string) ([]metadata.SearchHi
 const editionFields = `id title subtitle asin isbn_13 edition_format pages release_date
   language { code3 } publisher { name } cached_image(path: "url")`
 
-const bookFields = `id title subtitle description release_date rating ratings_count
+const bookFields = `id title slug subtitle description release_date rating ratings_count
   cached_tags(path: "$.Genre")
   cached_image(path: "url")
   book_series { position series { id name } }
@@ -288,6 +296,7 @@ type rawEdition struct {
 type rawBook struct {
 	ID           int64    `json:"id"`
 	Title        string   `json:"title"`
+	Slug         string   `json:"slug"`
 	Subtitle     string   `json:"subtitle"`
 	Description  string   `json:"description"`
 	ReleaseDate  string   `json:"release_date"`
@@ -370,6 +379,9 @@ func mapBook(raw *rawBook) *metadata.Book {
 		Overview:       raw.Description,
 		FirstPublished: parseDate(raw.ReleaseDate),
 		Provenance:     []metadata.Provenance{{Provider: "hardcover", FetchedAt: time.Now().UTC()}},
+	}
+	if link, ok := pageLink("books", raw.Slug); ok {
+		b.Links = []metadata.Link{link}
 	}
 	for _, t := range raw.Tags {
 		if t.Tag != "" {
@@ -584,7 +596,7 @@ func (c *Client) Edition(ctx context.Context, ids metadata.ExternalIDs) (*metada
 }
 
 const authorByIDQuery = `query AuthorByID($id: Int!) {
-  authors_by_pk(id: $id) { id name bio born_date death_date cached_image(path: "url") }
+  authors_by_pk(id: $id) { id name slug bio born_date death_date cached_image(path: "url") }
 }`
 
 // Author fetches an author by ids[extid.KeyHardcover]; any other id is
@@ -607,6 +619,7 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 		Author *struct {
 			ID        int64      `json:"id"`
 			Name      string     `json:"name"`
+			Slug      string     `json:"slug"`
 			Bio       string     `json:"bio"`
 			BornDate  string     `json:"born_date"`
 			DeathDate string     `json:"death_date"`
@@ -631,7 +644,23 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	if out.Author.Image != "" {
 		a.Images = []metadata.Image{{Type: metadata.ImageTypeHeadshot, URL: string(out.Author.Image)}}
 	}
+	if link, ok := pageLink("authors", out.Author.Slug); ok {
+		a.Links = []metadata.Link{link}
+	}
 	return a, nil
+}
+
+// pageLink is an author's or a book's page on Hardcover's site as a Link
+// of type extid.KeyHardcover: SiteURL/<kind>/<slug>. A row without a slug
+// (Hardcover's slug is nullable) links nothing rather than the site's
+// index, and the slug is escaped as a path segment, so a stray "/" or "?"
+// in one cannot address another page.
+func pageLink(kind, slug string) (metadata.Link, bool) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return metadata.Link{}, false
+	}
+	return metadata.Link{Type: extid.KeyHardcover, URL: SiteURL + "/" + kind + "/" + url.PathEscape(slug)}, true
 }
 
 // authorBooksQuery mirrors rreading-glasses' GetAuthorEditions: an
@@ -643,7 +672,7 @@ const authorBooksQuery = `query AuthorBooks($id: Int!) {
       limit: 100
       order_by: {book: {users_count: desc}}
       where: {contributable_type: {_eq: "Book"}, book: {book_status_id: {_eq: "1"}}}
-    ) { contribution book { id title subtitle description release_date cached_image(path: "url") } }
+    ) { contribution book { id title slug subtitle description release_date cached_image(path: "url") } }
   }
 }`
 
@@ -669,6 +698,7 @@ func (c *Client) Books(ctx context.Context, authorID string) ([]metadata.Book, e
 				Book         *struct {
 					ID          int64      `json:"id"`
 					Title       string     `json:"title"`
+					Slug        string     `json:"slug"`
 					Subtitle    string     `json:"subtitle"`
 					Description string     `json:"description"`
 					ReleaseDate string     `json:"release_date"`
@@ -694,13 +724,17 @@ func (c *Client) Books(ctx context.Context, authorID string) ([]metadata.Book, e
 			continue // translated, narrated, illustrated -- not written by
 		}
 		seen[ct.Book.ID] = true
-		books = append(books, metadata.Book{
+		b := metadata.Book{
 			IDs:            metadata.ExternalIDs{extid.KeyHardcover: strconv.FormatInt(ct.Book.ID, 10)},
 			AuthorIDs:      []string{strconv.FormatInt(id, 10)},
 			Title:          ct.Book.Title,
 			Overview:       ct.Book.Description,
 			FirstPublished: parseDate(ct.Book.ReleaseDate),
-		})
+		}
+		if link, ok := pageLink("books", ct.Book.Slug); ok {
+			b.Links = []metadata.Link{link}
+		}
+		books = append(books, b)
 	}
 	logging.FromContext(ctx).DebugContext(ctx, "hardcover: author books", "author", id, "books", len(books))
 	return books, nil

@@ -114,6 +114,21 @@ func TestVolumeByComicVineCrosswalksThenFetches(t *testing.T) {
 	require.Equal(t, "en", v.OriginalLanguage)
 	require.Equal(t, []string{"Super-Hero"}, v.Genres)
 	require.Equal(t, []metadata.AltTitle{{Title: "La Mort des Inhumains"}}, v.AltTitles)
+	// The series' page on metron.cloud, which the site addresses by a slug
+	// no id carries (design §9.4: the comic page's Metron logo), from the
+	// detail's resource_url.
+	require.Equal(t, []metadata.Link{{Type: extid.KeyMetron, URL: "https://metron.cloud/series/death-of-the-inhumans-2018/"}}, v.Links)
+}
+
+func TestVolumeWithoutAResourceURLLinksNothing(t *testing.T) {
+	srv, _ := serve(t, map[string]string{"/series/2311/": "series_2311_no_resource_url.json"})
+	c := newClient(t, srv, "tok")
+
+	v, err := c.Volume(context.Background(), metadata.ExternalIDs{extid.KeyMetron: "2311"})
+
+	require.NoError(t, err)
+	require.Equal(t, "Absolute Carnage", v.Title)
+	require.Nil(t, v.Links, "a detail without resource_url records no page, never a guessed one")
 }
 
 func TestVolumeByMetronIDSkipsTheCrosswalk(t *testing.T) {

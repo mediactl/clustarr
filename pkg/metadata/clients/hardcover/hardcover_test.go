@@ -45,9 +45,10 @@ const fixtures = "../../../../test/data/metadata/hardcover/"
 var opName = regexp.MustCompile(`^query (\w+)`)
 
 type call struct {
-	op   string
-	vars map[string]any
-	auth string
+	op    string
+	query string
+	vars  map[string]any
+	auth  string
 }
 
 // serve answers each GraphQL operation name with the fixture routes names.
@@ -63,7 +64,7 @@ func serve(t *testing.T, routes map[string]string) (*httptest.Server, *[]call) {
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 		m := opName.FindStringSubmatch(body.Query)
 		require.NotNil(t, m, "every query is a named operation: %s", body.Query)
-		calls = append(calls, call{m[1], body.Variables, r.Header.Get("Authorization")})
+		calls = append(calls, call{m[1], body.Query, body.Variables, r.Header.Get("Authorization")})
 		if r.Header.Get("Authorization") != "Bearer good" {
 			w.WriteHeader(http.StatusUnauthorized)
 			body, _ := os.ReadFile(fixtures + "unauthorized.json")
@@ -137,6 +138,10 @@ func TestBookMapsWorkEditionsAuthorsSeriesAndRating(t *testing.T) {
 	}, b.Editions[0])
 	require.Equal(t, "B003E7EU2U", b.Editions[1].IDs[metadata.KeyASIN])
 	require.Nil(t, b.Editions[1].ReleaseDate, "a BC date is no date, not a wrong one")
+	// The book's own page, from the slug the query asks for (design §9.3:
+	// the book page's Hardcover logo).
+	require.Regexp(t, `books_by_pk\(id: \$id\) \{ id title slug `, (*calls)[0].query, "the work query asks for the slug")
+	require.Equal(t, []metadata.Link{{Type: extid.KeyHardcover, URL: "https://hardcover.app/books/out-of-my-mind"}}, b.Links)
 }
 
 func TestBookByISBNGoesThroughTheEdition(t *testing.T) {
@@ -149,6 +154,8 @@ func TestBookByISBNGoesThroughTheEdition(t *testing.T) {
 	require.Equal(t, "9781416971702", (*calls)[0].vars["isbn"])
 	require.Equal(t, "141397", b.IDs[extid.KeyHardcover])
 	require.Nil(t, b.Ratings, "no ratings, no Rating")
+	require.Contains(t, (*calls)[0].query, " slug ", "the edition's work is asked for its slug too")
+	require.Nil(t, b.Links, "a work without a slug links nothing, not the site's index")
 }
 
 func TestANullPrimaryKeyIsErrNotFound(t *testing.T) {
@@ -196,6 +203,28 @@ func TestAuthorMapsBioDatesAndHeadshot(t *testing.T) {
 	require.Equal(t, date(1948, time.August, 21), a.Born)
 	require.Nil(t, a.Died)
 	require.Equal(t, []metadata.Image{{Type: metadata.ImageTypeHeadshot, URL: "https://assets.hardcover.app/books/97020/10748148-L.jpg"}}, a.Images)
+	require.Equal(t, []metadata.Link{{Type: extid.KeyHardcover, URL: "https://hardcover.app/authors/sharon-m-draper"}}, a.Links, "the author's own page, from the slug (design §9.3: the author page's Hardcover logo)")
+}
+
+// TestAnAuthorWithoutASlugLinksNothing: Hardcover's slug is nullable, and
+// a null one must not become https://hardcover.app/authors/ (the index).
+func TestAnAuthorWithoutASlugLinksNothing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Query string `json:"query"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.Contains(t, body.Query, "authors_by_pk(id: $id) { id name slug ", "the author query asks for the slug")
+		_, _ = w.Write([]byte(`{"data":{"authors_by_pk":{"id":7,"name":"Anon","slug":null,"bio":"","born_date":null,"death_date":null,"cached_image":null}}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := newClient(t, srv, "good")
+
+	a, err := c.Author(context.Background(), metadata.ExternalIDs{extid.KeyHardcover: "7"})
+
+	require.NoError(t, err)
+	require.Equal(t, "Anon", a.Name)
+	require.Nil(t, a.Links)
 }
 
 func TestBooksKeepsAuthoredWorksOnceEach(t *testing.T) {
@@ -212,6 +241,8 @@ func TestBooksKeepsAuthoredWorksOnceEach(t *testing.T) {
 		require.Equal(t, []string{"51942"}, b.AuthorIDs)
 	}
 	require.Equal(t, []string{"Out of My Mind", "Stella by Starlight"}, titles, "the foreword credit and the duplicate are dropped")
+	require.Contains(t, (*calls)[0].query, "book { id title slug ", "the list asks each book for its slug")
+	require.Equal(t, []metadata.Link{{Type: extid.KeyHardcover, URL: "https://hardcover.app/books/stella-by-starlight"}}, books[1].Links, "each listed book carries its own page")
 }
 
 func TestEditionByASIN(t *testing.T) {

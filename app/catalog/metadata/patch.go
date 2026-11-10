@@ -858,6 +858,10 @@ func buildComicMetadataAC(v *pkgmetadata.ComicVolume, ratings []catalogv1alpha1.
 			ac.WithImages(ic)
 		}
 	}
+	// v.Links (Metron's series page, by the slug no id carries; 2026-11-10
+	// design §9.4) has no field on ComicMetadata to land in, so the comic
+	// page builds its logos from ExternalIDs alone; carry them through
+	// linksAC once the CRD gains Links, as the Author and Book builders do.
 	return ac
 }
 

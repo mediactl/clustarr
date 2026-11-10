@@ -1,6 +1,7 @@
 {"data":{"books_by_pk":{
  "id":141397,
  "title":"Out of My Mind",
+ "slug":"out-of-my-mind",
  "subtitle":null,
  "description":"Melody is not like most people. She cannot walk or talk, but she has a photographic memory.",
  "release_date":"2010-01-01",

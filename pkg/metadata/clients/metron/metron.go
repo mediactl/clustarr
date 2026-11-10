@@ -247,6 +247,11 @@ type detailSeries struct {
 	Genres     []ref    `json:"genres"`
 	CVID       *int64   `json:"cv_id"`
 	GCDID      *int64   `json:"gcd_id"`
+	// ResourceURL is the series' page on metron.cloud
+	// (SeriesSerializer's resource_url, a HyperlinkedIdentityField on the
+	// site's series-detail view, "https://metron.cloud/series/<slug>/"),
+	// the one place the slug the site addresses a series by appears.
+	ResourceURL string `json:"resource_url"`
 }
 
 // Volume fetches a series by ids[extid.KeyMetron], else by
@@ -287,7 +292,24 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	for _, g := range s.Genres {
 		v.Genres = append(v.Genres, g.Name)
 	}
+	if link, ok := seriesPage(s.ResourceURL); ok {
+		v.Links = []metadata.Link{link}
+	}
 	return v, nil
+}
+
+// seriesPage is the series' Metron page as a Link of type extid.KeyMetron
+// (2026-11-10 design §9.4: the comic page's Metron logo), from the
+// detail's resource_url. Metron's site addresses a series by slug
+// ("death-of-the-inhumans-2018"), which no id carries, so the page is
+// recorded as the API gives it; an empty or unparsable URL, or one off
+// https, records nothing rather than a link that may open anything.
+func seriesPage(resourceURL string) (metadata.Link, bool) {
+	u, err := url.Parse(strings.TrimSpace(resourceURL))
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return metadata.Link{}, false
+	}
+	return metadata.Link{Type: extid.KeyMetron, URL: u.String()}, true
 }
 
 func (c *Client) resolveSeriesID(ctx context.Context, ids metadata.ExternalIDs) (int64, error) {
