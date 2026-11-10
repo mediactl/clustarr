@@ -130,13 +130,14 @@ func NewClusterReader(
 		return nil, nil, fmt.Errorf("ui: build cluster cache: %w", err)
 	}
 	go func() {
-		// The index is registered here, before Start, not in construction:
-		// IndexField resolves Episode's REST mapping, which dials the
-		// apiserver, and construction must not -- an apiserver unreachable
-		// for a moment at start would otherwise leave the ui with no reader
-		// and no actions for its whole life. No read is answered before
-		// Start and the first sync, so none can miss the index.
-		if !indexEpisodes(ctx, c) {
+		// The indexes are registered here, before Start, not in
+		// construction: IndexField resolves the kind's REST mapping, which
+		// dials the apiserver, and construction must not -- an apiserver
+		// unreachable for a moment at start would otherwise leave the ui
+		// with no reader and no actions for its whole life. No read is
+		// answered before Start and the first sync, so none can miss an
+		// index.
+		if !registerIndexes(ctx, c) {
 			return
 		}
 		if err := c.Start(ctx); err != nil && ctx.Err() == nil {
@@ -147,24 +148,49 @@ func NewClusterReader(
 	return c, c.WaitForCacheSync, nil
 }
 
-// indexEpisodes registers [EpisodeSeriesRefField] on c, retrying with
+// readerIndex is one field index the reader's cache carries: the kind, the
+// field's name (what client.MatchingFields names) and its extractor.
+type readerIndex struct {
+	obj     client.Object
+	field   string
+	extract client.IndexerFunc
+}
+
+// readerIndexes are the parent-to-children indexes every page lists a
+// parent's children through (2026-11-10 design §9): a Series' Episodes, an
+// Artist's Albums, an Author's Books and Audiobooks, a Comic's Issues --
+// never a namespace List filtered in memory, which the first author page
+// did and which is O(watched x listed) on a real library.
+var readerIndexes = []readerIndex{
+	{&catalogv1alpha1.Episode{}, EpisodeSeriesRefField, IndexEpisodeBySeriesRef},
+	{&catalogv1alpha1.Album{}, AlbumArtistRefField, IndexAlbumByArtistRef},
+	{&catalogv1alpha1.Book{}, BookAuthorRefField, IndexBookByAuthorRef},
+	{&catalogv1alpha1.Issue{}, IssueComicRefField, IndexIssueByComicRef},
+	{&catalogv1alpha1.Audiobook{}, AudiobookAuthorRefField, IndexAudiobookByAuthorRef},
+}
+
+// registerIndexes registers every [readerIndexes] entry on c, retrying with
 // backoff while the apiserver cannot be reached. It reports false only when
 // ctx ends first.
-func indexEpisodes(ctx context.Context, c cache.Cache) bool {
+func registerIndexes(ctx context.Context, c cache.Cache) bool {
 	backoff := time.Second
-	for {
-		err := c.IndexField(ctx, &catalogv1alpha1.Episode{}, EpisodeSeriesRefField, IndexEpisodeBySeriesRef)
-		if err == nil {
-			return true
+	for _, ix := range readerIndexes {
+		for {
+			err := c.IndexField(ctx, ix.obj, ix.field, ix.extract)
+			if err == nil {
+				break
+			}
+			logging.FromContext(ctx).Warn("ui cluster reader: register field index; retrying",
+				"kind", fmt.Sprintf("%T", ix.obj), "field", ix.field, "error", err, "retryIn", backoff)
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(backoff):
+			}
+			backoff = min(2*backoff, 30*time.Second)
 		}
-		logging.FromContext(ctx).Warn("ui cluster reader: index episodes by series; retrying", "error", err, "retryIn", backoff)
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(backoff):
-		}
-		backoff = min(2*backoff, 30*time.Second)
 	}
+	return true
 }
 
 // EpisodeSeriesRefField selects a Series' Episodes: the field index
@@ -181,4 +207,55 @@ func IndexEpisodeBySeriesRef(o client.Object) []string {
 		return nil
 	}
 	return []string{ep.Spec.SeriesRef}
+}
+
+// The children indexes of the non-video containers (2026-11-10 design §9),
+// each spelled as its spec field: a page lists an Artist's Albums with
+// client.MatchingFields{AlbumArtistRefField: artist}, and so on. Album's
+// artistRef and Issue's comicRef are selectable fields on the apiserver
+// too, so a raw client reads them as a fieldSelector; Book's and
+// Audiobook's authorRef are not, and read only through the ui's cache.
+const (
+	AlbumArtistRefField     = "spec.artistRef"
+	BookAuthorRefField      = "spec.authorRef"
+	IssueComicRefField      = "spec.comicRef"
+	AudiobookAuthorRefField = "spec.authorRef"
+)
+
+// IndexAlbumByArtistRef is [AlbumArtistRefField]'s extractor.
+func IndexAlbumByArtistRef(o client.Object) []string {
+	a, ok := o.(*catalogv1alpha1.Album)
+	if !ok || a.Spec.ArtistRef == "" {
+		return nil
+	}
+	return []string{a.Spec.ArtistRef}
+}
+
+// IndexBookByAuthorRef is [BookAuthorRefField]'s extractor; a standalone
+// Book (no authorRef) is under no author.
+func IndexBookByAuthorRef(o client.Object) []string {
+	b, ok := o.(*catalogv1alpha1.Book)
+	if !ok || b.Spec.AuthorRef == nil || *b.Spec.AuthorRef == "" {
+		return nil
+	}
+	return []string{*b.Spec.AuthorRef}
+}
+
+// IndexIssueByComicRef is [IssueComicRefField]'s extractor.
+func IndexIssueByComicRef(o client.Object) []string {
+	is, ok := o.(*catalogv1alpha1.Issue)
+	if !ok || is.Spec.ComicRef == "" {
+		return nil
+	}
+	return []string{is.Spec.ComicRef}
+}
+
+// IndexAudiobookByAuthorRef is [AudiobookAuthorRefField]'s extractor; an
+// Audiobook linked to no Author is under none.
+func IndexAudiobookByAuthorRef(o client.Object) []string {
+	a, ok := o.(*catalogv1alpha1.Audiobook)
+	if !ok || a.Spec.AuthorRef == nil || *a.Spec.AuthorRef == "" {
+		return nil
+	}
+	return []string{*a.Spec.AuthorRef}
 }

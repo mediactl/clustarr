@@ -185,6 +185,18 @@ var (
 	videoTabs = []Tab{TabMovies, TabTV}
 	movieTab  = []Tab{TabMovies}
 	tvTab     = []Tab{TabTV}
+	// The non-video tabs' own (2026-11-10 design §9.1): a publisher
+	// stands where a studio does, a book's and an audiobook's publication
+	// date where a movie's release dates do, an audiobook's runtime and
+	// language where a video's do, a comic's age rating where a
+	// certification does, and a container's children counts where a
+	// series' episode counts do.
+	publisherTabs = []Tab{TabMovies, TabTV, TabBooks, TabComics, TabAudiobooks}
+	releasedTabs  = []Tab{TabBooks, TabAudiobooks}
+	runtimeTabs   = []Tab{TabMovies, TabTV, TabAudiobooks}
+	languageTabs  = []Tab{TabMovies, TabTV, TabAudiobooks}
+	ratedTabs     = []Tab{TabMovies, TabTV, TabComics}
+	containerTabs = []Tab{TabMusic, TabBooks, TabComics}
 )
 
 // statusLabels name LibraryStatus's values.
@@ -209,22 +221,25 @@ var libraryFields = []Field{
 	{Key: "path", Label: "Path", Type: FieldString, text: func(li LibraryItem) string { return li.Path }},
 	{Key: "tags", Label: "Tags", Type: FieldList, texts: func(li LibraryItem) []string { return li.Tags }},
 
-	{Key: "genres", Label: "Genres", Type: FieldList, tabs: videoTabs, texts: func(li LibraryItem) []string { return li.Genres }},
+	{Key: "genres", Label: "Genres", Type: FieldList, texts: func(li LibraryItem) []string { return li.Genres }},
 	{Key: "subGenres", Label: "Sub-Genres", Type: FieldList, tabs: tvTab, texts: func(li LibraryItem) []string { return li.SubGenres }},
-	{Key: "keywords", Label: "Keywords", Type: FieldTextList, tabs: videoTabs, texts: func(li LibraryItem) []string { return li.Keywords }},
-	{Key: "originalLanguage", Label: "Original Language", Type: FieldEnum, Language: true, tabs: videoTabs,
+	{Key: "keywords", Label: "Keywords", Type: FieldTextList, tabs: []Tab{TabMovies, TabTV, TabBooks}, texts: func(li LibraryItem) []string { return li.Keywords }},
+	{Key: "originalLanguage", Label: "Original Language", Type: FieldEnum, Language: true, tabs: languageTabs,
 		text: func(li LibraryItem) string { return li.OriginalLanguage }},
-	{Key: "certification", Label: "Certification", Type: FieldEnum, tabs: videoTabs, text: func(li LibraryItem) string { return li.Certification }},
+	{Key: "certification", Label: "Certification", Type: FieldEnum, tabs: ratedTabs, text: func(li LibraryItem) string { return li.Certification }},
 	{Key: "studio", Label: "Studio", Type: FieldTextList, tabs: videoTabs, texts: func(li LibraryItem) []string { return li.Studios }},
+	{Key: "publisher", Label: "Publisher", Type: FieldTextList, tabs: []Tab{TabBooks, TabComics, TabAudiobooks}, texts: func(li LibraryItem) []string { return li.Studios }},
 	{Key: "network", Label: "Network", Type: FieldTextList, tabs: tvTab, texts: func(li LibraryItem) []string { return li.Networks }},
-	{Key: "countries", Label: "Country", Type: FieldList, tabs: videoTabs, texts: func(li LibraryItem) []string { return li.Countries }},
-	{Key: "runtime", Label: "Runtime", Type: FieldNumber, Unit: "minutes", tabs: videoTabs,
+	{Key: "countries", Label: "Country", Type: FieldList, tabs: []Tab{TabMovies, TabTV, TabMusic}, texts: func(li LibraryItem) []string { return li.Countries }},
+	{Key: "runtime", Label: "Runtime", Type: FieldNumber, Unit: "minutes", tabs: runtimeTabs,
 		number: positive(func(li LibraryItem) float64 { return float64(li.RuntimeMinutes) })},
 	{Key: "ratingTmdb", Label: "TMDB Rating", Type: FieldNumber, tabs: videoTabs, number: rating(catalogv1.RatingSourceTMDB)},
 	{Key: "ratingImdb", Label: "IMDb Rating", Type: FieldNumber, tabs: videoTabs, number: rating(catalogv1.RatingSourceIMDb)},
 	{Key: "ratingRt", Label: "Rotten Tomatoes", Type: FieldNumber, Unit: "%", tabs: movieTab, number: rating(catalogv1.RatingSourceRTCritic)},
 	{Key: "size", Label: "Size on Disk", Type: FieldNumber, Unit: "GB", tabs: videoTabs,
 		number: func(li LibraryItem) (float64, bool) { return float64(li.SizeBytes) / 1e9, true }},
+	{Key: "released", Label: "Release Date", Type: FieldDate, Unit: "days", tabs: releasedTabs, date: func(li LibraryItem) time.Time { return li.Released }},
+	{Key: "quality", Label: "Quality", Type: FieldEnum, tabs: []Tab{TabMovies, TabBooks, TabAudiobooks}, text: func(li LibraryItem) string { return li.Quality }},
 
 	{Key: "releaseStatus", Label: "Release Status", Type: FieldEnum, tabs: movieTab,
 		Fixed:  []string{"tba", "announced", "inCinemas", "released"},
@@ -238,7 +253,6 @@ var libraryFields = []Field{
 	{Key: "digitalRelease", Label: "Digital Release", Type: FieldDate, Unit: "days", tabs: movieTab, date: func(li LibraryItem) time.Time { return li.DigitalRelease }},
 	{Key: "physicalRelease", Label: "Physical Release", Type: FieldDate, Unit: "days", tabs: movieTab, date: func(li LibraryItem) time.Time { return li.PhysicalRelease }},
 	{Key: "collection", Label: "Collection", Type: FieldString, tabs: movieTab, text: func(li LibraryItem) string { return li.Collection }},
-	{Key: "quality", Label: "Quality", Type: FieldEnum, tabs: movieTab, text: func(li LibraryItem) string { return li.Quality }},
 	{Key: "videoCodec", Label: "Video Codec", Type: FieldEnum, tabs: movieTab, text: func(li LibraryItem) string { return li.VideoCodec }},
 	{Key: "hdr", Label: "HDR", Type: FieldEnum, tabs: movieTab, text: func(li LibraryItem) string { return li.HDR }},
 	{Key: "audioLanguages", Label: "Audio Language", Type: FieldList, Language: true, tabs: movieTab,
@@ -265,6 +279,17 @@ var libraryFields = []Field{
 	{Key: "missingEpisodes", Label: "Missing Episodes", Type: FieldNumber, tabs: tvTab,
 		number: func(li LibraryItem) (float64, bool) { return float64(li.MissingEpisodes), true }},
 	{Key: "episodeProgress", Label: "Episode Progress", Type: FieldNumber, Unit: "%", tabs: tvTab, number: episodeProgress},
+
+	{Key: "runStatus", Label: "Run Status", Type: FieldEnum, tabs: []Tab{TabMusic, TabComics},
+		Fixed:  []string{"continuing", "ended"},
+		Labels: map[string]string{"continuing": "Continuing", "ended": "Ended"},
+		text:   func(li LibraryItem) string { return li.ReleaseStatus }},
+	{Key: "missingChildren", Label: "Missing Items", Type: FieldNumber, tabs: containerTabs,
+		number: func(li LibraryItem) (float64, bool) { return float64(li.MissingChildren), IsContainer(li.Kind) }},
+	{Key: "cutoffUnmetChildren", Label: "Cutoff Unmet Items", Type: FieldNumber, tabs: containerTabs,
+		number: func(li LibraryItem) (float64, bool) { return float64(li.CutoffUnmetChildren), IsContainer(li.Kind) }},
+	{Key: "nextRelease", Label: "Next Release", Type: FieldDate, Unit: "days", tabs: containerTabs, date: func(li LibraryItem) time.Time { return li.NextAiring }},
+	{Key: "previousRelease", Label: "Previous Release", Type: FieldDate, Unit: "days", tabs: containerTabs, date: func(li LibraryItem) time.Time { return li.PreviousAiring }},
 }
 
 // positive reads a number that is unknown at zero (a year, a runtime).

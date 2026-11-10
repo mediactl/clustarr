@@ -98,7 +98,11 @@ func TestLibraryProjectionPutsEveryParentInATabWithArtYearAndProfile(t *testing.
 	audiobook := &catalogv1.Audiobook{
 		ObjectMeta: metav1.ObjectMeta{Name: "dune-audio", Namespace: "default", UID: "dune-audio-uid"},
 		Spec:       catalogv1.AudiobookSpec{QualityProfileRef: "audiobook"},
-		Status:     catalogv1.AudiobookStatus{Metadata: &catalogv1.AudiobookMetadata{Title: "Dune"}},
+		// Released half an hour into New Year's Day, UTC: the card's year is
+		// 2021 wherever the replica runs (CLAUDE.md's metav1.Time gotcha).
+		Status: catalogv1.AudiobookStatus{Metadata: &catalogv1.AudiobookMetadata{
+			Title: "Dune", ReleaseDate: &metav1.Time{Time: time.Date(2021, 1, 1, 0, 30, 0, 0, time.UTC)},
+		}},
 	}
 	comic := &catalogv1.Comic{
 		ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: "default", UID: "saga-uid"},
@@ -147,31 +151,42 @@ func TestLibraryProjectionPutsEveryParentInATabWithArtYearAndProfile(t *testing.
 	require.Equal(t, projection.ArtURL(commonv1.MediaKindArtist, "bjork-uid", catalogv1.ImageTypePoster, "bjork-poster"),
 		byName["bjork"].Poster)
 	require.Equal(t, "music-lossless", byName["bjork"].QualityProfileRef)
-	for _, name := range []string{"le-guin", "lone-book", "dune-audio", "saga"} {
+	require.Zero(t, byName["bjork"].Year, "an artist's card reads no year (2026-11-10 design §9.1)")
+	// The six tabs (design D1): an author and a standalone book on Books, a
+	// comic on Comics, an audiobook on Audiobooks.
+	for _, name := range []string{"le-guin", "lone-book"} {
 		require.Equal(t, projection.TabBooks, byName[name].Tab, name)
 	}
-	require.EqualValues(t, 2012, byName["saga"].Year)
+	require.Zero(t, byName["le-guin"].Year, "an author's card reads no year")
+	require.Equal(t, projection.TabComics, byName["saga"].Tab)
+	require.EqualValues(t, 2012, byName["saga"].Year, "a comic's card reads its start year")
+	require.Equal(t, projection.TabAudiobooks, byName["dune-audio"].Tab)
+	require.EqualValues(t, 2021, byName["dune-audio"].Year, "an audiobook's card reads its release year")
 
 	tv := projection.ForTab(items, projection.TabTV)
 	require.Len(t, tv, 2)
 	for _, it := range tv {
 		require.Equal(t, projection.TabTV, it.Tab)
 	}
-	require.Len(t, projection.ForTab(items, projection.TabBooks), 4)
+	require.Len(t, projection.ForTab(items, projection.TabBooks), 2)
+	require.Len(t, projection.ForTab(items, projection.TabComics), 1)
+	require.Len(t, projection.ForTab(items, projection.TabAudiobooks), 1)
 }
 
-// The tab in a URL is untrusted input: the four tabs parse, in the order
-// the page lists them, and anything else is refused rather than treated as
-// an empty tab.
-func TestParseTabAcceptsTheFourTabsOnly(t *testing.T) {
-	require.Equal(t, []projection.Tab{projection.TabMovies, projection.TabTV, projection.TabMusic, projection.TabBooks},
-		projection.Tabs())
+// The tab in a URL is untrusted input: the six tabs parse (2026-11-10
+// design D1), in the order the page lists them, and anything else is
+// refused rather than treated as an empty tab.
+func TestParseTabAcceptsTheSixTabsOnly(t *testing.T) {
+	require.Equal(t, []projection.Tab{
+		projection.TabMovies, projection.TabTV, projection.TabMusic,
+		projection.TabBooks, projection.TabComics, projection.TabAudiobooks,
+	}, projection.Tabs())
 	for _, tab := range projection.Tabs() {
 		got, ok := projection.ParseTab(string(tab))
 		require.True(t, ok, tab)
 		require.Equal(t, tab, got)
 	}
-	for _, bad := range []string{"", "series", "TV", "movies/"} {
+	for _, bad := range []string{"", "series", "TV", "movies/", "comic", "audiobook"} {
 		_, ok := projection.ParseTab(bad)
 		require.False(t, ok, bad)
 	}
@@ -194,20 +209,28 @@ func TestRootFolderKindsCoverEveryKindOnce(t *testing.T) {
 		catalogv1.RootFolderKindSeries:    projection.TabTV,
 		catalogv1.RootFolderKindMusic:     projection.TabMusic,
 		catalogv1.RootFolderKindBook:      projection.TabBooks,
-		catalogv1.RootFolderKindAudiobook: projection.TabBooks,
-		catalogv1.RootFolderKindComic:     projection.TabBooks,
-	}, seen)
+		catalogv1.RootFolderKindAudiobook: projection.TabAudiobooks,
+		catalogv1.RootFolderKindComic:     projection.TabComics,
+	}, seen, "each tab's Rescan covers its own RootFolder kind (2026-11-10 design D1)")
 }
 
 // TestLibraryItemsCarryTheirProviderID: Add New marks a search hit already
-// in the library by this id (2026-09-29).
+// in the library by this id (2026-09-29), and the typeahead's prefixed
+// queries match it (2026-11-10 design §9.1): a comic's is its source and
+// source id, an audiobook's its ASIN under "asin:", a standalone book's
+// its Open Library work under "olid:", and an item with no id yet carries
+// none, never a bare prefix.
 func TestLibraryItemsCarryTheirProviderID(t *testing.T) {
 	objs := []client.Object{
 		&catalogv1.Movie{ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: "media", UID: "heat-uid"}, Spec: catalogv1.MovieSpec{TmdbID: 949}},
 		&catalogv1.Series{ObjectMeta: metav1.ObjectMeta{Name: "bb", Namespace: "media", UID: "bb-uid"}, Spec: catalogv1.SeriesSpec{TvdbID: 81189}},
 		&catalogv1.Artist{ObjectMeta: metav1.ObjectMeta{Name: "rh", Namespace: "media", UID: "rh-uid"}, Spec: catalogv1.ArtistSpec{MusicBrainzID: "a74b1b7f-71a5-4011-9441-d0b5e4122711"}},
 		&catalogv1.Author{ObjectMeta: metav1.ObjectMeta{Name: "ja", Namespace: "media", UID: "ja-uid"}, Spec: catalogv1.AuthorSpec{OpenLibraryID: "OL21594A"}},
-		&catalogv1.Comic{ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: "media", UID: "saga-uid"}},
+		&catalogv1.Comic{ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: "media", UID: "saga-uid"},
+			Spec: catalogv1.ComicSpec{Source: catalogv1.ComicSourceComicVine, SourceID: "4050-18166"}},
+		&catalogv1.Comic{ObjectMeta: metav1.ObjectMeta{Name: "blank", Namespace: "media", UID: "blank-uid"}},
+		&catalogv1.Audiobook{ObjectMeta: metav1.ObjectMeta{Name: "dune-audio", Namespace: "media", UID: "dune-audio-uid"}, Spec: catalogv1.AudiobookSpec{ASIN: "B0036I54I6"}},
+		&catalogv1.Book{ObjectMeta: metav1.ObjectMeta{Name: "lone", Namespace: "media", UID: "lone-uid"}, Spec: catalogv1.BookSpec{WorkID: "OL45883W"}},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()
 	proj := projection.New(fakeClient, time.Hour)
@@ -225,7 +248,7 @@ func TestLibraryItemsCarryTheirProviderID(t *testing.T) {
 	}
 	require.Equal(t, map[string]string{
 		"heat": "949", "bb": "81189", "rh": "a74b1b7f-71a5-4011-9441-d0b5e4122711", "ja": "OL21594A",
-		"saga": "", // no Add New for comics
+		"saga": "comicvine:4050-18166", "blank": "", "dune-audio": "asin:B0036I54I6", "lone": "olid:OL45883W",
 	}, got)
 }
 

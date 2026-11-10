@@ -549,7 +549,8 @@ templ addNewButton(tab projection.Tab) {
 	}
 }
 
-// addLabel is what the tab's Add New adds.
+// addLabel is what the tab's Add New adds (2026-11-10 design D1: each tab
+// adds its own kind).
 func addLabel(tab projection.Tab) string {
 	switch tab {
 	case projection.TabTV:
@@ -558,6 +559,10 @@ func addLabel(tab projection.Tab) string {
 		return "artist"
 	case projection.TabBooks:
 		return "author"
+	case projection.TabComics:
+		return "comic"
+	case projection.TabAudiobooks:
+		return "audiobook"
 	}
 	return "movie"
 }
@@ -856,6 +861,10 @@ func tabLabel(tab projection.Tab) string {
 		return "Music"
 	case projection.TabBooks:
 		return "Books"
+	case projection.TabComics:
+		return "Comics"
+	case projection.TabAudiobooks:
+		return "Audiobooks"
 	default:
 		return string(tab)
 	}

@@ -21,11 +21,11 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/inputgroup"
 	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/components/scrollarea"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // headerFind is the top bar's search (2026-10-01 as the library tab's
@@ -175,6 +175,10 @@ func findNoun(tab projection.Tab) string {
 		return "artists"
 	case projection.TabBooks:
 		return "authors"
+	case projection.TabComics:
+		return "comics"
+	case projection.TabAudiobooks:
+		return "audiobooks"
 	case "":
 		return "titles"
 	}

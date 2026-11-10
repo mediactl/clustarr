@@ -41,8 +41,16 @@ const (
 )
 
 // providerIDQuery is Sonarr's "tvdb:81189" form: a provider name and an
-// id, which matches the id alone.
-var providerIDQuery = regexp.MustCompile(`^(?i)(tmdb|tvdb|imdb|mbid|musicbrainz|olid|openlibrary)\s*:\s*(\S+)$`)
+// id, which matches the id alone. Since 2026-11-10 (design §9.1) it also
+// takes the non-video providers' names -- comicvine, mangadex and metron
+// for a comic, asin (or audible) for an audiobook, olid (or openlibrary)
+// for a book or an author -- beside mbid (or musicbrainz) for an artist.
+var providerIDQuery = regexp.MustCompile(`^(?i)(tmdb|tvdb|imdb|mbid|musicbrainz|olid|openlibrary|comicvine|mangadex|metron|asin|audible)\s*:\s*(\S+)$`)
+
+// providerAliases map a query's provider name onto the prefix a prefixed
+// ProviderID carries, so "audible:B0036I54I6" finds the audiobook whose
+// ProviderID is "asin:B0036I54I6".
+var providerAliases = map[string]string{"musicbrainz": "mbid", "openlibrary": ProviderIDOpenLibrary, "audible": ProviderIDASIN}
 
 // Find is the monitored items whose title or provider id matches q, best
 // first, at most limit of them. A prefixed id ("tmdb:603") matches the id
@@ -50,12 +58,22 @@ var providerIDQuery = regexp.MustCompile(`^(?i)(tmdb|tvdb|imdb|mbid|musicbrainz|
 // ranked exact, prefix, word prefix, anywhere, with ties to the shorter and
 // then the alphabetically earlier title. An unmonitored item is never
 // found, and a query with nothing to match finds nothing.
+//
+// A ProviderID that carries its provider ("comicvine:4050-18166",
+// "asin:B0036I54I6", "olid:OL45883W"; [describeLibraryItem]) is matched by
+// its bare id, and by a prefixed query only when the query's provider is
+// its own, so "mangadex:4050-18166" never finds a ComicVine volume; a
+// bare ProviderID (a movie's TMDB id) is matched by any provider's prefix,
+// as before.
 func Find(items []LibraryItem, q string, limit int) []LibraryItem {
 	q = strings.TrimSpace(q)
 	idOnly := false
-	id := q
+	id, provider := q, ""
 	if m := providerIDQuery.FindStringSubmatch(q); m != nil {
-		idOnly, id = true, m[2]
+		idOnly, id, provider = true, m[2], strings.ToLower(m[1])
+		if alias, ok := providerAliases[provider]; ok {
+			provider = alias
+		}
 	}
 	norm := release.TitleNorm(q)
 	if !idOnly && norm == "" {
@@ -75,7 +93,7 @@ func Find(items []LibraryItem, q string, limit int) []LibraryItem {
 		title := release.TitleNorm(it.Title)
 		rank := -1
 		switch {
-		case it.ProviderID != "" && strings.EqualFold(it.ProviderID, id):
+		case matchesProviderID(it.ProviderID, provider, id):
 			rank = rankID
 		case idOnly:
 		case title == norm:
@@ -109,4 +127,23 @@ func Find(items []LibraryItem, q string, limit int) []LibraryItem {
 		out = append(out, h.item)
 	}
 	return out
+}
+
+// matchesProviderID reports whether an item's ProviderID is the id the
+// query names, under provider when the query named one ("" for a bare
+// query): a prefixed ProviderID must carry that provider, a bare one is
+// any provider's.
+func matchesProviderID(providerID, provider, id string) bool {
+	if providerID == "" {
+		return false
+	}
+	prefix, bare, prefixed := strings.Cut(providerID, ":")
+	if !prefixed {
+		return strings.EqualFold(providerID, id)
+	}
+	if strings.EqualFold(providerID, id) {
+		// The whole "asin:B0036I54I6" typed as a bare query.
+		return true
+	}
+	return strings.EqualFold(bare, id) && (provider == "" || strings.EqualFold(prefix, provider))
 }

@@ -79,6 +79,14 @@ type LibraryItem struct {
 	// status is read from them (see [LibraryStatus]).
 	MissingEpisodes, DownloadingEpisodes int32
 
+	// MissingChildren, DownloadingChildren and CutoffUnmetChildren are a
+	// container's rollup (2026-11-10 design §4.1, §9.1): an Artist's
+	// albums, an Author's books, a Comic's issues that are missing
+	// (monitored, released, no file), with a grab in flight, or on disk
+	// below the cutoff; zero for every other kind. A container's status is
+	// read from them as a Series' is from its episodes ([containerStatus]).
+	MissingChildren, DownloadingChildren, CutoffUnmetChildren int32
+
 	// DeleteMode is the item's catalog.clustarr.io/delete ("files" or
 	// "records"), "" when no delete is pending; DeleteExclude its
 	// delete-add-exclusion and DeleteError import's delete-error.
@@ -141,6 +149,10 @@ type LibraryItem struct {
 	// A movie's spec.minimumAvailability and release dates.
 	MinimumAvailability                        string
 	InCinemas, DigitalRelease, PhysicalRelease time.Time
+	// Released is a book's or an audiobook's publication date (2026-11-10
+	// design §9.1); zero for a kind whose release is one of the movie's
+	// three dates above, or a comic's, which has only its start Year.
+	Released time.Time
 	// A series' spec.seriesType, first, next and previous airing, and
 	// counts: seasons (specials left out), episodes and episodes on disk.
 	SeriesType                             string
@@ -163,15 +175,22 @@ type LibraryItem struct {
 // belongs to none and produces no card.
 type Tab string
 
+// The six tabs (2026-11-10 design D1: Movies, TV, Music, Books, Comics,
+// Audiobooks). A Comic is carded on Comics and an Audiobook on Audiobooks,
+// where until then both sat on Books (2026-09-23 library page design,
+// superseded there).
 const (
-	TabMovies Tab = "movies"
-	TabTV     Tab = "tv"
-	TabMusic  Tab = "music"
-	TabBooks  Tab = "books"
+	TabMovies     Tab = "movies"
+	TabTV         Tab = "tv"
+	TabMusic      Tab = "music"
+	TabBooks      Tab = "books"
+	TabComics     Tab = "comics"
+	TabAudiobooks Tab = "audiobooks"
 )
 
-// Tabs lists the tabs in the order the page shows them.
-func Tabs() []Tab { return []Tab{TabMovies, TabTV, TabMusic, TabBooks} }
+// Tabs lists the tabs in the order the page shows them: the sidebar's
+// Library sub-menu and the Add New menu both iterate it.
+func Tabs() []Tab { return []Tab{TabMovies, TabTV, TabMusic, TabBooks, TabComics, TabAudiobooks} }
 
 // ParseTab turns a URL path segment into a Tab, refusing anything that is
 // not exactly one of [Tabs].
@@ -208,7 +227,11 @@ func RootFolderKinds(tab Tab) []catalogv1.RootFolderKind {
 	case TabMusic:
 		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindMusic}
 	case TabBooks:
-		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindBook, catalogv1.RootFolderKindAudiobook, catalogv1.RootFolderKindComic}
+		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindBook}
+	case TabComics:
+		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindComic}
+	case TabAudiobooks:
+		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindAudiobook}
 	}
 	return nil
 }
@@ -311,10 +334,19 @@ type libraryCard struct {
 // that has no card: Episode, Album and Issue are children of a Series, an
 // Artist and a Comic, and so is a Book with an authorRef (one without is its
 // own parent). Movie, Series, Book and Audiobook carry status.phase
-// directly; Artist, Author and Comic are collection parents with none, and
-// report hasFile via whether any child has an imported file yet
-// (AlbumFileCount, BookFileCount, IssueFileCount), the closest reading of
-// "this collection has something on disk" their status offers.
+// directly; Artist, Author and Comic are containers whose phase is the
+// ContainerRollup's (Pending, Ready, Unmonitored), whose hasFile is
+// whether any child has an imported file yet (AlbumFileCount,
+// BookFileCount, IssueFileCount) and whose missing, downloading and
+// cutoff-unmet children the card's status reads ([containerStatus]).
+//
+// The card's year (2026-11-10 design §9.1) reads an Artist's and an
+// Author's nothing, a Comic's start year, an Audiobook's and a standalone
+// Book's release year. ProviderID is a Comic's "<source>:<sourceID>"
+// ("comicvine:4050-18166"), an Audiobook's "asin:<asin>" and a Book's
+// "olid:<workID>" ([ProviderIDASIN], [ProviderIDOpenLibrary]), which the
+// typeahead's prefixed queries match ([Find]); an Artist's and an Author's
+// stay the bare MusicBrainz and Open Library ids Add New compares.
 func describeLibraryItem(item client.Object) (libraryCard, bool) {
 	switch v := item.(type) {
 	case *catalogv1.Movie:
@@ -375,19 +407,33 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 		}
 		return libraryCard{item: li}, true
 	case *catalogv1.Artist:
-		return libraryCard{item: LibraryItem{
+		li := LibraryItem{
 			Tab: TabMusic, Monitored: monitoredOrDefault(v.Spec.Monitored),
-			HasFile: v.Status.AlbumFileCount > 0, QualityProfileRef: v.Spec.QualityProfileRef,
+			Phase: string(v.Status.Phase), HasFile: v.Status.AlbumFileCount > 0, QualityProfileRef: v.Spec.QualityProfileRef,
 			Poster:     posterArt(commonv1.MediaKindArtist, v.GetUID(), v.Status.Artwork, nil),
-			ProviderID: v.Spec.MusicBrainzID, Tags: v.Spec.Tags, RootFolder: v.Spec.RootFolderRef,
-		}}, true
+			ProviderID: v.Spec.MusicBrainzID, Tags: v.Spec.Tags, RootFolder: v.Spec.RootFolderRef, Path: v.Status.Path,
+		}
+		withRollup(&li, v.Status.ContainerRollup)
+		if md := v.Status.Metadata; md != nil {
+			li.Genres, li.Ratings = md.Genres, md.Ratings
+			li.ReleaseStatus = string(md.Status)
+			if md.Country != "" {
+				li.Countries = []string{md.Country}
+			}
+		}
+		return libraryCard{item: li}, true
 	case *catalogv1.Author:
-		return libraryCard{item: LibraryItem{
+		li := LibraryItem{
 			Tab: TabBooks, Monitored: monitoredOrDefault(v.Spec.Monitored),
-			HasFile: v.Status.BookFileCount > 0, QualityProfileRef: v.Spec.QualityProfileRef,
+			Phase: string(v.Status.Phase), HasFile: v.Status.BookFileCount > 0, QualityProfileRef: v.Spec.QualityProfileRef,
 			Poster:     posterArt(commonv1.MediaKindAuthor, v.GetUID(), v.Status.Artwork, nil),
-			ProviderID: v.Spec.OpenLibraryID, Tags: v.Spec.Tags, RootFolder: v.Spec.RootFolderRef,
-		}}, true
+			ProviderID: v.Spec.OpenLibraryID, Tags: v.Spec.Tags, RootFolder: v.Spec.RootFolderRef, Path: v.Status.Path,
+		}
+		withRollup(&li, v.Status.ContainerRollup)
+		if md := v.Status.Metadata; md != nil {
+			li.Genres, li.Ratings = md.Genres, md.Ratings
+		}
+		return libraryCard{item: li}, true
 	case *catalogv1.Book:
 		if v.Spec.AuthorRef != nil && *v.Spec.AuthorRef != "" {
 			return libraryCard{}, false
@@ -395,31 +441,91 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 		li := LibraryItem{
 			Tab: TabBooks, Monitored: monitoredOrDefault(v.Spec.Monitored),
 			Phase: string(v.Status.Phase), HasFile: v.Status.HasFile,
-			Poster: posterArt(commonv1.MediaKindBook, v.GetUID(), v.Status.Artwork, nil),
+			Poster:     posterArt(commonv1.MediaKindBook, v.GetUID(), v.Status.Artwork, nil),
+			ProviderID: prefixedID(ProviderIDOpenLibrary, v.Spec.WorkID), Path: v.Status.Path,
 		}
 		if v.Spec.QualityProfileRef != nil {
 			li.QualityProfileRef = *v.Spec.QualityProfileRef
 		}
-		return libraryCard{item: li}, true
-	case *catalogv1.Audiobook:
-		return libraryCard{item: LibraryItem{
-			Tab: TabBooks, Monitored: monitoredOrDefault(v.Spec.Monitored),
-			Phase: string(v.Status.Phase), HasFile: v.Status.HasFile, QualityProfileRef: v.Spec.QualityProfileRef,
-			Poster: posterArt(commonv1.MediaKindAudiobook, v.GetUID(), v.Status.Artwork, nil),
-		}}, true
-	case *catalogv1.Comic:
-		li := LibraryItem{
-			Tab: TabBooks, Monitored: monitoredOrDefault(v.Spec.Monitored),
-			HasFile: v.Status.IssueFileCount > 0, QualityProfileRef: v.Spec.QualityProfileRef,
-			Poster: posterArt(commonv1.MediaKindComic, v.GetUID(), v.Status.Artwork, nil),
+		if v.Spec.RootFolderRef != nil {
+			li.RootFolder = *v.Spec.RootFolderRef
+		}
+		if q := v.Status.FileQuality; q != nil && v.Status.HasFile {
+			li.Quality = q.Name
 		}
 		if md := v.Status.Metadata; md != nil {
+			li.Released = momentOf(md.ReleaseDate)
+			li.Year = yearOf(md.ReleaseDate)
+			li.Genres, li.Keywords, li.Ratings = md.Genres, md.Subjects, md.Ratings
+			if md.Publisher != "" {
+				li.Studios = []string{md.Publisher}
+			}
+		}
+		return libraryCard{item: li}, true
+	case *catalogv1.Audiobook:
+		li := LibraryItem{
+			Tab: TabAudiobooks, Monitored: monitoredOrDefault(v.Spec.Monitored),
+			Phase: string(v.Status.Phase), HasFile: v.Status.HasFile, QualityProfileRef: v.Spec.QualityProfileRef,
+			Poster:     posterArt(commonv1.MediaKindAudiobook, v.GetUID(), v.Status.Artwork, nil),
+			ProviderID: prefixedID(ProviderIDASIN, v.Spec.ASIN), Tags: v.Spec.Tags, RootFolder: v.Spec.RootFolderRef, Path: v.Status.Path,
+		}
+		if q := v.Status.FileQuality; q != nil && v.Status.HasFile {
+			li.Quality = q.Name
+		}
+		if md := v.Status.Metadata; md != nil {
+			li.Released = momentOf(md.ReleaseDate)
+			li.Year = yearOf(md.ReleaseDate)
+			li.Genres, li.Ratings, li.RuntimeMinutes = md.Genres, md.Ratings, md.RuntimeMinutes
+			li.OriginalLanguage = langTag(md.Language)
+			if md.Publisher != "" {
+				li.Studios = []string{md.Publisher}
+			}
+		}
+		return libraryCard{item: li}, true
+	case *catalogv1.Comic:
+		li := LibraryItem{
+			Tab: TabComics, Monitored: monitoredOrDefault(v.Spec.Monitored),
+			Phase: string(v.Status.Phase), HasFile: v.Status.IssueFileCount > 0, QualityProfileRef: v.Spec.QualityProfileRef,
+			Poster:     posterArt(commonv1.MediaKindComic, v.GetUID(), v.Status.Artwork, nil),
+			ProviderID: prefixedID(string(v.Spec.Source), v.Spec.SourceID), Tags: v.Spec.Tags, RootFolder: v.Spec.RootFolderRef, Path: v.Status.Path,
+		}
+		withRollup(&li, v.Status.ContainerRollup)
+		if md := v.Status.Metadata; md != nil {
 			li.Year = md.Year
+			li.Genres, li.Ratings, li.Certification = md.Genres, md.Ratings, md.AgeRating
+			li.ReleaseStatus = string(md.Status)
+			if md.Publisher != "" {
+				li.Studios = []string{md.Publisher}
+			}
 		}
 		return libraryCard{item: li}, true
 	default:
 		return libraryCard{}, false
 	}
+}
+
+// The prefixes a Book's and an Audiobook's ProviderID carry, so an id of
+// one provider is never read as another's (a Comic's is its spec.source,
+// "comicvine" or "mangadex").
+const (
+	ProviderIDOpenLibrary = "olid"
+	ProviderIDASIN        = "asin"
+)
+
+// prefixedID is "<prefix>:<id>", or "" for an item with no id yet.
+func prefixedID(prefix, id string) string {
+	if id == "" {
+		return ""
+	}
+	return prefix + ":" + id
+}
+
+// withRollup reads a container's children counts and release dates into
+// its card: the next and previous release dates stand where a series'
+// next and previous airing do, so the same sorts and filters read them.
+func withRollup(li *LibraryItem, r catalogv1.ContainerRollup) {
+	li.MissingChildren, li.DownloadingChildren, li.CutoffUnmetChildren = r.MissingChildCount, r.DownloadingChildCount, r.CutoffUnmetChildCount
+	li.NextAiring, li.PreviousAiring = momentOf(r.NextReleaseDate), momentOf(r.PreviousReleaseDate)
 }
 
 // momentOf is t's time, zero for nil.
@@ -428,6 +534,16 @@ func momentOf(t *metav1.Time) time.Time {
 		return time.Time{}
 	}
 	return t.Time
+}
+
+// yearOf is t's calendar year in UTC, 0 for nil: a metav1.Time comes back
+// from the apiserver in the replica's local zone, so a date read in its
+// own zone is a year off near New Year west of UTC (CLAUDE.md).
+func yearOf(t *metav1.Time) int32 {
+	if t == nil {
+		return 0
+	}
+	return int32(t.UTC().Year()) //nolint:gosec // a year
 }
 
 // langTag is a provider's language code as a pkg/lang tag, the vocabulary

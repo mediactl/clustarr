@@ -104,10 +104,13 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 }
 
 // hasFolder reports whether a kind has a folder of its own under a
-// RootFolder (status.path), which "Refresh & Scan" can rescan.
+// RootFolder (status.path), which "Refresh & Scan" can rescan: the video
+// kinds, the containers and, since 2026-11-10 (design §9.1), a Comic and
+// an Audiobook. A Book's folder is its Author's, an Album's its Artist's.
 func hasFolder(kind commonv1.MediaKind) bool {
 	switch kind {
-	case commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist, commonv1.MediaKindAuthor:
+	case commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist, commonv1.MediaKindAuthor,
+		commonv1.MediaKindComic, commonv1.MediaKindAudiobook:
 		return true
 	default:
 		return false
@@ -401,6 +404,16 @@ func (s *Server) itemFolder(ctx context.Context, namespace string, kind commonv1
 		}
 	case commonv1.MediaKindAuthor:
 		var a catalogv1.Author
+		if s.getObject(ctx, ref, &a) {
+			itemPath, rootRef = a.Status.Path, a.Spec.RootFolderRef
+		}
+	case commonv1.MediaKindComic:
+		var c catalogv1.Comic
+		if s.getObject(ctx, ref, &c) {
+			itemPath, rootRef = c.Status.Path, c.Spec.RootFolderRef
+		}
+	case commonv1.MediaKindAudiobook:
+		var a catalogv1.Audiobook
 		if s.getObject(ctx, ref, &a) {
 			itemPath, rootRef = a.Status.Path, a.Spec.RootFolderRef
 		}

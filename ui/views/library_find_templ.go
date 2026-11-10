@@ -623,6 +623,10 @@ func findNoun(tab projection.Tab) string {
 		return "artists"
 	case projection.TabBooks:
 		return "authors"
+	case projection.TabComics:
+		return "comics"
+	case projection.TabAudiobooks:
+		return "audiobooks"
 	case "":
 		return "titles"
 	}

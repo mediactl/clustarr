@@ -87,6 +87,43 @@ func TestFindMatchesAProviderID(t *testing.T) {
 		"a bare id ranks its item first, then titles that contain the text")
 }
 
+// TestFindMatchesAPrefixedProviderID: a ProviderID that carries its
+// provider (a comic's "comicvine:<id>", an audiobook's "asin:<id>", a
+// book's "olid:<id>"; 2026-11-10 design §9.1) is found by its bare id and
+// by a query naming its own provider or an alias of it, and never by a
+// query naming another's.
+func TestFindMatchesAPrefixedProviderID(t *testing.T) {
+	item := func(kind commonv1.MediaKind, tab projection.Tab, title, providerID string) projection.LibraryItem {
+		return projection.LibraryItem{
+			Ref: types.NamespacedName{Namespace: "media", Name: title}, Kind: kind, Tab: tab,
+			Title: title, Monitored: true, ProviderID: providerID,
+		}
+	}
+	items := []projection.LibraryItem{
+		item(commonv1.MediaKindComic, projection.TabComics, "Saga", "comicvine:4050-18166"),
+		item(commonv1.MediaKindComic, projection.TabComics, "Berserk", "mangadex:801513ba-a712-498c-8f57-cae55b38cc92"),
+		item(commonv1.MediaKindAudiobook, projection.TabAudiobooks, "Dune", "asin:B0036I54I6"),
+		item(commonv1.MediaKindBook, projection.TabBooks, "Lone Book", "olid:OL45883W"),
+		movie("Heat", 1995, true, "949"),
+	}
+	for q, want := range map[string][]string{
+		"comicvine:4050-18166": {"Saga"},
+		"4050-18166":           {"Saga"},
+		"mangadex:4050-18166":  {},
+		"tmdb:4050-18166":      {},
+		"mangadex:801513ba-a712-498c-8f57-cae55b38cc92": {"Berserk"},
+		"asin:B0036I54I6":      {"Dune"},
+		"audible: b0036i54i6":  {"Dune"},
+		"B0036I54I6":           {"Dune"},
+		"olid:OL45883W":        {"Lone Book"},
+		"openlibrary:OL45883W": {"Lone Book"},
+		"tmdb:949":             {"Heat"},
+		"comicvine:949":        {"Heat"},
+	} {
+		assert.Equal(t, want, titles(projection.Find(items, q, 10)), q)
+	}
+}
+
 func TestFindKeepsOnlyMonitoredItems(t *testing.T) {
 	items := []projection.LibraryItem{
 		movie("Heat", 1995, false, "949"),

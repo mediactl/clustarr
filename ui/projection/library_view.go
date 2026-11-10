@@ -46,6 +46,9 @@ func LibraryStatus(li LibraryItem) string {
 	if li.Kind == commonv1.MediaKindSeries {
 		return seriesStatus(li)
 	}
+	if IsContainer(li.Kind) {
+		return containerStatus(li)
+	}
 	switch {
 	case li.HasFile && (li.Phase == "CutoffUnmet" || li.Phase == "CutoffUnevaluated"):
 		return "cutoff-unmet"
@@ -78,6 +81,56 @@ func seriesStatus(li LibraryItem) string {
 	default:
 		return "unmonitored"
 	}
+}
+
+// IsContainer reports whether kind is a container of children with files
+// of their own -- an Artist's albums, an Author's books, a Comic's issues
+// (2026-11-10 design §4.1) -- whose card reads its status from the
+// ContainerRollup ([containerStatus]) as a Series' does from its episodes.
+func IsContainer(kind commonv1.MediaKind) bool {
+	switch kind {
+	case commonv1.MediaKindArtist, commonv1.MediaKindAuthor, commonv1.MediaKindComic:
+		return true
+	}
+	return false
+}
+
+// containerStatus is a container's LibraryStatus (2026-11-10 design §9.1),
+// the seriesStatus rule over the rollup's children counts: Downloading
+// while a child's grab is in flight, Missing while a monitored, released
+// child has no file, Cutoff Unmet while a child's file is below the cutoff
+// and nothing is missing, Downloaded once files are on disk and nothing is
+// wanted, and Unmonitored with nothing on disk and nothing wanted -- so the
+// Missing, Wanted, Cutoff Unmet and Downloading filters match containers.
+// A container has no file of its own and its phase is only Pending, Ready
+// or Unmonitored, so the rule for the leaf kinds read every monitored
+// container as Missing.
+func containerStatus(li LibraryItem) string {
+	switch {
+	case li.DownloadingChildren > 0:
+		return "downloading"
+	case li.MissingChildren > 0:
+		return "missing"
+	case li.CutoffUnmetChildren > 0 && li.HasFile:
+		return "cutoff-unmet"
+	case li.HasFile:
+		return "downloaded"
+	default:
+		return "unmonitored"
+	}
+}
+
+// childCounts are the missing and downloading children a parent's card
+// reads -- a Series' episodes, a container's children -- and false for a
+// kind with children of neither sort.
+func childCounts(li LibraryItem) (missing, downloading int32, ok bool) {
+	switch {
+	case li.Kind == commonv1.MediaKindSeries:
+		return li.MissingEpisodes, li.DownloadingEpisodes, true
+	case IsContainer(li.Kind):
+		return li.MissingChildren, li.DownloadingChildren, true
+	}
+	return 0, 0, false
 }
 
 // statusRank orders LibraryStatus by what needs attention first.
@@ -120,14 +173,24 @@ const (
 	SortNextAiring     LibrarySort = "nextAiring"
 	SortPreviousAiring LibrarySort = "previousAiring"
 	SortEpisodes       LibrarySort = "episodes"
+	// SortNextRelease and SortPreviousRelease are a container's next and
+	// previous child release dates (its rollup; 2026-11-10 design §9.1),
+	// the airing sorts' keys under the words a music or comic library
+	// uses.
+	SortNextRelease     LibrarySort = "nextRelease"
+	SortPreviousRelease LibrarySort = "previousRelease"
 )
 
 var librarySorts = []LibrarySort{SortTitle, SortYear, SortProfile, SortStatus, SortAdded}
 
 // tabSorts are a tab's sorts after the shared ones.
 var tabSorts = map[Tab][]LibrarySort{
-	TabMovies: {SortReleased, SortRuntime, SortRating, SortSize},
-	TabTV:     {SortNetwork, SortNextAiring, SortPreviousAiring, SortEpisodes, SortRuntime, SortRating, SortSize},
+	TabMovies:     {SortReleased, SortRuntime, SortRating, SortSize},
+	TabTV:         {SortNetwork, SortNextAiring, SortPreviousAiring, SortEpisodes, SortRuntime, SortRating, SortSize},
+	TabMusic:      {SortNextRelease, SortPreviousRelease, SortRating},
+	TabBooks:      {SortReleased, SortNextRelease, SortPreviousRelease, SortRating},
+	TabComics:     {SortNextRelease, SortPreviousRelease, SortRating},
+	TabAudiobooks: {SortReleased, SortRuntime, SortRating},
 }
 
 // LibrarySorts lists a tab's sort keys in the menu's order.
@@ -171,6 +234,10 @@ func (s LibrarySort) Label() string {
 		return "Previous Airing"
 	case SortEpisodes:
 		return "Episode Progress"
+	case SortNextRelease:
+		return "Next Release"
+	case SortPreviousRelease:
+		return "Previous Release"
 	default:
 		return "Title"
 	}
@@ -198,7 +265,8 @@ const (
 	// FilterDownloading keeps items with a grab in flight.
 	FilterDownloading LibraryFilter = "downloading"
 	// FilterContinuing and FilterEnded are Sonarr's "Continuing Only" and
-	// "Ended Only": a series by its run status.
+	// "Ended Only": a series by its run status -- and an artist's or a
+	// comic's, whose metadata carries the same two words.
 	FilterContinuing LibraryFilter = "continuing"
 	FilterEnded      LibraryFilter = "ended"
 )
@@ -207,7 +275,9 @@ var libraryFilters = []LibraryFilter{FilterAll, FilterMonitored, FilterUnmonitor
 
 // tabFilters are a tab's presets after the shared ones.
 var tabFilters = map[Tab][]LibraryFilter{
-	TabTV: {FilterContinuing, FilterEnded},
+	TabTV:     {FilterContinuing, FilterEnded},
+	TabMusic:  {FilterContinuing, FilterEnded},
+	TabComics: {FilterContinuing, FilterEnded},
 }
 
 // LibraryFilters lists a tab's presets in the menu's order.
@@ -256,11 +326,12 @@ func (f LibraryFilter) Matches(li LibraryItem) bool {
 	case FilterUnmonitored:
 		return !li.Monitored
 	case FilterMissing, FilterWanted:
-		if li.Kind == commonv1.MediaKindSeries {
+		if missing, downloading, ok := childCounts(li); ok {
 			// A series is missing, and wanted, while any episode is
 			// (Sonarr's Wanted > Missing): episodes are counted missing
 			// only once aired, and only while their series is monitored.
-			return li.MissingEpisodes > 0 || li.DownloadingEpisodes > 0
+			// A container reads its rollup the same way.
+			return missing > 0 || downloading > 0
 		}
 		if f == FilterMissing {
 			return li.Monitored && !li.HasFile
@@ -343,7 +414,7 @@ func sortValueOf(sort LibrarySort, li LibraryItem) sortValue {
 		}
 		return sortValue{n: float64(li.RuntimeMinutes)}
 	case SortReleased:
-		for _, t := range []time.Time{li.DigitalRelease, li.PhysicalRelease, li.InCinemas} {
+		for _, t := range []time.Time{li.DigitalRelease, li.PhysicalRelease, li.InCinemas, li.Released} {
 			if !t.IsZero() {
 				return date(t)
 			}
@@ -354,9 +425,9 @@ func sortValueOf(sort LibrarySort, li LibraryItem) sortValue {
 			return sortValue{unknown: true}
 		}
 		return sortValue{s: strings.ToLower(li.Networks[0])}
-	case SortNextAiring:
+	case SortNextAiring, SortNextRelease:
 		return date(li.NextAiring)
-	case SortPreviousAiring:
+	case SortPreviousAiring, SortPreviousRelease:
 		return date(li.PreviousAiring)
 	case SortEpisodes:
 		if v, ok := episodeProgress(li); ok {
