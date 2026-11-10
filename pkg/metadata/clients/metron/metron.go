@@ -15,8 +15,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package metron is a metadata.ComicProvider and metadata.IDResolver for
-// Metron (https://metron.cloud/api), the comic database
+// Package metron is a metadata.ComicProvider, metadata.IDResolver and
+// metadata.PageProvider for Metron (https://metron.cloud/api), the comic
+// database
 // docs/research/metadata.md §2.5 calls the best comic crosswalk: every
 // series and issue carries its ComicVine and Grand Comics Database ids.
 //
@@ -116,8 +117,8 @@ type Config struct {
 	Token string
 }
 
-// Client is a metadata.ComicProvider and metadata.IDResolver backed by
-// Metron.
+// Client is a metadata.ComicProvider, metadata.IDResolver and
+// metadata.PageProvider backed by Metron.
 type Client struct {
 	h       *httpjson.Client
 	baseURL string
@@ -266,13 +267,8 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	ctx, span := tracing.Start(ctx, "metadata.metron.Volume")
 	defer span.End()
 
-	id, err := c.resolveSeriesID(ctx, ids)
+	s, err := c.seriesDetail(ctx, ids)
 	if err != nil {
-		tracing.RecordError(span, err)
-		return nil, err
-	}
-	var s detailSeries
-	if err := c.get(ctx, "/series/"+strconv.FormatInt(id, 10)+"/", nil, &s); err != nil {
 		tracing.RecordError(span, err)
 		return nil, err
 	}
@@ -315,6 +311,64 @@ func seriesPage(resourceURL string) (metadata.Link, bool) {
 		return metadata.Link{}, false
 	}
 	return metadata.Link{Type: extid.KeyMetron, URL: u.String()}, true
+}
+
+// seriesDetail is the one detail Volume and Page read: GET /series/<id>/
+// by ids[extid.KeyMetron], else by ids[metadata.KeyComicVine] through the
+// cv_id filter (resolveSeriesID; ErrUnsupported with neither id, before any
+// request).
+func (c *Client) seriesDetail(ctx context.Context, ids metadata.ExternalIDs) (*detailSeries, error) {
+	id, err := c.resolveSeriesID(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	var s detailSeries
+	if err := c.get(ctx, "/series/"+strconv.FormatInt(id, 10)+"/", nil, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// Page answers a Comic's page on metron.cloud as the Link of type
+// extid.KeyMetron Volume records (2026-11-10 design §9.4: the comic page's
+// Metron logo), for a Comic another provider answered. A Comic CR's source
+// is ComicVine or MangaDex, and the gateway's Lookup is first-success with
+// primaries ahead of supplementaries, so on a cluster that configures
+// ComicVine this client's Volume is never asked for a Comic and the page
+// it records never reaches the document, while Resolve, which the
+// crosswalk does ask, reads the series row by cv_id and answers ids alone.
+// Page is the one request Volume makes (seriesDetail: by ids[metron], the
+// id the crosswalk has just added, else by ids[comicvine] through the
+// cv_id filter), the detail's resource_url as the Link -- of type Name(),
+// the PageProvider contract's type, so a Metron-sourced Comic, whose
+// document carries it from Volume, is never asked. A Comic carrying
+// neither id, one Metron does not know (ErrNotFound) and a detail without
+// a resource_url are an empty Link and no error, as hardcover.Client.Page
+// answers them: nothing to link is not a failure, and the gateway asks on
+// every refresh. A crosswalk naming several series (ErrAmbiguous) or an
+// id of the wrong shape (ErrInvalidID) is an error; any other kind is
+// ErrUnsupported without a request. Until 2026-11-10 the gateway wrapped
+// the client in an adapter of its own (metronPages) over Volume.
+func (c *Client) Page(ctx context.Context, kind commonv1.MediaKind, ids metadata.ExternalIDs) (metadata.Link, error) {
+	ctx, span := tracing.Start(ctx, "metadata.metron.Page")
+	defer span.End()
+
+	if kind != commonv1.MediaKindComic {
+		return metadata.Link{}, fmt.Errorf("metron: no pages for kind %q: %w", kind, metadata.ErrUnsupported)
+	}
+	if ids[extid.KeyMetron] == "" && ids[metadata.KeyComicVine] == "" {
+		return metadata.Link{}, nil
+	}
+	s, err := c.seriesDetail(ctx, ids)
+	if err != nil {
+		if errors.Is(err, metadata.ErrNotFound) {
+			return metadata.Link{}, nil
+		}
+		tracing.RecordError(span, err)
+		return metadata.Link{}, err
+	}
+	link, _ := seriesPage(s.ResourceURL)
+	return link, nil
 }
 
 func (c *Client) resolveSeriesID(ctx context.Context, ids metadata.ExternalIDs) (int64, error) {
@@ -477,4 +531,5 @@ func parseDate(s string) *time.Time {
 var (
 	_ metadata.ComicProvider = (*Client)(nil)
 	_ metadata.IDResolver    = (*Client)(nil)
+	_ metadata.PageProvider  = (*Client)(nil)
 )

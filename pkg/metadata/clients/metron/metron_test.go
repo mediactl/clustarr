@@ -214,6 +214,72 @@ func TestUnusableIDsAreUnsupportedWithoutARequest(t *testing.T) {
 	require.Empty(t, *seen)
 }
 
+// Page is the series' page as Volume records it (2026-11-10 design §9.4:
+// the comic page's Metron logo), for a Comic another provider answered: by
+// the ComicVine id through the cv_id row then the one detail, or by the
+// metron id the crosswalk added straight to the detail, as the Link of type
+// Name(), the PageProvider contract's type.
+func TestPageIsTheSeriesDetailsResourceURL(t *testing.T) {
+	srv, seen := serve(t, map[string]string{
+		"/series/?cv_id=111265": "series_list_cv_111265.json",
+		"/series/1/":            "series_1.json",
+	})
+	c := newClient(t, srv, "tok")
+	page := metadata.Link{Type: extid.KeyMetron, URL: "https://metron.cloud/series/death-of-the-inhumans-2018/"}
+
+	link, err := c.Page(context.Background(), commonv1.MediaKindComic, metadata.ExternalIDs{metadata.KeyComicVine: "4050-111265"})
+	require.NoError(t, err)
+	require.Equal(t, page, link)
+	require.Equal(t, []string{"/series/?cv_id=111265", "/series/1/"}, *seen, "the crosswalk's row by cv_id, then the one detail the page needs")
+	require.Equal(t, c.Name(), link.Type, "the page's type is the provider's Name(), the PageProvider contract")
+
+	*seen = nil
+	link, err = c.Page(context.Background(), commonv1.MediaKindComic, metadata.ExternalIDs{extid.KeyMetron: "1", metadata.KeyComicVine: "4050-111265"})
+	require.NoError(t, err)
+	require.Equal(t, page, link)
+	require.Equal(t, []string{"/series/1/"}, *seen, "the metron id the crosswalk added skips the row")
+}
+
+// A Comic Metron does not know, one carrying neither id and a detail
+// without a resource_url are nothing to link, never a failure, as
+// hardcover's Page answers them; the empty answers cost one lookup, none
+// and one.
+func TestPageAnswersNothingToLinkWithoutAnError(t *testing.T) {
+	srv, seen := serve(t, map[string]string{
+		"/series/?cv_id=1": "series_list_empty.json",
+		"/series/2311/":    "series_2311_no_resource_url.json",
+	})
+	c := newClient(t, srv, "tok")
+
+	link, err := c.Page(context.Background(), commonv1.MediaKindComic, metadata.ExternalIDs{metadata.KeyComicVine: "4050-1"})
+	require.NoError(t, err, "a comic Metron does not know is nothing to link, not a failure")
+	require.Equal(t, metadata.Link{}, link)
+
+	link, err = c.Page(context.Background(), commonv1.MediaKindComic, metadata.ExternalIDs{extid.KeyMangaDex: "801513ba-a712-498c-8f57-cae55b38cc92"})
+	require.NoError(t, err)
+	require.Equal(t, metadata.Link{}, link, "a comic carrying neither id is asked for nothing")
+
+	link, err = c.Page(context.Background(), commonv1.MediaKindComic, metadata.ExternalIDs{extid.KeyMetron: "2311"})
+	require.NoError(t, err)
+	require.Equal(t, metadata.Link{}, link, "a detail without resource_url links nothing, never a guessed page")
+
+	require.Equal(t, []string{"/series/?cv_id=1", "/series/2311/"}, *seen)
+}
+
+// Any other kind is ErrUnsupported before a request; a crosswalk that
+// names several series is ErrAmbiguous, never a guess.
+func TestPageIsForComicsAloneAndNeverGuesses(t *testing.T) {
+	srv, seen := serve(t, map[string]string{"/series/?cv_id=111265": "series_list_cv_ambiguous.json"})
+	c := newClient(t, srv, "tok")
+
+	_, err := c.Page(context.Background(), commonv1.MediaKindAuthor, metadata.ExternalIDs{extid.KeyMetron: "1"})
+	require.ErrorIs(t, err, metadata.ErrUnsupported, "no pages for another kind")
+	require.Empty(t, *seen)
+
+	_, err = c.Page(context.Background(), commonv1.MediaKindComic, metadata.ExternalIDs{metadata.KeyComicVine: "4050-111265"})
+	require.ErrorIs(t, err, metron.ErrAmbiguous)
+}
+
 func TestARejectedTokenIsErrAuth(t *testing.T) {
 	srv, _ := serve(t, nil)
 	require.ErrorIs(t, newClient(t, srv, "wrong").Ping(context.Background()), metadata.ErrAuth)

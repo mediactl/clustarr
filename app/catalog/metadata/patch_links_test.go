@@ -216,10 +216,11 @@ func TestTheHardcoverPageReachesAnOpenLibraryAuthorsStatusAsALink(t *testing.T) 
 // Metron's Resolve, which the crosswalk does ask, reads the series row by
 // cv_id and answers ids alone, so ComicMetadata.Links never carried the
 // page the comic page's Metron logo reads (ui/comic.go comicLinks,
-// 2026-11-10 design §9.4). The gateway's enrich asks metronPages, the
-// client as a PageProvider, with the ids the crosswalk settled on -- the
-// metron id Resolve just added -- and the page lands as the one further
-// request, GET /series/<id>/, appended to the ComicVine document's links.
+// 2026-11-10 design §9.4). The gateway's enrich asks the client's Page (a
+// PageProvider since task E4; until then an adapter of this package's over
+// Volume) with the ids the crosswalk settled on -- the metron id Resolve
+// just added -- and the page lands as the one further request, GET
+// /series/<id>/, appended to the ComicVine document's links.
 // ComicVine's document comes through the real client over volume_18257.json's
 // recorded shape carrying Death of the Inhumans' values (ComicVine volume
 // 4050-111265, which the recorded metron list crosswalks to series 1);
@@ -244,7 +245,6 @@ func TestTheMetronPageReachesAComicVineComicsStatusAsALink(t *testing.T) {
 		seen = append(seen, key)
 		name, ok := map[string]string{
 			"/series/?cv_id=111265": "series_list_cv_111265.json",
-			"/series/?cv_id=1":      "series_list_empty.json",
 			"/series/1/":            "series_1.json",
 		}[key]
 		require.True(t, ok, "unexpected metron request %s", key)
@@ -262,7 +262,7 @@ func TestTheMetronPageReachesAComicVineComicsStatusAsALink(t *testing.T) {
 	reg := &pkgmetadata.Registry{
 		Comics:    []pkgmetadata.ComicProvider{primary, mc},
 		Resolvers: []pkgmetadata.IDResolver{mc},
-		Pages:     []pkgmetadata.PageProvider{metronPages{mc}},
+		Pages:     []pkgmetadata.PageProvider{mc},
 	}
 
 	// The primary's document, as the worker's Lookup fetches it: ComicVine
@@ -293,20 +293,13 @@ func TestTheMetronPageReachesAComicVineComicsStatusAsALink(t *testing.T) {
 	require.Equal(t, []string{"/series/1/"}, seen, "Resolve's read alone: a page the document carries is not asked for")
 
 	// A Metron-sourced comic (no ComicVine provider) carries the page from
-	// Volume itself, and a comic no Metron series answers is left as it is.
+	// Volume itself, the same Link Page answers (the client's own tests
+	// hold Page's empty answers and its refusals).
 	seen = nil
 	own, err := mc.Volume(context.Background(), pkgmetadata.ExternalIDs{extid.KeyMetron: "1"})
 	require.NoError(t, err)
 	require.Equal(t, []pkgmetadata.Link{metronPage}, own.Links)
-	link, err := metronPages{mc}.Page(context.Background(), commonv1.MediaKindComic, pkgmetadata.ExternalIDs{pkgmetadata.KeyComicVine: "4050-1"})
-	require.NoError(t, err, "a comic Metron does not know is nothing to link, not a failure")
-	require.Equal(t, pkgmetadata.Link{}, link)
-	link, err = metronPages{mc}.Page(context.Background(), commonv1.MediaKindComic, pkgmetadata.ExternalIDs{"mangadex": "abc"})
-	require.NoError(t, err)
-	require.Equal(t, pkgmetadata.Link{}, link, "a comic carrying neither id is asked for nothing")
-	_, err = metronPages{mc}.Page(context.Background(), commonv1.MediaKindAuthor, pkgmetadata.ExternalIDs{extid.KeyMetron: "1"})
-	require.ErrorIs(t, err, pkgmetadata.ErrUnsupported, "no pages for another kind")
-	require.Equal(t, []string{"/series/1/", "/series/?cv_id=1"}, seen, "the empty answers cost one lookup and none")
+	require.Equal(t, []string{"/series/1/"}, seen)
 
 	// The status shape: buildComicMetadataAC carries the page through
 	// linksAC as the type ui/comic.go's comicLinks reads, with both ids in
@@ -321,8 +314,8 @@ func TestTheMetronPageReachesAComicVineComicsStatusAsALink(t *testing.T) {
 
 // TestBuildRegistryWiresThePageProviders: the two pages above reach status
 // only because BuildRegistry puts their clients in reg.Pages -- the
-// hardcover client itself, and the metron client as metronPages, the same
-// instance that answers comics and the crosswalk (addSupplementary). The
+// hardcover client itself, and the metron client itself, the same instance
+// that answers comics and the crosswalk (addSupplementary). The
 // guard beside TestBuildRegistryWiresEveryProviderType, kept here with the
 // tests that read the pages it wires.
 func TestBuildRegistryWiresThePageProviders(t *testing.T) {
@@ -358,8 +351,8 @@ func TestBuildRegistryWiresThePageProviders(t *testing.T) {
 	require.Equal(t, []string{"hardcover", "metron"}, pages, "the two supplementary providers with pages, and no primary")
 
 	require.Equal(t, reg.Books[1], reg.Pages[0], "the hardcover client answers books and pages alike")
-	mp, ok := reg.Pages[1].(metronPages)
-	require.True(t, ok, "the metron client is wired through metronPages")
+	mc, ok := reg.Pages[1].(*metron.Client)
+	require.True(t, ok, "the metron client itself is wired, no adapter")
 	var comics, resolvers []pkgmetadata.Provider
 	for _, p := range reg.Comics {
 		comics = append(comics, p)
@@ -367,6 +360,6 @@ func TestBuildRegistryWiresThePageProviders(t *testing.T) {
 	for _, p := range reg.Resolvers {
 		resolvers = append(resolvers, p)
 	}
-	require.Contains(t, comics, pkgmetadata.Provider(mp.Client), "the same metron client answers comics")
-	require.Contains(t, resolvers, pkgmetadata.Provider(mp.Client), "and the crosswalk")
+	require.Contains(t, comics, pkgmetadata.Provider(mc), "the same metron client answers comics")
+	require.Contains(t, resolvers, pkgmetadata.Provider(mc), "and the crosswalk")
 }

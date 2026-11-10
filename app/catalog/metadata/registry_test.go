@@ -117,7 +117,7 @@ func TestBuildRegistryWiresEveryProviderType(t *testing.T) {
 	reg, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
 	require.NoError(t, err)
 
-	var got struct{ movies, series, artists, books, audiobooks, comics, artwork, resolvers []string }
+	var got struct{ movies, series, artists, books, audiobooks, comics, artwork, resolvers, pages []string }
 	for _, p := range reg.Movies {
 		got.movies = append(got.movies, p.Name())
 	}
@@ -142,6 +142,9 @@ func TestBuildRegistryWiresEveryProviderType(t *testing.T) {
 	for _, p := range reg.Resolvers {
 		got.resolvers = append(got.resolvers, p.Name())
 	}
+	for _, p := range reg.Pages {
+		got.pages = append(got.pages, p.Name())
+	}
 	require.Equal(t, []string{"tmdb"}, got.movies)
 	require.Equal(t, []string{"tvdb"}, got.series)
 	require.Equal(t, []string{"musicbrainz"}, got.artists)
@@ -150,6 +153,7 @@ func TestBuildRegistryWiresEveryProviderType(t *testing.T) {
 	require.Equal(t, []string{"comicvine", "mangadex", "metron"}, got.comics, "AniList is never a comic source")
 	require.Equal(t, []string{"coverart", "fanart"}, got.artwork)
 	require.ElementsMatch(t, []string{"metron", "mangadex", "anilist", "kitsu", "animelists", "tvdb"}, got.resolvers)
+	require.Equal(t, []string{"hardcover", "metron"}, got.pages, "the two supplementary providers with pages (2026-11-10 design §9.3, §9.4), each the client itself, and no primary")
 	// TheTVDB looks a series' TVDB id up by its IMDb id, last: it fills a gap
 	// the crosswalks leave and never replaces an id they resolve, which an
 	// import list keys its Series by (the owner's MAL list, 2026-10-21).
