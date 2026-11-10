@@ -25,12 +25,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
@@ -138,4 +141,36 @@ func TestAQueryTheLimiterCannotSendInTheBudgetIsSkippedNotFailed(t *testing.T) {
 	require.NoError(t, s.Client.Get(context.Background(), types.NamespacedName{Namespace: idx.Namespace, Name: idx.Name}, &got))
 	require.Zero(t, got.Status.EscalationLevel, "a paced skip is not the indexer's failure")
 	require.Empty(t, got.Status.LastFailure)
+}
+
+// The wait for a query's turn and the request itself are two numbers
+// (owner, 2026-11-10): on talos a burst of searches queued 16 deep on a
+// 2 s requestDelay, and with the wait inside the duration the indexers read
+// as taking 6-20 s for requests they answered in 0.3 s.
+func TestAQuerysWaitForItsTurnIsNotItsDuration(t *testing.T) {
+	waitBefore := histogramSum(t, metrics.IndexerQueryWait, "paced")
+	durationBefore := histogramSum(t, metrics.IndexerQueryDuration, "paced")
+
+	// Five searches at one request per 100 ms: the waits add up to about a
+	// second (0 + 0.1 + ... + 0.4), the requests, answered at once, to
+	// almost nothing.
+	s, idx := pacedService(t, 100*time.Millisecond, time.Second)
+	outcomes := searchConcurrently(t, s, idx, 5, 5*time.Second)
+	for _, o := range outcomes {
+		require.Equal(t, schema.SearchOutcomeOK, o.Status, "error: %s", o.Error)
+		require.Less(t, o.ElapsedMillis, int64(250), "an outcome's elapsed time is the request's, not its wait's")
+	}
+
+	waited := histogramSum(t, metrics.IndexerQueryWait, "paced") - waitBefore
+	took := histogramSum(t, metrics.IndexerQueryDuration, "paced") - durationBefore
+	require.Greater(t, waited, 0.8, "the queue behind requestDelay is the wait")
+	require.Less(t, took, 0.5, "the requests themselves were answered at once")
+}
+
+// histogramSum is the sum of h's observations for indexer and movie search.
+func histogramSum(t *testing.T, h *prometheus.HistogramVec, indexer string) float64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, h.WithLabelValues(indexer, string(torznab.ModeMovieSearch)).(prometheus.Histogram).Write(&m))
+	return m.GetHistogram().GetSampleSum()
 }

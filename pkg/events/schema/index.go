@@ -228,7 +228,9 @@ type SearchOutcome struct {
 	// Releases is how many releases this indexer contributed.
 	Releases int32 `json:"releases"`
 
-	// ElapsedMillis is how long the indexer took, in milliseconds.
+	// ElapsedMillis is how long the indexer took, in milliseconds, from the
+	// moment the query was sent: its wait for its turn on the indexer's
+	// rate limiter is not the indexer's (clustarr_indexer_query_wait_seconds).
 	ElapsedMillis int64 `json:"elapsedMillis,omitempty"`
 
 	// Error is the failure message for an error outcome.

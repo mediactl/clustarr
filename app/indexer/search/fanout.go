@@ -345,17 +345,23 @@ func (s *Service) queryOne(
 		return out, nil
 	}
 
+	// The wait and the request are measured apart (owner, 2026-11-10): a
+	// burst of searches queues on the indexer's requestDelay, and as one
+	// number that read as the indexer being slow.
 	turn := bctx
 	if p, ok := cli.(pacedClient); ok {
 		if turn, err = p.WaitTurn(bctx); err != nil {
+			metrics.IndexerQueryWait.WithLabelValues(idx.Name, string(q.Type)).Observe(s.now().Sub(started).Seconds())
 			return pacedOutcome(out), nil
 		}
 	}
+	sent := s.now()
+	metrics.IndexerQueryWait.WithLabelValues(idx.Name, string(q.Type)).Observe(sent.Sub(started).Seconds())
 	qctx, cancel := context.WithTimeout(turn, indexerDeadline(idx, budget))
 	defer cancel()
 
 	raw, err := cli.Search(qctx, q)
-	elapsed := s.now().Sub(started)
+	elapsed := s.now().Sub(sent)
 	metrics.IndexerQueryDuration.WithLabelValues(idx.Name, string(q.Type)).Observe(elapsed.Seconds())
 	if errors.Is(err, torznab.ErrPaced) {
 		// A client that paces inside the request (no WaitTurn) ran out of
@@ -363,7 +369,7 @@ func (s *Service) queryOne(
 		return pacedOutcome(out), nil
 	}
 	if err != nil {
-		return s.failOutcome(ctx, idx, out, started, queries, err), nil
+		return s.failOutcome(ctx, idx, out, sent, queries, err), nil
 	}
 
 	rels := s.project(idx, raw)

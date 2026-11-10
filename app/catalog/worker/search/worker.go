@@ -52,6 +52,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jonboulle/clockwork"
@@ -62,6 +63,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	gateway "github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/app/catalog/searchoutcome"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -122,17 +124,30 @@ type Worker struct {
 	// SceneMaps supplies TheXEM's scene-numbering table for a series (see
 	// sceneMappings). Nil means no scene numbering.
 	SceneMaps scenemap.Source
+	// LiveSearches is how many live searches run at once (liveGate); below
+	// 1 is no cap. NewWorker sets DefaultLiveSearches.
+	LiveSearches int
+
+	gateOnce sync.Once
+	gate     *liveGate
+}
+
+// liveGate is the worker's gate over its live searches, built once.
+func (w *Worker) liveGate() *liveGate {
+	w.gateOnce.Do(func() { w.gate = newLiveGate(w.LiveSearches) })
+	return w.gate
 }
 
 // NewWorker builds a Worker with the production decision engine and the real
 // clock. Records and Answers are the caller's (the agent binds the bucket).
 func NewWorker(c client.Client, rpc SearchRPC, cat *catalogue.Catalogue) *Worker {
 	return &Worker{
-		Client:    c,
-		RPC:       rpc,
-		Catalogue: cat,
-		Evaluate:  decision.EvaluateRelease,
-		Clock:     clockwork.NewRealClock(),
+		Client:       c,
+		RPC:          rpc,
+		Catalogue:    cat,
+		Evaluate:     decision.EvaluateRelease,
+		Clock:        clockwork.NewRealClock(),
+		LiveSearches: DefaultLiveSearches,
 	}
 }
 
@@ -315,7 +330,7 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		}
 		resp, err = w.searchIndex(ctx, req)
 	} else {
-		resp, err = w.RPC.Search(ctx, req)
+		resp, err = w.searchLive(ctx, m, task, req)
 	}
 	if err != nil {
 		tracing.RecordError(span, err)
@@ -334,6 +349,28 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	warnUnreported(ctx, resp)
 	decisions, resp.Releases = w.withPartSets(ctx, snap.Target, profile, decisions, resp.Releases, opts)
 	return w.write(ctx, a, resp, decisions, opts)
+}
+
+// searchLive asks the indexers through index (clustarr.rpc.index.search)
+// once the worker's live gate admits the search, telling the broker the
+// task is being worked from the moment it waits: the search durables'
+// first BackOff step (30 s) is the delivery's deadline, below the 45 s the
+// search may take (SearchDeadline) and the wait for the gate, and a
+// delivery that outlives it is delivered again beside it, whose copy asks
+// every indexer a second time.
+func (w *Worker) searchLive(ctx context.Context, m events.Message, task schema.SearchTask, req schema.SearchRequest) (schema.SearchResponse, error) {
+	stop := gateway.KeepAlive(ctx, m, gateway.HeartbeatInterval)
+	defer stop()
+	waited := w.now()
+	release, err := w.liveGate().acquire(ctx, task.UserInvoked)
+	if err != nil {
+		return schema.SearchResponse{}, fmt.Errorf("search: waiting for a live search slot: %w", err)
+	}
+	defer release()
+	if d := w.now().Sub(waited); d >= time.Second {
+		w.log(ctx).Debug("search: waited for a live search slot", "waited", d.Round(time.Millisecond))
+	}
+	return w.RPC.Search(ctx, req)
 }
 
 // write answers the task: the ranked candidates (at most

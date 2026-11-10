@@ -112,8 +112,11 @@ func (d Domain) PodSlots(c events.ConsumerSpec, overrides map[string]int, cpus, 
 func Domains() []Domain {
 	return []Domain{
 		// The grab worker retired (ADR-0019 A4.4): every grab is the owner
-		// key's in the manager.
-		{Name: Catalog, Autoscaled: true, Consumers: []string{
+		// key's in the manager. catalog stays at one (owner, 2026-11-10):
+		// from zero, the searches the pace spread out while a pod started
+		// reached the indexers at once, and a person's "Search now" waited
+		// for the pod; it cold-started 20 times in 30 hours on talos.
+		{Name: Catalog, Autoscaled: true, MinReplicas: 1, Consumers: []string{
 			events.ConsumerCatalogSearchHigh, events.ConsumerCatalogSearchNorm,
 			events.ConsumerCatalogArtworkRender,
 		}},

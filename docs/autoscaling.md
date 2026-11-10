@@ -10,7 +10,7 @@ operator's view of how that works, what it costs, and how to turn it off.
 
 | Deployment | Scaling | Range | Why |
 | --- | --- | --- | --- |
-| `agent-catalog` | HPA | 0..1 | Its search consumers are throttled downstream (below). |
+| `agent-catalog` | HPA | 1..1 | Its search consumers are throttled downstream (below), and it stays up (owner, 2026-11-10): from zero, the searches queued while a pod started reached the indexers at once, and a person's "Search now" waited for the pod. |
 | `agent-events` | HPA | 1..N | The RSS matcher reads `CLUSTARR_RELEASES`, a limits stream that is memory with discard-old on single-node NATS, so it cannot buffer through zero. |
 | `agent-import` | HPA | 0..N | Scans, file imports, list syncs, the recycle sweep and both probe lanes; a `ProbeVersion` raise's backlog scales it out. |
 | `agent-caption` | HPA | 0..1 | Its fetch consumers are throttled downstream (below). |

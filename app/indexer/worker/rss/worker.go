@@ -373,15 +373,25 @@ func (w *Worker) pollOnce(
 		if r.Crossed(limits.QueryLimit(idx)) {
 			queries = &r.Count
 		}
+		// The page's turn on the indexer's rate limiter is taken first, so
+		// the wait and the request are measured apart, as a search's are.
+		turn := ctx
+		if p, ok := s.(pacedSearcher); ok {
+			if turn, err = p.WaitTurn(ctx); err != nil {
+				w.recordWait(idx.Name, start)
+				return all, queries, err
+			}
+		}
+		sent := w.recordWait(idx.Name, start)
 		// t=search with an empty q is the RSS call: the indexer's newest
 		// rows, unfiltered.
-		batch, err := s.Search(ctx, torznab.Query{
+		batch, err := s.Search(turn, torznab.Query{
 			Type:       torznab.ModeSearch,
 			Categories: cats,
 			Limit:      pageSize,
 			Offset:     page * pageSize,
 		})
-		w.recordQuery(idx.Name, start, err)
+		w.recordQuery(idx.Name, sent, err)
 		start = w.now()
 		if err != nil {
 			return all, queries, err
@@ -415,7 +425,22 @@ func (w *Worker) reserveQuery(ctx context.Context, idx *indexv1alpha1.Indexer) (
 	return r, r.Allowed
 }
 
-// recordQuery emits the two per-query metrics. Both are labelled by the
+// pacedSearcher is a Searcher that takes its request slot on the
+// indexer's rate limiter ahead of the request (torznab.Client.WaitTurn).
+type pacedSearcher interface {
+	WaitTurn(ctx context.Context) (context.Context, error)
+}
+
+// recordWait observes how long a page waited before it was sent, from
+// start, and returns now.
+func (w *Worker) recordWait(indexerName string, start time.Time) time.Time {
+	now := w.now()
+	metrics.IndexerQueryWait.WithLabelValues(indexerName, "rss").Observe(now.Sub(start).Seconds())
+	return now
+}
+
+// recordQuery emits the two per-query metrics, the duration from the
+// moment the page was sent. Both are labelled by the
 // Indexer's object name, which is bounded by the number of Indexer objects;
 // nothing here is ever labelled by a release title or a feed URL.
 func (w *Worker) recordQuery(indexerName string, start time.Time, err error) {

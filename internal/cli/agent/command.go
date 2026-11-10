@@ -77,6 +77,11 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		"Check what this build links (the torrent piece completion), print a JSON report and exit. "+
 			"Needs no domain, no cluster and no NATS.")
 
+	fs.IntVar(&d.LiveSearches, "live-searches", d.LiveSearches,
+		"How many live searches (the ones that ask the indexers, not the release index) run at once; "+
+			"the rest wait, a person's search first. Every live search queues on each indexer's "+
+			"requestDelay, so this is about what the slowest indexer answers within a search's budget. "+
+			"0 is no cap. Domain catalog.")
 	fs.StringVar(&d.DataDir, "data-dir", d.DataDir,
 		"RWX media volume. Domains import, caption, torrent-engine and usenet-engine.")
 	fs.Int64Var(&d.SampleMaxBytes, "sample-max-bytes", d.SampleMaxBytes,

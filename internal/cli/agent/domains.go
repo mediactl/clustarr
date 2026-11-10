@@ -48,7 +48,7 @@ func Domains() []string { return slices.Clone(domainNames) }
 // domains maps each domain name to its registration package's Register.
 var domains = map[string]registerFunc{
 	"catalog": func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
-		return catalogdomain.Register(ctx, mgr, bus, catalogdomain.Options{Options: o.Options})
+		return catalogdomain.Register(ctx, mgr, bus, catalogdomain.Options{Options: o.Options, LiveSearches: o.LiveSearches})
 	},
 	"events": func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 		return eventsdomain.Register(ctx, mgr, bus, eventsdomain.Options{Options: o.Options})
@@ -87,6 +87,7 @@ var domains = map[string]registerFunc{
 
 // domainFlags names the domains each domain flag belongs to (§3.5.1).
 var domainFlags = map[string][]string{
+	"live-searches":         {"catalog"},
 	"data-dir":              {"import", "caption", "torrent-engine", "usenet-engine"},
 	"sample-max-bytes":      {"import"},
 	"trakt-base-url":        {"import"},

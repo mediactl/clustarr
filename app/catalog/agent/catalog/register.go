@@ -45,6 +45,9 @@ import (
 // its durable up in o.BusTopology().
 type Options struct {
 	k8s.Options
+	// LiveSearches is how many live searches the search worker runs at
+	// once (--live-searches); below 1 is no cap.
+	LiveSearches int
 }
 
 // Register adds the catalog domain's consumers to mgr. It declares the
@@ -106,7 +109,7 @@ func buildWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (workers, error) 
 	pod, _ := os.Hostname()
 	kv := bus.KV(events.BucketSearches)
 	sw := search.NewWorker(c, search.NewBusSearchRPC(bus), cat)
-	sw.Topology, sw.SceneMaps = &topo, sceneMaps
+	sw.Topology, sw.SceneMaps, sw.LiveSearches = &topo, sceneMaps, o.LiveSearches
 	sw.Records = records.NewWriter(kv, agentrecords.Searches(), pod, version.String())
 	sw.Answers = records.NewReader(kv, agentrecords.Searches())
 	render := &renderer.Handler{

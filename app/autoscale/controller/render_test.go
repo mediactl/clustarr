@@ -202,7 +202,7 @@ func TestRenderHPA(t *testing.T) {
 		},
 		{name: "events never goes below one", d: dep(agentdomain.Events), nodes: 1, min: 1, max: 1, down: 300,
 			targets: map[string]string{events.ConsumerCatalogRSSMatcher: "256"}},
-		{name: "catalog is throttled to one replica on six nodes", d: dep(agentdomain.Catalog), nodes: 6, min: 0, max: 1, down: 300,
+		{name: "catalog is throttled to one replica on six nodes, and never below it", d: dep(agentdomain.Catalog), nodes: 6, min: 1, max: 1, down: 300,
 			targets: map[string]string{
 				events.ConsumerCatalogSearchHigh: "8", events.ConsumerCatalogSearchNorm: "8",
 				events.ConsumerCatalogArtworkRender: "4",

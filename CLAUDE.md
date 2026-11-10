@@ -992,13 +992,36 @@ posts (2026-10-19). `ui/static/portals.js` has htmx process every portaled
 node a loaded swap owns. A test of the rendered markup cannot see this --
 the poll attributes were always there -- so check such a change in a
 browser.
-The live pages' stream containers (#library-rows, #unmatched-rows,
-#import-lists-rows) morph each frame
+The live pages' stream containers (#unmatched-rows, #import-lists-rows)
+morph each frame
 in (idiomorph's htmx extension, `hx-swap="morph:innerHTML"`, 2026-10-21):
 a node whose markup is unchanged is left alone, so a frame no longer tears
-down every card's poster, hover state and open menu, and a card is paired
-by its id (`cardID`); the morph still syncs attributes, so library.js
-re-applies the selection after each frame as before. A self-polling panel
+down every row's hover state and open menu. **The library tabs do not
+paginate** (owner, 2026-11-10: "We should probably not paginate the
+libraries so we can mass select and scroll more smoothly";
+`ui/library_page.go`): a tab renders every card its view keeps (1,051
+movies, 2.6 MB of markup, 225 KB gzipped -- the page is gzipped,
+`compressed`), each card `content-visibility: auto`, and its stream sends
+no markup: a `library-manifest` event lists the cards in order with each
+one's `views.CardFingerprint` (`views.CardID`), only when that list moves,
+and `ui/static/library.js` fetches the new and changed cards from `POST
+/library/{tab}/cards`, morphs them in with `Idiomorph.morph` (a card keeps
+its loaded poster), drops the rest and reorders, re-applying the selection.
+The fingerprint must cover every field the card renders
+(`TestCardFingerprintMovesWithEveryRenderedField`, by reflection over
+`LibraryItem`). The A-Z letters link to their first title's card
+(`#card-...`); `?page`, `?per`, `?pages` and `?jump` mean nothing there any
+more. Every DOM change on a page has shadcn-templ's lifecycle observer
+rescan the document for each registered component and walk every element
+it started, so no card renders a component with a script: the cards' title
+tooltip is one `<template>` (`views.cardTooltip`) that library.js clones
+into a card when the pointer first rests on it or focus enters it, naming
+its link the trigger, then replays the hover or `focusin` the tooltip
+missed (owner, 2026-11-10: a tooltip per card was 40% of the page's load,
+each found its trigger by a document-wide query, and a mutation cost 10 ms
+over a thousand cards, 2.4 ms without them). Code that mutates the grid
+often still batches it or waits for the pointer to rest, as the card
+action bar does. A self-polling panel
 (the interactive search's `hx-trigger="load delay:2s"`) must stay a plain
 `outerHTML` swap: a morphed node whose attributes did not change is not
 re-processed, so its `load` would never fire again. The preload extension
@@ -1218,13 +1241,40 @@ selection as `item=namespace/kind/name` to `POST /library/{tab}/bulk`
 (monitor, unmonitor, search, refresh, delete), which accepts only items on
 that tab in the projection, validates all before writing, and runs each
 item page's own `ui/actions` call; Options (poster size, details) are the
-reader's own, in localStorage. Every card has its own actions on hover
+reader's own, in localStorage. Every card has its actions on hover
 (Sonarr's poster buttons): the card is a div with a stretched link
 (`data-card-link`), and Refresh & Scan, Search, Monitor/Unmonitor post
 through htmx to the item's own routes with `HX-Target: action-status`,
 which `finishActionWith` answers in place (200 with `ActionStatus` or
 `ActionError`, never a redirect; the monitor toggle skips its row reply);
-Delete opens the page's delete dialog for that item alone. Tailwind's
+Delete opens the page's delete dialog for that item alone. Since
+2026-11-10 one bar serves the page (`views.cardActionBar`): library.js
+moves it into the card the pointer rests on (60 ms) or focus enters, and
+names that card's route at `htmx:configRequest` in place of the
+placeholder `/library/card-action`; the card's `data-monitored` picks
+Monitor or Unmonitor by CSS. Four buttons a card had been half of every
+card's 10 KB. **The library filters as Radarr and Sonarr do** (owner,
+2026-11-10: "many more filtering options ... including custom filter
+options"): per-tab presets (`projection.LibraryFilters`, TV adding
+Continuing Only and Ended Only) and sorts (`LibrarySorts`: Added, Size on
+Disk, Rating, Runtime, Release Date; TV Network, Next and Previous Airing,
+Episode Progress; an unknown value sorts last either way), and custom
+filters: rows of field, predicate and value over about 35 fields a tab
+(`projection.LibraryFields`: genres, keywords, studio, original and audio
+language, certification, ratings, size, codec, HDR, quality, release dates,
+series status and type, network, airings, episode counts...; the
+projection reads them off each Movie, Series and the movie's MediaFile),
+every row kept, a row's values any of them. A filter is the page's URL, a
+repeated `?f=<field>:<op>:<value>[|<value>]` (`projection.Condition`;
+`ParseConditions` drops what a tab cannot test), so the page, its stream
+and a shared link agree; the active filter is chips under the toolbar,
+each removing itself. The builder is a dialog (`views.filterDialog`) whose
+rows `GET /library/{tab}/filter/row` draws and redraws on a field or
+predicate change, applied by a plain GET of `/library/{tab}/filter`, which
+redirects to the page's URL. Saved custom filters are the reader's own, per
+tab, in localStorage (`clustarr.library.filters`), listed in the Filter
+menu: the ui has no CRD to keep them in. TestUINeverWrites reads any
+`.Delete(` selector as a write, `slices.Delete` included. Tailwind's
 `group-hover` applies only under `(hover: hover)` -- headless Chromium
 reports `none`, so a screenshot shows no hover bar unless the rule is
 injected. The vendored shadcn-templ components are
@@ -2304,6 +2354,21 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   Episode folds its season's answer into `lastSearchedAt` once, so its
   next search is IndexOnly) and an Episode waits while its season is
   queued or searching; nothing publishes per-episode searches for it.
+  **The catalog agent runs at most `--live-searches` (4) live searches at
+  once** (owner, 2026-11-10, `search.liveGate`; a person's search first):
+  every live search queues on each indexer's `requestDelay`, and the two
+  search lanes' 16 slots had queued 16 deep, 6-20 s a query on talos for
+  answers of 0.2-0.3 s; the agent never scales below one (it had
+  cold-started 20 times in 30 hours, and the searches queued meanwhile
+  reached the indexers at once); and a live search heartbeats its delivery
+  from the moment it waits (`searchLive`), since the search durables' first
+  `BackOff` step, 30 s, is the delivery's deadline and a search may take
+  45 s (`SearchDeadline`), so a long one would be delivered again. The
+  usenet API indexers run at `requestDelay: 500ms` on talos.
+  `clustarr_indexer_query_duration_seconds` is the request alone for a
+  search or an RSS page, and `clustarr_indexer_query_wait_seconds` the wait
+  before it (a search outcome's `elapsedMillis` too): as one number the
+  queue read as a slow indexer.
   **The backlog is searched live again only through a BacklogSearch**
   (owner, 2026-11-10: "our own version" of a scheduled backlog searcher;
   `docs/superpowers/specs/2026-11-10-backlog-search-design.md`): an

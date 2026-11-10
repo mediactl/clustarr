@@ -125,10 +125,25 @@ var (
 // Indexer telemetry, used by index.
 var (
 	// IndexerQueryDuration is how long an indexer query takes, by indexer
-	// and function (search, caps, ...).
+	// and function (search, caps, ...). A search mode's or an RSS page's is
+	// the request alone, from the moment its turn came (IndexerQueryWait
+	// is the time before; owner, 2026-11-10: the two had been one number,
+	// and a 2 s requestDelay queue read as a slow indexer).
 	IndexerQueryDuration = newHistogramVec(
 		"clustarr_indexer_query_duration_seconds",
-		"Duration of indexer queries in seconds, by indexer and function.",
+		"Duration of indexer queries in seconds, by indexer and function; a search's or an RSS page's from the moment it was sent.",
+		durationBucketsShort,
+		"indexer", "function",
+	)
+
+	// IndexerQueryWait is how long a search mode's query or an RSS page
+	// waited before it was sent, by indexer and function: for its client,
+	// its place in the query window and its turn on the indexer's rate
+	// limiter (spec.requestDelay). A query whose turn never came within its
+	// search's budget (a paced skip) is observed too, at the time it gave up.
+	IndexerQueryWait = newHistogramVec(
+		"clustarr_indexer_query_wait_seconds",
+		"Time indexer queries waited for their turn (spec.requestDelay, the query window) before they were sent, by indexer and function.",
 		durationBucketsShort,
 		"indexer", "function",
 	)

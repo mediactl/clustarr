@@ -28,6 +28,7 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/agentdomain"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
@@ -65,6 +66,7 @@ type Options struct {
 	// TopologyWait bounds the wait for the manager's topology.
 	TopologyWait time.Duration
 
+	LiveSearches              int    // catalog
 	DataDir                   string // import, caption, engines
 	SampleMaxBytes            int64  // import
 	TraktBaseURL, PlexBaseURL string // import
@@ -87,7 +89,8 @@ type Options struct {
 func DefaultOptions() Options {
 	return Options{
 		Options: k8s.DefaultOptions(), TopologyWait: defaultTopologyWait,
-		DataDir: "/data", SampleMaxBytes: fsops.DefaultSampleMaxBytes, ScratchDir: "/scratch",
+		LiveSearches: search.DefaultLiveSearches,
+		DataDir:      "/data", SampleMaxBytes: fsops.DefaultSampleMaxBytes, ScratchDir: "/scratch",
 		IndexPath: DefaultIndexPath, FacadeBindAddress: DefaultFacadeBindAddress, FacadeAPIKeySecret: DefaultFacadeAPIKeySecret,
 	}
 }
@@ -110,6 +113,10 @@ func (o Options) Validate() error {
 		}
 	}
 	switch o.Domain {
+	case "catalog":
+		if o.LiveSearches < 0 {
+			errs = append(errs, fmt.Errorf("--live-searches must be 0 (no cap) or more, got %d", o.LiveSearches))
+		}
 	case "import":
 		if o.SampleMaxBytes < 0 {
 			// The workers read a negative floor as "disabled", exactly as
