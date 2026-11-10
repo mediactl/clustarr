@@ -32,3 +32,21 @@ func TestIssueFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Saga/Saga c001", got)
 }
+
+// TestIssueFileNamesTheSpecialVersion: a collected edition's issue carries
+// the Comic's special version after its number, Kapowarr's special_version
+// (2026-11-10 design D7, D10); a normal run renders exactly as before.
+func TestIssueFileNamesTheSpecialVersion(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	for _, tc := range []struct{ version, want string }{
+		{"", "Saga/Saga c001"},
+		{"TPB", "Saga/Saga c001 TPB"},
+		{"One-Shot", "Saga/Saga c001 One-Shot"},
+		{"Hard Cover", "Saga/Saga c001 Hard Cover"},
+		{"Omnibus", "Saga/Saga c001 Omnibus"},
+	} {
+		got, err := e.IssueFile(naming.Context{ComicSeriesTitle: "Saga", IssueNumber: "001", SpecialVersion: tc.version})
+		require.NoError(t, err, tc.version)
+		require.Equal(t, tc.want, got, tc.version)
+	}
+}

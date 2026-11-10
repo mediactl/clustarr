@@ -51,3 +51,47 @@ func TestAudiobookFileOmitsNarratorWhenAbsent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Terry Pratchett/Discworld/8 - 1989 - Guards! Guards!", got)
 }
+
+// TestAudiobookFileNamesItsPart: a multi-part audiobook's files take
+// Readarr's zero-padded part in brackets (2026-11-10 design D7, D11); a
+// one-file audiobook (part 0) renders exactly as before the token.
+func TestAudiobookFileNamesItsPart(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	base := naming.Context{
+		AuthorName: "Terry Pratchett", BookSeries: "Discworld", BookSeriesPosition: "8",
+		Year: 1989, BookTitle: "Guards! Guards!", Narrator: "Nigel Planer",
+	}
+	for _, tc := range []struct {
+		name       string
+		part, of   int
+		wantSuffix string
+	}{
+		{"one file", 0, 0, ""},
+		{"part 1 of 12", 1, 12, " (01)"},
+		{"part 12 of 12", 12, 12, " (12)"},
+		{"part 3, count unknown", 3, 0, " (03)"},
+	} {
+		c := base
+		c.PartNumber, c.PartCount = tc.part, tc.of
+		got, err := e.AudiobookFile(c)
+		require.NoError(t, err, tc.name)
+		require.Equal(t, "Terry Pratchett/Discworld/8 - 1989 - Guards! Guards! Nigel Planer"+tc.wantSuffix, got, tc.name)
+	}
+}
+
+// TestPartTokens: {PartNumber} and {PartCount} pad and render nothing for
+// 0 (the wrapper grammar carries separators, never words, so an override
+// spells "part 2 of 10" as "{ - PartNumber:00}{-PartCount}"), and both drop
+// out for a one-file audiobook.
+func TestPartTokens(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	got, err := e.Render("{Book Title}{ - PartNumber:00}{-PartCount}", naming.Context{BookTitle: "Dune", PartNumber: 2, PartCount: 10})
+	require.NoError(t, err)
+	require.Equal(t, "Dune - 02-10", got)
+	got, err = e.Render("{Book Title}{ - PartNumber:00}{-PartCount}", naming.Context{BookTitle: "Dune"})
+	require.NoError(t, err)
+	require.Equal(t, "Dune", got)
+	got, err = e.Render("{PartNumber}", naming.Context{PartNumber: 7})
+	require.NoError(t, err)
+	require.Equal(t, "7", got, "unpadded")
+}

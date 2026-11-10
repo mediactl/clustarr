@@ -304,11 +304,30 @@ var tokenFuncs = map[string]tokenEntry{
 	"book series":         {fn: func(c Context, _, _ int) string { return c.BookSeries }},
 	"book seriesposition": {fn: func(c Context, _, _ int) string { return c.BookSeriesPosition }},
 	"narrator":            {fn: func(c Context, _, _ int) string { return c.Narrator }},
+	// Readarr's {PartNumber} and {PartCount}: an audiobook file's place
+	// among its item's parts (MediaFileSpec.partIndex, Audiobook
+	// status.partCount; 2026-11-10 design D7, D11). Unlike {track}, a part
+	// of 0 -- a file that is not a part -- renders nothing, so the preset's
+	// "{ (PartNumber:00)}" drops its brackets for a one-file audiobook.
+	"partnumber": {fn: func(c Context, pad, _ int) string { return padNonZero(c.PartNumber, pad) }},
+	"partcount":  {fn: func(c Context, pad, _ int) string { return padNonZero(c.PartCount, pad) }},
 	// "issue" reads the pre-formatted string field directly, not through
 	// padInt: Kavita issue numbers are strings like "001" or the decimal
 	// chapter form "025.5", already formatted upstream.
 	"comic series title": {fn: func(c Context, _, _ int) string { return c.ComicSeriesTitle }},
 	"issue":              {fn: func(c Context, _, _ int) string { return c.IssueNumber }},
+	// {Special Version} is Kapowarr's special_version: the Comic's
+	// spec.specialVersion as a label, empty for a normal run (design D10).
+	"special version": {fn: func(c Context, _, _ int) string { return c.SpecialVersion }},
+}
+
+// padNonZero is padInt for a count whose zero means "none": it renders
+// nothing for 0, so a wrapper around the token drops out.
+func padNonZero(n, width int) string {
+	if n == 0 {
+		return ""
+	}
+	return padInt(n, width)
 }
 
 // videoDynamicRangeType renders {MediaInfo VideoDynamicRangeType}. Radarr's

@@ -19,7 +19,10 @@ package naming
 
 // issueFileTemplate includes the issue segment under the comic-series
 // folder, matching the Kavita/Komga convention of one folder per series.
-const issueFileTemplate = "{Comic Series Title}/{Comic Series Title} c{issue}"
+// A collected edition's label -- "{ Special Version}", Kapowarr's
+// special_version -- follows the number and is dropped for a normal run
+// (2026-11-10 design D7, D10).
+const issueFileTemplate = "{Comic Series Title}/{Comic Series Title} c{issue}{ Special Version}"
 
 // IssueFile renders the comic issue file path.
 func (e Engine) IssueFile(c Context) (string, error) {

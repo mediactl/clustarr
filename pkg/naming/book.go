@@ -17,9 +17,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package naming
 
+// audiobookFileTemplate is the audiobook folder template plus the part:
+// Readarr's "{ (PartNumber)}", zero-padded so a player that sorts by name
+// plays the parts in order, and dropped (brackets and all) for a one-file
+// audiobook, whose partIndex is 0 (2026-11-10 design D7, D11).
 const (
 	bookFileTemplate      = "{Book Title}/{Author Name}"
-	audiobookFileTemplate = "{Author Name}/{Book Series}/{Book SeriesPosition - }{Release Year - }{Book Title}{ Narrator}"
+	audiobookFileTemplate = "{Author Name}/{Book Series}/{Book SeriesPosition - }{Release Year - }{Book Title}{ Narrator}{ (PartNumber:00)}"
 )
 
 // BookFile renders the book file path, including the book-title segment

@@ -129,14 +129,19 @@ func TestEveryPresetCollapsesEmptyOptionalTokens(t *testing.T) {
 	audiobook := naming.Context{
 		Kind: commonv1.MediaKindAudiobook, AuthorName: "Terry Pratchett", BookSeries: "Discworld",
 		BookSeriesPosition: "8", Year: 1989, BookTitle: "Guards! Guards!", Narrator: "Nigel Planer",
+		PartNumber: 1, PartCount: 12,
 	}
 	audiobookOptional := map[string]func(*naming.Context){
 		"book series":          func(c *naming.Context) { c.BookSeries = "" },
 		"book series position": func(c *naming.Context) { c.BookSeriesPosition = "" },
 		"release year":         noYear,
 		"narrator":             func(c *naming.Context) { c.Narrator = "" },
+		"part":                 func(c *naming.Context) { c.PartNumber, c.PartCount = 0, 0 },
 	}
-	issue := naming.Context{Kind: commonv1.MediaKindIssue, ComicSeriesTitle: "Saga", IssueNumber: "001"}
+	issue := naming.Context{Kind: commonv1.MediaKindIssue, ComicSeriesTitle: "Saga", IssueNumber: "001", SpecialVersion: "TPB"}
+	issueOptional := map[string]func(*naming.Context){
+		"special version": func(c *naming.Context) { c.SpecialVersion = "" },
+	}
 
 	cases := []presetCase{
 		{"movie folder", folder(commonv1.MediaKindMovie), movie, map[string]func(*naming.Context){"release year": noYear}},
@@ -164,7 +169,7 @@ func TestEveryPresetCollapsesEmptyOptionalTokens(t *testing.T) {
 		{"audiobook file", file(commonv1.MediaKindAudiobook), audiobook, audiobookOptional},
 		{"comic folder", folder(commonv1.MediaKindComic), issue, nil},
 		{"issue folder", folder(commonv1.MediaKindIssue), issue, nil},
-		{"issue file", file(commonv1.MediaKindIssue), issue, nil},
+		{"issue file", file(commonv1.MediaKindIssue), issue, issueOptional},
 	}
 
 	for _, d := range []naming.Dialect{naming.DialectJellyfin, naming.DialectPlex, naming.DialectEmby, naming.DialectKodi} {

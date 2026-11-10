@@ -178,9 +178,14 @@ type Context struct {
 	PartNumber         int
 	PartCount          int
 
-	// Comic (Kavita/Komga convention)
+	// Comic (Kavita/Komga convention). SpecialVersion is the label
+	// {Special Version} renders for a Comic that is a collected edition
+	// rather than a run of issues -- "TPB", "One-Shot", "Hard Cover",
+	// "Omnibus", Kapowarr's own spellings -- and empty for a normal run
+	// or one whose issues are volumes (2026-11-10 design D10).
 	ComicSeriesTitle string
 	IssueNumber      string
+	SpecialVersion   string
 
 	// Shared release descriptors
 	Quality       commonv1.Quality
