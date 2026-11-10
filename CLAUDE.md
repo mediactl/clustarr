@@ -1965,7 +1965,8 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   `RootFolder.naming.writeNFO: false` plans nothing and removes nothing. The
   Plex side (cluster-plex: `type: artist` sections on the Plex Music Scanner
   with the NFO agent and "Prefer local metadata", §10) is not built yet.
-- **Deploying it:** the CRDs go on by hand first ([talos]); `ProbeVersion`
+- **Deploying it:** the CRDs go on by hand first, as every CRD change on
+  talos does; `ProbeVersion`
   4 re-probes the library once through the low lane; the nfo stage writes
   into every music and audiobook root at the first pass.
 
