@@ -27,6 +27,7 @@ import (
 
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/pkg/busconn"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/prom"
@@ -55,6 +56,14 @@ func buildPlexOptions(enabled bool, externalURL string, plexGUIDs bool) *ui.Plex
 	return &ui.PlexOptions{ExternalURL: externalURL, PlexGUIDs: plexGUIDs}
 }
 
+// plexMusicProviderUnrouted is logged once at startup when
+// --plex-music-provider is set: the music roots are built (ui/plex,
+// Options.MusicProvider) but the ui's PlexOptions does not carry the flag
+// to them yet, so the roots stay unmounted whatever it says.
+const plexMusicProviderUnrouted = "--plex-music-provider is set, but the ui does not route it yet: " +
+	"the music and audiobook roots stay unmounted until ui.PlexOptions carries MusicProvider " +
+	"(2026-11-10 design §7.6: no PMS build accepts them anyway)"
+
 // NewCommandWith is `ui` with run in place of ui.Run.
 func NewCommandWith(run RunFunc) *cobra.Command {
 	root, lo, to := cli.NewRoot("ui", "Server-rendered web UI",
@@ -74,6 +83,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	var natsURL string
 	var plexProvider bool
 	var plexGUIDs bool
+	var plexMusicProvider bool
 	var externalURL string
 	var pipelineHistory int
 	var artCacheBytes int64
@@ -99,6 +109,10 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		"Answer the movies, shows, seasons and episodes Plex knows with their plex:// GUIDs instead of "+
 			"clustarr's own, so Plex Web offers Watchlist; ids come from a plex MetadataProvider. False "+
 			"goes back to clustarr's GUIDs for new matches.")
+	fs.BoolVar(&plexMusicProvider, "plex-music-provider", false,
+		"Also serve the Plex provider's music and audiobook roots, /plex/music and /plex/audiobooks "+
+			"(types 8, 9 and 10; 2026-11-10 design §7). Off by default: PMS through 1.43.5.11079 refuses "+
+			"a custom provider declaring those types, so the roots stay off until a build accepts them.")
 	fs.StringVar(&namespace, "namespace", cli.EnvOr(cli.EnvNamespace, ""),
 		"Namespace the Settings page creates namespaced objects in by default. Defaults to $"+cli.EnvNamespace+".")
 	fs.StringVar(&externalURL, "external-url", cli.EnvOr(cli.EnvExternalURL, ""),
@@ -121,6 +135,13 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		signingKey, err := artSigningKey()
 		if err != nil {
 			return err
+		}
+		if plexMusicProvider {
+			// ui.PlexOptions carries no MusicProvider yet, so the flag
+			// parses (the chart renders it) and is reported, not routed:
+			// plex.Options.MusicProvider and projection.IndexOptions.Music
+			// are wired in ui/server.go and ui/routes.go once it does.
+			logging.FromContext(ctx).Warn(plexMusicProviderUnrouted)
 		}
 		reader, waitForSync, acts := buildCluster(ctx)
 		b := buildBus(ctx, natsURL)
