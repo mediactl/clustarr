@@ -829,7 +829,10 @@ read-only (it already holds a bus) and writes it beside the NFO, never over
 a file it did not write before (an operator's own `folder.jpg` is kept:
 the first write records the file names in `status.nfo.files`, and only those
 are rewritten), and answers in the `clustarr-nfo` record (`records.Answerer`,
-compare-and-swap); the loop writes `status.nfo` under `catalog`. A rename of
+compare-and-swap); the loop writes `status.nfo` under `catalog-nfo`, the
+stage's own field manager, as `catalog-imageset` is `status.imageSet`'s (as
+built 2026-11-10: a stage-owned field keeps its own manager so a release of
+it touches no other manager's field). A rename of
 the folder (§5.5) re-plans the write at the new path and the old files go
 with the recycled folder. `RootFolder.naming.writeNFO: false` plans nothing
 and removes nothing. The manager writes no file (ADR-0019) and the agent

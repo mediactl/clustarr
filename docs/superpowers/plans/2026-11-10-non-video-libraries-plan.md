@@ -292,6 +292,14 @@ package; its registration in the item pass is W3.4).
 4. Tests: goldens; the handler against membus and an in-memory object
    store; the planner's decision table.
 
+**Done 2026-11-10 (steps 1-3 and W3.4's registration for Album and
+Audiobook):** `pkg/nfo` (f54c285c), the `import-nfo` consumer (8a7b540c,
+8d6152de), `app/remediation/nfo` with `remediation.StageNFO` last in
+`StageOrder`, `k8s.ManagerCatalogNFO` and the stage registered in
+`app/remediation/manager`; `Applies` names Album and Audiobook and gains
+Artist and Author when W1.1 makes them keys (`nfo.Artist` and
+`nfo.AuthorAsArtist` are ready for it).
+
 ### W3.4 Wire the nfo stage (serial, after W1.1 and W3.3)
 
 Owns `app/remediation/itemstage.go`, `itemeffects.go`, `items.go` lines the
