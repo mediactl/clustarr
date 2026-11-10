@@ -1657,7 +1657,13 @@ ended on 21 of 26 episodes; `segments.implausibleCredits`, and a stored
 block holding such credits is merged again, `segments.ImplausibleCredits`;
 chapter confidence is set in the segments record, so the "ED" rule raised
 `AnalyzerVersion` to 4 and every file is analysed once more, its cached
-fingerprints kept) -- in the loop's markers planner, which reads both records
+fingerprints kept), and a chapter intro that is the cold open beside an
+"OP" or "Opening" chapter is left out (owner, 2026-11-10: To LOVE-Ru
+S01E01's Blu-ray chapters "Intro" 0:00-1:29 then "OP" 1:29-2:59 both read as
+intros, so Plex offered "Skip intro" over the cold open; `segments.ColdOpens`,
+judged at every merge from the probe's `chapterList` titles rather than at
+analysis, so it raised nothing, and a stored block holding one is merged
+again, `segments.HasColdOpen`) -- in the loop's markers planner, which reads both records
 (TheIntroDB's in `clustarr-markers`, the analysis in `clustarr-segments`) and
 writes the merge in the loop's one apply (`app/catalog/segmenting.Applier`,
 the compare-and-swap path the two used to share, went with ADR-0016's fold).

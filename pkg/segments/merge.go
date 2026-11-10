@@ -17,7 +17,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package segments
 
-import "sort"
+import (
+	"sort"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+)
 
 // maxSegments is FileMarkers.Segments' MaxItems.
 const maxSegments = 20
@@ -33,10 +37,13 @@ var kinds = []Kind{
 // (ExactCreditsConfidence) outranks TheIntroDB's credits (owner's ruling,
 // 2026-10-01), and TheIntroDB's credits that cannot be the closing credits
 // (implausibleCredits) are dropped, leaving credits to the chapters and
-// analysis (owner, 2026-11-09).
+// analysis (owner, 2026-11-09), and a chapter intro that is the cold open
+// beside an "OP" or "Opening" chapter is left out (ColdOpens; owner,
+// 2026-11-10).
 // theintrodb holds TheIntroDB's segments; analysis holds the chapter and
-// analysis segments, told apart by Source. The result is ordered by start
-// and capped at 20.
+// analysis segments, told apart by Source; chapters are the probe's, by
+// which the chapter intros are judged. The result is ordered by start and
+// capped at 20.
 //
 // Every segment is first held to durationMs, the probe's runtime (Within):
 // TheIntroDB times another cut of a title at will (smoke finding 6: an intro
@@ -44,8 +51,8 @@ var kinds = []Kind{
 // its kind to the next source. Merge is where every source meets on its way
 // to status.markers -- its one caller is the markers planner -- so the
 // bound is kept here, not at each intake (ruling, smoke finding 6).
-func Merge(theintrodb, analysis []Segment, durationMs int64) []Segment {
-	theintrodb, analysis = Within(theintrodb, durationMs), Within(analysis, durationMs)
+func Merge(theintrodb, analysis []Segment, chapters []commonv1.Chapter, durationMs int64) []Segment {
+	theintrodb, analysis = Within(theintrodb, durationMs), WithoutColdOpens(Within(analysis, durationMs), chapters)
 	var out []Segment
 	for _, k := range kinds {
 		tidb := of(theintrodb, k, "", 0)
@@ -114,6 +121,15 @@ func ImplausibleCredits(stored []Segment, durationMs int64) bool {
 		}
 	}
 	return false
+}
+
+// HasColdOpen reports whether stored -- status.markers' segments with
+// their sources -- holds a chapter intro Merge now leaves out as the cold
+// open beside the file's "OP" or "Opening" chapter, so the markers planner
+// merges again though nothing else changed, as it does for implausible
+// credits.
+func HasColdOpen(stored []Segment, chapters []commonv1.Chapter) bool {
+	return len(ColdOpens(stored, chapters)) > 0
 }
 
 func has(s []Segment, k Kind, src Source) bool {

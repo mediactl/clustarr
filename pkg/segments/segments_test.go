@@ -162,7 +162,7 @@ func TestMergePrecedence(t *testing.T) {
 			seg(recap, 0, 50_000, chap, 100),
 			seg(recap, 0, 40_000, anal, 70),
 			seg(preview, 2_690_000, 2_700_000, anal, 55),
-		}, episodeMs)
+		}, nil, episodeMs)
 	assert.Equal(t, []segments.Segment{
 		seg(recap, 0, 50_000, chap, 100),
 		seg(intro, 60_000, 90_000, tidb, 100),
@@ -175,22 +175,22 @@ func TestMergePrecedence(t *testing.T) {
 	assert.Equal(t, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 100)},
 		segments.Merge(
 			[]segments.Segment{seg(credits, 2_301_000, 2_403_000, tidb, 100)},
-			[]segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 100), seg(credits, 2_300_000, 2_403_000, anal, 90)}, episodeMs),
+			[]segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 100), seg(credits, 2_300_000, 2_403_000, anal, 90)}, nil, episodeMs),
 		"an exact credits chapter over TheIntroDB")
 	assert.Equal(t, []segments.Segment{seg(credits, 2_301_000, 2_403_000, tidb, 100)},
 		segments.Merge(
 			[]segments.Segment{seg(credits, 2_301_000, 2_403_000, tidb, 100)},
-			[]segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90)}, episodeMs),
+			[]segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90)}, nil, episodeMs),
 		"TheIntroDB over a pattern-only chapter")
 	assert.Equal(t, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90)},
-		segments.Merge(nil, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90), seg(credits, 2_300_000, 2_403_000, anal, 90)}, episodeMs),
+		segments.Merge(nil, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90), seg(credits, 2_300_000, 2_403_000, anal, 90)}, nil, episodeMs),
 		"a pattern-only chapter over analysis")
 
 	many := make([]segments.Segment, 30)
 	for i := range many {
 		many[i] = seg(credits, int64(i)*1000, int64(i)*1000+500, tidb, 100)
 	}
-	assert.Len(t, segments.Merge(many, nil, episodeMs), 20)
+	assert.Len(t, segments.Merge(many, nil, nil, episodeMs), 20)
 }
 
 // TestMergeKeepsSegmentsWithinTheRuntime is smoke finding 6: TheIntroDB's
@@ -202,18 +202,18 @@ func TestMergePrecedence(t *testing.T) {
 func TestMergeKeepsSegmentsWithinTheRuntime(t *testing.T) {
 	const fileMs = 10_031
 	assert.Equal(t, []segments.Segment{seg(intro, 0, fileMs, tidb, 100)},
-		segments.Merge([]segments.Segment{seg(intro, 0, 38_000, tidb, 100)}, nil, fileMs),
+		segments.Merge([]segments.Segment{seg(intro, 0, 38_000, tidb, 100)}, nil, nil, fileMs),
 		"an end past the runtime is clamped to it")
-	assert.Empty(t, segments.Merge([]segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)}, nil, fileMs),
+	assert.Empty(t, segments.Merge([]segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)}, nil, nil, fileMs),
 		"a segment starting past the end is dropped")
-	assert.Empty(t, segments.Merge([]segments.Segment{seg(credits, fileMs, 12_000, tidb, 100)}, nil, fileMs),
+	assert.Empty(t, segments.Merge([]segments.Segment{seg(credits, fileMs, 12_000, tidb, 100)}, nil, nil, fileMs),
 		"a segment starting at the end is dropped")
 	assert.Equal(t, []segments.Segment{seg(intro, 1_000, 6_000, anal, 90)},
 		segments.Merge([]segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)},
-			[]segments.Segment{seg(intro, 1_000, 6_000, anal, 90)}, fileMs),
+			[]segments.Segment{seg(intro, 1_000, 6_000, anal, 90)}, nil, fileMs),
 		"TheIntroDB's intro past the end leaves the intro to analysis")
 	assert.Equal(t, []segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)},
-		segments.Merge([]segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)}, nil, 0),
+		segments.Merge([]segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)}, nil, nil, 0),
 		"an unknown runtime keeps what it has")
 }
 
@@ -230,25 +230,25 @@ func TestMergeDropsImplausibleTheIntroDBCredits(t *testing.T) {
 	assert.Equal(t, []segments.Segment{seg(intro, 0, 89_858, tidb, 100), edChapter, previewChapter},
 		segments.Merge(
 			[]segments.Segment{seg(intro, 0, 89_858, tidb, 100), seg(credits, 0, dur, tidb, 100)},
-			[]segments.Segment{edChapter, previewChapter}, dur),
+			[]segments.Segment{edChapter, previewChapter}, nil, dur),
 		"whole-episode credits leave credits to the ED chapter, even one analysed before ED was exact")
 
 	assert.Equal(t, []segments.Segment{seg(credits, 1_330_000, 1_418_000, anal, 80)},
 		segments.Merge(
 			[]segments.Segment{seg(credits, 0, dur, tidb, 100)},
-			[]segments.Segment{seg(credits, 1_330_000, 1_418_000, anal, 80)}, dur),
+			[]segments.Segment{seg(credits, 1_330_000, 1_418_000, anal, 80)}, nil, dur),
 		"with no intro, credits over half the runtime leave credits to analysis")
-	assert.Empty(t, segments.Merge([]segments.Segment{seg(credits, 600_000, dur, tidb, 100)}, nil, dur),
+	assert.Empty(t, segments.Merge([]segments.Segment{seg(credits, 600_000, dur, tidb, 100)}, nil, nil, dur),
 		"credits over half the runtime are dropped with nothing to replace them")
 	assert.Equal(t, []segments.Segment{seg(intro, 0, 90_000, tidb, 100)},
-		segments.Merge([]segments.Segment{seg(intro, 0, 90_000, tidb, 100), seg(credits, 60_000, 150_000, tidb, 100)}, nil, dur),
+		segments.Merge([]segments.Segment{seg(intro, 0, 90_000, tidb, 100), seg(credits, 60_000, 150_000, tidb, 100)}, nil, nil, dur),
 		"credits starting before the intro ends are dropped")
 	assert.Equal(t, []segments.Segment{seg(intro, 0, 90_000, chap, 90), seg(credits, 1_330_000, dur, tidb, 100)},
 		segments.Merge([]segments.Segment{seg(credits, 1_330_000, dur, tidb, 100)},
-			[]segments.Segment{seg(intro, 0, 90_000, chap, 90)}, dur),
+			[]segments.Segment{seg(intro, 0, 90_000, chap, 90)}, nil, dur),
 		"plausible TheIntroDB credits stand beside a chapter intro")
 	assert.Equal(t, []segments.Segment{seg(credits, 0, 3_000_000, tidb, 100)},
-		segments.Merge([]segments.Segment{seg(credits, 0, 3_000_000, tidb, 100)}, nil, 0),
+		segments.Merge([]segments.Segment{seg(credits, 0, 3_000_000, tidb, 100)}, nil, nil, 0),
 		"an unknown runtime judges against the intro alone")
 }
 
@@ -304,4 +304,51 @@ func TestChapterRulesByKind(t *testing.T) {
 	assert.Contains(t, kinds, intro)
 	assert.Contains(t, kinds, credits)
 	assert.EqualValues(t, 6_950_000, kinds[preview], "only the preview after the midpoint")
+}
+
+// TestAnIntroChapterBesideAnOpeningIsTheColdOpen is To LOVE-Ru S01E01
+// (owner, 2026-11-10): its Blu-ray chapters "Intro" (0:00-1:29, the cold
+// open) and "OP" (1:29-2:59) both name an intro, so Plex offered "Skip
+// intro" over the cold open. FromChapters gives both; Merge keeps the
+// opening, judged by the chapter titles, and a lone "Intro" still stands.
+func TestAnIntroChapterBesideAnOpeningIsTheColdOpen(t *testing.T) {
+	const dur = 1_450_794
+	ch := []commonv1.Chapter{
+		{Title: "Intro", StartMillis: 0, EndMillis: 89_022},
+		{Title: "OP", StartMillis: 89_022, EndMillis: 178_878},
+		{Title: "Part A", StartMillis: 178_878, EndMillis: 608_000},
+		{Title: "ED", StartMillis: 1_329_895, EndMillis: 1_419_500},
+		{Title: "Preview", StartMillis: 1_419_500, EndMillis: 1_450_793},
+	}
+	cold, op := seg(intro, 0, 89_022, chap, 90), seg(intro, 89_022, 178_878, chap, 90)
+	ed, pv := seg(credits, 1_329_895, 1_419_500, chap, 100), seg(preview, 1_419_500, 1_450_793, chap, 90)
+	from := segments.FromChapters(ch, false, dur)
+	require.Equal(t, []segments.Segment{cold, op, ed, pv}, from, "every intro-named chapter is given")
+	assert.Equal(t, []segments.Segment{cold}, segments.ColdOpens(from, ch))
+	assert.True(t, segments.HasColdOpen(from, ch))
+	assert.Equal(t, []segments.Segment{op, ed, pv}, segments.Merge(nil, from, ch, dur), "the opening alone is the intro")
+	assert.Equal(t, []segments.Segment{cold, op, ed, pv}, segments.Merge(nil, from, nil, dur), "without the chapters every intro chapter stands")
+	assert.Equal(t, []segments.Segment{seg(intro, 1_000, 90_000, tidb, 100), ed, pv},
+		segments.Merge([]segments.Segment{seg(intro, 1_000, 90_000, tidb, 100)}, from, ch, dur), "TheIntroDB's intro outranks the chapters' either way")
+
+	alone := ch[:1]
+	lone := segments.FromChapters(alone, false, dur)
+	assert.Equal(t, []segments.Segment{cold}, segments.Merge(nil, lone, alone, dur), "a lone Intro is the intro")
+	assert.False(t, segments.HasColdOpen(lone, alone))
+	ended := []commonv1.Chapter{ch[0], {Title: "Opening End", StartMillis: 89_022, EndMillis: 178_878}}
+	assert.Equal(t, []segments.Segment{cold}, segments.Merge(nil, segments.FromChapters(ended, false, dur), ended, dur),
+		"an \"Opening End\" chapter names no opening")
+
+	two := []commonv1.Chapter{
+		{Title: "Intro", StartMillis: 0, EndMillis: 30_000},
+		{Title: "Introduction", StartMillis: 30_000, EndMillis: 60_000},
+		{Title: "Opening Theme", StartMillis: 60_000, EndMillis: 150_000},
+	}
+	assert.Equal(t, []segments.Segment{seg(intro, 60_000, 150_000, chap, 90)},
+		segments.Merge(nil, segments.FromChapters(two, false, dur), two, dur), "every intro chapter but the opening is a cold open")
+
+	moved := []segments.Segment{seg(intro, 5, 89_022, chap, 90), op}
+	assert.Equal(t, moved, segments.WithoutColdOpens(moved, ch), "a chapter intro no chapter starts at is not judged")
+	assert.Equal(t, []segments.Segment{seg(intro, 0, 89_022, anal, 90), op},
+		segments.WithoutColdOpens([]segments.Segment{seg(intro, 0, 89_022, anal, 90), op}, ch), "only the chapters' intros are judged")
 }

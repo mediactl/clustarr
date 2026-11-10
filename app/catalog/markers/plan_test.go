@@ -69,8 +69,10 @@ func TestTheIntroDBSegmentsPastTheEndAreNotStored(t *testing.T) {
 		return schema.SegmentJSON{Kind: "intro", StartMs: start, EndMs: end, Source: "theintrodb", Confidence: 100}
 	}
 	stored := func(start, end int64) catalogv1alpha1.MarkerSegment {
-		return catalogv1alpha1.MarkerSegment{Kind: catalogv1alpha1.MarkerIntro, StartMs: start, EndMs: end,
-			Source: catalogv1alpha1.SegmentSourceTheIntroDB, Confidence: 100}
+		return catalogv1alpha1.MarkerSegment{
+			Kind: catalogv1alpha1.MarkerIntro, StartMs: start, EndMs: end,
+			Source: catalogv1alpha1.SegmentSourceTheIntroDB, Confidence: 100,
+		}
 	}
 
 	t.Run("an answer's end past the runtime is clamped", func(t *testing.T) {
@@ -156,4 +158,77 @@ func TestStoredImplausibleCreditsAreMergedAgain(t *testing.T) {
 	again := in
 	again.Prev = d.Markers
 	require.Same(t, again.Prev, markers.Plan(again).Markers, "the merged block is carried verbatim from then on")
+}
+
+// TestAStoredColdOpenIsMergedAgain is To LOVE-Ru S01E01 (2026-11-10): its
+// stored block carried two chapter intros, the cold open and the OP, from
+// before the merge told them apart by the chapter titles. A stored block
+// holding a chapter intro the probe's chapters now call the cold open is
+// merged again though nothing else changed; one whose chapters name no
+// opening is carried verbatim.
+func TestAStoredColdOpenIsMergedAgain(t *testing.T) {
+	const dur = 1_450_794
+	now := time.Date(2026, 11, 10, 20, 0, 0, 0, time.UTC)
+	chap := func(k catalogv1alpha1.MarkerKind, start, end int64, conf int32) catalogv1alpha1.MarkerSegment {
+		return catalogv1alpha1.MarkerSegment{Kind: k, StartMs: start, EndMs: end, Source: catalogv1alpha1.SegmentSourceChapters, Confidence: conf}
+	}
+	rec := func(k segments.Kind, start, end int64, conf int32) segments.Segment {
+		return segments.Segment{Kind: k, StartMs: start, EndMs: end, Source: segments.SourceChapters, Confidence: conf}
+	}
+	in := probedInput(commonv1.MediaKindEpisode, now)
+	in.DurationMs = dur
+	in.Chapters = []commonv1.Chapter{
+		{Title: "Intro", StartMillis: 0, EndMillis: 89_022},
+		{Title: "OP", StartMillis: 89_022, EndMillis: 178_878},
+		{Title: "Part A", StartMillis: 178_878, EndMillis: 608_000},
+		{Title: "ED", StartMillis: 1_329_895, EndMillis: 1_419_500},
+		{Title: "Preview", StartMillis: 1_419_500, EndMillis: 1_450_793},
+	}
+	in.Segments, in.SegmentsOK = segments.Record{ProbeHash: "hash-1", Version: 4, Result: "Found", Segments: []segments.Segment{
+		rec(segments.KindIntro, 0, 89_022, 90), rec(segments.KindIntro, 89_022, 178_878, 90),
+		rec(segments.KindCredits, 1_329_895, 1_419_500, 100), rec(segments.KindPreview, 1_419_500, 1_450_793, 90),
+	}}, true
+	in.Prev = &catalogv1alpha1.FileMarkers{
+		Result: catalogv1alpha1.MarkersNotFound, ForProbeHash: "hash-1", DurationMs: dur,
+		FetchedAt: metav1.NewTime(now.Add(-time.Hour)),
+		Analysis:  &catalogv1alpha1.SegmentAnalysis{Result: catalogv1alpha1.MarkersFound, ForProbeHash: "hash-1", Version: 4},
+		Segments: []catalogv1alpha1.MarkerSegment{
+			chap(catalogv1alpha1.MarkerIntro, 0, 89_022, 90),
+			chap(catalogv1alpha1.MarkerIntro, 89_022, 178_878, 90),
+			chap(catalogv1alpha1.MarkerCredits, 1_329_895, 1_419_500, 100),
+			chap(catalogv1alpha1.MarkerPreview, 1_419_500, 1_450_793, 90),
+		},
+	}
+	d := markers.Plan(in)
+	require.Nil(t, d.Request, "not due: TheIntroDB is not asked again")
+	require.NotNil(t, d.Markers)
+	require.Equal(t, []catalogv1alpha1.MarkerSegment{
+		chap(catalogv1alpha1.MarkerIntro, 89_022, 178_878, 90),
+		chap(catalogv1alpha1.MarkerCredits, 1_329_895, 1_419_500, 100),
+		chap(catalogv1alpha1.MarkerPreview, 1_419_500, 1_450_793, 90),
+	}, d.Markers.Segments, "the OP chapter is the intro; the cold open is left out")
+	require.Equal(t, in.Prev.FetchedAt, d.Markers.FetchedAt, "TheIntroDB's outcome is kept")
+
+	again := in
+	again.Prev = d.Markers
+	require.Same(t, again.Prev, markers.Plan(again).Markers, "the merged block is carried verbatim from then on")
+
+	// S01E06: one "OP" chapter and TheIntroDB's intro over it; nothing to
+	// judge, so the stored block is carried verbatim.
+	six := probedInput(commonv1.MediaKindEpisode, now)
+	six.DurationMs = dur
+	six.Chapters = []commonv1.Chapter{{Title: "OP", StartMillis: 0, EndMillis: 89_856}, {Title: "ED", StartMillis: 1_329_657, EndMillis: 1_419_500}}
+	six.Segments, six.SegmentsOK = segments.Record{ProbeHash: "hash-1", Version: 4, Result: "Found", Segments: []segments.Segment{
+		rec(segments.KindIntro, 0, 89_856, 90), rec(segments.KindCredits, 1_329_657, 1_419_500, 100),
+	}}, true
+	six.Prev = &catalogv1alpha1.FileMarkers{
+		Result: catalogv1alpha1.MarkersFound, ForProbeHash: "hash-1", DurationMs: dur,
+		FetchedAt: metav1.NewTime(now.Add(-time.Hour)),
+		Analysis:  &catalogv1alpha1.SegmentAnalysis{Result: catalogv1alpha1.MarkersFound, ForProbeHash: "hash-1", Version: 4},
+		Segments: []catalogv1alpha1.MarkerSegment{
+			{Kind: catalogv1alpha1.MarkerIntro, StartMs: 0, EndMs: 89_858, Source: catalogv1alpha1.SegmentSourceTheIntroDB, Confidence: 100},
+			chap(catalogv1alpha1.MarkerCredits, 1_329_657, 1_419_500, 100),
+		},
+	}
+	require.Same(t, six.Prev, markers.Plan(six).Markers)
 }

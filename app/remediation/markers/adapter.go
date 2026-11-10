@@ -114,7 +114,7 @@ func (a *Adapter) input(v *remediation.View, in Input, s *catalogv1alpha1.MediaF
 	pin.File = schema.Ref{Namespace: v.File.Namespace, Name: v.File.Name, UID: string(v.File.UID)}
 	pin.ProbeHash, pin.Probed = s.ProbeHash, s.MediaInfo != nil
 	if s.MediaInfo != nil {
-		pin.DurationMs = s.MediaInfo.RuntimeMillis
+		pin.DurationMs, pin.Chapters = s.MediaInfo.RuntimeMillis, s.MediaInfo.ChapterList
 	}
 	return pin
 }

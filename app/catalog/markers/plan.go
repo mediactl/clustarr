@@ -37,6 +37,9 @@ type Input struct {
 	ProbeHash  string
 	Probed     bool
 	DurationMs int64
+	// Chapters are the probe's, by whose titles the merge tells an intro
+	// chapter from the cold open beside it (segments.ColdOpens).
+	Chapters   []commonv1.Chapter
 	Prev       *catalogv1alpha1.FileMarkers
 	Query      Query
 	Record     *schema.MarkersRecord // clustarr-markers, when RecordOK
@@ -172,12 +175,14 @@ func Plan(in Input) Decision {
 	// A stored segment past the probe's runtime -- merged before the merge
 	// held segments to it (smoke finding 6) -- is merged again, though
 	// nothing else changed, and so are stored TheIntroDB credits the merge
-	// now drops as implausible (2026-11-09).
+	// now drops as implausible (2026-11-09) and a stored chapter intro that
+	// is the cold open beside an "OP" chapter (2026-11-10).
 	if !changed && !segments.PastTheEnd(storedSegments(m), in.DurationMs) &&
-		!segments.ImplausibleCredits(sourcedSegments(m), in.DurationMs) {
+		!segments.ImplausibleCredits(sourcedSegments(m), in.DurationMs) &&
+		!segments.HasColdOpen(sourcedSegments(m), in.Chapters) {
 		return d
 	}
-	m.Segments = markerSegments(segments.Merge(theintrodb, analysed, in.DurationMs))
+	m.Segments = markerSegments(segments.Merge(theintrodb, analysed, in.Chapters, in.DurationMs))
 	d.Markers = m
 	return d
 }

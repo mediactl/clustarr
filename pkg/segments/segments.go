@@ -37,10 +37,12 @@ import (
 // preview (2026-10-01). 3: a credits chapter wholly titled as credits is
 // 100 and outranks TheIntroDB, any other chapter 90 (2026-10-01). 4: a bare
 // "ED" chapter is such a title (owner, 2026-11-09: To LOVE-Ru's Blu-rays).
-// Merge's bound to the runtime (Within, smoke finding 6) and its drop of
-// implausible TheIntroDB credits are not detection and raise nothing: the
-// records are unchanged and judged at every merge, and the markers planner
-// merges a stored block holding either again.
+// Merge's bound to the runtime (Within, smoke finding 6), its drop of
+// implausible TheIntroDB credits and its choice of the opening among two
+// intro chapters (ColdOpens, from the probe's chapter titles) are not
+// detection and raise nothing: the records are unchanged and judged at
+// every merge, and the markers planner merges a stored block holding any of
+// the three again.
 const AnalyzerVersion int32 = 4
 
 // FingerprintVersion versions the clustarr-fingerprints cache keys. 1 stands
