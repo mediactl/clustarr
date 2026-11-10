@@ -1,0 +1,642 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
+	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/spinner"
+	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/components/tabs"
+)
+
+// An audiobook's page (2026-11-10 design §9.5) is the movie page for one
+// recording: the action bar (Refresh & Scan, Search, Interactive, Rename,
+// Edit, Delete; no Images, since an audiobook has no image sets), a hero
+// on its cover, the Parts table, the Chapters collapsible and the Files
+// section. No audio note: an audiobook has no dub state.
+
+// AudiobookActions are the audiobook page's bar: every shared action but
+// Images (ItemActions renders each only where the item takes it).
+func AudiobookActions() []Action {
+	return []Action{ActionRefresh, ActionSearch, ActionInteractive, ActionRename, ActionEdit, ActionDelete}
+}
+
+// AudiobookPage is an audiobook's page. It renders the audiobook's modal
+// region, #audiobook-modal, where the bar's Interactive Search opens the
+// modal on its Search tab.
+templ AudiobookPage(v AudiobookView) {
+	@Shell(Chrome{Title: v.Item.Title, Crumbs: itemCrumbs(v.Item), Tab: v.Item.Tab}) {
+		@ItemActions(v.Detail, AudiobookActions())
+		@audiobookHero(v)
+		@audiobookPartsSection(v)
+		@audiobookChaptersSection(v)
+		@filesSection(v.Detail)
+		<div id="audiobook-modal"></div>
+		@ActionStatusRegion()
+	}
+}
+
+// audiobookHero is the movie page's header for an audiobook: the cover,
+// the bookmark and title with the neighbouring audiobooks, the subtitle,
+// the authors (linked to the Author's page when the audiobook names one),
+// the narrators and the reading order, then the year, runtime, release
+// date, abridged badge and provider logos, the facts and the overview. It
+// carries the card's data attributes (ruling R8) so the tests key on them.
+templ audiobookHero(v AudiobookView) {
+	{{ li := v.Item }}
+	<section
+		data-hero
+		data-audiobook-page={ li.Ref.Name }
+		data-ref={ li.Ref.String() }
+		data-kind="audiobook"
+		data-monitored={ fmt.Sprintf("%t", li.Monitored) }
+		data-phase={ li.Phase }
+		data-hasfile={ fmt.Sprintf("%t", li.HasFile) }
+		data-status={ v.Status.Kind }
+		data-year={ fmt.Sprint(li.Year) }
+		data-profile={ li.QualityProfileRef }
+		data-poster={ posterState(li.Poster) }
+		class="relative -mx-6 mb-8"
+	>
+		if v.Backdrop != "" {
+			<img data-backdrop src={ templ.URL(v.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
+			<div class="page-backdrop-shade" aria-hidden="true"></div>
+		}
+		if li.ArtKey != "" {
+			<div hidden hx-ext="sse" sse-connect={ artStreamURL(v.Detail) } hx-trigger="sse:art"></div>
+		}
+		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
+			<div class="w-40 shrink-0 md:w-56">
+				<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
+					@poster(li.Poster, li.Title, li.ArtKey)
+				</div>
+			</div>
+			<div class="min-w-0 flex-1">
+				<div class="flex items-start justify-between gap-4">
+					<div class="flex min-w-0 items-center gap-3">
+						@monitorBookmark(li)
+						<h1 class="min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl">{ li.Title }</h1>
+					</div>
+					@neighbours(v.Detail)
+				</div>
+				if v.Subtitle != "" {
+					<p data-subtitle class="mt-1 text-2xl text-muted-foreground">{ v.Subtitle }</p>
+				}
+				@audiobookByline(v)
+				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+					if li.Year > 0 {
+						<span>{ fmt.Sprint(li.Year) }</span>
+					}
+					if v.Runtime != "" {
+						<span data-runtime>{ v.Runtime }</span>
+					}
+					if v.ReleaseDate != "" {
+						<time datetime={ v.ReleaseDate } title={ v.ReleaseDate } data-released>{ "Released " + v.ReleaseDateLabel }</time>
+					}
+					if v.HasMetadata {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base", Attributes: templ.Attributes{"data-abridged": fmt.Sprintf("%t", v.Abridged)}}) {
+							{ abridgedLabel(v.Abridged) }
+						}
+					}
+					@providerLinks(v.Links)
+				</div>
+				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					if v.Path != "" {
+						@fact("path", "Path") {
+							<span class="break-all">{ v.Path }</span>
+						}
+					}
+					@fact("status", "Status") {
+						<span class="flex items-center gap-2">
+							<span data-status={ episodeStripe(v.Status) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(episodeStripe(v.Status)) }></span>
+							{ audiobookStatusLabel(v) }
+						</span>
+						if li.DeleteError != "" {
+							@deleteRetry(v.Detail)
+						}
+						if li.DeleteMode != "" {
+							@deleteCancel(v.Detail)
+						}
+					}
+					if v.Quality != "" {
+						@fact("quality", "Quality") {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(v.Status.Warn) + " text-sm"}) {
+								{ v.Quality }
+							}
+						}
+					}
+					if li.QualityProfileRef != "" {
+						@fact("profile", "Quality Profile") {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
+								{ li.QualityProfileRef }
+							}
+						}
+					}
+					if size := totalSize(v.Files); size > 0 {
+						@fact("size", "Size") {
+							{ formatBytes(size) }
+						}
+					}
+					if v.PartCount > 0 || v.PartRefs > 0 {
+						@fact("parts", "Parts") {
+							{ audiobookPartsLabel(v.PartCount, v.PartRefs) }
+						}
+					}
+					if v.Publisher != "" {
+						@fact("publisher", "Publisher") {
+							{ v.Publisher }
+						}
+					}
+					if v.Language != "" {
+						@fact("language", "Language") {
+							{ v.Language }
+						}
+					}
+					if len(v.Genres) > 0 {
+						@fact("genres", "Genres") {
+							{ strings.Join(v.Genres, ", ") }
+						}
+					}
+				</dl>
+				if v.Overview != "" {
+					<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// audiobookByline is the line under the title: "by" the authors -- one
+// link to the Author's page when the audiobook names one -- "narrated by"
+// the narrators, and the reading order as a badge.
+templ audiobookByline(v AudiobookView) {
+	if len(v.Authors) > 0 || len(v.Narrators) > 0 || v.Series != "" {
+		<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
+			if len(v.Authors) > 0 {
+				<span data-authors>
+					<span class="text-muted-foreground">by </span>
+					if v.AuthorHref != "" {
+						<a href={ templ.URL(v.AuthorHref) } data-author-link class="font-medium hover:underline">{ strings.Join(v.Authors, ", ") }</a>
+					} else {
+						<span class="font-medium">{ strings.Join(v.Authors, ", ") }</span>
+					}
+				</span>
+			}
+			if len(v.Narrators) > 0 {
+				<span data-narrators>
+					<span class="text-muted-foreground">narrated by </span>
+					<span class="font-medium">{ strings.Join(v.Narrators, ", ") }</span>
+				</span>
+			}
+			if v.Series != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-base text-sky-300", Attributes: templ.Attributes{"data-series": v.Series}}) {
+					{ v.Series }
+				}
+			}
+		</div>
+	}
+}
+
+// abridgedLabel is the recording's abridgement as Audible words it.
+func abridgedLabel(abridged bool) string {
+	if abridged {
+		return "Abridged"
+	}
+	return "Unabridged"
+}
+
+// audiobookPartsSection is the Parts table (design §9.5): each MediaFile
+// of the audiobook in play order -- its part number, its title (the
+// chapter's when the parts and the chapters align, else "Part N"), its
+// duration, codec, bitrate and size -- or "No parts on disk.". The Files
+// section below it lists the same files as import froze them.
+templ audiobookPartsSection(v AudiobookView) {
+	<section data-section="parts" class="mb-8">
+		@sectionTitle("Parts")
+		if len(v.Parts) == 0 {
+			@emptyNote("No parts on disk.", "panel rounded-xl border border-border bg-card", nil)
+		} else {
+			<div class="panel rounded-xl border border-border bg-card">
+				@table.Table(table.Props{Attributes: templ.Attributes{"data-parts-table": ""}}) {
+					@table.Header() {
+						@table.Row() {
+							@table.Head(table.HeadProps{Class: "w-16"}) {
+								Part
+							}
+							@table.Head() {
+								Title
+							}
+							@table.Head() {
+								Duration
+							}
+							@table.Head() {
+								Codec
+							}
+							@table.Head() {
+								Bitrate
+							}
+							@table.Head(table.HeadProps{Class: "text-right"}) {
+								Size
+							}
+						}
+					}
+					@table.Body() {
+						for _, p := range v.Parts {
+							@table.Row(table.RowProps{Attributes: templ.Attributes{"data-part": fmt.Sprint(p.Index), "data-part-file": p.Name}}) {
+								@table.Cell(table.CellProps{Class: "tabular-nums"}) {
+									{ fmt.Sprint(p.Index) }
+								}
+								@table.Cell(table.CellProps{Class: "whitespace-normal", Attributes: templ.Attributes{"data-part-title": ""}}) {
+									{ p.Title }
+								}
+								@table.Cell(table.CellProps{Class: "tabular-nums"}) {
+									{ p.Duration }
+								}
+								@table.Cell() {
+									{ p.Codec }
+								}
+								@table.Cell() {
+									{ p.Bitrate }
+								}
+								@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+									{ formatBytes(p.SizeBytes) }
+								}
+							}
+						}
+					}
+				}
+			</div>
+		}
+	</section>
+}
+
+// audiobookChaptersSection is the Chapters collapsible (design §9.5):
+// status.metadata.chapters, each with its title and start, closed until
+// opened; nothing for an audiobook without chapter markers.
+templ audiobookChaptersSection(v AudiobookView) {
+	if len(v.Chapters) > 0 {
+		<section data-section="chapters" class="mb-8">
+			@sectionTitle("Chapters")
+			<div class="overflow-hidden panel rounded-xl border border-border bg-card">
+				@collapsible.Collapsible(collapsible.Props{Attributes: templ.Attributes{"data-chapters": fmt.Sprint(len(v.Chapters))}}) {
+					@expandTrigger(audiobookChaptersLabel(len(v.Chapters)), "Hide chapters")
+					@collapsible.Content(collapsible.ContentProps{Class: "border-t border-border"}) {
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() {
+										Chapter
+									}
+									@table.Head(table.HeadProps{Class: "w-32 text-right"}) {
+										Start
+									}
+								}
+							}
+							@table.Body() {
+								for i, c := range v.Chapters {
+									@table.Row(table.RowProps{Attributes: templ.Attributes{"data-chapter": fmt.Sprint(i + 1)}}) {
+										@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+											{ c.Title }
+										}
+										@table.Cell(table.CellProps{Class: "text-right tabular-nums text-muted-foreground"}) {
+											{ c.Start }
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			</div>
+		</section>
+	}
+}
+
+// AudiobookModal is the audiobook's details modal, the book modal's
+// shape: "Author - Title: Subtitle", then the Details and Search tabs,
+// v.Tab open. It is swapped into a page's #audiobook-modal and opens as
+// it lands; the next one swapped in retires it. The bar's Interactive
+// Search answers it on its Search tab with the results panel polling.
+templ AudiobookModal(v AudiobookView) {
+	@dialog.Dialog(dialog.Props{DefaultOpen: true}) {
+		@dialog.Content(dialog.ContentProps{
+			Class:      "max-h-[90vh] overflow-y-auto sm:max-w-6xl",
+			Attributes: templ.Attributes{"data-audiobook-modal": v.Item.Ref.Name},
+		}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ audiobookHeading(v) }
+				}
+				@dialog.Description() {
+					{ audiobookFacts(v) }
+				}
+			}
+			@audiobookTabs(v)
+		}
+	}
+}
+
+// audiobookFacts is the line under the modal's title: narrators, release
+// date, reading order, runtime, status.
+func audiobookFacts(v AudiobookView) string {
+	var facts []string
+	if len(v.Narrators) > 0 {
+		facts = append(facts, "Narrated by "+strings.Join(v.Narrators, ", "))
+	}
+	if v.ReleaseDate != "" {
+		facts = append(facts, "Released "+v.ReleaseDateLabel)
+	}
+	if v.Series != "" {
+		facts = append(facts, v.Series)
+	}
+	if v.Runtime != "" {
+		facts = append(facts, v.Runtime)
+	}
+	if v.Status.Label != "" {
+		facts = append(facts, v.Status.Label)
+	}
+	return strings.Join(facts, " · ")
+}
+
+// audiobookTabs are the modal's Details and Search tabs, v.Tab open.
+templ audiobookTabs(v AudiobookView) {
+	@tabs.Tabs(tabs.Props{DefaultValue: v.Tab, Class: "min-w-0"}) {
+		@tabs.List() {
+			@tabs.Trigger(tabs.TriggerProps{Value: "details", Attributes: templ.Attributes{"data-tab": "details"}}) {
+				Details
+			}
+			@tabs.Trigger(tabs.TriggerProps{Value: "search", Attributes: templ.Attributes{"data-tab": "search"}}) {
+				Search
+			}
+		}
+		@tabs.Content(tabs.ContentProps{Value: "details", Class: "space-y-4 pt-2"}) {
+			@audiobookSummary(v)
+		}
+		@tabs.Content(tabs.ContentProps{Value: "search", Class: "pt-2"}) {
+			@audiobookSearchTab(v)
+		}
+	}
+}
+
+// audiobookSummary is the modal's Details tab: the overview, the genres
+// and the Parts table.
+templ audiobookSummary(v AudiobookView) {
+	<p class="leading-relaxed" data-audiobook-overview>
+		if v.Overview != "" {
+			{ v.Overview }
+		} else {
+			<span class="text-muted-foreground">No overview.</span>
+		}
+	</p>
+	if len(v.Genres) > 0 {
+		<p class="flex flex-wrap gap-1">
+			for _, g := range v.Genres {
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+					{ g }
+				}
+			}
+		</p>
+	}
+	@audiobookPartsSection(v)
+}
+
+// audiobookSearchTab is the modal's Search tab: the two searches as
+// large buttons (searchTab's, kind audiobook), or, once an interactive
+// search runs, its results under the audiobook's columns in their place.
+// #audiobook-search-body is what the tab's Interactive Search button
+// swaps, selected out of the modal the action answers with.
+templ audiobookSearchTab(v AudiobookView) {
+	if v.Search == nil {
+		@searchTab("audiobook", v.Item.Ref.Name, v.SearchURL(), v.InteractiveSearchURL(), v.URL(), nil)
+	} else {
+		<div id="audiobook-search-body" data-audiobook-search={ v.Item.Ref.Name }>
+			@AudiobookSearchPanelView(*v.Search)
+		</div>
+	}
+}
+
+// AudiobookSearchPanelView is the shared results panel (SearchPanelView)
+// under the audiobook's columns: a line saying where the search is, then
+// the releases, best first, each with its verdict and its download button.
+// While Poll is set the panel replaces itself every two seconds through
+// the audiobook's own panel route, so the columns hold through every poll
+// and grab.
+templ AudiobookSearchPanelView(p AudiobookSearchPanel) {
+	<div
+		class="min-w-0 space-y-3"
+		data-search-panel={ p.Name }
+		data-search-phase={ p.Phase }
+		data-audiobook-search-panel={ p.Audiobook }
+		if p.Poll {
+			hx-get={ p.PollURL() }
+			hx-trigger="load delay:2s"
+			hx-swap="outerHTML"
+		}
+	>
+		@actionFailure(p.Error)
+		<p class="flex items-center gap-2 text-sm text-muted-foreground" data-search-summary>
+			switch  {
+				case p.Gone:
+					This search has expired; run it again.
+				case p.Pending():
+					@spinner.Spinner(spinner.Props{Attributes: templ.Attributes{"aria-label": "Searching"}})
+					Searching indexers…
+				case p.Phase == "Failed":
+					<span class="text-red-300">Search failed: { p.Failed }</span>
+				default:
+					{ searchSummary(p.SearchPanel) }
+			}
+		</p>
+		if listed := p.Listed(); len(listed) > 0 {
+			@audiobookReleaseTable(p, listed, "data-release-table")
+		} else if len(p.Results) > 0 {
+			@emptyNote("No releases for this audiobook; the others are below.", "rounded-md border border-border", templ.Attributes{"data-search-empty": true})
+		} else if !p.Pending() && !p.Gone && p.Phase != "Failed" {
+			@emptyNote("No results found.", "rounded-md border border-border", templ.Attributes{"data-search-empty": true})
+		}
+		if others := p.OtherRows(); len(others) > 0 {
+			@collapsible.Collapsible(collapsible.Props{Class: "rounded-md border border-border", Attributes: templ.Attributes{"data-other-titles": fmt.Sprint(len(others))}}) {
+				@button.Button(button.Props{Variant: button.VariantGhost, Class: "h-auto w-full justify-start rounded-md px-4 py-2 text-sm font-normal text-muted-foreground hover:bg-muted/50", Attributes: collapsible.Trigger(ctx)}) {
+					{ otherTitlesLabel(len(others)) }
+				}
+				@collapsible.Content() {
+					@audiobookReleaseTable(p, others, "data-other-titles-table")
+				}
+			}
+		}
+	</div>
+}
+
+// audiobookReleaseTable is the results' table under the audiobook's
+// columns (design §9.5): source, title, format (the release's quality,
+// M4B, MP3 or FLAC), bitrate (estimated from the size and the audiobook's
+// runtime), size, age, indexer, peers (a torrent's seeders/leechers; an
+// indexer reports no grab count), score, rejections and the download
+// button; attr marks it.
+templ audiobookReleaseTable(p AudiobookSearchPanel, rows []ReleaseRow, attr string) {
+	<div class="rounded-md border border-border">
+		@table.Table(table.Props{Attributes: templ.Attributes{attr: ""}}) {
+			@table.Header() {
+				@table.Row() {
+					@table.Head() {
+						Source
+					}
+					@table.Head() {
+						Title
+					}
+					@table.Head() {
+						Format
+					}
+					@table.Head() {
+						Bitrate
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Size
+					}
+					@table.Head() {
+						Age
+					}
+					@table.Head() {
+						Indexer
+					}
+					@table.Head() {
+						Peers
+					}
+					@table.Head(table.HeadProps{Class: "text-right"}) {
+						Score
+					}
+					@table.Head() {
+						<span class="sr-only">Rejections</span>
+					}
+					@table.Head() {
+						<span class="sr-only">Download</span>
+					}
+				}
+			}
+			@table.Body() {
+				for _, r := range rows {
+					@audiobookReleaseRow(p, r)
+				}
+			}
+		}
+	</div>
+}
+
+// audiobookReleaseRow is one result under the audiobook's columns.
+templ audiobookReleaseRow(p AudiobookSearchPanel, r ReleaseRow) {
+	@table.Row(table.RowProps{Attributes: templ.Attributes{
+		"data-release":     r.GUID,
+		"data-approved":    fmt.Sprintf("%t", r.Approved),
+		"data-grab":        r.Grab,
+		"data-other-title": fmt.Sprintf("%t", r.OtherTitle),
+	}}) {
+		@table.Cell() {
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: protocolTone(r.Protocol)}) {
+				{ r.Protocol }
+			}
+		}
+		@table.Cell(table.CellProps{Class: "max-w-xl break-all whitespace-normal"}) {
+			if r.InfoURL != "" {
+				<a href={ templ.URL(r.InfoURL) } target="_blank" rel="noopener noreferrer" class="hover:underline">{ r.Title }</a>
+			} else {
+				{ r.Title }
+			}
+		}
+		@table.Cell(table.CellProps{Attributes: templ.Attributes{"data-cell": "format"}}) {
+			if r.Quality != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ r.Quality }
+				}
+			}
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums", Attributes: templ.Attributes{"data-cell": "bitrate", "title": "Estimated from the release's size over the audiobook's runtime"}}) {
+			{ audiobookBitrate(r.Size, p.RuntimeMinutes) }
+		}
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+			{ formatBytes(r.Size) }
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground"}) {
+			{ r.Age }
+		}
+		@table.Cell() {
+			{ r.Indexer }
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums"}) {
+			{ r.Peers }
+		}
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums", Attributes: templ.Attributes{"title": scoreTitle(r)}}) {
+			{ releaseScore(r) }
+		}
+		@table.Cell() {
+			if len(r.Rejections) > 0 {
+				<span class="text-red-300 [&_svg]:size-4" title={ strings.Join(r.Rejections, "\n") } data-rejections={ fmt.Sprint(len(r.Rejections)) }>
+					@icon.Icon("circle-alert")()
+				</span>
+			}
+		}
+		@table.Cell(table.CellProps{Class: "py-1"}) {
+			@audiobookGrabCell(p, r)
+		}
+	}
+}
+
+// audiobookGrabCell is grabCell over the audiobook's own grab route: the
+// download button, or how the grab it made went. A release with a
+// permanent rejection asks first, naming the rejections, and is grabbed
+// with spec.override.
+templ audiobookGrabCell(p AudiobookSearchPanel, r ReleaseRow) {
+	switch r.Grab {
+		case "grabbed":
+			<span class="text-emerald-300 [&_svg]:size-4" title="Grabbed" data-grab-state="grabbed">
+				@icon.Icon("check")()
+			</span>
+		case "requested":
+			@spinner.Spinner(spinner.Props{Class: "text-muted-foreground", Attributes: templ.Attributes{"title": "Grabbing…", "aria-label": "Grabbing", "data-grab-state": "requested"}})
+		default:
+			<form
+				hx-post={ p.GrabURL() }
+				hx-target="closest [data-search-panel]"
+				hx-swap="outerHTML"
+				if r.Override {
+					hx-confirm={ "This release was rejected:\n" + strings.Join(r.Rejections, "\n") + "\n\nGrab it anyway?" }
+				}
+				method="post"
+				action={ templ.URL(p.GrabURL()) }
+				class="contents"
+			>
+				<input type="hidden" name="guid" value={ r.GUID }/>
+				@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconSm,
+					Attributes: templ.Attributes{"data-action": "grab-release", "aria-label": "Download", "title": grabTitle(r)}}) {
+					if r.Grab == "failed" {
+						<span class="text-red-300">
+							@icon.Icon("download")()
+						</span>
+					} else {
+						@icon.Icon("download")()
+					}
+				}
+			</form>
+	}
+}

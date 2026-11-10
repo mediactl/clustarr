@@ -19,8 +19,17 @@ package ui
 
 import "net/http"
 
-// audiobookRoutes registers the Audiobooks library's audiobook page and its search
-// modal's routes (2026-11-10 design §9.5; plan W4b.4 owns this file): the
-// pages, their details and search routes, called from libraryKindRoutes.
-// Empty until W4b.4 lands.
-func (s *Server) audiobookRoutes(_ *http.ServeMux) {}
+// audiobookRoutes registers the Audiobooks library's audiobook page and its
+// search modal's routes (2026-11-10 design §9.5; plan W4b.4), called from
+// libraryKindRoutes: the page (a literal route, which beats the shared
+// "GET /library/{namespace}/{kind}/{name}" under ServeMux precedence), its
+// details modal, its interactive search, and the search panel's own poll
+// and grab routes, which answer the Search under the audiobook's columns
+// where /searches would answer Sonarr's.
+func (s *Server) audiobookRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /library/{namespace}/audiobook/{name}", s.handleAudiobookPage)
+	mux.HandleFunc("GET /library/{namespace}/audiobook/{name}/details", s.handleAudiobookDetails)
+	mux.HandleFunc("POST /library/{namespace}/audiobook/{name}/search/interactive", s.handleAudiobookInteractiveSearch)
+	mux.HandleFunc("GET /library/{namespace}/audiobook/{name}/search/panel/{search}", s.handleAudiobookSearchPanel)
+	mux.HandleFunc("POST /library/{namespace}/audiobook/{name}/search/panel/{search}/grab", s.handleAudiobookGrab)
+}
