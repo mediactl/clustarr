@@ -68,8 +68,10 @@ import (
 
 // artistIncludes are the sub-resources requested on every artist lookup:
 // ratings and genres for Artist.Ratings/Genres, url-rels for Artist.Links
-// (a relation whose target is a URL entity), tags for Artist.Tags.
-var artistIncludes = []string{"ratings", "genres", "url-rels", "tags", "annotation", "aliases"}
+// (a relation whose target is a URL entity), tags for Artist.Tags,
+// artist-rels for Artist.Members (the "member of band" relations,
+// members.go; 2026-11-10 design §5.4).
+var artistIncludes = []string{"ratings", "genres", "url-rels", "artist-rels", "tags", "annotation", "aliases"}
 
 // releaseGroupIncludes are the sub-resources requested when browsing an
 // artist's release groups: artist-credits for Album.ArtistCredit ("Simon &
@@ -392,6 +394,9 @@ func mapArtist(raw mb.Artist) *metadata.Artist {
 			a.Links = append(a.Links, metadata.Link{Type: rel.Type, URL: rel.URL.Resource})
 		}
 	}
+	// Members from the artist-rels; Similar stays empty (members.go says
+	// why).
+	a.Members = mapMembers(raw)
 	if raw.Rating.VotesCount > 0 {
 		a.Ratings = metadata.Ratings{"mb": {
 			Source:      "mb",
