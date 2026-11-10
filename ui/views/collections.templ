@@ -68,6 +68,9 @@ type CollectionRow struct {
 	Reason, Message string
 	Synced          bool
 	Items           int32
+	// Poster is the spec's poster through /art/search, or "" for none or
+	// a host the ui does not fetch.
+	Poster string
 }
 
 // CollectionEditor is the editor's state.
@@ -207,9 +210,25 @@ func filterMatch(e CollectionEditor) string {
 
 func sortField(e CollectionEditor) string {
 	if e.Spec.Sort == nil {
-		return ""
+		return keepPlex
 	}
 	return e.Spec.Sort.Field
+}
+
+// sortChoices are "Plex's own" and the item type's sort keys; a stored key
+// the type does not list is kept as a choice, so a round trip never
+// drops it (the save names it as invalid).
+func sortChoices(e CollectionEditor) []Choice {
+	out := []Choice{{Key: keepPlex, Label: "Plex's own"}}
+	listed := false
+	for _, s := range plexfilter.Sorts(e.Spec.ItemType) {
+		out = append(out, Choice{Key: s.Key, Label: s.Title})
+		listed = listed || e.Spec.Sort != nil && s.Key == e.Spec.Sort.Field
+	}
+	if e.Spec.Sort != nil && !listed {
+		out = append(out, Choice{Key: e.Spec.Sort.Field, Label: e.Spec.Sort.Field})
+	}
+	return out
 }
 
 func limitValue(e CollectionEditor) string {
@@ -360,8 +379,14 @@ templ CollectionsList(p CollectionsPage) {
 
 templ collectionRow(r CollectionRow) {
 	@item.Item(item.Props{Variant: item.VariantOutline, Attributes: templ.Attributes{"data-collection": r.Namespace + "/" + r.Name}}) {
-		@item.Media(item.MediaProps{Variant: item.MediaVariantIcon}) {
-			@icon.Icon("library-big")()
+		if r.Poster != "" {
+			@item.Media(item.MediaProps{Variant: item.MediaVariantImage}) {
+				<img src={ templ.URL(r.Poster) } alt="" loading="lazy" class="aspect-[2/3] w-10 rounded object-cover"/>
+			}
+		} else {
+			@item.Media(item.MediaProps{Variant: item.MediaVariantIcon}) {
+				@icon.Icon("library-big")()
+			}
 		}
 		@item.Content() {
 			@item.Title() {
@@ -565,12 +590,7 @@ templ editorFilter(e CollectionEditor) {
 				@field.Label(field.LabelProps{For: "collection-sort"}) {
 					Sort by
 				}
-				@input.Input(input.Props{ID: "collection-sort", Name: "sort.field", Value: sortField(e), Placeholder: "Plex's own", Attributes: templ.Attributes{"list": "collection-sorts"}})
-				<datalist id="collection-sorts">
-					for _, s := range []string{"titleSort", "addedAt", "originallyAvailableAt", "rating", "audienceRating", "lastViewedAt", "random"} {
-						<option value={ s }></option>
-					}
-				</datalist>
+				@editorSelect("collection-sort", "sort.field", "Sort by", sortChoices(e), sortField(e), false)
 			}
 			@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
 				@checkbox.Checkbox(checkbox.Props{ID: "collection-sort-desc", Name: "sort.descending", Value: "1", DefaultChecked: e.Spec.Sort != nil && e.Spec.Sort.Descending})

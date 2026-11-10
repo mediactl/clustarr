@@ -118,8 +118,12 @@ func parseCollectionForm(v url.Values) (catalogv1.PlexCollectionSpec, error) {
 		})
 	}
 	spec.Filter = f
-	if s := strings.TrimSpace(v.Get("sort.field")); s != "" {
-		spec.Sort = &catalogv1.PlexSort{Field: s, Descending: formBool(v.Get("sort.descending"))}
+	switch field := strings.TrimSpace(v.Get("sort.field")); {
+	case field != "" && field != "keep":
+		spec.Sort = &catalogv1.PlexSort{Field: field, Descending: formBool(v.Get("sort.descending"))}
+	case formBool(v.Get("sort.descending")):
+		// Plex's own sort is left alone, direction included.
+		return spec, errors.New("sort.descending: choose a sort to sort descending, or leave the sort to Plex")
 	}
 	if s := strings.TrimSpace(v.Get("limit")); s != "" {
 		n, err := strconv.ParseInt(s, 10, 32)

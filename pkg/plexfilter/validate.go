@@ -20,9 +20,10 @@ package plexfilter
 import (
 	"errors"
 	"fmt"
-	"net"
+	"net/netip"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -67,6 +68,9 @@ func Validate(spec catalogv1.PlexCollectionSpec) error {
 	}
 	if spec.Filter == nil && spec.Sort != nil {
 		fail("sort", "belongs to a smart collection")
+	}
+	if spec.Filter != nil && spec.Sort != nil && !slices.ContainsFunc(Sorts(spec.ItemType), func(s Sort) bool { return s.Key == spec.Sort.Field }) {
+		fail("sort.field", "a %s collection sorts by none of %q", spec.ItemType, spec.Sort.Field)
 	}
 	if spec.Filter == nil && spec.Limit != nil {
 		fail("limit", "belongs to a smart collection")
@@ -202,8 +206,8 @@ func ImageURLAllowed(raw, uiArtBase string) error {
 		return fmt.Errorf("%q: an image outside clustarr's /art/ must be https", raw)
 	}
 	host := strings.ToLower(u.Hostname())
-	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+	if ip, err := netip.ParseAddr(host); err == nil {
+		if !publicIP(ip.Unmap()) {
 			return fmt.Errorf("%q: %s is not a public address", raw, host)
 		}
 		return nil
@@ -213,4 +217,48 @@ func ImageURLAllowed(raw, uiArtBase string) error {
 		return fmt.Errorf("%q: %s is not a public host", raw, host)
 	}
 	return nil
+}
+
+// notPublic are ranges IsGlobalUnicast admits that are no public host:
+// "this network", shared (CGNAT), IETF protocol assignments, the
+// documentation and benchmarking nets, future use, IPv6 documentation,
+// local-use NAT64 and Teredo. cluster-plex's image fetcher holds every
+// dialled address to the same ranges (its pkg/plex/collections).
+var notPublic = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2001::/32"),
+}
+
+// Translated IPv6 is judged by the IPv4 it carries.
+var (
+	nat64     = netip.MustParsePrefix("64:ff9b::/96")
+	sixToFour = netip.MustParsePrefix("2002::/16")
+)
+
+func publicIP(ip netip.Addr) bool {
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+		return false
+	}
+	for _, p := range notPublic {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	b := ip.As16()
+	switch {
+	case nat64.Contains(ip):
+		return publicIP(netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}))
+	case sixToFour.Contains(ip):
+		return publicIP(netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]}))
+	}
+	return true
 }

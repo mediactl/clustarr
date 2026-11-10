@@ -162,6 +162,37 @@ func Fields(t catalogv1.PlexItemType) []Field {
 	return nil
 }
 
+// Sort is one of an item type's sort keys and Plex Web's label for it.
+type Sort struct {
+	Key, Title string
+}
+
+// The sort keys of each item type, in Meta's order (talos's PMS 1.43.5,
+// 2026-11-10, test/data/plexfilter).
+var sortsByType = map[catalogv1.PlexItemType][]Sort{
+	catalogv1.PlexItemMovie: {
+		{"titleSort", "Title"}, {"originallyAvailableAt", "Release Date"}, {"rating", "Critic Rating"},
+		{"audienceRating", "Audience Rating"}, {"duration", "Duration"}, {"addedAt", "Date Added"},
+		{"lastViewedAt", "Date Viewed"}, {"mediaHeight", "Resolution"}, {"random", "Randomly"},
+	},
+	catalogv1.PlexItemShow: {
+		{"titleSort", "Title"}, {"originallyAvailableAt", "Release Date"}, {"rating", "Critic Rating"},
+		{"audienceRating", "Audience Rating"}, {"unviewedLeafCount", "Unwatched"},
+		{"episode.addedAt", "Last Episode Date Added"}, {"lastViewedAt", "Date Viewed"}, {"random", "Randomly"},
+	},
+	catalogv1.PlexItemSeason: {{"show.titleSort,index", "Show"}, {"random", "Randomly"}},
+	catalogv1.PlexItemEpisode: {
+		{"show.titleSort,season.index:nullsLast,episode.index:nullsLast,episode.originallyAvailableAt:nullsLast,episode.titleSort,episode.id", "Show"},
+		{"originallyAvailableAt", "Release Date"}, {"rating", "Critic Rating"}, {"audienceRating", "Audience Rating"},
+		{"addedAt", "Date Added"}, {"lastViewedAt", "Date Viewed"}, {"random", "Randomly"},
+	},
+}
+
+// Sorts are the keys a smart collection of the item type may sort by.
+func Sorts(t catalogv1.PlexItemType) []Sort {
+	return append([]Sort(nil), sortsByType[t]...)
+}
+
 // Lookup finds a field a collection of the item type may filter on.
 func Lookup(t catalogv1.PlexItemType, key string) (Field, bool) {
 	for _, f := range Fields(t) {

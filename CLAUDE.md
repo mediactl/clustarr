@@ -2104,8 +2104,11 @@ Until the guard lands, review holds the invariant; drop the mark when it does.
   watch on secrets) -- and, since Add New
   (`docs/superpowers/specs/2026-09-29-add-new-design.md`), create a Movie,
   Series, Artist or Author with spec only, named by `pkg/names` as
-  import names it (the role's `create` on those four). So anything the
-  UI does, `kubectl` can do.
+  import names it (the role's `create` on those four) -- and, since the
+  Collections page (`docs/superpowers/specs/2026-11-10-plex-collections-design.md`),
+  create, replace the spec of (a JSON patch testing `metadata.generation`)
+  and delete a PlexCollection, whose status and finalizer are
+  cluster-plex's. So anything the UI does, `kubectl` can do.
 - **The UI may hold a bus connection for reads plus two requests.** `cmd/ui`
   (`internal/cli/ui/bus.go`) calls `busconn.Connect` and passes
   `Bus.ObjectStore(...)` into `ui.Options.Artwork` to serve `/art` (indexed by a

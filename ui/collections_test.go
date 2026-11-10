@@ -22,6 +22,7 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -320,35 +321,32 @@ func TestDeleteCollection(t *testing.T) {
 }
 
 func TestValueSuggestions(t *testing.T) {
-	series := func(name string, md catalogv1.SeriesMetadata) *catalogv1.Series {
-		s := &catalogv1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: pcolNS, Name: name}}
-		s.Status.Metadata = &md
-		return s
-	}
-	movie := func(name string, md catalogv1.MovieMetadata) *catalogv1.Movie {
-		m := &catalogv1.Movie{ObjectMeta: metav1.ObjectMeta{Namespace: pcolNS, Name: name}}
-		m.Status.Metadata = &md
-		return m
-	}
+	// From the library projection: the editor never lists Movies, Series
+	// or Episodes itself.
 	funcs := &interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-		if _, ok := list.(*catalogv1.EpisodeList); ok {
-			t.Error("the editor listed Episodes")
+		switch list.(type) {
+		case *catalogv1.EpisodeList, *catalogv1.MovieList, *catalogv1.SeriesList:
+			t.Errorf("the editor listed %T", list)
 		}
 		return c.List(ctx, list, opts...)
 	}}
-	srv, _ := collectionsServer(t, funcs,
-		series("a", catalogv1.SeriesMetadata{Genres: []string{"Drama", "Anime"}, Network: "Netflix", Networks: []string{"Netflix", "HBO"}}),
-		series("b", catalogv1.SeriesMetadata{Genres: []string{"Anime"}}),
-		movie("m", catalogv1.MovieMetadata{Genres: []string{"Documentary"}, Studios: []string{"Pixar", "A24"}}),
-	)
+	srv, _ := collectionsServerWith(t, funcs, libraryWith(
+		projection.LibraryItem{Ref: types.NamespacedName{Namespace: pcolNS, Name: "a"}, Kind: commonv1.MediaKindSeries,
+			Genres: []string{"Drama", "Anime"}, SubGenres: []string{"Dark Comedy"}, Networks: []string{"Netflix", "HBO"}, Keywords: []string{"time travel"}},
+		projection.LibraryItem{Ref: types.NamespacedName{Namespace: pcolNS, Name: "b"}, Kind: commonv1.MediaKindSeries, Genres: []string{"Anime"}},
+		projection.LibraryItem{Ref: types.NamespacedName{Namespace: pcolNS, Name: "m"}, Kind: commonv1.MediaKindMovie,
+			Genres: []string{"Documentary"}, Studios: []string{"Pixar", "A24"}, Keywords: []string{"heist"}},
+	))
 
 	show := get(t, srv, "/library/collections/new?itemType=show").Body.String()
-	assertOptions(t, show, "suggest-show-genre", "Anime", "Drama")
+	assertOptions(t, show, "suggest-show-genre", "Anime", "Dark Comedy", "Drama")
 	assertOptions(t, show, "suggest-show-network", "HBO", "Netflix")
+	assertOptions(t, show, "suggest-show-label", "time travel")
 
 	film := get(t, srv, "/library/collections/new?itemType=movie").Body.String()
 	assertOptions(t, film, "suggest-studio", "A24", "Pixar")
 	assertOptions(t, film, "suggest-genre", "Documentary")
+	assertOptions(t, film, "suggest-label", "heist")
 }
 
 // assertOptions finds a datalist by id and checks its options, in order.
@@ -516,4 +514,91 @@ func TestUpdateRefusesASpecEditedSinceTheEditorOpened(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "edited since this editor opened it")
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pcolNS, Name: "ghibli"}, &pc))
 	assert.Equal(t, "Ghibli (theirs)", pc.Spec.Title)
+}
+
+func TestTheSortIsAChoiceOfTheItemTypesKeys(t *testing.T) {
+	srv, c := collectionsServerWith(t, nil, withArtBase)
+	show := get(t, srv, "/library/collections/new?itemType=show").Body.String()
+	assert.Contains(t, show, "Last Episode Date Added")
+	assert.Contains(t, show, "Plex&#39;s own")
+
+	form := newSmartForm(map[string]string{"rule.0.field": "genre", "rule.0.operator": "is", "rule.0.value": "Documentary"})
+	form.Set("sort.field", "keep")
+	form.Set("sort.descending", "1")
+	rec := post(t, srv, "/library/collections", form)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "sort.descending")
+
+	form.Set("sort.field", "unviewedLeafCount")
+	rec = post(t, srv, "/library/collections", form)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "sort.field")
+
+	var list catalogv1.PlexCollectionList
+	require.NoError(t, c.List(t.Context(), &list))
+	assert.Empty(t, list.Items)
+}
+
+func TestTheListShowsThePoster(t *testing.T) {
+	srv, _ := collectionsServerWith(t, nil, withArtBase, plexCollection("ghibli", refGhibli()), plexCollection("up", refUP()))
+	body := get(t, srv, "/library/collections").Body.String()
+	assert.Contains(t, body, "/art/search?src="+url.QueryEscape("https://image.tmdb.org/t/p/original/poster.jpg"))
+}
+
+func TestCreateNamesATitleWithoutLatinLetters(t *testing.T) {
+	srv, c := collectionsServerWith(t, nil, withArtBase)
+	form := newSmartForm(map[string]string{"rule.0.field": "genre", "rule.0.operator": "is", "rule.0.value": "Documentary"})
+	form.Set("title", "ポケモン")
+	rec := post(t, srv, "/library/collections", form)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	var list catalogv1.PlexCollectionList
+	require.NoError(t, c.List(t.Context(), &list))
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, actions.PlexCollectionName("ポケモン"), list.Items[0].Name)
+	assert.Equal(t, "ポケモン", list.Items[0].Spec.Title)
+}
+
+// fullSpecs are a smart and a normal collection that between them set
+// every field of the spec.
+func fullSpecs() []catalogv1.PlexCollectionSpec {
+	smart := refUP()
+	smart.Sort = &catalogv1.PlexSort{Field: "addedAt", Descending: true}
+	smart.Limit = ptr.To[int32](25)
+	smart.Summary = ptr.To("Every Up film.")
+	smart.SortTitle = ptr.To("Up 00")
+	smart.Poster = &catalogv1.PlexImage{URL: "https://image.tmdb.org/t/p/original/up.jpg"}
+	smart.Background = &catalogv1.PlexImage{URL: "https://image.tmdb.org/t/p/original/up-bg.jpg"}
+	smart.Settings = &catalogv1.PlexCollectionSettings{Mode: catalogv1.PlexModeShowCollectionAndItems}
+	smart.Visibility = &catalogv1.PlexVisibility{FriendsHome: true}
+	return []catalogv1.PlexCollectionSpec{smart, refGhibli()}
+}
+
+// Every field of PlexCollectionSpec is set by one of fullSpecs, so a field
+// added to the spec fails here until the editor carries it: the editor
+// replaces the whole spec, and a field it does not read would be erased.
+func TestFullSpecsSetEverySpecField(t *testing.T) {
+	ty := reflect.TypeOf(catalogv1.PlexCollectionSpec{})
+	for i := range ty.NumField() {
+		set := false
+		for _, s := range fullSpecs() {
+			if !reflect.ValueOf(s).Field(i).IsZero() {
+				set = true
+			}
+		}
+		assert.True(t, set, "PlexCollectionSpec.%s: no fullSpecs sets it, so the editor's round trip does not cover it", ty.Field(i).Name)
+	}
+}
+
+func TestTheEditorRoundTripsEverySpecField(t *testing.T) {
+	for _, spec := range fullSpecs() {
+		t.Run(spec.Title, func(t *testing.T) {
+			srv, c := collectionsServerWith(t, nil, withArtBase, plexCollection("full", spec))
+			values := editorValues(t, get(t, srv, "/library/collections/"+pcolNS+"/full/edit").Body.String())
+			rec := post(t, srv, "/library/collections/"+pcolNS+"/full", values)
+			require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+			var got catalogv1.PlexCollection
+			require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pcolNS, Name: "full"}, &got))
+			assert.Equal(t, spec, got.Spec)
+		})
+	}
 }

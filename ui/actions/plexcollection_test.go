@@ -170,7 +170,13 @@ func TestPlexCollectionName(t *testing.T) {
 	long := actions.PlexCollectionName("A Very Long Collection Title That Keeps Going Well Past What A Name May Hold")
 	assert.LessOrEqual(t, len(long), 63)
 	assert.NotEqual(t, '-', rune(long[len(long)-1]))
-	assert.Equal(t, "", actions.PlexCollectionName("!!!"))
+	// A title with no Latin letter or digit is named by its hash.
+	for _, title := range []string{"!!!", "ポケモン", "東京"} {
+		name := actions.PlexCollectionName(title)
+		assert.Regexp(t, `^collection-[0-9a-f]{10}$`, name, title)
+		assert.Equal(t, name, actions.PlexCollectionName(title), "the same title, the same name")
+	}
+	assert.NotEqual(t, actions.PlexCollectionName("ポケモン"), actions.PlexCollectionName("東京"))
 }
 
 func TestGrantsIncludePlexCollectionWrites(t *testing.T) {

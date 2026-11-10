@@ -74,6 +74,40 @@ func TestCatalogueMatchesRecordedMeta(t *testing.T) {
 	}
 }
 
+func TestSortsMatchRecordedMeta(t *testing.T) {
+	read := func(path string) map[string][]plexfilter.Sort {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var doc struct {
+			MediaContainer struct {
+				Meta struct {
+					Type []struct {
+						Type string `json:"type"`
+						Sort []struct {
+							Key   string `json:"key"`
+							Title string `json:"title"`
+						} `json:"Sort"`
+					} `json:"Type"`
+				} `json:"Meta"`
+			} `json:"MediaContainer"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &doc))
+		out := map[string][]plexfilter.Sort{}
+		for _, ty := range doc.MediaContainer.Meta.Type {
+			for _, s := range ty.Sort {
+				out[ty.Type] = append(out[ty.Type], plexfilter.Sort{Key: s.Key, Title: s.Title})
+			}
+		}
+		return out
+	}
+	movie := read("../../test/data/plexfilter/meta-movie.json")
+	tv := read("../../test/data/plexfilter/meta-tv.json")
+	assert.Equal(t, movie["movie"], plexfilter.Sorts(catalogv1.PlexItemMovie))
+	assert.Equal(t, tv["show"], plexfilter.Sorts(catalogv1.PlexItemShow))
+	assert.Equal(t, tv["season"], plexfilter.Sorts(catalogv1.PlexItemSeason))
+	assert.Equal(t, tv["episode"], plexfilter.Sorts(catalogv1.PlexItemEpisode))
+}
+
 func animeDubbed() catalogv1.PlexCollectionSpec {
 	return catalogv1.PlexCollectionSpec{
 		Library: "Clustarr TV", Title: "Anime Dubbed", ItemType: catalogv1.PlexItemShow,
@@ -166,6 +200,9 @@ func TestValidateRejects(t *testing.T) {
 		{"an order on a smart collection", func(s *catalogv1.PlexCollectionSpec) {
 			s.Settings = &catalogv1.PlexCollectionSettings{Order: catalogv1.PlexOrderAlphabetical}
 		}, up, "settings.order"},
+		{"a sort the item type lacks", func(s *catalogv1.PlexCollectionSpec) {
+			s.Sort = &catalogv1.PlexSort{Field: "unviewedLeafCount"}
+		}, up, "sort.field"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -190,6 +227,8 @@ func TestImageURLAllowed(t *testing.T) {
 	for _, ok := range []string{
 		"https://image.tmdb.org/t/p/original/a.jpg",
 		"https://clustarr.k8s.appkins.io/art/x",
+		"https://93.184.216.34/a.jpg",
+		"https://[64:ff9b::5db8:d822]/a.jpg",
 	} {
 		assert.NoError(t, plexfilter.ImageURLAllowed(ok, base), ok)
 	}
@@ -201,6 +240,14 @@ func TestImageURLAllowed(t *testing.T) {
 		"https://grafana.observability.svc.cluster.local/x",
 		"https://clustarr.k8s.appkins.io/settings",
 		"ftp://example.com/a.jpg",
+		"https://0.1.2.3/a.jpg",
+		"https://198.18.0.1/a.jpg",
+		"https://203.0.113.9/a.jpg",
+		"https://240.0.0.1/a.jpg",
+		"https://100.64.0.1/a.jpg",
+		"https://[2001:db8::1]/a.jpg",
+		"https://[64:ff9b::a00:1]/a.jpg",
+		"https://[2002:a00:1::1]/a.jpg",
 	} {
 		assert.Error(t, plexfilter.ImageURLAllowed(bad, base), bad)
 	}

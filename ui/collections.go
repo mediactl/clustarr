@@ -72,6 +72,9 @@ func (s *Server) collectionsPage(ctx context.Context) views.CollectionsPage {
 			Namespace: pc.Namespace, Name: pc.Name, Title: pc.Spec.Title,
 			Reading: plexfilter.Describe(pc.Spec), Items: pc.Status.ItemCount,
 		}
+		if pc.Spec.Poster != nil {
+			row.Poster = s.searchArt.URL(pc.Spec.Poster.URL)
+		}
 		if c := meta.FindStatusCondition(pc.Status.Conditions, catalogv1.PlexCollectionConditionSynced); c != nil {
 			row.Reason, row.Message, row.Synced = c.Reason, c.Message, c.Status == metav1.ConditionTrue
 		}
@@ -185,8 +188,10 @@ func (s *Server) handleCollectionMembers(w http.ResponseWriter, r *http.Request)
 }
 
 // valueSuggestions are the values clustarr's own metadata offers for a
-// field -- where Plex got them, clustarr being its metadata provider --
-// read from the cached Movies or Series, never the Episodes.
+// field -- where Plex got them, clustarr being its metadata provider, and
+// cluster-plex writing a TMDB keyword as a Plex label -- read from the
+// library projection, which already holds each item's genres, keywords,
+// studios and networks.
 func (s *Server) valueSuggestions(ctx context.Context, t catalogv1.PlexItemType) map[string][]string {
 	sets := map[string]map[string]bool{}
 	add := func(field string, vals ...string) {
@@ -200,28 +205,20 @@ func (s *Server) valueSuggestions(ctx context.Context, t catalogv1.PlexItemType)
 			sets[field][v] = true
 		}
 	}
-	if s.opts.Reader != nil {
-		if t == catalogv1.PlexItemMovie {
-			var movies catalogv1.MovieList
-			if err := s.opts.Reader.List(ctx, &movies); err == nil {
-				for _, m := range movies.Items {
-					if md := m.Status.Metadata; md != nil {
-						add("genre", md.Genres...)
-						add("studio", md.Studios...)
-					}
-				}
-			}
-		} else {
-			var series catalogv1.SeriesList
-			if err := s.opts.Reader.List(ctx, &series); err == nil {
-				for _, sr := range series.Items {
-					if md := sr.Status.Metadata; md != nil {
-						add("show.genre", md.Genres...)
-						add("show.network", md.Network)
-						add("show.network", md.Networks...)
-						add("show.studio", md.Studios...)
-					}
-				}
+	if s.opts.Library != nil {
+		for _, it := range s.opts.Library(ctx) {
+			switch {
+			case t == catalogv1.PlexItemMovie && it.Kind == commonv1.MediaKindMovie:
+				add("genre", it.Genres...)
+				add("studio", it.Studios...)
+				add("label", it.Keywords...)
+			case t != catalogv1.PlexItemMovie && it.Kind == commonv1.MediaKindSeries:
+				// Plex lists a series' sub-genres as further genres.
+				add("show.genre", it.Genres...)
+				add("show.genre", it.SubGenres...)
+				add("show.network", it.Networks...)
+				add("show.studio", it.Studios...)
+				add("show.label", it.Keywords...)
 			}
 		}
 	}
@@ -341,9 +338,6 @@ func (s *Server) handleCollectionCreate(w http.ResponseWriter, r *http.Request) 
 	spec, err := s.savedSpec(r)
 	ns := s.opts.Namespace
 	name := actions.PlexCollectionName(spec.Title)
-	if err == nil && name == "" {
-		err = errors.New("title: needs a letter or a digit")
-	}
 	if err == nil {
 		_, err = s.opts.Actions.CreatePlexCollection(r.Context(), ns, name, spec)
 	}
