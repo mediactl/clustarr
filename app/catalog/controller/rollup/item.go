@@ -29,9 +29,10 @@ import (
 
 // Item is one item kind on the remediation loop's queue (loop spec §3.12):
 // how to reconcile one item, and every watch that wakes it except its
-// MediaFiles', which the loop's file signature (S1') wakes it for. The six
-// item packages implement it and never import app/remediation, which adapts
-// each Watch to its Key.
+// MediaFiles', which the loop's file signature (S1') wakes it for. The eight
+// item packages -- movie, episode, album, book, audiobook, issue, and the
+// grab owners series and comic -- implement it and never import
+// app/remediation, which adapts each Watch to its Key.
 type Item interface {
 	ReconcileItem(ctx context.Context, nn types.NamespacedName) (reconcile.Result, error)
 	Watches() []Watch

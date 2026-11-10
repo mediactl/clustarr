@@ -22,7 +22,6 @@ import (
 	"strconv"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -91,16 +90,16 @@ func (r *Reconciler) publish(ctx context.Context, subject string, env *events.En
 }
 
 // normal and warn emit a Kubernetes Event on m through the recorder
-// catalog hands in (mgr.GetEventRecorder("movie")). Every call site emits
-// on an edge, never on a steady state; see rollup.Transitioned.
+// catalog hands in (mgr.GetEventRecorder("movie")), the kind-neutral
+// rollup.Reporter the non-video leaves record their edges with too
+// (2026-11-10 design D14). Every call site emits on an edge, never on a
+// steady state; see rollup.Transitioned.
 func (r *Reconciler) normal(m *catalogv1alpha1.Movie, reason, format string, args ...any) {
-	if r.Recorder != nil {
-		r.Recorder.Eventf(m, nil, corev1.EventTypeNormal, reason, "Reconcile", format, args...)
-	}
+	r.reporter().Normal(m, reason, format, args...)
 }
 
 func (r *Reconciler) warn(m *catalogv1alpha1.Movie, reason, format string, args ...any) {
-	if r.Recorder != nil {
-		r.Recorder.Eventf(m, nil, corev1.EventTypeWarning, reason, "Reconcile", format, args...)
-	}
+	r.reporter().Warn(m, reason, format, args...)
 }
+
+func (r *Reconciler) reporter() rollup.Reporter { return rollup.Reporter{Recorder: r.Recorder} }

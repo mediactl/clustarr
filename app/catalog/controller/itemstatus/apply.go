@@ -16,8 +16,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package itemstatus is the remediation loop's one item status write (loop
-// spec §3.12, applyItemStatus): a Movie's, Episode's, Album's, Book's,
-// Audiobook's or Issue's status under catalog, preconditioned on the
+// spec §3.12, applyItemStatus): the status of any of the eight item kinds --
+// a Movie's, Episode's, Album's, Book's, Audiobook's or Issue's, and the
+// grab owners Series' and Comic's -- under catalog, preconditioned on the
 // object the reconcile planned from. It lives apart from rollup, which the
 // catalog agent links, so a catalog write is reachable from the manager
 // alone (split spec §5.15, TestEveryFieldManagerHasItsHome).
