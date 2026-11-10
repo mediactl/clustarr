@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package grabplan
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ import (
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/rankscore"
 	"github.com/mediactl/clustarr/pkg/release"
@@ -176,9 +178,21 @@ type verdict struct {
 	complete bool
 }
 
-// Decide is the owner key's grab decision (ADR-0019 §6.6 steps 1-5).
+// Decide is the owner key's grab decision (ADR-0019 §6.6 steps 1-5), its
+// settle lines logged nowhere: DecideContext under a background context.
 func Decide(v View) Plan {
-	d := &decider{v: v, now: v.Now.UTC()}
+	return DecideContext(ctxBackground, v)
+}
+
+// DecideContext is Decide with the pass's logger: every candidate's settle
+// -- its outcome, the decision label the plan counts and, for a refusal,
+// the reason the re-check gave (verdict.reason, which until 2026-11-10
+// reached no log: Decide read it as a guard and the plan recorded the
+// label alone) -- is one Debug line to logging.FromContext(ctx). The grab
+// stage passes its pass's context; the rules' own lines (pkg/decision's)
+// still go to ctxBackground, so the planner stays as quiet as it was.
+func DecideContext(ctx context.Context, v View) Plan {
+	d := &decider{ctx: ctx, v: v, now: v.Now.UTC()}
 	d.plan.Settle = map[string]intake.Outcome{}
 	d.plan.Decisions = map[string]int{}
 	d.taken = map[string]bool{}
@@ -211,7 +225,7 @@ func Decide(v View) Plan {
 			if label == "" {
 				label = decisionRefused
 			}
-			d.settle(c, intake.Refused, label)
+			d.settle(c, intake.Refused, label, vd.reason)
 			continue
 		}
 		approved = append(approved, vd)
@@ -224,11 +238,11 @@ func Decide(v View) Plan {
 		// which for a delayed release is when its delay has passed.
 		switch {
 		case d.overlaps(vd):
-			d.settle(vd.c, intake.Refused, "refused")
+			d.settle(vd.c, intake.Refused, "refused", reasonOverlapsPass)
 		case len(vd.c.Parts) > 0 && d.limitedUntil(vd).After(d.now):
 			// A set is grabbed now or not at all: a pending grab keeps
 			// one release, never its parts.
-			d.settle(vd.c, intake.Refused, "grabLimited")
+			d.settle(vd.c, intake.Refused, "grabLimited", "its indexer is at its grab limit, and a set is grabbed now or not at all")
 		case len(vd.c.Parts) > 0:
 			d.grab(vd)
 		case d.delays(vd):
@@ -244,8 +258,12 @@ func Decide(v View) Plan {
 	// search tries again).
 	sort.SliceStable(limited, func(i, j int) bool { return d.limitedUntil(limited[i]).Before(d.limitedUntil(limited[j])) })
 	for _, vd := range limited {
-		if vd.c.Purpose != "" || d.overlaps(vd) {
-			d.settle(vd.c, intake.Refused, "grabLimited")
+		switch {
+		case vd.c.Purpose != "":
+			d.settle(vd.c, intake.Refused, "grabLimited", "its indexer is at its grab limit; a donor waits for the next donor search")
+			continue
+		case d.overlaps(vd):
+			d.settle(vd.c, intake.Refused, "grabLimited", reasonOverlapsPass)
 			continue
 		}
 		d.hold(vd, d.limitedUntil(vd), false)
@@ -265,6 +283,8 @@ func Decide(v View) Plan {
 var parseForItemState = decision.ParseForItemState
 
 type decider struct {
+	// ctx is DecideContext's: the pass's logger, read at each settle.
+	ctx     context.Context
 	v       View
 	now     time.Time
 	plan    Plan
@@ -308,11 +328,29 @@ func (d *decider) parsed(kind commonv1.MediaKind, originalTag string, rel common
 	return &cp, nil
 }
 
-func (d *decider) settle(c Candidate, o intake.Outcome, decision string) {
+// reasonOverlapsPass is a settle's reason for a release an earlier grab or
+// hold of the same pass already covers (overlaps).
+const reasonOverlapsPass = "a grab or a hold of this pass already covers an item it covers"
+
+// settle records a candidate's outcome -- the decision label the plan
+// counts and, for an intake candidate, the outcome its Msg-Id is answered
+// with -- and says so at Debug, with the reason when the candidate was
+// refused or held for one.
+func (d *decider) settle(c Candidate, o intake.Outcome, decision, reason string) {
 	d.plan.Decisions[decision]++
 	if c.MsgID != "" {
 		d.plan.Settle[c.MsgID] = o
 	}
+	rel := c.Release.Decision.ReleaseInfo
+	attrs := []any{
+		"kind", d.v.Owner.Kind, "namespace", d.v.Owner.Namespace, "owner", d.v.Owner.Name,
+		"release", rel.Title, "indexer", rel.IndexerRef, "msgID", c.MsgID,
+		"outcome", string(o), "decision", decision,
+	}
+	if reason != "" {
+		attrs = append(attrs, "reason", reason)
+	}
+	logging.FromContext(d.ctx).Debug("grab candidate settled", attrs...)
 }
 
 // check re-checks one candidate against the owner's fresh state.
@@ -614,7 +652,7 @@ func (d *decider) wait(vd verdict) time.Duration {
 func (d *decider) grab(vd verdict) {
 	n := max(1, len(vd.c.Parts))
 	if d.v.EntryCap > 0 && len(d.v.Entries)+len(d.plan.NewEntries)+n > d.v.EntryCap {
-		d.settle(vd.c, intake.Refused, "refused")
+		d.settle(vd.c, intake.Refused, "refused", "the owner holds its maximum of grab entries")
 		if !d.atCapOnce {
 			d.atCapOnce = true
 			d.plan.Events = append(d.plan.Events, lifecycle.Event{
@@ -631,7 +669,7 @@ func (d *decider) grab(vd verdict) {
 	}
 	d.take(vd)
 	d.dropPending(vd)
-	d.settle(vd.c, intake.Incorporated, "grabbed")
+	d.settle(vd.c, intake.Incorporated, "grabbed", "")
 }
 
 // hold keeps the candidate as a pending grab until at (P16): it replaces an
@@ -646,7 +684,7 @@ func (d *decider) hold(vd verdict, at time.Time, keepAnchor bool) {
 			continue
 		}
 		if cur.Candidate != nil && d.v.Profile.UpgradeDecision(pendingQuality(cur), candidateQuality(vd.c)) != quality.Upgrade {
-			d.settle(vd.c, intake.Refused, "refused")
+			d.settle(vd.c, intake.Refused, "refused", "a pending grab it overlaps is of equal or higher preference")
 			return
 		}
 		switch {
@@ -657,16 +695,16 @@ func (d *decider) hold(vd verdict, at time.Time, keepAnchor bool) {
 		}
 		*cur = pg
 		d.take(vd)
-		d.settle(vd.c, intake.Pended, decisionOf(keepAnchor))
+		d.settle(vd.c, intake.Pended, decisionOf(keepAnchor), "")
 		return
 	}
 	if d.v.PendingCap > 0 && len(d.pending) >= d.v.PendingCap {
-		d.settle(vd.c, intake.Refused, "refused")
+		d.settle(vd.c, intake.Refused, "refused", "the owner holds its maximum of pending grabs")
 		return
 	}
 	d.pending = append(d.pending, pg)
 	d.take(vd)
-	d.settle(vd.c, intake.Pended, decisionOf(keepAnchor))
+	d.settle(vd.c, intake.Pended, decisionOf(keepAnchor), "")
 }
 
 func decisionOf(delay bool) string {

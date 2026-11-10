@@ -44,7 +44,8 @@ const (
 	maxCovered = 200
 )
 
-// ctxBackground carries pkg/decision's log lines out of a pure planner.
+// ctxBackground carries pkg/decision's log lines out of a pure planner;
+// only the settle lines take DecideContext's logger, and Decide's go here.
 var ctxBackground = context.Background()
 
 // newUID is the uid the manager issues a grab when it admits it.
