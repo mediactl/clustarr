@@ -152,7 +152,18 @@ func TestIssueReconcilerRealController(t *testing.T) {
 	c, r, counter := startManager(t, ctx, cfg)
 	require.NoError(t, c.Create(ctx, testNamespace("issue-ns")))
 
-	t.Run("finalizer add, HasFile from a watched MediaFile, State=Downloaded", func(t *testing.T) {
+	// Every Issue below belongs to a monitored Comic: since 2026-11-10
+	// (design D3) an Issue whose Comic is absent or unmonitored reads
+	// Unmonitored whatever its own flag says, so a fixture Issue of no Comic
+	// never reaches Wanted. batman's profile has CBZ at its cutoff, so a CBZ
+	// file meets it and the Issue reads Imported, not CutoffUnevaluated.
+	// Only this reconciler runs here, so the Comics carry no status and
+	// read monitored from their spec's default.
+	require.NoError(t, c.Create(ctx, comicProfile("issue-comic-batman", "CBZ")))
+	require.NoError(t, c.Create(ctx, testComic("issue-ns", "batman", "issue-comic-batman")))
+	require.NoError(t, c.Create(ctx, testComic("issue-ns", "hellboy", "issue-comic-batman")))
+
+	t.Run("finalizer add, HasFile from a watched MediaFile, phase Imported", func(t *testing.T) {
 		iss := &catalogv1alpha1.Issue{
 			ObjectMeta: metav1.ObjectMeta{Name: "batman-001.0", Namespace: "issue-ns"},
 			Spec:       catalogv1alpha1.IssueSpec{ComicRef: "batman", Number: "1", CalculatedNumberCentis: 100},
@@ -175,7 +186,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 				}
 			}
 			return hasFinalizer && got.Status.Phase == catalogv1alpha1.IssuePhaseWanted
-		}, 5*time.Second, 20*time.Millisecond, "finalizer add and State=Wanted must both appear from the same reconcile pass")
+		}, 5*time.Second, 20*time.Millisecond, "finalizer add and phase Wanted must both appear from the same reconcile pass")
 
 		require.NoError(t, c.Create(ctx, testMediaFile("issue-ns", "batman-001-mf", "batman-001.0", commonv1.Quality{Name: "CBZ"})))
 
@@ -185,7 +196,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 				return false
 			}
 			return got.Status.HasFile && got.Status.Phase == catalogv1alpha1.IssuePhaseImported
-		}, 5*time.Second, 20*time.Millisecond, "the MediaFile watch must flip HasFile and State")
+		}, 5*time.Second, 20*time.Millisecond, "the MediaFile watch must flip HasFile and the phase")
 
 		var got catalogv1alpha1.Issue
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "issue-ns", Name: "batman-001.0"}, &got))
@@ -250,8 +261,10 @@ func TestIssueReconcilerRealController(t *testing.T) {
 	// applies them), so each step seeds the entries, waits for the cache to
 	// see them, and reconciles the Issue itself.
 	t.Run("a covering grab entry snatches the issue and the ref follows it to a terminal phase", func(t *testing.T) {
-		cm := testComic("issue-ns", "batman", "issue-comic-batman")
-		require.NoError(t, c.Create(ctx, cm))
+		// The Comic created above, whose status.downloads the steps seed.
+		var batman catalogv1alpha1.Comic
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "issue-ns", Name: "batman"}, &batman))
+		cm := &batman
 		iss := &catalogv1alpha1.Issue{
 			ObjectMeta: metav1.ObjectMeta{Name: "batman-003.0", Namespace: "issue-ns"},
 			Spec:       catalogv1alpha1.IssueSpec{ComicRef: "batman", Number: "3", CalculatedNumberCentis: 300},
