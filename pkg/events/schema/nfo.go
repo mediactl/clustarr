@@ -43,6 +43,9 @@ type NFOWriteTask struct {
 	// Hash is pkg/nfo's hash of the documents and the images' digests; the
 	// answer echoes it and the loop records it in status.nfo.hash.
 	Hash string `json:"hash"`
+	// Mode is the file mode every written file carries (the RootFolder's
+	// perms.fileMode); 0 reads as 0664.
+	Mode uint32 `json:"mode,omitempty"`
 	// Seq is the requested record's sequence; an answer for an older one is
 	// dropped.
 	Seq int64 `json:"seq"`
@@ -93,6 +96,10 @@ type NFOWriteRequest struct {
 // NFOWriteAnswer is what the agent wrote.
 type NFOWriteAnswer struct {
 	// Files are the names written, the only ones a later write rewrites.
-	Files     []string  `json:"files"`
+	Files []string `json:"files"`
+	// Kept are the names the task asked for that already existed and were
+	// not the agent's own from an earlier write, so they were left alone
+	// (an operator's folder.jpg; design §8.2).
+	Kept      []string  `json:"kept,omitempty"`
 	WrittenAt time.Time `json:"writtenAt"`
 }

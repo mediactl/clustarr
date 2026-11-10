@@ -33,6 +33,7 @@ import (
 
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
+	"github.com/mediactl/clustarr/app/import/worker/nfo"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -116,6 +117,12 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		// files a recycle.files.* task names into their bin
 		// (fileimport.RecycleFiles, ADR-0019 §7.6).
 		{events.ConsumerImportRecycle, fileimport.RecycleHandler(fileimport.NewRecycleSweeper(c), fileimport.NewRecycleFiles(c))},
+		// The NFO writes (2026-11-10 design §8.2), on ConsumerImportNFO
+		// ("import-nfo"): the manager renders an item's artist.nfo or
+		// album.nfo and names the images to copy beside it; this domain,
+		// whose pods mount /data, writes the bytes atomically and answers
+		// in clustarr-nfo. It writes no Kubernetes object.
+		{events.ConsumerImportNFO, nfo.New(bus, o.DataDir, podName()).Handle},
 	} {
 		spec, ok := topo.Consumer(cons.durable)
 		if !ok {
