@@ -74,6 +74,7 @@ func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 		Container:     clipRunes(containerFromPath(raw.Format.Filename), MaxStreamToken),
 		RuntimeMillis: int64(raw.Format.DurationSeconds*1000 + 0.5),
 		Hdr:           ClassifyHDR(raw),
+		Tags:          formatTags(raw),
 	}
 	if v := firstStream(raw.Streams, ffprobe.StreamVideo); v != nil {
 		mi.VideoCodec = clipRunes(v.CodecName, MaxStreamToken)
@@ -163,8 +164,12 @@ func FormatTag(raw *Raw, key string) string {
 // probed once more, with its probeHash unchanged. 1 added videoEncoder
 // (2026-09-29); 2 derives videoBitrateKbps for Matroska, whose streams carry
 // no bit_rate (2026-09-30); 3 records chapter titles and times
-// (chapterList, 2026-10-01), which segment detection reads.
-const ProbeVersion int32 = 3
+// (chapterList, 2026-10-01), which segment detection reads; 4 records a
+// music or audiobook file's format tags (tags: title, artist, album, track
+// and disc numbers, date, the MusicBrainz ids) and each audio stream's
+// sample rate and bit depth (2026-11-10 design D9), which attribute a track
+// to its album and fill the music pages and the Plex music provider.
+const ProbeVersion int32 = 4
 
 // MaxChapters and MaxChapterTitle are MediaInfo.ChapterList's MaxItems and
 // Chapter.Title's MaxLength.
@@ -303,6 +308,8 @@ func toAudioStream(s *ffprobe.Stream) commonv1.AudioStream {
 		Channels:      int32(s.Channels),
 		ChannelLayout: s.ChannelLayout,
 		BitrateKbps:   kbpsFromBitRate(s.BitRate),
+		SampleRateHz:  sampleRateHz(s.SampleRate),
+		BitDepth:      bitDepth(s.BitsPerRawSample, s.BitsPerSample),
 		Default:       s.Disposition.Default == 1,
 		Commentary:    s.Disposition.Comment == 1,
 	}
