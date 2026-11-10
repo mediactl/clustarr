@@ -135,6 +135,24 @@ type AudiobookProvider interface {
 	Chapters(ctx context.Context, asin string, region string) ([]Chapter, error)
 }
 
+// AudiobookSearcher searches a marketplace's catalogue by title and author
+// for Add New (2026-11-10 design §5.6): Audible's catalog API serves it,
+// Audnexus (keyed by ASIN) does not, so it is an interface of its own, as
+// SeriesSearcher is.
+type AudiobookSearcher interface {
+	Provider
+	SearchAudiobooks(ctx context.Context, q string, region string) ([]SearchHit, error)
+}
+
+// BiographyProvider answers an artist's or author's biography from the
+// links its primary provider carries (a Wikidata or Wikipedia url-rel):
+// the text and the source name recorded in BiographySource. ErrNotFound
+// when the links lead nowhere.
+type BiographyProvider interface {
+	Provider
+	Biography(ctx context.Context, links []Link) (text string, source string, err error)
+}
+
 // ComicProvider fetches comic volumes and their issues.
 type ComicProvider interface {
 	Provider

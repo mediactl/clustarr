@@ -95,9 +95,12 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 	}
 }
 
-// SchemaVersion is the version of the Movie and Series documents the
-// metadata gateway writes (status.metadata.schemaVersion). Raise it when the
-// gateway learns a field: an item whose document is older is refreshed once,
+// SchemaVersion is the version of every kind's metadata document the
+// gateway writes (status.metadata.schemaVersion; Movie's and Series' since
+// 2026-09-30, the six non-video kinds' since the 2026-11-10 design D8 --
+// W2c raises it to 9 as their builders start writing the fields §4 names).
+// Raise it when the gateway learns a field: an item whose document is
+// older is refreshed once,
 // bypassing the L2 cache (whose key carries it), instead of lacking the new
 // field until its RefreshTTL -- weeks for a released film -- the way
 // mediainfo.ProbeVersion re-probes files.

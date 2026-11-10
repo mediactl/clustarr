@@ -425,6 +425,11 @@ type Artist struct {
 	Images  []Image `json:"images,omitempty"`
 	Ratings Ratings `json:"ratings,omitempty"`
 
+	// BiographySource names where Overview came from: "musicbrainz" (the
+	// annotation) or "wikipedia" (through the Wikidata url-rel; 2026-11-10
+	// design §5.4). Empty when Overview is.
+	BiographySource string `json:"biographySource,omitempty"`
+
 	Provenance []Provenance `json:"provenance,omitempty"`
 }
 
@@ -479,6 +484,11 @@ type Album struct {
 
 	PrimaryType    string   `json:"primaryType,omitempty"`
 	SecondaryTypes []string `json:"secondaryTypes,omitempty"`
+
+	// ArtistCredit is the release group's artist credit as MusicBrainz
+	// phrases it ("Simon & Garfunkel", "Various Artists"), which album.nfo
+	// and the Plex album carry when it differs from the Artist's name.
+	ArtistCredit string `json:"artistCredit,omitempty"`
 
 	ReleaseDate *time.Time `json:"releaseDate,omitempty"`
 
@@ -621,6 +631,19 @@ type ComicIssue struct {
 	StoreDate *time.Time `json:"storeDate,omitempty"`
 
 	Image *Image `json:"image,omitempty"`
+
+	// Description is the issue's own synopsis (ComicVine's description,
+	// Metron's desc); Credits the people credited on it (ComicVine's
+	// person_credits, Metron's credits). Both reach Issue status through
+	// the Comic's fan-out (2026-11-10 design §5.4).
+	Description string   `json:"description,omitempty"`
+	Credits     []Credit `json:"credits,omitempty"`
+}
+
+// Credit is one person credited on a comic issue.
+type Credit struct {
+	Name string `json:"name"`
+	Role string `json:"role,omitempty"`
 }
 
 // ComicVolume is the normalized model for a comic series (ComicVine
