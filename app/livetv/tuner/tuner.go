@@ -40,6 +40,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/livetv/relay"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
@@ -123,10 +124,7 @@ type provider struct {
 	relay   *relay.Relay
 	removed bool
 
-	entries []m3u.Entry
-	// candidates are the entries some filter rule admits, as the last render
-	// computed them (Entries).
-	candidates      []m3u.Entry
+	entries         []m3u.Entry
 	playlist        PlaylistState
 	playlistFetched bool
 	playlistDue     bool
@@ -423,8 +421,8 @@ func (t *Tuner) Snapshot(key types.NamespacedName) (Snapshot, bool) {
 	return s, true
 }
 
-// Entries are the playlist entries the provider's filters admit, as the last
-// render computed them; ok is false before the first playlist fetch. The
+// Entries are the fetched playlist's entries the provider's filters admit,
+// computed on demand so they always match the playlist and config; ok is false before the first playlist fetch. The
 // slice is the caller's own.
 func (t *Tuner) Entries(key types.NamespacedName) ([]m3u.Entry, bool) {
 	p := t.lookup(key)
@@ -436,7 +434,7 @@ func (t *Tuner) Entries(key types.NamespacedName) ([]m3u.Entry, bool) {
 	if !p.playlistFetched {
 		return nil, false
 	}
-	return slices.Clone(p.candidates), true
+	return filter.Candidates(p.entries, p.cfg.Filters), true
 }
 
 // ChannelView is one channel as the tuner last rendered it.

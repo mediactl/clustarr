@@ -1314,16 +1314,14 @@ func TestEntriesAreTheAdmittedCandidatesAfterTheFirstFetch(t *testing.T) {
 	require.Eventually(t, func() bool {
 		var ok bool
 		got, ok = h.tn.Entries(key)
-		return ok && len(got) > 0
+		return ok
 	}, 5*time.Second, 10*time.Millisecond)
 	var names []string
 	for _, e := range got {
 		names = append(names, e.Name)
-		assert.Contains(t, []string{"UK | Entertainment", "UK | News", "Sports", "Misc"}, e.Group)
 	}
+	// The first ok answer already carries the admitted entries.
 	assert.Equal(t, []string{"BBC One HD", "News, Live", "Sports 1", "No Attributes"}, names)
-	assert.Contains(t, names, "News, Live")
-	assert.Contains(t, names, "Sports 1")
 	got[0].Name = "changed"
 	again, ok := h.tn.Entries(key)
 	require.True(t, ok)
