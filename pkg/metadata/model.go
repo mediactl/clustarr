@@ -163,7 +163,12 @@ type SeasonTypeRef struct {
 	Name string `json:"name"`
 }
 
-// Link is a typed external URL (homepage, wiki, social profile, ...).
+// Link is a typed external URL (homepage, wiki, social profile, ...). A
+// provider's own page for the item carries the provider's id key as its
+// type ("hardcover": https://hardcover.app/books/<slug>; "metron":
+// https://metron.cloud/series/<slug>/), the way IMDb's and TMDB's pages
+// are linked, since those sites address an item by a slug the external
+// ids do not carry; the ui's logos read a link by that type.
 type Link struct {
 	Type string `json:"type"`
 	URL  string `json:"url"`
@@ -703,6 +708,10 @@ type ComicVolume struct {
 
 	Images  []Image `json:"images,omitempty"`
 	Ratings Ratings `json:"ratings,omitempty"`
+
+	// Links are the volume's external pages: Metron's series page by its
+	// slug ("metron"), which no id carries (2026-11-10 design §9.4).
+	Links []Link `json:"links,omitempty"`
 
 	Issues []ComicIssue `json:"issues,omitempty"`
 
