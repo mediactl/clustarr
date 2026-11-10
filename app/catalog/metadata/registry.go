@@ -36,6 +36,7 @@ import (
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/anilist"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/animelists"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/audible"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/audnexus"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/comicvine"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/coverart"
@@ -52,6 +53,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/theintrodb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tvdb"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/wikipedia"
 	"github.com/mediactl/clustarr/pkg/metadata/mediuxcache"
 	"github.com/mediactl/clustarr/pkg/metadata/mediuxsets"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -147,8 +149,8 @@ func addProvider(ctx context.Context, c client.Client, reg *pkgmetadata.Registry
 			// spec §3.2).
 			cl = cl.WithLocale(p.Spec.Language, p.Spec.Region)
 			reg.Movies = append(reg.Movies, cl)
-			reg.Ratings = append(reg.Ratings, cl)   // spec §C.2: tmdb declares its own source from the fetch it already performs.
-			reg.Extras = append(reg.Extras, cl) // full-metadata spec §3.4: a series' tagline and keywords, which TVDB lacks.
+			reg.Ratings = append(reg.Ratings, cl) // spec §C.2: tmdb declares its own source from the fetch it already performs.
+			reg.Extras = append(reg.Extras, cl)   // full-metadata spec §3.4: a series' tagline and keywords, which TVDB lacks.
 		case catalogv1alpha1.MetadataProviderTVDB:
 			key, err := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyAPIKey)
 			if err != nil {
@@ -207,7 +209,8 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 		catalogv1alpha1.MetadataProviderAnimeLists,
 		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb,
 		catalogv1alpha1.MetadataProviderTheIntroDB, catalogv1alpha1.MetadataProviderPlex,
-		catalogv1alpha1.MetadataProviderMediux:
+		catalogv1alpha1.MetadataProviderMediux,
+		catalogv1alpha1.MetadataProviderWikipedia, catalogv1alpha1.MetadataProviderAudible:
 		return true
 	default:
 		return false
@@ -364,6 +367,17 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 		reg.Resolvers = append(reg.Resolvers, animelists.New(animelists.Config{
 			HTTPClient: httpClient, URL: baseURL(p, animelists.DefaultURL),
 			Limiter: supplementaryLimiter(p, animelists.DefaultRate, animelists.DefaultBurst), UserAgent: ua,
+		}))
+	case catalogv1alpha1.MetadataProviderWikipedia:
+		reg.Biographies = append(reg.Biographies, wikipedia.New(wikipedia.Config{
+			HTTPClient: httpClient, WikidataBaseURL: baseURL(p, wikipedia.DefaultWikidataBaseURL),
+			WikipediaBaseURL: wikipedia.DefaultWikipediaBaseURL, Language: p.Spec.Language,
+			Limiter: supplementaryLimiter(p, 5, 5), UserAgent: ua,
+		}))
+	case catalogv1alpha1.MetadataProviderAudible:
+		reg.AudiobookSearchers = append(reg.AudiobookSearchers, audible.New(audible.Config{
+			HTTPClient: httpClient, BaseURL: baseURL(p, ""),
+			Limiter: supplementaryLimiter(p, 2, 4), UserAgent: ua,
 		}))
 	}
 	return nil

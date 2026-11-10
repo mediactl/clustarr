@@ -49,6 +49,13 @@ type Registry struct {
 	Extras []SeriesExtrasProvider
 	// Markers supply a file's skip segments (TheIntroDB), first answer wins.
 	Markers []MarkersProvider
+	// Biographies answer an artist's or author's biography from its links
+	// (wikipedia), first answer wins; the gateway asks only when the
+	// primary provider's own overview is empty (2026-11-10 design §5.4).
+	Biographies []BiographyProvider
+	// AudiobookSearchers search a marketplace's catalogue for Add New
+	// (audible), first answer wins (2026-11-10 design §5.6).
+	AudiobookSearchers []AudiobookSearcher
 	// Plex supplies Plex's own season and episode ids for a series
 	// (PlexProvider), first answer wins. A plex client is also an
 	// IDResolver, which is how a Movie or Series gets its KeyPlex id.
