@@ -113,6 +113,9 @@ type SeasonFacts struct {
 	PackFirst bool
 	// FirstSearch counts the Wanted episodes never searched (no attempt and
 	// no lastSearchedAt): the ones a PackFirst season holds for its query.
+	// An episode added unsearched (View.NoSearchOnAdd: its Series added
+	// with searchForMissing false while it was already out) is not counted,
+	// since it waits for no pack query and asks the release index alone.
 	FirstSearch int
 	// ReplaceDue counts the Wanted episodes, no live grab covering them,
 	// whose files a whole release replaces -- undecodable video, a wanted

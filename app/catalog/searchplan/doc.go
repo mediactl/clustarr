@@ -41,6 +41,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // reads its candidates (grabplan, R7). A dispatch outstanding past Timeout
 // closes without counting.
 //
+// An item added with searchForMissing false -- a Movie's searchForMovie, a
+// Series', Comic's, Artist's or Author's flag for a child that was already
+// out when the container was added (2026-11-10 design D10, D11; Sonarr's
+// "search for missing episodes" unticked) -- is View.NoSearchOnAdd: while it
+// has never been searched its automatic search is IndexOnly from the first,
+// so no indexer is asked for it on add, and it waits for no automatic pack
+// search of its season or volume, which SeasonFacts.FirstSearch does not
+// count it toward. The RSS matcher, a BacklogSearch grant, a redownload and
+// a person's search still reach the indexers for it, and once it has been
+// searched the flag means nothing.
+//
 // No Indexer becoming Ready wakes an item still due its first live search
 // (ruling, smoke finding 7). Its uncounted dispatch holds
 // wantedcron.MinimumGap, as a paced one does, so a wake inside it would find

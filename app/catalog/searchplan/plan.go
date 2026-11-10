@@ -128,6 +128,17 @@ type View struct {
 	SeasonBacklog bool
 	// LastLiveSearch is status.lastLiveSearchAt.
 	LastLiveSearch *metav1.Time
+	// NoSearchOnAdd: the item was added with searchForMissing false (a
+	// Movie's searchForMovie; a Series', Comic's, Artist's or Author's for a
+	// child that was already out when the container was added; 2026-11-10
+	// design D10, D11) -- Sonarr's "search for missing episodes" unticked.
+	// While the item has never been searched its automatic search asks the
+	// release index alone, never the indexers, and it does not wait for
+	// its season's or volume's automatic pack search, which is not asked
+	// for it; a backlog grant, a redownload and a person's search are live
+	// as ever, and once searched the flag means nothing. The zero value is
+	// the default, search on add.
+	NoSearchOnAdd bool
 }
 
 // Task is one search task to publish.
@@ -327,9 +338,11 @@ func purposeDue(v View, now time.Time) *purpose {
 	}
 	// An Episode whose season search is queued or searching waits for it
 	// (Wave S, §7), one never searched waits for its PackFirst season's
-	// automatic search, and one replacing or granted with its season waits
-	// for that season's; its donor search does not.
-	waits := v.SeasonPending || (v.SeasonPackFirst && !searched(v.Attempts, v.LastSearched)) || v.SeasonReplaces || v.SeasonBacklog
+	// automatic search -- unless it was added unsearched, since that search
+	// is not asked for it -- and one replacing or granted with its season
+	// waits for that season's; its donor search does not.
+	first := !searched(v.Attempts, v.LastSearched)
+	waits := v.SeasonPending || (v.SeasonPackFirst && first && !v.NoSearchOnAdd) || v.SeasonReplaces || v.SeasonBacklog
 	// A backlog grant (backlog search design): one live search, now. The
 	// BacklogSearch's cooldown and hourly limit stand in for the backoff,
 	// and the live-search pace and the ledger still apply.
@@ -352,7 +365,10 @@ func purposeDue(v View, now time.Time) *purpose {
 		if reason == "" {
 			reason = schema.SearchReasonMissing
 		}
-		return &purpose{reason: reason, live: !searched(v.Attempts, v.LastSearched)}
+		// An item's first search is live (P12), unless it was added with
+		// searchForMissing false: then the release index alone answers it,
+		// as it does every later one.
+		return &purpose{reason: reason, live: first && !v.NoSearchOnAdd}
 	}
 	if v.Donor != nil && wantedcron.Eligible(v.DonorAttempts, now) {
 		first := !searched(v.DonorAttempts, nil)
