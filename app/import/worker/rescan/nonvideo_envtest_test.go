@@ -36,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
 // smallFile is well under fsops' 50 MiB video "sample" floor: a non-video
@@ -119,59 +120,91 @@ func createArtistAlbum(t *testing.T, ctx context.Context, f *fixture) *catalogv1
 		WithStatus(catalogac.AlbumStatus().WithMetadata(
 			catalogac.AlbumMetadata().WithTitle("OK Computer").WithReleaseDate(*date(1997)))))
 	require.NoError(t, err)
+	// The selected release's listing (2026-11-10 design D6): a scanned
+	// file is attributed to one of these tracks, by its tags or its name.
 	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.Album(album.Name, f.ns).
-		WithStatus(catalogac.AlbumStatus().WithTrackFileCount(3)))
+		WithStatus(catalogac.AlbumStatus().WithTrackFileCount(3).WithTracks(
+			catalogac.Track().WithRecordingID("airbag").WithMedium(1).WithNumber(1).WithTitle("Airbag"),
+			catalogac.Track().WithRecordingID("paranoid-android").WithMedium(1).WithNumber(2).WithTitle("Paranoid Android"),
+			catalogac.Track().WithRecordingID("exit-music").WithMedium(1).WithNumber(3).WithTitle("Exit Music (For a Film)"),
+		)))
 	require.NoError(t, err)
 
 	waitCached(t, ctx, f.c, artist, func() bool { return artist.Status.Metadata != nil })
-	waitCached(t, ctx, f.c, album, func() bool { return album.Status.Metadata != nil && album.Status.TrackFileCount == 3 })
+	waitCached(t, ctx, f.c, album, func() bool {
+		return album.Status.Metadata != nil && album.Status.TrackFileCount == 3 && len(album.Status.Tracks) == 3
+	})
 	return album
 }
 
-// A music root attributes a track to the existing Album the layout names,
-// writes MediaFileSpec only, and never touches the Album. Everything it
-// cannot attribute -- an artist and album nobody added, a track outside the
-// <artist>/<album>/ layout -- is unmatched with a reason, and no Artist or
-// Album is guessed into existence.
+// A music root attributes a track to the existing Album the layout names
+// and to the track of its selected release the file's tags or name say it
+// is (2026-11-10 design D6), writes MediaFileSpec only, and never touches
+// the Album. Everything it cannot attribute -- an artist and album nobody
+// added, a track outside the <artist>/<album>/ layout, a file of the album
+// naming no track of the release -- is unmatched with a reason, and no
+// Artist or Album is guessed into existence.
 func TestHandleAttributesAMusicFileToAnExistingAlbumOnly(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-music", catalogv1alpha1.RootFolderKindMusic, "", catalogv1alpha1.ScanModeFull)
 	album := createArtistAlbum(t, ctx, f)
 
-	track := filepath.Join(f.root, "Radiohead", "OK Computer (1997)", "01 - Airbag.flac")
+	folder := filepath.Join(f.root, "Radiohead", "OK Computer (1997)")
+	track := filepath.Join(folder, "01 - Airbag.flac")
 	mustWriteFile(t, track, smallFile)
-	lossy := filepath.Join(f.root, "Radiohead", "OK Computer (1997)", "02 - Paranoid Android.mp3")
+	lossy := filepath.Join(folder, "02 - Paranoid Android.mp3")
 	mustWriteFile(t, lossy, smallFile)
-	mustWriteFile(t, filepath.Join(f.root, "Radiohead", "OK Computer (1997)", "cover.jpg"), 4096)
+	tagged := filepath.Join(folder, "track three.flac") // its tags, not its name, say which track
+	mustWriteFile(t, tagged, smallFile)
+	mustWriteFile(t, filepath.Join(folder, "09 - Bonus.flac"), smallFile) // the release has no track 9
+	mustWriteFile(t, filepath.Join(folder, "cover.jpg"), 4096)
 	mustWriteFile(t, filepath.Join(f.root, "Unknown Band", "Some Album (2001)", "01.flac"), smallFile)
 	mustWriteFile(t, filepath.Join(f.root, "Radiohead", "01 - Loose Track.flac"), smallFile)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
+	w := rescan.NewWorker(f.c, f.bus, nil)
+	w.ProbeAudio = func(_ context.Context, path string) (mediainfo.AudioProbe, error) {
+		ap := mediainfo.AudioProbe{Codec: "flac", SampleBits: 16}
+		if filepath.Ext(path) == ".mp3" {
+			ap = mediainfo.AudioProbe{Codec: "mp3"} // a VBR MP3: no bitrate Lidarr's ladder names
+		}
+		if path == tagged {
+			ap.Tags = &commonv1.MediaTags{Album: "OK Computer", DiscNumber: 1, TrackNumber: 3}
+		}
+		return ap, nil
+	}
+	require.NoError(t, w.Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Error)
-	assert.Equal(t, int64(4), got.FilesSeen, "the small audio files are media, not samples")
+	assert.Equal(t, int64(6), got.FilesSeen, "the small audio files are media, not samples")
 	assert.Zero(t, got.FilesSkipped, "cover.jpg is not media, so not a skipped media file")
 	assert.Equal(t, int64(1), got.NotMedia, "cover.jpg")
-	assert.Equal(t, int64(2), got.FilesMatched)
+	assert.Equal(t, int64(3), got.FilesMatched)
 	assert.Zero(t, got.ItemsCreated, "a non-video rescan never creates a catalog item")
 	unmatched := unmatchedByPath(got)
-	require.Len(t, unmatched, 2)
+	require.Len(t, unmatched, 3)
 	assert.Contains(t, unmatched[filepath.Join("Unknown Band", "Some Album (2001)", "01.flac")].Reason, "no existing album")
 	assert.Contains(t, unmatched[filepath.Join("Radiohead", "01 - Loose Track.flac")].Reason, "<artist>/<album>/<track>")
+	bonus := unmatched[filepath.Join("Radiohead", "OK Computer (1997)", "09 - Bonus.flac")]
+	assert.Contains(t, bonus.Reason, "names no track of the selected release (3 tracks on 1 media)")
+	assert.Equal(t, []string{album.Name}, bonus.Candidates, "the album is known; the track is not")
 
-	files := mediaFilesIn(t, ctx, f.c, f.ns, 2)
-	mf, mp3 := files[0], files[1]
-	assert.Equal(t, commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: album.Name}, mf.Spec.MediaRef)
+	files := mediaFilesIn(t, ctx, f.c, f.ns, 3)
+	mf, mp3, byTags := files[0], files[1], files[2]
+	assert.Equal(t, commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: album.Name, Track: "airbag"}, mf.Spec.MediaRef, "the name's number")
 	assert.Equal(t, track, mf.Spec.Path)
 	assert.Equal(t, int64(smallFile), mf.Spec.SizeBytes)
 	assert.Equal(t, commonv1.ReleaseTypeAlbum, mf.Spec.ReleaseType)
 	assert.Equal(t, "FLAC", mf.Spec.Quality.Name, "Lidarr's rule: .flac is FLAC unless a 24-bit marker is declared")
-	assertSpecOnly(t, mf, "spec.mediaRef", "spec.path", "spec.sizeBytes", "spec.modTime", "spec.releaseType", "spec.quality.name")
+	assertSpecOnly(t, mf, "spec.mediaRef", "spec.mediaRef.track", "spec.path", "spec.sizeBytes", "spec.modTime", "spec.releaseType", "spec.quality.name")
 
 	assert.Equal(t, lossy, mp3.Spec.Path)
-	assert.Empty(t, mp3.Spec.Quality.Name, "an .mp3's tier is a bitrate band that needs a probe, so none is frozen")
+	assert.Equal(t, "paranoid-android", mp3.Spec.MediaRef.Track)
+	assert.Empty(t, mp3.Spec.Quality.Name, "an .mp3's tier is a bitrate band, and a probe naming no bitrate settles none, so none is frozen")
 	assert.Empty(t, managerFor(t, mp3.ManagedFields, "", "spec.quality"), "nothing claimed for an unknown quality")
+
+	assert.Equal(t, tagged, byTags.Spec.Path)
+	assert.Equal(t, "exit-music", byTags.Spec.MediaRef.Track, "the tags decide before the name")
 
 	var artists catalogv1alpha1.ArtistList
 	require.NoError(t, f.c.List(ctx, &artists, client.InNamespace(f.ns)))
@@ -270,6 +303,61 @@ func TestHandleMatchesAnEmbeddedASINAndNeverCreatesFromOne(t *testing.T) {
 	var abs catalogv1alpha1.AudiobookList
 	require.NoError(t, f.c.List(ctx, &abs, client.InNamespace(f.ns)))
 	assert.Len(t, abs.Items, 1, "an ASIN alone never creates an Audiobook")
+}
+
+// An audiobook's parts are ordered by spec.partIndex at rescan as at import
+// (2026-11-10 design D11, §6): the tags' disc and track number when the
+// file carries one, else the name's part number, else 0, which the
+// Audiobook's rollup orders by path.
+func TestHandleOrdersAnAudiobooksPartsAtRescan(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, ctx, "rw-audiobook-parts", catalogv1alpha1.RootFolderKindAudiobook, "", catalogv1alpha1.ScanModeFull)
+
+	ab := &catalogv1alpha1.Audiobook{
+		ObjectMeta: metav1.ObjectMeta{Name: "left-hand-of-darkness", Namespace: f.ns},
+		Spec:       catalogv1alpha1.AudiobookSpec{ASIN: "B002V1QK4D", QualityProfileRef: "audiobooks", RootFolderRef: f.rf.Name},
+	}
+	require.NoError(t, f.c.Create(ctx, ab))
+	waitCached(t, ctx, f.c, ab, func() bool { return true })
+
+	folder := filepath.Join(f.root, "Ursula K. Le Guin", "The Left Hand of Darkness [B002V1QK4D]")
+	byName2 := filepath.Join(folder, "The Left Hand of Darkness - Part 02.mp3")
+	byName1 := filepath.Join(folder, "The Left Hand of Darkness - Part 01.mp3")
+	byTags := filepath.Join(folder, "tagged.mp3")
+	bare := filepath.Join(folder, "The Left Hand of Darkness.mp3")
+	for _, p := range []string{byName2, byName1, byTags, bare} {
+		mustWriteFile(t, p, smallFile)
+	}
+
+	w := rescan.NewWorker(f.c, f.bus, nil)
+	w.ProbeAudio = func(_ context.Context, path string) (mediainfo.AudioProbe, error) {
+		ap := mediainfo.AudioProbe{Codec: "mp3", BitrateKbps: 64}
+		if path == byTags {
+			ap.Tags = &commonv1.MediaTags{Album: "The Left Hand of Darkness", DiscNumber: 1, TrackNumber: 3}
+		}
+		return ap, nil
+	}
+	require.NoError(t, w.Handle(ctx, newFakeMessage(t, f.task(false))))
+
+	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
+	require.Empty(t, got.Error)
+	assert.Equal(t, int64(4), got.FilesMatched)
+	assert.Empty(t, got.Unmatched)
+
+	parts := map[string]int32{}
+	for _, mf := range mediaFilesIn(t, ctx, f.c, f.ns, 4) {
+		assert.Equal(t, commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: ab.Name}, mf.Spec.MediaRef)
+		assert.Equal(t, "MP3", mf.Spec.Quality.Name, "an audiobook's quality is its extension's")
+		parts[filepath.Base(mf.Spec.Path)] = mf.Spec.PartIndex
+		if mf.Spec.PartIndex > 0 {
+			assertSpecOnly(t, mf, "spec.mediaRef", "spec.partIndex")
+		}
+	}
+	assert.Equal(t, map[string]int32{
+		filepath.Base(byName1): 1, filepath.Base(byName2): 2,
+		filepath.Base(byTags): 1003, // disc 1, track 3
+		filepath.Base(bare):   0,    // nothing numbers it: path order
+	}, parts)
 }
 
 // A book root attributes pkg/naming's "Author/Title/Author.epub" to the
@@ -535,8 +623,12 @@ func TestHandleReadsReleaseYearsInUTC(t *testing.T) {
 		WithStatus(catalogac.AlbumStatus().WithMetadata(catalogac.AlbumMetadata().WithTitle("New Year").
 			WithReleaseDate(metav1.NewTime(time.Date(1997, 1, 1, 0, 30, 0, 0, time.UTC))))))
 	require.NoError(t, err)
+	// The one track the file is attributed to by its name (design D6).
+	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.Album(album.Name, f.ns).
+		WithStatus(catalogac.AlbumStatus().WithTracks(catalogac.Track().WithRecordingID("new-year-1").WithMedium(1).WithNumber(1).WithTitle("New Year"))))
+	require.NoError(t, err)
 	waitCached(t, ctx, f.c, artist, func() bool { return artist.Status.Metadata != nil })
-	waitCached(t, ctx, f.c, album, func() bool { return album.Status.Metadata != nil })
+	waitCached(t, ctx, f.c, album, func() bool { return album.Status.Metadata != nil && len(album.Status.Tracks) == 1 })
 	require.Equal(t, 1996, album.Status.Metadata.ReleaseDate.Year(), "the premise: decoded west of UTC it reads 1996")
 
 	mustWriteFile(t, filepath.Join(f.root, "Someone", "New Year (1997)", "01.flac"), smallFile)
