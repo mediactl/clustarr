@@ -38,16 +38,17 @@ import (
 // audiobook's parts (2026-11-10 design D7, D11): a part's {PartNumber} is
 // its place among its Audiobook's MediaFiles (mediafile.LoadNaming's
 // audiobookPartNumber), so a part appearing or going, moving to another
-// audiobook, or changing the key it orders by renumbers the others -- which
-// nothing else woke: S1 enqueues the changed file alone, the item arm its
-// Audiobook, and an informer resync wakes nothing (fileUpdateWakes), so
-// after the import's one materialisation pass a part a rescan added or a
-// MediaFile removed left every other part's status.naming, and under
-// renameFiles its name, at the last plan until some unrelated wake. The
-// siblings are enqueued by key through the item index at
-// handler.LowPriority (no file is decoded; the changed file is S1's), of
-// the audiobook the file now names and the one it named before. The
-// initial list is skipped: every file wakes itself at the start.
+// audiobook, or changing what it orders by -- its key, or its path, the
+// tie-break among equal keys -- renumbers the others, which nothing else
+// woke: S1 enqueues the changed file alone, the item arm its Audiobook,
+// and an informer resync wakes nothing (fileUpdateWakes), so after the
+// import's one materialisation pass a part a rescan added or a MediaFile
+// removed left every other part's status.naming, and under renameFiles its
+// name, at the last plan until some unrelated wake. The siblings are
+// enqueued by key through the item index at handler.LowPriority (no file
+// is decoded; the changed file is S1's), of the audiobook the file now
+// names and the one it named before. The initial list is skipped: every
+// file wakes itself at the start.
 func audiobookPartWakes(c client.Reader) handler.TypedEventHandler[client.Object, remediation.Key] {
 	return handler.TypedFuncs[client.Object, remediation.Key]{
 		CreateFunc: func(ctx context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
@@ -82,10 +83,20 @@ func isAudiobookPart(mf *catalogv1alpha1.MediaFile) bool {
 
 // partOrderMoved reports whether an update moved what catalogctx.PartNumbers
 // orders a part by, or the audiobook it is a part of: spec.mediaRef (kind or
-// name), spec.partIndex, or spec.path for a part that orders by its path --
-// an unnumbered one (partIndex 0), before or after -- where a numbered
-// part's path breaks only a tie with an equal key. A file that was and is
-// no audiobook part moves nothing.
+// name), spec.partIndex, or spec.path. A numbered part's path breaks only a
+// tie with an equal key, but equal keys are the usual case for a disc rip
+// without disc tags (fileimport.PartIndexOf keys track 1 of every disc
+// 1001; a "Part N" repeated per disc folder ties the same way), and a tie
+// is exactly where a rename moves the order: with the exemption (until
+// 2026-11-10) a part renamed to its canonical path left its tied sibling's
+// number stale, whose rename then collided with it. So any path change of a
+// part wakes its siblings: each rename of an n-part audiobook costs n-1
+// low-priority re-plans, a one-time sweep over the listing that already
+// exists, and a rename is rare (the import places parts canonically; a
+// rescan's re-point or a preset change moves them) -- against listing and
+// decoding every sibling in the handler to tell a shared key, which was
+// the exact alternative and not taken. A file that was and is no audiobook
+// part moves nothing.
 func partOrderMoved(old, nw *catalogv1alpha1.MediaFile) bool {
 	if old == nil || nw == nil || (!isAudiobookPart(old) && !isAudiobookPart(nw)) {
 		return false
@@ -95,7 +106,7 @@ func partOrderMoved(old, nw *catalogv1alpha1.MediaFile) bool {
 		return true
 	case old.Spec.PartIndex != nw.Spec.PartIndex:
 		return true
-	case old.Spec.Path != nw.Spec.Path && (old.Spec.PartIndex == 0 || nw.Spec.PartIndex == 0):
+	case old.Spec.Path != nw.Spec.Path:
 		return true
 	}
 	return false

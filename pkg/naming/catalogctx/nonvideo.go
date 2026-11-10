@@ -102,10 +102,11 @@ type Part struct {
 // Path -- and returns each part's number aligned with parts, 1..n: what
 // {PartNumber} renders (2026-11-10 design D7, D11). A lone part is numbered
 // 0, so the preset's optional token drops and a one-file audiobook carries
-// no part. The import numbers its own files and the remediation loop's
-// naming planner the Audiobook's MediaFiles, so both render one path; a
-// part's spec.partIndex itself is never rendered (disc 1 track 3 is the
-// third part, not part 1003).
+// no part. The import numbers its own files (fileimport.placeParts) and
+// mediafile.LoadNaming (audiobookPartNumber) the Audiobook's MediaFiles,
+// listed through the item index, so both render one path; a part's
+// spec.partIndex itself is never rendered (disc 1 track 3 is the third
+// part, not part 1003).
 func PartNumbers(parts []Part) []int32 {
 	numbers := make([]int32, len(parts))
 	if len(parts) < 2 {
@@ -137,11 +138,14 @@ func PartNumbers(parts []Part) []int32 {
 // Audiobook is the naming context of one part of ab: number is the part's
 // place among the Audiobook's parts in play order, 1..n, and 0 for a
 // one-file audiobook (PartNumbers) -- what {PartNumber} renders, never the
-// part's spec.partIndex, which is the ordering key. PartCount is the
-// Audiobook's status.partCount, the parts it counts on disk; the import,
-// whose files it has yet to count, sets its own. ok is false until the
-// title has arrived. Authors and narrators each collapse onto one token,
-// comma-joined, as the Audiobook controller's own folder context does.
+// part's spec.partIndex, which is the ordering key. PartCount is seeded
+// from the Audiobook's status.partCount and overridden by both callers
+// with their own count -- the import's placed files, the MediaFiles
+// mediafile.audiobookPartNumber listed -- so number and count come from
+// one read, never from a count the Audiobook's next pass writes. ok is
+// false until the title has arrived. Authors and narrators each collapse
+// onto one token, comma-joined, as the Audiobook controller's own folder
+// context does.
 func Audiobook(ab *catalogv1alpha1.Audiobook, number int32) (naming.Context, bool) {
 	meta := ab.Status.Metadata
 	if meta == nil || meta.Title == "" {

@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -29,6 +30,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 )
 
 // wakeQueue records what a handler enqueues and at which priority.
@@ -54,11 +56,13 @@ func (q *wakeQueue) AddWithOpts(o priorityqueue.AddOpts, ks ...remediation.Key) 
 // TestAnAudiobookPartWakesItsSiblingsWhenTheOrderMoves is S12/MediaFile
 // (2026-11-10 design D7, D11; the D6 review's wake finding): once a part
 // is planned, a sibling appearing or going, a part re-keyed or moved to
-// another audiobook, or an unnumbered part's path moving renumbers the
-// others, so each other part of the audiobook (and of the one left) is
-// enqueued at low priority, through the item index -- never the changed
-// file itself, nothing on the initial list, nothing for a status-only
-// update, a numbered part's path, or a movie's file.
+// another audiobook, or a part's path moving -- an unnumbered part orders
+// by it, and a numbered one breaks a tie with an equal key by it, the
+// usual case for a disc rip without disc tags -- renumbers the others, so
+// each other part of the audiobook (and of the one left) is enqueued at
+// low priority, through the item index -- never the changed file itself,
+// nothing on the initial list, nothing for a status-only update or a
+// movie's file.
 func TestAnAudiobookPartWakesItsSiblingsWhenTheOrderMoves(t *testing.T) {
 	c := nonVideoFixture(t) // guards-audio-01 and -02 are the Audiobook's planned parts
 	h := audiobookPartWakes(c)
@@ -97,11 +101,22 @@ func TestAnAudiobookPartWakesItsSiblingsWhenTheOrderMoves(t *testing.T) {
 	h.Update(ctx, event.TypedUpdateEvent[client.Object]{ObjectOld: same, ObjectNew: rekeyed}, q)
 	assert.Equal(t, map[remediation.Key]int{key("guards-audio-02"): handler.LowPriority}, q.added, "a part re-keyed: its siblings, not itself")
 
+	// Two parts of one key: track 1 of each disc of a rip without disc
+	// tags (1001 both), ordered by their paths -- CD1 first. Renamed to its
+	// canonical path, the first sorts after the second (its folder is the
+	// author's, past "Guards Guards"), so the second is now part 1, and
+	// nothing but this wake re-plans it.
 	q = newWakeQueue()
-	renamed := same.DeepCopy()
-	renamed.Spec.Path = "/data/guards-audio-01 (01).mp3"
-	h.Update(ctx, event.TypedUpdateEvent[client.Object]{ObjectOld: same, ObjectNew: renamed}, q)
-	assert.Empty(t, q.added, "a numbered part's path breaks only a tie")
+	disc1 := part("guards-audio-01", "guards-audio", "/data/audiobooks/Guards Guards/CD1/01.mp3", 1001)
+	disc2 := part("guards-audio-02", "guards-audio", "/data/audiobooks/Guards Guards/CD2/01.mp3", 1001)
+	renamed := disc1.DeepCopy()
+	renamed.Spec.Path = "/data/audiobooks/Terry Pratchett/Guards! Guards! (1989)/Guards! Guards! (01).mp3"
+	require.Equal(t, []int32{2, 1},
+		catalogctx.PartNumbers([]catalogctx.Part{{Index: renamed.Spec.PartIndex, Path: renamed.Spec.Path}, {Index: disc2.Spec.PartIndex, Path: disc2.Spec.Path}}),
+		"the rename moved the order of the tied parts")
+	h.Update(ctx, event.TypedUpdateEvent[client.Object]{ObjectOld: disc1, ObjectNew: renamed}, q)
+	assert.Equal(t, map[remediation.Key]int{key("guards-audio-02"): handler.LowPriority}, q.added,
+		"a numbered part's path moved: the sibling sharing its key renumbers")
 
 	q = newWakeQueue()
 	loose := part("guards-audio-01", "guards-audio", "/data/guards-audio-01", 0)
