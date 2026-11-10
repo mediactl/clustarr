@@ -291,9 +291,15 @@ Owns `app/import/` (every file), `pkg/release/track.go` and `part.go`
    `fileFormatScore` on the MediaFile spec as for Issue).
 4. Tests: attribution table; part ordering; book freeze.
 
-**Done inline 2026-11-10 (23fd2ef7):** `release.ParseTrackFileName`;
-`release.PartOf` already reads part numbers. The import's attribution,
-parts and book freeze remain.
+**Done inline 2026-11-10:** `release.ParseTrackFileName` (23fd2ef7); the
+import's attribution of every album track (tags, name, recording id; a
+lone file; duplicates and misses held for a person -- `fileimport.
+attributeTrack`, `FrozenFileQualityProbe`), the audiobook part order
+(`partIndexOf` into `FrozenFields.PartIndex`, carried to
+`MediaFileSpec.partIndex`), the probe's tags and duration on
+`mediainfo.AudioProbe`. Left: the rescan's attribution of files already in
+an album folder (`rescan/nonvideo.go`, the same `attributeTrack`), the book
+quality freeze, `PageCount` into the inspect for comics and PDFs.
 
 ### W3.3 pkg/nfo, the import-nfo handler, the nfo stage (D13, §8)
 
