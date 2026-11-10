@@ -805,7 +805,13 @@ them all and took 20 to 46 s; MV for a known movie, unless the title airs
 more than 14 times), which keeps a one-off out of Plex's Movies
 while a movie channel's unknown film keeps the movie fallback; a news
 channel's programmes are News, a kids channel's Children; the output keeps
-XMLTV's element order, and nothing the source said is doubled or dropped.
+XMLTV's element order, and nothing the source said is doubled or dropped,
+except that an episode iptv-epg.org numbers its own way -- "S26 E32" in an
+`<episode-num>` naming no system, "S26 E32 — Justice for Nikki" as the
+description's first line -- is said in XMLTV's own fields: the title as
+`<sub-title>`, the numbers as `xmltv_ns` and `onscreen`, the description
+without that line (owner, 2026-11-10: 3,000 of the 9,950 programmes on
+talos's off-Plex channels carried their episode only so).
 **Programme artwork** (`app/livetv/tuner/artwork.go`): a title the enricher
 wants art for is looked up as a series and a movie through the metadata
 gateway's search RPC (the Add New search, bound in

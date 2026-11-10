@@ -209,3 +209,78 @@ func TestBuildGuideWithEnrichesProgrammes(t *testing.T) {
 	assert.Contains(t, enriched.String(), `<sub-title lang="en">Cowboys at Eagles</sub-title>`)
 	assert.Contains(t, enriched.String(), "<live/>")
 }
+
+// iptv-epg.org's own programmes (talos, 2026-11-10, Comet and PBS Kids):
+// the episode is numbered in an episode-num naming no system and in the
+// description's first line, "S02 E11 — To Protect and Serve Man". The
+// episode title becomes the sub-title, the numbers xmltv_ns and onscreen,
+// and the description is the description; nothing else the source said is
+// lost, and no dd_progid is added to a numbered episode.
+func TestAnEpisodeNumberedInItsDescriptionGetsXMLTVsFields(t *testing.T) {
+	inner := []byte(`
+    <category lang="en">Drama</category>
+    <category lang="en">Series</category>
+    <credits>
+      <actor>David Giuntoli</actor>
+    </credits>
+    <desc lang="en">S02 E11 — To Protect and Serve Man
+Hank remembers an arrest he made earlier in his career when a man claimed he committed murder in self-defense against monsters; Monroe gets involved in an unexpected situation.</desc>
+    <episode-num>S02 E11</episode-num>
+    <icon src="https://iptv-epg.org/images/0sJ"/>
+    <previously-shown/>
+    <title lang="en">Grimm</title>
+  `)
+	out := string((&xmltv.Enricher{}).Enrich(inner, plain, t0, t0.Add(time.Hour)))
+	assert.Contains(t, out, `<sub-title lang="en">To Protect and Serve Man</sub-title>`)
+	assert.Contains(t, out, `<desc lang="en">Hank remembers an arrest he made`)
+	assert.NotContains(t, out, `S02 E11 — `)
+	assert.Contains(t, out, `<episode-num system="xmltv_ns">1.10.</episode-num>`)
+	assert.Contains(t, out, `<episode-num system="onscreen">S02E11</episode-num>`)
+	assert.NotContains(t, out, `<episode-num>`, "the episode-num naming no system is replaced")
+	assert.NotContains(t, out, `dd_progid`)
+	for _, kept := range []string{`<actor>David Giuntoli</actor>`, `<icon src="https://iptv-epg.org/images/0sJ"/>`, `<previously-shown/>`, `<title lang="en">Grimm</title>`, `<category lang="en">Drama</category>`} {
+		assert.Contains(t, out, kept)
+	}
+	assert.Equal(t, []string{"title", "sub-title", "desc", "credits", "actor", "category", "category", "icon", "episode-num", "episode-num", "previously-shown"}, tags([]byte(out)), "XMLTV's order")
+}
+
+func TestEpisodeNumbersInTheSourcesShapes(t *testing.T) {
+	for name, tc := range map[string]struct {
+		inner              string
+		subtitle, desc, ns string
+		onscreen           string
+	}{
+		"numbers alone on the first line": {
+			inner: `<title>The Listening Post</title><desc lang="en">S2026 E41
+Trump told Americans to vote as if he were on the ballot.</desc><episode-num>S2026 E41</episode-num>`,
+			desc: `<desc lang="en">Trump told Americans to vote as if he were on the ballot.</desc>`, ns: "2025.40.", onscreen: "S2026E41",
+		},
+		"a description that is only the numbered line": {
+			inner:    `<title>Arthur</title><desc lang="en">S02 E12 — Arthur's Faraway Friend</desc>`,
+			subtitle: `<sub-title lang="en">Arthur&#39;s Faraway Friend</sub-title>`, ns: "1.11.", onscreen: "S02E12",
+		},
+		"the source's own sub-title is kept": {
+			inner: `<title>Grimm</title><sub-title>Its Own</sub-title><desc>S02 E11 — To Protect and Serve Man
+Hank remembers.</desc>`,
+			subtitle: `<sub-title>Its Own</sub-title>`, desc: `<desc>Hank remembers.</desc>`, ns: "1.10.", onscreen: "S02E11",
+		},
+		"an onscreen number gains xmltv_ns": {
+			inner: `<title>Grimm</title><episode-num system="onscreen">S02E11</episode-num>`, ns: "1.10.", onscreen: "S02E11",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := string((&xmltv.Enricher{}).Enrich([]byte(tc.inner), plain, t0, t0.Add(time.Hour)))
+			if tc.subtitle != "" {
+				assert.Contains(t, out, tc.subtitle)
+			}
+			if tc.desc != "" {
+				assert.Contains(t, out, tc.desc)
+			} else {
+				assert.NotContains(t, out, "<desc", "a description of the numbered line alone is dropped")
+			}
+			assert.Contains(t, out, `<episode-num system="xmltv_ns">`+tc.ns+`</episode-num>`)
+			assert.Equal(t, 1, strings.Count(out, `system="onscreen"`), out)
+			assert.Contains(t, out, `>`+tc.onscreen+`</episode-num>`)
+		})
+	}
+}

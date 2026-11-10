@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -74,7 +75,13 @@ type ArtResolver func(ArtQuery) (Art, bool)
 //     keeps a one-off broadcast out of Plex's Movies;
 //   - a news channel's programmes are News, a kids channel's Children;
 //   - a title the art resolver knows gets its poster as <icon> and the
-//     category Movie or Series.
+//     category Movie or Series;
+//   - an episode iptv-epg.org numbers in its own way -- "S26 E32" in an
+//     <episode-num> naming no system, and "S26 E32 — Justice for Nikki" as
+//     the description's first line -- gets XMLTV's own fields: the episode
+//     title as <sub-title>, the numbers as xmltv_ns and onscreen, and the
+//     description without that line (talos, 2026-11-10: 2,817 of 9,950
+//     programmes on the off-Plex channels carried their episode only so).
 //
 // What the source already says is kept: an element present is never
 // duplicated or removed, and the result keeps XMLTV's element order.
@@ -83,12 +90,22 @@ type Enricher struct {
 	Art ArtResolver
 }
 
-// Programme is one programme as EnrichProgramme sees it.
+// programmeFacts is one programme as the Enricher and repeats see it.
 type programmeFacts struct {
 	title, subtitle, desc    string
 	categories               map[string]bool
 	hasEpisodeNum, hasIcon   bool
 	hasLive, hasNew, hasPrev bool
+	// The episode's numbers as the source gives them (episodeNumbers), 0
+	// for none, and what the Enricher rewrites to say them in XMLTV's own
+	// fields: the sub-title lifted from the description, the description
+	// without its numbered first line, the episode-num naming no system.
+	season, episode    int
+	hasXMLTVNs         bool
+	liftedSubtitle     bool
+	descNumbered       bool
+	unnamedEpisodeNum  bool
+	onscreenEpisodeNum bool
 }
 
 // element is one child of <programme>, kept verbatim.
@@ -98,6 +115,9 @@ type element struct {
 	text  string
 	raw   []byte
 }
+
+// attr is the element's attribute name, "" when it has none.
+func (el element) attr(name string) string { return attr(xml.StartElement{Attr: el.attrs}, name) }
 
 // dtdOrder is XMLTV's order of a programme's children; live is Plex's and
 // xTeVe's extension, placed with new.
@@ -167,9 +187,36 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 		}
 	}
 
+	changed := false
 	if live && title != f.title {
 		// The title loses its "Live:" prefix; the flag says it instead.
-		elems = replaceTitle(elems, title)
+		elems = replaceText(elems, "title", title)
+		changed = true
+	}
+	if f.descNumbered {
+		// The description loses its numbered first line, which the
+		// sub-title and the episode numbers say instead.
+		if f.desc == "" {
+			elems = dropElements(elems, "desc")
+		} else {
+			elems = replaceText(elems, "desc", f.desc)
+		}
+		changed = true
+	}
+	if f.liftedSubtitle {
+		addText("sub-title", f.subtitle)
+	}
+	if f.season > 0 || f.episode > 0 {
+		if f.unnamedEpisodeNum {
+			elems = dropElements(elems, "episode-num", func(el element) bool { return el.attr("system") == "" })
+			changed = true
+		}
+		if !f.hasXMLTVNs {
+			addElem("episode-num", []byte(`<episode-num system="xmltv_ns">`+xmltvNS(f.season, f.episode)+`</episode-num>`))
+		}
+		if !f.onscreenEpisodeNum {
+			addElem("episode-num", []byte(`<episode-num system="onscreen">`+onscreen(f.season, f.episode)+`</episode-num>`))
+		}
 	}
 	if event {
 		addCategory("Sports")
@@ -229,7 +276,7 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 			addElem("episode-num", formatProgID("EP", series, episode/100000000))
 		}
 	}
-	if len(add) == 0 && (!live || title == f.title) {
+	if len(add) == 0 && !changed {
 		return inner
 	}
 
@@ -319,6 +366,23 @@ func facts(elems []element) programmeFacts {
 			f.categories[strings.ToLower(el.text)] = true
 		case "episode-num":
 			f.hasEpisodeNum = true
+			switch el.attr("system") {
+			case "xmltv_ns":
+				f.hasXMLTVNs = true
+			case "", "onscreen":
+				// XMLTV's DTD reads an episode-num naming no system as
+				// onscreen; iptv-epg.org writes "S26 E32" so.
+				if s, e, ok := episodeNumbers(el.text); ok {
+					if f.season == 0 && f.episode == 0 {
+						f.season, f.episode = s, e
+					}
+					if el.attr("system") == "" {
+						f.unnamedEpisodeNum = true
+					} else {
+						f.onscreenEpisodeNum = true
+					}
+				}
+			}
 		case "icon":
 			f.hasIcon = true
 		case "live":
@@ -329,29 +393,103 @@ func facts(elems []element) programmeFacts {
 			f.hasPrev = true
 		}
 	}
+	// "S26 E32 — Justice for Nikki", or "S2026 E41" alone, on the
+	// description's first line.
+	first, rest, _ := strings.Cut(f.desc, "\n")
+	if m := numberedLineRE.FindStringSubmatch(strings.TrimSpace(first)); m != nil {
+		s, _ := strconv.Atoi(m[1])
+		e, _ := strconv.Atoi(m[2])
+		if f.season == 0 && f.episode == 0 {
+			f.season, f.episode = s, e
+		}
+		if f.subtitle == "" && m[3] != "" {
+			f.subtitle, f.liftedSubtitle = strings.TrimSpace(m[3]), true
+		}
+		f.desc, f.descNumbered = strings.TrimSpace(rest), true
+	}
 	return f
 }
 
-// replaceTitle rewrites the first title element's text, keeping its
+var (
+	// episodeNumRE is an onscreen episode number: "S26 E32", "S01E39",
+	// "s1 e2", "E12".
+	episodeNumRE = regexp.MustCompile(`(?i)^\s*(?:S(\d{1,4})\s*)?E(\d{1,7})\s*$`)
+	// numberedLineRE is iptv-epg.org's first line of an episode's
+	// description: "S26 E32 — Justice for Nikki", or the numbers alone.
+	numberedLineRE = regexp.MustCompile(`^S(\d{1,4}) E(\d{1,7})(?: — (\S.*))?$`)
+)
+
+// episodeNumbers reads an onscreen episode number; season is 0 when it
+// names none.
+func episodeNumbers(text string) (season, episode int, ok bool) {
+	m := episodeNumRE.FindStringSubmatch(text)
+	if m == nil {
+		return 0, 0, false
+	}
+	season, _ = strconv.Atoi(m[1])
+	episode, _ = strconv.Atoi(m[2])
+	return season, episode, episode > 0
+}
+
+// xmltvNS is season and episode as xmltv_ns, counted from zero: S26 E32 is
+// "25.31."; an unknown season is left empty.
+func xmltvNS(season, episode int) string {
+	var b strings.Builder
+	if season > 0 {
+		b.WriteString(strconv.Itoa(season - 1))
+	}
+	b.WriteString(".")
+	if episode > 0 {
+		b.WriteString(strconv.Itoa(episode - 1))
+	}
+	b.WriteString(".")
+	return b.String()
+}
+
+// onscreen is season and episode as Plex shows them: "S26E32", "E12".
+func onscreen(season, episode int) string {
+	if season > 0 {
+		return fmt.Sprintf("S%02dE%02d", season, episode)
+	}
+	return fmt.Sprintf("E%02d", episode)
+}
+
+// dropElements is elems without the elements named name that every keep
+// test (none: all of them) picks.
+func dropElements(elems []element, name string, pick ...func(element) bool) []element {
+	out := make([]element, 0, len(elems))
+	for _, el := range elems {
+		drop := el.name == name
+		for _, p := range pick {
+			drop = drop && p(el)
+		}
+		if !drop {
+			out = append(out, el)
+		}
+	}
+	return out
+}
+
+// replaceText rewrites the first element named name, keeping its
 // attributes.
-func replaceTitle(elems []element, title string) []element {
+func replaceText(elems []element, name, text string) []element {
 	out := make([]element, len(elems))
 	copy(out, elems)
 	for i, el := range out {
-		if el.name != "title" {
+		if el.name != name {
 			continue
 		}
 		var b bytes.Buffer
-		b.WriteString("<title")
+		b.WriteString("<" + name)
 		for _, a := range el.attrs {
 			b.WriteString(" " + a.Name.Local + `="`)
 			escape(&b, a.Value)
 			b.WriteString(`"`)
 		}
 		b.WriteString(">")
-		escape(&b, title)
-		b.WriteString("</title>")
-		out[i].raw, out[i].text = b.Bytes(), title
+		escape(&b, text)
+		b.WriteString("</" + name + ">")
+		out[i].raw, out[i].text = b.Bytes(), text
 		return out
 	}
 	return out
