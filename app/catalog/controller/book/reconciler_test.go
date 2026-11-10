@@ -467,10 +467,12 @@ func TestBookReconcilerRealQualityCutoffEvaluation(t *testing.T) {
 		got := waitForPhase(t, ctx, c, "book-cutoff-ns", bk.Name)
 		assert.Equal(t, catalogv1alpha1.BookPhaseImported, got.Status.Phase)
 		assert.True(t, got.Status.CutoffMet)
+		assert.Equal(t, commonv1.CutoffReasonCutoffMet, got.Status.CutoffReason)
 		assert.Equal(t, "MOBI", got.Status.FileFormat)
-		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.BookConditionCutoffMet)
-		require.NotNil(t, cond)
-		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+		require.NotNil(t, got.Status.FileQuality, "the file's frozen quality is written beside its format (design D5)")
+		assert.Equal(t, "MOBI", got.Status.FileQuality.Name)
+		assert.Nil(t, k8s.FindCondition(got.Status.Conditions, "CutoffMet"), "the CutoffMet condition was retired on 2026-11-10 (design D4)")
+		assert.Nil(t, k8s.FindCondition(got.Status.Conditions, "HasFile"), "the HasFile condition was retired on 2026-11-10 (design D4)")
 	})
 
 	t.Run("a file not in the profile's tiers is CutoffUnmet", func(t *testing.T) {
@@ -483,11 +485,11 @@ func TestBookReconcilerRealQualityCutoffEvaluation(t *testing.T) {
 		got := waitForPhase(t, ctx, c, "book-cutoff-ns", bk.Name)
 		assert.Equal(t, catalogv1alpha1.BookPhaseCutoffUnmet, got.Status.Phase)
 		assert.False(t, got.Status.CutoffMet)
+		assert.Equal(t, commonv1.CutoffReasonCutoffUnmet, got.Status.CutoffReason)
 		assert.Equal(t, "PDF", got.Status.FileFormat)
-		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.BookConditionCutoffMet)
-		require.NotNil(t, cond)
-		assert.Equal(t, metav1.ConditionFalse, cond.Status)
-		assert.Equal(t, "CutoffUnmet", cond.Reason)
+		require.NotNil(t, got.Status.FileQuality)
+		assert.Equal(t, "PDF", got.Status.FileQuality.Name)
+		assert.Nil(t, k8s.FindCondition(got.Status.Conditions, "CutoffMet"), "the CutoffMet condition was retired on 2026-11-10 (design D4)")
 	})
 }
 
@@ -532,7 +534,7 @@ func TestBookReconcilerFieldManagerNeverIncludesFanout(t *testing.T) {
 		Bus: authorCombinedBus{Publisher: fakePublisher{}, requester: requester},
 	}
 	areq := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-fanout-ns", Name: "author-fanout"}}
-	_, err := ar.Reconcile(ctx, areq)
+	_, err := ar.ReconcileItem(ctx, areq.NamespacedName)
 	require.NoError(t, err)
 
 	bookName := authorctrl.BookName("author-fanout", "OL45883W")
@@ -574,7 +576,7 @@ func TestBookReconcilerFieldManagerNeverIncludesFanout(t *testing.T) {
 
 	// A second author fan-out pass (re-listing the same work) must not
 	// create a second write on the Book either.
-	_, err = ar.Reconcile(ctx, areq)
+	_, err = ar.ReconcileItem(ctx, areq.NamespacedName)
 	require.NoError(t, err)
 	require.NoError(t, c.Get(ctx, breq.NamespacedName, &bk))
 	for _, want := range fieldManagerNames(bk.ManagedFields) {

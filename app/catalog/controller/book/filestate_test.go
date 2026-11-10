@@ -49,66 +49,61 @@ func ebookProfile() quality.Profile {
 
 func TestFileState(t *testing.T) {
 	t.Run("nil MediaFile is the zero value", func(t *testing.T) {
-		hasFile, fileRef, fileFormat, cutoffMet := book.FileState(nil, nil)
+		hasFile, fileRef, fileQuality, fileFormatScore, fileFormat, cutoffMet := book.FileState(nil, nil)
 		assert.False(t, hasFile)
 		assert.Nil(t, fileRef)
+		assert.Nil(t, fileQuality)
+		assert.Zero(t, fileFormatScore)
 		assert.Empty(t, fileFormat)
 		assert.False(t, cutoffMet)
 	})
 
-	t.Run("file present, no profile resolved yet: format from the path, cutoff conservatively false", func(t *testing.T) {
+	t.Run("file present, no profile resolved yet: the frozen quality is reported, cutoff conservatively false", func(t *testing.T) {
 		mf := &catalogv1alpha1.MediaFile{
 			ObjectMeta: metav1.ObjectMeta{Name: "the-hobbit-mf"},
-			Spec:       catalogv1alpha1.MediaFileSpec{Path: "/data/books/Tolkien/The Hobbit.epub"},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				Path:        "/data/books/Tolkien/The Hobbit.epub",
+				Quality:     commonv1.Quality{Name: "EPUB"},
+				FormatScore: 7,
+			},
 		}
-		hasFile, fileRef, fileFormat, cutoffMet := book.FileState(mf, nil)
+		hasFile, fileRef, fileQuality, fileFormatScore, fileFormat, cutoffMet := book.FileState(mf, nil)
 		assert.True(t, hasFile)
 		require.NotNil(t, fileRef)
 		assert.Equal(t, "the-hobbit-mf", *fileRef)
-		assert.Equal(t, "EPUB", fileFormat)
+		require.NotNil(t, fileQuality)
+		assert.Equal(t, "EPUB", fileQuality.Name, "the quality is the file's frozen spec.quality (design D5)")
+		assert.Equal(t, int32(7), fileFormatScore, "the score is the file's frozen spec.formatScore")
+		assert.Equal(t, "EPUB", fileFormat, "the format is the quality's name as the book ladder names it")
 		assert.False(t, cutoffMet, "no profile means conservatively not met, never a guessed true")
 	})
 
-	t.Run("format is read from the extension, case-insensitively, when spec.quality is unset", func(t *testing.T) {
+	t.Run("a file whose quality the import left unset has no format: the path's extension is no longer read", func(t *testing.T) {
 		mf := &catalogv1alpha1.MediaFile{Spec: catalogv1alpha1.MediaFileSpec{Path: "/data/books/Tolkien/lotr.AZW3"}}
-		_, _, fileFormat, _ := book.FileState(mf, nil)
-		assert.Equal(t, "AZW3", fileFormat)
-	})
-
-	t.Run("no extension yields an empty format when spec.quality is also unset", func(t *testing.T) {
-		mf := &catalogv1alpha1.MediaFile{Spec: catalogv1alpha1.MediaFileSpec{Path: "/data/books/Tolkien/noext"}}
-		_, _, fileFormat, _ := book.FileState(mf, nil)
-		assert.Empty(t, fileFormat)
-	})
-
-	t.Run("spec.quality.name wins over the path extension when both are present", func(t *testing.T) {
-		mf := &catalogv1alpha1.MediaFile{
-			Spec: catalogv1alpha1.MediaFileSpec{
-				Path:    "/data/books/Tolkien/the-hobbit.epub",
-				Quality: commonv1.Quality{Name: "MOBI"},
-			},
-		}
-		_, _, fileFormat, _ := book.FileState(mf, nil)
-		assert.Equal(t, "MOBI", fileFormat, "a real import's frozen quality name is authoritative over a re-derived extension")
+		hasFile, _, fileQuality, _, fileFormat, _ := book.FileState(mf, nil)
+		assert.True(t, hasFile)
+		require.NotNil(t, fileQuality)
+		assert.Empty(t, fileQuality.Name)
+		assert.Empty(t, fileFormat, "the import freezes the quality; nothing is invented from the name")
 	})
 
 	t.Run("a file at or better than the profile's cutoff meets it", func(t *testing.T) {
 		p := ebookProfile()
 		mf := &catalogv1alpha1.MediaFile{Spec: catalogv1alpha1.MediaFileSpec{Quality: commonv1.Quality{Name: "MOBI"}}}
-		_, _, fileFormat, cutoffMet := book.FileState(mf, &p)
+		_, _, _, _, fileFormat, cutoffMet := book.FileState(mf, &p)
 		assert.Equal(t, "MOBI", fileFormat)
 		assert.True(t, cutoffMet)
-
 		mfBetter := &catalogv1alpha1.MediaFile{Spec: catalogv1alpha1.MediaFileSpec{Quality: commonv1.Quality{Name: "AZW3"}}}
-		_, _, _, cutoffMetBetter := book.FileState(mfBetter, &p)
+		_, _, _, _, _, cutoffMetBetter := book.FileState(mfBetter, &p)
 		assert.True(t, cutoffMetBetter)
 	})
 
 	t.Run("a file below the profile's cutoff does not meet it", func(t *testing.T) {
 		p := ebookProfile()
 		mf := &catalogv1alpha1.MediaFile{Spec: catalogv1alpha1.MediaFileSpec{Quality: commonv1.Quality{Name: "PDF"}}}
-		_, _, fileFormat, cutoffMet := book.FileState(mf, &p)
+		_, _, fileQuality, _, fileFormat, cutoffMet := book.FileState(mf, &p)
 		assert.Equal(t, "PDF", fileFormat)
+		assert.Equal(t, "PDF", fileQuality.Name)
 		assert.False(t, cutoffMet)
 	})
 }

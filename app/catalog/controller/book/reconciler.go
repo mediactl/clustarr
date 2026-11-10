@@ -41,11 +41,11 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -92,12 +92,16 @@ const rootFolderRequeueAfter = time.Minute
 // (resolved through an owning Author when spec.authorRef is set, or directly
 // from the Book's own spec.rootFolderRef when standalone), and the file/
 // download rollup from its MediaFiles (the remediation loop wakes it when
-// one's rollup inputs move, loop spec §3.12) and Downloads. It is the sole
-// writer of status.phase, status.path, status.hasFile, status.fileRef,
-// status.fileFormat, status.cutoffMet and status.activeDownloadRef;
+// one's rollup inputs move, loop spec §3.12) and Downloads, its phase and
+// cutoffReason through rollup.LeafPhase (2026-11-10 design D4). It is the
+// sole writer of status.phase, status.cutoffReason, status.path,
+// status.hasFile, status.fileRef, status.fileFormat, status.fileQuality,
+// status.fileFormatScore, status.cutoffMet and status.activeDownloadRef;
 // status.metadata belongs to the metadata gateway (field manager
 // k8s.ManagerCatalogMetadata) and this reconciler never builds a
-// BookStatusApplyConfiguration that calls WithMetadata.
+// BookStatusApplyConfiguration that calls WithMetadata. It records a
+// Kubernetes Event on every phase edge and on the edge into each transient
+// failure (rollup.Reporter, design D14).
 //
 // Books has no Create/Delete verb in this reconciler's own RBAC marker: a
 // fanned-out Book is created by the author package's Reconciler, a
@@ -139,13 +143,31 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 // no owning Author, so mapAuthor simply never enqueues one.
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
-		{Object: &catalogv1alpha1.Book{}, Map: rollup.Self, Predicates: []predicate.Predicate{bookPredicate()}},
+		{Object: &catalogv1alpha1.Book{}, Map: rollup.Self, Predicates: []predicate.Predicate{bookPredicate()}, SkipInitial: r.idleAtStart},
 		{Object: &catalogv1alpha1.Author{}, Map: r.mapAuthor, Predicates: []predicate.Predicate{authorPredicate()}},
 		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 	}
 }
 
 var _ rollup.Item = (*Reconciler)(nil)
+
+// idleAtStart is the Book watch's SkipInitial (2026-11-10 design D14, the
+// Episode's of 2026-10-28): a Book whose pass at a manager's start would
+// change nothing -- unmonitored, or imported, with its metadata fresh and
+// nothing in flight (rollup.LeafIdleAtStart) -- is left to its watches.
+func (r *Reconciler) idleAtStart(ctx context.Context, o client.Object) bool {
+	bk, ok := o.(*catalogv1alpha1.Book)
+	if !ok {
+		return false
+	}
+	monitored, err := itemread.Monitored(ctx, r.Client, bk)
+	if err != nil {
+		return false
+	}
+	return rollup.LeafIdleAtStart(IdleInputs(bk, monitored, time.Now().UTC()))
+}
+
+func (r *Reconciler) reporter() rollup.Reporter { return rollup.Reporter{Recorder: r.Recorder} }
 
 // bookPredicate wakes this controller on a spec change (GenerationChanged),
 // on the metadata gateway's own write (StatusFieldChanged scoped to
@@ -342,21 +364,31 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, bk *catalogv1alpha1.Bo
 
 // reconcileNormal mirrors Movie's structure: metadata staleness decided and
 // a MetadataTask published when needed, then root-folder/author context
-// resolved and path computed, then the MediaFile/Download rollup folded in.
+// resolved and path computed, then the MediaFile/Download rollup folded in
+// and the phase decided (PhaseInputs over rollup.LeafPhase).
 //
-// Unlike Movie, path/phase/file-rollup computation does NOT wait for
-// status.metadata to be populated first: BuildFolder(MediaKindBook, ...)
-// renders only "{Author Name}" (path.go's own doc comment -- there is no
-// book-title segment in a Book's folder, "no separate book folder"), so
-// nothing about this Book's own path needs its own metadata, only its
-// resolved author name and root folder. Gating on metaReady the way Movie
-// gates on its own Title/Year would only delay a Book's phase/file rollup
-// for no benefit BookPhase's own enum needs (it has no Pending bucket to
-// hold that wait in, unlike MoviePhase).
+// Path and the file rollup do NOT wait for status.metadata to be populated
+// first: BuildFolder(MediaKindBook, ...) renders only "{Author Name}"
+// (path.go's own doc comment -- there is no book-title segment in a Book's
+// folder, "no separate book folder"), so nothing about this Book's own path
+// needs its own metadata, only its resolved author name and root folder. The
+// phase does wait, as Movie's: a Book without fresh metadata reads Pending
+// (2026-11-10 design D4), since it cannot be searched until the gateway has
+// named it.
 func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Book) (ctrl.Result, error) {
 	now := time.Now().UTC()
-	monitored := ptr.Deref(bk.Spec.Monitored, true)
-	conditions := append([]metav1.Condition(nil), bk.Status.Conditions...)
+	// The Book's own flag, and its Author's once design W1.3 lands in
+	// itemread.Monitored (D3).
+	monitored, err := itemread.Monitored(ctx, r.Client, bk)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// Ready, MetadataReady, QueueFull and DeadLettered are the Book's
+	// conditions; the two retired on 2026-11-10 (design D4: HasFile and
+	// CutoffMet, which status.hasFile and status.cutoffReason say) are
+	// dropped from a Book still carrying them, since an apply that copied
+	// them from the cache would keep them for good.
+	conditions := rollup.DropRetiredLeafConditions(bk.Status.Conditions)
 	// The DLQ projector's clustarr.io/dead-lettered annotation becomes the
 	// DeadLettered condition here, on the one slice every status apply below
 	// declares -- early returns included -- so no apply releases it.
@@ -370,18 +402,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 
 	statusAC := catalogac.BookStatus().WithObservedGeneration(bk.Generation)
 
-	stale := bk.Status.Metadata == nil
-	if !stale {
-		ttl := metadata.RefreshTTL(commonv1.MediaKindBook, "", bk.Status.Metadata.RefreshedAt.Time)
-		stale = now.Sub(bk.Status.Metadata.RefreshedAt.Time) >= ttl
-	}
+	// A stale document is refreshed and the Book reads Pending meanwhile; a
+	// recent one the gateway wrote before it learned a field is refreshed
+	// once, at once, and the Book stays ready meanwhile (MetadataStale).
+	stale, outdated := MetadataStale(bk, now)
 	metaReady := !stale
-	// A recent document the gateway wrote before it learned a field is
-	// refreshed once, at once, and the item stays ready meanwhile: every
-	// item in an upgraded library would otherwise drop to Pending together
-	// (Movie's rule; the 2026-11-10 design D8 gives every kind a
-	// schemaVersion).
-	outdated := !stale && bk.Status.Metadata.SchemaVersion < metadata.SchemaVersion
 
 	if stale || outdated {
 		// The task carries what the refresh asks for -- the item and its
@@ -398,6 +423,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 			_, pubErr := r.Bus.Publish(ctx, subject, env)
 			if pubErr != nil {
 				if errors.Is(pubErr, events.ErrQueueFull) {
+					r.reporter().WarnEdge(bk, bk.Status.Conditions, conditionQueueFull, metav1.ConditionTrue, "QueueFull", "metadata work queue is full; retrying the refresh in a minute")
 					k8s.MarkTrue(bk, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
 					statusAC = reassertKnownStatus(statusAC, bk)
 					statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
@@ -421,6 +447,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 		return ctrl.Result{}, err
 	}
 	if problem != "" {
+		r.reporter().WarnEdge(bk, bk.Status.Conditions, k8s.ConditionReady, metav1.ConditionFalse, "Unresolved", "%s", problem)
 		k8s.MarkFalse(bk, &conditions, k8s.ConditionReady, "Unresolved", "%s", problem)
 		statusAC = reassertKnownStatus(statusAC, bk)
 		statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
@@ -460,7 +487,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 		logging.FromContext(ctx).Warn("quality profile unresolved; cutoff not evaluated",
 			"book", bk.Name, "namespace", bk.Namespace, "problem", profileProblem)
 	}
-	hasFile, fileRef, fileFormat, cutoffMet := FileState(mf, profile)
+	hasFile, fileRef, fileQuality, fileFormatScore, fileFormat, fileCutoffMet := FileState(mf, profile)
 	// Announced before the apply that records the new fileRef, so a failed
 	// apply re-announces the same edge under the same envelope id
 	// (rollup.MediaFileEvent) rather than losing it.
@@ -469,19 +496,32 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 	}
 
 	dl := activeDownload(ctx, bk)
-	overlayPhase, active := DownloadOverlay(dl)
+	overlayPhase, active := rollup.LeafOverlay(dl)
 
-	phase := Phase(monitored, hasFile, cutoffMet, bk.Status.PendingGrab != nil)
+	in := PhaseInputs(bk, monitored, metaReady, hasFile, fileCutoffMet, profile != nil, now)
+	phase, reason := rollup.LeafPhase(in)
 	if overlayPhase != "" {
 		phase = overlayPhase
+	}
+	cutoffMet := rollup.LeafCutoffMet(in)
+	// On the edge into an unresolved profile, never while it persists: the
+	// parse errors are reported authoritatively on the QualityProfile, and
+	// the cutoffReason carries the steady state (Movie's rule).
+	if reason == commonv1.CutoffReasonProfileUnresolved && bk.Status.CutoffReason != reason {
+		r.reporter().Warn(bk, commonv1.CutoffReasonProfileUnresolved, "cutoff not evaluated: %s", profileProblem)
 	}
 
 	statusAC = statusAC.
 		WithPhase(phase).
+		WithCutoffReason(reason).
 		WithHasFile(hasFile).
-		WithCutoffMet(cutoffMet)
+		WithCutoffMet(cutoffMet).
+		WithFileFormatScore(fileFormatScore)
 	if fileRef != nil {
 		statusAC = statusAC.WithFileRef(*fileRef)
+	}
+	if fileQuality != nil {
+		statusAC = statusAC.WithFileQuality(*fileQuality)
 	}
 	if fileFormat != "" {
 		statusAC = statusAC.WithFileFormat(fileFormat)
@@ -494,31 +534,14 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 	// it under SSA, and since R-5 this manager is its only owner, so the
 	// release removes it.
 
-	if hasFile {
-		k8s.MarkTrue(bk, &conditions, catalogv1alpha1.BookConditionHasFile, "HasFile", "backed by MediaFile %s", ptr.Deref(fileRef, ""))
-	} else {
-		k8s.MarkFalse(bk, &conditions, catalogv1alpha1.BookConditionHasFile, k8s.ReasonPending, "no MediaFile backs this book")
-	}
-	switch {
-	case !hasFile:
-		k8s.MarkFalse(bk, &conditions, catalogv1alpha1.BookConditionCutoffMet, k8s.ReasonPending, "no file to rank against the profile cutoff")
-	case profile == nil:
-		// The cutoff was NOT evaluated -- see movie.Reconciler's identical
-		// branch for why this gets a reason of its own rather than reading
-		// as a genuine CutoffUnmet.
-		k8s.MarkFalse(bk, &conditions, catalogv1alpha1.BookConditionCutoffMet, "ProfileUnresolved", "cutoff not evaluated: %s", profileProblem)
-	case cutoffMet:
-		k8s.MarkTrue(bk, &conditions, catalogv1alpha1.BookConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
-	default:
-		k8s.MarkFalse(bk, &conditions, catalogv1alpha1.BookConditionCutoffMet, "CutoffUnmet", "file does not meet the profile cutoff")
-	}
-
 	k8s.MarkReady(bk, &conditions, metaReady, k8s.ReasonReconciled, "phase=%s", phase)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
 	if conflicted, err := itemstatus.Apply(ctx, r.Client, bk, catalogac.Book(bk.Name, bk.Namespace).WithStatus(withEntries(ctx, statusAC, bk))); err != nil || conflicted {
 		return itemstatus.Requeue(conflicted), err
 	}
+	// After the apply, so a phase that never landed is never announced.
+	r.reporter().PhaseEdge(bk, string(bk.Status.Phase), string(phase))
 	return ctrl.Result{}, nil
 }
 
@@ -623,6 +646,9 @@ func reassertKnownStatus(statusAC *catalogac.BookStatusApplyConfiguration, bk *c
 	if bk.Status.Phase != "" {
 		statusAC = statusAC.WithPhase(bk.Status.Phase)
 	}
+	if bk.Status.CutoffReason != "" {
+		statusAC = statusAC.WithCutoffReason(bk.Status.CutoffReason)
+	}
 	if bk.Status.Path != "" {
 		statusAC = statusAC.WithPath(bk.Status.Path)
 	}
@@ -633,6 +659,10 @@ func reassertKnownStatus(statusAC *catalogac.BookStatusApplyConfiguration, bk *c
 	if bk.Status.FileFormat != "" {
 		statusAC = statusAC.WithFileFormat(bk.Status.FileFormat)
 	}
+	if bk.Status.FileQuality != nil {
+		statusAC = statusAC.WithFileQuality(*bk.Status.FileQuality)
+	}
+	statusAC = statusAC.WithFileFormatScore(bk.Status.FileFormatScore)
 	statusAC = statusAC.WithCutoffMet(bk.Status.CutoffMet)
 	if bk.Status.ActiveDownloadRef != nil {
 		statusAC = statusAC.WithActiveDownloadRef(*bk.Status.ActiveDownloadRef)

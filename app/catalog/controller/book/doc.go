@@ -15,8 +15,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package book implements the Book controller: phase, file state and
-// download overlay as pure functions, and a thin Reconciler around them,
+// Package book implements the Book controller: the Book's view of the shared
+// leaf phase (PhaseInputs over rollup.LeafPhase, 2026-11-10 design D4), file
+// state and the start-time idle rule (IdleInputs, design D14) as pure
+// functions, and a thin Reconciler around them,
 // covering BOTH shapes book_types.go:159-161 allows -- a Book fanned out
 // from an Author (spec.authorRef set, created by the author package's
 // Reconciler) and a standalone Book (spec.authorRef nil, created directly by
@@ -26,8 +28,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // which is the only place the two shapes genuinely differ (see
 // resolveContext's own doc comment).
 //
-// This reconciler is the sole writer of status.phase, status.path,
-// status.hasFile, status.fileRef, status.fileFormat, status.cutoffMet and
+// This reconciler is the sole writer of status.phase, status.cutoffReason,
+// status.path, status.hasFile, status.fileRef, status.fileFormat,
+// status.fileQuality, status.fileFormatScore, status.cutoffMet and
 // status.activeDownloadRef; status.metadata belongs to the metadata gateway
 // (field manager k8s.ManagerCatalogMetadata) and this reconciler never
 // builds a BookStatusApplyConfiguration that calls WithMetadata. The
@@ -50,10 +53,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // in resolveContext) and ranks the backing MediaFile's spec.quality against
 // it via rollup.FileState -- the same call Movie/Episode/Audiobook make --
 // exactly as G2-3's Audiobook controller does (app/catalog/controller/
-// audiobook/reconciler.go's resolveProfile, filestate.go). BookStatus has
-// no FileQuality/FileFormatScore leaf to store the resolved Quality in
-// (unlike Movie/Episode/Audiobook), only FileFormat (a string); filestate.go
-// explains how that string is derived. CutoffMet is a genuine ranking
-// verdict again, not a hasFile stand-in, so
-// catalogv1alpha1.BookPhaseCutoffUnmet is reachable exactly as designed.
+// audiobook/reconciler.go's resolveProfile, filestate.go). Since the
+// 2026-11-10 design (D5) BookStatus carries the file's frozen fileQuality
+// and fileFormatScore beside fileFormat, the quality's name as the book
+// ladder names it (filestate.go). CutoffMet is a genuine ranking verdict,
+// not a hasFile stand-in, so catalogv1alpha1.BookPhaseCutoffUnmet is
+// reachable exactly as designed, and a file no profile judged reads
+// CutoffUnevaluated with cutoffReason ProfileUnresolved.
 package book
