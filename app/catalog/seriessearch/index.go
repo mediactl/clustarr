@@ -29,7 +29,8 @@ import (
 )
 
 // IndexSearchesBySeries indexes a Search whose spec.PlannedBySeries() by
-// spec.mediaRef.name.
+// spec.mediaRef.name: a Series' planned series or season Searches and a
+// Comic's planned volume Searches alike (the name predates the Comic's).
 const IndexSearchesBySeries = "remediation.search.series"
 
 // RegisterIndexes registers IndexSearchesBySeries on idx, once per process
@@ -50,8 +51,9 @@ func seriesOf(o client.Object) []string {
 	return []string{s.Spec.MediaRef.Name}
 }
 
-// Of lists ns's planned Searches naming series, oldest first (by creation,
-// then name).
+// Of lists ns's planned Searches naming the container series -- a Series
+// or a Comic, by name; the caller filters by spec.mediaRef.kind -- oldest
+// first (by creation, then name).
 func Of(ctx context.Context, r client.Reader, ns, series string) ([]catalogv1alpha1.Search, error) {
 	var list catalogv1alpha1.SearchList
 	if err := r.List(ctx, &list, client.InNamespace(ns), client.MatchingFields{IndexSearchesBySeries: series}); err != nil {

@@ -194,9 +194,11 @@ var (
 
 	// SeasonSearchesTotal counts the seasons of a person's series or season
 	// search, or of the automatic season search, that reached a final phase
-	// (Wave S), by trigger (series, season, interactive, automatic) and
-	// outcome (answered, skipped, failed, timedOut, paced, canceled). No
-	// label names a series.
+	// (Wave S), by trigger (series, season, interactive, automatic; and
+	// since 2026-11-10 volume, a comic's planned volume search, the one
+	// season that is the whole volume, design D10) and outcome (answered,
+	// skipped, failed, timedOut, paced, canceled). No label names a series
+	// or a comic.
 	SeasonSearchesTotal = newCounterVec(
 		"clustarr_season_searches_total",
 		"Season searches that reached a final phase, by trigger and outcome.",

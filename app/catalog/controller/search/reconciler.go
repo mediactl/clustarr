@@ -102,7 +102,8 @@ const queueFullRequeue = time.Minute
 // Reconciler reconciles Search. It is the sole writer of Search's
 // status.phase, status.conditions, status.observedGeneration,
 // status.startedAt and status.grabbed -- and, on a planned series Search
-// (Wave S), status.seasons and status.finishedAt.
+// (Wave S) or a comic's planned volume Search (2026-11-10 design D10),
+// status.seasons and status.finishedAt.
 //
 // status.results, status.indexerOutcomes and status.finishedAt split by
 // mode. For a mediaRef-mode Search the search worker owns them, under
@@ -200,9 +201,12 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// A container Search owns its children (container.go): each
 		// child's change reconciles the parent, which counts them.
 		Owns(&catalogv1alpha1.Search{}).
-		// A planned series Search mirrors its Series' season search
-		// (series.go): the Series' change reconciles its Searches.
-		Watches(&catalogv1alpha1.Series{}, handler.EnqueueRequestsFromMapFunc(r.searchesOfSeries)).
+		// A planned Search mirrors its container's season search
+		// (series.go): a Series' change reconciles its Searches, and since
+		// 2026-11-10 (design D10) a Comic's its planned volume Searches,
+		// which mirror status.volumeSearch the same way.
+		Watches(&catalogv1alpha1.Series{}, handler.EnqueueRequestsFromMapFunc(r.searchesOfContainer)).
+		Watches(&catalogv1alpha1.Comic{}, handler.EnqueueRequestsFromMapFunc(r.searchesOfContainer)).
 		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute})
 	if r.RecordsBus != nil {
 		// The search agent's answers (ADR-0019 §7.4).
@@ -250,9 +254,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.deleteExpired(ctx, s)
 	case s.Spec.PlannedBySeries():
 		// A series or season search with grabBest: the Series plans it,
-		// and this Search mirrors the Series' season search (Wave S).
+		// and this Search mirrors the Series' season search (Wave S); a
+		// comic's volume search with grabBest the same, planned by the
+		// Comic (2026-11-10 design D10).
 		return r.reconcileSeriesSearch(ctx, s)
-	case s.Spec.MediaRef != nil && catalogv1alpha1.ContainerKind(s.Spec.MediaRef.Kind):
+	case isContainer(s):
+		// An author's, artist's or comic's search fans out per child. A
+		// comic's interactive volume search (spec.season, no grabBest) is
+		// not one (SearchSpec.FansOut): it falls through to startSearch as
+		// a series' interactive season search does, one season task of
+		// the Comic, its results its own.
 		return r.reconcileContainer(ctx, s)
 	case s.Status.Phase == "" && s.Spec.Query != nil:
 		return r.runQuery(ctx, s)
@@ -309,9 +320,10 @@ type statusUpdate struct {
 }
 
 // isContainer reports whether s searches an author's, artist's or comic's
-// children rather than one item.
+// children rather than one item (SearchSpec.FansOut): a comic's volume
+// search, spec.season set, is the Comic's own and never fans out.
 func isContainer(s *catalogv1alpha1.Search) bool {
-	return s.Spec.MediaRef != nil && catalogv1alpha1.ContainerKind(s.Spec.MediaRef.Kind)
+	return s.Spec.FansOut()
 }
 
 func newStatusUpdate(s *catalogv1alpha1.Search) *statusUpdate {

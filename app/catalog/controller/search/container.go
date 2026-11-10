@@ -30,18 +30,20 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // The field indexes a container's children are listed through. They are
 // registered by the author, artist and comic controllers, which run in the
-// same manager as this one (app/catalog.setupControllers); the keys are
-// restated here because those packages keep theirs unexported.
+// same manager as this one (app/catalog.setupControllers); the author's
+// and artist's keys are restated here because those packages keep theirs
+// unexported, the comic's is its own exported one.
 const (
 	bookByAuthorRefIndex  = ".spec.authorRef"
 	albumByArtistRefIndex = ".spec.artistRef"
-	issueByComicRefIndex  = ".spec.comicRef"
+	issueByComicRefIndex  = comic.IssueByComicRefIndex
 )
 
 // reconcileContainer runs a Search on an author, artist or comic
