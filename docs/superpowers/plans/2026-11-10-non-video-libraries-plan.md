@@ -297,9 +297,11 @@ lone file; duplicates and misses held for a person -- `fileimport.
 attributeTrack`, `FrozenFileQualityProbe`), the audiobook part order
 (`partIndexOf` into `FrozenFields.PartIndex`, carried to
 `MediaFileSpec.partIndex`), the probe's tags and duration on
-`mediainfo.AudioProbe`. Left: the rescan's attribution of files already in
-an album folder (`rescan/nonvideo.go`, the same `attributeTrack`), the book
-quality freeze, `PageCount` into the inspect for comics and PDFs.
+`mediainfo.AudioProbe`; the rescan attributes an album folder's files the
+same way and orders audiobook parts; the probe worker answers a comic
+archive or PDF with its page count. Left: the book quality freeze on the
+reconciler side (W1.2 reads `fileQuality`; the import freezes it already),
+and the integration tests of the inspect's attribution.
 
 ### W3.3 pkg/nfo, the import-nfo handler, the nfo stage (D13, §8)
 
