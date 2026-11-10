@@ -309,6 +309,7 @@ func (t *Tuner) render(p *provider) {
 		p.storedGuideHash = wholeHash
 	}
 	p.lineup, p.lineupChans, p.guideFrom = entries, lineupChans, from
+	p.candidates = cands
 	p.guide.g.Programmes = nil // the store's copy serves the next render
 	p.ranges = nil
 	p.streams, p.languages, p.logoSources = streams, languages, logoSources

@@ -1302,3 +1302,39 @@ func TestAnM3UProviderWithoutAGuideURLHasDummyGuides(t *testing.T) {
 	s, _ := h.tn.Snapshot(key)
 	assert.Zero(t, s.Tuners-1, "spec.tuners unset and no account: one tuner")
 }
+
+// TestEntriesAreTheAdmittedCandidatesAfterTheFirstFetch: Entries is false
+// before the playlist is fetched, then the entries the filters admit, as a
+// copy the caller may change.
+func TestEntriesAreTheAdmittedCandidatesAfterTheFirstFetch(t *testing.T) {
+	p := newProvider(t)
+	h := start(t, newStore(t), config(p.srv.URL))
+	h.fetched(t)
+	var got []m3u.Entry
+	require.Eventually(t, func() bool {
+		var ok bool
+		got, ok = h.tn.Entries(key)
+		return ok && len(got) > 0
+	}, 5*time.Second, 10*time.Millisecond)
+	var names []string
+	for _, e := range got {
+		names = append(names, e.Name)
+		assert.Contains(t, []string{"UK | Entertainment", "UK | News", "Sports", "Misc"}, e.Group)
+	}
+	assert.Equal(t, []string{"BBC One HD", "News, Live", "Sports 1", "No Attributes"}, names)
+	assert.Contains(t, names, "News, Live")
+	assert.Contains(t, names, "Sports 1")
+	got[0].Name = "changed"
+	again, ok := h.tn.Entries(key)
+	require.True(t, ok)
+	assert.NotEqual(t, "changed", again[0].Name)
+	_, ok = h.tn.Entries(types.NamespacedName{Namespace: "x", Name: "none"})
+	assert.False(t, ok)
+}
+
+func TestEntriesAreNotThereBeforeTheFirstFetch(t *testing.T) {
+	tn := tuner.New(tuner.Options{Store: newStore(t), HTTP: http.DefaultClient, Now: func() time.Time { return now }, Debounce: time.Millisecond})
+	tn.Apply(config("http://127.0.0.1:1"))
+	_, ok := tn.Entries(key)
+	assert.False(t, ok)
+}

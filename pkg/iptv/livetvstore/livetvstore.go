@@ -31,6 +31,8 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/mediactl/clustarr/pkg/iptv/lineup"
 )
 
 // GuideName is the name of a provider's one guide: its spec.guideURL's, or
@@ -74,6 +76,28 @@ func GuideBlockObject(key types.NamespacedName, deviceID string) string {
 // compact form of its XEPG guide the ui's TV Guide reads.
 func GuideIndexObject(key types.NamespacedName) string {
 	return "guide-index/" + key.Namespace + "/" + key.Name
+}
+
+// GridObject is the object holding one Plex lineup grid, a lineup's
+// stations' airings for one gridKey, as the tuner's fetch loop stores it.
+func GridObject(key types.NamespacedName, gridKey string) string {
+	return "grid/" + key.Namespace + "/" + key.Name + "/" + gridKey
+}
+
+// LineupPlanObject is the object holding a provider's last lineup plan, which
+// the provider controller reads to apply the lineup's channels.
+func LineupPlanObject(key types.NamespacedName) string {
+	return "lineup-plan/" + key.Namespace + "/" + key.Name
+}
+
+// LineupPlan is the stored lineup plan: when it was made, whether it was a
+// dry run, why planning failed (Error, the last good Plan kept), and the
+// plan itself.
+type LineupPlan struct {
+	PlannedAt time.Time
+	DryRun    bool
+	Error     string
+	lineup.Plan
 }
 
 // PlexLineupObject is a provider's Plex lineup (plexguide.Lineup, JSON), so

@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/mediactl/clustarr/pkg/iptv/lineup"
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 )
 
@@ -60,4 +61,25 @@ func TestDecodeRefusesAnObjectOverItsCap(t *testing.T) {
 	var out map[string]string
 	err := livetvstore.DecodeLimit(bytes.NewReader(b.Bytes()), &out, 1024)
 	require.ErrorIs(t, err, livetvstore.ErrTooLarge)
+}
+
+func TestGridObject(t *testing.T) {
+	assert.Equal(t, "grid/media/argon-tv/abc123", livetvstore.GridObject(key, "abc123"))
+}
+
+func TestLineupPlanObjectAndRoundTrip(t *testing.T) {
+	assert.Equal(t, "lineup-plan/media/argon-tv", livetvstore.LineupPlanObject(key))
+	in := livetvstore.LineupPlan{
+		PlannedAt: time.Date(2026, 11, 10, 1, 2, 3, 0, time.UTC), DryRun: true, Error: "boom",
+		Plan: lineup.Plan{
+			Channels:   []lineup.Assignment{{Key: "t:espn", Category: "Sports", Name: "ESPN", Number: "5001"}},
+			Categories: []lineup.Category{{Name: "Sports"}},
+			Dropped:    []lineup.Dropped{{Key: "t:x", Reason: "excluded"}},
+		},
+	}
+	var b bytes.Buffer
+	require.NoError(t, livetvstore.Encode(&b, in))
+	var out livetvstore.LineupPlan
+	require.NoError(t, livetvstore.Decode(&b, &out))
+	assert.Equal(t, in, out)
 }

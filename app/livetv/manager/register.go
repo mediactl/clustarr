@@ -23,6 +23,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -42,6 +43,7 @@ import (
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -91,7 +93,10 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 	providerEvents := make(chan event.GenericEvent, notifyBuffer)
 	channelEvents := make(chan event.GenericEvent, notifyBuffer)
-	notify, notifyTuners := notifiers(providerEvents, channelEvents)
+	// lineupEvents is kept for the lineup controller (Task 7); nothing reads
+	// it yet, and a full buffer drops a notice like the others.
+	lineupEvents := make(chan event.GenericEvent, notifyBuffer)
+	notify, notifyTuners := notifiers(providerEvents, channelEvents, lineupEvents)
 	tn := tuner.New(tuner.Options{
 		BindAddress: o.BindAddress,
 		Store:       bus.ObjectStore(events.BucketLiveTV),
@@ -126,6 +131,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	provider := &iptvprovider.Reconciler{
 		Client: mgr.GetClient(), SecretReader: mgr.GetAPIReader(), Tuner: tn,
 		Address: ServiceAddress(o.Service, o.Namespace), Events: providerEvents,
+		PlanReader: readLineupPlan(bus.ObjectStore(events.BucketLiveTV)),
 	}
 	if err := provider.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("livetv: iptvprovider: %w", err)
@@ -156,10 +162,10 @@ func transport(headers time.Duration) *http.Transport {
 }
 
 // notifiers are the tuner's two notices: a snapshot change wakes both
-// controllers; a change in tuners in use, which only the provider's status
+// controllers and the lineup channel; a change in tuners in use, which only the provider's status
 // shows, wakes the provider controller alone. A full channel drops a notice:
 // the next change notifies again.
-func notifiers(providers, channels chan event.GenericEvent) (notify, notifyTuners func(types.NamespacedName)) {
+func notifiers(providers, channels, lineups chan event.GenericEvent) (notify, notifyTuners func(types.NamespacedName)) {
 	send := func(key types.NamespacedName, to ...chan event.GenericEvent) {
 		ev := event.GenericEvent{Object: &clustarrv1.IPTVProvider{ObjectMeta: metav1.ObjectMeta{Namespace: key.Namespace, Name: key.Name}}}
 		for _, ch := range to {
@@ -169,7 +175,32 @@ func notifiers(providers, channels chan event.GenericEvent) (notify, notifyTuner
 			}
 		}
 	}
-	notify = func(key types.NamespacedName) { send(key, providers, channels) }
+	notify = func(key types.NamespacedName) { send(key, providers, channels, lineups) }
 	notifyTuners = func(key types.NamespacedName) { send(key, providers) }
 	return notify, notifyTuners
+}
+
+// planReadTimeout bounds a lineup plan's read from the store.
+const planReadTimeout = 10 * time.Second
+
+// readLineupPlan reads a provider's stored lineup plan; a missing object is
+// (nil, false, nil).
+func readLineupPlan(store events.ObjectStore) func(ctx context.Context, key types.NamespacedName) (*livetvstore.LineupPlan, bool, error) {
+	return func(ctx context.Context, key types.NamespacedName) (*livetvstore.LineupPlan, bool, error) {
+		ctx, cancel := context.WithTimeout(ctx, planReadTimeout)
+		defer cancel()
+		_, rc, err := store.Get(ctx, livetvstore.LineupPlanObject(key))
+		if errors.Is(err, events.ErrObjectNotFound) {
+			return nil, false, nil
+		}
+		if err != nil {
+			return nil, false, fmt.Errorf("livetv: read lineup plan: %w", err)
+		}
+		defer func() { _ = rc.Close() }()
+		var plan livetvstore.LineupPlan
+		if err := livetvstore.Decode(rc, &plan); err != nil {
+			return nil, false, fmt.Errorf("livetv: decode lineup plan: %w", err)
+		}
+		return &plan, true, nil
+	}
 }

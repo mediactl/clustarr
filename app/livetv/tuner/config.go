@@ -76,11 +76,17 @@ type Config struct {
 	UserAgent string
 	// Every is how often the playlist, the guide and the account are fetched
 	// again, and how old a cached one may be at a restart.
-	Every    time.Duration
-	Filters  []filter.Rule
-	Channels []ChannelConfig
-	Buffer   int
-	Linger   time.Duration
+	Every   time.Duration
+	Filters []filter.Rule
+	// Trim are the strings the lineup planner trims from channel names
+	// (spec.lineup); unused until the lineup is planned in the tuner.
+	Trim []string
+	// GuideSources is spec.guideSources, its token read; nil fetches no Plex
+	// grids.
+	GuideSources *GuideSourcesConfig
+	Channels     []ChannelConfig
+	Buffer       int
+	Linger       time.Duration
 	// Language is the language, as a BCP-47 or ISO 639-2 code, the relay
 	// declares for an audio or subtitle track whose program map names none
 	// or an undetermined one; empty declares nothing.
@@ -115,6 +121,8 @@ type BlockConfig struct {
 	// block lists only its paired channels, serves plexmap.json and no
 	// guide. Empty for a block on the XMLTV guide.
 	Lineup string
+	// Category is the lineup category the block holds (status.blocks[].category).
+	Category string
 }
 
 // DeviceEndpoint is the path a block's device is served under on the
@@ -137,7 +145,10 @@ type ChannelConfig struct {
 	// status records, which the next pairing keeps (plexguide.Prev).
 	PlexStation string
 	PlexOff     bool
-	PlexPrev    plexguide.Prev
+	// Category is the channel's lineup category (spec.category, else the
+	// plan's); empty is none.
+	Category string
+	PlexPrev plexguide.Prev
 }
 
 // m3u is an M3U provider: a playlist URL, no panel and no account.
@@ -209,6 +220,28 @@ type Snapshot struct {
 	// Plex is the Plex lineup the tuner holds, for a provider with
 	// Config.Plex.
 	Plex PlexState
+	// GuideSources is the Plex grid fetch loop's state.
+	GuideSources GuideSourcesState
+}
+
+// GuideSourcesConfig is spec.guideSources with its token read: the Plex
+// lineups whose grids the tuner fetches, the token (TokenError why there is
+// none), how often, and the requests a minute.
+type GuideSourcesConfig struct {
+	Lineups    []string
+	Token      string
+	TokenError string
+	Refresh    time.Duration
+	Rate       int
+}
+
+// GuideSourcesState is what the grid fetch loop holds: lineups, stations and
+// grids counted, when it last fetched, the rate limit's end, and the last
+// failure.
+type GuideSourcesState struct {
+	Lineups, Stations, Grids int
+	FetchedAt, HoldUntil     time.Time
+	Error                    string
 }
 
 // PlexState is the Plex lineup held: Loaded once one was fetched or read

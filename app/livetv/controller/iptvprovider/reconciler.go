@@ -36,6 +36,7 @@ import (
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/index"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 )
 
 // Tuner is what the reconciler needs of app/livetv/tuner.
@@ -55,6 +56,9 @@ type Reconciler struct {
 	// Address is the livetv Service's cluster FQDN and port, which each
 	// block's Path is under: Plex is given http://<Address><Path>.
 	Address string
+	// PlanReader reads the provider's stored lineup plan; ok is false when
+	// none is stored yet.
+	PlanReader func(ctx context.Context, key types.NamespacedName) (*livetvstore.LineupPlan, bool, error)
 	// Events carries the tuner's "snapshot changed" notices.
 	Events <-chan event.GenericEvent
 	// Now is the clock for Lease expiry; time.Now when nil.

@@ -26,17 +26,20 @@ import (
 )
 
 func TestATunerCountNoticeReachesOnlyTheProviderController(t *testing.T) {
-	providers, channels := make(chan event.GenericEvent, 4), make(chan event.GenericEvent, 4)
-	notify, notifyTuners := notifiers(providers, channels)
+	providers, channels, lineups := make(chan event.GenericEvent, 4), make(chan event.GenericEvent, 4), make(chan event.GenericEvent, 4)
+	notify, notifyTuners := notifiers(providers, channels, lineups)
 	key := types.NamespacedName{Namespace: "media", Name: "news"}
 
 	notify(key)
 	assert.Len(t, providers, 1)
 	assert.Len(t, channels, 1, "a snapshot change wakes the channels")
+	assert.Len(t, lineups, 1, "a snapshot change wakes the lineup")
 	<-providers
 	<-channels
+	<-lineups
 
 	notifyTuners(key)
 	assert.Len(t, providers, 1, "the provider's status shows the tuners in use")
 	assert.Empty(t, channels, "no channel's status does")
+	assert.Empty(t, lineups)
 }

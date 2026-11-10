@@ -123,7 +123,10 @@ type provider struct {
 	relay   *relay.Relay
 	removed bool
 
-	entries         []m3u.Entry
+	entries []m3u.Entry
+	// candidates are the entries some filter rule admits, as the last render
+	// computed them (Entries).
+	candidates      []m3u.Entry
 	playlist        PlaylistState
 	playlistFetched bool
 	playlistDue     bool
@@ -420,6 +423,22 @@ func (t *Tuner) Snapshot(key types.NamespacedName) (Snapshot, bool) {
 	return s, true
 }
 
+// Entries are the playlist entries the provider's filters admit, as the last
+// render computed them; ok is false before the first playlist fetch. The
+// slice is the caller's own.
+func (t *Tuner) Entries(key types.NamespacedName) ([]m3u.Entry, bool) {
+	p := t.lookup(key)
+	if p == nil {
+		return nil, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.playlistFetched {
+		return nil, false
+	}
+	return slices.Clone(p.candidates), true
+}
+
 // ChannelView is one channel as the tuner last rendered it.
 type ChannelView struct {
 	State ChannelState
@@ -600,6 +619,12 @@ func cloneConfig(c Config) Config {
 	c.Filters = slices.Clone(c.Filters)
 	for i := range c.Filters {
 		c.Filters[i].Include, c.Filters[i].Exclude = slices.Clone(c.Filters[i].Include), slices.Clone(c.Filters[i].Exclude)
+	}
+	c.Trim = slices.Clone(c.Trim)
+	if c.GuideSources != nil {
+		gc := *c.GuideSources
+		gc.Lineups = slices.Clone(gc.Lineups)
+		c.GuideSources = &gc
 	}
 	if c.Plex != nil {
 		pc := *c.Plex
