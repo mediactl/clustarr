@@ -573,7 +573,15 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, n
 		return out
 	}
 
-	if !r.issueSync.Due(c.UID, issueSyncKey(c, c.Status.AddOptionsApplied), c.Status.Metadata != nil) {
+	// The memo is consulted with or without a metadata document: a Comic
+	// lists its issues from its spec's source ids, so the first fan-out
+	// runs before the document lands and is recorded under a zero refresh
+	// (issueSyncKey), and the wakes until the document arrives -- the
+	// finalizer's pass, each Issue's own create -- fetch nothing more;
+	// the document's refreshedAt then moves the key and the list is
+	// fetched once again (design D2; an Artist or Author waits for its
+	// document instead, a625715f).
+	if !r.issueSync.Due(c.UID, issueSyncKey(c, c.Status.AddOptionsApplied), true) {
 		// Nothing a fan-out reads has moved since the last complete one:
 		// the Issues the List found are what it would leave.
 		return true, done(), nil
@@ -615,7 +623,7 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, n
 	// Recorded with addOptionsApplied true: the pass that completes the
 	// first fan-out also flips the flag, so the next pass's key matches
 	// and the flip costs no second fetch.
-	r.issueSync.Synced(c.UID, issueSyncKey(c, true), c.Status.Metadata != nil)
+	r.issueSync.Synced(c.UID, issueSyncKey(c, true), true)
 	return true, done(), nil
 }
 
