@@ -21,6 +21,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -331,6 +332,30 @@ func buildArtistMetadataAC(a *pkgmetadata.Artist, now time.Time) *catalogac.Arti
 	if len(a.Genres) > 0 {
 		ac.WithGenres(capStrings(a.Genres, 30)...) // Genres: +kubebuilder:validation:MaxItems=30 on every kind that has this field
 	}
+	// The 2026-11-10 design's fields (§4.2): the life-span, country,
+	// aliases, links, the biography's source and the ratings.
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	if a.Begin != nil {
+		ac.WithBegin(a.Begin.UTC().Format("2006-01-02"))
+	}
+	if a.End != nil {
+		ac.WithEnd(a.End.UTC().Format("2006-01-02"))
+	}
+	if a.Country != "" {
+		ac.WithCountry(a.Country)
+	}
+	if len(a.Aliases) > 0 {
+		ac.WithAliases(capStrings(a.Aliases, 32)...)
+	}
+	if links := linksAC(a.Links, 32); len(links) > 0 {
+		ac.WithLinks(links...)
+	}
+	if a.BiographySource != "" {
+		ac.WithBiographySource(a.BiographySource)
+	}
+	if rs := renderRatings(modelRatings(a.Ratings)); len(rs) > 0 {
+		ac.WithRatings(rs...)
+	}
 	for _, img := range a.Images {
 		if len(ac.Images) >= 50 {
 			break
@@ -406,6 +431,39 @@ func buildAlbumMetadataAC(a *pkgmetadata.Album, now time.Time) *catalogac.AlbumM
 	if a.ReleaseDate != nil {
 		ac.WithReleaseDate(metav1.NewTime(*a.ReleaseDate))
 	}
+	// The 2026-11-10 design's fields (§4.3): genres, ids, the artist
+	// credit, labels and ratings; the label and catalogue number are the
+	// first release's, the selected release's own ride on its summary.
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	if len(a.Genres) > 0 {
+		ac.WithGenres(capStrings(a.Genres, 30)...)
+	}
+	if len(a.IDs) > 0 {
+		ac.WithExternalIDs(a.IDs)
+	}
+	if a.ArtistCredit != "" {
+		ac.WithArtistCredit(a.ArtistCredit)
+	}
+	var labels []string
+	for _, rel := range a.Releases {
+		for _, l := range rel.Labels {
+			if l != "" && !slices.Contains(labels, l) {
+				labels = append(labels, l)
+			}
+		}
+	}
+	if len(labels) > 0 {
+		ac.WithLabel(labels[0]).WithLabels(capStrings(labels, 8)...)
+	}
+	for _, rel := range a.Releases {
+		if rel.CatalogNo != "" {
+			ac.WithCatalogNumber(rel.CatalogNo)
+			break
+		}
+	}
+	if rs := renderRatings(modelRatings(a.Ratings)); len(rs) > 0 {
+		ac.WithRatings(rs...)
+	}
 	for _, rel := range a.Releases {
 		if len(ac.Releases) >= 50 {
 			break
@@ -420,6 +478,15 @@ func buildAlbumMetadataAC(a *pkgmetadata.Album, now time.Time) *catalogac.AlbumM
 			continue
 		}
 		rs := catalogac.ReleaseSummary().WithID(id).WithStatus(rel.Status)
+		if rel.Title != "" && rel.Title != a.Title {
+			rs.WithTitle(rel.Title)
+		}
+		if rel.Disambiguation != "" {
+			rs.WithDisambiguation(rel.Disambiguation)
+		}
+		if rel.CatalogNo != "" {
+			rs.WithCatalogNumber(rel.CatalogNo)
+		}
 		if len(rel.Country) > 0 {
 			rs.WithCountry(rel.Country[0])
 		}
@@ -476,6 +543,20 @@ func buildAuthorMetadataAC(a *pkgmetadata.Author, now time.Time) *catalogac.Auth
 	if len(a.Genres) > 0 {
 		ac.WithGenres(capStrings(a.Genres, 30)...) // Genres: +kubebuilder:validation:MaxItems=30 on every kind that has this field
 	}
+	// The 2026-11-10 design's fields (§4.4): dates, links and ratings.
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	if a.Born != nil {
+		ac.WithBorn(a.Born.UTC().Format("2006-01-02"))
+	}
+	if a.Died != nil {
+		ac.WithDied(a.Died.UTC().Format("2006-01-02"))
+	}
+	if links := linksAC(a.Links, 32); len(links) > 0 {
+		ac.WithLinks(links...)
+	}
+	if rs := renderRatings(modelRatings(a.Ratings)); len(rs) > 0 {
+		ac.WithRatings(rs...)
+	}
 	for _, img := range a.Images {
 		if len(ac.Images) >= 50 {
 			break
@@ -522,6 +603,33 @@ func buildBookMetadataAC(b *pkgmetadata.Book, now time.Time) *catalogac.BookMeta
 	}
 	if len(b.Genres) > 0 {
 		ac.WithGenres(capStrings(b.Genres, 30)...) // BookMetadata.Genres: +kubebuilder:validation:MaxItems=30
+	}
+	// The 2026-11-10 design's fields (§4.5): languages, subjects, the
+	// representative edition's pages and publisher, links and ratings.
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	if len(b.Languages) > 0 {
+		ac.WithLanguages(capStrings(b.Languages, 16)...)
+	}
+	if len(b.Subjects) > 0 {
+		ac.WithSubjects(capStrings(b.Subjects, 50)...)
+	}
+	for _, ed := range b.Editions {
+		if ed.PageCount > 0 {
+			ac.WithPageCount(ed.PageCount)
+			break
+		}
+	}
+	for _, ed := range b.Editions {
+		if ed.Publisher != "" {
+			ac.WithPublisher(ed.Publisher)
+			break
+		}
+	}
+	if links := linksAC(b.Links, 16); len(links) > 0 {
+		ac.WithLinks(links...)
+	}
+	if rs := renderRatings(modelRatings(b.Ratings)); len(rs) > 0 {
+		ac.WithRatings(rs...)
 	}
 	for _, sl := range b.Series {
 		if len(ac.SeriesLinks) >= 10 {
@@ -629,6 +737,26 @@ func buildAudiobookMetadataAC(a *pkgmetadata.Audiobook, now time.Time) *cataloga
 	if len(a.Genres) > 0 {
 		ac.WithGenres(capStrings(a.Genres, 30)...) // Genres: +kubebuilder:validation:MaxItems=30 on every kind that has this field
 	}
+	// The 2026-11-10 design's fields (§4.6): abridged, the ISBN, tags, the
+	// adult flag and the rating.
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	if strings.EqualFold(a.Format, "abridged") {
+		ac.WithAbridged(true)
+	}
+	if isbn := a.IDs[pkgmetadata.KeyISBN13]; isbn != "" {
+		ac.WithISBN(isbn)
+	}
+	if len(a.Tags) > 0 {
+		ac.WithTags(capStrings(a.Tags, 32)...)
+	}
+	if a.IsAdult {
+		ac.WithIsAdult(true)
+	}
+	if a.Rating != nil {
+		if rs := renderRatings(modelRatings(pkgmetadata.Ratings{a.Rating.Source: *a.Rating})); len(rs) > 0 {
+			ac.WithRatings(rs...)
+		}
+	}
 	for _, ch := range a.Chapters {
 		if len(ac.Chapters) >= 200 {
 			break
@@ -667,6 +795,40 @@ func buildComicMetadataAC(v *pkgmetadata.ComicVolume, now time.Time) *catalogac.
 	}
 	if v.AgeRating != "" {
 		ac.WithAgeRating(v.AgeRating)
+	}
+	// The 2026-11-10 design's fields (§4.7): genres, the run status, the
+	// other titles, the end year, the original language, the sort title
+	// and the ratings.
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	if len(v.Genres) > 0 {
+		ac.WithGenres(capStrings(v.Genres, 30)...)
+	}
+	switch strings.ToLower(v.Status) {
+	case "continuing":
+		ac.WithStatus(catalogv1alpha1.ComicRunStatusContinuing)
+	case "ended":
+		ac.WithStatus(catalogv1alpha1.ComicRunStatusEnded)
+	}
+	var alt []string
+	for _, t := range v.AltTitles {
+		if t.Title != "" && t.Title != v.Title && !slices.Contains(alt, t.Title) {
+			alt = append(alt, t.Title)
+		}
+	}
+	if len(alt) > 0 {
+		ac.WithAlternateTitles(capStrings(alt, 16)...)
+	}
+	if v.EndYear != nil && *v.EndYear > 0 {
+		ac.WithEndYear(*v.EndYear)
+	}
+	if v.OriginalLanguage != "" {
+		ac.WithOriginalLanguage(v.OriginalLanguage)
+	}
+	if v.SortTitle != "" && v.SortTitle != v.Title {
+		ac.WithSortTitle(v.SortTitle)
+	}
+	if rs := renderRatings(modelRatings(v.Ratings)); len(rs) > 0 {
+		ac.WithRatings(rs...)
 	}
 	if v.Kind != "" {
 		// MangaFlag has an explicit "unknown" member for exactly the
@@ -801,4 +963,51 @@ func capStrings(s []string, max int) []string {
 		return s[:max]
 	}
 	return s
+}
+
+// linksAC renders an item's links for a listType=map keyed by type: the
+// first link of each type, at most limit (2026-11-10 design §4).
+func linksAC(links []pkgmetadata.Link, limit int) []*catalogac.LinkApplyConfiguration {
+	var out []*catalogac.LinkApplyConfiguration
+	seen := map[string]bool{}
+	for _, l := range links {
+		if l.Type == "" || l.URL == "" || seen[l.Type] || len(l.Type) > 32 || len(l.URL) > 512 {
+			continue
+		}
+		seen[l.Type] = true
+		out = append(out, catalogac.Link().WithType(l.Type).WithURL(l.URL))
+		if len(out) == limit {
+			break
+		}
+	}
+	return out
+}
+
+// modelRatingSources maps the clients' own source names onto the CRD's
+// RatingSource enum; a source the enum lacks is dropped, since the apiserver
+// rejects the whole apply for an unknown one (2026-11-10 design D8).
+var modelRatingSources = map[string]catalogv1alpha1.RatingSource{
+	"mb":          catalogv1alpha1.RatingSourceMusicBrainz,
+	"musicbrainz": catalogv1alpha1.RatingSourceMusicBrainz,
+	"audnexus":    catalogv1alpha1.RatingSourceAudnexus,
+	"hardcover":   catalogv1alpha1.RatingSourceHardcover,
+	"anilist":     catalogv1alpha1.RatingSourceAniList,
+	"comicvine":   catalogv1alpha1.RatingSourceComicVine,
+}
+
+// modelRatings is a non-video kind's ratings as its own provider reports
+// them, in the CRD's vocabulary and a stable order. (A Movie's and a
+// Series' ratings go through enrichRatings over every RatingsProvider; the
+// non-video kinds' come with their one record, W2c wiring the enrichment.)
+func modelRatings(ratings pkgmetadata.Ratings) []catalogv1alpha1.Rating {
+	var out []catalogv1alpha1.Rating
+	for name, r := range ratings {
+		src, ok := modelRatingSources[strings.ToLower(name)]
+		if !ok || r.ValueCentis < 0 || r.ValueCentis > 10000 {
+			continue
+		}
+		out = append(out, catalogv1alpha1.Rating{Source: src, ValueCentis: r.ValueCentis, Votes: max(r.Votes, 0)})
+	}
+	slices.SortFunc(out, func(a, b catalogv1alpha1.Rating) int { return strings.Compare(string(a.Source), string(b.Source)) })
+	return out
 }
