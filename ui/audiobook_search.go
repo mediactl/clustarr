@@ -25,7 +25,6 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/ui/views"
 )
 
 // An audiobook's interactive search (2026-11-10 design §9.5) is the
@@ -56,7 +55,7 @@ func (s *Server) handleAudiobookInteractiveSearch(w http.ResponseWriter, r *http
 	if !ok {
 		return
 	}
-	v.Tab, v.Search = "search", &views.AudiobookSearchPanel{SearchPanel: *panel}
+	v.Tab, v.Search = "search", panel
 	s.renderAudiobook(w, r, v, true)
 }
 

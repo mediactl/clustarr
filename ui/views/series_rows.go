@@ -448,31 +448,3 @@ type AudioNote struct {
 	Title string
 	Warn  bool
 }
-
-// ChildRow is one album on an artist's children component: the episode
-// row's old shape for a kind with a title and a year instead of a number.
-// An author's books are [BookRow]s, the season table's shape.
-type ChildRow struct {
-	Namespace string
-	Name      string
-	Kind      string // "album", the per-item action's kind
-	Title     string
-	Year      int32
-	Monitored bool
-	HasFile   bool
-	// Quality is the album's quality name, "" without a file.
-	Quality string
-	Phase   string
-	Error   ActionFailure
-}
-
-// MonitorURL is the child's monitor action, the existing per-item route.
-func (r ChildRow) MonitorURL() string {
-	return fmt.Sprintf("/library/%s/%s/%s/monitor", r.Namespace, r.Kind, r.Name)
-}
-
-// ChildrenURL is a parent's children route: the children component to
-// htmx, a page to anyone else.
-func ChildrenURL(namespace, kind, name string) string {
-	return fmt.Sprintf("/library/%s/%s/%s/children", namespace, kind, name)
-}

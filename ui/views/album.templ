@@ -32,8 +32,8 @@ import (
 )
 
 // An album's page (2026-11-10 design §9.2; plan W4b.1) is the episode
-// page's analogue: the action bar (Refresh, Search, Interactive, Rename),
-// a hero on the artist's fanart -- the cover, the bookmark and title, the
+// page's analogue: the action bar (Refresh, Search, Interactive, Rename,
+// Edit), a hero on the artist's fanart -- the cover, the bookmark and title, the
 // artist, release date, type, label, duration, track summary and
 // MusicBrainz logos, the facts -- then the Tracks table, the Files section
 // and the neighbouring albums. Its details modal (AlbumModal) is the book
@@ -42,7 +42,7 @@ import (
 
 // AlbumPage is an album's page.
 templ AlbumPage(v AlbumView) {
-	@Shell(Chrome{Title: v.PageTitle(), Crumbs: childCrumbs(v.Item, v.Row.DisplayTitle()), Tab: v.Item.Tab}) {
+	@Shell(Chrome{Title: v.PageTitle(), Crumbs: childCrumbs(v.Artist, v.Row.DisplayTitle()), Tab: v.Item.Tab}) {
 		@albumToolbar(v)
 		@albumHero(v)
 		@tracksSection(v)
@@ -53,10 +53,12 @@ templ AlbumPage(v AlbumView) {
 
 // albumToolbar is the album page's action bar: Refresh (the album's own
 // metadata), Search Album, Interactive Search (AlbumSearchModal, into
-// #album-modal) and, for an artist with a folder, the artist's Rename pair
-// -- an album's files live in its artist's folder, which the rename
-// restricts itself to. Edit and Delete act on the artist and stay on the
-// artist's page. Every form returns here.
+// #album-modal), for an artist with a folder the artist's Rename pair --
+// an album's files live in its artist's folder, which the rename restricts
+// itself to -- and the album's own Edit (editDialog over the album's card,
+// v.Item: Monitored, and in its block the profile override and the release
+// choice; design §9.2). Delete acts on the artist and stays on the artist's
+// page. Every form returns here.
 templ albumToolbar(v AlbumView) {
 	{{ name, here := v.Row.Name, v.Row.URL() }}
 	@actionBar() {
@@ -65,9 +67,10 @@ templ albumToolbar(v AlbumView) {
 		@actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "album-interactive-search",
 			templ.Attributes{"hx-post": v.Row.InteractiveSearchURL(), "hx-target": ModalRegion(commonv1.MediaKindAlbum), "hx-swap": "innerHTML"})
 		if v.CanScan {
-			@actionForm("rename-dry-run-"+name, libraryActionURL(v.Item, "rename"), []Field{{"return", here}, {"rename", "dryRun"}}, "eye", "Preview", "Preview Rename of the artist's files (dry run)", "rename-dry-run", nil)
-			@actionForm("rename-"+name, libraryActionURL(v.Item, "rename"), []Field{{"return", here}, {"rename", "apply"}}, "file-symlink", "Rename", "Rename the artist's files", "rename-apply", nil)
+			@actionForm("rename-dry-run-"+name, libraryActionURL(v.Artist, "rename"), []Field{{"return", here}, {"rename", "dryRun"}}, "eye", "Preview", "Preview Rename of the artist's files (dry run)", "rename-dry-run", nil)
+			@actionForm("rename-"+name, libraryActionURL(v.Artist, "rename"), []Field{{"return", here}, {"rename", "apply"}}, "file-symlink", "Rename", "Rename the artist's files", "rename-apply", nil)
 		}
+		@itemAction(v.Detail, ActionEdit)
 	}
 }
 
@@ -75,9 +78,10 @@ templ albumToolbar(v AlbumView) {
 // the cover (else the artist's poster), the bookmark and title with the
 // neighbouring albums, the artist link, release date, type, label and
 // artist credit, the duration, track summary and provider logos, the facts
+// (the profile the album's card resolved: its override, else the artist's)
 // and the overview. It carries the album's data attributes for the tests.
 templ albumHero(v AlbumView) {
-	{{ li, a := v.Item, v.Row }}
+	{{ li, ar, a := v.Item, v.Artist, v.Row }}
 	<section
 		data-hero
 		data-album-page={ a.Name }
@@ -90,10 +94,10 @@ templ albumHero(v AlbumView) {
 		class="relative -mx-6 mb-8"
 	>
 		if v.Backdrop != "" {
-			<img data-backdrop src={ templ.URL(v.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
+			<img data-backdrop src={ templ.URL(v.Backdrop) } data-art={ artKeyAs(ar, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
 			<div class="page-backdrop-shade" aria-hidden="true"></div>
 		}
-		if li.ArtKey != "" {
+		if ar.ArtKey != "" {
 			<div hidden hx-ext="sse" sse-connect={ albumArtStreamURL(v) } hx-trigger="sse:art"></div>
 		}
 		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
@@ -106,7 +110,7 @@ templ albumHero(v AlbumView) {
 			} else {
 				<div class="w-40 shrink-0 md:w-56">
 					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
-						@poster(li.Poster, li.Title, li.ArtKey)
+						@poster(ar.Poster, ar.Title, ar.ArtKey)
 					</div>
 				</div>
 			}
@@ -119,7 +123,7 @@ templ albumHero(v AlbumView) {
 					@neighbours(v.Detail)
 				</div>
 				<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
-					<a href={ templ.URL(libraryDetailPath(li)) } data-artist-link class="font-medium hover:underline">{ li.Title }</a>
+					<a href={ templ.URL(libraryDetailPath(ar)) } data-artist-link class="font-medium hover:underline">{ ar.Title }</a>
 					if v.ArtistCredit != "" {
 						<span class="text-muted-foreground" data-artist-credit>{ "(" + v.ArtistCredit + ")" }</span>
 					}
@@ -204,7 +208,7 @@ templ albumHero(v AlbumView) {
 // albumArtStreamURL is the album page's GET /events/art: the artist's
 // poster and fanart keys, and the album's own cover when it shows one.
 func albumArtStreamURL(v AlbumView) string {
-	u := artStreamURL(v.Detail)
+	u := artStreamURL(Detail{Item: v.Artist, Backdrop: v.Backdrop})
 	if v.CoverKey != "" {
 		u += "&key=" + v.CoverKey
 	}

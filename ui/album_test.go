@@ -333,8 +333,20 @@ func TestAlbumPageShowsTracksFilesAndFacts(t *testing.T) {
 	require.Contains(t, bar, `data-action="album-interactive-search"`)
 	// The rename is the artist's folder's: an album's files live under it.
 	requireTag(t, bar, `id="rename-dry-run-dsotm"`, `action="/library/default/artist/pink-floyd/rename"`)
-	require.NotContains(t, bar, `data-edit-dialog`, "Edit and Delete act on the artist and stay on its page")
-	require.NotContains(t, bar, `data-action="delete"`)
+	// Edit is the album's own (design §9.2): the dialog over the album's
+	// card, its form posting to the album's edit route and returning to
+	// its page, its kind block fetched from the album's edit/fields route
+	// as the dialog opens, and no profile select beside Monitored (the
+	// profile is in the block, an override of the artist's). Delete acts
+	// on the artist and stays on its page.
+	requireTag(t, bar, `data-edit-dialog="dsotm"`)
+	require.Contains(t, bar, "Edit - The Dark Side of the Moon")
+	requireTag(t, bar, `data-edit-form`, `action="/library/default/album/dsotm/edit"`)
+	require.Contains(t, bar, `name="return" value="/library/default/album/dsotm"`)
+	requireTag(t, bar, `data-edit-fields="album"`, `hx-get="/library/default/album/dsotm/edit/fields"`, `hx-trigger="intersect once"`)
+	require.NotContains(t, bar, `name="qualityProfile"`, "an album's profile is in its block")
+	require.NotContains(t, bar, `data-edit-dialog="pink-floyd"`, "the artist's Edit stays on the artist's page")
+	require.NotContains(t, bar, `data-action="delete"`, "Delete acts on the artist and stays on its page")
 
 	requireTag(t, body, `data-nav="next"`, `href="/library/default/album/money-single"`)
 	require.NotContains(t, body, `data-nav="prev"`, "the earliest album has no previous")
@@ -350,6 +362,40 @@ func TestAlbumPageShowsTracksFilesAndFacts(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/album/nope", false).Code)
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/album/kid-a", false).Code,
 		"an album whose artist the library does not hold")
+}
+
+// The album page's Edit dialog saves the album (design §9.2): its block
+// comes from the album's edit/fields route, its form posts to the album's
+// edit route with the block's fields, and the Album is patched -- a
+// profile override, monitoring off, the release pinned -- after which the
+// page reads the override as the album's profile where it read the
+// artist's, and the dialog's switch is off.
+func TestAlbumPageEditDialogSavesTheAlbum(t *testing.T) {
+	srv, c := musicFixture(t)
+	fields := getPath(t, srv, "/library/default/album/dsotm/edit/fields", true)
+	require.Equal(t, http.StatusOK, fields.Code)
+	requireTag(t, fields.Body.String(), `name="fields"`, `value="album"`)
+
+	rec := postForm(t, srv, "/library/default/album/dsotm/edit", url.Values{
+		"return": {"/library/default/album/dsotm"}, "fields": {"album"}, "qualityProfile": {"music-mp3"},
+		"monitored": {"false"}, "anyReleaseOk": {"false"}, "releaseID": {"rel-1"},
+	}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	require.Equal(t, "/library/default/album/dsotm", rec.Header().Get("Location"), "back on the album's page")
+	var got catalogv1.Album
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "dsotm"}, &got))
+	require.False(t, *got.Spec.Monitored)
+	require.Equal(t, "music-mp3", *got.Spec.QualityProfileRef)
+	require.False(t, *got.Spec.AnyReleaseOk)
+	require.Equal(t, "rel-1", *got.Spec.ReleaseID)
+
+	page := getPath(t, srv, "/library/default/album/dsotm", false).Body.String()
+	requireTag(t, page, `data-album-page="dsotm"`, `data-profile="music-mp3"`, `data-monitored="false"`)
+	require.Regexp(t, `data-fact="profile"[\s\S]*?>music-mp3<`, page, "the override is the album's profile")
+	requireTag(t, page, `id="edit-monitored-dsotm"`, `name="monitored"`)
+	require.NotRegexp(t, `id="edit-monitored-dsotm"[^>]*checked`, page, "the dialog's switch reads the live Album")
+	require.Regexp(t, `data-fact="profile"[\s\S]*?>music-lossless<`, getPath(t, srv, "/library/default/album/wish", false).Body.String(),
+		"an album without an override reads its artist's profile")
 }
 
 // The title opens the album's details modal for htmx and the album's page

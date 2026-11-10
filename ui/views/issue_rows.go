@@ -126,29 +126,11 @@ type IssueDetail struct {
 	// Tab is the open tab, "details" or "search".
 	Tab string
 	// Search is the interactive search shown on the search tab, nil until
-	// one is run.
-	Search *IssueSearchPanel
+	// one is run: the shared panel, which draws comic columns for an
+	// issue's Search and polls and grabs through the shared /searches
+	// routes.
+	Search *SearchPanel
 }
-
-// IssueSearchPanel is an issue's interactive search results in comic
-// columns (design §9.4: Format, Size, Age, Indexer, Peers, Score): the
-// episode's panel over the issue's own poll and grab routes, so a refresh
-// keeps the columns -- the shared /searches route draws Sonarr's.
-type IssueSearchPanel struct {
-	SearchPanel
-	// Issue is the issue's name; the panel's Namespace is its namespace.
-	Issue string
-}
-
-// PanelURL is the panel's own route, under the issue: the panel to htmx, a
-// page otherwise, and where the panel polls itself.
-func (p IssueSearchPanel) PanelURL() string {
-	return fmt.Sprintf("/library/%s/issue/%s/search/%s", p.Namespace, p.Issue, p.Name)
-}
-
-// GrabURL is the download button's action, under the issue, so the answer
-// is the panel in comic columns.
-func (p IssueSearchPanel) GrabURL() string { return p.PanelURL() + "/grab" }
 
 // ComicView is everything a comic's page shows beyond its library card
 // (design §9.4): the hero's facts, the issues table and the volume

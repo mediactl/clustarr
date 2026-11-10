@@ -79,7 +79,7 @@ func (s *Server) handleIssueInteractiveSearch(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	d.Tab, d.Search = "search", &views.IssueSearchPanel{SearchPanel: *panel, Issue: name}
+	d.Tab, d.Search = "search", panel
 	s.renderIssueModal(w, r, d)
 }
 

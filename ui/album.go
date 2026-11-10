@@ -124,9 +124,11 @@ func (s *Server) albumPage(ctx context.Context, ns, name string) (views.AlbumVie
 	if !ok {
 		return views.AlbumView{}, false
 	}
+	row := albumTableRow(a, time.Now())
 	v := views.AlbumView{
-		Detail: views.Detail{Item: item, CanScan: hasFolder(item.Kind)},
-		Row:    albumTableRow(a, time.Now()),
+		Detail: views.Detail{Item: albumItem(a, item, row), CanScan: hasFolder(item.Kind)},
+		Artist: item,
+		Row:    row,
 	}
 	var artist catalogv1.Artist
 	if s.getObject(ctx, item.Ref, &artist) {
@@ -148,6 +150,30 @@ func (s *Server) albumPage(ctx context.Context, ns, name string) (views.AlbumVie
 	v.Files = albumFileRows(a, files)
 	v.Prev, v.Next = s.albumNeighbours(ctx, a)
 	return v, true
+}
+
+// albumItem is the album's own library card as its page reads it
+// (views.Detail.Item; design §9.2): the album's ref, kind and title over
+// its artist's tab and root folder, the quality profile its spec overrides
+// else the artist's, its cover (through /art, ADR-0011), its release year,
+// and the live Album's monitoring, phase and file. The Edit dialog's
+// trigger, form and return are built from it (views.editDialog), and the
+// hero's profile fact reads it; the artist's own card is AlbumView.Artist,
+// for the poster, the fanart, the artist link and the rename pair.
+func albumItem(a *catalogv1.Album, artist projection.LibraryItem, row views.AlbumRow) projection.LibraryItem {
+	item := projection.LibraryItem{
+		Ref: types.NamespacedName{Namespace: a.Namespace, Name: a.Name}, Kind: commonv1.MediaKindAlbum,
+		Title: row.DisplayTitle(), Tab: artist.Tab, RootFolder: artist.RootFolder, QualityProfileRef: artist.QualityProfileRef,
+		Monitored: row.Monitored, Phase: row.Phase, HasFile: row.HasFile,
+	}
+	if ref := a.Spec.QualityProfileRef; ref != nil && *ref != "" {
+		item.QualityProfileRef = *ref
+	}
+	item.Poster, item.ArtKey = albumCover(a)
+	if md := a.Status.Metadata; md != nil && md.ReleaseDate != nil {
+		item.Year = int32(md.ReleaseDate.UTC().Year()) //nolint:gosec // a year
+	}
+	return item
 }
 
 // albumTableRow is one album's row on its artist's albums table, and the

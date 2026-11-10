@@ -588,19 +588,21 @@ func seriesCard(name string, files int32, size int64) projection.LibraryItem {
 // A container's page reads its children's files for its Size fact and its
 // Delete dialog only up to a bound (ui.maxContainerFiles, 500): a series the
 // rollup counts over it is read no further -- no episode List, no MediaFile
-// Get -- its hero shows no Size fact, and its Delete dialog counts from the
-// rollup, the count and the seasons' size its card carries; a series under
-// it reads one file per episode, as before. An artist's rollup counts
-// albums, not tracks, so its albums are listed and the Gets are skipped once
-// the tracks' files run over the bound; its dialog, with no rollup count of
-// files at hand, names the folder alone.
+// Get -- its hero's Size fact falls back to the size on disk its card
+// carries (views.heroSize), and its Delete dialog counts from the rollup,
+// the count and the seasons' size its card carries; a series under it
+// reads one file per episode, as before. An artist's rollup counts albums,
+// not tracks, so its albums are listed and the Gets are skipped once the
+// tracks' files run over the bound; its dialog, with no rollup count of
+// files at hand, names the folder alone, and its card, carrying no size,
+// gives its hero no Size fact.
 func TestContainerFilesAreBoundedByTheRollup(t *testing.T) {
 	// Over the bound: the rollup says 501 files, and the cluster holds the
 	// three the fake would otherwise read.
 	objs := bigSeries("big", 3, 501)
 	srv, reader := containerServer(t, objs, seriesCard("big", 501, 5<<30))
 	page := detailPage(t, srv, "/library/default/series/big")
-	require.NotContains(t, page, `data-fact="size"`, "no Size fact from files the page did not read")
+	require.Contains(t, section(t, page, `data-fact="size"`), "5.00 GiB", "the Size fact is the card's when the files were not read")
 	require.Regexp(t, `data-delete-files>[^<]*501 file\(s\), 5\.00 GiB<`, page, "the Delete dialog counts from the rollup")
 	require.Contains(t, page, `data-delete-folder>/data/tv/big<`)
 	require.Zero(t, reader.fileGets, "no file is read for a container over the bound")

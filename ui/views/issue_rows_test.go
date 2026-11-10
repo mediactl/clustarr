@@ -75,10 +75,6 @@ func TestIssueRowRoutesAndLabels(t *testing.T) {
 		Ref: types.NamespacedName{Namespace: "default", Name: "saga"}, Kind: commonv1.MediaKindComic,
 	}}}.VolumeSearchURL())
 
-	p := IssueSearchPanel{SearchPanel: SearchPanel{Namespace: "default", Name: "saga-004.0-abc12"}, Issue: "saga-004.0"}
-	assert.Equal(t, "/library/default/issue/saga-004.0/search/saga-004.0-abc12", p.PanelURL())
-	assert.Equal(t, "/library/default/issue/saga-004.0/search/saga-004.0-abc12/grab", p.GrabURL(), "the issue's own grab route, not the shared one")
-
 	assert.Equal(t, "Brian K. Vaughan (writer)", IssueCredit{Name: "Brian K. Vaughan", Role: "writer"}.String())
 	assert.Equal(t, "Fiona Staples", IssueCredit{Name: "Fiona Staples"}.String())
 }

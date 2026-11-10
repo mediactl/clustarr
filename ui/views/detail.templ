@@ -492,7 +492,7 @@ templ hero(d Detail) {
 							}
 						}
 					}
-					if size := totalSize(d.Files); size > 0 {
+					if size := heroSize(d); size > 0 {
 						@fact("size", "Size") {
 							{ formatBytes(size) }
 						}
@@ -621,6 +621,18 @@ func totalSize(files []FileRow) int64 {
 		total += f.SizeBytes
 	}
 	return total
+}
+
+// heroSize is the hero's Size fact: the files the page read, together,
+// or, when it read none, the card's size on disk (LibraryItem.SizeBytes,
+// the projection's sum over the item's files) -- a container over the
+// bound on the files a page reads (ui.containerFiles, 500) still shows
+// what its card carries. 0 is no fact.
+func heroSize(d Detail) int64 {
+	if len(d.Files) > 0 {
+		return totalSize(d.Files)
+	}
+	return d.Item.SizeBytes
 }
 
 // sectionTitle is Radarr's ruled section heading.

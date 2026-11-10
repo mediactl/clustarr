@@ -30,8 +30,9 @@ import (
 // §9.4), the episode modal's shape: "Comic - #12 - Title", then the
 // Details tab (overview, credits, file) and the Search tab, whose
 // interactive search lists releases in comic columns -- Format (cbz, cbr,
-// pdf), Size, Age, Indexer, Peers, Score -- over the issue's own panel
-// routes, so a poll or a grab keeps the columns.
+// pdf), Size, Age, Indexer, Peers, Score -- on the shared panel, which
+// draws them for an issue's Search and polls and grabs through the shared
+// /searches routes, so a poll or a grab keeps the columns.
 
 // IssueModal is an issue's details modal, opened from its interactive
 // search or its details route. It is swapped into the page's #issue-modal
@@ -136,14 +137,5 @@ templ issueCredits(credits []IssueCredit) {
 // is what the Interactive Search button swaps (htmx selects it out of the
 // modal the action answers with).
 templ IssueSearchTab(d IssueDetail) {
-	@searchTab("issue", d.Row.Name, d.Row.SearchURL(), d.Row.InteractiveSearchURL(), d.Row.ReturnURL(), issuePanel(d))
-}
-
-// issuePanel is the shared panel the Search tab shows, nil until an
-// interactive search runs.
-func issuePanel(d IssueDetail) *SearchPanel {
-	if d.Search == nil {
-		return nil
-	}
-	return &d.Search.SearchPanel
+	@searchTab("issue", d.Row.Name, d.Row.SearchURL(), d.Row.InteractiveSearchURL(), d.Row.ReturnURL(), d.Search)
 }

@@ -2342,21 +2342,12 @@ func audiobookSearchTab(v AudiobookView) templ.Component {
 			templ_7745c5c3_Var113 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = searchTab("audiobook", v.Item.Ref.Name, v.SearchURL(), v.InteractiveSearchURL(), v.URL(), audiobookPanel(v)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = searchTab("audiobook", v.Item.Ref.Name, v.SearchURL(), v.InteractiveSearchURL(), v.URL(), v.Search).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		return nil
 	})
-}
-
-// audiobookPanel is the shared panel the Search tab shows, nil until an
-// interactive search runs.
-func audiobookPanel(v AudiobookView) *SearchPanel {
-	if v.Search == nil {
-		return nil
-	}
-	return &v.Search.SearchPanel
 }
 
 var _ = templruntime.GeneratedTemplate

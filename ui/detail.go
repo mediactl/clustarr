@@ -140,13 +140,30 @@ func hasFolder(kind commonv1.MediaKind) bool {
 }
 
 // bookHasFolder reports whether b has a folder of its own: a standalone
-// Book (2026-11-10 design §9.3), whose spec.rootFolderRef names its root
-// and whose status.path is its folder under it, which "Refresh & Scan" and
-// Rename work on and whose profile and root the Edit dialog edits
-// (views.Editable). An author's book lives in its author's folder and has
-// none of the three.
+// Book (2026-11-10 design §9.3) -- no spec.authorRef -- whose
+// spec.rootFolderRef names its root and whose folder under it "Refresh &
+// Scan" and Rename work on (itemFolder), and whose profile and root the
+// Edit dialog edits (views.Editable). An author's book lives in its
+// author's folder and has none of the three, even when its own
+// spec.rootFolderRef overrides the author's root (which the CRD allows):
+// its status.path is then the author's folder under that root, and a scan
+// or a rename from its page would work the author's whole folder.
 func bookHasFolder(b *catalogv1.Book) bool {
-	return b.Spec.RootFolderRef != nil && *b.Spec.RootFolderRef != ""
+	return (b.Spec.AuthorRef == nil || *b.Spec.AuthorRef == "") &&
+		b.Spec.RootFolderRef != nil && *b.Spec.RootFolderRef != ""
+}
+
+// bookFileDir is the directory of the book's file on disk (status.fileRef's
+// MediaFile), "" without one the reader holds.
+func (s *Server) bookFileDir(ctx context.Context, b *catalogv1.Book) string {
+	if b.Status.FileRef == nil || *b.Status.FileRef == "" {
+		return ""
+	}
+	var mf catalogv1.MediaFile
+	if !s.getObject(ctx, types.NamespacedName{Namespace: b.Namespace, Name: *b.Status.FileRef}, &mf) || mf.Spec.Path == "" {
+		return ""
+	}
+	return filepath.Dir(mf.Spec.Path)
 }
 
 // getObject reads one object through the reader, reporting whether it was
@@ -441,6 +458,9 @@ func audioLabel(a commonv1.AudioStream) string {
 func (s *Server) itemFolder(ctx context.Context, namespace string, kind commonv1.MediaKind, name string) (rootFolder, subpath string, ok bool) {
 	ref := types.NamespacedName{Namespace: namespace, Name: name}
 	var itemPath, rootRef string
+	// fileDir, for a standalone book, is the folder its file is in, read
+	// only when status.path is no folder under the root (below).
+	var fileDir func() string
 	switch kind {
 	case commonv1.MediaKindMovie:
 		var m catalogv1.Movie
@@ -474,10 +494,11 @@ func (s *Server) itemFolder(ctx context.Context, namespace string, kind commonv1
 		}
 	case commonv1.MediaKindBook:
 		// A standalone book's own root and folder (bookHasFolder); an
-		// author's book names no root, so it has no folder of its own.
+		// author's book has no folder of its own.
 		var b catalogv1.Book
 		if s.getObject(ctx, ref, &b) && bookHasFolder(&b) {
 			itemPath, rootRef = b.Status.Path, *b.Spec.RootFolderRef
+			fileDir = func() string { return s.bookFileDir(ctx, &b) }
 		}
 	}
 	if itemPath == "" || rootRef == "" {
@@ -488,6 +509,18 @@ func (s *Server) itemFolder(ctx context.Context, namespace string, kind commonv1
 		return "", "", false
 	}
 	rel, err := filepath.Rel(rf.Spec.Path, itemPath)
+	if (err != nil || rel == ".") && fileDir != nil {
+		// The Book reconciler writes a standalone book's status.path as
+		// its root's own path (app/catalog/controller/book.Path renders
+		// the author folder, "{Author Name}", which is "" without an
+		// author), while the import places its file at <root>/{Book
+		// Title}/<file> (catalogctx.BookFilePath): the folder is the
+		// file's, and a standalone book without a file has none on disk
+		// yet.
+		if dir := fileDir(); dir != "" {
+			rel, err = filepath.Rel(rf.Spec.Path, dir)
+		}
+	}
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
 		return "", "", false
 	}

@@ -84,8 +84,6 @@ func TestAlbumStatusLabelAndPanelRoutes(t *testing.T) {
 		Album:       AlbumRow{Namespace: "default", Name: "wish", Title: "Wish You Were Here"},
 		ArtistTitle: "Pink Floyd",
 	}
-	assert.Equal(t, "/library/default/album/wish/search/panel/wish-abc12", p.PanelURL())
-	assert.Equal(t, "/library/default/album/wish/search/panel/wish-abc12/grab", p.GrabURL())
 	assert.Equal(t, "Interactive Search - Pink Floyd - Wish You Were Here", p.Heading())
 	assert.Equal(t, "/searches/default/wish-abc12", p.SearchPanel.URL(), "the shared panel's page is still the Search's")
 }

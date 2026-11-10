@@ -77,8 +77,5 @@ func TestAudiobookLabels(t *testing.T) {
 	assert.Equal(t, "Unabridged", abridgedLabel(false))
 	assert.Equal(t, "Abridged", abridgedLabel(true))
 
-	p := AudiobookSearchPanel{SearchPanel: SearchPanel{Namespace: "default", Name: "ab-x1"}, Audiobook: "ab"}
-	assert.Equal(t, "/library/default/audiobook/ab/search/panel/ab-x1", p.PollURL())
-	assert.Equal(t, "/library/default/audiobook/ab/search/panel/ab-x1/grab", p.GrabURL())
 	assert.Equal(t, "/library/default/audiobook/ab/details", v.DetailsURL())
 }

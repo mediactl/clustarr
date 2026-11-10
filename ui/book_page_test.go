@@ -213,22 +213,29 @@ func TestStandaloneBookPageNamesNoAuthor(t *testing.T) {
 
 // A standalone book's Refresh & Scan and Rename work on its own folder
 // under its own root (design §9.3; itemFolder's Book case): each creates a
-// LibraryScan restricted to it, as a movie's do. An author's book has no
-// folder of its own, so its refresh scans nothing and its rename is
-// refused, as for any item without one.
+// LibraryScan restricted to it, as a movie's do. The Book reconciler
+// writes a standalone book's status.path as the root itself (book.Path
+// renders no author folder), so the folder is the one the import placed
+// its file in, <root>/{Book Title} (catalogctx.BookFilePath): a standalone
+// book without a file has no folder on disk yet, so its refresh scans
+// nothing and its rename is refused. An author's book has no folder of its
+// own -- one whose spec.rootFolderRef overrides its author's root
+// included, since its status.path is then the author's whole folder -- so
+// its page renders Refresh alone, no Rename and no Edit dialog, its
+// refresh scans nothing and its rename is refused.
 func TestStandaloneBookScansAndRenamesItsOwnFolder(t *testing.T) {
 	srv, c := bookFixture(t)
-	rec := postForm(t, srv, "/library/default/book/standalone/refresh",
-		url.Values{"return": {"/library/default/book/standalone"}, "scan": {"true"}}, false)
+	rec := postForm(t, srv, "/library/default/book/standalone-on-disk/refresh",
+		url.Values{"return": {"/library/default/book/standalone-on-disk"}, "scan": {"true"}}, false)
 	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
 	var scans catalogv1.LibraryScanList
 	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
 	require.Len(t, scans.Items, 1)
 	require.Equal(t, "books", scans.Items[0].Spec.RootFolderRef)
-	require.Equal(t, "A Standalone Book (2001)", scans.Items[0].Spec.Subpath, "the scan is restricted to the book's own folder")
+	require.Equal(t, "A Standalone Book on Disk", scans.Items[0].Spec.Subpath, "the scan is restricted to the folder the import placed the book's file in")
 
-	rec = postForm(t, srv, "/library/default/book/standalone/rename",
-		url.Values{"return": {"/library/default/book/standalone"}, "rename": {"dryRun"}}, false)
+	rec = postForm(t, srv, "/library/default/book/standalone-on-disk/rename",
+		url.Values{"return": {"/library/default/book/standalone-on-disk"}, "rename": {"dryRun"}}, false)
 	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
 	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
 	require.Len(t, scans.Items, 2)
@@ -236,10 +243,21 @@ func TestStandaloneBookScansAndRenamesItsOwnFolder(t *testing.T) {
 	for _, sc := range scans.Items {
 		if sc.Spec.Rename == catalogv1.ScanRenameDryRun {
 			renames++
-			require.Equal(t, "A Standalone Book (2001)", sc.Spec.Subpath)
+			require.Equal(t, "A Standalone Book on Disk", sc.Spec.Subpath)
 		}
 	}
 	require.Equal(t, 1, renames)
+
+	// A standalone book with no file yet: nothing on disk to scan or
+	// rename, and never the whole root.
+	rec = postForm(t, srv, "/library/default/book/standalone/refresh",
+		url.Values{"return": {"/library/default/book/standalone"}, "scan": {"true"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
+	require.Len(t, scans.Items, 2, "a standalone book without a file has no folder on disk yet")
+	rec = postForm(t, srv, "/library/default/book/standalone/rename",
+		url.Values{"return": {"/library/default/book/standalone"}, "rename": {"dryRun"}}, false)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	// An author's book: the refresh alone, and no rename.
 	rec = postForm(t, srv, "/library/default/book/dispossessed/refresh",
@@ -252,6 +270,27 @@ func TestStandaloneBookScansAndRenamesItsOwnFolder(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
 	require.Len(t, scans.Items, 2)
+
+	// An author's book whose root overrides the author's: still the
+	// author's, so no Edit dialog, no Rename, Refresh without a scan, and
+	// never a scan or a rename of the author's whole folder.
+	page := getPath(t, srv, "/library/default/book/lavinia", false)
+	require.Equal(t, http.StatusOK, page.Code)
+	body := page.Body.String()
+	requireTag(t, body, `data-book-page="lavinia"`, `data-standalone="false"`)
+	require.NotContains(t, body, `data-edit-dialog`, "an author's book is not editable (design §9.3)")
+	require.NotContains(t, body, `data-action="rename-dry-run"`)
+	requireTag(t, body, `data-action="refresh-metadata"`, `form="refresh-lavinia"`)
+	require.NotContains(t, body, "Refresh &amp; Scan", "Refresh alone: no folder to scan")
+	require.NotContains(t, body, `name="scan"`)
+	rec = postForm(t, srv, "/library/default/book/lavinia/refresh",
+		url.Values{"return": {"/library/default/book/lavinia"}, "scan": {"true"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
+	require.Len(t, scans.Items, 2, "an author's book with a root of its own still has no folder of its own")
+	rec = postForm(t, srv, "/library/default/book/lavinia/rename",
+		url.Values{"return": {"/library/default/book/lavinia"}, "rename": {"apply"}}, false)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // bookXOneLine joins a page's lines, so a regexp can span tags.

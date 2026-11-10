@@ -79,9 +79,12 @@ type AudiobookView struct {
 	Parts     []AudiobookPart
 	Chapters  []AudiobookChapter
 	// Tab is the modal's open tab, "details" or "search"; Search the
-	// interactive search shown on the search tab, nil until one is run.
+	// interactive search shown on the search tab, nil until one is run:
+	// the shared panel, which draws the audiobook's columns for an
+	// audiobook's Search and polls and grabs through the shared /searches
+	// routes.
 	Tab    string
-	Search *AudiobookSearchPanel
+	Search *SearchPanel
 }
 
 // AudiobookPart is one row of the Parts table: a MediaFile of the
@@ -109,22 +112,6 @@ type AudiobookChapter struct {
 	Start string
 }
 
-// AudiobookSearchPanel is an audiobook's interactive search: the shared
-// panel's results under the audiobook's own columns -- Format (M4B, MP3,
-// FLAC), Bitrate, Size, Age, Indexer, Peers, Score -- which the panel keeps
-// through every poll and grab by polling and grabbing through the
-// audiobook's own routes (PollURL, GrabURL) rather than /searches, whose
-// panel draws Sonarr's columns.
-type AudiobookSearchPanel struct {
-	SearchPanel
-	// Audiobook names the audiobook the search is for, whose routes the
-	// panel polls and grabs through.
-	Audiobook string
-	// RuntimeMinutes is the audiobook's runtime, which a release's bitrate
-	// is estimated from with its size (audiobookBitrate); 0 shows none.
-	RuntimeMinutes int32
-}
-
 // AudiobookURL is an audiobook's page, and the base of its routes.
 func AudiobookURL(namespace, name string) string {
 	return fmt.Sprintf("/library/%s/audiobook/%s", namespace, name)
@@ -142,19 +129,6 @@ func (v AudiobookView) SearchURL() string { return v.URL() + "/search" }
 
 // InteractiveSearchURL starts an interactive search for the audiobook.
 func (v AudiobookView) InteractiveSearchURL() string { return v.URL() + "/search/interactive" }
-
-// PanelURL is the audiobook's own route for a Search's results panel, by
-// the Search's name: the panel under the audiobook's columns.
-func (p AudiobookSearchPanel) PanelURL() string {
-	return AudiobookURL(p.Namespace, p.Audiobook) + "/search/panel/" + p.Name
-}
-
-// PollURL is the route the panel asks again at: its own.
-func (p AudiobookSearchPanel) PollURL() string { return p.PanelURL() }
-
-// GrabURL is the download button's action: the audiobook's own grab route
-// for the Search, which answers the panel under the audiobook's columns.
-func (p AudiobookSearchPanel) GrabURL() string { return p.PanelURL() + "/grab" }
 
 // audiobookPartsLabel is the Parts fact, "n of m": the parts on disk over
 // the MediaFiles the status names, the larger of the two the whole.

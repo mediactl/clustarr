@@ -34,6 +34,8 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	bookctl "github.com/mediactl/clustarr/app/catalog/controller/book"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -42,8 +44,9 @@ import (
 // bookFixture is an author with books in every state the status cell
 // distinguishes -- on disk below the cutoff, downloading, pending,
 // missing, unmonitored, unreleased, undated -- one book's file, another
-// author's book, and a standalone book. The fake client is the reader and
-// the writer.
+// author's book, a standalone book, a standalone book on disk and an
+// author's book whose root overrides the author's. The fake client is the
+// reader and the writer.
 func bookFixture(t *testing.T) (*ui.Server, client.Client) {
 	t.Helper()
 	date := func(y int, m time.Month, d int) *metav1.Time {
@@ -115,6 +118,12 @@ func bookFixture(t *testing.T) (*ui.Server, client.Client) {
 	firelight.Status.Metadata.SeriesLinks = []catalogv1.SeriesLink{{Series: "Earthsea", Position: "0.5", Primary: true}}
 	lathe := book("lathe-of-heaven", "le-guin", "The Lathe of Heaven", date(1971, time.March, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseUnmonitored})
 	lathe.Spec.Monitored = new(false)
+	// An author's book may name a root of its own, overriding the author's
+	// (BookSpec.rootFolderRef); its status.path is then the author's folder
+	// under that root, and it is still no standalone (ui.bookHasFolder).
+	lavinia := book("lavinia", "le-guin", "Lavinia", date(2008, time.April, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseDelayed})
+	lavinia.Spec.RootFolderRef = new("books")
+	lavinia.Status.Path = author.Status.Path
 	file := &catalogv1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: "dispossessed-file", Namespace: "default"},
 		Spec: catalogv1.MediaFileSpec{
@@ -124,18 +133,36 @@ func bookFixture(t *testing.T) (*ui.Server, client.Client) {
 		},
 		Status: catalogv1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{PageCount: 341}},
 	}
-	// The standalone book has a folder of its own under the books root
-	// (design §9.3), which its Refresh & Scan and Rename work on.
-	standalone := book("standalone", "", "A Standalone Book", date(2001, time.January, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted})
-	standalone.Spec.QualityProfileRef, standalone.Spec.RootFolderRef = new("ebook-standalone"), new("books")
-	standalone.Status.Path = "/data/books/A Standalone Book (2001)"
 	root := &catalogv1.RootFolder{
 		ObjectMeta: metav1.ObjectMeta{Name: "books", Namespace: "default"},
 		Spec:       catalogv1.RootFolderSpec{Path: "/data/books", Kind: catalogv1.RootFolderKindBook},
 	}
-	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(author, root, file, dispossessed, earthsea, tombs, firelight, lathe, standalone,
+	// The standalone books have a folder of their own under the books root
+	// (design §9.3), which Refresh & Scan and Rename work on. Each one's
+	// status.path is what the Book reconciler writes (standaloneBookPath:
+	// the root itself, since a standalone book has no author folder), and
+	// the one on disk has its file where the import places it
+	// (standaloneBookFile: <root>/{Book Title}/{Book Title}.epub), both
+	// through the real rules so the fixture cannot drift from them.
+	standalone := book("standalone", "", "A Standalone Book", date(2001, time.January, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted})
+	standalone.Spec.QualityProfileRef, standalone.Spec.RootFolderRef = new("ebook-standalone"), new("books")
+	standalone.Status.Path = standaloneBookPath(t, root)
+	onDisk := book("standalone-on-disk", "", "A Standalone Book on Disk", date(2003, time.January, 1), catalogv1.BookStatus{
+		HasFile: true, FileRef: new("standalone-on-disk-file"), FileFormat: "EPUB", Phase: catalogv1.BookPhaseImported,
+		CutoffReason: "CutoffMet", FileQuality: &commonv1.Quality{Name: "EPUB"},
+	})
+	onDisk.Spec.QualityProfileRef, onDisk.Spec.RootFolderRef = new("ebook-standalone"), new("books")
+	onDisk.Status.Path = standaloneBookPath(t, root)
+	onDiskFile := &catalogv1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: "standalone-on-disk-file", Namespace: "default"},
+		Spec: catalogv1.MediaFileSpec{
+			MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "standalone-on-disk"},
+			Path:      standaloneBookFile(t, root, onDisk, ".epub"),
+			SizeBytes: 1 << 20, Quality: commonv1.Quality{Name: "EPUB"},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(author, root, file, dispossessed, earthsea, tombs, firelight, lathe, lavinia, standalone, onDisk, onDiskFile,
 		book("left-hand", "le-guin", "The Left Hand of Darkness", date(1969, time.March, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),
-		book("lavinia", "le-guin", "Lavinia", date(2008, time.April, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseDelayed}),
 		book("forthcoming", "le-guin", "Forthcoming", &future, catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),
 		book("poems", "le-guin", "Collected Poems", nil, catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),
 		book("neuromancer", "gibson", "Neuromancer", date(1984, time.July, 1), catalogv1.BookStatus{}),
@@ -158,12 +185,34 @@ func bookFixture(t *testing.T) (*ui.Server, client.Client) {
 	return srv, c
 }
 
+// standaloneBookPath is a standalone book's status.path as the Book
+// reconciler writes it: app/catalog/controller/book.Path with no author
+// name, which is the root's own path. standaloneBookFile is the file the
+// import places for it: catalogctx.BookFilePath with no author,
+// <root>/{Book Title}/{Book Title}<ext>. Both are the real rules, so a
+// fixture built on them cannot drift from the controller or the import.
+func standaloneBookPath(t *testing.T, root *catalogv1.RootFolder) string {
+	t.Helper()
+	p, err := bookctl.Path(root.Spec.Path, "", catalogctx.EngineFor(root))
+	require.NoError(t, err)
+	return p
+}
+
+func standaloneBookFile(t *testing.T, root *catalogv1.RootFolder, b *catalogv1.Book, ext string) string {
+	t.Helper()
+	c, ok := catalogctx.Book(nil, b)
+	require.True(t, ok, "the book has a title")
+	p, err := catalogctx.BookFilePath(root, nil, c, ext)
+	require.NoError(t, err)
+	return p
+}
+
 // An author's books are the season table, inline on the author's page
 // (2026-11-10 design §9.3; the lazily loaded /children fragment is gone):
 // the status cell says, in the episode's order, what each book is waiting
 // on, and every row has the automatic and interactive searches and a title
-// that opens the book's page. The page mounts the modal and the action
-// status once.
+// that opens the book's page; a plain form post from a row returns to the
+// author's page. The page mounts the modal and the action status once.
 func TestBookRowsAreTheSeasonTables(t *testing.T) {
 	srv, _ := bookFixture(t)
 	rec := getPath(t, srv, "/library/default/author/le-guin", false)
@@ -192,6 +241,8 @@ func TestBookRowsAreTheSeasonTables(t *testing.T) {
 	requireTag(t, body, `href="/library/default/book/left-hand"`, `data-book-title`, `preload="mouseover"`)
 	require.NotContains(t, body, `hx-get="/library/default/book/left-hand/details"`, "the title opens the book's page, not the modal (2026-11-10)")
 	require.Contains(t, body, `hx-post="/library/default/book/left-hand/monitor" hx-target="closest tr"`)
+	require.Contains(t, body, `name="return" value="/library/default/author/le-guin"`, "a plain post returns to the author's page")
+	require.NotContains(t, body, "/children", "the children fragment is gone")
 	require.Equal(t, 1, strings.Count(body, `id="book-modal"`))
 	require.Equal(t, 1, strings.Count(body, `id="action-status"`))
 }

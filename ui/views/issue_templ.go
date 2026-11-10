@@ -68,8 +68,9 @@ import (
 // §9.4), the episode modal's shape: "Comic - #12 - Title", then the
 // Details tab (overview, credits, file) and the Search tab, whose
 // interactive search lists releases in comic columns -- Format (cbz, cbr,
-// pdf), Size, Age, Indexer, Peers, Score -- over the issue's own panel
-// routes, so a poll or a grab keeps the columns.
+// pdf), Size, Age, Indexer, Peers, Score -- on the shared panel, which
+// draws them for an issue's Search and polls and grabs through the shared
+// /searches routes, so a poll or a grab keeps the columns.
 
 // IssueModal is an issue's details modal, opened from its interactive
 // search or its details route. It is swapped into the page's #issue-modal
@@ -146,7 +147,7 @@ func IssueModal(d IssueDetail) templ.Component {
 						var templ_7745c5c3_Var6 string
 						templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(issueHeading(d))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/issue.templ`, Line: 47, Col: 22}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/issue.templ`, Line: 48, Col: 22}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 						if templ_7745c5c3_Err != nil {
@@ -177,7 +178,7 @@ func IssueModal(d IssueDetail) templ.Component {
 						var templ_7745c5c3_Var8 string
 						templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(issueFacts(d))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/issue.templ`, Line: 50, Col: 20}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/issue.templ`, Line: 51, Col: 20}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 						if templ_7745c5c3_Err != nil {
@@ -441,7 +442,7 @@ func issueSummary(d IssueDetail) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(d.Overview)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/issue.templ`, Line: 109, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/issue.templ`, Line: 110, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -501,7 +502,7 @@ func issueCredits(credits []IssueCredit) templ.Component {
 		var templ_7745c5c3_Var19 string
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(len(credits)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/issue.templ`, Line: 123, Col: 78}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/issue.templ`, Line: 124, Col: 78}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
 		if templ_7745c5c3_Err != nil {
@@ -527,7 +528,7 @@ func issueCredits(credits []IssueCredit) templ.Component {
 				var templ_7745c5c3_Var21 string
 				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(c.String())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/issue.templ`, Line: 126, Col: 16}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/issue.templ`, Line: 127, Col: 16}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 				if templ_7745c5c3_Err != nil {
@@ -575,21 +576,12 @@ func IssueSearchTab(d IssueDetail) templ.Component {
 			templ_7745c5c3_Var22 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = searchTab("issue", d.Row.Name, d.Row.SearchURL(), d.Row.InteractiveSearchURL(), d.Row.ReturnURL(), issuePanel(d)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = searchTab("issue", d.Row.Name, d.Row.SearchURL(), d.Row.InteractiveSearchURL(), d.Row.ReturnURL(), d.Search).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		return nil
 	})
-}
-
-// issuePanel is the shared panel the Search tab shows, nil until an
-// interactive search runs.
-func issuePanel(d IssueDetail) *SearchPanel {
-	if d.Search == nil {
-		return nil
-	}
-	return &d.Search.SearchPanel
 }
 
 var _ = templruntime.GeneratedTemplate

@@ -72,13 +72,18 @@ func (r BookRow) InteractiveSearchURL() string { return r.URL() + "/search/inter
 // DetailsURL is the book's details: the modal to htmx, a page otherwise.
 func (r BookRow) DetailsURL() string { return r.URL() + "/details" }
 
-// ReturnURL is where a form post from the row returns: the author's books
-// page, or a standalone book's own page.
+// ReturnURL is where a form post from the row returns: the author's page,
+// whose books table the row is on, or a standalone book's own page.
 func (r BookRow) ReturnURL() string {
 	if r.Author == "" {
 		return r.URL()
 	}
-	return ChildrenURL(r.Namespace, "author", r.Author)
+	return AuthorURL(r.Namespace, r.Author)
+}
+
+// AuthorURL is an author's page.
+func AuthorURL(namespace, name string) string {
+	return fmt.Sprintf("/library/%s/author/%s", namespace, name)
 }
 
 // BookDetail is a book's details modal, the episode modal's counterpart:

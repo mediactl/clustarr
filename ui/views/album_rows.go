@@ -20,6 +20,8 @@ package views
 import (
 	"fmt"
 	"strings"
+
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // The Music pages (2026-11-10 design §9.2; plan W4b.1): an artist's page
@@ -240,12 +242,19 @@ func (t TrackRow) Position(discs bool) string {
 // AlbumView is everything an album's page shows (design §9.2, the episode
 // page's analogue).
 type AlbumView struct {
-	// Detail is what the shared sections read: Item is the artist's library
-	// card (poster, art key, quality profile, tab), Backdrop its fanart;
-	// Path, Overview, Genres, Links, Files, Prev and Next are the album's
-	// own.
+	// Detail is what the shared sections read: Item is the album's own
+	// card (ui.albumItem: its ref and kind, so the Edit dialog's trigger,
+	// form and return are the album's; its title; the quality profile its
+	// spec overrides, else the artist's; its cover; its monitoring),
+	// Backdrop the artist's fanart; Path, Overview, Genres, Links, Files,
+	// Prev and Next are the album's own.
 	Detail
-	Row AlbumRow
+	// Artist is the artist's library card -- its poster (the hero's when
+	// the album has no cover), art key, title, tab and page -- for the
+	// artist link, the crumbs and the rename pair, which is the artist's
+	// folder's.
+	Artist projection.LibraryItem
+	Row    AlbumRow
 	// Cover is the album's own cover through /art, "" when none has been
 	// fetched (the hero then shows the artist's poster); CoverKey is its
 	// image key, for the SSE art event.
@@ -269,7 +278,7 @@ type AlbumView struct {
 }
 
 // PageTitle is "Artist - Album".
-func (v AlbumView) PageTitle() string { return v.Item.Title + " - " + v.Row.DisplayTitle() }
+func (v AlbumView) PageTitle() string { return v.Artist.Title + " - " + v.Row.DisplayTitle() }
 
 // AlbumDetail is an album's details modal, the book modal's counterpart:
 // the album's summary and files on one tab, its searches on the other.
@@ -288,23 +297,17 @@ type AlbumDetail struct {
 	Search *SearchPanel
 }
 
-// AlbumSearchPanel is an album's interactive search panel: the shared
-// SearchPanel, drawn with Lidarr's columns (AlbumSearchPanelView), polled
-// and grabbed through the album's own routes so the columns hold across
-// every refresh -- the shared /searches routes draw the video columns.
+// AlbumSearchPanel is an album's interactive search modal's view
+// (AlbumSearchModal): the shared SearchPanel, which draws Lidarr's columns
+// for an album's Search and polls and grabs through the shared /searches
+// routes, under a heading naming the album and its artist.
 type AlbumSearchPanel struct {
 	SearchPanel
-	// Album is the album searched for, whose routes the panel uses;
-	// ArtistTitle names its artist in the modal's title.
+	// Album is the album searched for, named in the modal's heading and
+	// data attributes; ArtistTitle names its artist in the heading.
 	Album       AlbumRow
 	ArtistTitle string
 }
-
-// PanelURL is the panel's own route: GET answers the panel to htmx.
-func (p AlbumSearchPanel) PanelURL() string { return p.Album.URL() + "/search/panel/" + p.Name }
-
-// GrabURL is the download button's action on the album's panel.
-func (p AlbumSearchPanel) GrabURL() string { return p.PanelURL() + "/grab" }
 
 // Heading is the modal's title: "Interactive Search - Artist - Album".
 func (p AlbumSearchPanel) Heading() string {
