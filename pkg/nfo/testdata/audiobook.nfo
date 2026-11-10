@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<album>
+  <title>The Left Hand of Darkness</title>
+  <artistdesc>Ursula K. Le Guin</artistdesc>
+  <genre>Science Fiction &amp; Fantasy</genre>
+  <review>A classic.</review>
+  <type>Audiobook</type>
+  <releasedate>2004-01-01</releasedate>
+  <originalreleasedate>2004-01-01</originalreleasedate>
+  <label>Blackstone</label>
+  <year>2004</year>
+  <rating max="10">4.7</rating>
+  <votes>1200</votes>
+  <thumb>https://m.media-amazon.com/images/I/cover.jpg</thumb>
+  <albumArtistCredits>
+    <artist>Ursula K. Le Guin</artist>
+  </albumArtistCredits>
+  <artist>Ursula K. Le Guin</artist>
+  <albumartist>Ursula K. Le Guin</albumartist>
+  <track>
+    <disc>1</disc>
+    <position>1</position>
+    <title>Chapter 1: A Parade in Erhenrang</title>
+    <duration>60:00</duration>
+  </track>
+  <track>
+    <disc>1</disc>
+    <position>2</position>
+    <title>Part 2</title>
+    <duration>01:01</duration>
+  </track>
+</album>

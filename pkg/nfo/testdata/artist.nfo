@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<artist>
+  <name>Muse</name>
+  <musicBrainzArtistID>9c9f1380-2516-4fc9-a3e6-f9f61941d090</musicBrainzArtistID>
+  <sortname>Muse</sortname>
+  <type>Group</type>
+  <disambiguation>UK rock band</disambiguation>
+  <genre>alternative rock</genre>
+  <genre>progressive rock</genre>
+  <yearsactive>1994-</yearsactive>
+  <formed>1994</formed>
+  <biography>Muse are an English rock band from Teignmouth, Devon.</biography>
+  <thumb aspect="poster">https://assets.fanart.tv/fanart/music/muse/artistthumb/1.jpg</thumb>
+  <album>
+    <title>Absolution</title>
+    <year>2004</year>
+    <musicbrainzreleasegroupid>1a3d9f5c-rg</musicbrainzreleasegroupid>
+  </album>
+</artist>

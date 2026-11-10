@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<album>
+  <title>Absolution</title>
+  <musicbrainzalbumid>rel-1</musicbrainzalbumid>
+  <musicbrainzreleasegroupid>1a3d9f5c-rg</musicbrainzreleasegroupid>
+  <artistdesc>Muse</artistdesc>
+  <genre>alternative rock</genre>
+  <compilation>false</compilation>
+  <review>The third studio album.</review>
+  <type>Album</type>
+  <releasestatus>Official</releasestatus>
+  <releasedate>2004-03-15</releasedate>
+  <originalreleasedate>2004-01-01</originalreleasedate>
+  <label>Taste Media</label>
+  <year>2004</year>
+  <rating max="10">4.5</rating>
+  <votes>23</votes>
+  <thumb>https://coverartarchive.org/release/rel-1/front</thumb>
+  <albumArtistCredits>
+    <artist>Muse</artist>
+    <musicBrainzArtistID>9c9f1380-2516-4fc9-a3e6-f9f61941d090</musicBrainzArtistID>
+  </albumArtistCredits>
+  <artist>Muse</artist>
+  <albumartist>Muse</albumartist>
+  <track>
+    <disc>1</disc>
+    <position>1</position>
+    <title>Intro</title>
+    <duration>00:22</duration>
+    <musicBrainzTrackID>rec-1</musicBrainzTrackID>
+  </track>
+  <track>
+    <disc>1</disc>
+    <position>2</position>
+    <title>Apocalypse Please</title>
+    <duration>04:12</duration>
+    <musicBrainzTrackID>rec-2</musicBrainzTrackID>
+  </track>
+  <track>
+    <disc>2</disc>
+    <position>1</position>
+    <title>Time Is Running Out &lt;live&gt;</title>
+    <duration>03:57</duration>
+    <musicBrainzTrackID>rec-3</musicBrainzTrackID>
+  </track>
+</album>

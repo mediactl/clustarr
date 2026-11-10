@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<artist>
+  <name>Ursula K. Le Guin</name>
+  <sortname>Le Guin, Ursula K.</sortname>
+  <type>Person</type>
+  <genre>science fiction</genre>
+  <born>1929-10-21</born>
+  <biography>American author.</biography>
+  <died>2018-01-22</died>
+  <album>
+    <title>The Left Hand of Darkness</title>
+    <year>2004</year>
+  </album>
+</artist>
