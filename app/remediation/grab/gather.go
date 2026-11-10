@@ -234,8 +234,19 @@ func (s *Stage) candidates(ctx context.Context, item client.Object, g *gathered)
 		}
 		v.Candidates = append(v.Candidates, cs...)
 	}
-	if ser, ok := item.(*catalogv1alpha1.Series); ok {
-		cs, err := s.seasonAnswers(ctx, ser, v.Now)
+	switch t := item.(type) {
+	case *catalogv1alpha1.Series:
+		cs, err := s.seasonAnswers(ctx, t, t.Status.SeasonSearch, v.Now)
+		if err != nil {
+			return err
+		}
+		v.Candidates = append(v.Candidates, cs...)
+	case *catalogv1alpha1.Comic:
+		// A Comic's volume search is its one season (2026-11-10 design D10,
+		// searchplan.VolumeNumber): its answer is the Comic's grab input as
+		// a season answer is a Series', and grabplan's issue coverage maps
+		// each release to the Issue its parsed number names.
+		cs, err := s.seasonAnswers(ctx, t, t.Status.VolumeSearch, v.Now)
 		if err != nil {
 			return err
 		}
@@ -251,8 +262,10 @@ func (s *Stage) candidates(ctx context.Context, item client.Object, g *gathered)
 // stage failure on the pass that brought an answer does not lose it. A
 // canceled request's answered seasons stay input inside their window; a
 // late answer to a canceled season is none.
-func (s *Stage) seasonAnswers(ctx context.Context, ser *catalogv1alpha1.Series, now time.Time) ([]grabplan.Candidate, error) {
-	st := ser.Status.SeasonSearch
+//
+// container is the Series or, since 2026-11-10 (design D10), the Comic
+// whose status.volumeSearch st is; the records are keyed by its UID.
+func (s *Stage) seasonAnswers(ctx context.Context, container client.Object, st *catalogv1alpha1.SeasonSearchState, now time.Time) ([]grabplan.Candidate, error) {
 	if st == nil {
 		return nil, nil
 	}
@@ -262,9 +275,9 @@ func (s *Stage) seasonAnswers(ctx context.Context, ser *catalogv1alpha1.Series, 
 			now.Sub(se.AnsweredAt.Time) > grabplan.CandidateWindow {
 			continue
 		}
-		rec, _, ok, err := s.searches.Get(ctx, agentrecords.SeasonSearchKey(string(ser.UID), se.Number))
+		rec, _, ok, err := s.searches.Get(ctx, agentrecords.SeasonSearchKey(string(container.GetUID()), se.Number))
 		if err != nil {
-			return nil, fmt.Errorf("grab: season %d record of %s: %w", se.Number, ser.Name, err)
+			return nil, fmt.Errorf("grab: season %d record of %s: %w", se.Number, container.GetName(), err)
 		}
 		if !ok || rec.Seq != se.Seq {
 			continue

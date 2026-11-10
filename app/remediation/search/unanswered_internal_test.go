@@ -149,7 +149,12 @@ func withLedgerIndexes(b *fake.ClientBuilder) *fake.ClientBuilder {
 	} {
 		b = b.WithIndex(obj, itemread.SearchInFlightIndex, itemread.SearchInFlightValues)
 	}
-	return b.WithIndex(&catalogv1alpha1.Series{}, itemread.SeasonSearchInFlightIndex, itemread.SeasonSearchInFlightValues)
+	// The Series' seasonSearch and the Comic's volumeSearch (2026-11-10
+	// design D10) share the one in-flight marker index.
+	for _, obj := range []client.Object{&catalogv1alpha1.Series{}, &catalogv1alpha1.Comic{}} {
+		b = b.WithIndex(obj, itemread.SeasonSearchInFlightIndex, itemread.SeasonSearchInFlightValues)
+	}
+	return b
 }
 
 // A redownload due is admitted through AdmitFirst, so it claims the lane's

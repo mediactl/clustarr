@@ -173,6 +173,24 @@ func issueRejection(id Identity, idx identityIndex, p *release.ParsedRelease) *c
 	return yearRejection(id.Year, p.Comic.Year, issueYearTolerance)
 }
 
+// volumeRejection is the comic volume search's rule (2026-11-10 design
+// D10): the release's series is the comic's, and nothing else is asked --
+// any issue number or range belongs to the volume, and a volume's issues
+// span years, so the cover year is no test here. A release that names no
+// series is unknown.
+func volumeRejection(id Identity, idx identityIndex, p *release.ParsedRelease) *common.Rejection {
+	if p.Comic == nil {
+		r := newRejection(ReasonUnknownItem, "release title %q names no comic series", p.Title)
+		return &r
+	}
+	return verdict(
+		namePart{
+			noun: "series", nouns: "titles", item: id.Titles, itemKeys: idx.titles,
+			release: p.Comic.Series, releaseKeys: releaseTitleKeys(p),
+		}.fact(),
+	)
+}
+
 // fact is one comparison's outcome: wrong names evidence of a different
 // item, unknown says the comparison could not be made, both empty means it
 // agreed.

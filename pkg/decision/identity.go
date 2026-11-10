@@ -157,11 +157,23 @@ func identityRejection(t Target, idx identityIndex, parsed *release.ParsedReleas
 		return bookRejection(t.Identity, idx, parsed)
 	case common.MediaKindIssue:
 		return issueRejection(t.Identity, idx, parsed)
+	case common.MediaKindComic:
+		// A Comic is searched directly only as a volume (2026-11-10 design
+		// D10: the Comic key's pack-first search, Identity.SeasonSearch):
+		// the release is for the comic when its series is one of the
+		// comic's titles, whatever its issue, with no year check -- the
+		// answer's releases are each attributed to the Issue their number
+		// names by the grab planner (grabplan's issue coverage).
+		if t.Identity.SeasonSearch {
+			return volumeRejection(t.Identity, idx, parsed)
+		}
+		fallthrough
 	default:
-		// Artist, Author and Comic are containers: a release is for one of
-		// their albums, books or issues, and no search targets them directly.
-		// Whoever adds one must add its identity rule; until then nothing of
-		// that kind is approved.
+		// Artist, Author and Comic (outside its volume search) are
+		// containers: a release is for one of their albums, books or
+		// issues, and no search targets them directly. Whoever adds one
+		// must add its identity rule; until then nothing of that kind is
+		// approved.
 		r := newRejection(ReasonUnknownItem, "pkg/decision has no identity rule for kind %q", t.Kind)
 		return &r
 	}

@@ -128,6 +128,23 @@ func TestIdentityIssue(t *testing.T) {
 	})
 }
 
+// TestIdentityComicVolume is the Comic key's volume search (2026-11-10
+// design D10): any issue of the comic's series is approved, whatever its
+// number or year, another series is wrong, and a Comic target that is not a
+// volume search still identifies nothing.
+func TestIdentityComicVolume(t *testing.T) {
+	batman := decision.Identity{Titles: []string{"Batman"}, Year: 2016, SeasonSearch: true}
+	notAVolume := decision.Identity{Titles: []string{"Batman"}, Year: 2016}
+
+	runNonVideo(t, common.MediaKindComic, batman, []nonVideoCase{
+		{name: "an issue of the series", title: "Batman 050 (2018) (Digital) (Zone-Empire).cbr"},
+		{name: "another issue, years on", title: "Batman 101 (2021).cbz"},
+		{name: "a manga chapter of the series", title: "Batman v03 c012 (2017).cbz"},
+		{name: "another series", title: "Superman 050 (2018).cbz", want: "WrongItem", detail: `release series "Superman" matches none of the item's 1 known titles (primary "Batman")`},
+		{name: "a comic target outside its volume search", identity: &notAVolume, title: "Batman 050 (2018).cbz", want: "UnknownItem", detail: "no identity rule"},
+	})
+}
+
 // TestExportedKeysAreTheIdentityChecksOwn pins the two helpers the RSS
 // matcher keys its lookups by to what the identity check compares.
 func TestExportedKeysAreTheIdentityChecksOwn(t *testing.T) {

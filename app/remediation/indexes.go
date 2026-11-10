@@ -106,8 +106,12 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 			return fmt.Errorf("remediation: register %s on %T: %w", itemread.BacklogIndex, obj, err)
 		}
 	}
-	if err := idx.IndexField(ctx, &catalogv1alpha1.Series{}, itemread.SeasonSearchInFlightIndex, itemread.SeasonSearchInFlightValues); err != nil {
-		return fmt.Errorf("remediation: register %s: %w", itemread.SeasonSearchInFlightIndex, err)
+	// A Series' seasonSearch and, since 2026-11-10 (design D10), a Comic's
+	// volumeSearch: the extractor reads both (itemread.ContainerSearch).
+	for _, obj := range []client.Object{&catalogv1alpha1.Series{}, &catalogv1alpha1.Comic{}} {
+		if err := idx.IndexField(ctx, obj, itemread.SeasonSearchInFlightIndex, itemread.SeasonSearchInFlightValues); err != nil {
+			return fmt.Errorf("remediation: register %s on %T: %w", itemread.SeasonSearchInFlightIndex, obj, err)
+		}
 	}
 	for _, obj := range []client.Object{&catalogv1alpha1.Series{}, &catalogv1alpha1.Movie{}} {
 		if err := idx.IndexField(ctx, obj, itemread.AnimeIndex, itemread.AnimeValues); err != nil {

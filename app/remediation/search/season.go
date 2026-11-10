@@ -783,12 +783,12 @@ func (SeasonLedgerSource) Rebuild(ctx context.Context, r client.Reader) ([]dispa
 			Seq: st.Dispatch.Seq,
 		})
 	}
-	// The Comics' volume dispatches. Comic is not a row-cached kind and a
-	// library holds few, so the whole kind is read; the in-flight marker
-	// index reads a Comic's volumeSearch too (itemread.SeasonSearchInFlightValues)
-	// once the loop registers it on the kind.
+	// The Comics' volume dispatches, through the same in-flight marker
+	// index (itemread.SeasonSearchInFlightValues reads a Comic's
+	// volumeSearch; the loop registers it on the kind, app/remediation
+	// /indexes.go), so a rebuild lists only the Comics with one open.
 	var comics catalogv1alpha1.ComicList
-	if err := r.List(ctx, &comics); err != nil {
+	if err := r.List(ctx, &comics, client.MatchingFields{itemread.SeasonSearchInFlightIndex: itemread.IndexTrue}); err != nil {
 		return nil, fmt.Errorf("search: rebuild the volume ledger: %w", err)
 	}
 	for i := range comics.Items {
