@@ -727,7 +727,8 @@ func (w *Worker) inspectNonVideo(
 	// attributed to a track is held for a person with the first's name.
 	taken := map[string]string{}
 	proposed := &schema.ItemRef{Kind: objectKind(kind), Ref: schema.Ref{Namespace: ns, Name: plan.ref.Name}}
-	return w.walk(ctx, m, kind, root, task.Manual || task.Override, insp, func(path string, info os.FileInfo) error {
+	first := len(insp.Files)
+	err = w.walk(ctx, m, kind, root, task.Manual || task.Override, insp, func(path string, info os.FileInfo) error {
 		rel := relPath(root, path)
 		f := schema.InspectedFile{Path: path, SizeBytes: info.Size()}
 		var hbErr error
@@ -756,10 +757,16 @@ func (w *Worker) inspectNonVideo(
 			f.Frozen.PartIndex = PartIndexOf(ap, rel)
 		}
 		f.Proposed, f.Keys = proposed, []string{plan.ref.Name}
-		f.Dest = naming.SanitizePath(filepath.Join(plan.folder, plan.fileName(rel)), naming.DefaultSanitizeOptions())
+		f.Dest = plan.dest(ctx, &f, rel, task.Release.Title)
 		insp.Files = append(insp.Files, f)
 		return nil
 	})
+	if kind == commonv1.MediaKindAlbum {
+		keepOwnNamesOnCollision(insp.Files[first:], func(f *schema.InspectedFile) string {
+			return naming.SanitizePath(filepath.Join(plan.folder, plan.fileName(relPath(root, f.Path))), naming.DefaultSanitizeOptions())
+		})
+	}
+	return err
 }
 
 // inspectDonor reads an audio donor's payload: its largest media or

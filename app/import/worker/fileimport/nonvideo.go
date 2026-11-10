@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -34,8 +35,10 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/importtarget"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
 
@@ -66,21 +69,52 @@ type nonVideoPlan struct {
 	rootFolder *catalogv1alpha1.RootFolder
 	profile    quality.Profile
 
-	// folder is the item's absolute folder in the library.
+	// folder is the item's absolute folder in the library: the container
+	// folder rule the import and the loop share (status.path, else
+	// spec.folder under the root, else the kind's folder preset). It is
+	// the base of a file's fallback name (dest).
 	folder string
 
 	// fileName maps a source file (its path relative to the content root)
-	// onto its name under folder. Multi-file items keep the source's own
-	// relative path, disc subfolders included: renaming a track or a part
-	// needs its number and title, which only a probe of its tags could
-	// supply.
+	// onto its fallback name under folder, the name the import gave every
+	// file before the 2026-11-10 design: a multi-file item's file keeps
+	// its own relative path, disc subfolders included, a single-file
+	// item's takes the item's rendered base plus the source's extension.
 	fileName func(srcRel string) string
 
 	// tracks is an album's selected release's listing and media its disc
 	// count (2026-11-10 design D6): every audio file is attributed to one
-	// track (attributeTrack), a lone file to a one-track album's one.
+	// track (AttributeTrack), a lone file to a one-track album's one.
 	tracks []catalogv1alpha1.Track
 	media  int32
+
+	// naming renders a file's canonical path, the one the remediation
+	// loop's naming planner proposes (design D7, §5.5), so a fresh import
+	// reads NamingCurrent True and the loop renames nothing.
+	naming nonVideoNaming
+}
+
+// nonVideoNaming is the loop's own rendering of a non-video file's path
+// (app/catalog/controller/mediafile.namingOwnerOf, through
+// pkg/naming/catalogctx), held as two closures over the resolved objects:
+// identity is the item's naming context for one file -- an Album's for the
+// attributed track, an Audiobook's for the part index, a Book's or an
+// Issue's for the item alone -- false while the metadata the preset names
+// has not arrived; render is the kind's *FilePath under root.
+type nonVideoNaming struct {
+	identity func(track *catalogv1alpha1.Track, partIndex int32) (naming.Context, bool)
+	render   func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error)
+}
+
+// resolved is what one kind's resolver read: the refs the import inherits,
+// the container folder, the fallback name rule, an album's tracks and the
+// loop's naming closures.
+type resolved struct {
+	rootRef, profileRef, folder string
+	fileName                    func(string) string
+	tracks                      []catalogv1alpha1.Track
+	media                       int32
+	naming                      nonVideoNaming
 }
 
 // resolveNonVideo reads the target item and its parents and works out where
@@ -91,32 +125,31 @@ func (w *Worker) resolveNonVideo(ctx context.Context, ns string, target importta
 	plan := nonVideoPlan{ref: ref, namespace: ns}
 
 	var (
-		rootRef, profileRef, folder string
-		fileName                    func(string) string
-		err                         error
+		r   resolved
+		err error
 	)
 	switch ref.Kind {
 	case commonv1.MediaKindAlbum:
-		rootRef, profileRef, folder, plan.tracks, plan.media, err = w.resolveAlbum(ctx, ns, ref.Name)
-		fileName = keepRelative
+		r, err = w.resolveAlbum(ctx, ns, ref.Name)
 	case commonv1.MediaKindBook:
-		rootRef, profileRef, folder, fileName, err = w.resolveBook(ctx, ns, ref.Name)
+		r, err = w.resolveBook(ctx, ns, ref.Name)
 	case commonv1.MediaKindAudiobook:
-		rootRef, profileRef, folder, err = w.resolveAudiobook(ctx, ns, ref.Name)
-		fileName = keepRelative
+		r, err = w.resolveAudiobook(ctx, ns, ref.Name)
 	case commonv1.MediaKindIssue:
-		rootRef, profileRef, folder, fileName, err = w.resolveIssue(ctx, ns, target)
+		r, err = w.resolveIssue(ctx, ns, target)
 	default:
 		return nonVideoPlan{}, blocked("target kind %q is not a non-video file kind", ref.Kind)
 	}
 	if err != nil {
 		return nonVideoPlan{}, err
 	}
+	plan.tracks, plan.media, plan.naming = r.tracks, r.media, r.naming
 
+	profileRef := r.profileRef
 	if downloadProfileRef != "" {
 		profileRef = downloadProfileRef
 	}
-	if rootRef == "" {
+	if r.rootRef == "" {
 		return nonVideoPlan{}, blocked("%s %s names no root folder", ref.Kind, ref.Name)
 	}
 	if profileRef == "" {
@@ -124,11 +157,11 @@ func (w *Worker) resolveNonVideo(ctx context.Context, ns string, target importta
 	}
 
 	var root catalogv1alpha1.RootFolder
-	if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: rootRef}, &root); err != nil {
+	if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: r.rootRef}, &root); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nonVideoPlan{}, blocked("root folder %q does not exist", rootRef)
+			return nonVideoPlan{}, blocked("root folder %q does not exist", r.rootRef)
 		}
-		return nonVideoPlan{}, fmt.Errorf("fileimport: get root folder %s/%s: %w", ns, rootRef, err)
+		return nonVideoPlan{}, fmt.Errorf("fileimport: get root folder %s/%s: %w", ns, r.rootRef, err)
 	}
 	if !importtarget.FileRefFitsRoot(ref, root.Spec.Kind) {
 		return nonVideoPlan{}, blocked("root folder %q is a %s root; a %s file does not belong there",
@@ -142,13 +175,81 @@ func (w *Worker) resolveNonVideo(ctx context.Context, ns string, target importta
 	}
 	plan.profile = profile
 
+	folder := r.folder
 	if !filepath.IsAbs(folder) {
 		folder = filepath.Join(root.Spec.Path, folder)
 	}
 	plan.folder = folder
-	plan.fileName = fileName
+	plan.fileName = r.fileName
 
 	return plan, nil
+}
+
+// dest is where f, at rel under the content root, goes in the library: its
+// canonical path, rendered as the remediation loop's naming planner renders
+// it (the loop's own closures over the same objects, through catalogctx;
+// 2026-11-10 design D7, §5.5), so a fresh import reads NamingCurrent True
+// and the loop renames nothing. The loop merges the file's frozen release
+// fields (catalogctx.File) and its profile's configured language before it
+// renders, so the import does the same; no non-video preset names either,
+// but a template override may.
+//
+// Where the import lacks an input the rename has -- an album file
+// attributed to no track (its rejection names why), a track its Album's
+// release does not list, metadata the preset needs that has not arrived --
+// or the render fails, the file keeps the name the import gave it before
+// the design: its own under the item's folder (fileName), which the loop
+// reads as Stale and proposes the canonical path for on its first pass, as
+// it did for every such file until now. The fallback's sanitising is the
+// one the import always applied to that name.
+func (p nonVideoPlan) dest(ctx context.Context, f *schema.InspectedFile, rel, releaseTitle string) string {
+	fallback := naming.SanitizePath(filepath.Join(p.folder, p.fileName(rel)), naming.DefaultSanitizeOptions())
+	if p.naming.identity == nil || p.naming.render == nil {
+		return fallback
+	}
+	var track *catalogv1alpha1.Track
+	if p.ref.Kind == commonv1.MediaKindAlbum {
+		i := slices.IndexFunc(p.tracks, func(t catalogv1alpha1.Track) bool { return t.RecordingID == f.Frozen.Track })
+		if f.Frozen.Track == "" || i < 0 {
+			return fallback
+		}
+		track = &p.tracks[i]
+	}
+	c, ok := p.naming.identity(track, f.Frozen.PartIndex)
+	if !ok {
+		return fallback
+	}
+	c.Language = catalogctx.ConfiguredLanguage(&p.profile)
+	c = catalogctx.File(ctx, c, frozenSpec(f.Frozen, releaseTitle), nil)
+	dest, err := p.naming.render(p.rootFolder, c, catalogctx.FileExt(p.ref.Kind, nil, rel))
+	if err != nil {
+		logging.FromContext(ctx).Warn("fileimport: the file's canonical path could not be rendered; it keeps its own name",
+			"source", rel, "kind", p.ref.Kind, "item", p.ref.Name, "err", err)
+		return fallback
+	}
+	return dest
+}
+
+// keepOwnNamesOnCollision gives back their fallback names to the files of
+// one inspect whose canonical paths collide: the track preset has no medium
+// token (the 2026-11-10 plan's W1.4 leftover), so two discs' same-numbered,
+// same-titled tracks render alike, and importplan refuses two files at one
+// path, which would hold the whole album. Named their own way, both import
+// as they did before the design; the loop proposes the canonical path for
+// each and overwrites nothing. files is the inspect's own slice; fallback is
+// dest's fallback for one of them.
+func keepOwnNamesOnCollision(files []schema.InspectedFile, fallback func(f *schema.InspectedFile) string) {
+	at := map[string]int{}
+	for i := range files {
+		if files[i].Dest != "" {
+			at[files[i].Dest]++
+		}
+	}
+	for i := range files {
+		if files[i].Dest != "" && at[files[i].Dest] > 1 {
+			files[i].Dest = fallback(&files[i])
+		}
+	}
 }
 
 // keepRelative is the file-name rule for a multi-file item.
@@ -181,42 +282,52 @@ func (w *Worker) getItem(ctx context.Context, ns, kind, name string, obj client.
 }
 
 // resolveAlbum: the artist's folder, then the album's own folder segment
-// from pkg/naming's album preset. Files keep their relative paths.
-// singleTrack is the recording MBID when the album's selected release has
-// exactly one track (status.tracks).
-func (w *Worker) resolveAlbum(ctx context.Context, ns, name string) (rootRef, profileRef, folder string, tracks []catalogv1alpha1.Track, media int32, err error) {
+// from pkg/naming's album preset. A file's canonical name is the track
+// preset's for the track it is attributed to (catalogctx.TrackFilePath);
+// its fallback keeps its relative path. tracks is the selected release's
+// listing (status.tracks), media its disc count.
+func (w *Worker) resolveAlbum(ctx context.Context, ns, name string) (resolved, error) {
 	var album catalogv1alpha1.Album
 	if err := w.getItem(ctx, ns, "album", name, &album); err != nil {
-		return "", "", "", nil, 0, err
+		return resolved{}, err
 	}
-	tracks = album.Status.Tracks
+	r := resolved{fileName: keepRelative, tracks: album.Status.Tracks}
 	if m := album.Status.Metadata; m != nil {
 		for _, rel := range m.Releases {
 			if rel.ID == m.SelectedReleaseID {
-				media = int32(len(rel.Media))
+				r.media = int32(len(rel.Media))
 			}
 		}
 	}
 	var artist catalogv1alpha1.Artist
 	if err := w.getItem(ctx, ns, "artist", album.Spec.ArtistRef, &artist); err != nil {
-		return "", "", "", nil, 0, err
+		return resolved{}, err
 	}
-	rootRef = artist.Spec.RootFolderRef
-	profileRef = ptr.Deref(album.Spec.QualityProfileRef, artist.Spec.QualityProfileRef)
+	r.rootRef = artist.Spec.RootFolderRef
+	r.profileRef = ptr.Deref(album.Spec.QualityProfileRef, artist.Spec.QualityProfileRef)
+	r.naming = nonVideoNaming{
+		identity: func(track *catalogv1alpha1.Track, _ int32) (naming.Context, bool) {
+			return catalogctx.Album(&artist, &album, track)
+		},
+		render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
+			return catalogctx.TrackFilePath(root, &artist, &album, c, ext)
+		},
+	}
 	if album.Status.Path != "" {
-		return rootRef, profileRef, album.Status.Path, tracks, media, nil
+		r.folder = album.Status.Path
+		return r, nil
 	}
 	if album.Status.Metadata == nil || album.Status.Metadata.Title == "" {
-		return "", "", "", nil, 0, fmt.Errorf("fileimport: album %s/%s has no metadata yet", ns, name)
+		return resolved{}, fmt.Errorf("fileimport: album %s/%s has no metadata yet", ns, name)
 	}
-	root, err := w.getRoot(ctx, ns, rootRef)
+	root, err := w.getRoot(ctx, ns, r.rootRef)
 	if err != nil {
-		return "", "", "", nil, 0, err
+		return resolved{}, err
 	}
 	eng := catalogctx.EngineFor(root)
 	artistFolder, err := w.artistFolder(root, &artist, eng)
 	if err != nil {
-		return "", "", "", nil, 0, err
+		return resolved{}, err
 	}
 	nctx := naming.Context{
 		Kind:       commonv1.MediaKindAlbum,
@@ -226,9 +337,10 @@ func (w *Worker) resolveAlbum(ctx context.Context, ns, name string) (rootRef, pr
 	nctx.Year = ReleaseYear(album.Status.Metadata.ReleaseDate)
 	rendered, err := eng.BuildFolder(commonv1.MediaKindAlbum, nctx)
 	if err != nil {
-		return "", "", "", nil, 0, blocked("render album folder: %v", err)
+		return resolved{}, blocked("render album folder: %v", err)
 	}
-	return rootRef, profileRef, filepath.Join(artistFolder, path.Base(rendered)), tracks, media, nil
+	r.folder = filepath.Join(artistFolder, path.Base(rendered))
+	return r, nil
 }
 
 // artistFolder mirrors the Artist controller's path rule: status.path when
@@ -261,40 +373,47 @@ func artistName(a *catalogv1alpha1.Artist) string {
 // resolveBook: pkg/naming's book-file preset is "{Book Title}/{Author Name}"
 // under the author's folder (Readarr's convention: a folder per book, the
 // file named after the author). A standalone book has no author folder and
-// no author name, so it gets "<root>/{Book Title}/{Book Title}.<ext>".
-func (w *Worker) resolveBook(ctx context.Context, ns, name string) (
-	rootRef, profileRef, folder string, fileName func(string) string, err error,
-) {
+// no author name, so it gets "<root>/{Book Title}/{Book Title}.<ext>". The
+// canonical path is catalogctx.BookFilePath's, the same two rules.
+func (w *Worker) resolveBook(ctx context.Context, ns, name string) (resolved, error) {
 	var book catalogv1alpha1.Book
 	if err := w.getItem(ctx, ns, "book", name, &book); err != nil {
-		return "", "", "", nil, err
+		return resolved{}, err
 	}
 	var author *catalogv1alpha1.Author
 	if ref := ptr.Deref(book.Spec.AuthorRef, ""); ref != "" {
 		author = &catalogv1alpha1.Author{}
 		if err := w.getItem(ctx, ns, "author", ref, author); err != nil {
-			return "", "", "", nil, err
+			return resolved{}, err
 		}
 	}
-	rootRef = ptr.Deref(book.Spec.RootFolderRef, "")
-	profileRef = ptr.Deref(book.Spec.QualityProfileRef, "")
+	r := resolved{
+		rootRef:    ptr.Deref(book.Spec.RootFolderRef, ""),
+		profileRef: ptr.Deref(book.Spec.QualityProfileRef, ""),
+		naming: nonVideoNaming{
+			identity: func(*catalogv1alpha1.Track, int32) (naming.Context, bool) { return catalogctx.Book(author, &book) },
+			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
+				return catalogctx.BookFilePath(root, author, c, ext)
+			},
+		},
+	}
 	if author != nil {
-		if rootRef == "" {
-			rootRef = author.Spec.RootFolderRef
+		if r.rootRef == "" {
+			r.rootRef = author.Spec.RootFolderRef
 		}
-		if profileRef == "" {
-			profileRef = author.Spec.QualityProfileRef
+		if r.profileRef == "" {
+			r.profileRef = author.Spec.QualityProfileRef
 		}
 	}
-	if rootRef == "" {
-		return "", "", "", nil, blocked("book %s has no rootFolderRef and no author to inherit one from", name)
+	if r.rootRef == "" {
+		return resolved{}, blocked("book %s has no rootFolderRef and no author to inherit one from", name)
 	}
 	if book.Status.Metadata == nil || book.Status.Metadata.Title == "" {
-		return "", "", "", nil, fmt.Errorf("fileimport: book %s/%s has no metadata yet", ns, name)
+		return resolved{}, fmt.Errorf("fileimport: book %s/%s has no metadata yet", ns, name)
 	}
-	root, err := w.getRoot(ctx, ns, rootRef)
+	root, err := w.getRoot(ctx, ns, r.rootRef)
 	if err != nil {
-		return "", "", "", nil, err
+		return resolved{}, err
 	}
 	eng := catalogctx.EngineFor(root)
 	nctx := naming.Context{Kind: commonv1.MediaKindBook, BookTitle: book.Status.Metadata.Title}
@@ -303,13 +422,14 @@ func (w *Worker) resolveBook(ctx context.Context, ns, name string) (
 	if author == nil {
 		title, rerr := eng.Render("{Book Title}", nctx)
 		if rerr != nil {
-			return "", "", "", nil, blocked("render book title: %v", rerr)
+			return resolved{}, blocked("render book title: %v", rerr)
 		}
-		return rootRef, profileRef, filepath.Join(root.Spec.Path, title), withExt(title), nil
+		r.folder, r.fileName = filepath.Join(root.Spec.Path, title), withExt(title)
+		return r, nil
 	}
 
 	if author.Status.Metadata == nil || author.Status.Metadata.Name == "" {
-		return "", "", "", nil, fmt.Errorf("fileimport: author %s/%s has no metadata yet", ns, author.Name)
+		return resolved{}, fmt.Errorf("fileimport: author %s/%s has no metadata yet", ns, author.Name)
 	}
 	nctx.AuthorName = author.Status.Metadata.Name
 	authorFolder := author.Status.Path
@@ -319,16 +439,17 @@ func (w *Worker) resolveBook(ctx context.Context, ns, name string) (
 		} else {
 			f, ferr := eng.BuildFolder(commonv1.MediaKindAuthor, nctx)
 			if ferr != nil {
-				return "", "", "", nil, blocked("render author folder: %v", ferr)
+				return resolved{}, blocked("render author folder: %v", ferr)
 			}
 			authorFolder = filepath.Join(root.Spec.Path, f)
 		}
 	}
 	file, err := eng.BuildFile(commonv1.MediaKindBook, nctx)
 	if err != nil {
-		return "", "", "", nil, blocked("render book file: %v", err)
+		return resolved{}, blocked("render book file: %v", err)
 	}
-	return rootRef, profileRef, filepath.Join(authorFolder, path.Dir(file)), withExt(path.Base(file)), nil
+	r.folder, r.fileName = filepath.Join(authorFolder, path.Dir(file)), withExt(path.Base(file))
+	return r, nil
 }
 
 // withExt names a single-file item's file base plus the source's extension.
@@ -338,26 +459,43 @@ func withExt(base string) func(string) string {
 
 // resolveAudiobook mirrors the Audiobook controller's path rule
 // (app/catalog/controller/audiobook.Path): status.path when resolved, else
-// spec.folder, else the audiobook preset over the same naming context.
-func (w *Worker) resolveAudiobook(ctx context.Context, ns, name string) (rootRef, profileRef, folder string, err error) {
+// spec.folder, else the audiobook preset over the same naming context. A
+// part's canonical name is the audiobook file preset's with its partIndex
+// (catalogctx.AudiobookFilePath); its fallback keeps its relative path.
+func (w *Worker) resolveAudiobook(ctx context.Context, ns, name string) (resolved, error) {
 	var ab catalogv1alpha1.Audiobook
 	if err := w.getItem(ctx, ns, "audiobook", name, &ab); err != nil {
-		return "", "", "", err
+		return resolved{}, err
 	}
-	rootRef, profileRef = ab.Spec.RootFolderRef, ab.Spec.QualityProfileRef
+	r := resolved{
+		rootRef: ab.Spec.RootFolderRef, profileRef: ab.Spec.QualityProfileRef, fileName: keepRelative,
+		naming: nonVideoNaming{
+			// The loop's context counts the Audiobook's status.partCount,
+			// which a fresh import's files have yet to make; no preset
+			// names {PartCount}, and the import leaves it 0.
+			identity: func(_ *catalogv1alpha1.Track, partIndex int32) (naming.Context, bool) {
+				return catalogctx.Audiobook(&ab, partIndex)
+			},
+			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
+				return catalogctx.AudiobookFilePath(root, &ab, c, ext)
+			},
+		},
+	}
 	if ab.Status.Path != "" {
-		return rootRef, profileRef, ab.Status.Path, nil
+		r.folder = ab.Status.Path
+		return r, nil
 	}
 	if f := ptr.Deref(ab.Spec.Folder, ""); f != "" {
-		return rootRef, profileRef, f, nil
+		r.folder = f
+		return r, nil
 	}
 	meta := ab.Status.Metadata
 	if meta == nil || meta.Title == "" {
-		return "", "", "", fmt.Errorf("fileimport: audiobook %s/%s has no metadata yet", ns, name)
+		return resolved{}, fmt.Errorf("fileimport: audiobook %s/%s has no metadata yet", ns, name)
 	}
-	root, err := w.getRoot(ctx, ns, rootRef)
+	root, err := w.getRoot(ctx, ns, r.rootRef)
 	if err != nil {
-		return "", "", "", err
+		return resolved{}, err
 	}
 	names := make([]string, 0, len(meta.Authors))
 	for _, a := range meta.Authors {
@@ -375,13 +513,14 @@ func (w *Worker) resolveAudiobook(ctx context.Context, ns, name string) (rootRef
 	}
 	rendered, err := catalogctx.EngineFor(root).BuildFolder(commonv1.MediaKindAudiobook, nctx)
 	if err != nil {
-		return "", "", "", blocked("render audiobook folder: %v", err)
+		return resolved{}, blocked("render audiobook folder: %v", err)
 	}
 	if !wellFormedFolder(rendered) {
-		return "", "", "", blocked("the audiobook preset renders %q for audiobook %s -- its metadata lacks the series, "+
+		return resolved{}, blocked("the audiobook preset renders %q for audiobook %s -- its metadata lacks the series, "+
 			"position or year the preset needs; set spec.folder", rendered, name)
 	}
-	return rootRef, profileRef, rendered, nil
+	r.folder = rendered
+	return r, nil
 }
 
 // wellFormedFolder reports whether every segment of a rendered relative
@@ -398,31 +537,40 @@ func wellFormedFolder(rel string) bool {
 }
 
 // resolveIssue: the comic's folder (Comic controller's rule) and the
-// issue-file preset's last segment, "{Comic Series Title} c{issue}".
+// issue-file preset's last segment, "{Comic Series Title} c{issue}". The
+// canonical path is catalogctx.IssueFilePath's, which also names the
+// Comic's specialVersion ("Saga c001 TPB"), as the loop does; the fallback
+// is the preset's segment without it, the import's name before the design.
 // target is checked against the Issue's own comicRef when the annotation
 // named the comic, so "comic/a/<an issue of b>" is refused, not followed.
-func (w *Worker) resolveIssue(ctx context.Context, ns string, target importtarget.ImportTarget) (
-	rootRef, profileRef, folder string, fileName func(string) string, err error,
-) {
+func (w *Worker) resolveIssue(ctx context.Context, ns string, target importtarget.ImportTarget) (resolved, error) {
 	ref := target.FileRef()
 	var issue catalogv1alpha1.Issue
 	if err := w.getItem(ctx, ns, "issue", ref.Name, &issue); err != nil {
-		return "", "", "", nil, err
+		return resolved{}, err
 	}
 	if target.Kind == commonv1.MediaKindComic && issue.Spec.ComicRef != target.Name {
-		return "", "", "", nil, blocked("issue %s belongs to comic %q, not %q", issue.Name, issue.Spec.ComicRef, target.Name)
+		return resolved{}, blocked("issue %s belongs to comic %q, not %q", issue.Name, issue.Spec.ComicRef, target.Name)
 	}
 	var comic catalogv1alpha1.Comic
 	if err := w.getItem(ctx, ns, "comic", issue.Spec.ComicRef, &comic); err != nil {
-		return "", "", "", nil, err
+		return resolved{}, err
 	}
-	rootRef, profileRef = comic.Spec.RootFolderRef, comic.Spec.QualityProfileRef
+	r := resolved{
+		rootRef: comic.Spec.RootFolderRef, profileRef: comic.Spec.QualityProfileRef,
+		naming: nonVideoNaming{
+			identity: func(*catalogv1alpha1.Track, int32) (naming.Context, bool) { return catalogctx.Issue(&comic, &issue) },
+			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
+				return catalogctx.IssueFilePath(root, &comic, c, ext)
+			},
+		},
+	}
 	if comic.Status.Metadata == nil || comic.Status.Metadata.Title == "" {
-		return "", "", "", nil, fmt.Errorf("fileimport: comic %s/%s has no metadata yet", ns, comic.Name)
+		return resolved{}, fmt.Errorf("fileimport: comic %s/%s has no metadata yet", ns, comic.Name)
 	}
-	root, err := w.getRoot(ctx, ns, rootRef)
+	root, err := w.getRoot(ctx, ns, r.rootRef)
 	if err != nil {
-		return "", "", "", nil, err
+		return resolved{}, err
 	}
 	eng := catalogctx.EngineFor(root)
 	nctx := naming.Context{
@@ -430,21 +578,22 @@ func (w *Worker) resolveIssue(ctx context.Context, ns string, target importtarge
 		ComicSeriesTitle: comic.Status.Metadata.Title,
 		IssueNumber:      issue.Spec.Number,
 	}
-	folder = comic.Status.Path
-	if folder == "" {
+	r.folder = comic.Status.Path
+	if r.folder == "" {
 		if f := ptr.Deref(comic.Spec.Folder, ""); f != "" {
-			folder = filepath.Join(root.Spec.Path, f)
+			r.folder = filepath.Join(root.Spec.Path, f)
 		} else {
 			f, ferr := eng.BuildFolder(commonv1.MediaKindComic, nctx)
 			if ferr != nil {
-				return "", "", "", nil, blocked("render comic folder: %v", ferr)
+				return resolved{}, blocked("render comic folder: %v", ferr)
 			}
-			folder = filepath.Join(root.Spec.Path, f)
+			r.folder = filepath.Join(root.Spec.Path, f)
 		}
 	}
 	file, err := eng.BuildFile(commonv1.MediaKindIssue, nctx)
 	if err != nil {
-		return "", "", "", nil, blocked("render issue file: %v", err)
+		return resolved{}, blocked("render issue file: %v", err)
 	}
-	return rootRef, profileRef, folder, withExt(path.Base(file)), nil
+	r.fileName = withExt(path.Base(file))
+	return r, nil
 }

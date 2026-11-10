@@ -192,14 +192,18 @@ func TestAnAlbumDownloadIsAttributedTrackByTrack(t *testing.T) {
 		assert.Equal(t, "Album", files[intro].Proposed.Kind)
 		assert.Equal(t, album.Name, files[intro].Proposed.Name)
 		assert.Equal(t, []string{album.Name}, files[intro].Keys)
-		assert.Equal(t, filepath.Join(album.Status.Path, intro), files[intro].Dest, "a track keeps its relative path under the album's folder")
+		// Placed where the loop's naming planner would put it (design D7):
+		// the album folder and the track preset's name, never the file's own.
+		assert.Equal(t, filepath.Join(album.Status.Path, "Muse - Absolution - 01 - Intro.flac"), files[intro].Dest,
+			"a track is placed at its canonical name under the album's folder")
 		require.NotNil(t, files[intro].Frozen.Quality)
 		assert.Equal(t, "FLAC", files[intro].Frozen.Quality.Name, "frozen from the probe")
 
 		// No tags: "02 - Blackout" is track 2, and the CD2 folder its disc.
 		require.Empty(t, files[blackout].Rejections, "%+v", files[blackout].Rejections)
 		assert.Equal(t, "d2t2", files[blackout].Frozen.Track)
-		assert.Equal(t, filepath.Join(album.Status.Path, "CD2", "02 - Blackout.flac"), files[blackout].Dest)
+		assert.Equal(t, filepath.Join(album.Status.Path, "Muse - Absolution - 02 - Blackout.flac"), files[blackout].Dest,
+			"the disc folder names the disc for the attribution and does not survive the import")
 
 		// A second file tagged disc 1 track 1 is not that track too.
 		require.Len(t, files[alt].Rejections, 1, "%+v", files[alt])
@@ -236,10 +240,10 @@ func TestAnAlbumDownloadIsAttributedTrackByTrack(t *testing.T) {
 			}
 		}
 		assert.Equal(t, map[string]commonv1.MediaRef{
-			"01 - Intro.flac":    {Kind: commonv1.MediaKindAlbum, Name: album.Name, Track: "d1t1"},
-			"02 - Blackout.flac": {Kind: commonv1.MediaKindAlbum, Name: album.Name, Track: "d2t2"},
+			"Muse - Absolution - 01 - Intro.flac":    {Kind: commonv1.MediaKindAlbum, Name: album.Name, Track: "d1t1"},
+			"Muse - Absolution - 02 - Blackout.flac": {Kind: commonv1.MediaKindAlbum, Name: album.Name, Track: "d2t2"},
 		}, refs)
-		assert.FileExists(t, filepath.Join(album.Status.Path, "CD2", "02 - Blackout.flac"))
+		assert.FileExists(t, filepath.Join(album.Status.Path, "Muse - Absolution - 02 - Blackout.flac"))
 		assert.FileExists(t, filepath.Join(r.root, "bonus.flac"), "a held file stays in the download")
 	})
 
@@ -296,12 +300,21 @@ func TestAnAudiobookDownloadFreezesEachPartsIndex(t *testing.T) {
 
 	r := newNonVideoRun(t, w, c, owner, commonv1.MediaKindAudiobook, qp, "Ursula K. Le Guin - The Left Hand of Darkness", filepath.Join(downloads, "parts"), now)
 	tagged, named, bare := "tagged.mp3", "The Left Hand of Darkness - Part 07.mp3", "The Left Hand of Darkness.mp3"
+	// Each part is placed at the audiobook file preset's name for its part
+	// index (design D7), as the loop's naming planner would name it: the
+	// tags' disc-and-track key as it is (the preset has no medium token),
+	// the name's part number zero-padded, and no part for index 0.
+	placed := map[string]string{
+		tagged: "The Left Hand of Darkness (1003).mp3",
+		named:  "The Left Hand of Darkness (07).mp3",
+		bare:   "The Left Hand of Darkness.mp3",
+	}
 	files := r.inspected(t, tagged, named, bare)
 	for rel, f := range files {
 		assert.Empty(t, f.Rejections, rel)
 		require.NotNil(t, f.Frozen.Quality, rel)
 		assert.Equal(t, "MP3", f.Frozen.Quality.Name, "%s: an audiobook's quality is its extension's", rel)
-		assert.Equal(t, filepath.Join(ab.Status.Path, rel), f.Dest, rel)
+		assert.Equal(t, filepath.Join(ab.Status.Path, placed[rel]), f.Dest, rel)
 	}
 	assert.EqualValues(t, 1003, files[tagged].Frozen.PartIndex, "disc 1 track 3 from the tags")
 	assert.EqualValues(t, 7, files[named].Frozen.PartIndex, "the name's part number")
@@ -320,6 +333,6 @@ func TestAnAudiobookDownloadFreezesEachPartsIndex(t *testing.T) {
 			assert.Equal(t, commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: ab.Name}, m.Apply.Ref)
 		}
 	}
-	assert.Equal(t, map[string]int32{tagged: 1003, named: 7, bare: 0}, parts)
+	assert.Equal(t, map[string]int32{placed[tagged]: 1003, placed[named]: 7, placed[bare]: 0}, parts)
 	assert.Empty(t, writes(), "the import agent asked for Kubernetes writes")
 }
