@@ -218,10 +218,25 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, kidA))
 	kidKey := types.NamespacedName{Namespace: ns, Name: "kid-a"}
+	// Without a metadata document an Album reads Pending (2026-11-10 design
+	// D4), so the gateway's answer is seeded, as the first Album's was, before
+	// it can settle at Wanted.
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Album(kidA.Name, kidA.Namespace).WithStatus(
+		catalogac.AlbumStatus().WithMetadata(catalogac.AlbumMetadata().WithTitle("Kid A").WithRefreshedAt(metav1.Now()))))
+	require.NoError(t, err)
+	var kid catalogv1alpha1.Album
 	require.Eventually(t, func() bool {
-		var g catalogv1alpha1.Album
-		return c.Get(ctx, kidKey, &g) == nil && g.Status.Phase == catalogv1alpha1.AlbumPhaseWanted
+		return c.Get(ctx, kidKey, &kid) == nil && kid.Status.Phase == catalogv1alpha1.AlbumPhaseWanted
 	}, 10*time.Second, 20*time.Millisecond, "setup: the second Album never settled at Wanted")
+	// The seeded document carries no schemaVersion -- one written before
+	// design D8 gave Albums a version -- so it is refreshed once while the
+	// Album stays ready: MetadataReady True, reason Upgrading, as Movie,
+	// Series, Artist, Author and Comic read it. Until 2026-11-10 the Album
+	// marked it False/Refreshing for a schema bump.
+	kidReady := k8s.FindCondition(kid.Status.Conditions, catalogv1alpha1.AlbumConditionMetadataReady)
+	require.NotNil(t, kidReady)
+	assert.Equal(t, metav1.ConditionTrue, kidReady.Status, "an outdated document is still a fresh one")
+	assert.Equal(t, "Upgrading", kidReady.Reason)
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Album("kid-a", ns).WithStatus(catalogac.AlbumStatus().
 		WithPendingGrab(catalogac.PendingGrab().WithReleaseTitle("Radiohead - Kid A (2000) [FLAC]").
 			WithProtocol(commonv1.ProtocolTorrent).WithGrabAt(metav1.NewTime(time.Now().Add(time.Hour))))))

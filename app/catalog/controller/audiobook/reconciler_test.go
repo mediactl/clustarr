@@ -19,6 +19,7 @@ package audiobook_test
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -45,16 +47,22 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
+	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
+	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
+	"github.com/mediactl/clustarr/app/catalog/metadataset"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/remediation/itemtest"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/audnexus"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
 
 func init() {
@@ -247,6 +255,53 @@ func (m testMessage) Nak(context.Context, time.Duration) error { return nil }
 func (m testMessage) Term(context.Context, string) error       { return nil }
 func (m testMessage) InProgress(context.Context) error         { return nil }
 
+// itemMetadataRecords is the item-metadata record store the gateway Handler
+// answers in (ADR-0019 §7.1; it writes no Kubernetes object): a membus KV
+// bucket with the agents' writer, which the Handler requires, and a reader
+// for the test to read the answer back, as app/catalog/metadata's own
+// Handler tests build it (worker_nonvideo_test.go's harness).
+type itemMetadataRecords struct {
+	writer *records.Writer[*schema.ItemMetadataRecord]
+	reader *records.Reader[*schema.ItemMetadataRecord]
+}
+
+func newItemMetadataRecords(t *testing.T) itemMetadataRecords {
+	t.Helper()
+	bus := membus.New(clockwork.NewRealClock())
+	t.Cleanup(func() { _ = bus.Close() })
+	require.NoError(t, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
+	kv := bus.KV(events.BucketItemMetadata)
+	return itemMetadataRecords{
+		writer: records.NewWriter(kv, agentrecords.ItemMetadata(), "test", "v0"),
+		reader: records.NewReader(kv, agentrecords.ItemMetadata()),
+	}
+}
+
+// fakeAudnexus serves the two requests the gateway makes of Audnexus for one
+// audiobook since the 2026-11-10 design (§5.4, D11): the book, then its
+// chapters (pkg/metadata.Registry's audiobook lookup). Both carry the region;
+// the book request's is the one G2-1 fixed and the one recorded. Any other
+// path is a test failure.
+func fakeAudnexus(t *testing.T, gotRegion *string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/books/B002V5BM26":
+			*gotRegion = r.URL.Query().Get("region")
+			_, _ = w.Write([]byte(`{"asin":"B002V5BM26","title":"Guards! Guards!","authors":[{"name":"Terry Pratchett"}]}`))
+		case "/books/B002V5BM26/chapters":
+			assert.Equal(t, *gotRegion, r.URL.Query().Get("region"), "the chapters request carries the book's region")
+			_, _ = w.Write([]byte(`{"asin":"B002V5BM26","chapters":[{"title":"Chapter 1","startOffsetMs":0,"lengthMs":60000}]}`))
+		default:
+			assert.Failf(t, "unexpected Audnexus request", "%s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 // TestAudiobookRegionReachesTheMetadataGateway is task G2-3's explicit
 // regression case: app/catalog/metadata/target.go's externalIDs used to
 // hardcode region "us" for every Audnexus lookup regardless of
@@ -274,13 +329,7 @@ func TestAudiobookRegionReachesTheMetadataGateway(t *testing.T) {
 	require.NoError(t, c.Create(ctx, testNamespace("region-ns")))
 
 	var gotRegion string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/books/B002V5BM26", r.URL.Path)
-		gotRegion = r.URL.Query().Get("region")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"asin":"B002V5BM26","title":"Guards! Guards!","authors":[{"name":"Terry Pratchett"}]}`))
-	}))
-	t.Cleanup(srv.Close)
+	srv := fakeAudnexus(t, &gotRegion)
 	audnexusClient := audnexus.New(srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
 
 	m := &catalogv1alpha1.Audiobook{
@@ -309,21 +358,45 @@ func TestAudiobookRegionReachesTheMetadataGateway(t *testing.T) {
 	// The real gateway Handler, fed the reconciler's own real envelope --
 	// app/catalog/metadata.Handler.Handle -> target.go's externalIDs ->
 	// pkg/metadata.Registry.Lookup -> audnexus.Client.Audiobook.
+	recs := newItemMetadataRecords(t)
 	h := &catalogmetadata.Handler{
 		Client:   c,
 		Reader:   uncachedReader(t, cfg),
 		Registry: &pkgmetadata.Registry{Audiobooks: []pkgmetadata.AudiobookProvider{audnexusClient}},
 		Cache:    noopCache{},
+		Records:  recs.writer,
 	}
 	require.NoError(t, h.Handle(ctx, testMessage{env: pub.envelopes[0]}))
 
 	assert.Equal(t, "uk", gotRegion, "region must reach the Audnexus request -- the path G2-1 fixed")
 
-	// The Handler patches straight to the apiserver; this test's client is
+	// The Handler writes no Kubernetes object (ADR-0019): its answer is the
+	// item-metadata record, which the loop's metadata stage incorporates into
+	// status.metadata under catalog-metadata. Read the record back, then
+	// incorporate it as the stage does (metadataset.Build applied by
+	// itemstatus.ApplySet), so the second pass below reads what production
+	// would.
+	var got catalogv1alpha1.Audiobook
+	require.NoError(t, c.Get(ctx, req.NamespacedName, &got))
+	rec, _, ok, err := recs.reader.Get(ctx, agentrecords.ItemMetadataKey(string(got.UID)))
+	require.NoError(t, err)
+	require.True(t, ok, "the Handler answers in the item-metadata record")
+	require.Empty(t, rec.Failure)
+	var md catalogv1alpha1.AudiobookMetadata
+	require.NoError(t, json.Unmarshal(rec.Metadata, &md))
+	assert.Equal(t, "Guards! Guards!", md.Title)
+	assert.Len(t, md.Chapters, 1, "the chapters request's answer is in the document (design D11)")
+	require.True(t, metadatainputs.Incorporable(&got, rec), "the record answers this Audiobook's own inputs")
+	set, owed := metadataset.Build(metadataset.Input{Item: &got, Record: rec})
+	require.True(t, owed, "a record to incorporate renders the catalog-metadata set")
+	_, conflicted, err := itemstatus.ApplySet(ctx, c, &got, "", set)
+	require.NoError(t, err)
+	require.False(t, conflicted)
+
+	// The apply went straight to the apiserver; this test's client is
 	// cache-backed (startCacheOnly), so a Get immediately afterward risks
 	// the same stale-read hazard movie's tests guard against. Poll first.
 	waitForCachedMetadata(t, ctx, c, "region-ns", "guards-guards")
-	var got catalogv1alpha1.Audiobook
 	require.NoError(t, c.Get(ctx, req.NamespacedName, &got))
 	require.NotNil(t, got.Status.Metadata)
 	assert.Equal(t, "Guards! Guards!", got.Status.Metadata.Title)
@@ -355,12 +428,7 @@ func TestAudiobookRegionDefaultsToUSWhenUnset(t *testing.T) {
 	require.NoError(t, c.Create(ctx, testNamespace("region-default-ns")))
 
 	var gotRegion string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotRegion = r.URL.Query().Get("region")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"asin":"B002V5BM26","title":"Guards! Guards!"}`))
-	}))
-	t.Cleanup(srv.Close)
+	srv := fakeAudnexus(t, &gotRegion)
 	audnexusClient := audnexus.New(srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
 
 	// spec.region has +kubebuilder:default=us, but the CRD default is an
@@ -383,11 +451,13 @@ func TestAudiobookRegionDefaultsToUSWhenUnset(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pub.envelopes, 1)
 
+	recs := newItemMetadataRecords(t)
 	h := &catalogmetadata.Handler{
 		Client:   c,
 		Reader:   uncachedReader(t, cfg),
 		Registry: &pkgmetadata.Registry{Audiobooks: []pkgmetadata.AudiobookProvider{audnexusClient}},
 		Cache:    noopCache{},
+		Records:  recs.writer,
 	}
 	require.NoError(t, h.Handle(ctx, testMessage{env: pub.envelopes[0]}))
 	assert.Equal(t, "us", gotRegion)
@@ -410,8 +480,11 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 	require.NoError(t, c.Create(ctx, testRootFolder("rollup-ns", "audiobooks-root", "/data/media/audiobooks")))
 	require.NoError(t, c.Create(ctx, testQualityProfile("rollup-ns", "cutoff-met-at-mp3", "MP3")))
 
-	// finalizer add does not early-return: status.phase is already Wanted in
-	// the very first reconcile pass that adds the finalizer.
+	// finalizer add does not early-return: status.phase is already written in
+	// the very first reconcile pass that adds the finalizer. A fresh
+	// Audiobook has no metadata document yet, so that phase is Pending
+	// (2026-11-10 design D4: the leaf vocabulary's "no metadata yet"), never
+	// the blank a pass that stopped at the finalizer would leave.
 	t.Run("finalizer add does not early-return", func(t *testing.T) {
 		m := &catalogv1alpha1.Audiobook{
 			ObjectMeta: metav1.ObjectMeta{Name: "guards-guards", Namespace: "finalizer-ns"},
@@ -436,9 +509,9 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 					hasFinalizer = true
 				}
 			}
-			return hasFinalizer && got.Status.Phase == catalogv1alpha1.AudiobookPhaseWanted
+			return hasFinalizer && got.Status.Phase == catalogv1alpha1.AudiobookPhasePending
 		}, 5*time.Second, 20*time.Millisecond,
-			"finalizer and status.phase=Wanted must both appear from the same reconcile pass")
+			"finalizer and status.phase=Pending must both appear from the same reconcile pass")
 	})
 
 	// A dangling bookRef surfaces as a condition, and the reconcile
@@ -464,9 +537,11 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 			return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "BookRefNotFound"
 		}, 5*time.Second, 20*time.Millisecond, "a dangling bookRef must surface as False/BookRefNotFound")
 
+		// A standalone Book names its profile and root (the CRD's rule,
+		// 2026-11-10 design §4.5); as the Audiobook's, neither exists.
 		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Book{
 			ObjectMeta: metav1.ObjectMeta{Name: ref, Namespace: "bookref-ns"},
-			Spec:       catalogv1alpha1.BookSpec{WorkID: "OL45883W"},
+			Spec:       catalogv1alpha1.BookSpec{WorkID: "OL45883W", QualityProfileRef: new("none"), RootFolderRef: new("none")},
 		}))
 
 		require.Eventually(t, func() bool {
@@ -517,6 +592,15 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 		var got catalogv1alpha1.Audiobook
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "path-ns", Name: "guards-guards"}, &got))
 		assert.Equal(t, "/data/media/audiobooks/Terry Pratchett/Discworld/8 - 1989 - Guards! Guards! Nigel Planer", got.Status.Path)
+		// The seeded document carries no schemaVersion -- one written before
+		// design D8 gave Audiobooks a version -- so it is refreshed once while
+		// the Audiobook stays ready: MetadataReady True, reason Upgrading, as
+		// Movie, Series, Artist, Author and Comic read it. Until 2026-11-10 the
+		// Audiobook marked it False/Refreshing for a schema bump.
+		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.AudiobookConditionMetadataReady)
+		require.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionTrue, cond.Status, "an outdated document is still a fresh one")
+		assert.Equal(t, "Upgrading", cond.Reason)
 	})
 
 	// A worker's pendingGrab write must both WAKE this controller and be

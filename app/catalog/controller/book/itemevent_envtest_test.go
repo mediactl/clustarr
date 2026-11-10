@@ -84,7 +84,11 @@ func TestBookReconcilerPublishesItemEvents(t *testing.T) {
 	const ns = "book-itemevent-ns"
 	require.NoError(t, c.Create(ctx, testNamespace(ns)))
 
-	obj := &catalogv1alpha1.Book{ObjectMeta: metav1.ObjectMeta{Name: "earthsea", Namespace: ns}, Spec: catalogv1alpha1.BookSpec{WorkID: "OL7W"}}
+	// A standalone Book names its profile and root (the CRD's rule, design
+	// §4.5); neither need exist here, since the item event is announced
+	// before the pass resolves them, and the pass ends Unresolved either way.
+	obj := &catalogv1alpha1.Book{ObjectMeta: metav1.ObjectMeta{Name: "earthsea", Namespace: ns},
+		Spec: catalogv1alpha1.BookSpec{WorkID: "OL7W", QualityProfileRef: new("ebook"), RootFolderRef: new("books")}}
 	require.NoError(t, c.Create(ctx, obj))
 	key := client.ObjectKeyFromObject(obj)
 	require.Eventually(t, func() bool { return c.Get(ctx, key, &catalogv1alpha1.Book{}) == nil }, 5*time.Second, 10*time.Millisecond)

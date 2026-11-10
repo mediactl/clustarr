@@ -225,10 +225,47 @@ func waitForPhase(t *testing.T, ctx context.Context, c client.Client, ns, name s
 	return got
 }
 
+// createBookProfile creates a book QualityProfile holding the three ebook
+// qualities in its one cutoff tier and waits for the cache to observe it. A
+// standalone Book names its profile and root (the CRD's rule since the
+// 2026-11-10 design, §4.5), so every standalone fixture here references one.
+// QualityProfile is cluster-scoped, so the cache is keyed by name alone.
+func createBookProfile(t *testing.T, ctx context.Context, c client.Client, name string) {
+	t.Helper()
+	require.NoError(t, c.Create(ctx, testQualityProfile("", name, "MOBI", "AZW3", "EPUB")))
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.QualityProfile
+		return c.Get(ctx, types.NamespacedName{Name: name}, &got) == nil
+	}, 5*time.Second, 10*time.Millisecond, "cache never observed the QualityProfile Create")
+}
+
+// seedMetadata writes bk a fresh metadata document under the gateway's field
+// manager (the loop's metadata stage in production) and waits for the cache
+// to see it. Without one a Book reads Pending whatever its files say (design
+// D4: metadata not ready), so a fixture that wants Wanted, Imported or
+// CutoffUnmet seeds one first, as Movie's tests do. schemaVersion is the
+// document's status.metadata.schemaVersion: metadata.SchemaVersion for one
+// the gateway writes today, 0 for one written before design D8 gave the six
+// non-video kinds a version, which is refreshed once while the Book stays
+// ready.
+func seedMetadata(t *testing.T, ctx context.Context, c client.Client, bk *catalogv1alpha1.Book, title string, schemaVersion int32) {
+	t.Helper()
+	ac := catalogac.Book(bk.Name, bk.Namespace).WithStatus(catalogac.BookStatus().WithMetadata(
+		catalogac.BookMetadata().WithTitle(title).WithRefreshedAt(metav1.Now()).WithSchemaVersion(schemaVersion)))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, ac)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Book
+		return c.Get(ctx, client.ObjectKeyFromObject(bk), &got) == nil && got.Status.Metadata != nil
+	}, 5*time.Second, 10*time.Millisecond, "the cache never observed the metadata document")
+}
+
 // TestBookReconcilerStandalone drives a standalone Book (no spec.authorRef,
-// book_types.go:159-161's "unset makes the book standalone" case) end to
-// end: it must reconcile on its own, resolving its RootFolder directly from
-// its own spec.rootFolderRef with no Author involved at all.
+// book_types.go's "unset makes the book standalone" case) end to end: it
+// must reconcile on its own, resolving its RootFolder directly from its own
+// spec.rootFolderRef with no Author involved at all. Before its metadata is
+// fetched it reads Pending (design D4), its path already resolved; once the
+// document is there it reads Wanted.
 func TestBookReconcilerStandalone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -236,11 +273,13 @@ func TestBookReconcilerStandalone(t *testing.T) {
 	c := startCacheOnly(t, ctx, cfg)
 	require.NoError(t, c.Create(ctx, testNamespace("book-standalone-ns")))
 	createRootFolder(t, ctx, c, "book-standalone-ns", "book-root", "/data/media/books")
+	createBookProfile(t, ctx, c, "ebook-standalone-profile")
 
-	rootRef := "book-root"
 	bk := &catalogv1alpha1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: "standalone-hobbit", Namespace: "book-standalone-ns"},
-		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL45883W", RootFolderRef: &rootRef},
+		Spec: catalogv1alpha1.BookSpec{
+			WorkID: "OL45883W", RootFolderRef: new("book-root"), QualityProfileRef: new("ebook-standalone-profile"),
+		},
 	}
 	require.NoError(t, c.Create(ctx, bk))
 	waitCached(t, ctx, c, bk)
@@ -251,7 +290,7 @@ func TestBookReconcilerStandalone(t *testing.T) {
 	require.NoError(t, err)
 
 	got := waitForPhase(t, ctx, c, "book-standalone-ns", "standalone-hobbit")
-	assert.Equal(t, catalogv1alpha1.BookPhaseWanted, got.Status.Phase)
+	assert.Equal(t, catalogv1alpha1.BookPhasePending, got.Status.Phase, "a Book without a metadata document reads Pending (design D4)")
 	// No known author name for a standalone book -> the folder collapses to
 	// the root path itself (book.Path's own doc comment).
 	assert.Equal(t, "/data/media/books", got.Status.Path)
@@ -260,6 +299,25 @@ func TestBookReconcilerStandalone(t *testing.T) {
 	cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.BookConditionMetadataReady)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status, "metadata was never cached, so a MetadataTask should have been published instead")
+
+	// The gateway's answer, incorporated: the Book is searchable and reads
+	// Wanted, the path kept. The document is one written before design D8
+	// gave Books a schemaVersion (it reads 0), so the pass asks for the
+	// once-only refresh and the Book stays ready meanwhile -- MetadataReady
+	// True, reason Upgrading, as Movie, Series, Artist, Author and Comic read
+	// it; until 2026-11-10 the Book marked it False/Refreshing, so every Book
+	// of an upgraded library read not ready for a schema bump.
+	seedMetadata(t, ctx, c, bk, "The Hobbit", 0)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.Phase == catalogv1alpha1.BookPhaseWanted
+	}, 5*time.Second, 10*time.Millisecond, "a standalone Book with fresh metadata and no file never read Wanted")
+	assert.Equal(t, "/data/media/books", got.Status.Path)
+	cond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.BookConditionMetadataReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status, "an outdated document is still a fresh one")
+	assert.Equal(t, "Upgrading", cond.Reason)
 }
 
 // TestBookReconcilerOwnedInheritsAuthorRootFolderAndName drives a Book with
@@ -313,20 +371,33 @@ func TestBookReconcilerOwnedInheritsAuthorRootFolderAndName(t *testing.T) {
 	assert.Equal(t, "/data/media/books/J.R.R. Tolkien", got.Status.Path)
 }
 
-// TestBookReconcilerStandaloneWithNoRootFolderRefIsUnresolved proves the
-// negative half of resolveContext's contract: a standalone book with no
-// spec.rootFolderRef at all is reported, not a nil-pointer panic three lines
-// later against a nil *RootFolder.
-func TestBookReconcilerStandaloneWithNoRootFolderRefIsUnresolved(t *testing.T) {
+// TestBookReconcilerStandaloneWithMissingRootFolderIsUnresolved proves the
+// negative half of resolveContext's contract: a standalone book whose
+// RootFolder cannot be resolved is reported Unresolved and requeued, not a
+// nil-pointer panic three lines later against a nil *RootFolder. Until the
+// 2026-11-10 design a standalone Book could omit spec.rootFolderRef and
+// this test drove that case; the CRD now refuses such a Book at admission
+// (§4.5: "a standalone book names its profile and root"), asserted first,
+// so the condition path is driven by a rootFolderRef naming a RootFolder
+// that does not exist.
+func TestBookReconcilerStandaloneWithMissingRootFolderIsUnresolved(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cfg := newTestConfig(t)
 	c := startCacheOnly(t, ctx, cfg)
 	require.NoError(t, c.Create(ctx, testNamespace("book-unresolved-ns")))
 
+	refless := &catalogv1alpha1.Book{
+		ObjectMeta: metav1.ObjectMeta{Name: "refless-book", Namespace: "book-unresolved-ns"},
+		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL1W"},
+	}
+	err := c.Create(ctx, refless)
+	require.Error(t, err, "a standalone Book without qualityProfileRef and rootFolderRef is refused at admission (design §4.5)")
+	assert.Contains(t, err.Error(), "a book without an author names its qualityProfileRef and rootFolderRef")
+
 	bk := &catalogv1alpha1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: "orphan-book", Namespace: "book-unresolved-ns"},
-		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL1W"},
+		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL1W", RootFolderRef: new("missing-root"), QualityProfileRef: new("missing-profile")},
 	}
 	require.NoError(t, c.Create(ctx, bk))
 	waitCached(t, ctx, c, bk)
@@ -343,7 +414,7 @@ func TestBookReconcilerStandaloneWithNoRootFolderRefIsUnresolved(t *testing.T) {
 			return false
 		}
 		cond := k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady)
-		return cond != nil && cond.Status == metav1.ConditionFalse
+		return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "Unresolved"
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
@@ -357,11 +428,13 @@ func TestBookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 	c := startCacheOnly(t, ctx, cfg)
 	require.NoError(t, c.Create(ctx, testNamespace("book-transient-ns")))
 	createRootFolder(t, ctx, c, "book-transient-ns", "book-root", "/data/media/books")
+	createBookProfile(t, ctx, c, "ebook-transient-profile")
 
-	rootRef := "book-root"
 	bk := &catalogv1alpha1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: "steady-book", Namespace: "book-transient-ns"},
-		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL1W", RootFolderRef: &rootRef},
+		Spec: catalogv1alpha1.BookSpec{
+			WorkID: "OL1W", RootFolderRef: new("book-root"), QualityProfileRef: new("ebook-transient-profile"),
+		},
 	}
 	require.NoError(t, c.Create(ctx, bk))
 	waitCached(t, ctx, c, bk)
@@ -432,6 +505,9 @@ func TestBookReconcilerRealQualityCutoffEvaluation(t *testing.T) {
 		}
 		require.NoError(t, c.Create(ctx, bk))
 		waitCached(t, ctx, c, bk)
+		// The cutoff is judged on a Book the gateway has answered: without
+		// a document it reads Pending whatever its file says (design D4).
+		seedMetadata(t, ctx, c, bk, "Guards! Guards!", metadata.SchemaVersion)
 		return bk
 	}
 	newMediaFile := func(name, bookName, qualityName string) {
@@ -518,6 +594,17 @@ func TestBookReconcilerFieldManagerNeverIncludesFanout(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, a))
 	waitCached(t, ctx, c, a)
+	// The fan-out waits for the Author's cached metadata (design D2, §5.2:
+	// the child sync is keyed on the document's refresh), so the gateway's
+	// answer is seeded under its manager, as production's loop writes it.
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Author(a.Name, a.Namespace).WithStatus(
+		catalogac.AuthorStatus().WithMetadata(
+			catalogac.AuthorMetadata().WithName("Fan-out Author").WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion))))
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Author
+		return c.Get(ctx, client.ObjectKeyFromObject(a), &got) == nil && got.Status.Metadata != nil
+	}, 5*time.Second, 10*time.Millisecond, "the cache never observed the Author's metadata document")
 
 	requester := authorFakeRequester{books: []metadata.Book{
 		{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL45883W"}, Title: "The Hobbit"},
@@ -527,7 +614,7 @@ func TestBookReconcilerFieldManagerNeverIncludesFanout(t *testing.T) {
 		Bus: authorCombinedBus{Publisher: fakePublisher{}, requester: requester},
 	}
 	areq := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-fanout-ns", Name: "author-fanout"}}
-	_, err := ar.ReconcileItem(ctx, areq.NamespacedName)
+	_, err = ar.ReconcileItem(ctx, areq.NamespacedName)
 	require.NoError(t, err)
 
 	bookName := authorctrl.BookName("author-fanout", "OL45883W")

@@ -86,10 +86,13 @@ func TestBookReconcilerPublishesMediaFileEvents(t *testing.T) {
 	const ns = "book-mfevent-ns"
 	require.NoError(t, c.Create(ctx, testNamespace(ns)))
 	createRootFolder(t, ctx, c, ns, "book-root", "/data/media/books")
+	createBookProfile(t, ctx, c, "ebook-mfevent-profile")
 
 	bk := &catalogv1alpha1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: "the-hobbit", Namespace: ns},
-		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL45883W", RootFolderRef: new("book-root")},
+		Spec: catalogv1alpha1.BookSpec{
+			WorkID: "OL45883W", RootFolderRef: new("book-root"), QualityProfileRef: new("ebook-mfevent-profile"),
+		},
 	}
 	require.NoError(t, c.Create(ctx, bk))
 	waitCached(t, ctx, c, bk)

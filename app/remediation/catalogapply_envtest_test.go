@@ -95,8 +95,10 @@ func ownerKinds() []ownerKind {
 			return &album.Reconciler{Client: c, Scheme: s, Recorder: rec(), Bus: bus, Releases: album.NewReleaseCache(album.DefaultReleaseCacheSize)}
 		}},
 		{remediation.KindBook, func(ns, name string) client.Object {
+			// A standalone Book names its profile and root (2026-11-10
+			// design §4.5); as the other kinds' refs, neither exists.
 			return &catalogv1alpha1.Book{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-				Spec: catalogv1alpha1.BookSpec{WorkID: "OL45883W"}}
+				Spec: catalogv1alpha1.BookSpec{WorkID: "OL45883W", QualityProfileRef: new("ebook"), RootFolderRef: new("books")}}
 		}, func(c client.Client, s *runtime.Scheme, bus *fullQueueBus) rollup.Item {
 			return &book.Reconciler{Client: c, Scheme: s, Recorder: rec(), Bus: bus}
 		}},
