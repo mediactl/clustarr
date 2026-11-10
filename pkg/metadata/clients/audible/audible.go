@@ -208,7 +208,9 @@ func (c *Client) Products(ctx context.Context, title, author, region string) ([]
 }
 
 // SearchAudiobooks implements metadata.AudiobookSearcher: the products as
-// Add New's hits, keyed by ASIN.
+// Add New's hits, keyed by ASIN, each carrying its authors (with their
+// Audible author ASINs, which the author link looks up through Audnexus;
+// 2026-11-10 design D11), narrators, publisher and release date (§9.5).
 func (c *Client) SearchAudiobooks(ctx context.Context, q string, region string) ([]metadata.SearchHit, error) {
 	products, err := c.Products(ctx, q, "", region)
 	if err != nil {
@@ -216,7 +218,15 @@ func (c *Client) SearchAudiobooks(ctx context.Context, q string, region string) 
 	}
 	hits := make([]metadata.SearchHit, 0, len(products))
 	for _, p := range products {
-		h := metadata.SearchHit{IDs: metadata.ExternalIDs{metadata.KeyASIN: p.ASIN}, Title: p.Title, Poster: p.Image}
+		h := metadata.SearchHit{
+			IDs:         metadata.ExternalIDs{metadata.KeyASIN: p.ASIN},
+			Title:       p.Title,
+			Poster:      p.Image,
+			Publisher:   p.Publisher,
+			Authors:     p.Authors,
+			Narrators:   p.Narrators,
+			ReleaseDate: p.ReleaseDate,
+		}
 		if p.ReleaseDate != nil {
 			h.Year = int32(p.ReleaseDate.UTC().Year())
 		}

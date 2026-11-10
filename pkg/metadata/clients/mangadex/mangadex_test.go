@@ -148,11 +148,39 @@ func TestSearchVolumes(t *testing.T) {
 	q := (*seen)[0].URL.Query()
 	require.Equal(t, "berserk", q.Get("title"))
 	require.Equal(t, []string{"safe", "suggestive", "erotica"}, q["contentRating[]"])
+	require.ElementsMatch(t, []string{"cover_art", "author", "artist"}, q["includes[]"], "the creators' names come with the author and artist includes")
 	require.Len(t, hits, 2)
 	require.Equal(t, "Berserk", hits[1].Title)
 	require.EqualValues(t, 1989, hits[1].Year)
 	require.Equal(t, berserk, hits[1].IDs[extid.KeyMangaDex])
 	require.Equal(t, "https://uploads.example/covers/"+berserk+"/81e1c82d-6672-400c-8c58-4ff9bfb89031.jpg", hits[1].Poster)
+	require.Empty(t, hits[1].Authors, "the 2026-09-23 recording was made without the author include, so its relationships name nobody")
+}
+
+// A hit carries what MangaDex gives of a comic hit's fields (2026-11-10
+// design §9.4; task C4a), from a search recorded with the author and artist
+// includes (api.mangadex.org, 2026-11-10, trimmed): the creators under
+// Authors -- the authors, then the artists not among them, each once -- the
+// year as the start year, and no publisher; an ongoing series' lastVolume is
+// empty, so its issue count is 0.
+func TestSearchVolumesNamesTheCreatorsFromTheIncludes(t *testing.T) {
+	srv, _ := serve(t, map[string]string{"/manga": "search_berserk_authors.json"})
+
+	hits, err := newClient(srv).SearchVolumes(context.Background(), "berserk")
+
+	require.NoError(t, err)
+	require.Len(t, hits, 2)
+	require.Equal(t, "Berserk", hits[0].Title)
+	require.Equal(t, []metadata.NamedRef{{Name: "Miura Kentarou"}, {Name: "Mori Kouji"}, {Name: "Studio Gaga"}}, hits[0].Authors,
+		"Miura is author and artist and is named once; Studio Gaga, artist alone, follows the authors")
+	require.NotNil(t, hits[0].StartYear)
+	require.EqualValues(t, 1989, *hits[0].StartYear)
+	require.EqualValues(t, 1989, hits[0].Year)
+	require.Empty(t, hits[0].Publisher, "MangaDex names no publisher")
+	require.Zero(t, hits[0].IssueCount, "ongoing: lastVolume is empty")
+	require.Equal(t, "https://uploads.example/covers/"+berserk+"/81e1c82d-6672-400c-8c58-4ff9bfb89031.jpg", hits[0].Poster)
+	require.Equal(t, []metadata.NamedRef{{Name: "Digishoku"}}, hits[1].Authors, "one creator under both roles is one name")
+	require.EqualValues(t, 2023, hits[1].Year)
 }
 
 func TestResolveReturnsTheLinksCrosswalk(t *testing.T) {

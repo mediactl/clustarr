@@ -390,6 +390,16 @@ type MetadataRequest struct {
 	// volumeAsIssue (2026-11-10 design D10); a provider that numbers one
 	// way (ComicVine, Metron) ignores it.
 	Numbering string `json:"numbering,omitempty"`
+
+	// Source, on a search, names the MetadataProvider type whose provider
+	// alone is asked -- "comicvine" or "mangadex" for a comic, the two
+	// sources a Comic is keyed by, since ComicVine's volume id and
+	// MangaDex's manga UUID are not the same comic's (2026-11-10 design
+	// §5.6, §9.4; task C4a). Empty asks the configured providers in
+	// priority order, the first to answer winning, as before. A source no
+	// configured provider is of answers an error naming it. Optional, so
+	// the wire shape stays v1.
+	Source string `json:"source,omitempty"`
 }
 
 // Schema implements Payload.

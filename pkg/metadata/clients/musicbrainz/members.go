@@ -71,8 +71,10 @@ type member struct {
 	// outlived another).
 	ended bool
 	// begin is the earliest begin date of the member's relations, for
-	// ordering; zero when none carries one.
+	// ordering and Person.Begin; end the latest end date, Person.End once
+	// every relation has ended. Zero when none carries one.
 	begin time.Time
+	end   time.Time
 	first int
 }
 
@@ -84,13 +86,13 @@ type member struct {
 // of member, founding member or former member -- with "of" appended when
 // the looked-up artist is the member and the related artist the group --
 // and Order the listing order: current members before former ones, then
-// the earliest to join first (an unknown date last), then by name.
-//
-// The member's MBID (rel.Artist.ID) and the relation's begin and end dates
-// are decoded and used for the ordering, but metadata.Person has no id or
-// date field to carry them, so they are not returned: Person gaining them
-// (or Artist.Members its own Member type) is recorded as a leftover of
-// task L2, 2026-11-10.
+// the earliest to join first (an unknown date last), then by name. The
+// member's MBID is IDs[metadata.KeyMBArtist], Begin the earliest begin
+// date across the member's relations and End the latest end date once
+// every one of them has ended -- a member with a relation still open is
+// current, so the end of one of their roles is no End (task C4a,
+// 2026-11-10; until then the ids and dates were decoded for the ordering
+// alone, since Person had no field for them).
 //
 // Artist.Similar stays empty on purpose: MusicBrainz has no "similar
 // artist" relation -- its collaboration, supporting musician, subgroup,
@@ -128,6 +130,9 @@ func mapMembers(raw mb.Artist) []metadata.Person {
 		}
 		if t, ok := partialDateToTime(rel.Begin); ok && (m.begin.IsZero() || t.Before(m.begin)) {
 			m.begin = t
+		}
+		if t, ok := partialDateToTime(rel.End); ok && t.After(m.end) {
+			m.end = t
 		}
 	}
 	if len(order) == 0 {
@@ -177,13 +182,25 @@ func mapMembers(raw mb.Artist) []metadata.Person {
 		case m.founding:
 			role = roleFoundingMember
 		}
-		people = append(people, metadata.Person{
+		p := metadata.Person{
 			Name:  m.name,
 			Kind:  metadata.PersonMember,
 			Role:  role + suffix,
 			Job:   strings.Join(m.instruments, ", "),
 			Order: int32(i),
-		})
+		}
+		if m.id != "" {
+			p.IDs = metadata.ExternalIDs{metadata.KeyMBArtist: m.id}
+		}
+		if !m.begin.IsZero() {
+			begin := m.begin
+			p.Begin = &begin
+		}
+		if m.ended && !m.end.IsZero() {
+			end := m.end
+			p.End = &end
+		}
+		people = append(people, p)
 	}
 	return people
 }

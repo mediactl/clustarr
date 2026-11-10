@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -135,14 +136,20 @@ func TestVolumeRequiresAComicVineID(t *testing.T) {
 }
 
 // TestSearchVolumesMapsComicVineFieldsIntoSearchHits exercises
-// search?resources=volume, documented in docs/research/metadata.md §2.5.
+// search?resources=volume, documented in docs/research/metadata.md §2.5. A
+// hit carries the volume's publisher, issue count and start year (2026-11-10
+// design §9.4; task C4a), asked for in the field_list: the fixture's
+// publisher and count are volume 18257's as /volume/4050-18257/ answered
+// them (volume_18257.json).
 func TestSearchVolumesMapsComicVineFieldsIntoSearchHits(t *testing.T) {
 	body, err := os.ReadFile("../../../../test/data/metadata/comicvine/search_batman.json")
 	require.NoError(t, err)
+	var fieldList string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/search/", r.URL.Path)
 		require.Equal(t, "volume", r.URL.Query().Get("resources"))
 		require.Equal(t, "batman", r.URL.Query().Get("query"))
+		fieldList = r.URL.Query().Get("field_list")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
 	}))
@@ -153,11 +160,19 @@ func TestSearchVolumesMapsComicVineFieldsIntoSearchHits(t *testing.T) {
 	hits, err := c.SearchVolumes(context.Background(), "batman")
 
 	require.NoError(t, err)
+	for _, field := range []string{"publisher", "count_of_issues", "start_year", "image"} {
+		require.Contains(t, strings.Split(fieldList, ","), field, "field_list asks for every field a hit shows")
+	}
 	require.Len(t, hits, 1)
 	require.Equal(t, "Batman", hits[0].Title)
 	require.EqualValues(t, 1940, hits[0].Year)
 	require.Equal(t, "18257", hits[0].IDs[metadata.KeyComicVine])
 	require.Equal(t, "https://comicvine.gamespot.com/a/uploads/original/batman.jpg", hits[0].Poster)
+	require.Equal(t, "DC Comics", hits[0].Publisher)
+	require.EqualValues(t, 716, hits[0].IssueCount)
+	require.NotNil(t, hits[0].StartYear)
+	require.EqualValues(t, 1940, *hits[0].StartYear)
+	require.Empty(t, hits[0].Authors, "ComicVine's search names no creators")
 }
 
 // TestIssuesMapsAVolumesIssues exercises /issues/?filter=volume:{id},

@@ -313,6 +313,8 @@ type stubComicProvider struct {
 	name     string
 	lookupBy []string
 	calls    *[]string
+	// hits answer SearchVolumes, recorded in calls as "search:<name>".
+	hits []pkgmetadata.SearchHit
 }
 
 func (p stubComicProvider) Name() string {
@@ -330,7 +332,10 @@ func (p stubComicProvider) Capabilities() pkgmetadata.Capabilities {
 }
 
 func (p stubComicProvider) SearchVolumes(context.Context, string) ([]pkgmetadata.SearchHit, error) {
-	return nil, nil
+	if p.calls != nil {
+		*p.calls = append(*p.calls, "search:"+p.Name())
+	}
+	return p.hits, p.err
 }
 
 func (p stubComicProvider) Volume(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.ComicVolume, error) {
@@ -867,4 +872,133 @@ func TestServeRPCLookupBooksHandsHardcoverTheHardcoverID(t *testing.T) {
 	req.IDs = map[string]string{pkgmetadata.KeyOpenLibraryAuthor: ""}
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
 	require.Contains(t, resp.Error, "no book provider lists an author")
+}
+
+// A comic search naming a source asks the one provider of that
+// MetadataProvider type, one naming none asks the configured providers in
+// order as before, and a source no configured provider is of names the
+// missing provider rather than an unsupported kind (task C4a; 2026-11-10
+// design §5.6, §9.4: Add New's Comics tab offers ComicVine's and MangaDex's
+// hits, whose ids are not the same comic's).
+func TestServeRPCSearchComicHonoursTheSource(t *testing.T) {
+	var calls []string
+	reg := &pkgmetadata.Registry{Comics: []pkgmetadata.ComicProvider{
+		stubComicProvider{calls: &calls, hits: []pkgmetadata.SearchHit{{IDs: pkgmetadata.ExternalIDs{"comicvine": "18257"}, Title: "Batman", Publisher: "DC Comics", IssueCount: 716}}},
+		stubComicProvider{calls: &calls, name: "mangadex", lookupBy: []string{"mangadex"}, hits: []pkgmetadata.SearchHit{{IDs: pkgmetadata.ExternalIDs{"mangadex": "801513ba-a712-498c-8f57-cae55b38cc92"}, Title: "Berserk", Authors: []pkgmetadata.NamedRef{{Name: "Miura Kentarou"}}}}},
+	}}
+	bus := newTestBus(t)
+	mustServeRPC(t, bus, reg)
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindComic, Text: "berserk", Source: "mangadex"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, req, &resp))
+	require.Empty(t, resp.Error)
+	require.Equal(t, "mangadex", resp.Provider)
+	require.Len(t, resp.Results, 1)
+	var hit pkgmetadata.SearchHit
+	require.NoError(t, json.Unmarshal(resp.Results[0], &hit))
+	require.Equal(t, "Berserk", hit.Title)
+	require.Equal(t, []pkgmetadata.NamedRef{{Name: "Miura Kentarou"}}, hit.Authors, "the hit's new fields cross the bus")
+	require.Equal(t, []string{"search:mangadex"}, calls, "ComicVine, first in priority, was not asked")
+
+	calls = nil
+	resp = schema.MetadataResponse{}
+	req = schema.MetadataRequest{Kind: commonv1.MediaKindComic, Text: "batman"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, req, &resp))
+	require.Empty(t, resp.Error)
+	require.Equal(t, "comicvine", resp.Provider, "no source: the first configured provider answers, as before")
+	require.NoError(t, json.Unmarshal(resp.Results[0], &hit))
+	require.Equal(t, "DC Comics", hit.Publisher)
+	require.EqualValues(t, 716, hit.IssueCount)
+	require.Equal(t, []string{"search:comicvine"}, calls)
+
+	resp = schema.MetadataResponse{}
+	req = schema.MetadataRequest{Kind: commonv1.MediaKindComic, Text: "batman", Source: "metron"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, req, &resp))
+	require.Contains(t, resp.Error, `of type "metron" is configured`, "a source nobody is of names the missing provider")
+	require.NotContains(t, resp.Error, "does not support kind")
+}
+
+type stubAudiobookAuthorProvider struct {
+	name   string
+	author *pkgmetadata.Author
+	err    error
+	calls  *[]string
+}
+
+func (p stubAudiobookAuthorProvider) Name() string { return p.name }
+func (p stubAudiobookAuthorProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{LookupBy: []string{pkgmetadata.KeyASIN}}
+}
+
+func (p stubAudiobookAuthorProvider) AudiobookAuthor(_ context.Context, asin string, region string) (*pkgmetadata.Author, error) {
+	if p.calls != nil {
+		*p.calls = append(*p.calls, p.name+":"+asin+"@"+region)
+	}
+	return p.author, p.err
+}
+
+// An author lookup by Audible ASIN (IDs {"asin", "region"}, the region
+// carried as an audiobook's is) goes to the AudiobookAuthors (Audnexus) and
+// answers the Author, where one by Open Library id still goes through
+// Registry.Lookup to the BookProviders; a not-found answer is ErrNotFound's
+// own text on the wire however the provider wrapped it, and no provider
+// configured is said as such (task C4a; 2026-11-10 design D11, Add New's
+// author link).
+func TestServeRPCLookupAuthorByASINAsksTheAudiobookAuthors(t *testing.T) {
+	var calls []string
+	reg := &pkgmetadata.Registry{
+		Books: []pkgmetadata.BookProvider{stubBookListProvider{wantAuthorID: "OL23919A"}},
+		AudiobookAuthors: []pkgmetadata.AudiobookAuthorProvider{
+			stubAudiobookAuthorProvider{name: "down", calls: &calls, err: errors.New("audnexus: 503")},
+			stubAudiobookAuthorProvider{name: "audnexus", calls: &calls, author: &pkgmetadata.Author{
+				IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyASIN: "B000AP9A6K"}, Name: "Ursula K. Le Guin", Genres: []string{"Science Fiction & Fantasy"},
+			}},
+		},
+	}
+	bus := newTestBus(t)
+	mustServeRPC(t, bus, reg)
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindAuthor, IDs: map[string]string{pkgmetadata.KeyASIN: "B000AP9A6K", "region": "uk"}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.Empty(t, resp.Error)
+	require.Equal(t, "audnexus", resp.Provider, "the first provider that answers")
+	require.Equal(t, map[string]string{pkgmetadata.KeyASIN: "B000AP9A6K"}, resp.IDs)
+	var author pkgmetadata.Author
+	require.NoError(t, json.Unmarshal(resp.Result, &author))
+	require.Equal(t, "Ursula K. Le Guin", author.Name)
+	require.Equal(t, []string{"Science Fiction & Fantasy"}, author.Genres)
+	require.Equal(t, []string{"down:B000AP9A6K@uk", "audnexus:B000AP9A6K@uk"}, calls, "the region travels in the ids map")
+
+	// No region defaults to Audible's US marketplace, as Registry.Lookup
+	// does for an audiobook.
+	calls = nil
+	req.IDs = map[string]string{pkgmetadata.KeyASIN: "B000AP9A6K"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.Empty(t, resp.Error)
+	require.Equal(t, []string{"down:B000AP9A6K@us", "audnexus:B000AP9A6K@us"}, calls)
+
+	// An Open Library author is Registry.Lookup's, untouched: the stub
+	// BookProvider answers ErrNotFound and no AudiobookAuthor is asked.
+	calls = nil
+	resp = schema.MetadataResponse{}
+	req.IDs = map[string]string{pkgmetadata.KeyOpenLibraryAuthor: "OL23919A"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.NotEmpty(t, resp.Error)
+	require.Empty(t, calls)
+
+	// Audnexus answers 404 UPSTREAM_GONE for Tolkien's B000AQ1S22 today;
+	// wrapped by the provider or not, the wire carries ErrNotFound itself.
+	gone := &pkgmetadata.Registry{AudiobookAuthors: []pkgmetadata.AudiobookAuthorProvider{
+		stubAudiobookAuthorProvider{name: "audnexus", err: fmt.Errorf("audnexus: /authors/B000AQ1S22: %w", pkgmetadata.ErrNotFound)},
+	}}
+	resp = lookup(context.Background(), gone, schema.MetadataRequest{Kind: commonv1.MediaKindAuthor, IDs: map[string]string{pkgmetadata.KeyASIN: "B000AQ1S22", "region": "us"}})
+	require.Equal(t, pkgmetadata.ErrNotFound.Error(), resp.Error)
+
+	// Nothing configured is a missing MetadataProvider, not a missing
+	// author.
+	resp = lookup(context.Background(), &pkgmetadata.Registry{}, schema.MetadataRequest{Kind: commonv1.MediaKindAuthor, IDs: map[string]string{pkgmetadata.KeyASIN: "B000AQ1S22"}})
+	require.Contains(t, resp.Error, "no audiobook author metadata provider is configured")
+	require.NotEqual(t, pkgmetadata.ErrNotFound.Error(), resp.Error)
 }

@@ -137,6 +137,12 @@ func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) (stop func(), err
 // author's book-list lookup never sets KeyOpenLibraryWork), the same
 // disjoint-key trick lookupAlbums uses to share req.Kind=Album with
 // Registry.Lookup's own album case without colliding.
+//
+// MediaKindAuthor is dispatched the same way (task C4a, 2026-11-10 design
+// D11): Registry.Lookup(kind=author) asks the BookProviders by Open
+// Library id, and an Audible author -- IDs carrying pkgmetadata.KeyASIN,
+// which no Open Library lookup sets -- goes to lookupAudiobookAuthor and
+// reg.AudiobookAuthors (Audnexus), for Add New's author link.
 func lookup(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
 	ctx, span := tracing.Start(ctx, "metadata.rpc.lookup")
 	defer span.End()
@@ -153,6 +159,10 @@ func lookup(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataR
 	case commonv1.MediaKindBook:
 		if _, ok := req.IDs[pkgmetadata.KeyOpenLibraryAuthor]; ok {
 			return lookupBooks(ctx, reg, req)
+		}
+	case commonv1.MediaKindAuthor:
+		if _, ok := req.IDs[pkgmetadata.KeyASIN]; ok {
+			return lookupAudiobookAuthor(ctx, reg, req)
 		}
 	}
 
@@ -376,6 +386,70 @@ func lookupBooks(ctx context.Context, reg *pkgmetadata.Registry, req schema.Meta
 	return schema.MetadataResponse{Kind: req.Kind, Error: lastErr.Error()}
 }
 
+// lookupAudiobookAuthor answers an Audible author by ASIN: Kind=
+// MediaKindAuthor, IDs={"asin": <author ASIN>, "region": <marketplace>},
+// the region carried in the ids map as Registry.Lookup(kind=audiobook)
+// carries it (target.go's externalIDs) and defaulting to "us" as there,
+// from the first pkgmetadata.AudiobookAuthorProvider (reg.AudiobookAuthors,
+// Audnexus's /authors/{asin}) that answers. The answer is the
+// pkgmetadata.Author, JSON-encoded, with its ids (the ASIN). It serves Add
+// New's author link (2026-11-10 design D11): an Audiobook whose bookRef
+// resolves no Book takes its authorRef from the Author the library holds
+// under this author's name.
+//
+// An author Audnexus has no page for -- it answers 404 UPSTREAM_GONE for
+// Tolkien's B000AQ1S22 today -- is pkgmetadata.ErrNotFound, and the
+// response carries exactly that error's text, however a provider wrapped
+// it, so the caller reads not-found off the wire as it does from
+// Registry.Lookup. No provider configured is a different failure (a
+// missing MetadataProvider), said as such.
+func lookupAudiobookAuthor(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
+	ctx, span := tracing.Start(ctx, "metadata.rpc.lookupAudiobookAuthor")
+	defer span.End()
+
+	asin := req.IDs[pkgmetadata.KeyASIN]
+	if asin == "" {
+		err := fmt.Errorf("metadata: audiobook author lookup requires %q in ids", pkgmetadata.KeyASIN)
+		tracing.RecordError(span, err)
+		return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
+	}
+	region := req.IDs["region"]
+	if region == "" {
+		region = "us"
+	}
+	if len(reg.AudiobookAuthors) == 0 {
+		err := errors.New("metadata: no audiobook author metadata provider is configured")
+		tracing.RecordError(span, err)
+		return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
+	}
+	var errs []error
+	for _, p := range reg.AudiobookAuthors {
+		aCtx, aSpan := tracing.Start(ctx, "metadata.AudiobookAuthorProvider.AudiobookAuthor")
+		author, err := p.AudiobookAuthor(aCtx, asin, region)
+		if err != nil {
+			tracing.RecordError(aSpan, err)
+			aSpan.End()
+			errs = append(errs, fmt.Errorf("%s: %w", p.Name(), err))
+			continue
+		}
+		aSpan.End()
+		result, err := json.Marshal(author)
+		if err != nil {
+			tracing.RecordError(span, err)
+			return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
+		}
+		return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), IDs: idsOf(author), Result: result}
+	}
+	err := errors.Join(errs...)
+	if errors.Is(err, pkgmetadata.ErrNotFound) {
+		// The sentinel's own text, not a provider's wrapping of it: the
+		// caller matches the wire string against ErrNotFound.
+		err = pkgmetadata.ErrNotFound
+	}
+	tracing.RecordError(span, err)
+	return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
+}
+
 // bookListAuthorID is the author id p lists works by, from the request's
 // ids: a provider that looks up by Hardcover ids (its Capabilities name
 // extid.KeyHardcover) takes the Author's spec.hardcoverID, every other the
@@ -411,6 +485,12 @@ func bookListAuthorID(p pkgmetadata.BookProvider, ids map[string]string) string 
 // failed (an outage) -- the last carrying each provider's own error, by
 // name. The second and third used to fall through to the first, so a
 // provider outage read as "search does not support kind".
+//
+// req.Source (task C4a) narrows any kind's search to the one provider of
+// that MetadataProvider type -- a comic search naming "mangadex" asks
+// MangaDex alone, where the unnamed search asks the first configured comic
+// provider; a source no configured provider is of is the second failure,
+// naming the source.
 func search(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
 	ctx, span := tracing.Start(ctx, "metadata.rpc.search")
 	defer span.End()
@@ -418,37 +498,37 @@ func search(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataR
 	var resp schema.MetadataResponse
 	switch req.Kind {
 	case commonv1.MediaKindMovie:
-		resp = searchFirst(ctx, req.Kind, "metadata.MovieProvider.SearchMovies", reg.Movies,
+		resp = searchFirst(ctx, req.Kind, req.Source, "metadata.MovieProvider.SearchMovies", reg.Movies,
 			func(ctx context.Context, p pkgmetadata.MovieProvider) ([]pkgmetadata.MovieHit, error) {
 				return p.SearchMovies(ctx, req.Text, int(req.Year))
 			})
 	case commonv1.MediaKindArtist:
-		resp = searchFirst(ctx, req.Kind, "metadata.ArtistProvider.SearchArtists", reg.Artists,
+		resp = searchFirst(ctx, req.Kind, req.Source, "metadata.ArtistProvider.SearchArtists", reg.Artists,
 			func(ctx context.Context, p pkgmetadata.ArtistProvider) ([]pkgmetadata.SearchHit, error) {
 				return p.SearchArtists(ctx, req.Text)
 			})
 	case commonv1.MediaKindBook:
-		resp = searchFirst(ctx, req.Kind, "metadata.BookProvider.SearchBooks", reg.Books,
+		resp = searchFirst(ctx, req.Kind, req.Source, "metadata.BookProvider.SearchBooks", reg.Books,
 			func(ctx context.Context, p pkgmetadata.BookProvider) ([]pkgmetadata.SearchHit, error) {
 				return p.SearchBooks(ctx, req.Text)
 			})
 	case commonv1.MediaKindComic:
-		resp = searchFirst(ctx, req.Kind, "metadata.ComicProvider.SearchVolumes", reg.Comics,
+		resp = searchFirst(ctx, req.Kind, req.Source, "metadata.ComicProvider.SearchVolumes", reg.Comics,
 			func(ctx context.Context, p pkgmetadata.ComicProvider) ([]pkgmetadata.SearchHit, error) {
 				return p.SearchVolumes(ctx, req.Text)
 			})
 	case commonv1.MediaKindSeries:
-		resp = searchFirst(ctx, req.Kind, "metadata.SeriesSearcher.SearchSeries", searchers[pkgmetadata.SeriesSearcher](reg.Series),
+		resp = searchFirst(ctx, req.Kind, req.Source, "metadata.SeriesSearcher.SearchSeries", searchers[pkgmetadata.SeriesSearcher](reg.Series),
 			func(ctx context.Context, p namedSearcher[pkgmetadata.SeriesSearcher]) ([]pkgmetadata.SearchHit, error) {
 				return p.s.SearchSeries(ctx, req.Text)
 			})
 	case commonv1.MediaKindAuthor:
-		resp = searchFirst(ctx, req.Kind, "metadata.AuthorSearcher.SearchAuthors", searchers[pkgmetadata.AuthorSearcher](reg.Books),
+		resp = searchFirst(ctx, req.Kind, req.Source, "metadata.AuthorSearcher.SearchAuthors", searchers[pkgmetadata.AuthorSearcher](reg.Books),
 			func(ctx context.Context, p namedSearcher[pkgmetadata.AuthorSearcher]) ([]pkgmetadata.SearchHit, error) {
 				return p.s.SearchAuthors(ctx, req.Text)
 			})
 	case commonv1.MediaKindAudiobook:
-		resp = searchFirst(ctx, req.Kind, "metadata.AudiobookSearcher.SearchAudiobooks", reg.AudiobookSearchers,
+		resp = searchFirst(ctx, req.Kind, req.Source, "metadata.AudiobookSearcher.SearchAudiobooks", reg.AudiobookSearchers,
 			func(ctx context.Context, p pkgmetadata.AudiobookSearcher) ([]pkgmetadata.SearchHit, error) {
 				return p.SearchAudiobooks(ctx, req.Text, req.Region)
 			})
@@ -483,13 +563,22 @@ func searchers[S any, P pkgmetadata.Provider](providers []P) []namedSearcher[S] 
 }
 
 // searchFirst answers with the first provider, in priority order, whose
-// search succeeds. With none configured it says so; when every one fails it
+// search succeeds -- or, with source named, with the one provider of that
+// MetadataProvider type (its Name(); the type's value and the provider's
+// name are one word, "comicvine", "mangadex"). With none configured it says
+// so, naming the source when one was asked for; when every one fails it
 // joins their errors, each prefixed with the provider's Name(), so the
 // response names what failed and why rather than only that something did.
 func searchFirst[P pkgmetadata.Provider, H any](
-	ctx context.Context, kind commonv1.MediaKind, spanName string, providers []P,
+	ctx context.Context, kind commonv1.MediaKind, source string, spanName string, providers []P,
 	call func(context.Context, P) ([]H, error),
 ) schema.MetadataResponse {
+	if source != "" {
+		providers = slices.DeleteFunc(slices.Clone(providers), func(p P) bool { return p.Name() != source })
+		if len(providers) == 0 {
+			return schema.MetadataResponse{Kind: kind, Error: fmt.Sprintf("metadata: no %s metadata provider of type %q is configured to search", kind, source)}
+		}
+	}
 	if len(providers) == 0 {
 		return schema.MetadataResponse{Kind: kind, Error: fmt.Sprintf("metadata: no %s metadata provider is configured to search", kind)}
 	}

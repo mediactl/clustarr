@@ -178,26 +178,34 @@ func (c *Client) Capabilities() metadata.Capabilities {
 	return metadata.Capabilities{LookupBy: []string{metadata.KeyComicVine}, Search: true}
 }
 
-// searchVolumesResponse is ComicVine's status-enveloped search response.
+// searchVolumesResponse is ComicVine's status-enveloped search response: a
+// volume resource carries the same fields in a search result as in
+// /volume/{guid}/, narrowed by field_list to what a hit shows.
 type searchVolumesResponse struct {
 	Results []struct {
 		ID        int64  `json:"id"`
 		Name      string `json:"name"`
 		StartYear string `json:"start_year"`
-		Image     struct {
+		Publisher struct {
+			Name string `json:"name"`
+		} `json:"publisher"`
+		CountOfIssues int32 `json:"count_of_issues"`
+		Image         struct {
 			SuperURL string `json:"super_url"`
 		} `json:"image"`
 	} `json:"results"`
 }
 
-// SearchVolumes searches ComicVine's volume index by name.
+// SearchVolumes searches ComicVine's volume index by name. A hit carries
+// the volume's publisher, issue count and start year beside its title and
+// cover (2026-11-10 design §9.4: Add New's Comics tab shows them).
 func (c *Client) SearchVolumes(ctx context.Context, q string) ([]metadata.SearchHit, error) {
 	ctx, span := tracing.Start(ctx, "metadata.comicvine.SearchVolumes")
 	defer span.End()
 	logger := logging.FromContext(ctx)
 
 	var raw searchVolumesResponse
-	query := url.Values{"resources": {"volume"}, "query": {q}, "field_list": {"id,name,start_year,image"}}
+	query := url.Values{"resources": {"volume"}, "query": {q}, "field_list": {"id,name,start_year,publisher,count_of_issues,image"}}
 	if err := c.doGet(ctx, "/search/", query, &raw); err != nil {
 		tracing.RecordError(span, err)
 		logger.ErrorContext(ctx, "comicvine: search failed", "query", q, "error", err)
@@ -207,12 +215,16 @@ func (c *Client) SearchVolumes(ctx context.Context, q string) ([]metadata.Search
 	hits := make([]metadata.SearchHit, 0, len(raw.Results))
 	for _, r := range raw.Results {
 		hit := metadata.SearchHit{
-			IDs:    metadata.ExternalIDs{metadata.KeyComicVine: strconv.FormatInt(r.ID, 10)},
-			Title:  r.Name,
-			Poster: r.Image.SuperURL,
+			IDs:        metadata.ExternalIDs{metadata.KeyComicVine: strconv.FormatInt(r.ID, 10)},
+			Title:      r.Name,
+			Poster:     r.Image.SuperURL,
+			Publisher:  r.Publisher.Name,
+			IssueCount: r.CountOfIssues,
 		}
 		if year, err := strconv.Atoi(r.StartYear); err == nil {
-			hit.Year = int32(year)
+			y := int32(year)
+			hit.Year = y
+			hit.StartYear = &y
 		}
 		hits = append(hits, hit)
 	}

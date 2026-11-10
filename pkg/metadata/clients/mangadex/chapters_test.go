@@ -55,6 +55,12 @@ func TestIssuesNumberedByChaptersListsEveryChapterOfTheAggregate(t *testing.T) {
 	require.Equal(t, metadata.ExternalIDs{extid.KeyMangaDex: "38310cd3-d890-4d0e-bc21-d87b37fae891"}, issues[0].IDs,
 		"the chapter's own MangaDex id, as a ComicVine issue carries its id")
 	require.Empty(t, issues[0].Title, "the aggregate names no chapter")
+	volumes := make([]string, 0, len(issues))
+	for _, i := range issues {
+		volumes = append(volumes, i.Volume)
+	}
+	require.Equal(t, []string{"1", "1", "2", "2", "40", "40", "41", "41", "none", "none"}, volumes,
+		`each chapter names the volume it is collected in, "none" for an uncollected one (task C4a)`)
 }
 
 // The volume numbering is the default and is unchanged: Issues, an empty
@@ -75,6 +81,7 @@ func TestIssuesNumberedByVolumesIsTheDefault(t *testing.T) {
 	require.Equal(t, byDefault, byVolumes)
 	for _, i := range byDefault {
 		require.Empty(t, i.IDs, "a volume has no id of its own on MangaDex")
+		require.Empty(t, i.Volume, "a volume is the issue; it is collected in nothing")
 	}
 }
 
@@ -96,6 +103,7 @@ func TestIssuesNumberedByChaptersDedupesAndSkipsUnnumbered(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"6", "7"}, numbers(issues))
 	require.Equal(t, "seven", issues[1].IDs[extid.KeyMangaDex], "volume 1's listing of chapter 7, not volume 2's")
+	require.Equal(t, "1", issues[1].Volume, "and volume 1 is the one it names")
 }
 
 func TestIssuesNumberedRefusesAnUnknownNumbering(t *testing.T) {

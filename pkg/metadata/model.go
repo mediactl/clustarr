@@ -148,6 +148,16 @@ type Person struct {
 	Order int32 `json:"order,omitempty"`
 	// Job is the crew job as the provider names it ("Screenplay").
 	Job string `json:"job,omitempty"`
+	// IDs are the person's own ids where the provider has them: a group
+	// member's MusicBrainz artist id under KeyMBArtist (2026-11-10 design
+	// §5.4; task C4a). Empty for a credit that carries none.
+	IDs ExternalIDs `json:"ids,omitempty"`
+	// Begin and End bound a membership (PersonMember): the earliest begin
+	// and, once every relation of the member has ended, the latest end
+	// MusicBrainz records across the member's "member of band" relations.
+	// Nil when the provider dates none, or the member is current.
+	Begin *time.Time `json:"begin,omitempty"`
+	End   *time.Time `json:"end,omitempty"`
 }
 
 // SimilarRef is a title the provider recommends alongside an item.
@@ -670,6 +680,14 @@ type ComicIssue struct {
 	// the Comic's fan-out (2026-11-10 design §5.4).
 	Description string   `json:"description,omitempty"`
 	Credits     []Credit `json:"credits,omitempty"`
+
+	// Volume is the volume a chapter is collected in, when the issue is a
+	// chapter of a source that collects them (a MangaDex manga numbered by
+	// chapter, design D10): the volume's number, or "none" for a chapter
+	// not yet collected. Empty for an issue that is itself the unit
+	// (ComicVine, Metron, a manga numbered by volume). Issue status does
+	// not carry it yet (task C4a's api leftover).
+	Volume string `json:"volume,omitempty"`
 }
 
 // Credit is one person credited on a comic issue.

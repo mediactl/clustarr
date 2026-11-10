@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
@@ -61,4 +62,30 @@ func TestMarkersTaskRoundTrip(t *testing.T) {
 
 	assert.Error(t, schema.Decode("catalog.MarkersTask.v1", []byte(`{"mediaFile":"heat-abc"}`), &out),
 		"a v1 task is never read as a v2 one")
+}
+
+// TestMetadataRequestSourceIsAnOptionalV1Field: a search may name the one
+// MetadataProvider type to ask (a comic's "comicvine" or "mangadex"; task
+// C4a). The field is optional and omitted when empty, so a request without
+// it encodes as it did and the schema stays catalog.MetadataRequest.v1:
+// an older gateway reads a request naming a source as one naming none.
+func TestMetadataRequestSourceIsAnOptionalV1Field(t *testing.T) {
+	plain := schema.MetadataRequest{Kind: commonv1.MediaKindComic, Text: "berserk"}
+	name, data, err := schema.Encode(plain)
+	require.NoError(t, err)
+	assert.Equal(t, "catalog.MetadataRequest.v1", name)
+	var keys map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &keys))
+	assert.ElementsMatch(t, []string{"kind", "text"}, slices.Collect(maps.Keys(keys)), "no source named, none on the wire")
+
+	sourced := schema.MetadataRequest{Kind: commonv1.MediaKindComic, Text: "berserk", Source: "mangadex"}
+	name, data, err = schema.Encode(sourced)
+	require.NoError(t, err)
+	assert.Equal(t, "catalog.MetadataRequest.v1", name, "an added optional field keeps the wire shape backward compatible")
+	require.NoError(t, json.Unmarshal(data, &keys))
+	assert.JSONEq(t, `"mangadex"`, string(keys["source"]))
+
+	var out schema.MetadataRequest
+	require.NoError(t, schema.Decode(name, data, &out))
+	assert.Equal(t, sourced, out)
 }

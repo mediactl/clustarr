@@ -164,25 +164,36 @@ type manga struct {
 		} `json:"tags"`
 	} `json:"attributes"`
 	Relationships []struct {
-		Type       string `json:"type"`
+		Type string `json:"type"`
+		// Attributes are the related entity's own, present only under the
+		// matching includes[]: a cover_art's fileName, an author's or
+		// artist's name.
 		Attributes *struct {
 			FileName string `json:"fileName"`
+			Name     string `json:"name"`
 		} `json:"attributes"`
 	} `json:"relationships"`
 }
 
 // SearchVolumes searches MangaDex by title, most relevant first, up to 25
-// hits.
+// hits. A hit carries what MangaDex gives of a comic hit's fields
+// (2026-11-10 design §9.4): the year as its start year, the creators --
+// the author relationships' names, then the artists not among them -- under
+// Authors, and the final volume as the issue count once MangaDex knows it
+// (lastVolume, as Volume reads it). MangaDex names no publisher, and the
+// publication demographic (seinen, shoujo) is no field of a hit.
 func (c *Client) SearchVolumes(ctx context.Context, q string) ([]metadata.SearchHit, error) {
 	ctx, span := tracing.Start(ctx, "metadata.mangadex.SearchVolumes")
 	defer span.End()
 
 	// contentRating[] is MangaDex's own default, spelled out so a change of
 	// default upstream does not silently change what a search can find.
+	// The author and artist includes put each creator's name in its
+	// relationship (recorded 2026-11-10: search_berserk_authors.json).
 	params := url.Values{
 		"title":            {q},
 		"limit":            {"25"},
-		"includes[]":       {"cover_art"},
+		"includes[]":       {"cover_art", "author", "artist"},
 		"order[relevance]": {"desc"},
 		"contentRating[]":  {"safe", "suggestive", "erotica"},
 	}
@@ -196,13 +207,57 @@ func (c *Client) SearchVolumes(ctx context.Context, q string) ([]metadata.Search
 	hits := make([]metadata.SearchHit, 0, len(out.Data))
 	for i := range out.Data {
 		m := &out.Data[i]
-		hit := metadata.SearchHit{IDs: c.ids(m), Title: preferredTitle(m.Attributes.Title, c.lang), Poster: c.coverURL(m)}
+		hit := metadata.SearchHit{
+			IDs:        c.ids(m),
+			Title:      preferredTitle(m.Attributes.Title, c.lang),
+			Poster:     c.coverURL(m),
+			Authors:    creators(m),
+			IssueCount: lastVolume(m),
+		}
 		if m.Attributes.Year != nil {
 			hit.Year = *m.Attributes.Year
+			y := *m.Attributes.Year
+			hit.StartYear = &y
 		}
 		hits = append(hits, hit)
 	}
 	return hits, nil
+}
+
+// creators is a manga's authors, then the artists not already among them,
+// by the names the author and artist includes carry; a creator listed under
+// both roles is named once, and a relationship without the include's
+// attributes names nobody.
+func creators(m *manga) []metadata.NamedRef {
+	var out []metadata.NamedRef
+	seen := map[string]bool{}
+	for _, role := range []string{"author", "artist"} {
+		for _, r := range m.Relationships {
+			if r.Type != role || r.Attributes == nil {
+				continue
+			}
+			name := strings.TrimSpace(r.Attributes.Name)
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			out = append(out, metadata.NamedRef{Name: name})
+		}
+	}
+	return out
+}
+
+// lastVolume is a manga's final volume number as an issue count, 0 while
+// MangaDex has none (an ongoing series) or it is not a number.
+func lastVolume(m *manga) int32 {
+	if m.Attributes.LastVolume == nil {
+		return 0
+	}
+	n, err := strconv.ParseInt(*m.Attributes.LastVolume, 10, 32)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return int32(n)
 }
 
 // Volume fetches a manga by ids[extid.KeyMangaDex]. Any other id is
@@ -228,13 +283,9 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 		OriginalLanguage: a.OriginalLanguage,
 		Provenance:       []metadata.Provenance{{Provider: "mangadex", FetchedAt: time.Now().UTC()}},
 	}
-	if a.LastVolume != nil {
-		if n, err := strconv.ParseInt(*a.LastVolume, 10, 32); err == nil && n > 0 {
-			// Set only once MangaDex knows the final volume -- a completed
-			// series; an ongoing one leaves lastVolume empty.
-			v.IssueCount = int32(n)
-		}
-	}
+	// Set only once MangaDex knows the final volume -- a completed series;
+	// an ongoing one leaves lastVolume empty.
+	v.IssueCount = lastVolume(m)
 	for _, alt := range a.AltTitles {
 		for _, lang := range sortedKeys(alt) {
 			v.AltTitles = append(v.AltTitles, metadata.AltTitle{Title: alt[lang], Language: lang})
@@ -308,11 +359,11 @@ func (c *Client) Issues(ctx context.Context, volumeID string) ([]metadata.ComicI
 // default), or every numbered chapter (metadata.IssueNumberingChapters),
 // the uncollected "none" bucket's among them, in chapter order, each
 // carrying its MangaDex chapter id under extid.KeyMangaDex as a ComicVine
-// issue carries its own id under metadata.KeyComicVine. A chapter listed
-// under two volumes is listed once, the lower volume's; a chapter without a
-// number (a oneshot, "none") is no issue. metadata.ComicIssue has no field
-// for the volume a chapter belongs to, so that is not returned (a leftover
-// of task L2, 2026-11-10). Any other numbering is ErrUnsupported.
+// issue carries its own id under metadata.KeyComicVine, and the volume it
+// is collected in as ComicIssue.Volume ("none" for an uncollected one). A
+// chapter listed under two volumes is listed once, the lower volume's; a
+// chapter without a number (a oneshot, "none") is no issue. Any other
+// numbering is ErrUnsupported.
 func (c *Client) IssuesNumbered(ctx context.Context, volumeID string, numbering metadata.IssueNumbering) ([]metadata.ComicIssue, error) {
 	ctx, span := tracing.Start(ctx, "metadata.mangadex.Issues")
 	defer span.End()
@@ -366,9 +417,9 @@ func volumeIssues(vols []aggVolume) []metadata.ComicIssue {
 }
 
 // chapterIssues is one issue per numbered chapter of every volume, the
-// "none" bucket's included, in chapter order; the volumes are walked in
-// volume order ("none" last) so a chapter two volumes list keeps the
-// lower one's entry.
+// "none" bucket's included, in chapter order, each naming its volume; the
+// volumes are walked in volume order ("none" last) so a chapter two volumes
+// list keeps the lower one's entry.
 func chapterIssues(vols []aggVolume) ([]metadata.ComicIssue, error) {
 	slices.SortStableFunc(vols, func(a, b aggVolume) int { return compareNumbers(a.Volume, b.Volume) })
 	var issues []metadata.ComicIssue
@@ -382,7 +433,7 @@ func chapterIssues(vols []aggVolume) ([]metadata.ComicIssue, error) {
 			if ch.Chapter == "" || ch.Chapter == "none" {
 				continue
 			}
-			issue := metadata.ComicIssue{Number: ch.Chapter}
+			issue := metadata.ComicIssue{Number: ch.Chapter, Volume: v.Volume}
 			if ch.ID != "" {
 				issue.IDs = metadata.ExternalIDs{extid.KeyMangaDex: ch.ID}
 			}

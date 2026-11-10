@@ -51,12 +51,32 @@ type Capabilities struct {
 
 // SearchHit is a single result from a provider's search-by-text method,
 // shared by every kind that does not have its own hit type (MovieProvider
-// has the richer MovieHit instead).
+// has the richer MovieHit instead). The keys are MovieHit's lower-case
+// ones; the ui decodes a hit case-insensitively, as encoding/json does, so
+// the untagged shape this once marshalled ("IDs", "Title") reads the same.
+//
+// The kind-specific fields (2026-11-10 design §9.4, §9.5; task C4a) carry
+// what Add New shows beside the title and the cover: a comic volume's
+// publisher, issue count and start year (ComicVine; MangaDex gives the
+// creators and the year), an audiobook's authors -- each with the Audible
+// author's ASIN, which the author link looks up (D11) -- narrators and
+// release date (Audible's catalog). Every one is empty for a kind that has
+// none.
 type SearchHit struct {
-	IDs    ExternalIDs
-	Title  string
-	Year   int32
-	Poster string
+	IDs    ExternalIDs `json:"ids"`
+	Title  string      `json:"title"`
+	Year   int32       `json:"year,omitempty"`
+	Poster string      `json:"poster,omitempty"`
+
+	// Comics.
+	Publisher  string `json:"publisher,omitempty"`
+	IssueCount int32  `json:"issueCount,omitempty"`
+	StartYear  *int32 `json:"startYear,omitempty"`
+
+	// Audiobooks (and a manga's creators under Authors).
+	Authors     []NamedRef `json:"authors,omitempty"`
+	Narrators   []string   `json:"narrators,omitempty"`
+	ReleaseDate *time.Time `json:"releaseDate,omitempty"`
 }
 
 // Provider is the common surface every per-kind provider interface embeds:

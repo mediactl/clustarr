@@ -85,6 +85,10 @@ func TestProductsMapTheCatalogsFields(t *testing.T) {
 	assert.NotContains(t, p.Summary, "<")
 }
 
+// A hit is keyed by ASIN and carries the product's authors (each with the
+// Audible author ASIN the author link looks up, 2026-11-10 design D11),
+// narrators, publisher and release date beside the title, year and cover
+// (§9.5; task C4a).
 func TestSearchHitsAreKeyedByASIN(t *testing.T) {
 	srv, _ := serve(t)
 	c := audible.New(audible.Config{HTTPClient: srv.Client(), BaseURL: srv.URL})
@@ -94,6 +98,12 @@ func TestSearchHitsAreKeyedByASIN(t *testing.T) {
 	assert.Equal(t, "B01NH0D987", hits[0].IDs[metadata.KeyASIN])
 	assert.EqualValues(t, 2016, hits[0].Year)
 	assert.NotEmpty(t, hits[0].Poster)
+	assert.Equal(t, []metadata.NamedRef{{Name: "Ursula K. Le Guin", ASIN: "B0GZZ57KFW"}}, hits[0].Authors)
+	assert.Equal(t, []string{"George Guidall"}, hits[0].Narrators)
+	assert.Equal(t, "Recorded Books", hits[0].Publisher)
+	require.NotNil(t, hits[0].ReleaseDate)
+	assert.Equal(t, time.Date(2016, 12, 28, 0, 0, 0, 0, time.UTC), *hits[0].ReleaseDate)
+	assert.Empty(t, hits[0].IssueCount, "an audiobook has no issues")
 }
 
 func TestRegionsPickTheirHost(t *testing.T) {

@@ -1,0 +1,124 @@
+{
+  "result": "ok",
+  "response": "collection",
+  "data": [
+    {
+      "id": "801513ba-a712-498c-8f57-cae55b38cc92",
+      "type": "manga",
+      "attributes": {
+        "title": {
+          "ja-ro": "Berserk"
+        },
+        "links": {
+          "al": "30002",
+          "ap": "berserk",
+          "bl": "181526",
+          "bw": "series/16664/list",
+          "kt": "8",
+          "mu": "njeqwry",
+          "amz": "https://www.amazon.co.jp/-/en/dp/B074C597F1",
+          "cdj": "https://www.cdjapan.co.jp/product/NEOBK-3115032",
+          "ebj": "https://ebookjapan.yahoo.co.jp/books/127562/",
+          "mal": "2",
+          "raw": "https://younganimal.com/series/f68f676b354d4/",
+          "engtl": "https://www.darkhorsedirect.com/products/berserk-multi-volume-books"
+        },
+        "originalLanguage": "ja",
+        "lastVolume": "",
+        "lastChapter": "",
+        "publicationDemographic": "seinen",
+        "status": "ongoing",
+        "year": 1989,
+        "contentRating": "erotica"
+      },
+      "relationships": [
+        {
+          "id": "5863578d-4e4f-4b57-b64d-1dd45a893cb0",
+          "type": "author",
+          "attributes": {
+            "name": "Miura Kentarou"
+          }
+        },
+        {
+          "id": "e4dc18d8-1b8d-48e6-9b70-0f93a5af35ca",
+          "type": "author",
+          "attributes": {
+            "name": "Mori Kouji"
+          }
+        },
+        {
+          "id": "5863578d-4e4f-4b57-b64d-1dd45a893cb0",
+          "type": "artist",
+          "attributes": {
+            "name": "Miura Kentarou"
+          }
+        },
+        {
+          "id": "8d88f37d-bd1e-4974-a309-7dfce13f9c56",
+          "type": "artist",
+          "attributes": {
+            "name": "Studio Gaga"
+          }
+        },
+        {
+          "id": "bab715d9-1b6a-4f50-8fea-ac5628ebfd8e",
+          "type": "cover_art",
+          "attributes": {
+            "volume": "43",
+            "fileName": "81e1c82d-6672-400c-8c58-4ff9bfb89031.jpg",
+            "locale": "ja"
+          }
+        }
+      ]
+    },
+    {
+      "id": "b00acc54-2bf1-440e-8f33-da87227d82d6",
+      "type": "manga",
+      "attributes": {
+        "title": {
+          "en": "VRMMO Chronicles of a Solo Cleric ~Surprise! I’m Actually a Berserker!~"
+        },
+        "links": {
+          "al": "166133",
+          "mu": "26x5mx9",
+          "raw": "https://book.dmm.com/product/4319020/s299asnph00685/"
+        },
+        "originalLanguage": "ja",
+        "lastVolume": "",
+        "lastChapter": "",
+        "publicationDemographic": null,
+        "status": "ongoing",
+        "year": 2023,
+        "contentRating": "suggestive"
+      },
+      "relationships": [
+        {
+          "id": "f003a5ec-4b59-491d-b7a6-550910fd5c63",
+          "type": "author",
+          "attributes": {
+            "name": "Digishoku"
+          }
+        },
+        {
+          "id": "f003a5ec-4b59-491d-b7a6-550910fd5c63",
+          "type": "artist",
+          "attributes": {
+            "name": "Digishoku"
+          }
+        },
+        {
+          "id": "3b5f0206-e292-466d-93f5-f9f2ebf63f32",
+          "type": "cover_art",
+          "attributes": {
+            "volume": "1",
+            "fileName": "fac369b9-c8f3-4fa2-b9da-f2fab0a9ca35.png",
+            "locale": "ja"
+          }
+        }
+      ]
+    }
+  ],
+  "limit": 2,
+  "offset": 0,
+  "total": 22
+}

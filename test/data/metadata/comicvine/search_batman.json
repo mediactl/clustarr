@@ -10,7 +10,14 @@
       "id": 18257,
       "name": "Batman",
       "start_year": "1940",
-      "image": {"super_url": "https://comicvine.gamespot.com/a/uploads/original/batman.jpg"}
+      "publisher": {
+        "id": 10,
+        "name": "DC Comics"
+      },
+      "count_of_issues": 716,
+      "image": {
+        "super_url": "https://comicvine.gamespot.com/a/uploads/original/batman.jpg"
+      }
     }
   ]
 }
