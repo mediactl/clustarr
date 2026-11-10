@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/obs"
@@ -77,6 +78,15 @@ func Run(ctx context.Context, o Options) error {
 		// go idle, it does not itself cancel a handler's context.
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
+	// A connection accepted but silent -- a browser's preconnect, the Go
+	// client's spare dial -- is closed at shutdown rather than waited for:
+	// net/http's Shutdown counts a StateNew connection as active until it
+	// is 5 s old (Go issue 22682), the whole of shutdownGrace, so one open
+	// at the cancel had Run return the grace's deadline error after the
+	// open stream's handler had long returned (2026-11-10, every fourth
+	// run of the shutdown test under load).
+	var silent silentConns
+	httpSrv.ConnState = silent.track
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -93,9 +103,47 @@ func Run(ctx context.Context, o Options) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownGrace)
 		defer cancel()
+		silent.closeAll()
 		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("ui: graceful shutdown: %w", err)
 		}
 		return nil
 	}
+}
+
+// silentConns is the server's connections that have sent nothing yet
+// (net/http's StateNew), kept through the ConnState hook so a shutdown can
+// close them instead of waiting net/http's 5 s for each to speak.
+type silentConns struct {
+	mu    sync.Mutex
+	conns map[net.Conn]struct{}
+}
+
+// track is the http.Server's ConnState hook: a new connection is silent
+// until its first request is read (StateActive), or it is hijacked or
+// closed. An idle one has spoken, and Shutdown closes it itself.
+func (s *silentConns) track(c net.Conn, state http.ConnState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch state {
+	case http.StateNew:
+		if s.conns == nil {
+			s.conns = map[net.Conn]struct{}{}
+		}
+		s.conns[c] = struct{}{}
+	case http.StateActive, http.StateHijacked, http.StateClosed:
+		delete(s.conns, c)
+	}
+}
+
+// closeAll closes every silent connection: its serve loop fails its read
+// and lets go, so Shutdown finds it closed. A client that was about to
+// speak reconnects, as to any listener a shutdown has closed.
+func (s *silentConns) closeAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for c := range s.conns {
+		_ = c.Close()
+	}
+	clear(s.conns)
 }

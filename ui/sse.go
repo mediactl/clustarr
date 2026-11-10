@@ -103,6 +103,13 @@ func (s *Server) handleArtEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+	// Subscribed before the headers go out, so a change made once the
+	// client holds the response is on the channel: until 2026-11-10 the
+	// stream subscribed after its first flush, and a Put landing between
+	// the two was never relayed (TestArtEventsStreamOnlyTheAskedKeys read
+	// nothing until its deadline beside a concurrent compile).
+	art, unsubscribe := s.artEvents.subscribe()
+	defer unsubscribe()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -110,8 +117,6 @@ func (s *Server) handleArtEvents(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	ctx := r.Context()
-	art, unsubscribe := s.artEvents.subscribe()
-	defer unsubscribe()
 	for {
 		select {
 		case <-ctx.Done():

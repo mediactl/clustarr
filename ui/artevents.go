@@ -52,6 +52,12 @@ const artSubscriberBuffer = 64
 // (TestUINeverWrites).
 type artEvents struct {
 	index *objindex.Index
+	// changes is the index's subscription, taken as the artEvents is made
+	// (newArtEvents) rather than when run gets its turn, so a change
+	// landing after NewServer returns -- a test's Put the moment the index
+	// reads synced -- is on the channel for run to follow; stop ends it.
+	changes <-chan objindex.Change
+	stop    func()
 
 	mu sync.Mutex
 	// last is the served digest last emitted per key.
@@ -60,18 +66,19 @@ type artEvents struct {
 }
 
 func newArtEvents(index *objindex.Index) *artEvents {
-	return &artEvents{index: index, last: map[string]string{}, subs: map[chan artEvent]struct{}{}}
+	a := &artEvents{index: index, last: map[string]string{}, subs: map[chan artEvent]struct{}{}}
+	a.changes, a.stop = index.Subscribe()
+	return a
 }
 
 // run follows the index's changes until ctx ends.
 func (a *artEvents) run(ctx context.Context) {
-	ch, cancel := a.index.Subscribe()
-	defer cancel()
+	defer a.stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case c, ok := <-ch:
+		case c, ok := <-a.changes:
 			if !ok {
 				return
 			}

@@ -19,9 +19,11 @@ package ui_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
@@ -56,6 +58,22 @@ func freeAddr(t *testing.T) string {
 // parent's cancellation to every context derived from it), so the SSE
 // handler's `case <-ctx.Done(): return` fires right away, the connection goes
 // idle, and Shutdown returns almost immediately.
+//
+// It also holds a connection that has sent nothing to the same standard
+// (2026-11-10): net/http's Shutdown counts a StateNew connection as active
+// until it is 5 s old (Go issue 22682), the whole of Run's grace, so a
+// browser's preconnect -- or, as the test found under load, the Go
+// client's spare dial for the stream request, left in its pool unused --
+// had Run burn the grace and return its deadline error though the stream's
+// handler had returned at once; Run now closes silent connections at the
+// cancel (silentConns), and the test opens one on purpose.
+//
+// Either regression is read off Run's error, not its time: Shutdown
+// returns its context's deadline error once it has burned the grace, and
+// Run passes it up. The waits are bounded only so a hang fails here rather
+// than at the test binary's deadline, and generously, since net/http's
+// Shutdown polls for the connections to go idle at up to 500 ms a poll and
+// under load (-race beside a compile) every goroutine waits its turn.
 func TestRunEndsAnOpenSSEStreamOnContextCancel(t *testing.T) {
 	addr := freeAddr(t)
 	unmatched := func(context.Context) []projection.UnmatchedEntry {
@@ -70,6 +88,12 @@ func TestRunEndsAnOpenSSEStreamOnContextCancel(t *testing.T) {
 		runErr <- ui.Run(runCtx, ui.Options{BindAddress: addr, AuthMode: ui.AuthModeAnonymous, Unmatched: unmatched})
 	}()
 
+	// shutdownGrace is ui's: what Shutdown is given for the open stream.
+	const shutdownGrace = 5 * time.Second
+	// hangBound is how long a wait is given before it reads as a hang,
+	// well past the grace a wired-up Run never reaches.
+	const hangBound = 3 * shutdownGrace
+
 	// Wait for the listener to come up.
 	require.Eventually(t, func() bool {
 		resp, err := http.Get("http://" + addr + "/healthz")
@@ -78,7 +102,7 @@ func TestRunEndsAnOpenSSEStreamOnContextCancel(t *testing.T) {
 		}
 		_ = resp.Body.Close()
 		return resp.StatusCode == http.StatusOK
-	}, 2*time.Second, 10*time.Millisecond, "server never came up on %s", addr)
+	}, hangBound, 10*time.Millisecond, "server never came up on %s", addr)
 
 	// Open the SSE stream and keep draining it in the background so we can
 	// tell when the server closes it from its side.
@@ -95,27 +119,36 @@ func TestRunEndsAnOpenSSEStreamOnContextCancel(t *testing.T) {
 		close(streamEnded)
 	}()
 
+	// A connection that never speaks, as a browser's preconnect: open at
+	// the cancel, it is Run's to close, not net/http's to wait 5 s for.
+	silent, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	defer func() { _ = silent.Close() }()
+
 	// Give the client a moment to actually be attached to the stream before
 	// cancelling, so the test exercises "shutdown with a client connected"
 	// rather than racing the connection's own setup.
 	time.Sleep(50 * time.Millisecond)
 
-	const wellUnderShutdownGrace = 2 * time.Second // shutdownGrace is 5s
 	start := time.Now()
 	cancelRun()
 
 	select {
 	case err := <-runErr:
-		require.NoError(t, err)
-	case <-time.After(wellUnderShutdownGrace):
-		t.Fatal("ui.Run did not return within " + wellUnderShutdownGrace.String() + " of context cancellation")
+		require.NoError(t, err, "Shutdown burned its grace: the stream's context was not cancelled (BaseContext) or the silent connection was waited for (silentConns)")
+	case <-time.After(hangBound):
+		t.Fatal("ui.Run did not return within " + hangBound.String() + " of context cancellation")
 	}
-	require.Less(t, time.Since(start), wellUnderShutdownGrace,
-		"ui.Run took too long to shut down; BaseContext may not be wired to ctx")
+	t.Logf("ui.Run returned %s after the cancel", time.Since(start))
 
 	select {
 	case <-streamEnded:
-	case <-time.After(wellUnderShutdownGrace):
+	case <-time.After(hangBound):
 		t.Fatal("SSE stream was not closed by the server after shutdown")
 	}
+	// The silent connection was closed by the server's side.
+	require.NoError(t, silent.SetReadDeadline(time.Now().Add(hangBound)))
+	_, err = silent.Read(make([]byte, 1))
+	require.Error(t, err, "the silent connection outlived the shutdown")
+	require.False(t, errors.Is(err, os.ErrDeadlineExceeded), "the silent connection was never closed")
 }
