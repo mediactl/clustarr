@@ -55,6 +55,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -912,6 +913,69 @@ func TestComicReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 
 		assert.Equal(t, before.Status.Path, after.Status.Path, "RootFolderNotFound must not release Path")
 		assert.Equal(t, before.Status.IssueFileCount, after.Status.IssueFileCount, "RootFolderNotFound must not release IssueFileCount")
+	})
+
+	// Task F1 (2026-11-10 design §5.5): a title the shared rule cannot
+	// render -- one of only dots, which the engine refuses as the root's
+	// parent -- is a reported problem, Ready False reason FolderUnrenderable
+	// with the steady state kept, never an error that would back the comic
+	// off for good; the title corrected, the next pass renders the folder
+	// again.
+	t.Run("a title the rule cannot render reports FolderUnrenderable and keeps the steady state", func(t *testing.T) {
+		req := driveToReady(t, "folder-steady", "4050-103")
+
+		var before catalogv1alpha1.Comic
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &before))
+
+		retitle := func(t *testing.T, title string) {
+			t.Helper()
+			ac := catalogac.Comic(before.Name, before.Namespace).WithStatus(
+				catalogac.ComicStatus().WithMetadata(
+					catalogac.ComicMetadata().WithTitle(title).WithRefreshedAt(metav1.Now()),
+				),
+			)
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, ac)
+			require.NoError(t, err)
+			require.Eventually(t, func() bool {
+				var got catalogv1alpha1.Comic
+				return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.Metadata != nil && got.Status.Metadata.Title == title
+			}, 5*time.Second, 10*time.Millisecond)
+		}
+		retitle(t, "...")
+
+		r2 := &comic.Reconciler{
+			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
+			Bus: combinedBus{Publisher: &fakePublisher{}, requester: &fakeIssueRPC{}},
+		}
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
+		require.NoError(t, err, "an unrenderable folder is reported, never returned as an error")
+		assert.Equal(t, time.Minute, res.RequeueAfter)
+
+		var after catalogv1alpha1.Comic
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, req.NamespacedName, &after); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason == catalogctx.ReasonFolderUnrenderable
+		}, 5*time.Second, 10*time.Millisecond, "Ready never read FolderUnrenderable")
+		cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.Contains(t, cond.Message, `"..."`, "the message names the component the rule refused")
+		assert.Equal(t, before.Status.Path, after.Status.Path, "FolderUnrenderable keeps the path the comic had")
+		assert.Equal(t, before.Status.IssueFileCount, after.Status.IssueFileCount, "FolderUnrenderable must not release IssueFileCount")
+
+		retitle(t, "Steady State")
+		_, err = r2.ReconcileItem(ctx, req.NamespacedName)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Comic
+			if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason != catalogctx.ReasonFolderUnrenderable && got.Status.Path == before.Status.Path
+		}, 5*time.Second, 10*time.Millisecond, "Ready never recovered once the folder rendered again")
 	})
 }
 

@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -473,6 +474,83 @@ func TestBookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 	assert.Equal(t, before.Status.Phase, after.Status.Phase, "QueueFull must not release Phase")
 	assert.Equal(t, before.Status.Path, after.Status.Path, "QueueFull must not release Path")
 	assert.Equal(t, before.Status.HasFile, after.Status.HasFile, "QueueFull must not release HasFile")
+}
+
+// TestBookReconcilerReportsAFolderItCannotRender (task F1, 2026-11-10
+// design §5.5): a standalone book whose title sanitizes to nothing ("???")
+// has no folder the shared rule can render, so the pass reports Ready False
+// reason FolderUnrenderable and keeps the path the book had -- never an
+// error that would back the book off for good, and never the root, which
+// a book with no title yet reads; the title corrected, the next pass
+// renders the folder again.
+func TestBookReconcilerReportsAFolderItCannotRender(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	require.NoError(t, c.Create(ctx, testNamespace("book-folder-ns")))
+	createRootFolder(t, ctx, c, "book-folder-ns", "book-root", "/data/media/books")
+	createBookProfile(t, ctx, c, "ebook-folder-profile")
+
+	bk := &catalogv1alpha1.Book{
+		ObjectMeta: metav1.ObjectMeta{Name: "unrenderable", Namespace: "book-folder-ns"},
+		Spec: catalogv1alpha1.BookSpec{
+			WorkID: "OL45883W", RootFolderRef: new("book-root"), QualityProfileRef: new("ebook-folder-profile"),
+		},
+	}
+	require.NoError(t, c.Create(ctx, bk))
+	waitCached(t, ctx, c, bk)
+
+	r := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-folder-ns", Name: "unrenderable"}}
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
+	require.NoError(t, err)
+	seedMetadata(t, ctx, c, bk, "The Hobbit", 0)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
+	require.NoError(t, err)
+	var before catalogv1alpha1.Book
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, req.NamespacedName, &before) == nil && before.Status.Path == "/data/media/books/The Hobbit"
+	}, 5*time.Second, 10*time.Millisecond, "the standalone book never took its folder")
+
+	seedMetadata(t, ctx, c, bk, "???", 0)
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Book
+		return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.Metadata != nil && got.Status.Metadata.Title == "???"
+	}, 5*time.Second, 10*time.Millisecond)
+	res, err := r.ReconcileItem(ctx, req.NamespacedName)
+	require.NoError(t, err, "an unrenderable folder is reported, never returned as an error")
+	assert.Equal(t, time.Minute, res.RequeueAfter)
+
+	var after catalogv1alpha1.Book
+	require.Eventually(t, func() bool {
+		if err := c.Get(ctx, req.NamespacedName, &after); err != nil {
+			return false
+		}
+		cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+		return cond != nil && cond.Reason == catalogctx.ReasonFolderUnrenderable
+	}, 5*time.Second, 10*time.Millisecond, "Ready never read FolderUnrenderable")
+	cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Contains(t, cond.Message, `"???"`, "the message names the component the rule emptied")
+	assert.Equal(t, before.Status.Path, after.Status.Path, "FolderUnrenderable keeps the path the book had, never the root")
+	assert.Equal(t, before.Status.Phase, after.Status.Phase, "FolderUnrenderable must not release Phase")
+
+	seedMetadata(t, ctx, c, bk, "The Hobbit", 0)
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Book
+		return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.Metadata != nil && got.Status.Metadata.Title == "The Hobbit"
+	}, 5*time.Second, 10*time.Millisecond)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Book
+		if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
+			return false
+		}
+		cond := k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady)
+		return cond != nil && cond.Reason != catalogctx.ReasonFolderUnrenderable && got.Status.Path == before.Status.Path
+	}, 5*time.Second, 10*time.Millisecond, "Ready never recovered once the folder rendered again")
 }
 
 // TestBookReconcilerRealQualityCutoffEvaluation is the correction proof: an

@@ -396,12 +396,6 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 			return ctrl.Result{}, err
 		}
 
-		eng := naming.NewEngine(naming.Config{
-			Dialect:           naming.Dialect(rf.Spec.Naming.Dialect),
-			ColonReplacement:  naming.ColonReplacement(rf.Spec.Naming.ColonReplacement),
-			MultiEpisodeStyle: naming.MultiEpisodeStyle(rf.Spec.Naming.MultiEpisodeStyle),
-			Overrides:         rf.Spec.Naming.Overrides,
-		})
 		// The Comic's folder context carries what catalogctx.Issue gives its
 		// issues' file context (2026-11-10 design D7, D10): the year and
 		// the {Special Version} label of a collected edition, so a folder
@@ -412,9 +406,23 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 			Year:             int(c.Status.Metadata.Year),
 			SpecialVersion:   catalogctx.SpecialVersionLabel(c.Spec.SpecialVersion),
 		}
-		pth, err := Path(rf.Spec.Path, c.Spec.Folder, eng, nctx)
+		pth, err := Path(&rf, c.Spec.Folder, nctx)
 		if err != nil {
-			return ctrl.Result{}, err
+			// The folder rule cannot render the title it knows -- one of only
+			// dots, or nothing once sanitized (catalogctx.ItemFolder): the
+			// steady state is kept and the problem reported on Ready, as a
+			// missing RootFolder is, never an error that would back the item
+			// off for good. The next metadata refresh or spec edit renders
+			// it again; the fixed requeue stands in for the wake a
+			// RootFolder's naming edit does not send.
+			rollup.Reporter{Recorder: r.Recorder}.WarnEdge(c, c.Status.Conditions, k8s.ConditionReady, metav1.ConditionFalse, catalogctx.ReasonFolderUnrenderable, "no folder under rootFolder %q: %v", c.Spec.RootFolderRef, err)
+			k8s.MarkFalse(c, &conditions, k8s.ConditionReady, catalogctx.ReasonFolderUnrenderable, "no folder under rootFolder %q: %v", c.Spec.RootFolderRef, err)
+			statusAC = reassertKnownStatus(statusAC, c)
+			statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+			if conflicted, perr := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(withEntries(ctx, statusAC, c))); perr != nil || conflicted {
+				return itemstatus.Requeue(conflicted), perr
+			}
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 		statusAC = statusAC.WithPath(pth)
 	}

@@ -63,6 +63,67 @@ func EngineFor(root *catalogv1alpha1.RootFolder) naming.Engine {
 	})
 }
 
+// ReasonFolderUnrenderable is the Ready reason every item controller
+// reports when ItemFolder, BookFolder or AlbumFolder cannot render the
+// item's folder from a title it knows (2026-11-10 design §5.5): one the
+// engine refuses (naming.ErrUnsafeComponent, a title of only dots) or the
+// sanitizer empties ("???"). The controller keeps the status it has
+// (reassertKnownStatus) and reports the problem on Ready, never a path and
+// never an error that would back the item off for good; the next metadata
+// refresh, spec edit or RootFolder change renders it again.
+const ReasonFolderUnrenderable = "FolderUnrenderable"
+
+// ItemFolder is the folder an item of kind lives in under root, as the
+// import places its files and as the item's controller writes status.path
+// (app/catalog/controller/<kind>.Path), so the two cannot diverge
+// (2026-11-10 design §5.5): folder (the item's spec.folder) under
+// root.spec.path when set and non-empty, else the kind's folder preset
+// rendered from c by the root's engine -- every component sanitized and
+// the result held strictly under the root exactly as the file path is
+// (joinUnder), so a title with a "?", a trailing dot or 390 bytes names the
+// folder the file lands in ("What If" for "What If...?"), not the title as
+// written. It is the rule of the kinds with a folder of their own under the
+// root -- a Movie, a Series, an Artist, an Author, an Audiobook and a Comic;
+// any other kind is naming.ErrNoFolder. A Book's folder is BookFolder's, an
+// Album's AlbumFolder's, and a file's path is its kind's *FilePath, which
+// joins the file onto this folder.
+//
+// A preset that renders nothing -- an Author or an Artist whose name has
+// not arrived -- is the root itself, the degraded answer while the title is
+// unknown (folderUnder); a known title the engine refuses (one of only
+// dots, naming.ErrUnsafeComponent) or the sanitizer empties ("???") is an
+// error, which each controller reports as ReasonFolderUnrenderable on
+// Ready, as is a spec.folder that would leave the root.
+func ItemFolder(root *catalogv1alpha1.RootFolder, kind commonv1.MediaKind, folder *string, c naming.Context) (string, error) {
+	switch kind {
+	case commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist,
+		commonv1.MediaKindAuthor, commonv1.MediaKindAudiobook, commonv1.MediaKindComic:
+	default:
+		return "", fmt.Errorf("catalogctx: %w: %s", naming.ErrNoFolder, kind)
+	}
+	rel := ptr.Deref(folder, "")
+	if rel == "" {
+		rendered, err := EngineFor(root).BuildFolder(kind, c)
+		if err != nil {
+			return "", fmt.Errorf("catalogctx: render %s folder: %w", kind, err)
+		}
+		rel = rendered
+	}
+	return folderUnder(root.Spec.Path, root.Spec.Path, rel)
+}
+
+// resolvedFolder is a container's folder as its files are placed under it:
+// its resolved status.path when it has one (the controller's answer,
+// ItemFolder's rule as of its last pass; joinUnder still holds it to the
+// root), else ItemFolder from the same inputs, so a file imported before the
+// controller's first pass lands where the controller will say it lives.
+func resolvedFolder(root *catalogv1alpha1.RootFolder, statusPath string, kind commonv1.MediaKind, folder *string, c naming.Context) (string, error) {
+	if statusPath != "" {
+		return statusPath, nil
+	}
+	return ItemFolder(root, kind, folder, c)
+}
+
 // Movie builds the naming.Context describing m's identity: title, year and
 // provider ids -- everything the movie folder and file presets' non-release
 // tokens need. Title and OriginalTitle both read status.metadata.title;
@@ -269,9 +330,9 @@ func ContainerExt(mi *commonv1.MediaInfo, fallbackPath string) string {
 	return filepath.Ext(fallbackPath)
 }
 
-// MovieFilePath renders m's absolute library path under root:
-// root.spec.path, joined with m.spec.folder when set and non-empty, else
-// the dialect's movie-folder preset, joined with the dialect's movie-file
+// MovieFilePath renders m's absolute library path under root: the movie's
+// folder (ItemFolder: m.spec.folder when set and non-empty, else the
+// dialect's movie-folder preset) joined with the dialect's movie-file
 // preset and ext. Every component is made filesystem-safe by
 // naming.SanitizePath -- the one general-purpose sanitiser pkg/naming
 // exports, which no per-kind renderer calls on its own (see pkg/naming's
@@ -280,38 +341,34 @@ func ContainerExt(mi *commonv1.MediaInfo, fallbackPath string) string {
 // thing to actually write this path to a filesystem, so it is the one that
 // must make it filesystem-safe.
 func MovieFilePath(root *catalogv1alpha1.RootFolder, m *catalogv1alpha1.Movie, c naming.Context, ext string) (string, error) {
-	eng := EngineFor(root)
-	folder := ptr.Deref(m.Spec.Folder, "")
-	if folder == "" {
-		rendered, err := eng.MovieFolder(c)
-		if err != nil {
-			return "", fmt.Errorf("catalogctx: render movie folder: %w", err)
-		}
-		folder = rendered
+	folder, err := ItemFolder(root, commonv1.MediaKindMovie, m.Spec.Folder, c)
+	if err != nil {
+		return "", err
 	}
-	file, err := eng.MovieFile(c)
+	file, err := EngineFor(root).MovieFile(c)
 	if err != nil {
 		return "", fmt.Errorf("catalogctx: render movie file: %w", err)
 	}
-	return joinUnder(root.Spec.Path, root.Spec.Path, folder, file+ext)
+	return joinUnder(root.Spec.Path, folder, file+ext)
 }
 
 // EpisodeFilePath renders c's absolute library path under root: s' own
-// folder (status.path once the Series controller has resolved one,
-// matching app/catalog/controller/series.Path's rule -- else spec.folder
-// under root.spec.path, else the dialect's series preset), the season
-// folder when the series keeps one (spec.seasonFolder, defaulted true),
-// and the dialect's episode/anime/daily file preset (selected by c's own
-// fields, as Engine.EpisodeFile already does) with ext, sanitized and held
-// under root.spec.path exactly as MovieFilePath's result is -- a
-// status.path outside the root folder is refused, not followed.
+// folder (status.path once the Series controller has resolved one, else
+// ItemFolder's rule, the one app/catalog/controller/series.Path writes it
+// by -- spec.folder under root.spec.path, else the dialect's series preset;
+// resolvedFolder), the season folder when the series keeps one
+// (spec.seasonFolder, defaulted true), and the dialect's episode/anime/daily
+// file preset (selected by c's own fields, as Engine.EpisodeFile already
+// does) with ext, sanitized and held under root.spec.path exactly as
+// MovieFilePath's result is -- a status.path outside the root folder is
+// refused, not followed.
 func EpisodeFilePath(root *catalogv1alpha1.RootFolder, s *catalogv1alpha1.Series, c naming.Context, ext string) (string, error) {
 	eng := EngineFor(root)
-	base, folder, err := seriesFolder(root, s, eng, c)
+	base, err := resolvedFolder(root, s.Status.Path, commonv1.MediaKindSeries, s.Spec.Folder, c)
 	if err != nil {
-		return "", fmt.Errorf("catalogctx: render series folder: %w", err)
+		return "", err
 	}
-	rels := []string{folder}
+	var rels []string
 	if ptr.Deref(s.Spec.SeasonFolder, true) {
 		season, err := eng.SeasonFolder(c)
 		if err != nil {
@@ -324,25 +381,6 @@ func EpisodeFilePath(root *catalogv1alpha1.RootFolder, s *catalogv1alpha1.Series
 		return "", fmt.Errorf("catalogctx: render episode file: %w", err)
 	}
 	return joinUnder(root.Spec.Path, base, append(rels, file+ext)...)
-}
-
-// seriesFolder is s' folder in the library, as an absolute base and a
-// relative folder under it: status.path (with no relative part) once the
-// Series controller has resolved it, else the same rule that controller
-// resolves it by (app/catalog/controller/series.Path) -- spec.folder under
-// root, else the dialect's series preset rendered from c.
-func seriesFolder(root *catalogv1alpha1.RootFolder, s *catalogv1alpha1.Series, eng naming.Engine, c naming.Context) (base, folder string, err error) {
-	if s.Status.Path != "" {
-		return s.Status.Path, "", nil
-	}
-	if f := ptr.Deref(s.Spec.Folder, ""); f != "" {
-		return root.Spec.Path, f, nil
-	}
-	folder, err = eng.SeriesFolder(c)
-	if err != nil {
-		return "", "", err
-	}
-	return root.Spec.Path, folder, nil
 }
 
 // errOutsideRoot is wrapped by every path builder here whose result would
@@ -381,6 +419,22 @@ func joinUnder(root, base string, rels ...string) (string, error) {
 		return "", fmt.Errorf("%w: %q under %q", errOutsideRoot, full, root)
 	}
 	return full, nil
+}
+
+// folderUnder is joinUnder for a folder rather than a file: rel's
+// components are sanitized and joined onto base and held strictly under
+// root exactly as a file's are, except that a rel of no components at all
+// -- a preset that rendered nothing, the folder of a container whose name
+// has not arrived -- is base itself, cleaned, where joinUnder would refuse
+// the root as a file's path. That is the one degraded answer this package
+// gives: an item without a title yet lives at its root until it has one.
+func folderUnder(root, base, rel string) (string, error) {
+	for _, comp := range strings.Split(rel, "/") {
+		if strings.TrimSpace(comp) != "" {
+			return joinUnder(root, base, rel)
+		}
+	}
+	return filepath.Clean(base), nil
 }
 
 // componentOptions sanitizes one path component: '/' is illegal in it, not

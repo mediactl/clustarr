@@ -60,6 +60,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/audnexus"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
@@ -996,6 +997,68 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		require.NotNil(t, after.Status.FileQuality)
 		assert.Equal(t, *before.Status.FileQuality, *after.Status.FileQuality, "RootFolderNotFound must not release Quality")
 		assert.Equal(t, before.Status.CutoffMet, after.Status.CutoffMet, "RootFolderNotFound must not release CutoffMet")
+	})
+
+	// Task F1 (2026-11-10 design §5.5): a title the shared rule cannot
+	// render -- one of only dots, which the engine refuses as the root's
+	// parent -- is a reported problem, Ready False reason FolderUnrenderable
+	// with the steady state kept, never an error that would back the
+	// audiobook off for good; the title corrected, the next pass renders
+	// the folder again.
+	t.Run("a title the rule cannot render reports FolderUnrenderable and keeps the steady state", func(t *testing.T) {
+		req := driveToImported(t, "folder-steady")
+
+		var before catalogv1alpha1.Audiobook
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &before))
+
+		retitle := func(t *testing.T, title string) {
+			t.Helper()
+			ac := catalogac.Audiobook(before.Name, before.Namespace).WithStatus(
+				catalogac.AudiobookStatus().WithMetadata(
+					catalogac.AudiobookMetadata().WithTitle(title).WithRefreshedAt(metav1.Now()),
+				),
+			)
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, ac)
+			require.NoError(t, err)
+			require.Eventually(t, func() bool {
+				var got catalogv1alpha1.Audiobook
+				return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.Metadata != nil && got.Status.Metadata.Title == title
+			}, 5*time.Second, 10*time.Millisecond)
+		}
+		retitle(t, "...")
+
+		r2 := &audiobook.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
+		require.NoError(t, err, "an unrenderable folder is reported, never returned as an error")
+		assert.Equal(t, time.Minute, res.RequeueAfter)
+
+		var after catalogv1alpha1.Audiobook
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, req.NamespacedName, &after); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason == catalogctx.ReasonFolderUnrenderable
+		}, 5*time.Second, 10*time.Millisecond, "Ready never read FolderUnrenderable")
+		cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.Contains(t, cond.Message, `"..."`, "the message names the component the rule refused")
+		assert.Equal(t, catalogv1alpha1.AudiobookPhaseImported, after.Status.Phase, "FolderUnrenderable must not release Phase")
+		assert.Equal(t, before.Status.Path, after.Status.Path, "FolderUnrenderable keeps the path the audiobook had")
+		assert.True(t, after.Status.HasFile, "FolderUnrenderable must not release HasFile")
+		assert.Equal(t, before.Status.FileRefs, after.Status.FileRefs, "FolderUnrenderable must not release FileRefs")
+
+		retitle(t, "Steady State")
+		_, err = r2.ReconcileItem(ctx, req.NamespacedName)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Audiobook
+			if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason != catalogctx.ReasonFolderUnrenderable && got.Status.Path == before.Status.Path
+		}, 5*time.Second, 10*time.Millisecond, "Ready never recovered once the folder rendered again")
 	})
 }
 

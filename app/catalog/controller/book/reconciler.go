@@ -468,11 +468,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 		return ctrl.Result{RequeueAfter: rootFolderRequeueAfter}, nil
 	}
 
-	// The folder's naming context and engine are the import's
-	// (catalogctx.Book: the book's title and year, and its author's name
-	// when it has one; catalogctx.EngineFor: the root's naming spec), so
-	// status.path is the folder the import places the file in, byte for
-	// byte (Path). Before the context is whole -- no document yet, or an
+	// The folder's naming context is the import's (catalogctx.Book: the
+	// book's title and year, and its author's name when it has one) and
+	// the folder rule is the import's (catalogctx.BookFolder, through
+	// Path), so status.path is the folder the import places the file in,
+	// byte for byte. Before the context is whole -- no document yet, or an
 	// Author's name not yet fetched (ok false) -- Path renders from the
 	// author's name alone, or from nothing, which is the root: the path is
 	// resolved on the first pass and written again on the next, once the
@@ -484,9 +484,23 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 			c.AuthorName = author.Status.Metadata.Name
 		}
 	}
-	pth, err := Path(rf.Spec.Path, author, catalogctx.EngineFor(rf), c)
+	pth, err := Path(rf, author, c)
 	if err != nil {
-		return ctrl.Result{}, err
+		// The folder rule cannot render the title it knows -- one of only
+		// dots, or nothing once sanitized (catalogctx.BookFolder): the
+		// steady state is kept and the problem reported on Ready, as an
+		// unresolved Author or RootFolder is above, never an error that
+		// would back the book off for good. The next metadata refresh or
+		// spec edit renders it again; the fixed requeue stands in for the
+		// wake a RootFolder's naming edit does not send.
+		r.reporter().WarnEdge(bk, bk.Status.Conditions, k8s.ConditionReady, metav1.ConditionFalse, catalogctx.ReasonFolderUnrenderable, "no folder under rootFolder %q: %v", rf.Name, err)
+		k8s.MarkFalse(bk, &conditions, k8s.ConditionReady, catalogctx.ReasonFolderUnrenderable, "no folder under rootFolder %q: %v", rf.Name, err)
+		statusAC = reassertKnownStatus(statusAC, bk)
+		statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+		if conflicted, perr := itemstatus.Apply(ctx, r.Client, bk, catalogac.Book(bk.Name, bk.Namespace).WithStatus(withEntries(ctx, statusAC, bk))); perr != nil || conflicted {
+			return itemstatus.Requeue(conflicted), perr
+		}
+		return ctrl.Result{RequeueAfter: rootFolderRequeueAfter}, nil
 	}
 	statusAC = statusAC.WithPath(pth)
 

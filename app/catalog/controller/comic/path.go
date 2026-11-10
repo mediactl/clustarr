@@ -18,28 +18,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package comic
 
 import (
-	"path"
-
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 )
 
-// Path resolves the folder a Comic is stored under: folderOverride when it
-// is set and non-empty (spec.folder), otherwise the naming engine's own
-// dialect preset. Unlike series.Path, which calls the kind-specific
-// engine.SeriesFolder, this calls the generic engine.BuildFolder: Comic has
-// no dedicated *Folder Engine method of its own (pkg/naming/preset.go's
-// BuildFolder dispatches MediaKindComic and MediaKindIssue to the same
-// "{Comic Series Title}" template, TokenComicFolder). path.Join is
-// POSIX-only, which is fine -- Clustarr runs in-cluster on Linux only, so
-// rootPath is always a POSIX path.
-func Path(rootPath string, folderOverride *string, engine naming.Engine, ctx naming.Context) (string, error) {
-	if folderOverride != nil && *folderOverride != "" {
-		return path.Join(rootPath, *folderOverride), nil
-	}
-	folder, err := engine.BuildFolder(commonv1.MediaKindComic, ctx)
-	if err != nil {
-		return "", err
-	}
-	return path.Join(rootPath, folder), nil
+// Path resolves the folder a Comic is stored under, which is the folder
+// the import places its issues' files in (catalogctx.ItemFolder, the rule
+// catalogctx.IssueFilePath joins the issue's file onto when the Comic's
+// status.path is not yet written, and holds status.path to once it is;
+// 2026-11-10 non-video design §5.5): folderOverride (spec.folder) under
+// the root when it is set and non-empty, otherwise the comic preset,
+// "{Comic Series Title}" (pkg/naming/preset.go's BuildFolder dispatches
+// MediaKindComic and MediaKindIssue to it), rendered from c -- sanitized as
+// the import sanitizes a component and held under the root, so "What
+// If...?" reads "<root>/What If", the folder on disk. A known title the
+// rule cannot render (only dots, or nothing once sanitized) is an error the
+// reconciler reports as catalogctx.ReasonFolderUnrenderable on Ready.
+func Path(root *catalogv1alpha1.RootFolder, folderOverride *string, c naming.Context) (string, error) {
+	return catalogctx.ItemFolder(root, commonv1.MediaKindComic, folderOverride, c)
 }

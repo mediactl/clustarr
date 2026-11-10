@@ -56,6 +56,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -1599,6 +1600,74 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		assert.Equal(t, *before.Status.FileQuality, *after.Status.FileQuality, "RootFolderNotFound must not release FileQuality")
 		assert.Equal(t, before.Status.FileFormatScore, after.Status.FileFormatScore, "RootFolderNotFound must not release FileFormatScore")
 		assert.Equal(t, before.Status.CutoffMet, after.Status.CutoffMet, "RootFolderNotFound must not release CutoffMet")
+	})
+
+	// Task F1 (2026-11-10 design §5.5): a folder the shared rule cannot
+	// render is a reported problem, Ready False reason FolderUnrenderable
+	// with the steady state kept, never an error that would back the movie
+	// off for good. The trigger is a spec.folder naming the root's parent,
+	// which path.Join had read as the parent itself (status.path
+	// "/data/media") and catalogctx.ItemFolder refuses.
+	t.Run("a folder the rule cannot render reports FolderUnrenderable and keeps the steady state", func(t *testing.T) {
+		req := driveToImported(t, "folder-steady", 9003)
+
+		var before catalogv1alpha1.Movie
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &before))
+
+		setFolder := func(t *testing.T, folder *string) {
+			t.Helper()
+			require.Eventually(t, func() bool {
+				var current catalogv1alpha1.Movie
+				if err := c.Get(ctx, req.NamespacedName, &current); err != nil {
+					return false
+				}
+				current.Spec.Folder = folder
+				return c.Update(ctx, &current) == nil
+			}, 5*time.Second, 10*time.Millisecond, "could not update spec.folder past a resourceVersion conflict")
+			require.Eventually(t, func() bool {
+				var got catalogv1alpha1.Movie
+				if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
+					return false
+				}
+				return (got.Spec.Folder == nil) == (folder == nil) && (folder == nil || *got.Spec.Folder == *folder)
+			}, 5*time.Second, 10*time.Millisecond)
+		}
+		setFolder(t, new(".."))
+
+		r2 := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
+		require.NoError(t, err, "an unrenderable folder is reported, never returned as an error")
+		assert.Equal(t, time.Minute, res.RequeueAfter)
+
+		var after catalogv1alpha1.Movie
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, req.NamespacedName, &after); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason == catalogctx.ReasonFolderUnrenderable
+		}, 5*time.Second, 10*time.Millisecond, "Ready never read FolderUnrenderable")
+		cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.Contains(t, cond.Message, `".."`, "the message names the component the rule refused")
+		assert.Equal(t, catalogv1alpha1.MoviePhaseImported, after.Status.Phase, "FolderUnrenderable must not release Phase")
+		assert.Equal(t, before.Status.Path, after.Status.Path, "FolderUnrenderable keeps the path the movie had, never the root's parent")
+		assert.True(t, after.Status.HasFile, "FolderUnrenderable must not release HasFile")
+		require.NotNil(t, after.Status.FileRef)
+		assert.Equal(t, *before.Status.FileRef, *after.Status.FileRef, "FolderUnrenderable must not release FileRef")
+
+		// The override cleared, the next pass renders the folder again.
+		setFolder(t, nil)
+		_, err = r2.ReconcileItem(ctx, req.NamespacedName)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Movie
+			if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason != catalogctx.ReasonFolderUnrenderable && got.Status.Path == before.Status.Path
+		}, 5*time.Second, 10*time.Millisecond, "Ready never recovered once the folder rendered again")
 	})
 }
 

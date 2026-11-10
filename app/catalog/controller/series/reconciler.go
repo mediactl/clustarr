@@ -52,6 +52,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -465,21 +466,31 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 			classification = c
 		}
 
-		eng := naming.NewEngine(naming.Config{
-			Dialect:           naming.Dialect(rf.Spec.Naming.Dialect),
-			ColonReplacement:  naming.ColonReplacement(rf.Spec.Naming.ColonReplacement),
-			MultiEpisodeStyle: naming.MultiEpisodeStyle(rf.Spec.Naming.MultiEpisodeStyle),
-			Overrides:         rf.Spec.Naming.Overrides,
-		})
 		nctx := naming.Context{
 			Kind:        commonv1.MediaKindSeries,
 			SeriesTitle: s.Status.Metadata.Title,
 			SeriesYear:  int(s.Status.Metadata.Year),
 			TvdbID:      strconv.FormatInt(s.Spec.TvdbID, 10),
 		}
-		pth, err := Path(rf.Spec.Path, s.Spec.Folder, eng, nctx)
+		pth, err := Path(&rf, s.Spec.Folder, nctx)
 		if err != nil {
-			return ctrl.Result{}, err
+			// The folder rule cannot render the title it knows -- one of only
+			// dots, or nothing once sanitized (catalogctx.ItemFolder): the
+			// steady state is kept and the problem reported on Ready, as a
+			// missing RootFolder is, never an error that would back the item
+			// off for good. The next metadata refresh or spec edit renders
+			// it again; the fixed requeue stands in for the wake a
+			// RootFolder's naming edit does not send.
+			if rollup.Transitioned(s.Status.Conditions, k8s.ConditionReady, metav1.ConditionFalse, catalogctx.ReasonFolderUnrenderable) {
+				r.warn(s, catalogctx.ReasonFolderUnrenderable, "no folder under rootFolder %q: %v", s.Spec.RootFolderRef, err)
+			}
+			k8s.MarkFalse(s, &conditions, k8s.ConditionReady, catalogctx.ReasonFolderUnrenderable, "no folder under rootFolder %q: %v", s.Spec.RootFolderRef, err)
+			statusAC = reassertKnownStatus(statusAC, s)
+			statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+			if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, catalogac.Series(s.Name, s.Namespace).WithStatus(withEntries(ctx, statusAC, s))); perr != nil {
+				return ctrl.Result{}, perr
+			}
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 		statusAC = statusAC.WithPath(pth)
 		root, folder = &rf, pth

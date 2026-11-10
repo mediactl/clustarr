@@ -45,6 +45,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -528,5 +529,79 @@ func TestAuthorReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return c.Get(ctx, req.NamespacedName, &got) == nil && k8s.FindCondition(got.Status.Conditions, k8s.ConditionDeadLettered) == nil
 		}, 5*time.Second, 10*time.Millisecond, "removing the annotation never cleared the condition")
+	})
+
+	// Task F1 (2026-11-10 design §5.5): a name the shared rule cannot
+	// render -- one of only dots, which the engine refuses as the root's
+	// parent -- is a reported problem, Ready False reason FolderUnrenderable
+	// with the steady state kept, never an error that would back the author
+	// off for good; the name corrected, the next pass renders the folder
+	// again.
+	t.Run("a name the rule cannot render reports FolderUnrenderable and keeps the steady state", func(t *testing.T) {
+		// The RootFolderNotFound sub-test above left spec.rootFolderRef
+		// dangling; the folder is rendered only once the root resolves.
+		require.Eventually(t, func() bool {
+			var current catalogv1alpha1.Author
+			if err := c.Get(ctx, req.NamespacedName, &current); err != nil {
+				return false
+			}
+			current.Spec.RootFolderRef = "book-root"
+			return c.Update(ctx, &current) == nil
+		}, 5*time.Second, 10*time.Millisecond, "could not restore spec.rootFolderRef past a resourceVersion conflict")
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Author
+			return c.Get(ctx, req.NamespacedName, &got) == nil && got.Spec.RootFolderRef == "book-root"
+		}, 5*time.Second, 10*time.Millisecond)
+
+		var steady catalogv1alpha1.Author
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &steady))
+		require.Equal(t, "/data/media/books/Steady State Author", steady.Status.Path)
+
+		rename := func(t *testing.T, name string) {
+			t.Helper()
+			ac := catalogac.Author(a.Name, a.Namespace).WithStatus(
+				catalogac.AuthorStatus().WithMetadata(
+					catalogac.AuthorMetadata().WithName(name).WithRefreshedAt(metav1.Now()),
+				),
+			)
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, ac)
+			require.NoError(t, err)
+			require.Eventually(t, func() bool {
+				var got catalogv1alpha1.Author
+				return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.Metadata != nil && got.Status.Metadata.Name == name
+			}, 5*time.Second, 10*time.Millisecond)
+		}
+		rename(t, "...")
+
+		res, err := r.ReconcileItem(ctx, req.NamespacedName)
+		require.NoError(t, err, "an unrenderable folder is reported, never returned as an error")
+		assert.Equal(t, time.Minute, res.RequeueAfter)
+
+		var after catalogv1alpha1.Author
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, req.NamespacedName, &after); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason == catalogctx.ReasonFolderUnrenderable
+		}, 5*time.Second, 10*time.Millisecond, "Ready never read FolderUnrenderable")
+		cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.Contains(t, cond.Message, `"..."`, "the message names the component the rule refused")
+		assert.Equal(t, steady.Status.Path, after.Status.Path, "FolderUnrenderable keeps the path the author had")
+		assert.Equal(t, steady.Status.BookCount, after.Status.BookCount, "FolderUnrenderable must not release BookCount")
+		assert.Equal(t, steady.Status.BookFileCount, after.Status.BookFileCount, "FolderUnrenderable must not release BookFileCount")
+
+		rename(t, "Steady State Author")
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Author
+			if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason != catalogctx.ReasonFolderUnrenderable && got.Status.Path == steady.Status.Path
+		}, 5*time.Second, 10*time.Millisecond, "Ready never recovered once the folder rendered again")
 	})
 }

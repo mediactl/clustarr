@@ -51,6 +51,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -449,16 +450,26 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Aut
 			return ctrl.Result{}, err
 		}
 
-		eng := naming.NewEngine(naming.Config{
-			Dialect:           naming.Dialect(rf.Spec.Naming.Dialect),
-			ColonReplacement:  naming.ColonReplacement(rf.Spec.Naming.ColonReplacement),
-			MultiEpisodeStyle: naming.MultiEpisodeStyle(rf.Spec.Naming.MultiEpisodeStyle),
-			Overrides:         rf.Spec.Naming.Overrides,
-		})
 		nctx := naming.Context{Kind: commonv1.MediaKindAuthor, AuthorName: a.Status.Metadata.Name}
-		pth, err := Path(rf.Spec.Path, a.Spec.Folder, eng, nctx)
+		pth, err := Path(&rf, a.Spec.Folder, nctx)
 		if err != nil {
-			return ctrl.Result{}, err
+			// The folder rule cannot render the title it knows -- one of only
+			// dots, or nothing once sanitized (catalogctx.ItemFolder): the
+			// steady state is kept and the problem reported on Ready, as a
+			// missing RootFolder is, never an error that would back the item
+			// off for good. The next metadata refresh or spec edit renders
+			// it again; the fixed requeue stands in for the wake a
+			// RootFolder's naming edit does not send.
+			if rollup.Transitioned(a.Status.Conditions, k8s.ConditionReady, metav1.ConditionFalse, catalogctx.ReasonFolderUnrenderable) {
+				r.warn(a, catalogctx.ReasonFolderUnrenderable, "no folder under rootFolder %q: %v", a.Spec.RootFolderRef, err)
+			}
+			k8s.MarkFalse(a, &conditions, k8s.ConditionReady, catalogctx.ReasonFolderUnrenderable, "no folder under rootFolder %q: %v", a.Spec.RootFolderRef, err)
+			statusAC = reassertKnownStatus(statusAC, a)
+			statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+			if conflicted, perr := itemstatus.Apply(ctx, r.Client, a, catalogac.Author(a.Name, a.Namespace).WithStatus(statusAC)); perr != nil || conflicted {
+				return itemstatus.Requeue(conflicted), perr
+			}
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 		statusAC = statusAC.WithPath(pth)
 		root, folder = &rf, pth

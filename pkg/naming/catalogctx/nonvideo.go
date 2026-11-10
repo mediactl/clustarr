@@ -26,7 +26,6 @@ import (
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -40,9 +39,10 @@ import (
 // (app/import/worker/fileimport's resolveAlbum, resolveBook,
 // resolveAudiobook and resolveIssue) so a file the import placed is
 // Current, never renamed on its first pass. The folder part of each path
-// is the container's resolved status.path when it has one, else its
-// spec.folder under the RootFolder, else the kind's folder preset -- the
-// rule the item controllers' Path functions and the import share.
+// is the container's resolved status.path when it has one, else the rule
+// its controller writes status.path by -- ItemFolder (its spec.folder under
+// the RootFolder, else the kind's folder preset), BookFolder or AlbumFolder
+// -- so the import, the loop and the controllers share one rule.
 
 // Album is the naming context of one track of album by artist: ok is false
 // until the Album's title and the Artist's name have arrived, since the
@@ -228,15 +228,80 @@ func FileExt(kind commonv1.MediaKind, mi *commonv1.MediaInfo, filePath string) s
 	return strings.ToLower(filepath.Ext(filePath))
 }
 
-// TrackFilePath is the canonical path of the track c describes, under
-// root: the album folder -- the Album's status.path, else the artist folder
-// (the Artist's status.path, else its spec.folder, else the artist preset)
-// joined with the album preset's own segment -- and the track preset's
-// file segment plus ext. The import places an album's files under the same
-// folder with their own names (the TrackFile preset is the rename's).
-func TrackFilePath(root *catalogv1alpha1.RootFolder, artist *catalogv1alpha1.Artist, album *catalogv1alpha1.Album, c naming.Context, ext string) (string, error) {
+// AlbumFolder is the folder an Album's tracks are placed in under its
+// Artist's folder (artistFolder: the Artist's status.path, else ItemFolder's
+// answer for it), as the import places them and as the Album controller
+// writes status.path (app/catalog/controller/album.Path): the album
+// segment of the album preset -- BuildFolder renders "<artist>/<album>" and
+// only its last segment is taken, so the Artist's spec.folder, which the
+// preset cannot see, still decides the folder above it -- sanitized and
+// held under root as ItemFolder's is. An album whose title has not arrived
+// renders no segment of its own, which the preset joins away, so it is the
+// artist's folder while the title is unknown, as ItemFolder degrades.
+func AlbumFolder(root *catalogv1alpha1.RootFolder, artistFolder string, c naming.Context) (string, error) {
 	eng := EngineFor(root)
-	file, err := eng.TrackFile(c)
+	rendered, err := eng.BuildFolder(commonv1.MediaKindAlbum, c)
+	if err != nil {
+		return "", fmt.Errorf("catalogctx: render album folder: %w", err)
+	}
+	artistOnly, err := eng.BuildFolder(commonv1.MediaKindArtist, c)
+	if err != nil {
+		return "", fmt.Errorf("catalogctx: render artist folder: %w", err)
+	}
+	if rendered == artistOnly {
+		// The album segment rendered nothing: the preset's path.Join
+		// dropped it, and what is left is the artist segment alone.
+		return folderUnder(root.Spec.Path, artistFolder, "")
+	}
+	return folderUnder(root.Spec.Path, artistFolder, path.Base(rendered))
+}
+
+// standaloneBookFolderTemplate is the folder a standalone Book takes under
+// its root: the title alone, the first segment of the two the import places
+// its file at, "{Book Title}/{Book Title}.<ext>". It is no preset token of
+// pkg/naming's, so a RootFolder's naming overrides cannot move it.
+const standaloneBookFolderTemplate = "{Book Title}"
+
+// BookFolder is the folder a Book's file is placed in, as the import places
+// it and as the Book controller writes status.path
+// (app/catalog/controller/book.Path; 2026-11-10 design §5.5, §9.3): one of
+// an Author's (author non-nil) lives directly under its author's folder,
+// ItemFolder's rule for the Author (its spec.folder, else "{Author Name}"
+// from c.AuthorName -- Readarr's convention, no separate book folder), the
+// root while the Author's name is not yet known; a standalone one (author
+// nil, as the import's nil author) has a folder of its own under the root,
+// "{Book Title}" rendered through the root's engine and sanitized as every
+// component is, the root while the title is not yet known. The controller
+// renders the Author's folder afresh rather than reading its status.path, as
+// every controller does its own; the import (BookFilePath) takes the
+// Author's status.path first, the same rule as of the Author's last pass.
+func BookFolder(root *catalogv1alpha1.RootFolder, author *catalogv1alpha1.Author, c naming.Context) (string, error) {
+	if author != nil {
+		return ItemFolder(root, commonv1.MediaKindAuthor, author.Spec.Folder, c)
+	}
+	folder, _, err := standaloneBook(root, c)
+	return folder, err
+}
+
+// standaloneBook renders a standalone Book's folder and its file's stem,
+// both standaloneBookFolderTemplate.
+func standaloneBook(root *catalogv1alpha1.RootFolder, c naming.Context) (folder, title string, err error) {
+	title, err = EngineFor(root).Render(standaloneBookFolderTemplate, c)
+	if err != nil {
+		return "", "", fmt.Errorf("catalogctx: render book title: %w", err)
+	}
+	folder, err = folderUnder(root.Spec.Path, root.Spec.Path, title)
+	return folder, title, err
+}
+
+// TrackFilePath is the canonical path of the track c describes, under
+// root: the album folder -- the Album's status.path, else AlbumFolder under
+// the artist folder (the Artist's status.path, else ItemFolder's rule for
+// it) -- and the track preset's file segment plus ext. The import places an
+// album's files under the same folder with their own names (the TrackFile
+// preset is the rename's).
+func TrackFilePath(root *catalogv1alpha1.RootFolder, artist *catalogv1alpha1.Artist, album *catalogv1alpha1.Album, c naming.Context, ext string) (string, error) {
+	file, err := EngineFor(root).TrackFile(c)
 	if err != nil {
 		return "", fmt.Errorf("catalogctx: render track file: %w", err)
 	}
@@ -244,98 +309,71 @@ func TrackFilePath(root *catalogv1alpha1.RootFolder, artist *catalogv1alpha1.Art
 	if album.Status.Path != "" {
 		return joinUnder(root.Spec.Path, album.Status.Path, file)
 	}
-	albumFolder, err := eng.BuildFolder(commonv1.MediaKindAlbum, c)
+	artistFolder, err := resolvedFolder(root, artist.Status.Path, commonv1.MediaKindArtist, artist.Spec.Folder, c)
 	if err != nil {
-		return "", fmt.Errorf("catalogctx: render album folder: %w", err)
+		return "", err
 	}
-	base, rels, err := containerFolder(root, artist.Status.Path, artist.Spec.Folder, func() (string, error) {
-		return eng.BuildFolder(commonv1.MediaKindArtist, c)
-	})
+	albumFolder, err := AlbumFolder(root, artistFolder, c)
 	if err != nil {
-		return "", fmt.Errorf("catalogctx: render artist folder: %w", err)
+		return "", err
 	}
-	return joinUnder(root.Spec.Path, base, append(rels, path.Base(albumFolder), file)...)
+	return joinUnder(root.Spec.Path, albumFolder, file)
 }
 
 // BookFilePath is the canonical path of the book c describes, under root:
 // for one of an Author's, the author folder (the Author's status.path, else
-// its spec.folder, else the author preset) and the book preset's two
-// segments, "{Book Title}/{Author Name}" plus ext (Readarr's convention);
-// for a standalone Book (author nil), "{Book Title}/{Book Title}" plus ext
-// under the root itself, as the import places it.
+// BookFolder's rule for it) and the book preset's two segments, "{Book
+// Title}/{Author Name}" plus ext (Readarr's convention); for a standalone
+// Book (author nil), "{Book Title}/{Book Title}" plus ext under the root
+// itself (BookFolder), as the import places it.
 func BookFilePath(root *catalogv1alpha1.RootFolder, author *catalogv1alpha1.Author, c naming.Context, ext string) (string, error) {
-	eng := EngineFor(root)
 	if author == nil {
-		title, err := eng.Render("{Book Title}", c)
+		folder, title, err := standaloneBook(root, c)
 		if err != nil {
-			return "", fmt.Errorf("catalogctx: render book title: %w", err)
+			return "", err
 		}
-		return joinUnder(root.Spec.Path, root.Spec.Path, title, title+ext)
+		return joinUnder(root.Spec.Path, folder, title+ext)
 	}
-	file, err := eng.BookFile(c)
+	file, err := EngineFor(root).BookFile(c)
 	if err != nil {
 		return "", fmt.Errorf("catalogctx: render book file: %w", err)
 	}
-	base, rels, err := containerFolder(root, author.Status.Path, author.Spec.Folder, func() (string, error) {
-		return eng.BuildFolder(commonv1.MediaKindAuthor, c)
-	})
+	base, err := resolvedFolder(root, author.Status.Path, commonv1.MediaKindAuthor, author.Spec.Folder, c)
 	if err != nil {
-		return "", fmt.Errorf("catalogctx: render author folder: %w", err)
+		return "", err
 	}
-	return joinUnder(root.Spec.Path, base, append(rels, path.Dir(file), path.Base(file)+ext)...)
+	return joinUnder(root.Spec.Path, base, path.Dir(file), path.Base(file)+ext)
 }
 
 // AudiobookFilePath is the canonical path of the part c describes, under
-// root: the audiobook folder (the Audiobook's status.path, else its
-// spec.folder, else the audiobook preset) and the audiobook file preset's
-// last segment -- the folder's name with the part -- plus ext.
+// root: the audiobook folder (the Audiobook's status.path, else ItemFolder's
+// rule for it -- its spec.folder, else the audiobook preset) and the
+// audiobook file preset's last segment -- the folder's name with the part
+// -- plus ext.
 func AudiobookFilePath(root *catalogv1alpha1.RootFolder, ab *catalogv1alpha1.Audiobook, c naming.Context, ext string) (string, error) {
-	eng := EngineFor(root)
-	file, err := eng.AudiobookFile(c)
+	file, err := EngineFor(root).AudiobookFile(c)
 	if err != nil {
 		return "", fmt.Errorf("catalogctx: render audiobook file: %w", err)
 	}
-	base, rels, err := containerFolder(root, ab.Status.Path, ab.Spec.Folder, func() (string, error) {
-		return eng.BuildFolder(commonv1.MediaKindAudiobook, c)
-	})
+	base, err := resolvedFolder(root, ab.Status.Path, commonv1.MediaKindAudiobook, ab.Spec.Folder, c)
 	if err != nil {
-		return "", fmt.Errorf("catalogctx: render audiobook folder: %w", err)
+		return "", err
 	}
-	return joinUnder(root.Spec.Path, base, append(rels, path.Base(file)+ext)...)
+	return joinUnder(root.Spec.Path, base, path.Base(file)+ext)
 }
 
 // IssueFilePath is the canonical path of the issue c describes, under
-// root: the comic folder (the Comic's status.path, else its spec.folder,
-// else the comic preset) and the issue preset's last segment plus ext.
+// root: the comic folder (the Comic's status.path, else ItemFolder's rule
+// for it -- its spec.folder, else the comic preset) and the issue preset's
+// last segment plus ext.
 func IssueFilePath(root *catalogv1alpha1.RootFolder, comic *catalogv1alpha1.Comic, c naming.Context, ext string) (string, error) {
-	eng := EngineFor(root)
-	file, err := eng.IssueFile(c)
+	file, err := EngineFor(root).IssueFile(c)
 	if err != nil {
 		return "", fmt.Errorf("catalogctx: render issue file: %w", err)
 	}
-	base, rels, err := containerFolder(root, comic.Status.Path, comic.Spec.Folder, func() (string, error) {
-		return eng.BuildFolder(commonv1.MediaKindComic, c)
-	})
+	base, err := resolvedFolder(root, comic.Status.Path, commonv1.MediaKindComic, comic.Spec.Folder, c)
 	if err != nil {
-		return "", fmt.Errorf("catalogctx: render comic folder: %w", err)
+		return "", err
 	}
-	return joinUnder(root.Spec.Path, base, append(rels, path.Base(file)+ext)...)
-}
-
-// containerFolder is the folder rule every non-video container shares, as
-// seriesFolder is the Series': its resolved status.path as the base and
-// nothing relative; else the root as the base and its spec.folder; else the
-// root and the kind's rendered preset.
-func containerFolder(root *catalogv1alpha1.RootFolder, statusPath string, folder *string, preset func() (string, error)) (base string, rels []string, err error) {
-	if statusPath != "" {
-		return statusPath, nil, nil
-	}
-	if f := ptr.Deref(folder, ""); f != "" {
-		return root.Spec.Path, []string{f}, nil
-	}
-	rendered, err := preset()
-	if err != nil {
-		return "", nil, err
-	}
-	return root.Spec.Path, []string{rendered}, nil
+	return joinUnder(root.Spec.Path, base, path.Base(file)+ext)
 }

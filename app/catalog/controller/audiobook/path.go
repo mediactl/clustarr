@@ -18,32 +18,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package audiobook
 
 import (
-	"path"
 	"strings"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 )
 
-// Path resolves the folder an Audiobook is stored under: folderOverride when
-// it is set and non-empty (spec.folder), otherwise the naming engine's
-// audiobook preset. Unlike movie.Path, this calls engine.BuildFolder rather
-// than a dialect-specific *Folder method: pkg/naming has no per-dialect
-// AudiobookFolder variant (preset.go's audiobookFolderTemplate is the one
-// template BuildFolder renders for every dialect), so BuildFolder is not a
-// generic fallback here but the only entry point that exists.
-// path.Join is POSIX-only, which is fine -- Clustarr runs in-cluster on
-// Linux only, so rootPath is always a POSIX path.
-func Path(rootPath string, folderOverride *string, engine naming.Engine, ctx naming.Context) (string, error) {
-	if folderOverride != nil && *folderOverride != "" {
-		return path.Join(rootPath, *folderOverride), nil
-	}
-	folder, err := engine.BuildFolder(commonv1.MediaKindAudiobook, ctx)
-	if err != nil {
-		return "", err
-	}
-	return path.Join(rootPath, folder), nil
+// Path resolves the folder an Audiobook is stored under, which is the
+// folder the import places its parts in (catalogctx.ItemFolder, the rule
+// catalogctx.AudiobookFilePath joins a part's file onto when the
+// Audiobook's status.path is not yet written, and holds status.path to once
+// it is; 2026-11-10 non-video design §5.5): folderOverride (spec.folder)
+// under the root when it is set and non-empty, otherwise the audiobook
+// preset (pkg/naming/preset.go's audiobookFolderTemplate, the one template
+// BuildFolder renders for every dialect, "{Author Name}/{Book Series}/...")
+// rendered from c -- every component sanitized as the import sanitizes it
+// and held under the root, so an author or a title with a "?" or a trailing
+// dot names the folders on disk. A known title the rule cannot render is an
+// error the reconciler reports as catalogctx.ReasonFolderUnrenderable on
+// Ready.
+func Path(root *catalogv1alpha1.RootFolder, folderOverride *string, c naming.Context) (string, error) {
+	return catalogctx.ItemFolder(root, commonv1.MediaKindAudiobook, folderOverride, c)
 }
 
 // namingContext builds the naming.Context the audiobook folder template
