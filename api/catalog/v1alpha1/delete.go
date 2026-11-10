@@ -36,23 +36,30 @@ func DeletableKinds() []commonv1.MediaKind {
 }
 
 // ExclusionKindFor is the ImportExclusion kind that keeps a deleted item of
-// kind out, and false for a kind with none (Artist, Author and every child
-// kind): the delete dialog offers "Add import list exclusion" only for
-// these. An Album's exclusion is keyed by its MusicBrainz release-group id
-// (ExclusionIDKeyMusicBrainz, the one MBID a list entry for an album
-// carries) and a Book's by its Open Library work id
-// (ExclusionIDKeyOpenLibrary), which the import-list sync reads since
-// 2026-11-10 (the 2026-09-30 library-delete design's delete-add-exclusion
-// over the 2026-11-10 non-video libraries design's §9.2 and §9.3 deletes);
-// until then both read false, since no reader honoured either.
+// kind out, and false for a kind with none: the delete dialog and the bulk
+// delete offer "Add import list exclusion" only where it answers true, so
+// it answers true only for a kind whose exclusion is honoured on every path
+// that would bring the item back (the 2026-09-30 library-delete design:
+// "keep import lists -- and the library scan -- from adding it back"). A
+// Book's is keyed by its Open Library work id (ExclusionIDKeyOpenLibrary),
+// which the import-list sync reads since 2026-11-10 (the design's
+// delete-add-exclusion over the 2026-11-10 non-video libraries design's
+// §9.3 delete), and a standalone book, the one a person can delete, has no
+// container to re-create it. An Album has an exclusion kind
+// (ExclusionKindAlbum, keyed by its MusicBrainz release-group id,
+// ExclusionIDKeyMusicBrainz, which the sync reads too and which import's
+// librarydelete writes when the delete-add-exclusion annotation asks) but
+// answers false here: every Album has an Artist, whose fan-out re-creates
+// every listed release group it does not find and reads no exclusion, so
+// the checkbox would promise a block the one re-add path an album has
+// defeats. It answers true once the Artist's fan-out honours the
+// exclusion. Artist, Author and every child kind have none.
 func ExclusionKindFor(kind commonv1.MediaKind) (ExclusionKind, bool) {
 	switch kind {
 	case commonv1.MediaKindMovie:
 		return ExclusionKindMovie, true
 	case commonv1.MediaKindSeries:
 		return ExclusionKindSeries, true
-	case commonv1.MediaKindAlbum:
-		return ExclusionKindAlbum, true
 	case commonv1.MediaKindBook:
 		return ExclusionKindBook, true
 	case commonv1.MediaKindAudiobook:

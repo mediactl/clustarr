@@ -273,7 +273,13 @@ func kinds() []kindSpec {
 			// album carries (app/import/importliststate's
 			// ToMetadataExternalIDs, metadata.KeyMBReleaseGroup), which the
 			// import-list sync's isExcluded looks up. It governs import
-			// lists alone: the Artist's fan-out above reads no exclusion.
+			// lists alone: the Artist's fan-out above reads no exclusion, so
+			// the ui offers no checkbox for an album
+			// (catalogv1alpha1.ExclusionKindFor answers false) until the
+			// fan-out honours one, and meanwhile only a delete asked for by
+			// hand with the delete-add-exclusion annotation writes it -- for
+			// the list sync, once a list can yield albums, and for the
+			// fan-out once it reads the bucket.
 			exclusion: func(o client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
 				a := o.(*catalogv1alpha1.Album)
 				spec := catalogv1alpha1.ImportExclusionSpec{
