@@ -28,11 +28,13 @@ import (
 )
 
 // The memo table (2026-11-10 design D2): a container fans out once per
-// process, and again only when its spec generation, its metadata refresh
-// or its add options moved since the last complete fan-out.
+// process, and again only when its spec generation or its metadata refresh
+// moved since the last complete fan-out. The add options are no input
+// (childsync.Key): every container keyed its fan-outs under the flag true,
+// so the Key no longer carries one.
 func TestTheMemoIsDueOnlyWhenAFanOutInputMoved(t *testing.T) {
 	at := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
-	base := childsync.KeyAt(3, at, true)
+	base := childsync.KeyAt(3, at)
 	for name, tc := range map[string]struct {
 		synced  *childsync.Key // nil: never synced
 		now     childsync.Key
@@ -40,22 +42,19 @@ func TestTheMemoIsDueOnlyWhenAFanOutInputMoved(t *testing.T) {
 	}{
 		"never fanned out":           {nil, base, true},
 		"nothing moved":              {&base, base, false},
-		"the spec moved":             {&base, childsync.KeyAt(4, at, true), true},
-		"the metadata was refreshed": {&base, childsync.KeyAt(3, at.Add(time.Hour), true), true},
-		"the add options were applied": {
-			ptr(childsync.KeyAt(3, at, false)), base, true,
-		},
+		"the spec moved":             {&base, childsync.KeyAt(4, at), true},
+		"the metadata was refreshed": {&base, childsync.KeyAt(3, at.Add(time.Hour)), true},
 		"the refresh read in another zone": {
-			&base, childsync.KeyAt(3, at.In(time.FixedZone("west", -5*3600)), true), false,
+			&base, childsync.KeyAt(3, at.In(time.FixedZone("west", -5*3600))), false,
 		},
 		// metav1.Time is stored to the second: the refresh a pass carries
 		// at nanoseconds (a record just incorporated) is the one it reads
 		// back from the apiserver.
 		"the refresh carried at nanoseconds before its round trip": {
-			&base, childsync.KeyAt(3, at.Add(123*time.Millisecond), true), false,
+			&base, childsync.KeyAt(3, at.Add(123*time.Millisecond)), false,
 		},
 		"the refresh moved by a whole second": {
-			&base, childsync.KeyAt(3, at.Add(time.Second), true), true,
+			&base, childsync.KeyAt(3, at.Add(time.Second)), true,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -74,7 +73,7 @@ func TestTheMemoIsDueOnlyWhenAFanOutInputMoved(t *testing.T) {
 func TestAContainerWithoutMetadataIsAlwaysDue(t *testing.T) {
 	var m childsync.Memo
 	uid := types.UID("u-2")
-	k := childsync.KeyAt(1, time.Time{}, false)
+	k := childsync.KeyAt(1, time.Time{})
 	assert.True(t, m.Due(uid, k, false))
 	m.Synced(uid, k, false)
 	assert.True(t, m.Due(uid, k, false), "a sync without metadata records nothing")
@@ -84,7 +83,7 @@ func TestAContainerWithoutMetadataIsAlwaysDue(t *testing.T) {
 // Each UID is remembered on its own, and Forget drops one.
 func TestTheMemoIsPerUIDAndForgets(t *testing.T) {
 	var m childsync.Memo
-	k := childsync.KeyAt(1, time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC), true)
+	k := childsync.KeyAt(1, time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC))
 	m.Synced("a", k, true)
 	assert.False(t, m.Due("a", k, true))
 	assert.True(t, m.Due("b", k, true), "another UID never synced")
@@ -92,5 +91,3 @@ func TestTheMemoIsPerUIDAndForgets(t *testing.T) {
 	assert.True(t, m.Due("a", k, true), "forgotten: due again")
 	m.Forget("never-seen")
 }
-
-func ptr[T any](v T) *T { return &v }

@@ -36,18 +36,18 @@ import (
 )
 
 // Key is what decides a fan-out's outcome besides the provider's list: the
-// spec (generation), the metadata refresh it read and whether the add
-// options were applied (the first fan-out's monitoring). The Series, the
-// Artist and the Author key every fan-out under AddOptionsApplied true
-// (their syncKey, 2026-11-10): the memo records only a complete fan-out,
-// the first of which applies the add-time mode and flips the flag in the
-// same pass, and a pass reading the flag before that flip reaches the cache
-// (a child's own Create wakes its container at once) would refetch to
-// create nothing; the Comic still keys the flag as read.
+// spec (generation) and the metadata refresh it read. Whether the add
+// options were applied (the first fan-out's monitoring) is no input,
+// though each container's Desired* reads it: the memo records only a
+// complete fan-out, the first of which applies the add-time mode and flips
+// the flag in the same pass, and a pass reading the flag before that flip
+// reaches the cache (a child's own Create wakes its container at once)
+// would refetch to create nothing. Until 2026-11-10 the Key carried the
+// flag, and the Series, Artist and Author (308f974c) and then the Comic
+// (bc4987f7) each keyed every fan-out under it true, so it was retired.
 type Key struct {
-	Generation        int64
-	RefreshedAt       time.Time
-	AddOptionsApplied bool
+	Generation  int64
+	RefreshedAt time.Time
 }
 
 // KeyAt is a Key over the inputs, the refresh time normalised to UTC and to
@@ -56,8 +56,8 @@ type Key struct {
 // nanoseconds -- a record just incorporated -- must compare equal to the
 // same refresh read back, else the pass after the incorporation refetches
 // once more. Truncate also drops a monotonic reading, which == would see.
-func KeyAt(generation int64, refreshedAt time.Time, addOptionsApplied bool) Key {
-	return Key{Generation: generation, RefreshedAt: refreshedAt.UTC().Truncate(time.Second), AddOptionsApplied: addOptionsApplied}
+func KeyAt(generation int64, refreshedAt time.Time) Key {
+	return Key{Generation: generation, RefreshedAt: refreshedAt.UTC().Truncate(time.Second)}
 }
 
 // Memo remembers, per item UID, the Key of its last complete fan-out in

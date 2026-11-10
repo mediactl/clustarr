@@ -74,10 +74,10 @@ func TestAnEpisodeHoldingItsProviderFieldsIsNotPatchedAgain(t *testing.T) {
 
 // A Series' child-sync key is the containers' (childsync.KeyAt, design D2):
 // its spec generation and its metadata refresh to the apiserver's second,
-// the add options no input (true before and after the flip, since the memo
-// records only a complete fan-out and the first one flips the flag; a pass
-// reading the flag before that flip reaches the cache would refetch to
-// create nothing); a series without metadata has none, so its fan-out waits
+// the add options no input (the Key carries none: the memo records only a
+// complete fan-out and the first one flips the flag, so a pass reading the
+// flag before that flip reaches the cache would refetch to create nothing);
+// a series without metadata has none, so its fan-out waits
 // for the document instead of fetching on every wake.
 func TestTheSeriesSyncKeyIsTheContainersKey(t *testing.T) {
 	at := time.Date(2026, 10, 28, 9, 0, 0, 123456789, time.UTC)
@@ -87,12 +87,12 @@ func TestTheSeriesSyncKeyIsTheContainersKey(t *testing.T) {
 	}
 	k, ok := syncKey(s)
 	require.True(t, ok)
-	assert.Equal(t, childsync.KeyAt(2, at, true), k)
+	assert.Equal(t, childsync.KeyAt(2, at), k)
 	assert.Equal(t, at.Truncate(time.Second), k.RefreshedAt, "the refresh to the second, as the apiserver stores it")
 	flipped := s.DeepCopy()
 	flipped.Status.AddOptionsApplied = true
 	applied, _ := syncKey(flipped)
-	assert.Equal(t, k, applied, "the add options are no input: the key carries true before and after the flip")
+	assert.Equal(t, k, applied, "the add options are no input: the key is the same before and after the flip")
 	edited := s.DeepCopy()
 	edited.Generation = 3
 	k3, _ := syncKey(edited)

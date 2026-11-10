@@ -33,7 +33,8 @@ import (
 // input, though DesiredEpisodes reads it: the memo records only a complete
 // fan-out, the first of which applies the add-time mode and flips the flag
 // in the same pass (reconcileNormal sends stored || fan.synced), so the key
-// carries true whatever the pass read -- a pass reading false after that
+// carries no flag (childsync.Key, which carried one until 2026-11-10)
+// whatever the pass read -- a pass reading false after that
 // fan-out (an Episode's own Create wakes the Series before the flip's apply
 // reaches the cache; or the apply conflicted) skips the fetch, which would
 // create nothing, and sends the flip again (2026-11-10: keyed on the read
@@ -44,7 +45,7 @@ func syncKey(s *catalogv1alpha1.Series) (childsync.Key, bool) {
 	if s.Status.Metadata == nil {
 		return childsync.Key{}, false
 	}
-	return childsync.KeyAt(s.Generation, s.Status.Metadata.RefreshedAt.Time, true), true
+	return childsync.KeyAt(s.Generation, s.Status.Metadata.RefreshedAt.Time), true
 }
 
 // providerStatusMatches reports whether ep already holds every provider field

@@ -65,15 +65,18 @@ const conditionQueueFull = "QueueFull"
 // scanning the whole namespace.
 const issueByComicRefIndexKey = ".spec.comicRef"
 
-// issueSyncKey is the Comic's childsync key: its spec generation, its
-// metadata refresh and whether spec.addOptions were applied (the first
-// complete fan-out flips the flag, so it is part of the key).
-func issueSyncKey(c *catalogv1alpha1.Comic, addOptionsApplied bool) childsync.Key {
+// issueSyncKey is the Comic's childsync key: its spec generation and its
+// metadata refresh (zero until the document lands, since a Comic lists its
+// issues from its spec's source ids). status.addOptionsApplied is no
+// input, though DesiredIssues reads it: the memo records only a complete
+// fan-out, the first of which flips the flag in the same pass
+// (childsync.Key, which carried the flag until 2026-11-10).
+func issueSyncKey(c *catalogv1alpha1.Comic) childsync.Key {
 	var refreshed time.Time
 	if c.Status.Metadata != nil {
 		refreshed = c.Status.Metadata.RefreshedAt.Time
 	}
-	return childsync.KeyAt(c.Generation, refreshed, addOptionsApplied)
+	return childsync.KeyAt(c.Generation, refreshed)
 }
 
 // issueSyncRPCBackoff is the RequeueAfter used when the issue-listing RPC
@@ -581,12 +584,14 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, n
 	// the document's refreshedAt then moves the key and the list is
 	// fetched once again (design D2; an Artist or Author waits for its
 	// document instead, a625715f).
-	// Keyed under the flag true, as the Series, Artist and Author key
-	// theirs (308f974c): the memo records only complete fan-outs, and an
-	// Issue's own Create wakes the Comic before the flip's apply reaches
-	// the cache, where a key read as false missed the recorded one and
-	// fetched the issue list again to create nothing.
-	if !r.issueSync.Due(c.UID, issueSyncKey(c, true), true) {
+	// The add options are no input to the key (childsync.Key; until
+	// 2026-11-10 the Comic keyed the flag as read, then under true as the
+	// Series, Artist and Author keyed theirs, 308f974c): the memo records
+	// only complete fan-outs, and an Issue's own Create wakes the Comic
+	// before the flip's apply reaches the cache, where a key read as false
+	// missed the recorded one and fetched the issue list again to create
+	// nothing.
+	if !r.issueSync.Due(c.UID, issueSyncKey(c), true) {
 		// Nothing a fan-out reads has moved since the last complete one:
 		// the Issues the List found are what it would leave.
 		return true, done(), nil
@@ -626,10 +631,10 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, n
 		}
 		existing[d.Name] = ensuredIssue(existing[d.Name], c, d)
 	}
-	// Recorded with addOptionsApplied true: the pass that completes the
-	// first fan-out also flips the flag, so the next pass's key matches
-	// and the flip costs no second fetch.
-	r.issueSync.Synced(c.UID, issueSyncKey(c, true), true)
+	// The pass that completes the first fan-out also flips the flag, which
+	// is no input to the key, so the next pass's key matches and the flip
+	// costs no second fetch.
+	r.issueSync.Synced(c.UID, issueSyncKey(c), true)
 	return true, done(), nil
 }
 

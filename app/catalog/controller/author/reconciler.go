@@ -606,7 +606,8 @@ type fanOut struct {
 // DesiredBooks reads it: the memo records only a complete fan-out, the
 // first of which applies the add-time mode and flips the flag in the same
 // pass (reconcileNormal sends stored || fan.synced), so the key carries
-// true whatever the pass read -- a pass reading false after that fan-out
+// no flag (childsync.Key, which carried one until 2026-11-10) whatever the
+// pass read -- a pass reading false after that fan-out
 // (a Book's own Create wakes the Author before the flip's apply reaches
 // the cache; or the apply conflicted) skips the fetch, which would create
 // nothing, and sends the flip again (2026-11-10: keyed on the read value,
@@ -616,7 +617,7 @@ func syncKey(a *catalogv1alpha1.Author) (childsync.Key, bool) {
 	if a.Status.Metadata == nil {
 		return childsync.Key{}, false
 	}
-	return childsync.KeyAt(a.Generation, a.Status.Metadata.RefreshedAt.Time, true), true
+	return childsync.KeyAt(a.Generation, a.Status.Metadata.RefreshedAt.Time), true
 }
 
 // syncBooks lists a's currently owned Books and, once the metadata is
