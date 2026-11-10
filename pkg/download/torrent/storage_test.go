@@ -22,8 +22,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -71,30 +71,57 @@ func TestTorrentStorageKeepsPieceCompletionInMemory(t *testing.T) {
 	}
 }
 
-// Hashing a piece reads it through the storage's WriteTo. Under anacrolix
-// v1.61's classic file I/O -- the engine's, since its mmap I/O never unmaps
-// and was OOM-killed (2026-10-15) -- that path hands os.File.WriteTo a
-// writer limited to the piece, which refuses the file's bytes past it as a
-// short write, so every piece but a file's last hashed correctly and still
-// came back io.ErrShortWrite: 125k WARN lines a day on talos ("finished
-// hashing piece", correct true, err short write) and no smart-ban
-// attribution, since anacrolix skips it on a storage error. Upstream fixed
-// it in v1.62.0, 196 commits and a Go floor away; until that bump the
-// storage clears the error itself when exactly the piece was written.
-//
-// The file I/O is chosen by the package's init from the environment, so the
-// test runs itself again with the engine's setting.
-func TestHashingAPieceUnderClassicFileIOIsNoShortWrite(t *testing.T) {
-	const fileIOEnv = "TORRENT_STORAGE_DEFAULT_FILE_IO"
-	if os.Getenv(fileIOEnv) != "classic" {
-		cmd := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$", "-test.v", "-test.count=1")
-		cmd.Env = append(os.Environ(), fileIOEnv+"=classic")
-		out, err := cmd.CombinedOutput()
-		require.NoError(t, err, "with %s=classic:\n%s", fileIOEnv, out)
-		require.Contains(t, string(out), "--- PASS: "+t.Name(), "%s", out)
-		return
+// anacrolix's default file I/O maps every data file it touches into the
+// process and never unmaps one for the torrent's life (mmapFileIo, still so
+// in v1.62.0): on talos the engine's mapped files reached 1.2 GiB beside
+// 436 MiB of its own memory within half an hour of a start, and it was
+// OOM-killed at its 2Gi limit (2026-10-15). The storage asks for the classic
+// I/O instead (NewFileClientOpts.DisableMmap, since v1.62.0; until then only
+// the pod's TORRENT_STORAGE_DEFAULT_FILE_IO could choose it), which reads and
+// writes through the page cache the kernel reclaims. So a data file the
+// storage wrote is mapped nowhere in the process.
+func TestTheTorrentStorageMapsNoDataFile(t *testing.T) {
+	if _, err := os.ReadFile("/proc/self/maps"); err != nil {
+		t.Skipf("no /proc/self/maps to read the process's mappings from: %v", err)
 	}
+	const pieceLen = 16 * 1024
+	content := bytes.Repeat([]byte("clustarr"), 4*pieceLen/8)
+	mi, err := metainfo.Load(bytes.NewReader(buildTestTorrent(t, t.TempDir(), "release.mkv", content)))
+	require.NoError(t, err)
+	info, err := mi.UnmarshalInfo()
+	require.NoError(t, err)
 
+	dir := t.TempDir()
+	cl := fileStorage(dir)
+	t.Cleanup(func() { _ = cl.Close() })
+	tor, err := cl.OpenTorrent(t.Context(), &info, mi.HashInfoBytes())
+	require.NoError(t, err)
+	p := tor.Piece(info.Piece(0))
+	_, err = p.WriteAt(content[:pieceLen], 0)
+	require.NoError(t, err)
+	require.NoError(t, p.MarkComplete())
+
+	maps, err := os.ReadFile("/proc/self/maps")
+	require.NoError(t, err)
+	var mapped []string
+	for line := range strings.SplitSeq(string(maps), "\n") {
+		if strings.Contains(line, dir) {
+			mapped = append(mapped, line)
+		}
+	}
+	require.Empty(t, mapped, "the storage's data files go through the page cache, never a mapping")
+}
+
+// Hashing a piece reads it through the storage's WriteTo. Under anacrolix
+// v1.61's classic file I/O that path handed os.File.WriteTo a writer limited
+// to the piece, which refused the file's bytes past it as a short write, so
+// every piece but a file's last hashed correctly and still came back
+// io.ErrShortWrite: 125k WARN lines a day on talos ("finished hashing
+// piece", correct true, err short write) and no smart-ban attribution,
+// since anacrolix skips it on a storage error. v1.62.0 fixed it upstream
+// (#1132); this holds the bump to it, since the engine runs the classic I/O
+// on purpose (above).
+func TestHashingAPieceIsNoShortWrite(t *testing.T) {
 	const pieceLen = 16 * 1024
 	content := bytes.Repeat([]byte("clustarr"), 4*pieceLen/8)
 	mi, err := metainfo.Load(bytes.NewReader(buildTestTorrent(t, t.TempDir(), "release.mkv", content)))

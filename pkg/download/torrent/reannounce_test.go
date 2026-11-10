@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -40,18 +39,25 @@ import (
 )
 
 // testTracker is a BEP 3 HTTP tracker that answers every announce with the
-// peers it is told to name, and an interval as short as the e2e seeder's
-// (test/fixtures/seeder's ReannounceInterval), so a client that announces
-// at all finds them within seconds. It records nothing about the peers
-// that announce: who a client finds is decided by the test alone.
+// peers it is told to name, so a client that announces at all finds them at
+// once. Its interval is the e2e seeder's (test/fixtures/seeder's
+// ReannounceInterval), which anacrolix floors at a minute since v1.62.0
+// (minAnnounceInterval): a peer named only after a client's last announce
+// is learned of a minute later, so a test names every peer before the
+// announce that must find it. It records nothing about the peers that
+// announce: who a client finds is decided by the test alone.
 type testTracker struct {
 	srv *httptest.Server
 
 	mu    sync.Mutex
 	peers []netip.AddrPort
-	// fragments counts announces whose request carried a URL fragment:
-	// none may, since a fragment is not part of what a tracker is sent.
-	fragments int
+	// readdPeers, when set, answers a Started announce with nothing left to
+	// download in place of peers: a torrent added complete, which is what a
+	// re-add of a finished transfer is. A first add's Started has data left,
+	// its Completed is no Started, and a regular re-announce names no event,
+	// so these peers reach a re-added torrent through its own first announce
+	// or not at all.
+	readdPeers []netip.AddrPort
 }
 
 func newTestTracker(t *testing.T) *testTracker {
@@ -71,16 +77,25 @@ func (tr *testTracker) setPeers(peers ...netip.AddrPort) {
 	tr.peers = peers
 }
 
+// setPeersForReadd names the peers a re-added torrent's own Started announce
+// is answered with (readdPeers).
+func (tr *testTracker) setPeersForReadd(peers ...netip.AddrPort) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	tr.readdPeers = peers
+}
+
 func (tr *testTracker) announce(w http.ResponseWriter, r *http.Request) {
 	tr.mu.Lock()
+	peers := tr.peers
+	if q := r.URL.Query(); tr.readdPeers != nil && q.Get("event") == "started" && q.Get("left") == "0" {
+		peers = tr.readdPeers
+	}
 	var compact []byte
-	for _, p := range tr.peers {
+	for _, p := range peers {
 		ip := p.Addr().As4()
 		compact = append(compact, ip[:]...)
 		compact = binary.BigEndian.AppendUint16(compact, p.Port())
-	}
-	if r.URL.Fragment != "" || r.URL.RawFragment != "" {
-		tr.fragments++
 	}
 	tr.mu.Unlock()
 	body, err := bencode.Marshal(struct {
@@ -123,23 +138,6 @@ func trackedConfig(t *testing.T) Config {
 	return cfg
 }
 
-// skipUnderRace skips a test that re-adds a dropped info hash with trackers
-// on. Not under the race detector: the re-added Torrent's tagged tracker URL
-// is new to anacrolix, and v1.61.0 registers a new URL's tracker client by
-// writing the dispatcher's trackerClients map under the client lock
-// (initTrackerClient, client-tracker-announcer.go:877) while an announce in
-// flight reads that map after releasing it (singleAnnounce, :555-559) -- here
-// the dropped Torrent's own Stopped announce. The library's own race, there
-// for every tracker URL a client first sees, not this package's; anacrolix's
-// race-slowed uTP also stalled a first grab past the deadline once in about
-// 25 runs, as TestProxiedClientDownloadsOverUTPThroughTheProxy records.
-func skipUnderRace(t *testing.T) {
-	t.Helper()
-	if raceDetector {
-		t.Skip("anacrolix v1.61.0 reads its tracker clients map unlocked while a new tracker URL is registered; see skipUnderRace")
-	}
-}
-
 func waitCompletedWithin(t *testing.T, c *Client, id string, within time.Duration, why string) download.Item {
 	t.Helper()
 	deadline := time.Now().Add(within)
@@ -160,15 +158,17 @@ func waitCompletedWithin(t *testing.T, c *Client, id string, within time.Duratio
 // The smoke test's stall (2026-10-08): a release grabbed again after the
 // engine removed it -- a re-grab after a failure or removal, a redownload,
 // an entry ADR-0019's convergence re-adds -- sat at "no peers connected"
-// until the engine restarted. anacrolix v1.61.0's client-level announce
-// dispatcher keeps a dropped torrent's (tracker, info hash) announce state
-// for the life of the client and binds it to the first Torrent that
-// registered it, so a re-added Torrent of the same info hash never got a
-// tracker's peers. Here the leecher finds the seeder only through the
-// tracker, completes, is removed with its data, and is added again in the
-// same process: it must find the seeder and complete again.
+// until the engine restarted. anacrolix's client-level announce dispatcher
+// keeps a dropped torrent's (tracker, info hash) announce state for the
+// life of the client and binds it to the first Torrent that registered it,
+// so a re-added Torrent of the same info hash never got a tracker's peers
+// (anacrolix/torrent#1048, open upstream as PR 1081, which the fork go.mod
+// names carries: the state is reset at the re-add and Started sent at once;
+// until 2026-11-10 clustarr tagged a re-add's tracker URLs with a fragment
+// instead, a fresh key per drop). Here the leecher finds the seeder only
+// through the tracker, completes, is removed with its data, and is added
+// again in the same process: it must find the seeder and complete again.
 func TestReAddAfterRemoveFindsItsPeersThroughTheTracker(t *testing.T) {
-	skipUnderRace(t)
 	tracker := newTestTracker(t)
 	content := bytes.Repeat([]byte("grabbed, removed and grabbed again "), 4096)
 	seeder, payload := newSeeder(t, content)
@@ -199,24 +199,38 @@ func TestReAddAfterRemoveFindsItsPeersThroughTheTracker(t *testing.T) {
 	_, err = c.Add(ctx, req)
 	require.NoError(t, err)
 	waitCompletedWithin(t, c, id, 20*time.Second, "grabbed a third time")
-
-	tracker.mu.Lock()
-	defer tracker.mu.Unlock()
-	require.Zero(t, tracker.fragments, "an announce URL's fragment never reaches the tracker")
 }
 
 // The other drop and re-add of one info hash in the same process: a publish
 // (spec.torrent.scratch) moves a finished transfer and adds it again from
-// publishDir, where it seeds. It must still be announced, so a leecher the
-// tracker names only afterwards -- one that knows nobody, and is reachable
-// only by being dialled -- completes from the published copy.
+// publishDir, where it seeds. The re-added Torrent must announce itself at
+// once and take the tracker's answer -- under anacrolix/torrent#1048 no
+// announce was made for it, and a regular one's answer went to the dropped
+// Torrent -- so a leecher that knows nobody and announces nothing, reachable
+// only by being dialled, completes from the published copy. The tracker
+// names the leecher to the re-add's own Started announce alone
+// (setPeersForReadd): the first copy never hears of it, and the regular
+// announce a minute later (testTracker) is answered without it, so a
+// re-add that does not announce itself finds it never. A leecher that wants
+// nothing refuses every peer (anacrolix accepts a connection only for a
+// torrent that needs data or seeds), so it is set downloading before it
+// is named.
 func TestAPublishedTransferIsAnnouncedFromWhereItSeeds(t *testing.T) {
-	skipUnderRace(t)
 	tracker := newTestTracker(t)
 	content := bytes.Repeat([]byte("published, then announced from publishDir "), 4096)
 	seeder, payload := newSeeder(t, content)
-	tracker.setPeers(loopbackPeer(seeder))
 	payload = withAnnounce(t, payload, tracker.announceURL())
+	tracker.setPeers(loopbackPeer(seeder))
+
+	leecher := newRawClient(t, t.TempDir(), false)
+	mi, err := metainfo.Load(bytes.NewReader(payload))
+	require.NoError(t, err)
+	spec, err := anatorrent.TorrentSpecFromMetaInfoErr(mi)
+	require.NoError(t, err)
+	lt, _, err := leecher.AddTorrentSpec(spec)
+	require.NoError(t, err)
+	lt.DownloadAll()
+	tracker.setPeersForReadd(loopbackPeer(leecher))
 
 	cfg := trackedConfig(t)
 	cfg.ScratchDir = t.TempDir()
@@ -237,55 +251,9 @@ func TestAPublishedTransferIsAnnouncedFromWhereItSeeds(t *testing.T) {
 	require.NotEqual(t, cfg.ScratchDir, item.ContentRoot)
 	seeder.Close()
 
-	leecher := newRawClient(t, t.TempDir(), false)
-	mi, err := metainfo.Load(bytes.NewReader(payload))
-	require.NoError(t, err)
-	spec, err := anatorrent.TorrentSpecFromMetaInfoErr(mi)
-	require.NoError(t, err)
-	lt, _, err := leecher.AddTorrentSpec(spec)
-	require.NoError(t, err)
-	lt.DownloadAll()
-	tracker.setPeers(loopbackPeer(leecher))
-
 	select {
 	case <-lt.Complete().On():
 	case <-time.After(20 * time.Second):
 		t.Fatal("the published copy never learned of the leecher from the tracker")
 	}
-}
-
-// A re-added Torrent's regular trackers carry the drop count in a fragment,
-// which is a new anacrolix announce key and is never sent: the request URI
-// is the original's. Anything anacrolix does not announce to through the
-// dispatcher keeps its URL, and a publish's re-add replaces its own tag.
-func TestTrackersForDropsTagsOnlyRegularTrackers(t *testing.T) {
-	tiers := [][]string{
-		{"http://tracker.example/announce", "udp://open.example:1337/announce"},
-		{"https://private.example/a/passkey/announce?x=1", "wss://webtorrent.example"},
-		{"http://user:pw@tracker.example/announce", "*disabled", "%zz"},
-	}
-	require.Equal(t, tiers, trackersForDrops(tiers, 0), "a first add announces as the .torrent says")
-
-	got := trackersForDrops(tiers, 2)
-	require.Equal(t, [][]string{
-		{"http://tracker.example/announce#clustarr-reannounce-2", "udp://open.example:1337/announce#clustarr-reannounce-2"},
-		{"https://private.example/a/passkey/announce?x=1#clustarr-reannounce-2", "wss://webtorrent.example"},
-		{"http://user:pw@tracker.example/announce", "*disabled", "%zz"},
-	}, got)
-	for i, tier := range got {
-		for j, tagged := range tier {
-			u, err := url.Parse(tagged)
-			if err != nil {
-				continue
-			}
-			require.Equal(t, tagged, u.String(), "anacrolix keys a tracker by a URL that parses back to itself")
-			orig, err := url.Parse(tiers[i][j])
-			require.NoError(t, err)
-			require.Equal(t, orig.RequestURI(), u.RequestURI(), "the tracker is sent what it always was")
-		}
-	}
-
-	require.Equal(t, [][]string{{"http://tracker.example/announce#clustarr-reannounce-3"}},
-		trackersForDrops([][]string{{"http://tracker.example/announce#clustarr-reannounce-2"}}, 3),
-		"a publish re-adds from the Torrent's own tagged list")
 }

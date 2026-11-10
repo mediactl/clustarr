@@ -155,7 +155,7 @@ named**, never left to their own output:
 | nats.go handlers (error, disconnect, reconnect) | the handlers log | `events.nats` | error ERROR, disconnect WARN, reconnect INFO |
 | Go `log` (http.Server.ErrorLog and any library using it) | `slog.SetDefault(root)` in Bootstrap, and `ErrorLog: slog.NewLogLogger(h, LevelWarn)` where a struct takes one | `stdlog`, or the struct's own | INFO by default, WARN for ErrorLog |
 | FFmpeg through ffgo (`pkg/ffruntime/log.go`) | the one trampoline and its router as today: the C-side level stays warning, the eight known decode-noise messages stay demoted to DEBUG, the once-a-minute repeat count and the 10/s bucket stay (built after the markers pod drowned in "Duplicate POC" lines on 2026-10-15). What changes is the record's shape: subsystem `ffmpeg`, the level names. An `ffmpeg: debug` override raises the C-side level to verbose for as long as it is set, through the same router, never around it | `ffmpeg` | panic/fatal FATAL, error ERROR (the router's collapse to WARN kept where it applies), warning WARN, info INFO, verbose DEBUG, debug/trace TRACE |
-| ONNX Runtime | not bridged in this work: the purego binding (`shota3506/onnxruntime-purego`) binds `CreateEnv` only, not `CreateEnvWithCustomLogger`, and both envs are created at ORT's error level, so what reaches stderr is rare and is errors. Its stderr is exempt from the guards, named as such; binding the custom logger (a `mediactl/` fork, as ffgo's) is a follow-up, not a block on the sweep | `onnx`, when bridged | verbose TRACE, info INFO, warning WARN, error ERROR, fatal FATAL |
+| ONNX Runtime | ORT's custom logger: `CreateEnvWithCustomLogger` (API table slot 4), whose callback carries the severity, category, log id, code location and message of every line ORT would otherwise print. The purego binding (`shota3506/onnxruntime-purego`) wraps `CreateEnv` alone and keeps its API table unexported, so the binding is taken through a `mediactl/onnxruntime-purego` fork (a `replace` on tag `v0.0.0-clustarr.N`, bumped as ffgo's is) carrying one commit: an `Env` option that creates the env through slot 4 with a purego callback, and `UpdateEnvWithCustomLogLevel` beside it; the same commit is opened upstream as a PR, and the fork is dropped at the first upstream release that carries it (owner, 2026-11-10: the PR and the fork, "1+2"). Both env creators -- the markers binary's dnn stage (`pkg/segments`) and the caption agent's OCR (`pkg/subtitles/ocr`) -- pass the callback; `cmd/manager` and `cmd/ui` still link no purego. The env is created at ORT's warning severity and raised to verbose while an `onnx: debug` or `trace` override is set, through the update call, so the override reaches ORT's own messages; the callback's record is always gated by the subsystem's level. With the logger bound nothing of ORT's reaches stderr, so ONNX has no stderr exemption from the guards | `onnx` | verbose TRACE, info INFO, warning WARN, error ERROR, fatal FATAL |
 | Plex's files, stdout, stderr and the shim | the cluster-plex design | `pms…`, `shim` | that design's table |
 
 `slog.SetDefault(root)` is the drain for libraries that log through
@@ -273,8 +273,14 @@ settled here, as the author's calls, not the owner's:
    2026-10-15 fix. The table now says the gates stay and only the record's
    shape changes, with the override reaching the C-side level through the
    router.
-2. **ONNX Runtime stays unbridged** until its binding carries the custom
-   logger; exempt from the guards by name.
+2. **ONNX Runtime is bridged through a fork of its binding** carrying the
+   custom-logger constructor, opened upstream as a PR at the same time and
+   dropped when upstream ships it (owner, 2026-11-10: "1+2"; the builder
+   check had left it unbridged and exempt from the guards, which it no
+   longer is). The same rule holds for every third-party gap this work
+   meets: take upstream's release where it has the fix, else a rebased
+   `mediactl/` fork with the fix as its own commit, never a wrapper or a
+   patch inside clustarr (owner, the same day, on anacrolix/torrent).
 3. **`service.namespace` plus `service.name`** instead of renamed, prefixed
    service names: the tracing names clustarr already uses stay, cluster-plex's
    one tracer name changes, and nothing downstream keys on it.
@@ -294,9 +300,12 @@ a Job's template cannot carry it).
 ## 11. Findings on the way, not in scope
 
 - The torrent engine's 125k WARN lines a day read `finished hashing piece`
-  with `err: short write` and `correct: true`: anacrolix reporting a short
-  write while completing a piece, every piece, on the NFS data volume. That
-  is a real warning to look at, not noise to hide; the override exists so it
-  does not drown the rest meanwhile.
+  with `err: short write` and `correct: true`: anacrolix v1.61's classic
+  file I/O reporting its own read limit as a short write on every piece but
+  a file's last (upstream #1132). Fixed the same day by the bump to
+  v1.62.0, taken through the `mediactl/torrent` fork (CLAUDE.md's
+  Commands section), which also moved anacrolix's own logging onto slog, so
+  the `grab.torrent.anacrolix` row above bridges nothing and only names the
+  subsystem the `Slogger` is given.
 - cluster-plex's one-pod guard means the collections controller's two-pod
   case is unproven while Live TV is on (the rig proof of 2026-11-10).

@@ -227,13 +227,6 @@ type Client struct {
 	// published copy, by [Client.Add], and for reading by [Client.lookup].
 	pubMu sync.RWMutex
 
-	// drops counts, per info hash, how often this process's anacrolix client
-	// has dropped the torrent ([Client.Remove], [Client.publish]), which
-	// keys the trackers a re-added Torrent announces to (announce.go). It
-	// changes only under pubMu, right after a Drop, so a Torrent still in
-	// the client was added under the count it has now.
-	drops map[metainfo.Hash]int
-
 	mu       sync.Mutex
 	sessions map[string]*session
 }
@@ -264,7 +257,7 @@ func New(cfg Config) (download.Client, error) {
 		acfg.Slogger = cfg.Logger
 	}
 
-	c := &Client{cfg: cfg, sessions: make(map[string]*session), drops: make(map[metainfo.Hash]int)}
+	c := &Client{cfg: cfg, sessions: make(map[string]*session)}
 	if cfg.Proxy != nil {
 		c.proxy = &proxyState{cfg: *cfg.Proxy}
 		configureProxy(acfg, *cfg.Proxy, c.udpTrackerPacketConn)
@@ -371,11 +364,6 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 	if spec.DisplayName == "" {
 		spec.DisplayName = req.Name
 	}
-	// An info hash this client dropped before announces under fresh tracker
-	// keys, or the tracker's peers go to the dropped Torrent (announce.go).
-	// The same count as when an existing Torrent was added, so merging this
-	// spec into it adds no tracker.
-	spec.Trackers = trackersForDrops(spec.Trackers, c.drops[spec.InfoHash])
 	// NOT spec.DisallowDataDownload/DisallowDataUpload: those AddTorrentOpts
 	// fields are declared in this version of anacrolix but never read by
 	// newTorrentOpt -- verified by grep, not assumed. Pause is applied
@@ -614,7 +602,6 @@ func (c *Client) Remove(ctx context.Context, id string, deleteData bool) error {
 	// store) before returning, so it is safe to remove the directory
 	// immediately after -- nothing still has it open.
 	t.Drop()
-	c.drops[t.InfoHash()]++
 
 	c.mu.Lock()
 	delete(c.sessions, id)
@@ -970,9 +957,14 @@ func (c *Client) publish(id string) {
 		c.pubMu.Unlock()
 		return
 	}
+	// The re-add announces itself afresh. anacrolix's client-level announce
+	// dispatcher keeps a dropped Torrent's (tracker, info hash) state for the
+	// client's life and bound to that Torrent, so a re-added one never got the
+	// tracker's answer (anacrolix/torrent#1048; the smoke test's "no peers
+	// connected" of 2026-10-08): the fork go.mod replaces the module with
+	// carries upstream's open fix, PR 1081, which resets the state at the
+	// re-add and sends Started at once. reannounce_test.go holds it.
 	t.Drop()
-	c.drops[t.InfoHash()]++
-	spec.Trackers = trackersForDrops(spec.Trackers, c.drops[t.InfoHash()])
 	nt, _, err := c.cl.AddTorrentSpec(spec)
 	c.pubMu.Unlock()
 	if err != nil {
@@ -1018,7 +1010,12 @@ func (c *Client) publish(id string) {
 // persistent completion makes MarkComplete flush), and one query per piece
 // before it to learn whether the file was done: verifying a 5.7 GB release
 // slowed to a piece every few seconds and outlasted its download by over an
-// hour (2026-10-20).
+// hour (2026-10-20). Its file I/O is the classic one, through the page
+// cache: anacrolix's default maps every data file it touches and never
+// unmaps one for the torrent's life, and 1.2 GiB of mapped files beside
+// 436 MiB of its own memory OOM-killed the engine at its 2Gi limit within
+// half an hour of a start (talos, 2026-10-15). Until v1.62.0 only the
+// process's TORRENT_STORAGE_DEFAULT_FILE_IO could choose it.
 func fileStorage(dir string) storage.ClientImplCloser {
-	return exactWriteTo{storage.NewFileOpts(storage.NewFileClientOpts{ClientBaseDir: dir, UsePartFiles: g.Some(true)})}
+	return storage.NewFileOpts(storage.NewFileClientOpts{ClientBaseDir: dir, UsePartFiles: g.Some(true), DisableMmap: true})
 }

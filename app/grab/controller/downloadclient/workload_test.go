@@ -20,7 +20,6 @@ package downloadclient
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -334,27 +333,20 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 	sts := buildStatefulSet(torrent, "sab-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 	dep := buildDeployment(usenet, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 
-	for name, tc := range map[string]struct {
-		spec  *corev1ac.PodSpecApplyConfiguration
-		extra map[string]string
-	}{
-		"torrent": {spec: sts.Spec.Template.Spec, extra: map[string]string{
-			torrentFileIOEnv: "classic",
-		}},
-		"usenet": {spec: dep.Spec.Template.Spec},
+	for name, spec := range map[string]*corev1ac.PodSpecApplyConfiguration{
+		"torrent": sts.Spec.Template.Spec,
+		"usenet":  dep.Spec.Template.Spec,
 	} {
 		t.Run(name, func(t *testing.T) {
-			require.NotNil(t, tc.spec.ServiceAccountName, "the engine pod names no ServiceAccount")
-			assert.Equal(t, rt.ServiceAccountName, *tc.spec.ServiceAccountName)
-			c := tc.spec.Containers[0]
-			want := map[string]string{
+			require.NotNil(t, spec.ServiceAccountName, "the engine pod names no ServiceAccount")
+			assert.Equal(t, rt.ServiceAccountName, *spec.ServiceAccountName)
+			c := spec.Containers[0]
+			assert.Equal(t, map[string]string{
 				"POD_NAMESPACE": "fieldRef:metadata.namespace",
 				"POD_NAME":      "fieldRef:metadata.name",
 				"NATS_URL":      rt.NATSURL,
 				"UMASK":         "002",
-			}
-			maps.Copy(want, tc.extra)
-			assert.Equal(t, want, envOf(c.Env))
+			}, envOf(c.Env))
 			assert.NotContains(t, strings.Join(append(c.Command, c.Args...), " "), "nats-single-node")
 		})
 	}
@@ -364,9 +356,8 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 			EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, nil, fakeOwnerRef())
 		c := bare.Spec.Template.Spec.Containers[0]
 		assert.Equal(t, map[string]string{
-			"POD_NAMESPACE":  "fieldRef:metadata.namespace",
-			"POD_NAME":       "fieldRef:metadata.name",
-			torrentFileIOEnv: "classic",
+			"POD_NAMESPACE": "fieldRef:metadata.namespace",
+			"POD_NAME":      "fieldRef:metadata.name",
 		}, envOf(c.Env),
 			"NATS_URL and UMASK are set only when there is something to set them to")
 		assert.NotContains(t, strings.Join(append(c.Command, c.Args...), " "), "nats-single-node")
@@ -409,22 +400,6 @@ func portNamed(t *testing.T, c corev1ac.ContainerApplyConfiguration, name string
 	}
 	t.Fatalf("the container declares no %q port", name)
 	return nil
-}
-
-// anacrolix/torrent's file storage maps every data file it touches into the
-// engine and never unmaps one (v1.61's mmapFileIo, its default), so the
-// torrent engine's mapped pages grew past its 2Gi limit within half an hour
-// of a start -- 1.2 GiB of mapped files beside 436 MiB of its own memory --
-// and it was OOM-killed (talos, 2026-10-15). The engine reads and writes
-// through the page cache instead, which the kernel reclaims.
-func TestTheTorrentEngineDoesNotMapItsData(t *testing.T) {
-	sts := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data",
-		EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, nil, fakeOwnerRef())
-	assert.Equal(t, "classic", envOf(sts.Spec.Template.Spec.Containers[0].Env)["TORRENT_STORAGE_DEFAULT_FILE_IO"])
-	dep := buildDeployment(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data",
-		EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, nil, fakeOwnerRef())
-	assert.NotContains(t, envOf(dep.Spec.Template.Spec.Containers[0].Env), "TORRENT_STORAGE_DEFAULT_FILE_IO",
-		"the usenet engine has no anacrolix storage")
 }
 
 // TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault is smoke finding
