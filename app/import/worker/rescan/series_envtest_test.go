@@ -77,7 +77,9 @@ func createSeries(t *testing.T, ctx context.Context, f *fixture, name, title str
 // its episode by the numbering its name carries; a file holding two
 // episodes is one MediaFile naming both. What the layout or the numbering
 // does not settle is reported, never guessed, and a TheTVDB id no series
-// has cannot create one while the root folder names no quality profile.
+// has cannot create one while the root folder names no quality profile:
+// the manager's scan applier refuses the create (ADR-0019, P38), and its
+// reason names the root and the kind it would have created, not the id.
 func TestHandleAttributesEpisodeFilesUnderASeriesRoot(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-series", catalogv1alpha1.RootFolderKindSeries, "", catalogv1alpha1.ScanModeFull)
@@ -104,8 +106,7 @@ func TestHandleAttributesEpisodeFilesUnderASeriesRoot(t *testing.T) {
 	require.Len(t, unmatched, 3)
 	assert.Contains(t, unmatched[missing].Reason, "the series has no S01E07")
 	assert.Contains(t, unmatched[unknown].Reason, "no existing series titled")
-	assert.Contains(t, unmatched[unknownID].Reason, "TheTVDB id 1")
-	assert.Contains(t, unmatched[unknownID].Reason, "sets no default qualityProfileRef")
+	assert.Contains(t, unmatched[unknownID].Reason, `root folder "movies" sets no default qualityProfileRef, which a new series requires`)
 
 	files := mediaFilesIn(t, ctx, f.c, f.ns, 2)
 	byPath := map[string]catalogv1alpha1.MediaFile{}
@@ -161,7 +162,8 @@ func TestHandleCreatesASeriesFromTheTvdbIDInItsFolder(t *testing.T) {
 	assert.Equal(t, "web-1080p", s.Spec.QualityProfileRef)
 	assert.Equal(t, f.rf.Name, s.Spec.RootFolderRef)
 	assert.Equal(t, new(bobs), s.Spec.Folder, "pinned to the folder it was found in")
-	assert.Equal(t, catalogv1alpha1.SeriesMonitorNone, s.Spec.AddOptions.Monitor, "nothing monitored until the owner turns a season on")
+	assert.Equal(t, catalogv1alpha1.SeriesMonitorUnmonitorSpecials, s.Spec.AddOptions.Monitor,
+		"every season but the specials, the CRD default since 2026-10-27 (a series added with none searched nothing until a season was turned on)")
 	assert.Equal(t, new(false), s.Spec.AddOptions.SearchForMissing, "no search for what is already on disk")
 	assert.Equal(t, new(false), s.Spec.AddOptions.SearchForCutoffUnmet)
 	assert.Equal(t, string(rescan.FieldManager), managerFor(t, s.ManagedFields, "", "spec.tvdbID"))
