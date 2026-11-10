@@ -102,4 +102,19 @@ type BookDetail struct {
 	// Search is the interactive search shown on the search tab, nil until
 	// one is run.
 	Search *SearchPanel
+	// ReturnURL is where the search tab's automatic search returns when it
+	// posts as a plain form: the book's own page when the modal was opened
+	// from it, else the author's page (or a standalone book's own), the
+	// row's ReturnURL. ui/book.go's handlers set it from the request
+	// (bookModalReturnURL); empty, the row's stands in (searchReturnURL).
+	ReturnURL string
+}
+
+// searchReturnURL is the search tab's return: the explicit ReturnURL, else
+// the row's.
+func (d BookDetail) searchReturnURL() string {
+	if d.ReturnURL != "" {
+		return d.ReturnURL
+	}
+	return d.Row.ReturnURL()
 }

@@ -230,7 +230,9 @@ templ bookSummary(d BookDetail) {
 	@fileTable("book", d.File, d.Row.Status.Warn)
 }
 
-// BookSearchTab is the book's searches on its modal.
+// BookSearchTab is the book's searches on its modal. Its automatic search
+// returns to the page the modal was opened from (d.ReturnURL), where the
+// row's own buttons always return to the author's page.
 templ BookSearchTab(d BookDetail) {
-	@searchTab("book", d.Row.Name, d.Row.SearchURL(), d.Row.InteractiveSearchURL(), d.Row.ReturnURL(), d.Search)
+	@searchTab("book", d.Row.Name, d.Row.SearchURL(), d.Row.InteractiveSearchURL(), d.searchReturnURL(), d.Search)
 }

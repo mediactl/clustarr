@@ -1144,7 +1144,9 @@ func bookSummary(d BookDetail) templ.Component {
 	})
 }
 
-// BookSearchTab is the book's searches on its modal.
+// BookSearchTab is the book's searches on its modal. Its automatic search
+// returns to the page the modal was opened from (d.ReturnURL), where the
+// row's own buttons always return to the author's page.
 func BookSearchTab(d BookDetail) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1166,7 +1168,7 @@ func BookSearchTab(d BookDetail) templ.Component {
 			templ_7745c5c3_Var49 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = searchTab("book", d.Row.Name, d.Row.SearchURL(), d.Row.InteractiveSearchURL(), d.Row.ReturnURL(), d.Search).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = searchTab("book", d.Row.Name, d.Row.SearchURL(), d.Row.InteractiveSearchURL(), d.searchReturnURL(), d.Search).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

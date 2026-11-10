@@ -346,6 +346,50 @@ func TestBookDetailsServesTheModalToHTMXAndAPageOtherwise(t *testing.T) {
 		"a book whose author the library does not hold")
 }
 
+// The modal's automatic search returns to the page it was opened from
+// (2026-11-10, the non-video design's wave E leftover): htmx names the
+// opener in HX-Current-URL, so a modal opened from the book's own page --
+// or from its details route, the page a browser without htmx gets --
+// carries the book's page as the search form's "return", and one opened
+// from the author's page, or by a request naming no opener, the author's,
+// where every modal returned to the author's page until then. The row's
+// own buttons keep the author's page.
+func TestBookModalReturnsToThePageItWasOpenedFrom(t *testing.T) {
+	srv, _ := bookFixture(t)
+	modalFrom := func(opener string) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/library/default/book/left-hand/details?tab=search", nil)
+		req.Header.Set("HX-Request", "true")
+		if opener != "" {
+			req.Header.Set("HX-Current-URL", opener)
+		}
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+		return rec.Body.String()
+	}
+	const toBook = `name="return" value="/library/default/book/left-hand"`
+	const toAuthor = `name="return" value="/library/default/author/le-guin"`
+
+	fromPage := modalFrom("http://clustarr.test/library/default/book/left-hand")
+	require.Contains(t, fromPage, toBook, "opened from the book's page")
+	require.NotContains(t, fromPage, toAuthor)
+	require.Contains(t, modalFrom("http://clustarr.test/library/default/book/left-hand/details"), toBook,
+		"opened from the details route, the page a browser without htmx got")
+
+	fromAuthor := modalFrom("http://clustarr.test/library/default/author/le-guin")
+	require.Contains(t, fromAuthor, toAuthor, "opened from the author's page")
+	require.NotContains(t, fromAuthor, toBook)
+	require.Contains(t, modalFrom(""), toAuthor, "no opener named: the author's page, as before")
+	require.Contains(t, modalFrom("http://clustarr.test/library/default/book/dispossessed"), toAuthor,
+		"another book's page is not this book's")
+
+	rows := getPath(t, srv, "/library/default/author/le-guin", false).Body.String()
+	requireTag(t, rows, `data-book="left-hand"`)
+	require.Contains(t, rows, toAuthor, "the row's own searches return to the author's page")
+	require.NotContains(t, rows, toBook)
+}
+
 // The row's interactive search creates a Search for the book that grabs
 // nothing and answers the modal on its Search tab, the results panel
 // polling. A form post lands on the panel's page; an unknown book creates

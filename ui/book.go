@@ -20,6 +20,7 @@ package ui
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -56,7 +57,25 @@ func (s *Server) handleBookDetails(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("tab") == "search" {
 		d.Tab = "search"
 	}
+	d.ReturnURL = bookModalReturnURL(r, d.Row)
 	s.renderBookModal(w, r, d)
+}
+
+// bookModalReturnURL is where the modal's automatic search returns when it
+// posts as a plain form: the book's own page when the modal was opened
+// from it (the page's action bar opens it in #book-modal; htmx names the
+// opener in HX-Current-URL, whose path is then the book's page or its
+// details route, which answers the page to a browser without htmx), else
+// the author's page the row's buttons return to (a standalone book's own
+// page, BookRow.ReturnURL). Until 2026-11-10 every modal returned to the
+// author's page, so a search from the book's page landed on the author's.
+func bookModalReturnURL(r *http.Request, row views.BookRow) string {
+	if current, err := url.Parse(r.Header.Get("HX-Current-URL")); err == nil {
+		if p := current.Path; p == row.URL() || p == row.DetailsURL() {
+			return row.URL()
+		}
+	}
+	return row.ReturnURL()
 }
 
 // handleBookInteractiveSearch serves POST
@@ -76,7 +95,7 @@ func (s *Server) handleBookInteractiveSearch(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
-	d.Tab, d.Search = "search", panel
+	d.Tab, d.Search, d.ReturnURL = "search", panel, bookModalReturnURL(r, d.Row)
 	s.renderBookModal(w, r, d)
 }
 
