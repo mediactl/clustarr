@@ -1,0 +1,43 @@
+{
+  "MediaProvider": {
+    "identifier": "tv.plex.agents.custom.clustarr.audiobooks",
+    "title": "Clustarr Audiobooks",
+    "Types": [
+      {
+        "type": 8,
+        "Scheme": [
+          {
+            "scheme": "tv.plex.agents.custom.clustarr.audiobooks"
+          }
+        ]
+      },
+      {
+        "type": 9,
+        "Scheme": [
+          {
+            "scheme": "tv.plex.agents.custom.clustarr.audiobooks"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "Scheme": [
+          {
+            "scheme": "tv.plex.agents.custom.clustarr.audiobooks"
+          }
+        ]
+      }
+    ],
+    "Feature": [
+      {
+        "type": "match",
+        "key": "/library/metadata/matches"
+      },
+      {
+        "type": "metadata",
+        "key": "/library/metadata"
+      }
+    ]
+  }
+}
+

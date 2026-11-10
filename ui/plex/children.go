@@ -26,8 +26,9 @@ import (
 )
 
 // handleChildren answers GET {metadata key}/{ratingKey}/children (spec
-// §D.2, tv root only): a show's seasons, or a season's episodes (research
-// §8), paged (spec §D.2's paging rules; research §8: "must honour
+// §D.2, the tv and music roots): a show's seasons, or a season's episodes
+// (research §8); an artist's albums, or an album's tracks (design §7.1),
+// paged (spec §D.2's paging rules; research §8: "must honour
 // X-Plex-Container-Size/-Start").
 func (h *handler) handleChildren(root rootDef) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -47,11 +48,12 @@ func (h *handler) handleChildren(root rootDef) http.HandlerFunc {
 }
 
 // handleGrandchildren answers GET {metadata key}/{ratingKey}/grandchildren
-// (spec §D.2, tv root only): a show's episodes, flattened across every
-// season (research §8), paged the same way as [handler.handleChildren].
-// Spec §D.2 names this "episodes of a show"; called on a season's own
-// ratingKey it answers 404; that ratingKey's own /children (all its
-// episodes) already serves the equivalent request.
+// (spec §D.2, the tv and music roots): a show's episodes, flattened across
+// every season (research §8), or an artist's tracks across every album
+// (design §7.1, built lazily per page), paged the same way as
+// [handler.handleChildren]. Spec §D.2 names this "episodes of a show";
+// called on a season's or an album's own ratingKey it answers 404; that
+// ratingKey's own /children already serves the equivalent request.
 func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idx, ok := h.index(w, r)
@@ -60,12 +62,22 @@ func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 		}
 		u := h.urlsFor(r, idx)
 
-		uid, _, isSeason, ok := resolveKey(idx, r.PathValue("ratingKey"))
-		if !ok || isSeason {
+		k, ok := resolveKey(idx, r.PathValue("ratingKey"))
+		if !ok || k.IsSeason || k.Track != "" || k.IsPart {
 			http.NotFound(w, r)
 			return
 		}
-		s, ok := idx.SeriesByUID(uid)
+		if root.music {
+			p := parsePaging(r)
+			window, total, ok := h.musicGrandchildren(root, u, idx, k, p)
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			h.writeWindow(w, r, root, u, idx, window, total, p)
+			return
+		}
+		s, ok := idx.SeriesByUID(k.UID)
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -91,13 +103,19 @@ func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 // ([buildSeasonChildren]/[buildEpisodeChildren]) is for the unpaged,
 // includeChildren=1 case on GET .../{ratingKey} instead.
 func (h *handler) childrenOf(root rootDef, u urls, idx *projection.Index, ratingKey string) ([]Metadata, bool) {
-	uid, season, isSeason, ok := resolveKey(idx, ratingKey)
+	k, ok := resolveKey(idx, ratingKey)
 	if !ok {
 		return nil, false
 	}
+	if root.music {
+		return h.musicChildrenOf(root, u, idx, k)
+	}
+	if k.Track != "" || k.IsPart || k.Synthetic != "" {
+		return nil, false
+	}
 
-	if isSeason {
-		s, ok := idx.SeriesByUID(uid)
+	if k.IsSeason {
+		s, ok := idx.SeriesByUID(k.UID)
 		if !ok {
 			return nil, false
 		}
@@ -106,7 +124,7 @@ func (h *handler) childrenOf(root rootDef, u urls, idx *projection.Index, rating
 		}
 		var episodes []*catalogv1.Episode
 		for _, e := range idx.Episodes(s.UID) {
-			if e.Spec.SeasonNumber == season {
+			if e.Spec.SeasonNumber == k.Season {
 				episodes = append(episodes, e)
 			}
 		}
@@ -118,7 +136,7 @@ func (h *handler) childrenOf(root rootDef, u urls, idx *projection.Index, rating
 		return out, true
 	}
 
-	s, ok := idx.SeriesByUID(uid)
+	s, ok := idx.SeriesByUID(k.UID)
 	if !ok {
 		return nil, false
 	}
@@ -155,6 +173,13 @@ func sortEpisodes(episodes []*catalogv1.Episode) {
 // offset/totalSize (spec §D.2).
 func (h *handler) writePage(w http.ResponseWriter, r *http.Request, root rootDef, u urls, idx *projection.Index, items []Metadata, p pageRequest) {
 	window, total := windowMetadata(items, p)
+	h.writeWindow(w, r, root, u, idx, window, total, p)
+}
+
+// writeWindow writes one page already windowed to p -- window's items,
+// out of total -- for a listing built lazily per page
+// ([handler.musicGrandchildren]) as for one [writePage] windowed whole.
+func (h *handler) writeWindow(w http.ResponseWriter, r *http.Request, root rootDef, u urls, idx *projection.Index, window []Metadata, total int, p pageRequest) {
 	window = nonNilMetadata(window)
 	// Only the page answered reads its episodes' documents.
 	h.enrichEpisodes(r.Context(), u, window, idx)

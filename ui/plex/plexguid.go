@@ -90,18 +90,24 @@ func seasonPlexID(s *catalogv1.Series, number int32) string {
 func episodePlexID(e *catalogv1.Episode) string { return e.Status.PlexID }
 
 // resolveKey parses a ratingKey route's path value: clustarr's own
-// ratingKey first ([ParseRatingKey]), then a Plex id, which PMS sends in
-// place of the ratingKey once it holds an item under its plex:// GUID (it
-// takes the id from the GUID; spec §2). It resolves with --plex-guids off
-// too, so items PMS already holds that way keep refreshing.
-func resolveKey(idx *projection.Index, key string) (uid types.UID, season int32, isSeason, ok bool) {
-	if uid, season, isSeason, ok = ParseRatingKey(key); ok {
-		return uid, season, isSeason, ok
+// ratingKey first ([ParseKey], every grammar), then a Plex id, which PMS
+// sends in place of the ratingKey once it holds an item under its plex://
+// GUID (it takes the id from the GUID; spec §2). It resolves with
+// --plex-guids off too, so items PMS already holds that way keep
+// refreshing. A Plex id names a movie, show, season or episode only: the
+// music roots publish no plex:// GUIDs (design §7.2, Q5).
+func resolveKey(idx *projection.Index, key string) (Key, bool) {
+	if k, ok := ParseKey(key); ok {
+		return k, true
 	}
 	if !plexIDPattern.MatchString(key) {
-		return "", 0, false, false
+		return Key{}, false
 	}
-	return idx.ByPlexID(key)
+	uid, season, isSeason, ok := idx.ByPlexID(key)
+	if !ok {
+		return Key{}, false
+	}
+	return Key{UID: uid, Season: season, IsSeason: isSeason}, true
 }
 
 // byPlexGUID resolves a plex://<metadataType>/<id> match hint's id part

@@ -1,0 +1,128 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.agents.custom.clustarr.music",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "77777777-7777-7777-7777-777777777777",
+        "key": "/library/metadata/77777777-7777-7777-7777-777777777777/children",
+        "guid": "tv.plex.agents.custom.clustarr.music://artist/77777777-7777-7777-7777-777777777777",
+        "type": "artist",
+        "title": "The Harbour Lights",
+        "originallyAvailableAt": "",
+        "thumb": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/thumb?v=artistthumbdigest1",
+        "art": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/fanart?v=artistfanartdigest1",
+        "titleSort": "Harbour Lights, The",
+        "summary": "A coastal four-piece.",
+        "Image": [
+          {
+            "type": "coverPoster",
+            "url": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/thumb?v=artistthumbdigest1",
+            "alt": "The Harbour Lights"
+          },
+          {
+            "type": "background",
+            "url": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/fanart?v=artistfanartdigest1",
+            "alt": "The Harbour Lights"
+          },
+          {
+            "type": "clearLogo",
+            "url": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/logo?v=artistlogodigest1",
+            "alt": "The Harbour Lights"
+          }
+        ],
+        "Genre": [
+          {
+            "tag": "Indie Rock"
+          },
+          {
+            "tag": "Folk"
+          }
+        ],
+        "Guid": [
+          {
+            "id": "mbid://0f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8"
+          }
+        ],
+        "Country": [
+          {
+            "tag": "GB"
+          }
+        ],
+        "Children": {
+          "size": 2,
+          "Metadata": [
+            {
+              "ratingKey": "89898989-8989-8989-8989-898989898989",
+              "key": "/library/metadata/89898989-8989-8989-8989-898989898989/children",
+              "guid": "tv.plex.agents.custom.clustarr.music://album/89898989-8989-8989-8989-898989898989",
+              "type": "album",
+              "title": "First Light",
+              "originallyAvailableAt": "2012-09-01",
+              "parentArt": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/fanart?v=artistfanartdigest1",
+              "titleSort": "First Light",
+              "year": 2012,
+              "parentRatingKey": "77777777-7777-7777-7777-777777777777",
+              "parentKey": "/library/metadata/77777777-7777-7777-7777-777777777777/children",
+              "parentGuid": "tv.plex.agents.custom.clustarr.music://artist/77777777-7777-7777-7777-777777777777",
+              "parentType": "artist",
+              "parentTitle": "The Harbour Lights",
+              "parentThumb": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/thumb?v=artistthumbdigest1",
+              "Guid": [
+                {
+                  "id": "mbid://10203040-5060-7080-90a0-b0c0d0e0f002"
+                }
+              ]
+            },
+            {
+              "ratingKey": "88888888-8888-8888-8888-888888888888",
+              "key": "/library/metadata/88888888-8888-8888-8888-888888888888/children",
+              "guid": "tv.plex.agents.custom.clustarr.music://album/88888888-8888-8888-8888-888888888888",
+              "type": "album",
+              "title": "Low Water",
+              "originallyAvailableAt": "2016-05-20",
+              "thumb": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+              "parentArt": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/fanart?v=artistfanartdigest1",
+              "titleSort": "Low Water",
+              "year": 2016,
+              "summary": "The second record.",
+              "studio": "Quayside Records",
+              "parentRatingKey": "77777777-7777-7777-7777-777777777777",
+              "parentKey": "/library/metadata/77777777-7777-7777-7777-777777777777/children",
+              "parentGuid": "tv.plex.agents.custom.clustarr.music://artist/77777777-7777-7777-7777-777777777777",
+              "parentType": "artist",
+              "parentTitle": "The Harbour Lights",
+              "parentThumb": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/thumb?v=artistthumbdigest1",
+              "Image": [
+                {
+                  "type": "coverPoster",
+                  "url": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+                  "alt": "Low Water"
+                }
+              ],
+              "Genre": [
+                {
+                  "tag": "Indie Rock"
+                }
+              ],
+              "Guid": [
+                {
+                  "id": "mbid://10203040-5060-7080-90a0-b0c0d0e0f001"
+                }
+              ],
+              "Rating": [
+                {
+                  "type": "audience",
+                  "value": 8.4
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+

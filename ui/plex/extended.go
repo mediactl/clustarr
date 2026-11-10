@@ -229,7 +229,12 @@ func (h *handler) enrichExtendedWith(ctx context.Context, u urls, md *Metadata, 
 	md.Writer = people(doc.Writer, true)
 	md.Producer = people(doc.Producer, true)
 	for _, s := range doc.Similar {
-		md.Similar = append(md.Similar, SimilarTag{Guid: similarGuid(u, s, idx), Tag: s.Title})
+		if guid := similarGuid(u, s, idx); guid != "" {
+			// A title with no id Plex can link (an artist's similar
+			// artists, until a document carries their MBIDs) is no
+			// Similar entry: Plex needs the guid.
+			md.Similar = append(md.Similar, SimilarTag{Guid: guid, Tag: s.Title})
+		}
 	}
 	if len(md.Collection) == 1 {
 		withCollectionDoc(u, &md.Collection[0], doc.Collection)

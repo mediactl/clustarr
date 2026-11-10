@@ -1,0 +1,49 @@
+{
+  "MediaContainer": {
+    "offset": 1,
+    "totalSize": 3,
+    "identifier": "tv.plex.agents.custom.clustarr.music",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889900",
+        "key": "/library/metadata/88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889900",
+        "guid": "tv.plex.agents.custom.clustarr.music://track/88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889900",
+        "type": "track",
+        "title": "The Tide Comes In",
+        "originallyAvailableAt": "2016-05-20",
+        "thumb": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+        "grandparentArt": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/fanart?v=artistfanartdigest1",
+        "year": 2016,
+        "duration": 184000,
+        "parentRatingKey": "88888888-8888-8888-8888-888888888888",
+        "parentKey": "/library/metadata/88888888-8888-8888-8888-888888888888/children",
+        "parentGuid": "tv.plex.agents.custom.clustarr.music://album/88888888-8888-8888-8888-888888888888",
+        "parentType": "album",
+        "parentTitle": "Low Water",
+        "parentThumb": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+        "index": 1,
+        "grandparentRatingKey": "77777777-7777-7777-7777-777777777777",
+        "grandparentKey": "/library/metadata/77777777-7777-7777-7777-777777777777/children",
+        "grandparentGuid": "tv.plex.agents.custom.clustarr.music://artist/77777777-7777-7777-7777-777777777777",
+        "grandparentType": "artist",
+        "grandparentTitle": "The Harbour Lights",
+        "grandparentThumb": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/thumb?v=artistthumbdigest1",
+        "parentIndex": 1,
+        "Image": [
+          {
+            "type": "coverPoster",
+            "url": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+            "alt": "The Tide Comes In"
+          }
+        ],
+        "Guid": [
+          {
+            "id": "mbid://aa11bb22-cc33-dd44-ee55-ff6677889900"
+          }
+        ]
+      }
+    ]
+  }
+}
+

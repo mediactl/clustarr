@@ -66,6 +66,11 @@ type artworkFor struct {
 	sourced bool
 	// contentType is Options.ArtContentType.
 	contentType func(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType) string
+	// thumbAsPoster serves the thumb artwork as the poster when no poster
+	// was fetched: an artist's (design §7.4), since fanart.tv's artistthumb
+	// is stored as [catalogv1.ImageTypeThumb] and nothing fetches an artist
+	// a poster of its own.
+	thumbAsPoster bool
 }
 
 // entry finds t in af.artwork, reporting false when it was never fetched.
@@ -100,6 +105,11 @@ func (af artworkFor) entry(t catalogv1.ImageType) (catalogv1.ArtworkEntry, bool)
 // holds.
 func (af artworkFor) url(externalURL string, t catalogv1.ImageType) (string, bool) {
 	a, ok := af.entry(t)
+	if !ok && t == catalogv1.ImageTypePoster && af.thumbAsPoster {
+		if a, ok = af.entry(catalogv1.ImageTypeThumb); ok {
+			t = catalogv1.ImageTypeThumb
+		}
+	}
 	if af.sourced && ok && publicURL(a.SourceURL) {
 		return a.SourceURL, true
 	}
@@ -205,26 +215,37 @@ func (h *handler) handleImages(root rootDef) http.HandlerFunc {
 // resolves to: a season's own resolves to its show's artwork (spec §D.5,
 // "show's"); an episode resolves to an empty artworkFor, since
 // EpisodeStatus has no artwork field ([buildEpisodeImages]'s own doc
-// comment). false means ratingKey names nothing this index knows, or a type
-// root does not declare ([rootDef.declares]).
+// comment); on a music root a track's is its album's and a part's its
+// audiobook's (design §7.4). false means ratingKey names nothing this index
+// knows, or something root does not serve ([rootDef.serves]).
 func resolveArtwork(root rootDef, idx *projection.Index, ratingKey string) (artworkFor, bool) {
-	uid, _, isSeason, ok := resolveKey(idx, ratingKey)
+	k, ok := resolveKey(idx, ratingKey)
 	if !ok {
 		return artworkFor{}, false
 	}
-	if isSeason {
+	if root.music {
+		item, ok := resolveMusicItem(root, idx, k)
+		if !ok {
+			return artworkFor{}, false
+		}
+		return item.artwork(), true
+	}
+	if k.Track != "" || k.IsPart || k.Synthetic != "" {
+		return artworkFor{}, false
+	}
+	if k.IsSeason {
 		if !root.declares(typeSeason) {
 			return artworkFor{}, false
 		}
-		s, ok := idx.SeriesByUID(uid)
+		s, ok := idx.SeriesByUID(k.UID)
 		if !ok {
 			return artworkFor{}, false
 		}
 		return artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay}, true
 	}
 
-	obj, ok := idx.ByUID(uid)
-	if !ok || !root.declares(providerType(obj)) {
+	obj, ok := idx.ByUID(k.UID)
+	if !ok || !root.serves(obj) {
 		return artworkFor{}, false
 	}
 	switch v := obj.(type) {

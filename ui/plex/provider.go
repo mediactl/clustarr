@@ -84,20 +84,36 @@ type Options struct {
 	// the bytes it downloads, and its UltraBlur processor decodes no WebP.
 	// Nil asks for none.
 	ArtContentType func(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType) string
+
+	// MusicProvider also serves the music and audiobook roots, /plex/music
+	// and /plex/audiobooks (`--plex-music-provider`; 2026-11-10 design
+	// §7.1, D12). Off by default: PMS through 1.43.5.11079 refuses a custom
+	// provider declaring types 8, 9 or 10 ("The provider supports
+	// unsupported metadata types", §7.6's as-run note), so the roots are
+	// built to the inferred shapes and stay off until a build accepts
+	// them. Index must then be built with projection.IndexOptions.Music,
+	// else every music route answers "not found".
+	MusicProvider bool
 }
 
-// Handler returns the composed HTTP handler for both provider roots,
+// Handler returns the composed HTTP handler for the provider roots,
 // /plex/movies (type 1, spec §D.1's movie provider) and /plex/tv (types 2,
-// 3 and 4, the tv provider) -- the six routes of spec §D.2 under each,
-// mounted on their absolute paths so ui/routes.go can register this
-// unchanged at "/plex/" (the request path reaches this handler exactly as
-// the browser -- or here, Plex Media Server -- sent it; there is no
-// http.StripPrefix between them, unlike GET /static/).
+// 3 and 4, the tv provider) -- the six routes of spec §D.2 under each --
+// and, under Options.MusicProvider, /plex/music and /plex/audiobooks
+// (types 8, 9 and 10, design §7.1), mounted on their absolute paths so
+// ui/routes.go can register this unchanged at "/plex/" (the request path
+// reaches this handler exactly as the browser -- or here, Plex Media
+// Server -- sent it; there is no http.StripPrefix between them, unlike
+// GET /static/).
 func Handler(opts Options) http.Handler {
 	h := &handler{opts: opts}
 	mux := http.NewServeMux()
 	h.register(mux, moviesRoot)
 	h.register(mux, tvRoot)
+	if opts.MusicProvider {
+		h.register(mux, musicRoot)
+		h.register(mux, audiobooksRoot)
+	}
 	return mux
 }
 
@@ -108,13 +124,22 @@ type handler struct {
 
 // rootDef is one provider root: its mount path, its own identifier/scheme,
 // the numeric provider Types it declares (spec §D.1's table) and whether it
-// answers the tv-only /children and /grandchildren routes.
+// answers the container routes, /children and /grandchildren (the tv root's
+// show->seasons->episodes, the music roots' artist->albums->tracks).
 type rootDef struct {
 	path       string
 	title      string
 	identifier string
 	types      []int
 	tv         bool
+	// music keys the music container routes as tv keys the tv ones
+	// (design §7.1): the root serves artist, album and track objects.
+	// audiobooks says which catalog kinds those are -- false: Artist, Album
+	// and its tracks; true: Author (or a synthetic artist), Audiobook and
+	// its parts -- so each music root serves only its own kinds
+	// ([rootDef.serves]), as the movies root never hands Plex a show.
+	music      bool
+	audiobooks bool
 	// collections serves the collection feature (collection.go). The
 	// root does not declare type 18 for it: PMS 1.43.4 refuses a provider
 	// that does ("The provider supports unsupported metadata types",
@@ -138,14 +163,53 @@ var tvRoot = rootDef{
 	tv:         true,
 }
 
+// musicRoot and audiobooksRoot are the music roots (design §7.1): both
+// declare Plex's music types 8 (artist), 9 (album) and 10 (track), since
+// Plex has no audiobook library type and an audiobook library is a music
+// library with Author as the artist, Audiobook as the album and each part
+// as a track (§7.4). Neither declares collections: Plex supports them in
+// movie libraries only. Registered only under Options.MusicProvider.
+var musicRoot = rootDef{
+	path:       "/plex/music",
+	title:      "Clustarr Music",
+	identifier: MusicIdentifier,
+	types:      []int{typeArtist, typeAlbum, typeTrack},
+	music:      true,
+}
+
+var audiobooksRoot = rootDef{
+	path:       "/plex/audiobooks",
+	title:      "Clustarr Audiobooks",
+	identifier: AudiobooksIdentifier,
+	types:      []int{typeArtist, typeAlbum, typeTrack},
+	music:      true,
+	audiobooks: true,
+}
+
 // declares reports whether the root declares the numeric provider type t
-// (spec §D.1's table): 1 on the movies root; 2, 3 and 4 on the tv root.
-// Every route resolves only what its root declares -- a ratingKey or a
-// match request naming another root's type is not found here -- so the
-// movies provider never hands Plex a show, nor the tv provider a movie,
-// under its own identifier.
+// (spec §D.1's table): 1 on the movies root; 2, 3 and 4 on the tv root; 8,
+// 9 and 10 on the music roots. Every route resolves only what its root
+// declares -- a ratingKey or a match request naming another root's type is
+// not found here -- so the movies provider never hands Plex a show, nor
+// the tv provider a movie, under its own identifier.
 func (r rootDef) declares(t int) bool {
 	return slices.Contains(r.types, t)
+}
+
+// serves reports whether the root serves the catalog object obj: a Movie
+// on the movies root, a Series or Episode on the tv root ([rootDef.declares]
+// of [providerType]), an Artist or Album on the music root and an Author
+// or Audiobook on the audiobooks root alone -- both music roots declare
+// the same numbers, so the type alone cannot tell them apart.
+func (r rootDef) serves(obj any) bool {
+	switch obj.(type) {
+	case *catalogv1.Artist, *catalogv1.Album:
+		return r.music && !r.audiobooks
+	case *catalogv1.Author, *catalogv1.Audiobook:
+		return r.audiobooks
+	default:
+		return r.declares(providerType(obj))
+	}
 }
 
 // register wires one root's routes onto mux: spec §D.2's six, and the
@@ -160,7 +224,7 @@ func (h *handler) register(mux *http.ServeMux, root rootDef) {
 		mux.HandleFunc("GET "+root.path+"/library/collections/{key}", h.handleCollection(root))
 		mux.HandleFunc("GET "+root.path+"/library/collections/{key}/children", h.handleCollectionChildren(root))
 	}
-	if root.tv {
+	if root.tv || root.music {
 		mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/children", h.handleChildren(root))
 		mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/grandchildren", h.handleGrandchildren(root))
 	}

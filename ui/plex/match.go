@@ -101,7 +101,8 @@ func (h *handler) handleMatch(root rootDef) http.HandlerFunc {
 // match dispatches a decoded match request by its numeric type (research
 // §4's table), building every result as a full Metadata object (spec §D.4:
 // "results are full Metadata objects"). Every type asks rule 0, the file
-// (matchfile.go), before its guid and title rules.
+// (matchfile.go), before its guid and title rules. A music root's types
+// (8, 9, 10) go to match_music.go.
 func (h *handler) match(ctx context.Context, root rootDef, u urls, idx *projection.Index, req matchRequest) []Metadata {
 	if req.Type == typeCollection {
 		if !root.collections {
@@ -113,6 +114,9 @@ func (h *handler) match(ctx context.Context, root rootDef, u urls, idx *projecti
 		// A type another root declares (a show asked of the movies root):
 		// no match, the same empty container as an unknown title.
 		return nil
+	}
+	if root.music {
+		return h.matchMusic(root, u, idx, req)
 	}
 	includeChildren := req.IncludeChildren == 1
 	manual := req.Manual == 1

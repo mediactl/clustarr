@@ -1,0 +1,50 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.agents.custom.clustarr.audiobooks",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "a-a1ad9951118292a8",
+        "key": "/library/metadata/a-a1ad9951118292a8/children",
+        "guid": "tv.plex.agents.custom.clustarr.audiobooks://artist/a-a1ad9951118292a8",
+        "type": "artist",
+        "title": "Ines Varga",
+        "originallyAvailableAt": "",
+        "Children": {
+          "size": 1,
+          "Metadata": [
+            {
+              "ratingKey": "abababab-abab-abab-abab-abababababab",
+              "key": "/library/metadata/abababab-abab-abab-abab-abababababab/children",
+              "guid": "tv.plex.agents.custom.clustarr.audiobooks://album/abababab-abab-abab-abab-abababababab",
+              "type": "album",
+              "title": "Salt and Bone",
+              "originallyAvailableAt": "2019-02-14",
+              "titleSort": "Salt and Bone",
+              "year": 2019,
+              "parentRatingKey": "a-a1ad9951118292a8",
+              "parentKey": "/library/metadata/a-a1ad9951118292a8/children",
+              "parentGuid": "tv.plex.agents.custom.clustarr.audiobooks://artist/a-a1ad9951118292a8",
+              "parentType": "artist",
+              "parentTitle": "Ines Varga",
+              "Guid": [
+                {
+                  "id": "asin://B0FAKE0002"
+                }
+              ],
+              "Writer": [
+                {
+                  "tag": "Ines Varga",
+                  "role": "Author"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+

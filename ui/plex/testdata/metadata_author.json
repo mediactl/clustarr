@@ -1,0 +1,100 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.agents.custom.clustarr.audiobooks",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "99999999-9999-9999-9999-999999999999",
+        "key": "/library/metadata/99999999-9999-9999-9999-999999999999/children",
+        "guid": "tv.plex.agents.custom.clustarr.audiobooks://artist/99999999-9999-9999-9999-999999999999",
+        "type": "artist",
+        "title": "M. R. Quayside",
+        "originallyAvailableAt": "",
+        "thumb": "https://clustarr.example.com/art/author/99999999-9999-9999-9999-999999999999/poster?v=authorphotodigest1",
+        "titleSort": "Quayside, M. R.",
+        "summary": "Writes about the sea.",
+        "Image": [
+          {
+            "type": "coverPoster",
+            "url": "https://clustarr.example.com/art/author/99999999-9999-9999-9999-999999999999/poster?v=authorphotodigest1",
+            "alt": "M. R. Quayside"
+          }
+        ],
+        "Genre": [
+          {
+            "tag": "Mystery"
+          }
+        ],
+        "Children": {
+          "size": 1,
+          "Metadata": [
+            {
+              "ratingKey": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "key": "/library/metadata/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/children",
+              "guid": "tv.plex.agents.custom.clustarr.audiobooks://album/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "type": "album",
+              "title": "The Long Dock",
+              "originallyAvailableAt": "2020-11-03",
+              "thumb": "https://clustarr.example.com/art/audiobook/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/poster?v=audiobookcoverdigest1",
+              "titleSort": "The Long Dock",
+              "year": 2020,
+              "summary": "A dock, a tide, a secret.",
+              "duration": 25200000,
+              "studio": "Quayside Audio",
+              "parentRatingKey": "99999999-9999-9999-9999-999999999999",
+              "parentKey": "/library/metadata/99999999-9999-9999-9999-999999999999/children",
+              "parentGuid": "tv.plex.agents.custom.clustarr.audiobooks://artist/99999999-9999-9999-9999-999999999999",
+              "parentType": "artist",
+              "parentTitle": "M. R. Quayside",
+              "parentThumb": "https://clustarr.example.com/art/author/99999999-9999-9999-9999-999999999999/poster?v=authorphotodigest1",
+              "Image": [
+                {
+                  "type": "coverPoster",
+                  "url": "https://clustarr.example.com/art/audiobook/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/poster?v=audiobookcoverdigest1",
+                  "alt": "The Long Dock"
+                }
+              ],
+              "Genre": [
+                {
+                  "tag": "Mystery"
+                },
+                {
+                  "tag": "Fiction"
+                }
+              ],
+              "Guid": [
+                {
+                  "id": "asin://B0FAKE0001"
+                },
+                {
+                  "id": "isbn://9780000000001"
+                }
+              ],
+              "Rating": [
+                {
+                  "type": "audience",
+                  "value": 9.2
+                }
+              ],
+              "Role": [
+                {
+                  "tag": "Ada Marsh",
+                  "role": "Narrator"
+                }
+              ],
+              "Writer": [
+                {
+                  "tag": "M. R. Quayside",
+                  "role": "Author"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+

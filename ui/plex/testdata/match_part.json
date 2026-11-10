@@ -1,0 +1,42 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.agents.custom.clustarr.audiobooks",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa-p01",
+        "key": "/library/metadata/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa-p01",
+        "guid": "tv.plex.agents.custom.clustarr.audiobooks://track/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa-p01",
+        "type": "track",
+        "title": "Opening",
+        "originallyAvailableAt": "2020-11-03",
+        "thumb": "https://m.media-amazon.com/images/I/fake.jpg",
+        "year": 2020,
+        "duration": 12600000,
+        "parentRatingKey": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "parentKey": "/library/metadata/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/children",
+        "parentGuid": "tv.plex.agents.custom.clustarr.audiobooks://album/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "parentType": "album",
+        "parentTitle": "The Long Dock",
+        "parentThumb": "https://m.media-amazon.com/images/I/fake.jpg",
+        "index": 1,
+        "grandparentRatingKey": "99999999-9999-9999-9999-999999999999",
+        "grandparentKey": "/library/metadata/99999999-9999-9999-9999-999999999999/children",
+        "grandparentGuid": "tv.plex.agents.custom.clustarr.audiobooks://artist/99999999-9999-9999-9999-999999999999",
+        "grandparentType": "artist",
+        "grandparentTitle": "M. R. Quayside",
+        "grandparentThumb": "https://covers.openlibrary.org/a/olid/OL9999999A-L.jpg",
+        "Image": [
+          {
+            "type": "coverPoster",
+            "url": "https://m.media-amazon.com/images/I/fake.jpg",
+            "alt": "Opening"
+          }
+        ]
+      }
+    ]
+  }
+}
+

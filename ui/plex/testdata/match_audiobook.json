@@ -1,0 +1,72 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.agents.custom.clustarr.audiobooks",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "key": "/library/metadata/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/children",
+        "guid": "tv.plex.agents.custom.clustarr.audiobooks://album/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "type": "album",
+        "title": "The Long Dock",
+        "originallyAvailableAt": "2020-11-03",
+        "thumb": "https://m.media-amazon.com/images/I/fake.jpg",
+        "titleSort": "The Long Dock",
+        "year": 2020,
+        "summary": "A dock, a tide, a secret.",
+        "duration": 25200000,
+        "studio": "Quayside Audio",
+        "parentRatingKey": "99999999-9999-9999-9999-999999999999",
+        "parentKey": "/library/metadata/99999999-9999-9999-9999-999999999999/children",
+        "parentGuid": "tv.plex.agents.custom.clustarr.audiobooks://artist/99999999-9999-9999-9999-999999999999",
+        "parentType": "artist",
+        "parentTitle": "M. R. Quayside",
+        "parentThumb": "https://covers.openlibrary.org/a/olid/OL9999999A-L.jpg",
+        "Image": [
+          {
+            "type": "coverPoster",
+            "url": "https://m.media-amazon.com/images/I/fake.jpg",
+            "alt": "The Long Dock"
+          }
+        ],
+        "Genre": [
+          {
+            "tag": "Mystery"
+          },
+          {
+            "tag": "Fiction"
+          }
+        ],
+        "Guid": [
+          {
+            "id": "asin://B0FAKE0001"
+          },
+          {
+            "id": "isbn://9780000000001"
+          }
+        ],
+        "Rating": [
+          {
+            "type": "audience",
+            "value": 9.2
+          }
+        ],
+        "Role": [
+          {
+            "tag": "Ada Marsh",
+            "role": "Narrator"
+          }
+        ],
+        "Writer": [
+          {
+            "tag": "M. R. Quayside",
+            "role": "Author"
+          }
+        ]
+      }
+    ]
+  }
+}
+

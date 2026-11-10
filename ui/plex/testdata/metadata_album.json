@@ -1,0 +1,135 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.agents.custom.clustarr.music",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "88888888-8888-8888-8888-888888888888",
+        "key": "/library/metadata/88888888-8888-8888-8888-888888888888/children",
+        "guid": "tv.plex.agents.custom.clustarr.music://album/88888888-8888-8888-8888-888888888888",
+        "type": "album",
+        "title": "Low Water",
+        "originallyAvailableAt": "2016-05-20",
+        "thumb": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+        "parentArt": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/fanart?v=artistfanartdigest1",
+        "titleSort": "Low Water",
+        "year": 2016,
+        "summary": "The second record.",
+        "studio": "Quayside Records",
+        "parentRatingKey": "77777777-7777-7777-7777-777777777777",
+        "parentKey": "/library/metadata/77777777-7777-7777-7777-777777777777/children",
+        "parentGuid": "tv.plex.agents.custom.clustarr.music://artist/77777777-7777-7777-7777-777777777777",
+        "parentType": "artist",
+        "parentTitle": "The Harbour Lights",
+        "parentThumb": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/thumb?v=artistthumbdigest1",
+        "Image": [
+          {
+            "type": "coverPoster",
+            "url": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+            "alt": "Low Water"
+          }
+        ],
+        "Genre": [
+          {
+            "tag": "Indie Rock"
+          }
+        ],
+        "Guid": [
+          {
+            "id": "mbid://10203040-5060-7080-90a0-b0c0d0e0f001"
+          }
+        ],
+        "Rating": [
+          {
+            "type": "audience",
+            "value": 8.4
+          }
+        ],
+        "Children": {
+          "size": 2,
+          "Metadata": [
+            {
+              "ratingKey": "88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889900",
+              "key": "/library/metadata/88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889900",
+              "guid": "tv.plex.agents.custom.clustarr.music://track/88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889900",
+              "type": "track",
+              "title": "The Tide Comes In",
+              "originallyAvailableAt": "2016-05-20",
+              "thumb": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+              "grandparentArt": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/fanart?v=artistfanartdigest1",
+              "year": 2016,
+              "duration": 184000,
+              "parentRatingKey": "88888888-8888-8888-8888-888888888888",
+              "parentKey": "/library/metadata/88888888-8888-8888-8888-888888888888/children",
+              "parentGuid": "tv.plex.agents.custom.clustarr.music://album/88888888-8888-8888-8888-888888888888",
+              "parentType": "album",
+              "parentTitle": "Low Water",
+              "parentThumb": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+              "index": 1,
+              "grandparentRatingKey": "77777777-7777-7777-7777-777777777777",
+              "grandparentKey": "/library/metadata/77777777-7777-7777-7777-777777777777/children",
+              "grandparentGuid": "tv.plex.agents.custom.clustarr.music://artist/77777777-7777-7777-7777-777777777777",
+              "grandparentType": "artist",
+              "grandparentTitle": "The Harbour Lights",
+              "grandparentThumb": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/thumb?v=artistthumbdigest1",
+              "parentIndex": 1,
+              "Image": [
+                {
+                  "type": "coverPoster",
+                  "url": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+                  "alt": "The Tide Comes In"
+                }
+              ],
+              "Guid": [
+                {
+                  "id": "mbid://aa11bb22-cc33-dd44-ee55-ff6677889900"
+                }
+              ]
+            },
+            {
+              "ratingKey": "88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889901",
+              "key": "/library/metadata/88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889901",
+              "guid": "tv.plex.agents.custom.clustarr.music://track/88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889901",
+              "type": "track",
+              "title": "Undertow",
+              "originallyAvailableAt": "2016-05-20",
+              "thumb": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+              "grandparentArt": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/fanart?v=artistfanartdigest1",
+              "year": 2016,
+              "duration": 215000,
+              "parentRatingKey": "88888888-8888-8888-8888-888888888888",
+              "parentKey": "/library/metadata/88888888-8888-8888-8888-888888888888/children",
+              "parentGuid": "tv.plex.agents.custom.clustarr.music://album/88888888-8888-8888-8888-888888888888",
+              "parentType": "album",
+              "parentTitle": "Low Water",
+              "parentThumb": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+              "index": 2,
+              "grandparentRatingKey": "77777777-7777-7777-7777-777777777777",
+              "grandparentKey": "/library/metadata/77777777-7777-7777-7777-777777777777/children",
+              "grandparentGuid": "tv.plex.agents.custom.clustarr.music://artist/77777777-7777-7777-7777-777777777777",
+              "grandparentType": "artist",
+              "grandparentTitle": "The Harbour Lights",
+              "grandparentThumb": "https://clustarr.example.com/art/artist/77777777-7777-7777-7777-777777777777/thumb?v=artistthumbdigest1",
+              "parentIndex": 1,
+              "Image": [
+                {
+                  "type": "coverPoster",
+                  "url": "https://clustarr.example.com/art/album/88888888-8888-8888-8888-888888888888/poster?v=albumcoverdigest1",
+                  "alt": "Undertow"
+                }
+              ],
+              "Guid": [
+                {
+                  "id": "mbid://aa11bb22-cc33-dd44-ee55-ff6677889901"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+

@@ -1,0 +1,58 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.agents.custom.clustarr.music",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "77777777-7777-7777-7777-777777777777",
+        "key": "/library/metadata/77777777-7777-7777-7777-777777777777/children",
+        "guid": "tv.plex.agents.custom.clustarr.music://artist/77777777-7777-7777-7777-777777777777",
+        "type": "artist",
+        "title": "The Harbour Lights",
+        "originallyAvailableAt": "",
+        "thumb": "https://assets.fanart.tv/fanart/music/x/artistthumb/1.jpg",
+        "art": "https://assets.fanart.tv/fanart/music/x/artistbackground/1.jpg",
+        "titleSort": "Harbour Lights, The",
+        "summary": "A coastal four-piece.",
+        "Image": [
+          {
+            "type": "coverPoster",
+            "url": "https://assets.fanart.tv/fanart/music/x/artistthumb/1.jpg",
+            "alt": "The Harbour Lights"
+          },
+          {
+            "type": "background",
+            "url": "https://assets.fanart.tv/fanart/music/x/artistbackground/1.jpg",
+            "alt": "The Harbour Lights"
+          },
+          {
+            "type": "clearLogo",
+            "url": "https://assets.fanart.tv/fanart/music/x/hdmusiclogo/1.png",
+            "alt": "The Harbour Lights"
+          }
+        ],
+        "Genre": [
+          {
+            "tag": "Indie Rock"
+          },
+          {
+            "tag": "Folk"
+          }
+        ],
+        "Guid": [
+          {
+            "id": "mbid://0f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8"
+          }
+        ],
+        "Country": [
+          {
+            "tag": "GB"
+          }
+        ]
+      }
+    ]
+  }
+}
+

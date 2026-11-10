@@ -1,0 +1,49 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.agents.custom.clustarr.music",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889900",
+        "key": "/library/metadata/88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889900",
+        "guid": "tv.plex.agents.custom.clustarr.music://track/88888888-8888-8888-8888-888888888888-taa11bb22-cc33-dd44-ee55-ff6677889900",
+        "type": "track",
+        "title": "The Tide Comes In",
+        "originallyAvailableAt": "2016-05-20",
+        "thumb": "https://coverartarchive.org/release/x/1-500.jpg",
+        "grandparentArt": "https://assets.fanart.tv/fanart/music/x/artistbackground/1.jpg",
+        "year": 2016,
+        "duration": 184000,
+        "parentRatingKey": "88888888-8888-8888-8888-888888888888",
+        "parentKey": "/library/metadata/88888888-8888-8888-8888-888888888888/children",
+        "parentGuid": "tv.plex.agents.custom.clustarr.music://album/88888888-8888-8888-8888-888888888888",
+        "parentType": "album",
+        "parentTitle": "Low Water",
+        "parentThumb": "https://coverartarchive.org/release/x/1-500.jpg",
+        "index": 1,
+        "grandparentRatingKey": "77777777-7777-7777-7777-777777777777",
+        "grandparentKey": "/library/metadata/77777777-7777-7777-7777-777777777777/children",
+        "grandparentGuid": "tv.plex.agents.custom.clustarr.music://artist/77777777-7777-7777-7777-777777777777",
+        "grandparentType": "artist",
+        "grandparentTitle": "The Harbour Lights",
+        "grandparentThumb": "https://assets.fanart.tv/fanart/music/x/artistthumb/1.jpg",
+        "parentIndex": 1,
+        "Image": [
+          {
+            "type": "coverPoster",
+            "url": "https://coverartarchive.org/release/x/1-500.jpg",
+            "alt": "The Tide Comes In"
+          }
+        ],
+        "Guid": [
+          {
+            "id": "mbid://aa11bb22-cc33-dd44-ee55-ff6677889900"
+          }
+        ]
+      }
+    ]
+  }
+}
+

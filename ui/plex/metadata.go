@@ -596,6 +596,18 @@ func (h *handler) handleMetadata(root rootDef) http.HandlerFunc {
 			h.enrichExtended(r.Context(), u, &md, commonv1.MediaKindSeries, types.UID(md.RatingKey), idx)
 		case metadataTypeEpisode:
 			h.enrichExtended(r.Context(), u, &md, commonv1.MediaKindEpisode, types.UID(md.RatingKey), idx)
+		case metadataTypeArtist:
+			// An Artist's or Author's Similar[] comes from its extended
+			// document (design §7.4), which no gateway writes yet
+			// (inferred shape; the read is a no-op until one does). A
+			// synthetic artist has no object and no document.
+			if k, ok := ParseKey(md.RatingKey); ok && k.Synthetic == "" {
+				kind := commonv1.MediaKindArtist
+				if root.audiobooks {
+					kind = commonv1.MediaKindAuthor
+				}
+				h.enrichExtended(r.Context(), u, &md, kind, k.UID, idx)
+			}
 		}
 		if md.Children != nil {
 			// A season's episodes, the only answer PMS refreshes them from.
@@ -613,26 +625,36 @@ func (h *handler) handleMetadata(root rootDef) http.HandlerFunc {
 }
 
 // resolveMetadata looks ratingKey up in idx and builds its Metadata object,
-// false when ratingKey names nothing this index knows or names a type root
-// does not declare ([rootDef.declares]).
+// false when ratingKey names nothing this index knows or names something
+// root does not serve ([rootDef.serves]).
 func (h *handler) resolveMetadata(root rootDef, u urls, idx *projection.Index, ratingKey string, includeChildren bool) (Metadata, bool) {
-	uid, season, isSeason, ok := resolveKey(idx, ratingKey)
+	k, ok := resolveKey(idx, ratingKey)
 	if !ok {
 		return Metadata{}, false
 	}
-	if isSeason {
-		if !root.declares(typeSeason) {
-			return Metadata{}, false
-		}
-		s, ok := idx.SeriesByUID(uid)
+	if root.music {
+		item, ok := resolveMusicItem(root, idx, k)
 		if !ok {
 			return Metadata{}, false
 		}
-		return buildSeasonMetadata(root, u, s, season, idx, includeChildren)
+		return item.metadata(root, u, idx, includeChildren), true
+	}
+	if k.Track != "" || k.IsPart || k.Synthetic != "" {
+		return Metadata{}, false
+	}
+	if k.IsSeason {
+		if !root.declares(typeSeason) {
+			return Metadata{}, false
+		}
+		s, ok := idx.SeriesByUID(k.UID)
+		if !ok {
+			return Metadata{}, false
+		}
+		return buildSeasonMetadata(root, u, s, k.Season, idx, includeChildren)
 	}
 
-	obj, ok := idx.ByUID(uid)
-	if !ok || !root.declares(providerType(obj)) {
+	obj, ok := idx.ByUID(k.UID)
+	if !ok || !root.serves(obj) {
 		return Metadata{}, false
 	}
 	switch v := obj.(type) {
@@ -651,9 +673,11 @@ func (h *handler) resolveMetadata(root rootDef, u urls, idx *projection.Index, r
 	}
 }
 
-// providerType is obj's numeric Plex provider type (spec §D.1): 1 for a
-// Movie, 2 for a Series, 4 for an Episode, 0 for anything else. A season
-// has no object; its ratingKey is checked against typeSeason directly.
+// providerType is obj's numeric Plex provider type (spec §D.1, design
+// §7.1): 1 for a Movie, 2 for a Series, 4 for an Episode, 8 for an Artist
+// or an Author (the audiobooks root's artist level), 9 for an Album or an
+// Audiobook, 0 for anything else. A season, a track and a part have no
+// object; their ratingKeys are checked against their type directly.
 func providerType(obj any) int {
 	switch obj.(type) {
 	case *catalogv1.Movie:
@@ -662,6 +686,10 @@ func providerType(obj any) int {
 		return typeShow
 	case *catalogv1.Episode:
 		return typeEpisode
+	case *catalogv1.Artist, *catalogv1.Author:
+		return typeArtist
+	case *catalogv1.Album, *catalogv1.Audiobook:
+		return typeAlbum
 	default:
 		return 0
 	}

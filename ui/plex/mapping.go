@@ -55,9 +55,11 @@ type CollectionRef struct {
 }
 
 // RatingObj is one Rating[] entry (research §5.2): a badge identifier from
-// Plex's closed vocabulary, "audience" or "critic", and a 0-10 float.
+// Plex's closed vocabulary, "audience" or "critic", and a 0-10 float. A
+// music rating carries no badge (design §7.4: "musicbrainz as a badge-less
+// rating"), so Image is omitted when empty.
 type RatingObj struct {
-	Image string  `json:"image"`
+	Image string  `json:"image,omitempty"`
 	Type  string  `json:"type"`
 	Value float64 `json:"value"`
 }
@@ -116,6 +118,25 @@ func ratings(rs []catalogv1.Rating) []RatingObj {
 	}
 	if r, ok := by[catalogv1.RatingSourceRTAudience]; ok {
 		out = append(out, RatingObj{Image: rtImage(r.ValueCentis, ratingImageRTUpright, ratingImageRTSpilled), Type: "audience", Value: roundOneDecimal(float64(r.ValueCentis) / 1000.0)})
+	}
+	return out
+}
+
+// musicRatings builds Rating[] for an album or an audiobook (design §7.4):
+// the MusicBrainz and Audnexus scores, both stored out of 10, as badge-less
+// audience ratings, in that fixed order. Plex's badge vocabulary names no
+// music source, so Image stays empty (inferred: how Plex's own music items
+// carry a rating is unverified).
+func musicRatings(rs []catalogv1.Rating) []RatingObj {
+	by := make(map[catalogv1.RatingSource]catalogv1.Rating, len(rs))
+	for _, r := range rs {
+		by[r.Source] = r
+	}
+	var out []RatingObj
+	for _, src := range []catalogv1.RatingSource{catalogv1.RatingSourceMusicBrainz, catalogv1.RatingSourceAudnexus} {
+		if r, ok := by[src]; ok {
+			out = append(out, RatingObj{Type: "audience", Value: roundOneDecimal(float64(r.ValueCentis) / 100.0)})
+		}
 	}
 	return out
 }

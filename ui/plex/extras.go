@@ -115,26 +115,35 @@ func containerWindow(r *http.Request, total int) (start, size int) {
 }
 
 // extrasPlexID is the Plex id of the item ratingKey names, "" when it has
-// none; false when the root does not serve it.
+// none; false when the root does not serve it. A music key has no Plex id
+// (design §7.2, Q5), so every one a music root serves answers the empty
+// list (§7.4: "/extras answers an empty list for every music key").
 func extrasPlexID(root rootDef, idx *projection.Index, ratingKey string) (string, bool) {
-	uid, season, isSeason, ok := resolveKey(idx, ratingKey)
+	k, ok := resolveKey(idx, ratingKey)
 	if !ok {
 		return "", false
 	}
-	if isSeason {
-		s, ok := idx.SeriesByUID(uid)
+	if root.music {
+		_, ok := resolveMusicItem(root, idx, k)
+		return "", ok
+	}
+	if k.Track != "" || k.IsPart || k.Synthetic != "" {
+		return "", false
+	}
+	if k.IsSeason {
+		s, ok := idx.SeriesByUID(k.UID)
 		if !ok || !root.declares(typeSeason) {
 			return "", false
 		}
-		return seasonPlexID(s, season), true
+		return seasonPlexID(s, k.Season), true
 	}
-	if m, ok := idx.MovieByUID(uid); ok && root.declares(typeMovie) {
+	if m, ok := idx.MovieByUID(k.UID); ok && root.declares(typeMovie) {
 		return moviePlexID(m), true
 	}
-	if s, ok := idx.SeriesByUID(uid); ok && root.declares(typeShow) {
+	if s, ok := idx.SeriesByUID(k.UID); ok && root.declares(typeShow) {
 		return seriesPlexID(s), true
 	}
-	if e, ok := idx.EpisodeByUID(uid); ok && root.declares(typeEpisode) {
+	if e, ok := idx.EpisodeByUID(k.UID); ok && root.declares(typeEpisode) {
 		return episodePlexID(e), true
 	}
 	return "", false
