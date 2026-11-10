@@ -19,6 +19,11 @@ package schema_test
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -33,11 +38,30 @@ import (
 // in schematest, which app/catalog/history's resolver guard ranges over too.
 func allPayloads() []schema.Payload { return schematest.Payloads() }
 
+// wireNameExceptions are the schemas whose wire name names their struct by
+// neither rule below, each with why it stays: a wire name is a contract
+// with every envelope already stored, so a mismatch found after the fact is
+// recorded here rather than renamed. The test checks each entry still
+// applies, so a rename at the struct's next version drops its entry.
+var wireNameExceptions = map[string]string{
+	// Built 2026-10-22 (the MediUX image-sets automation design) as the
+	// bucket's plural; renaming it is a wire break for clustarr-image-sets.
+	"catalog.ImageSets.v1": "ImageSetRecord",
+}
+
 // TestSchemaNamesAreUniqueAndVersioned pins the header contract: payloads are
 // versioned by Clustarr-Schema, so the value must name the struct and end in
-// a version.
+// a version. A struct may carry the group as a prefix where the bare name
+// would collide, as DownloadProgress and TranscodeProgress do; and a record
+// -- a worker's answer in a Durable KV bucket, ADR-0019 (dc91000e, the
+// agents-report-over-NATS design's §6.5 and §7) -- is named on the wire by
+// what it records, "download.Transfer.v1" for TransferRecord and
+// "catalog.ItemMetadata.v1" for ItemMetadataRecord, its Go type carrying
+// Record as its suffix alone. (ProbeRecord and NFORecord, built later, say
+// Record on the wire too, and pass as any struct does.)
 func TestSchemaNamesAreUniqueAndVersioned(t *testing.T) {
 	seen := map[string]bool{}
+	excepted := map[string]bool{}
 	for _, p := range allPayloads() {
 		name := p.Schema()
 		if seen[name] {
@@ -52,11 +76,70 @@ func TestSchemaNamesAreUniqueAndVersioned(t *testing.T) {
 		if !strings.HasPrefix(parts[2], "v") {
 			t.Errorf("schema %q does not end in a version", name)
 		}
-		// The struct may carry the group as a prefix where the bare name
-		// would collide, as DownloadProgress and TranscodeProgress do.
-		if got := reflect.TypeOf(p).Name(); !strings.HasSuffix(got, parts[1]) {
+		got := reflect.TypeOf(p).Name()
+		if want, ok := wireNameExceptions[name]; ok {
+			excepted[name] = true
+			if got != want {
+				t.Errorf("schema %q is excepted for struct %q but names %q; move or drop the exception", name, want, got)
+			} else if strings.HasSuffix(got, parts[1]) || strings.HasSuffix(got, parts[1]+"Record") {
+				t.Errorf("schema %q now names its struct %q; drop its wireNameExceptions entry", name, got)
+			}
+			continue
+		}
+		if !strings.HasSuffix(got, parts[1]) && !strings.HasSuffix(got, parts[1]+"Record") {
 			t.Errorf("schema %q does not name its struct %q", name, got)
 		}
+	}
+	for name := range wireNameExceptions {
+		if !excepted[name] {
+			t.Errorf("wireNameExceptions names %q, which no payload in schematest.Payloads carries", name)
+		}
+	}
+}
+
+// TestEveryPayloadIsInTheSharedList holds schematest.Payloads to its claim
+// of being every versioned payload the bus carries: each Schema() method
+// declared in this package names a struct the list holds. ImageSetTask and
+// ImageSetRecord (2026-10-22) were missing from it for three weeks, unseen
+// by every guard that ranges over the list, which is what the list's own
+// comment says cannot happen.
+func TestEveryPayloadIsInTheSharedList(t *testing.T) {
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
+		return !strings.HasSuffix(fi.Name(), "_test.go")
+	}, 0)
+	if err != nil {
+		t.Fatalf("parse pkg/events/schema: %v", err)
+	}
+	listed := map[string]bool{}
+	for _, p := range allPayloads() {
+		listed[reflect.TypeOf(p).Name()] = true
+	}
+	var declared int
+	for _, pkg := range pkgs {
+		for file, f := range pkg.Files {
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || fd.Name.Name != "Schema" || fd.Recv == nil || len(fd.Recv.List) != 1 || fd.Type.Params.NumFields() != 0 {
+					continue
+				}
+				recv := fd.Recv.List[0].Type
+				if star, ok := recv.(*ast.StarExpr); ok {
+					recv = star.X
+				}
+				ident, ok := recv.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				declared++
+				if !listed[ident.Name] {
+					t.Errorf("%s declares a Schema() for %s, which schematest.Payloads does not list", filepath.Base(file), ident.Name)
+				}
+			}
+		}
+	}
+	if declared < len(listed) {
+		t.Errorf("found %d Schema() declarations for %d listed payloads; the parse missed some", declared, len(listed))
 	}
 }
 
@@ -95,6 +178,11 @@ func walkFields(t *testing.T, typ reflect.Type, path string, seen map[reflect.Ty
 	}
 }
 
+// TestEncodeDecodeRoundTrip pins the search task's wire name at its second
+// version: since ADR-0019 (dc91000e, design §7.4) the task carries the
+// item, the dispatch seq and everything the agent needs to decide -- the
+// profile, protocols, scope -- so it reads no Kubernetes object, and the
+// header moved to v2 with it.
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	in := schema.SearchTask{
 		MediaRef: commonv1.MediaRef{
@@ -105,12 +193,14 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		Reason:      schema.SearchReasonCutoffUnmet,
 		SearchRef:   &schema.Ref{Namespace: "media", Name: "search-1", UID: "u1"},
 		UserInvoked: true,
+		Item:        schema.ItemRef{Kind: "Series", Ref: schema.Ref{Namespace: "media", Name: "the-expanse", UID: "u2"}},
+		Seq:         3,
 	}
 	name, data, err := schema.Encode(in)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	if name != "catalog.SearchTask.v1" {
+	if name != "catalog.SearchTask.v2" {
 		t.Errorf("schema = %q", name)
 	}
 

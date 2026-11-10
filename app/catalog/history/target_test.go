@@ -181,6 +181,26 @@ func TestResolve_ListTask(t *testing.T) {
 	}, history.Resolve(env))
 }
 
+// TestResolve_ImageSetTask: a dead-lettered image-set task (the metadata
+// agent's catalog-imageset worker) names the Movie or Series it was for,
+// through the item ref every ADR-0019 task carries; one whose decode fails
+// degrades to its key's namespace like every other payload.
+func TestResolve_ImageSetTask(t *testing.T) {
+	env := envelopeFor(t, "media/the-expanse", schema.ImageSetTask{
+		Item: schema.ItemRef{Kind: "Series", Ref: schema.Ref{Namespace: "media", Name: "the-expanse", UID: "u1"}},
+		Seq:  2,
+	})
+	require.Equal(t, history.Target{
+		Namespace: "media", Name: "the-expanse",
+		Kind: "Series", APIVersion: "catalog.clustarr.io/v1alpha1",
+	}, history.Resolve(env))
+
+	broken := &events.Envelope{Schema: schema.ImageSetTask{}.Schema(), Key: "media/the-expanse", Data: []byte(`not json`)}
+	got := history.Resolve(broken)
+	require.False(t, got.KindKnown())
+	require.Equal(t, "media", got.Namespace)
+}
+
 func TestResolve_NamespaceOnlyAndUnresolvable(t *testing.T) {
 	t.Run("WantedScan is a namespace sweep, never a single object", func(t *testing.T) {
 		env := envelopeFor(t, "should-be-ignored/too", schema.WantedScan{Namespace: "default"})
@@ -236,20 +256,38 @@ func TestResolve_NamespaceOnlyAndUnresolvable(t *testing.T) {
 
 // neverDeadLettered are the payloads no durable consumer ever receives, and
 // so none can reach a DLQ for Resolve to name: request/reply RPC over core
-// NATS (no stream, no MaxDeliver) and 1 Hz progress telemetry written to the
-// clustarr-progress KV bucket. Each entry says which.
+// NATS (no stream, no MaxDeliver), 1 Hz progress telemetry and agent
+// presence written to the clustarr-progress KV bucket, an import list's
+// snapshot chunks in clustarr-importlist, and every record -- a worker's
+// answer written into its Durable KV bucket by compare-and-swap
+// (pkg/records, ADR-0019; never published on a stream). Each entry says
+// which.
 var neverDeadLettered = map[string]string{
-	schema.MetadataRequest{}.Schema():   "RPC request, clustarr.rpc.catalog.metadata.*",
-	schema.MetadataResponse{}.Schema():  "RPC reply, clustarr.rpc.catalog.metadata.*",
-	schema.SearchRequest{}.Schema():     "RPC request, clustarr.rpc.index.search",
-	schema.SearchResponse{}.Schema():    "RPC reply, clustarr.rpc.index.search",
-	schema.DownloadRequest{}.Schema():   "RPC request, clustarr.rpc.index.download",
-	schema.DownloadResponse{}.Schema():  "RPC reply, clustarr.rpc.index.download",
-	schema.QueryRequest{}.Schema():      "RPC request, clustarr.rpc.index.query",
-	schema.QueryResponse{}.Schema():     "RPC reply, clustarr.rpc.index.query",
-	schema.DownloadProgress{}.Schema():  "KV telemetry, clustarr-progress download.<uid>",
-	schema.TranscodeProgress{}.Schema(): "KV telemetry, clustarr-progress transcode.<uid>",
-	schema.NFORecord{}.Schema():         "KV record, clustarr-nfo (an import-nfo task's answer, never a message)",
+	schema.MetadataRequest{}.Schema():     "RPC request, clustarr.rpc.catalog.metadata.*",
+	schema.MetadataResponse{}.Schema():    "RPC reply, clustarr.rpc.catalog.metadata.*",
+	schema.PlexExtrasRequest{}.Schema():   "RPC request, clustarr.rpc.catalog.metadata.extras",
+	schema.PlexExtrasResponse{}.Schema():  "RPC reply, clustarr.rpc.catalog.metadata.extras",
+	schema.SearchRequest{}.Schema():       "RPC request, clustarr.rpc.index.search",
+	schema.SearchResponse{}.Schema():      "RPC reply, clustarr.rpc.index.search",
+	schema.DownloadRequest{}.Schema():     "RPC request, clustarr.rpc.index.download",
+	schema.DownloadResponse{}.Schema():    "RPC reply, clustarr.rpc.index.download",
+	schema.QueryRequest{}.Schema():        "RPC request, clustarr.rpc.index.query",
+	schema.QueryResponse{}.Schema():       "RPC reply, clustarr.rpc.index.query",
+	schema.BlocklistRequest{}.Schema():    "RPC request, clustarr.rpc.index.blocklist",
+	schema.BlocklistResponse{}.Schema():   "RPC reply, clustarr.rpc.index.blocklist",
+	schema.DownloadProgress{}.Schema():    "KV telemetry, clustarr-progress download.<uid>",
+	schema.TranscodeProgress{}.Schema():   "KV telemetry, clustarr-progress transcode.<uid>",
+	schema.AgentPresence{}.Schema():       "KV presence, clustarr-progress agent.<domain>.<pod> (pkg/presence)",
+	schema.ListSnapshot{}.Schema():        "KV snapshot chunks, clustarr-importlist (the ImportList controller reads them)",
+	schema.ProbeRecord{}.Schema():         "KV record, clustarr-probes (a probe task's answer, never a message)",
+	schema.TransferRecord{}.Schema():      "KV record, clustarr-transfers (the engine's transfer state, never a message)",
+	schema.EngineRecord{}.Schema():        "KV record, clustarr-engines (an engine pod's state, never a message)",
+	schema.ImportRecord{}.Schema():        "KV record, clustarr-imports (an inspect or execute task's answer, never a message)",
+	schema.SearchRecord{}.Schema():        "KV record, clustarr-searches (a search task's answer, never a message)",
+	schema.ItemMetadataRecord{}.Schema():  "KV record, clustarr-item-metadata (a metadata task's answer, never a message)",
+	schema.IndexerHealthRecord{}.Schema(): "KV record, clustarr-indexer-health (the index agent's health outcomes, never a message)",
+	schema.ImageSetRecord{}.Schema():      "KV record, clustarr-image-sets (an image-set task's answer, never a message)",
+	schema.NFORecord{}.Schema():           "KV record, clustarr-nfo (an import-nfo task's answer, never a message)",
 }
 
 // TestEveryPayloadHasAResolver ranges over the bus's whole payload list

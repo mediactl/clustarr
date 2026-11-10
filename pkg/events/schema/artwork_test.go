@@ -28,13 +28,20 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
+// TestArtworkFetchTaskEncodeDecodeRoundTrip pins the task's wire name at its
+// second version: ADR-0019 §7.1 (dc91000e) made the item key plan which
+// images to fetch, so the task carries Item, Fetch and Drop beside its
+// MediaRef, and the header moved to v2 with it.
 func TestArtworkFetchTaskEncodeDecodeRoundTrip(t *testing.T) {
 	in := schema.ArtworkFetchTask{
 		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "heat"},
+		Item:     schema.ItemRef{Kind: "Movie", Ref: schema.Ref{Namespace: "media", Name: "heat", UID: "u1"}},
+		Fetch:    []schema.ArtworkFetch{{Type: "poster", URL: "https://image.tmdb.org/p.jpg", Kind: "provider", Language: "en"}},
+		Drop:     []string{"banner"},
 	}
 	name, data, err := schema.Encode(in)
 	require.NoError(t, err)
-	assert.Equal(t, "catalog.ArtworkFetchTask.v1", name)
+	assert.Equal(t, "catalog.ArtworkFetchTask.v2", name)
 
 	var out schema.ArtworkFetchTask
 	require.NoError(t, schema.Decode(name, data, &out))
@@ -42,7 +49,9 @@ func TestArtworkFetchTaskEncodeDecodeRoundTrip(t *testing.T) {
 }
 
 // An ArtworkFetchTask must never be decoded from a message carrying another
-// payload's schema header, same as every other task in this package.
+// payload's schema header, same as every other task in this package -- nor
+// from its own retired v1 header: no payload has a Legacy version since the
+// cold cutover (ADR-0019 A9.1), so a v1 envelope is a foreign one too.
 func TestArtworkFetchTaskRejectsAForeignSchemaHeader(t *testing.T) {
 	_, data, err := schema.Encode(schema.ArtworkFetchTask{
 		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "heat"},
@@ -50,7 +59,8 @@ func TestArtworkFetchTaskRejectsAForeignSchemaHeader(t *testing.T) {
 	require.NoError(t, err)
 
 	var out schema.ArtworkFetchTask
-	assert.Error(t, schema.Decode("catalog.ArtworkFetchTask.v2", data, &out))
+	assert.Error(t, schema.Decode(schema.RenderOverlayTask{}.Schema(), data, &out), "another task's header")
+	assert.Error(t, schema.Decode("catalog.ArtworkFetchTask.v1", data, &out), "the retired v1 header")
 }
 
 func TestRenderOverlayTaskEncodeDecodeRoundTrip(t *testing.T) {

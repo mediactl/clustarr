@@ -87,6 +87,10 @@ func Payloads() []schema.Payload {
 		schema.AgentPresence{},
 		schema.ListSnapshot{},
 		schema.RecycleFilesTask{},
+		// The image-set task and its record (the 2026-10-22 MediUX image
+		// sets automation design), missed here until 2026-11-10.
+		schema.ImageSetTask{},
+		schema.ImageSetRecord{},
 		// The NFO write task and its record (2026-11-10 design §8.2).
 		schema.NFOWriteTask{},
 		schema.NFORecord{},

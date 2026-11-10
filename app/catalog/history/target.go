@@ -172,6 +172,7 @@ var resolvers = map[string]resolver{
 	schema.AnalyzeTask{}.Schema():       resolveAnalyzeTask,
 	schema.MarkersTask{}.Schema():       resolveMarkersTask,
 	schema.ProbeTask{}.Schema():         resolveProbeTask,
+	schema.ImageSetTask{}.Schema():      resolveImageSetTask,
 	schema.NFOWriteTask{}.Schema():      resolveNFOWriteTask,
 	// ADR-0019's tasks and intake (dispatch.go): each resolves to its
 	// owner, or to the LibraryScan of a scan observation.
@@ -321,6 +322,18 @@ func resolveProbeTask(key string, data []byte) Target {
 		return Target{Namespace: namespaceOf(key)}
 	}
 	return mediaFileTarget(p.MediaFile.Namespace, p.MediaFile.Name)
+}
+
+// resolveImageSetTask names the Movie or Series whose MediUX image set the
+// metadata agent's catalog-imageset worker was asked for (the 2026-10-22
+// image-sets automation design): the task carries the item, UID included,
+// as every ADR-0019 task does.
+func resolveImageSetTask(key string, data []byte) Target {
+	var p schema.ImageSetTask
+	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.Item.Name == "" {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return itemTarget(p.Item)
 }
 
 // resolveNFOWriteTask names the Artist, Album, Author or Audiobook whose
