@@ -1020,5 +1020,5 @@ func (c *Client) publish(id string) {
 // slowed to a piece every few seconds and outlasted its download by over an
 // hour (2026-10-20).
 func fileStorage(dir string) storage.ClientImplCloser {
-	return storage.NewFileOpts(storage.NewFileClientOpts{ClientBaseDir: dir, UsePartFiles: g.Some(true)})
+	return exactWriteTo{storage.NewFileOpts(storage.NewFileClientOpts{ClientBaseDir: dir, UsePartFiles: g.Some(true)})}
 }
