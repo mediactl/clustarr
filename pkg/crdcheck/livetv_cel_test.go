@@ -88,8 +88,11 @@ func TestLiveTVCEL(t *testing.T) {
 		_, err := providers.Create(ctx, provider(name, fields), metav1.CreateOptions{})
 		require.ErrorContains(t, err, typeRule, name)
 	}
-	_, err = providers.Create(ctx, provider("bad-type", map[string]any{"type": "Plain", "playlistURL": "https://p.example/list.m3u"}), metav1.CreateOptions{})
-	require.Error(t, err, "type is Xtream or M3U")
+	// The enum case sits on an otherwise-valid Xtream account, so the type
+	// rule's else-branch holds and only the enum can refuse it; a Plain
+	// provider naming a playlistURL alone failed the type rule instead.
+	_, err = providers.Create(ctx, provider("bad-type", map[string]any{"type": "Plain", "server": "tvload.win", "credentialsRef": creds}), metav1.CreateOptions{})
+	require.ErrorContains(t, err, `Unsupported value: "Plain"`, "type is Xtream or M3U")
 	_, err = providers.Create(ctx, provider("bad-guide", map[string]any{"server": "tvload.win", "credentialsRef": creds, "guideURL": "ftp://p.example/epg.xml"}), metav1.CreateOptions{})
 	require.Error(t, err, "guideURL is http or https")
 
