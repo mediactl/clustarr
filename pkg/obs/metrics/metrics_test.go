@@ -253,44 +253,49 @@ func TestEveryMetricUsesTheClustarrPrefix(t *testing.T) {
 	}
 }
 
+// bannedLabelWords name the unbounded dimensions: media title, file path
+// and release name are the ones the amendment calls out by name; url and
+// query cover indexer/provider request details that carry the same risk.
+var bannedLabelWords = map[string]bool{"title": true, "path": true, "file": true, "release": true, "name": true, "url": true, "query": true}
+
+// unboundedLabel is the one rule TestNoMetricIsLabelledByAnUnboundedDimension
+// applies to the catalogue and TestTheUnboundedDimensionRuleMatchesWholeWords
+// pins the shape of: a label is banned when one of its words -- the label
+// name split on underscores -- is in bannedLabelWords, so `file_path` and
+// `release_title` are caught while `profile` (a TranscodeProfile's name,
+// 2026-09-30) is not: the substring rule read "profile" as "file".
+func unboundedLabel(label string) bool {
+	for _, word := range strings.Split(strings.ToLower(label), "_") {
+		if bannedLabelWords[word] {
+			return true
+		}
+	}
+	return false
+}
+
 // TestNoMetricIsLabelledByAnUnboundedDimension is the rule that matters
-// most: no metric may be labelled by anything unbounded. Media title, file
-// path and release name are the ones the amendment calls out by name; url
-// and query cover indexer/provider request details that carry the same
-// risk. A label is banned when one of its words -- the label name split on
-// underscores -- is one of these, so `file_path` and `release_title` are
-// caught while `profile` (a TranscodeProfile's name, 2026-09-30) is not:
-// the substring rule read "profile" as "file".
+// most: no metric may be labelled by anything unbounded, as unboundedLabel
+// reads it.
 func TestNoMetricIsLabelledByAnUnboundedDimension(t *testing.T) {
-	banned := map[string]bool{"title": true, "path": true, "file": true, "release": true, "name": true, "url": true, "query": true}
 	for _, d := range allDescs(t) {
 		for _, l := range descLabelNames(t, d) {
-			for _, word := range strings.Split(strings.ToLower(l), "_") {
-				require.False(t, banned[word],
-					"metric %s labelled by unbounded dimension %s", descFQName(t, d), l)
-			}
+			require.False(t, unboundedLabel(l),
+				"metric %s labelled by unbounded dimension %s", descFQName(t, d), l)
 		}
 	}
 }
 
-// TestTheUnboundedDimensionRuleMatchesWholeWords pins the rule's shape on
-// label names the catalogue does not carry: a banned word anywhere in the
-// name fails, a banned word inside another word does not.
+// TestTheUnboundedDimensionRuleMatchesWholeWords pins unboundedLabel's shape
+// on label names the catalogue does not carry: a banned word anywhere in
+// the name fails, a banned word inside another word does not. It tests the
+// function the catalogue guard applies, not a copy of it, so a guard that
+// slid back to the substring rule fails here too.
 func TestTheUnboundedDimensionRuleMatchesWholeWords(t *testing.T) {
-	banned := map[string]bool{"title": true, "path": true, "file": true, "release": true, "name": true, "url": true, "query": true}
-	hit := func(label string) bool {
-		for _, word := range strings.Split(strings.ToLower(label), "_") {
-			if banned[word] {
-				return true
-			}
-		}
-		return false
-	}
 	for _, l := range []string{"file", "file_path", "release_title", "item_name", "Query"} {
-		require.True(t, hit(l), "%s names an unbounded dimension", l)
+		require.True(t, unboundedLabel(l), "%s names an unbounded dimension", l)
 	}
 	for _, l := range []string{"profile", "released", "unnamed", "pathology", "filesystem"} {
-		require.False(t, hit(l), "%s only contains a banned word", l)
+		require.False(t, unboundedLabel(l), "%s only contains a banned word", l)
 	}
 }
 
