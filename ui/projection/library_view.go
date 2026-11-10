@@ -20,9 +20,11 @@ package projection
 import (
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
@@ -107,17 +109,36 @@ const (
 	SortProfile LibrarySort = "profile"
 	// SortStatus orders by LibraryStatus, missing first.
 	SortStatus LibrarySort = "status"
+	// The rest (owner, 2026-11-10, after Radarr's and Sonarr's sorts):
+	// an unknown value (no rating, no next airing) sorts last either way.
+	SortAdded          LibrarySort = "added"
+	SortSize           LibrarySort = "size"
+	SortRating         LibrarySort = "rating"
+	SortRuntime        LibrarySort = "runtime"
+	SortReleased       LibrarySort = "released"
+	SortNetwork        LibrarySort = "network"
+	SortNextAiring     LibrarySort = "nextAiring"
+	SortPreviousAiring LibrarySort = "previousAiring"
+	SortEpisodes       LibrarySort = "episodes"
 )
 
-var librarySorts = []LibrarySort{SortTitle, SortYear, SortProfile, SortStatus}
+var librarySorts = []LibrarySort{SortTitle, SortYear, SortProfile, SortStatus, SortAdded}
 
-// LibrarySorts lists the sort keys in the menu's order.
-func LibrarySorts() []LibrarySort { return slices.Clone(librarySorts) }
+// tabSorts are a tab's sorts after the shared ones.
+var tabSorts = map[Tab][]LibrarySort{
+	TabMovies: {SortReleased, SortRuntime, SortRating, SortSize},
+	TabTV:     {SortNetwork, SortNextAiring, SortPreviousAiring, SortEpisodes, SortRuntime, SortRating, SortSize},
+}
 
-// ParseLibrarySort maps a ?sort value onto its key; anything unknown,
-// the empty string included, is SortTitle with ok false.
-func ParseLibrarySort(s string) (LibrarySort, bool) {
-	if slices.Contains(librarySorts, LibrarySort(s)) {
+// LibrarySorts lists a tab's sort keys in the menu's order.
+func LibrarySorts(tab Tab) []LibrarySort {
+	return append(slices.Clone(librarySorts), tabSorts[tab]...)
+}
+
+// ParseLibrarySort maps a ?sort value onto one of tab's keys; anything
+// else, the empty string included, is SortTitle with ok false.
+func ParseLibrarySort(tab Tab, s string) (LibrarySort, bool) {
+	if slices.Contains(LibrarySorts(tab), LibrarySort(s)) {
 		return LibrarySort(s), true
 	}
 	return SortTitle, false
@@ -132,13 +153,31 @@ func (s LibrarySort) Label() string {
 		return "Quality Profile"
 	case SortStatus:
 		return "Status"
+	case SortAdded:
+		return "Added"
+	case SortSize:
+		return "Size on Disk"
+	case SortRating:
+		return "Rating"
+	case SortRuntime:
+		return "Runtime"
+	case SortReleased:
+		return "Release Date"
+	case SortNetwork:
+		return "Network"
+	case SortNextAiring:
+		return "Next Airing"
+	case SortPreviousAiring:
+		return "Previous Airing"
+	case SortEpisodes:
+		return "Episode Progress"
 	default:
 		return "Title"
 	}
 }
 
-// LibraryFilter is one of Radarr's filter presets; its string is the
-// ?filter value.
+// LibraryFilter is one of Radarr's (and Sonarr's) filter presets; its
+// string is the ?filter value.
 type LibraryFilter string
 
 const (
@@ -156,23 +195,36 @@ const (
 	// FilterCutoffUnmet keeps monitored items on disk below their
 	// profile's cutoff.
 	FilterCutoffUnmet LibraryFilter = "cutoff-unmet"
+	// FilterDownloading keeps items with a grab in flight.
+	FilterDownloading LibraryFilter = "downloading"
+	// FilterContinuing and FilterEnded are Sonarr's "Continuing Only" and
+	// "Ended Only": a series by its run status.
+	FilterContinuing LibraryFilter = "continuing"
+	FilterEnded      LibraryFilter = "ended"
 )
 
-var libraryFilters = []LibraryFilter{FilterAll, FilterMonitored, FilterUnmonitored, FilterMissing, FilterWanted, FilterCutoffUnmet}
+var libraryFilters = []LibraryFilter{FilterAll, FilterMonitored, FilterUnmonitored, FilterMissing, FilterWanted, FilterCutoffUnmet, FilterDownloading}
 
-// LibraryFilters lists the presets in the menu's order.
-func LibraryFilters() []LibraryFilter { return slices.Clone(libraryFilters) }
+// tabFilters are a tab's presets after the shared ones.
+var tabFilters = map[Tab][]LibraryFilter{
+	TabTV: {FilterContinuing, FilterEnded},
+}
 
-// ParseLibraryFilter maps a ?filter value onto its preset; anything
-// unknown, the empty string included, is FilterAll with ok false.
-func ParseLibraryFilter(s string) (LibraryFilter, bool) {
-	if slices.Contains(libraryFilters, LibraryFilter(s)) {
+// LibraryFilters lists a tab's presets in the menu's order.
+func LibraryFilters(tab Tab) []LibraryFilter {
+	return append(slices.Clone(libraryFilters), tabFilters[tab]...)
+}
+
+// ParseLibraryFilter maps a ?filter value onto one of tab's presets;
+// anything else, the empty string included, is FilterAll with ok false.
+func ParseLibraryFilter(tab Tab, s string) (LibraryFilter, bool) {
+	if slices.Contains(LibraryFilters(tab), LibraryFilter(s)) {
 		return LibraryFilter(s), true
 	}
 	return FilterAll, false
 }
 
-// Label is the preset's menu entry, Radarr's wording.
+// Label is the preset's menu entry, Radarr's and Sonarr's wording.
 func (f LibraryFilter) Label() string {
 	switch f {
 	case FilterMonitored:
@@ -185,6 +237,12 @@ func (f LibraryFilter) Label() string {
 		return "Wanted"
 	case FilterCutoffUnmet:
 		return "Cutoff Unmet"
+	case FilterDownloading:
+		return "Downloading"
+	case FilterContinuing:
+		return "Continuing Only"
+	case FilterEnded:
+		return "Ended Only"
 	default:
 		return "All"
 	}
@@ -210,46 +268,156 @@ func (f LibraryFilter) Matches(li LibraryItem) bool {
 		return li.Monitored && !li.HasFile && li.Phase != "Pending" && li.Phase != "Unavailable"
 	case FilterCutoffUnmet:
 		return li.Monitored && LibraryStatus(li) == "cutoff-unmet"
+	case FilterDownloading:
+		return LibraryStatus(li) == "downloading"
+	case FilterContinuing:
+		return li.ReleaseStatus == "continuing" || li.ReleaseStatus == "upcoming"
+	case FilterEnded:
+		return li.ReleaseStatus == "ended"
 	default:
 		return true
 	}
 }
 
-// Arrange is the toolbar's view applied: the items filter keeps, ordered
-// by sort (reversed when desc) with the title, then the name, as the
-// tiebreak either way. The input is left as it was, and an empty result is
-// an empty slice, never nil, so a stream frame still renders.
-func Arrange(items []LibraryItem, sort LibrarySort, desc bool, filter LibraryFilter) []LibraryItem {
-	out := make([]LibraryItem, 0, len(items))
-	for _, li := range items {
-		if filter.Matches(li) {
-			out = append(out, li)
+// LibraryQuery is the toolbar's whole view of a tab: the sort and its
+// direction, the preset, the custom filter's conditions (every one kept)
+// and the moment date conditions measure from.
+type LibraryQuery struct {
+	Tab        Tab
+	Sort       LibrarySort
+	Desc       bool
+	Filter     LibraryFilter
+	Conditions []Condition
+	Now        time.Time
+}
+
+// Keeps reports whether the query's preset and every condition keep li.
+func (q LibraryQuery) Keeps(li LibraryItem) bool {
+	if q.Filter != "" && !q.Filter.Matches(li) {
+		return false
+	}
+	for _, c := range q.Conditions {
+		if !c.Matches(q.Tab, li, q.Now) {
+			return false
 		}
 	}
-	key := func(a, b LibraryItem) int {
-		switch sort {
-		case SortYear:
-			return int(a.Year) - int(b.Year)
-		case SortProfile:
-			return strings.Compare(a.QualityProfileRef, b.QualityProfileRef)
-		case SortStatus:
-			return statusRank(LibraryStatus(a)) - statusRank(LibraryStatus(b))
-		default:
-			return strings.Compare(a.Title, b.Title)
+	return true
+}
+
+// sortValue is one item's sort key: a number or a string, or unknown,
+// which sorts last in either direction.
+type sortValue struct {
+	unknown bool
+	n       float64
+	s       string
+}
+
+func sortValueOf(sort LibrarySort, li LibraryItem) sortValue {
+	date := func(t time.Time) sortValue {
+		if t.IsZero() {
+			return sortValue{unknown: true}
 		}
+		return sortValue{n: float64(t.Unix())}
 	}
-	slices.SortStableFunc(out, func(a, b LibraryItem) int {
-		if c := key(a, b); c != 0 {
-			if desc {
-				return -c
+	switch sort {
+	case SortYear:
+		return sortValue{n: float64(li.Year)}
+	case SortProfile:
+		return sortValue{s: li.QualityProfileRef}
+	case SortStatus:
+		return sortValue{n: float64(statusRank(LibraryStatus(li)))}
+	case SortAdded:
+		return date(li.Added)
+	case SortSize:
+		return sortValue{n: float64(li.SizeBytes)}
+	case SortRating:
+		for _, src := range []catalogv1.RatingSource{catalogv1.RatingSourceTMDB, catalogv1.RatingSourceIMDb} {
+			if v, ok := rating(src)(li); ok {
+				return sortValue{n: v}
 			}
+		}
+		return sortValue{unknown: true}
+	case SortRuntime:
+		if li.RuntimeMinutes <= 0 {
+			return sortValue{unknown: true}
+		}
+		return sortValue{n: float64(li.RuntimeMinutes)}
+	case SortReleased:
+		for _, t := range []time.Time{li.DigitalRelease, li.PhysicalRelease, li.InCinemas} {
+			if !t.IsZero() {
+				return date(t)
+			}
+		}
+		return sortValue{unknown: true}
+	case SortNetwork:
+		if len(li.Networks) == 0 {
+			return sortValue{unknown: true}
+		}
+		return sortValue{s: strings.ToLower(li.Networks[0])}
+	case SortNextAiring:
+		return date(li.NextAiring)
+	case SortPreviousAiring:
+		return date(li.PreviousAiring)
+	case SortEpisodes:
+		if v, ok := episodeProgress(li); ok {
+			return sortValue{n: v}
+		}
+		return sortValue{unknown: true}
+	default:
+		return sortValue{s: li.Title}
+	}
+}
+
+func compareSortValues(a, b sortValue) int {
+	if a.n != b.n {
+		if a.n < b.n {
+			return -1
+		}
+		return 1
+	}
+	return strings.Compare(a.s, b.s)
+}
+
+// Arrange is the toolbar's view applied: the items the preset and the
+// conditions keep, ordered by the sort (reversed when desc, an unknown
+// value last either way) with the title, then the name, as the tiebreak.
+// The input is left as it was, and an empty result is an empty slice, never
+// nil, so a stream frame still renders.
+func Arrange(items []LibraryItem, q LibraryQuery) []LibraryItem {
+	type keyed struct {
+		li  LibraryItem
+		key sortValue
+	}
+	kept := make([]keyed, 0, len(items))
+	for _, li := range items {
+		if q.Keeps(li) {
+			kept = append(kept, keyed{li, sortValueOf(q.Sort, li)})
+		}
+	}
+	slices.SortStableFunc(kept, func(a, b keyed) int {
+		switch {
+		case a.key.unknown != b.key.unknown:
+			if a.key.unknown {
+				return 1
+			}
+			return -1
+		case !a.key.unknown:
+			if c := compareSortValues(a.key, b.key); c != 0 {
+				if q.Desc {
+					return -c
+				}
+				return c
+			}
+		}
+		if c := strings.Compare(a.li.Title, b.li.Title); c != 0 {
 			return c
 		}
-		if c := strings.Compare(a.Title, b.Title); c != 0 {
-			return c
-		}
-		return strings.Compare(a.Ref.Name, b.Ref.Name)
+		return strings.Compare(a.li.Ref.Name, b.li.Ref.Name)
 	})
+	out := make([]LibraryItem, len(kept))
+	for i, k := range kept {
+		out[i] = k.li
+	}
 	return out
 }
 

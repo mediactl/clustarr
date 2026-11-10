@@ -40,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/ui/views"
 )
 
 // libraryTestScheme registers the one API group ui.NewReaderScheme would
@@ -396,16 +397,19 @@ func TestLibraryEventsStreamReflectsAStatusChangeBetweenTicks(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
+	// Each frame is a manifest (2026-11-10): the card's fingerprint moves
+	// with its status, and ui/static/library.js fetches it anew.
 	reader := bufio.NewReader(resp.Body)
-	first := readSSEEvent(t, reader)
-	require.Contains(t, first, `data-phase="Wanted"`)
+	fp := regexp.MustCompile(`(?m)^data: card-movie-default-arrival (\S+)$`)
+	first := fp.FindStringSubmatch(readSSEEvent(t, reader))
+	require.Len(t, first, 2)
+	require.Equal(t, views.CardFingerprint(wanted), first[1])
 
 	ch <- []projection.LibraryItem{imported}
-	second := readSSEEvent(t, reader)
-	require.Contains(t, second, `data-phase="Imported"`)
-	require.Contains(t, second, `data-hasfile="true"`)
-	require.NotContains(t, second, `data-phase="Wanted"`,
-		"the second frame must reflect the status change, not repeat the first frame's phase")
+	second := fp.FindStringSubmatch(readSSEEvent(t, reader))
+	require.Len(t, second, 2)
+	require.Equal(t, views.CardFingerprint(imported), second[1])
+	require.NotEqual(t, first[1], second[1], "the second frame must reflect the status change, not repeat the first frame's card")
 }
 
 func boolPtr(b bool) *bool { return &b }
@@ -464,7 +468,7 @@ func TestLibraryTabRendersItsOwnCardsWithArtYearAndProfile(t *testing.T) {
 	inset := strings.Index(body, `data-slot="sidebar-inset"`)
 	require.Greater(t, inset, 0)
 	require.NotContains(t, body[inset:], `<img`, "no poster means no image tag in the page body (the sidebar's brand mark is outside it)")
-	require.Contains(t, body, `sse-connect="/events/library/tv?page=1&amp;per=50"`, "the stream carries the page's own window")
+	require.Contains(t, body, `sse-connect="/events/library/tv"`, "the stream carries the page's view, here the default")
 	for _, tab := range projection.Tabs() {
 		require.Contains(t, body, fmt.Sprintf(`hx-get="/library/%s"`, tab), "every tab is reachable from the strip")
 	}
@@ -502,8 +506,8 @@ func TestLibraryTabStreamCarriesOnlyItsRows(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	first := readSSEEvent(t, bufio.NewReader(resp.Body))
-	require.Contains(t, first, `data-ref="default/andor"`)
-	require.NotContains(t, first, `data-ref="default/arrival"`)
+	require.Contains(t, first, "data: card-series-default-andor ")
+	require.NotContains(t, first, "card-movie-default-arrival")
 
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/events/library/nope", nil))

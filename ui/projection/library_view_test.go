@@ -68,33 +68,54 @@ func TestLibraryStatusFollowsRadarrsStripe(t *testing.T) {
 }
 
 func TestParseLibrarySortAndFilterFallBackToTheDefault(t *testing.T) {
-	s, ok := projection.ParseLibrarySort("year")
+	s, ok := projection.ParseLibrarySort(projection.TabMovies, "year")
 	require.True(t, ok)
 	require.Equal(t, projection.SortYear, s)
-	s, ok = projection.ParseLibrarySort("")
+	s, ok = projection.ParseLibrarySort(projection.TabMovies, "")
 	require.False(t, ok)
 	require.Equal(t, projection.SortTitle, s, "an absent sort is the title")
-	s, ok = projection.ParseLibrarySort("runtime")
+	s, ok = projection.ParseLibrarySort(projection.TabMovies, "nope")
 	require.False(t, ok)
 	require.Equal(t, projection.SortTitle, s, "an unknown sort is the title")
+	s, ok = projection.ParseLibrarySort(projection.TabMovies, "nextAiring")
+	require.False(t, ok, "a TV sort is not a movie sort")
+	require.Equal(t, projection.SortTitle, s)
+	s, ok = projection.ParseLibrarySort(projection.TabTV, "nextAiring")
+	require.True(t, ok)
+	require.Equal(t, projection.SortNextAiring, s)
 
-	f, ok := projection.ParseLibraryFilter("cutoff-unmet")
+	f, ok := projection.ParseLibraryFilter(projection.TabMovies, "cutoff-unmet")
 	require.True(t, ok)
 	require.Equal(t, projection.FilterCutoffUnmet, f)
-	f, ok = projection.ParseLibraryFilter("nope")
+	f, ok = projection.ParseLibraryFilter(projection.TabMovies, "nope")
 	require.False(t, ok)
 	require.Equal(t, projection.FilterAll, f, "an unknown filter shows everything")
+	f, ok = projection.ParseLibraryFilter(projection.TabMovies, "continuing")
+	require.False(t, ok, "Sonarr's Continuing Only is TV's")
+	require.Equal(t, projection.FilterAll, f)
+	f, ok = projection.ParseLibraryFilter(projection.TabTV, "continuing")
+	require.True(t, ok)
+	require.Equal(t, projection.FilterContinuing, f)
 
-	require.Equal(t, []projection.LibrarySort{projection.SortTitle, projection.SortYear, projection.SortProfile, projection.SortStatus}, projection.LibrarySorts())
+	require.Equal(t, []projection.LibrarySort{
+		projection.SortTitle, projection.SortYear, projection.SortProfile, projection.SortStatus, projection.SortAdded,
+		projection.SortReleased, projection.SortRuntime, projection.SortRating, projection.SortSize,
+	}, projection.LibrarySorts(projection.TabMovies))
 	require.Equal(t, []projection.LibraryFilter{
 		projection.FilterAll, projection.FilterMonitored, projection.FilterUnmonitored,
-		projection.FilterMissing, projection.FilterWanted, projection.FilterCutoffUnmet,
-	}, projection.LibraryFilters())
-	for _, s := range projection.LibrarySorts() {
-		require.NotEmpty(t, s.Label(), "sort %q has a menu label", s)
-	}
-	for _, f := range projection.LibraryFilters() {
-		require.NotEmpty(t, f.Label(), "filter %q has a menu label", f)
+		projection.FilterMissing, projection.FilterWanted, projection.FilterCutoffUnmet, projection.FilterDownloading,
+		projection.FilterContinuing, projection.FilterEnded,
+	}, projection.LibraryFilters(projection.TabTV))
+	for _, tab := range projection.Tabs() {
+		for _, s := range projection.LibrarySorts(tab) {
+			if s != projection.SortTitle {
+				// Label falls back to "Title" for a key it does not name.
+				require.NotEqual(t, "Title", s.Label(), "sort %q has its own menu label", s)
+			}
+		}
+		for _, f := range projection.LibraryFilters(tab) {
+			require.NotEmpty(t, f.Label(), "filter %q has a menu label", f)
+		}
 	}
 	require.Equal(t, "Quality Profile", projection.SortProfile.Label())
 	require.Equal(t, "Monitored Only", projection.FilterMonitored.Label())
@@ -175,7 +196,7 @@ func TestArrangeSortsWithTitleAsTheTiebreak(t *testing.T) {
 		"status desc": {projection.SortStatus, true, []string{"Alien", "Arrival", "Heat", "Dune", "Brazil"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := projection.Arrange(items, tc.sort, tc.desc, projection.FilterAll)
+			got := projection.Arrange(items, projection.LibraryQuery{Sort: tc.sort, Desc: tc.desc, Filter: projection.FilterAll})
 			require.Equal(t, tc.want, names(got))
 			require.Equal(t, before, names(items), "Arrange does not reorder its input")
 		})
@@ -189,10 +210,10 @@ func TestArrangeFiltersBeforeSorting(t *testing.T) {
 		viewItem("Dune", true, false, "Downloading", 2021, "uhd"),
 		viewItem("Brazil", true, false, "Wanted", 1985, "hd"),
 	}
-	got := projection.Arrange(items, projection.SortYear, true, projection.FilterMissing)
+	got := projection.Arrange(items, projection.LibraryQuery{Sort: projection.SortYear, Desc: true, Filter: projection.FilterMissing})
 	require.Equal(t, []string{"Dune", "Brazil"}, names(got))
-	require.Empty(t, projection.Arrange(nil, projection.SortTitle, false, projection.FilterAll))
-	require.NotNil(t, projection.Arrange(nil, projection.SortTitle, false, projection.FilterAll), "an empty tab is an empty slice, not nil, so the SSE frame renders")
+	require.Empty(t, projection.Arrange(nil, projection.LibraryQuery{Sort: projection.SortTitle, Filter: projection.FilterAll}))
+	require.NotNil(t, projection.Arrange(nil, projection.LibraryQuery{Sort: projection.SortTitle, Filter: projection.FilterAll}), "an empty tab is an empty slice, not nil, so the stream's manifest renders")
 }
 
 // TestJumpLetterFilesTitles: the A-Z bar files a title under its first

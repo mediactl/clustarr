@@ -1,0 +1,322 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/checkbox"
+	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/field"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/input"
+	selectcomp "github.com/mediactl/clustarr/ui/components/select"
+)
+
+// The library's custom filters (owner, 2026-11-10, after Radarr's and
+// Sonarr's): a dialog of rows -- field, predicate, value -- every row kept,
+// applied by a GET of /library/{tab}/filter, which answers with the page's
+// own URL carrying one ?f per row; the active filter as chips under the
+// toolbar, each removing itself; and a dialog naming the current view to
+// keep it in the Filter menu, in the browser (ui/static/library.js), as the
+// Options menu's choices are kept.
+
+// FilterChip is one part of the active filter: its words and the page
+// without it.
+type FilterChip struct {
+	Label string
+	Href  string
+}
+
+// FilterBuilder is the custom filter dialog's state: the tab, the rest of
+// the view the dialog keeps (sort, direction, preset) and its rows.
+type FilterBuilder struct {
+	Tab    string
+	Sort   string
+	Desc   bool
+	Filter string
+	Rows   []FilterRow
+}
+
+// FilterRow is one row of the dialog: Index names its fields
+// (field.<i>, op.<i>, value.<i>), Fields are the tab's fields and Field
+// the chosen one, of Type, with its predicates Ops and the chosen Op; the
+// value is Value (a bool's "true" or "false", a number, a date, text) or,
+// for an enum or a list, the Options checked. Unit follows a number.
+type FilterRow struct {
+	Index   string
+	Fields  []Choice
+	Field   string
+	Type    string
+	Ops     []Choice
+	Op      string
+	Value   string
+	Options []FilterOption
+	Unit    string
+}
+
+// FilterOption is one of an enum's or a list's values.
+type FilterOption struct {
+	Value   string
+	Label   string
+	Checked bool
+}
+
+// filterDialogID and filterSaveDialogID are the two dialogs' ids, which
+// the Filter menu's entries and the chips' Edit open (data-open-dialog).
+const (
+	filterDialogID     = "library-filter"
+	filterSaveDialogID = "library-filter-save"
+)
+
+// filterChips is the active filter under the toolbar: how many items it
+// keeps of the tab's, a chip per preset and condition removing it, Edit
+// (the dialog) and Clear. Nothing while the tab is unfiltered.
+templ filterChips(tb LibraryToolbar) {
+	if tb.Filtered {
+		<div data-filter-chips class="-mt-3 mb-4 flex flex-wrap items-center gap-2 text-sm">
+			<span class="text-muted-foreground" data-filter-count>{ fmt.Sprintf("%d of %d", tb.Shown, tb.Total) }</span>
+			for _, c := range tb.Chips {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "h-7 gap-1 pr-1 pl-2.5 text-xs", Attributes: templ.Attributes{"data-filter-chip": c.Label}}) {
+					{ c.Label }
+					@button.Button(button.Props{Href: c.Href, Variant: button.VariantGhost, Size: button.SizeIconXs, Class: "size-5 rounded-full", Attributes: viewSwap(c.Href, templ.Attributes{"aria-label": "Remove " + c.Label, "title": "Remove"})}) {
+						@icon.Icon("x")()
+					}
+				}
+			}
+			@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeXs, Attributes: templ.Attributes{"data-open-dialog": filterDialogID}}) {
+				@icon.Icon("pencil")()
+				Edit
+			}
+			@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeXs, Attributes: templ.Attributes{"data-open-dialog": filterSaveDialogID}}) {
+				@icon.Icon("bookmark-plus")()
+				Save
+			}
+			@button.Button(button.Props{Href: tb.ClearHref, Variant: button.VariantGhost, Size: button.SizeXs, Attributes: viewSwap(tb.ClearHref, templ.Attributes{"data-filter-clear": true})}) {
+				@icon.Icon("x")()
+				Clear
+			}
+		</div>
+	}
+}
+
+// viewSwap are the attributes a link to another view of the page takes:
+// htmx swaps #library-page and pushes the URL, as the menus' entries do,
+// so the stream reconnects in the new view; the href stays the fallback.
+func viewSwap(href string, attrs templ.Attributes) templ.Attributes {
+	attrs["hx-get"] = href
+	attrs["hx-push-url"] = "true"
+	attrs["hx-target"] = "#library-page"
+	attrs["hx-select"] = "#library-page"
+	attrs["hx-swap"] = "outerHTML"
+	return attrs
+}
+
+// filterDialog is Radarr's custom filter modal: a GET form whose rows the
+// dialog adds (/library/{tab}/filter/row) and redraws when a row's field
+// changes, and whose submit asks /library/{tab}/filter for the view. A
+// plain navigation, not an htmx swap: the dialog is portaled to <body>
+// while open, and the new page closes it.
+templ filterDialog(b FilterBuilder) {
+	@dialog.Dialog(dialog.Props{ID: filterDialogID}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-3xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Custom Filter
+				}
+				@dialog.Description() {
+					Every row must match; a row's values match any of them.
+				}
+			}
+			<form method="get" action={ templ.URL("/library/" + b.Tab + "/filter") } data-filter-form class="space-y-4">
+				<input type="hidden" name="sort" value={ b.Sort }/>
+				if b.Desc {
+					<input type="hidden" name="dir" value="desc"/>
+				}
+				<input type="hidden" name="filter" value={ b.Filter }/>
+				<div data-filter-rows class="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+					for _, r := range b.Rows {
+						@FilterRowView(b.Tab, r)
+					}
+				</div>
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+					Attributes: templ.Attributes{
+						"data-filter-add": true,
+						"hx-get":          "/library/" + b.Tab + "/filter/row",
+						"hx-target":       "previous [data-filter-rows]",
+						"hx-swap":         "beforeend",
+					},
+				}) {
+					@icon.Icon("plus")()
+					Add condition
+				}
+				@dialog.Footer() {
+					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) {
+						Cancel
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "apply-filter"}}) {
+						@icon.Icon("funnel")()
+						Apply
+					}
+				}
+			</form>
+		}
+	}
+}
+
+// FilterRowView renders one builder row, the page's and the row route's
+// alike: the field and the predicate (a change of either redraws the row:
+// a new field takes its own predicates and value control, a date's
+// predicate a count of days or a date), the value control the field's type
+// takes, and a remove button (ui/static/library.js). hx-include="this"
+// sends the row's own fields, so the redraw keeps its index, and prev.<i>
+// the field it was drawn for, so a new field starts empty.
+templ FilterRowView(tab string, r FilterRow) {
+	<div
+		data-filter-row={ r.Index }
+		data-field-type={ r.Type }
+		class="grid grid-cols-1 items-start gap-2 rounded-lg border border-border p-2 sm:grid-cols-[11rem_10rem_1fr_auto]"
+		hx-get={ "/library/" + tab + "/filter/row" }
+		hx-trigger={ fmt.Sprintf("change[target.name==='field.%[1]s'||target.name==='op.%[1]s']", r.Index) }
+		hx-include="this"
+		hx-target="this"
+		hx-swap="outerHTML"
+	>
+		<input type="hidden" name="row" value={ r.Index }/>
+		<input type="hidden" name={ "prev." + r.Index } value={ r.Field }/>
+		@conditionSelect("field."+r.Index, "Field", r.Fields, r.Field)
+		@conditionSelect("op."+r.Index, "Predicate", r.Ops, r.Op)
+		<div class="min-w-0">
+			@filterValue(r)
+		</div>
+		@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Attributes: templ.Attributes{"data-filter-remove": true, "aria-label": "Remove condition", "title": "Remove condition"}}) {
+			@icon.Icon("trash-2")()
+		}
+	</div>
+}
+
+// conditionSelect is one of a row's selects, labelled for a screen reader;
+// its choices are also the select's items, so the trigger shows the
+// chosen one's label, not its key.
+templ conditionSelect(name, label string, choices []Choice, value string) {
+	@selectcomp.Select(selectcomp.Props{ID: "filter-" + name, Name: name, DefaultValue: value, Items: choiceItems(choices)}) {
+		@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full", Attributes: templ.Attributes{"aria-label": label}}) {
+			@selectcomp.Value()
+		}
+		@selectcomp.Content() {
+			@selectcomp.Group() {
+				for _, c := range choices {
+					@selectcomp.Item(selectcomp.ItemProps{Value: c.Key}) {
+						{ c.Label }
+					}
+				}
+			}
+		}
+	}
+}
+
+// choiceItems are choices as a select's items.
+func choiceItems(choices []Choice) []selectcomp.ItemData {
+	out := make([]selectcomp.ItemData, 0, len(choices))
+	for _, c := range choices {
+		out = append(out, selectcomp.ItemData{Value: c.Key, Label: c.Label})
+	}
+	return out
+}
+
+// filterValue is a row's value control: Yes or No for a bool, a number or
+// a date (a date predicate before or after takes a date, the others a
+// count of days), text, or a checklist of an enum's or a list's values.
+templ filterValue(r FilterRow) {
+	switch r.Type {
+		case "bool":
+			@conditionSelect("value."+r.Index, "Value", []Choice{{Key: "true", Label: "Yes"}, {Key: "false", Label: "No"}}, r.Value)
+		case "enum", "list":
+			if len(r.Options) == 0 {
+				<p class="py-2 text-sm text-muted-foreground">No item on this tab has a value for this field.</p>
+			} else {
+				<div data-filter-options class="grid max-h-48 grid-cols-1 gap-x-4 gap-y-1.5 overflow-y-auto rounded-md border border-border p-2 sm:grid-cols-2">
+					for i, o := range r.Options {
+						@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+							@checkbox.Checkbox(checkbox.Props{ID: fmt.Sprintf("filter-value-%s-%d", r.Index, i), Name: "value." + r.Index, Value: o.Value, Checked: &o.Checked})
+							@field.Label(field.LabelProps{For: fmt.Sprintf("filter-value-%s-%d", r.Index, i), Class: "truncate font-normal"}) {
+								{ o.Label }
+							}
+						}
+					}
+				</div>
+			}
+		case "number":
+			<div class="flex items-center gap-2">
+				@input.Input(input.Props{Name: "value." + r.Index, Type: "number", Value: r.Value, Attributes: templ.Attributes{"step": "any", "aria-label": "Value"}})
+				if r.Unit != "" {
+					<span class="text-sm text-muted-foreground">{ r.Unit }</span>
+				}
+			</div>
+		case "date":
+			if r.Op == "before" || r.Op == "after" {
+				@input.Input(input.Props{Name: "value." + r.Index, Type: "date", Value: r.Value, Attributes: templ.Attributes{"aria-label": "Date"}})
+			} else {
+				<div class="flex items-center gap-2">
+					@input.Input(input.Props{Name: "value." + r.Index, Type: "number", Value: r.Value, Attributes: templ.Attributes{"min": "0", "step": "1", "aria-label": "Days"}})
+					<span class="text-sm text-muted-foreground">days</span>
+				</div>
+			}
+		default:
+			@input.Input(input.Props{Name: "value." + r.Index, Type: "text", Value: r.Value, Attributes: templ.Attributes{"aria-label": "Value"}})
+	}
+}
+
+// filterSaveDialog names the current view to keep it in the Filter menu:
+// ui/static/library.js stores the name with data-query, the page's own
+// query, per tab, in localStorage.
+templ filterSaveDialog(tb LibraryToolbar) {
+	@dialog.Dialog(dialog.Props{ID: filterSaveDialogID}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Save Custom Filter
+				}
+				@dialog.Description() {
+					Keeps this view in the Filter menu, in this browser.
+				}
+			}
+			<form data-filter-save-form data-tab={ tb.Tab } data-query={ tb.Query } class="space-y-4">
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "filter-save-name"}) {
+						Name
+					}
+					@input.Input(input.Props{ID: "filter-save-name", Name: "name", Required: true, Placeholder: "Anime without English audio"})
+				}
+				@dialog.Footer() {
+					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) {
+						Cancel
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "save-filter"}}) {
+						@icon.Icon("bookmark-plus")()
+						Save
+					}
+				}
+			</form>
+		}
+	}
+}

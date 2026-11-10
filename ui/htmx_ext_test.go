@@ -64,10 +64,18 @@ func TestLiveStreamsMorphTheirRows(t *testing.T) {
 	require.Contains(t, get("/static/idiomorph-ext.min.js").Body.String(), `defineExtension("morph"`)
 	require.Contains(t, get("/static/htmx-ext-preload.js").Body.String(), `defineExtension('preload'`)
 
+	// The library's stream sends a manifest, not markup (2026-11-10):
+	// ui/static/library.js fetches the new and changed cards and morphs them
+	// in itself, so its rows are no swap target.
+	rows := tagWith(t, get("/library/movies").Body.String(), `id="library-rows"`)
+	require.Contains(t, rows, `hx-ext="sse"`)
+	require.Contains(t, rows, `hx-trigger="sse:art, sse:library-manifest"`)
+	require.NotContains(t, rows, `sse-swap=`)
+	require.Contains(t, get("/static/library.js").Body.String(), "Idiomorph.morph")
+
 	for path, id := range map[string]string{
-		"/library/movies": "library-rows",
-		"/unmatched":      "unmatched-rows",
-		"/import-lists":   "import-lists-rows",
+		"/unmatched":    "unmatched-rows",
+		"/import-lists": "import-lists-rows",
 	} {
 		body := get(path).Body.String()
 		head := body[:strings.Index(body, "</head>")]

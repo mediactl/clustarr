@@ -92,7 +92,7 @@ func TestLibraryStreamCarriesArtEventsForItsPage(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	r := openStream(t, srv, "/events/library/movies")
-	require.Contains(t, readSSEEvent(t, r), `data-ref="default/arrival"`, "the page's first frame")
+	require.Contains(t, readSSEEvent(t, r), "data: card-movie-default-arrival ", "the page's first manifest")
 
 	putArt(t, store, posterKey(commonv1.MediaKindMovie, "u2", events.ArtworkVariantOriginal), "image/png", "not on the page")
 	u1 := putArt(t, store, posterKey(commonv1.MediaKindMovie, "u1", events.ArtworkVariantOriginal), "image/png", "on the page")

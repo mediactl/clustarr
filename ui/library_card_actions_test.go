@@ -38,45 +38,62 @@ import (
 )
 
 // A library card's hover actions (2026-10-06, after Sonarr's poster
-// buttons): Refresh & Scan, Search, Monitor or Unmonitor, and Delete on
-// every card, shown while the pointer is over it or focus is in it, hidden
-// while the page is selecting. Each posts the item page's own action
-// through htmx and reads its outcome into the page's #action-status.
+// buttons): Refresh & Scan, Search, Monitor or Unmonitor, and Delete,
+// shown while the pointer is over a card or focus is in it, hidden while
+// the page is selecting. Each posts the item page's own action through
+// htmx and reads its outcome into the page's #action-status. Since
+// 2026-11-10 one bar serves every card: ui/static/library.js moves it into
+// the card under the pointer and names that card's route.
 
-func TestEveryCardHasItsHoverActions(t *testing.T) {
+func TestTheCardsShareOneActionBar(t *testing.T) {
 	h, _ := bulkServer(t)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 
-	require.Equal(t, 2, strings.Count(body, `data-card-actions`), "one action bar per card")
+	require.Equal(t, 2, strings.Count(body, `data-ref="media/`), "bulkLibrary's two movies")
+	require.Equal(t, 1, strings.Count(body, `data-card-actions-home`), "one bar for the page")
+	require.Equal(t, 5, strings.Count(body, `data-card-action="`), "refresh, search, monitor, unmonitor and delete, once, whatever the cards")
 	at := strings.Index(body, `data-ref="media/arrival"`)
 	require.GreaterOrEqual(t, at, 0)
 	card := body[at:]
 	card = card[:strings.Index(card[1:], `data-ref=`)+1]
+	require.NotContains(t, card, `data-card-action=`, "a card carries no buttons of its own")
+	require.Contains(t, card, `data-card-poster`, "the poster the bar is moved into")
 
-	bar := requireTag(t, card, `data-card-actions`, "opacity-0", "group-hover/card:opacity-100", "group-focus-within/card:opacity-100", "group-data-selecting/library:hidden")
-	require.NotEmpty(t, bar)
-	for action, attrs := range map[string][]string{
-		"refresh": {`hx-post="/library/media/movie/arrival/refresh"`, `hx-vals="{&#34;scan&#34;:&#34;true&#34;}"`, `aria-label="Refresh &amp; Scan"`},
-		"search":  {`hx-post="/library/media/movie/arrival/search"`, `aria-label="Search"`},
-		// bulkLibrary's items are unmonitored: the toggle monitors.
-		"monitor": {`hx-post="/library/media/movie/arrival/monitor"`, `hx-vals="{&#34;monitored&#34;:&#34;true&#34;}"`, `aria-label="Monitor"`},
+	homeAt := strings.Index(body, `data-card-actions-home`)
+	home := body[strings.LastIndex(body[:homeAt], "<"):]
+	requireTag(t, home, `data-card-actions-home`, `hidden`)
+	requireTag(t, home, `data-card-actions class=`, "opacity-0", "group-hover/card:opacity-100", "group-focus-within/card:opacity-100", "group-data-selecting/library:hidden")
+	for _, attrs := range [][]string{
+		{`data-card-action="refresh"`, `hx-vals="{&#34;scan&#34;:&#34;true&#34;}"`, `aria-label="Refresh &amp; Scan"`},
+		{`data-card-action="search"`, `aria-label="Search"`},
+		// The card's data-monitored picks which toggle shows.
+		{`data-card-action="monitor"`, `hx-vals="{&#34;monitored&#34;:&#34;false&#34;}"`, `aria-label="Unmonitor"`, `group-data-[monitored=false]/card:hidden`},
+		{`data-card-action="monitor"`, `hx-vals="{&#34;monitored&#34;:&#34;true&#34;}"`, `aria-label="Monitor"`, `group-data-[monitored=true]/card:hidden`},
 	} {
-		b := requireTag(t, card, `data-card-action="`+action+`"`, append([]string{`data-slot="button"`, `type="button"`, `hx-target="#action-status"`, `hx-swap="innerHTML"`}, attrs...)...)
-		require.NotEmpty(t, b, action)
+		// The anchor is the one attribute only this button carries.
+		requireTag(t, home, attrs[len(attrs)-1], append([]string{`data-slot="button"`, `type="button"`, `hx-post="/library/card-action"`, `hx-target="#action-status"`, `hx-swap="innerHTML"`}, attrs...)...)
 	}
-	// Delete asks first in the page's delete dialog, for this item alone.
-	requireTag(t, card, `data-card-action="delete"`, `data-card-delete="media/movie/arrival"`, `data-templ-controls="library-bulk-delete"`, `aria-label="Delete"`)
+	// Delete asks first in the page's delete dialog, for the card alone.
+	requireTag(t, home, `data-card-action="delete"`, `data-card-delete`, `data-templ-controls="library-bulk-delete"`, `aria-label="Delete"`)
 
 	requireTag(t, body, `id="action-status"`, `aria-live="polite"`)
 	requireTag(t, body, `data-delete-subject`, `data-default="the selected movies"`)
 
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/library.js", nil))
-	for _, hook := range []string{"data-card-delete", "data-delete-subject", "data-delete-count", "data-card-link", "action-status"} {
+	for _, hook := range []string{
+		"data-card-delete", "data-delete-subject", "data-delete-count", "data-card-link", "action-status",
+		"data-card-actions-home", "data-card-poster", "htmx:configRequest", `"/library/" + it + "/"`,
+	} {
 		require.Contains(t, rec.Body.String(), hook)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.css", nil))
+	for _, class := range []string{`.group-data-\[monitored\=true\]\/card\:hidden`, `.group-data-\[monitored\=false\]\/card\:hidden`} {
+		require.Contains(t, rec.Body.String(), class, "ui/static/app.css lacks %s; run `make css`", class)
 	}
 }
 
@@ -86,8 +103,8 @@ func TestTheMonitorToggleReadsTheItemsState(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{Library: func(context.Context) []projection.LibraryItem { return items }})
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
-	requireTag(t, rec.Body.String(), `data-card-action="monitor"`, `hx-post="/library/media/movie/arrival/monitor"`,
-		`hx-vals="{&#34;monitored&#34;:&#34;false&#34;}"`, `aria-label="Unmonitor"`)
+	requireTag(t, rec.Body.String(), `data-ref="media/arrival"`, `data-monitored="true"`, `group/card`)
+	requireTag(t, rec.Body.String(), `data-ref="media/heat"`, `data-monitored="false"`, `group/card`)
 }
 
 func cardPost(t *testing.T, h http.Handler, path string, form url.Values) *httptest.ResponseRecorder {

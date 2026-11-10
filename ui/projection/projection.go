@@ -581,7 +581,7 @@ func (p *Projection) project(
 		entries = append(entries, pipeline.Project(item, related))
 	}
 
-	library := buildLibraryItems(items, entries)
+	library := buildLibraryItems(items, entries, idx.fileOf)
 
 	// Stages are evaluated in reverse-completion order internally
 	// (pipeline.Project's own doc comment); the page itself sorts rows

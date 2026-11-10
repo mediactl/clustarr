@@ -51,7 +51,7 @@ func tagWith(t *testing.T, body, attr string) string {
 // poster tile (design 2026-09-24) built from shadcn-templ's item,
 // aspect-ratio and tooltip: the whole tile is the link, the poster fills
 // it at 2:3 inside the aspect-ratio slot with the title as a tooltip
-// rather than printed text, a status stripe under the poster carries
+// (drawn on the first hover since 2026-11-10) rather than printed text, a status stripe under the poster carries
 // data-status, and the footer is two centred lines -- the monitored state
 // and the quality profile. Every data attribute the earlier tests key on
 // stays on the card element.
@@ -107,7 +107,14 @@ func TestLibraryCardsFollowRadarrsPosterGrid(t *testing.T) {
 	// no rendered card ever hotlinks a provider's URL directly.
 	require.NotRegexp(t, regexp.MustCompile(`<img[^>]*src="https?://`), body,
 		"no <img> in the library grid hotlinks a provider's own URL")
-	require.Regexp(t, regexp.MustCompile(`data-slot="tooltip-content"[^>]*>[^<]*Arrival`), body, "the title is a tooltip on the poster")
+	// The title is a tooltip on the poster, drawn when the pointer first
+	// rests on the card (views.cardTooltip, 2026-11-10): no card renders
+	// one, and the page holds the one template library.js clones.
+	require.Regexp(t, regexp.MustCompile(`<template data-card-tooltip>[\s\S]*data-slot="tooltip-content"[\s\S]*data-card-tooltip-label[\s\S]*</template>`), body,
+		"the page holds the cards' tooltip template")
+	grid := body[strings.Index(body, `data-slot="item-group"`):strings.Index(body, `<template data-card-tooltip>`)]
+	require.NotContains(t, grid, `data-slot="tooltip-content"`, "no card renders a tooltip of its own")
+	require.NotContains(t, grid, `data-templ-tooltip-trigger`, "no card's link is a trigger until it is hovered")
 
 	requireTag(t, body, `data-status="downloaded"`, `bg-emerald-500`)
 	at = strings.Index(body, `data-status="downloaded"`)

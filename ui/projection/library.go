@@ -20,8 +20,10 @@ package projection
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -29,6 +31,7 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
 
@@ -109,6 +112,50 @@ type LibraryItem struct {
 	// for an Author -- and "" for every other kind. Add New marks a search
 	// hit already in the library by it (2026-09-29).
 	ProviderID string
+
+	// What the library's custom filters and sorts read (owner,
+	// 2026-11-10, Radarr's and Sonarr's): zero where the kind has no such
+	// field. Slices are the object's own, never copied or modified.
+	//
+	// Added is metadata.creationTimestamp; RootFolder spec.rootFolderRef;
+	// Path status.path; Tags spec.tags.
+	Added      time.Time
+	RootFolder string
+	Path       string
+	Tags       []string
+	// From status.metadata: Genres (a series' sub-genres apart),
+	// Keywords, Studios, Networks (a series'), Countries, the original
+	// language as a pkg/lang tag, Certification, RuntimeMinutes, Ratings
+	// and Collection (a movie's TMDB collection).
+	Genres, SubGenres, Keywords []string
+	Studios, Networks           []string
+	Countries                   []string
+	OriginalLanguage            string
+	Certification               string
+	RuntimeMinutes              int32
+	Ratings                     []catalogv1.Rating
+	Collection                  string
+	// ReleaseStatus is a movie's status.metadata.status (tba, announced,
+	// inCinemas, released) or a series' (continuing, ended, upcoming).
+	ReleaseStatus string
+	// A movie's spec.minimumAvailability and release dates.
+	MinimumAvailability                        string
+	InCinemas, DigitalRelease, PhysicalRelease time.Time
+	// A series' spec.seriesType, first, next and previous airing, and
+	// counts: seasons (specials left out), episodes and episodes on disk.
+	SeriesType                             string
+	FirstAired, NextAiring, PreviousAiring time.Time
+	SeasonCount                            int32
+	EpisodeCount, EpisodeFileCount         int32
+	// SizeBytes is the item's files on disk: a movie's file, every
+	// distinct file of a series' episodes.
+	SizeBytes int64
+	// A movie's file: its quality's name, the probe's video codec and
+	// HDR format, and its audio tracks' languages as pkg/lang tags.
+	Quality        string
+	VideoCodec     string
+	HDR            string
+	AudioLanguages []string
 }
 
 // Tab is one of the library page's tabs. Every parent kind belongs to
@@ -202,7 +249,7 @@ type UnmatchedEntry struct {
 // nothing here needs to duplicate that. items and entries must be the same
 // length and in the same order -- project's loop guarantees this by
 // construction, building both from one range over items.
-func buildLibraryItems(items []client.Object, entries []pipeline.Entry) []LibraryItem {
+func buildLibraryItems(items []client.Object, entries []pipeline.Entry, fileOf func(client.Object) *catalogv1.MediaFile) []LibraryItem {
 	out := make([]LibraryItem, 0, len(items))
 	for i, item := range items {
 		card, ok := describeLibraryItem(item)
@@ -210,25 +257,17 @@ func buildLibraryItems(items []client.Object, entries []pipeline.Entry) []Librar
 			continue
 		}
 		ann := item.GetAnnotations()
-		out = append(out, LibraryItem{
-			DeleteMode:          ann[catalogv1.AnnotationDelete],
-			DeleteExclude:       ann[catalogv1.AnnotationDeleteAddExclusion] == "true",
-			DeleteError:         ann[catalogv1.AnnotationDeleteError],
-			Ref:                 entries[i].Ref,
-			Kind:                entries[i].Kind,
-			Title:               entries[i].Title,
-			Monitored:           card.monitored,
-			Phase:               card.phase,
-			HasFile:             card.hasFile,
-			MissingEpisodes:     card.missing,
-			DownloadingEpisodes: card.downloading,
-			Tab:                 card.tab,
-			Year:                card.year,
-			Poster:              card.poster,
-			ArtKey:              ArtKey(entries[i].Kind, item.GetUID(), catalogv1.ImageTypePoster),
-			QualityProfileRef:   card.profile,
-			ProviderID:          card.providerID,
-		})
+		li := card.item
+		li.DeleteMode = ann[catalogv1.AnnotationDelete]
+		li.DeleteExclude = ann[catalogv1.AnnotationDeleteAddExclusion] == "true"
+		li.DeleteError = ann[catalogv1.AnnotationDeleteError]
+		li.Ref, li.Kind, li.Title = entries[i].Ref, entries[i].Kind, entries[i].Title
+		li.ArtKey = ArtKey(entries[i].Kind, item.GetUID(), catalogv1.ImageTypePoster)
+		li.Added = item.GetCreationTimestamp().Time
+		if card.ownFile && fileOf != nil {
+			withFile(&li, fileOf(item))
+		}
+		out = append(out, li)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Title != out[j].Title {
@@ -239,21 +278,33 @@ func buildLibraryItems(items []client.Object, entries []pipeline.Entry) []Librar
 	return out
 }
 
+// withFile fills what a movie's card reads from its file: the size and,
+// from the probe, the video codec, HDR format and audio languages.
+func withFile(li *LibraryItem, mf *catalogv1.MediaFile) {
+	if mf == nil {
+		return
+	}
+	li.SizeBytes = mf.Spec.SizeBytes
+	mi := mf.Status.MediaInfo
+	if mi == nil {
+		return
+	}
+	li.VideoCodec = mi.VideoCodec
+	li.HDR = string(mi.Hdr)
+	for _, a := range mi.Audio {
+		if tag, ok := lang.Normalize(a.Language); ok && !slices.Contains(li.AudioLanguages, string(tag)) {
+			li.AudioLanguages = append(li.AudioLanguages, string(tag))
+		}
+	}
+}
+
 // libraryCard is what a parent kind contributes to its card beyond the Ref,
-// Kind and Title the pipeline entry already carries.
+// Kind, Title and annotations: item is the LibraryItem with every field
+// the kind has filled, and ownFile says the item's file is its own (a
+// Movie's), whose size and probe the card reads.
 type libraryCard struct {
-	tab       Tab
-	monitored bool
-	phase     string
-	hasFile   bool
-	// missing and downloading are LibraryItem's MissingEpisodes and
-	// DownloadingEpisodes.
-	missing, downloading int32
-	year                 int32
-	poster               string
-	profile              string
-	// providerID is LibraryItem.ProviderID.
-	providerID string
+	item    LibraryItem
+	ownFile bool
 }
 
 // describeLibraryItem reads one catalog item's card, and false for a kind
@@ -267,78 +318,126 @@ type libraryCard struct {
 func describeLibraryItem(item client.Object) (libraryCard, bool) {
 	switch v := item.(type) {
 	case *catalogv1.Movie:
-		c := libraryCard{
-			tab: TabMovies, monitored: monitoredOrDefault(v.Spec.Monitored),
-			phase: string(v.Status.Phase), hasFile: v.Status.HasFile, profile: v.Spec.QualityProfileRef,
-			poster:     posterArt(commonv1.MediaKindMovie, v.GetUID(), v.Status.Artwork, v.Status.Overlay),
-			providerID: strconv.FormatInt(v.Spec.TmdbID, 10),
+		li := LibraryItem{
+			Tab: TabMovies, Monitored: monitoredOrDefault(v.Spec.Monitored),
+			Phase: string(v.Status.Phase), HasFile: v.Status.HasFile, QualityProfileRef: v.Spec.QualityProfileRef,
+			Poster:     posterArt(commonv1.MediaKindMovie, v.GetUID(), v.Status.Artwork, v.Status.Overlay),
+			ProviderID: strconv.FormatInt(v.Spec.TmdbID, 10),
+			RootFolder: v.Spec.RootFolderRef, Path: v.Status.Path, Tags: v.Spec.Tags,
+			MinimumAvailability: string(v.Spec.MinimumAvailability),
+		}
+		if q := v.Status.FileQuality; q != nil && v.Status.HasFile {
+			li.Quality = q.Name
 		}
 		if md := v.Status.Metadata; md != nil {
-			c.year = md.Year
+			li.Year = md.Year
+			li.Genres, li.Keywords, li.Studios, li.Countries = md.Genres, md.Keywords, md.Studios, md.Countries
+			li.OriginalLanguage = langTag(md.OriginalLanguage)
+			li.Certification, li.RuntimeMinutes, li.Ratings = md.Certification, md.RuntimeMinutes, md.Ratings
+			li.ReleaseStatus = string(md.Status)
+			li.InCinemas, li.DigitalRelease, li.PhysicalRelease = momentOf(md.InCinemas), momentOf(md.DigitalRelease), momentOf(md.PhysicalRelease)
+			if md.Collection != nil {
+				li.Collection = md.Collection.Name
+			}
 		}
-		return c, true
+		return libraryCard{item: li, ownFile: true}, true
 	case *catalogv1.Series:
-		c := libraryCard{
-			tab: TabTV, monitored: monitoredOrDefault(v.Spec.Monitored),
-			phase: string(v.Status.Phase), profile: v.Spec.QualityProfileRef,
-			hasFile: v.Status.EpisodeFileCount > 0,
-			missing: v.Status.MissingEpisodeCount, downloading: v.Status.DownloadingEpisodeCount,
-			poster:     posterArt(commonv1.MediaKindSeries, v.GetUID(), v.Status.Artwork, v.Status.Overlay),
-			providerID: strconv.FormatInt(v.Spec.TvdbID, 10),
+		li := LibraryItem{
+			Tab: TabTV, Monitored: monitoredOrDefault(v.Spec.Monitored),
+			Phase: string(v.Status.Phase), QualityProfileRef: v.Spec.QualityProfileRef,
+			HasFile:         v.Status.EpisodeFileCount > 0,
+			MissingEpisodes: v.Status.MissingEpisodeCount, DownloadingEpisodes: v.Status.DownloadingEpisodeCount,
+			Poster:     posterArt(commonv1.MediaKindSeries, v.GetUID(), v.Status.Artwork, v.Status.Overlay),
+			ProviderID: strconv.FormatInt(v.Spec.TvdbID, 10),
+			RootFolder: v.Spec.RootFolderRef, Path: v.Status.Path, Tags: v.Spec.Tags,
+			SeriesType:   string(v.Spec.SeriesType),
+			EpisodeCount: v.Status.EpisodeCount, EpisodeFileCount: v.Status.EpisodeFileCount,
+			NextAiring: momentOf(v.Status.NextAiring), PreviousAiring: momentOf(v.Status.PreviousAiring),
+		}
+		for _, s := range v.Status.Seasons {
+			li.SizeBytes += s.SizeBytes
+			if s.Number > 0 {
+				li.SeasonCount++
+			}
 		}
 		if md := v.Status.Metadata; md != nil {
-			c.year = md.Year
+			li.Year = md.Year
+			li.Genres, li.SubGenres, li.Keywords = md.Genres, md.SubGenres, md.Keywords
+			li.Studios, li.Countries = md.Studios, md.Countries
+			li.Networks = md.Networks
+			if len(li.Networks) == 0 && md.Network != "" {
+				li.Networks = []string{md.Network}
+			}
+			li.OriginalLanguage = langTag(md.OriginalLanguage)
+			li.Certification, li.RuntimeMinutes, li.Ratings = md.Certification, md.RuntimeMinutes, md.Ratings
+			li.ReleaseStatus = string(md.Status)
+			li.FirstAired = momentOf(md.FirstAired)
 		}
-		return c, true
+		return libraryCard{item: li}, true
 	case *catalogv1.Artist:
-		c := libraryCard{
-			tab: TabMusic, monitored: monitoredOrDefault(v.Spec.Monitored),
-			hasFile: v.Status.AlbumFileCount > 0, profile: v.Spec.QualityProfileRef,
-			poster:     posterArt(commonv1.MediaKindArtist, v.GetUID(), v.Status.Artwork, nil),
-			providerID: v.Spec.MusicBrainzID,
-		}
-		return c, true
+		return libraryCard{item: LibraryItem{
+			Tab: TabMusic, Monitored: monitoredOrDefault(v.Spec.Monitored),
+			HasFile: v.Status.AlbumFileCount > 0, QualityProfileRef: v.Spec.QualityProfileRef,
+			Poster:     posterArt(commonv1.MediaKindArtist, v.GetUID(), v.Status.Artwork, nil),
+			ProviderID: v.Spec.MusicBrainzID, Tags: v.Spec.Tags, RootFolder: v.Spec.RootFolderRef,
+		}}, true
 	case *catalogv1.Author:
-		c := libraryCard{
-			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
-			hasFile: v.Status.BookFileCount > 0, profile: v.Spec.QualityProfileRef,
-			poster:     posterArt(commonv1.MediaKindAuthor, v.GetUID(), v.Status.Artwork, nil),
-			providerID: v.Spec.OpenLibraryID,
-		}
-		return c, true
+		return libraryCard{item: LibraryItem{
+			Tab: TabBooks, Monitored: monitoredOrDefault(v.Spec.Monitored),
+			HasFile: v.Status.BookFileCount > 0, QualityProfileRef: v.Spec.QualityProfileRef,
+			Poster:     posterArt(commonv1.MediaKindAuthor, v.GetUID(), v.Status.Artwork, nil),
+			ProviderID: v.Spec.OpenLibraryID, Tags: v.Spec.Tags, RootFolder: v.Spec.RootFolderRef,
+		}}, true
 	case *catalogv1.Book:
 		if v.Spec.AuthorRef != nil && *v.Spec.AuthorRef != "" {
 			return libraryCard{}, false
 		}
-		c := libraryCard{
-			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
-			phase: string(v.Status.Phase), hasFile: v.Status.HasFile,
-			poster: posterArt(commonv1.MediaKindBook, v.GetUID(), v.Status.Artwork, nil),
+		li := LibraryItem{
+			Tab: TabBooks, Monitored: monitoredOrDefault(v.Spec.Monitored),
+			Phase: string(v.Status.Phase), HasFile: v.Status.HasFile,
+			Poster: posterArt(commonv1.MediaKindBook, v.GetUID(), v.Status.Artwork, nil),
 		}
 		if v.Spec.QualityProfileRef != nil {
-			c.profile = *v.Spec.QualityProfileRef
+			li.QualityProfileRef = *v.Spec.QualityProfileRef
 		}
-		return c, true
+		return libraryCard{item: li}, true
 	case *catalogv1.Audiobook:
-		c := libraryCard{
-			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
-			phase: string(v.Status.Phase), hasFile: v.Status.HasFile, profile: v.Spec.QualityProfileRef,
-			poster: posterArt(commonv1.MediaKindAudiobook, v.GetUID(), v.Status.Artwork, nil),
-		}
-		return c, true
+		return libraryCard{item: LibraryItem{
+			Tab: TabBooks, Monitored: monitoredOrDefault(v.Spec.Monitored),
+			Phase: string(v.Status.Phase), HasFile: v.Status.HasFile, QualityProfileRef: v.Spec.QualityProfileRef,
+			Poster: posterArt(commonv1.MediaKindAudiobook, v.GetUID(), v.Status.Artwork, nil),
+		}}, true
 	case *catalogv1.Comic:
-		c := libraryCard{
-			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
-			hasFile: v.Status.IssueFileCount > 0, profile: v.Spec.QualityProfileRef,
-			poster: posterArt(commonv1.MediaKindComic, v.GetUID(), v.Status.Artwork, nil),
+		li := LibraryItem{
+			Tab: TabBooks, Monitored: monitoredOrDefault(v.Spec.Monitored),
+			HasFile: v.Status.IssueFileCount > 0, QualityProfileRef: v.Spec.QualityProfileRef,
+			Poster: posterArt(commonv1.MediaKindComic, v.GetUID(), v.Status.Artwork, nil),
 		}
 		if md := v.Status.Metadata; md != nil {
-			c.year = md.Year
+			li.Year = md.Year
 		}
-		return c, true
+		return libraryCard{item: li}, true
 	default:
 		return libraryCard{}, false
 	}
+}
+
+// momentOf is t's time, zero for nil.
+func momentOf(t *metav1.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return t.Time
+}
+
+// langTag is a provider's language code as a pkg/lang tag, the vocabulary
+// the probe's audio languages are read into, so the two filter alike; a
+// code pkg/lang cannot read is kept as it is.
+func langTag(code string) string {
+	if tag, ok := lang.Normalize(code); ok {
+		return string(tag)
+	}
+	return code
 }
 
 // ArtURL is the URL ui/art.go's handleArt serves the artwork object

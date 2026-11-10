@@ -20,10 +20,10 @@ package views
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
+	"strconv"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/ui/paging"
-	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/components/alert"
 	"github.com/mediactl/clustarr/ui/components/aspectratio"
 	"github.com/mediactl/clustarr/ui/components/badge"
@@ -39,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/ui/components/toggle"
 	"github.com/mediactl/clustarr/ui/components/tooltip"
 	"github.com/mediactl/clustarr/ui/components/utils"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // Library renders the Library page (amendment §A3.4, Task G3-3): every
@@ -51,58 +52,62 @@ import (
 // page, wrapped in Layout, so a plain GET renders
 // something useful even before htmx's SSE extension has connected.
 //
-// #library-rows is the sse-swap target, mirroring the Pipeline and Downloads
-// pages: htmx's SSE extension morphs that element's children into the
-// named event's data (hx-swap="morph:innerHTML", idiomorph, 2026-10-21: a
-// frame used to replace them, tearing down every card's poster, hover state
-// and open menu, and the scroll's sentinel, a few times a minute; now a node
-// whose markup is unchanged is left alone, and a card is paired by its id,
-// cardID), so everything inside it (and only what's inside it)
-// must be exactly what LibraryRows renders -- the toolbar renders outside the
-// swapped element, deliberately: the set of RootFolders does not move on the
-// same cadence as item status, mirroring downloads.templ's own client-cards
-// placement.
-templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem, tb LibraryToolbar, rootFolders []catalogv1.RootFolder, jumpsFor []Jump) {
+// #library-rows holds every card the view keeps (owner, 2026-11-10: "We
+// should probably not paginate the libraries so we can mass select and
+// scroll more smoothly"): no window, no sentinels. Its stream
+// (/events/library/{tab}, the same view) sends no markup: each frame is a
+// manifest of the cards the view keeps, in order, with each card's
+// fingerprint (CardFingerprint), and ui/static/library.js fetches only the
+// cards that are new or changed (POST /library/{tab}/cards), morphs them in,
+// drops the ones gone and puts the rest in the manifest's order -- a frame of
+// a thousand cards' markup every few seconds was the alternative. The
+// toolbar, the filter's chips and dialogs, the shared card action bar
+// (cardActionBar) and the bulk bar render outside it.
+templ Library(tab projection.Tab, items []projection.LibraryItem, tb LibraryToolbar, rootFolders []catalogv1.RootFolder, jumpsFor []Jump) {
 	@Shell(Chrome{Title: "Library", Crumbs: []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}, Tab: tab, HideScrollbar: true}) {
-		<div id="library-page" class="group/library lg:pr-10" data-tab={ string(tab) }>
+		<div id="library-page" class="group/library lg:pr-10" data-tab={ string(tab) } data-query={ tb.Query }>
 			@libraryToolbar(tab, tb, rootFolders)
+			@filterChips(tb)
 			<div
 				id="library-rows"
 				data-tab={ string(tab) }
-				data-offset={ fmt.Sprint(p.Offset) }
-				data-total={ fmt.Sprint(p.Total) }
-				data-page={ fmt.Sprint(p.Number) }
-				data-pages={ fmt.Sprint(p.Pages) }
-				data-per={ fmt.Sprint(p.Per) }
-				hx-ext="sse, morph"
-				sse-connect={ "/events/library/" + string(tab) + p.Query(p.Number) }
-				sse-swap="library"
-				hx-swap="morph:innerHTML"
-				hx-trigger="sse:art"
+				data-total={ fmt.Sprint(len(items)) }
+				hx-ext="sse"
+				sse-connect={ libraryStreamURL(tab, tb.Query) }
+				hx-trigger="sse:art, sse:library-manifest"
 				class="space-y-4"
 			>
-				@LibraryList(tab, p, items)
+				@LibraryRows(items, tb.Filtered)
 			</div>
 			@jumpBar(jumpsFor)
+			@cardActionBar()
+			@cardTooltip()
 			@bulkBar(tab)
+			@filterDialog(tb.Builder)
+			@filterSaveDialog(tb)
 			// Where a card's action says how it went.
 			@ActionStatusRegion()
 		</div>
 	}
 }
 
+// libraryStreamURL is the tab's stream in the page's view.
+func libraryStreamURL(tab projection.Tab, query string) string {
+	if query == "" {
+		return "/events/library/" + string(tab)
+	}
+	return "/events/library/" + string(tab) + "?" + query
+}
+
 // Jump is one entry of the A-Z bar: a letter, whether any title on the
-// tab files under it, and the link to the page where those titles begin.
+// tab files under it, the index of its first title (data-index), which
+// ui/static/jump.js scrolls to, and Href, the page at that title's card
+// for a reader without JavaScript.
 type Jump struct {
 	Letter  string
 	Enabled bool
 	Href    string
-	// Page is the page the letter's titles begin on and Index the index
-	// of its first title (data-page, data-index): ui/static/jump.js widens
-	// the loaded window to the page and scrolls to the title, keeping what
-	// is already loaded; Href is the fallback without JavaScript.
-	Page  int
-	Index int
+	Index   int
 }
 
 // jumpLetterClass makes every letter share the bar's height evenly and
@@ -119,12 +124,11 @@ const jumpLetterClass = "flex min-h-0 w-full flex-1 items-center justify-center 
 // flow (the grid keeps clear of it with lg:pr-10). A letter that has titles
 // is a muted link that lights on hover; one that has none is dimmer still
 // and no link. ui/static/jump.js places the thumb (data-jump-thumb) along
-// it in proportion to the items on screen over the whole list, from
-// #library-rows' data-offset and data-total, and drags it like a native
-// scrollbar's thumb: a 12px grab strip (w-3) down the strip's left edge
-// drawing Plex's slim rounded bar, pointer events on, the browser's touch
-// panning off so a touch drag moves the thumb and not the page. Each
-// letter carries data-jump for the tests and the script.
+// it in proportion to the cards on screen over the whole grid and drags it
+// like a native scrollbar's thumb: a 12px grab strip (w-3) down the strip's
+// left edge drawing Plex's slim rounded bar, pointer events on, the
+// browser's touch panning off so a touch drag moves the thumb and not the
+// page. Each letter carries data-jump for the tests and the script.
 templ jumpBar(jumpsFor []Jump) {
 	if len(jumpsFor) > 0 {
 		<nav data-jump-bar aria-label="Jump to a letter" class="fixed top-[8rem] right-0 bottom-0 z-10 hidden w-8 lg:block">
@@ -132,7 +136,7 @@ templ jumpBar(jumpsFor []Jump) {
 			<div data-jump-letters class="flex h-full w-full flex-col pb-2">
 				for _, j := range jumpsFor {
 					if j.Enabled {
-						<a href={ templ.SafeURL(j.Href) } class={ jumpLetterClass + " text-muted-foreground hover:text-foreground" } data-jump={ j.Letter } data-page={ fmt.Sprint(j.Page) } data-index={ fmt.Sprint(j.Index) }>{ j.Letter }</a>
+						<a href={ templ.SafeURL(j.Href) } class={ jumpLetterClass + " text-muted-foreground hover:text-foreground" } data-jump={ j.Letter } data-index={ fmt.Sprint(j.Index) }>{ j.Letter }</a>
 					} else {
 						// No link, and no pointer events: the wheel over it
 						// scrolls the page.
@@ -144,82 +148,39 @@ templ jumpBar(jumpsFor []Jump) {
 	}
 }
 
-// LibraryList is what #library-rows holds and what every
-// /events/library/{tab} frame carries: the window's cards and, while the
-// list goes on, the sentinel that loads more. items is already the tab's
-// window.
-templ LibraryList(tab projection.Tab, p paging.Page, items []projection.LibraryItem) {
-	@loadPrev(tab, p)
-	@LibraryRows(items)
-	@loadMore(tab, p)
-}
-
-// loadPrev is the scroll's other direction (design 2026-09-24): after a
-// jump the window starts partway down the list, so a sentinel above the
-// grid fetches the same window one page earlier -- the start moves back
-// a page, the span grows by one -- and swaps #library-rows whole, like
-// loadMore. ui/static/jump.js fires its loadprev event when the reader
-// scrolls up at the top of the page and keeps the first card in place
-// across the prepend; a click does the same for anyone else. Nothing on
-// the first page.
-templ loadPrev(tab projection.Tab, p paging.Page) {
-	if p.Number > 1 {
-		{{ q := p.Values(p.Number - 1) }}
-		{{ q.Set("pages", fmt.Sprint(p.Pages+1)) }}
-		<div
-			data-load-prev
-			hx-get={ "/library/" + string(tab) + "?" + q.Encode() }
-			hx-trigger="loadprev, click"
-			hx-target="#library-rows"
-			hx-select="#library-rows"
-			hx-swap="outerHTML"
-			class="cursor-pointer py-3 text-center text-sm text-muted-foreground hover:text-foreground"
-		>
-			Load earlier…
-		</div>
-	}
-}
-
-// loadMore is the library's infinite scroll (design 2026-09-24): a
-// sentinel after the grid that, once scrolled into view, fetches the
-// same window one page wider and swaps #library-rows whole -- the wider
-// grid, the next sentinel and the stream element, which reconnects for
-// the wider window so live frames carry everything on screen. Nothing
-// once the window reaches the end.
-templ loadMore(tab projection.Tab, p paging.Page) {
-	if p.HasNext() {
-		{{ q := p.Values(p.Number) }}
-		{{ q.Set("pages", fmt.Sprint(p.Pages+1)) }}
-		<div
-			data-load-more
-			hx-get={ "/library/" + string(tab) + "?" + q.Encode() }
-			hx-trigger="revealed"
-			hx-target="#library-rows"
-			hx-select="#library-rows"
-			hx-swap="outerHTML"
-			class="py-6 text-center text-sm text-muted-foreground"
-		>
-			Loading more…
-		</div>
-	}
-}
-
-// LibraryRows renders the dynamic part of the Library page: the "nothing
-// collected yet" placeholder or the item grid. This is also what
-// /events/library renders into each SSE event's data, so the initial page
-// render and every live update produce byte-for-byte the same markup for
-// #library-rows's contents.
-templ LibraryRows(items []projection.LibraryItem) {
-	if len(items) == 0 {
-		@emptyState("library", "Nothing in the library yet.", "Add a title from Add New, or scan a root folder in Settings.", templ.Attributes{"data-empty": "library"})
+// LibraryRows renders #library-rows' contents: the placeholder, shown
+// while no card is (a filter's or an empty tab's, as filtered says;
+// ui/static/library.js shows and hides it as the stream adds and drops
+// cards), and the grid of every card.
+templ LibraryRows(items []projection.LibraryItem, filtered bool) {
+	if filtered {
+		@emptyState("funnel", "Nothing matches this filter.", "Change the filter, or clear it to see the whole tab.", emptyAttrs(len(items)))
+	} else {
+		@emptyState("library", "Nothing in the library yet.", "Add a title from Add New, or scan a root folder in Settings.", emptyAttrs(len(items)))
 	}
 	// The column width is the Options menu's poster size
 	// (--library-poster-width, set on <html> by ui/static/library.js).
 	@item.Group(item.GroupProps{Class: "grid grid-cols-[repeat(auto-fill,minmax(var(--library-poster-width,160px),1fr))] gap-4", Attributes: templ.Attributes{"data-library-grid": true}}) {
-		for _, li := range items {
-			@libraryCard(li)
-		}
+		@LibraryCards(items)
 	}
+}
+
+// LibraryCards are the cards alone, what POST /library/{tab}/cards
+// answers for the stream's new and changed cards.
+templ LibraryCards(items []projection.LibraryItem) {
+	for _, li := range items {
+		@libraryCard(li)
+	}
+}
+
+// emptyAttrs are the placeholder's attributes: hidden while there are
+// cards.
+func emptyAttrs(cards int) templ.Attributes {
+	attrs := templ.Attributes{"data-empty": "library"}
+	if cards > 0 {
+		attrs["hidden"] = true
+	}
+	return attrs
 }
 
 // libraryCard renders one LibraryItem as shadcn-templ's item: the whole
@@ -235,11 +196,15 @@ templ LibraryRows(items []projection.LibraryItem) {
 // the page is selecting (Sonarr's mass editor, 2026-10-06) a click selects
 // the card instead of opening it (ui/static/library.js sets
 // data-selected), and its mark, hidden otherwise, shows in the poster's
-// corner.
+// corner. data-fp is CardFingerprint, which the stream's manifest compares.
+// The card's own actions are the page's one cardActionBar, which
+// ui/static/library.js moves into the card under the pointer (2026-11-10:
+// four buttons a card were half of a card's 10 KB, and a grid of a
+// thousand cards renders them all).
 templ libraryCard(li projection.LibraryItem) {
 	@item.Item(item.Props{
 		Variant: item.VariantMuted,
-		ID:      cardID(li),
+		ID:      CardID(li),
 		Class:   "group/card relative flex-col items-stretch gap-0 overflow-hidden rounded-xl border-0 bg-card p-0 shadow-lg shadow-black/40 ring-1 ring-white/10 hover:bg-card hover:ring-primary/70 data-selected:ring-2 data-selected:ring-primary",
 		Attributes: templ.Attributes{
 			"data-ref":       li.Ref.String(),
@@ -250,27 +215,21 @@ templ libraryCard(li projection.LibraryItem) {
 			"data-year":      fmt.Sprint(li.Year),
 			"data-profile":   li.QualityProfileRef,
 			"data-poster":    posterState(li.Poster),
+			"data-fp":        CardFingerprint(li),
 		},
 	}) {
-		@tooltip.Tooltip() {
-			<a
-				data-card-link
-				preload="mouseover"
-				href={ templ.SafeURL(libraryDetailPath(li)) }
-				aria-label={ cardLabel(li) }
-				class="absolute inset-0 z-[1] rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring"
-				{ tooltip.Trigger(ctx)... }
-			></a>
-			@tooltip.Content(tooltip.ContentProps{Side: tooltip.SideBottom}) {
-				{ cardLabel(li) }
-			}
-		}
+		<a
+			data-card-link
+			preload="mouseover"
+			href={ templ.SafeURL(libraryDetailPath(li)) }
+			aria-label={ cardLabel(li) }
+			class="absolute inset-0 z-[1] rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+		></a>
 		<span data-select-mark aria-hidden="true" class="absolute top-2 left-2 z-10 hidden size-6 items-center justify-center rounded-full border-2 border-white/80 bg-black/40 text-primary-foreground shadow group-data-selecting/library:flex group-data-selected/card:border-primary group-data-selected/card:bg-primary">
 			@icon.Icon("check")(icon.Props{Class: "hidden size-4 group-data-selected/card:block"})
 		</span>
-		@aspectratio.AspectRatio(aspectratio.Props{Ratio: "2/3", Class: "w-full bg-muted"}) {
+		@aspectratio.AspectRatio(aspectratio.Props{Ratio: "2/3", Class: "w-full bg-muted", Attributes: templ.Attributes{"data-card-poster": true}}) {
 			@posterFill(li.Poster, li.Title, li.ArtKey)
-			@cardActions(li)
 		}
 		<div class={ stripeClass(projection.LibraryStatus(li)) } data-status={ projection.LibraryStatus(li) }></div>
 		<div data-card-details class="px-2 py-1.5 text-center text-xs leading-5">
@@ -281,6 +240,7 @@ templ libraryCard(li projection.LibraryItem) {
 }
 
 // cardLabel is the card's accessible name and tooltip: the title and year.
+// The tooltip is not rendered with the card (cardTooltip).
 func cardLabel(li projection.LibraryItem) string {
 	if li.Year > 0 {
 		return fmt.Sprintf("%s (%d)", li.Title, li.Year)
@@ -288,37 +248,59 @@ func cardLabel(li projection.LibraryItem) string {
 	return li.Title
 }
 
-// cardActions are a card's own actions (2026-10-06, after Sonarr's poster
-// buttons), along the poster's foot: Refresh & Scan, Search, Monitor or
-// Unmonitor, and Delete -- the item page's actions, so a card does what
-// its page does without opening it. They show while the pointer is over
-// the card or focus is inside it, and never while the page is selecting,
-// when a click selects. Each but Delete posts through htmx to the item's
-// own action route and reads the outcome, a line saying it was done or why
-// it failed, into the page's #action-status (ActionStatus); the live
-// stream then redraws the card. Delete opens the page's delete dialog for
-// this item alone (ui/static/library.js reads data-card-delete), with the
-// same two checkboxes as the item page's.
-templ cardActions(li projection.LibraryItem) {
-	<div
-		data-card-actions
-		class="absolute right-0 bottom-0 left-0 z-20 flex justify-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-1 pt-6 pb-1.5 opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100 group-data-selecting/library:hidden"
-	>
-		@cardAction(li, "refresh", "refresh-cw", "Refresh & Scan", `{"scan":"true"}`)
-		@cardAction(li, "search", "search", "Search", "")
-		if li.Monitored {
-			@cardAction(li, "monitor", "bookmark-x", "Unmonitor", `{"monitored":"false"}`)
-		} else {
-			@cardAction(li, "monitor", "bookmark-check", "Monitor", `{"monitored":"true"}`)
+// cardTooltip is the cards' title tooltip, which no card renders (owner,
+// 2026-11-10): a thousand tooltip components were half of every card's
+// markup and 40% of the library's load, each found its trigger by a query
+// over the whole document as it started, and each was walked by the
+// components' lifecycle observer on every later change to the page.
+// ui/static/library.js clones this template into a card the first time the
+// pointer rests on it or focus enters it, names the card's link its
+// trigger and its label the link's aria-label, and the tooltip component
+// takes it from there.
+templ cardTooltip() {
+	<template data-card-tooltip>
+		@tooltip.Tooltip(tooltip.Props{ID: "card-tooltip"}) {
+			@tooltip.Content(tooltip.ContentProps{Side: tooltip.SideBottom}) {
+				<span data-card-tooltip-label></span>
+			}
 		}
-		@button.Button(button.Props{
-			Variant:    button.VariantGhost,
-			Size:       button.SizeIconSm,
-			Class:      cardActionClass + " hover:text-destructive",
-			Attributes: cardDeleteAttrs(li),
-		}) {
-			@icon.Icon("trash-2")()
-		}
+	</template>
+}
+
+// cardActionBar is the cards' own actions (2026-10-06, after Sonarr's
+// poster buttons), along the poster's foot: Refresh & Scan, Search,
+// Monitor or Unmonitor (the one the card's data-monitored calls for), and
+// Delete -- the item page's actions, so a card does what its page does
+// without opening it. One bar serves every card (2026-11-10): it waits
+// hidden in data-card-actions-home, and ui/static/library.js moves it into
+// the card under the pointer or holding focus, where it shows while the
+// pointer is over the card or focus is inside it, and never while the page
+// is selecting, when a click selects. Each but Delete posts through htmx
+// to the card's own action route -- library.js puts the card's path in
+// place of the placeholder at htmx:configRequest -- and reads the outcome,
+// a line saying it was done or why it failed, into the page's
+// #action-status (ActionStatus); the live stream then redraws the card.
+// Delete opens the page's delete dialog for that card alone (library.js
+// reads the card), with the same two checkboxes as the item page's.
+templ cardActionBar() {
+	<div data-card-actions-home hidden>
+		<div
+			data-card-actions
+			class="absolute right-0 bottom-0 left-0 z-20 flex justify-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-1 pt-6 pb-1.5 opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100 group-data-selecting/library:hidden"
+		>
+			@cardAction("refresh", "refresh-cw", "Refresh & Scan", `{"scan":"true"}`, "")
+			@cardAction("search", "search", "Search", "", "")
+			@cardAction("monitor", "bookmark-x", "Unmonitor", `{"monitored":"false"}`, "group-data-[monitored=false]/card:hidden")
+			@cardAction("monitor", "bookmark-check", "Monitor", `{"monitored":"true"}`, "group-data-[monitored=true]/card:hidden")
+			@button.Button(button.Props{
+				Variant:    button.VariantGhost,
+				Size:       button.SizeIconSm,
+				Class:      cardActionClass + " hover:text-destructive",
+				Attributes: cardDeleteAttrs(),
+			}) {
+				@icon.Icon("trash-2")()
+			}
+		</div>
 	</div>
 }
 
@@ -326,26 +308,31 @@ templ cardActions(li projection.LibraryItem) {
 // shade.
 const cardActionClass = "size-8 rounded-full text-white/90 hover:bg-white/20 hover:text-white focus-visible:bg-white/20"
 
-// cardAction is one of a card's posting actions: a button posting to the
-// item's action route through htmx, vals its form fields as hx-vals JSON.
-templ cardAction(li projection.LibraryItem, action, iconName, label, vals string) {
+// cardActionPath is the placeholder a card action posts to until
+// ui/static/library.js names the card's own route.
+const cardActionPath = "/library/card-action"
+
+// cardAction is one of the bar's posting actions: a button posting the
+// action through htmx, vals its form fields as hx-vals JSON, class what
+// hides it on a card it does not suit.
+templ cardAction(action, iconName, label, vals, class string) {
 	@button.Button(button.Props{
 		Variant:    button.VariantGhost,
 		Size:       button.SizeIconSm,
-		Class:      cardActionClass,
-		Attributes: cardActionAttrs(li, action, label, vals),
+		Class:      cardActionClass + " " + class,
+		Attributes: cardActionAttrs(action, label, vals),
 	}) {
 		@icon.Icon(iconName)()
 	}
 }
 
 // cardActionAttrs are a posting card action's htmx attributes.
-func cardActionAttrs(li projection.LibraryItem, action, label, vals string) templ.Attributes {
+func cardActionAttrs(action, label, vals string) templ.Attributes {
 	attrs := templ.Attributes{
 		"data-card-action": action,
 		"aria-label":       label,
 		"title":            label,
-		"hx-post":          libraryActionURL(li, action),
+		"hx-post":          cardActionPath,
 		"hx-target":        "#action-status",
 		"hx-swap":          "innerHTML",
 	}
@@ -355,15 +342,32 @@ func cardActionAttrs(li projection.LibraryItem, action, label, vals string) temp
 	return attrs
 }
 
-// cardDeleteAttrs make a card's Delete the page's delete dialog's trigger,
-// naming the item (namespace/kind/name) for ui/static/library.js.
-func cardDeleteAttrs(li projection.LibraryItem) templ.Attributes {
+// cardDeleteAttrs make the bar's Delete the page's delete dialog's
+// trigger for the card it is in.
+func cardDeleteAttrs() templ.Attributes {
 	attrs := dialog.TriggerFor("library-bulk-delete")
 	attrs["data-card-action"] = "delete"
-	attrs["data-card-delete"] = li.Ref.Namespace + "/" + string(li.Kind) + "/" + li.Ref.Name
+	attrs["data-card-delete"] = true
 	attrs["aria-label"] = "Delete"
 	attrs["title"] = "Delete"
 	return attrs
+}
+
+// CardFingerprint is what a card shows, as a short hash: the stream's
+// manifest carries it, and ui/static/library.js fetches the card again
+// only when it moves. Every field libraryCard renders goes in it
+// (TestCardFingerprintMovesWithEveryRenderedField).
+func CardFingerprint(li projection.LibraryItem) string {
+	h := fnv.New64a()
+	for _, part := range []string{
+		li.Ref.String(), string(li.Kind), li.Title, fmt.Sprint(li.Year), fmt.Sprint(li.Monitored),
+		li.Phase, fmt.Sprint(li.HasFile), li.QualityProfileRef, li.Poster, li.ArtKey,
+		projection.LibraryStatus(li),
+	} {
+		h.Write([]byte(part))
+		h.Write([]byte{0})
+	}
+	return strconv.FormatUint(h.Sum64(), 36)
 }
 
 // ActionStatus is what a card's action answers into #action-status: a
@@ -416,9 +420,13 @@ func monitoredTitle(monitored bool) string {
 // primary badge (Plex gold) when monitored, an outline one when not.
 templ monitoredBadge(monitored bool) {
 	if monitored {
-		@badge.Badge() { { monitoredLabel(monitored) } }
+		@badge.Badge() {
+			{ monitoredLabel(monitored) }
+		}
 	} else {
-		@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { monitoredLabel(monitored) } }
+		@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+			{ monitoredLabel(monitored) }
+		}
 	}
 }
 
@@ -476,13 +484,23 @@ type Choice struct {
 
 // LibraryToolbar is the toolbar's state and menus: the current view for
 // the tests (data-current-sort, -dir and -filter) and the Sort and Filter
-// entries the handler built.
+// entries the handler built; since 2026-11-10 also the view's query (the
+// page's own, for a saved filter and the stream), how many cards it keeps
+// of the tab's, the active filter's chips and the custom filter builder.
 type LibraryToolbar struct {
-	Sort    string
-	Dir     string
-	Filter  string
-	Sorts   []Choice
-	Filters []Choice
+	Tab       string
+	Sort      string
+	Dir       string
+	Filter    string
+	Sorts     []Choice
+	Filters   []Choice
+	Query     string
+	Shown     int
+	Total     int
+	Filtered  bool
+	Chips     []FilterChip
+	ClearHref string
+	Builder   FilterBuilder
 }
 
 // libraryToolbar is Sonarr's toolbar row (design 2026-09-24, views/toolbar.templ): the actions
@@ -508,7 +526,7 @@ templ libraryToolbar(tab projection.Tab, tb LibraryToolbar, rootFolders []catalo
 			@optionsMenu()
 			@separator.Separator(separator.Props{Orientation: separator.OrientationVertical, Class: "mx-1 my-2 data-vertical:h-auto"})
 			@viewMenu("Sort", "arrow-up-down", "Sort by", "data-sort", tb.Sorts)
-			@viewMenu("Filter", "funnel", "Filter", "data-filter", tb.Filters)
+			@filterMenu(tb)
 		}
 	}
 }
@@ -602,6 +620,50 @@ templ viewMenu(label, iconName, heading, attr string, choices []Choice) {
 						@icon.Icon("arrow-down")()
 				}
 			}
+		}
+	}
+}
+
+// filterMenu is the Filter menu: Radarr's and Sonarr's presets, then the
+// custom filters -- the ones this browser keeps for the tab
+// (data-saved-filters, which ui/static/library.js fills from the
+// template), the builder, and saving the current view among them.
+templ filterMenu(tb LibraryToolbar) {
+	@toolbarMenu("funnel", "Filter") {
+		@menubar.Label() {
+			Filter
+		}
+		for _, c := range tb.Filters {
+			@menubar.Item(menubar.ItemProps{Href: c.Href, Attributes: choiceAttributes("data-filter", c)}) {
+				if c.Active {
+					@icon.Icon("check")()
+				} else {
+					<span class="size-4"></span>
+				}
+				<span class="flex-1">{ c.Label }</span>
+			}
+		}
+		@menubar.Separator()
+		@menubar.Label() {
+			Custom Filters
+		}
+		<div data-saved-filters data-tab={ tb.Tab } class="contents"></div>
+		<template data-saved-filter-template>
+			@menubar.Item(menubar.ItemProps{Href: "#", Attributes: templ.Attributes{"data-saved-filter": ""}}) {
+				@icon.Icon("bookmark")()
+				<span class="flex-1 truncate" data-saved-filter-name></span>
+				<span data-saved-filter-delete role="button" aria-label="Forget this filter" title="Forget this filter" class="rounded-sm p-0.5 text-muted-foreground hover:text-destructive">
+					@icon.Icon("x")(icon.Props{Class: "size-3.5"})
+				</span>
+			}
+		</template>
+		@menubar.Item(menubar.ItemProps{Attributes: templ.Attributes{"data-open-dialog": filterDialogID}}) {
+			@icon.Icon("list-filter")()
+			<span class="flex-1">Custom Filter…</span>
+		}
+		@menubar.Item(menubar.ItemProps{Disabled: !tb.Filtered, Attributes: templ.Attributes{"data-open-dialog": filterSaveDialogID}}) {
+			@icon.Icon("bookmark-plus")()
+			<span class="flex-1">Save Current Filter…</span>
 		}
 	}
 }
@@ -712,8 +774,12 @@ templ bulkBar(tab projection.Tab) {
 						}
 					}
 					@dialog.Footer() {
-						@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) { Cancel }
-						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-action": "bulk-delete-confirm"}}) { Delete }
+						@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) {
+							Cancel 
+						}
+						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-action": "bulk-delete-confirm"}}) {
+							Delete 
+						}
 					}
 				</form>
 			}
@@ -840,8 +906,6 @@ func monitoredLabel(monitored bool) string {
 	return "unmonitored"
 }
 
-
-
 // phaseTone is the colour alone, for a badge component that brings its own
 // shape: the library card's phase badge keeps these semantics (the tests
 // assert on them) over the component's neutral secondary colours.
@@ -878,11 +942,10 @@ func libraryActionURL(item projection.LibraryItem, action string) string {
 	return fmt.Sprintf("%s/%s", libraryDetailPath(item), action)
 }
 
-// cardID names a library card for idiomorph: a live frame morphs
-// #library-rows (hx-swap="morph:innerHTML"), and idiomorph pairs the old and
-// new elements by id, so an item that moves a place when another is added
-// keeps its node -- its loaded poster, its hover state, its tooltip --
-// instead of being rebuilt at the position its neighbour held.
-func cardID(li projection.LibraryItem) string {
+// CardID names a library card: the stream's manifest lists cards by it,
+// ui/static/library.js finds, morphs, moves and drops them by it (a
+// morphed card keeps its node -- its loaded poster, its hover state, its
+// tooltip), and an A-Z letter links to its first title's card by it.
+func CardID(li projection.LibraryItem) string {
 	return "card-" + string(li.Kind) + "-" + li.Ref.Namespace + "-" + li.Ref.Name
 }

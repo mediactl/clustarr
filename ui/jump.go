@@ -18,26 +18,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package ui
 
 import (
-	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
 // The A-Z jump bar (design 2026-09-24, after Radarr's): a letter per
 // entry, # for a title that starts with anything else, and a link to the
-// page where that letter's titles begin in the tab's title order.
+// card where that letter's titles begin in the tab's title order -- on the
+// one page since the library stopped paginating (2026-11-10).
 
 const jumpLetters = "#ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 // jumpKey is projection.JumpLetter as the byte the bar indexes by.
 func jumpKey(title string) byte { return projection.JumpLetter(title)[0] }
-
-// jumpPage is the page of per items on which the first title filing under
-// letter or later sits, given items in title order; the last page when no
-// title does.
-func jumpPage(items []projection.LibraryItem, letter byte, per int) int {
-	return paging.Paginate(len(items), jumpIndex(items, letter)/max(per, 1)+1, per).Number
-}
 
 // jumpIndex is the index of the first title filing under letter or
 // later, given items in title order; the last index when no title does,
@@ -51,12 +44,11 @@ func jumpIndex(items []projection.LibraryItem, letter byte) int {
 	return max(len(items)-1, 0)
 }
 
-// jumps builds the bar for a tab at base: a link per letter some title
-// files under, carrying the page's size and view (p.Params) with jump in
-// place of page -- plus the page the letter begins on and the index of
-// its first title, for ui/static/jump.js to widen the loaded window to it
-// -- and a disabled entry per letter none does.
-func jumps(items []projection.LibraryItem, base string, p paging.Page) []views.Jump {
+// jumps builds the bar over a tab's arranged items: a link per letter some
+// title files under, to its first title's card (#<card id>, for a reader
+// without JavaScript) with that card's index for ui/static/jump.js, and a
+// disabled entry per letter none does.
+func jumps(items []projection.LibraryItem) []views.Jump {
 	present := map[byte]bool{}
 	for _, it := range items {
 		present[jumpKey(it.Title)] = true
@@ -66,12 +58,8 @@ func jumps(items []projection.LibraryItem, base string, p paging.Page) []views.J
 		letter := jumpLetters[i]
 		j := views.Jump{Letter: string(letter), Enabled: present[letter]}
 		if j.Enabled {
-			q := p.Values(1)
-			q.Del("page")
-			q.Set("jump", string(letter))
-			j.Href = base + "?" + q.Encode()
-			j.Page = jumpPage(items, letter, p.Per)
 			j.Index = jumpIndex(items, letter)
+			j.Href = "#" + views.CardID(items[j.Index])
 		}
 		out = append(out, j)
 	}

@@ -69,6 +69,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /library/{tab}", s.handleLibrary)
 	mux.HandleFunc("GET /library/find", s.handleFind)
 	mux.HandleFunc("GET /library/{tab}/find", s.handleLibraryFind)
+	mux.HandleFunc("GET /library/{tab}/filter", s.handleLibraryFilter)
+	mux.HandleFunc("GET /library/{tab}/filter/row", s.handleLibraryFilterRow)
+	mux.HandleFunc("POST /library/{tab}/cards", s.handleLibraryCards)
 	mux.HandleFunc("POST /library/{tab}/bulk", s.handleLibraryBulk)
 	mux.HandleFunc("GET /library/{tab}/add", s.handleAddPage)
 	mux.HandleFunc("GET /library/{tab}/add/search", s.handleAddSearch)
@@ -380,46 +383,6 @@ func ownerObject(kind commonv1.MediaKind) (client.Object, bool) {
 		return &catalogv1.Comic{}, true
 	}
 	return nil, false
-}
-
-// handleLibrary renders the Library page (amendment §A3.4, Task G3-3) from
-// the current library projection returned by Options.Library, plus the
-// toolbar's single "Rescan", live when a RootFolder of the tab's kinds
-// exists (listRootFolders, mirroring downloadClients' own direct-Reader reads
-// for config-like data, narrowed by rootFoldersFor).
-func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
-	tab, ok := projection.ParseTab(r.PathValue("tab"))
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	// The toolbar's view (sort, direction, filter) is applied before
-	// paging, and rides every link through req.Params, so the pager, the
-	// stream and the jump bar all address the same arranged list.
-	view := parseLibraryView(r.URL.Query())
-	items := view.arrange(projection.ForTab(s.opts.Library(r.Context()), tab))
-	req := paging.Parse(r.URL.Query())
-	req.Params = view.values()
-	base := "/library/" + string(tab)
-	p := req.Page(len(items))
-	// ?jump=<letter> is the A-Z bar (design 2026-09-24, after Radarr): the
-	// page where that letter's titles begin, as a redirect so the URL the
-	// reader lands on is the plain paged one.
-	if jump := r.URL.Query().Get("jump"); jump != "" {
-		http.Redirect(w, r, base+p.Query(jumpPage(items, jumpKey(jump), req.Per)), http.StatusFound)
-		return
-	}
-	// The bar means nothing under any order but the title's.
-	var bar []views.Jump
-	if view.Sort == projection.SortTitle {
-		bar = jumps(items, base, p)
-	}
-	rootFolders := rootFoldersFor(s.listRootFolders(r.Context()), tab)
-	preloadable(w)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.Library(tab, p, paging.Window(items, p), view.toolbar(base, p.Per), rootFolders, bar).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render library page", "error", err)
-	}
 }
 
 // handleLibraryIndex sends /library to its first tab: the library is one

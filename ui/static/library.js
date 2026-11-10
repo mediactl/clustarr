@@ -20,6 +20,22 @@
  *   form posts it instead of the selection; the bulk bar's Delete goes back
  *   to the selection. #action-status, where a card's other actions answer,
  *   is cleared a few seconds after each answer.
+ * - The cards' actions are one bar ([data-card-actions], 2026-11-10), moved
+ *   into the card under the pointer or holding focus, and parked back in
+ *   [data-card-actions-home] before a card it sits in is morphed or
+ *   removed; its buttons post to the card's own route, put in place of the
+ *   placeholder at htmx:configRequest.
+ * - The stream's library-manifest event (2026-11-10, the library no longer
+ *   paginates) lists the cards the view keeps, in order, each with its
+ *   fingerprint: the new and changed ones are fetched from
+ *   POST /library/{tab}/cards and morphed in (Idiomorph, so a card keeps
+ *   its loaded poster), the ones gone dropped, the rest put in order, and
+ *   the placeholder and the filter's "n of m" follow.
+ * - Saved custom filters are the reader's own, per tab, in localStorage
+ *   (clustarr.library.filters): the Filter menu lists them
+ *   ([data-saved-filters], from its template), the save dialog adds the
+ *   page's view under a name, an entry's x forgets it. [data-open-dialog]
+ *   opens a dialog by id; [data-filter-remove] drops a builder row.
  * - The Options menu's poster size ([data-poster-size] radio items) and
  *   "Show details" ([data-library-option="details"]) are the reader's own:
  *   kept in localStorage and applied to <html> as --library-poster-width and
@@ -101,9 +117,9 @@
       if (!e.target.closest) return;
       var cardDelete = e.target.closest("[data-card-delete]");
       if (cardDelete) {
-        single = cardDelete.getAttribute("data-card-delete");
-        var link = cardDelete.closest("[data-ref]");
-        link = link && link.querySelector("[data-card-link]");
+        var owner = cardDelete.closest("[data-ref]");
+        single = owner ? itemOf(owner) : null;
+        var link = owner && owner.querySelector("[data-card-link]");
         deleteSubject(link ? link.getAttribute("aria-label") : single);
         return;
       }
@@ -185,6 +201,318 @@
       e.target.innerHTML = "";
     }, 4000);
   });
+
+  // The cards' shared action bar.
+  function actionBar() {
+    return document.querySelector("[data-card-actions]");
+  }
+  function parkBar() {
+    var bar = actionBar();
+    var home = document.querySelector("[data-card-actions-home]");
+    if (bar && home && bar.parentNode !== home) home.appendChild(bar);
+  }
+  function cardOf(target) {
+    return target && target.closest ? target.closest("#library-rows [data-ref]") : null;
+  }
+  function placeBar(card) {
+    var poster = card && card.querySelector("[data-card-poster]");
+    var bar = actionBar();
+    if (poster && bar && bar.parentNode !== poster) poster.appendChild(bar);
+  }
+  // A move of the bar is a DOM mutation, and every mutation has the
+  // components' lifecycle observer rescan the page (about 10 ms over a
+  // thousand cards), so a pointer sweeping across the grid moves it only
+  // once it rests on a card; the bar fades in over longer than the wait.
+  var barTimer = null;
+  document.addEventListener("pointerover", function (e) {
+    var card = cardOf(e.target);
+    clearTimeout(barTimer);
+    if (!card) return;
+    var pointerType = e.pointerType || "mouse";
+    barTimer = setTimeout(function () {
+      if (!card.matches(":hover")) return;
+      placeBar(card);
+      attachTooltip(card, function (link) {
+        // The pointer is already over the link: tell the tooltip so, as
+        // the browser would have had it been there.
+        if (!link.matches(":hover")) return;
+        link.dispatchEvent(new PointerEvent("pointerenter", { pointerType: pointerType }));
+        link.dispatchEvent(new MouseEvent("mouseenter"));
+      });
+    }, 60);
+  });
+  document.addEventListener("focusin", function (e) {
+    var card = cardOf(e.target);
+    placeBar(card);
+    attachTooltip(card, function (link) {
+      // focusin on the link alone: the tooltip's focus interaction listens
+      // there, and this one need not hear it again.
+      if (document.activeElement === link) link.dispatchEvent(new FocusEvent("focusin"));
+    });
+  });
+
+  // The cards' title tooltip (views.cardTooltip): no card renders one, so
+  // the first rest of the pointer on a card, or focus entering it, clones
+  // the page's one tooltip template into it, the card's link its trigger
+  // and its label the link's aria-label. The components' lifecycle
+  // observer starts the clone at the next microtask, after which opened
+  // tells it of the hover or focus that is already under way. A stream
+  // frame that morphs the card takes the tooltip away again, until the
+  // next rest.
+  function attachTooltip(card, opened) {
+    var link = card && card.querySelector("[data-card-link]");
+    var tpl = document.querySelector("template[data-card-tooltip]");
+    if (!link || !tpl || !card.id) return;
+    var id = "card-tip-" + card.id;
+    if (link.getAttribute("data-templ-tooltip-trigger") === id && document.getElementById(id)) return;
+    var tip = tpl.content.cloneNode(true);
+    var content = tip.querySelector('[data-slot="tooltip-content"]');
+    var label = tip.querySelector("[data-card-tooltip-label]");
+    if (!content || !label) return;
+    content.id = id;
+    label.textContent = link.getAttribute("aria-label") || "";
+    link.setAttribute("data-slot", "tooltip-trigger");
+    link.setAttribute("data-base-ui-tooltip-trigger", "");
+    link.setAttribute("data-templ-tooltip-trigger", id);
+    link.after(tip);
+    setTimeout(function () {
+      opened(link);
+    }, 0);
+  }
+  document.addEventListener("htmx:configRequest", function (e) {
+    var elt = e.detail && e.detail.elt;
+    if (!elt || !elt.closest || !elt.closest("[data-card-actions]")) return;
+    var card = elt.closest("[data-ref]");
+    var it = card ? itemOf(card) : "";
+    if (!it) {
+      e.preventDefault();
+      return;
+    }
+    e.detail.path = "/library/" + it + "/" + elt.getAttribute("data-card-action");
+  });
+
+  // The stream's manifest.
+  var pendingManifest = null;
+  var fetchingCards = false;
+  function parseManifest(data) {
+    var lines = String(data || "").split("\n");
+    var m = { total: 0, entries: [] };
+    lines.forEach(function (line, i) {
+      var parts = line.split(" ");
+      if (i === 0 && parts[0] === "total") {
+        m.total = parseInt(parts[1] || "0", 10) || 0;
+        return;
+      }
+      if (parts.length === 2 && parts[0]) m.entries.push({ id: parts[0], fp: parts[1] });
+    });
+    return m;
+  }
+  function grid() {
+    var rows = document.getElementById("library-rows");
+    return rows ? rows.querySelector("[data-library-grid]") : null;
+  }
+  function placeCards(g, html) {
+    var tpl = document.createElement("template");
+    tpl.innerHTML = html;
+    Array.prototype.slice.call(tpl.content.children).forEach(function (card) {
+      var old = card.id ? document.getElementById(card.id) : null;
+      if (old) {
+        var bar = actionBar();
+        if (bar && old.contains(bar)) parkBar();
+        if (window.Idiomorph) window.Idiomorph.morph(old, card);
+        else old.replaceWith(card);
+      } else {
+        g.appendChild(card);
+        if (window.htmx) window.htmx.process(card);
+      }
+    });
+  }
+  function orderCards(g, m) {
+    var want = new Set();
+    m.entries.forEach(function (en) {
+      want.add(en.id);
+    });
+    var bar = actionBar();
+    Array.prototype.slice.call(g.children).forEach(function (el) {
+      if (el.id && !want.has(el.id)) {
+        if (bar && el.contains(bar)) parkBar();
+        el.remove();
+      }
+    });
+    var cur = g.firstElementChild;
+    m.entries.forEach(function (en) {
+      var el = document.getElementById(en.id);
+      if (!el || el.parentNode !== g) return;
+      if (el === cur) cur = cur.nextElementSibling;
+      else g.insertBefore(el, cur);
+    });
+    var rows = document.getElementById("library-rows");
+    var empty = rows && rows.querySelector('[data-empty="library"]');
+    if (empty) empty.hidden = m.entries.length > 0;
+    if (rows) rows.setAttribute("data-total", String(m.entries.length));
+    document.querySelectorAll("[data-filter-count]").forEach(function (el) {
+      el.textContent = m.entries.length + " of " + m.total;
+    });
+    render();
+  }
+  function applyManifest() {
+    if (fetchingCards || pendingManifest === null) return;
+    var m = parseManifest(pendingManifest);
+    pendingManifest = null;
+    var g = grid();
+    var p = page();
+    if (!g || !p) return;
+    var need = m.entries.filter(function (en) {
+      var el = document.getElementById(en.id);
+      return !el || el.getAttribute("data-fp") !== en.fp;
+    });
+    if (!need.length) {
+      orderCards(g, m);
+      return;
+    }
+    var body = new URLSearchParams();
+    need.forEach(function (en) {
+      body.append("id", en.id);
+    });
+    fetchingCards = true;
+    fetch("/library/" + p.getAttribute("data-tab") + "/cards", {
+      method: "POST",
+      body: body,
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    })
+      .then(function (r) {
+        return r.ok ? r.text() : Promise.reject(new Error("cards: " + r.status));
+      })
+      .then(function (html) {
+        // The page may have been swapped for another view meanwhile.
+        if (grid() !== g) return;
+        placeCards(g, html);
+        orderCards(g, m);
+      })
+      .catch(function () {
+        /* the next manifest asks again */
+      })
+      .then(function () {
+        fetchingCards = false;
+        applyManifest();
+      });
+  }
+  document.addEventListener("htmx:sseMessage", function (e) {
+    if (!e.detail || e.detail.type !== "library-manifest") return;
+    pendingManifest = e.detail.data;
+    applyManifest();
+  });
+
+  // Dialogs opened from the Filter menu and the chips, and builder rows.
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest) return;
+    var opener = e.target.closest("[data-open-dialog]");
+    if (opener) {
+      if (opener.hasAttribute("data-disabled") || opener.getAttribute("aria-disabled") === "true") return;
+      e.preventDefault();
+      var id = opener.getAttribute("data-open-dialog");
+      // After the menu closes and gives focus back.
+      setTimeout(function () {
+        if (window.templ && window.templ.dialog) window.templ.dialog.open(id);
+      }, 0);
+      return;
+    }
+    var remove = e.target.closest("[data-filter-remove]");
+    if (remove) {
+      e.preventDefault();
+      var row = remove.closest("[data-filter-row]");
+      if (row) row.remove();
+    }
+  });
+
+  // Saved custom filters.
+  var FILTERS_KEY = "clustarr.library.filters";
+  function savedAll() {
+    try {
+      var all = JSON.parse(stored(FILTERS_KEY) || "{}");
+      return all && typeof all === "object" ? all : {};
+    } catch (err) {
+      return {};
+    }
+  }
+  function savedFor(tab) {
+    var list = savedAll()[tab];
+    return Array.isArray(list) ? list : [];
+  }
+  function setSaved(tab, list) {
+    var all = savedAll();
+    all[tab] = list;
+    store(FILTERS_KEY, JSON.stringify(all));
+  }
+  function renderSaved() {
+    document.querySelectorAll("[data-saved-filters]").forEach(function (box) {
+      var tab = box.getAttribute("data-tab");
+      var tpl = box.nextElementSibling;
+      if (!tpl || !tpl.matches("template[data-saved-filter-template]")) return;
+      box.innerHTML = "";
+      var current = (page() && page().getAttribute("data-query")) || "";
+      savedFor(tab).forEach(function (f, i) {
+        if (!f || typeof f.name !== "string") return;
+        var node = tpl.content.firstElementChild.cloneNode(true);
+        var query = typeof f.query === "string" ? f.query : "";
+        var href = "/library/" + tab + (query ? "?" + query : "");
+        node.setAttribute("href", href);
+        node.setAttribute("hx-get", href);
+        node.setAttribute("hx-push-url", "true");
+        node.setAttribute("hx-target", "#library-page");
+        node.setAttribute("hx-select", "#library-page");
+        node.setAttribute("hx-swap", "outerHTML");
+        node.setAttribute("data-saved-filter", String(i));
+        if (query === current) node.setAttribute("data-active", "");
+        var name = node.querySelector("[data-saved-filter-name]");
+        if (name) name.textContent = f.name;
+        box.appendChild(node);
+      });
+      if (window.htmx) window.htmx.process(box);
+    });
+  }
+  document.addEventListener(
+    "click",
+    function (e) {
+      var del = e.target.closest ? e.target.closest("[data-saved-filter-delete]") : null;
+      if (!del) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      var entry = del.closest("[data-saved-filter]");
+      var box = del.closest("[data-saved-filters]");
+      if (!entry || !box) return;
+      var tab = box.getAttribute("data-tab");
+      var list = savedFor(tab);
+      list.splice(parseInt(entry.getAttribute("data-saved-filter"), 10), 1);
+      setSaved(tab, list);
+      renderSaved();
+    },
+    true
+  );
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (!form || !form.hasAttribute || !form.hasAttribute("data-filter-save-form")) return;
+    e.preventDefault();
+    var input = form.querySelector('input[name="name"]');
+    var name = input ? input.value.trim() : "";
+    if (!name) return;
+    var tab = form.getAttribute("data-tab");
+    var list = savedFor(tab).filter(function (f) {
+      return f && f.name !== name;
+    });
+    list.push({ name: name, query: form.getAttribute("data-query") || "" });
+    setSaved(tab, list);
+    renderSaved();
+    if (input) input.value = "";
+    if (window.templ && window.templ.dialog) window.templ.dialog.close("library-filter-save");
+  });
+  document.addEventListener("htmx:afterSettle", renderSaved);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", renderSaved);
+  } else {
+    renderSaved();
+  }
 
   // Options.
   var SIZE_KEY = "clustarr.library.posterSize";

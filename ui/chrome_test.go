@@ -203,7 +203,7 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 		require.Contains(t, bar, class, "the bar is fixed to the right of the screen")
 	}
 	require.NotContains(t, bar, "sticky")
-	requireTag(t, body, `id="library-rows"`, `data-offset="0"`, `data-total="120"`)
+	requireTag(t, body, `id="library-rows"`, `data-total="120"`)
 	requireTag(t, body, `id="library-page"`, "lg:pr-10") // the page, its toolbar too, keeps clear of the bar
 	// The position thumb (design 2026-09-24, after Radarr's): a thin mark
 	// the tracker script places along the strip in proportion to the item
@@ -239,46 +239,18 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	require.Contains(t, letter, "flex-1", "the letters share the height evenly")
 	require.Contains(t, letter, "w-full", "and the strip's width")
 	require.Equal(t, 27, strings.Count(body, `data-jump="`), "# and A-Z")
-	// Each letter carries the page it begins on and the index of its first
-	// title, so ui/static/jump.js can widen the loaded window to it and
-	// scroll there instead of restarting the window; the href stays as the
-	// fallback without JavaScript. A-P have five titles: M is the 13th
-	// letter, index 60, page 3 of 25.
-	requireTag(t, body, `data-jump="M"`, `href="/library/movies?jump=M&amp;per=25"`, `data-page="3"`, `data-index="60"`)
-	requireTag(t, body, `data-jump="A"`, `data-page="1"`, `data-index="0"`)
-	requireTag(t, body, `data-jump="Z"`, `data-page="5"`, `data-index="116"`)
-	require.NotContains(t, tagWith(t, body, `data-jump="#"`), `data-page=`, "an absent letter has no page to go to")
-	requireTag(t, body, `id="library-rows"`, `data-page="1"`, `data-pages="1"`, `data-per="25"`)
+	// Each letter links to its first title's card, on the one page
+	// (2026-11-10), and carries that card's index, which ui/static/jump.js
+	// falls back to once the stream has replaced the card. A-P have five
+	// titles: M is the 13th letter, index 60.
+	requireTag(t, body, `data-jump="M"`, `href="#card-movie-default-m-012"`, `data-index="60"`)
+	requireTag(t, body, `data-jump="A"`, `href="#card-movie-default-m-000"`, `data-index="0"`)
+	requireTag(t, body, `data-jump="Z"`, `href="#card-movie-default-m-025"`, `data-index="116"`)
+	require.NotContains(t, body, `data-page=`, "nothing pages")
 	hash := tagWith(t, body, `data-jump="#"`)
 	require.NotContains(t, hash, `href=`, "a letter no title starts with is not a link")
 	require.Contains(t, hash, `aria-disabled="true"`)
 	require.Contains(t, hash, "pointer-events-none", "the wheel over a letter without titles scrolls the page")
-}
-
-func TestLibraryJumpRedirectsToTheLetterPage(t *testing.T) {
-	srv := ui.NewServer(t.Context(), ui.Options{
-		Library: func(context.Context) []projection.LibraryItem { return letteredLibrary(120) },
-	})
-	for name, tc := range map[string]struct {
-		path string
-		want string
-	}{
-		// A-P have five titles each, so M begins at index 60: page 3 of 25.
-		"middle letter": {"/library/movies?jump=M&per=25", "/library/movies?page=3&per=25"},
-		// Q-Z have four each: R begins at 80 + 4 = 84, page 4.
-		"late letter":  {"/library/movies?jump=R&per=25", "/library/movies?page=4&per=25"},
-		"first letter": {"/library/movies?jump=A&per=25", "/library/movies?page=1&per=25"},
-		// No title starts with a digit, so # lands on the first page.
-		"absent letter":     {"/library/movies?jump=%23&per=25", "/library/movies?page=1&per=25"},
-		"default page size": {"/library/movies?jump=M", "/library/movies?page=2&per=50"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-			srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
-			require.Equal(t, http.StatusFound, rec.Code)
-			require.Equal(t, tc.want, rec.Header().Get("Location"))
-		})
-	}
 }
 
 // TestTheItemsTabIsActiveOnItsPage: the top bar marks the tab an item's
@@ -297,60 +269,25 @@ func TestTheItemsTabIsActiveOnItsPage(t *testing.T) {
 	require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/movies"`))
 }
 
-// TestLibraryScrollsInsteadOfPaging: the library tabs load more as the
-// reader scrolls (design 2026-09-24): no pager, a sentinel after the grid
-// that fetches the window one page wider through htmx and swaps the rows
-// (stream included, so it reconnects for the wider window), none once
-// everything is on screen; the view rides the sentinel too.
-func TestLibraryScrollsInsteadOfPaging(t *testing.T) {
+// TestTheLibraryIsOnePage: a tab holds every card its view keeps (owner,
+// 2026-11-10: "We should probably not paginate the libraries so we can
+// mass select and scroll more smoothly"): no pager, no sentinels, and the
+// old paging parameters, and ?jump, mean nothing.
+func TestTheLibraryIsOnePage(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{
 		Library: func(context.Context) []projection.LibraryItem { return letteredLibrary(120) },
 	})
-	get := func(path string) string {
+	for _, path := range []string{"/library/movies", "/library/movies?per=25", "/library/movies?page=3&pages=2&per=25", "/library/movies?jump=M"} {
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		require.Equal(t, http.StatusOK, rec.Code, path)
-		return rec.Body.String()
+		body := rec.Body.String()
+		require.Equal(t, 120, strings.Count(body, `data-ref="`), path)
+		for _, gone := range []string{`data-pager`, `data-load-more`, `data-load-prev`, `pages=`} {
+			require.NotContains(t, body, gone, path)
+		}
+		require.Contains(t, body, `sse-connect="/events/library/movies"`, path)
 	}
-
-	body := get("/library/movies?per=25")
-	require.NotContains(t, body, `data-pager`)
-	require.Equal(t, 25, strings.Count(body, `data-ref="`))
-	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?page=1&amp;pages=2&amp;per=25"`, `hx-trigger="revealed"`,
-		`hx-target="#library-rows"`, `hx-select="#library-rows"`, `hx-swap="outerHTML"`)
-	require.Greater(t, strings.Index(body, `data-load-more`), strings.LastIndex(body, `data-ref="`), "the sentinel follows the grid")
-	require.Contains(t, body, `sse-connect="/events/library/movies?page=1&amp;per=25"`)
-
-	body = get("/library/movies?per=25&pages=2")
-	require.Equal(t, 50, strings.Count(body, `data-ref="`))
-	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?page=1&amp;pages=3&amp;per=25"`)
-	require.Contains(t, body, `sse-connect="/events/library/movies?page=1&amp;pages=2&amp;per=25"`, "the stream carries the whole window")
-
-	body = get("/library/movies?per=25&pages=5")
-	require.Equal(t, 120, strings.Count(body, `data-ref="`))
-	require.NotContains(t, body, `data-load-more`, "everything is on screen")
-
-	body = get("/library/movies?per=25&filter=unmonitored&sort=year")
-	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?filter=unmonitored&amp;page=1&amp;pages=2&amp;per=25&amp;sort=year"`)
-
-	// A jump lands on the letter's page and scrolls on from there, and
-	// back: a sentinel above the grid fetches the window one page earlier
-	// (the start moves back, the span grows) when the reader scrolls up at
-	// the top; ui/static/jump.js fires it and keeps the reader's place.
-	body = get("/library/movies?page=3&per=25")
-	require.Equal(t, 25, strings.Count(body, `data-ref="`))
-	require.Contains(t, body, `data-ref="default/m-010"`, "the third page of 25 opens on K, the eleventh letter of five titles each")
-	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?page=3&amp;pages=2&amp;per=25"`)
-	requireTag(t, body, `data-load-prev`, `hx-get="/library/movies?page=2&amp;pages=2&amp;per=25"`, `hx-trigger="loadprev, click"`,
-		`hx-target="#library-rows"`, `hx-select="#library-rows"`, `hx-swap="outerHTML"`)
-	require.Less(t, strings.Index(body, `data-load-prev`), strings.Index(body, `data-ref="`), "the earlier sentinel precedes the grid")
-
-	body = get("/library/movies?page=3&pages=2&per=25")
-	requireTag(t, body, `data-load-prev`, `hx-get="/library/movies?page=2&amp;pages=3&amp;per=25"`)
-	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?page=3&amp;pages=3&amp;per=25"`)
-
-	body = get("/library/movies?page=1&per=25")
-	require.NotContains(t, body, `data-load-prev`, "nothing earlier than the first page")
 }
 
 // TestLayoutCarriesTheClustarrMark: the mark (ui/static/logo.svg, derived
