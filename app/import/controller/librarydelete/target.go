@@ -60,6 +60,15 @@ type Target struct {
 	// the artist's other albums and its artist.nfo share. "" means Root.
 	// Folder, when set, is strictly under it (Check).
 	Keep string
+	// Shared is the kind of the container whose folder the item lives in
+	// and must leave standing -- an Album's Artist -- or "" for a kind with
+	// a folder of its own. A files delete of such an item is bounded by
+	// Keep, that folder, or not at all: with no Keep under Root (the
+	// container gone, its folder not rendered yet, or rendered under
+	// another root) Check refuses, since the files' folder and the prune
+	// would otherwise be bounded by Root alone and could take the
+	// container's folder with them.
+	Shared commonv1.MediaKind
 }
 
 // keep is the folder the delete never removes and never prunes past: Keep
@@ -132,6 +141,10 @@ type Occupant struct {
 func Check(t Target, all []catalogv1alpha1.MediaFile, occupants []Occupant) error {
 	if t.Root == "" {
 		return fmt.Errorf("%w: the item's root folder is unknown", ErrRefused)
+	}
+	if t.Shared != "" && (t.Keep == "" || !fsops.StrictlyUnder(t.Keep, t.Root)) {
+		return fmt.Errorf("%w: the folder of the %s the item lives in is unknown or not inside root folder %q, so nothing bounds the delete to the item's own files",
+			ErrRefused, t.Shared, t.Root)
 	}
 	if t.Folder != "" && !fsops.StrictlyUnder(t.Folder, t.Root) {
 		return fmt.Errorf("%w: folder %q is not inside root folder %q", ErrRefused, t.Folder, t.Root)

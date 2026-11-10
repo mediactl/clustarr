@@ -223,6 +223,69 @@ func TestDeleteAlbumRecordsLeavesTheDiskAloneAndNeedsNoArtist(t *testing.T) {
 	assert.True(t, gone(t, c, key("dsotm"), &catalogv1alpha1.Album{}))
 }
 
+// An album whose Artist has no folder under the root -- none rendered yet,
+// so the album's own path is unrendered too (album.Path waits on the
+// artist's), or one rendered under another root -- has nothing to bound a
+// files delete to its own files (Target.Shared): the request is refused,
+// naming the artist, and nothing moves, where bounded by the root alone the
+// delete would have pruned a one-album artist's folder away with the
+// album's. A records delete still goes.
+func TestDeleteAlbumFilesIsRefusedWhileItsArtistsFolderIsUnknown(t *testing.T) {
+	root := t.TempDir()
+	artist := filepath.Join(root, "Pink Floyd")
+	dsotm := filepath.Join(artist, "The Dark Side of the Moon (1973)")
+	write(t, filepath.Join(dsotm, "01 - Speak to Me.flac"))
+	one := func() *catalogv1alpha1.MediaFile {
+		mf := mediaFile("dsotm-01", albumRef("dsotm"), filepath.Join(dsotm, "01 - Speak to Me.flac"))
+		return &mf
+	}
+
+	for _, tc := range []struct{ name, artistPath string }{
+		{"unrendered", ""},
+		{"under another root", filepath.Join(t.TempDir(), "Pink Floyd")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newClient(t, musicRoot(root), pinkFloyd(tc.artistPath), album("dsotm", "", catalogv1alpha1.DeleteFiles), one())
+			require.NoError(t, reconcileKind(t, c, commonv1.MediaKindAlbum, "dsotm"), "a refusal is not retried")
+			assert.FileExists(t, filepath.Join(dsotm, "01 - Speak to Me.flac"))
+			assert.DirExists(t, artist, "the artist's folder stays, though the album was all it held")
+			require.NoError(t, c.Get(context.Background(), key("dsotm-01"), &catalogv1alpha1.MediaFile{}))
+			var a catalogv1alpha1.Album
+			reason := deleteError(t, c, key("dsotm"), &a)
+			assert.Contains(t, reason, "the folder of the artist the item lives in is unknown or not inside root folder")
+			assert.Equal(t, catalogv1alpha1.DeleteFiles, a.Annotations[catalogv1alpha1.AnnotationDelete], "the request stays, for Cancel or a retry once the artist's folder is rendered")
+		})
+	}
+
+	c := newClient(t, musicRoot(root), pinkFloyd(""), album("dsotm", "", catalogv1alpha1.DeleteRecords), one())
+	require.NoError(t, reconcileKind(t, c, commonv1.MediaKindAlbum, "dsotm"))
+	assert.FileExists(t, filepath.Join(dsotm, "01 - Speak to Me.flac"))
+	assert.True(t, gone(t, c, key("dsotm-01"), &catalogv1alpha1.MediaFile{}))
+	assert.True(t, gone(t, c, key("dsotm"), &catalogv1alpha1.Album{}))
+}
+
+// A status.path that is the root itself is no folder only for a standalone
+// Book (kindSpec.rootIsNoFolder, the pre-2026-11-10 reading): a Movie's at
+// the root is a resolution gone wrong, refused as outside the item as it
+// always was, its file's folder left alone.
+func TestARootValuedPathIsNoFolderOnlyForAStandaloneBook(t *testing.T) {
+	root := t.TempDir()
+	folder := filepath.Join(root, "Heat (1995)")
+	write(t, filepath.Join(folder, "Heat.mkv"))
+	mf := mediaFile("heat-file", heat, filepath.Join(folder, "Heat.mkv"))
+	c := newClient(t, rootFolder(root), heatMovie(root, catalogv1alpha1.DeleteFiles, false), &mf)
+
+	require.NoError(t, reconcileMovie(t, c), "a refusal is not retried")
+
+	assert.FileExists(t, filepath.Join(folder, "Heat.mkv"))
+	require.NoError(t, c.Get(context.Background(), key("heat-file"), &catalogv1alpha1.MediaFile{}))
+	var m catalogv1alpha1.Movie
+	assert.Contains(t, deleteError(t, c, key("heat"), &m), "is not inside root folder")
+	assert.False(t, kindFor(commonv1.MediaKindMovie).rootIsNoFolder)
+	assert.False(t, kindFor(commonv1.MediaKindAudiobook).rootIsNoFolder)
+	assert.True(t, kindFor(commonv1.MediaKindBook).rootIsNoFolder)
+}
+
 func booksRoot(path string) *catalogv1alpha1.RootFolder {
 	return &catalogv1alpha1.RootFolder{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "books"},

@@ -88,6 +88,14 @@ type kindSpec struct {
 	// Audiobook, a standalone Book): when status.path is not on disk, that
 	// folder is the item's (see Reconciler.target).
 	oneFolder bool
+	// rootIsNoFolder is a kind whose status.path may read the RootFolder's
+	// own path and mean no folder at all: a standalone Book written before
+	// 2026-11-10, when app/catalog/controller/book.Path rendered "" for a
+	// book without an author and the root stood in. Such a path is blanked
+	// (Reconciler.target), so the file's folder stands in as for a scanned
+	// movie. For every other kind a path at the root is a resolution gone
+	// wrong, and Check refuses it as outside the item.
+	rootIsNoFolder bool
 	// guard refuses, wrapping ErrRefused, an item the kind does not delete
 	// on its own: an author's book, which goes with its author (nil for a
 	// kind that deletes every item).
@@ -226,9 +234,17 @@ func kinds() []kindSpec {
 			// An Album (2026-11-10 non-video design §9.2) lives in its
 			// Artist's folder, which names its RootFolder: a files delete
 			// removes the album's own track files and its own subfolder,
-			// never the artist's folder (Reconciler.target); a records
+			// never the artist's folder (Reconciler.target), and is refused
+			// while the artist's folder is unknown (Target.Shared); a records
 			// delete its MediaFiles and the Album, the Artist's rollup
-			// following on its next pass.
+			// following on its next pass. The Artist is not told: its fan-out
+			// (app/catalog/controller/artist's ensureAlbum, at the next
+			// childsync -- a spec edit or the metadata refresh) creates every
+			// album the provider lists that it does not find, monitored by
+			// the artist's monitor mode, so a deleted album of a listed
+			// release group comes back, as Lidarr's does, and is searched for
+			// again under monitor mode all. Deleting its files for good means
+			// unmonitoring the album, or the artist, first.
 			kind:      commonv1.MediaKindAlbum,
 			newObject: func() client.Object { return &catalogv1alpha1.Album{} },
 			newList:   func() client.ObjectList { return &catalogv1alpha1.AlbumList{} },
@@ -258,8 +274,9 @@ func kinds() []kindSpec {
 				}
 				return ""
 			},
-			path:      func(o client.Object) string { return o.(*catalogv1alpha1.Book).Status.Path },
-			oneFolder: true,
+			path:           func(o client.Object) string { return o.(*catalogv1alpha1.Book).Status.Path },
+			oneFolder:      true,
+			rootIsNoFolder: true,
 			guard: func(o client.Object) error {
 				if ref := o.(*catalogv1alpha1.Book).Spec.AuthorRef; ref != nil && *ref != "" {
 					return fmt.Errorf("%w: an author's book is deleted with its author (%s)", ErrRefused, *ref)

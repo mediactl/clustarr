@@ -170,12 +170,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 // Artist's folder (Target.Keep), never the artist's folder itself nor one
 // outside it -- an album with its files straight in the artist's folder
 // has no folder of its own, so only its files go; and with its Artist gone
-// or without a folder nothing bounds it, so the same. A standalone Book
-// written before 2026-11-10 carries the root itself as status.path
-// (app/catalog/controller/book.Path's old reading), which is no folder of
-// the book's: the folder its file is in is, as for a scanned movie.
+// or its folder unknown or outside the root nothing bounds it, so a files
+// delete is refused (Target.Shared, Check) and a records delete goes. A
+// standalone Book written before 2026-11-10 carries the root itself as
+// status.path (app/catalog/controller/book.Path's old reading), which is no
+// folder of the book's (kindSpec.rootIsNoFolder): the folder its file is in
+// is, as for a scanned movie.
 func (r *Reconciler) target(ctx context.Context, obj client.Object) (Target, error) {
 	t := Target{Folder: r.kind.path(obj), Keys: map[string]bool{TargetKey(r.kind.kind, obj.GetName()): true}}
+	if p := r.kind.parent; p != nil {
+		t.Shared = p.kind
+	}
 	rootRef, parentFolder := "", ""
 	if r.kind.rootFolderRef != nil {
 		rootRef = r.kind.rootFolderRef(obj)
@@ -204,7 +209,7 @@ func (r *Reconciler) target(ctx context.Context, obj client.Object) (Target, err
 			t.Folder = ""
 		}
 	}
-	if r.kind.oneFolder && t.Folder != "" && t.Root != "" && filepath.Clean(t.Folder) == filepath.Clean(t.Root) {
+	if r.kind.rootIsNoFolder && t.Folder != "" && t.Root != "" && filepath.Clean(t.Folder) == filepath.Clean(t.Root) {
 		t.Folder = ""
 	}
 	if r.kind.newChildren != nil {
@@ -236,7 +241,10 @@ func (r *Reconciler) target(ctx context.Context, obj client.Object) (Target, err
 			}
 		}
 	}
-	if (r.kind.oneFolder || r.kind.parent != nil) && !onDisk(t.Folder) {
+	// The files' one folder stands in for a folder not on disk, bounded by
+	// Keep: for a kind living in a container's folder only once Keep is
+	// known, since bounded by Root alone it could be the container's own.
+	if (r.kind.oneFolder || (r.kind.parent != nil && t.Keep != "")) && !onDisk(t.Folder) {
 		if d := sharedDir(t.Files); d != "" && fsops.StrictlyUnder(d, t.keep()) {
 			t.Folder = d
 		}
