@@ -174,7 +174,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 					hasFinalizer = true
 				}
 			}
-			return hasFinalizer && got.Status.State == catalogv1alpha1.IssueStateWanted
+			return hasFinalizer && got.Status.Phase == catalogv1alpha1.IssuePhaseWanted
 		}, 5*time.Second, 20*time.Millisecond, "finalizer add and State=Wanted must both appear from the same reconcile pass")
 
 		require.NoError(t, c.Create(ctx, testMediaFile("issue-ns", "batman-001-mf", "batman-001.0", commonv1.Quality{Name: "CBZ"})))
@@ -184,7 +184,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "issue-ns", Name: "batman-001.0"}, &got); err != nil {
 				return false
 			}
-			return got.Status.HasFile && got.Status.State == catalogv1alpha1.IssueStateDownloaded
+			return got.Status.HasFile && got.Status.Phase == catalogv1alpha1.IssuePhaseImported
 		}, 5*time.Second, 20*time.Millisecond, "the MediaFile watch must flip HasFile and State")
 
 		var got catalogv1alpha1.Issue
@@ -193,9 +193,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		assert.Equal(t, "batman-001-mf", *got.Status.FileRef)
 		require.NotNil(t, got.Status.FileQuality)
 		assert.Equal(t, "CBZ", got.Status.FileQuality.Name)
-		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.IssueConditionHasFile)
-		require.NotNil(t, cond)
-		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+		assert.True(t, got.Status.HasFile, "status.hasFile says what the retired HasFile condition did (2026-11-10)")
 	})
 
 	t.Run("wakes on the Comic fan-out's own write of status.date, which bumps no generation", func(t *testing.T) {
@@ -210,7 +208,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "issue-ns", Name: "hellboy-002.0"}, &got); err != nil {
 				return false
 			}
-			return got.Status.State != ""
+			return got.Status.Phase != ""
 		}, 5*time.Second, 20*time.Millisecond, "the initial create must reconcile to a settled state")
 
 		n := counter.count()
@@ -230,9 +228,8 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "issue-ns", Name: "hellboy-002.0"}, &got); err != nil {
 				return false
 			}
-			cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.IssueConditionReleased)
-			return cond != nil && cond.Status == metav1.ConditionFalse
-		}, 5*time.Second, 20*time.Millisecond, "a future date must report Released=False")
+			return got.Status.Phase == catalogv1alpha1.IssuePhaseUnavailable
+		}, 5*time.Second, 20*time.Millisecond, "a future date must read Unavailable (the retired Released=False, 2026-11-10)")
 
 		n2 := counter.count()
 		assert.Equal(t, int64(1), n2-n, "the fan-out's write must cause exactly one reconcile, not a cascade")
@@ -263,7 +260,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		key := types.NamespacedName{Namespace: "issue-ns", Name: "batman-003.0"}
 		var got catalogv1alpha1.Issue
 		require.Eventually(t, func() bool {
-			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateWanted
+			return c.Get(ctx, key, &got) == nil && got.Status.Phase == catalogv1alpha1.IssuePhaseWanted
 		}, 5*time.Second, 20*time.Millisecond, "setup: the Issue never settled at Wanted")
 
 		entry := func(id string, phase commonv1.DownloadPhase) catalogv1alpha1.DownloadEntry {
@@ -296,12 +293,12 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		seed(other)
 		require.Never(t, func() bool {
 			var g catalogv1alpha1.Issue
-			return c.Get(ctx, key, &g) == nil && (g.Status.ActiveDownloadRef != nil || g.Status.State != catalogv1alpha1.IssueStateWanted)
+			return c.Get(ctx, key, &g) == nil && (g.Status.ActiveDownloadRef != nil || g.Status.Phase != catalogv1alpha1.IssuePhaseWanted)
 		}, 500*time.Millisecond, 20*time.Millisecond, "an entry covering another issue must never become this one's ref")
 
 		seed(entry("batman-003-dl", commonv1.DownloadPhasePending))
 		require.Eventually(t, func() bool {
-			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateSnatched &&
+			return c.Get(ctx, key, &got) == nil && got.Status.Phase == catalogv1alpha1.IssuePhaseDownloading &&
 				got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == "batman-003-dl"
 		}, 5*time.Second, 20*time.Millisecond, "a covering entry must snatch the issue and set its ref")
 
@@ -319,7 +316,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			seed(entry("batman-003-dl", phase))
 			require.Never(t, func() bool {
 				var g catalogv1alpha1.Issue
-				return c.Get(ctx, key, &g) == nil && (g.Status.State != catalogv1alpha1.IssueStateSnatched || g.Status.ActiveDownloadRef == nil)
+				return c.Get(ctx, key, &g) == nil && (g.Status.Phase != catalogv1alpha1.IssuePhaseDownloading || g.Status.ActiveDownloadRef == nil)
 			}, 500*time.Millisecond, 20*time.Millisecond, "a %s entry is still working on the issue", phase)
 		}
 
@@ -327,10 +324,10 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		failed := entry("batman-003-dl", commonv1.DownloadPhaseFailed)
 		seed(failed)
 		require.Eventually(t, func() bool {
-			return c.Get(ctx, key, &got) == nil && got.Status.State != catalogv1alpha1.IssueStateSnatched
+			return c.Get(ctx, key, &got) == nil && got.Status.Phase != catalogv1alpha1.IssuePhaseDownloading
 		}, 5*time.Second, 20*time.Millisecond)
 		assert.Nil(t, got.Status.ActiveDownloadRef, "a terminal entry phase must clear the ref")
-		assert.Equal(t, catalogv1alpha1.IssueStateWanted, got.Status.State, "no file and no active download: back to Wanted")
+		assert.Equal(t, catalogv1alpha1.IssuePhaseWanted, got.Status.Phase, "no file and no active download: back to Wanted")
 
 		// A grab on its way out stops counting the moment it is marked
 		// Removing, before the engine lets go of its transfer.
@@ -340,7 +337,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		}, 5*time.Second, 20*time.Millisecond)
 		seed(failed, entry("batman-003-regrab-dl", commonv1.DownloadPhaseRemoving))
 		require.Eventually(t, func() bool {
-			return c.Get(ctx, key, &got) == nil && got.Status.ActiveDownloadRef == nil && got.Status.State == catalogv1alpha1.IssueStateWanted
+			return c.Get(ctx, key, &got) == nil && got.Status.ActiveDownloadRef == nil && got.Status.Phase == catalogv1alpha1.IssuePhaseWanted
 		}, 5*time.Second, 20*time.Millisecond, "a Removing entry must stop being the issue's ref")
 	})
 
@@ -358,7 +355,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		key := types.NamespacedName{Namespace: "issue-ns", Name: "batman-004.0"}
 		var got catalogv1alpha1.Issue
 		require.Eventually(t, func() bool {
-			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateWanted
+			return c.Get(ctx, key, &got) == nil && got.Status.Phase == catalogv1alpha1.IssuePhaseWanted
 		}, 5*time.Second, 20*time.Millisecond, "setup: the Issue never settled at Wanted")
 
 		grabAt := metav1.NewTime(time.Now().Add(time.Hour).Truncate(time.Second))
@@ -367,7 +364,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 				WithReleaseTitle("Batman.004.CBZ").WithProtocol(commonv1.ProtocolTorrent).WithGrabAt(grabAt))))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
-			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateDelayed
+			return c.Get(ctx, key, &got) == nil && got.Status.Phase == catalogv1alpha1.IssuePhaseDelayed
 		}, 5*time.Second, 20*time.Millisecond, "a recorded pendingGrab must read delayed")
 		require.NotNil(t, got.Status.PendingGrab, "the reconciler's apply must not release the grab worker's field")
 		assert.True(t, got.Status.PendingGrab.GrabAt.Equal(&grabAt))
@@ -384,7 +381,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Issue(iss.Name, iss.Namespace).WithStatus(catalogac.IssueStatus()))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
-			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateWanted
+			return c.Get(ctx, key, &got) == nil && got.Status.Phase == catalogv1alpha1.IssuePhaseWanted
 		}, 5*time.Second, 20*time.Millisecond, "a consumed pendingGrab must read wanted again")
 		assert.Nil(t, got.Status.PendingGrab)
 	})
@@ -403,17 +400,12 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		}
 		require.NoError(t, c.Create(ctx, iss))
 		key := types.NamespacedName{Namespace: "issue-ns", Name: "saga-001.0"}
-		cutoffCond := func(got *catalogv1alpha1.Issue) *metav1.Condition {
-			return k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.IssueConditionCutoffMet)
-		}
-
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Issue
 			if err := c.Get(ctx, key, &got); err != nil {
 				return false
 			}
-			cond := cutoffCond(&got)
-			return cond != nil && cond.Reason == "NoFile"
+			return got.Status.CutoffReason == "NoFile"
 		}, 5*time.Second, 20*time.Millisecond, "no file yet: CutoffMet=False/NoFile")
 
 		require.NoError(t, c.Create(ctx, testMediaFile("issue-ns", "saga-001-mf", "saga-001.0", commonv1.Quality{Name: "CBR"})))
@@ -422,8 +414,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			if err := c.Get(ctx, key, &got); err != nil {
 				return false
 			}
-			cond := cutoffCond(&got)
-			return got.Status.HasFile && cond != nil && cond.Reason == "BelowCutoff"
+			return got.Status.HasFile && got.Status.CutoffReason == "BelowCutoff"
 		}, 5*time.Second, 20*time.Millisecond, "a CBR file under a CBZ cutoff is below it")
 		assert.False(t, got.Status.CutoffMet)
 
@@ -437,8 +428,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			if err := c.Get(ctx, key, &got); err != nil {
 				return false
 			}
-			cond := cutoffCond(&got)
-			return got.Status.CutoffMet && cond != nil && cond.Status == metav1.ConditionTrue
+			return got.Status.CutoffMet
 		}, 5*time.Second, 20*time.Millisecond, "the profile edit never reached the Issue")
 
 		// Point the Comic at the strict profile: a Comic edit, carried by
@@ -451,8 +441,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			if err := c.Get(ctx, key, &got); err != nil {
 				return false
 			}
-			cond := cutoffCond(&got)
-			return !got.Status.CutoffMet && cond != nil && cond.Reason == "BelowCutoff"
+			return !got.Status.CutoffMet && got.Status.CutoffReason == "BelowCutoff"
 		}, 5*time.Second, 20*time.Millisecond, "the Comic's profile change never reached the Issue")
 
 		// status.cutoffMet is this reconciler's leaf under catalog, and
@@ -494,7 +483,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		}, 5*time.Second, 20*time.Millisecond, "the dead-lettered annotation never became the DeadLettered condition")
 		assert.Equal(t, before.Status.CutoffMet, got.Status.CutoffMet, "folding DeadLettered released CutoffMet")
 		assert.Equal(t, before.Status.FileRef, got.Status.FileRef, "folding DeadLettered released FileRef")
-		assert.Equal(t, before.Status.State, got.Status.State, "folding DeadLettered released State")
+		assert.Equal(t, before.Status.Phase, got.Status.Phase, "folding DeadLettered released State")
 
 		cleared := got.DeepCopy()
 		delete(cleared.Annotations, k8s.AnnotationDeadLettered)

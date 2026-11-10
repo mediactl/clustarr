@@ -239,6 +239,14 @@ type MediaFileSpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	Original *bool `json:"original,omitempty"`
+
+	// PartIndex orders a file among the parts of one item: an audiobook's
+	// parts in play order (from the tags' track number, else the name's part
+	// number, else the path's sort order; 2026-11-10 design D11). 0 for a
+	// file that is not a part.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	PartIndex int32 `json:"partIndex,omitempty"`
 }
 
 // MediaFileStatus is written by one remediation loop in the manager, under

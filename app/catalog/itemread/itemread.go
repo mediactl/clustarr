@@ -319,13 +319,13 @@ func Current(ctx context.Context, r client.Reader, item client.Object) (*decisio
 	case *catalogv1alpha1.Issue:
 		hasFile, ref = t.Status.HasFile, t.Status.FileRef
 	case *catalogv1alpha1.Album:
-		if t.Status.Quality != nil {
-			return &decision.Current{Quality: *t.Status.Quality, FormatScore: int(t.Status.FormatScore)}, nil
+		if t.Status.FileQuality != nil {
+			return &decision.Current{Quality: *t.Status.FileQuality, FormatScore: int(t.Status.FileFormatScore)}, nil
 		}
 		return nil, nil
 	case *catalogv1alpha1.Audiobook:
-		if t.Status.HasFile && t.Status.Quality != nil {
-			return &decision.Current{Quality: *t.Status.Quality}, nil
+		if t.Status.HasFile && t.Status.FileQuality != nil {
+			return &decision.Current{Quality: *t.Status.FileQuality}, nil
 		}
 		return nil, nil
 	default:

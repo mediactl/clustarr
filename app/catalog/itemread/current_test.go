@@ -109,8 +109,8 @@ func TestAMultiTrackAlbumWithFilesHasACurrentFile(t *testing.T) {
 			album := &catalogv1alpha1.Album{ObjectMeta: metav1.ObjectMeta{Name: "kid-a", Namespace: "default"}}
 			album.Spec.ArtistRef = "radiohead"
 			album.Status.TrackFileCount = tc.trackFiles
-			album.Status.Quality = tc.quality
-			album.Status.FormatScore = 7
+			album.Status.FileQuality = tc.quality
+			album.Status.FileFormatScore = 7
 			for i := range 10 {
 				album.Status.Tracks = append(album.Status.Tracks, catalogv1alpha1.Track{RecordingID: string(rune('a' + i)), Number: int32(i + 1)})
 			}

@@ -20,7 +20,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -41,16 +40,26 @@ type AlbumStatusApplyConfiguration struct {
 	// than 200 tracks raise the Invalid condition instead of being truncated
 	// silently.
 	Tracks []TrackApplyConfiguration `json:"tracks,omitempty"`
-	// Phase is the coarse lifecycle state of the album.
-	Phase *catalogv1alpha1.AlbumPhase `json:"phase,omitempty"`
+	// Phase is the coarse lifecycle state of the album (commonv1.LeafPhase,
+	// 2026-11-10 design D4).
+	Phase *commonv1alpha1.LeafPhase `json:"phase,omitempty"`
+	// CutoffReason says why CutoffMet reads as it does: Pending (no file),
+	// ProfileUnresolved, CutoffMet, CutoffUnmet, TracksMissing (2026-11-10 design D4).
+	CutoffReason *string `json:"cutoffReason,omitempty"`
 	// Path is the resolved folder on disk.
 	Path *string `json:"path,omitempty"`
+	// HasFile is true while at least one track has an imported file.
+	HasFile *bool `json:"hasFile,omitempty"`
 	// TrackFileCount is the number of tracks with an imported file.
 	TrackFileCount *int32 `json:"trackFileCount,omitempty"`
-	// Quality is the lowest quality across the album's imported tracks.
-	Quality *commonv1alpha1.Quality `json:"quality,omitempty"`
-	// FormatScore is the custom-format score of the imported release.
-	FormatScore *int32 `json:"formatScore,omitempty"`
+	// TrackSummary is "<trackFileCount>/<tracks>", the Tracks print column.
+	TrackSummary *string `json:"trackSummary,omitempty"`
+	// FileQuality is the lowest quality across the album's imported tracks
+	// (quality until 2026-11-10, design D5).
+	FileQuality *commonv1alpha1.Quality `json:"fileQuality,omitempty"`
+	// FileFormatScore is the custom-format score of the lowest-ranked
+	// imported track (formatScore until 2026-11-10).
+	FileFormatScore *int32 `json:"fileFormatScore,omitempty"`
 	// CutoffMet is true when the imported tracks meet the profile cutoff.
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
 	// ActiveDownloadRef is the id of the grab entry currently working on this album.
@@ -80,6 +89,9 @@ type AlbumStatusApplyConfiguration struct {
 	LastLiveSearchAt *metav1.Time `json:"lastLiveSearchAt,omitempty"`
 	// SearchAttempts counts the searches made for this album.
 	SearchAttempts *commonv1alpha1.Attempts `json:"searchAttempts,omitempty"`
+	// NFO records the artist.nfo/album.nfo the import agent last wrote for
+	// this item (2026-11-10 design §8).
+	NFO *NFOStatusApplyConfiguration `json:"nfo,omitempty"`
 	// Artwork lists the images fetched into the artwork store, one per type.
 	// Written by the metadata gateway.
 	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
@@ -136,8 +148,16 @@ func (b *AlbumStatusApplyConfiguration) WithTracks(values ...*TrackApplyConfigur
 // WithPhase sets the Phase field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Phase field is set to the value of the last call.
-func (b *AlbumStatusApplyConfiguration) WithPhase(value catalogv1alpha1.AlbumPhase) *AlbumStatusApplyConfiguration {
+func (b *AlbumStatusApplyConfiguration) WithPhase(value commonv1alpha1.LeafPhase) *AlbumStatusApplyConfiguration {
 	b.Phase = &value
+	return b
+}
+
+// WithCutoffReason sets the CutoffReason field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CutoffReason field is set to the value of the last call.
+func (b *AlbumStatusApplyConfiguration) WithCutoffReason(value string) *AlbumStatusApplyConfiguration {
+	b.CutoffReason = &value
 	return b
 }
 
@@ -149,6 +169,14 @@ func (b *AlbumStatusApplyConfiguration) WithPath(value string) *AlbumStatusApply
 	return b
 }
 
+// WithHasFile sets the HasFile field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the HasFile field is set to the value of the last call.
+func (b *AlbumStatusApplyConfiguration) WithHasFile(value bool) *AlbumStatusApplyConfiguration {
+	b.HasFile = &value
+	return b
+}
+
 // WithTrackFileCount sets the TrackFileCount field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the TrackFileCount field is set to the value of the last call.
@@ -157,19 +185,27 @@ func (b *AlbumStatusApplyConfiguration) WithTrackFileCount(value int32) *AlbumSt
 	return b
 }
 
-// WithQuality sets the Quality field in the declarative configuration to the given value
+// WithTrackSummary sets the TrackSummary field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Quality field is set to the value of the last call.
-func (b *AlbumStatusApplyConfiguration) WithQuality(value commonv1alpha1.Quality) *AlbumStatusApplyConfiguration {
-	b.Quality = &value
+// If called multiple times, the TrackSummary field is set to the value of the last call.
+func (b *AlbumStatusApplyConfiguration) WithTrackSummary(value string) *AlbumStatusApplyConfiguration {
+	b.TrackSummary = &value
 	return b
 }
 
-// WithFormatScore sets the FormatScore field in the declarative configuration to the given value
+// WithFileQuality sets the FileQuality field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the FormatScore field is set to the value of the last call.
-func (b *AlbumStatusApplyConfiguration) WithFormatScore(value int32) *AlbumStatusApplyConfiguration {
-	b.FormatScore = &value
+// If called multiple times, the FileQuality field is set to the value of the last call.
+func (b *AlbumStatusApplyConfiguration) WithFileQuality(value commonv1alpha1.Quality) *AlbumStatusApplyConfiguration {
+	b.FileQuality = &value
+	return b
+}
+
+// WithFileFormatScore sets the FileFormatScore field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FileFormatScore field is set to the value of the last call.
+func (b *AlbumStatusApplyConfiguration) WithFileFormatScore(value int32) *AlbumStatusApplyConfiguration {
+	b.FileFormatScore = &value
 	return b
 }
 
@@ -255,6 +291,14 @@ func (b *AlbumStatusApplyConfiguration) WithLastLiveSearchAt(value metav1.Time) 
 // If called multiple times, the SearchAttempts field is set to the value of the last call.
 func (b *AlbumStatusApplyConfiguration) WithSearchAttempts(value commonv1alpha1.Attempts) *AlbumStatusApplyConfiguration {
 	b.SearchAttempts = &value
+	return b
+}
+
+// WithNFO sets the NFO field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NFO field is set to the value of the last call.
+func (b *AlbumStatusApplyConfiguration) WithNFO(value *NFOStatusApplyConfiguration) *AlbumStatusApplyConfiguration {
+	b.NFO = value
 	return b
 }
 

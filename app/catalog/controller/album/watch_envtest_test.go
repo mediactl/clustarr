@@ -113,7 +113,7 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 	cutoffMet := func(want bool) func() bool {
 		return func() bool {
 			var got catalogv1alpha1.Album
-			return c.Get(ctx, key, &got) == nil && got.Status.Quality != nil && got.Status.CutoffMet == want
+			return c.Get(ctx, key, &got) == nil && got.Status.FileQuality != nil && got.Status.CutoffMet == want
 		}
 	}
 	require.Eventually(t, cutoffMet(true), 10*time.Second, 20*time.Millisecond, "setup: a FLAC album under a FLAC cutoff never met it")
@@ -153,7 +153,7 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 		return c.Get(ctx, key, &got) == nil && k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionDeadLettered)
 	}, 10*time.Second, 20*time.Millisecond, "the dead-lettered annotation never became the DeadLettered condition")
 	assert.Equal(t, before.Status.CutoffMet, got.Status.CutoffMet)
-	assert.Equal(t, before.Status.Quality, got.Status.Quality)
+	assert.Equal(t, before.Status.FileQuality, got.Status.FileQuality)
 	assert.Equal(t, before.Status.Phase, got.Status.Phase)
 	assert.NotNil(t, k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady), "folding DeadLettered released Ready")
 
@@ -187,7 +187,7 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 		return c.Get(ctx, key, &got) == nil && got.Status.ActiveDownloadRef != nil &&
 			*got.Status.ActiveDownloadRef == "ok-computer-dl" && got.Status.Phase == catalogv1alpha1.AlbumPhaseDownloading
 	}, 10*time.Second, 20*time.Millisecond, "a non-terminal entry must set the ref and read Downloading")
-	assert.Equal(t, steady.Status.Quality, got.Status.Quality, "the ref's apply released status.quality")
+	assert.Equal(t, steady.Status.FileQuality, got.Status.FileQuality, "the ref's apply released status.quality")
 	assert.Equal(t, steady.Status.CutoffMet, got.Status.CutoffMet)
 	var refOwners []string
 	for _, e := range got.ManagedFields {

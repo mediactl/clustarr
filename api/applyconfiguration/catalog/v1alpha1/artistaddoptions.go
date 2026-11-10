@@ -30,7 +30,8 @@ import (
 type ArtistAddOptionsApplyConfiguration struct {
 	// Monitor selects which albums start out monitored.
 	Monitor *catalogv1alpha1.ArtistMonitorMode `json:"monitor,omitempty"`
-	// SearchForMissing searches for missing albums on add.
+	// SearchForMissing searches for missing albums on add; on by default,
+	// as a movie's or series' search-on-add is (2026-11-10 design §4.2).
 	SearchForMissing *bool `json:"searchForMissing,omitempty"`
 }
 

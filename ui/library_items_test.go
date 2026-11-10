@@ -125,7 +125,7 @@ func TestChildRowsAreItems(t *testing.T) {
 		Spec:       catalogv1.AlbumSpec{ArtistRef: "bjork", ReleaseGroupID: "rg-post", Monitored: new(true)},
 		Status: catalogv1.AlbumStatus{
 			Metadata: &catalogv1.AlbumMetadata{Title: "Post", ReleaseDate: &released}, Phase: "Imported", TrackFileCount: 11,
-			Quality: &commonv1.Quality{Name: "FLAC"},
+			FileQuality: &commonv1.Quality{Name: "FLAC"},
 		},
 	}
 	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(artist, album).Build()

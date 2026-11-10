@@ -30,9 +30,12 @@ spec:
     - jsonPath: .status.title
       name: Title
       type: string
-    - jsonPath: .status.state
-      name: State
+    - jsonPath: .status.phase
+      name: Phase
       type: string
+    - jsonPath: .status.date
+      name: Date
+      type: date
     - jsonPath: .status.hasFile
       name: File
       type: boolean
@@ -185,13 +188,48 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              coverURL:
+                description: |-
+                  CoverURL is the provider's cover image, served through the ui's
+                  /art/search as episode stills are.
+                maxLength: 512
+                type: string
+              credits:
+                description: Credits are the people credited on the issue.
+                items:
+                  description: |-
+                    Credit is one person credited on an issue (ComicVine's person_credits,
+                    Metron's credits): writer, artist, cover artist, letterer, editor.
+                  properties:
+                    name:
+                      description: Name is the person's name.
+                      maxLength: 256
+                      type: string
+                    role:
+                      description: Role is the credited role as the provider names
+                        it.
+                      maxLength: 64
+                      type: string
+                  required:
+                  - name
+                  type: object
+                maxItems: 32
+                type: array
               cutoffMet:
                 description: |-
                   CutoffMet is true when the imported file meets the cutoff of the owning
                   Comic's quality profile, so the issue is no longer an upgrade candidate.
                 type: boolean
+              cutoffReason:
+                description: |-
+                  CutoffReason says why CutoffMet reads as it does: Pending (no file),
+                  ProfileUnresolved, CutoffMet, CutoffUnmet (2026-11-10 design D4).
+                maxLength: 64
+                type: string
               date:
-                description: Date is the issue's cover or store date.
+                description: |-
+                  Date is the issue's cover date; StoreDate the day it reached shops,
+                  when the provider has one.
                 format: date-time
                 type: string
               downloadPhase:
@@ -212,8 +250,16 @@ spec:
                 - Blocklisted
                 - Removing
                 type: string
+              fileFormat:
+                type: string
+              fileFormatScore:
+                format: int32
+                type: integer
               fileQuality:
-                description: FileQuality is the quality of the imported file.
+                description: |-
+                  FileQuality is the quality of the imported file; FileFormat its format
+                  as the comic ladder names it (CBZ, CBR, PDF) and FileFormatScore its
+                  custom-format score (2026-11-10 design D5).
                 properties:
                   modifier:
                     description: Modifier refines the quality (remux, screener, ...).
@@ -284,6 +330,9 @@ spec:
                   status reflects.
                 format: int64
                 type: integer
+              overview:
+                description: Overview is the issue's description.
+                type: string
               pendingGrab:
                 description: PendingGrab is a chosen release waiting out a DelayProfile
                   delay.
@@ -583,6 +632,21 @@ spec:
                 - grabAt
                 - releaseTitle
                 type: object
+              phase:
+                description: |-
+                  Phase is the coarse lifecycle state of the issue (commonv1.LeafPhase,
+                  2026-11-10 design D4).
+                enum:
+                - Pending
+                - Unavailable
+                - Wanted
+                - Delayed
+                - Downloading
+                - Imported
+                - CutoffUnmet
+                - CutoffUnevaluated
+                - Unmonitored
+                type: string
               searchAttempts:
                 description: SearchAttempts counts the searches made for this issue.
                 properties:
@@ -686,17 +750,15 @@ spec:
               sourceID:
                 description: SourceID is the provider's ID for this issue.
                 type: string
-              state:
-                description: State is the acquisition state of the issue.
-                enum:
-                - wanted
-                - delayed
-                - skipped
-                - snatched
-                - downloaded
-                - archived
-                - ignored
-                - failed
+              sourceIDs:
+                additionalProperties:
+                  type: string
+                description: |-
+                  SourceIDs maps provider names (comicvine, metron, mangadex) to the
+                  issue's ids there.
+                type: object
+              storeDate:
+                format: date-time
                 type: string
               title:
                 description: Title is the issue title.

@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/book"
 )
 
@@ -30,7 +31,7 @@ func TestPhase(t *testing.T) {
 	tests := []struct {
 		name                                       string
 		monitored, hasFile, cutoffMet, pendingGrab bool
-		want                                       catalogv1alpha1.BookPhase
+		want                                       commonv1.LeafPhase
 	}{
 		{"unmonitored outranks everything", false, true, true, true, catalogv1alpha1.BookPhaseUnmonitored},
 		{"file and cutoff met is imported", true, true, true, false, catalogv1alpha1.BookPhaseImported},

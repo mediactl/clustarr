@@ -50,6 +50,26 @@ type ComicMetadataApplyConfiguration struct {
 	ExternalIDs map[string]string `json:"externalIDs,omitempty"`
 	// Images lists the cover art published by the provider.
 	Images []ImageApplyConfiguration `json:"images,omitempty"`
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	SchemaVersion *int32 `json:"schemaVersion,omitempty"`
+	// Language is the BCP-47 language the metadata was fetched in.
+	Language *string `json:"language,omitempty"`
+	// Ratings are the scores the sources report.
+	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
+	// Genres lists the volume's genres.
+	Genres []string `json:"genres,omitempty"`
+	// Status is whether the volume is still being published.
+	Status *catalogv1alpha1.ComicRunStatus `json:"status,omitempty"`
+	// AlternateTitles lists the volume's other titles.
+	AlternateTitles []string `json:"alternateTitles,omitempty"`
+	// EndYear is the year the volume ended, 0 while it continues.
+	EndYear *int32 `json:"endYear,omitempty"`
+	// OriginalLanguage is the BCP-47 tag of the original language.
+	OriginalLanguage *string `json:"originalLanguage,omitempty"`
+	// SortTitle is the title used for sorting.
+	SortTitle *string `json:"sortTitle,omitempty"`
 	// RefreshedAt is when the metadata was last fetched.
 	RefreshedAt *v1.Time `json:"refreshedAt,omitempty"`
 }
@@ -148,6 +168,87 @@ func (b *ComicMetadataApplyConfiguration) WithImages(values ...*ImageApplyConfig
 		}
 		b.Images = append(b.Images, *values[i])
 	}
+	return b
+}
+
+// WithSchemaVersion sets the SchemaVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SchemaVersion field is set to the value of the last call.
+func (b *ComicMetadataApplyConfiguration) WithSchemaVersion(value int32) *ComicMetadataApplyConfiguration {
+	b.SchemaVersion = &value
+	return b
+}
+
+// WithLanguage sets the Language field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Language field is set to the value of the last call.
+func (b *ComicMetadataApplyConfiguration) WithLanguage(value string) *ComicMetadataApplyConfiguration {
+	b.Language = &value
+	return b
+}
+
+// WithRatings adds the given value to the Ratings field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Ratings field.
+func (b *ComicMetadataApplyConfiguration) WithRatings(values ...*RatingApplyConfiguration) *ComicMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithRatings")
+		}
+		b.Ratings = append(b.Ratings, *values[i])
+	}
+	return b
+}
+
+// WithGenres adds the given value to the Genres field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Genres field.
+func (b *ComicMetadataApplyConfiguration) WithGenres(values ...string) *ComicMetadataApplyConfiguration {
+	for i := range values {
+		b.Genres = append(b.Genres, values[i])
+	}
+	return b
+}
+
+// WithStatus sets the Status field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Status field is set to the value of the last call.
+func (b *ComicMetadataApplyConfiguration) WithStatus(value catalogv1alpha1.ComicRunStatus) *ComicMetadataApplyConfiguration {
+	b.Status = &value
+	return b
+}
+
+// WithAlternateTitles adds the given value to the AlternateTitles field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the AlternateTitles field.
+func (b *ComicMetadataApplyConfiguration) WithAlternateTitles(values ...string) *ComicMetadataApplyConfiguration {
+	for i := range values {
+		b.AlternateTitles = append(b.AlternateTitles, values[i])
+	}
+	return b
+}
+
+// WithEndYear sets the EndYear field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EndYear field is set to the value of the last call.
+func (b *ComicMetadataApplyConfiguration) WithEndYear(value int32) *ComicMetadataApplyConfiguration {
+	b.EndYear = &value
+	return b
+}
+
+// WithOriginalLanguage sets the OriginalLanguage field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the OriginalLanguage field is set to the value of the last call.
+func (b *ComicMetadataApplyConfiguration) WithOriginalLanguage(value string) *ComicMetadataApplyConfiguration {
+	b.OriginalLanguage = &value
+	return b
+}
+
+// WithSortTitle sets the SortTitle field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SortTitle field is set to the value of the last call.
+func (b *ComicMetadataApplyConfiguration) WithSortTitle(value string) *ComicMetadataApplyConfiguration {
+	b.SortTitle = &value
 	return b
 }
 

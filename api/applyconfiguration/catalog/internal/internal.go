@@ -82,18 +82,55 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: albumType
       type:
         scalar: string
+    - name: artistCredit
+      type:
+        scalar: string
+    - name: catalogNumber
+      type:
+        scalar: string
     - name: disambiguation
       type:
         scalar: string
+    - name: externalIDs
+      type:
+        map:
+          elementType:
+            scalar: string
+    - name: genres
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: images
       type:
         list:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Image
           elementRelationship: atomic
+    - name: label
+      type:
+        scalar: string
+    - name: labels
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: language
+      type:
+        scalar: string
     - name: overview
       type:
         scalar: string
+    - name: ratings
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Rating
+          elementRelationship: associative
+          keys:
+          - source
     - name: refreshedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -108,6 +145,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - id
+    - name: schemaVersion
+      type:
+        scalar: numeric
     - name: secondaryTypes
       type:
         list:
@@ -120,8 +160,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: title
       type:
         scalar: string
-- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AlbumPhase
-  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AlbumSpec
   map:
     fields:
@@ -178,6 +216,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: cutoffMet
       type:
         scalar: boolean
+    - name: cutoffReason
+      type:
+        scalar: string
     - name: downloadNonces
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
@@ -190,9 +231,15 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadEntry
           elementRelationship: atomic
-    - name: formatScore
+    - name: fileFormatScore
       type:
         scalar: numeric
+    - name: fileQuality
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Quality
+    - name: hasFile
+      type:
+        scalar: boolean
     - name: lastLiveSearchAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -202,6 +249,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AlbumMetadata
+    - name: nfo
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.NFOStatus
     - name: observedGeneration
       type:
         scalar: numeric
@@ -213,10 +263,7 @@ var schemaYAML = typed.YAMLObject(`types:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PendingGrab
     - name: phase
       type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AlbumPhase
-    - name: quality
-      type:
-        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Quality
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.LeafPhase
     - name: searchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
@@ -226,6 +273,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: trackFileCount
       type:
         scalar: numeric
+    - name: trackSummary
+      type:
+        scalar: string
     - name: tracks
       type:
         list:
@@ -292,6 +342,7 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: searchForMissing
       type:
         scalar: boolean
+      default: true
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtistList
   map:
     fields:
@@ -313,7 +364,25 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtistMetadata
   map:
     fields:
+    - name: aliases
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: begin
+      type:
+        scalar: string
+    - name: biographySource
+      type:
+        scalar: string
+    - name: country
+      type:
+        scalar: string
     - name: disambiguation
+      type:
+        scalar: string
+    - name: end
       type:
         scalar: string
     - name: externalIDs
@@ -333,15 +402,37 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Image
           elementRelationship: atomic
+    - name: language
+      type:
+        scalar: string
+    - name: links
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Link
+          elementRelationship: associative
+          keys:
+          - type
     - name: name
       type:
         scalar: string
     - name: overview
       type:
         scalar: string
+    - name: ratings
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Rating
+          elementRelationship: associative
+          keys:
+          - source
     - name: refreshedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: schemaVersion
+      type:
+        scalar: numeric
     - name: sortName
       type:
         scalar: string
@@ -432,15 +523,36 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: cutoffUnmetChildCount
+      type:
+        scalar: numeric
+    - name: downloadingChildCount
+      type:
+        scalar: numeric
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtistMetadata
+    - name: missingChildCount
+      type:
+        scalar: numeric
+    - name: nextReleaseDate
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: nfo
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.NFOStatus
     - name: observedGeneration
       type:
         scalar: numeric
     - name: path
       type:
         scalar: string
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ContainerPhase
+    - name: previousReleaseDate
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkEntry
   map:
     fields:
@@ -560,6 +672,13 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: status
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookStatus
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookAddOptions
+  map:
+    fields:
+    - name: searchForMissing
+      type:
+        scalar: boolean
+      default: true
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookList
   map:
     fields:
@@ -601,6 +720,9 @@ var schemaYAML = typed.YAMLObject(`types:
         map:
           elementType:
             scalar: string
+    - name: fetchLanguage
+      type:
+        scalar: string
     - name: genres
       type:
         list:
@@ -613,6 +735,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Image
           elementRelationship: atomic
+    - name: isAdult
+      type:
+        scalar: boolean
     - name: isbn
       type:
         scalar: string
@@ -631,6 +756,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: publisher
       type:
         scalar: string
+    - name: ratings
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Rating
+          elementRelationship: associative
+          keys:
+          - source
     - name: refreshedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -640,22 +773,32 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: runtimeMinutes
       type:
         scalar: numeric
+    - name: schemaVersion
+      type:
+        scalar: numeric
     - name: series
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesLink
     - name: subtitle
       type:
         scalar: string
+    - name: tags
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: title
       type:
         scalar: string
-- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookPhase
-  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookRegion
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookSpec
   map:
     fields:
+    - name: addOptions
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookAddOptions
     - name: artwork
       type:
         list:
@@ -665,6 +808,9 @@ var schemaYAML = typed.YAMLObject(`types:
           keys:
           - type
     - name: asin
+      type:
+        scalar: string
+    - name: authorRef
       type:
         scalar: string
     - name: bookRef
@@ -705,6 +851,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: activeDownloadRef
       type:
         scalar: string
+    - name: addOptionsApplied
+      type:
+        scalar: boolean
     - name: artwork
       type:
         list:
@@ -724,6 +873,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: cutoffMet
       type:
         scalar: boolean
+    - name: cutoffReason
+      type:
+        scalar: string
     - name: downloadNonces
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
@@ -736,6 +888,12 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadEntry
           elementRelationship: atomic
+    - name: fileFormatScore
+      type:
+        scalar: numeric
+    - name: fileQuality
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Quality
     - name: fileRefs
       type:
         list:
@@ -754,7 +912,13 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookMetadata
+    - name: nfo
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.NFOStatus
     - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: partCount
       type:
         scalar: numeric
     - name: path
@@ -765,10 +929,7 @@ var schemaYAML = typed.YAMLObject(`types:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PendingGrab
     - name: phase
       type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookPhase
-    - name: quality
-      type:
-        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Quality
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.LeafPhase
     - name: searchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
@@ -803,6 +964,7 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: searchForMissing
       type:
         scalar: boolean
+      default: true
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AuthorList
   map:
     fields:
@@ -824,6 +986,12 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AuthorMetadata
   map:
     fields:
+    - name: born
+      type:
+        scalar: string
+    - name: died
+      type:
+        scalar: string
     - name: disambiguation
       type:
         scalar: string
@@ -844,15 +1012,37 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Image
           elementRelationship: atomic
+    - name: language
+      type:
+        scalar: string
+    - name: links
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Link
+          elementRelationship: associative
+          keys:
+          - type
     - name: name
       type:
         scalar: string
     - name: overview
       type:
         scalar: string
+    - name: ratings
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Rating
+          elementRelationship: associative
+          keys:
+          - source
     - name: refreshedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: schemaVersion
+      type:
+        scalar: numeric
     - name: sortName
       type:
         scalar: string
@@ -938,15 +1128,36 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: cutoffUnmetChildCount
+      type:
+        scalar: numeric
+    - name: downloadingChildCount
+      type:
+        scalar: numeric
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AuthorMetadata
+    - name: missingChildCount
+      type:
+        scalar: numeric
+    - name: nextReleaseDate
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: nfo
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.NFOStatus
     - name: observedGeneration
       type:
         scalar: numeric
     - name: path
       type:
         scalar: string
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ContainerPhase
+    - name: previousReleaseDate
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogQueueSpec
   map:
     fields:
@@ -1165,20 +1376,60 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Image
           elementRelationship: atomic
+    - name: language
+      type:
+        scalar: string
+    - name: languages
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: links
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Link
+          elementRelationship: associative
+          keys:
+          - type
     - name: overview
       type:
         scalar: string
+    - name: pageCount
+      type:
+        scalar: numeric
+    - name: publisher
+      type:
+        scalar: string
+    - name: ratings
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Rating
+          elementRelationship: associative
+          keys:
+          - source
     - name: refreshedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: releaseDate
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: schemaVersion
+      type:
+        scalar: numeric
     - name: seriesLinks
       type:
         list:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesLink
+          elementRelationship: atomic
+    - name: subjects
+      type:
+        list:
+          elementType:
+            scalar: string
           elementRelationship: atomic
     - name: subtitle
       type:
@@ -1213,8 +1464,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: skipSeriesSecondary
       type:
         scalar: boolean
-- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BookPhase
-  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BookSpec
   map:
     fields:
@@ -1282,6 +1531,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: cutoffMet
       type:
         scalar: boolean
+    - name: cutoffReason
+      type:
+        scalar: string
     - name: downloadNonces
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
@@ -1297,6 +1549,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: fileFormat
       type:
         scalar: string
+    - name: fileFormatScore
+      type:
+        scalar: numeric
+    - name: fileQuality
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Quality
     - name: fileRef
       type:
         scalar: string
@@ -1323,7 +1581,7 @@ var schemaYAML = typed.YAMLObject(`types:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PendingGrab
     - name: phase
       type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BookPhase
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.LeafPhase
     - name: searchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
@@ -1422,6 +1680,17 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: status
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicStatus
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicAddOptions
+  map:
+    fields:
+    - name: monitor
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicMonitorMode
+      default: all
+    - name: searchForMissing
+      type:
+        scalar: boolean
+      default: true
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicKind
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicList
@@ -1448,11 +1717,26 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: ageRating
       type:
         scalar: string
+    - name: alternateTitles
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: endYear
+      type:
+        scalar: numeric
     - name: externalIDs
       type:
         map:
           elementType:
             scalar: string
+    - name: genres
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: images
       type:
         list:
@@ -1462,18 +1746,41 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: issueCount
       type:
         scalar: numeric
+    - name: language
+      type:
+        scalar: string
     - name: manga
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MangaFlag
+    - name: originalLanguage
+      type:
+        scalar: string
     - name: overview
       type:
         scalar: string
     - name: publisher
       type:
         scalar: string
+    - name: ratings
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Rating
+          elementRelationship: associative
+          keys:
+          - source
     - name: refreshedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: schemaVersion
+      type:
+        scalar: numeric
+    - name: sortTitle
+      type:
+        scalar: string
+    - name: status
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicRunStatus
     - name: title
       type:
         scalar: string
@@ -1483,11 +1790,18 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: year
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicMonitorMode
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicRunStatus
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicSourceProvider
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicSpec
   map:
     fields:
+    - name: addOptions
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicAddOptions
     - name: addSource
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.AddSource
@@ -1550,6 +1864,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicStatus
   map:
     fields:
+    - name: addOptionsApplied
+      type:
+        scalar: boolean
     - name: artwork
       type:
         list:
@@ -1566,12 +1883,18 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: cutoffUnmetChildCount
+      type:
+        scalar: numeric
     - name: downloadNonces
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
     - name: downloadPhase
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
+    - name: downloadingChildCount
+      type:
+        scalar: numeric
     - name: downloadingIssueCount
       type:
         scalar: numeric
@@ -1587,7 +1910,13 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicMetadata
+    - name: missingChildCount
+      type:
+        scalar: numeric
     - name: nextPullDate
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: nextReleaseDate
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: observedGeneration
@@ -1602,6 +1931,26 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PendingGrab
           elementRelationship: atomic
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ContainerPhase
+    - name: previousReleaseDate
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: volumeSearch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchState
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ContainerPhase
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Credit
+  map:
+    fields:
+    - name: name
+      type:
+        scalar: string
+    - name: role
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.CustomList
   map:
     fields:
@@ -2778,8 +3127,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: number
       type:
         scalar: string
-- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.IssueState
-  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.IssueStatus
   map:
     fields:
@@ -2794,15 +3141,33 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: coverURL
+      type:
+        scalar: string
+    - name: credits
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Credit
+          elementRelationship: atomic
     - name: cutoffMet
       type:
         scalar: boolean
+    - name: cutoffReason
+      type:
+        scalar: string
     - name: date
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: downloadPhase
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
+    - name: fileFormat
+      type:
+        scalar: string
+    - name: fileFormatScore
+      type:
+        scalar: numeric
     - name: fileQuality
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Quality
@@ -2821,9 +3186,15 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: observedGeneration
       type:
         scalar: numeric
+    - name: overview
+      type:
+        scalar: string
     - name: pendingGrab
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PendingGrab
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.LeafPhase
     - name: searchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
@@ -2833,9 +3204,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: sourceID
       type:
         scalar: string
-    - name: state
+    - name: sourceIDs
       type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.IssueState
+        map:
+          elementType:
+            scalar: string
+    - name: storeDate
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: title
       type:
         scalar: string
@@ -2949,6 +3325,15 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.UnmatchedFile
           elementRelationship: atomic
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Link
+  map:
+    fields:
+    - name: type
+      type:
+        scalar: string
+    - name: url
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ListDefaults
   map:
     fields:
@@ -3091,6 +3476,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: boolean
       default: true
+    - name: partIndex
+      type:
+        scalar: numeric
     - name: path
       type:
         scalar: string
@@ -3722,6 +4110,24 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: atomic
       default:
       - studio
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.NFOStatus
+  map:
+    fields:
+    - name: files
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: hash
+      type:
+        scalar: string
+    - name: path
+      type:
+        scalar: string
+    - name: writtenAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.NamedRef
   map:
     fields:
@@ -3760,6 +4166,9 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: boolean
       default: false
     - name: renameTranscoded
+      type:
+        scalar: boolean
+    - name: writeNFO
       type:
         scalar: boolean
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.NamingStatus
@@ -4183,7 +4592,13 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ReleaseSummary
   map:
     fields:
+    - name: catalogNumber
+      type:
+        scalar: string
     - name: country
+      type:
+        scalar: string
+    - name: disambiguation
       type:
         scalar: string
     - name: id
@@ -4202,6 +4617,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: status
+      type:
+        scalar: string
+    - name: title
       type:
         scalar: string
     - name: trackCount
@@ -4243,6 +4661,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: qualityProfileRef
       type:
         scalar: string
+    - name: region
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookRegion
     - name: searchOnAdd
       type:
         scalar: boolean
@@ -5544,6 +5965,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.AudioStream
   map:
     fields:
+    - name: bitDepth
+      type:
+        scalar: numeric
     - name: bitrateKbps
       type:
         scalar: numeric
@@ -5571,6 +5995,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: profile
       type:
         scalar: string
+    - name: sampleRateHz
+      type:
+        scalar: numeric
     - name: title
       type:
         scalar: string
@@ -5630,6 +6057,8 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: url
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.LeafPhase
+  scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.MediaInfo
   map:
     fields:
@@ -5669,6 +6098,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: height
       type:
         scalar: numeric
+    - name: pageCount
+      type:
+        scalar: numeric
     - name: pixelFormat
       type:
         scalar: string
@@ -5681,6 +6113,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.common.v1alpha1.SubtitleStream
           elementRelationship: atomic
+    - name: tags
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.MediaTags
     - name: transcodeProfile
       type:
         scalar: string
@@ -5722,6 +6157,48 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: track
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.MediaTags
+  map:
+    fields:
+    - name: album
+      type:
+        scalar: string
+    - name: albumArtist
+      type:
+        scalar: string
+    - name: artist
+      type:
+        scalar: string
+    - name: date
+      type:
+        scalar: string
+    - name: discNumber
+      type:
+        scalar: numeric
+    - name: discTotal
+      type:
+        scalar: numeric
+    - name: musicBrainzArtistID
+      type:
+        scalar: string
+    - name: musicBrainzRecordingID
+      type:
+        scalar: string
+    - name: musicBrainzReleaseGroupID
+      type:
+        scalar: string
+    - name: musicBrainzReleaseID
+      type:
+        scalar: string
+    - name: title
+      type:
+        scalar: string
+    - name: trackNumber
+      type:
+        scalar: numeric
+    - name: trackTotal
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.Modifier
   scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.Protocol

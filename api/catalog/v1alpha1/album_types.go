@@ -34,19 +34,18 @@ const (
 	AlbumConditionInvalid = "Invalid"
 )
 
-// AlbumPhase is the coarse lifecycle state of an album.
-//
-// +kubebuilder:validation:Enum=Wanted;Delayed;Downloading;Imported;CutoffUnmet;Unmonitored
-type AlbumPhase string
-
-// Album phases.
+// The album's phase values, commonv1.LeafPhase since 2026-11-10 (design D4):
+// one vocabulary for Album, Book, Audiobook and Issue.
 const (
-	AlbumPhaseWanted      AlbumPhase = "Wanted"
-	AlbumPhaseDelayed     AlbumPhase = "Delayed"
-	AlbumPhaseDownloading AlbumPhase = "Downloading"
-	AlbumPhaseImported    AlbumPhase = "Imported"
-	AlbumPhaseCutoffUnmet AlbumPhase = "CutoffUnmet"
-	AlbumPhaseUnmonitored AlbumPhase = "Unmonitored"
+	AlbumPhasePending           = commonv1.LeafPhasePending
+	AlbumPhaseUnavailable       = commonv1.LeafPhaseUnavailable
+	AlbumPhaseWanted            = commonv1.LeafPhaseWanted
+	AlbumPhaseDelayed           = commonv1.LeafPhaseDelayed
+	AlbumPhaseDownloading       = commonv1.LeafPhaseDownloading
+	AlbumPhaseImported          = commonv1.LeafPhaseImported
+	AlbumPhaseCutoffUnmet       = commonv1.LeafPhaseCutoffUnmet
+	AlbumPhaseCutoffUnevaluated = commonv1.LeafPhaseCutoffUnevaluated
+	AlbumPhaseUnmonitored       = commonv1.LeafPhaseUnmonitored
 )
 
 // Medium is one disc, tape or side of a MusicBrainz release.
@@ -78,6 +77,19 @@ type ReleaseSummary struct {
 	// Label is the issuing record label.
 	// +optional
 	Label string `json:"label,omitempty"`
+
+	// Title is the release's own title when it differs from the release
+	// group's ("Deluxe Edition"); Disambiguation its MusicBrainz
+	// disambiguation; CatalogNumber its catalogue number.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Title string `json:"title,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Disambiguation string `json:"disambiguation,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	CatalogNumber string `json:"catalogNumber,omitempty"`
 
 	// ReleaseDate is when this release was issued, MusicBrainz's release
 	// date; a partial date is the first day of the period it names. A
@@ -177,6 +189,52 @@ type AlbumMetadata struct {
 	// +kubebuilder:validation:MaxItems=50
 	Images []Image `json:"images,omitempty"`
 
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	// +optional
+	SchemaVersion int32 `json:"schemaVersion,omitempty"`
+
+	// Language is the BCP-47 language the metadata was fetched in.
+	// +optional
+	Language string `json:"language,omitempty"`
+
+	// Ratings are the scores the sources report.
+	// +optional
+	// +listType=map
+	// +listMapKey=source
+	// +kubebuilder:validation:MaxItems=8
+	Ratings []Rating `json:"ratings,omitempty"`
+
+	// Genres lists the release group's genres.
+	// +optional
+	// +kubebuilder:validation:MaxItems=30
+	Genres []string `json:"genres,omitempty"`
+
+	// ExternalIDs maps provider names (musicbrainz-release-group, discogs,
+	// spotify, barcode, asin) to their IDs.
+	// +optional
+	ExternalIDs map[string]string `json:"externalIDs,omitempty"`
+
+	// Label is the selected release's record label; Labels every label of
+	// the release group's releases.
+	// +optional
+	Label string `json:"label,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	Labels []string `json:"labels,omitempty"`
+
+	// CatalogNumber is the selected release's catalogue number.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	CatalogNumber string `json:"catalogNumber,omitempty"`
+
+	// ArtistCredit is the release group's artist credit as MusicBrainz
+	// phrases it ("Simon & Garfunkel", "Various Artists").
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	ArtistCredit string `json:"artistCredit,omitempty"`
+
 	// RefreshedAt is when the metadata was last fetched.
 	// +optional
 	RefreshedAt metav1.Time `json:"refreshedAt,omitempty"`
@@ -250,25 +308,43 @@ type AlbumStatus struct {
 	// +kubebuilder:validation:MaxItems=200
 	Tracks []Track `json:"tracks,omitempty"`
 
-	// Phase is the coarse lifecycle state of the album.
+	// Phase is the coarse lifecycle state of the album (commonv1.LeafPhase,
+	// 2026-11-10 design D4).
 	// +optional
-	Phase AlbumPhase `json:"phase,omitempty"`
+	Phase commonv1.LeafPhase `json:"phase,omitempty"`
+
+	// CutoffReason says why CutoffMet reads as it does: Pending (no file),
+	// ProfileUnresolved, CutoffMet, CutoffUnmet, TracksMissing (2026-11-10 design D4).
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	CutoffReason string `json:"cutoffReason,omitempty"`
 
 	// Path is the resolved folder on disk.
 	// +optional
 	Path string `json:"path,omitempty"`
 
+	// HasFile is true while at least one track has an imported file.
+	// +optional
+	HasFile bool `json:"hasFile,omitempty"`
+
 	// TrackFileCount is the number of tracks with an imported file.
 	// +optional
 	TrackFileCount int32 `json:"trackFileCount,omitempty"`
 
-	// Quality is the lowest quality across the album's imported tracks.
+	// TrackSummary is "<trackFileCount>/<tracks>", the Tracks print column.
 	// +optional
-	Quality *commonv1.Quality `json:"quality,omitempty"`
+	// +kubebuilder:validation:MaxLength=16
+	TrackSummary string `json:"trackSummary,omitempty"`
 
-	// FormatScore is the custom-format score of the imported release.
+	// FileQuality is the lowest quality across the album's imported tracks
+	// (quality until 2026-11-10, design D5).
 	// +optional
-	FormatScore int32 `json:"formatScore,omitempty"`
+	FileQuality *commonv1.Quality `json:"fileQuality,omitempty"`
+
+	// FileFormatScore is the custom-format score of the lowest-ranked
+	// imported track (formatScore until 2026-11-10).
+	// +optional
+	FileFormatScore int32 `json:"fileFormatScore,omitempty"`
 
 	// CutoffMet is true when the imported tracks meet the profile cutoff.
 	// +optional
@@ -321,6 +397,11 @@ type AlbumStatus struct {
 	// +optional
 	SearchAttempts commonv1.Attempts `json:"searchAttempts,omitempty"`
 
+	// NFO records the artist.nfo/album.nfo the import agent last wrote for
+	// this item (2026-11-10 design §8).
+	// +optional
+	NFO *NFOStatus `json:"nfo,omitempty"`
+
 	// Artwork lists the images fetched into the artwork store, one per type.
 	// Written by the metadata gateway.
 	// +optional
@@ -340,8 +421,8 @@ type AlbumStatus struct {
 // +kubebuilder:printcolumn:name="Title",type=string,JSONPath=`.status.metadata.title`
 // +kubebuilder:printcolumn:name="Monitored",type=boolean,JSONPath=`.spec.monitored`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="Files",type=integer,JSONPath=`.status.trackFileCount`
-// +kubebuilder:printcolumn:name="Quality",type=string,JSONPath=`.status.quality.name`
+// +kubebuilder:printcolumn:name="Tracks",type=string,JSONPath=`.status.trackSummary`
+// +kubebuilder:printcolumn:name="Quality",type=string,JSONPath=`.status.fileQuality.name`
 // +kubebuilder:printcolumn:name="Download",type=string,JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

@@ -39,6 +39,9 @@ type ComicSpecApplyConfiguration struct {
 	Monitored *bool `json:"monitored,omitempty"`
 	// MonitorNewIssues monitors issues discovered after the comic was added.
 	MonitorNewIssues *bool `json:"monitorNewIssues,omitempty"`
+	// AddOptions are applied once, when the comic is first reconciled
+	// (2026-11-10 design D10).
+	AddOptions *ComicAddOptionsApplyConfiguration `json:"addOptions,omitempty"`
 	// SpecialVersion says how the volume is collected and numbered.
 	SpecialVersion *catalogv1alpha1.ComicSpecialVersion `json:"specialVersion,omitempty"`
 	// UnmonitoredIssues lists the issue numbers the user unmonitored. It is
@@ -106,6 +109,14 @@ func (b *ComicSpecApplyConfiguration) WithMonitored(value bool) *ComicSpecApplyC
 // If called multiple times, the MonitorNewIssues field is set to the value of the last call.
 func (b *ComicSpecApplyConfiguration) WithMonitorNewIssues(value bool) *ComicSpecApplyConfiguration {
 	b.MonitorNewIssues = &value
+	return b
+}
+
+// WithAddOptions sets the AddOptions field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AddOptions field is set to the value of the last call.
+func (b *ComicSpecApplyConfiguration) WithAddOptions(value *ComicAddOptionsApplyConfiguration) *ComicSpecApplyConfiguration {
+	b.AddOptions = value
 	return b
 }
 

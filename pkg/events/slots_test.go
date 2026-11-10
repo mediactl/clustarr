@@ -50,6 +50,7 @@ func TestDefaultConsumersCarryTheirSlots(t *testing.T) {
 		events.ConsumerImportList:           2,
 		events.ConsumerImportFile:           4,
 		events.ConsumerImportRecycle:        1,
+		events.ConsumerImportNFO:            2,
 		events.ConsumerIndexRSS:             4,
 		events.ConsumerCaptionFetchHigh:     16,
 		events.ConsumerCaptionFetchNormal:   16,

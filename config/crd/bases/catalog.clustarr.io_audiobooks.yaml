@@ -70,6 +70,15 @@ spec:
           spec:
             description: AudiobookSpec defines the desired state of Audiobook.
             properties:
+              addOptions:
+                description: AddOptions are applied once, when the audiobook is first
+                  reconciled.
+                properties:
+                  searchForMissing:
+                    default: true
+                    description: SearchForMissing searches for the audiobook on add.
+                    type: boolean
+                type: object
               artwork:
                 description: Artwork overrides the provider's image for a type. One
                   entry per type.
@@ -114,6 +123,13 @@ spec:
                 x-kubernetes-validations:
                 - message: asin is immutable
                   rule: self == oldSelf
+              authorRef:
+                description: |-
+                  AuthorRef links the audiobook to its Author: set from the Book's
+                  author when bookRef resolves, else by Add New when an Author's name
+                  matches the first credited author (2026-11-10 design D11). The Plex
+                  audiobooks root's artist level and the ui's author link read it.
+                type: string
               bookRef:
                 description: BookRef links the audiobook to the Book it is a recording
                   of.
@@ -182,6 +198,10 @@ spec:
                 description: ActiveDownloadRef is the id of the grab entry currently
                   working on this audiobook.
                 type: string
+              addOptionsApplied:
+                description: AddOptionsApplied is true once spec.addOptions has been
+                  acted on.
+                type: boolean
               artwork:
                 description: |-
                   Artwork lists the images fetched into the artwork store, one per type.
@@ -308,6 +328,12 @@ spec:
                 description: CutoffMet is true when the imported files meet the profile
                   cutoff.
                 type: boolean
+              cutoffReason:
+                description: |-
+                  CutoffReason says why CutoffMet reads as it does: Pending (no file),
+                  ProfileUnresolved, CutoffMet, CutoffUnmet (2026-11-10 design D4).
+                maxLength: 64
+                type: string
               downloadNonces:
                 description: |-
                   DownloadNonces records the one-shot download intents last handled
@@ -1089,9 +1115,64 @@ spec:
                 maxItems: 8
                 type: array
                 x-kubernetes-list-type: atomic
+              fileFormatScore:
+                format: int32
+                type: integer
+              fileQuality:
+                description: |-
+                  FileQuality is the quality of the imported recording, the
+                  lowest-ranked part's (quality until 2026-11-10, design D5), and
+                  FileFormatScore its custom-format score.
+                properties:
+                  modifier:
+                    description: Modifier refines the quality (remux, screener, ...).
+                    enum:
+                    - none
+                    - regional
+                    - screener
+                    - rawhd
+                    - brdisk
+                    - remux
+                    type: string
+                  name:
+                    description: Name is the canonical quality definition name.
+                    maxLength: 64
+                    type: string
+                  resolution:
+                    description: Resolution is the vertical resolution in lines. Video
+                      only.
+                    enum:
+                    - 0
+                    - 360
+                    - 480
+                    - 540
+                    - 576
+                    - 720
+                    - 1080
+                    - 2160
+                    format: int32
+                    type: integer
+                  source:
+                    description: Source is the release source. Video only.
+                    enum:
+                    - unknown
+                    - cam
+                    - telesync
+                    - telecine
+                    - workprint
+                    - dvd
+                    - tv
+                    - webdl
+                    - webrip
+                    - bluray
+                    type: string
+                required:
+                - name
+                type: object
               fileRefs:
-                description: FileRefs lists the MediaFiles holding the audio parts,
-                  in play order.
+                description: |-
+                  FileRefs lists the MediaFiles holding the audio parts, in play order
+                  (each part's spec.partIndex, 2026-11-10 design D11).
                 items:
                   type: string
                 maxItems: 200
@@ -1162,6 +1243,11 @@ spec:
                     description: ExternalIDs maps provider names (audnexus, asin,
                       isbn, ...) to their IDs.
                     type: object
+                  fetchLanguage:
+                    description: |-
+                      FetchLanguage is the BCP-47 language the metadata was fetched in
+                      (language above is the recording's own).
+                    type: string
                   genres:
                     description: Genres lists the genres.
                     items:
@@ -1204,6 +1290,9 @@ spec:
                       type: object
                     maxItems: 50
                     type: array
+                  isAdult:
+                    description: IsAdult is Audible's adult flag.
+                    type: boolean
                   isbn:
                     description: ISBN is the ISBN of the recording, when published
                       with one.
@@ -1223,6 +1312,52 @@ spec:
                   publisher:
                     description: Publisher is the publishing house.
                     type: string
+                  ratings:
+                    description: Ratings are the scores the sources report.
+                    items:
+                      description: Rating is one score reported by one rating source.
+                      properties:
+                        source:
+                          description: Source is the rating provider.
+                          enum:
+                          - imdb
+                          - tmdb
+                          - rottenTomatoesCritic
+                          - rottenTomatoesAudience
+                          - metacritic
+                          - trakt
+                          - letterboxd
+                          - musicbrainz
+                          - audnexus
+                          - hardcover
+                          - anilist
+                          - comicvine
+                          type: string
+                        valueCentis:
+                          description: |-
+                            ValueCentis is the score scaled by 100: 0-1000 for a source out of 10
+                            (imdb, tmdb, trakt, letterboxd), 0-10000 for a source out of 100
+                            (rottenTomatoesCritic, rottenTomatoesAudience, metacritic). Scaled
+                            rather than a float -- CLAUDE.md bans float32/float64 in api/.
+                          format: int32
+                          maximum: 10000
+                          minimum: 0
+                          type: integer
+                        votes:
+                          description: Votes is the number of votes behind the score,
+                            when the source reports one.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      required:
+                      - source
+                      - valueCentis
+                      type: object
+                    maxItems: 8
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - source
+                    x-kubernetes-list-type: map
                   refreshedAt:
                     description: RefreshedAt is when the metadata was last fetched.
                     format: date-time
@@ -1233,6 +1368,13 @@ spec:
                     type: string
                   runtimeMinutes:
                     description: RuntimeMinutes is the total runtime in minutes.
+                    format: int32
+                    type: integer
+                  schemaVersion:
+                    description: |-
+                      SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+                      the time the document was built; a document older than the current
+                      version is refreshed once (2026-11-10 design D8).
                     format: int32
                     type: integer
                   series:
@@ -1255,14 +1397,52 @@ spec:
                   subtitle:
                     description: Subtitle is the audiobook subtitle.
                     type: string
+                  tags:
+                    description: Tags are Audible's tags.
+                    items:
+                      type: string
+                    maxItems: 32
+                    type: array
                   title:
                     description: Title is the audiobook title.
+                    type: string
+                type: object
+              nfo:
+                description: |-
+                  NFO records the artist.nfo/album.nfo the import agent last wrote for
+                  this item (2026-11-10 design §8).
+                properties:
+                  files:
+                    description: |-
+                      Files are the names the agent wrote in Path (artist.nfo, artist.jpg,
+                      album.nfo, folder.jpg); an operator's own file of another name is
+                      never touched.
+                    items:
+                      type: string
+                    maxItems: 8
+                    type: array
+                  hash:
+                    description: |-
+                      Hash is pkg/nfo's hash of the rendered document and the image
+                      objects' digests.
+                    maxLength: 64
+                    type: string
+                  path:
+                    description: Path is the folder the files were written into.
+                    type: string
+                  writtenAt:
+                    description: WrittenAt is when the agent answered the write.
+                    format: date-time
                     type: string
                 type: object
               observedGeneration:
                 description: ObservedGeneration is the generation of the spec this
                   status reflects.
                 format: int64
+                type: integer
+              partCount:
+                description: PartCount is the number of parts on disk.
+                format: int32
                 type: integer
               path:
                 description: Path is the resolved folder on disk.
@@ -1567,63 +1747,20 @@ spec:
                 - releaseTitle
                 type: object
               phase:
-                description: Phase is the coarse lifecycle state of the audiobook.
+                description: |-
+                  Phase is the coarse lifecycle state of the audiobook (commonv1.LeafPhase,
+                  2026-11-10 design D4).
                 enum:
+                - Pending
+                - Unavailable
                 - Wanted
                 - Delayed
                 - Downloading
                 - Imported
                 - CutoffUnmet
+                - CutoffUnevaluated
                 - Unmonitored
                 type: string
-              quality:
-                description: Quality is the quality of the imported recording.
-                properties:
-                  modifier:
-                    description: Modifier refines the quality (remux, screener, ...).
-                    enum:
-                    - none
-                    - regional
-                    - screener
-                    - rawhd
-                    - brdisk
-                    - remux
-                    type: string
-                  name:
-                    description: Name is the canonical quality definition name.
-                    maxLength: 64
-                    type: string
-                  resolution:
-                    description: Resolution is the vertical resolution in lines. Video
-                      only.
-                    enum:
-                    - 0
-                    - 360
-                    - 480
-                    - 540
-                    - 576
-                    - 720
-                    - 1080
-                    - 2160
-                    format: int32
-                    type: integer
-                  source:
-                    description: Source is the release source. Video only.
-                    enum:
-                    - unknown
-                    - cam
-                    - telesync
-                    - telecine
-                    - workprint
-                    - dvd
-                    - tv
-                    - webdl
-                    - webrip
-                    - bluray
-                    type: string
-                required:
-                - name
-                type: object
               searchAttempts:
                 description: SearchAttempts counts the searches made for this audiobook.
                 properties:

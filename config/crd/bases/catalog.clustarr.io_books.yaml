@@ -68,7 +68,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: BookSpec defines the desired state of Book.
+            description: |-
+              BookSpec defines the desired state of Book. A standalone book (no
+              authorRef) names its own quality profile and root folder (2026-11-10
+              design §4.5).
             properties:
               anyEditionOk:
                 default: true
@@ -165,6 +168,9 @@ spec:
             required:
             - workID
             type: object
+            x-kubernetes-validations:
+            - message: a book without an author names its qualityProfileRef and rootFolderRef
+              rule: has(self.authorRef) || (has(self.qualityProfileRef) && has(self.rootFolderRef))
           status:
             description: BookStatus describes the observed state of Book.
             properties:
@@ -298,6 +304,12 @@ spec:
                 description: CutoffMet is true when the imported file meets the profile
                   cutoff.
                 type: boolean
+              cutoffReason:
+                description: |-
+                  CutoffReason says why CutoffMet reads as it does: Pending (no file),
+                  ProfileUnresolved, CutoffMet, CutoffUnmet (2026-11-10 design D4).
+                maxLength: 64
+                type: string
               downloadNonces:
                 description: |-
                   DownloadNonces records the one-shot download intents last handled
@@ -1083,6 +1095,59 @@ spec:
                 description: FileFormat is the format of the imported file, e.g. EPUB
                   or AZW3.
                 type: string
+              fileFormatScore:
+                format: int32
+                type: integer
+              fileQuality:
+                description: |-
+                  FileQuality is the quality frozen on the imported file at import, and
+                  FileFormatScore its custom-format score (2026-11-10 design D5).
+                properties:
+                  modifier:
+                    description: Modifier refines the quality (remux, screener, ...).
+                    enum:
+                    - none
+                    - regional
+                    - screener
+                    - rawhd
+                    - brdisk
+                    - remux
+                    type: string
+                  name:
+                    description: Name is the canonical quality definition name.
+                    maxLength: 64
+                    type: string
+                  resolution:
+                    description: Resolution is the vertical resolution in lines. Video
+                      only.
+                    enum:
+                    - 0
+                    - 360
+                    - 480
+                    - 540
+                    - 576
+                    - 720
+                    - 1080
+                    - 2160
+                    format: int32
+                    type: integer
+                  source:
+                    description: Source is the release source. Video only.
+                    enum:
+                    - unknown
+                    - cam
+                    - telesync
+                    - telecine
+                    - workprint
+                    - dvd
+                    - tv
+                    - webdl
+                    - webrip
+                    - bluray
+                    type: string
+                required:
+                - name
+                type: object
               fileRef:
                 description: FileRef is the name of the MediaFile backing the book.
                 type: string
@@ -1201,9 +1266,101 @@ spec:
                       type: object
                     maxItems: 50
                     type: array
+                  language:
+                    description: Language is the BCP-47 language the metadata was
+                      fetched in.
+                    type: string
+                  languages:
+                    description: Languages lists the BCP-47 languages the work is
+                      published in.
+                    items:
+                      type: string
+                    maxItems: 16
+                    type: array
+                  links:
+                    description: Links are the work's external pages.
+                    items:
+                      description: |-
+                        Link is one external page of an item: a MusicBrainz url-rel, an Open
+                        Library link, a provider's own page.
+                      properties:
+                        type:
+                          description: |-
+                            Type names the site: wikidata, wikipedia, discogs, homepage,
+                            bandcamp, lastfm, spotify, apple, youtube, goodreads, hardcover,
+                            audible, comicvine, metron, mangadex, anilist, mal.
+                          maxLength: 32
+                          type: string
+                        url:
+                          description: URL is the page.
+                          maxLength: 512
+                          type: string
+                      required:
+                      - type
+                      - url
+                      type: object
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - type
+                    x-kubernetes-list-type: map
                   overview:
                     description: Overview is the synopsis.
                     type: string
+                  pageCount:
+                    description: PageCount is the page count of the work's representative
+                      edition.
+                    format: int32
+                    type: integer
+                  publisher:
+                    description: Publisher is the representative edition's publisher.
+                    type: string
+                  ratings:
+                    description: Ratings are the scores the sources report.
+                    items:
+                      description: Rating is one score reported by one rating source.
+                      properties:
+                        source:
+                          description: Source is the rating provider.
+                          enum:
+                          - imdb
+                          - tmdb
+                          - rottenTomatoesCritic
+                          - rottenTomatoesAudience
+                          - metacritic
+                          - trakt
+                          - letterboxd
+                          - musicbrainz
+                          - audnexus
+                          - hardcover
+                          - anilist
+                          - comicvine
+                          type: string
+                        valueCentis:
+                          description: |-
+                            ValueCentis is the score scaled by 100: 0-1000 for a source out of 10
+                            (imdb, tmdb, trakt, letterboxd), 0-10000 for a source out of 100
+                            (rottenTomatoesCritic, rottenTomatoesAudience, metacritic). Scaled
+                            rather than a float -- CLAUDE.md bans float32/float64 in api/.
+                          format: int32
+                          maximum: 10000
+                          minimum: 0
+                          type: integer
+                        votes:
+                          description: Votes is the number of votes behind the score,
+                            when the source reports one.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      required:
+                      - source
+                      - valueCentis
+                      type: object
+                    maxItems: 8
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - source
+                    x-kubernetes-list-type: map
                   refreshedAt:
                     description: RefreshedAt is when the metadata was last fetched.
                     format: date-time
@@ -1213,6 +1370,13 @@ spec:
                       work.
                     format: date-time
                     type: string
+                  schemaVersion:
+                    description: |-
+                      SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+                      the time the document was built; a document older than the current
+                      version is refreshed once (2026-11-10 design D8).
+                    format: int32
+                    type: integer
                   seriesLinks:
                     description: SeriesLinks places the work inside one or more reading
                       orders.
@@ -1235,6 +1399,12 @@ spec:
                       - series
                       type: object
                     maxItems: 10
+                    type: array
+                  subjects:
+                    description: Subjects are the work's subject keywords.
+                    items:
+                      type: string
+                    maxItems: 50
                     type: array
                   subtitle:
                     description: Subtitle is the work subtitle.
@@ -1551,13 +1721,18 @@ spec:
                 - releaseTitle
                 type: object
               phase:
-                description: Phase is the coarse lifecycle state of the book.
+                description: |-
+                  Phase is the coarse lifecycle state of the book (commonv1.LeafPhase,
+                  2026-11-10 design D4).
                 enum:
+                - Pending
+                - Unavailable
                 - Wanted
                 - Delayed
                 - Downloading
                 - Imported
                 - CutoffUnmet
+                - CutoffUnevaluated
                 - Unmonitored
                 type: string
               searchAttempts:

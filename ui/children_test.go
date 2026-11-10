@@ -62,7 +62,7 @@ func TestArtistAndAuthorPagesLoadTheirChildrenLazilyAndToggleThem(t *testing.T) 
 			},
 		}
 		if files > 0 {
-			a.Status.Quality = &commonv1.Quality{Name: "FLAC"}
+			a.Status.FileQuality = &commonv1.Quality{Name: "FLAC"}
 		}
 		return a
 	}

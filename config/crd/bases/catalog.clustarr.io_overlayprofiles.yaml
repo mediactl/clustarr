@@ -86,6 +86,11 @@ spec:
                       - metacritic
                       - trakt
                       - letterboxd
+                      - musicbrainz
+                      - audnexus
+                      - hardcover
+                      - anilist
+                      - comicvine
                       type: string
                   required:
                   - source

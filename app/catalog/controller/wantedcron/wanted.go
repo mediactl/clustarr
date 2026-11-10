@@ -247,32 +247,31 @@ func audiobookCandidate(ab *catalogv1alpha1.Audiobook) Candidate {
 	return candidate(ab, commonv1.MediaKindAudiobook, r, ab.Status.SearchAttempts, ab.Status.LastSearchedAt)
 }
 
-// issueCandidate reads an Issue, which has no phase: its IssueState plus its
-// cover date stand in for one (app/catalog/controller/issue.State).
+// issueCandidate reads an Issue's phase (commonv1.LeafPhase since
+// 2026-11-10, app/catalog/controller/issue.State) and its cover date.
 //
-//   - Missing: monitored, state wanted, and out by now. The issue controller
-//     reports an unreleased monitored issue as wanted too (IssueState has no
-//     "unreleased" member), so the date is what keeps a sweep from searching
-//     for an issue months before its store date. An undated issue counts as
-//     out, as the search worker's availability rule has it.
-//   - CutoffUnmet: monitored, downloaded, and its CutoffMet condition is
-//     present and False. An issue whose cutoff was never evaluated (no
-//     condition) is not assumed to be below it: guessing "below" would
-//     re-search every downloaded issue in the library every sweep.
+//   - Missing: monitored, phase Wanted, and out by now. Until the Issue
+//     reads Unavailable for an unreleased issue (design W1) the date is what
+//     keeps a sweep from searching for an issue months before its store
+//     date. An undated issue counts as out, as the search worker's
+//     availability rule has it.
+//   - CutoffUnmet: monitored and phase CutoffUnmet. An issue whose cutoff
+//     was never evaluated reads CutoffUnevaluated and is not assumed to be
+//     below it: guessing "below" would re-search every downloaded issue in
+//     the library every sweep.
 func issueCandidate(iss *catalogv1alpha1.Issue, now time.Time) Candidate {
 	var r schema.SearchReason
 	if ptr.Deref(iss.Spec.Monitored, true) {
-		switch iss.Status.State {
-		case catalogv1alpha1.IssueStateWanted:
+		switch iss.Status.Phase {
+		case catalogv1alpha1.IssuePhaseWanted:
 			if iss.Status.Date == nil || !iss.Status.Date.After(now) {
 				r = schema.SearchReasonMissing
 			}
-		case catalogv1alpha1.IssueStateDownloaded:
-			for _, c := range iss.Status.Conditions {
-				if c.Type == catalogv1alpha1.IssueConditionCutoffMet && c.Status == metav1.ConditionFalse {
-					r = schema.SearchReasonCutoffUnmet
-				}
-			}
+		case catalogv1alpha1.IssuePhaseCutoffUnmet:
+			// Since 2026-11-10 (design D4) the phase itself says the file
+			// is below the cutoff; an unjudged file reads
+			// CutoffUnevaluated and is not searched.
+			r = schema.SearchReasonCutoffUnmet
 		}
 	}
 	return candidate(iss, commonv1.MediaKindIssue, r, iss.Status.SearchAttempts, iss.Status.LastSearchedAt)

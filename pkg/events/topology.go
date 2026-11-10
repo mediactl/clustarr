@@ -1159,6 +1159,21 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
+			// The NFO writes (2026-11-10 design §8.2): the manager renders
+			// an item's artist.nfo or album.nfo and the images beside it,
+			// the import agent writes the bytes atomically and answers in
+			// clustarr-nfo. A write is small and fast; the handler
+			// heartbeats while it fetches an image from the artwork store.
+			Name: ConsumerImportNFO, Stream: StreamWorkImport,
+			Filters: []string{FilterImportNFO},
+			AckWait: 60 * s, MaxDeliver: 3,
+			BackOff:       []time.Duration{1 * m, 10 * m},
+			Slots:         2,
+			MaxAckPending: 2 * AutoscaleReplicaCeiling, Heartbeat: 30 * s,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
+		},
+		{
 			// AckWait is 60s, the floor set by index's
 			// terminationGracePeriodSeconds: 60 (config/manager/index.yaml).
 			// It was 120s, which broke the rule the import block above

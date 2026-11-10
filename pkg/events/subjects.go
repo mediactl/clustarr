@@ -123,6 +123,10 @@ const (
 	// (spec 2026-10-06 §3.5.3). It lies inside FilterWorkImport, so the
 	// stream is unchanged.
 	FilterImportRecycle = "clustarr.work.import.recycle.>"
+
+	// FilterImportNFO is the artist.nfo/album.nfo writes the remediation
+	// loop's nfo stage queues for the import agent (2026-11-10 design §8).
+	FilterImportNFO = "clustarr.work.import.nfo.>"
 )
 
 // Durable consumer names.
@@ -136,6 +140,7 @@ const (
 	ConsumerImportList           = "import-list"
 	ConsumerImportFile           = "import-fileimport"
 	ConsumerImportRecycle        = "import-recycle"
+	ConsumerImportNFO            = "import-nfo"
 	ConsumerIndexRSS             = "index-rss"
 	ConsumerCaptionFetchHigh     = "caption-fetch-high"
 	ConsumerCaptionFetchNormal   = "caption-fetch-normal"
@@ -541,6 +546,12 @@ func WorkFileImportSubject(downloadUID string) string {
 // (fileimport.RecycleSweeper.SweepOnce), which a per-RootFolder task could
 // not know.
 const SubjectImportRecycleSweep = "clustarr.work.import.recycle.sweep"
+
+// WorkNFOSubject builds clustarr.work.import.nfo.<kind>.<item-uid>: one
+// NFOWriteTask per item (2026-11-10 design §8.2).
+func WorkNFOSubject(kind, itemUID string) string {
+	return "clustarr.work.import.nfo." + tok(kind) + "." + tok(itemUID)
+}
 
 // WorkRSSSubject builds clustarr.work.index.rss.normal.<indexer-uid>.
 func WorkRSSSubject(indexerUID string) string {

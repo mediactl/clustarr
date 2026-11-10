@@ -93,6 +93,7 @@ func TestRecordsBucketsAreDurableHistoryOneAndBounded(t *testing.T) {
 	agents := map[string]bool{
 		events.BucketTransfers: true, events.BucketEngines: true, events.BucketImports: true,
 		events.BucketSearches: true, events.BucketItemMetadata: true, events.BucketIndexerHealth: true,
+		events.BucketImageSets: true, events.BucketNFO: true,
 	}
 	for _, b := range top.Buckets {
 		if b.Records {

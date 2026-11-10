@@ -317,24 +317,16 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	}
 	_, active := rollup.EntryOverlay(dl)
 
-	state := State(monitored, hasFile, cutoffMet, active, iss.Status.PendingGrab != nil)
+	released := iss.Status.Date == nil || !now.Before(iss.Status.Date.Time)
+	state := State(monitored, hasFile, cutoffMet, active, iss.Status.PendingGrab != nil, released)
 
-	released := iss.Status.Date != nil && !now.Before(iss.Status.Date.Time)
-	k8s.MarkTrue(iss, &conditions, catalogv1alpha1.IssueConditionReleased, k8s.ReasonReconciled, "released=%t", released)
-	if !released {
-		k8s.MarkFalse(iss, &conditions, catalogv1alpha1.IssueConditionReleased, "Unreleased", "cover/store date has not passed yet")
-	}
-	if hasFile {
-		k8s.MarkTrue(iss, &conditions, catalogv1alpha1.IssueConditionHasFile, "HasFile", "backed by MediaFile %s", ptr.Deref(fileRef, ""))
-	} else {
-		k8s.MarkFalse(iss, &conditions, catalogv1alpha1.IssueConditionHasFile, k8s.ReasonPending, "no MediaFile backs this issue")
-	}
-	status, reason, message := CutoffCondition(hasFile, cutoffMet, profileProblem)
-	if status == metav1.ConditionTrue {
-		k8s.MarkTrue(iss, &conditions, catalogv1alpha1.IssueConditionCutoffMet, reason, "%s", message)
-	} else {
-		k8s.MarkFalse(iss, &conditions, catalogv1alpha1.IssueConditionCutoffMet, reason, "%s", message)
-	}
+	// The Released, HasFile and CutoffMet conditions were retired on
+	// 2026-11-10 (design D4): status.phase and status.hasFile say what
+	// they restated, and the cutoff's reason is status.cutoffReason, as
+	// Episode's since 2026-11-03. A retired condition still on the object
+	// is dropped by the one complete apply below.
+	_, reason, _ := CutoffCondition(hasFile, cutoffMet, profileProblem)
+	conditions = retiredIssueConditions(conditions)
 
 	// Ready is unconditionally true on a successful pass: unlike Movie/
 	// Episode, IssueState has no phase value meaning "blocked, waiting on
@@ -346,7 +338,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 
 	statusAC := catalogac.IssueStatus().
 		WithObservedGeneration(iss.Generation).
-		WithState(state).
+		WithPhase(state).
+		WithCutoffReason(reason).
 		WithHasFile(hasFile).
 		WithCutoffMet(cutoffMet).
 		WithConditions(k8s.ConditionACs(conditions)...)
@@ -364,7 +357,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	// it under SSA, and since R-5 this manager is its only owner, so the
 	// release removes it.
 
-	// This reconciler owns exactly State/Conditions/HasFile/FileRef/
+	// This reconciler owns exactly Phase/CutoffReason/Conditions/HasFile/FileRef/
 	// FileQuality/CutoffMet/ActiveDownloadRef/ObservedGeneration under
 	// k8s.ManagerCatalog. The Comic reconciler writes this Issue's
 	// provider-sourced fields (SourceID/Title/Date) under the distinct
@@ -427,4 +420,21 @@ func (r *Reconciler) resolveProfile(ctx context.Context, iss *catalogv1alpha1.Is
 		return nil, fmt.Sprintf("qualityProfile %q does not parse: %s", qp.Name, errors.Join(errs...)), nil
 	}
 	return &p, "", nil
+}
+
+// retiredIssueConditions drops the conditions D4 of the 2026-11-10 design
+// retired -- Released, HasFile and CutoffMet -- from an Issue still
+// carrying them, so the complete apply stops sending them and the apiserver
+// removes them; an apply that copied them from the cache would keep them
+// for good (the Episode's retiredEpisodeConditions, 2026-11-03).
+func retiredIssueConditions(conditions []metav1.Condition) []metav1.Condition {
+	out := conditions[:0:0]
+	for _, c := range conditions {
+		switch c.Type {
+		case "Released", "HasFile", "CutoffMet":
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }

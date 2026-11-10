@@ -90,6 +90,10 @@ const (
 	// BucketImageSets: one image-set record per Movie or Series UID, by
 	// the metadata agent's image-set worker (spec 2026-10-22).
 	BucketImageSets = "clustarr-image-sets"
+	// BucketNFO holds one NFO write record per Artist, Album, Author or
+	// Audiobook UID: the loop's request, the import agent's answer
+	// (2026-11-10 design §8.2).
+	BucketNFO = "clustarr-nfo"
 )
 
 // Each agent-written records bucket's caps (design §4.3). The reservations
@@ -115,6 +119,8 @@ const (
 	// about 160 bytes each.
 	ImageSetsMaxBytes     = 128 * MiB
 	ImageSetsMaxValueSize = 256 * KiB
+	NFOMaxBytes           = 16 * MiB
+	NFOMaxValueSize       = 8 * KiB
 )
 
 // recordBucket is one records bucket's spec: Durable, History 1, file
@@ -143,6 +149,7 @@ func agentRecordBuckets() []BucketSpec {
 		r(BucketItemMetadata, "One metadata record per catalog item, written by the metadata gateway.", ItemMetadataMaxBytes, ItemMetadataMaxValueSize),
 		r(BucketIndexerHealth, "One health record per Indexer, written by the index agent.", IndexerHealthMaxBytes, IndexerHealthMaxValueSize),
 		r(BucketImageSets, "One image-set record per Movie or Series, written by the metadata agent's image-set worker.", ImageSetsMaxBytes, ImageSetsMaxValueSize),
+		r(BucketNFO, "One NFO write record per Artist, Album, Author or Audiobook, written by the import agent.", NFOMaxBytes, NFOMaxValueSize),
 	}
 }
 

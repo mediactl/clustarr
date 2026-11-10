@@ -20,6 +20,7 @@ package actions
 import (
 	"context"
 	"fmt"
+	"k8s.io/utils/ptr"
 	"strconv"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -141,7 +142,7 @@ func buildItem(req AddRequest) (client.Object, error) {
 				MonitorNewItems:   catalogv1alpha1.MonitorNewItemsMode(req.MonitorNewItems),
 				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
 				AddOptions: catalogv1alpha1.ArtistAddOptions{
-					Monitor: catalogv1alpha1.ArtistMonitorMode(req.Monitor), SearchForMissing: req.SearchOnAdd,
+					Monitor: catalogv1alpha1.ArtistMonitorMode(req.Monitor), SearchForMissing: ptr.To(req.SearchOnAdd),
 				},
 				Source: source,
 			},
@@ -154,7 +155,7 @@ func buildItem(req AddRequest) (client.Object, error) {
 				MonitorNewItems:   catalogv1alpha1.MonitorNewChildrenMode(req.MonitorNewItems),
 				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
 				AddOptions: catalogv1alpha1.AuthorAddOptions{
-					Monitor: catalogv1alpha1.AuthorMonitorMode(req.Monitor), SearchForMissing: req.SearchOnAdd,
+					Monitor: catalogv1alpha1.AuthorMonitorMode(req.Monitor), SearchForMissing: ptr.To(req.SearchOnAdd),
 				},
 				MetadataProfile: catalogv1alpha1.BookMetadataProfile{AllowedLanguages: []string{addedAuthorLanguage}},
 				Source:          source,

@@ -47,6 +47,27 @@ type ArtistMetadataApplyConfiguration struct {
 	ExternalIDs map[string]string `json:"externalIDs,omitempty"`
 	// Images lists the artwork published by the provider.
 	Images []ImageApplyConfiguration `json:"images,omitempty"`
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	SchemaVersion *int32 `json:"schemaVersion,omitempty"`
+	// Language is the BCP-47 language the metadata was fetched in.
+	Language *string `json:"language,omitempty"`
+	// Ratings are the scores the sources report.
+	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
+	// Begin and End are the MusicBrainz life-span: born or formed, died or
+	// disbanded, as the provider spells them ("1965-10-09", "1990").
+	Begin *string `json:"begin,omitempty"`
+	End   *string `json:"end,omitempty"`
+	// Country is the ISO 3166-1 alpha-2 country of the artist.
+	Country *string `json:"country,omitempty"`
+	// Aliases are the artist's other names.
+	Aliases []string `json:"aliases,omitempty"`
+	// Links are the artist's external pages (MusicBrainz url-rels).
+	Links []LinkApplyConfiguration `json:"links,omitempty"`
+	// BiographySource names where Overview came from: musicbrainz (the
+	// annotation) or wikipedia (through the Wikidata url-rel).
+	BiographySource *string `json:"biographySource,omitempty"`
 	// RefreshedAt is when the metadata was last fetched.
 	RefreshedAt *v1.Time `json:"refreshedAt,omitempty"`
 }
@@ -139,6 +160,90 @@ func (b *ArtistMetadataApplyConfiguration) WithImages(values ...*ImageApplyConfi
 		}
 		b.Images = append(b.Images, *values[i])
 	}
+	return b
+}
+
+// WithSchemaVersion sets the SchemaVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SchemaVersion field is set to the value of the last call.
+func (b *ArtistMetadataApplyConfiguration) WithSchemaVersion(value int32) *ArtistMetadataApplyConfiguration {
+	b.SchemaVersion = &value
+	return b
+}
+
+// WithLanguage sets the Language field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Language field is set to the value of the last call.
+func (b *ArtistMetadataApplyConfiguration) WithLanguage(value string) *ArtistMetadataApplyConfiguration {
+	b.Language = &value
+	return b
+}
+
+// WithRatings adds the given value to the Ratings field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Ratings field.
+func (b *ArtistMetadataApplyConfiguration) WithRatings(values ...*RatingApplyConfiguration) *ArtistMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithRatings")
+		}
+		b.Ratings = append(b.Ratings, *values[i])
+	}
+	return b
+}
+
+// WithBegin sets the Begin field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Begin field is set to the value of the last call.
+func (b *ArtistMetadataApplyConfiguration) WithBegin(value string) *ArtistMetadataApplyConfiguration {
+	b.Begin = &value
+	return b
+}
+
+// WithEnd sets the End field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the End field is set to the value of the last call.
+func (b *ArtistMetadataApplyConfiguration) WithEnd(value string) *ArtistMetadataApplyConfiguration {
+	b.End = &value
+	return b
+}
+
+// WithCountry sets the Country field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Country field is set to the value of the last call.
+func (b *ArtistMetadataApplyConfiguration) WithCountry(value string) *ArtistMetadataApplyConfiguration {
+	b.Country = &value
+	return b
+}
+
+// WithAliases adds the given value to the Aliases field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Aliases field.
+func (b *ArtistMetadataApplyConfiguration) WithAliases(values ...string) *ArtistMetadataApplyConfiguration {
+	for i := range values {
+		b.Aliases = append(b.Aliases, values[i])
+	}
+	return b
+}
+
+// WithLinks adds the given value to the Links field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Links field.
+func (b *ArtistMetadataApplyConfiguration) WithLinks(values ...*LinkApplyConfiguration) *ArtistMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithLinks")
+		}
+		b.Links = append(b.Links, *values[i])
+	}
+	return b
+}
+
+// WithBiographySource sets the BiographySource field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the BiographySource field is set to the value of the last call.
+func (b *ArtistMetadataApplyConfiguration) WithBiographySource(value string) *ArtistMetadataApplyConfiguration {
+	b.BiographySource = &value
 	return b
 }
 

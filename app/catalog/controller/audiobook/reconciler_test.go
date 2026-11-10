@@ -614,8 +614,8 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "rollup-ns", Name: "guards-guards"}, &got))
 		assert.Equal(t, []string{"guards-guards-part1", "guards-guards-part2"}, got.Status.FileRefs, "fileRefs must be ordered by path")
 		assert.True(t, got.Status.HasFile)
-		require.NotNil(t, got.Status.Quality)
-		assert.Equal(t, "MP3", got.Status.Quality.Name)
+		require.NotNil(t, got.Status.FileQuality)
+		assert.Equal(t, "MP3", got.Status.FileQuality.Name)
 		assert.True(t, got.Status.CutoffMet)
 		assert.Equal(t, catalogv1alpha1.AudiobookPhaseImported, got.Status.Phase)
 
@@ -806,7 +806,7 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			return got.Status.Phase == catalogv1alpha1.AudiobookPhaseImported
 		}, 5*time.Second, 10*time.Millisecond, "setup: audiobook never reached Imported")
 		require.NotEmpty(t, got.Status.FileRefs)
-		require.NotNil(t, got.Status.Quality)
+		require.NotNil(t, got.Status.FileQuality)
 		require.NotEmpty(t, got.Status.Path)
 		return req
 	}
@@ -862,8 +862,8 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		assert.Equal(t, before.Status.Path, after.Status.Path, "QueueFull must not release Path")
 		assert.True(t, after.Status.HasFile, "QueueFull must not release HasFile")
 		assert.Equal(t, before.Status.FileRefs, after.Status.FileRefs, "QueueFull must not release FileRefs")
-		require.NotNil(t, after.Status.Quality)
-		assert.Equal(t, *before.Status.Quality, *after.Status.Quality, "QueueFull must not release Quality")
+		require.NotNil(t, after.Status.FileQuality)
+		assert.Equal(t, *before.Status.FileQuality, *after.Status.FileQuality, "QueueFull must not release Quality")
 		assert.Equal(t, before.Status.CutoffMet, after.Status.CutoffMet, "QueueFull must not release CutoffMet")
 	})
 
@@ -909,8 +909,8 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		assert.Equal(t, before.Status.Path, after.Status.Path, "RootFolderNotFound must not release Path")
 		assert.True(t, after.Status.HasFile, "RootFolderNotFound must not release HasFile")
 		assert.Equal(t, before.Status.FileRefs, after.Status.FileRefs, "RootFolderNotFound must not release FileRefs")
-		require.NotNil(t, after.Status.Quality)
-		assert.Equal(t, *before.Status.Quality, *after.Status.Quality, "RootFolderNotFound must not release Quality")
+		require.NotNil(t, after.Status.FileQuality)
+		assert.Equal(t, *before.Status.FileQuality, *after.Status.FileQuality, "RootFolderNotFound must not release Quality")
 		assert.Equal(t, before.Status.CutoffMet, after.Status.CutoffMet, "RootFolderNotFound must not release CutoffMet")
 	})
 }

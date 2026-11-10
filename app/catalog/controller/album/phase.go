@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package album
 
 import (
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // Phase computes the coarse lifecycle state of an Album, mirroring
@@ -37,17 +37,17 @@ import (
 //
 // pendingGrab reports whether status.pendingGrab is set (read-only here;
 // see this package's doc comment for why this reconciler never writes it).
-func Phase(monitored, hasFile, cutoffMet, pendingGrab bool) catalogv1alpha1.AlbumPhase {
+func Phase(monitored, hasFile, cutoffMet, pendingGrab bool) commonv1.LeafPhase {
 	switch {
 	case !monitored:
-		return catalogv1alpha1.AlbumPhaseUnmonitored
+		return commonv1.LeafPhaseUnmonitored
 	case hasFile && cutoffMet:
-		return catalogv1alpha1.AlbumPhaseImported
+		return commonv1.LeafPhaseImported
 	case pendingGrab:
-		return catalogv1alpha1.AlbumPhaseDelayed
+		return commonv1.LeafPhaseDelayed
 	case hasFile:
-		return catalogv1alpha1.AlbumPhaseCutoffUnmet
+		return commonv1.LeafPhaseCutoffUnmet
 	default:
-		return catalogv1alpha1.AlbumPhaseWanted
+		return commonv1.LeafPhaseWanted
 	}
 }

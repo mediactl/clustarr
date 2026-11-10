@@ -20,7 +20,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -37,8 +36,12 @@ type BookStatusApplyConfiguration struct {
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// Metadata is the cached provider metadata.
 	Metadata *BookMetadataApplyConfiguration `json:"metadata,omitempty"`
-	// Phase is the coarse lifecycle state of the book.
-	Phase *catalogv1alpha1.BookPhase `json:"phase,omitempty"`
+	// Phase is the coarse lifecycle state of the book (commonv1.LeafPhase,
+	// 2026-11-10 design D4).
+	Phase *commonv1alpha1.LeafPhase `json:"phase,omitempty"`
+	// CutoffReason says why CutoffMet reads as it does: Pending (no file),
+	// ProfileUnresolved, CutoffMet, CutoffUnmet (2026-11-10 design D4).
+	CutoffReason *string `json:"cutoffReason,omitempty"`
 	// Path is the resolved folder on disk.
 	Path *string `json:"path,omitempty"`
 	// HasFile is true while a MediaFile backs the book.
@@ -47,6 +50,10 @@ type BookStatusApplyConfiguration struct {
 	FileRef *string `json:"fileRef,omitempty"`
 	// FileFormat is the format of the imported file, e.g. EPUB or AZW3.
 	FileFormat *string `json:"fileFormat,omitempty"`
+	// FileQuality is the quality frozen on the imported file at import, and
+	// FileFormatScore its custom-format score (2026-11-10 design D5).
+	FileQuality     *commonv1alpha1.Quality `json:"fileQuality,omitempty"`
+	FileFormatScore *int32                  `json:"fileFormatScore,omitempty"`
 	// CutoffMet is true when the imported file meets the profile cutoff.
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
 	// ActiveDownloadRef is the id of the grab entry currently working on this book.
@@ -119,8 +126,16 @@ func (b *BookStatusApplyConfiguration) WithMetadata(value *BookMetadataApplyConf
 // WithPhase sets the Phase field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Phase field is set to the value of the last call.
-func (b *BookStatusApplyConfiguration) WithPhase(value catalogv1alpha1.BookPhase) *BookStatusApplyConfiguration {
+func (b *BookStatusApplyConfiguration) WithPhase(value commonv1alpha1.LeafPhase) *BookStatusApplyConfiguration {
 	b.Phase = &value
+	return b
+}
+
+// WithCutoffReason sets the CutoffReason field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CutoffReason field is set to the value of the last call.
+func (b *BookStatusApplyConfiguration) WithCutoffReason(value string) *BookStatusApplyConfiguration {
+	b.CutoffReason = &value
 	return b
 }
 
@@ -153,6 +168,22 @@ func (b *BookStatusApplyConfiguration) WithFileRef(value string) *BookStatusAppl
 // If called multiple times, the FileFormat field is set to the value of the last call.
 func (b *BookStatusApplyConfiguration) WithFileFormat(value string) *BookStatusApplyConfiguration {
 	b.FileFormat = &value
+	return b
+}
+
+// WithFileQuality sets the FileQuality field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FileQuality field is set to the value of the last call.
+func (b *BookStatusApplyConfiguration) WithFileQuality(value commonv1alpha1.Quality) *BookStatusApplyConfiguration {
+	b.FileQuality = &value
+	return b
+}
+
+// WithFileFormatScore sets the FileFormatScore field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FileFormatScore field is set to the value of the last call.
+func (b *BookStatusApplyConfiguration) WithFileFormatScore(value int32) *BookStatusApplyConfiguration {
+	b.FileFormatScore = &value
 	return b
 }
 

@@ -911,7 +911,7 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 	// below runs.
 	issAC := catalogac.Issue(iss.Name, iss.Namespace).WithStatus(
 		catalogac.IssueStatus().
-			WithState(catalogv1alpha1.IssueStateDownloaded).
+			WithPhase(catalogv1alpha1.IssuePhaseImported).
 			WithHasFile(true),
 	)
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, issAC)
@@ -921,11 +921,11 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 		if err := c.Get(ctx, issKey, &iss); err != nil {
 			return false
 		}
-		return iss.Status.State == catalogv1alpha1.IssueStateDownloaded
+		return iss.Status.Phase == catalogv1alpha1.IssuePhaseImported
 	}, 5*time.Second, 10*time.Millisecond, "the simulated Issue write never landed status.state")
 	// Neither write lost the other's data.
 	assert.Equal(t, "Origins", iss.Status.Title, "the Issue reconciler's simulated write must not clobber Comic's provider field")
-	assert.Equal(t, catalogv1alpha1.IssueStateDownloaded, iss.Status.State)
+	assert.Equal(t, catalogv1alpha1.IssuePhaseImported, iss.Status.Phase)
 	assert.True(t, iss.Status.HasFile)
 
 	for _, want := range []string{string(k8s.ManagerCatalogFanout), string(k8s.ManagerCatalog)} {
@@ -956,7 +956,7 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 
 	require.NoError(t, c.Get(ctx, issKey, &iss))
 	assert.Equal(t, "Origins", iss.Status.Title)
-	assert.Equal(t, catalogv1alpha1.IssueStateDownloaded, iss.Status.State, "Comic's second apply must not release Issue's state")
+	assert.Equal(t, catalogv1alpha1.IssuePhaseImported, iss.Status.Phase, "Comic's second apply must not release Issue's state")
 	assert.True(t, iss.Status.HasFile, "Comic's second apply must not release Issue's hasFile")
 }
 

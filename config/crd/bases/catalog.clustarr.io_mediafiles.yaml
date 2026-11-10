@@ -229,6 +229,15 @@ spec:
                   Original is true while this is the file as imported; it goes false once a
                   transcode replaces it.
                 type: boolean
+              partIndex:
+                description: |-
+                  PartIndex orders a file among the parts of one item: an audiobook's
+                  parts in play order (from the tags' track number, else the name's part
+                  number, else the path's sort order; 2026-11-10 design D11). 0 for a
+                  file that is not a part.
+                format: int32
+                minimum: 0
+                type: integer
               path:
                 description: |-
                   Path is the file's absolute path. import sets it at import; it
@@ -814,6 +823,12 @@ spec:
                       description: AudioStream describes one audio track of a media
                         file.
                       properties:
+                        bitDepth:
+                          description: |-
+                            BitDepth is the bits per sample of a lossless track (16, 24), 0 for a
+                            lossy codec, which has none.
+                          format: int32
+                          type: integer
                         bitrateKbps:
                           description: BitrateKbps is the track bitrate in kilobits
                             per second.
@@ -859,6 +874,12 @@ spec:
                             Atmos or DTS-HD MA.
                           maxLength: 64
                           type: string
+                        sampleRateHz:
+                          description: |-
+                            SampleRateHz is the sample rate in hertz (44100, 48000, 96000); what
+                            a music library shows for a track (2026-11-10 design D9).
+                          format: int32
+                          type: integer
                         title:
                           description: Title is the track title from the container
                             metadata.
@@ -940,6 +961,12 @@ spec:
                     description: Height is the video frame height in pixels.
                     format: int32
                     type: integer
+                  pageCount:
+                    description: |-
+                      PageCount is the number of pages of a comic archive (its image
+                      entries) or a PDF; 0 for every other file (2026-11-10 design D9).
+                    format: int32
+                    type: integer
                   pixelFormat:
                     description: PixelFormat is the pixel format, e.g. yuv420p10le.
                     maxLength: 64
@@ -993,6 +1020,69 @@ spec:
                       type: object
                     maxItems: 128
                     type: array
+                  tags:
+                    description: |-
+                      Tags are the container's format tags a music or audiobook file
+                      carries (2026-11-10 design D9): what names a track and attributes it
+                      to its album's track listing at import. Nil when the container has
+                      none that the probe reads.
+                    properties:
+                      album:
+                        description: Album is the album title.
+                        maxLength: 256
+                        type: string
+                      albumArtist:
+                        description: AlbumArtist is the album artist credit.
+                        maxLength: 256
+                        type: string
+                      artist:
+                        description: Artist is the track artist credit.
+                        maxLength: 256
+                        type: string
+                      date:
+                        description: Date is the release date as the tag spells it
+                          ("2004-03-15", "2004").
+                        maxLength: 64
+                        type: string
+                      discNumber:
+                        description: |-
+                          DiscNumber is the disc the track is on; DiscTotal the disc count when
+                          the tag names one ("1/2").
+                        format: int32
+                        type: integer
+                      discTotal:
+                        format: int32
+                        type: integer
+                      musicBrainzArtistID:
+                        maxLength: 64
+                        type: string
+                      musicBrainzRecordingID:
+                        description: |-
+                          The MusicBrainz ids Picard writes: MUSICBRAINZ_TRACKID is the
+                          recording, MUSICBRAINZ_ALBUMID the release, MUSICBRAINZ_RELEASEGROUPID
+                          the release group, MUSICBRAINZ_ARTISTID the (first) artist.
+                        maxLength: 64
+                        type: string
+                      musicBrainzReleaseGroupID:
+                        maxLength: 64
+                        type: string
+                      musicBrainzReleaseID:
+                        maxLength: 64
+                        type: string
+                      title:
+                        description: Title is the track title.
+                        maxLength: 256
+                        type: string
+                      trackNumber:
+                        description: |-
+                          TrackNumber is the track's number on its disc; TrackTotal the disc's
+                          track count when the tag names one ("3/12").
+                        format: int32
+                        type: integer
+                      trackTotal:
+                        format: int32
+                        type: integer
+                    type: object
                   transcodeProfile:
                     description: |-
                       TranscodeProfile is the file's CLUSTARR_PROFILE container tag,

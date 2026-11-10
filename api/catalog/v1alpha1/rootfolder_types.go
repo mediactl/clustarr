@@ -167,6 +167,12 @@ type RootDefaults struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=64
 	Tags []string `json:"tags,omitempty"`
+
+	// Region is the Audible marketplace an audiobook root's Add New searches
+	// and an audiobook added under it takes (2026-11-10 design §4.8); unset
+	// reads as us. Ignored for every other kind.
+	// +optional
+	Region AudiobookRegion `json:"region,omitempty"`
 }
 
 // AnimeDefaults are what an anime series or movie is moved to on
@@ -225,6 +231,15 @@ type NamingSpec struct {
 	// renames every file its own way instead.
 	// +optional
 	RenameTranscoded bool `json:"renameTranscoded,omitempty"`
+
+	// WriteNFO has the import agent write Kodi-shape artist.nfo and
+	// album.nfo files beside a music root's artists and albums, and an
+	// audiobook root's authors and audiobooks, for Plex's music agent to
+	// read (2026-11-10 design §8). Nil reads as true for a music or
+	// audiobook root; the field is ignored for every other kind. Off plans
+	// nothing and removes nothing.
+	// +optional
+	WriteNFO *bool `json:"writeNFO,omitempty"`
 }
 
 // RecycleBin holds deleted files for a grace period instead of unlinking them.

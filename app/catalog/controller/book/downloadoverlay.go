@@ -19,6 +19,7 @@ package book
 
 import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 )
 
@@ -27,13 +28,13 @@ import (
 // app/catalog/controller/rollup (per the C6 controller amendment) -- this is
 // only the type translation, the same shape movie.DownloadOverlay and
 // episode.DownloadOverlay use.
-func DownloadOverlay(dl *catalogv1alpha1.DownloadEntry) (phase catalogv1alpha1.BookPhase, active bool) {
+func DownloadOverlay(dl *catalogv1alpha1.DownloadEntry) (phase commonv1.LeafPhase, active bool) {
 	overlay, active := rollup.EntryOverlay(dl)
 	switch overlay {
 	case rollup.OverlayDelayed:
-		return catalogv1alpha1.BookPhaseDelayed, active
+		return commonv1.LeafPhaseDelayed, active
 	case rollup.OverlayDownloading:
-		return catalogv1alpha1.BookPhaseDownloading, active
+		return commonv1.LeafPhaseDownloading, active
 	default:
 		return "", active
 	}

@@ -127,6 +127,49 @@ type ComicMetadata struct {
 	// +kubebuilder:validation:MaxItems=50
 	Images []Image `json:"images,omitempty"`
 
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	// +optional
+	SchemaVersion int32 `json:"schemaVersion,omitempty"`
+
+	// Language is the BCP-47 language the metadata was fetched in.
+	// +optional
+	Language string `json:"language,omitempty"`
+
+	// Ratings are the scores the sources report.
+	// +optional
+	// +listType=map
+	// +listMapKey=source
+	// +kubebuilder:validation:MaxItems=8
+	Ratings []Rating `json:"ratings,omitempty"`
+
+	// Genres lists the volume's genres.
+	// +optional
+	// +kubebuilder:validation:MaxItems=30
+	Genres []string `json:"genres,omitempty"`
+
+	// Status is whether the volume is still being published.
+	// +optional
+	Status ComicRunStatus `json:"status,omitempty"`
+
+	// AlternateTitles lists the volume's other titles.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	AlternateTitles []string `json:"alternateTitles,omitempty"`
+
+	// EndYear is the year the volume ended, 0 while it continues.
+	// +optional
+	EndYear int32 `json:"endYear,omitempty"`
+
+	// OriginalLanguage is the BCP-47 tag of the original language.
+	// +optional
+	OriginalLanguage string `json:"originalLanguage,omitempty"`
+
+	// SortTitle is the title used for sorting.
+	// +optional
+	SortTitle string `json:"sortTitle,omitempty"`
+
 	// RefreshedAt is when the metadata was last fetched.
 	// +optional
 	RefreshedAt metav1.Time `json:"refreshedAt,omitempty"`
@@ -158,6 +201,11 @@ type ComicSpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	MonitorNewIssues *bool `json:"monitorNewIssues,omitempty"`
+
+	// AddOptions are applied once, when the comic is first reconciled
+	// (2026-11-10 design D10).
+	// +optional
+	AddOptions ComicAddOptions `json:"addOptions,omitempty"`
 
 	// SpecialVersion says how the volume is collected and numbered.
 	// +optional
@@ -224,6 +272,22 @@ type ComicStatus struct {
 	// Metadata is the cached provider metadata.
 	// +optional
 	Metadata *ComicMetadata `json:"metadata,omitempty"`
+
+	// ContainerRollup is what the container reads from its children
+	// (2026-11-10 design §4.1): phase, missing and downloading counts, the
+	// next and previous release dates.
+	ContainerRollup `json:",inline"`
+
+	// AddOptionsApplied is true once spec.addOptions has been acted on.
+	// +optional
+	AddOptionsApplied bool `json:"addOptionsApplied,omitempty"`
+
+	// VolumeSearch is the volume's pack-first search in progress or last
+	// finished: the Series' seasonSearch shape with the one season that is
+	// the whole volume (2026-11-10 design D10). Written by the remediation
+	// loop's search stage under catalog-grab.
+	// +optional
+	VolumeSearch *SeasonSearchState `json:"volumeSearch,omitempty"`
 
 	// Path is the resolved folder on disk.
 	// +optional

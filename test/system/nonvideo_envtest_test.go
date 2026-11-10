@@ -395,7 +395,7 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 		return false
 	})
 	starttest.WaitForLong(t, "the Issue controller to set the fanned-out Issue's state", func() bool {
-		return c.Get(ctx, client.ObjectKeyFromObject(&iss), &iss) == nil && iss.Status.State != ""
+		return c.Get(ctx, client.ObjectKeyFromObject(&iss), &iss) == nil && iss.Status.Phase != ""
 	})
 	if got := starttest.StatusManagers(iss.ManagedFields); !got[string(k8s.ManagerCatalogFanout)] || !got[string(k8s.ManagerCatalog)] {
 		t.Errorf("Issue %s status is applied by %v, want both %s (Comic's fan-out) and %s (the Issue controller)",

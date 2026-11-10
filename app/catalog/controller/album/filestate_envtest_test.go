@@ -104,9 +104,9 @@ func TestAlbumReconcilerRanksByEveryTrackFile(t *testing.T) {
 		require.NoError(t, err)
 	}
 	var got catalogv1alpha1.Album
-	settled := func(q string, met bool, phase catalogv1alpha1.AlbumPhase) func() bool {
+	settled := func(q string, met bool, phase commonv1.LeafPhase) func() bool {
 		return func() bool {
-			return c.Get(ctx, key, &got) == nil && got.Status.Quality != nil && got.Status.Quality.Name == q &&
+			return c.Get(ctx, key, &got) == nil && got.Status.FileQuality != nil && got.Status.FileQuality.Name == q &&
 				got.Status.CutoffMet == met && got.Status.Phase == phase
 		}
 	}

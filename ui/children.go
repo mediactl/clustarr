@@ -143,8 +143,8 @@ func albumRow(a *catalogv1.Album) views.ChildRow {
 			row.Year = int32(md.ReleaseDate.UTC().Year()) //nolint:gosec // a year
 		}
 	}
-	if a.Status.Quality != nil {
-		row.Quality = a.Status.Quality.Name
+	if a.Status.FileQuality != nil {
+		row.Quality = a.Status.FileQuality.Name
 	}
 	return row
 }

@@ -46,6 +46,28 @@ type AlbumMetadataApplyConfiguration struct {
 	SelectedReleaseID *string `json:"selectedReleaseID,omitempty"`
 	// Images lists the cover art published by the provider.
 	Images []ImageApplyConfiguration `json:"images,omitempty"`
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	SchemaVersion *int32 `json:"schemaVersion,omitempty"`
+	// Language is the BCP-47 language the metadata was fetched in.
+	Language *string `json:"language,omitempty"`
+	// Ratings are the scores the sources report.
+	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
+	// Genres lists the release group's genres.
+	Genres []string `json:"genres,omitempty"`
+	// ExternalIDs maps provider names (musicbrainz-release-group, discogs,
+	// spotify, barcode, asin) to their IDs.
+	ExternalIDs map[string]string `json:"externalIDs,omitempty"`
+	// Label is the selected release's record label; Labels every label of
+	// the release group's releases.
+	Label  *string  `json:"label,omitempty"`
+	Labels []string `json:"labels,omitempty"`
+	// CatalogNumber is the selected release's catalogue number.
+	CatalogNumber *string `json:"catalogNumber,omitempty"`
+	// ArtistCredit is the release group's artist credit as MusicBrainz
+	// phrases it ("Simon & Garfunkel", "Various Artists").
+	ArtistCredit *string `json:"artistCredit,omitempty"`
 	// RefreshedAt is when the metadata was last fetched.
 	RefreshedAt *v1.Time `json:"refreshedAt,omitempty"`
 }
@@ -137,6 +159,93 @@ func (b *AlbumMetadataApplyConfiguration) WithImages(values ...*ImageApplyConfig
 		}
 		b.Images = append(b.Images, *values[i])
 	}
+	return b
+}
+
+// WithSchemaVersion sets the SchemaVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SchemaVersion field is set to the value of the last call.
+func (b *AlbumMetadataApplyConfiguration) WithSchemaVersion(value int32) *AlbumMetadataApplyConfiguration {
+	b.SchemaVersion = &value
+	return b
+}
+
+// WithLanguage sets the Language field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Language field is set to the value of the last call.
+func (b *AlbumMetadataApplyConfiguration) WithLanguage(value string) *AlbumMetadataApplyConfiguration {
+	b.Language = &value
+	return b
+}
+
+// WithRatings adds the given value to the Ratings field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Ratings field.
+func (b *AlbumMetadataApplyConfiguration) WithRatings(values ...*RatingApplyConfiguration) *AlbumMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithRatings")
+		}
+		b.Ratings = append(b.Ratings, *values[i])
+	}
+	return b
+}
+
+// WithGenres adds the given value to the Genres field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Genres field.
+func (b *AlbumMetadataApplyConfiguration) WithGenres(values ...string) *AlbumMetadataApplyConfiguration {
+	for i := range values {
+		b.Genres = append(b.Genres, values[i])
+	}
+	return b
+}
+
+// WithExternalIDs puts the entries into the ExternalIDs field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the ExternalIDs field,
+// overwriting an existing map entries in ExternalIDs field with the same key.
+func (b *AlbumMetadataApplyConfiguration) WithExternalIDs(entries map[string]string) *AlbumMetadataApplyConfiguration {
+	if b.ExternalIDs == nil && len(entries) > 0 {
+		b.ExternalIDs = make(map[string]string, len(entries))
+	}
+	for k, v := range entries {
+		b.ExternalIDs[k] = v
+	}
+	return b
+}
+
+// WithLabel sets the Label field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Label field is set to the value of the last call.
+func (b *AlbumMetadataApplyConfiguration) WithLabel(value string) *AlbumMetadataApplyConfiguration {
+	b.Label = &value
+	return b
+}
+
+// WithLabels adds the given value to the Labels field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Labels field.
+func (b *AlbumMetadataApplyConfiguration) WithLabels(values ...string) *AlbumMetadataApplyConfiguration {
+	for i := range values {
+		b.Labels = append(b.Labels, values[i])
+	}
+	return b
+}
+
+// WithCatalogNumber sets the CatalogNumber field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CatalogNumber field is set to the value of the last call.
+func (b *AlbumMetadataApplyConfiguration) WithCatalogNumber(value string) *AlbumMetadataApplyConfiguration {
+	b.CatalogNumber = &value
+	return b
+}
+
+// WithArtistCredit sets the ArtistCredit field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ArtistCredit field is set to the value of the last call.
+func (b *AlbumMetadataApplyConfiguration) WithArtistCredit(value string) *AlbumMetadataApplyConfiguration {
+	b.ArtistCredit = &value
 	return b
 }
 

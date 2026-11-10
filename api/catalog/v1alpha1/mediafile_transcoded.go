@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -180,4 +181,17 @@ func (p *TranscodePlan) Describe() string {
 		return "encode with " + p.Encoder
 	}
 	return "encode"
+}
+
+// VideoKind reports whether the file belongs to a movie or an episode: the
+// files the transcode, subtitles, graft and markers blocks of its status
+// apply to. An album's track, a book, an audiobook's part and an issue are
+// never transcoded, subtitled or marked (2026-11-10 design D9), and the
+// planners read this rather than each testing the kind.
+func (mf *MediaFile) VideoKind() bool {
+	switch mf.Spec.MediaRef.Kind {
+	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode:
+		return true
+	}
+	return false
 }

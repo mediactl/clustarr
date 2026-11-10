@@ -36,6 +36,12 @@ type ReleaseSummaryApplyConfiguration struct {
 	Country *string `json:"country,omitempty"`
 	// Label is the issuing record label.
 	Label *string `json:"label,omitempty"`
+	// Title is the release's own title when it differs from the release
+	// group's ("Deluxe Edition"); Disambiguation its MusicBrainz
+	// disambiguation; CatalogNumber its catalogue number.
+	Title          *string `json:"title,omitempty"`
+	Disambiguation *string `json:"disambiguation,omitempty"`
+	CatalogNumber  *string `json:"catalogNumber,omitempty"`
 	// ReleaseDate is when this release was issued, MusicBrainz's release
 	// date; a partial date is the first day of the period it names. A
 	// remaster or reissue carries its own, later date here while the
@@ -84,6 +90,30 @@ func (b *ReleaseSummaryApplyConfiguration) WithCountry(value string) *ReleaseSum
 // If called multiple times, the Label field is set to the value of the last call.
 func (b *ReleaseSummaryApplyConfiguration) WithLabel(value string) *ReleaseSummaryApplyConfiguration {
 	b.Label = &value
+	return b
+}
+
+// WithTitle sets the Title field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Title field is set to the value of the last call.
+func (b *ReleaseSummaryApplyConfiguration) WithTitle(value string) *ReleaseSummaryApplyConfiguration {
+	b.Title = &value
+	return b
+}
+
+// WithDisambiguation sets the Disambiguation field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Disambiguation field is set to the value of the last call.
+func (b *ReleaseSummaryApplyConfiguration) WithDisambiguation(value string) *ReleaseSummaryApplyConfiguration {
+	b.Disambiguation = &value
+	return b
+}
+
+// WithCatalogNumber sets the CatalogNumber field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CatalogNumber field is set to the value of the last call.
+func (b *ReleaseSummaryApplyConfiguration) WithCatalogNumber(value string) *ReleaseSummaryApplyConfiguration {
+	b.CatalogNumber = &value
 	return b
 }
 

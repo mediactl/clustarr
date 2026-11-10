@@ -90,9 +90,11 @@ type AuthorAddOptions struct {
 	// +kubebuilder:default=all
 	Monitor AuthorMonitorMode `json:"monitor,omitempty"`
 
-	// SearchForMissing searches for missing books on add.
+	// SearchForMissing searches for missing books on add; on by default
+	// (2026-11-10 design §4.4).
 	// +optional
-	SearchForMissing bool `json:"searchForMissing,omitempty"`
+	// +kubebuilder:default=true
+	SearchForMissing *bool `json:"searchForMissing,omitempty"`
 }
 
 // AuthorMetadata is the provider metadata cached on the author.
@@ -126,6 +128,39 @@ type AuthorMetadata struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=50
 	Images []Image `json:"images,omitempty"`
+
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	// +optional
+	SchemaVersion int32 `json:"schemaVersion,omitempty"`
+
+	// Language is the BCP-47 language the metadata was fetched in.
+	// +optional
+	Language string `json:"language,omitempty"`
+
+	// Ratings are the scores the sources report.
+	// +optional
+	// +listType=map
+	// +listMapKey=source
+	// +kubebuilder:validation:MaxItems=8
+	Ratings []Rating `json:"ratings,omitempty"`
+
+	// Born and Died are the author's dates as the provider spells them.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32
+	Born string `json:"born,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=32
+	Died string `json:"died,omitempty"`
+
+	// Links are the author's external pages (Open Library, Wikipedia,
+	// Hardcover, Goodreads).
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +kubebuilder:validation:MaxItems=32
+	Links []Link `json:"links,omitempty"`
 
 	// RefreshedAt is when the metadata was last fetched.
 	// +optional
@@ -216,6 +251,11 @@ type AuthorStatus struct {
 	// +optional
 	Metadata *AuthorMetadata `json:"metadata,omitempty"`
 
+	// ContainerRollup is what the container reads from its children
+	// (2026-11-10 design §4.1): phase, missing and downloading counts, the
+	// next and previous release dates.
+	ContainerRollup `json:",inline"`
+
 	// Path is the resolved folder on disk.
 	// +optional
 	Path string `json:"path,omitempty"`
@@ -231,6 +271,11 @@ type AuthorStatus struct {
 	// AddOptionsApplied is true once spec.addOptions has been acted on.
 	// +optional
 	AddOptionsApplied bool `json:"addOptionsApplied,omitempty"`
+
+	// NFO records the artist.nfo/album.nfo the import agent last wrote for
+	// this item (2026-11-10 design §8).
+	// +optional
+	NFO *NFOStatus `json:"nfo,omitempty"`
 
 	// Artwork lists the images fetched into the artwork store, one per type.
 	// Written by the metadata gateway.

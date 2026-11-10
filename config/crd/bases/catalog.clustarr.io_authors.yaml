@@ -79,7 +79,10 @@ spec:
                     - none
                     type: string
                   searchForMissing:
-                    description: SearchForMissing searches for missing books on add.
+                    default: true
+                    description: |-
+                      SearchForMissing searches for missing books on add; on by default
+                      (2026-11-10 design §4.4).
                     type: boolean
                 type: object
               artwork:
@@ -362,9 +365,29 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              cutoffUnmetChildCount:
+                description: |-
+                  CutoffUnmetChildCount counts the children whose file is below the
+                  cutoff, an album with a track missing included.
+                format: int32
+                type: integer
+              downloadingChildCount:
+                description: |-
+                  DownloadingChildCount counts the children with a grab in flight or
+                  pending.
+                format: int32
+                type: integer
               metadata:
                 description: Metadata is the cached provider metadata.
                 properties:
+                  born:
+                    description: Born and Died are the author's dates as the provider
+                      spells them.
+                    maxLength: 32
+                    type: string
+                  died:
+                    maxLength: 32
+                    type: string
                   disambiguation:
                     description: Disambiguation distinguishes same-named authors.
                     type: string
@@ -416,18 +439,144 @@ spec:
                       type: object
                     maxItems: 50
                     type: array
+                  language:
+                    description: Language is the BCP-47 language the metadata was
+                      fetched in.
+                    type: string
+                  links:
+                    description: |-
+                      Links are the author's external pages (Open Library, Wikipedia,
+                      Hardcover, Goodreads).
+                    items:
+                      description: |-
+                        Link is one external page of an item: a MusicBrainz url-rel, an Open
+                        Library link, a provider's own page.
+                      properties:
+                        type:
+                          description: |-
+                            Type names the site: wikidata, wikipedia, discogs, homepage,
+                            bandcamp, lastfm, spotify, apple, youtube, goodreads, hardcover,
+                            audible, comicvine, metron, mangadex, anilist, mal.
+                          maxLength: 32
+                          type: string
+                        url:
+                          description: URL is the page.
+                          maxLength: 512
+                          type: string
+                      required:
+                      - type
+                      - url
+                      type: object
+                    maxItems: 32
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - type
+                    x-kubernetes-list-type: map
                   name:
                     description: Name is the author name.
                     type: string
                   overview:
                     description: Overview is the author biography.
                     type: string
+                  ratings:
+                    description: Ratings are the scores the sources report.
+                    items:
+                      description: Rating is one score reported by one rating source.
+                      properties:
+                        source:
+                          description: Source is the rating provider.
+                          enum:
+                          - imdb
+                          - tmdb
+                          - rottenTomatoesCritic
+                          - rottenTomatoesAudience
+                          - metacritic
+                          - trakt
+                          - letterboxd
+                          - musicbrainz
+                          - audnexus
+                          - hardcover
+                          - anilist
+                          - comicvine
+                          type: string
+                        valueCentis:
+                          description: |-
+                            ValueCentis is the score scaled by 100: 0-1000 for a source out of 10
+                            (imdb, tmdb, trakt, letterboxd), 0-10000 for a source out of 100
+                            (rottenTomatoesCritic, rottenTomatoesAudience, metacritic). Scaled
+                            rather than a float -- CLAUDE.md bans float32/float64 in api/.
+                          format: int32
+                          maximum: 10000
+                          minimum: 0
+                          type: integer
+                        votes:
+                          description: Votes is the number of votes behind the score,
+                            when the source reports one.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      required:
+                      - source
+                      - valueCentis
+                      type: object
+                    maxItems: 8
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - source
+                    x-kubernetes-list-type: map
                   refreshedAt:
                     description: RefreshedAt is when the metadata was last fetched.
                     format: date-time
                     type: string
+                  schemaVersion:
+                    description: |-
+                      SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+                      the time the document was built; a document older than the current
+                      version is refreshed once (2026-11-10 design D8).
+                    format: int32
+                    type: integer
                   sortName:
                     description: SortName is the name used for sorting.
+                    type: string
+                type: object
+              missingChildCount:
+                description: |-
+                  MissingChildCount counts the monitored, released children without a
+                  file (the ones a wanted sweep would search for).
+                format: int32
+                type: integer
+              nextReleaseDate:
+                description: |-
+                  NextReleaseDate is the earliest release date still in the future
+                  among the children; PreviousReleaseDate the latest one past.
+                format: date-time
+                type: string
+              nfo:
+                description: |-
+                  NFO records the artist.nfo/album.nfo the import agent last wrote for
+                  this item (2026-11-10 design §8).
+                properties:
+                  files:
+                    description: |-
+                      Files are the names the agent wrote in Path (artist.nfo, artist.jpg,
+                      album.nfo, folder.jpg); an operator's own file of another name is
+                      never touched.
+                    items:
+                      type: string
+                    maxItems: 8
+                    type: array
+                  hash:
+                    description: |-
+                      Hash is pkg/nfo's hash of the rendered document and the image
+                      objects' digests.
+                    maxLength: 64
+                    type: string
+                  path:
+                    description: Path is the folder the files were written into.
+                    type: string
+                  writtenAt:
+                    description: WrittenAt is when the agent answered the write.
+                    format: date-time
                     type: string
                 type: object
               observedGeneration:
@@ -437,6 +586,19 @@ spec:
                 type: integer
               path:
                 description: Path is the resolved folder on disk.
+                type: string
+              phase:
+                description: |-
+                  Phase is the coarse lifecycle state of the container: Pending until
+                  its metadata is fetched, Unmonitored when spec.monitored is false,
+                  else Ready.
+                enum:
+                - Pending
+                - Ready
+                - Unmonitored
+                type: string
+              previousReleaseDate:
+                format: date-time
                 type: string
             type: object
         type: object

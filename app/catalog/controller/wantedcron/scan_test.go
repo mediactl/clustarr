@@ -197,14 +197,20 @@ func TestNonVideoCandidates(t *testing.T) {
 func TestIssueCandidate(t *testing.T) {
 	past := metav1.NewTime(scanNow.Add(-24 * time.Hour))
 	future := metav1.NewTime(scanNow.Add(30 * 24 * time.Hour))
-	issue := func(state catalogv1alpha1.IssueState, date *metav1.Time, cutoff *metav1.ConditionStatus, monitored bool) *catalogv1alpha1.Issue {
+	issue := func(state commonv1.LeafPhase, date *metav1.Time, cutoff *metav1.ConditionStatus, monitored bool) *catalogv1alpha1.Issue {
 		iss := &catalogv1alpha1.Issue{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "comics", Name: "saga-050"},
 			Spec:       catalogv1alpha1.IssueSpec{ComicRef: "saga", Number: "50", Monitored: &monitored},
-			Status:     catalogv1alpha1.IssueStatus{State: state, Date: date},
+			Status:     catalogv1alpha1.IssueStatus{Phase: state, Date: date},
 		}
+		// Since 2026-11-10 the phase carries the cutoff (design D4): a
+		// False cutoff is CutoffUnmet, a True one Imported.
 		if cutoff != nil {
-			iss.Status.Conditions = []metav1.Condition{{Type: catalogv1alpha1.IssueConditionCutoffMet, Status: *cutoff}}
+			if *cutoff == metav1.ConditionFalse {
+				iss.Status.Phase = catalogv1alpha1.IssuePhaseCutoffUnmet
+			} else {
+				iss.Status.Phase = catalogv1alpha1.IssuePhaseImported
+			}
 		}
 		return iss
 	}
@@ -215,14 +221,14 @@ func TestIssueCandidate(t *testing.T) {
 		iss  *catalogv1alpha1.Issue
 		want schema.SearchReason
 	}{
-		{"a wanted issue that is out", issue(catalogv1alpha1.IssueStateWanted, &past, nil, true), schema.SearchReasonMissing},
-		{"a wanted issue with no date counts as out", issue(catalogv1alpha1.IssueStateWanted, nil, nil, true), schema.SearchReasonMissing},
-		{"a wanted issue not out yet is not searched", issue(catalogv1alpha1.IssueStateWanted, &future, nil, true), ""},
-		{"an unmonitored issue is never searched", issue(catalogv1alpha1.IssueStateWanted, &past, nil, false), ""},
-		{"downloaded below the cutoff is an upgrade", issue(catalogv1alpha1.IssueStateDownloaded, &past, &f, true), schema.SearchReasonCutoffUnmet},
-		{"downloaded at the cutoff is done", issue(catalogv1alpha1.IssueStateDownloaded, &past, &tr, true), ""},
-		{"a cutoff never evaluated is not assumed unmet", issue(catalogv1alpha1.IssueStateDownloaded, &past, nil, true), ""},
-		{"snatched is already being handled", issue(catalogv1alpha1.IssueStateSnatched, &past, nil, true), ""},
+		{"a wanted issue that is out", issue(catalogv1alpha1.IssuePhaseWanted, &past, nil, true), schema.SearchReasonMissing},
+		{"a wanted issue with no date counts as out", issue(catalogv1alpha1.IssuePhaseWanted, nil, nil, true), schema.SearchReasonMissing},
+		{"a wanted issue not out yet is not searched", issue(catalogv1alpha1.IssuePhaseWanted, &future, nil, true), ""},
+		{"an unmonitored issue is never searched", issue(catalogv1alpha1.IssuePhaseWanted, &past, nil, false), ""},
+		{"downloaded below the cutoff is an upgrade", issue(catalogv1alpha1.IssuePhaseImported, &past, &f, true), schema.SearchReasonCutoffUnmet},
+		{"downloaded at the cutoff is done", issue(catalogv1alpha1.IssuePhaseImported, &past, &tr, true), ""},
+		{"a cutoff never evaluated is not assumed unmet", issue(catalogv1alpha1.IssuePhaseImported, &past, nil, true), ""},
+		{"snatched is already being handled", issue(catalogv1alpha1.IssuePhaseDownloading, &past, nil, true), ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

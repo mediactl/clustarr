@@ -128,6 +128,16 @@ type AudioStream struct {
 	// +optional
 	BitrateKbps int32 `json:"bitrateKbps,omitempty"`
 
+	// SampleRateHz is the sample rate in hertz (44100, 48000, 96000); what
+	// a music library shows for a track (2026-11-10 design D9).
+	// +optional
+	SampleRateHz int32 `json:"sampleRateHz,omitempty"`
+
+	// BitDepth is the bits per sample of a lossless track (16, 24), 0 for a
+	// lossy codec, which has none.
+	// +optional
+	BitDepth int32 `json:"bitDepth,omitempty"`
+
 	// Default is true when the container flags this as the default audio track.
 	// +optional
 	Default bool `json:"default,omitempty"`
@@ -260,6 +270,18 @@ type MediaInfo struct {
 	// +kubebuilder:validation:MaxItems=64
 	ChapterList []Chapter `json:"chapterList,omitempty"`
 
+	// PageCount is the number of pages of a comic archive (its image
+	// entries) or a PDF; 0 for every other file (2026-11-10 design D9).
+	// +optional
+	PageCount int32 `json:"pageCount,omitempty"`
+
+	// Tags are the container's format tags a music or audiobook file
+	// carries (2026-11-10 design D9): what names a track and attributes it
+	// to its album's track listing at import. Nil when the container has
+	// none that the probe reads.
+	// +optional
+	Tags *MediaTags `json:"tags,omitempty"`
+
 	// TranscodeProfile is the file's CLUSTARR_PROFILE container tag,
 	// "<profile>@<hash>", which transcode stamps into every file it writes
 	// (pkg/transcode.Args). Empty when the file carries no such tag. Read
@@ -295,4 +317,67 @@ type Chapter struct {
 	StartMillis int64 `json:"startMillis"`
 	// +kubebuilder:validation:Minimum=0
 	EndMillis int64 `json:"endMillis"`
+}
+
+// MediaTags are the container format tags of a music or audiobook file --
+// the ID3, Vorbis comment or iTunes atoms the probe maps to one vocabulary
+// (pkg/mediainfo/native). Every string is clipped to 256 runes; a count is
+// 0 when the tag is absent. The MusicBrainz ids are what Picard-tagged
+// files carry and what attributes a track to its recording without a
+// guess (2026-11-10 design D6).
+type MediaTags struct {
+	// Title is the track title.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Title string `json:"title,omitempty"`
+
+	// Artist is the track artist credit.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Artist string `json:"artist,omitempty"`
+
+	// AlbumArtist is the album artist credit.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	AlbumArtist string `json:"albumArtist,omitempty"`
+
+	// Album is the album title.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Album string `json:"album,omitempty"`
+
+	// TrackNumber is the track's number on its disc; TrackTotal the disc's
+	// track count when the tag names one ("3/12").
+	// +optional
+	TrackNumber int32 `json:"trackNumber,omitempty"`
+	// +optional
+	TrackTotal int32 `json:"trackTotal,omitempty"`
+
+	// DiscNumber is the disc the track is on; DiscTotal the disc count when
+	// the tag names one ("1/2").
+	// +optional
+	DiscNumber int32 `json:"discNumber,omitempty"`
+	// +optional
+	DiscTotal int32 `json:"discTotal,omitempty"`
+
+	// Date is the release date as the tag spells it ("2004-03-15", "2004").
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	Date string `json:"date,omitempty"`
+
+	// The MusicBrainz ids Picard writes: MUSICBRAINZ_TRACKID is the
+	// recording, MUSICBRAINZ_ALBUMID the release, MUSICBRAINZ_RELEASEGROUPID
+	// the release group, MUSICBRAINZ_ARTISTID the (first) artist.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	MusicBrainzRecordingID string `json:"musicBrainzRecordingID,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	MusicBrainzReleaseID string `json:"musicBrainzReleaseID,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	MusicBrainzReleaseGroupID string `json:"musicBrainzReleaseGroupID,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	MusicBrainzArtistID string `json:"musicBrainzArtistID,omitempty"`
 }

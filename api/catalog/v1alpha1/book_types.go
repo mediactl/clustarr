@@ -35,19 +35,17 @@ const (
 	BookConditionCutoffMet = "CutoffMet"
 )
 
-// BookPhase is the coarse lifecycle state of a book.
-//
-// +kubebuilder:validation:Enum=Wanted;Delayed;Downloading;Imported;CutoffUnmet;Unmonitored
-type BookPhase string
-
-// Book phases.
+// The book's phase values, commonv1.LeafPhase since 2026-11-10 (design D4).
 const (
-	BookPhaseWanted      BookPhase = "Wanted"
-	BookPhaseDelayed     BookPhase = "Delayed"
-	BookPhaseDownloading BookPhase = "Downloading"
-	BookPhaseImported    BookPhase = "Imported"
-	BookPhaseCutoffUnmet BookPhase = "CutoffUnmet"
-	BookPhaseUnmonitored BookPhase = "Unmonitored"
+	BookPhasePending           = commonv1.LeafPhasePending
+	BookPhaseUnavailable       = commonv1.LeafPhaseUnavailable
+	BookPhaseWanted            = commonv1.LeafPhaseWanted
+	BookPhaseDelayed           = commonv1.LeafPhaseDelayed
+	BookPhaseDownloading       = commonv1.LeafPhaseDownloading
+	BookPhaseImported          = commonv1.LeafPhaseImported
+	BookPhaseCutoffUnmet       = commonv1.LeafPhaseCutoffUnmet
+	BookPhaseCutoffUnevaluated = commonv1.LeafPhaseCutoffUnevaluated
+	BookPhaseUnmonitored       = commonv1.LeafPhaseUnmonitored
 )
 
 // EditionSpec overrides monitoring for one Open Library edition.
@@ -149,12 +147,57 @@ type BookMetadata struct {
 	// +kubebuilder:validation:MaxItems=50
 	Images []Image `json:"images,omitempty"`
 
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	// +optional
+	SchemaVersion int32 `json:"schemaVersion,omitempty"`
+
+	// Language is the BCP-47 language the metadata was fetched in.
+	// +optional
+	Language string `json:"language,omitempty"`
+
+	// Ratings are the scores the sources report.
+	// +optional
+	// +listType=map
+	// +listMapKey=source
+	// +kubebuilder:validation:MaxItems=8
+	Ratings []Rating `json:"ratings,omitempty"`
+
+	// Languages lists the BCP-47 languages the work is published in.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	Languages []string `json:"languages,omitempty"`
+
+	// Subjects are the work's subject keywords.
+	// +optional
+	// +kubebuilder:validation:MaxItems=50
+	Subjects []string `json:"subjects,omitempty"`
+
+	// PageCount is the page count of the work's representative edition.
+	// +optional
+	PageCount int32 `json:"pageCount,omitempty"`
+
+	// Publisher is the representative edition's publisher.
+	// +optional
+	Publisher string `json:"publisher,omitempty"`
+
+	// Links are the work's external pages.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +kubebuilder:validation:MaxItems=16
+	Links []Link `json:"links,omitempty"`
+
 	// RefreshedAt is when the metadata was last fetched.
 	// +optional
 	RefreshedAt metav1.Time `json:"refreshedAt,omitempty"`
 }
 
-// BookSpec defines the desired state of Book.
+// BookSpec defines the desired state of Book. A standalone book (no
+// authorRef) names its own quality profile and root folder (2026-11-10
+// design §4.5).
+// +kubebuilder:validation:XValidation:rule="has(self.authorRef) || (has(self.qualityProfileRef) && has(self.rootFolderRef))",message="a book without an author names its qualityProfileRef and rootFolderRef"
 type BookSpec struct {
 	// AuthorRef is the name of the owning Author; unset makes the book standalone.
 	// +optional
@@ -224,9 +267,16 @@ type BookStatus struct {
 	// +optional
 	Metadata *BookMetadata `json:"metadata,omitempty"`
 
-	// Phase is the coarse lifecycle state of the book.
+	// Phase is the coarse lifecycle state of the book (commonv1.LeafPhase,
+	// 2026-11-10 design D4).
 	// +optional
-	Phase BookPhase `json:"phase,omitempty"`
+	Phase commonv1.LeafPhase `json:"phase,omitempty"`
+
+	// CutoffReason says why CutoffMet reads as it does: Pending (no file),
+	// ProfileUnresolved, CutoffMet, CutoffUnmet (2026-11-10 design D4).
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	CutoffReason string `json:"cutoffReason,omitempty"`
 
 	// Path is the resolved folder on disk.
 	// +optional
@@ -243,6 +293,13 @@ type BookStatus struct {
 	// FileFormat is the format of the imported file, e.g. EPUB or AZW3.
 	// +optional
 	FileFormat string `json:"fileFormat,omitempty"`
+
+	// FileQuality is the quality frozen on the imported file at import, and
+	// FileFormatScore its custom-format score (2026-11-10 design D5).
+	// +optional
+	FileQuality *commonv1.Quality `json:"fileQuality,omitempty"`
+	// +optional
+	FileFormatScore int32 `json:"fileFormatScore,omitempty"`
 
 	// CutoffMet is true when the imported file meets the profile cutoff.
 	// +optional

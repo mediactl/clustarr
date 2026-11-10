@@ -33,10 +33,10 @@ spec:
     - jsonPath: .status.phase
       name: Phase
       type: string
-    - jsonPath: .status.trackFileCount
-      name: Files
-      type: integer
-    - jsonPath: .status.quality.name
+    - jsonPath: .status.trackSummary
+      name: Tracks
+      type: string
+    - jsonPath: .status.fileQuality.name
       name: Quality
       type: string
     - jsonPath: .status.downloadPhase
@@ -279,6 +279,12 @@ spec:
                 description: CutoffMet is true when the imported tracks meet the profile
                   cutoff.
                 type: boolean
+              cutoffReason:
+                description: |-
+                  CutoffReason says why CutoffMet reads as it does: Pending (no file),
+                  ProfileUnresolved, CutoffMet, CutoffUnmet, TracksMissing (2026-11-10 design D4).
+                maxLength: 64
+                type: string
               downloadNonces:
                 description: |-
                   DownloadNonces records the one-shot download intents last handled
@@ -1060,11 +1066,66 @@ spec:
                 maxItems: 8
                 type: array
                 x-kubernetes-list-type: atomic
-              formatScore:
-                description: FormatScore is the custom-format score of the imported
-                  release.
+              fileFormatScore:
+                description: |-
+                  FileFormatScore is the custom-format score of the lowest-ranked
+                  imported track (formatScore until 2026-11-10).
                 format: int32
                 type: integer
+              fileQuality:
+                description: |-
+                  FileQuality is the lowest quality across the album's imported tracks
+                  (quality until 2026-11-10, design D5).
+                properties:
+                  modifier:
+                    description: Modifier refines the quality (remux, screener, ...).
+                    enum:
+                    - none
+                    - regional
+                    - screener
+                    - rawhd
+                    - brdisk
+                    - remux
+                    type: string
+                  name:
+                    description: Name is the canonical quality definition name.
+                    maxLength: 64
+                    type: string
+                  resolution:
+                    description: Resolution is the vertical resolution in lines. Video
+                      only.
+                    enum:
+                    - 0
+                    - 360
+                    - 480
+                    - 540
+                    - 576
+                    - 720
+                    - 1080
+                    - 2160
+                    format: int32
+                    type: integer
+                  source:
+                    description: Source is the release source. Video only.
+                    enum:
+                    - unknown
+                    - cam
+                    - telesync
+                    - telecine
+                    - workprint
+                    - dvd
+                    - tv
+                    - webdl
+                    - webrip
+                    - bluray
+                    type: string
+                required:
+                - name
+                type: object
+              hasFile:
+                description: HasFile is true while at least one track has an imported
+                  file.
+                type: boolean
               lastLiveSearchAt:
                 description: |-
                   LastLiveSearchAt is when a search that asked the indexers was last
@@ -1085,9 +1146,33 @@ spec:
                     description: AlbumType is the MusicBrainz primary release-group
                       type.
                     type: string
+                  artistCredit:
+                    description: |-
+                      ArtistCredit is the release group's artist credit as MusicBrainz
+                      phrases it ("Simon & Garfunkel", "Various Artists").
+                    maxLength: 256
+                    type: string
+                  catalogNumber:
+                    description: CatalogNumber is the selected release's catalogue
+                      number.
+                    maxLength: 64
+                    type: string
                   disambiguation:
                     description: Disambiguation distinguishes same-named release groups.
                     type: string
+                  externalIDs:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      ExternalIDs maps provider names (musicbrainz-release-group, discogs,
+                      spotify, barcode, asin) to their IDs.
+                    type: object
+                  genres:
+                    description: Genres lists the release group's genres.
+                    items:
+                      type: string
+                    maxItems: 30
+                    type: array
                   images:
                     description: Images lists the cover art published by the provider.
                     items:
@@ -1124,9 +1209,69 @@ spec:
                       type: object
                     maxItems: 50
                     type: array
+                  label:
+                    description: |-
+                      Label is the selected release's record label; Labels every label of
+                      the release group's releases.
+                    type: string
+                  labels:
+                    items:
+                      type: string
+                    maxItems: 8
+                    type: array
+                  language:
+                    description: Language is the BCP-47 language the metadata was
+                      fetched in.
+                    type: string
                   overview:
                     description: Overview is the album description.
                     type: string
+                  ratings:
+                    description: Ratings are the scores the sources report.
+                    items:
+                      description: Rating is one score reported by one rating source.
+                      properties:
+                        source:
+                          description: Source is the rating provider.
+                          enum:
+                          - imdb
+                          - tmdb
+                          - rottenTomatoesCritic
+                          - rottenTomatoesAudience
+                          - metacritic
+                          - trakt
+                          - letterboxd
+                          - musicbrainz
+                          - audnexus
+                          - hardcover
+                          - anilist
+                          - comicvine
+                          type: string
+                        valueCentis:
+                          description: |-
+                            ValueCentis is the score scaled by 100: 0-1000 for a source out of 10
+                            (imdb, tmdb, trakt, letterboxd), 0-10000 for a source out of 100
+                            (rottenTomatoesCritic, rottenTomatoesAudience, metacritic). Scaled
+                            rather than a float -- CLAUDE.md bans float32/float64 in api/.
+                          format: int32
+                          maximum: 10000
+                          minimum: 0
+                          type: integer
+                        votes:
+                          description: Votes is the number of votes behind the score,
+                            when the source reports one.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      required:
+                      - source
+                      - valueCentis
+                      type: object
+                    maxItems: 8
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - source
+                    x-kubernetes-list-type: map
                   refreshedAt:
                     description: RefreshedAt is when the metadata was last fetched.
                     format: date-time
@@ -1142,9 +1287,15 @@ spec:
                       description: ReleaseSummary is one MusicBrainz release of the
                         album's release group.
                       properties:
+                        catalogNumber:
+                          maxLength: 64
+                          type: string
                         country:
                           description: Country is the ISO 3166-1 country the release
                             was issued in.
+                          type: string
+                        disambiguation:
+                          maxLength: 256
                           type: string
                         id:
                           description: ID is the MusicBrainz release MBID.
@@ -1187,6 +1338,13 @@ spec:
                           description: Status is the MusicBrainz release status, e.g.
                             Official.
                           type: string
+                        title:
+                          description: |-
+                            Title is the release's own title when it differs from the release
+                            group's ("Deluxe Edition"); Disambiguation its MusicBrainz
+                            disambiguation; CatalogNumber its catalogue number.
+                          maxLength: 256
+                          type: string
                         trackCount:
                           description: TrackCount is the total number of tracks across
                             all media.
@@ -1200,6 +1358,13 @@ spec:
                     x-kubernetes-list-map-keys:
                     - id
                     x-kubernetes-list-type: map
+                  schemaVersion:
+                    description: |-
+                      SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+                      the time the document was built; a document older than the current
+                      version is refreshed once (2026-11-10 design D8).
+                    format: int32
+                    type: integer
                   secondaryTypes:
                     description: SecondaryTypes are the MusicBrainz secondary release-group
                       types.
@@ -1213,6 +1378,34 @@ spec:
                     type: string
                   title:
                     description: Title is the album title.
+                    type: string
+                type: object
+              nfo:
+                description: |-
+                  NFO records the artist.nfo/album.nfo the import agent last wrote for
+                  this item (2026-11-10 design §8).
+                properties:
+                  files:
+                    description: |-
+                      Files are the names the agent wrote in Path (artist.nfo, artist.jpg,
+                      album.nfo, folder.jpg); an operator's own file of another name is
+                      never touched.
+                    items:
+                      type: string
+                    maxItems: 8
+                    type: array
+                  hash:
+                    description: |-
+                      Hash is pkg/nfo's hash of the rendered document and the image
+                      objects' digests.
+                    maxLength: 64
+                    type: string
+                  path:
+                    description: Path is the folder the files were written into.
+                    type: string
+                  writtenAt:
+                    description: WrittenAt is when the agent answered the write.
+                    format: date-time
                     type: string
                 type: object
               observedGeneration:
@@ -1523,64 +1716,20 @@ spec:
                 - releaseTitle
                 type: object
               phase:
-                description: Phase is the coarse lifecycle state of the album.
+                description: |-
+                  Phase is the coarse lifecycle state of the album (commonv1.LeafPhase,
+                  2026-11-10 design D4).
                 enum:
+                - Pending
+                - Unavailable
                 - Wanted
                 - Delayed
                 - Downloading
                 - Imported
                 - CutoffUnmet
+                - CutoffUnevaluated
                 - Unmonitored
                 type: string
-              quality:
-                description: Quality is the lowest quality across the album's imported
-                  tracks.
-                properties:
-                  modifier:
-                    description: Modifier refines the quality (remux, screener, ...).
-                    enum:
-                    - none
-                    - regional
-                    - screener
-                    - rawhd
-                    - brdisk
-                    - remux
-                    type: string
-                  name:
-                    description: Name is the canonical quality definition name.
-                    maxLength: 64
-                    type: string
-                  resolution:
-                    description: Resolution is the vertical resolution in lines. Video
-                      only.
-                    enum:
-                    - 0
-                    - 360
-                    - 480
-                    - 540
-                    - 576
-                    - 720
-                    - 1080
-                    - 2160
-                    format: int32
-                    type: integer
-                  source:
-                    description: Source is the release source. Video only.
-                    enum:
-                    - unknown
-                    - cam
-                    - telesync
-                    - telecine
-                    - workprint
-                    - dvd
-                    - tv
-                    - webdl
-                    - webrip
-                    - bluray
-                    type: string
-                required:
-                - name
-                type: object
               searchAttempts:
                 description: SearchAttempts counts the searches made for this album.
                 properties:
@@ -1686,6 +1835,11 @@ spec:
                   file.
                 format: int32
                 type: integer
+              trackSummary:
+                description: TrackSummary is "<trackFileCount>/<tracks>", the Tracks
+                  print column.
+                maxLength: 16
+                type: string
               tracks:
                 description: |-
                   Tracks is the track listing of the selected release. Releases with more

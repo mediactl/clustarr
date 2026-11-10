@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package audiobook
 
 import (
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // Phase computes the coarse lifecycle state of an Audiobook. Its shape
@@ -37,17 +37,17 @@ import (
 // reads as "wanted", which is not false) and reports the gap on
 // AudiobookConditionMetadataReady, the condition this state actually
 // belongs on.
-func Phase(monitored, hasFile, cutoffMet, pendingGrab bool) catalogv1alpha1.AudiobookPhase {
+func Phase(monitored, hasFile, cutoffMet, pendingGrab bool) commonv1.LeafPhase {
 	switch {
 	case !monitored:
-		return catalogv1alpha1.AudiobookPhaseUnmonitored
+		return commonv1.LeafPhaseUnmonitored
 	case hasFile && cutoffMet:
-		return catalogv1alpha1.AudiobookPhaseImported
+		return commonv1.LeafPhaseImported
 	case pendingGrab:
-		return catalogv1alpha1.AudiobookPhaseDelayed
+		return commonv1.LeafPhaseDelayed
 	case hasFile:
-		return catalogv1alpha1.AudiobookPhaseCutoffUnmet
+		return commonv1.LeafPhaseCutoffUnmet
 	default:
-		return catalogv1alpha1.AudiobookPhaseWanted
+		return commonv1.LeafPhaseWanted
 	}
 }

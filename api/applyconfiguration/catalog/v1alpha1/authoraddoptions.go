@@ -30,7 +30,8 @@ import (
 type AuthorAddOptionsApplyConfiguration struct {
 	// Monitor selects which books start out monitored.
 	Monitor *catalogv1alpha1.AuthorMonitorMode `json:"monitor,omitempty"`
-	// SearchForMissing searches for missing books on add.
+	// SearchForMissing searches for missing books on add; on by default
+	// (2026-11-10 design §4.4).
 	SearchForMissing *bool `json:"searchForMissing,omitempty"`
 }
 

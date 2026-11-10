@@ -22,7 +22,9 @@ package v1alpha1
 // BookSpecApplyConfiguration represents a declarative configuration of the BookSpec type for use
 // with apply.
 //
-// BookSpec defines the desired state of Book.
+// BookSpec defines the desired state of Book. A standalone book (no
+// authorRef) names its own quality profile and root folder (2026-11-10
+// design §4.5).
 type BookSpecApplyConfiguration struct {
 	// AuthorRef is the name of the owning Author; unset makes the book standalone.
 	AuthorRef *string `json:"authorRef,omitempty"`

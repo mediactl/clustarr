@@ -27,35 +27,24 @@ import (
 const (
 	// IssueConditionReady is True when the issue is fully reconciled.
 	IssueConditionReady = "Ready"
-	// IssueConditionHasFile is True while a MediaFile backs the issue.
-	IssueConditionHasFile = "HasFile"
-	// IssueConditionReleased is True once the issue's cover date has passed.
-	IssueConditionReleased = "Released"
-	// IssueConditionCutoffMet is True when the imported file meets the
-	// quality cutoff of the owning Comic's profile.
-	IssueConditionCutoffMet = "CutoffMet"
+	// The HasFile, Released and CutoffMet conditions were retired on
+	// 2026-11-10 (design D4): status.phase, hasFile and cutoffReason say
+	// what they restated, as Episode's do since 2026-11-03.
 )
 
-// IssueState is the acquisition state of a single issue.
-//
-// delayed is the one value the design's list (spec §4.2, Mylar's states)
-// does not have: a chosen release waiting out a DelayProfile delay
-// (status.pendingGrab), the state every other kind's Phase already calls
-// Delayed. Without it an Issue read "wanted" while its grab was scheduled.
-//
-// +kubebuilder:validation:Enum=wanted;delayed;skipped;snatched;downloaded;archived;ignored;failed
-type IssueState string
-
-// Issue states.
+// The issue's phase values, commonv1.LeafPhase since 2026-11-10 (design
+// D4), which replaced Mylar's state names (wanted, delayed, skipped,
+// snatched, downloaded; archived, ignored and failed were never produced).
 const (
-	IssueStateWanted     IssueState = "wanted"
-	IssueStateDelayed    IssueState = "delayed"
-	IssueStateSkipped    IssueState = "skipped"
-	IssueStateSnatched   IssueState = "snatched"
-	IssueStateDownloaded IssueState = "downloaded"
-	IssueStateArchived   IssueState = "archived"
-	IssueStateIgnored    IssueState = "ignored"
-	IssueStateFailed     IssueState = "failed"
+	IssuePhasePending           = commonv1.LeafPhasePending
+	IssuePhaseUnavailable       = commonv1.LeafPhaseUnavailable
+	IssuePhaseWanted            = commonv1.LeafPhaseWanted
+	IssuePhaseDelayed           = commonv1.LeafPhaseDelayed
+	IssuePhaseDownloading       = commonv1.LeafPhaseDownloading
+	IssuePhaseImported          = commonv1.LeafPhaseImported
+	IssuePhaseCutoffUnmet       = commonv1.LeafPhaseCutoffUnmet
+	IssuePhaseCutoffUnevaluated = commonv1.LeafPhaseCutoffUnevaluated
+	IssuePhaseUnmonitored       = commonv1.LeafPhaseUnmonitored
 )
 
 // IssueSpec defines the desired state of Issue. Issues are created and owned
@@ -110,13 +99,43 @@ type IssueStatus struct {
 	// +optional
 	Title string `json:"title,omitempty"`
 
-	// Date is the issue's cover or store date.
+	// Date is the issue's cover date; StoreDate the day it reached shops,
+	// when the provider has one.
 	// +optional
 	Date *metav1.Time `json:"date,omitempty"`
-
-	// State is the acquisition state of the issue.
 	// +optional
-	State IssueState `json:"state,omitempty"`
+	StoreDate *metav1.Time `json:"storeDate,omitempty"`
+
+	// Overview is the issue's description.
+	// +optional
+	Overview string `json:"overview,omitempty"`
+
+	// CoverURL is the provider's cover image, served through the ui's
+	// /art/search as episode stills are.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	CoverURL string `json:"coverURL,omitempty"`
+
+	// Credits are the people credited on the issue.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	Credits []Credit `json:"credits,omitempty"`
+
+	// SourceIDs maps provider names (comicvine, metron, mangadex) to the
+	// issue's ids there.
+	// +optional
+	SourceIDs map[string]string `json:"sourceIDs,omitempty"`
+
+	// Phase is the coarse lifecycle state of the issue (commonv1.LeafPhase,
+	// 2026-11-10 design D4).
+	// +optional
+	Phase commonv1.LeafPhase `json:"phase,omitempty"`
+
+	// CutoffReason says why CutoffMet reads as it does: Pending (no file),
+	// ProfileUnresolved, CutoffMet, CutoffUnmet (2026-11-10 design D4).
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	CutoffReason string `json:"cutoffReason,omitempty"`
 
 	// HasFile is true while a MediaFile backs the issue.
 	// +optional
@@ -126,9 +145,15 @@ type IssueStatus struct {
 	// +optional
 	FileRef *string `json:"fileRef,omitempty"`
 
-	// FileQuality is the quality of the imported file.
+	// FileQuality is the quality of the imported file; FileFormat its format
+	// as the comic ladder names it (CBZ, CBR, PDF) and FileFormatScore its
+	// custom-format score (2026-11-10 design D5).
 	// +optional
 	FileQuality *commonv1.Quality `json:"fileQuality,omitempty"`
+	// +optional
+	FileFormat string `json:"fileFormat,omitempty"`
+	// +optional
+	FileFormatScore int32 `json:"fileFormatScore,omitempty"`
 
 	// CutoffMet is true when the imported file meets the cutoff of the owning
 	// Comic's quality profile, so the issue is no longer an upgrade candidate.
@@ -180,7 +205,8 @@ type IssueStatus struct {
 // +kubebuilder:printcolumn:name="Comic",type=string,JSONPath=`.spec.comicRef`
 // +kubebuilder:printcolumn:name="Number",type=string,JSONPath=`.spec.number`
 // +kubebuilder:printcolumn:name="Title",type=string,JSONPath=`.status.title`
-// +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Date",type=date,JSONPath=`.status.date`
 // +kubebuilder:printcolumn:name="File",type=boolean,JSONPath=`.status.hasFile`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Download",type=string,JSONPath=`.status.downloadPhase`

@@ -95,9 +95,11 @@ type ArtistAddOptions struct {
 	// +kubebuilder:default=all
 	Monitor ArtistMonitorMode `json:"monitor,omitempty"`
 
-	// SearchForMissing searches for missing albums on add.
+	// SearchForMissing searches for missing albums on add; on by default,
+	// as a movie's or series' search-on-add is (2026-11-10 design §4.2).
 	// +optional
-	SearchForMissing bool `json:"searchForMissing,omitempty"`
+	// +kubebuilder:default=true
+	SearchForMissing *bool `json:"searchForMissing,omitempty"`
 }
 
 // ArtistMetadata is the provider metadata cached on the artist.
@@ -139,6 +141,55 @@ type ArtistMetadata struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=50
 	Images []Image `json:"images,omitempty"`
+
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	// +optional
+	SchemaVersion int32 `json:"schemaVersion,omitempty"`
+
+	// Language is the BCP-47 language the metadata was fetched in.
+	// +optional
+	Language string `json:"language,omitempty"`
+
+	// Ratings are the scores the sources report.
+	// +optional
+	// +listType=map
+	// +listMapKey=source
+	// +kubebuilder:validation:MaxItems=8
+	Ratings []Rating `json:"ratings,omitempty"`
+
+	// Begin and End are the MusicBrainz life-span: born or formed, died or
+	// disbanded, as the provider spells them ("1965-10-09", "1990").
+	// +optional
+	// +kubebuilder:validation:MaxLength=16
+	Begin string `json:"begin,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=16
+	End string `json:"end,omitempty"`
+
+	// Country is the ISO 3166-1 alpha-2 country of the artist.
+	// +optional
+	// +kubebuilder:validation:MaxLength=8
+	Country string `json:"country,omitempty"`
+
+	// Aliases are the artist's other names.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	Aliases []string `json:"aliases,omitempty"`
+
+	// Links are the artist's external pages (MusicBrainz url-rels).
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +kubebuilder:validation:MaxItems=32
+	Links []Link `json:"links,omitempty"`
+
+	// BiographySource names where Overview came from: musicbrainz (the
+	// annotation) or wikipedia (through the Wikidata url-rel).
+	// +optional
+	// +kubebuilder:validation:MaxLength=32
+	BiographySource string `json:"biographySource,omitempty"`
 
 	// RefreshedAt is when the metadata was last fetched.
 	// +optional
@@ -224,6 +275,11 @@ type ArtistStatus struct {
 	// +optional
 	Metadata *ArtistMetadata `json:"metadata,omitempty"`
 
+	// ContainerRollup is what the container reads from its children
+	// (2026-11-10 design §4.1): phase, missing and downloading counts, the
+	// next and previous release dates.
+	ContainerRollup `json:",inline"`
+
 	// Path is the resolved folder on disk.
 	// +optional
 	Path string `json:"path,omitempty"`
@@ -239,6 +295,11 @@ type ArtistStatus struct {
 	// AddOptionsApplied is true once spec.addOptions has been acted on.
 	// +optional
 	AddOptionsApplied bool `json:"addOptionsApplied,omitempty"`
+
+	// NFO records the artist.nfo/album.nfo the import agent last wrote for
+	// this item (2026-11-10 design §8).
+	// +optional
+	NFO *NFOStatus `json:"nfo,omitempty"`
 
 	// Artwork lists the images fetched into the artwork store, one per type.
 	// Written by the metadata gateway.

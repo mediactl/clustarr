@@ -63,6 +63,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.ArtworkOverrideApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Audiobook"):
 		return &catalogv1alpha1.AudiobookApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("AudiobookAddOptions"):
+		return &catalogv1alpha1.AudiobookAddOptionsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AudiobookMetadata"):
 		return &catalogv1alpha1.AudiobookMetadataApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AudiobookSpec"):
@@ -121,12 +123,18 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.CollectionRefApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Comic"):
 		return &catalogv1alpha1.ComicApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ComicAddOptions"):
+		return &catalogv1alpha1.ComicAddOptionsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ComicMetadata"):
 		return &catalogv1alpha1.ComicMetadataApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ComicSpec"):
 		return &catalogv1alpha1.ComicSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ComicStatus"):
 		return &catalogv1alpha1.ComicStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ContainerRollup"):
+		return &catalogv1alpha1.ContainerRollupApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("Credit"):
+		return &catalogv1alpha1.CreditApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("CSVList"):
 		return &catalogv1alpha1.CSVListApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("CustomList"):
@@ -215,6 +223,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.LibraryScanSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("LibraryScanStatus"):
 		return &catalogv1alpha1.LibraryScanStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("Link"):
+		return &catalogv1alpha1.LinkApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ListDefaults"):
 		return &catalogv1alpha1.ListDefaultsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MarkerSegment"):
@@ -257,6 +267,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.NamingSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NamingStatus"):
 		return &catalogv1alpha1.NamingStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("NFOStatus"):
+		return &catalogv1alpha1.NFOStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("OverlayBadge"):
 		return &catalogv1alpha1.OverlayBadgeApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("OverlayEntry"):

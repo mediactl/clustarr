@@ -65,19 +65,17 @@ const (
 	AudiobookRegionJP AudiobookRegion = "jp"
 )
 
-// AudiobookPhase is the coarse lifecycle state of an audiobook.
-//
-// +kubebuilder:validation:Enum=Wanted;Delayed;Downloading;Imported;CutoffUnmet;Unmonitored
-type AudiobookPhase string
-
-// Audiobook phases.
+// The audiobook's phase values, commonv1.LeafPhase since 2026-11-10 (design D4).
 const (
-	AudiobookPhaseWanted      AudiobookPhase = "Wanted"
-	AudiobookPhaseDelayed     AudiobookPhase = "Delayed"
-	AudiobookPhaseDownloading AudiobookPhase = "Downloading"
-	AudiobookPhaseImported    AudiobookPhase = "Imported"
-	AudiobookPhaseCutoffUnmet AudiobookPhase = "CutoffUnmet"
-	AudiobookPhaseUnmonitored AudiobookPhase = "Unmonitored"
+	AudiobookPhasePending           = commonv1.LeafPhasePending
+	AudiobookPhaseUnavailable       = commonv1.LeafPhaseUnavailable
+	AudiobookPhaseWanted            = commonv1.LeafPhaseWanted
+	AudiobookPhaseDelayed           = commonv1.LeafPhaseDelayed
+	AudiobookPhaseDownloading       = commonv1.LeafPhaseDownloading
+	AudiobookPhaseImported          = commonv1.LeafPhaseImported
+	AudiobookPhaseCutoffUnmet       = commonv1.LeafPhaseCutoffUnmet
+	AudiobookPhaseCutoffUnevaluated = commonv1.LeafPhaseCutoffUnevaluated
+	AudiobookPhaseUnmonitored       = commonv1.LeafPhaseUnmonitored
 )
 
 // Chapter is one chapter marker of an audiobook.
@@ -163,6 +161,33 @@ type AudiobookMetadata struct {
 	// +kubebuilder:validation:MaxItems=50
 	Images []Image `json:"images,omitempty"`
 
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	// +optional
+	SchemaVersion int32 `json:"schemaVersion,omitempty"`
+
+	// FetchLanguage is the BCP-47 language the metadata was fetched in
+	// (language above is the recording's own).
+	// +optional
+	FetchLanguage string `json:"fetchLanguage,omitempty"`
+
+	// Ratings are the scores the sources report.
+	// +optional
+	// +listType=map
+	// +listMapKey=source
+	// +kubebuilder:validation:MaxItems=8
+	Ratings []Rating `json:"ratings,omitempty"`
+
+	// Tags are Audible's tags.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	Tags []string `json:"tags,omitempty"`
+
+	// IsAdult is Audible's adult flag.
+	// +optional
+	IsAdult bool `json:"isAdult,omitempty"`
+
 	// RefreshedAt is when the metadata was last fetched.
 	// +optional
 	RefreshedAt metav1.Time `json:"refreshedAt,omitempty"`
@@ -183,6 +208,17 @@ type AudiobookSpec struct {
 	// BookRef links the audiobook to the Book it is a recording of.
 	// +optional
 	BookRef *string `json:"bookRef,omitempty"`
+
+	// AuthorRef links the audiobook to its Author: set from the Book's
+	// author when bookRef resolves, else by Add New when an Author's name
+	// matches the first credited author (2026-11-10 design D11). The Plex
+	// audiobooks root's artist level and the ui's author link read it.
+	// +optional
+	AuthorRef *string `json:"authorRef,omitempty"`
+
+	// AddOptions are applied once, when the audiobook is first reconciled.
+	// +optional
+	AddOptions AudiobookAddOptions `json:"addOptions,omitempty"`
 
 	// Monitored enables automatic searching and importing for this audiobook.
 	// +optional
@@ -242,9 +278,16 @@ type AudiobookStatus struct {
 	// +optional
 	Metadata *AudiobookMetadata `json:"metadata,omitempty"`
 
-	// Phase is the coarse lifecycle state of the audiobook.
+	// Phase is the coarse lifecycle state of the audiobook (commonv1.LeafPhase,
+	// 2026-11-10 design D4).
 	// +optional
-	Phase AudiobookPhase `json:"phase,omitempty"`
+	Phase commonv1.LeafPhase `json:"phase,omitempty"`
+
+	// CutoffReason says why CutoffMet reads as it does: Pending (no file),
+	// ProfileUnresolved, CutoffMet, CutoffUnmet (2026-11-10 design D4).
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	CutoffReason string `json:"cutoffReason,omitempty"`
 
 	// Path is the resolved folder on disk.
 	// +optional
@@ -254,14 +297,27 @@ type AudiobookStatus struct {
 	// +optional
 	HasFile bool `json:"hasFile,omitempty"`
 
-	// FileRefs lists the MediaFiles holding the audio parts, in play order.
+	// FileRefs lists the MediaFiles holding the audio parts, in play order
+	// (each part's spec.partIndex, 2026-11-10 design D11).
 	// +optional
 	// +kubebuilder:validation:MaxItems=200
 	FileRefs []string `json:"fileRefs,omitempty"`
 
-	// Quality is the quality of the imported recording.
+	// PartCount is the number of parts on disk.
 	// +optional
-	Quality *commonv1.Quality `json:"quality,omitempty"`
+	PartCount int32 `json:"partCount,omitempty"`
+
+	// FileQuality is the quality of the imported recording, the
+	// lowest-ranked part's (quality until 2026-11-10, design D5), and
+	// FileFormatScore its custom-format score.
+	// +optional
+	FileQuality *commonv1.Quality `json:"fileQuality,omitempty"`
+	// +optional
+	FileFormatScore int32 `json:"fileFormatScore,omitempty"`
+
+	// AddOptionsApplied is true once spec.addOptions has been acted on.
+	// +optional
+	AddOptionsApplied bool `json:"addOptionsApplied,omitempty"`
 
 	// CutoffMet is true when the imported files meet the profile cutoff.
 	// +optional
@@ -313,6 +369,11 @@ type AudiobookStatus struct {
 	// SearchAttempts counts the searches made for this audiobook.
 	// +optional
 	SearchAttempts commonv1.Attempts `json:"searchAttempts,omitempty"`
+
+	// NFO records the artist.nfo/album.nfo the import agent last wrote for
+	// this item (2026-11-10 design §8).
+	// +optional
+	NFO *NFOStatus `json:"nfo,omitempty"`
 
 	// Artwork lists the images fetched into the artwork store, one per type.
 	// Written by the metadata gateway.

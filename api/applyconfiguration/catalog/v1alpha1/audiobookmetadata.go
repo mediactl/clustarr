@@ -60,6 +60,19 @@ type AudiobookMetadataApplyConfiguration struct {
 	ExternalIDs map[string]string `json:"externalIDs,omitempty"`
 	// Images lists the cover art published by the provider.
 	Images []ImageApplyConfiguration `json:"images,omitempty"`
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	SchemaVersion *int32 `json:"schemaVersion,omitempty"`
+	// FetchLanguage is the BCP-47 language the metadata was fetched in
+	// (language above is the recording's own).
+	FetchLanguage *string `json:"fetchLanguage,omitempty"`
+	// Ratings are the scores the sources report.
+	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
+	// Tags are Audible's tags.
+	Tags []string `json:"tags,omitempty"`
+	// IsAdult is Audible's adult flag.
+	IsAdult *bool `json:"isAdult,omitempty"`
 	// RefreshedAt is when the metadata was last fetched.
 	RefreshedAt *v1.Time `json:"refreshedAt,omitempty"`
 }
@@ -220,6 +233,53 @@ func (b *AudiobookMetadataApplyConfiguration) WithImages(values ...*ImageApplyCo
 		}
 		b.Images = append(b.Images, *values[i])
 	}
+	return b
+}
+
+// WithSchemaVersion sets the SchemaVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SchemaVersion field is set to the value of the last call.
+func (b *AudiobookMetadataApplyConfiguration) WithSchemaVersion(value int32) *AudiobookMetadataApplyConfiguration {
+	b.SchemaVersion = &value
+	return b
+}
+
+// WithFetchLanguage sets the FetchLanguage field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FetchLanguage field is set to the value of the last call.
+func (b *AudiobookMetadataApplyConfiguration) WithFetchLanguage(value string) *AudiobookMetadataApplyConfiguration {
+	b.FetchLanguage = &value
+	return b
+}
+
+// WithRatings adds the given value to the Ratings field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Ratings field.
+func (b *AudiobookMetadataApplyConfiguration) WithRatings(values ...*RatingApplyConfiguration) *AudiobookMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithRatings")
+		}
+		b.Ratings = append(b.Ratings, *values[i])
+	}
+	return b
+}
+
+// WithTags adds the given value to the Tags field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Tags field.
+func (b *AudiobookMetadataApplyConfiguration) WithTags(values ...string) *AudiobookMetadataApplyConfiguration {
+	for i := range values {
+		b.Tags = append(b.Tags, values[i])
+	}
+	return b
+}
+
+// WithIsAdult sets the IsAdult field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the IsAdult field is set to the value of the last call.
+func (b *AudiobookMetadataApplyConfiguration) WithIsAdult(value bool) *AudiobookMetadataApplyConfiguration {
+	b.IsAdult = &value
 	return b
 }
 

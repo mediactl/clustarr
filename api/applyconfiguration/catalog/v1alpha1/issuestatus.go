@@ -20,7 +20,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -39,16 +38,36 @@ type IssueStatusApplyConfiguration struct {
 	SourceID *string `json:"sourceID,omitempty"`
 	// Title is the issue title.
 	Title *string `json:"title,omitempty"`
-	// Date is the issue's cover or store date.
-	Date *metav1.Time `json:"date,omitempty"`
-	// State is the acquisition state of the issue.
-	State *catalogv1alpha1.IssueState `json:"state,omitempty"`
+	// Date is the issue's cover date; StoreDate the day it reached shops,
+	// when the provider has one.
+	Date      *metav1.Time `json:"date,omitempty"`
+	StoreDate *metav1.Time `json:"storeDate,omitempty"`
+	// Overview is the issue's description.
+	Overview *string `json:"overview,omitempty"`
+	// CoverURL is the provider's cover image, served through the ui's
+	// /art/search as episode stills are.
+	CoverURL *string `json:"coverURL,omitempty"`
+	// Credits are the people credited on the issue.
+	Credits []CreditApplyConfiguration `json:"credits,omitempty"`
+	// SourceIDs maps provider names (comicvine, metron, mangadex) to the
+	// issue's ids there.
+	SourceIDs map[string]string `json:"sourceIDs,omitempty"`
+	// Phase is the coarse lifecycle state of the issue (commonv1.LeafPhase,
+	// 2026-11-10 design D4).
+	Phase *commonv1alpha1.LeafPhase `json:"phase,omitempty"`
+	// CutoffReason says why CutoffMet reads as it does: Pending (no file),
+	// ProfileUnresolved, CutoffMet, CutoffUnmet (2026-11-10 design D4).
+	CutoffReason *string `json:"cutoffReason,omitempty"`
 	// HasFile is true while a MediaFile backs the issue.
 	HasFile *bool `json:"hasFile,omitempty"`
 	// FileRef is the name of the MediaFile backing the issue.
 	FileRef *string `json:"fileRef,omitempty"`
-	// FileQuality is the quality of the imported file.
-	FileQuality *commonv1alpha1.Quality `json:"fileQuality,omitempty"`
+	// FileQuality is the quality of the imported file; FileFormat its format
+	// as the comic ladder names it (CBZ, CBR, PDF) and FileFormatScore its
+	// custom-format score (2026-11-10 design D5).
+	FileQuality     *commonv1alpha1.Quality `json:"fileQuality,omitempty"`
+	FileFormat      *string                 `json:"fileFormat,omitempty"`
+	FileFormatScore *int32                  `json:"fileFormatScore,omitempty"`
 	// CutoffMet is true when the imported file meets the cutoff of the owning
 	// Comic's quality profile, so the issue is no longer an upgrade candidate.
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
@@ -126,11 +145,70 @@ func (b *IssueStatusApplyConfiguration) WithDate(value metav1.Time) *IssueStatus
 	return b
 }
 
-// WithState sets the State field in the declarative configuration to the given value
+// WithStoreDate sets the StoreDate field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the State field is set to the value of the last call.
-func (b *IssueStatusApplyConfiguration) WithState(value catalogv1alpha1.IssueState) *IssueStatusApplyConfiguration {
-	b.State = &value
+// If called multiple times, the StoreDate field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithStoreDate(value metav1.Time) *IssueStatusApplyConfiguration {
+	b.StoreDate = &value
+	return b
+}
+
+// WithOverview sets the Overview field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Overview field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithOverview(value string) *IssueStatusApplyConfiguration {
+	b.Overview = &value
+	return b
+}
+
+// WithCoverURL sets the CoverURL field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CoverURL field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithCoverURL(value string) *IssueStatusApplyConfiguration {
+	b.CoverURL = &value
+	return b
+}
+
+// WithCredits adds the given value to the Credits field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Credits field.
+func (b *IssueStatusApplyConfiguration) WithCredits(values ...*CreditApplyConfiguration) *IssueStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithCredits")
+		}
+		b.Credits = append(b.Credits, *values[i])
+	}
+	return b
+}
+
+// WithSourceIDs puts the entries into the SourceIDs field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the SourceIDs field,
+// overwriting an existing map entries in SourceIDs field with the same key.
+func (b *IssueStatusApplyConfiguration) WithSourceIDs(entries map[string]string) *IssueStatusApplyConfiguration {
+	if b.SourceIDs == nil && len(entries) > 0 {
+		b.SourceIDs = make(map[string]string, len(entries))
+	}
+	for k, v := range entries {
+		b.SourceIDs[k] = v
+	}
+	return b
+}
+
+// WithPhase sets the Phase field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Phase field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithPhase(value commonv1alpha1.LeafPhase) *IssueStatusApplyConfiguration {
+	b.Phase = &value
+	return b
+}
+
+// WithCutoffReason sets the CutoffReason field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CutoffReason field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithCutoffReason(value string) *IssueStatusApplyConfiguration {
+	b.CutoffReason = &value
 	return b
 }
 
@@ -155,6 +233,22 @@ func (b *IssueStatusApplyConfiguration) WithFileRef(value string) *IssueStatusAp
 // If called multiple times, the FileQuality field is set to the value of the last call.
 func (b *IssueStatusApplyConfiguration) WithFileQuality(value commonv1alpha1.Quality) *IssueStatusApplyConfiguration {
 	b.FileQuality = &value
+	return b
+}
+
+// WithFileFormat sets the FileFormat field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FileFormat field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithFileFormat(value string) *IssueStatusApplyConfiguration {
+	b.FileFormat = &value
+	return b
+}
+
+// WithFileFormatScore sets the FileFormatScore field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FileFormatScore field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithFileFormatScore(value int32) *IssueStatusApplyConfiguration {
+	b.FileFormatScore = &value
 	return b
 }
 

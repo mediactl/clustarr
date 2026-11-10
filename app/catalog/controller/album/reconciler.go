@@ -546,9 +546,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	}
 	statusAC = statusAC.WithPhase(phase)
 	statusAC = statusAC.WithCutoffMet(cutoffMet)
-	statusAC = statusAC.WithFormatScore(fileFormatScore)
+	statusAC = statusAC.WithFileFormatScore(fileFormatScore)
 	if fileQuality != nil {
-		statusAC = statusAC.WithQuality(*fileQuality)
+		statusAC = statusAC.WithFileQuality(*fileQuality)
 	}
 	if active {
 		statusAC = statusAC.WithActiveDownloadRef(dl.ID)
@@ -611,10 +611,10 @@ func reassertKnownStatus(statusAC *catalogac.AlbumStatusApplyConfiguration, alb 
 		statusAC = statusAC.WithPath(alb.Status.Path)
 	}
 	statusAC = statusAC.WithTrackFileCount(alb.Status.TrackFileCount)
-	if alb.Status.Quality != nil {
-		statusAC = statusAC.WithQuality(*alb.Status.Quality)
+	if alb.Status.FileQuality != nil {
+		statusAC = statusAC.WithFileQuality(*alb.Status.FileQuality)
 	}
-	statusAC = statusAC.WithFormatScore(alb.Status.FormatScore)
+	statusAC = statusAC.WithFileFormatScore(alb.Status.FileFormatScore)
 	statusAC = statusAC.WithCutoffMet(alb.Status.CutoffMet)
 	if alb.Status.ActiveDownloadRef != nil {
 		statusAC = statusAC.WithActiveDownloadRef(*alb.Status.ActiveDownloadRef)

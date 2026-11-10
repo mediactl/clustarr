@@ -629,7 +629,7 @@ type OverlayEntry struct {
 
 // RatingSource is an upstream rating provider.
 //
-// +kubebuilder:validation:Enum=imdb;tmdb;rottenTomatoesCritic;rottenTomatoesAudience;metacritic;trakt;letterboxd
+// +kubebuilder:validation:Enum=imdb;tmdb;rottenTomatoesCritic;rottenTomatoesAudience;metacritic;trakt;letterboxd;musicbrainz;audnexus;hardcover;anilist;comicvine
 type RatingSource string
 
 // Rating sources.
@@ -641,6 +641,15 @@ const (
 	RatingSourceMetacritic RatingSource = "metacritic"
 	RatingSourceTrakt      RatingSource = "trakt"
 	RatingSourceLetterboxd RatingSource = "letterboxd"
+	// The non-video sources (2026-11-10 design D8), each out of 10 as its
+	// site scores: MusicBrainz's community rating for an artist or release
+	// group, Audnexus's Audible rating, Hardcover's book rating, AniList's
+	// manga score (out of 100, scaled to 10), ComicVine's none today.
+	RatingSourceMusicBrainz RatingSource = "musicbrainz"
+	RatingSourceAudnexus    RatingSource = "audnexus"
+	RatingSourceHardcover   RatingSource = "hardcover"
+	RatingSourceAniList     RatingSource = "anilist"
+	RatingSourceComicVine   RatingSource = "comicvine"
 )
 
 // Rating is one score reported by one rating source.

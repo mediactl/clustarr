@@ -75,6 +75,27 @@ spec:
           spec:
             description: ComicSpec defines the desired state of Comic.
             properties:
+              addOptions:
+                description: |-
+                  AddOptions are applied once, when the comic is first reconciled
+                  (2026-11-10 design D10).
+                properties:
+                  monitor:
+                    default: all
+                    description: Monitor selects which issues start out monitored.
+                    enum:
+                    - all
+                    - future
+                    - missing
+                    - existing
+                    - none
+                    type: string
+                  searchForMissing:
+                    default: true
+                    description: SearchForMissing searches for the missing issues
+                      on add.
+                    type: boolean
+                type: object
               addSource:
                 description: |-
                   AddSource records the ImportList that added the comic, if any. It is
@@ -206,6 +227,10 @@ spec:
           status:
             description: ComicStatus describes the observed state of Comic.
             properties:
+              addOptionsApplied:
+                description: AddOptionsApplied is true once spec.addOptions has been
+                  acted on.
+                type: boolean
               artwork:
                 description: |-
                   Artwork lists the images fetched into the artwork store, one per type.
@@ -328,6 +353,12 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              cutoffUnmetChildCount:
+                description: |-
+                  CutoffUnmetChildCount counts the children whose file is below the
+                  cutoff, an album with a track missing included.
+                format: int32
+                type: integer
               downloadNonces:
                 description: |-
                   DownloadNonces records the one-shot download intents last handled
@@ -363,6 +394,12 @@ spec:
                 - Blocklisted
                 - Removing
                 type: string
+              downloadingChildCount:
+                description: |-
+                  DownloadingChildCount counts the children with a grab in flight or
+                  pending.
+                format: int32
+                type: integer
               downloadingIssueCount:
                 description: |-
                   DownloadingIssueCount is the number of issues with a download in
@@ -1127,6 +1164,17 @@ spec:
                   ageRating:
                     description: AgeRating is the provider's age rating.
                     type: string
+                  alternateTitles:
+                    description: AlternateTitles lists the volume's other titles.
+                    items:
+                      type: string
+                    maxItems: 16
+                    type: array
+                  endYear:
+                    description: EndYear is the year the volume ended, 0 while it
+                      continues.
+                    format: int32
+                    type: integer
                   externalIDs:
                     additionalProperties:
                       type: string
@@ -1134,6 +1182,12 @@ spec:
                       ExternalIDs maps provider names (comicvine, metron, mangadex, anilist,
                       mal) to their IDs.
                     type: object
+                  genres:
+                    description: Genres lists the volume's genres.
+                    items:
+                      type: string
+                    maxItems: 30
+                    type: array
                   images:
                     description: Images lists the cover art published by the provider.
                     items:
@@ -1174,6 +1228,10 @@ spec:
                     description: IssueCount is the number of issues the provider lists.
                     format: int32
                     type: integer
+                  language:
+                    description: Language is the BCP-47 language the metadata was
+                      fetched in.
+                    type: string
                   manga:
                     description: Manga says whether the volume is manga and how it
                       reads.
@@ -1183,15 +1241,81 @@ spec:
                     - "yes"
                     - yesAndRightToLeft
                     type: string
+                  originalLanguage:
+                    description: OriginalLanguage is the BCP-47 tag of the original
+                      language.
+                    type: string
                   overview:
                     description: Overview is the synopsis.
                     type: string
                   publisher:
                     description: Publisher is the publishing house.
                     type: string
+                  ratings:
+                    description: Ratings are the scores the sources report.
+                    items:
+                      description: Rating is one score reported by one rating source.
+                      properties:
+                        source:
+                          description: Source is the rating provider.
+                          enum:
+                          - imdb
+                          - tmdb
+                          - rottenTomatoesCritic
+                          - rottenTomatoesAudience
+                          - metacritic
+                          - trakt
+                          - letterboxd
+                          - musicbrainz
+                          - audnexus
+                          - hardcover
+                          - anilist
+                          - comicvine
+                          type: string
+                        valueCentis:
+                          description: |-
+                            ValueCentis is the score scaled by 100: 0-1000 for a source out of 10
+                            (imdb, tmdb, trakt, letterboxd), 0-10000 for a source out of 100
+                            (rottenTomatoesCritic, rottenTomatoesAudience, metacritic). Scaled
+                            rather than a float -- CLAUDE.md bans float32/float64 in api/.
+                          format: int32
+                          maximum: 10000
+                          minimum: 0
+                          type: integer
+                        votes:
+                          description: Votes is the number of votes behind the score,
+                            when the source reports one.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      required:
+                      - source
+                      - valueCentis
+                      type: object
+                    maxItems: 8
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - source
+                    x-kubernetes-list-type: map
                   refreshedAt:
                     description: RefreshedAt is when the metadata was last fetched.
                     format: date-time
+                    type: string
+                  schemaVersion:
+                    description: |-
+                      SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+                      the time the document was built; a document older than the current
+                      version is refreshed once (2026-11-10 design D8).
+                    format: int32
+                    type: integer
+                  sortTitle:
+                    description: SortTitle is the title used for sorting.
+                    type: string
+                  status:
+                    description: Status is whether the volume is still being published.
+                    enum:
+                    - continuing
+                    - ended
                     type: string
                   title:
                     description: Title is the volume title.
@@ -1206,9 +1330,21 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              missingChildCount:
+                description: |-
+                  MissingChildCount counts the monitored, released children without a
+                  file (the ones a wanted sweep would search for).
+                format: int32
+                type: integer
               nextPullDate:
                 description: NextPullDate is when the next issue is expected on the
                   pull list.
+                format: date-time
+                type: string
+              nextReleaseDate:
+                description: |-
+                  NextReleaseDate is the earliest release date still in the future
+                  among the children; PreviousReleaseDate the latest one past.
                 format: date-time
                 type: string
               observedGeneration:
@@ -1528,6 +1664,215 @@ spec:
                 maxItems: 24
                 type: array
                 x-kubernetes-list-type: atomic
+              phase:
+                description: |-
+                  Phase is the coarse lifecycle state of the container: Pending until
+                  its metadata is fetched, Unmonitored when spec.monitored is false,
+                  else Ready.
+                enum:
+                - Pending
+                - Ready
+                - Unmonitored
+                type: string
+              previousReleaseDate:
+                format: date-time
+                type: string
+              volumeSearch:
+                description: |-
+                  VolumeSearch is the volume's pack-first search in progress or last
+                  finished: the Series' seasonSearch shape with the one season that is
+                  the whole volume (2026-11-10 design D10). Written by the remediation
+                  loop's search stage under catalog-grab.
+                properties:
+                  dispatch:
+                    description: |-
+                      Dispatch is the season task in flight (the season whose phase is
+                      Searching); Seq > AnsweredSeq while one is out.
+                    properties:
+                      answeredSeq:
+                        description: |-
+                          AnsweredSeq is the Seq of the last dispatch closed: by an incorporated
+                          answer, a withdrawal or a timeout. A task is in flight while
+                          Seq > AnsweredSeq.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      delivery:
+                        description: |-
+                          Delivery is what the manager knows about the task between publish
+                          and answer. Written on transitions only (ADR-0019 §8.3), never per
+                          nak.
+                        properties:
+                          attempts:
+                            description: Attempts is the deliveries count of the last
+                              nak the manager recorded.
+                            format: int32
+                            type: integer
+                          deadLetteredAt:
+                            format: date-time
+                            type: string
+                          lastNakAt:
+                            format: date-time
+                            type: string
+                          message:
+                            maxLength: 256
+                            type: string
+                          reason:
+                            description: |-
+                              Reason when waiting or retrying: Budget, Paced, NoAgent,
+                              NoCapableAgent, EngineNotReady, Rebuilding, Nak.
+                            maxLength: 64
+                            type: string
+                          state:
+                            description: |-
+                              DeliveryPhase is where a dispatched task is between its publish and its
+                              answer (ADR-0019 §8.3).
+                            enum:
+                            - waiting
+                            - published
+                            - claimed
+                            - retrying
+                            - deadLettered
+                            type: string
+                        required:
+                        - state
+                        type: object
+                      destination:
+                        description: |-
+                          Destination is the durable, pool or engine instance the task went to
+                          (ADR-0019 §8.3).
+                        maxLength: 253
+                        type: string
+                      dispatchedAt:
+                        description: |-
+                          DispatchedAt is when Seq was issued; the republish window and the
+                          request timeout run from it.
+                        format: date-time
+                        type: string
+                      seq:
+                        description: Seq is the sequence of the last task issued for
+                          this remediation.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      withdrawn:
+                        description: |-
+                          Withdrawn is true when the dispatch at Seq was closed by a withdrawal,
+                          not by an answer. For transcode and graft a fact (a change already
+                          made on disk) can still land after that: the planner keeps reading
+                          the record while Withdrawn is true and now < DispatchedAt +
+                          records.FactWindow, and incorporates a fact at Seq whatever the phase
+                          (§4.10, §5.9). Incorporating it clears Withdrawn.
+                        type: boolean
+                    required:
+                    - dispatchedAt
+                    - seq
+                    type: object
+                  finishedAt:
+                    description: FinishedAt is when every season reached a final phase.
+                    format: date-time
+                    type: string
+                  request:
+                    description: Request is the Search this state serves.
+                    properties:
+                      name:
+                        description: Name is the Search's name.
+                        maxLength: 253
+                        type: string
+                      uid:
+                        description: |-
+                          UID is the Search's uid: a Search recreated under the same name is
+                          another request.
+                        maxLength: 36
+                        type: string
+                    required:
+                    - name
+                    - uid
+                    type: object
+                  seasons:
+                    description: Seasons are the seasons asked for, ascending, each
+                      with its outcome.
+                    items:
+                      description: SeasonSearchSeason is one season of a series search.
+                      properties:
+                        answeredAt:
+                          description: AnsweredAt is when the season's answer was
+                            incorporated.
+                          format: date-time
+                          type: string
+                        approved:
+                          description: Approved is how many of them were approved.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        attempts:
+                          description: |-
+                            Attempts counts the season's dispatches: a season every indexer
+                            paced goes once more to the back of the queue.
+                          format: int32
+                          maximum: 2
+                          minimum: 0
+                          type: integer
+                        candidates:
+                          description: Candidates is how many releases the answer
+                            held.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        number:
+                          description: Number is the season number; 0 is the specials.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        phase:
+                          description: Phase is where the season is.
+                          enum:
+                          - Queued
+                          - Searching
+                          - Answered
+                          - Skipped
+                          - Failed
+                          - Canceled
+                          type: string
+                        reason:
+                          description: Reason says why the season was skipped, failed
+                            or canceled.
+                          enum:
+                          - NotMonitored
+                          - NothingWanted
+                          - AllDownloading
+                          - NoSuchSeason
+                          - AllPaced
+                          - NoIndexer
+                          - TimedOut
+                          - AgentFailed
+                          - SearchDeleted
+                          type: string
+                        seq:
+                          description: |-
+                            Seq is the dispatch seq this season's task carried; its record
+                            answers at it, and the grab stage reads the record only at it.
+                          format: int64
+                          minimum: 0
+                          type: integer
+                      required:
+                      - number
+                      - phase
+                      type: object
+                    maxItems: 200
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - number
+                    x-kubernetes-list-type: map
+                  startedAt:
+                    description: StartedAt is when the Series took the request.
+                    format: date-time
+                    type: string
+                required:
+                - request
+                - seasons
+                - startedAt
+                type: object
             type: object
         type: object
     selectableFields:

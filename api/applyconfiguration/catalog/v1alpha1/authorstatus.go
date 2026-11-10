@@ -20,6 +20,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -34,6 +36,10 @@ type AuthorStatusApplyConfiguration struct {
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// Metadata is the cached provider metadata.
 	Metadata *AuthorMetadataApplyConfiguration `json:"metadata,omitempty"`
+	// ContainerRollup is what the container reads from its children
+	// (2026-11-10 design §4.1): phase, missing and downloading counts, the
+	// next and previous release dates.
+	ContainerRollupApplyConfiguration `json:""`
 	// Path is the resolved folder on disk.
 	Path *string `json:"path,omitempty"`
 	// BookCount is the number of Book objects owned by the author.
@@ -42,6 +48,9 @@ type AuthorStatusApplyConfiguration struct {
 	BookFileCount *int32 `json:"bookFileCount,omitempty"`
 	// AddOptionsApplied is true once spec.addOptions has been acted on.
 	AddOptionsApplied *bool `json:"addOptionsApplied,omitempty"`
+	// NFO records the artist.nfo/album.nfo the import agent last wrote for
+	// this item (2026-11-10 design §8).
+	NFO *NFOStatusApplyConfiguration `json:"nfo,omitempty"`
 	// Artwork lists the images fetched into the artwork store, one per type.
 	// Written by the metadata gateway.
 	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
@@ -82,6 +91,54 @@ func (b *AuthorStatusApplyConfiguration) WithMetadata(value *AuthorMetadataApply
 	return b
 }
 
+// WithPhase sets the Phase field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Phase field is set to the value of the last call.
+func (b *AuthorStatusApplyConfiguration) WithPhase(value catalogv1alpha1.ContainerPhase) *AuthorStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.Phase = &value
+	return b
+}
+
+// WithMissingChildCount sets the MissingChildCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MissingChildCount field is set to the value of the last call.
+func (b *AuthorStatusApplyConfiguration) WithMissingChildCount(value int32) *AuthorStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.MissingChildCount = &value
+	return b
+}
+
+// WithDownloadingChildCount sets the DownloadingChildCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadingChildCount field is set to the value of the last call.
+func (b *AuthorStatusApplyConfiguration) WithDownloadingChildCount(value int32) *AuthorStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.DownloadingChildCount = &value
+	return b
+}
+
+// WithCutoffUnmetChildCount sets the CutoffUnmetChildCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CutoffUnmetChildCount field is set to the value of the last call.
+func (b *AuthorStatusApplyConfiguration) WithCutoffUnmetChildCount(value int32) *AuthorStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.CutoffUnmetChildCount = &value
+	return b
+}
+
+// WithNextReleaseDate sets the NextReleaseDate field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NextReleaseDate field is set to the value of the last call.
+func (b *AuthorStatusApplyConfiguration) WithNextReleaseDate(value metav1.Time) *AuthorStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.NextReleaseDate = &value
+	return b
+}
+
+// WithPreviousReleaseDate sets the PreviousReleaseDate field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PreviousReleaseDate field is set to the value of the last call.
+func (b *AuthorStatusApplyConfiguration) WithPreviousReleaseDate(value metav1.Time) *AuthorStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.PreviousReleaseDate = &value
+	return b
+}
+
 // WithPath sets the Path field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Path field is set to the value of the last call.
@@ -111,6 +168,14 @@ func (b *AuthorStatusApplyConfiguration) WithBookFileCount(value int32) *AuthorS
 // If called multiple times, the AddOptionsApplied field is set to the value of the last call.
 func (b *AuthorStatusApplyConfiguration) WithAddOptionsApplied(value bool) *AuthorStatusApplyConfiguration {
 	b.AddOptionsApplied = &value
+	return b
+}
+
+// WithNFO sets the NFO field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NFO field is set to the value of the last call.
+func (b *AuthorStatusApplyConfiguration) WithNFO(value *NFOStatusApplyConfiguration) *AuthorStatusApplyConfiguration {
+	b.NFO = value
 	return b
 }
 

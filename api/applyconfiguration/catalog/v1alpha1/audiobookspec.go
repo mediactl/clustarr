@@ -35,6 +35,13 @@ type AudiobookSpecApplyConfiguration struct {
 	Region *catalogv1alpha1.AudiobookRegion `json:"region,omitempty"`
 	// BookRef links the audiobook to the Book it is a recording of.
 	BookRef *string `json:"bookRef,omitempty"`
+	// AuthorRef links the audiobook to its Author: set from the Book's
+	// author when bookRef resolves, else by Add New when an Author's name
+	// matches the first credited author (2026-11-10 design D11). The Plex
+	// audiobooks root's artist level and the ui's author link read it.
+	AuthorRef *string `json:"authorRef,omitempty"`
+	// AddOptions are applied once, when the audiobook is first reconciled.
+	AddOptions *AudiobookAddOptionsApplyConfiguration `json:"addOptions,omitempty"`
 	// Monitored enables automatic searching and importing for this audiobook.
 	Monitored *bool `json:"monitored,omitempty"`
 	// QualityProfileRef is the QualityProfile this audiobook is ranked against;
@@ -81,6 +88,22 @@ func (b *AudiobookSpecApplyConfiguration) WithRegion(value catalogv1alpha1.Audio
 // If called multiple times, the BookRef field is set to the value of the last call.
 func (b *AudiobookSpecApplyConfiguration) WithBookRef(value string) *AudiobookSpecApplyConfiguration {
 	b.BookRef = &value
+	return b
+}
+
+// WithAuthorRef sets the AuthorRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AuthorRef field is set to the value of the last call.
+func (b *AudiobookSpecApplyConfiguration) WithAuthorRef(value string) *AudiobookSpecApplyConfiguration {
+	b.AuthorRef = &value
+	return b
+}
+
+// WithAddOptions sets the AddOptions field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AddOptions field is set to the value of the last call.
+func (b *AudiobookSpecApplyConfiguration) WithAddOptions(value *AudiobookAddOptionsApplyConfiguration) *AudiobookSpecApplyConfiguration {
+	b.AddOptions = value
 	return b
 }
 

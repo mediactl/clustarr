@@ -42,6 +42,20 @@ type AuthorMetadataApplyConfiguration struct {
 	ExternalIDs map[string]string `json:"externalIDs,omitempty"`
 	// Images lists the artwork published by the provider.
 	Images []ImageApplyConfiguration `json:"images,omitempty"`
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	SchemaVersion *int32 `json:"schemaVersion,omitempty"`
+	// Language is the BCP-47 language the metadata was fetched in.
+	Language *string `json:"language,omitempty"`
+	// Ratings are the scores the sources report.
+	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
+	// Born and Died are the author's dates as the provider spells them.
+	Born *string `json:"born,omitempty"`
+	Died *string `json:"died,omitempty"`
+	// Links are the author's external pages (Open Library, Wikipedia,
+	// Hardcover, Goodreads).
+	Links []LinkApplyConfiguration `json:"links,omitempty"`
 	// RefreshedAt is when the metadata was last fetched.
 	RefreshedAt *v1.Time `json:"refreshedAt,omitempty"`
 }
@@ -117,6 +131,64 @@ func (b *AuthorMetadataApplyConfiguration) WithImages(values ...*ImageApplyConfi
 			panic("nil value passed to WithImages")
 		}
 		b.Images = append(b.Images, *values[i])
+	}
+	return b
+}
+
+// WithSchemaVersion sets the SchemaVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SchemaVersion field is set to the value of the last call.
+func (b *AuthorMetadataApplyConfiguration) WithSchemaVersion(value int32) *AuthorMetadataApplyConfiguration {
+	b.SchemaVersion = &value
+	return b
+}
+
+// WithLanguage sets the Language field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Language field is set to the value of the last call.
+func (b *AuthorMetadataApplyConfiguration) WithLanguage(value string) *AuthorMetadataApplyConfiguration {
+	b.Language = &value
+	return b
+}
+
+// WithRatings adds the given value to the Ratings field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Ratings field.
+func (b *AuthorMetadataApplyConfiguration) WithRatings(values ...*RatingApplyConfiguration) *AuthorMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithRatings")
+		}
+		b.Ratings = append(b.Ratings, *values[i])
+	}
+	return b
+}
+
+// WithBorn sets the Born field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Born field is set to the value of the last call.
+func (b *AuthorMetadataApplyConfiguration) WithBorn(value string) *AuthorMetadataApplyConfiguration {
+	b.Born = &value
+	return b
+}
+
+// WithDied sets the Died field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Died field is set to the value of the last call.
+func (b *AuthorMetadataApplyConfiguration) WithDied(value string) *AuthorMetadataApplyConfiguration {
+	b.Died = &value
+	return b
+}
+
+// WithLinks adds the given value to the Links field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Links field.
+func (b *AuthorMetadataApplyConfiguration) WithLinks(values ...*LinkApplyConfiguration) *AuthorMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithLinks")
+		}
+		b.Links = append(b.Links, *values[i])
 	}
 	return b
 }

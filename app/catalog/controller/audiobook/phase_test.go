@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
 )
 
@@ -32,7 +33,7 @@ func TestPhase(t *testing.T) {
 		monitored          bool
 		hasFile, cutoffMet bool
 		pendingGrab        bool
-		want               catalogv1alpha1.AudiobookPhase
+		want               commonv1.LeafPhase
 	}{
 		{"unmonitored wins over everything", false, false, false, false, catalogv1alpha1.AudiobookPhaseUnmonitored},
 		{"monitored, no file yet", true, false, false, false, catalogv1alpha1.AudiobookPhaseWanted},

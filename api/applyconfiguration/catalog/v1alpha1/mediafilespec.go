@@ -80,6 +80,11 @@ type MediaFileSpecApplyConfiguration struct {
 	// Original is true while this is the file as imported; it goes false once a
 	// transcode replaces it.
 	Original *bool `json:"original,omitempty"`
+	// PartIndex orders a file among the parts of one item: an audiobook's
+	// parts in play order (from the tags' track number, else the name's part
+	// number, else the path's sort order; 2026-11-10 design D11). 0 for a
+	// file that is not a part.
+	PartIndex *int32 `json:"partIndex,omitempty"`
 }
 
 // MediaFileSpecApplyConfiguration constructs a declarative configuration of the MediaFileSpec type for use with
@@ -217,5 +222,13 @@ func (b *MediaFileSpecApplyConfiguration) WithSourceSizeBytes(value int64) *Medi
 // If called multiple times, the Original field is set to the value of the last call.
 func (b *MediaFileSpecApplyConfiguration) WithOriginal(value bool) *MediaFileSpecApplyConfiguration {
 	b.Original = &value
+	return b
+}
+
+// WithPartIndex sets the PartIndex field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PartIndex field is set to the value of the last call.
+func (b *MediaFileSpecApplyConfiguration) WithPartIndex(value int32) *MediaFileSpecApplyConfiguration {
+	b.PartIndex = &value
 	return b
 }

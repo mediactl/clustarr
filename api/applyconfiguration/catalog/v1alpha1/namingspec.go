@@ -52,6 +52,13 @@ type NamingSpecApplyConfiguration struct {
 	// transcoded files there would split a season. renameFiles, when on,
 	// renames every file its own way instead.
 	RenameTranscoded *bool `json:"renameTranscoded,omitempty"`
+	// WriteNFO has the import agent write Kodi-shape artist.nfo and
+	// album.nfo files beside a music root's artists and albums, and an
+	// audiobook root's authors and audiobooks, for Plex's music agent to
+	// read (2026-11-10 design §8). Nil reads as true for a music or
+	// audiobook root; the field is ignored for every other kind. Off plans
+	// nothing and removes nothing.
+	WriteNFO *bool `json:"writeNFO,omitempty"`
 }
 
 // NamingSpecApplyConfiguration constructs a declarative configuration of the NamingSpec type for use with
@@ -111,5 +118,13 @@ func (b *NamingSpecApplyConfiguration) WithRenameFiles(value bool) *NamingSpecAp
 // If called multiple times, the RenameTranscoded field is set to the value of the last call.
 func (b *NamingSpecApplyConfiguration) WithRenameTranscoded(value bool) *NamingSpecApplyConfiguration {
 	b.RenameTranscoded = &value
+	return b
+}
+
+// WithWriteNFO sets the WriteNFO field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the WriteNFO field is set to the value of the last call.
+func (b *NamingSpecApplyConfiguration) WithWriteNFO(value bool) *NamingSpecApplyConfiguration {
+	b.WriteNFO = &value
 	return b
 }

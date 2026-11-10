@@ -20,6 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -36,6 +37,17 @@ type ComicStatusApplyConfiguration struct {
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// Metadata is the cached provider metadata.
 	Metadata *ComicMetadataApplyConfiguration `json:"metadata,omitempty"`
+	// ContainerRollup is what the container reads from its children
+	// (2026-11-10 design §4.1): phase, missing and downloading counts, the
+	// next and previous release dates.
+	ContainerRollupApplyConfiguration `json:""`
+	// AddOptionsApplied is true once spec.addOptions has been acted on.
+	AddOptionsApplied *bool `json:"addOptionsApplied,omitempty"`
+	// VolumeSearch is the volume's pack-first search in progress or last
+	// finished: the Series' seasonSearch shape with the one season that is
+	// the whole volume (2026-11-10 design D10). Written by the remediation
+	// loop's search stage under catalog-grab.
+	VolumeSearch *SeasonSearchStateApplyConfiguration `json:"volumeSearch,omitempty"`
 	// Path is the resolved folder on disk.
 	Path *string `json:"path,omitempty"`
 	// IssueFileCount is the number of issues with an imported file.
@@ -97,6 +109,70 @@ func (b *ComicStatusApplyConfiguration) WithConditions(values ...*v1.ConditionAp
 // If called multiple times, the Metadata field is set to the value of the last call.
 func (b *ComicStatusApplyConfiguration) WithMetadata(value *ComicMetadataApplyConfiguration) *ComicStatusApplyConfiguration {
 	b.Metadata = value
+	return b
+}
+
+// WithPhase sets the Phase field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Phase field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithPhase(value catalogv1alpha1.ContainerPhase) *ComicStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.Phase = &value
+	return b
+}
+
+// WithMissingChildCount sets the MissingChildCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MissingChildCount field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithMissingChildCount(value int32) *ComicStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.MissingChildCount = &value
+	return b
+}
+
+// WithDownloadingChildCount sets the DownloadingChildCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadingChildCount field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithDownloadingChildCount(value int32) *ComicStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.DownloadingChildCount = &value
+	return b
+}
+
+// WithCutoffUnmetChildCount sets the CutoffUnmetChildCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CutoffUnmetChildCount field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithCutoffUnmetChildCount(value int32) *ComicStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.CutoffUnmetChildCount = &value
+	return b
+}
+
+// WithNextReleaseDate sets the NextReleaseDate field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NextReleaseDate field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithNextReleaseDate(value metav1.Time) *ComicStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.NextReleaseDate = &value
+	return b
+}
+
+// WithPreviousReleaseDate sets the PreviousReleaseDate field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PreviousReleaseDate field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithPreviousReleaseDate(value metav1.Time) *ComicStatusApplyConfiguration {
+	b.ContainerRollupApplyConfiguration.PreviousReleaseDate = &value
+	return b
+}
+
+// WithAddOptionsApplied sets the AddOptionsApplied field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AddOptionsApplied field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithAddOptionsApplied(value bool) *ComicStatusApplyConfiguration {
+	b.AddOptionsApplied = &value
+	return b
+}
+
+// WithVolumeSearch sets the VolumeSearch field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the VolumeSearch field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithVolumeSearch(value *SeasonSearchStateApplyConfiguration) *ComicStatusApplyConfiguration {
+	b.VolumeSearch = value
 	return b
 }
 

@@ -77,7 +77,7 @@ func ownerOf(o client.Object) (owner, bool) {
 	case *catalogv1alpha1.Album:
 		return owner{
 			obj: o, ref: ref("Album"), kind: commonv1.MediaKindAlbum, entries: t.Status.Downloads, nonces: t.Status.DownloadNonces,
-			monitored: ptr.Deref(t.Spec.Monitored, true), hasFile: t.Status.Quality != nil,
+			monitored: ptr.Deref(t.Spec.Monitored, true), hasFile: t.Status.FileQuality != nil,
 			providerID: "musicbrainz:" + t.Spec.ReleaseGroupID, entryCap: catalogv1alpha1.MaxOwnerEntries,
 			searched: t.Status.SearchDispatch,
 		}, true

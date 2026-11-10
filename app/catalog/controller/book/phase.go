@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package book
 
 import (
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // Phase computes the coarse lifecycle state of a Book. Unlike MoviePhase,
@@ -44,17 +44,17 @@ import (
 // draft that wrongly treated it as a hasFile stand-in. BookPhaseCutoffUnmet
 // is reachable: a file below the profile's cutoff (e.g. a PDF against the
 // built-in ebook profile's MOBI cutoff) lands here.
-func Phase(monitored, hasFile, cutoffMet, pendingGrab bool) catalogv1alpha1.BookPhase {
+func Phase(monitored, hasFile, cutoffMet, pendingGrab bool) commonv1.LeafPhase {
 	switch {
 	case !monitored:
-		return catalogv1alpha1.BookPhaseUnmonitored
+		return commonv1.LeafPhaseUnmonitored
 	case hasFile && cutoffMet:
-		return catalogv1alpha1.BookPhaseImported
+		return commonv1.LeafPhaseImported
 	case pendingGrab:
-		return catalogv1alpha1.BookPhaseDelayed
+		return commonv1.LeafPhaseDelayed
 	case hasFile:
-		return catalogv1alpha1.BookPhaseCutoffUnmet
+		return commonv1.LeafPhaseCutoffUnmet
 	default:
-		return catalogv1alpha1.BookPhaseWanted
+		return commonv1.LeafPhaseWanted
 	}
 }

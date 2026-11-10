@@ -20,7 +20,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -37,16 +36,28 @@ type AudiobookStatusApplyConfiguration struct {
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// Metadata is the cached provider metadata.
 	Metadata *AudiobookMetadataApplyConfiguration `json:"metadata,omitempty"`
-	// Phase is the coarse lifecycle state of the audiobook.
-	Phase *catalogv1alpha1.AudiobookPhase `json:"phase,omitempty"`
+	// Phase is the coarse lifecycle state of the audiobook (commonv1.LeafPhase,
+	// 2026-11-10 design D4).
+	Phase *commonv1alpha1.LeafPhase `json:"phase,omitempty"`
+	// CutoffReason says why CutoffMet reads as it does: Pending (no file),
+	// ProfileUnresolved, CutoffMet, CutoffUnmet (2026-11-10 design D4).
+	CutoffReason *string `json:"cutoffReason,omitempty"`
 	// Path is the resolved folder on disk.
 	Path *string `json:"path,omitempty"`
 	// HasFile is true while at least one MediaFile backs the audiobook.
 	HasFile *bool `json:"hasFile,omitempty"`
-	// FileRefs lists the MediaFiles holding the audio parts, in play order.
+	// FileRefs lists the MediaFiles holding the audio parts, in play order
+	// (each part's spec.partIndex, 2026-11-10 design D11).
 	FileRefs []string `json:"fileRefs,omitempty"`
-	// Quality is the quality of the imported recording.
-	Quality *commonv1alpha1.Quality `json:"quality,omitempty"`
+	// PartCount is the number of parts on disk.
+	PartCount *int32 `json:"partCount,omitempty"`
+	// FileQuality is the quality of the imported recording, the
+	// lowest-ranked part's (quality until 2026-11-10, design D5), and
+	// FileFormatScore its custom-format score.
+	FileQuality     *commonv1alpha1.Quality `json:"fileQuality,omitempty"`
+	FileFormatScore *int32                  `json:"fileFormatScore,omitempty"`
+	// AddOptionsApplied is true once spec.addOptions has been acted on.
+	AddOptionsApplied *bool `json:"addOptionsApplied,omitempty"`
 	// CutoffMet is true when the imported files meet the profile cutoff.
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
 	// ActiveDownloadRef is the id of the grab entry currently working on this audiobook.
@@ -76,6 +87,9 @@ type AudiobookStatusApplyConfiguration struct {
 	LastLiveSearchAt *metav1.Time `json:"lastLiveSearchAt,omitempty"`
 	// SearchAttempts counts the searches made for this audiobook.
 	SearchAttempts *commonv1alpha1.Attempts `json:"searchAttempts,omitempty"`
+	// NFO records the artist.nfo/album.nfo the import agent last wrote for
+	// this item (2026-11-10 design §8).
+	NFO *NFOStatusApplyConfiguration `json:"nfo,omitempty"`
 	// Artwork lists the images fetched into the artwork store, one per type.
 	// Written by the metadata gateway.
 	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
@@ -119,8 +133,16 @@ func (b *AudiobookStatusApplyConfiguration) WithMetadata(value *AudiobookMetadat
 // WithPhase sets the Phase field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Phase field is set to the value of the last call.
-func (b *AudiobookStatusApplyConfiguration) WithPhase(value catalogv1alpha1.AudiobookPhase) *AudiobookStatusApplyConfiguration {
+func (b *AudiobookStatusApplyConfiguration) WithPhase(value commonv1alpha1.LeafPhase) *AudiobookStatusApplyConfiguration {
 	b.Phase = &value
+	return b
+}
+
+// WithCutoffReason sets the CutoffReason field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CutoffReason field is set to the value of the last call.
+func (b *AudiobookStatusApplyConfiguration) WithCutoffReason(value string) *AudiobookStatusApplyConfiguration {
+	b.CutoffReason = &value
 	return b
 }
 
@@ -150,11 +172,35 @@ func (b *AudiobookStatusApplyConfiguration) WithFileRefs(values ...string) *Audi
 	return b
 }
 
-// WithQuality sets the Quality field in the declarative configuration to the given value
+// WithPartCount sets the PartCount field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Quality field is set to the value of the last call.
-func (b *AudiobookStatusApplyConfiguration) WithQuality(value commonv1alpha1.Quality) *AudiobookStatusApplyConfiguration {
-	b.Quality = &value
+// If called multiple times, the PartCount field is set to the value of the last call.
+func (b *AudiobookStatusApplyConfiguration) WithPartCount(value int32) *AudiobookStatusApplyConfiguration {
+	b.PartCount = &value
+	return b
+}
+
+// WithFileQuality sets the FileQuality field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FileQuality field is set to the value of the last call.
+func (b *AudiobookStatusApplyConfiguration) WithFileQuality(value commonv1alpha1.Quality) *AudiobookStatusApplyConfiguration {
+	b.FileQuality = &value
+	return b
+}
+
+// WithFileFormatScore sets the FileFormatScore field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FileFormatScore field is set to the value of the last call.
+func (b *AudiobookStatusApplyConfiguration) WithFileFormatScore(value int32) *AudiobookStatusApplyConfiguration {
+	b.FileFormatScore = &value
+	return b
+}
+
+// WithAddOptionsApplied sets the AddOptionsApplied field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AddOptionsApplied field is set to the value of the last call.
+func (b *AudiobookStatusApplyConfiguration) WithAddOptionsApplied(value bool) *AudiobookStatusApplyConfiguration {
+	b.AddOptionsApplied = &value
 	return b
 }
 
@@ -240,6 +286,14 @@ func (b *AudiobookStatusApplyConfiguration) WithLastLiveSearchAt(value metav1.Ti
 // If called multiple times, the SearchAttempts field is set to the value of the last call.
 func (b *AudiobookStatusApplyConfiguration) WithSearchAttempts(value commonv1alpha1.Attempts) *AudiobookStatusApplyConfiguration {
 	b.SearchAttempts = &value
+	return b
+}
+
+// WithNFO sets the NFO field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NFO field is set to the value of the last call.
+func (b *AudiobookStatusApplyConfiguration) WithNFO(value *NFOStatusApplyConfiguration) *AudiobookStatusApplyConfiguration {
+	b.NFO = value
 	return b
 }
 

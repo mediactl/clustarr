@@ -57,6 +57,10 @@ type RootDefaultsApplyConfiguration struct {
 	SeasonFolder *bool `json:"seasonFolder,omitempty"`
 	// Tags are applied to every item added under this root folder.
 	Tags []string `json:"tags,omitempty"`
+	// Region is the Audible marketplace an audiobook root's Add New searches
+	// and an audiobook added under it takes (2026-11-10 design §4.8); unset
+	// reads as us. Ignored for every other kind.
+	Region *catalogv1alpha1.AudiobookRegion `json:"region,omitempty"`
 }
 
 // RootDefaultsApplyConfiguration constructs a declarative configuration of the RootDefaults type for use with
@@ -160,5 +164,13 @@ func (b *RootDefaultsApplyConfiguration) WithTags(values ...string) *RootDefault
 	for i := range values {
 		b.Tags = append(b.Tags, values[i])
 	}
+	return b
+}
+
+// WithRegion sets the Region field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Region field is set to the value of the last call.
+func (b *RootDefaultsApplyConfiguration) WithRegion(value catalogv1alpha1.AudiobookRegion) *RootDefaultsApplyConfiguration {
+	b.Region = &value
 	return b
 }

@@ -88,7 +88,7 @@ func TestAddItemBuildsEachKindsSpec(t *testing.T) {
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: "media", Name: name}, &ar))
 	require.Equal(t, "a74b1b7f-71a5-4011-9441-d0b5e4122711", ar.Spec.MusicBrainzID)
 	require.Equal(t, catalogv1.MonitorNewItemsMode("new"), ar.Spec.MonitorNewItems)
-	require.True(t, ar.Spec.AddOptions.SearchForMissing)
+	require.True(t, *ar.Spec.AddOptions.SearchForMissing)
 
 	name, _, err = actions.AddItem(ctx, c, actions.AddRequest{
 		Kind: commonv1.MediaKindAuthor, Namespace: "media", Title: "Jane Austen", ProviderID: "OL21594A",

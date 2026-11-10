@@ -19,6 +19,7 @@ package issue
 
 import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // State computes the coarse acquisition state of an Issue, the IssueState
@@ -53,19 +54,32 @@ import (
 // package computes them (archived and ignored are user actions; failed
 // belongs to a future grab-failure signal), the same "reported, not
 // invented" posture episode.Phase takes with FinaleType and SceneNumbering.
-func State(monitored, hasFile, cutoffMet, downloading, pendingGrab bool) catalogv1alpha1.IssueState {
+//
+// Since 2026-11-10 (design D4) the answer is a commonv1.LeafPhase, the one
+// vocabulary Album, Book, Audiobook and Issue share: Unmonitored for
+// skipped, Imported for downloaded at the cutoff, CutoffUnmet for
+// downloaded below it, Downloading for snatched. W1 of the design moves
+// the Issue onto rollup.LeafPhase, which adds Pending and Unavailable.
+//
+// released is whether the issue's cover (or store) date has passed; an
+// unreleased issue with no file and nothing in flight reads Unavailable,
+// the Episode's Unaired, where the retired Released condition used to say
+// it.
+func State(monitored, hasFile, cutoffMet, downloading, pendingGrab, released bool) commonv1.LeafPhase {
 	switch {
 	case !monitored:
-		return catalogv1alpha1.IssueStateSkipped
-	case hasFile && cutoffMet:
-		return catalogv1alpha1.IssueStateDownloaded
-	case pendingGrab && !downloading:
-		return catalogv1alpha1.IssueStateDelayed
-	case hasFile:
-		return catalogv1alpha1.IssueStateDownloaded
+		return catalogv1alpha1.IssuePhaseUnmonitored
 	case downloading:
-		return catalogv1alpha1.IssueStateSnatched
+		return catalogv1alpha1.IssuePhaseDownloading
+	case hasFile && cutoffMet:
+		return catalogv1alpha1.IssuePhaseImported
+	case pendingGrab:
+		return catalogv1alpha1.IssuePhaseDelayed
+	case hasFile:
+		return catalogv1alpha1.IssuePhaseCutoffUnmet
+	case !released:
+		return catalogv1alpha1.IssuePhaseUnavailable
 	default:
-		return catalogv1alpha1.IssueStateWanted
+		return catalogv1alpha1.IssuePhaseWanted
 	}
 }

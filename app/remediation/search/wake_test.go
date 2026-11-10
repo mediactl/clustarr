@@ -113,7 +113,6 @@ func TestANewlyWantedItemWakesItsOwnSearch(t *testing.T) {
 	require.NoError(t, err)
 
 	meta := func(name string) metav1.ObjectMeta { return metav1.ObjectMeta{Namespace: "media", Name: name} }
-	cutoffFalse := []metav1.Condition{{Type: catalogv1alpha1.IssueConditionCutoffMet, Status: metav1.ConditionFalse}}
 	past := metav1.NewTime(time.Now().Add(-48 * time.Hour))
 	cases := []struct {
 		kind               remediation.KeyKind
@@ -146,11 +145,11 @@ func TestANewlyWantedItemWakesItsOwnSearch(t *testing.T) {
 	}, {
 		kind: remediation.KindIssue,
 		before: &catalogv1alpha1.Issue{ObjectMeta: meta("x"), Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
-			Status: catalogv1alpha1.IssueStatus{State: catalogv1alpha1.IssueStateDownloaded}},
+			Status: catalogv1alpha1.IssueStatus{Phase: catalogv1alpha1.IssuePhaseImported}},
 		wanted: &catalogv1alpha1.Issue{ObjectMeta: meta("x"), Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
-			Status: catalogv1alpha1.IssueStatus{State: catalogv1alpha1.IssueStateDownloaded, Conditions: cutoffFalse}},
+			Status: catalogv1alpha1.IssueStatus{Phase: catalogv1alpha1.IssuePhaseCutoffUnmet}},
 		ok: &catalogv1alpha1.Issue{ObjectMeta: meta("x"), Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
-			Status: catalogv1alpha1.IssueStatus{State: catalogv1alpha1.IssueStateDownloaded, Date: &past}},
+			Status: catalogv1alpha1.IssueStatus{Phase: catalogv1alpha1.IssuePhaseImported, Date: &past}},
 	}}
 	for _, tc := range cases {
 		key := remediation.Key{Kind: tc.kind, Namespace: "media", Name: "x"}

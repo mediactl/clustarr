@@ -419,7 +419,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 		WithCutoffMet(cutoffMet).
 		WithFileRefs(fileRefs...)
 	if fileQuality != nil {
-		statusAC = statusAC.WithQuality(*fileQuality)
+		statusAC = statusAC.WithFileQuality(*fileQuality)
 	}
 	if active {
 		statusAC = statusAC.WithActiveDownloadRef(dl.ID)
@@ -522,8 +522,8 @@ func reassertKnownStatus(statusAC *catalogac.AudiobookStatusApplyConfiguration, 
 	}
 	statusAC = statusAC.WithHasFile(m.Status.HasFile)
 	statusAC = statusAC.WithFileRefs(m.Status.FileRefs...)
-	if m.Status.Quality != nil {
-		statusAC = statusAC.WithQuality(*m.Status.Quality)
+	if m.Status.FileQuality != nil {
+		statusAC = statusAC.WithFileQuality(*m.Status.FileQuality)
 	}
 	statusAC = statusAC.WithCutoffMet(m.Status.CutoffMet)
 	if m.Status.ActiveDownloadRef != nil {

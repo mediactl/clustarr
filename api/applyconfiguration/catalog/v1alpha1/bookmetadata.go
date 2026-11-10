@@ -46,6 +46,24 @@ type BookMetadataApplyConfiguration struct {
 	ExternalIDs map[string]string `json:"externalIDs,omitempty"`
 	// Images lists the cover art published by the provider.
 	Images []ImageApplyConfiguration `json:"images,omitempty"`
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion at
+	// the time the document was built; a document older than the current
+	// version is refreshed once (2026-11-10 design D8).
+	SchemaVersion *int32 `json:"schemaVersion,omitempty"`
+	// Language is the BCP-47 language the metadata was fetched in.
+	Language *string `json:"language,omitempty"`
+	// Ratings are the scores the sources report.
+	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
+	// Languages lists the BCP-47 languages the work is published in.
+	Languages []string `json:"languages,omitempty"`
+	// Subjects are the work's subject keywords.
+	Subjects []string `json:"subjects,omitempty"`
+	// PageCount is the page count of the work's representative edition.
+	PageCount *int32 `json:"pageCount,omitempty"`
+	// Publisher is the representative edition's publisher.
+	Publisher *string `json:"publisher,omitempty"`
+	// Links are the work's external pages.
+	Links []LinkApplyConfiguration `json:"links,omitempty"`
 	// RefreshedAt is when the metadata was last fetched.
 	RefreshedAt *v1.Time `json:"refreshedAt,omitempty"`
 }
@@ -147,6 +165,84 @@ func (b *BookMetadataApplyConfiguration) WithImages(values ...*ImageApplyConfigu
 			panic("nil value passed to WithImages")
 		}
 		b.Images = append(b.Images, *values[i])
+	}
+	return b
+}
+
+// WithSchemaVersion sets the SchemaVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SchemaVersion field is set to the value of the last call.
+func (b *BookMetadataApplyConfiguration) WithSchemaVersion(value int32) *BookMetadataApplyConfiguration {
+	b.SchemaVersion = &value
+	return b
+}
+
+// WithLanguage sets the Language field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Language field is set to the value of the last call.
+func (b *BookMetadataApplyConfiguration) WithLanguage(value string) *BookMetadataApplyConfiguration {
+	b.Language = &value
+	return b
+}
+
+// WithRatings adds the given value to the Ratings field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Ratings field.
+func (b *BookMetadataApplyConfiguration) WithRatings(values ...*RatingApplyConfiguration) *BookMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithRatings")
+		}
+		b.Ratings = append(b.Ratings, *values[i])
+	}
+	return b
+}
+
+// WithLanguages adds the given value to the Languages field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Languages field.
+func (b *BookMetadataApplyConfiguration) WithLanguages(values ...string) *BookMetadataApplyConfiguration {
+	for i := range values {
+		b.Languages = append(b.Languages, values[i])
+	}
+	return b
+}
+
+// WithSubjects adds the given value to the Subjects field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Subjects field.
+func (b *BookMetadataApplyConfiguration) WithSubjects(values ...string) *BookMetadataApplyConfiguration {
+	for i := range values {
+		b.Subjects = append(b.Subjects, values[i])
+	}
+	return b
+}
+
+// WithPageCount sets the PageCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PageCount field is set to the value of the last call.
+func (b *BookMetadataApplyConfiguration) WithPageCount(value int32) *BookMetadataApplyConfiguration {
+	b.PageCount = &value
+	return b
+}
+
+// WithPublisher sets the Publisher field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Publisher field is set to the value of the last call.
+func (b *BookMetadataApplyConfiguration) WithPublisher(value string) *BookMetadataApplyConfiguration {
+	b.Publisher = &value
+	return b
+}
+
+// WithLinks adds the given value to the Links field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Links field.
+func (b *BookMetadataApplyConfiguration) WithLinks(values ...*LinkApplyConfiguration) *BookMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithLinks")
+		}
+		b.Links = append(b.Links, *values[i])
 	}
 	return b
 }
