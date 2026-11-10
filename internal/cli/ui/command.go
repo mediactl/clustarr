@@ -27,7 +27,6 @@ import (
 
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/pkg/busconn"
-	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/prom"
@@ -42,27 +41,20 @@ type RunFunc func(context.Context, ui.Options) error
 func NewCommand() *cobra.Command { return NewCommandWith(ui.Run) }
 
 // buildPlexOptions builds ui.Options.Plex from --plex-provider,
-// --external-url and --plex-guids. nil (feature off) exactly when
-// --plex-provider is false; otherwise non-nil regardless of whether
-// externalURL is set, since an empty one is a legal, if currently unusable,
-// value (design spec §D.1: the roots answer 503 for it rather than the
-// flag's absence silently turning the whole feature off) -- and
+// --external-url, --plex-guids and --plex-music-provider. nil (feature off)
+// exactly when --plex-provider is false; otherwise non-nil regardless of
+// whether externalURL is set, since an empty one is a legal, if currently
+// unusable, value (design spec §D.1: the roots answer 503 for it rather
+// than the flag's absence silently turning the whole feature off) -- and
 // ui.NewServer, not this func, is what logs the "no --external-url" warning
-// once at startup.
-func buildPlexOptions(enabled bool, externalURL string, plexGUIDs bool) *ui.PlexOptions {
+// once at startup. musicProvider also serves the music and audiobook roots
+// (2026-11-10 design §7.1), off by default.
+func buildPlexOptions(enabled bool, externalURL string, plexGUIDs, musicProvider bool) *ui.PlexOptions {
 	if !enabled {
 		return nil
 	}
-	return &ui.PlexOptions{ExternalURL: externalURL, PlexGUIDs: plexGUIDs}
+	return &ui.PlexOptions{ExternalURL: externalURL, PlexGUIDs: plexGUIDs, MusicProvider: musicProvider}
 }
-
-// plexMusicProviderUnrouted is logged once at startup when
-// --plex-music-provider is set: the music roots are built (ui/plex,
-// Options.MusicProvider) but the ui's PlexOptions does not carry the flag
-// to them yet, so the roots stay unmounted whatever it says.
-const plexMusicProviderUnrouted = "--plex-music-provider is set, but the ui does not route it yet: " +
-	"the music and audiobook roots stay unmounted until ui.PlexOptions carries MusicProvider " +
-	"(2026-11-10 design §7.6: no PMS build accepts them anyway)"
 
 // NewCommandWith is `ui` with run in place of ui.Run.
 func NewCommandWith(run RunFunc) *cobra.Command {
@@ -136,13 +128,6 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if plexMusicProvider {
-			// ui.PlexOptions carries no MusicProvider yet, so the flag
-			// parses (the chart renders it) and is reported, not routed:
-			// plex.Options.MusicProvider and projection.IndexOptions.Music
-			// are wired in ui/server.go and ui/routes.go once it does.
-			logging.FromContext(ctx).Warn(plexMusicProviderUnrouted)
-		}
 		reader, waitForSync, acts := buildCluster(ctx)
 		b := buildBus(ctx, natsURL)
 		defer b.close()
@@ -167,7 +152,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			PlexExtended:         b.extended,
 			PlexExtras:           b.extras,
 			ArtSigningKey:        signingKey,
-			Plex:                 buildPlexOptions(plexProvider, externalURL, plexGUIDs),
+			Plex:                 buildPlexOptions(plexProvider, externalURL, plexGUIDs, plexMusicProvider),
 			Dashboard:            proj.Dashboard,
 			Metrics:              prom.New(metricsURL),
 			TransferProgress:     b.progress,

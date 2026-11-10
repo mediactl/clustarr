@@ -58,10 +58,18 @@ type IndexMemo struct {
 // client.UnsafeDisableDeepCopy: the Index is only ever read, so a deep copy
 // of every catalogue object per build is pure garbage. An informer-backed
 // reader (ui.NewClusterReader) honours it; a direct or fake client ignores
-// it and copies as before.
+// it and copies as before. It is [NewIndexMemoWith] with no music lookups.
 func NewIndexMemo(r client.Reader) *IndexMemo {
+	return NewIndexMemoWith(r, IndexOptions{})
+}
+
+// NewIndexMemoWith is [NewIndexMemo] with [IndexOptions]: under o.Music
+// every build also lists the Artists, Albums, Authors and Audiobooks the
+// music and audiobook roots look up (2026-11-10 design §7.5), which
+// ui.NewServer asks for under PlexOptions.MusicProvider.
+func NewIndexMemoWith(r client.Reader, o IndexOptions) *IndexMemo {
 	return NewIndexMemoFunc(func(ctx context.Context) (*Index, error) {
-		return BuildIndex(ctx, r, client.UnsafeDisableDeepCopy)
+		return BuildIndexWith(ctx, r, o, client.UnsafeDisableDeepCopy)
 	}, IndexTTL, time.Now)
 }
 

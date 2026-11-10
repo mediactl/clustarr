@@ -91,6 +91,15 @@ type PlexOptions struct {
 	// PlexGUIDs answers items Plex knows with their plex:// GUIDs
 	// (`--plex-guids`, plex.Options.PlexGUIDs).
 	PlexGUIDs bool
+
+	// MusicProvider also serves the provider's music and audiobook roots,
+	// /plex/music and /plex/audiobooks (`--plex-music-provider`,
+	// plex.Options.MusicProvider; 2026-11-10 design §7.1). The catalogue
+	// index the roots read through is then built with
+	// projection.IndexOptions.Music, so the Artist, Album, Author and
+	// Audiobook lookups exist. Off by default: PMS through 1.43.5.11079
+	// refuses a custom provider declaring types 8, 9 or 10 (§7.6).
+	MusicProvider bool
 }
 
 // plexExternalURLWarning is logged once, at startup, when the Plex provider
@@ -456,7 +465,9 @@ func NewServer(ctx context.Context, opts Options) *Server {
 		logging.FromContext(ctx).Warn(artSigningKeyWarning)
 	}
 	s := &Server{
-		opts: opts, plexIndex: projection.NewIndexMemo(opts.Reader), searchArt: newSearchArt(opts.ArtSigningKey),
+		opts:             opts,
+		plexIndex:        projection.NewIndexMemoWith(opts.Reader, projection.IndexOptions{Music: opts.Plex != nil && opts.Plex.MusicProvider}),
+		searchArt:        newSearchArt(opts.ArtSigningKey),
 		addSearchTimeout: defaultAddSearchTimeout, artCache: newArtCache(opts.ArtCacheBytes),
 		liveTV: newLiveTVStore(opts.LiveTV), now: time.Now,
 	}
