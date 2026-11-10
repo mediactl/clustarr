@@ -35,6 +35,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // DispatchPublish of the SearchTask v2, a DispatchAnswered on
 // incorporation, and its Due.
 //
+// An item added with searchForMissing false (2026-11-10 design D10, D11;
+// addedUnsearched) -- a Movie's searchForMovie or an Audiobook's own flag,
+// a Series', Comic's, Artist's or Author's for a child that was already out
+// when the container was created, read whatever addOptionsApplied says --
+// is searchplan.View.NoSearchOnAdd: its first automatic search asks the
+// release index alone, and the season and volume facts count it toward no
+// pack query (SeasonFacts.FirstSearch), so the automatic pack search is not
+// asked for it and it does not wait for one. A child released after its
+// container was added is new and searches as any item does, so a series
+// the rescan added with the flag off still searches every episode that
+// airs from then on live.
+//
 // Its sources are S29 (clustarr-searches): a record wakes its item and its
 // container; and S32: an item's own status write that moves its sweep
 // reason or its donor want wakes it at low priority, since this stage runs

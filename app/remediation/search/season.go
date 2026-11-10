@@ -423,7 +423,11 @@ func (s *Stage) seasonFacts(ctx context.Context, ser *catalogv1alpha1.Series, v 
 		if _, granted := s.o.Backlog.Granted(string(ep.UID), now); !live && granted {
 			f.BacklogDue++
 		}
-		if ep.Status.SearchAttempts.Count == 0 && ep.Status.SearchAttempts.Latest == nil && ep.Status.LastSearchedAt == nil {
+		// An episode added unsearched asks the release index alone and
+		// waits for no pack query (searchplan.View.NoSearchOnAdd), so it
+		// asks for none.
+		if ep.Status.SearchAttempts.Count == 0 && ep.Status.SearchAttempts.Latest == nil && ep.Status.LastSearchedAt == nil &&
+			!addedUnsearchedUnder(ep, ser) {
 			f.FirstSearch++
 		}
 	}
@@ -475,7 +479,8 @@ func (s *Stage) volumeFacts(ctx context.Context, co *catalogv1alpha1.Comic, v *r
 		if holding {
 			f.Downloading++
 		}
-		if iss.Status.SearchAttempts.Count == 0 && iss.Status.SearchAttempts.Latest == nil && iss.Status.LastSearchedAt == nil {
+		if iss.Status.SearchAttempts.Count == 0 && iss.Status.SearchAttempts.Latest == nil && iss.Status.LastSearchedAt == nil &&
+			!addedUnsearchedUnder(iss, co) {
 			f.FirstSearch++
 		}
 	}

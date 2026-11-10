@@ -269,6 +269,14 @@ func (s *Stage) gather(ctx context.Context, item client.Object, v *remediation.I
 			sv.Container = &oref
 		}
 	}
+	if owner != nil {
+		// Added with searchForMissing false (design D10, D11): its first
+		// automatic search asks the release index alone, and it waits for
+		// no automatic pack search of its season or volume.
+		if sv.NoSearchOnAdd, err = addedUnsearched(ctx, r, item, owner); err != nil {
+			return sv, err
+		}
+	}
 	cfg, err := itemread.ConfigOf(ctx, r, item)
 	if err != nil {
 		return sv, err

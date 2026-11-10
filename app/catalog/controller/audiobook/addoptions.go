@@ -36,14 +36,19 @@ import (
 // to be searched on add. It is read as the Movie and the Series read
 // theirs, which is as the search planner does: a monitored audiobook never
 // searched gets its one live search once its metadata is in, so an added
-// audiobook is searched without this package asking for it; nothing reads
-// a false yet (SearchOnAdd is what a reader would consult).
+// audiobook is searched without this package asking for it, and the search
+// stage reads a false through SearchOnAdd (app/remediation/search's
+// addedUnsearched, searchplan.View.NoSearchOnAdd): the never-searched
+// audiobook's first automatic search then asks the release index alone.
 func ApplyAddOptions(statusAC *catalogac.AudiobookStatusApplyConfiguration, _ *catalogv1alpha1.Audiobook) *catalogac.AudiobookStatusApplyConfiguration {
 	return statusAC.WithAddOptionsApplied(true)
 }
 
-// SearchOnAdd reports whether this pass adds m with a search wanted: its
-// add options not yet applied, and searchForMissing not turned off.
+// SearchOnAdd reports whether m was added with a search wanted:
+// searchForMissing not turned off. It is the search stage's reading of the
+// flag, so it says nothing of addOptionsApplied: the flag governs the
+// audiobook's first automatic search, whenever that is due, not the pass
+// that records the options as applied.
 func SearchOnAdd(m *catalogv1alpha1.Audiobook) bool {
-	return !m.Status.AddOptionsApplied && ptr.Deref(m.Spec.AddOptions.SearchForMissing, true)
+	return ptr.Deref(m.Spec.AddOptions.SearchForMissing, true)
 }

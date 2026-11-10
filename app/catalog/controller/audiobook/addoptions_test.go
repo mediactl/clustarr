@@ -43,7 +43,10 @@ func TestApplyAddOptionsRecordsTheFlagOnEveryPass(t *testing.T) {
 	}
 }
 
-// SearchOnAdd: the first pass, with searchForMissing on (its default).
+// SearchOnAdd: searchForMissing on (its default) or off, whatever
+// addOptionsApplied says -- the search stage reads it for the audiobook's
+// first automatic search, which may come passes after the options were
+// recorded as applied.
 func TestSearchOnAdd(t *testing.T) {
 	assert.True(t, audiobook.SearchOnAdd(&catalogv1alpha1.Audiobook{}), "the default is to search on add")
 	assert.True(t, audiobook.SearchOnAdd(&catalogv1alpha1.Audiobook{
@@ -53,6 +56,7 @@ func TestSearchOnAdd(t *testing.T) {
 		Spec: catalogv1alpha1.AudiobookSpec{AddOptions: catalogv1alpha1.AudiobookAddOptions{SearchForMissing: ptr.To(false)}},
 	}), "turned off")
 	assert.False(t, audiobook.SearchOnAdd(&catalogv1alpha1.Audiobook{
+		Spec:   catalogv1alpha1.AudiobookSpec{AddOptions: catalogv1alpha1.AudiobookAddOptions{SearchForMissing: ptr.To(false)}},
 		Status: catalogv1alpha1.AudiobookStatus{AddOptionsApplied: true},
-	}), "applied already")
+	}), "still off once the options are recorded as applied")
 }
