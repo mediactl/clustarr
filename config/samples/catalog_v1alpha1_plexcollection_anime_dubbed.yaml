@@ -1,0 +1,24 @@
+# A smart Plex collection: TV shows with an English audio track and the
+# genre Anime (docs/superpowers/specs/2026-11-10-plex-collections-design.md).
+#
+# cluster-plex reconciles it into Plex on its lease holder and writes its
+# status and finalizer: it adopts a person-made collection of this title
+# and item type in the library, else creates one. Tag values are names,
+# resolved to this server's ids; the filter compiles to the one Plex Web
+# stored on talos, type=2&sort=titleSort&episode.audioLanguage=en&and=1&show.genre=<Anime>.
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: PlexCollection
+metadata:
+  name: anime-dubbed
+  namespace: clustarr-system
+spec:
+  library: Clustarr TV
+  title: Anime Dubbed
+  itemType: show
+  filter:
+    match: all
+    rules:
+      - {field: episode.audioLanguage, operator: is, value: en}
+      - {field: show.genre, operator: is, value: Anime}
+  sort:
+    field: titleSort

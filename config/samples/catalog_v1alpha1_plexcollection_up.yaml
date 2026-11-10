@@ -1,0 +1,20 @@
+# A smart Plex collection with a group: Seven Up!, or a documentary whose
+# title contains "Up" -- the Up series of films. A rule is a condition or
+# a group of conditions, one level deep.
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: PlexCollection
+metadata:
+  name: up
+  namespace: clustarr-system
+spec:
+  library: Clustarr Movies
+  title: UP
+  itemType: movie
+  filter:
+    match: any
+    rules:
+      - {field: title, operator: is, value: Seven Up!}
+      - match: all
+        rules:
+          - {field: genre, operator: is, value: Documentary}
+          - {field: title, operator: contains, value: Up}

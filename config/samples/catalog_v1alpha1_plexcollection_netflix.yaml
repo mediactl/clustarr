@@ -1,0 +1,15 @@
+# A smart Plex collection of the shows whose network is Netflix. With no
+# sort stated, the one the collection holds in Plex is kept.
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: PlexCollection
+metadata:
+  name: netflix
+  namespace: clustarr-system
+spec:
+  library: Clustarr TV
+  title: Netflix
+  itemType: show
+  filter:
+    match: all
+    rules:
+      - {field: show.network, operator: is, value: Netflix}
