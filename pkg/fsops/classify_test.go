@@ -179,7 +179,7 @@ func TestClassifyRecognisesEveryKindsExtensions(t *testing.T) {
 			"01 - Airbag.wav", "01 - Airbag.wma",
 		}},
 		fsops.KindAudiobook: {8 * mib, []string{"Book.m4b", "Book 01.mp3", "Book.flac", "Book.m4a"}},
-		fsops.KindBook:      {mib, []string{"Book.epub", "Book.mobi", "Book.azw", "Book.azw3", "Book.pdf"}},
+		fsops.KindBook:      {mib, []string{"Book.epub", "Book.mobi", "Book.azw", "Book.azw3", "Book.pdf", "Book.fb2", "Book.DJVU"}},
 		fsops.KindComic:     {8 * mib, []string{"Saga 001.cbz", "Saga 001.cbr", "Saga 001.cb7", "Saga 001.cbt", "Saga 001.pdf"}},
 	}
 	for kind, tc := range cases {
@@ -194,6 +194,8 @@ func TestClassifyKeepsEachKindToItsOwnExtensions(t *testing.T) {
 	assert.Equal(t, fsops.ClassOther, classifier(fsops.KindVideo).Classify("/lib/01.flac", 2*gib))
 	assert.Equal(t, fsops.ClassOther, classifier(fsops.KindMusic).Classify("/lib/Movie.mp4", 2*gib))
 	assert.Equal(t, fsops.ClassOther, classifier(fsops.KindBook).Classify("/lib/01.flac", mib))
+	assert.Equal(t, fsops.ClassOther, classifier(fsops.KindBook).Classify("/lib/Book.txt", mib), "a text file beside a book is not one")
+	assert.Equal(t, fsops.ClassOther, classifier(fsops.KindComic).Classify("/lib/Book.fb2", mib), "an ebook format is a book's, not a comic's")
 	assert.Equal(t, fsops.ClassOther, classifier(fsops.KindMusic).Classify("/lib/cover.jpg", mib))
 	assert.Equal(t, fsops.ClassOther, classifier(fsops.Kind("series")).Classify("/lib/Show.mkv", 2*gib), "an unknown kind has no media extensions")
 }

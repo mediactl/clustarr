@@ -98,12 +98,22 @@ type nonVideoPlan struct {
 // (app/catalog/controller/mediafile.namingOwnerOf, through
 // pkg/naming/catalogctx), held as two closures over the resolved objects:
 // identity is the item's naming context for one file -- an Album's for the
-// attributed track, an Audiobook's for the part index, a Book's or an
-// Issue's for the item alone -- false while the metadata the preset names
-// has not arrived; render is the kind's *FilePath under root.
+// attributed track, an Audiobook's for the part's place among the import's
+// parts, a Book's or an Issue's for the item alone -- false while the
+// metadata the preset names has not arrived; render is the kind's *FilePath
+// under root.
 type nonVideoNaming struct {
-	identity func(track *catalogv1alpha1.Track, partIndex int32) (naming.Context, bool)
+	identity func(track *catalogv1alpha1.Track, part audiobookPart) (naming.Context, bool)
 	render   func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error)
+}
+
+// audiobookPart is an audiobook file's place among the import's parts
+// (catalogctx.PartNumbers over the files' frozen partIndex): its number in
+// play order, 0 for a lone file, and their count -- what {PartNumber} and
+// {PartCount} render. The zero value for every other kind.
+type audiobookPart struct {
+	number int32
+	count  int
 }
 
 // resolved is what one kind's resolver read: the refs the import inherits,
@@ -202,7 +212,10 @@ func (w *Worker) resolveNonVideo(ctx context.Context, ns string, target importta
 // reads as Stale and proposes the canonical path for on its first pass, as
 // it did for every such file until now. The fallback's sanitising is the
 // one the import always applied to that name.
-func (p nonVideoPlan) dest(ctx context.Context, f *schema.InspectedFile, rel, releaseTitle string) string {
+//
+// part is an audiobook file's place among the import's parts (placeParts),
+// the zero value for every other kind.
+func (p nonVideoPlan) dest(ctx context.Context, f *schema.InspectedFile, rel, releaseTitle string, part audiobookPart) string {
 	fallback := naming.SanitizePath(filepath.Join(p.folder, p.fileName(rel)), naming.DefaultSanitizeOptions())
 	if p.naming.identity == nil || p.naming.render == nil {
 		return fallback
@@ -215,7 +228,7 @@ func (p nonVideoPlan) dest(ctx context.Context, f *schema.InspectedFile, rel, re
 		}
 		track = &p.tracks[i]
 	}
-	c, ok := p.naming.identity(track, f.Frozen.PartIndex)
+	c, ok := p.naming.identity(track, part)
 	if !ok {
 		return fallback
 	}
@@ -228,6 +241,35 @@ func (p nonVideoPlan) dest(ctx context.Context, f *schema.InspectedFile, rel, re
 		return fallback
 	}
 	return dest
+}
+
+// placeParts renders the destination of each of an audiobook import's
+// parts once the walk has found them all (2026-11-10 design D7, D11; C5):
+// {PartNumber} is a file's place among the import's parts in play order --
+// catalogctx.PartNumbers over their frozen partIndex (the ordering key the
+// execute carries onto spec.partIndex) and their source paths -- and
+// {PartCount} their number, as the remediation loop's naming planner numbers
+// the Audiobook's MediaFiles, so a two-disc set imports as parts 01..n, not
+// as "(1003)", and a lone part carries no number. files is the inspect's own
+// slice; a file the walk could not read, or a sample, is no part and keeps
+// no destination.
+func (p nonVideoPlan) placeParts(ctx context.Context, files []schema.InspectedFile, root, releaseTitle string) {
+	var (
+		parts []catalogctx.Part
+		at    []int
+	)
+	for i := range files {
+		if files[i].Proposed == nil || len(files[i].Rejections) > 0 {
+			continue
+		}
+		parts = append(parts, catalogctx.Part{Index: files[i].Frozen.PartIndex, Path: files[i].Path})
+		at = append(at, i)
+	}
+	numbers := catalogctx.PartNumbers(parts)
+	for n, i := range at {
+		f := &files[i]
+		f.Dest = p.dest(ctx, f, relPath(root, f.Path), releaseTitle, audiobookPart{number: numbers[n], count: len(parts)})
+	}
 }
 
 // keepOwnNamesOnCollision gives back their fallback names to the files of
@@ -306,7 +348,7 @@ func (w *Worker) resolveAlbum(ctx context.Context, ns, name string) (resolved, e
 	r.rootRef = artist.Spec.RootFolderRef
 	r.profileRef = ptr.Deref(album.Spec.QualityProfileRef, artist.Spec.QualityProfileRef)
 	r.naming = nonVideoNaming{
-		identity: func(track *catalogv1alpha1.Track, _ int32) (naming.Context, bool) {
+		identity: func(track *catalogv1alpha1.Track, _ audiobookPart) (naming.Context, bool) {
 			return catalogctx.Album(&artist, &album, track)
 		},
 		render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
@@ -391,7 +433,9 @@ func (w *Worker) resolveBook(ctx context.Context, ns, name string) (resolved, er
 		rootRef:    ptr.Deref(book.Spec.RootFolderRef, ""),
 		profileRef: ptr.Deref(book.Spec.QualityProfileRef, ""),
 		naming: nonVideoNaming{
-			identity: func(*catalogv1alpha1.Track, int32) (naming.Context, bool) { return catalogctx.Book(author, &book) },
+			identity: func(*catalogv1alpha1.Track, audiobookPart) (naming.Context, bool) {
+				return catalogctx.Book(author, &book)
+			},
 			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
 				return catalogctx.BookFilePath(root, author, c, ext)
 			},
@@ -460,8 +504,9 @@ func withExt(base string) func(string) string {
 // resolveAudiobook mirrors the Audiobook controller's path rule
 // (app/catalog/controller/audiobook.Path): status.path when resolved, else
 // spec.folder, else the audiobook preset over the same naming context. A
-// part's canonical name is the audiobook file preset's with its partIndex
-// (catalogctx.AudiobookFilePath); its fallback keeps its relative path.
+// part's canonical name is the audiobook file preset's with the part's
+// number among the import's parts (placeParts, catalogctx.AudiobookFilePath);
+// its fallback keeps its relative path.
 func (w *Worker) resolveAudiobook(ctx context.Context, ns, name string) (resolved, error) {
 	var ab catalogv1alpha1.Audiobook
 	if err := w.getItem(ctx, ns, "audiobook", name, &ab); err != nil {
@@ -471,10 +516,12 @@ func (w *Worker) resolveAudiobook(ctx context.Context, ns, name string) (resolve
 		rootRef: ab.Spec.RootFolderRef, profileRef: ab.Spec.QualityProfileRef, fileName: keepRelative,
 		naming: nonVideoNaming{
 			// The loop's context counts the Audiobook's status.partCount,
-			// which a fresh import's files have yet to make; no preset
-			// names {PartCount}, and the import leaves it 0.
-			identity: func(_ *catalogv1alpha1.Track, partIndex int32) (naming.Context, bool) {
-				return catalogctx.Audiobook(&ab, partIndex)
+			// which a fresh import's files have yet to make; the import
+			// counts its own parts (placeParts).
+			identity: func(_ *catalogv1alpha1.Track, part audiobookPart) (naming.Context, bool) {
+				c, ok := catalogctx.Audiobook(&ab, part.number)
+				c.PartCount = part.count
+				return c, ok
 			},
 			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
 				return catalogctx.AudiobookFilePath(root, &ab, c, ext)
@@ -559,7 +606,9 @@ func (w *Worker) resolveIssue(ctx context.Context, ns string, target importtarge
 	r := resolved{
 		rootRef: comic.Spec.RootFolderRef, profileRef: comic.Spec.QualityProfileRef,
 		naming: nonVideoNaming{
-			identity: func(*catalogv1alpha1.Track, int32) (naming.Context, bool) { return catalogctx.Issue(&comic, &issue) },
+			identity: func(*catalogv1alpha1.Track, audiobookPart) (naming.Context, bool) {
+				return catalogctx.Issue(&comic, &issue)
+			},
 			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
 				return catalogctx.IssueFilePath(root, &comic, c, ext)
 			},

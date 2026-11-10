@@ -266,3 +266,39 @@ func TestSpecialVersionLabel(t *testing.T) {
 	assert.Equal(t, "Hard Cover", catalogctx.SpecialVersionLabel(catalogv1alpha1.ComicSpecialVersionHardCover))
 	assert.Equal(t, "Omnibus", catalogctx.SpecialVersionLabel(catalogv1alpha1.ComicSpecialVersionOmnibus))
 }
+
+// TestPartNumbers is the numbering {PartNumber} renders (2026-11-10 design
+// D7, D11): an audiobook's parts in play order -- a two-disc set's tagged
+// keys (disc*1000+track) come out 1..n, never as the keys themselves; the
+// name's part numbers sort among them; an unnumbered part comes after every
+// numbered one, ties by path -- and a lone part is numbered 0, so a one-file
+// audiobook carries no part.
+func TestPartNumbers(t *testing.T) {
+	twoDiscs := []catalogctx.Part{
+		{Index: 2001, Path: "/dl/CD2/Chapter 05.mp3"},
+		{Index: 1001, Path: "/dl/CD1/Chapter 01.mp3"},
+		{Index: 1003, Path: "/dl/CD1/Chapter 03.mp3"},
+		{Index: 1002, Path: "/dl/CD1/Chapter 02.mp3"},
+	}
+	assert.Equal(t, []int32{4, 1, 3, 2}, catalogctx.PartNumbers(twoDiscs), "disc 2 track 1 is the fourth part, not part 2001")
+
+	mixed := []catalogctx.Part{
+		{Index: 0, Path: "/dl/zz unnumbered.mp3"},
+		{Index: 7, Path: "/dl/Book - Part 07.mp3"},
+		{Index: 0, Path: "/dl/aa unnumbered.mp3"},
+		{Index: 1003, Path: "/dl/tagged.mp3"},
+		{Index: 7, Path: "/dl/Book - Part 07 (copy).mp3"},
+	}
+	assert.Equal(t, []int32{5, 2, 4, 3, 1}, catalogctx.PartNumbers(mixed),
+		"numbered parts first by index, a tie by path (a space sorts before a dot), the unnumbered after them by path")
+
+	assert.Equal(t, []int32{0}, catalogctx.PartNumbers([]catalogctx.Part{{Index: 1003, Path: "/dl/only.m4b"}}), "a lone part has no number")
+	assert.Empty(t, catalogctx.PartNumbers(nil))
+
+	c, ok := catalogctx.Audiobook(&catalogv1alpha1.Audiobook{
+		Status: catalogv1alpha1.AudiobookStatus{PartCount: 4, Metadata: &catalogv1alpha1.AudiobookMetadata{Title: "Guards! Guards!"}},
+	}, 3)
+	require.True(t, ok)
+	assert.Equal(t, 3, c.PartNumber, "the number is what the caller numbered, never a partIndex")
+	assert.Equal(t, 4, c.PartCount)
+}

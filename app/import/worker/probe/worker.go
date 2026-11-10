@@ -141,8 +141,8 @@ func (w *Worker) probe(ctx context.Context, t schema.ProbeTask) (schema.ProbeRec
 
 	// A comic archive or a PDF is no media file FFmpeg opens: its probe is
 	// its page count, by listing alone (2026-11-10 design D9). An ebook
-	// FFmpeg cannot read either (.epub, .mobi, .azw, .azw3, the book
-	// extensions pkg/fsops classifies) is its container alone -- no stream,
+	// FFmpeg cannot read either (.epub, .mobi, .azw, .azw3, .fb2, .djvu: the
+	// book extensions pkg/fsops classifies) is its container alone -- no stream,
 	// and no page count, since an EPUB is not parsed (design §6; the plan's
 	// W3.1 leftover): until then the probe fell to FFmpeg and failed, which
 	// held every such Book at ProbePending and its file unnamed.
@@ -179,7 +179,7 @@ func (w *Worker) probe(ctx context.Context, t schema.ProbeTask) (schema.ProbeRec
 }
 
 // isEbook reports whether path carries a book extension (fsops's book
-// kind: .epub, .mobi, .azw, .azw3 and .pdf). A PDF's page count is read
+// kind: .epub, .mobi, .azw, .azw3, .fb2, .djvu and .pdf). A PDF's page count is read
 // before this is asked, so here it only keeps a PDF the counter could not
 // open from falling to FFmpeg.
 func isEbook(path string) bool {

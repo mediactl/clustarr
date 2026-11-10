@@ -300,14 +300,15 @@ func TestAnAudiobookDownloadFreezesEachPartsIndex(t *testing.T) {
 
 	r := newNonVideoRun(t, w, c, owner, commonv1.MediaKindAudiobook, qp, "Ursula K. Le Guin - The Left Hand of Darkness", filepath.Join(downloads, "parts"), now)
 	tagged, named, bare := "tagged.mp3", "The Left Hand of Darkness - Part 07.mp3", "The Left Hand of Darkness.mp3"
-	// Each part is placed at the audiobook file preset's name for its part
-	// index (design D7), as the loop's naming planner would name it: the
-	// tags' disc-and-track key as it is (the preset has no medium token),
-	// the name's part number zero-padded, and no part for index 0.
+	// Each part is placed at the audiobook file preset's name for its place
+	// among the import's parts in play order (design D7; placeParts), as the
+	// loop's naming planner numbers the Audiobook's files: the name's part 7
+	// sorts before the tags' disc 1 track 3 (key 1003), and the unnumbered
+	// file comes last -- so parts 01, 02 and 03, never "(1003)".
 	placed := map[string]string{
-		tagged: "The Left Hand of Darkness (1003).mp3",
-		named:  "The Left Hand of Darkness (07).mp3",
-		bare:   "The Left Hand of Darkness.mp3",
+		named:  "The Left Hand of Darkness (01).mp3",
+		tagged: "The Left Hand of Darkness (02).mp3",
+		bare:   "The Left Hand of Darkness (03).mp3",
 	}
 	files := r.inspected(t, tagged, named, bare)
 	for rel, f := range files {
@@ -334,5 +335,78 @@ func TestAnAudiobookDownloadFreezesEachPartsIndex(t *testing.T) {
 		}
 	}
 	assert.Equal(t, map[string]int32{placed[tagged]: 1003, placed[named]: 7, placed[bare]: 0}, parts)
+	assert.Empty(t, writes(), "the import agent asked for Kubernetes writes")
+}
+
+// A two-disc audiobook download's parts are placed by their place among
+// the import's parts (2026-11-10 design D7, D11; C5): the tags' disc and
+// track freeze as the ordering key (disc*1000+track) and the files import
+// as parts 01..04 of 4, never as "(1003)" or "(2001)"; a download of one
+// part carries no number at all.
+func TestATwoDiscAudiobookImportsAsNumberedParts(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	library, downloads := filepath.Join(dir, "media", "audiobooks"), filepath.Join(dir, "downloads")
+	require.NoError(t, os.MkdirAll(library, 0o755))
+	now := time.Date(2026, 11, 10, 15, 0, 0, 0, time.UTC)
+
+	qp := nonVideoProfile("audiobook", catalogv1alpha1.ProfileMediaKindAudiobook, "MP3",
+		catalogv1alpha1.Tier{Name: "M4B", Qualities: []string{"M4B"}}, catalogv1alpha1.Tier{Name: "MP3", Qualities: []string{"MP3"}})
+	rf := &catalogv1alpha1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: "audiobooks", Namespace: "media"},
+		Spec:       catalogv1alpha1.RootFolderSpec{Path: library, Kind: catalogv1alpha1.RootFolderKindAudiobook},
+	}
+	ab := &catalogv1alpha1.Audiobook{
+		ObjectMeta: metav1.ObjectMeta{Name: "guards-guards", Namespace: "media", UID: "guards-uid"},
+		Spec:       catalogv1alpha1.AudiobookSpec{ASIN: "B0000GUARD", QualityProfileRef: qp.Name, RootFolderRef: rf.Name},
+		Status: catalogv1alpha1.AudiobookStatus{
+			Metadata: &catalogv1alpha1.AudiobookMetadata{Title: "Guards! Guards!", Authors: []catalogv1alpha1.NamedRef{{Name: "Terry Pratchett"}}},
+			Path:     filepath.Join(library, "Terry Pratchett", "Guards! Guards!"),
+		},
+	}
+	c, writes := readOnlyClient(t, qp, rf, ab)
+	bus := newBus(t, ctx)
+	part := func(disc, track int32) mediainfo.AudioProbe {
+		return mediainfo.AudioProbe{Codec: "mp3", BitrateKbps: 64, DurationMs: 3_600_000, Tags: &commonv1.MediaTags{
+			Album: "Guards! Guards!", DiscNumber: disc, DiscTotal: 2, TrackNumber: track,
+		}}
+	}
+	prober := tagProber{"Chapter 01.mp3": part(1, 1), "Chapter 02.mp3": part(1, 2), "Chapter 03.mp3": part(2, 1), "Chapter 04.mp3": part(2, 2), "whole.m4b": part(1, 3)}
+	w := fileimport.NewWorker(c, bus, prober)
+	w.Clock = func() time.Time { return now }
+	owner := schema.ItemRef{Kind: "Audiobook", Ref: schema.Ref{Namespace: "media", Name: ab.Name, UID: string(ab.UID)}}
+
+	t.Run("two discs", func(t *testing.T) {
+		r := newNonVideoRun(t, w, c, owner, commonv1.MediaKindAudiobook, qp, "Terry Pratchett - Guards Guards", filepath.Join(downloads, "two-discs"), now)
+		d1c1, d1c2, d2c1, d2c2 := filepath.Join("CD1", "Chapter 01.mp3"), filepath.Join("CD1", "Chapter 02.mp3"), filepath.Join("CD2", "Chapter 03.mp3"), filepath.Join("CD2", "Chapter 04.mp3")
+		files := r.inspected(t, d2c2, d1c1, d2c1, d1c2) // planted out of order; the numbering is the keys'
+		keys := map[string]int32{d1c1: 1001, d1c2: 1002, d2c1: 2001, d2c2: 2002}
+		placed := map[string]string{d1c1: "Guards! Guards! (01).mp3", d1c2: "Guards! Guards! (02).mp3", d2c1: "Guards! Guards! (03).mp3", d2c2: "Guards! Guards! (04).mp3"}
+		for rel, f := range files {
+			assert.Empty(t, f.Rejections, rel)
+			assert.Equal(t, keys[rel], f.Frozen.PartIndex, "%s: the tags' disc and track are the ordering key", rel)
+			assert.Equal(t, filepath.Join(ab.Status.Path, placed[rel]), f.Dest, "%s: placed by its place among the four parts", rel)
+		}
+		r.decide()
+		require.Len(t, r.executeTask().Plan.Moves, 4)
+		r.deliver()
+		dec := r.decide()
+		assert.Equal(t, lifecycle.ImportImported, dec.Verdict, "%+v", dec.Summary)
+		parts := map[string]int32{}
+		for _, m := range dec.Materialise {
+			if m.Apply != nil {
+				parts[filepath.Base(m.Apply.Path)] = m.Apply.Frozen.PartIndex
+			}
+		}
+		assert.Equal(t, map[string]int32{placed[d1c1]: 1001, placed[d1c2]: 1002, placed[d2c1]: 2001, placed[d2c2]: 2002}, parts,
+			"spec.partIndex keeps the ordering key; the name carries the number")
+	})
+
+	t.Run("one part", func(t *testing.T) {
+		r := newNonVideoRun(t, w, c, owner, commonv1.MediaKindAudiobook, qp, "Terry Pratchett - Guards Guards", filepath.Join(downloads, "whole"), now)
+		files := r.inspected(t, "whole.m4b")
+		assert.EqualValues(t, 1003, files["whole.m4b"].Frozen.PartIndex)
+		assert.Equal(t, filepath.Join(ab.Status.Path, "Guards! Guards!.m4b"), files["whole.m4b"].Dest, "a lone part carries no number")
+	})
 	assert.Empty(t, writes(), "the import agent asked for Kubernetes writes")
 }

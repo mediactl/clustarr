@@ -18,9 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package catalogctx
 
 import (
+	"cmp"
 	"fmt"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -86,12 +88,61 @@ func Book(author *catalogv1alpha1.Author, book *catalogv1alpha1.Book) (naming.Co
 	return c, true
 }
 
-// Audiobook is the naming context of one part of ab: partIndex is the
-// file's spec.partIndex (0 for a one-file audiobook), and the count is the
-// Audiobook's status.partCount. ok is false until the title has arrived.
-// Authors and narrators each collapse onto one token, comma-joined, as the
-// Audiobook controller's own folder context does.
-func Audiobook(ab *catalogv1alpha1.Audiobook, partIndex int32) (naming.Context, bool) {
+// Part is one of an audiobook's files as PartNumbers orders them: Index is
+// its spec.partIndex, the ordering key the import records -- the tags' disc
+// and track as disc*1000+track, else the name's part number, else 0
+// (app/import/worker/fileimport.PartIndexOf) -- and Path the tie-break.
+type Part struct {
+	Index int32
+	Path  string
+}
+
+// PartNumbers numbers parts in play order -- the Audiobook controller's
+// OrderParts rule: the numbered parts by Index, then the unnumbered, ties by
+// Path -- and returns each part's number aligned with parts, 1..n: what
+// {PartNumber} renders (2026-11-10 design D7, D11). A lone part is numbered
+// 0, so the preset's optional token drops and a one-file audiobook carries
+// no part. The import numbers its own files and the remediation loop's
+// naming planner the Audiobook's MediaFiles, so both render one path; a
+// part's spec.partIndex itself is never rendered (disc 1 track 3 is the
+// third part, not part 1003).
+func PartNumbers(parts []Part) []int32 {
+	numbers := make([]int32, len(parts))
+	if len(parts) < 2 {
+		return numbers
+	}
+	order := make([]int, len(parts))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(a, b int) int {
+		pa, pb := parts[a], parts[b]
+		switch {
+		case pa.Index > 0 && pb.Index > 0 && pa.Index != pb.Index:
+			return cmp.Compare(pa.Index, pb.Index)
+		case (pa.Index > 0) != (pb.Index > 0):
+			if pa.Index > 0 {
+				return -1
+			}
+			return 1
+		}
+		return cmp.Compare(pa.Path, pb.Path)
+	})
+	for n, i := range order {
+		numbers[i] = int32(n + 1) //nolint:gosec // bounded by an audiobook's files, far under int32
+	}
+	return numbers
+}
+
+// Audiobook is the naming context of one part of ab: number is the part's
+// place among the Audiobook's parts in play order, 1..n, and 0 for a
+// one-file audiobook (PartNumbers) -- what {PartNumber} renders, never the
+// part's spec.partIndex, which is the ordering key. PartCount is the
+// Audiobook's status.partCount, the parts it counts on disk; the import,
+// whose files it has yet to count, sets its own. ok is false until the
+// title has arrived. Authors and narrators each collapse onto one token,
+// comma-joined, as the Audiobook controller's own folder context does.
+func Audiobook(ab *catalogv1alpha1.Audiobook, number int32) (naming.Context, bool) {
 	meta := ab.Status.Metadata
 	if meta == nil || meta.Title == "" {
 		return naming.Context{}, false
@@ -106,7 +157,7 @@ func Audiobook(ab *catalogv1alpha1.Audiobook, partIndex int32) (naming.Context, 
 		AuthorName: strings.Join(names, ", "),
 		Narrator:   strings.Join(meta.Narrators, ", "),
 		Year:       ReleaseYear(meta.ReleaseDate),
-		PartNumber: int(partIndex),
+		PartNumber: int(number),
 		PartCount:  int(ab.Status.PartCount),
 	}
 	if meta.Series != nil {

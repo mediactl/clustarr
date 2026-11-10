@@ -34,6 +34,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/app/import/mediafilespec"
+	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/release"
 )
@@ -49,6 +50,12 @@ type manualAssign struct {
 	// QualityProfile and original language of the Movie, or of the
 	// Episode's Series; nil for any other kind.
 	video *MovieCandidate
+
+	// album is an album target's selected release's listing and disc
+	// count, the tracks an assigned file is attributed to
+	// (fileimport.AttributeTrack, 2026-11-10 design D6); nil for any other
+	// kind.
+	album *AlbumCandidate
 }
 
 // errScanRefused marks a LibraryScan the worker will not walk as asked: a
@@ -84,7 +91,8 @@ func (w *Worker) resolveManualAssign(
 			importtarget.AnnotationImportTarget, raw, root.Name, root.Spec.Kind)
 	}
 
-	itemRoot, video, err := w.itemRootFolder(ctx, scan.Namespace, t)
+	m := &manualAssign{target: t, ref: ref}
+	itemRoot, err := w.itemRootFolder(ctx, scan.Namespace, t, m)
 	if err != nil {
 		return nil, err
 	}
@@ -92,31 +100,33 @@ func (w *Worker) resolveManualAssign(
 		return nil, refuse("%s %q names an item stored under root folder %q, not %q",
 			importtarget.AnnotationImportTarget, raw, itemRoot, root.Name)
 	}
-	return &manualAssign{target: t, ref: ref, video: video}, nil
+	return m, nil
 }
 
 // itemRootFolder reads the target and whatever parent names its root folder,
-// and, for a movie or an episode, the scoring context a file assigned to it
-// freezes. A NotFound anywhere refuses the scan; any other read error is
-// transient.
-func (w *Worker) itemRootFolder(ctx context.Context, ns string, t importtarget.ImportTarget) (string, *MovieCandidate, error) {
+// and records on m what a file assigned to it is attributed by: for a movie
+// or an episode the scoring context it freezes, for an album its tracks. A
+// NotFound anywhere refuses the scan; any other read error is transient.
+func (w *Worker) itemRootFolder(ctx context.Context, ns string, t importtarget.ImportTarget, m *manualAssign) (string, error) {
 	if ref := t.FileRef(); ref.Kind == commonv1.MediaKindEpisode {
-		return w.episodeRootFolder(ctx, ns, t, ref.Name)
+		root, video, err := w.episodeRootFolder(ctx, ns, t, ref.Name)
+		m.video = video
+		return root, err
 	}
 	if ref := t.FileRef(); ref.Kind == commonv1.MediaKindMovie {
-		var m catalogv1alpha1.Movie
-		if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &m); err != nil {
+		var mv catalogv1alpha1.Movie
+		if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &mv); err != nil {
 			if apierrors.IsNotFound(err) {
-				return "", nil, refuse("%s %q names movie %q, which does not exist",
+				return "", refuse("%s %q names movie %q, which does not exist",
 					importtarget.AnnotationImportTarget, t.String(), ref.Name)
 			}
-			return "", nil, fmt.Errorf("rescan: get movie %s/%s: %w", ns, ref.Name, err)
+			return "", fmt.Errorf("rescan: get movie %s/%s: %w", ns, ref.Name, err)
 		}
-		c := candidateFor(&m, m.Spec.RootFolderRef)
-		return m.Spec.RootFolderRef, &c, nil
+		c := candidateFor(&mv, mv.Spec.RootFolderRef)
+		m.video = &c
+		return mv.Spec.RootFolderRef, nil
 	}
-	root, err := w.nonMovieRootFolder(ctx, ns, t)
-	return root, nil, err
+	return w.nonMovieRootFolder(ctx, ns, t, m)
 }
 
 // episodeRootFolder is itemRootFolder for an episode target ("episode/<e>",
@@ -152,8 +162,9 @@ func (w *Worker) episodeRootFolder(ctx context.Context, ns string, t importtarge
 	return s.Spec.RootFolderRef, c, nil
 }
 
-// nonMovieRootFolder is itemRootFolder for every kind but a movie.
-func (w *Worker) nonMovieRootFolder(ctx context.Context, ns string, t importtarget.ImportTarget) (string, error) {
+// nonMovieRootFolder is itemRootFolder for every kind but a movie or an
+// episode; an album target's tracks go on m.
+func (w *Worker) nonMovieRootFolder(ctx context.Context, ns string, t importtarget.ImportTarget, m *manualAssign) (string, error) {
 	get := func(kind, name string, obj client.Object) error {
 		if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, obj); err != nil {
 			if apierrors.IsNotFound(err) {
@@ -175,6 +186,7 @@ func (w *Worker) nonMovieRootFolder(ctx context.Context, ns string, t importtarg
 		if err := get("artist", al.Spec.ArtistRef, &ar); err != nil {
 			return "", err
 		}
+		m.album = albumCandidate(&al, &ar)
 		return ar.Spec.RootFolderRef, nil
 	case commonv1.MediaKindBook:
 		var b catalogv1alpha1.Book
@@ -223,13 +235,19 @@ func (w *Worker) nonMovieRootFolder(ctx context.Context, ns string, t importtarg
 // not the MediaFile invariants, which the manager's scan applier holds: it
 // validates the target again (P45), refuses a path already recorded against
 // another item, never re-pointing it, and records importedFrom.manual on a
-// new MediaFile.
+// new MediaFile. Nor does it bypass what the file itself says (2026-11-10
+// design D6, D11): the person named the album, and the file's tags or name
+// say which of its tracks it is -- a file naming none is held in
+// status.unmatched with the reason, never recorded as no track -- and an
+// audiobook part's tags or name order it among the parts (spec.partIndex),
+// as handleNonVideoFile reads both for a file the layout attributed.
 func (w *Worker) assignManually(
 	ctx context.Context, st *scanState, path, rel string, info os.FileInfo, existing *catalogv1alpha1.MediaFile,
 ) error {
 	ref := st.manual.ref
-	fresh, _ := w.freshNonVideoSpec(ctx, ref.Kind, path, rel)
-	if ref.Kind == commonv1.MediaKindMovie || ref.Kind == commonv1.MediaKindEpisode {
+	fresh, ap := w.freshNonVideoSpec(ctx, ref.Kind, path, rel)
+	switch ref.Kind {
+	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode:
 		// A movie or episode file's release identity still comes from its
 		// name when the name parses, scored like any scanned file; an
 		// unparseable one is recorded without it. The person named the
@@ -242,6 +260,17 @@ func (w *Worker) assignManually(
 			}
 			fresh = w.freshVideoSpec(ctx, st, path, parsed, profile, language)
 		}
+	case commonv1.MediaKindAlbum:
+		if cand := st.manual.album; cand != nil {
+			id, reason := fileimport.AttributeTrack(cand.Tracks, cand.Media, ap, rel, len(cand.Tracks) == 1)
+			if id == "" {
+				st.unmatched(rel, CodeNoMatch, reason, []string{ref.Name}, w.now())
+				return nil
+			}
+			ref.Track = id
+		}
+	case commonv1.MediaKindAudiobook:
+		fresh.PartIndex = fileimport.PartIndexOf(ap, rel)
 	}
 	// spec.importedFrom.manual is the applier's, from the observation's
 	// Manual flag (mediafilespec.FrozenFromScan).
@@ -265,4 +294,24 @@ func (w *Worker) refuseScan(ctx context.Context, st *scanState, cause error) err
 		return events.Retry(checkpointInterval, err)
 	}
 	return nil
+}
+
+// albumCandidate is what a manual assignment attributes an album file by:
+// the Album's selected release's listing and disc count, loaded as
+// loadNonVideo loads a music root's candidates. The layout names a matched
+// scan reads are not needed, since the person named the album.
+func albumCandidate(al *catalogv1alpha1.Album, ar *catalogv1alpha1.Artist) *AlbumCandidate {
+	c := &AlbumCandidate{Name: al.Name, Path: al.Status.Path, Tracks: al.Status.Tracks}
+	if m := al.Status.Metadata; m != nil {
+		c.Title = m.Title
+		for _, rel := range m.Releases {
+			if rel.ID == m.SelectedReleaseID {
+				c.Media = int32(len(rel.Media)) //nolint:gosec // a release's discs, far under int32
+			}
+		}
+	}
+	if ar.Status.Metadata != nil {
+		c.ArtistNames = append(c.ArtistNames, ar.Status.Metadata.Name)
+	}
+	return c
 }

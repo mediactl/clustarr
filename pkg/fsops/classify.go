@@ -60,7 +60,9 @@ const (
 //   - audiobook: Readarr's MP3/M4B/FLAC (naming.md, "Readarr"), plus .m4a,
 //     the audio format pkg/quality's audiobook ladder files under "Unknown
 //     Audio".
-//   - book: Readarr's and Jellyfin's EPUB, MOBI, AZW, AZW3, PDF.
+//   - book: Readarr's and Jellyfin's EPUB, MOBI, AZW, AZW3, PDF, and
+//     Calibre's FB2 and DJVU (2026-11-10, non-video libraries design §6's
+//     leftover; never .txt, which is a note beside a book, not one).
 //   - comic: Jellyfin/Kavita's cbz, cbr, cb7, cbt, and pdf.
 //
 // .pdf and the audio extensions appear under more than one kind on purpose:
@@ -76,7 +78,7 @@ var MediaExtensions = map[Kind]map[string]bool{
 		".wv": true, ".ape": true, ".wav": true, ".wma": true,
 	},
 	KindAudiobook: {".m4b": true, ".m4a": true, ".mp3": true, ".flac": true},
-	KindBook:      {".epub": true, ".mobi": true, ".azw": true, ".azw3": true, ".pdf": true},
+	KindBook:      {".epub": true, ".mobi": true, ".azw": true, ".azw3": true, ".pdf": true, ".fb2": true, ".djvu": true},
 	KindComic:     {".cbz": true, ".cbr": true, ".cb7": true, ".cbt": true, ".pdf": true},
 }
 

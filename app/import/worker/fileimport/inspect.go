@@ -757,14 +757,21 @@ func (w *Worker) inspectNonVideo(
 			f.Frozen.PartIndex = PartIndexOf(ap, rel)
 		}
 		f.Proposed, f.Keys = proposed, []string{plan.ref.Name}
-		f.Dest = plan.dest(ctx, &f, rel, task.Release.Title)
+		if kind != commonv1.MediaKindAudiobook {
+			f.Dest = plan.dest(ctx, &f, rel, task.Release.Title, audiobookPart{})
+		}
 		insp.Files = append(insp.Files, f)
 		return nil
 	})
-	if kind == commonv1.MediaKindAlbum {
+	switch kind {
+	case commonv1.MediaKindAlbum:
 		keepOwnNamesOnCollision(insp.Files[first:], func(f *schema.InspectedFile) string {
 			return naming.SanitizePath(filepath.Join(plan.folder, plan.fileName(relPath(root, f.Path))), naming.DefaultSanitizeOptions())
 		})
+	case commonv1.MediaKindAudiobook:
+		// A part's name carries its place among the import's parts, so the
+		// parts are placed once the walk has found them all.
+		plan.placeParts(ctx, insp.Files[first:], root, task.Release.Title)
 	}
 	return err
 }

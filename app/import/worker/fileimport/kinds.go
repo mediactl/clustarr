@@ -60,7 +60,10 @@ import (
 //     ALAC or AAC; unknown without a probe.
 //   - audiobook: the ladder is per format; .m4a is an audio format outside
 //     it, which is what the ladder's own "Unknown Audio" tier is for.
-//   - book: .azw is not AZW3 and has no tier.
+//   - book: .azw is not AZW3 and has no tier; nor have .fb2 and .djvu,
+//     which pkg/fsops classifies as books (2026-11-10) and pkg/quality's
+//     book ladder (PDF, MOBI, EPUB, AZW3) does not name, so such a file's
+//     quality is unknown and only a manual import takes it (importplan).
 //   - comic: .cb7 and .cbt have no tier.
 var frozenQualityNames = map[commonv1.MediaKind]map[string]string{
 	commonv1.MediaKindAlbum: {".wav": "WAV", ".flac": "FLAC", ".ape": "FLAC", ".wv": "FLAC"},

@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fileimport
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -33,6 +34,9 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/import/importtarget"
+	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
+	loopnaming "github.com/mediactl/clustarr/app/remediation/naming"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -152,6 +156,7 @@ func TestImportPlacesNonVideoFilesWhereTheRenameWould(t *testing.T) {
 		target importtarget.ImportTarget
 		rel    string
 		frozen schema.FrozenFields
+		part   audiobookPart
 		mi     *commonv1.MediaInfo
 		want   string
 	}{
@@ -177,9 +182,11 @@ func TestImportPlacesNonVideoFilesWhereTheRenameWould(t *testing.T) {
 			want:   "/data/books2/Dune/Dune.pdf",
 		},
 		{
-			name:   "an audiobook part by its part index",
+			// The seventh of the import's twelve parts (placeParts); its
+			// frozen partIndex, the ordering key, is never the number.
+			name:   "an audiobook part by its place among the parts",
 			target: importtarget.ImportTarget{Kind: commonv1.MediaKindAudiobook, Name: "guards-audio"},
-			rel:    "Guards Guards - Part 07.m4b", frozen: schema.FrozenFields{PartIndex: 7},
+			rel:    "CD1/Guards Guards - 07.m4b", frozen: schema.FrozenFields{PartIndex: 1007}, part: audiobookPart{number: 7, count: 12},
 			mi:   &commonv1.MediaInfo{Container: "mov,mp4,m4a,3gp,3g2,mj2"},
 			want: "/data/audiobooks/Terry Pratchett/Discworld/8 - Guards! Guards! Nigel Planer/8 - Guards! Guards! Nigel Planer (07).m4b",
 		},
@@ -195,17 +202,22 @@ func TestImportPlacesNonVideoFilesWhereTheRenameWould(t *testing.T) {
 			plan, err := w.resolveNonVideo(t.Context(), namingNS, tc.target, "")
 			require.NoError(t, err)
 			f := &schema.InspectedFile{Path: filepath.Join("/downloads/x", tc.rel), Frozen: tc.frozen}
-			dest := plan.dest(t.Context(), f, tc.rel, "Some.Release.Title-GRP")
+			dest := plan.dest(t.Context(), f, tc.rel, "Some.Release.Title-GRP", tc.part)
 			assert.Equal(t, tc.want, dest, "the import's destination")
 
 			// The MediaFile the execute materialises at dest, as the loop
-			// names it.
+			// names it. mediafile.LoadNaming reads an audiobook part's
+			// number off the spec.partIndex it is handed, which the loop's
+			// naming planner numbers among the Audiobook's parts first
+			// (app/remediation/naming's numberedPart; the whole loop half is
+			// TestImportAndTheLoopNumberAnAudiobooksPartsAlike), so here the
+			// part arrives numbered.
 			ref := plan.ref
 			ref.Track = tc.frozen.Track
 			mf := &catalogv1alpha1.MediaFile{
 				ObjectMeta: namingMeta("file"),
 				Spec: catalogv1alpha1.MediaFileSpec{
-					MediaRef: ref, Path: dest, PartIndex: tc.frozen.PartIndex,
+					MediaRef: ref, Path: dest, PartIndex: tc.part.number,
 					ImportedFrom: &catalogv1alpha1.ImportSource{ReleaseTitle: "Some.Release.Title-GRP"},
 				},
 			}
@@ -244,7 +256,7 @@ func TestANonVideoFileTheRenameCannotNameKeepsItsOwnName(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &schema.InspectedFile{Path: "/downloads/x/CD1/07 - Unknown.flac", Frozen: schema.FrozenFields{Track: tc.track}}
-			assert.Equal(t, folder+"/CD1/07 - Unknown.flac", plan.dest(t.Context(), f, "CD1/07 - Unknown.flac", ""))
+			assert.Equal(t, folder+"/CD1/07 - Unknown.flac", plan.dest(t.Context(), f, "CD1/07 - Unknown.flac", "", audiobookPart{}))
 		})
 	}
 
@@ -262,7 +274,7 @@ func TestANonVideoFileTheRenameCannotNameKeepsItsOwnName(t *testing.T) {
 		plan, err := w.resolveNonVideo(t.Context(), namingNS, importtarget.ImportTarget{Kind: commonv1.MediaKindAudiobook, Name: "ab"}, "")
 		require.NoError(t, err)
 		f := &schema.InspectedFile{Path: "/downloads/x/part 02.m4b", Frozen: schema.FrozenFields{PartIndex: 2}}
-		assert.Equal(t, "/data/audiobooks/Someone/Something/part 02.m4b", plan.dest(t.Context(), f, "part 02.m4b", ""),
+		assert.Equal(t, "/data/audiobooks/Someone/Something/part 02.m4b", plan.dest(t.Context(), f, "part 02.m4b", "", audiobookPart{number: 2, count: 2}),
 			"no title, no preset: the part keeps its name under the resolved folder")
 	})
 }
@@ -286,4 +298,104 @@ func TestTwoTracksRenderedAlikeKeepTheirOwnNames(t *testing.T) {
 	assert.Equal(t, "/data/music/A/B/own/CD2/01 - Intro.flac", files[1].Dest)
 	assert.Equal(t, "/data/music/A/B/A - B - 02 - Song.flac", files[2].Dest)
 	assert.Empty(t, files[3].Dest, "a file with no destination is not one")
+}
+
+// TestImportAndTheLoopNumberAnAudiobooksPartsAlike is the audiobook half of
+// TestImportPlacesNonVideoFilesWhereTheRenameWould with both sites' real
+// numbering (2026-11-10 design D7, D11; C5): a two-disc download's parts
+// freeze their tags' disc-and-track keys (1001, 1002, 2001) and are placed
+// as parts 01, 02 and 03 of 3 by their place among the import's parts
+// (placeParts), never as "(1003)"; the MediaFiles the execute materialises
+// there, each carrying its key on spec.partIndex, are then numbered the same
+// way by the loop's naming planner among the Audiobook's files
+// (app/remediation/naming), so every one reads NamingCurrent True. A lone
+// part carries no number at either site.
+func TestImportAndTheLoopNumberAnAudiobooksPartsAlike(t *testing.T) {
+	c := nonVideoNamingFixture(t)
+	w := &Worker{Client: c, Catalogue: catalogue.LoadedCatalogue()}
+	target := importtarget.ImportTarget{Kind: commonv1.MediaKindAudiobook, Name: "guards-audio"}
+	plan, err := w.resolveNonVideo(t.Context(), namingNS, target, "")
+	require.NoError(t, err)
+	proposed := &schema.ItemRef{Kind: "Audiobook", Ref: schema.Ref{Namespace: namingNS, Name: "guards-audio"}}
+	const folder = "/data/audiobooks/Terry Pratchett/Discworld/8 - Guards! Guards! Nigel Planer/8 - Guards! Guards! Nigel Planer"
+
+	files := []schema.InspectedFile{
+		{Path: "/downloads/x/CD2/Chapter 05.mp3", Proposed: proposed, Frozen: schema.FrozenFields{PartIndex: 2001}},
+		{Path: "/downloads/x/CD1/Chapter 01.mp3", Proposed: proposed, Frozen: schema.FrozenFields{PartIndex: 1001}},
+		{Path: "/downloads/x/CD1/Chapter 03.mp3", Proposed: proposed, Frozen: schema.FrozenFields{PartIndex: 1002}},
+		{Path: "/downloads/x/cover.jpg"}, // the walk's own entry: no part
+	}
+	plan.placeParts(t.Context(), files, "/downloads/x", "Pratchett - Guards Guards (Planer)")
+	assert.Equal(t, folder+" (03).mp3", files[0].Dest, "disc 2 track 1 is the third part, not part 2001")
+	assert.Equal(t, folder+" (01).mp3", files[1].Dest)
+	assert.Equal(t, folder+" (02).mp3", files[2].Dest)
+	assert.Empty(t, files[3].Dest)
+
+	// The loop: the MediaFiles at those paths, their keys on spec.partIndex.
+	objs := []client.Object{}
+	for i, f := range files[:3] {
+		objs = append(objs, &catalogv1alpha1.MediaFile{
+			ObjectMeta: namingMeta("part-" + string(rune('a'+i))),
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: plan.ref, Path: f.Dest, PartIndex: f.Frozen.PartIndex,
+				ImportedFrom: &catalogv1alpha1.ImportSource{ReleaseTitle: "Pratchett - Guards Guards (Planer)"},
+			},
+		})
+	}
+	loopReader := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
+		WithObjects(objs...).WithIndex(&catalogv1alpha1.MediaFile{}, mfindex.Item, mfindex.Extract).Build()
+	loopFixture := nonVideoNamingFixture(t) // the items, as the loop's cache holds them
+	reader := twoReaders{files: loopReader, items: loopFixture}
+	adapter := loopnaming.New(loopnaming.Options{})
+	for _, o := range objs {
+		mf := o.(*catalogv1alpha1.MediaFile)
+		view := &remediation.View{File: mf, Prev: &catalogv1alpha1.MediaFileStatus{}, Draft: &catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{Container: "mp3"}}}
+		in, err := adapter.Gather(t.Context(), &remediation.Env{Reader: reader}, view)
+		require.NoError(t, err, mf.Name)
+		var out catalogv1alpha1.MediaFileStatus
+		_, err = adapter.Plan(view, in, &out)
+		require.NoError(t, err, mf.Name)
+		require.NotNil(t, out.Naming, mf.Name)
+		assert.Empty(t, out.Naming.Reason, mf.Name)
+		assert.Equal(t, mf.Spec.Path, out.Naming.ExpectedPath, "%s: the loop numbers the part as the import did", mf.Name)
+		assert.True(t, out.Naming.Current, mf.Name)
+	}
+
+	t.Run("a lone part carries no number at either site", func(t *testing.T) {
+		lone := []schema.InspectedFile{{Path: "/downloads/y/tagged.m4b", Proposed: proposed, Frozen: schema.FrozenFields{PartIndex: 1003}}}
+		plan.placeParts(t.Context(), lone, "/downloads/y", "")
+		assert.Equal(t, folder+".m4b", lone[0].Dest)
+
+		mf := &catalogv1alpha1.MediaFile{ObjectMeta: namingMeta("lone"), Spec: catalogv1alpha1.MediaFileSpec{MediaRef: plan.ref, Path: lone[0].Dest, PartIndex: 1003}}
+		files := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(mf).WithIndex(&catalogv1alpha1.MediaFile{}, mfindex.Item, mfindex.Extract).Build()
+		view := &remediation.View{File: mf, Prev: &catalogv1alpha1.MediaFileStatus{}, Draft: &catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{Container: "mov,mp4,m4a,3gp,3g2,mj2"}}}
+		in, err := adapter.Gather(t.Context(), &remediation.Env{Reader: twoReaders{files: files, items: loopFixture}}, view)
+		require.NoError(t, err)
+		var out catalogv1alpha1.MediaFileStatus
+		_, err = adapter.Plan(view, in, &out)
+		require.NoError(t, err)
+		require.NotNil(t, out.Naming)
+		assert.Equal(t, folder+".m4b", out.Naming.ExpectedPath)
+		assert.True(t, out.Naming.Current)
+	})
+}
+
+// twoReaders is the loop's cache for the test above: MediaFiles from the
+// indexed client, every other kind from the items fixture.
+type twoReaders struct {
+	files, items client.Reader
+}
+
+func (r twoReaders) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*catalogv1alpha1.MediaFile); ok {
+		return r.files.Get(ctx, key, obj, opts...)
+	}
+	return r.items.Get(ctx, key, obj, opts...)
+}
+
+func (r twoReaders) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*catalogv1alpha1.MediaFileList); ok {
+		return r.files.List(ctx, list, opts...)
+	}
+	return r.items.List(ctx, list, opts...)
 }

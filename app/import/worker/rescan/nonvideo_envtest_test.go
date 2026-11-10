@@ -501,6 +501,8 @@ func (f *fixture) assignScan(t *testing.T, ctx context.Context, name, target, su
 // the only way the never-guess rule lets an unmatchable file into the
 // catalog, because a person made the attribution. The file's neighbour is not
 // walked, the MediaFile records importedFrom.manual, and the split holds.
+// The file is still the track its name says it is (design D6; C5): "track
+// 1" is the album's first.
 func TestHandleManualAssignmentRecordsOneFileAgainstTheNamedItem(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-assign", catalogv1alpha1.RootFolderKindMusic, "", catalogv1alpha1.ScanModeFull)
@@ -524,12 +526,13 @@ func TestHandleManualAssignmentRecordsOneFileAgainstTheNamedItem(t *testing.T) {
 	assert.Empty(t, got.Unmatched)
 
 	mf := mediaFilesIn(t, ctx, f.c, f.ns, 1)[0]
-	assert.Equal(t, commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: album.Name}, mf.Spec.MediaRef)
+	assert.Equal(t, commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: album.Name, Track: "airbag"}, mf.Spec.MediaRef,
+		"the person named the album; the name says which track")
 	assert.Equal(t, filepath.Join(f.root, rel), mf.Spec.Path)
 	require.NotNil(t, mf.Spec.ImportedFrom)
 	assert.True(t, mf.Spec.ImportedFrom.Manual)
 	assert.False(t, mf.Spec.ImportedFrom.ImportedAt.IsZero())
-	assertSpecOnly(t, mf, "spec.mediaRef", "spec.path", "spec.importedFrom.manual")
+	assertSpecOnly(t, mf, "spec.mediaRef", "spec.mediaRef.track", "spec.path", "spec.importedFrom.manual")
 
 	var albums catalogv1alpha1.AlbumList
 	require.NoError(t, f.c.List(ctx, &albums, client.InNamespace(f.ns)))
@@ -546,7 +549,9 @@ func TestHandleManualAssignmentRefusesWhatItCannotHonour(t *testing.T) {
 	f := newFixture(t, ctx, "rw-assign-bad", catalogv1alpha1.RootFolderKindMusic, "", catalogv1alpha1.ScanModeFull)
 	album := createArtistAlbum(t, ctx, f)
 
-	rel := filepath.Join("Misc", "track.flac")
+	// The file names track 1, so an assignment of it reaches the applier
+	// (a file naming no track is unmatched before that; C5).
+	rel := filepath.Join("Misc", "01 - track.flac")
 	mustWriteFile(t, filepath.Join(f.root, rel), smallFile)
 
 	for i, tc := range []struct {
