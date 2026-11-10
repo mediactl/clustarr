@@ -193,6 +193,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: formatScore
       type:
         scalar: numeric
+    - name: lastLiveSearchAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -742,6 +745,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: hasFile
       type:
         scalar: boolean
+    - name: lastLiveSearchAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -941,6 +947,146 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: path
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogQueueSpec
+  map:
+    fields:
+    - name: cooldown
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
+    - name: perCycle
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogQueueStatus
+  map:
+    fields:
+    - name: candidates
+      type:
+        scalar: numeric
+    - name: due
+      type:
+        scalar: numeric
+    - name: oldestLiveSearchAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogSearch
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogSearchSpec
+    - name: status
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogSearchStatus
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogSearchList
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: items
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogSearch
+          elementRelationship: atomic
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogSearchSpec
+  map:
+    fields:
+    - name: cutoffUnmet
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogQueueSpec
+    - name: enabled
+      type:
+        scalar: boolean
+    - name: hourlyLimit
+      type:
+        scalar: numeric
+    - name: interval
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
+    - name: kinds
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.common.v1alpha1.MediaKind
+          elementRelationship: associative
+    - name: missing
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogQueueSpec
+    - name: seasonSearch
+      type:
+        scalar: boolean
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogSearchStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: cutoffUnmet
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogQueueStatus
+    - name: lastCycleAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: missing
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogQueueStatus
+    - name: nextCycleAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: recent
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogSearchUnit
+          elementRelationship: atomic
+    - name: searchesLastHour
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogSearchUnit
+  map:
+    fields:
+    - name: at
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: items
+      type:
+        scalar: numeric
+    - name: kind
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.MediaKind
+    - name: name
+      type:
+        scalar: string
+    - name: reason
+      type:
+        scalar: string
+    - name: season
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BitrateLimit
   map:
     fields:
@@ -1157,6 +1303,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: hasFile
       type:
         scalar: boolean
+    - name: lastLiveSearchAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -2019,6 +2168,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Image
           elementRelationship: atomic
+    - name: lastLiveSearchAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -2660,6 +2812,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: hasFile
       type:
         scalar: boolean
+    - name: lastLiveSearchAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -3507,6 +3662,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: imageSet
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetStatus
+    - name: lastLiveSearchAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time

@@ -175,6 +175,7 @@ rules:
   - artists/status
   - audiobooks/status
   - authors/status
+  - backlogsearches/status
   - books/status
   - comics/status
   - delayprofiles/status
@@ -217,6 +218,7 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
+  - backlogsearches
   - delayprofiles
   - overlayprofiles
   verbs:

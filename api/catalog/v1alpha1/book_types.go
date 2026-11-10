@@ -283,6 +283,14 @@ type BookStatus struct {
 	// +optional
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
 
+	// LastLiveSearchAt is when a search that asked the indexers was last
+	// dispatched for the book -- its first search, a redownload, a backlog
+	// search, or its season's search folded in -- where lastSearchedAt
+	// moves for the searches the release index answers too. A
+	// BacklogSearch's cooldown runs from it.
+	// +optional
+	LastLiveSearchAt *metav1.Time `json:"lastLiveSearchAt,omitempty"`
+
 	// SearchAttempts counts the searches made for this book.
 	// +optional
 	SearchAttempts commonv1.Attempts `json:"searchAttempts,omitempty"`

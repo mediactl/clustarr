@@ -81,6 +81,11 @@ type ItemReconciler struct {
 	// WantedWakes are wantedcron's sweep: every candidate item, enqueued at
 	// handler.LowPriority so the search planner looks at it (§7.3).
 	WantedWakes <-chan schema.ItemRef
+	// BacklogWakes are the BacklogSearch controller's grants
+	// (backlog.Book.Wakes): every granted item, and a season unit's Series,
+	// enqueued at normal priority so the grant is searched within its
+	// lapse.
+	BacklogWakes <-chan schema.ItemRef
 	// Dubs is the process's MAL-Dubs index: its changes wake the anime they
 	// move (dubSource). Nil wakes none.
 	Dubs *dubs.Index

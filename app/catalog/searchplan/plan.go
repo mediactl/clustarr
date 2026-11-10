@@ -116,6 +116,18 @@ type View struct {
 	// Its video search waits for the automatic season search, which asks
 	// for such a season (SeasonFacts.ReplaceDue); the answer is its search.
 	SeasonReplaces bool
+	// Backlog: a BacklogSearch cycle granted the item one live search
+	// (app/catalog/backlog; backlog search design). Its video search, while
+	// wanted, is live and due at once, whatever its backoff, unless it
+	// waits for its season.
+	Backlog bool
+	// SeasonBacklog: an Episode with a backlog grant whose season the
+	// Series' automatic season search asks for (SeasonFacts.BacklogDue,
+	// two or more granted episodes, no grab holding the season). It waits
+	// for the season, whose answer is its search.
+	SeasonBacklog bool
+	// LastLiveSearch is status.lastLiveSearchAt.
+	LastLiveSearch *metav1.Time
 }
 
 // Task is one search task to publish.
@@ -123,8 +135,8 @@ type Task struct {
 	Subject, MsgID string
 	Payload        schema.SearchTask
 	// Live reserves the namespace's pacing class; FirstLiveDonor spends
-	// the donor budget.
-	Live, FirstLiveDonor bool
+	// the donor budget; Backlog spends the item's backlog grant.
+	Live, FirstLiveDonor, Backlog bool
 	// Republish marks a republish of the dispatch in flight.
 	Republish bool
 	At        time.Time
@@ -136,8 +148,14 @@ type Plan struct {
 	Dispatch       *catalogv1alpha1.Dispatch
 	Publish        *Task
 	LastSearchedAt *metav1.Time
-	Attempts       commonv1.Attempts
-	DonorAttempts  commonv1.Attempts
+	// LastLiveSearchAt is status.lastLiveSearchAt: moved by a live video
+	// dispatch and by a season answer folded in.
+	LastLiveSearchAt *metav1.Time
+	Attempts         commonv1.Attempts
+	DonorAttempts    commonv1.Attempts
+	// SeasonFolded: a season search's answer was folded in as the item's
+	// search this pass, which spends a backlog grant waiting for it.
+	SeasonFolded bool
 	// Answered: the dispatch at AnsweredSeq was closed this pass (an
 	// incorporated record, or a timeout), which the ledger is told.
 	Answered    bool
@@ -154,7 +172,7 @@ type Plan struct {
 func Decide(v View, admit func(durable string, seq int64) dispatch.Decision, pace func() time.Time) Plan {
 	now := v.Now.UTC()
 	p := Plan{
-		Dispatch: v.Dispatch.DeepCopy(), LastSearchedAt: v.LastSearched,
+		Dispatch: v.Dispatch.DeepCopy(), LastSearchedAt: v.LastSearched, LastLiveSearchAt: v.LastLiveSearch,
 		Attempts: v.Attempts, DonorAttempts: v.DonorAttempts,
 	}
 	d := p.Dispatch
@@ -193,6 +211,13 @@ func Decide(v View, admit func(durable string, seq int64) dispatch.Decision, pac
 		t := *at
 		p.LastSearchedAt = &t
 		p.Attempts = bump(p.Attempts, t)
+		// A season search asks the indexers: it is the Episode's live search
+		// too, and a backlog grant waiting for it is spent.
+		if p.LastLiveSearchAt == nil || t.After(p.LastLiveSearchAt.Time) {
+			live := t
+			p.LastLiveSearchAt = &live
+		}
+		p.SeasonFolded = true
 	}
 	// Due-ness is decided on the bookkeeping this pass writes: a fold is
 	// the Episode's search, so its backoff starts at the season's answer and
@@ -272,6 +297,12 @@ func Decide(v View, admit func(durable string, seq int64) dispatch.Decision, pac
 	dispatch.Render(nd, Durable, &dec, nil, v.Key)
 	p.Dispatch, p.Publish = nd, t
 	p.Due = now.Add(RepublishEvery)
+	if t.Live && t.Payload.Purpose == "" {
+		// A live video search: a BacklogSearch's cooldown runs from here (a
+		// record does not say whether its search was live).
+		at := nd.DispatchedAt
+		p.LastLiveSearchAt = &at
+	}
 	return p
 }
 
@@ -294,6 +325,21 @@ func purposeDue(v View, now time.Time) *purpose {
 	if RedownloadDue(v, now) {
 		return &purpose{reason: schema.SearchReasonRedownload, live: true}
 	}
+	// An Episode whose season search is queued or searching waits for it
+	// (Wave S, §7), one never searched waits for its PackFirst season's
+	// automatic search, and one replacing or granted with its season waits
+	// for that season's; its donor search does not.
+	waits := v.SeasonPending || (v.SeasonPackFirst && !searched(v.Attempts, v.LastSearched)) || v.SeasonReplaces || v.SeasonBacklog
+	// A backlog grant (backlog search design): one live search, now. The
+	// BacklogSearch's cooldown and hourly limit stand in for the backoff,
+	// and the live-search pace and the ledger still apply.
+	if v.Backlog && v.Wanted && !waits {
+		reason := v.Reason
+		if reason == "" {
+			reason = schema.SearchReasonMissing
+		}
+		return &purpose{reason: reason, live: true, backlog: true}
+	}
 	// A dispatch that closed without counting -- every indexer paced (P6),
 	// or nobody answered -- still waits the backoff's floor before the next,
 	// as the item waited for the next sweep before: a paced pool must not
@@ -301,10 +347,6 @@ func purposeDue(v View, now time.Time) *purpose {
 	if d := v.Dispatch; d != nil && now.Sub(d.DispatchedAt.Time) < wantedcron.MinimumGap {
 		return nil
 	}
-	// An Episode whose season search is queued or searching waits for it
-	// (Wave S, §7), and one never searched waits for its PackFirst season's
-	// automatic search; its donor search does not.
-	waits := v.SeasonPending || (v.SeasonPackFirst && !searched(v.Attempts, v.LastSearched)) || v.SeasonReplaces
 	if v.Wanted && !waits && wantedcron.Eligible(v.Attempts, now) {
 		reason := v.Reason
 		if reason == "" {
@@ -323,8 +365,8 @@ func purposeDue(v View, now time.Time) *purpose {
 }
 
 type purpose struct {
-	reason      schema.SearchReason
-	donor, live bool
+	reason               schema.SearchReason
+	donor, live, backlog bool
 }
 
 // RedownloadDue: a covering failure newer than the last search dispatch and
@@ -389,7 +431,7 @@ func task(v View, seq int64, pu *purpose, now time.Time) *Task {
 	return &Task{
 		Subject: events.WorkSearchSubject(lane, mediaKey),
 		MsgID:   events.MsgIDForSearch(v.Item.UID, seq),
-		Payload: payload, Live: pu.live, FirstLiveDonor: pu.donor && pu.live, At: now,
+		Payload: payload, Live: pu.live, FirstLiveDonor: pu.donor && pu.live, Backlog: pu.backlog, At: now,
 	}
 }
 

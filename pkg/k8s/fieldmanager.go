@@ -160,6 +160,11 @@ const (
 	// (spec.imageSet: none) touches no other manager's field.
 	ManagerCatalogImageSet FieldManager = "catalog-imageset"
 
+	// ManagerCatalogBacklog is the BacklogSearch controller: it owns
+	// BacklogSearch status, the cycle it runs and the searches it started
+	// (docs/superpowers/specs/2026-11-10-backlog-search-design.md).
+	ManagerCatalogBacklog FieldManager = "catalog-backlog"
+
 	// ManagerImport is the import controller manager. It owns ImportList,
 	// ImportExclusion and LibraryScan status.
 	ManagerImport FieldManager = "import"
@@ -326,6 +331,7 @@ func FieldManagers() []FieldManager {
 		ManagerCatalogArtwork,
 		ManagerCatalogClassify,
 		ManagerCatalogImageSet,
+		ManagerCatalogBacklog,
 		ManagerImport,
 		ManagerImportWorker,
 		ManagerIndex,

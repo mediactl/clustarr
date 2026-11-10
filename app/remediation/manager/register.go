@@ -33,6 +33,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/backlog"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/history/replay"
@@ -103,6 +104,10 @@ type Options struct {
 	Dubs                *dubs.Index
 	DonorBudget         *searchplan.DonorBudget
 	SearchLivePerMinute int
+	// Backlog is the BacklogSearch controller's grant book: the search
+	// stage reads and spends its grants, and its wakes enqueue the granted
+	// keys. Nil grants and wakes nothing.
+	Backlog *backlog.Book
 
 	// Clock is the loop's pass clock; nil is time.Now (§5.17's fake-clock
 	// envtests drive View.Now through it).
@@ -194,10 +199,11 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Stages:   Stages(d),
 		Env:      env,
 		Dispatch: o.Dispatch, Book: o.Book, Inbox: o.Inbox, DeliveryWakes: o.DeliveryWakes,
-		WantedWakes: o.WantedWakes,
-		Dubs:        o.Dubs,
-		Client:      mgr.GetClient(),
-		Recorder:    recorder,
+		WantedWakes:  o.WantedWakes,
+		BacklogWakes: o.Backlog.Wakes(),
+		Dubs:         o.Dubs,
+		Client:       mgr.GetClient(),
+		Recorder:     recorder,
 		// The import materialisation's MediaFile spec writer (A3.8): the
 		// manager-only specwrite, under import-worker.
 		SpecWriter: specWriter,
@@ -232,6 +238,7 @@ func Stages(d Deps) []remediation.ItemStage {
 		searchstage.New(searchstage.Options{
 			Reader: d.Manager.GetClient(), Bus: d.Env.Bus,
 			Dispatch: d.Options.Dispatch, Book: d.Options.Book, Budget: d.Options.DonorBudget,
+			Backlog: d.Options.Backlog,
 		}),
 	}
 	meta := metadatastage.Options{Bus: d.Env.Bus}

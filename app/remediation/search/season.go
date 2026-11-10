@@ -369,6 +369,9 @@ func (s *Stage) seasonFacts(ctx context.Context, ser *catalogv1alpha1.Series, v 
 		if !live && replacesAsPack(ep, now) {
 			f.ReplaceDue++
 		}
+		if _, granted := s.o.Backlog.Granted(string(ep.UID), now); !live && granted {
+			f.BacklogDue++
+		}
 		if ep.Status.SearchAttempts.Count == 0 && ep.Status.SearchAttempts.Latest == nil && ep.Status.LastSearchedAt == nil {
 			f.FirstSearch++
 		}
@@ -489,6 +492,47 @@ func seasonReplaces(ctx context.Context, r client.Reader, ser *catalogv1alpha1.S
 		e := &eps.Items[i]
 		if e.Spec.SeasonNumber != ep.Spec.SeasonNumber || !itemread.OwnMonitored(e) || !itemread.Available(e, now) || !replacesAsPack(e, now) {
 			continue
+		}
+		live := false
+		for j := range entries {
+			if rollup.EntryNonTerminal(&entries[j]) && !rollup.IsDonor(&entries[j]) && itemread.Covers(&entries[j], e) {
+				live = true
+				break
+			}
+		}
+		if !live {
+			due++
+		}
+	}
+	return due >= 2, nil
+}
+
+// seasonBacklog reports a granted Episode that waits for its season's
+// query rather than search alone (searchplan.View.SeasonBacklog): it and at
+// least one more monitored, aired episode of its season, not a special,
+// with no live grab hold a backlog grant, and no grab holds the season --
+// the test seasonFacts' BacklogDue applies, so the Series asks for the
+// season while they wait, and its answer is each one's search.
+func (s *Stage) seasonBacklog(ctx context.Context, ser *catalogv1alpha1.Series, ep *catalogv1alpha1.Episode, prof *quality.Profile, now time.Time) (bool, error) {
+	if ep.Spec.SeasonNumber == 0 || !ptr.Deref(ser.Spec.Monitored, true) || seasonDownloading(ser, ep.Spec.SeasonNumber, prof) {
+		return false, nil
+	}
+	var eps catalogv1alpha1.EpisodeList
+	if err := s.o.Reader.List(ctx, &eps, client.InNamespace(ser.Namespace), client.MatchingFields{series.EpisodeBySeriesRefIndex: ser.Name}); err != nil {
+		return false, fmt.Errorf("search: list the Episodes of %s: %w", ser.Name, err)
+	}
+	entries := dlindex.Entries(ser)
+	due := 0
+	for i := range eps.Items {
+		e := &eps.Items[i]
+		if e.Spec.SeasonNumber != ep.Spec.SeasonNumber || !itemread.OwnMonitored(e) || !itemread.Available(e, now) {
+			continue
+		}
+		if _, granted := s.o.Backlog.Granted(string(e.UID), now); !granted {
+			continue
+		}
+		if cand, _ := wantedcron.CandidateOf(e, now); cand.Reason == "" {
+			continue // imported since its grant: wanted no longer
 		}
 		live := false
 		for j := range entries {

@@ -72,6 +72,11 @@ func (ir *ItemReconciler) sources(mgr ctrl.Manager) ([]Source, error) {
 			ch: ir.WantedWakes, toKey: itemRefKey, priority: handler.LowPriority,
 		}})
 	}
+	if ir.BacklogWakes != nil {
+		out = append(out, Source{Name: "backlog", Raw: &chanSource[schema.ItemRef]{
+			ch: ir.BacklogWakes, toKey: itemRefKey, priority: 0,
+		}})
+	}
 	if ir.DeliveryWakes != nil {
 		out = append(out, Source{Name: "delivery", Raw: &chanSource[cataloghistory.Target]{
 			ch: ir.DeliveryWakes, toKey: targetKey, priority: 0,

@@ -21,6 +21,7 @@ resources:
 - bases/catalog.clustarr.io_albums.yaml
 - bases/catalog.clustarr.io_artists.yaml
 - bases/catalog.clustarr.io_audiobooks.yaml
+- bases/catalog.clustarr.io_backlogsearches.yaml
 - bases/catalog.clustarr.io_authors.yaml
 - bases/catalog.clustarr.io_books.yaml
 - bases/catalog.clustarr.io_comics.yaml

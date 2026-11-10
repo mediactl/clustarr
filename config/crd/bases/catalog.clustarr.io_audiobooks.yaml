@@ -1100,6 +1100,15 @@ spec:
                 description: HasFile is true while at least one MediaFile backs the
                   audiobook.
                 type: boolean
+              lastLiveSearchAt:
+                description: |-
+                  LastLiveSearchAt is when a search that asked the indexers was last
+                  dispatched for the audiobook -- its first search, a redownload, a backlog
+                  search, or its season's search folded in -- where lastSearchedAt
+                  moves for the searches the release index answers too. A
+                  BacklogSearch's cooldown runs from it.
+                format: date-time
+                type: string
               lastSearchedAt:
                 description: LastSearchedAt is when the audiobook was last searched
                   for.

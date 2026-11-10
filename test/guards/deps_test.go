@@ -158,8 +158,10 @@ func TestManagerLinksNoAgentCode(t *testing.T) {
 		// searchplan are the item stages' planners, itemread their cache
 		// reads, metadatainputs and metadataset the metadata stage's ask and
 		// its one renderer, seriessearch the Series key's index of planned
-		// Searches (Wave S); worker/history is the history sink (§4.4).
-		regexp.MustCompile(`^app/catalog/(artwork|overlayplan|grabsource|markers|segmentplan|history|history/replay|delay|searchoutcome|episodeorder|grabplan|searchplan|itemread|metadatainputs|metadataset|seriessearch|worker/history)$`),
+		// Searches (Wave S); worker/history is the history sink (§4.4);
+		// backlog is the BacklogSearch's choice and the leader's grant book
+		// the search stage reads (backlog search design).
+		regexp.MustCompile(`^app/catalog/(artwork|overlayplan|grabsource|markers|segmentplan|history|history/replay|delay|searchoutcome|episodeorder|grabplan|searchplan|backlog|itemread|metadatainputs|metadataset|seriessearch|worker/history)$`),
 		regexp.MustCompile(`^app/import/(scanprogress|mediafilespec|mediafilespec/specwrite|importliststate|importtarget|importplan|manager/scanapply)$`),
 		regexp.MustCompile(`^app/indexer/(clients|proxy|limits|rssschedule|bundle|bundle/embedded|status/statuspatch)$`),
 		regexp.MustCompile(`^app/grab/lifecycle$`),
@@ -257,7 +259,7 @@ func TestAgentLinksNoPlanner(t *testing.T) {
 	}
 	g.Deny(t, slices.Concat(
 		depsRules("agents never plan (ADR-0019 §9.2)",
-			mod+"app/catalog/grabplan", mod+"app/catalog/searchplan", mod+"app/grab/lifecycle",
+			mod+"app/catalog/grabplan", mod+"app/catalog/searchplan", mod+"app/catalog/backlog", mod+"app/grab/lifecycle",
 			mod+"app/import/importplan", mod+"app/import/manager", mod+"app/intake", mod+"app/dispatch",
 			mod+"app/remediation", mod+"app/import/mediafilespec/specwrite", mod+"app/indexer/status/statuspatch"),
 		depsRules("the manager's planners (split spec §4.4: [M])",

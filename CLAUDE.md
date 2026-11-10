@@ -2283,6 +2283,24 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   Episode folds its season's answer into `lastSearchedAt` once, so its
   next search is IndexOnly) and an Episode waits while its season is
   queued or searching; nothing publishes per-episode searches for it.
+  **The backlog is searched live again only through a BacklogSearch**
+  (owner, 2026-11-10: "our own version" of a scheduled backlog searcher;
+  `docs/superpowers/specs/2026-11-10-backlog-search-design.md`): an
+  IndexOnly item never finds a release posted before the RSS capture, so a
+  namespaced `BacklogSearch` (catalog.clustarr.io, one per namespace, the
+  oldest wins) picks every `interval` (15m) the wanted items searched
+  before whose `status.lastLiveSearchAt` (new on the six searchable kinds:
+  stamped at every live video dispatch and at a season answer's fold) is
+  past the queue's cooldown (missing 7 d, cutoff-unmet 14 d), oldest first,
+  up to each queue's `perCycle` (5, 1) and `hourlyLimit` (20, counted from
+  `status.recent` after a leader change). It lists them through
+  `itemread.BacklogIndex`, grants each a live search in the leader's
+  `backlog.Book` and wakes its key; the search planner then dispatches it
+  live past its backoff (`View.Backlog`), behind the pace and the ledger.
+  Two or more due episodes of a season are one unit: the Series' automatic
+  season search asks for the season (`SeasonFacts.BacklogDue`) and they wait
+  for it (`View.SeasonBacklog`). A grant is spent at dispatch (an all-paced
+  backlog search loses its turn) and lapses after `max(2 x interval, 3h)`.
 - **A payload fetch an indexer answers 429 pauses its grabs locally, and a
   429 whose body names one release's cooldown pauses that release alone
   (2026-10-16).** `spec.limits.grabLimit`'s ring is clustarr's count, not

@@ -33,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/app/autoscale/extmetrics"
 	subtitleprofile "github.com/mediactl/clustarr/app/caption/controller/subtitleprofile"
 	captionmanager "github.com/mediactl/clustarr/app/caption/manager"
+	"github.com/mediactl/clustarr/app/catalog/backlog"
 	catalogmanager "github.com/mediactl/clustarr/app/catalog/manager"
 	"github.com/mediactl/clustarr/app/catalog/searchplan"
 	historyworker "github.com/mediactl/clustarr/app/catalog/worker/history"
@@ -254,6 +255,9 @@ type planes struct {
 	// refills (§7.3).
 	wanted chan schema.ItemRef
 	budget *searchplan.DonorBudget
+	// backlog is the BacklogSearch controller's grant book, which the
+	// search stage reads and spends and whose wakes the loop enqueues.
+	backlog *backlog.Book
 	// dubs is the MAL-Dubs index on the root context, whose changes wake
 	// the anime they move.
 	dubs *dubs.Index
@@ -273,6 +277,7 @@ func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
 	p := planes{
 		states: extmetrics.NewStateCache(admin),
 		wanted: make(chan schema.ItemRef, wantedWakeBuffer), budget: searchplan.NewDonorBudget(),
+		backlog: backlog.NewBook(),
 	}
 	p.ledger = dispatch.New(dispatch.Options{
 		Topology: o.BusTopology(),
@@ -370,6 +375,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options, dubIndex *dubs.Index)
 			return catalogmanager.Register(mgr, bus, catalogmanager.Options{
 				Options: o.Options, DLQProjector: p.projector, Artwork: p.artwork,
 				WantedWakes: p.wanted, DonorBudget: p.budget, Inbox: p.inbox,
+				Backlog: p.backlog,
 			})
 		}},
 		{"import", func() error {
@@ -404,6 +410,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options, dubIndex *dubs.Index)
 				Artwork: p.artwork,
 				// The search planner's (A4.2).
 				WantedWakes: p.wanted, DonorBudget: p.budget, SearchLivePerMinute: o.SearchLivePerMinute,
+				Backlog:             p.backlog,
 				Dubs:                p.dubs,
 				SubtitleProfileWake: wake.Signal,
 				Ledger:              ledger,

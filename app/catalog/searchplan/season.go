@@ -101,6 +101,10 @@ type SeasonFacts struct {
 	// 2026-11-03): two or more ask for the season, and they wait for it
 	// (View.SeasonReplaces).
 	ReplaceDue int
+	// BacklogDue counts the Wanted episodes, no live grab covering them,
+	// that hold a backlog grant (backlog search design): two or more ask
+	// for the season, and they wait for it (View.SeasonBacklog).
+	BacklogDue int
 }
 
 // SeasonView is everything DecideSeasons reads for one Series.
@@ -410,8 +414,9 @@ func start(v SeasonView, req SeasonRequest, now time.Time) *catalogv1alpha1.Seas
 
 // automaticSeasons are the seasons the automatic season search asks for:
 // every PackFirst season, monitored, with an episode waiting for its first
-// search, and every season with two or more episodes whose files a whole
-// release replaces due a search (ReplaceDue), in each case with no grab
+// search, every season with two or more episodes whose files a whole
+// release replaces due a search (ReplaceDue), and every season with two or
+// more episodes a BacklogSearch granted a search (BacklogDue), in each case with no grab
 // holding the season -- none for an unmonitored series. Before AutomaticCooldown has passed since the last automatic
 // state finished it asks for none, and wait is when it may.
 func automaticSeasons(v SeasonView, st *catalogv1alpha1.SeasonSearchState, now time.Time) (seasons []int32, wait time.Time) {
@@ -422,7 +427,7 @@ func automaticSeasons(v SeasonView, st *catalogv1alpha1.SeasonSearchState, now t
 		// A season a grab holds is never asked for a pack: the grab planner
 		// refuses one without its languages beside it
 		// (decision.ReasonEpisodeDownloading), so its episodes search alone.
-		if f.Number != 0 && f.Monitored && f.Downloading == 0 && ((f.PackFirst && f.FirstSearch > 0) || f.ReplaceDue >= 2) {
+		if f.Number != 0 && f.Monitored && f.Downloading == 0 && ((f.PackFirst && f.FirstSearch > 0) || f.ReplaceDue >= 2 || f.BacklogDue >= 2) {
 			seasons = append(seasons, f.Number)
 		}
 	}

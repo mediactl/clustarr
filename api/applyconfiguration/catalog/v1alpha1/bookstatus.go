@@ -68,6 +68,12 @@ type BookStatusApplyConfiguration struct {
 	PendingGrab *PendingGrabApplyConfiguration `json:"pendingGrab,omitempty"`
 	// LastSearchedAt is when the book was last searched for.
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
+	// LastLiveSearchAt is when a search that asked the indexers was last
+	// dispatched for the book -- its first search, a redownload, a backlog
+	// search, or its season's search folded in -- where lastSearchedAt
+	// moves for the searches the release index answers too. A
+	// BacklogSearch's cooldown runs from it.
+	LastLiveSearchAt *metav1.Time `json:"lastLiveSearchAt,omitempty"`
 	// SearchAttempts counts the searches made for this book.
 	SearchAttempts *commonv1alpha1.Attempts `json:"searchAttempts,omitempty"`
 	// Artwork lists the images fetched into the artwork store, one per type.
@@ -216,6 +222,14 @@ func (b *BookStatusApplyConfiguration) WithPendingGrab(value *PendingGrabApplyCo
 // If called multiple times, the LastSearchedAt field is set to the value of the last call.
 func (b *BookStatusApplyConfiguration) WithLastSearchedAt(value metav1.Time) *BookStatusApplyConfiguration {
 	b.LastSearchedAt = &value
+	return b
+}
+
+// WithLastLiveSearchAt sets the LastLiveSearchAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LastLiveSearchAt field is set to the value of the last call.
+func (b *BookStatusApplyConfiguration) WithLastLiveSearchAt(value metav1.Time) *BookStatusApplyConfiguration {
+	b.LastLiveSearchAt = &value
 	return b
 }
 

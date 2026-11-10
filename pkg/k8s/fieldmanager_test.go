@@ -31,11 +31,12 @@ func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 	// caption-worker (F5.3), ADR-0019 deleted grab-engine (A3.6, A9.1), and
 	// the cold turkey deleted each outright rather than keeping it valid
 	// (TestRetiredFieldManagersStayValid). clustarr-autoscale joined last
-	// (W4.62); Wave U unbranded every value (U3).
+	// (W4.62); Wave U unbranded every value (U3); catalog-backlog is the
+	// BacklogSearch controller's (2026-11-10).
 	want := []string{
 		"catalog", "catalog-series", "catalog-worker",
 		"catalog-metadata", "catalog-grab", "catalog-fanout",
-		"catalog-artwork", "catalog-classify", "catalog-imageset",
+		"catalog-artwork", "catalog-classify", "catalog-imageset", "catalog-backlog",
 		"import", "import-worker",
 		"index", "index-worker",
 		"grab",

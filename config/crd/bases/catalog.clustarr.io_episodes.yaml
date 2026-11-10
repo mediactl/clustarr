@@ -426,6 +426,15 @@ spec:
                   type: object
                 maxItems: 4
                 type: array
+              lastLiveSearchAt:
+                description: |-
+                  LastLiveSearchAt is when a search that asked the indexers was last
+                  dispatched for the episode -- its first search, a redownload, a backlog
+                  search, or its season's search folded in -- where lastSearchedAt
+                  moves for the searches the release index answers too. A
+                  BacklogSearch's cooldown runs from it.
+                format: date-time
+                type: string
               lastSearchedAt:
                 description: LastSearchedAt is when the episode was last searched
                   for.

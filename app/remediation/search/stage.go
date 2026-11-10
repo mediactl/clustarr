@@ -29,6 +29,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/backlog"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
@@ -63,6 +64,9 @@ type Options struct {
 	// Budget is the namespaces' first-time live donor budget, which
 	// wantedcron refills.
 	Budget *searchplan.DonorBudget
+	// Backlog is the BacklogSearch controller's grant book: a granted item
+	// makes one live search (searchplan.View.Backlog); nil grants none.
+	Backlog *backlog.Book
 	// Clock is the stage's clock; nil is time.Now.
 	Clock func() time.Time
 }
@@ -162,9 +166,10 @@ func (s *Stage) result(sv searchplan.View, plan searchplan.Plan, class string) r
 		dispatch.Render(d, "", nil, s.o.Book, sv.Key)
 	}
 	fields := map[string]any{
-		"searchDispatch": nilIf(d == nil, d),
-		"lastSearchedAt": nilIf(plan.LastSearchedAt == nil, plan.LastSearchedAt),
-		"searchAttempts": plan.Attempts,
+		"searchDispatch":   nilIf(d == nil, d),
+		"lastSearchedAt":   nilIf(plan.LastSearchedAt == nil, plan.LastSearchedAt),
+		"lastLiveSearchAt": nilIf(plan.LastLiveSearchAt == nil, plan.LastLiveSearchAt),
+		"searchAttempts":   plan.Attempts,
 	}
 	if itemread.HasDonorAttempts(sv.Item.Kind) {
 		fields["donorSearchAttempts"] = plan.DonorAttempts
@@ -181,7 +186,14 @@ func (s *Stage) result(sv searchplan.View, plan searchplan.Plan, class string) r
 	} else if a, ok := s.unanswered(searchplan.Durable, sv.Key, d); ok {
 		res.Effects = append(res.Effects, a)
 	}
+	if plan.SeasonFolded {
+		// The season's answer is the granted Episode's search.
+		s.o.Backlog.Spend(sv.Item.UID)
+	}
 	if t := plan.Publish; t != nil {
+		if t.Backlog && !t.Republish {
+			s.o.Backlog.Spend(sv.Item.UID)
+		}
 		if t.FirstLiveDonor && !t.Republish {
 			// The budget was checked before Decide; a concurrent pass may
 			// have spent it since, which costs one search over it.
@@ -234,6 +246,8 @@ func (s *Stage) gather(ctx context.Context, item client.Object, v *remediation.I
 	sv.HasFile = itemread.HasFile(item)
 	sv.Attempts, sv.DonorAttempts = cand.Attempts, cand.DonorAttempts
 	sv.LastSearched = lastSearched(item)
+	sv.LastLiveSearch = itemread.LastLiveSearchAt(item)
+	_, sv.Backlog = s.o.Backlog.Granted(ref.UID, now)
 
 	monitored, err := itemread.Monitored(ctx, r, item)
 	if err != nil {
@@ -268,6 +282,11 @@ func (s *Stage) gather(ctx context.Context, item client.Object, v *remediation.I
 		if ser, ok := owner.(*catalogv1alpha1.Series); ok {
 			if sv.SeasonReplaces, err = seasonReplaces(ctx, r, ser, ep, prof, now); err != nil {
 				return sv, err
+			}
+			if sv.Backlog {
+				if sv.SeasonBacklog, err = s.seasonBacklog(ctx, ser, ep, prof, now); err != nil {
+					return sv, err
+				}
 			}
 		}
 	}

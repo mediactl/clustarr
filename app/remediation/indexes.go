@@ -89,6 +89,11 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 		if err := idx.IndexField(ctx, obj, itemread.SearchInFlightIndex, itemread.SearchInFlightValues); err != nil {
 			return fmt.Errorf("remediation: register %s on %T: %w", itemread.SearchInFlightIndex, obj, err)
 		}
+		// The backlog a BacklogSearch cycle lists (app/catalog/controller
+		// /backlogsearch): the wanted items searched before, by reason.
+		if err := idx.IndexField(ctx, obj, itemread.BacklogIndex, itemread.BacklogValues); err != nil {
+			return fmt.Errorf("remediation: register %s on %T: %w", itemread.BacklogIndex, obj, err)
+		}
 	}
 	if err := idx.IndexField(ctx, &catalogv1alpha1.Series{}, itemread.SeasonSearchInFlightIndex, itemread.SeasonSearchInFlightValues); err != nil {
 		return fmt.Errorf("remediation: register %s: %w", itemread.SeasonSearchInFlightIndex, err)

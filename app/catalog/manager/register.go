@@ -32,8 +32,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/backlog"
 	"github.com/mediactl/clustarr/app/catalog/controller/artist"
 	"github.com/mediactl/clustarr/app/catalog/controller/author"
+	"github.com/mediactl/clustarr/app/catalog/controller/backlogsearch"
 	"github.com/mediactl/clustarr/app/catalog/controller/delayprofile"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadataprovider"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadatarefresh"
@@ -76,6 +78,10 @@ type Options struct {
 	// refills nothing.
 	WantedWakes chan<- schema.ItemRef
 	DonorBudget wantedcron.DonorBudget
+	// Backlog is the grant book the BacklogSearch controller grants into
+	// and wakes through (backlog search design); nil registers no
+	// BacklogSearch controller.
+	Backlog *backlog.Book
 	// Inbox is the candidate inbox, which the Search controller asks how
 	// an owner settled a pick.
 	Inbox *intake.Inbox
@@ -287,6 +293,15 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Namespaces: o.WatchNamespaces,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalog: wantedcron: %w", err)
+	}
+
+	// The BacklogSearch controller (backlog search design): a few live
+	// searches of the namespace's backlog a cycle, granted in the leader's
+	// book, which the search stage reads.
+	if o.Backlog != nil {
+		if err := (&backlogsearch.Reconciler{Client: c, Book: o.Backlog}).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("catalog: backlogsearch: %w", err)
+		}
 	}
 
 	// R9 (spec §5.13): the orphan sweep is a cluster singleton behind this

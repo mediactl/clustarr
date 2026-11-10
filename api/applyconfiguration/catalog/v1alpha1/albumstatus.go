@@ -72,6 +72,12 @@ type AlbumStatusApplyConfiguration struct {
 	PendingGrab *PendingGrabApplyConfiguration `json:"pendingGrab,omitempty"`
 	// LastSearchedAt is when the album was last searched for.
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
+	// LastLiveSearchAt is when a search that asked the indexers was last
+	// dispatched for the album -- its first search, a redownload, a backlog
+	// search, or its season's search folded in -- where lastSearchedAt
+	// moves for the searches the release index answers too. A
+	// BacklogSearch's cooldown runs from it.
+	LastLiveSearchAt *metav1.Time `json:"lastLiveSearchAt,omitempty"`
 	// SearchAttempts counts the searches made for this album.
 	SearchAttempts *commonv1alpha1.Attempts `json:"searchAttempts,omitempty"`
 	// Artwork lists the images fetched into the artwork store, one per type.
@@ -233,6 +239,14 @@ func (b *AlbumStatusApplyConfiguration) WithPendingGrab(value *PendingGrabApplyC
 // If called multiple times, the LastSearchedAt field is set to the value of the last call.
 func (b *AlbumStatusApplyConfiguration) WithLastSearchedAt(value metav1.Time) *AlbumStatusApplyConfiguration {
 	b.LastSearchedAt = &value
+	return b
+}
+
+// WithLastLiveSearchAt sets the LastLiveSearchAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LastLiveSearchAt field is set to the value of the last call.
+func (b *AlbumStatusApplyConfiguration) WithLastLiveSearchAt(value metav1.Time) *AlbumStatusApplyConfiguration {
+	b.LastLiveSearchAt = &value
 	return b
 }
 

@@ -85,6 +85,18 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.AuthorSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AuthorStatus"):
 		return &catalogv1alpha1.AuthorStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("BacklogQueueSpec"):
+		return &catalogv1alpha1.BacklogQueueSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("BacklogQueueStatus"):
+		return &catalogv1alpha1.BacklogQueueStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("BacklogSearch"):
+		return &catalogv1alpha1.BacklogSearchApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("BacklogSearchSpec"):
+		return &catalogv1alpha1.BacklogSearchSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("BacklogSearchStatus"):
+		return &catalogv1alpha1.BacklogSearchStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("BacklogSearchUnit"):
+		return &catalogv1alpha1.BacklogSearchUnitApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("BitrateLimit"):
 		return &catalogv1alpha1.BitrateLimitApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Book"):

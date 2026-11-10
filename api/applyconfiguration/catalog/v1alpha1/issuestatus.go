@@ -65,6 +65,12 @@ type IssueStatusApplyConfiguration struct {
 	PendingGrab *PendingGrabApplyConfiguration `json:"pendingGrab,omitempty"`
 	// LastSearchedAt is when the issue was last searched for.
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
+	// LastLiveSearchAt is when a search that asked the indexers was last
+	// dispatched for the issue -- its first search, a redownload, a backlog
+	// search, or its season's search folded in -- where lastSearchedAt
+	// moves for the searches the release index answers too. A
+	// BacklogSearch's cooldown runs from it.
+	LastLiveSearchAt *metav1.Time `json:"lastLiveSearchAt,omitempty"`
 	// SearchAttempts counts the searches made for this issue.
 	SearchAttempts *commonv1alpha1.Attempts `json:"searchAttempts,omitempty"`
 }
@@ -197,6 +203,14 @@ func (b *IssueStatusApplyConfiguration) WithPendingGrab(value *PendingGrabApplyC
 // If called multiple times, the LastSearchedAt field is set to the value of the last call.
 func (b *IssueStatusApplyConfiguration) WithLastSearchedAt(value metav1.Time) *IssueStatusApplyConfiguration {
 	b.LastSearchedAt = &value
+	return b
+}
+
+// WithLastLiveSearchAt sets the LastLiveSearchAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LastLiveSearchAt field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithLastLiveSearchAt(value metav1.Time) *IssueStatusApplyConfiguration {
+	b.LastLiveSearchAt = &value
 	return b
 }
 

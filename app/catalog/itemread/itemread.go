@@ -50,6 +50,7 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/delay"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/dubs"
@@ -605,6 +606,11 @@ const (
 	AnimeIndex = "remediation.item.anime"
 	// MALIndex is an anime Series' or Movie's MAL id.
 	MALIndex = "remediation.item.mal"
+	// BacklogIndex is a searchable item's backlog queue (BacklogValues):
+	// the reason it is wanted, missing or cutoffUnmet, once it was searched
+	// before. The BacklogSearch controller lists a namespace's backlog by
+	// it.
+	BacklogIndex = "remediation.item.backlog"
 	// IndexTrue is the one value of a marker index.
 	IndexTrue = "true"
 )
@@ -613,6 +619,42 @@ const (
 func SearchInFlightValues(o client.Object) []string {
 	if d := SearchDispatch(o); d != nil && d.InFlight() {
 		return []string{IndexTrue}
+	}
+	return nil
+}
+
+// backlogHorizon is the instant BacklogValues judges against: an Issue is
+// wanted from its cover date on (wantedcron's issueCandidate), and an
+// index value cannot move with the clock, so the index takes every wanted
+// issue and a cycle judges its date.
+var backlogHorizon = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// BacklogValues is BacklogIndex's extractor: the item's wanted reason
+// (wantedcron.CandidateOf) once it has been searched (an attempt or a
+// lastSearchedAt), nothing else.
+func BacklogValues(o client.Object) []string {
+	c, ok := wantedcron.CandidateOf(o, backlogHorizon)
+	if !ok || c.Reason == "" || (c.Attempts.Count == 0 && c.Attempts.Latest == nil) {
+		return nil
+	}
+	return []string{string(c.Reason)}
+}
+
+// LastLiveSearchAt is a searchable item's status.lastLiveSearchAt.
+func LastLiveSearchAt(o client.Object) *metav1.Time {
+	switch t := o.(type) {
+	case *catalogv1alpha1.Movie:
+		return t.Status.LastLiveSearchAt
+	case *catalogv1alpha1.Episode:
+		return t.Status.LastLiveSearchAt
+	case *catalogv1alpha1.Album:
+		return t.Status.LastLiveSearchAt
+	case *catalogv1alpha1.Book:
+		return t.Status.LastLiveSearchAt
+	case *catalogv1alpha1.Audiobook:
+		return t.Status.LastLiveSearchAt
+	case *catalogv1alpha1.Issue:
+		return t.Status.LastLiveSearchAt
 	}
 	return nil
 }

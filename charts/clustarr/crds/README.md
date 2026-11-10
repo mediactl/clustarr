@@ -2,7 +2,7 @@
 
 **Empty in git. Populated at release time.**
 
-The 27 CustomResourceDefinitions live in one place --
+The CustomResourceDefinitions live in one place --
 [`config/crd/bases`](../../../config/crd/bases) -- generated there by
 `make manifests` (controller-gen) from the `+kubebuilder` markers on the Go
 types in `api/`. The release pipeline copies them into this directory when it
