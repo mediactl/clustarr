@@ -363,7 +363,9 @@ func lookupBooks(ctx context.Context, reg *pkgmetadata.Registry, req schema.Meta
 // has none: ArtistProvider exposes SearchArtists (by text) and
 // Albums(mbArtistID) (list, not search, of a known artist's albums) but no
 // SearchAlbums; there is no provider surface to route an album search to,
-// so it is reported as an unsupported kind. audiobook has none either.
+// so it is reported as an unsupported kind. audiobook is searched through
+// the AudiobookSearchers (Audible's catalog, 2026-11-10 design §5.6), by
+// title in the request's region (the audiobook root's).
 //
 // Three failures are told apart, because they send an operator to three
 // different places: a kind no provider interface can search (a caller
@@ -407,6 +409,11 @@ func search(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataR
 		resp = searchFirst(ctx, req.Kind, "metadata.AuthorSearcher.SearchAuthors", searchers[pkgmetadata.AuthorSearcher](reg.Books),
 			func(ctx context.Context, p namedSearcher[pkgmetadata.AuthorSearcher]) ([]pkgmetadata.SearchHit, error) {
 				return p.s.SearchAuthors(ctx, req.Text)
+			})
+	case commonv1.MediaKindAudiobook:
+		resp = searchFirst(ctx, req.Kind, "metadata.AudiobookSearcher.SearchAudiobooks", reg.AudiobookSearchers,
+			func(ctx context.Context, p pkgmetadata.AudiobookSearcher) ([]pkgmetadata.SearchHit, error) {
+				return p.SearchAudiobooks(ctx, req.Text, req.Region)
 			})
 	default:
 		resp = schema.MetadataResponse{Kind: req.Kind, Error: fmt.Sprintf("metadata: search does not support kind %q", req.Kind)}
