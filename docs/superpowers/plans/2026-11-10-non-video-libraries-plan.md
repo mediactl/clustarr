@@ -780,7 +780,11 @@ session, E3 b903ea47/6760dc20 -- its CoverageRejections caller is
 `app/catalog/controller/search/season.go`, not app/remediation/search --
 E4 7450a5f9/edcfd506) and what stays open; the E2 reviewer's album-dialog
 patch (a shared folder named only when strictly inside it) was applied by
-the controlling session.
+the controlling session. **Live on talos as Helm rev 248 since 2026-11-10 21:13Z** (chart
+0.6.12 from 76c4b091, the three CRDs by hand first; rev 244 carried
+58a75ef5 from 17:43Z): manager stable, the six tabs serve (the non-video
+ones empty until a music, comic or audiobook RootFolder exists), Live TV
+untouched.
 
 ## Order and gates
 
