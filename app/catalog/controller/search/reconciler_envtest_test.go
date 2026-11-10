@@ -39,6 +39,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/search"
 	"github.com/mediactl/clustarr/app/catalog/searchoutcome"
+	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/app/remediation/itemtest"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -147,10 +148,15 @@ func TestReconcilePublishesOneInteractiveSearchTaskAtHighPriority(t *testing.T) 
 	require.Equal(t, events.WorkSearchSubject(events.PriorityHigh, wantKey), subjects[0],
 		"an interactive search is high priority and keyed by the canonical mediaKey")
 	require.Equal(t, f.ns+"/srch", envs[0].Key, "the envelope key names the owning Search")
-	require.Equal(t, events.MsgIDForObject(string(s.UID), s.Generation, "search"), envs[0].ID)
 
 	var task schema.SearchTask
 	require.NoError(t, json.Unmarshal(envs[0].Data, &task))
+	// The Msg-Id is the ADR-0019 search task's, "search/<uid>/<seq>"
+	// (9072cc58 named it, a87a3006 had the Search controller publish it),
+	// keyed by the task's own seq rather than the object's generation: the
+	// agent answers the task by its seq in clustarr-searches.
+	require.Positive(t, task.Seq)
+	require.Equal(t, events.MsgIDForSearch(string(s.UID), task.Seq), envs[0].ID)
 	require.Equal(t, schema.SearchReasonInteractive, task.Reason)
 	require.True(t, task.UserInvoked)
 	require.NotNil(t, task.SearchRef)
@@ -677,14 +683,53 @@ func TestReconcileCompletesLateResultsAfterATimeout(t *testing.T) {
 		"the stale Failed condition must be cleared")
 	require.Len(t, got.Status.Results, 1)
 
-	// And the whole point: spec.grab now works.
+	// And the whole point: spec.grab now works. Since ADR-0019 (A4.3,
+	// a87a3006) the Search controller creates no Download: the pick goes to
+	// the item's owner as a manual Candidate on its intake subject, and
+	// status.grabbed reports it sent -- no entry, no error -- until the
+	// owner's grab planner has made the grab, looking again shortly.
 	patch := client.MergeFrom(got.DeepCopy())
 	got.Spec.Grab = []string{"g1"}
 	require.NoError(t, f.c.Patch(ctx, got, patch))
-	f.reconcile(t, "srch")
+	res := f.reconcile(t, "srch")
+	require.Positive(t, res.RequeueAfter, "the Search looks for the owner's entry again")
+	require.Less(t, res.RequeueAfter, time.Minute, "shortly, not at the TTL")
+
+	sent := f.candidates(t)
+	require.Len(t, sent, 1, "the pick reaches the owner once")
+	c := sent[0]
+	require.Equal(t, "Movie", c.Owner.Kind)
+	require.Equal(t, "the-matrix", c.Owner.Name)
+	require.True(t, c.Manual, "a person's pick, not grabBest's")
+	require.Equal(t, schema.CandidateOriginInteractive, c.Origin)
+	require.Equal(t, "g1", c.Release.Decision.GUID)
+	require.Equal(t, string(got.UID), c.SearchRef.UID)
 
 	after := f.get(t, "srch")
 	require.Len(t, after.Status.Grabbed, 1)
-	require.Equal(t, k8s.ChildName("the-matrix", "g1"), after.Status.Grabbed[0].DownloadRef)
-	require.Empty(t, after.Status.Grabbed[0].Error)
+	require.Equal(t, catalogv1alpha1.GrabResult{GUID: "g1"}, after.Status.Grabbed[0],
+		"sent and waiting: no entry yet, and no error")
+
+	// The owner's grab planner makes the entry (the intake's incorporation,
+	// written here as the manager's catalog-grab manager writes it), and the
+	// Search's next look reports the grab it became.
+	id := lifecycle.EntryID("the-matrix", "", "g1")
+	grabbedAt := metav1.NewTime(f.clock.Now())
+	entry := catalogv1alpha1.DownloadEntry{
+		ID: id, UID: "uid-g1",
+		Release: catalogv1alpha1.DownloadRelease{Title: "The.Matrix.1999.1080p.BluRay.x264-GROUP", GUID: "g1", IndexerRef: "idx", Protocol: commonv1.ProtocolTorrent},
+		Source:  commonv1.DownloadSource{IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "idx", GUID: "g1"}},
+		Client:  "torrent", GrabbedBy: commonv1.GrabSourceInteractive, GrabbedAt: grabbedAt,
+		Phase: commonv1.DownloadPhaseDownloading, RemoveOnImport: true, RemoveDataOnDelete: true,
+		Dispatch: catalogv1alpha1.Dispatch{Seq: 1, DispatchedAt: grabbedAt},
+	}
+	movie := &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: "the-matrix", Namespace: f.ns}}
+	seedStatus(t, f.c, movie, k8s.ManagerCatalogGrab, map[string]any{"downloads": []any{toMap(t, &entry)}})
+	f.reconcile(t, "srch")
+
+	after = f.get(t, "srch")
+	require.Len(t, after.Status.Grabbed, 1)
+	require.Equal(t, catalogv1alpha1.GrabResult{GUID: "g1", DownloadRef: id}, after.Status.Grabbed[0],
+		"the entry the pick became on the owner")
+	require.Len(t, f.candidates(t), 1, "the pick is not sent again")
 }
