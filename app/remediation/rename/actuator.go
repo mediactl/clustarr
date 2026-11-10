@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -190,6 +191,8 @@ const (
 // be renamed -- renameFiles wins over renameTranscoded -- and returns the
 // namespace's RootFolders, read from the manager's cache: with both switches
 // off everywhere -- the default -- the item is never looked up at all.
+// renameFiles is read for every kind the loop names (2026-11-10 design D7);
+// renameTranscoded is video-only, since only a video file is transcoded.
 func (a *Actuator) renameMode(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) ([]catalogv1alpha1.RootFolder, renameMode, error) {
 	var roots catalogv1alpha1.RootFolderList
 	if err := c.List(ctx, &roots, client.InNamespace(mf.Namespace)); err != nil {
@@ -199,7 +202,7 @@ func (a *Actuator) renameMode(ctx context.Context, c client.Reader, mf *catalogv
 		switch {
 		case rf.Spec.Naming.RenameFilesOrDefault():
 			return renameWhole
-		case rf.Spec.Naming.RenameTranscoded && transcodedHere(mf):
+		case rf.Spec.Naming.RenameTranscoded && videoKind(mf.Spec.MediaRef.Kind) && transcodedHere(mf):
 			return renameInFolder
 		}
 		return renameOff
@@ -216,6 +219,12 @@ func (a *Actuator) renameMode(ctx context.Context, c client.Reader, mf *catalogv
 		return roots.Items, renameOff, nil
 	}
 	return roots.Items, modeOf(roots.Items[i]), nil
+}
+
+// videoKind reports whether a file of kind is a video file, the only kind
+// the transcode controller transcodes.
+func videoKind(kind commonv1.MediaKind) bool {
+	return kind == commonv1.MediaKindMovie || kind == commonv1.MediaKindEpisode
 }
 
 // transcodedHere reports whether the transcode controller transcoded mf: spec.original is
@@ -260,10 +269,14 @@ func (a *Actuator) openScanOver(
 	return "", nil
 }
 
-// rootFolderRef is the RootFolder mf's item is stored under: a Movie's own,
-// or an Episode's Series', read through c (the manager's cache, which holds
-// them). It is "" for an item that does not exist and for any other kind --
-// catalog names only movies and episodes.
+// rootFolderRef is the RootFolder mf's item is stored under, read through c
+// (the manager's cache, which holds them): a Movie's own, an Episode's
+// Series', an Album's Artist's, a Book's own override else its Author's, an
+// Audiobook's own and an Issue's Comic's -- the same resolution the naming
+// planner's owner lookup makes (mediafile.namingOwnerOf; 2026-11-10 design
+// D7, §5.5). It is "" for an item or container that does not exist, a
+// standalone Book with no root, and any other kind, which the loop does not
+// name.
 func (a *Actuator) rootFolderRef(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (string, error) {
 	key := func(name string) types.NamespacedName {
 		return types.NamespacedName{Namespace: mf.Namespace, Name: name}
@@ -286,6 +299,49 @@ func (a *Actuator) rootFolderRef(ctx context.Context, c client.Reader, mf *catal
 			return "", client.IgnoreNotFound(err)
 		}
 		return s.Spec.RootFolderRef, nil
+	case commonv1.MediaKindAlbum:
+		var album catalogv1alpha1.Album
+		if err := c.Get(ctx, key(ref.Name), &album); err != nil {
+			return "", client.IgnoreNotFound(err)
+		}
+		var artist catalogv1alpha1.Artist
+		if err := c.Get(ctx, key(album.Spec.ArtistRef), &artist); err != nil {
+			return "", client.IgnoreNotFound(err)
+		}
+		return artist.Spec.RootFolderRef, nil
+	case commonv1.MediaKindBook:
+		var book catalogv1alpha1.Book
+		if err := c.Get(ctx, key(ref.Name), &book); err != nil {
+			return "", client.IgnoreNotFound(err)
+		}
+		if own := ptr.Deref(book.Spec.RootFolderRef, ""); own != "" {
+			return own, nil
+		}
+		authorRef := ptr.Deref(book.Spec.AuthorRef, "")
+		if authorRef == "" {
+			return "", nil
+		}
+		var author catalogv1alpha1.Author
+		if err := c.Get(ctx, key(authorRef), &author); err != nil {
+			return "", client.IgnoreNotFound(err)
+		}
+		return author.Spec.RootFolderRef, nil
+	case commonv1.MediaKindAudiobook:
+		var ab catalogv1alpha1.Audiobook
+		if err := c.Get(ctx, key(ref.Name), &ab); err != nil {
+			return "", client.IgnoreNotFound(err)
+		}
+		return ab.Spec.RootFolderRef, nil
+	case commonv1.MediaKindIssue:
+		var issue catalogv1alpha1.Issue
+		if err := c.Get(ctx, key(ref.Name), &issue); err != nil {
+			return "", client.IgnoreNotFound(err)
+		}
+		var comic catalogv1alpha1.Comic
+		if err := c.Get(ctx, key(issue.Spec.ComicRef), &comic); err != nil {
+			return "", client.IgnoreNotFound(err)
+		}
+		return comic.Spec.RootFolderRef, nil
 	}
 	return "", nil
 }

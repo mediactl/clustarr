@@ -53,10 +53,17 @@ type Input struct {
 // Name implements remediation.Planner.
 func (*Adapter) Name() remediation.PlannerName { return remediation.PlannerNaming }
 
-// Applies: catalog names movies and episodes (mediafile's namingOwner).
+// Applies: catalog names every file whose owner kind has a file preset
+// (mediafile's namingOwner): a movie, an episode, an album's track, a book,
+// an audiobook's part and an issue (2026-11-10 design D7, §5.5). A file
+// attributed to a container kind, or to nothing, is not named.
 func (*Adapter) Applies(mf *catalogv1alpha1.MediaFile) bool {
-	k := mf.Spec.MediaRef.Kind
-	return k == commonv1.MediaKindMovie || k == commonv1.MediaKindEpisode
+	switch mf.Spec.MediaRef.Kind {
+	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode,
+		commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindIssue:
+		return true
+	}
+	return false
 }
 
 // Gather reads the item and its RootFolder from the cache. The directory

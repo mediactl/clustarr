@@ -34,6 +34,10 @@ import (
 // S10' (a QualityProfile's language or audio policy changing: the item's
 // configured language, which {MediaInfo AudioLanguages} names against). A
 // transcode holds a rename through the file's own status.transcode (F6.2).
+// Since 2026-11-10 (design D7, §5.5) the non-video kinds have theirs too:
+// an Album and its Artist, a Book and its Author, an Audiobook, an Issue
+// and its Comic (nonvideo_sources.go), and S11 fans out to a music, book,
+// audiobook or comic root's files beside a movie or series root's.
 func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	// The cache itself, not the client over it: the file maps read keys
 	// through rowcache.Keys, which the cache answers without decoding.
@@ -55,8 +59,39 @@ func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 			Predicates: []predicate.Predicate{mediafile.SeriesNamingChanged()},
 		},
 		{
-			Name: "S11/RootFolder", Object: &catalogv1alpha1.RootFolder{}, Handler: remediation.MapFiles(via(mediafile.FilesForRootFolder)),
+			Name: "S11/RootFolder", Object: &catalogv1alpha1.RootFolder{},
+			Handler: remediation.MapFiles(func(ctx context.Context, o client.Object) []types.NamespacedName {
+				return append(mediafile.FilesForRootFolder(ctx, c, o), nonVideoFilesOfRootFolder(ctx, c, o)...)
+			}),
 			Predicates: []predicate.Predicate{mediafile.RootFolderNamingChanged()},
+		},
+		{
+			Name: "S12/Album", Object: &catalogv1alpha1.Album{}, Handler: remediation.MapFiles(via(filesOfAlbum)),
+			Predicates: []predicate.Predicate{albumNamingChanged()},
+		},
+		{
+			Name: "S12/Artist", Object: &catalogv1alpha1.Artist{}, Handler: remediation.MapFiles(via(filesOfArtist)),
+			Predicates: []predicate.Predicate{artistNamingChanged()},
+		},
+		{
+			Name: "S12/Book", Object: &catalogv1alpha1.Book{}, Handler: remediation.MapFiles(via(filesOfBook)),
+			Predicates: []predicate.Predicate{bookNamingChanged()},
+		},
+		{
+			Name: "S12/Author", Object: &catalogv1alpha1.Author{}, Handler: remediation.MapFiles(via(filesOfAuthor)),
+			Predicates: []predicate.Predicate{authorNamingChanged()},
+		},
+		{
+			Name: "S12/Audiobook", Object: &catalogv1alpha1.Audiobook{}, Handler: remediation.MapFiles(via(filesOfAudiobook)),
+			Predicates: []predicate.Predicate{audiobookNamingChanged()},
+		},
+		{
+			Name: "S12/Issue", Object: &catalogv1alpha1.Issue{}, Handler: remediation.MapFiles(via(filesOfIssue)),
+			Predicates: []predicate.Predicate{issueNamingChanged()},
+		},
+		{
+			Name: "S12/Comic", Object: &catalogv1alpha1.Comic{}, Handler: remediation.MapFiles(via(filesOfComic)),
+			Predicates: []predicate.Predicate{comicNamingChanged()},
 		},
 		remediation.QualityProfileSource(c),
 	}, nil

@@ -17,8 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package naming
 
-// The naming planner reads the file's item and its RootFolder through the
-// manager's cache (moved from the mediafile controller, F3.4). The blank
-// line keeps the markers package-level.
+// The naming planner reads the file's item, its container and its
+// RootFolder through the manager's cache (moved from the mediafile
+// controller, F3.4; every kind with a preset since 2026-11-10 design D7).
+// The blank line keeps the markers package-level.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;rootfolders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;albums;artists;books;authors;audiobooks;comics;issues;rootfolders,verbs=get;list;watch

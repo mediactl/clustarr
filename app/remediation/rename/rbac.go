@@ -18,10 +18,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package rename
 
 // The rename's spec apply is server-side apply, which is the patch verb; the
-// item and RootFolder reads and the LibraryScan check go through the
-// manager's cache. The recorder is an events.k8s.io/v1 EventRecorder
-// (mgr.GetEventRecorder). The blank line keeps the markers package-level.
+// item and container reads (every kind the loop names and its container:
+// 2026-11-10 design D7), the RootFolder reads and the LibraryScan check go
+// through the manager's cache. The recorder is an events.k8s.io/v1
+// EventRecorder (mgr.GetEventRecorder). The blank line keeps the markers
+// package-level.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;rootfolders;libraryscans,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;albums;artists;books;authors;audiobooks;comics;issues;rootfolders;libraryscans,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
