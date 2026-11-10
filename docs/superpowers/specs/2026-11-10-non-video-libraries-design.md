@@ -892,10 +892,21 @@ authors or narrators), one comic provider answers a search (no source
 selector on the request), and an Audiobook is added with no authorRef;
 `handleSetMonitored` answers no Audiobook row (no row lists audiobooks);
 the children fragment (`ui/children.go`, `views.ChildrenPage`) is reached
-by no page and awaits deletion. The kind pages' modals, the Edit dialog's
-`intersect once` block fetch inside the portaled dialog and the preloads
-were held by markup tests only: the browser check (CLAUDE.md's rule for
-portaled dialogs) is pending.
+by no page and awaits deletion. **Browser check done (2026-11-10, the
+controlling session, headless Chrome against bin/ui at 819dc23f over an
+envtest apiserver filled by `ui/preview_harness_test.go`, with talos's NATS
+port-forwarded):** the artist, comic, issue, audiobook, author, book and
+standalone-book pages render in the Plex look with the six-tab sidebar; the
+Edit dialog's `intersect once` block fetch lands inside the portaled dialog
+on every kind (the artist's profile types, the comic's kind and special
+version, the audiobook's ten-region select and Author/Book selects, the
+standalone book's profile and root), each form carrying the "fields" marker;
+the issue's interactive search opens its modal in `#issue-modal` and the
+panel self-polls (`load delay:2s`, outerHTML); the editions collapsible
+opens; and Add New's three new searches answered live through talos's
+metadata gateway (MangaDex "Berserk" with source badges, Open Library "The
+Dispossessed" as a standalone Book, Audible "Wizard of Earthsea"). MangaDex
+hits carry no cover (volume covers not built), so their cards are blank.
 
 ### 9.1 Tabs, cards, toolbar, bulk, typeahead
 

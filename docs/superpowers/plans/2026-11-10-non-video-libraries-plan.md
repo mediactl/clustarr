@@ -570,7 +570,9 @@ per kind on `/searches` (`SearchPanel` has no column set); album Edit and
 Delete; `Track.ArtistCredit` (api) for a per-track credit; Peers/Grabs is
 Peers (no grab count in ReleaseInfo); the Metron logo unlinked; a planned
 volume pack search; the standalone book's scan and rename; the browser
-check of every modal and collapsible (no browser in the agents' sessions);
+check of every modal and collapsible (no browser in the agents' sessions;
+done by the controlling session the same day -- the spec's §9 as-built note
+-- over `ui/preview_harness_test.go`, an envtest rig filled with the kinds);
 `ui/run_test.go`'s `TestRunEndsAnOpenSSEStreamOnContextCancel` flaked once.
 
 ### W4c Shared actions and dialogs (one agent)
@@ -614,8 +616,8 @@ narrators; one comic provider per search (a source selector on
 lookup (a bound `MetadataLookup` request in `internal/cli/ui`); the Edit
 dialog also on an author's book (design: standalone only); an audiobook's
 Book select lists only the linked author's books; `containerFiles`' one Get
-per child file on every render; the `intersect once` block fetch and every
-new modal unchecked in a browser.
+per child file on every render. The `intersect once` block fetch and the
+new modals were checked in a browser the same day (the spec's §9 note).
 
 ## W5: the Plex roots (serial)
 
