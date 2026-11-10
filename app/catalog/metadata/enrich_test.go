@@ -403,3 +403,59 @@ func TestEnrichFillsASeriesTaglineAndKeywordsFromAnExtrasProvider(t *testing.T) 
 	require.Equal(t, "Its own.", own.Tagline)
 	require.Equal(t, []string{"time travel", "alien"}, own.Keywords, "the keywords are the provider's even beside the primary's tagline")
 }
+
+type stubBiographyProvider struct {
+	name  string
+	text  string
+	err   error
+	calls *int
+}
+
+func (s stubBiographyProvider) Name() string { return s.name }
+func (s stubBiographyProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+func (s stubBiographyProvider) Biography(context.Context, []pkgmetadata.Link) (string, string, error) {
+	if s.calls != nil {
+		*s.calls++
+	}
+	if s.err != nil {
+		return "", "", s.err
+	}
+	return s.text, s.name, nil
+}
+
+// An artist without an overview gets the first biography a provider
+// answers from its links, with its source recorded; a failing provider is
+// passed over; an artist whose own provider wrote an overview, or one with
+// no links, asks nobody.
+func TestEnrichFillsAnArtistsBiographyFromItsLinks(t *testing.T) {
+	calls := 0
+	reg := &pkgmetadata.Registry{Biographies: []pkgmetadata.BiographyProvider{
+		stubBiographyProvider{name: "down", err: errors.New("wikipedia: 503"), calls: &calls},
+		stubBiographyProvider{name: "wikipedia", text: "Muse are an English rock band.", calls: &calls},
+	}}
+	links := []pkgmetadata.Link{{Type: "wikidata", URL: "https://www.wikidata.org/wiki/Q22151"}}
+	doc := &pkgmetadata.Artist{IDs: pkgmetadata.ExternalIDs{"musicbrainz": "9c9f1380"}, Links: links}
+
+	enrich(context.Background(), reg, commonv1.MediaKindArtist, nil, nil, doc)
+	require.Equal(t, "Muse are an English rock band.", doc.Overview)
+	require.Equal(t, "wikipedia", doc.BiographySource)
+	require.Equal(t, 2, calls, "the failing provider is passed over")
+
+	calls = 0
+	own := &pkgmetadata.Artist{IDs: pkgmetadata.ExternalIDs{"musicbrainz": "x"}, Overview: "From the annotation.", BiographySource: "musicbrainz", Links: links}
+	enrich(context.Background(), reg, commonv1.MediaKindArtist, nil, nil, own)
+	require.Equal(t, "From the annotation.", own.Overview)
+	require.Equal(t, "musicbrainz", own.BiographySource)
+	require.Zero(t, calls, "an overview already written asks nobody")
+
+	nolinks := &pkgmetadata.Artist{IDs: pkgmetadata.ExternalIDs{"musicbrainz": "y"}}
+	enrich(context.Background(), reg, commonv1.MediaKindArtist, nil, nil, nolinks)
+	require.Empty(t, nolinks.Overview)
+	require.Zero(t, calls, "no links, no request")
+
+	author := &pkgmetadata.Author{IDs: pkgmetadata.ExternalIDs{"openlibrary": "OL22242A"}, Links: links}
+	enrich(context.Background(), reg, commonv1.MediaKindAuthor, nil, nil, author)
+	require.Equal(t, "Muse are an English rock band.", author.Overview, "an author is served the same way")
+}

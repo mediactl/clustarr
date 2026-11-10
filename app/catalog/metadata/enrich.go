@@ -79,7 +79,7 @@ func resolveIDs(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.Me
 // carries no images in pkg/metadata and an Audiobook a single one, so
 // neither takes artwork; no artwork provider serves those kinds anyway.
 func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaKind, specIDs, known pkgmetadata.ExternalIDs, doc any) {
-	if reg == nil || (len(reg.Resolvers) == 0 && len(reg.Artwork) == 0 && len(reg.Extras) == 0) {
+	if reg == nil || (len(reg.Resolvers) == 0 && len(reg.Artwork) == 0 && len(reg.Extras) == 0 && len(reg.Biographies) == 0) {
 		return
 	}
 	ctx, span := tracing.Start(ctx, "metadata.enrich")
@@ -98,6 +98,22 @@ func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaK
 			s.Tagline = extras.Tagline
 		}
 		s.Keywords = extras.Keywords
+	}
+
+	// An artist's or author's biography when its own provider gave none
+	// (MusicBrainz's annotations are mostly empty; Open Library's bios
+	// often are): the first BiographyProvider that answers from the
+	// document's links (2026-11-10 design §5.4), folded in before the cache
+	// write like the artwork, so a cache hit costs no request.
+	switch d := doc.(type) {
+	case *pkgmetadata.Artist:
+		if d.Overview == "" {
+			d.Overview, d.BiographySource = biography(ctx, reg.Biographies, d.Links)
+		}
+	case *pkgmetadata.Author:
+		if d.Overview == "" {
+			d.Overview, _ = biography(ctx, reg.Biographies, d.Links)
+		}
 	}
 
 	if imagesp == nil {
@@ -292,4 +308,27 @@ func seriesExtras(ctx context.Context, providers []pkgmetadata.SeriesExtrasProvi
 		}
 	}
 	return pkgmetadata.SeriesExtras{}
+}
+
+// biography asks each provider in turn for a biography from links; the
+// first answer wins, a failure (ErrNotFound included) moves on, and no
+// answer leaves both empty.
+func biography(ctx context.Context, providers []pkgmetadata.BiographyProvider, links []pkgmetadata.Link) (text, source string) {
+	if len(providers) == 0 || len(links) == 0 {
+		return "", ""
+	}
+	for _, p := range providers {
+		bCtx, span := tracing.Start(ctx, "metadata.BiographyProvider.Biography")
+		text, source, err := p.Biography(bCtx, links)
+		if err != nil {
+			tracing.RecordError(span, err)
+			span.End()
+			continue
+		}
+		span.End()
+		if text != "" {
+			return text, source
+		}
+	}
+	return "", ""
 }
