@@ -290,6 +290,12 @@ spec:
         command:
         - /usr/bin/ui
         {{- $uiArgs := list (printf "--auth-mode=%s" .Values.ui.auth.mode) (printf "--plex-provider=%t" .Values.ui.plex.enabled) (printf "--plex-guids=%t" .Values.ui.plex.plexGuids) (printf "--pipeline-history=%d" (int .Values.ui.pipelineHistory)) }}
+        {{- /* --plex-music-provider is rendered only when set: it is false everywhere
+             until a PMS build accepts a provider declaring types 8, 9 and 10
+             (2026-11-10 design §7.6), and the binary's default is false. */}}
+        {{- if .Values.ui.plex.musicProvider }}
+        {{- $uiArgs = append $uiArgs "--plex-music-provider=true" }}
+        {{- end }}
         {{- with .Values.ui.plex.externalURL }}
         {{- $uiArgs = append $uiArgs (printf "--external-url=%s" .) }}
         {{- end }}

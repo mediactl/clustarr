@@ -542,6 +542,10 @@
               "type": "boolean",
               "description": "--plex-guids: answer items Plex knows with their plex:// GUIDs, so Plex Web offers Watchlist."
             },
+            "musicProvider": {
+              "type": "boolean",
+              "description": "--plex-music-provider: also serve the music and audiobook roots, /plex/music and /plex/audiobooks (types 8, 9, 10). Keep false until a PMS build accepts a provider declaring them (2026-11-10 design §7.6)."
+            },
             "externalURL": {
               "type": "string",
               "description": "--external-url / $CLUSTARR_EXTERNAL_URL: the absolute base every thumb, art and Image[].url is built on. Empty means the provider roots answer 503 naming the flag."

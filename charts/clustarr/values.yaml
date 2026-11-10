@@ -320,6 +320,16 @@ cluster-plex:
     metadataProviders:
       - uri: 'http://{{ .Release.Name }}-ui.{{ .Release.Namespace }}.svc.cluster.local:8080/plex/movies'
       - uri: 'http://{{ .Release.Name }}-ui.{{ .Release.Namespace }}.svc.cluster.local:8080/plex/tv'
+      # The music and audiobook roots (ui.plex.musicProvider below;
+      # docs/superpowers/specs/2026-11-10-non-video-libraries-design.md §7)
+      # stay out of the list: PMS through 1.43.5.11079 refuses a custom
+      # provider declaring Plex's music types 8, 9 and 10 ("The provider
+      # supports unsupported metadata types", §7.6's as-run note), and
+      # cluster-plex would re-add a refused provider on every reconcile.
+      # Uncomment both, and set ui.plex.musicProvider, once a PMS build
+      # accepts the registration (re-run §7.6's spike against each beta).
+      # - uri: 'http://{{ .Release.Name }}-ui.{{ .Release.Namespace }}.svc.cluster.local:8080/plex/music'
+      # - uri: 'http://{{ .Release.Name }}-ui.{{ .Release.Namespace }}.svc.cluster.local:8080/plex/audiobooks'
     libraries:
       - name: Clustarr Movies
         type: movie
@@ -602,8 +612,9 @@ livetv:
 # handler count (CLUSTARR_CONSUMER_SLOTS), which is also the HPA's per-pod
 # target, e.g. {catalog-artwork-render: 2}.
 agents:
-  # Searches and artwork renders. Autoscaled 0..1: its searches end in the
-  # index agent's per-host limiter, which more replicas cannot feed.
+  # Searches and artwork renders. Autoscaled 1..1: its searches end in the
+  # index agent's per-host limiter, which more replicas cannot feed, and it
+  # never scales to zero, so a search never waits for a pod to start.
   catalog:
     enabled: true
     replicas: 1
@@ -826,10 +837,20 @@ ui:
   # The provider's extras route (Plex's own trailers) needs no token here:
   # the metadata gateway fetches them with the plex MetadataProvider's token
   # and keeps them in the clustarr-plex-extras bucket.
+  #
+  # musicProvider maps to --plex-music-provider: also serve the music and
+  # audiobook roots, /plex/music and /plex/audiobooks (Plex's music types
+  # 8, 9 and 10; docs/superpowers/specs/2026-11-10-non-video-libraries-design.md
+  # §7). false by default, and to stay false on every cluster for now: PMS
+  # through 1.43.5.11079 refuses a custom provider declaring those types
+  # (§7.6's as-run note), so the roots are built to the inferred shapes and
+  # their uris sit commented out under cluster-plex.plex.metadataProviders
+  # above until a PMS build accepts them.
   plex:
     enabled: true
     externalURL: ""
     plexGuids: true
+    musicProvider: false
   service:
     type: ClusterIP
     port: 8080

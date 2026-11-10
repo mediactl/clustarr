@@ -362,6 +362,19 @@ enter each root's URL separately -- one provider per parent type
 `<host>` is wherever `ui.plex.externalURL` points (below); PMS must be able
 to reach it, unauthenticated, over plain HTTP.
 
+**Music and audiobooks are built, flagged off.** `ui` also carries two
+music roots, `http://<host>/plex/music` (Artist -> Album -> track) and
+`http://<host>/plex/audiobooks` (Author -> Audiobook -> part), both
+declaring Plex's music types 8, 9 and 10 to the shapes
+`docs/superpowers/specs/2026-11-10-non-video-libraries-design.md` §7 infers.
+They are served only under `ui.plex.musicProvider` (`--plex-music-provider`,
+default `false`), and the chart lists their URIs commented out under
+`cluster-plex.plex.metadataProviders`, because PMS through 1.43.5.11079
+refuses a custom provider declaring those types (`The provider supports
+unsupported metadata types`, §7.6's as-run note). Leave both off until a PMS
+build accepts the registration; then set `ui.plex.musicProvider=true`,
+uncomment the two URIs, and add a music library (`type: artist`) per root.
+
 **It is unauthenticated by the Plex protocol itself.** There is no token,
 header or query parameter for auth -- Plex states plainly that "only
 unauthenticated requests are currently supported". Anyone who can reach
@@ -537,6 +550,7 @@ template.
 | `ui.auth.mode` | The web UI's authentication mode (`--auth-mode`), chosen explicitly: the binary refuses to serve without one. `anonymous`, the only mode, serves every request without a login -- put the Service behind ingress authentication and never expose it directly. | `anonymous` |
 | `ui.plex.enabled` | Mount the Plex Custom Metadata Provider routes (`--plex-provider`). See [Plex provider](#plex-provider). | `true` |
 | `ui.plex.externalURL` | Absolute base every `thumb`/`art`/`Image[]` URL is built on (`--external-url`). Empty means the provider roots answer `503` naming the flag. **Unauthenticated by protocol -- never a public ingress hostname.** | `""` |
+| `ui.plex.musicProvider` | Also serve the music and audiobook roots, `/plex/music` and `/plex/audiobooks` (`--plex-music-provider`). Keep `false` until a PMS build accepts a provider declaring types 8, 9 and 10; see [Plex provider](#plex-provider). | `false` |
 | `ui.service.type`/`.port` | The web UI's Service. | `ClusterIP`, `8080` |
 | `ui.autoscaling.enabled` | An HPA on the ui's CPU between `minReplicas` and `maxReplicas`, the pods one per node; the Deployment then has no `spec.replicas`. See [Web UI](#web-ui-scaling-and-exposure). | `false` |
 | `ui.autoscaling.minReplicas`/`.maxReplicas`/`.targetCPUUtilizationPercentage`/`.behavior` | The HPA's bounds, CPU target (a share of `ui.resources.requests.cpu`) and `autoscaling/v2` behavior. `maxReplicas` is at most a onePerNode profile's `replicas`. | `1`, `3`, `70`, `{}` |
