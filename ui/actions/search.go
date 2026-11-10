@@ -114,8 +114,6 @@ func InteractiveSeasonSearch(ctx context.Context, c Creator, namespace, series s
 	return search, nil
 }
 
-// seasonSearch is the Search a season's two buttons create: [uiSearch] on
-// the series with spec.season set. A negative season is [ErrInvalid].
 // SearchVolume is the comic page's "Search Volume" (2026-11-10 design §9.4,
 // D10): a Search naming the Comic with spec.season its volume and grabBest,
 // which the Comic key's volume planner serves as one pack search of every
@@ -175,6 +173,8 @@ func volumeSearch(namespace, comic string) (*catalogv1alpha1.Search, error) {
 	return search, nil
 }
 
+// seasonSearch is the Search a season's two buttons create: [uiSearch] on
+// the series with spec.season set. A negative season is [ErrInvalid].
 func seasonSearch(namespace, series string, season int32) (*catalogv1alpha1.Search, error) {
 	if err := validateItem(namespace, commonv1.MediaKindSeries, series); err != nil {
 		return nil, err
@@ -312,7 +312,7 @@ func (a *Actions) InteractiveSeasonSearch(ctx context.Context, namespace, series
 	return InteractiveSeasonSearch(ctx, a.w, namespace, series, season)
 }
 
-// GrabRelease is [GrabRelease] over the Actions' writer.
+// SearchVolume is [SearchVolume] over the Actions' writer.
 func (a *Actions) SearchVolume(ctx context.Context, namespace, comic string) (*catalogv1alpha1.Search, error) {
 	if a == nil || a.w == nil {
 		return nil, ErrNoWriter
@@ -320,6 +320,8 @@ func (a *Actions) SearchVolume(ctx context.Context, namespace, comic string) (*c
 	return SearchVolume(ctx, a.w, namespace, comic)
 }
 
+// InteractiveVolumeSearch is [InteractiveVolumeSearch] over the Actions'
+// writer.
 func (a *Actions) InteractiveVolumeSearch(ctx context.Context, namespace, comic string) (*catalogv1alpha1.Search, error) {
 	if a == nil || a.w == nil {
 		return nil, ErrNoWriter
@@ -327,6 +329,7 @@ func (a *Actions) InteractiveVolumeSearch(ctx context.Context, namespace, comic 
 	return InteractiveVolumeSearch(ctx, a.w, namespace, comic)
 }
 
+// GrabRelease is [GrabRelease] over the Actions' writer.
 func (a *Actions) GrabRelease(
 	ctx context.Context, search *catalogv1alpha1.Search, guid string, override bool,
 ) (*catalogv1alpha1.Search, error) {

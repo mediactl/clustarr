@@ -112,7 +112,8 @@ var neverWriteSelectors = map[string]bool{
 // on the catalog and settings kinds, delete on the settings kinds) -- and
 // are banned in every other file under ui/.
 // busSelectors are the bus calls ui/ must never make: the metadata search
-// reaches it as a function (Options.MetadataSearch), never as a requester.
+// and lookup reach it as functions (Options.MetadataSearch,
+// Options.MetadataLookup), never as a requester.
 var busSelectors = map[string]bool{"Request": true, "Publish": true, "Serve": true}
 
 var actionWriteSelectors = map[string]bool{
@@ -218,7 +219,7 @@ func TestUINeverWrites(t *testing.T) {
 			for _, c := range selectorCalls(f) {
 				if busSelectors[c.name] {
 					t.Errorf("%s:%d: calls .%s(...). The ui's bus use is closures internal/cli/ui binds -- "+
-						"Options.MetadataSearch and PlexExtras (one request each), and KV and artwork reads -- "+
+						"Options.MetadataSearch, MetadataLookup and PlexExtras (one request each), and KV and artwork reads -- "+
 						"so it never holds a requester and can never pick a subject",
 						f.path, c.line, c.name)
 				}

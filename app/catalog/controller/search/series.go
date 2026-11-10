@@ -58,6 +58,8 @@ const (
 // container: a Series searches its seasons, a Comic its one volume.
 type plannedWords struct {
 	// noun is the container: "series" or "comic".
+	// poss is the noun's possessive ("series'", "comic's").
+	poss string
 	noun string
 	// unit is what it searches, singular and plural: "season"/"seasons" or
 	// "volume"/"volume".
@@ -67,8 +69,8 @@ type plannedWords struct {
 }
 
 var (
-	seriesWords = plannedWords{noun: "series", unit: "season", units: "seasons", gone: reasonSeriesGone}
-	comicWords  = plannedWords{noun: "comic", unit: "volume", units: "volume", gone: reasonComicGone}
+	seriesWords = plannedWords{noun: "series", poss: "series'", unit: "season", units: "seasons", gone: reasonSeriesGone}
+	comicWords  = plannedWords{noun: "comic", poss: "comic's", unit: "volume", units: "volume", gone: reasonComicGone}
 )
 
 // plannedContainer reads the container a planned Search names
@@ -134,9 +136,9 @@ func (r *Reconciler) reconcileSeriesSearch(ctx context.Context, s *catalogv1alph
 		msg := fmt.Sprintf("waiting for the %s to take the search", w.noun)
 		switch {
 		case st != nil && st.FinishedAt == nil && searchplan.Automatic(st):
-			msg = fmt.Sprintf("waiting for the %s' automatic %s search to finish", w.noun, w.unit)
+			msg = fmt.Sprintf("waiting for the %s automatic %s search to finish", w.poss, w.unit)
 		case st != nil && st.FinishedAt == nil:
-			msg = fmt.Sprintf("waiting for the %s' search %s to finish", w.noun, st.Request.Name)
+			msg = fmt.Sprintf("waiting for the %s search %s to finish", w.poss, st.Request.Name)
 		}
 		if (st == nil || st.FinishedAt != nil) && now.Sub(started.Time) > searchplan.SeriesSearchStallTimeout {
 			return r.stalled(ctx, s, fmt.Sprintf("the %s has not taken the search", w.noun))
@@ -160,7 +162,7 @@ func (r *Reconciler) reconcileSeriesSearch(ctx context.Context, s *catalogv1alph
 		msg := summarize(u.seasons, w.units)
 		k8s.MarkTrue(s, &u.conditions, catalogv1alpha1.SearchConditionCompleted, k8s.ReasonReconciled, "%s", msg)
 		k8s.MarkFalse(s, &u.conditions, catalogv1alpha1.SearchConditionFailed, k8s.ReasonReconciled, "search completed")
-		k8s.MarkTrue(s, &u.conditions, k8s.ConditionReady, k8s.ReasonReconciled, "status.seasons reflects the %s' search", w.noun)
+		k8s.MarkTrue(s, &u.conditions, k8s.ConditionReady, k8s.ReasonReconciled, "status.seasons reflects the %s search", w.poss)
 		if err := r.apply(ctx, s, u); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -169,7 +171,7 @@ func (r *Reconciler) reconcileSeriesSearch(ctx context.Context, s *catalogv1alph
 		return ctrl.Result{}, nil
 	}
 	if now.Sub(lastTransition(st)) > searchplan.SeriesSearchStallTimeout {
-		return r.stalled(ctx, s, fmt.Sprintf("the %s' search shows no progress", w.noun))
+		return r.stalled(ctx, s, fmt.Sprintf("the %s search shows no progress", w.poss))
 	}
 	searching := fmt.Sprintf("the %s is searching its %s", w.noun, w.units)
 	k8s.MarkFalse(s, &u.conditions, catalogv1alpha1.SearchConditionCompleted, reasonSearching, "%s", searching)

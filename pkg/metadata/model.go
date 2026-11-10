@@ -685,8 +685,9 @@ type ComicIssue struct {
 	// chapter of a source that collects them (a MangaDex manga numbered by
 	// chapter, design D10): the volume's number, or "none" for a chapter
 	// not yet collected. Empty for an issue that is itself the unit
-	// (ComicVine, Metron, a manga numbered by volume). Issue status does
-	// not carry it yet (task C4a's api leftover).
+	// (ComicVine, Metron, a manga numbered by volume). It reaches Issue
+	// status through the Comic's fan-out (IssueStatus.Volume, written under
+	// catalog-fanout on every apply, 1deae283).
 	Volume string `json:"volume,omitempty"`
 }
 

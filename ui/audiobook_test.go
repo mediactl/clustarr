@@ -51,8 +51,10 @@ func audiobookFixture(t *testing.T) (*ui.Server, client.Client) {
 		return &catalogv1.MediaFile{
 			ObjectMeta: metav1.ObjectMeta{Name: "earthsea-ab-" + string(rune('0'+n)), Namespace: "default"},
 			Spec: catalogv1.MediaFileSpec{
-				Path:      "/data/audiobooks/Ursula K. Le Guin/A Wizard of Earthsea/A Wizard of Earthsea - 0" + string(rune('0'+n)) + ".mp3",
-				SizeBytes: minutes << 20, PartIndex: n, Quality: commonv1.Quality{Name: "MP3"},
+				Path: "/data/audiobooks/Ursula K. Le Guin/A Wizard of Earthsea/A Wizard of Earthsea - 0" + string(rune('0'+n)) + ".mp3",
+				// A tagged part's ordering key (disc*1000+track, W3.2): the page
+				// shows the part's place, 1..3, never 1001.
+				SizeBytes: minutes << 20, PartIndex: map[int32]int32{1: 1001, 2: 1002, 3: 2001}[n], Quality: commonv1.Quality{Name: "MP3"},
 				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "earthsea-ab"},
 			},
 			Status: catalogv1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{

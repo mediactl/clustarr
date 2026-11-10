@@ -88,9 +88,9 @@ func TestSearchVolumesCarriesTheCrosswalk(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"/series/?name=death"}, *seen)
 	require.Equal(t, []metadata.SearchHit{
-		{IDs: metadata.ExternalIDs{extid.KeyMetron: "1", metadata.KeyComicVine: "4050-111265"}, Title: "Death of the Inhumans (2018)", Year: 2018},
-		{IDs: metadata.ExternalIDs{extid.KeyMetron: "2311"}, Title: "Absolute Carnage (2019)", Year: 2019},
-	}, hits)
+		{IDs: metadata.ExternalIDs{extid.KeyMetron: "1", metadata.KeyComicVine: "4050-111265"}, Title: "Death of the Inhumans (2018)", Year: 2018, Publisher: "Marvel", IssueCount: 5, StartYear: i32(2018)},
+		{IDs: metadata.ExternalIDs{extid.KeyMetron: "2311"}, Title: "Absolute Carnage (2019)", Year: 2019, Publisher: "Marvel", IssueCount: 5, StartYear: i32(2019)},
+	}, hits, "the publisher, issue count and start year Add New's comic hit shows (2026-11-10 design §9.4), as ComicVine's carry them")
 }
 
 func TestVolumeByComicVineCrosswalksThenFetches(t *testing.T) {

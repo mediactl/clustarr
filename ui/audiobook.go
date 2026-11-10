@@ -21,7 +21,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +29,7 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/views"
 )
@@ -186,14 +186,31 @@ func (s *Server) audiobookFiles(ctx context.Context, a *catalogv1.Audiobook) []*
 			files = append(files, &f)
 		}
 	}
-	sort.SliceStable(files, func(i, j int) bool { return files[i].Spec.PartIndex < files[j].Spec.PartIndex })
-	return files
+	// Play order by the one rule the Audiobook controller's OrderParts, the
+	// import and the naming owner share (catalogctx.PartNumbers: numbered
+	// parts by their key, then the unnumbered, ties by path), whatever order
+	// status.fileRefs came in; spec.partIndex is the ordering key
+	// (disc*1000+track for a tagged part), never a number to show.
+	parts := make([]catalogctx.Part, len(files))
+	for i, f := range files {
+		parts[i] = catalogctx.Part{Index: f.Spec.PartIndex, Path: f.Spec.Path}
+	}
+	numbers := catalogctx.PartNumbers(parts) // aligned with files; a lone part reads 0
+	if len(files) < 2 {
+		return files
+	}
+	ordered := make([]*catalogv1.MediaFile, len(files))
+	for i, f := range files {
+		ordered[numbers[i]-1] = f
+	}
+	return ordered
 }
 
-// audiobookParts turns the audiobook's files into its Parts rows: the part
-// number (spec.partIndex, else the file's place in play order), the
-// chapter's title when the chapters and the parts align one to one, else
-// "Part N", and the probe's duration, codec and bitrate.
+// audiobookParts turns the audiobook's files into its Parts rows: the
+// part's place in play order (1..n, as {PartNumber} names the file;
+// spec.partIndex is the ordering key and is never shown), the chapter's
+// title when the chapters and the parts align one to one, else "Part N",
+// and the probe's duration, codec and bitrate.
 func audiobookParts(files []*catalogv1.MediaFile, chapters []catalogv1.Chapter) []views.AudiobookPart {
 	if len(files) == 0 {
 		return nil
@@ -201,10 +218,7 @@ func audiobookParts(files []*catalogv1.MediaFile, chapters []catalogv1.Chapter) 
 	aligned := len(chapters) == len(files)
 	parts := make([]views.AudiobookPart, 0, len(files))
 	for i, f := range files {
-		p := views.AudiobookPart{Name: f.Name, Index: f.Spec.PartIndex, SizeBytes: f.Spec.SizeBytes}
-		if p.Index <= 0 {
-			p.Index = int32(i + 1)
-		}
+		p := views.AudiobookPart{Name: f.Name, Index: int32(i + 1), SizeBytes: f.Spec.SizeBytes}
 		p.Title = "Part " + strconv.Itoa(int(p.Index))
 		if aligned && chapters[i].Title != "" {
 			p.Title = chapters[i].Title

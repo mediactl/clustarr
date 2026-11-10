@@ -87,8 +87,9 @@ var itemFixtures = map[commonv1.MediaKind]func(name, ns string) client.Object{
 		}}
 	},
 	commonv1.MediaKindBook: func(name, ns string) client.Object {
+		// A standalone book names its profile and root (the 2026-11-10 CEL rule).
 		return &catalogv1alpha1.Book{ObjectMeta: meta(name, ns), Spec: catalogv1alpha1.BookSpec{
-			WorkID: "OL82563W", Monitored: new(true),
+			WorkID: "OL82563W", Monitored: new(true), QualityProfileRef: new("ebook"), RootFolderRef: new("books"),
 		}}
 	},
 	commonv1.MediaKindAudiobook: func(name, ns string) client.Object {

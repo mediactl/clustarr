@@ -191,9 +191,14 @@ func (c *Client) SearchVolumes(ctx context.Context, q string) ([]metadata.Search
 	}
 	hits := make([]metadata.SearchHit, 0, len(p.Results))
 	for _, s := range p.Results {
-		hit := metadata.SearchHit{IDs: seriesIDs(s.ID, s.CVID, s.GCDID), Title: s.Series}
+		hit := metadata.SearchHit{IDs: seriesIDs(s.ID, s.CVID, s.GCDID), Title: s.Series, IssueCount: s.IssueCount}
+		if s.Publisher != nil {
+			hit.Publisher = s.Publisher.Name
+		}
 		if s.YearBegan != nil {
 			hit.Year = *s.YearBegan
+			y := *s.YearBegan
+			hit.StartYear = &y
 		}
 		hits = append(hits, hit)
 	}

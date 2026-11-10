@@ -581,7 +581,12 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, n
 	// the document's refreshedAt then moves the key and the list is
 	// fetched once again (design D2; an Artist or Author waits for its
 	// document instead, a625715f).
-	if !r.issueSync.Due(c.UID, issueSyncKey(c, c.Status.AddOptionsApplied), true) {
+	// Keyed under the flag true, as the Series, Artist and Author key
+	// theirs (308f974c): the memo records only complete fan-outs, and an
+	// Issue's own Create wakes the Comic before the flip's apply reaches
+	// the cache, where a key read as false missed the recorded one and
+	// fetched the issue list again to create nothing.
+	if !r.issueSync.Due(c.UID, issueSyncKey(c, true), true) {
 		// Nothing a fan-out reads has moved since the last complete one:
 		// the Issues the List found are what it would leave.
 		return true, done(), nil

@@ -192,8 +192,15 @@ func verifyUI(t *testing.T, cfg *rest.Config, addr, suffix string) {
 	libraryFrames := openSSE(t, base+"/events/library/movies")
 	unmatchedFrames := openSSE(t, base+"/events/unmatched")
 	listFrames := openSSE(t, base+"/events/import-lists")
+	// The library stream sends no markup since 2026-11-10 (ui/library_page.go
+	// handleLibraryEvents): a library-manifest frame lists the cards the view
+	// keeps, each with its fingerprint, and library.js fetches the changed
+	// ones; so the frame that carries a change is the movie's line moving.
+	cardID := "card-movie-" + ns + "-" + name
+	var movieLine string
 	awaitFrame(t, "/events/library/movies's first frame", libraryFrames, func(f string) bool {
-		return rowAttr(f, movieRow, "data-monitored") == "true"
+		movieLine = manifestLine(f, cardID)
+		return movieLine != ""
 	})
 	awaitFrame(t, "/events/unmatched's first frame", unmatchedFrames, func(f string) bool {
 		return strings.Contains(f, `data-path="`+firstPath+`"`)
@@ -221,7 +228,8 @@ func verifyUI(t *testing.T, cfg *rest.Config, addr, suffix string) {
 		t.Errorf("status managers after the UI action = %v, want only %s", m, k8s.ManagerCatalog)
 	}
 	awaitFrame(t, "/events/library/movies to push the unmonitored Movie", libraryFrames, func(f string) bool {
-		return rowAttr(f, movieRow, "data-monitored") == "false"
+		line := manifestLine(f, cardID)
+		return line != "" && line != movieLine // the card's fingerprint covers its monitoring
 	})
 
 	// A rescan reporting a second unattributable file.
@@ -371,6 +379,17 @@ func postAction(t *testing.T, target string, form url.Values) {
 
 // openSSE opens an event stream and returns a channel of its frames, each
 // the frame's data lines joined. The connection closes when the test ends.
+// manifestLine returns a library-manifest frame's line for cardID ("<id>
+// <fingerprint>"), or "" when the frame does not list it.
+func manifestLine(frame, cardID string) string {
+	for line := range strings.SplitSeq(frame, "\n") {
+		if strings.HasPrefix(line, cardID+" ") {
+			return line
+		}
+	}
+	return ""
+}
+
 func openSSE(t *testing.T, url string) <-chan string {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())

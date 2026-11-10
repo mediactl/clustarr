@@ -93,10 +93,13 @@ func ItemEvent(item client.Object, kind commonv1.MediaKind, action string, f Ite
 }
 
 // ItemAction reports which ItemEvent, if any, a reconcile of item is the
-// first to observe: added on the first reconcile (the one that has not yet
-// recorded status.addOptionsApplied), updated on the first reconcile of a
-// new spec generation, and "" otherwise. deleted is the delete path's own
-// decision and never comes from here.
+// first to observe: added when the caller says the first apply has not
+// landed -- the container and leaf kinds pass observedGeneration == 0,
+// since their status.addOptionsApplied flips only with the first complete
+// child fan-out (308f974c), and only a kind whose flag flips on its first
+// apply may pass the flag -- updated on the first reconcile of a new spec
+// generation, and "" otherwise. deleted is the delete path's own decision
+// and never comes from here.
 func ItemAction(generation, observedGeneration int64, addOptionsApplied bool) string {
 	switch {
 	case !addOptionsApplied:

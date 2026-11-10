@@ -615,7 +615,10 @@ type ObjectStoreStatus struct {
 // natsbus binds it to a jetstream.ObjectStore; membus keeps it in memory.
 type ObjectStore interface {
 	// Get returns name's current info and its content. The caller must close
-	// the reader. A missing object is ErrObjectNotFound.
+	// the reader. A missing object is ErrObjectNotFound. A read bounded by
+	// ctx that outlives it fails with ctx.Err() (natsbus wraps the broker's
+	// own timeout spellings, 2026-11-10; its contract test holds it); a
+	// read with no deadline is bounded by the store's own timeout.
 	Get(ctx context.Context, name string) (ObjectInfo, io.ReadCloser, error)
 
 	// Put writes name unconditionally, reading r to completion, and returns
