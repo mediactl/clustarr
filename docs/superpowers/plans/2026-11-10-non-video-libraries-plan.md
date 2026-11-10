@@ -54,6 +54,21 @@ Owns `app/remediation/` (every non-test file but `search/`, `naming/`,
 5. Tests: `TestEveryItemKindIsALoopKey`, the child-sync memo table, the
    Artist/Author pass envtests written (they skip without assets).
 
+**Done 2026-11-10 (wave A: c2ca352b, 6251f9f5).** As built: the memo is the
+subpackage `app/remediation/childsync` (`Memo.Due/Synced/Forget`, `KeyAt`),
+not `app/remediation/childsync.go` -- `app/remediation` imports the
+artist/author/comic packages for their indexes, so they cannot import it
+back; Comic imports the subpackage (2ab57111). Artist and Author are
+`rollup.Item`s (`ReconcileItem`, `Watches`, `RegisterIndexes`); the
+standalone controllers, `registerNonVideoControllers` and
+`metadataset.Incorporator` are deleted (`EntriesFunc` moved to `set.go`);
+the nfo stage `Applies` all four §8.1 kinds, so W3.4 is done here (an
+Artist's albums ordered by release date, title, name for a stable hash; an
+Author's Audiobooks by a filtered List, there being no authorRef index on
+Audiobook). Leftovers: `catalogmanager.Options.Artwork` is passed by
+`internal/cli/manager/run.go` and read by nothing; `series/episodesync.go`
+keeps its own memo (fold onto childsync when next touched).
+
 ### W1.2 Rollups, phases, cutoffReason, events, SkipInitial (D4, D5, D14, §5.2)
 
 Owns `app/catalog/controller/rollup/`, `app/catalog/controller/itemstatus/`,
@@ -88,6 +103,19 @@ owns artist/author, W1.5 comic), `app/catalog/controller/movie/report.go`
 6. Tests per step; the album, book, audiobook and issue `phase_test.go`
    rewritten over `rollup.LeafPhase`.
 
+**Done 2026-11-10 (wave A: 086815d2, cb8280a1, 525eaa94, b381d7c0,
+ee1fb3e3; the retired Book/Audiobook condition constants removed in
+b2732758).** `rollup.Reporter` (Movie's report.go delegates),
+`LeafIdleAtStart`, `LeafOverlay`, `DropRetiredLeafConditions`; each leaf
+computes phase and cutoffReason through `rollup.LeafPhase` from a per-kind
+`PhaseInputs` (monitored through `itemread.Monitored`, metadataReady from
+`MetadataStale`, released from `itemread.Available`), writes the D5 file
+vocabulary, drops the retired conditions on every apply and skips idle items
+at start. Issue's Mylar state, `CutoffCondition` and `retiredIssueConditions`
+went cold turkey. Leftover: an Issue never reads Pending (its metadata is
+its Comic's fan-out fields); gate on `status.sourceID` if the owner wants
+Pending until the fan-out writes it.
+
 ### W1.3 Monitoring, pack rules, the volume search (D3, D10, §5.3)
 
 Owns `app/catalog/itemread/`, `app/catalog/controller/backlogsearch/`,
@@ -116,6 +144,24 @@ Owns `app/catalog/itemread/`, `app/catalog/controller/backlogsearch/`,
    with Issues; the volume search's `DecideSeasons` table; the search
    stage's Comic wake test.
 
+**Done 2026-11-10 (wave A: 45f2ffad, 1ecdcf63, 04b87afd, e914c5da,
+43d01ce7; the controlling session's 18f44eeb and 2ab57111).**
+`itemread.Monitored` cascades from an Album's Artist, a Book's Author and
+an Audiobook's Author (`spec.authorRef`); `itemread.ContainerSearch` reads a
+Series' seasonSearch or a Comic's volumeSearch and the in-flight marker
+index is registered on Comic too; grabplan's coverage and lifecycle's
+supersede take an Episode or an Issue; `searchplan.SeasonView.Kind`,
+`VolumeNumber`, `VolumePackFirst`; the search stage plans the Comic's
+volume into `status.volumeSearch` under catalog-grab, an Issue waits for a
+pending volume and folds its answer, S33 wakes a Comic's Issues; the search
+worker's season task for a Comic is its volume (title-only, comics
+category); the grab stage reads the answered volume as a season answer and
+`pkg/decision` approves a volume-search release whose series is the
+comic's, any issue, no year (`volumeRejection`). Leftovers: S33 could fold
+into S24's Comic arm; `BacklogDue`/`ReplaceDue` stay Episode-only;
+`rankscore.WholeSeason` on a Comic needs `pkg/release/comic.go` to parse a
+multi-issue or volume release before an automatic candidate reaches it.
+
 ### W1.4 Naming and rename for every kind (D7, §5.5)
 
 Owns `app/remediation/naming/`, `app/remediation/rename/`,
@@ -137,6 +183,25 @@ preset needs a token the kinds lack: `{Part}` for audiobook parts,
 4. Tests: a naming table per kind (the presets' goldens), the owner/root
    resolution table.
 
+**Done 2026-11-10 (wave A: 39b435b8, 53c39b5a, e556ce9e).** `{PartNumber}`,
+`{PartCount}`, `{Special Version}`; `catalogctx.Album/Book/Audiobook/Issue`
+contexts and `TrackFilePath/BookFilePath/AudiobookFilePath/IssueFilePath`
+under the container folder the import places by; `FileExt` keeps a
+non-video file's own extension; `mediafile.namingOwnerOf` resolves every
+kind; the naming planner and rename actuator cover album tracks, books,
+audiobook parts and issues. Leftovers (wave B): `fileimport/nonvideo.go`
+still places album, audiobook, book and issue files by its own names, so a
+fresh import reads NamingCurrent False and is renamed by the loop -- build
+its paths through `catalogctx` (the movie `TestImportAndRenameRenderTheSamePath`
+pattern); no `.epub/.mobi/.azw3` probe (the probe falls to FFmpeg and
+fails, holding every such Book at ProbePending; W3.1's leftover); the
+TrackFile preset has no medium token (two discs' same-numbered,
+same-titled tracks collide; the rename refuses, nothing is overwritten;
+Lidarr's `{Medium Format} {medium:00}/` is an owner decision); the
+RootFolder fan-out lists whole kinds per event (a rootFolderRef index on
+the five kinds would make it key-only); a file covering several issues is
+Unrenderable; `Makefile`'s rbac render truncation fixed in b2732758.
+
 ### W1.5 Comic and Audiobook parity (D10, D11, §5.1, §5.3)
 
 Owns `app/catalog/controller/comic/` (every file but the Issue-field writes
@@ -157,6 +222,26 @@ and `app/remediation/downloads/` for the parts' ordering.
    `spec.partIndex`, `partCount`; `status.cutoffReason` through W1.2's
    `rollup.LeafPhase` once it lands (until then the existing phase).
 3. Tests per rule.
+
+**Done 2026-11-10 (wave A: 0a5d4c5a, 7fbd7f41; wired in 2ab57111).**
+Comic: `addOptions` applied once by the first complete fan-out
+(`InitialIssueMonitored`, `status.addOptionsApplied`), `volumeAsIssue`
+numbering (`VolumeIssueNumber`), `nextPullDate`, the ContainerRollup
+through `rollup.Container`, the refresh TTL by `status.metadata.status`,
+the fan-out behind the shared childsync memo (`Forget` on delete), the
+phase edge as an Event. Audiobook: `OrderParts`/`PartRefs` (wired by W1.2's
+`FileState`), `ApplyAddOptions`, and `resolveBookRef` returns the Book so
+the pass links `spec.authorRef` from it once (`AuthorRefFromBook`,
+`LinkAuthor`, Event `AuthorLinked`). Leftovers: `searchForMissing` has no
+reader for any kind (Series included) -- honouring false needs a
+`searchplan.View` field read from `spec.addOptions` and
+`status.addOptionsApplied`; `spec.kind: manga` chapter numbering needs the
+issue-listing RPC to carry the numbering (`schema.MetadataRequest`,
+`mangadex.Client.Issues`, `lookupIssues`); the Comic's `naming.Context`
+literal and the Issue naming adapter do not yet pass `spec.specialVersion`
+into W1.4's `Context.SpecialVersion`; `LinkAuthor` patches under
+`k8s.ManagerCatalog` (a manager of its own, as catalog-classify, is a
+`pkg/k8s` change).
 
 ## W2: metadata (W2a serial, then W2b parallel, then W2c serial)
 
@@ -345,6 +430,20 @@ stage needs. Registers the nfo stage in the Artist, Album, Author and
 Audiobook passes (Author and Audiobook only under an audiobook root);
 envtest written, unit tests of the pass's stage order.
 
+**Done 2026-11-10:** the registration landed with W1.1 (6251f9f5: the nfo
+stage `Applies` Artist, Album, Author and Audiobook; `Enabled` refuses a
+book root). W3's wave-A leftovers (6f913034, 0b0857c1, 7ef5ef2c, 5fc69889):
+the Picard-tagged FLAC and MP3, two-page CBZ and PDF fixtures and the
+native probe tests over them (which proved `MaxShortTagValue` 64 for the
+date and MusicBrainz id tags, whose CRD bound is 64); the fileimport
+two-phase attribution test; the rescan attribution and part-order
+envtests; the membus planner-to-worker nfo loop test and the stage's
+envtest in the real item loop. Finding: every envtest fails under the CBOR
+client gates `pkg/k8s/rowcache` turns on at init (envtest's apiserver
+serves no CBOR), so `make test` now runs with
+`KUBE_FEATURE_ClientsAllowCBOR=false KUBE_FEATURE_ClientsPreferCBOR=false`
+(`ENVTEST_ENV`, b2732758); a hand-run envtest needs the same two variables.
+
 ## W4: the ui (W4a serial, W4b parallel, W4c serial)
 
 Rules every task obeys: shadcn-templ components only (`.claude/skills/
@@ -450,6 +549,25 @@ artist->albums, album->tracks, lazily paged grandchildren, `images.go`
 resolution for the four kinds, `/extras` empty, goldens per type,
 `TestMusicRootsRegisterOnlyUnderTheFlag`.
 
+**W5.2 and W5.3 done 2026-11-10 (wave A: ea0d54d4, 7a8d17aa, 2c8676fb,
+1df72500, 95a9055a), flagged off.** `plex.Options.MusicProvider` mounts
+`/plex/music` and `/plex/audiobooks` (types 8, 9, 10); the three key
+grammars (`TrackKey`, `PartKey`, `SyntheticArtistKey`) in `ParseKey`;
+match for the three types on both roots; the inferred metadata builders;
+children, lazily paged grandchildren, images, empty extras;
+`projection.BuildIndexWith(IndexOptions{Music})`; `/art/search` admits
+`assets.fanart.tv` and `m.media-amazon.com`; `--plex-music-provider`
+(default false) and chart `ui.plex.musicProvider`, the two uris commented
+out with the §7.6 reason. Leftovers (W4a): `ui.PlexOptions` carries no
+`MusicProvider` yet -- `ui/server.go`, `ui/routes.go` (pass it into
+`plex.Options`) and a `projection.NewIndexMemoWith` building the memo with
+music on, then `internal/cli/ui/command.go`'s `buildPlexOptions` takes the
+flag and the "unrouted" warning goes; `config/manager/ui.yaml` names no
+flag (the default is false). Also: `ui/plex` should read the Artist's
+extended document's `Similar[].MBArtistID` (W2 writes it); a track's
+`originalTitle` needs `Track.artistCredit` in the API; `Country[]` is the
+ISO code, Plex shows names.
+
 ## W6: records (serial, last)
 
 CLAUDE.md (the Services table's `import-nfo`, the UI section's four tabs
@@ -459,6 +577,11 @@ the spec's "as built" notes per wave, `test/e2e/nonvideo_test.go`
 scenarios 9-11 extended (written, not run), the remaining-work plan's
 items closed (`:1265`, `:1268`, `:1285`), the W1.5 local memo replaced by
 W1.1's if both landed.
+
+**Progress 2026-11-10:** ADR-0022 written and indexed (53559009); the
+Comic's memo is childsync's (2ab57111). Pending: CLAUDE.md, the e2e
+scenarios, the remaining-work items, this plan's and the spec's final notes
+after W4.
 
 ## Order and gates
 

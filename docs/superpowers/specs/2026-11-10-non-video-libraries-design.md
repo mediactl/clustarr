@@ -463,6 +463,13 @@ their reconcilers and their bus publication; `register.go` registers
 nothing for them; `metadataset.Incorporator` keeps only what another
 caller needs or is deleted (`TestOnlyTheLoopIncorporatesRecords`†).
 
+(As built 2026-11-10, W1.1: D2's memo is the subpackage
+`app/remediation/childsync` -- `app/remediation` imports the artist, author
+and comic packages for their indexes, so they import the memo from a leaf
+package -- shared by Artist, Author and Comic; `metadataset.Incorporator`
+is deleted; the nfo stage runs for Artist, Album, Author and Audiobook, an
+Author's only under an audiobook root, as §8.1 says.)
+
 ### 5.2 Rollups, phases, events
 
 `app/catalog/controller/rollup` gains `LeafPhase(...)` shared by the four
@@ -592,7 +599,8 @@ audiobooks (`actions.Grants()`, `ui_role.yaml`, the chart copy).
   album folder. The remaining-work item at `remaining-work.md:1268` closes.
 - Audiobook parts: `fileRefs` ordered by `MediaFileSpec.partIndex`, which
   the import sets from the tags' track number, else the name's part number
-  (`release.ParsePartNumber`: Part 01, pt1, 01 of 12, CD1, Disc 1), else the
+  (`release.PartOf`, as built -- the movie part-set parser, read by
+  `fileimport.PartIndexOf`: Part 01, pt1, 01 of 12, CD1, Disc 1), else the
   path's sort order; `partCount` counts them.
 - Book quality: `book/filestate.go`'s fallback is removed; the import
   freezes `fileFormat`, `fileQuality` and `fileFormatScore` for a Book as it
@@ -1017,26 +1025,48 @@ talos by hand before the deploy that carries them.
   volume pack rules, nextPullDate), D11 (audiobook add options, authorRef,
   parts), D14 (events, SkipInitial), the rollups and `itemstatus` for eight
   kinds, stale comments corrected.
+  **Done 2026-11-10 (wave A, eight agents in parallel, gated and pushed by
+  the controlling session through 5fc69889):** W1.1 c2ca352b/6251f9f5, W1.2
+  086815d2..ee1fb3e3, W1.3 45f2ffad..43d01ce7 with 18f44eeb, W1.4
+  39b435b8/53c39b5a/e556ce9e, W1.5 0a5d4c5a/7fbd7f41 with 2ab57111; the
+  plan's per-task "Done" notes list what each left over.
 - **W2: metadata.** §5.4: schemaVersion and language everywhere, ratings
   and the enum, image selection, MusicBrainz paging and includes, the
   wikipedia client, fanart mapping, Audnexus chapters and fields, the
   audible client and the search RPC's comic and audiobook verbs, ComicVine
   image and paging and the Issue fan-out fields, Open Library/Hardcover
   fields, the Artist and Audiobook extended documents.
+  **Done 2026-11-10** (inline through 42881a2e, then d32353b1 and c4dc98eb:
+  the fetch language, enrichRatings for the six kinds, the Artist and
+  Audiobook extended documents, Hardcover as a Book RatingsProvider,
+  Audnexus's tags/abridged/ISBN). Not built: Audnexus `Authors()` by ASIN,
+  MusicBrainz `artist-rels` for members and similar artists (the Artist's
+  extended document is written empty), MangaDex volume covers, Hardcover
+  author ids in the Author's book-list request and fan-out.
 - **W3: import and probe.** §6: probe tags, sample rate, bit depth, page
   count, `ProbeVersion`; track attribution and part ordering; book quality
   freezing; `pkg/nfo` and the `import-nfo` consumer; the `nfo` stage.
+  **Done 2026-11-10** (inline through 49c57629, then 6f913034, 0b0857c1,
+  7ef5ef2c, 5fc69889); the page counter is `pkg/mediainfo/pagecount`, the
+  import agent's alone, so the manager links no archive reader. Not built:
+  an ebook (`.epub/.mobi/.azw3`) probe, so a Book's file still fails its
+  probe and is never named.
 - **W4: the ui.** §9 page by page: tabs and cards; Artist and Album; Author
   and Book; Comic and Issue; Audiobook; Add New for comics, audiobooks and
   standalone books; shared cells, logos, dialogs, reader indexes, projection
   rollups and owner links.
 - **W5: Plex.** §7.6's spike first, then the roots, index, match, metadata,
   children, images, goldens and tests, the flag and chart values.
+  **Done 2026-11-10, flagged off** (ea0d54d4, 7a8d17aa, 2c8676fb, 1df72500,
+  95a9055a): built to §7's inferred shapes behind `--plex-music-provider`;
+  the flag is parsed and logged but not yet routed into `ui.PlexOptions`
+  (W4a wires it). ADR-0022 records the decision.
 - **W6: records.** CLAUDE.md (the Services table's `import-nfo`, the UI
   section's four tabs and pages, the Plex paragraph), ADR for the NFO
   writer (why the agent writes files the manager renders), the e2e
   scenarios 9-11 updated (written, not run), this document's "as built"
   notes.
+  **Progress 2026-11-10:** ADR-0022 (53559009); the rest after W4.
 
 Order: W0, then W1 and W2 and W3 in parallel (disjoint packages: W1 owns
 `app/remediation`, `app/catalog/controller`, `app/catalog/{searchplan,
