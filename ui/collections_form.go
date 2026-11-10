@@ -35,8 +35,12 @@ import (
 // summary, sortTitle -- a smart collection's match, sort.field,
 // sort.descending and limit, its top-level rules as rule.<i>.field |
 // operator | value | match, and a group's conditions as
-// rule.<i>.<j>.field | operator | value. Indexes are dense from 0 as the
-// editor renders them; parsing orders them by number all the same.
+// rule.<i>.<j>.field | operator | value; a normal collection's members as
+// member.<i>.kind | name; and the presentation: poster.url, background.url,
+// settings.mode, settings.order, visibility.managed and
+// visibility.libraryRecommended | home | friendsHome. Indexes are dense
+// from 0 as the editor renders them; parsing orders them by number all the
+// same.
 
 var errEditorOp = errors.New("editor: no such rule")
 
@@ -57,8 +61,38 @@ func parseCollectionForm(v url.Values) (catalogv1.PlexCollectionSpec, error) {
 	if s := strings.TrimSpace(v.Get("sortTitle")); s != "" {
 		spec.SortTitle = &s
 	}
+	if u := strings.TrimSpace(v.Get("poster.url")); u != "" {
+		spec.Poster = &catalogv1.PlexImage{URL: u}
+	}
+	if u := strings.TrimSpace(v.Get("background.url")); u != "" {
+		spec.Background = &catalogv1.PlexImage{URL: u}
+	}
+	mode, order := catalogv1.PlexCollectionMode(v.Get("settings.mode")), catalogv1.PlexCollectionOrder(v.Get("settings.order"))
+	// "keep" is the selects' "Keep Plex's".
+	if mode == "keep" {
+		mode = ""
+	}
+	if order == "keep" || v.Get("kind") != "normal" {
+		order = ""
+	}
+	if mode != "" || order != "" {
+		spec.Settings = &catalogv1.PlexCollectionSettings{Mode: mode, Order: order}
+	}
+	if formBool(v.Get("visibility.managed")) {
+		spec.Visibility = &catalogv1.PlexVisibility{
+			LibraryRecommended: formBool(v.Get("visibility.libraryRecommended")),
+			Home:               formBool(v.Get("visibility.home")),
+			FriendsHome:        formBool(v.Get("visibility.friendsHome")),
+		}
+	}
 	if v.Get("kind") == "normal" {
 		spec.Members = &catalogv1.PlexMembers{}
+		for _, i := range formIndexes(v, "member.") {
+			p := fmt.Sprintf("member.%d.", i)
+			if name := strings.TrimSpace(v.Get(p + "name")); name != "" {
+				spec.Members.Items = append(spec.Members.Items, catalogv1.PlexMember{Kind: v.Get(p + "kind"), Name: name})
+			}
+		}
 		return spec, nil
 	}
 
@@ -136,9 +170,25 @@ func blankCondition(t catalogv1.PlexItemType) catalogv1.PlexCondition {
 
 // editorOp changes the spec as one of the editor's buttons asks: add-rule
 // (at "" for the top level, "<i>" for group i), add-group, remove (at "<i>"
-// or "<i>.<j>"), or refresh, which only settles each condition's operator
-// on one its field takes after a field changed.
+// or "<i>.<j>"), add-member (at "<Kind>/<name>", once), remove-member (at
+// "<i>"), clear-image (at poster or background), or refresh, which only
+// settles each condition's operator on one its field takes after a field
+// changed.
 func editorOp(spec *catalogv1.PlexCollectionSpec, op, at string) error {
+	switch op {
+	case "add-member", "remove-member":
+		return memberOp(spec, op, at)
+	case "clear-image":
+		switch at {
+		case "poster":
+			spec.Poster = nil
+		case "background":
+			spec.Background = nil
+		default:
+			return fmt.Errorf("%w: no image %q", errEditorOp, at)
+		}
+		return nil
+	}
 	if spec.Filter == nil && op != "refresh" {
 		return fmt.Errorf("%w: a normal collection has no filter", errEditorOp)
 	}
@@ -230,4 +280,27 @@ func settleOperators(spec *catalogv1.PlexCollectionSpec) {
 		}
 		fix(&r.Field, &r.Operator)
 	}
+}
+
+func memberOp(spec *catalogv1.PlexCollectionSpec, op, at string) error {
+	if spec.Members == nil {
+		return fmt.Errorf("%w: a smart collection has no members", errEditorOp)
+	}
+	if op == "remove-member" {
+		i, err := strconv.Atoi(at)
+		if err != nil || i < 0 || i >= len(spec.Members.Items) {
+			return fmt.Errorf("%w: member %q", errEditorOp, at)
+		}
+		spec.Members.Items = removeAt(spec.Members.Items, i)
+		return nil
+	}
+	kind, name, ok := strings.Cut(at, "/")
+	if !ok || name == "" || (kind != "Movie" && kind != "Series") {
+		return fmt.Errorf("%w: member %q", errEditorOp, at)
+	}
+	m := catalogv1.PlexMember{Kind: kind, Name: name}
+	if !slices.Contains(spec.Members.Items, m) {
+		spec.Members.Items = append(spec.Members.Items, m)
+	}
+	return nil
 }

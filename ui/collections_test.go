@@ -25,10 +25,13 @@ import (
 	"strings"
 	"testing"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	xhtml "golang.org/x/net/html"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -36,11 +39,18 @@ import (
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/actions"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 const pcolNS = "clustarr-system"
 
 func collectionsServer(t *testing.T, funcs *interceptor.Funcs, objs ...client.Object) (*ui.Server, client.Client) {
+	t.Helper()
+	return collectionsServerWith(t, funcs, nil, objs...)
+}
+
+// collectionsServerWith is collectionsServer with the Options tweaked.
+func collectionsServerWith(t *testing.T, funcs *interceptor.Funcs, tweak func(*ui.Options), objs ...client.Object) (*ui.Server, client.Client) {
 	t.Helper()
 	b := fake.NewClientBuilder().WithScheme(ui.MustNewReaderScheme()).WithObjects(objs...).
 		WithStatusSubresource(&catalogv1.PlexCollection{})
@@ -48,7 +58,11 @@ func collectionsServer(t *testing.T, funcs *interceptor.Funcs, objs ...client.Ob
 		b = b.WithInterceptorFuncs(*funcs)
 	}
 	c := b.Build()
-	srv := ui.NewServer(t.Context(), ui.Options{Reader: c, Actions: actions.New(c), Namespace: pcolNS})
+	opts := ui.Options{Reader: c, Actions: actions.New(c), Namespace: pcolNS}
+	if tweak != nil {
+		tweak(&opts)
+	}
+	srv := ui.NewServer(t.Context(), opts)
 	return srv, c
 }
 
@@ -349,4 +363,136 @@ func assertOptions(t *testing.T, body, id string, want ...string) {
 		got = append(got, html.UnescapeString(part[:strings.Index(part, `"`)]))
 	}
 	assert.Equal(t, want, got, id)
+}
+
+func refGhibli() catalogv1.PlexCollectionSpec {
+	return catalogv1.PlexCollectionSpec{
+		Library: "Clustarr Movies", Title: "Studio Ghibli Essentials", ItemType: catalogv1.PlexItemMovie,
+		Members: &catalogv1.PlexMembers{Items: []catalogv1.PlexMember{
+			{Kind: "Movie", Name: "spirited-away-2001"},
+			{Kind: "Movie", Name: "my-neighbor-totoro-1988"},
+		}},
+		Summary:    ptr.To("Every Ghibli film worth a rewatch."),
+		SortTitle:  ptr.To("Ghibli 00"),
+		Poster:     &catalogv1.PlexImage{URL: "https://image.tmdb.org/t/p/original/poster.jpg"},
+		Background: &catalogv1.PlexImage{URL: "https://image.tmdb.org/t/p/original/bg.jpg"},
+		Settings:   &catalogv1.PlexCollectionSettings{Mode: catalogv1.PlexModeHideItems, Order: catalogv1.PlexOrderReleaseDate},
+		Visibility: &catalogv1.PlexVisibility{LibraryRecommended: true, Home: true},
+	}
+}
+
+func withArtBase(o *ui.Options) {
+	o.Plex = &ui.PlexOptions{ExternalURL: "https://clustarr.k8s.appkins.io"}
+}
+
+func TestParseCollectionFormNormalAndPresentation(t *testing.T) {
+	srv, c := collectionsServerWith(t, nil, withArtBase, plexCollection("ghibli", refGhibli()))
+	edit := "/library/collections/" + pcolNS + "/ghibli/edit"
+	save := "/library/collections/" + pcolNS + "/ghibli"
+	current := func() catalogv1.PlexCollectionSpec {
+		var got catalogv1.PlexCollection
+		require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pcolNS, Name: "ghibli"}, &got))
+		return got.Spec
+	}
+
+	values := editorValues(t, get(t, srv, edit).Body.String())
+	rec := post(t, srv, save, values)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	assert.Equal(t, refGhibli(), current(), "the normal collection and its presentation round-trip")
+
+	// "Keep Plex's" leaves the settings out; visibility unmanaged leaves it out.
+	values = editorValues(t, get(t, srv, edit).Body.String())
+	values.Set("settings.mode", "")
+	values.Set("settings.order", "")
+	values.Del("visibility.managed")
+	require.Equal(t, http.StatusSeeOther, post(t, srv, save, values).Code)
+	got := current()
+	assert.Nil(t, got.Settings)
+	assert.Nil(t, got.Visibility)
+
+	// Managed, with Home alone ticked.
+	values = editorValues(t, get(t, srv, edit).Body.String())
+	values.Set("visibility.managed", "1")
+	values.Del("visibility.libraryRecommended")
+	values.Del("visibility.friendsHome")
+	values.Set("visibility.home", "1")
+	require.Equal(t, http.StatusSeeOther, post(t, srv, save, values).Code)
+	assert.Equal(t, &catalogv1.PlexVisibility{Home: true}, current().Visibility)
+}
+
+func libraryWith(items ...projection.LibraryItem) func(*ui.Options) {
+	return func(o *ui.Options) {
+		withArtBase(o)
+		o.Library = func(context.Context) []projection.LibraryItem { return items }
+	}
+}
+
+func TestMemberSearchListsOnlyTheCollectionsType(t *testing.T) {
+	srv, _ := collectionsServerWith(t, nil, libraryWith(
+		projection.LibraryItem{Ref: types.NamespacedName{Namespace: pcolNS, Name: "my-neighbor-totoro-1988"}, Kind: commonv1.MediaKindMovie, Title: "My Neighbor Totoro", Year: 1988},
+		projection.LibraryItem{Ref: types.NamespacedName{Namespace: pcolNS, Name: "totoro-tales"}, Kind: commonv1.MediaKindSeries, Title: "Totoro Tales"},
+	))
+	body := get(t, srv, "/library/collections/members?itemType=movie&q=tot").Body.String()
+	assert.Contains(t, body, "My Neighbor Totoro")
+	assert.Contains(t, body, "op=add-member&amp;at=Movie%2Fmy-neighbor-totoro-1988")
+	assert.NotContains(t, body, "Totoro Tales")
+
+	shows := get(t, srv, "/library/collections/members?itemType=show&q=tot").Body.String()
+	assert.Contains(t, shows, "Totoro Tales")
+	assert.NotContains(t, shows, "My Neighbor Totoro")
+}
+
+func TestEditorMemberOps(t *testing.T) {
+	srv, _ := collectionsServerWith(t, nil, withArtBase, plexCollection("ghibli", refGhibli()))
+	values := editorValues(t, get(t, srv, "/library/collections/"+pcolNS+"/ghibli/edit").Body.String())
+	op := func(v url.Values, op, at string) (int, url.Values) {
+		r := postHTMXTo(t, srv, "/library/collections/editor?op="+op+"&at="+url.QueryEscape(at), v)
+		body := bodyOf(t, r)
+		if r.StatusCode != http.StatusOK {
+			return r.StatusCode, nil
+		}
+		return r.StatusCode, editorValues(t, body)
+	}
+
+	code, v := op(values, "add-member", "Movie/kikis-delivery-service-1989")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "kikis-delivery-service-1989", v.Get("member.2.name"))
+	assert.Equal(t, "Movie", v.Get("member.2.kind"))
+
+	code, v = op(v, "add-member", "Movie/kikis-delivery-service-1989")
+	require.Equal(t, http.StatusOK, code)
+	assert.Empty(t, v.Get("member.3.name"), "a member is added once")
+
+	code, v = op(v, "remove-member", "0")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "my-neighbor-totoro-1988", v.Get("member.0.name"))
+	assert.Empty(t, v.Get("member.2.name"))
+}
+
+func TestImagePreviewOnlyForAllowedHosts(t *testing.T) {
+	proxied := refGhibli()
+	other := refGhibli()
+	other.Poster = &catalogv1.PlexImage{URL: "https://images.example.com/poster.jpg"}
+	other.Background = nil
+	srv, _ := collectionsServerWith(t, nil, withArtBase, plexCollection("proxied", proxied), plexCollection("other", other))
+
+	body := get(t, srv, "/library/collections/"+pcolNS+"/proxied/edit").Body.String()
+	assert.Contains(t, body, "/art/search?src="+url.QueryEscape("https://image.tmdb.org/t/p/original/poster.jpg"))
+
+	body = get(t, srv, "/library/collections/"+pcolNS+"/other/edit").Body.String()
+	assert.NotContains(t, body, "/art/search?src=")
+	assert.Equal(t, "https://images.example.com/poster.jpg", editorValues(t, body).Get("poster.url"), "the URL is kept")
+}
+
+func TestCreateRefusesAnImageURLTheRuleRefuses(t *testing.T) {
+	srv, c := collectionsServerWith(t, nil, withArtBase)
+	form := newSmartForm(map[string]string{"rule.0.field": "genre", "rule.0.operator": "is", "rule.0.value": "Documentary"})
+	form.Set("poster.url", "https://10.0.0.5/x.jpg")
+	rec := post(t, srv, "/library/collections", form)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "not a public address")
+
+	var list catalogv1.PlexCollectionList
+	require.NoError(t, c.List(t.Context(), &list))
+	assert.Empty(t, list.Items)
 }

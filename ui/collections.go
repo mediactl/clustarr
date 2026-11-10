@@ -31,9 +31,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/plexfilter"
 	"github.com/mediactl/clustarr/ui/actions"
+	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
@@ -117,7 +119,69 @@ func (s *Server) editorModel(ctx context.Context, namespace, name, rv string, sp
 	}
 	slices.Sort(e.Libraries)
 	e.Suggestions = s.valueSuggestions(ctx, spec.ItemType)
+	if spec.Members != nil {
+		byRef := map[string]projection.LibraryItem{}
+		if s.opts.Library != nil {
+			for _, it := range s.opts.Library(ctx) {
+				byRef[it.Ref.Name] = it
+			}
+		}
+		for _, m := range spec.Members.Items {
+			c := views.CollectionMember{Kind: m.Kind, Name: m.Name, Title: m.Name}
+			if it, ok := byRef[m.Name]; ok && memberKind(it.Kind) == m.Kind {
+				c.Title, c.Year, c.Poster = it.Title, it.Year, it.Poster
+			}
+			e.Members = append(e.Members, c)
+		}
+	}
+	if spec.Poster != nil {
+		e.PosterPreview = s.searchArt.URL(spec.Poster.URL)
+	}
+	if spec.Background != nil {
+		e.BackgroundPreview = s.searchArt.URL(spec.Background.URL)
+	}
 	return e
+}
+
+// memberKind is the PlexMember kind of a library item's media kind, or ""
+// for one no collection holds.
+func memberKind(k commonv1.MediaKind) string {
+	switch k {
+	case commonv1.MediaKindMovie:
+		return "Movie"
+	case commonv1.MediaKindSeries:
+		return "Series"
+	}
+	return ""
+}
+
+// handleCollectionMembers answers the member search of a normal
+// collection's editor: up to 10 of the library's movies (a movie
+// collection) or series (a show collection) whose title matches q.
+func (s *Server) handleCollectionMembers(w http.ResponseWriter, r *http.Request) {
+	want := "Movie"
+	if catalogv1.PlexItemType(r.URL.Query().Get("itemType")) == catalogv1.PlexItemShow {
+		want = "Series"
+	}
+	var pool []projection.LibraryItem
+	if s.opts.Library != nil {
+		for _, it := range s.opts.Library(r.Context()) {
+			if memberKind(it.Kind) == want {
+				// A collection holds unmonitored items too, and Find
+				// answers only monitored ones.
+				it.Monitored = true
+				pool = append(pool, it)
+			}
+		}
+	}
+	var hits []views.CollectionMember
+	for _, it := range projection.Find(pool, r.URL.Query().Get("q"), 10) {
+		hits = append(hits, views.CollectionMember{Kind: want, Name: it.Ref.Name, Title: it.Title, Year: it.Year, Poster: it.Poster})
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.CollectionMemberHits(hits).Render(r.Context(), w); err != nil {
+		logging.FromContext(r.Context()).Error("render the member search", "error", err)
+	}
 }
 
 // valueSuggestions are the values clustarr's own metadata offers for a
@@ -245,8 +309,9 @@ func (s *Server) handleCollectionEditor(w http.ResponseWriter, r *http.Request) 
 }
 
 // savedSpec parses and checks the posted spec; the error is what the
-// editor shows.
-func savedSpec(r *http.Request) (catalogv1.PlexCollectionSpec, error) {
+// editor shows. An image must be one PMS will fetch: https on a public
+// host, or under the ui's own /art/ when the ui knows its external URL.
+func (s *Server) savedSpec(r *http.Request) (catalogv1.PlexCollectionSpec, error) {
 	if err := r.ParseForm(); err != nil {
 		return catalogv1.PlexCollectionSpec{}, err
 	}
@@ -254,11 +319,26 @@ func savedSpec(r *http.Request) (catalogv1.PlexCollectionSpec, error) {
 	if err != nil {
 		return spec, err
 	}
+	artBase := ""
+	if s.opts.Plex != nil && s.opts.Plex.ExternalURL != "" {
+		artBase = strings.TrimSuffix(s.opts.Plex.ExternalURL, "/") + "/art/"
+	}
+	for _, img := range []struct {
+		name string
+		v    *catalogv1.PlexImage
+	}{{"poster", spec.Poster}, {"background", spec.Background}} {
+		if img.v == nil {
+			continue
+		}
+		if err := plexfilter.ImageURLAllowed(img.v.URL, artBase); err != nil {
+			return spec, fmt.Errorf("%s: %w", img.name, err)
+		}
+	}
 	return spec, plexfilter.Validate(spec)
 }
 
 func (s *Server) handleCollectionCreate(w http.ResponseWriter, r *http.Request) {
-	spec, err := savedSpec(r)
+	spec, err := s.savedSpec(r)
 	ns := s.opts.Namespace
 	name := actions.PlexCollectionName(spec.Title)
 	if err == nil && name == "" {
@@ -279,7 +359,7 @@ func (s *Server) handleCollectionCreate(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleCollectionUpdate(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
-	spec, err := savedSpec(r)
+	spec, err := s.savedSpec(r)
 	rv := r.PostForm.Get("resourceVersion")
 	if err == nil {
 		err = s.opts.Actions.UpdatePlexCollection(r.Context(), ns, name, rv, spec)

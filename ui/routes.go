@@ -73,6 +73,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /library/collections/new", s.handleCollectionNew)
 	mux.HandleFunc("GET /library/collections/{namespace}/{name}/edit", s.handleCollectionEdit)
 	mux.HandleFunc("POST /library/collections/editor", s.handleCollectionEditor)
+	mux.HandleFunc("GET /library/collections/members", s.handleCollectionMembers)
 	mux.HandleFunc("POST /library/collections", s.handleCollectionCreate)
 	mux.HandleFunc("POST /library/collections/{namespace}/{name}", s.handleCollectionUpdate)
 	mux.HandleFunc("POST /library/collections/{namespace}/{name}/delete", s.handleCollectionDelete)

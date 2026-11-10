@@ -19,6 +19,7 @@ package views
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 
@@ -33,6 +34,7 @@ import (
 	"github.com/mediactl/clustarr/ui/components/input"
 	"github.com/mediactl/clustarr/ui/components/item"
 	selectcomp "github.com/mediactl/clustarr/ui/components/select"
+	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
 	"github.com/mediactl/clustarr/ui/components/textarea"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -79,6 +81,21 @@ type CollectionEditor struct {
 	Suggestions map[string][]string
 	// Error is why the last save was refused.
 	Error string
+	// Members are a normal collection's members, titled from the library.
+	Members []CollectionMember
+	// PosterPreview and BackgroundPreview are the images' /art/search
+	// URLs, or "" for a URL on a host the ui will not fetch.
+	PosterPreview, BackgroundPreview string
+}
+
+// CollectionMember is a normal collection's member, or a member search's
+// hit: the Movie or Series by name, titled from the library (its name
+// when the library does not hold it).
+type CollectionMember struct {
+	Kind, Name, Title string
+	Year              int32
+	// Poster is the item's /art URL, or "".
+	Poster string
 }
 
 func collectionEditPath(namespace, name string) string {
@@ -219,7 +236,7 @@ func labelledTrigger(readOnly bool, label string) templ.Attributes {
 // editorOpAttrs make a button post the form back for one editor op.
 func editorOpAttrs(op, at, label string) templ.Attributes {
 	return templ.Attributes{
-		"hx-post":        "/library/collections/editor?op=" + op + "&at=" + at,
+		"hx-post":        "/library/collections/editor?op=" + op + "&at=" + url.QueryEscape(at),
 		"hx-include":     "closest form",
 		"hx-target":      "#collection-editor",
 		"hx-swap":        "outerHTML",
@@ -227,6 +244,70 @@ func editorOpAttrs(op, at, label string) templ.Attributes {
 		"title":          label,
 		"data-editor-op": op,
 	}
+}
+
+// keepPlex is the settings selects' "Keep Plex's" choice, which leaves
+// the setting out of the spec.
+const keepPlex = "keep"
+
+var modeChoices = []Choice{
+	{Key: keepPlex, Label: "Keep Plex's"},
+	{Key: string(catalogv1.PlexModeDefault), Label: "Library default"},
+	{Key: string(catalogv1.PlexModeHideCollection), Label: "Hide collection"},
+	{Key: string(catalogv1.PlexModeHideItems), Label: "Hide items in this collection"},
+	{Key: string(catalogv1.PlexModeShowCollectionAndItems), Label: "Show collection and items"},
+}
+
+var orderChoices = []Choice{
+	{Key: keepPlex, Label: "Keep Plex's"},
+	{Key: string(catalogv1.PlexOrderReleaseDate), Label: "Release date"},
+	{Key: string(catalogv1.PlexOrderAlphabetical), Label: "Alphabetical"},
+}
+
+func settingsMode(e CollectionEditor) string {
+	if e.Spec.Settings == nil || e.Spec.Settings.Mode == "" {
+		return keepPlex
+	}
+	return string(e.Spec.Settings.Mode)
+}
+
+func settingsOrder(e CollectionEditor) string {
+	if e.Spec.Settings == nil || e.Spec.Settings.Order == "" {
+		return keepPlex
+	}
+	return string(e.Spec.Settings.Order)
+}
+
+func imageURL(img *catalogv1.PlexImage) string {
+	if img == nil {
+		return ""
+	}
+	return img.URL
+}
+
+func memberLabel(m CollectionMember) string {
+	if m.Year > 0 {
+		return fmt.Sprintf("%s (%d)", m.Title, m.Year)
+	}
+	return m.Title
+}
+
+func memberSearchPath(t catalogv1.PlexItemType) string {
+	return "/library/collections/members?itemType=" + url.QueryEscape(string(t))
+}
+
+func visibilityOn(e CollectionEditor, which string) bool {
+	v := e.Spec.Visibility
+	if v == nil {
+		return false
+	}
+	switch which {
+	case "libraryRecommended":
+		return v.LibraryRecommended
+	case "home":
+		return v.Home
+	}
+	return v.FriendsHome
 }
 
 // collectionsShell is a Collections page's chrome, under Library.
@@ -336,7 +417,7 @@ templ CollectionEditorForm(e CollectionEditor) {
 		action={ templ.URL(editorAction(e)) }
 		class="max-w-4xl space-y-8"
 		hx-post="/library/collections/editor?op=refresh"
-		hx-trigger="change[target.name==='itemType'||target.name==='kind'||target.name.endsWith('.field')]"
+		hx-trigger="change[target.name==='itemType'||target.name==='kind'||target.name==='visibility.managed'||target.name.endsWith('.field')||target.name.endsWith('.url')]"
 		hx-target="this"
 		hx-swap="outerHTML"
 	>
@@ -357,7 +438,11 @@ templ CollectionEditorForm(e CollectionEditor) {
 		@editorGeneral(e)
 		if editorKind(e) == "smart" {
 			@editorFilter(e)
+		} else {
+			@editorMembers(e)
 		}
+		@editorImages(e)
+		@editorSettings(e)
 		<datalist id="collection-libraries">
 			for _, l := range e.Libraries {
 				<option value={ l }></option>
@@ -533,4 +618,152 @@ templ editorCondition(e CollectionEditor, prefix string, c catalogv1.PlexConditi
 			@icon.Icon("x")()
 		}
 	</div>
+}
+
+// editorMembers is a normal collection's members and the search that adds
+// them. The search box belongs to no form (its form attribute names none),
+// so Enter in it saves nothing and its query is never posted with the spec.
+templ editorMembers(e CollectionEditor) {
+	<section class="panel space-y-4 p-4" data-editor-section="members">
+		@field.Field() {
+			@field.Label(field.LabelProps{For: "collection-member-search"}) {
+				Add a title
+			}
+			@input.Input(input.Props{
+				ID:          "collection-member-search",
+				Name:        "q",
+				Type:        "search",
+				Placeholder: "Search the library",
+				Attributes: templ.Attributes{
+					"form":         "collection-member-search-none",
+					"autocomplete": "off",
+					"hx-get":       memberSearchPath(e.Spec.ItemType),
+					"hx-trigger":   "input changed delay:300ms, search",
+					"hx-target":    "#collection-member-hits",
+					"hx-include":   "this",
+				},
+			})
+		}
+		<div id="collection-member-hits"></div>
+		if len(e.Members) == 0 {
+			<p class="text-sm text-muted-foreground">No titles yet.</p>
+		}
+		<ul class="space-y-2" data-editor-members>
+			for i, m := range e.Members {
+				<li class="flex items-center gap-3" data-editor-member={ m.Kind + "/" + m.Name }>
+					<input type="hidden" name={ fmt.Sprintf("member.%d.kind", i) } value={ m.Kind }/>
+					<input type="hidden" name={ fmt.Sprintf("member.%d.name", i) } value={ m.Name }/>
+					@memberPoster(m)
+					<span class="min-w-0 flex-1 truncate">{ memberLabel(m) }</span>
+					@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantGhost, Size: button.SizeIcon, Attributes: editorOpAttrs("remove-member", strconv.Itoa(i), "Remove "+m.Title)}) {
+						@icon.Icon("x")()
+					}
+				</li>
+			}
+		</ul>
+	</section>
+}
+
+templ memberPoster(m CollectionMember) {
+	if m.Poster != "" {
+		<img src={ templ.URL(m.Poster) } alt="" loading="lazy" class="aspect-[2/3] w-8 shrink-0 rounded bg-muted object-cover"/>
+	} else {
+		<div class="aspect-[2/3] w-8 shrink-0 rounded bg-muted"></div>
+	}
+}
+
+// CollectionMemberHits is the member search's answer: each hit adds itself
+// to the editor's form.
+templ CollectionMemberHits(hits []CollectionMember) {
+	if len(hits) > 0 {
+		<ul class="divide-y divide-border rounded-lg border border-border" data-member-hits>
+			for _, h := range hits {
+				<li class="flex items-center gap-3 p-2">
+					@memberPoster(h)
+					<span class="min-w-0 flex-1 truncate">{ memberLabel(h) }</span>
+					@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantOutline, Size: button.SizeSm, Attributes: editorOpAttrs("add-member", h.Kind+"/"+h.Name, "Add "+h.Title)}) {
+						@icon.Icon("plus")()
+						Add
+					}
+				</li>
+			}
+		</ul>
+	}
+}
+
+templ editorImages(e CollectionEditor) {
+	<section class="panel grid gap-4 p-4 sm:grid-cols-2" data-editor-section="images">
+		@editorImage("poster", "Poster", imageURL(e.Spec.Poster), e.PosterPreview, "aspect-[2/3] w-32")
+		@editorImage("background", "Background", imageURL(e.Spec.Background), e.BackgroundPreview, "aspect-video w-56")
+	</section>
+}
+
+templ editorImage(name, label, value, preview, size string) {
+	@field.Field() {
+		@field.Label(field.LabelProps{For: "collection-" + name}) {
+			{ label }
+		}
+		<div class="flex gap-2">
+			@input.Input(input.Props{ID: "collection-" + name, Name: name + ".url", Type: "url", Value: value, Placeholder: "https://"})
+			if value != "" {
+				@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantGhost, Size: button.SizeIcon, Attributes: editorOpAttrs("clear-image", name, "Clear the "+name)}) {
+					@icon.Icon("x")()
+				}
+			}
+		</div>
+		@field.Description() {
+			An https image on a public host. Left empty, Plex keeps its own.
+		}
+		if preview != "" {
+			// In a div: the field stretches its own children (*:w-full).
+			<div>
+				<img src={ templ.URL(preview) } alt="" loading="lazy" class={ "rounded bg-muted object-cover " + size } data-image-preview={ name }/>
+			</div>
+		}
+	}
+}
+
+templ editorSettings(e CollectionEditor) {
+	<section class="panel space-y-4 p-4" data-editor-section="settings">
+		<div class="grid gap-4 sm:grid-cols-2">
+			@field.Field() {
+				@field.Label() {
+					Collection mode
+				}
+				@editorSelect("collection-mode", "settings.mode", "Collection mode", modeChoices, settingsMode(e), false)
+			}
+			if editorKind(e) == "normal" {
+				@field.Field() {
+					@field.Label() {
+						Collection order
+					}
+					@editorSelect("collection-order", "settings.order", "Collection order", orderChoices, settingsOrder(e), false)
+				}
+			}
+		</div>
+		@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+			@switchcomp.Switch(switchcomp.Props{ID: "collection-visibility-managed", Name: "visibility.managed", Value: "1", DefaultChecked: e.Spec.Visibility != nil})
+			@field.Label(field.LabelProps{For: "collection-visibility-managed"}) {
+				Set where it is visible
+			}
+		}
+		if e.Spec.Visibility != nil {
+			<div class="grid gap-3 sm:grid-cols-3" data-editor-visibility>
+				@visibilitySwitch("libraryRecommended", "Library Recommended", visibilityOn(e, "libraryRecommended"))
+				@visibilitySwitch("home", "Home", visibilityOn(e, "home"))
+				@visibilitySwitch("friendsHome", "Friends' Home", visibilityOn(e, "friendsHome"))
+			</div>
+		} else {
+			<p class="text-sm text-muted-foreground">Plex keeps where it shows the collection.</p>
+		}
+	</section>
+}
+
+templ visibilitySwitch(name, label string, on bool) {
+	@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+		@switchcomp.Switch(switchcomp.Props{ID: "collection-visibility-" + name, Name: "visibility." + name, Value: "1", DefaultChecked: on})
+		@field.Label(field.LabelProps{For: "collection-visibility-" + name}) {
+			{ label }
+		}
+	}
 }
