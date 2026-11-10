@@ -48,6 +48,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -467,17 +468,23 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 		return ctrl.Result{RequeueAfter: rootFolderRequeueAfter}, nil
 	}
 
-	authorName := ""
-	if author != nil && author.Status.Metadata != nil {
-		authorName = author.Status.Metadata.Name
+	// The folder's naming context and engine are the import's
+	// (catalogctx.Book: the book's title and year, and its author's name
+	// when it has one; catalogctx.EngineFor: the root's naming spec), so
+	// status.path is the folder the import places the file in, byte for
+	// byte (Path). Before the context is whole -- no document yet, or an
+	// Author's name not yet fetched (ok false) -- Path renders from the
+	// author's name alone, or from nothing, which is the root: the path is
+	// resolved on the first pass and written again on the next, once the
+	// metadata has landed (the key's wake on status.metadata).
+	c, ok := catalogctx.Book(author, bk)
+	if !ok {
+		c = naming.Context{Kind: commonv1.MediaKindBook}
+		if author != nil && author.Status.Metadata != nil {
+			c.AuthorName = author.Status.Metadata.Name
+		}
 	}
-	eng := naming.NewEngine(naming.Config{
-		Dialect:           naming.Dialect(rf.Spec.Naming.Dialect),
-		ColonReplacement:  naming.ColonReplacement(rf.Spec.Naming.ColonReplacement),
-		MultiEpisodeStyle: naming.MultiEpisodeStyle(rf.Spec.Naming.MultiEpisodeStyle),
-		Overrides:         rf.Spec.Naming.Overrides,
-	})
-	pth, err := Path(rf.Spec.Path, authorName, eng)
+	pth, err := Path(rf.Spec.Path, author, catalogctx.EngineFor(rf), c)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

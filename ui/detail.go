@@ -494,9 +494,14 @@ func (s *Server) itemFolder(ctx context.Context, namespace string, kind commonv1
 		}
 	case commonv1.MediaKindBook:
 		// A standalone book's own root and folder (bookHasFolder); an
-		// author's book has no folder of its own.
+		// author's book has no folder of its own. The folder,
+		// <root>/{Book Title}, is the import's own making when it places
+		// the book's file (the Book reconciler writes the path from the
+		// title alone), so a standalone book without a file has no folder
+		// on disk yet: nothing to scan, nothing to rename, and never the
+		// whole root.
 		var b catalogv1.Book
-		if s.getObject(ctx, ref, &b) && bookHasFolder(&b) {
+		if s.getObject(ctx, ref, &b) && bookHasFolder(&b) && b.Status.HasFile {
 			itemPath, rootRef = b.Status.Path, *b.Spec.RootFolderRef
 			fileDir = func() string { return s.bookFileDir(ctx, &b) }
 		}
@@ -510,13 +515,16 @@ func (s *Server) itemFolder(ctx context.Context, namespace string, kind commonv1
 	}
 	rel, err := filepath.Rel(rf.Spec.Path, itemPath)
 	if (err != nil || rel == ".") && fileDir != nil {
-		// The Book reconciler writes a standalone book's status.path as
-		// its root's own path (app/catalog/controller/book.Path renders
-		// the author folder, "{Author Name}", which is "" without an
-		// author), while the import places its file at <root>/{Book
-		// Title}/<file> (catalogctx.BookFilePath): the folder is the
-		// file's, and a standalone book without a file has none on disk
-		// yet.
+		// A belt for a standalone book whose status.path predates
+		// 2026-11-10 and is its root's own path: app/catalog/controller/
+		// book.Path rendered the author folder, "" without an author,
+		// while the import placed the file at <root>/{Book Title}/<file>
+		// (catalogctx.BookFilePath). The Book reconciler now writes that
+		// folder, and a book written the old way takes it at its key's
+		// next pass (a manager start lists it unless the leaf watch calls
+		// it idle, else its next wake: a spec edit, its metadata refresh,
+		// its file's change), so until then the folder is the file's
+		// (the Book case above admits only a book with one).
 		if dir := fileDir(); dir != "" {
 			rel, err = filepath.Rel(rf.Spec.Path, dir)
 		}

@@ -140,19 +140,22 @@ func bookFixture(t *testing.T) (*ui.Server, client.Client) {
 	// The standalone books have a folder of their own under the books root
 	// (design §9.3), which Refresh & Scan and Rename work on. Each one's
 	// status.path is what the Book reconciler writes (standaloneBookPath:
-	// the root itself, since a standalone book has no author folder), and
-	// the one on disk has its file where the import places it
+	// <root>/{Book Title}, the book's own folder since 2026-11-10), and the
+	// one on disk has its file where the import places it
 	// (standaloneBookFile: <root>/{Book Title}/{Book Title}.epub), both
-	// through the real rules so the fixture cannot drift from them.
+	// through the real rules so the fixture cannot drift from them. A third
+	// was written before that day, its status.path the root itself, which
+	// the ui reads as no folder and takes the file's for (itemFolder's
+	// belt) until the reconciler's next pass writes the book's own.
 	standalone := book("standalone", "", "A Standalone Book", date(2001, time.January, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted})
 	standalone.Spec.QualityProfileRef, standalone.Spec.RootFolderRef = new("ebook-standalone"), new("books")
-	standalone.Status.Path = standaloneBookPath(t, root)
+	standalone.Status.Path = standaloneBookPath(t, root, standalone)
 	onDisk := book("standalone-on-disk", "", "A Standalone Book on Disk", date(2003, time.January, 1), catalogv1.BookStatus{
 		HasFile: true, FileRef: new("standalone-on-disk-file"), FileFormat: "EPUB", Phase: catalogv1.BookPhaseImported,
 		CutoffReason: "CutoffMet", FileQuality: &commonv1.Quality{Name: "EPUB"},
 	})
 	onDisk.Spec.QualityProfileRef, onDisk.Spec.RootFolderRef = new("ebook-standalone"), new("books")
-	onDisk.Status.Path = standaloneBookPath(t, root)
+	onDisk.Status.Path = standaloneBookPath(t, root, onDisk)
 	onDiskFile := &catalogv1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: "standalone-on-disk-file", Namespace: "default"},
 		Spec: catalogv1.MediaFileSpec{
@@ -161,7 +164,21 @@ func bookFixture(t *testing.T) (*ui.Server, client.Client) {
 			SizeBytes: 1 << 20, Quality: commonv1.Quality{Name: "EPUB"},
 		},
 	}
-	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(author, root, file, dispossessed, earthsea, tombs, firelight, lathe, lavinia, standalone, onDisk, onDiskFile,
+	legacy := book("standalone-legacy", "", "A Standalone Book Written Before", date(2005, time.January, 1), catalogv1.BookStatus{
+		HasFile: true, FileRef: new("standalone-legacy-file"), FileFormat: "EPUB", Phase: catalogv1.BookPhaseImported,
+		CutoffReason: "CutoffMet", FileQuality: &commonv1.Quality{Name: "EPUB"},
+	})
+	legacy.Spec.QualityProfileRef, legacy.Spec.RootFolderRef = new("ebook-standalone"), new("books")
+	legacy.Status.Path = root.Spec.Path
+	legacyFile := &catalogv1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: "standalone-legacy-file", Namespace: "default"},
+		Spec: catalogv1.MediaFileSpec{
+			MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "standalone-legacy"},
+			Path:      standaloneBookFile(t, root, legacy, ".epub"),
+			SizeBytes: 1 << 20, Quality: commonv1.Quality{Name: "EPUB"},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(author, root, file, dispossessed, earthsea, tombs, firelight, lathe, lavinia, standalone, onDisk, onDiskFile, legacy, legacyFile,
 		book("left-hand", "le-guin", "The Left Hand of Darkness", date(1969, time.March, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),
 		book("forthcoming", "le-guin", "Forthcoming", &future, catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),
 		book("poems", "le-guin", "Collected Poems", nil, catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),
@@ -186,14 +203,16 @@ func bookFixture(t *testing.T) (*ui.Server, client.Client) {
 }
 
 // standaloneBookPath is a standalone book's status.path as the Book
-// reconciler writes it: app/catalog/controller/book.Path with no author
-// name, which is the root's own path. standaloneBookFile is the file the
-// import places for it: catalogctx.BookFilePath with no author,
-// <root>/{Book Title}/{Book Title}<ext>. Both are the real rules, so a
-// fixture built on them cannot drift from the controller or the import.
-func standaloneBookPath(t *testing.T, root *catalogv1.RootFolder) string {
+// reconciler writes it: app/catalog/controller/book.Path with no author,
+// from the book's own naming context, <root>/{Book Title}. standaloneBookFile
+// is the file the import places for it: catalogctx.BookFilePath with no
+// author, <root>/{Book Title}/{Book Title}<ext>. Both are the real rules, so
+// a fixture built on them cannot drift from the controller or the import.
+func standaloneBookPath(t *testing.T, root *catalogv1.RootFolder, b *catalogv1.Book) string {
 	t.Helper()
-	p, err := bookctl.Path(root.Spec.Path, "", catalogctx.EngineFor(root))
+	c, ok := catalogctx.Book(nil, b)
+	require.True(t, ok, "the book has a title")
+	p, err := bookctl.Path(root.Spec.Path, nil, catalogctx.EngineFor(root), c)
 	require.NoError(t, err)
 	return p
 }
@@ -358,4 +377,23 @@ func TestBookInteractiveSearchOpensTheModalOnAPollingPanel(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	require.NoError(t, c.List(t.Context(), &list, client.InNamespace("default")))
 	require.Len(t, list.Items, 2, "only the form post's Search; none for an unknown book")
+}
+
+// A standalone book whose status.path was written before the Book
+// reconciler rendered its own folder (2026-11-10) reads the root itself:
+// Refresh & Scan still scans the folder the import placed its file in, read
+// off the file (itemFolder's belt), never the whole root, until the
+// reconciler's next pass writes <root>/{Book Title} and the belt is not
+// reached (TestStandaloneBookScansAndRenamesItsOwnFolder, on the fixture's
+// book written the new way).
+func TestStandaloneBookWrittenAsTheRootScansItsFilesFolder(t *testing.T) {
+	srv, c := bookFixture(t)
+	rec := postForm(t, srv, "/library/default/book/standalone-legacy/refresh",
+		url.Values{"return": {"/library/default/book/standalone-legacy"}, "scan": {"true"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	var scans catalogv1.LibraryScanList
+	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
+	require.Len(t, scans.Items, 1)
+	require.Equal(t, "books", scans.Items[0].Spec.RootFolderRef)
+	require.Equal(t, "A Standalone Book Written Before", scans.Items[0].Spec.Subpath, "the folder the import placed the file in, read off the file")
 }

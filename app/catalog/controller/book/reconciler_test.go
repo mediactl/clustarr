@@ -264,8 +264,10 @@ func seedMetadata(t *testing.T, ctx context.Context, c client.Client, bk *catalo
 // book_types.go's "unset makes the book standalone" case) end to end: it
 // must reconcile on its own, resolving its RootFolder directly from its own
 // spec.rootFolderRef with no Author involved at all. Before its metadata is
-// fetched it reads Pending (design D4), its path already resolved; once the
-// document is there it reads Wanted.
+// fetched it reads Pending (design D4), its path the root, since the folder
+// is its title (book.Path); once the document is there it reads Wanted and
+// its path is its own folder, <root>/{Book Title}, where the import places
+// its file (catalogctx.BookFilePath; until 2026-11-10 the root for good).
 func TestBookReconcilerStandalone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -291,8 +293,8 @@ func TestBookReconcilerStandalone(t *testing.T) {
 
 	got := waitForPhase(t, ctx, c, "book-standalone-ns", "standalone-hobbit")
 	assert.Equal(t, catalogv1alpha1.BookPhasePending, got.Status.Phase, "a Book without a metadata document reads Pending (design D4)")
-	// No known author name for a standalone book -> the folder collapses to
-	// the root path itself (book.Path's own doc comment).
+	// No title yet for a standalone book -> the folder collapses to the
+	// root path itself (book.Path's own doc comment), until the document.
 	assert.Equal(t, "/data/media/books", got.Status.Path)
 	assert.False(t, got.Status.HasFile)
 
@@ -313,7 +315,8 @@ func TestBookReconcilerStandalone(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.Phase == catalogv1alpha1.BookPhaseWanted
 	}, 5*time.Second, 10*time.Millisecond, "a standalone Book with fresh metadata and no file never read Wanted")
-	assert.Equal(t, "/data/media/books", got.Status.Path)
+	assert.Equal(t, "/data/media/books/The Hobbit", got.Status.Path,
+		"a standalone book's folder is its title under the root, the import's placement (2026-11-10 design §5.5, §9.3)")
 	cond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.BookConditionMetadataReady)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionTrue, cond.Status, "an outdated document is still a fresh one")

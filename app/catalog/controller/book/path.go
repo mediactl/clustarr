@@ -20,30 +20,63 @@ package book
 import (
 	"path"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/naming"
 )
 
-// Path resolves the folder a Book is stored under. BookSpec, unlike
-// MovieSpec/SeriesSpec/AuthorSpec, has no Folder override field at all
-// (book_types.go -- there is nothing to override): per pkg/naming/book.go's
-// own doc comment, "no separate book folder" is the Readarr convention this
-// project follows -- a book's files live directly under its author's
-// folder, so the folder this returns is exactly the author folder, "{Author
-// Name}" rendered from authorName.
+// standaloneFolderTemplate is the folder a standalone Book takes under its
+// root: the title alone, the first segment of the two the import places
+// its file at, "{Book Title}/{Book Title}.<ext>" (catalogctx.BookFilePath's
+// standalone branch renders the same literal through the root's engine).
+// It is no preset token of pkg/naming's, so a RootFolder's naming
+// overrides cannot move it -- exactly as the import's rule.
+const standaloneFolderTemplate = "{Book Title}"
+
+// componentOptions sanitizes the rendered folder as catalogctx's joinUnder
+// sanitizes one path component (its own componentOptions, unexported there):
+// illegal characters replaced (a colon the book-title token leaves in
+// place, since unlike a movie's it is not colon-sensitive, a dropped "?"),
+// trailing dots and spaces trimmed, 255 bytes at most. TestPathAgreesWithTheImport
+// holds the two copies together.
+var componentOptions = naming.SanitizeOptions{
+	ReplaceIllegal:    true,
+	MaxComponentBytes: naming.DefaultMaxComponentBytes,
+	MaxTotalBytes:     naming.DefaultMaxComponentBytes,
+}
+
+// Path resolves the folder a Book is stored under, which is the folder the
+// import places its file in (catalogctx.BookFilePath's two rules, 2026-11-10
+// non-video design §5.5, §9.3), so the folder Refresh & Scan, Rename and
+// the library delete read off status.path is the one on disk:
 //
-// For a standalone Book (no spec.authorRef), authorName is whatever the
-// reconciler's resolveContext could determine -- "" when nothing is known,
-// which naming.Engine.Render resolves to an empty token rather than an
-// error (pkg/naming/render.go: an empty-valued token wrapper renders as "").
-// path.Join then collapses that empty folder segment away, so a standalone
-// Book with no known author name resolves to the RootFolder's own path
-// directly, not a missing/error path -- a deliberate, graceful degradation
-// rather than a guess at an author name that does not exist.
-func Path(rootPath, authorName string, engine naming.Engine) (string, error) {
-	folder, err := engine.BuildFolder(commonv1.MediaKindBook, naming.Context{AuthorName: authorName})
+//   - one of an Author's (author non-nil) lives directly under its
+//     author's folder, "{Author Name}" from c.AuthorName (Readarr's
+//     convention: no separate book folder, pkg/naming/book.go), "" while
+//     the Author's name is not yet known, which path.Join collapses away,
+//     so the path reads the root until the name arrives;
+//   - a standalone one (author nil, as the import's nil author) has a
+//     folder of its own under the root, "{Book Title}" rendered through
+//     the root's naming engine and sanitized as the import sanitizes a
+//     path component, and the root while the title is not yet known or
+//     sanitizes to nothing.
+//
+// Until 2026-11-10 a standalone book rendered the author folder too, ""
+// with no author, so its status.path was its root's own path while its
+// file lay at <root>/{Book Title}/<file>; the ui read the folder off the
+// file meanwhile (ui.itemFolder's belt, kept for a book written that way
+// until its key's next pass writes this path).
+func Path(rootPath string, author *catalogv1alpha1.Author, engine naming.Engine, c naming.Context) (string, error) {
+	if author != nil {
+		folder, err := engine.BuildFolder(commonv1.MediaKindBook, c)
+		if err != nil {
+			return "", err
+		}
+		return path.Join(rootPath, folder), nil
+	}
+	title, err := engine.Render(standaloneFolderTemplate, c)
 	if err != nil {
 		return "", err
 	}
-	return path.Join(rootPath, folder), nil
+	return path.Join(rootPath, naming.SanitizePath(title, componentOptions)), nil
 }
