@@ -19,6 +19,7 @@ package metadata_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -69,10 +70,13 @@ func handleTask(t *testing.T, h *metadata.Handler, ns, name string, kind commonv
 // TestHandlerFoldsArtworkAndCrosswalkIntoStatusMetadata is the X6b fix
 // for "registered but never called": fanart.tv's artwork and a resolver's
 // ids reach status.metadata through the real Handler, a real TMDB client,
-// a real fanart client and a real apiserver. The second pass acts on the
-// object in its steady state with the resolver failing, and the id it
-// supplied must survive -- a complete server-side apply that omitted it
-// would release it.
+// a real fanart client and a real apiserver -- the Handler's record
+// incorporated by the manager's metadata stage, since 01a223a4 (ADR-0019
+// §7.1, A5.1). The second pass acts on the object in its steady state with
+// the resolver failing, and the id it supplied must survive: the gateway
+// reads the stored ids off the Movie (knownExternalIDs) and re-declares
+// them in its record, and a record that omitted it would release it at the
+// manager's complete server-side apply.
 func TestHandlerFoldsArtworkAndCrosswalkIntoStatusMetadata(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -99,6 +103,8 @@ func TestHandlerFoldsArtworkAndCrosswalkIntoStatusMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	fail := false
+	rh := newRecordHarness(t)
+	clock := newStepClock()
 	h := &metadata.Handler{
 		Client: c,
 		Reader: c,
@@ -107,13 +113,16 @@ func TestHandlerFoldsArtworkAndCrosswalkIntoStatusMetadata(t *testing.T) {
 			Artwork:   []pkgmetadata.ArtworkProvider{fa},
 			Resolvers: []pkgmetadata.IDResolver{traktResolver{fail: &fail}},
 		},
-		Cache: noopCache{},
+		Cache:   noopCache{},
+		Records: rh.records,
+		Now:     clock.Now,
 	}
 
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindMovie))
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
 	require.NotNil(t, got.Status.Metadata)
 	require.Equal(t, "16662", got.Status.Metadata.ExternalIDs["trakt"], "the resolver's id reaches status.metadata")
 	require.Equal(t, "tt1375666", got.Status.Metadata.ExternalIDs["imdb"], "a resolver never overrides the primary provider's id")
@@ -125,8 +134,13 @@ func TestHandlerFoldsArtworkAndCrosswalkIntoStatusMetadata(t *testing.T) {
 	require.Contains(t, byType[catalogv1alpha1.ImageTypeDisc], "https://assets.fanart.tv/fanart/the-matrix-50f0de0ecd0e1.png")
 
 	fail = true
+	clock.Step()
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindMovie))
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	rec := rh.answered(t, &got)
+	var md catalogv1alpha1.MovieMetadata
+	require.NoError(t, json.Unmarshal(rec.Metadata, &md))
+	require.Equal(t, "16662", md.ExternalIDs["trakt"], "a resolver failing once must not drop the id it supplied before from the record")
+	incorporate(t, ctx, c, &got, rec)
 	require.Equal(t, "16662", got.Status.Metadata.ExternalIDs["trakt"], "a resolver failing once must not release the id it supplied before")
 }
 
@@ -159,8 +173,8 @@ func TestHandlerKeepsATaskRetryableWhenOneProviderMissesAndAnotherFails(t *testi
 // TestHandlerFetchesAMangaDexComicByItsOwnID is the X6b fix for comic id
 // keying: a MangaDex Comic's UUID travels under "mangadex", so the
 // ComicVine client (first in priority) declines it without a request and
-// the MangaDex client answers; MangaDex's links crosswalk lands in
-// status.metadata.externalIDs.
+// the MangaDex client answers; MangaDex's links crosswalk lands in the
+// record's status.metadata.externalIDs (since 01a223a4, ADR-0019 A5.1).
 func TestHandlerFetchesAMangaDexComicByItsOwnID(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -190,6 +204,7 @@ func TestHandlerFetchesAMangaDexComicByItsOwnID(t *testing.T) {
 	t.Cleanup(mdSrv.Close)
 	md := mangadex.New(mangadex.Config{HTTPClient: mdSrv.Client(), BaseURL: mdSrv.URL})
 
+	rh := newRecordHarness(t)
 	h := &metadata.Handler{
 		Client: c,
 		Reader: c,
@@ -197,17 +212,19 @@ func TestHandlerFetchesAMangaDexComicByItsOwnID(t *testing.T) {
 			Comics:    []pkgmetadata.ComicProvider{comicvine.New("k", cvSrv.Client(), cvSrv.URL, pkgmetadata.NewLimiter(1000, 1)), md},
 			Resolvers: []pkgmetadata.IDResolver{md},
 		},
-		Cache: noopCache{},
+		Cache:   noopCache{},
+		Records: rh.records,
 	}
 
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindComic))
 
 	var got catalogv1alpha1.Comic
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
-	require.NotNil(t, got.Status.Metadata)
-	require.Equal(t, "Berserk", got.Status.Metadata.Title)
-	require.Equal(t, uuid, got.Status.Metadata.ExternalIDs["mangadex"])
-	require.Equal(t, "30002", got.Status.Metadata.ExternalIDs["anilist"])
-	require.Equal(t, "2", got.Status.Metadata.ExternalIDs["mal"])
-	require.NotContains(t, got.Status.Metadata.ExternalIDs, "comicvine")
+	var cmd catalogv1alpha1.ComicMetadata
+	require.NoError(t, json.Unmarshal(rh.answered(t, &got).Metadata, &cmd))
+	require.Equal(t, "Berserk", cmd.Title)
+	require.Equal(t, uuid, cmd.ExternalIDs["mangadex"])
+	require.Equal(t, "30002", cmd.ExternalIDs["anilist"])
+	require.Equal(t, "2", cmd.ExternalIDs["mal"])
+	require.NotContains(t, cmd.ExternalIDs, "comicvine")
 }

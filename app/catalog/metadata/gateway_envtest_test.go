@@ -32,19 +32,21 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/metadata"
-	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
+// Setup stands the gateway up over an apiserver with no MetadataProvider:
+// an empty registry, the consumers and responders bound on the bus, and the
+// item-metadata records writer it answers through -- required since
+// 01a223a4 (ADR-0019 §7.1, A5.1), when the gateway's status write moved to
+// the record; the harness carries one over the same bus.
 func TestSetupBuildsAndStartsTheGatewayWithNoProvidersConfigured(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
-	bus := membus.New(clockwork.NewRealClock())
-	t.Cleanup(func() { _ = bus.Close() })
-	require.NoError(t, bus.Ensure(ctx, events.Default().ForSingleNode()))
+	rh := newRecordHarness(t)
 
-	stop, err := metadata.Setup(ctx, metadata.Options{Client: c, Reader: c, Bus: bus, HTTPClient: http.DefaultClient})
+	stop, err := metadata.Setup(ctx, metadata.Options{Client: c, Reader: c, Bus: rh.bus, HTTPClient: http.DefaultClient, Records: rh.records})
 	require.NoError(t, err)
 	require.NotNil(t, stop)
 	stop()

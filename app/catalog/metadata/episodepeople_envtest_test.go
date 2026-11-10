@@ -34,7 +34,6 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/metadata"
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tvdb"
@@ -46,6 +45,10 @@ import (
 // Episode's selectable field spec.seriesRef -- a field the apiserver did
 // not serve would fail the list, and nothing would be filed -- and the
 // people come from the real TVDB client over TheTVDB's recorded episode.
+// The pass files them only after the series' own answer landed in its
+// item-metadata record (since 01a223a4, ADR-0019 A5.1: a Handler with no
+// records writer fails the refresh before the people), so the harness
+// carries the writer and the episodes' documents on one bus.
 func TestASeriesRefreshFilesItsEpisodesPeopleFromTheApiserver(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -96,17 +99,18 @@ func TestASeriesRefreshFilesItsEpisodesPeopleFromTheApiserver(t *testing.T) {
 	}))
 	t.Cleanup(tvdbSrv.Close)
 
-	bus := membus.New(nil)
-	t.Cleanup(func() { _ = bus.Close() })
-	require.NoError(t, bus.Ensure(ctx, events.Default().ForSingleNode()))
-	kv := bus.KV(events.BucketMetadataExtended)
+	rh := newRecordHarness(t)
+	kv := rh.bus.KV(events.BucketMetadataExtended)
 	h := &metadata.Handler{
-		Client: c, Reader: c, Cache: noopCache{}, Extended: kv,
+		Client: c, Reader: c, Cache: noopCache{}, Extended: kv, Records: rh.records,
 		Registry: &pkgmetadata.Registry{Series: []pkgmetadata.SeriesProvider{
 			tvdb.New("test-key", "test-pin", tvdbSrv.Client(), tvdbSrv.URL, pkgmetadata.NewLimiter(1000, 1)),
 		}},
 	}
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindSeries))
+	var got catalogv1alpha1.Series
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &got))
+	rh.answered(t, &got)
 
 	e, err := kv.Get(ctx, extended.Key(commonv1.MediaKindEpisode, withFile.UID))
 	require.NoError(t, err, "the episode with a file has its people")

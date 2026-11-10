@@ -19,13 +19,12 @@ package metadata_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
-
-	"github.com/jonboulle/clockwork"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -37,8 +36,8 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/metadata"
+	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
@@ -84,9 +83,10 @@ func (noopCache) Get(context.Context, string, any) (bool, error)        { return
 func (noopCache) Set(context.Context, string, any, time.Duration) error { return nil }
 
 // testMessage is the minimal events.Message this test needs: Handle only
-// calls Envelope(). A later step (envtest via membus directly) exercises
-// the real Ack/Nak/Term/InProgress wiring; this one isolates the fetch +
-// patch behaviour from the bus.
+// calls Envelope() and, on a long Series refresh, InProgress(). A later
+// step (envtest via membus directly) exercises the real Ack/Nak/Term/
+// InProgress wiring; this one isolates the fetch + record behaviour from
+// the bus.
 type testMessage struct{ env *events.Envelope }
 
 func (m testMessage) Envelope() *events.Envelope               { return m.env }
@@ -97,11 +97,19 @@ func (m testMessage) Nak(context.Context, time.Duration) error { return nil }
 func (m testMessage) Term(context.Context, string) error       { return nil }
 func (m testMessage) InProgress(context.Context) error         { return nil }
 
+// TestHandlerFetchesFromTheProviderAndPatchesOnlyStatusMetadata: the
+// Handler fetches through a real TMDB client and answers the Movie's whole
+// status.metadata block -- and only that block -- in its item-metadata
+// record. Since 01a223a4 (ADR-0019 §7.1, A5.1, 2026-10-07) it patches
+// nothing itself: the Movie on the apiserver is untouched after the pass,
+// and the manager's metadata stage incorporates the block under
+// catalog-metadata (recordHarness.incorporate), after which the leaves are
+// the Movie's status.metadata and phase and conditions are still nobody's.
 func TestHandlerFetchesFromTheProviderAndPatchesOnlyStatusMetadata(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	const ns, name = "hworker", "inception"
-	newMovie(t, ctx, c, ns, name, 27205)
+	created := newMovie(t, ctx, c, ns, name, 27205)
 
 	body, err := os.ReadFile("../../../test/data/metadata/tmdb/movie_27205.json")
 	require.NoError(t, err)
@@ -114,11 +122,13 @@ func TestHandlerFetchesFromTheProviderAndPatchesOnlyStatusMetadata(t *testing.T)
 	cl, err := tmdb.New("test-key", srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
 	require.NoError(t, err)
 
+	rh := newRecordHarness(t)
 	h := &metadata.Handler{
 		Client:   c,
 		Reader:   c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}},
 		Cache:    noopCache{},
+		Records:  rh.records,
 	}
 
 	env := &events.Envelope{
@@ -133,14 +143,26 @@ func TestHandlerFetchesFromTheProviderAndPatchesOnlyStatusMetadata(t *testing.T)
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.Equal(t, created.ResourceVersion, got.ResourceVersion, "the gateway writes no Kubernetes object (ADR-0019)")
+	require.Nil(t, got.Status.Metadata, "status.metadata is the manager's to write, from the record")
+
+	rec := rh.answered(t, &got)
+	require.Equal(t, metadatainputs.For(&got), rec.Inputs, "the record answers the Movie's own ask, which is what the manager incorporates")
+	var md catalogv1alpha1.MovieMetadata
+	require.NoError(t, json.Unmarshal(rec.Metadata, &md))
+	require.Equal(t, "Inception", md.Title)
+	require.EqualValues(t, 148, md.RuntimeMinutes)
+	require.Equal(t, "tt1375666", md.ExternalIDs["imdb"])
+	require.Equal(t, []string{"A Origem", "Origen", "Inception: Le Origini", "盗梦空间", "Начало"}, md.AlternateTitles,
+		"TMDB's alternative titles reach status.metadata.alternateTitles, the movie's own title and repeats dropped")
+	require.True(t, md.RefreshedAt.Time.Equal(rec.RefreshedAt), "the record's refreshedAt and the block's are one instant")
+
+	incorporate(t, ctx, c, &got, rec)
 	require.NotNil(t, got.Status.Metadata)
 	require.Equal(t, "Inception", got.Status.Metadata.Title)
 	require.EqualValues(t, 148, got.Status.Metadata.RuntimeMinutes)
-	require.Equal(t, "tt1375666", got.Status.Metadata.ExternalIDs["imdb"])
-	require.Equal(t, []string{"A Origem", "Origen", "Inception: Le Origini", "盗梦空间", "Начало"}, got.Status.Metadata.AlternateTitles,
-		"TMDB's alternative titles reach status.metadata.alternateTitles, the movie's own title and repeats dropped")
-	require.Empty(t, got.Status.Phase, "the worker must never set phase; that is the movie controller's field")
-	require.Empty(t, got.Status.Conditions, "the worker must never set conditions")
+	require.Empty(t, got.Status.Phase, "the metadata set never sets phase; that is the movie's own catalog apply")
+	require.Empty(t, got.Status.Conditions, "the metadata set never sets conditions")
 }
 
 type failIfCalledMovieProvider struct{ t *testing.T }
@@ -175,17 +197,22 @@ func (c *fakeCache) Get(_ context.Context, _ string, out any) (bool, error) {
 }
 func (c *fakeCache) Set(context.Context, string, any, time.Duration) error { return nil }
 
+// TestHandlerSkipsTheProviderOnACacheHit: a cached document is rendered
+// into the record without a provider call. The record, not the Movie, is
+// where the title lands since 01a223a4 (ADR-0019 A5.1).
 func TestHandlerSkipsTheProviderOnACacheHit(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	const ns, name = "hcache", "inception"
 	newMovie(t, ctx, c, ns, name, 27205)
 
+	rh := newRecordHarness(t)
 	h := &metadata.Handler{
 		Client:   c,
 		Reader:   c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{failIfCalledMovieProvider{t: t}}},
 		Cache:    &fakeCache{movie: &pkgmetadata.Movie{Title: "Inception (cached)", Runtime: 148}},
+		Records:  rh.records,
 	}
 
 	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
@@ -198,7 +225,9 @@ func TestHandlerSkipsTheProviderOnACacheHit(t *testing.T) {
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
-	require.Equal(t, "Inception (cached)", got.Status.Metadata.Title)
+	var md catalogv1alpha1.MovieMetadata
+	require.NoError(t, json.Unmarshal(rh.answered(t, &got).Metadata, &md))
+	require.Equal(t, "Inception (cached)", md.Title)
 }
 
 type erroringMovieProvider struct{ err error }
@@ -338,15 +367,18 @@ func newArtist(t *testing.T, ctx context.Context, c client.Client, ns, name, mbi
 
 // TestHandlerFetchesArtistAndPatchesOnlyStatusMetadata is
 // TestHandlerFetchesFromTheProviderAndPatchesOnlyStatusMetadata's Artist
-// counterpart, proving G2-1's new dispatch end to end: newTarget ->
-// externalIDs -> Registry.Lookup -> buildArtistMetadataAC ->
-// k8s.ManagerCatalogMetadata.
+// counterpart, proving G2-1's dispatch end to end: newTarget ->
+// externalIDs -> Registry.Lookup -> buildArtistMetadataAC -> the
+// item-metadata record (since 01a223a4, ADR-0019 A5.1; the apply under
+// k8s.ManagerCatalogMetadata is the manager's, from the record), the Artist
+// itself untouched by the gateway.
 func TestHandlerFetchesArtistAndPatchesOnlyStatusMetadata(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	const ns, name, mbid = "hartist", "radiohead", "a74b1b7f-71a5-4011-9441-d0b5e4122711"
-	newArtist(t, ctx, c, ns, name, mbid)
+	created := newArtist(t, ctx, c, ns, name, mbid)
 
+	rh := newRecordHarness(t)
 	h := &metadata.Handler{
 		Client: c,
 		Reader: c,
@@ -359,7 +391,8 @@ func TestHandlerFetchesArtistAndPatchesOnlyStatusMetadata(t *testing.T) {
 				Images: []pkgmetadata.Image{{Type: pkgmetadata.ImageTypePoster, URL: "https://example.test/radiohead.jpg"}},
 			},
 		}}},
-		Cache: noopCache{},
+		Cache:   noopCache{},
+		Records: rh.records,
 	}
 
 	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
@@ -372,12 +405,15 @@ func TestHandlerFetchesArtistAndPatchesOnlyStatusMetadata(t *testing.T) {
 
 	var got catalogv1alpha1.Artist
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
-	require.NotNil(t, got.Status.Metadata)
-	require.Equal(t, "Radiohead", got.Status.Metadata.Name)
-	require.Equal(t, "Group", got.Status.Metadata.Type)
-	require.Equal(t, []string{"Alternative Rock"}, got.Status.Metadata.Genres)
-	require.Equal(t, mbid, got.Status.Metadata.ExternalIDs["mb-artist"])
-	require.Empty(t, got.Status.Conditions, "the worker must never set conditions; that is the artist controller's field")
+	require.Equal(t, created.ResourceVersion, got.ResourceVersion, "the gateway writes no Kubernetes object (ADR-0019)")
+	require.Nil(t, got.Status.Metadata)
+	var md catalogv1alpha1.ArtistMetadata
+	require.NoError(t, json.Unmarshal(rh.answered(t, &got).Metadata, &md))
+	require.Equal(t, "Radiohead", md.Name)
+	require.Equal(t, "Group", md.Type)
+	require.Equal(t, []string{"Alternative Rock"}, md.Genres)
+	require.Equal(t, mbid, md.ExternalIDs["mb-artist"])
+	require.Equal(t, metadata.DefaultFetchLanguage, md.Language, "no Languages table: en (2026-11-10 design §5.4)")
 }
 
 func newAlbum(t *testing.T, ctx context.Context, c client.Client, ns, name, artistRef, releaseGroupID string) *catalogv1alpha1.Album {
@@ -393,22 +429,24 @@ func newAlbum(t *testing.T, ctx context.Context, c client.Client, ns, name, arti
 // TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies is the
 // SSA-per-leaf proof this task's brief calls for (CLAUDE.md's Phase D1 caps
 // lesson: a renderer that sends only some of a struct's leaves silently
-// releases the rest), applied to the specific question this task had to
-// answer for Album and Book: patch.go's buildAlbumMetadataAC doc comment
-// decides the metadata gateway (ManagerCatalogMetadata) is the sole
-// writer of every leaf of AlbumStatus.metadata, and G2-2's Artist fan-out
-// (ManagerCatalogFanout) must never apply to it. This proves both
-// halves against a real apiserver:
-//  1. A full fetch sets every leaf this builder maps.
-//  2. A second fetch, from a provider response with almost every field now
-//     empty, is a complete rebuild (buildAlbumMetadataAC is called in
-//     full both times, never a partial early return) -- so every omitted
-//     leaf is deliberately cleared, not accidentally retained, and the one
-//     leaf still present (Title) survives.
-//  3. Across both applies, status.metadata's managedFields entries show
-//     ONLY k8s.ManagerCatalogMetadata -- proving nothing else (in
-//     particular no future ManagerCatalogFanout write from G2-2) has
-//     claimed a leaf there.
+// releases the rest), applied to the question this task had to answer for
+// Album and Book: patch.go's buildAlbumMetadataAC doc comment decides
+// catalog-metadata is the sole writer of every leaf of
+// AlbumStatus.metadata. Since 01a223a4 (ADR-0019 A5.1) the gateway renders
+// the block into its record and the manager's metadata stage applies it
+// (recordHarness.incorporate, the loop's metadataset.Build and
+// itemstatus.ApplySet), so the proof runs both halves against a real
+// apiserver:
+//  1. A full fetch's record, incorporated, sets every leaf this builder maps.
+//  2. A second fetch's record, from a provider response with almost every
+//     field now empty, is a complete rebuild (buildAlbumMetadataAC is called
+//     in full both times, never a partial early return) -- so once
+//     incorporated every omitted leaf is deliberately cleared, not
+//     accidentally retained, and the one leaf still present (Title) survives.
+//  3. Across both applies, status's managedFields entries show ONLY
+//     k8s.ManagerCatalogMetadata -- proving nothing else (the Artist's
+//     fan-out, since 2026-11-10 the loop's childsync, included) has claimed
+//     a leaf there.
 func TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -426,7 +464,9 @@ func TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies(t *test
 		ReleaseDate:    &fullDate,
 		Images:         []pkgmetadata.Image{{Type: pkgmetadata.ImageTypePoster, URL: "https://example.test/okc.jpg"}},
 	}}
-	h := &metadata.Handler{Client: c, Reader: c, Registry: &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{full}}, Cache: noopCache{}}
+	rh := newRecordHarness(t)
+	clock := newStepClock()
+	h := &metadata.Handler{Client: c, Reader: c, Registry: &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{full}}, Cache: noopCache{}, Records: rh.records, Now: clock.Now}
 
 	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
 	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: name}}
@@ -437,6 +477,7 @@ func TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies(t *test
 
 	var got catalogv1alpha1.Album
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
 	require.NotNil(t, got.Status.Metadata)
 	require.Equal(t, "OK Computer", got.Status.Metadata.Title)
 	require.Equal(t, "1997", got.Status.Metadata.Disambiguation)
@@ -447,15 +488,18 @@ func TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies(t *test
 
 	// Second fetch: the provider now answers with only a Title (e.g. a
 	// stale/degraded upstream response). noopCache (not fakeCache) ensures
-	// this really calls the provider again rather than replaying the cache.
+	// this really calls the provider again rather than replaying the cache,
+	// and the clock steps so the second record is newer than the first's
+	// document on the Album.
 	partial := stubArtistOnlyProvider{album: &pkgmetadata.Album{
 		IDs:   pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: rgid},
 		Title: "OK Computer",
 	}}
 	h.Registry = &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{partial}}
+	clock.Step()
 	require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
 
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
 	require.NotNil(t, got.Status.Metadata)
 	require.Equal(t, "OK Computer", got.Status.Metadata.Title, "the one leaf still present must survive")
 	require.Empty(t, got.Status.Metadata.Disambiguation, "an omitted leaf must be deliberately cleared, not retained")
@@ -471,14 +515,15 @@ func TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies(t *test
 		}
 	}
 	require.Equal(t, map[string]bool{string(k8s.ManagerCatalogMetadata): true}, managers,
-		"only the metadata gateway may own a status field on Album -- ManagerCatalogFanout must never apply to status.metadata here (see buildAlbumMetadataAC's doc comment)")
+		"only the metadata set may own a status field on Album -- no other manager applies to status.metadata (see buildAlbumMetadataAC's doc comment)")
 }
 
 // TestHandlerWritesSecondaryYearThroughTheRealTMDBClient drives ruling R-7
 // end to end against a real apiserver: TMDB's release_dates carry a
 // premiere a year before the primary release, the client derives
-// SecondaryYear, and buildMovieMetadataAC applies it into
-// status.metadata.secondaryYear, which the CRD admits.
+// SecondaryYear, buildMovieMetadataAC renders it into the record's block
+// (since 01a223a4, ADR-0019 A5.1) and the manager's incorporation lands it
+// in status.metadata.secondaryYear, which the CRD admits.
 func TestHandlerWritesSecondaryYearThroughTheRealTMDBClient(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -495,7 +540,8 @@ func TestHandlerWritesSecondaryYearThroughTheRealTMDBClient(t *testing.T) {
 	cl, err := tmdb.New("test-key", srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
 	require.NoError(t, err)
 
-	h := &metadata.Handler{Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}}, Cache: noopCache{}}
+	rh := newRecordHarness(t)
+	h := &metadata.Handler{Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}}, Cache: noopCache{}, Records: rh.records}
 	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
 	_, env.Data, err = schema.Encode(schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}})
 	require.NoError(t, err)
@@ -504,14 +550,16 @@ func TestHandlerWritesSecondaryYearThroughTheRealTMDBClient(t *testing.T) {
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
 	require.NotNil(t, got.Status.Metadata)
 	require.EqualValues(t, 2021, got.Status.Metadata.Year)
 	require.EqualValues(t, 2020, got.Status.Metadata.SecondaryYear)
 }
 
 // TestHandlerWritesEveryImageType proves the nine pkg/metadata image roles
-// mapImageType now passes through are all admitted by the CRD's widened
-// ImageType enum -- one value outside it would reject the whole status
+// mapImageType passes through are all admitted by the CRD's widened
+// ImageType enum once the manager incorporates the record (since 01a223a4,
+// ADR-0019 A5.1) -- one value outside it would reject the whole status
 // apply, which is why mapImageType still drops anything unknown.
 func TestHandlerWritesEveryImageType(t *testing.T) {
 	ctx := context.Background()
@@ -530,13 +578,15 @@ func TestHandlerWritesEveryImageType(t *testing.T) {
 	}
 	images = append(images, pkgmetadata.Image{Type: "", URL: "https://example.test/unclassified.jpg"})
 
+	rh := newRecordHarness(t)
 	h := &metadata.Handler{
 		Client: c,
 		Reader: c,
 		Registry: &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{stubArtistOnlyProvider{
 			artist: &pkgmetadata.Artist{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: mbid}, Name: "Radiohead", Images: images},
 		}}},
-		Cache: noopCache{},
+		Cache:   noopCache{},
+		Records: rh.records,
 	}
 	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
 	var err error
@@ -547,6 +597,7 @@ func TestHandlerWritesEveryImageType(t *testing.T) {
 
 	var got catalogv1alpha1.Artist
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
 	require.NotNil(t, got.Status.Metadata)
 	var gotTypes []catalogv1alpha1.ImageType
 	for _, img := range got.Status.Metadata.Images {
@@ -585,10 +636,11 @@ func (p *imagedMovieProvider) SearchMovies(context.Context, string, int) ([]pkgm
 }
 
 // A forced refresh -- a MetadataTask with a RefreshEpoch (spec §5) -- goes
-// to the provider even when the cache holds the document, and stores what
-// it fetched; that is what lets an operator pick up fields a provider now
-// publishes (the artwork the clients did not map before) without waiting
-// out RefreshTTL. A task with no epoch keeps taking the cache hit.
+// to the provider even when the cache holds the document, and answers what
+// it fetched in the record (since 01a223a4, ADR-0019 A5.1); that is what
+// lets an operator pick up fields a provider now publishes (the artwork the
+// clients did not map before) without waiting out RefreshTTL. A task with
+// no epoch keeps taking the cache hit.
 func TestHandlerBypassesTheCacheOnAForcedRefresh(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -597,13 +649,17 @@ func TestHandlerBypassesTheCacheOnAForcedRefresh(t *testing.T) {
 
 	provider := &imagedMovieProvider{}
 	stale := &fakeCache{movie: &pkgmetadata.Movie{Title: "Inception (cached)", Runtime: 148}}
+	rh := newRecordHarness(t)
 	h := &metadata.Handler{
 		Client:   c,
 		Reader:   c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{provider}},
 		Cache:    stale,
+		Records:  rh.records,
 	}
-	handle := func(epoch int64) {
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	handle := func(epoch int64) catalogv1alpha1.MovieMetadata {
 		t.Helper()
 		env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
 		task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}, RefreshEpoch: epoch}
@@ -611,27 +667,29 @@ func TestHandlerBypassesTheCacheOnAForcedRefresh(t *testing.T) {
 		_, env.Data, err = schema.Encode(task)
 		require.NoError(t, err)
 		require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+		var md catalogv1alpha1.MovieMetadata
+		require.NoError(t, json.Unmarshal(rh.answered(t, &got).Metadata, &md))
+		return md
 	}
 
-	handle(0)
-	var got catalogv1alpha1.Movie
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
-	require.Equal(t, "Inception (cached)", got.Status.Metadata.Title, "no epoch: the cache hit stands")
+	md := handle(0)
+	require.Equal(t, "Inception (cached)", md.Title, "no epoch: the cache hit stands")
 	require.Zero(t, provider.calls)
 
-	handle(1758665000)
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	md = handle(1758665000)
 	require.Equal(t, 1, provider.calls, "an epoch reaches the provider despite the cache hit")
-	require.Equal(t, "Inception (fresh)", got.Status.Metadata.Title)
-	require.Len(t, got.Status.Metadata.Images, 1)
-	require.Equal(t, catalogv1alpha1.ImageTypePoster, got.Status.Metadata.Images[0].Type)
-	require.Equal(t, "https://image.tmdb.org/t/p/w500/inception.jpg", got.Status.Metadata.Images[0].URL)
+	require.Equal(t, "Inception (fresh)", md.Title)
+	require.Len(t, md.Images, 1)
+	require.Equal(t, catalogv1alpha1.ImageTypePoster, md.Images[0].Type)
+	require.Equal(t, "https://image.tmdb.org/t/p/w500/inception.jpg", md.Images[0].URL)
 }
 
 // TestHandlerRecordsWeekendsFullMetadata runs the recorded TMDB record for
 // Weekend (2011) through the real client and the gateway, against a Movie
-// that already has status.metadata: the new fields arrive and the earlier
-// ones stay -- the certification most of all, which no Movie ever had.
+// that already has status.metadata (a first record incorporated, since
+// 01a223a4 the manager's half of a refresh, ADR-0019 A5.1): the new fields
+// arrive and the earlier ones stay -- the certification most of all, which
+// no Movie ever had.
 func TestHandlerRecordsWeekendsFullMetadata(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -644,12 +702,19 @@ func TestHandlerRecordsWeekendsFullMetadata(t *testing.T) {
 	_, env.Data, err = schema.Encode(task)
 	require.NoError(t, err)
 
+	rh := newRecordHarness(t)
+	clock := newStepClock()
 	seed := &metadata.Handler{
 		Client: c, Reader: c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{failIfCalledMovieProvider{t: t}}},
 		Cache:    &fakeCache{movie: &pkgmetadata.Movie{Title: "Weekend", Genres: []string{"Drama"}}},
+		Records:  rh.records, Now: clock.Now,
 	}
 	require.NoError(t, seed.Handle(ctx, testMessage{env: env}))
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
+	require.Equal(t, []string{"Drama"}, got.Status.Metadata.Genres, "the seed is on the Movie")
 
 	body, err := os.ReadFile("../../../test/data/metadata/tmdb/movie-79120.json")
 	require.NoError(t, err)
@@ -660,11 +725,11 @@ func TestHandlerRecordsWeekendsFullMetadata(t *testing.T) {
 	t.Cleanup(srv.Close)
 	cl, err := tmdb.New("test-key", srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
 	require.NoError(t, err)
-	h := &metadata.Handler{Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}}, Cache: noopCache{}}
+	h := &metadata.Handler{Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}}, Cache: noopCache{}, Records: rh.records, Now: clock.Now}
+	clock.Step()
 	require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
 
-	var got catalogv1alpha1.Movie
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
 	md := got.Status.Metadata
 	require.NotNil(t, md)
 	require.Equal(t, "Weekend", md.Title)
@@ -678,7 +743,8 @@ func TestHandlerRecordsWeekendsFullMetadata(t *testing.T) {
 
 // TestHandlerWritesTheExtendedDocument: after a movie refresh the people
 // and similar titles land in the clustarr-metadata-extended document under
-// the Movie's UID, never in its status.
+// the Movie's UID, never in its status; the refresh itself is answered in
+// the item-metadata record (since 01a223a4, ADR-0019 A5.1), on the same bus.
 func TestHandlerWritesTheExtendedDocument(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -694,12 +760,11 @@ func TestHandlerWritesTheExtendedDocument(t *testing.T) {
 	cl, err := tmdb.New("test-key", srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
 	require.NoError(t, err)
 
-	bus := membus.New(clockwork.NewRealClock())
-	require.NoError(t, bus.Ensure(ctx, events.Default()))
-	kv := bus.KV(events.BucketMetadataExtended)
+	rh := newRecordHarness(t)
+	kv := rh.bus.KV(events.BucketMetadataExtended)
 	h := &metadata.Handler{
 		Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}},
-		Cache: noopCache{}, Extended: kv,
+		Cache: noopCache{}, Extended: kv, Records: rh.records,
 	}
 	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
 	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}}
@@ -709,6 +774,9 @@ func TestHandlerWritesTheExtendedDocument(t *testing.T) {
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	var md catalogv1alpha1.MovieMetadata
+	require.NoError(t, json.Unmarshal(rh.answered(t, &got).Metadata, &md))
+	require.Equal(t, "Weekend", md.Title)
 	e, err := kv.Get(ctx, extended.Key(commonv1.MediaKindMovie, got.UID))
 	require.NoError(t, err)
 	doc, err := extended.Decode(e.Value)
@@ -720,9 +788,10 @@ func TestHandlerWritesTheExtendedDocument(t *testing.T) {
 
 // TestHandlerLearnsTheMoviesCollection: a movie refresh records the TMDB
 // collection's Plex id -- which Plex only names in the movie's own Plex
-// metadata -- in status.metadata.collection.plexID, and the collection's
-// summary, poster and background in the movie's extended document, all
-// from recorded answers (Back to the Future, 2026-10-06).
+// metadata -- in the record's status.metadata.collection.plexID (since
+// 01a223a4 the manager applies the block, ADR-0019 A5.1), and the
+// collection's summary, poster and background in the movie's extended
+// document, all from recorded answers (Back to the Future, 2026-10-06).
 func TestHandlerLearnsTheMoviesCollection(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -762,9 +831,8 @@ func TestHandlerLearnsTheMoviesCollection(t *testing.T) {
 	px, err := plexclient.New(plexclient.Config{HTTPClient: plexSrv.Client(), BaseURL: plexSrv.URL, Token: "test-token"})
 	require.NoError(t, err)
 
-	bus := membus.New(clockwork.NewRealClock())
-	require.NoError(t, bus.Ensure(ctx, events.Default()))
-	kv := bus.KV(events.BucketMetadataExtended)
+	rh := newRecordHarness(t)
+	kv := rh.bus.KV(events.BucketMetadataExtended)
 	h := &metadata.Handler{
 		Client: c, Reader: c,
 		Registry: &pkgmetadata.Registry{
@@ -772,7 +840,7 @@ func TestHandlerLearnsTheMoviesCollection(t *testing.T) {
 			Resolvers: []pkgmetadata.IDResolver{px},
 			Plex:      []pkgmetadata.PlexProvider{px},
 		},
-		Cache: noopCache{}, Extended: kv,
+		Cache: noopCache{}, Extended: kv, Records: rh.records,
 	}
 	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
 	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}}
@@ -782,10 +850,11 @@ func TestHandlerLearnsTheMoviesCollection(t *testing.T) {
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
-	require.NotNil(t, got.Status.Metadata)
+	var md catalogv1alpha1.MovieMetadata
+	require.NoError(t, json.Unmarshal(rh.answered(t, &got).Metadata, &md))
 	require.Equal(t, &catalogv1alpha1.CollectionRef{
 		TmdbID: 264, Name: "Back to the Future Collection", PlexID: "5ec2eb574592b6004137f444",
-	}, got.Status.Metadata.Collection)
+	}, md.Collection)
 
 	e, err := kv.Get(ctx, extended.Key(commonv1.MediaKindMovie, got.UID))
 	require.NoError(t, err)

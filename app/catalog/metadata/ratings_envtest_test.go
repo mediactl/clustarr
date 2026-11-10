@@ -75,13 +75,17 @@ func ratingsBySourceCRD(ratings []catalogv1alpha1.Rating) map[catalogv1alpha1.Ra
 // TestHandlerLandsRatingsOnAMovieRefreshWithoutReleasingOtherMetadata is
 // C1's envtest for spec §C.2, run against a real apiserver: the first pass
 // fills status.metadata.ratings from two providers (tmdb, and a stub
-// standing in for mdblist/omdb, still blocked under R5); the second pass
-// runs against the object in its steady state -- it already has status,
-// CLAUDE.md's "exercise the failure path against an object already in its
-// steady state" -- with the stub provider now failing, and proves neither
-// Title (an unrelated metadata leaf) nor the imdb rating the stub can no
-// longer supply are released: SSA's complete-declaration rule bites
-// exactly here if renderRatings or the apply omits what it should carry.
+// standing in for mdblist/omdb, still blocked under R5) -- the gateway's
+// record incorporated by the manager, since 01a223a4 (ADR-0019 §7.1,
+// A5.1); the second pass runs against the object in its steady state -- it
+// already has status, CLAUDE.md's "exercise the failure path against an
+// object already in its steady state" -- with the stub provider now
+// failing, and proves neither Title (an unrelated metadata leaf) nor the
+// imdb rating the stub can no longer supply are released: the gateway
+// carries the stored ratings forward (knownRatings) into a record that is
+// the manager's complete declaration, so SSA's complete-declaration rule
+// bites exactly here if renderRatings or the record omits what it should
+// carry.
 func TestHandlerLandsRatingsOnAMovieRefreshWithoutReleasingOtherMetadata(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -105,11 +109,15 @@ func TestHandlerLandsRatingsOnAMovieRefreshWithoutReleasingOtherMetadata(t *test
 		ratings: pkgmetadata.Ratings{"imdb": {Source: "imdb", ValueCentis: 833, Votes: 2100000}},
 	}
 
+	rh := newRecordHarness(t)
+	clock := newStepClock()
 	h := &metadata.Handler{
 		Client:   c,
 		Reader:   c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{tm}, Ratings: []pkgmetadata.RatingsProvider{tm, stub}},
 		Cache:    noopCache{},
+		Records:  rh.records,
+		Now:      clock.Now,
 	}
 
 	// Fix round 1: enrichRatings seeds "tmdb" from the document
@@ -126,6 +134,7 @@ func TestHandlerLandsRatingsOnAMovieRefreshWithoutReleasingOtherMetadata(t *test
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
 	require.NotNil(t, got.Status.Metadata)
 	require.Equal(t, "Inception", got.Status.Metadata.Title)
 	byS := ratingsBySourceCRD(got.Status.Metadata.Ratings)
@@ -133,10 +142,11 @@ func TestHandlerLandsRatingsOnAMovieRefreshWithoutReleasingOtherMetadata(t *test
 	require.EqualValues(t, 833, byS[catalogv1alpha1.RatingSourceIMDb].ValueCentis, "the stub, standing in for mdblist, fills imdb")
 
 	up = false // the stub is now down, as mdblist/omdb are under R5
+	clock.Step()
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindMovie))
 	require.EqualValues(t, 2, atomic.LoadInt32(&movieRequests),
 		"exactly one more request this Handle call -- still no second call from enrichRatings")
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
 	require.Equal(t, "Inception", got.Status.Metadata.Title, "an unrelated metadata leaf must not be released by a ratings-only concern")
 	byS = ratingsBySourceCRD(got.Status.Metadata.Ratings)
 	require.EqualValues(t, 837, byS[catalogv1alpha1.RatingSourceTMDB].ValueCentis, "tmdb keeps refreshing")
@@ -146,10 +156,11 @@ func TestHandlerLandsRatingsOnAMovieRefreshWithoutReleasingOtherMetadata(t *test
 // TestHandlerLandsFirstAiredOnASeriesRefreshWithoutReleasingOtherMetadata
 // is C1's envtest for spec §C.1's Series.firstAired, run against a real
 // apiserver: TVDB's own firstAired (test/data/metadata/tvdb/series_121361.json,
-// "2011-04-17") reaches status.metadata.firstAired, and a second pass
-// against the object in its steady state -- it already has status --
-// proves Title (an unrelated leaf) and FirstAired both survive the
-// refresh that also renders ratings.
+// "2011-04-17") reaches status.metadata.firstAired through the gateway's
+// record and the manager's incorporation (since 01a223a4, ADR-0019 A5.1),
+// and a second pass against the object in its steady state -- it already
+// has status -- proves Title (an unrelated leaf) and FirstAired both
+// survive the refresh that also renders ratings.
 func TestHandlerLandsFirstAiredOnASeriesRefreshWithoutReleasingOtherMetadata(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -179,17 +190,22 @@ func TestHandlerLandsFirstAiredOnASeriesRefreshWithoutReleasingOtherMetadata(t *
 	t.Cleanup(tvdbSrv.Close)
 	tv := tvdb.New("test-key", "test-pin", tvdbSrv.Client(), tvdbSrv.URL, pkgmetadata.NewLimiter(1000, 1))
 
+	rh := newRecordHarness(t)
+	clock := newStepClock()
 	h := &metadata.Handler{
 		Client:   c,
 		Reader:   c,
 		Registry: &pkgmetadata.Registry{Series: []pkgmetadata.SeriesProvider{tv}},
 		Cache:    noopCache{},
+		Records:  rh.records,
+		Now:      clock.Now,
 	}
 
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindSeries))
 
 	var got catalogv1alpha1.Series
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
 	require.NotNil(t, got.Status.Metadata)
 	require.Equal(t, "Game of Thrones", got.Status.Metadata.Title)
 	require.NotNil(t, got.Status.Metadata.FirstAired)
@@ -197,8 +213,9 @@ func TestHandlerLandsFirstAiredOnASeriesRefreshWithoutReleasingOtherMetadata(t *
 
 	// Second pass, against the object in its steady state: neither Title
 	// nor FirstAired may be released.
+	clock.Step()
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindSeries))
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
 	require.Equal(t, "Game of Thrones", got.Status.Metadata.Title)
 	require.NotNil(t, got.Status.Metadata.FirstAired)
 	require.True(t, got.Status.Metadata.FirstAired.Time.Equal(time.Date(2011, 4, 17, 0, 0, 0, 0, time.UTC)))

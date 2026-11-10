@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -31,19 +30,15 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/metadata"
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/events/membus"
-	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
-	"github.com/mediactl/clustarr/pkg/records"
-	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
 
 // The non-video Handler tests run against the fake client: since ADR-0019
 // the Handler writes no Kubernetes object (it Gets the target and answers
-// in the item-metadata record), so a real apiserver proves nothing the fake
-// does not, and these run without KUBEBUILDER_ASSETS.
+// in the item-metadata record, recordHarness), so a real apiserver proves
+// nothing the fake does not, and these run without KUBEBUILDER_ASSETS.
 
 type stubAudiobookProvider struct {
 	audiobook *pkgmetadata.Audiobook
@@ -83,44 +78,6 @@ func (p stubKindRatings) Ratings(_ context.Context, _ commonv1.MediaKind, ids pk
 	return p.ratings, nil
 }
 
-type nonVideoHarness struct {
-	bus     events.Bus
-	records *records.Writer[*schema.ItemMetadataRecord]
-	reader  *records.Reader[*schema.ItemMetadataRecord]
-}
-
-func newNonVideoHarness(t *testing.T) nonVideoHarness {
-	t.Helper()
-	bus := membus.New(clockwork.NewRealClock())
-	t.Cleanup(func() { _ = bus.Close() })
-	require.NoError(t, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
-	kv := bus.KV(events.BucketItemMetadata)
-	return nonVideoHarness{
-		bus:     bus,
-		records: records.NewWriter(kv, agentrecords.ItemMetadata(), "test", "v0"),
-		reader:  records.NewReader(kv, agentrecords.ItemMetadata()),
-	}
-}
-
-func (h nonVideoHarness) handle(t *testing.T, handler *metadata.Handler, kind commonv1.MediaKind, ns, name string) *schema.ItemMetadataRecord {
-	t.Helper()
-	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
-	var err error
-	_, env.Data, err = schema.Encode(schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: kind, Name: name}})
-	require.NoError(t, err)
-	require.NoError(t, handler.Handle(context.Background(), testMessage{env: env}))
-	return h.record(t, name)
-}
-
-func (h nonVideoHarness) record(t *testing.T, uid string) *schema.ItemMetadataRecord {
-	t.Helper()
-	rec, _, ok, err := h.reader.Get(context.Background(), agentrecords.ItemMetadataKey(uid))
-	require.NoError(t, err)
-	require.True(t, ok, "the Handler answers in the item-metadata record")
-	require.Empty(t, rec.Failure)
-	return rec
-}
-
 // An Artist's refresh writes the fetch language its provider's
 // MetadataProvider names, its ratings through enrichRatings (MusicBrainz's
 // own "mb" as the seed, under its CRD name, a RatingsProvider's beside it,
@@ -138,7 +95,7 @@ func TestHandlerWritesANonVideoDocumentsLanguageRatingsAndExtendedDocument(t *te
 		}},
 	}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(artist).WithStatusSubresource(artist).Build()
-	h := newNonVideoHarness(t)
+	h := newRecordHarness(t)
 	var seen []pkgmetadata.ExternalIDs
 	doc := &pkgmetadata.Artist{
 		IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: mbid}, Name: "Radiohead",
@@ -195,7 +152,7 @@ func TestHandlerWritesAnAudiobooksFetchLanguageRatingAndPeople(t *testing.T) {
 		Spec:       catalogv1alpha1.AudiobookSpec{ASIN: "B0036I54I6", QualityProfileRef: "audio", RootFolderRef: "audiobooks"},
 	}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(ab).WithStatusSubresource(ab).Build()
-	h := newNonVideoHarness(t)
+	h := newRecordHarness(t)
 	doc := &pkgmetadata.Audiobook{
 		IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyASIN: "B0036I54I6"}, Title: "The Hobbit", Language: "english",
 		Authors: []pkgmetadata.NamedRef{{Name: "J.R.R. Tolkien", ASIN: "B000AQ1S22"}}, Narrators: []string{"Rob Inglis"},
@@ -238,7 +195,7 @@ func TestHandlerAsksABooksRatingsByItsFirstEditionsISBN(t *testing.T) {
 		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL15181484W"},
 	}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(book).WithStatusSubresource(book).Build()
-	h := newNonVideoHarness(t)
+	h := newRecordHarness(t)
 	var seen []pkgmetadata.ExternalIDs
 	doc := &pkgmetadata.Book{
 		IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryWork: "OL15181484W"}, Title: "Out of My Mind",

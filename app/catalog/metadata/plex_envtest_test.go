@@ -19,6 +19,7 @@ package metadata_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -64,9 +65,12 @@ func (p stubPlex) ShowChildren(context.Context, pkgmetadata.ExternalIDs) (*pkgme
 }
 
 // A Series refresh lands its Plex id in externalIDs and its seasons' in
-// plexSeasons, both under the gateway's manager; a second refresh with
-// Plex failing releases neither (spec §4: a failed lookup keeps the ids
-// stored before).
+// plexSeasons, in the record the gateway answers and so under the
+// manager's catalog-metadata once incorporated (since 01a223a4, ADR-0019
+// A5.1); a second refresh with Plex failing releases neither (spec §4: a
+// failed lookup keeps the ids stored before): the gateway reads them off
+// the Series (knownExternalIDs, knownPlexSeasons) and re-declares them in
+// its record, which the manager's complete apply keeps.
 func TestHandlerLandsASeriesPlexIDsAndKeepsThemWhenPlexFails(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -97,6 +101,8 @@ func TestHandlerLandsASeriesPlexIDsAndKeepsThemWhenPlexFails(t *testing.T) {
 
 	fail := false
 	p := stubPlex{fail: &fail}
+	rh := newRecordHarness(t)
+	clock := newStepClock()
 	h := &metadata.Handler{
 		Client: c, Reader: c, Cache: noopCache{},
 		Registry: &pkgmetadata.Registry{
@@ -104,6 +110,8 @@ func TestHandlerLandsASeriesPlexIDsAndKeepsThemWhenPlexFails(t *testing.T) {
 			Resolvers: []pkgmetadata.IDResolver{p},
 			Plex:      []pkgmetadata.PlexProvider{p},
 		},
+		Records: rh.records,
+		Now:     clock.Now,
 	}
 	key := types.NamespacedName{Namespace: ns, Name: name}
 	want := []catalogv1alpha1.PlexSeasonRef{{Number: 0, ID: "5d9c09dd3c3f87001f36250e"}, {Number: 1, ID: "5d9c09dd3c3f87001f36250a"}}
@@ -111,13 +119,20 @@ func TestHandlerLandsASeriesPlexIDsAndKeepsThemWhenPlexFails(t *testing.T) {
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindSeries))
 	var got catalogv1alpha1.Series
 	require.NoError(t, c.Get(ctx, key, &got))
+	incorporate(t, ctx, c, &got, rh.answered(t, &got))
 	require.Equal(t, "5d9c086c46115600200aa2fe", got.Status.Metadata.ExternalIDs["plex"])
 	require.Equal(t, want, got.Status.Metadata.PlexSeasons)
 	requireManagerOwns(t, got.ManagedFields, k8s.ManagerCatalogMetadata, `"f:plexSeasons"`, `"f:plex"`)
 
 	fail = true
+	clock.Step()
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindSeries))
-	require.NoError(t, c.Get(ctx, key, &got))
+	rec := rh.answered(t, &got)
+	var md catalogv1alpha1.SeriesMetadata
+	require.NoError(t, json.Unmarshal(rec.Metadata, &md))
+	require.Equal(t, "5d9c086c46115600200aa2fe", md.ExternalIDs["plex"], "a failed lookup must not drop the plex id from the record")
+	require.Equal(t, want, md.PlexSeasons, "a failed lookup must not drop plexSeasons from the record")
+	incorporate(t, ctx, c, &got, rec)
 	require.Equal(t, "5d9c086c46115600200aa2fe", got.Status.Metadata.ExternalIDs["plex"], "a failed lookup must not release the plex id")
 	require.Equal(t, want, got.Status.Metadata.PlexSeasons, "a failed lookup must not release plexSeasons")
 	require.Equal(t, "Game of Thrones", got.Status.Metadata.Title)
