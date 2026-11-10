@@ -146,3 +146,55 @@ func TestAudiobookRejectsAnOversizedBody(t *testing.T) {
 	require.ErrorIs(t, err, metadata.ErrResponseTooLarge)
 	require.NotErrorIs(t, err, metadata.ErrDecode)
 }
+
+// The 2026-11-10 design's fields (§5.4): the genres of type "tag" are the
+// model's Tags and the rest its Genres, abridged reads formatType, the
+// adult flag and the rating reach the model as the gateway's builder reads
+// them, and an isbn that is no ISBN-13 is dropped rather than filed as one.
+func TestAudiobookMapsTagsAbridgedAdultAndValidatesTheISBN(t *testing.T) {
+	body, err := os.ReadFile("../../../../test/data/metadata/audnexus/book_B0036I54I6.json")
+	require.NoError(t, err)
+	// The recorded book, re-shaped field by field: an abridged, adult
+	// recording with a tag beside its genre and an Audible product code where
+	// the isbn belongs.
+	body = bytes.ReplaceAll(body, []byte(`"formatType": "unabridged"`), []byte(`"formatType": "abridged"`))
+	body = bytes.ReplaceAll(body, []byte(`"isAdult": false`), []byte(`"isAdult": true`))
+	body = bytes.ReplaceAll(body, []byte(`"isbn": "9780618968633"`), []byte(`"isbn": "0618968630"`))
+	body = bytes.ReplaceAll(body, []byte(`"genres": [{"asin": "18580606011", "name": "Fantasy", "type": "genre"}]`),
+		[]byte(`"genres": [{"asin": "18580606011", "name": "Fantasy", "type": "genre"}, {"asin": "18580628011", "name": "Epic", "type": "tag"}, {"asin": "1", "name": "", "type": "tag"}]`))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	c := audnexus.New(srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	a, err := c.Audiobook(context.Background(), "B0036I54I6", "us")
+
+	require.NoError(t, err)
+	require.True(t, a.Abridged)
+	require.Equal(t, "abridged", a.Format)
+	require.True(t, a.IsAdult)
+	require.Equal(t, []string{"Fantasy"}, a.Genres, "a tag is not a genre")
+	require.Equal(t, []string{"Epic"}, a.Tags, "an unnamed tag is dropped")
+	require.Equal(t, metadata.ExternalIDs{metadata.KeyASIN: "B0036I54I6"}, a.IDs, "a 10-digit isbn is no ISBN-13")
+	require.Equal(t, &metadata.Rating{Source: metadata.RatingSourceAudnexus, ValueCentis: 960, Kind: "user"}, a.Rating)
+}
+
+func TestAudiobookLeavesAnUnratedRecordingWithoutARating(t *testing.T) {
+	body, err := os.ReadFile("../../../../test/data/metadata/audnexus/book_B0036I54I6.json")
+	require.NoError(t, err)
+	body = bytes.ReplaceAll(body, []byte(`"rating": "4.8"`), []byte(`"rating": "0"`))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	c := audnexus.New(srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	a, err := c.Audiobook(context.Background(), "B0036I54I6", "us")
+
+	require.NoError(t, err)
+	require.Nil(t, a.Rating, `Audible's "0" is "not rated yet"`)
+	require.False(t, a.Abridged)
+	require.Empty(t, a.Tags)
+}

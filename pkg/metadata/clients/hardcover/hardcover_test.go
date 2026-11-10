@@ -29,6 +29,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/extid"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/hardcover"
@@ -245,4 +246,50 @@ func TestARejectedTokenIsErrAuth(t *testing.T) {
 func TestNewRequiresAToken(t *testing.T) {
 	_, err := hardcover.New(hardcover.Config{Token: "  "})
 	require.ErrorIs(t, err, hardcover.ErrNoToken)
+}
+
+// Hardcover is a RatingsProvider for a Book beside a BookProvider
+// (2026-11-10 design §5.4): a Book another provider answered (Open Library's
+// work) gets Hardcover's community rating through the gateway's
+// enrichRatings, by its Hardcover id or, failing that, its first edition's
+// ISBN-13, each one lean request.
+func TestRatingsAnswersABookByHardcoverIDOrISBN(t *testing.T) {
+	srv, calls := serve(t, map[string]string{
+		"BookRatingByID":   "book_rating_141397.json",
+		"BookRatingByISBN": "book_rating_by_isbn_9781416971702.json",
+	})
+	c := newClient(t, srv, "good")
+
+	require.Equal(t, []string{metadata.RatingSourceHardcover}, c.RatingSources(commonv1.MediaKindBook))
+	require.Nil(t, c.RatingSources(commonv1.MediaKindMovie), "Hardcover rates books alone")
+
+	byID, err := c.Ratings(context.Background(), commonv1.MediaKindBook, metadata.ExternalIDs{extid.KeyHardcover: "141397", metadata.KeyISBN13: "9781416971702"})
+	require.NoError(t, err)
+	require.Equal(t, metadata.Ratings{"hardcover": {Source: "hardcover", ValueCentis: 822, Votes: 63}}, byID, "4.111/5 is 8.22/10")
+	require.Equal(t, "BookRatingByID", (*calls)[0].op, "the Hardcover id is preferred over the ISBN")
+	require.Equal(t, float64(141397), (*calls)[0].vars["id"])
+
+	byISBN, err := c.Ratings(context.Background(), commonv1.MediaKindBook, metadata.ExternalIDs{metadata.KeyISBN13: "9781416971702", metadata.KeyOpenLibraryWork: "OL1W"})
+	require.NoError(t, err)
+	require.Equal(t, byID, byISBN)
+	require.Equal(t, "BookRatingByISBN", (*calls)[1].op)
+	require.Equal(t, "9781416971702", (*calls)[1].vars["isbn"])
+}
+
+func TestRatingsWithoutAUsableIDAsksNothing(t *testing.T) {
+	srv, calls := serve(t, map[string]string{"BookRatingByISBN": "book_rating_by_isbn_none.json"})
+	c := newClient(t, srv, "good")
+
+	got, err := c.Ratings(context.Background(), commonv1.MediaKindBook, metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL1W"})
+	require.NoError(t, err)
+	require.Empty(t, got)
+	require.Empty(t, *calls, "a Book Hardcover cannot find is no request and no failure")
+
+	got, err = c.Ratings(context.Background(), commonv1.MediaKindBook, metadata.ExternalIDs{metadata.KeyISBN13: "9780000000000"})
+	require.NoError(t, err)
+	require.Empty(t, got, "an ISBN no edition carries is nothing to report")
+	require.Len(t, *calls, 1)
+
+	_, err = c.Ratings(context.Background(), commonv1.MediaKindMovie, metadata.ExternalIDs{extid.KeyHardcover: "1"})
+	require.ErrorIs(t, err, metadata.ErrUnsupported)
 }

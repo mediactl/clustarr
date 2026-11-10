@@ -90,6 +90,18 @@ const (
 	RatingSourceMetacritic = "metacritic"
 	RatingSourceTrakt      = "trakt"
 	RatingSourceLetterboxd = "letterboxd"
+	// The non-video sources (2026-11-10 design D8, §4.1), each out of 10:
+	// MusicBrainz's community rating for an artist or release group (0-5,
+	// doubled), Audnexus's Audible rating (0-5, doubled), Hardcover's book
+	// rating (0-5, doubled), AniList's manga score (0-100, halved) and
+	// ComicVine's, which it publishes for nothing today. The musicbrainz
+	// client still keys its rating "mb"; the gateway reads that as
+	// RatingSourceMusicBrainz.
+	RatingSourceMusicBrainz = "musicbrainz"
+	RatingSourceAudnexus    = "audnexus"
+	RatingSourceHardcover   = "hardcover"
+	RatingSourceAniList     = "anilist"
+	RatingSourceComicVine   = "comicvine"
 )
 
 // AltTitle is a title an entity is also known by, optionally scoped to a
@@ -118,6 +130,10 @@ const (
 	PersonDirector PersonKind = "director"
 	PersonWriter   PersonKind = "writer"
 	PersonProducer PersonKind = "producer"
+	// PersonMember is a member of a group (Artist.Members): Job carries the
+	// instrument or role MusicBrainz's "member of band" relation names, Order
+	// the listing order (2026-11-10 design §5.4).
+	PersonMember PersonKind = "member"
 )
 
 // Person is a cast or crew credit.
@@ -430,6 +446,14 @@ type Artist struct {
 	// design §5.4). Empty when Overview is.
 	BiographySource string `json:"biographySource,omitempty"`
 
+	// Members are a group's members (MusicBrainz's "member of band"
+	// artist-rels), each PersonMember; Similar the artists MusicBrainz
+	// relates to this one. Both reach the Artist's extended document
+	// (pkg/metadata/extended.FromArtist) and no CRD; a provider that
+	// carries neither leaves them empty (2026-11-10 design §5.4).
+	Members []Person     `json:"members,omitempty"`
+	Similar []SimilarRef `json:"similar,omitempty"`
+
 	Provenance []Provenance `json:"provenance,omitempty"`
 }
 
@@ -604,6 +628,9 @@ type Audiobook struct {
 
 	Language string `json:"language,omitempty"`
 	Format   string `json:"format,omitempty"`
+	// Abridged is true for an abridged recording (Audnexus's formatType
+	// "abridged"; 2026-11-10 design §4.6).
+	Abridged bool `json:"abridged,omitempty"`
 
 	Genres []string `json:"genres,omitempty"`
 	Tags   []string `json:"tags,omitempty"`

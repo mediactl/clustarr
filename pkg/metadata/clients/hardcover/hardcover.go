@@ -53,6 +53,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/extid"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/httpjson"
@@ -398,18 +399,104 @@ func mapBook(raw *rawBook) *metadata.Book {
 		}
 		b.Series = append(b.Series, link)
 	}
-	if raw.Rating != nil && raw.RatingsCount > 0 {
-		b.Ratings = metadata.Ratings{"hardcover": {
-			Source: "hardcover",
-			// Hardcover rates 0-5; metadata.Rating is /10 in hundredths.
-			ValueCentis: int32(math.Round(*raw.Rating * 200)),
-			Votes:       raw.RatingsCount,
-		}}
-	}
+	b.Ratings = bookRatings(raw.Rating, raw.RatingsCount)
 	for i := range raw.Editions {
 		b.Editions = append(b.Editions, mapEdition(&raw.Editions[i]))
 	}
 	return b
+}
+
+// bookRatings is a book's community rating as metadata.Ratings, or nil
+// when nobody has rated it: Hardcover rates 0-5, metadata.Rating is /10 in
+// hundredths.
+func bookRatings(rating *float64, count int32) metadata.Ratings {
+	if rating == nil || count <= 0 || *rating <= 0 || *rating > 5 {
+		return nil
+	}
+	return metadata.Ratings{metadata.RatingSourceHardcover: {
+		Source:      metadata.RatingSourceHardcover,
+		ValueCentis: int32(math.Round(*rating * 200)),
+		Votes:       count,
+	}}
+}
+
+// The rating alone, for a Book another provider answered (RatingsProvider
+// below): a lean query, so a Book refresh costs Hardcover one small request
+// rather than the work with its fifty editions.
+var (
+	bookRatingByIDQuery   = `query BookRatingByID($id: Int!) { books_by_pk(id: $id) { id rating ratings_count } }`
+	bookRatingByISBNQuery = `query BookRatingByISBN($isbn: String!) { editions(where: {isbn_13: {_eq: $isbn}}, limit: 1) { book { id rating ratings_count } } }`
+)
+
+type rawBookRating struct {
+	ID           int64    `json:"id"`
+	Rating       *float64 `json:"rating"`
+	RatingsCount int32    `json:"ratings_count"`
+}
+
+// RatingSources declares Hardcover's one rating, for a Book (2026-11-10
+// design §5.4: "Hardcover's rating as ratings"). A Book CR is keyed by an
+// Open Library work, which Hardcover cannot look up, so the Book's own
+// fetch never reaches this client; the gateway's enrichRatings asks it
+// afterwards, as mdblist is asked for a movie's.
+func (c *Client) RatingSources(kind commonv1.MediaKind) []string {
+	if kind == commonv1.MediaKindBook {
+		return []string{metadata.RatingSourceHardcover}
+	}
+	return nil
+}
+
+// Ratings answers a Book's Hardcover rating by ids[extid.KeyHardcover], else
+// by ids[metadata.KeyISBN13] through the edition that carries it (the
+// gateway adds the work's first edition's ISBN for this). A Book carrying
+// neither is answered empty without a request: nothing to ask is not a
+// failure, and a failure is logged by the gateway on every refresh. Any
+// other kind is ErrUnsupported.
+func (c *Client) Ratings(ctx context.Context, kind commonv1.MediaKind, ids metadata.ExternalIDs) (metadata.Ratings, error) {
+	ctx, span := tracing.Start(ctx, "metadata.hardcover.Ratings")
+	defer span.End()
+
+	if kind != commonv1.MediaKindBook {
+		err := fmt.Errorf("hardcover: no ratings for kind %q: %w", kind, metadata.ErrUnsupported)
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	var raw *rawBookRating
+	switch {
+	case ids[extid.KeyHardcover] != "":
+		id, err := parseID(ids[extid.KeyHardcover])
+		if err != nil {
+			tracing.RecordError(span, err)
+			return nil, err
+		}
+		var out struct {
+			Book *rawBookRating `json:"books_by_pk"`
+		}
+		if err := c.query(ctx, bookRatingByIDQuery, map[string]any{"id": id}, &out); err != nil {
+			tracing.RecordError(span, err)
+			return nil, err
+		}
+		raw = out.Book
+	case ids[metadata.KeyISBN13] != "":
+		var out struct {
+			Editions []struct {
+				Book *rawBookRating `json:"book"`
+			} `json:"editions"`
+		}
+		if err := c.query(ctx, bookRatingByISBNQuery, map[string]any{"isbn": ids[metadata.KeyISBN13]}, &out); err != nil {
+			tracing.RecordError(span, err)
+			return nil, err
+		}
+		if len(out.Editions) > 0 {
+			raw = out.Editions[0].Book
+		}
+	default:
+		return metadata.Ratings{}, nil
+	}
+	if raw == nil {
+		return metadata.Ratings{}, nil
+	}
+	return bookRatings(raw.Rating, raw.RatingsCount), nil
 }
 
 func mapEdition(raw *rawEdition) metadata.Edition {
@@ -660,4 +747,7 @@ func parseDate(s string) *time.Time {
 	return &t
 }
 
-var _ metadata.BookProvider = (*Client)(nil)
+var (
+	_ metadata.BookProvider    = (*Client)(nil)
+	_ metadata.RatingsProvider = (*Client)(nil)
+)

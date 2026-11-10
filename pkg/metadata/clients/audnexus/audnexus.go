@@ -27,6 +27,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -164,10 +165,18 @@ func (c *Client) Chapters(ctx context.Context, asin string, region string) ([]me
 var _ metadata.AudiobookProvider = (*Client)(nil)
 
 // mapAudiobook converts a raw Audnexus response into the normalized model.
+//
+// The 2026-11-10 design's fields (§5.4): the isbn is kept only when it is a
+// valid ISBN-13 (Audnexus copies Audible's, which is sometimes a 10-digit
+// one or a product code), the genres of type "tag" are Tags and the rest
+// Genres (docs/research/metadata.md §2.6: genres[{name, type: genre|tag}]),
+// Abridged reads formatType, and the rating, adult flag and tags all reach
+// the model for the gateway's builder.
 func mapAudiobook(raw *audiobookResponse, region string) *metadata.Audiobook {
 	ids := metadata.ExternalIDs{metadata.KeyASIN: raw.ASIN}
-	if raw.ISBN != "" {
-		ids[metadata.KeyISBN13] = raw.ISBN
+	if isbn := strings.ReplaceAll(strings.TrimSpace(raw.ISBN), "-", ""); isbn != "" &&
+		metadata.Validate(metadata.ExternalIDs{metadata.KeyISBN13: isbn}) == nil {
+		ids[metadata.KeyISBN13] = isbn
 	}
 
 	authors := make([]metadata.NamedRef, 0, len(raw.Authors))
@@ -179,7 +188,15 @@ func mapAudiobook(raw *audiobookResponse, region string) *metadata.Audiobook {
 		narrators = append(narrators, n.Name)
 	}
 	genres := make([]string, 0, len(raw.Genres))
+	var tags []string
 	for _, g := range raw.Genres {
+		if g.Name == "" {
+			continue
+		}
+		if strings.EqualFold(g.Type, "tag") {
+			tags = append(tags, g.Name)
+			continue
+		}
 		genres = append(genres, g.Name)
 	}
 
@@ -204,7 +221,9 @@ func mapAudiobook(raw *audiobookResponse, region string) *metadata.Audiobook {
 		Description: raw.Description,
 		Language:    raw.Language,
 		Format:      raw.FormatType,
+		Abridged:    strings.EqualFold(strings.TrimSpace(raw.FormatType), "abridged"),
 		Genres:      genres,
+		Tags:        tags,
 		Series:      series,
 		IsAdult:     raw.IsAdult,
 	}
@@ -217,10 +236,12 @@ func mapAudiobook(raw *audiobookResponse, region string) *metadata.Audiobook {
 	// Audnexus returns its rating as a decimal string on a 0-5 scale, the
 	// same convention as MusicBrainz; the parse happens once, here, and
 	// nothing downstream ever sees a float64 (Rating.ValueCentis is int32,
-	// per CLAUDE.md's no-float rule for anything telemetry-shaped).
-	if v, err := strconv.ParseFloat(raw.Rating, 64); err == nil {
+	// per CLAUDE.md's no-float rule for anything telemetry-shaped). A
+	// rating of 0 is "not rated yet", which Audible reports for a new
+	// release, and is no rating.
+	if v, err := strconv.ParseFloat(strings.TrimSpace(raw.Rating), 64); err == nil && v > 0 && v <= 5 {
 		a.Rating = &metadata.Rating{
-			Source:      "audnexus",
+			Source:      metadata.RatingSourceAudnexus,
 			ValueCentis: int32(math.Round(v * 2 * 100)),
 			Kind:        "user",
 		}

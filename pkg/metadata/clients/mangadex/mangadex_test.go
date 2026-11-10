@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -169,4 +170,29 @@ func TestResolveReturnsTheLinksCrosswalk(t *testing.T) {
 func TestPing(t *testing.T) {
 	srv, _ := serve(t, map[string]string{"/manga": "search_berserk.json"})
 	require.NoError(t, newClient(srv).Ping(context.Background()))
+}
+
+// MangaDex localizes titles, descriptions and tag names, and the client
+// prefers the configured language (MetadataProvider.spec.language; 2026-11-10
+// design §5.4): Berserk's description is recorded in English and Japanese,
+// its title in romanized Japanese alone, its tags in English alone.
+func TestVolumeHonoursTheConfiguredLanguage(t *testing.T) {
+	srv, _ := serve(t, map[string]string{"/manga/" + berserk: "manga_" + berserk + ".json"})
+
+	ja := mangadex.New(mangadex.Config{HTTPClient: srv.Client(), BaseURL: srv.URL, Language: "JA"})
+	v, err := ja.Volume(context.Background(), metadata.ExternalIDs{extid.KeyMangaDex: berserk})
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(v.Description, "巨大な剣を背負い"), "the Japanese description, case-insensitively: %q", v.Description)
+	require.Equal(t, "Berserk", v.Title, "no Japanese title; the romanized one stands")
+	require.Equal(t, []string{"Action", "Psychological"}, v.Genres, "tags are named in English alone, so English it is")
+
+	pt := mangadex.New(mangadex.Config{HTTPClient: srv.Client(), BaseURL: srv.URL, Language: "pt-br"})
+	v, err = pt.Volume(context.Background(), metadata.ExternalIDs{extid.KeyMangaDex: berserk})
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(v.Description, "Guts, known as the Black Swordsman"), "a language the manga has no text in falls back to English: %q", v.Description)
+
+	none := newClient(srv)
+	v, err = none.Volume(context.Background(), metadata.ExternalIDs{extid.KeyMangaDex: berserk})
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(v.Description, "Guts, known as the Black Swordsman"), "no language is English, as before")
 }

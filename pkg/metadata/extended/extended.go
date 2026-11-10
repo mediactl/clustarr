@@ -22,6 +22,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // so a cast list per Episode would grow every cache; the document lives in
 // the clustarr-metadata-extended KV bucket instead. The metadata gateway is
 // its only writer; the ui reads it.
+//
+// Since the 2026-11-10 design (§5.4) an Artist and an Audiobook have a
+// document too, in the same shape, so the Plex roots map them as they map
+// a movie's: an artist's members and similar artists (FromArtist), an
+// audiobook's narrators as its Role list and its authors as its Writer list
+// (FromAudiobook).
 package extended
 
 import (
@@ -54,12 +60,14 @@ type Person struct {
 	Photo     string `json:"photo,omitempty"`
 }
 
-// Similar is a title the provider recommends alongside the item.
+// Similar is a title the provider recommends alongside the item: a movie
+// or series by its TMDB or TVDB id, an artist by its MusicBrainz id.
 type Similar struct {
-	Title  string `json:"title"`
-	Year   int32  `json:"year,omitempty"`
-	TmdbID int64  `json:"tmdbID,omitempty"`
-	TvdbID int64  `json:"tvdbID,omitempty"`
+	Title      string `json:"title"`
+	Year       int32  `json:"year,omitempty"`
+	TmdbID     int64  `json:"tmdbID,omitempty"`
+	TvdbID     int64  `json:"tvdbID,omitempty"`
+	MBArtistID string `json:"mbArtistID,omitempty"`
 }
 
 // Doc is one item's document.
@@ -145,14 +153,67 @@ func FromPeople(people []metadata.Person, similar []metadata.SimilarRef) Doc {
 		}
 		d.Role = append(d.Role, convert(p))
 	}
+	d.Similar = fromSimilar(similar)
+	return d
+}
+
+// fromSimilar files the similar titles, each by every id it carries, at
+// the cap.
+func fromSimilar(similar []metadata.SimilarRef) []Similar {
+	var out []Similar
 	for _, s := range similar {
-		if len(d.Similar) >= MaxSimilar {
+		if len(out) >= MaxSimilar {
 			break
 		}
-		ref := Similar{Title: s.Title, Year: s.Year}
+		ref := Similar{Title: s.Title, Year: s.Year, MBArtistID: s.IDs[metadata.KeyMBArtist]}
 		ref.TmdbID, _ = strconv.ParseInt(s.IDs[metadata.KeyTMDB], 10, 64)
 		ref.TvdbID, _ = strconv.ParseInt(s.IDs[metadata.KeyTVDB], 10, 64)
-		d.Similar = append(d.Similar, ref)
+		out = append(out, ref)
+	}
+	return out
+}
+
+// FromArtist is an artist's document (2026-11-10 design §5.4): its members
+// under Role, in the provider's order, each one's instrument or role as
+// its Job and Character (the Plex roots read a Role's Character, as they
+// read a crew credit's Job), and the artists related to it under Similar,
+// by MusicBrainz id. A provider that carries neither gives an empty
+// document, which still replaces an earlier refresh's.
+func FromArtist(a *metadata.Artist) Doc {
+	var d Doc
+	if a == nil {
+		return d
+	}
+	for _, m := range a.Members {
+		if m.Name == "" || (m.Kind != "" && m.Kind != metadata.PersonMember) || len(d.Role) >= MaxRole {
+			continue
+		}
+		d.Role = append(d.Role, Person{Name: m.Name, Character: m.Job, Job: m.Job, Order: m.Order, Photo: m.ImageURL})
+	}
+	d.Similar = fromSimilar(a.Similar)
+	return d
+}
+
+// FromAudiobook is an audiobook's document (2026-11-10 design §5.4): the
+// narrators under Role, each with "Narrator" as the role Plex shows, and
+// the authors under Writer with "Author" as their Job, both in the
+// recording's own order. Audnexus names them without photos.
+func FromAudiobook(a *metadata.Audiobook) Doc {
+	var d Doc
+	if a == nil {
+		return d
+	}
+	for i, n := range a.Narrators {
+		if n == "" || len(d.Role) >= MaxRole {
+			continue
+		}
+		d.Role = append(d.Role, Person{Name: n, Character: "Narrator", Job: "Narrator", Order: int32(i)})
+	}
+	for i, au := range a.Authors {
+		if au.Name == "" || len(d.Writer) >= MaxCrew {
+			continue
+		}
+		d.Writer = append(d.Writer, Person{Name: au.Name, Job: "Author", Order: int32(i)})
 	}
 	return d
 }

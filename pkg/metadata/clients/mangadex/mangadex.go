@@ -94,6 +94,12 @@ type Config struct {
 	CoverBaseURL string
 	Limiter      *rate.Limiter
 	UserAgent    string
+	// Language is the BCP-47 tag titles, descriptions and tag names are
+	// preferred in (MetadataProvider.spec.language; 2026-11-10 design §5.4):
+	// MangaDex localizes every one of them, and until then "en" was
+	// hard-coded. English, then the romanized Japanese MangaDex files most
+	// titles under, then the first language in key order follow it.
+	Language string
 }
 
 // Client is a metadata.ComicProvider and metadata.IDResolver backed by
@@ -102,6 +108,7 @@ type Client struct {
 	h         *httpjson.Client
 	baseURL   string
 	coverBase string
+	lang      string
 }
 
 // New builds a Client.
@@ -118,6 +125,7 @@ func New(cfg Config) *Client {
 		h:         &httpjson.Client{Provider: "mangadex", HTTP: cfg.HTTPClient, Limiter: cfg.Limiter, UserAgent: cfg.UserAgent},
 		baseURL:   base,
 		coverBase: cover,
+		lang:      strings.ToLower(strings.TrimSpace(cfg.Language)),
 	}
 }
 
@@ -183,7 +191,7 @@ func (c *Client) SearchVolumes(ctx context.Context, q string) ([]metadata.Search
 	hits := make([]metadata.SearchHit, 0, len(out.Data))
 	for i := range out.Data {
 		m := &out.Data[i]
-		hit := metadata.SearchHit{IDs: c.ids(m), Title: preferredTitle(m.Attributes.Title), Poster: c.coverURL(m)}
+		hit := metadata.SearchHit{IDs: c.ids(m), Title: preferredTitle(m.Attributes.Title, c.lang), Poster: c.coverURL(m)}
 		if m.Attributes.Year != nil {
 			hit.Year = *m.Attributes.Year
 		}
@@ -207,8 +215,8 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	v := &metadata.ComicVolume{
 		IDs:              c.ids(m),
 		Kind:             "manga",
-		Title:            preferredTitle(a.Title),
-		Description:      a.Description["en"],
+		Title:            preferredTitle(a.Title, c.lang),
+		Description:      localizedText(a.Description, c.lang),
 		StartYear:        a.Year,
 		Status:           a.Status,
 		AgeRating:        a.ContentRating,
@@ -228,7 +236,7 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 		}
 	}
 	for _, t := range a.Tags {
-		name := t.Attributes.Name["en"]
+		name := localizedText(t.Attributes.Name, c.lang)
 		if name == "" {
 			continue
 		}
@@ -403,11 +411,28 @@ func (c *Client) coverURL(m *manga) string {
 	return ""
 }
 
-// preferredTitle picks a manga's display title: English, else the
-// romanized Japanese MangaDex usually files a title under, else the first
-// language in key order -- map order is random, and a title must not be.
-func preferredTitle(t localized) string {
-	for _, lang := range []string{"en", "ja-ro"} {
+// preferredTitle picks a manga's display title: the configured language,
+// else English, else the romanized Japanese MangaDex usually files a title
+// under, else the first language in key order -- map order is random, and
+// a title must not be.
+func preferredTitle(t localized, lang string) string {
+	return pick(t, lang, "en", "ja-ro")
+}
+
+// localizedText picks a description's or a tag's text: the configured
+// language, else English, else the first language in key order.
+func localizedText(t localized, lang string) string {
+	return pick(t, lang, "en")
+}
+
+// pick is the first non-empty value of t under langs in order (an empty
+// lang is skipped; MangaDex keys its locales in lower case, "pt-br" and
+// "zh-hk" included), else under the first key in sorted order.
+func pick(t localized, langs ...string) string {
+	for _, lang := range langs {
+		if lang == "" {
+			continue
+		}
 		if v := t[lang]; v != "" {
 			return v
 		}
