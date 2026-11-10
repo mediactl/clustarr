@@ -475,5 +475,6 @@ func TestAlbumInteractiveSearchOpensLidarrsColumnsThroughTheSharedPanel(t *testi
 
 	rec = postForm(t, srv, "/library/default/album/nope/search/interactive", url.Values{}, true)
 	require.Equal(t, http.StatusNotFound, rec.Code)
-
+	require.NoError(t, c.List(t.Context(), &list, client.InNamespace("default")))
+	require.Len(t, list.Items, 4, "only the form post's Search; none for an unknown album")
 }

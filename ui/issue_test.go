@@ -265,5 +265,4 @@ func TestIssueInteractiveSearchOpensTheModalInComicColumns(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	require.NoError(t, c.List(t.Context(), &list, client.InNamespace("default")))
 	require.Len(t, list.Items, 2, "the fixture's and the interactive search's; none for an unknown issue")
-
 }
