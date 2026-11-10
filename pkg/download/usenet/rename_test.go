@@ -194,6 +194,8 @@ func TestSniffExtensionKnowsTheContainersThatMatter(t *testing.T) {
 	require.True(t, hasUsableExtension("movie.mkv"))
 	require.True(t, hasUsableExtension("set.vol000+01.par2"))
 	require.True(t, hasUsableExtension("release.r03"))
+	require.True(t, hasUsableExtension("war-and-peace.fb2"), "fsops' book extensions")
+	require.True(t, hasUsableExtension("taocp.DJVU"))
 	require.False(t, hasUsableExtension("z75QORTuwk9NHlDJbb53izyP7TQqFzG4"))
 	require.False(t, hasUsableExtension("weird.bin"))
 }

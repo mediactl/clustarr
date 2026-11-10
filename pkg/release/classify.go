@@ -47,13 +47,15 @@ var comicExtOrMangaTokenRegex = mustCompile(`\.(?:cbz|cbr)$|\bv\d{1,4}c\d{1,4}\b
 var audiobookMarkerRegex = mustCompile(
 	`\[ASIN\s[A-Z0-9]{10}\]|\(Unabridged\)|`+
 		`\{(?!\s*(?:tmdb|imdb|tvdb|tvmaze|anidb|anilist|mal|edition)(?:id)?\s*[-=])`+
-		`(?!\s*(?:flac|alac|ape|wavpack|wav|mp3|aac|m4a|m4b|ogg|opus|wma|epub|mobi|azw3?|pdf|cbz|cbr|web|cd|vinyl)\s*\})`+
+		`(?!\s*(?:flac|alac|ape|wavpack|wav|mp3|aac|m4a|m4b|ogg|opus|wma|epub|mobi|azw3?|fb2|djvu|pdf|cbz|cbr|web|cd|vinyl)\s*\})`+
 		`[^{}\d]+\}`,
 	regexp2.IgnoreCase,
 )
 
-// ebookFormatBracketRegex catches a bracketed ebook format token.
-var ebookFormatBracketRegex = mustCompile(`\[(?:EPUB|MOBI|AZW3|PDF)\]`, regexp2.IgnoreCase)
+// ebookFormatBracketRegex catches a bracketed ebook format token: the
+// formats fsops classifies as books (FB2 and DJVU, Calibre's, since
+// 2026-11-10).
+var ebookFormatBracketRegex = mustCompile(`\[(?:EPUB|MOBI|AZW3|FB2|DJVU|PDF)\]`, regexp2.IgnoreCase)
 
 // musicFormatBracketRegex catches a bracketed music codec token, with an
 // optional trailing bitrate.

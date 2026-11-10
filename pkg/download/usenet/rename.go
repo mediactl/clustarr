@@ -364,14 +364,16 @@ func sniffExtension(path string) string {
 }
 
 // knownExtensions are the extensions a file may carry and be left alone by
-// the magic step: what the importer, the unpacker and the cleanup know.
+// the magic step: what the importer (pkg/fsops' media extensions, Calibre's
+// .fb2 and .djvu among the books since 2026-11-10), the unpacker and the
+// cleanup know.
 var knownExtensions = map[string]bool{
 	".mkv": true, ".mp4": true, ".m4v": true, ".avi": true, ".mov": true, ".wmv": true, ".flv": true,
 	".webm": true, ".ts": true, ".m2ts": true, ".mpg": true, ".mpeg": true, ".iso": true, ".img": true,
 	".srt": true, ".sub": true, ".idx": true, ".ass": true, ".ssa": true, ".vtt": true,
 	".nfo": true, ".sfv": true, ".txt": true, ".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
 	".mp3": true, ".flac": true, ".m4a": true, ".m4b": true, ".ogg": true, ".wav": true, ".aac": true,
-	".epub": true, ".pdf": true, ".mobi": true, ".azw3": true, ".cbz": true, ".cbr": true,
+	".epub": true, ".pdf": true, ".mobi": true, ".azw3": true, ".fb2": true, ".djvu": true, ".cbz": true, ".cbr": true,
 	".rar": true, ".zip": true, ".7z": true, ".par2": true,
 }
 

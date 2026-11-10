@@ -46,7 +46,12 @@ func TestPartOfReadsThePartAndTheNameWithoutIt(t *testing.T) {
 		"The.Apartment.1960.1080p.BluRay": {},
 		"Partisan.2015.1080p":             {},
 		"Dune.Part.Two.2024.1080p.WEB-DL": {},
-		"Movie.Part10.2001":               {},
+		"Movie.Part10.2001":               {"Movie.2001", 10},
+		"Guards.Guards.Part.12.mp3":       {"Guards.Guards.mp3", 12},
+		"Long Audiobook Pt 42":            {"Long Audiobook", 42},
+		"Reader - Disc 09":                {"Reader -", 9},
+		"Movie.Part100.2001":              {},
+		"Movie.Part00.2001":               {},
 	} {
 		base, part, ok := release.PartOf(name)
 		if want.part == 0 {

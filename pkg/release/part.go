@@ -22,9 +22,12 @@ import (
 )
 
 // partRE is a part token -- Part1, Part.2, Part 3, Pt4, CD1, Disc 2,
-// Disk.1, Part02 -- a whole token numbered 1 to 9: its leading separator,
-// its number and its trailing separator.
-var partRE = regexp.MustCompile(`(?i)(^|[ ._\-\[(])(?:part|pt|cd|disc|disk)[ ._\-]?0?([1-9])($|[ ._\-\])])`)
+// Disk.1, Part02, Part 12 -- a whole token numbered 1 to 99 (a long
+// audiobook's "Part 10".."Part 99" since 2026-11-10, design D11: a numbered
+// part orders ahead of an unnumbered one, and a two-digit part had read as
+// none and fallen to path order; three digits are no part): its leading
+// separator, its number and its trailing separator.
+var partRE = regexp.MustCompile(`(?i)(^|[ ._\-\[(])(?:part|pt|cd|disc|disk)[ ._\-]?0?([1-9][0-9]?)($|[ ._\-\])])`)
 
 // PartOf reads the last part token of name, a release title or a file's
 // base name: the part's number, and name without the token (one separator

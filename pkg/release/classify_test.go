@@ -38,6 +38,8 @@ func TestClassifyKind(t *testing.T) {
 		{"anime bracket", "[SubsPlease] Frieren - 28 (1080p) [F02B9CDC].mkv", commonv1.MediaKindEpisode},
 		{"music", "Pink Floyd - The Dark Side of the Moon (1973) [FLAC]", commonv1.MediaKindAlbum},
 		{"ebook", "Andy Weir - Project Hail Mary (2021) [EPUB]", commonv1.MediaKindBook},
+		{"ebook fb2", "Leo Tolstoy - War and Peace (1869) [FB2]", commonv1.MediaKindBook},
+		{"ebook djvu", "Donald Knuth - The Art of Computer Programming (1968) [djvu]", commonv1.MediaKindBook},
 		{"audiobook", "Andy Weir - Project Hail Mary (Unabridged) [M4B 64kbps]", commonv1.MediaKindAudiobook},
 		{"comic", "Saga 001 (2012) (Digital) (Zone-Empire).cbz", commonv1.MediaKindComic},
 		{"audiobook narrator brace", "Project Hail Mary - Andy Weir {Ray Porter} [ASIN B08G9PRS1K] [M4B]", commonv1.MediaKindAudiobook},
@@ -49,6 +51,7 @@ func TestClassifyKind(t *testing.T) {
 		{"unstripped id brace on an episode", "Some Show S01E01 {tvdbid-121361}", commonv1.MediaKindEpisode},
 		{"unknown id key brace", "Some Show S01E01 {tvmaze-12345}", commonv1.MediaKindEpisode},
 		{"braced format token is not a narrator", "The Rolling Stones - The Very Best Of (1995) {FLAC}", commonv1.MediaKindMovie},
+		{"braced djvu token is not a narrator", "Donald Knuth - The Art of Computer Programming (1968) {DJVU}", commonv1.MediaKindMovie},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
