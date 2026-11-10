@@ -99,3 +99,15 @@ func TestPageCountRefusesOtherFiles(t *testing.T) {
 	_, err = PageCount(filepath.Join(t.TempDir(), "missing.cbz"))
 	assert.Error(t, err)
 }
+
+// The committed fixtures (2026-11-10 design D9, W3.1 step 2): a CBZ of two
+// PNG pages beside its ComicInfo.xml, and a two-page PDF.
+func TestPageCountOfACBZ(t *testing.T) {
+	n, err := PageCount("../../test/data/mediainfo/comic_two_pages.cbz")
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, n, "two images; ComicInfo.xml is no page")
+
+	n, err = PageCount("../../test/data/mediainfo/book_two_pages.pdf")
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, n, "two page objects; the page tree node is no page")
+}

@@ -24,8 +24,16 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
-// MaxTagValue bounds every MediaTags string (the CRD's MaxLength=256).
-const MaxTagValue = 256
+// MaxTagValue bounds a MediaTags title, artist, album artist and album
+// (the CRD's MaxLength=256); MaxShortTagValue its date and MusicBrainz ids
+// (MaxLength=64: a date is at most "YYYY-MM-DD", an MBID 36 characters).
+// The apiserver refuses a status apply carrying a longer value WHOLE, so a
+// file with one garbage tag would never be probed at all; formatTags cuts
+// each on a rune boundary instead.
+const (
+	MaxTagValue      = 256
+	MaxShortTagValue = 64
+)
 
 // formatTags maps the container's format tags into commonv1.MediaTags
 // (2026-11-10 design D9): what names a track and attributes it to its
@@ -39,26 +47,28 @@ func formatTags(raw *Raw) *commonv1.MediaTags {
 	if raw == nil || raw.Format == nil || len(raw.Format.TagList) == 0 {
 		return nil
 	}
-	first := func(keys ...string) string {
+	firstN := func(n int, keys ...string) string {
 		for _, k := range keys {
 			if v := strings.TrimSpace(FormatTag(raw, k)); v != "" {
-				return clipRunes(v, MaxTagValue)
+				return clipRunes(v, n)
 			}
 		}
 		return ""
 	}
+	first := func(keys ...string) string { return firstN(MaxTagValue, keys...) }
+	short := func(keys ...string) string { return firstN(MaxShortTagValue, keys...) }
 	t := &commonv1.MediaTags{
 		Title:       first("title", "TITLE"),
 		Artist:      first("artist", "ARTIST"),
 		AlbumArtist: first("album_artist", "albumartist", "ALBUMARTIST", "album artist"),
 		Album:       first("album", "ALBUM"),
-		Date:        first("date", "DATE", "year", "YEAR", "TDRC", "originaldate", "ORIGINALDATE"),
+		Date:        short("date", "DATE", "year", "YEAR", "TDRC", "originaldate", "ORIGINALDATE"),
 		// Picard's ids: Vorbis/Matroska keys, FFmpeg's ID3 mapping of the
 		// TXXX frames, and the iTunes freeform names.
-		MusicBrainzRecordingID:    first("MUSICBRAINZ_TRACKID", "MusicBrainz Track Id", "musicbrainz_trackid", "MUSICBRAINZ_RECORDINGID"),
-		MusicBrainzReleaseID:      first("MUSICBRAINZ_ALBUMID", "MusicBrainz Album Id", "musicbrainz_albumid"),
-		MusicBrainzReleaseGroupID: first("MUSICBRAINZ_RELEASEGROUPID", "MusicBrainz Release Group Id", "musicbrainz_releasegroupid"),
-		MusicBrainzArtistID:       first("MUSICBRAINZ_ARTISTID", "MusicBrainz Artist Id", "musicbrainz_artistid"),
+		MusicBrainzRecordingID:    short("MUSICBRAINZ_TRACKID", "MusicBrainz Track Id", "musicbrainz_trackid", "MUSICBRAINZ_RECORDINGID"),
+		MusicBrainzReleaseID:      short("MUSICBRAINZ_ALBUMID", "MusicBrainz Album Id", "musicbrainz_albumid"),
+		MusicBrainzReleaseGroupID: short("MUSICBRAINZ_RELEASEGROUPID", "MusicBrainz Release Group Id", "musicbrainz_releasegroupid"),
+		MusicBrainzArtistID:       short("MUSICBRAINZ_ARTISTID", "MusicBrainz Artist Id", "musicbrainz_artistid"),
 	}
 	t.TrackNumber, t.TrackTotal = numberOf(first("track", "TRACKNUMBER", "tracknumber"))
 	if t.TrackTotal == 0 {

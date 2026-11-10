@@ -79,6 +79,19 @@ func TestTagsAreBoundedAndAbsentWhenEmpty(t *testing.T) {
 	mi := toMediaInfo(raw)
 	require.NotNil(t, mi.Tags)
 	assert.Len(t, []rune(mi.Tags.Title), MaxTagValue)
+	// A date and a MusicBrainz id are MaxLength=64 on the CRD: a garbage
+	// DATE of 100 characters must not refuse the whole status apply.
+	garbage := &Raw{Format: &ffprobe.Format{Filename: "01.flac", TagList: ffprobe.Tags{
+		"DATE": strings.Repeat("2", 100), "MUSICBRAINZ_TRACKID": long, "MUSICBRAINZ_ALBUMID": long,
+		"MUSICBRAINZ_RELEASEGROUPID": long, "MUSICBRAINZ_ARTISTID": long,
+	}}}
+	tags := toMediaInfo(garbage).Tags
+	require.NotNil(t, tags)
+	assert.Len(t, tags.Date, MaxShortTagValue)
+	assert.Len(t, tags.MusicBrainzRecordingID, MaxShortTagValue)
+	assert.Len(t, tags.MusicBrainzReleaseID, MaxShortTagValue)
+	assert.Len(t, tags.MusicBrainzReleaseGroupID, MaxShortTagValue)
+	assert.Len(t, tags.MusicBrainzArtistID, MaxShortTagValue)
 	assert.Nil(t, toMediaInfo(&Raw{Format: &ffprobe.Format{Filename: "movie.mkv", TagList: ffprobe.Tags{"ENCODER": "libebml"}}}).Tags)
 	assert.Nil(t, toMediaInfo(&Raw{Format: &ffprobe.Format{Filename: "movie.mkv"}}).Tags)
 }
