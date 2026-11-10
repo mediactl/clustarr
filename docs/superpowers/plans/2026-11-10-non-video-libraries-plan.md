@@ -797,7 +797,13 @@ with an exclusion returns; app/import/worker/fileimport/nonvideo.go's
 artist, author, audiobook and comic folder fallbacks re-implement the
 folder rule (join through catalogctx instead); ExternalIDs.MangaDex for a
 comic's exclusion; the four metadata failure-path tests still build no
-Records writer; pkg/decision's log lines under ctxBackground.
+Records writer; pkg/decision's log lines under ctxBackground. **Live on talos as
+Helm rev 249 since 2026-11-10 23:15Z** (images sha-f1e2c57, chart 0.6.12
+kept, cluster-bootstrap 6d3c66b; an image-only roll, no CRD change): every
+pod Ready at 0 restarts, FolderUnrenderable 0 events and 0 log lines, no
+item of any kind Ready=False; 9 Series (0 Movies) whose titles carry a
+'?' or '"' took the sanitized status.path, every one fileless, so
+nothing on disk moved.
 
 ## Order and gates
 

@@ -991,7 +991,10 @@ envtests over a records harness (738def0b), the search controller's two
 import's own non-video folder fallbacks re-implementing the folder rule
 (fileimport/nonvideo.go); the movie controller's two MetadataTask
 assertions (red since the ledger); `catalog.ImageSets.v1`'s wire name
-(owner). **Browser check done (2026-11-10, the
+(owner). Live on talos as Helm rev 249 since 2026-11-10 23:15Z (images
+sha-f1e2c57 over the rev 248 chart, no CRD change): FolderUnrenderable
+fired for no item, and the nine Series whose titles carry a `?` or `"` took
+the sanitized `status.path` with no file to move. **Browser check done (2026-11-10, the
 controlling session, headless Chrome against bin/ui at 819dc23f over an
 envtest apiserver filled by `ui/preview_harness_test.go`, with talos's NATS
 port-forwarded):** the artist, comic, issue, audiobook, author, book and
