@@ -22,6 +22,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -71,6 +72,24 @@ func PackFirst(s catalogv1alpha1.SeasonStatus) bool {
 	return s.Number != 0 && s.Monitored && s.NextAiring == nil && s.EpisodeCount-s.EpisodeFileCount >= 2
 }
 
+// VolumeNumber is the one season a Comic has: its volume (2026-11-10 design
+// D10, the Series' season machinery with the season layer removed). Every
+// monitored Issue is in it, and the volume search's record, Msg-Id and
+// state name this number.
+const VolumeNumber int32 = 1
+
+// VolumePackFirst is the Comic's PackFirst test, read by the automatic
+// volume search and by its Issues (design D10: a Comic with two or more
+// issues missing is asked for as a volume pack first, the issues waiting
+// for it as episodes wait for a season): the comic monitored and two or
+// more monitored, released issues without a file (the container rollup's
+// missing count). A volume has no end to wait for: a release of an issue
+// yet to come is never approved, and a pack posted for a running volume is
+// what the owner wants taken.
+func VolumePackFirst(co *catalogv1alpha1.Comic) bool {
+	return co != nil && ptr.Deref(co.Spec.Monitored, true) && co.Status.MissingChildCount >= 2
+}
+
 // SeasonRequest is one open planned Search naming the series.
 type SeasonRequest struct {
 	Search catalogv1alpha1.SeasonSearchRequest
@@ -107,11 +126,19 @@ type SeasonFacts struct {
 	BacklogDue int
 }
 
-// SeasonView is everything DecideSeasons reads for one Series.
+// SeasonView is everything DecideSeasons reads for one container: a Series
+// with its seasons, or a Comic whose one season is its volume (design D10;
+// Kind says which, Series when unset). The container is the item every
+// season task names, so no Episode or Issue search is ever published here.
 type SeasonView struct {
+	// Series is the container -- the Series, or the Comic -- whose seasons
+	// the view holds; the name predates the Comic's volume search.
 	Series schema.ItemRef
-	Now    time.Time
-	// Monitored is the series' own spec.monitored.
+	// Kind is the container's kind: MediaKindSeries (the default when
+	// empty) or MediaKindComic.
+	Kind commonv1.MediaKind
+	Now  time.Time
+	// Monitored is the container's own spec.monitored.
 	Monitored  bool
 	Anime      bool
 	Profile    string
@@ -128,7 +155,8 @@ type SeasonView struct {
 	ServedSettled bool
 	// ServedGone: the state's Search is gone or deleting.
 	ServedGone bool
-	// Seasons are the series' seasons (status.seasons), with their facts.
+	// Seasons are the series' seasons (status.seasons), with their facts --
+	// a Comic's the one volume, VolumeNumber.
 	Seasons []SeasonFacts
 	// Records are the records at each season's key, any seq.
 	Records      map[int32]*schema.SearchRecord
@@ -179,6 +207,12 @@ type SeasonFinal struct {
 // (owner, 2026-10-27; §17): every PackFirst season with an episode waiting
 // for its first search (automaticSeasons), in a state of its own that names
 // no Search, AutomaticCooldown after the last automatic state finished.
+//
+// A Comic is the same plan over one season, its volume (2026-11-10 design
+// D10): the view's Kind is MediaKindComic, its one SeasonFacts is
+// VolumeNumber's (every monitored Issue), its state is status.volumeSearch,
+// and -- a Comic's Search CR fanning out per Issue instead -- it never has
+// a planned request, so it serves the automatic search alone.
 func DecideSeasons(v SeasonView, admit func(durable string, seq int64) dispatch.Decision, pace func(season int32) time.Time) SeasonPlan {
 	now := v.Now.UTC()
 	p := SeasonPlan{State: v.State.DeepCopy(), LastSearchedAt: v.LastSearched}
@@ -550,20 +584,30 @@ func finals(before map[int32]catalogv1alpha1.SeasonSearchPhase, st *catalogv1alp
 	return out
 }
 
-// seasonTask is the SearchTask v2 of season at seq (§5.1): the Series as
-// the item, the season, a live search on the high lane, Msg-Id
-// events.MsgIDForSeasonSearch, user-invoked unless automatic. Never
-// IndexOnly, never a donor search.
+// kind is the container's kind, Series when the view names none.
+func (v SeasonView) kind() commonv1.MediaKind {
+	if v.Kind == "" {
+		return commonv1.MediaKindSeries
+	}
+	return v.Kind
+}
+
+// seasonTask is the SearchTask v2 of season at seq (§5.1): the container
+// (the Series, or the Comic for its volume) as the item, the season, a live
+// search on the high lane, Msg-Id events.MsgIDForSeasonSearch, user-invoked
+// unless automatic. Never IndexOnly, never a donor search, and never an
+// Episode's or an Issue's.
 func seasonTask(v SeasonView, season int32, seq int64, now time.Time, automatic bool) *Task {
 	n := season
+	kind := v.kind()
 	payload := schema.SearchTask{
-		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: v.Series.Name},
+		MediaRef:    commonv1.MediaRef{Kind: kind, Name: v.Series.Name},
 		Reason:      schema.SearchReasonSeason,
 		UserInvoked: !automatic,
 		Item:        v.Series, Seq: seq, Season: &n,
 		QualityProfile: v.Profile, Protocols: v.Protocols, IndexerPriorities: v.Priorities, Scope: v.Scope,
 	}
-	mediaKey := events.MediaKey(string(commonv1.MediaKindSeries), v.Series.Namespace, v.Series.Name)
+	mediaKey := events.MediaKey(string(kind), v.Series.Namespace, v.Series.Name)
 	return &Task{
 		Subject: events.WorkSearchSubject(events.PriorityHigh, mediaKey),
 		MsgID:   events.MsgIDForSeasonSearch(v.Series.UID, season, seq),
@@ -572,7 +616,7 @@ func seasonTask(v SeasonView, season int32, seq int64, now time.Time, automatic 
 }
 
 // SeasonPaceKey is a season task's key in the namespace's live-search pace
-// class.
+// class: the container's uid and the season (a Comic's VolumeNumber).
 func SeasonPaceKey(seriesUID string, season int32) string {
 	return seriesUID + "/" + schema.SeasonSub(season)
 }

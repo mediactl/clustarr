@@ -27,10 +27,12 @@ import (
 )
 
 // TestNoEpisodeSearchIsPublishedForASeason is series search design §16
-// item 2 (no burst): the season planner and the stage's Series mode build
-// every search subject they publish from the Series' media key, never an
-// Episode's -- a season's episodes are searched by the one season query,
-// and an episode left uncovered by its own planner on its own backoff.
+// item 2 (no burst): the season planner and the stage's container mode
+// build every search subject they publish from the container's media key
+// -- the Series', or since 2026-11-10 (design D10) the Comic's for its
+// volume -- never an Episode's or an Issue's: a season's episodes are
+// searched by the one season query, and an episode left uncovered by its
+// own planner on its own backoff.
 func TestNoEpisodeSearchIsPublishedForASeason(t *testing.T) {
 	for _, file := range []string{"season.go", "../../catalog/searchplan/season.go"} {
 		fset := token.NewFileSet()
@@ -46,16 +48,16 @@ func TestNoEpisodeSearchIsPublishedForASeason(t *testing.T) {
 			require.Len(t, call.Args, 2)
 			key := mediaKeyOf(f, call.Args[1])
 			require.NotNil(t, key, "%s: the subject's media key is not an events.MediaKey call", fset.Position(call.Pos()))
-			require.True(t, isSel(key.Args[0], "commonv1", "MediaKindSeries") || isSeriesString(key.Args[0]),
-				"%s: a season's search subject names %s, not the Series", fset.Position(call.Pos()), exprString(key.Args[0]))
+			require.True(t, isSel(key.Args[0], "commonv1", "MediaKindSeries") || isSeriesString(key.Args[0]) || isContainerKindString(f, key.Args[0]),
+				"%s: a season's search subject names %s, not the container", fset.Position(call.Pos()), exprString(key.Args[0]))
 			return true
 		})
 		if file == "../../catalog/searchplan/season.go" {
 			require.Equal(t, 1, subjects, "the season planner builds exactly one search subject: the season task's")
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
-			if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "MediaKindEpisode" {
-				require.Failf(t, "an Episode kind in the season path", "%s names MediaKindEpisode", fset.Position(sel.Pos()))
+			if sel, ok := n.(*ast.SelectorExpr); ok && (sel.Sel.Name == "MediaKindEpisode" || sel.Sel.Name == "MediaKindIssue") {
+				require.Failf(t, "a child kind in the season path", "%s names %s", fset.Position(sel.Pos()), sel.Sel.Name)
 			}
 			return true
 		})
@@ -109,6 +111,43 @@ func isSeriesString(e ast.Expr) bool {
 		return false
 	}
 	return isSel(call.Args[0], "commonv1", "MediaKindSeries")
+}
+
+// isContainerKindString is string(kind) where the file assigns kind from
+// the container view's own kind (v.kind(), the Series or the Comic): the
+// one other expression a season subject's media key may name.
+func isContainerKindString(f *ast.File, e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return false
+	}
+	if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != "string" {
+		return false
+	}
+	id, ok := call.Args[0].(*ast.Ident)
+	if !ok {
+		return false
+	}
+	found := false
+	ast.Inspect(f, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for i, lhs := range as.Lhs {
+			l, ok := lhs.(*ast.Ident)
+			if !ok || l.Name != id.Name || i >= len(as.Rhs) {
+				continue
+			}
+			if c, ok := as.Rhs[i].(*ast.CallExpr); ok {
+				if sel, ok := c.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "kind" {
+					found = true
+				}
+			}
+		}
+		return true
+	})
+	return found
 }
 
 func exprString(e ast.Expr) string {
