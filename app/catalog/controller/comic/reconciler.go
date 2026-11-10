@@ -363,7 +363,16 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 			itempass.Published(itempass.From(ctx), metadatainputs.Durable, seq)
 			k8s.MarkFalse(c, &conditions, conditionQueueFull, "Published", "metadata task published")
 		}
-		k8s.MarkFalse(c, &conditions, catalogv1alpha1.ComicConditionMetadataReady, "Refreshing", "metadata refresh requested")
+		// An outdated document is still a fresh one: the condition stays
+		// True while the once-only refresh is in flight (Movie's and Series'
+		// "Upgrading"), as metaReady above already reads it, so the Comic
+		// never drops out of Ready for a schema bump.
+		if outdated {
+			k8s.MarkTrue(c, &conditions, catalogv1alpha1.ComicConditionMetadataReady, "Upgrading",
+				"metadata schema %d is older than %d; refreshing once", c.Status.Metadata.SchemaVersion, metadata.SchemaVersion)
+		} else {
+			k8s.MarkFalse(c, &conditions, catalogv1alpha1.ComicConditionMetadataReady, "Refreshing", "metadata refresh requested")
+		}
 	} else {
 		k8s.MarkTrue(c, &conditions, catalogv1alpha1.ComicConditionMetadataReady, k8s.ReasonReconciled, "metadata is fresh")
 	}

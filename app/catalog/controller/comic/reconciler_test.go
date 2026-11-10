@@ -644,6 +644,12 @@ func TestComicReconcilerRealController(t *testing.T) {
 
 		n := counter.count()
 
+		// The gateway's write as every document written before design D8
+		// reads: a fresh refreshedAt and schemaVersion 0. Such a document is
+		// refreshed once while the Comic stays ready -- MetadataReady=True,
+		// reason Upgrading, as Movie and Series read it -- never a
+		// Refreshing=False that would drop a whole upgraded library out of
+		// Ready together.
 		metaAC := catalogac.Comic(cm.Name, cm.Namespace).WithStatus(
 			catalogac.ComicStatus().WithMetadata(
 				catalogac.ComicMetadata().WithTitle("Self Loop Comic").WithRefreshedAt(metav1.Now()),
@@ -655,14 +661,16 @@ func TestComicReconcilerRealController(t *testing.T) {
 		require.Eventually(t, func() bool { return counter.count() > n }, 5*time.Second, 20*time.Millisecond,
 			"the gateway's metadata write must wake this controller")
 
+		var got catalogv1alpha1.Comic
 		require.Eventually(t, func() bool {
-			var got catalogv1alpha1.Comic
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "comic-ns", Name: "selfloop-comic"}, &got); err != nil {
 				return false
 			}
 			cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.ComicConditionMetadataReady)
 			return cond != nil && cond.Status == metav1.ConditionTrue
-		}, 5*time.Second, 20*time.Millisecond)
+		}, 5*time.Second, 20*time.Millisecond, "a fresh document of an older schema must keep MetadataReady=True while it is refreshed once")
+		assert.Equal(t, "Upgrading", k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.ComicConditionMetadataReady).Reason,
+			"the once-only schema refresh reads Upgrading, as Movie's and Series' do")
 
 		n2 := counter.count()
 		assert.Equal(t, int64(1), n2-n, "the gateway write must cause exactly one reconcile, not a cascade")
@@ -928,8 +936,19 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 	require.NoError(t, c.Create(ctx, testNamespace("comic-fieldmanager-ns")))
 	require.NoError(t, c.Create(ctx, testRootFolder("comic-fieldmanager-ns", "comic-root", "/data/media/comics")))
 
+	// The provider's answer carries every field the fan-out writes
+	// (ensureIssue; the 2026-11-10 design §4.7), so the ownership record
+	// below is checked for the whole set, not the two fields the first cut
+	// wrote.
+	cover := time.Date(2026, 3, 4, 0, 0, 0, 0, time.UTC)
+	store := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
 	requester := &fakeIssueRPC{issues: []metadata.ComicIssue{
-		{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "2001"}, Number: "1", Title: "Origins"},
+		{
+			IDs: metadata.ExternalIDs{metadata.KeyComicVine: "2001"}, Number: "1", Title: "Origins",
+			CoverDate: &cover, StoreDate: &store, Description: "How it began.",
+			Image:   &metadata.Image{URL: "https://comicvine.gamespot.com/a/uploads/origins.jpg"},
+			Credits: []metadata.Credit{{Name: "Jane Writer", Role: "writer"}},
+		},
 	}}
 	bus := combinedBus{Publisher: &fakePublisher{}, requester: requester}
 	r := &comic.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: bus}
@@ -961,15 +980,25 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 		return iss.Status.Title == "Origins"
 	}, 5*time.Second, 10*time.Millisecond, "Comic's real ensureIssue never landed status.title")
 
+	// The fan-out's set (ensureIssue, design §4.7) and the Issue
+	// reconciler's own (its phase since D4, where Mylar's state was; its
+	// file rollup). Each manager owns exactly its own and claims none of
+	// the other's.
+	fanoutOwned := []string{"sourceID", "title", "date", "storeDate", "overview", "coverURL", "credits", "sourceIDs"}
+	catalogOwned := []string{"phase", "hasFile"}
+
 	// Comic's write landed under catalog-fanout, claiming exactly the
-	// provider fields it set (sourceID, title) and nothing Issue-owned.
+	// provider fields it set and nothing Issue-owned.
 	fanoutFields := managedStatusFieldPaths(iss.ManagedFields, string(k8s.ManagerCatalogFanout))
 	require.NotNil(t, fanoutFields, "no %s/status entry in managedFields: %+v", k8s.ManagerCatalogFanout, fieldManagerNames(iss.ManagedFields))
 	fanoutStatusNames := statusFieldNames(fanoutFields)
-	assert.True(t, fanoutStatusNames["title"], "catalog-fanout should own status.title")
-	assert.True(t, fanoutStatusNames["sourceID"], "catalog-fanout should own status.sourceID")
-	assert.False(t, fanoutStatusNames["state"], "catalog-fanout must not claim status.state")
-	assert.False(t, fanoutStatusNames["hasFile"], "catalog-fanout must not claim status.hasFile")
+	for _, f := range fanoutOwned {
+		assert.True(t, fanoutStatusNames[f], "catalog-fanout should own status.%s", f)
+	}
+	for _, f := range catalogOwned {
+		assert.False(t, fanoutStatusNames[f], "catalog-fanout must not claim status.%s", f)
+	}
+	assert.False(t, fanoutStatusNames["state"], "status.state is gone (D4, cold turkey); nothing writes it")
 
 	// Simulate the Issue reconciler's own write: its computed fields, under
 	// the distinct k8s.ManagerCatalog. This Issue now carries status from
@@ -988,9 +1017,17 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 			return false
 		}
 		return iss.Status.Phase == catalogv1alpha1.IssuePhaseImported
-	}, 5*time.Second, 10*time.Millisecond, "the simulated Issue write never landed status.state")
+	}, 5*time.Second, 10*time.Millisecond, "the simulated Issue write never landed status.phase")
 	// Neither write lost the other's data.
 	assert.Equal(t, "Origins", iss.Status.Title, "the Issue reconciler's simulated write must not clobber Comic's provider field")
+	assert.Equal(t, "How it began.", iss.Status.Overview)
+	assert.Equal(t, "https://comicvine.gamespot.com/a/uploads/origins.jpg", iss.Status.CoverURL)
+	require.NotNil(t, iss.Status.Date)
+	assert.True(t, iss.Status.Date.Time.Equal(cover))
+	require.NotNil(t, iss.Status.StoreDate)
+	assert.True(t, iss.Status.StoreDate.Time.Equal(store))
+	assert.Equal(t, []catalogv1alpha1.Credit{{Name: "Jane Writer", Role: "writer"}}, iss.Status.Credits)
+	assert.Equal(t, map[string]string{metadata.KeyComicVine: "2001"}, iss.Status.SourceIDs)
 	assert.Equal(t, catalogv1alpha1.IssuePhaseImported, iss.Status.Phase)
 	assert.True(t, iss.Status.HasFile)
 
@@ -1002,17 +1039,22 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 	fanoutFields = managedStatusFieldPaths(iss.ManagedFields, string(k8s.ManagerCatalogFanout))
 	require.NotNil(t, fanoutFields)
 	fanoutStatusNames = statusFieldNames(fanoutFields)
-	assert.True(t, fanoutStatusNames["title"])
-	assert.False(t, fanoutStatusNames["state"], "catalog-fanout must still not claim status.state after the Issue write")
-	assert.False(t, fanoutStatusNames["hasFile"], "catalog-fanout must still not claim status.hasFile after the Issue write")
+	for _, f := range fanoutOwned {
+		assert.True(t, fanoutStatusNames[f], "catalog-fanout should still own status.%s after the Issue write", f)
+	}
+	for _, f := range catalogOwned {
+		assert.False(t, fanoutStatusNames[f], "catalog-fanout must still not claim status.%s after the Issue write", f)
+	}
 
 	issueFields := managedStatusFieldPaths(iss.ManagedFields, string(k8s.ManagerCatalog))
 	require.NotNil(t, issueFields, "no %s/status entry in managedFields: %+v", k8s.ManagerCatalog, fieldManagerNames(iss.ManagedFields))
 	issueStatusNames := statusFieldNames(issueFields)
-	assert.True(t, issueStatusNames["state"], "catalog should own status.state")
-	assert.True(t, issueStatusNames["hasFile"], "catalog should own status.hasFile")
-	assert.False(t, issueStatusNames["title"], "catalog must not claim status.title")
-	assert.False(t, issueStatusNames["sourceID"], "catalog must not claim status.sourceID")
+	for _, f := range catalogOwned {
+		assert.True(t, issueStatusNames[f], "catalog should own status.%s", f)
+	}
+	for _, f := range fanoutOwned {
+		assert.False(t, issueStatusNames[f], "catalog must not claim status.%s", f)
+	}
 
 	// A second Comic reconcile (re-fanout with the same provider data) must
 	// not erase the Issue-owned fields the simulated write just set --
@@ -1022,7 +1064,7 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 
 	require.NoError(t, c.Get(ctx, issKey, &iss))
 	assert.Equal(t, "Origins", iss.Status.Title)
-	assert.Equal(t, catalogv1alpha1.IssuePhaseImported, iss.Status.Phase, "Comic's second apply must not release Issue's state")
+	assert.Equal(t, catalogv1alpha1.IssuePhaseImported, iss.Status.Phase, "Comic's second apply must not release Issue's phase")
 	assert.True(t, iss.Status.HasFile, "Comic's second apply must not release Issue's hasFile")
 }
 
