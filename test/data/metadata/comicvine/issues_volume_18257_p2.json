@@ -1,0 +1,19 @@
+{
+  "error": "OK",
+  "limit": 100,
+  "offset": 2,
+  "number_of_page_results": 1,
+  "number_of_total_results": 3,
+  "status_code": 1,
+  "results": [
+    {
+      "id": 111113,
+      "issue_number": "3",
+      "name": "Batman #3",
+      "cover_date": "1940-09-25",
+      "store_date": "1940-08-01",
+      "image": {"super_url": "https://comicvine.gamespot.com/a/uploads/original/batman-3.jpg"},
+      "person_credits": [{"id": 1, "name": "Bill Finger", "role": "writer"}]
+    }
+  ]
+}

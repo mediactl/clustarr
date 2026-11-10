@@ -1,0 +1,32 @@
+{
+  "error": "OK",
+  "limit": 100,
+  "offset": 0,
+  "number_of_page_results": 2,
+  "number_of_total_results": 3,
+  "status_code": 1,
+  "results": [
+    {
+      "id": 111111,
+      "issue_number": "1",
+      "name": "Batman #1",
+      "cover_date": "1940-04-25",
+      "store_date": "1940-03-01",
+      "description": "<p>The Joker and the Cat debut.</p>",
+      "image": {"super_url": "https://comicvine.gamespot.com/a/uploads/original/batman-1.jpg"},
+      "person_credits": [
+        {"id": 1, "name": "Bill Finger", "role": "writer"},
+        {"id": 2, "name": "Bob Kane", "role": "artist, cover"}
+      ]
+    },
+    {
+      "id": 111112,
+      "issue_number": "2",
+      "name": "Batman #2",
+      "cover_date": "1940-06-25",
+      "store_date": "1940-05-01",
+      "image": {"super_url": "https://comicvine.gamespot.com/a/uploads/original/batman-2.jpg"},
+      "person_credits": []
+    }
+  ]
+}

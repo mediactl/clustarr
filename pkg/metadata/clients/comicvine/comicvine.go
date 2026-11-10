@@ -235,6 +235,9 @@ type volumeResponse struct {
 		LastIssue     *struct {
 			ID int64 `json:"id"`
 		} `json:"last_issue"`
+		Image struct {
+			SuperURL string `json:"super_url"`
+		} `json:"image"`
 	} `json:"results"`
 }
 
@@ -275,7 +278,9 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	}
 
 	var raw volumeResponse
-	query := url.Values{"field_list": {"id,name,start_year,publisher,count_of_issues,description,site_detail_url,last_issue"}}
+	// image: the volume's cover, the Comic's poster (2026-11-10 design §5.4;
+	// a ComicVine comic had no poster until then).
+	query := url.Values{"field_list": {"id,name,start_year,publisher,count_of_issues,description,site_detail_url,last_issue,image"}}
 	// The trailing slash is ComicVine's canonical resource path, as on
 	// /issue/{guid}/, /issues/ and /search/: without it the API answers 301
 	// to the slashed form, an extra round trip per volume (X6a).
@@ -295,6 +300,9 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	if year, err := strconv.Atoi(raw.Results.StartYear); err == nil {
 		y := int32(year)
 		v.StartYear = &y
+	}
+	if u := raw.Results.Image.SuperURL; u != "" {
+		v.Images = []metadata.Image{{Type: metadata.ImageTypePoster, URL: u}}
 	}
 	if raw.Results.LastIssue != nil && raw.Results.LastIssue.ID > 0 {
 		v.Status = c.volumeStatus(ctx, raw.Results.LastIssue.ID, time.Now())
@@ -339,19 +347,36 @@ func (c *Client) volumeStatus(ctx context.Context, lastIssueID int64, now time.T
 	return volumeStatusEnded
 }
 
-// issuesResponse is ComicVine's status-enveloped issue-list response.
+// issuesResponse is ComicVine's status-enveloped issue-list response, one
+// page of at most issuesPageLimit.
 type issuesResponse struct {
-	Results []struct {
+	NumberOfTotalResults int `json:"number_of_total_results"`
+	NumberOfPageResults  int `json:"number_of_page_results"`
+	Offset               int `json:"offset"`
+	Results              []struct {
 		ID          int64  `json:"id"`
 		IssueNumber string `json:"issue_number"`
 		Name        string `json:"name"`
 		CoverDate   string `json:"cover_date"`
 		StoreDate   string `json:"store_date"`
+		Description string `json:"description"`
 		Image       struct {
 			SuperURL string `json:"super_url"`
 		} `json:"image"`
+		PersonCredits []struct {
+			Name string `json:"name"`
+			Role string `json:"role"`
+		} `json:"person_credits"`
 	} `json:"results"`
 }
+
+// issuesPageLimit is ComicVine's page cap; maxIssuePages bounds a volume's
+// listing at 5,000 issues, more than any volume has (2026-11-10 design
+// §5.4: one page of 100 silently truncated a longer volume until then).
+const (
+	issuesPageLimit = 100
+	maxIssuePages   = 50
+)
 
 // Issues fetches the issues belonging to volumeID. volumeID is normalized
 // by normalizeVolumeID the same way Volume's id is -- accepting either the
@@ -374,32 +399,51 @@ func (c *Client) Issues(ctx context.Context, volumeID string) ([]metadata.ComicI
 		return nil, err
 	}
 
-	var raw issuesResponse
-	query := url.Values{"filter": {"volume:" + num}, "field_list": {"id,issue_number,name,cover_date,store_date,image"}}
-	if err := c.doGet(ctx, "/issues/", query, &raw); err != nil {
-		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "comicvine: issues fetch failed", "volume_id", num, "error", err)
-		return nil, err
+	var issues []metadata.ComicIssue
+	offset := 0
+	for page := 0; page < maxIssuePages; page++ {
+		var raw issuesResponse
+		query := url.Values{
+			"filter":     {"volume:" + num},
+			"field_list": {"id,issue_number,name,cover_date,store_date,image,description,person_credits"},
+			"sort":       {"cover_date:asc"},
+			"limit":      {strconv.Itoa(issuesPageLimit)},
+			"offset":     {strconv.Itoa(offset)},
+		}
+		if err := c.doGet(ctx, "/issues/", query, &raw); err != nil {
+			tracing.RecordError(span, err)
+			logger.ErrorContext(ctx, "comicvine: issues fetch failed", "volume_id", num, "offset", offset, "error", err)
+			return nil, err
+		}
+		for _, r := range raw.Results {
+			issue := metadata.ComicIssue{
+				IDs:         metadata.ExternalIDs{metadata.KeyComicVine: strconv.FormatInt(r.ID, 10)},
+				Number:      r.IssueNumber,
+				Title:       r.Name,
+				Description: r.Description,
+			}
+			if t, err := time.Parse("2006-01-02", r.CoverDate); err == nil {
+				issue.CoverDate = &t
+			}
+			if t, err := time.Parse("2006-01-02", r.StoreDate); err == nil {
+				issue.StoreDate = &t
+			}
+			if r.Image.SuperURL != "" {
+				issue.Image = &metadata.Image{Type: metadata.ImageTypeThumb, URL: r.Image.SuperURL}
+			}
+			for _, pc := range r.PersonCredits {
+				if pc.Name != "" {
+					issue.Credits = append(issue.Credits, metadata.Credit{Name: pc.Name, Role: pc.Role})
+				}
+			}
+			issues = append(issues, issue)
+		}
+		offset += len(raw.Results)
+		if len(raw.Results) == 0 || offset >= raw.NumberOfTotalResults {
+			return issues, nil
+		}
 	}
-
-	issues := make([]metadata.ComicIssue, 0, len(raw.Results))
-	for _, r := range raw.Results {
-		issue := metadata.ComicIssue{
-			IDs:    metadata.ExternalIDs{metadata.KeyComicVine: strconv.FormatInt(r.ID, 10)},
-			Number: r.IssueNumber,
-			Title:  r.Name,
-		}
-		if t, err := time.Parse("2006-01-02", r.CoverDate); err == nil {
-			issue.CoverDate = &t
-		}
-		if t, err := time.Parse("2006-01-02", r.StoreDate); err == nil {
-			issue.StoreDate = &t
-		}
-		if r.Image.SuperURL != "" {
-			issue.Image = &metadata.Image{Type: metadata.ImageTypeThumb, URL: r.Image.SuperURL}
-		}
-		issues = append(issues, issue)
-	}
+	logger.WarnContext(ctx, "comicvine: issue list truncated", "volume_id", num, "fetched", len(issues), "pages", maxIssuePages)
 	return issues, nil
 }
 

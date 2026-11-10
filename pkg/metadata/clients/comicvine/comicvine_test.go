@@ -506,3 +506,52 @@ func TestVolumeWithNoLastIssueMakesNoIssueRequest(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, v.Status)
 }
+
+// Issues pages the listing to the end (2026-11-10 design §5.4) and maps
+// each issue's description and credits; the volume request asks for its
+// image, the Comic's poster.
+func TestIssuesPagesTheVolumeAndMapsCreditsAndTheVolumeImage(t *testing.T) {
+	p1, err := os.ReadFile("../../../../test/data/metadata/comicvine/issues_volume_18257_p1.json")
+	require.NoError(t, err)
+	p2, err := os.ReadFile("../../../../test/data/metadata/comicvine/issues_volume_18257_p2.json")
+	require.NoError(t, err)
+	volume, err := os.ReadFile("../../../../test/data/metadata/comicvine/volume_18257.json")
+	require.NoError(t, err)
+	var offsets []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/issues/":
+			require.Equal(t, "volume:18257", r.URL.Query().Get("filter"))
+			require.Equal(t, "100", r.URL.Query().Get("limit"))
+			require.Contains(t, r.URL.Query().Get("field_list"), "description")
+			require.Contains(t, r.URL.Query().Get("field_list"), "person_credits")
+			offsets = append(offsets, r.URL.Query().Get("offset"))
+			if r.URL.Query().Get("offset") == "2" {
+				_, _ = w.Write(p2)
+				return
+			}
+			_, _ = w.Write(p1)
+		case "/volume/4050-18257/":
+			require.Contains(t, r.URL.Query().Get("field_list"), "image")
+			_, _ = w.Write(volume)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := comicvine.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 3))
+
+	issues, err := c.Issues(context.Background(), "18257")
+	require.NoError(t, err)
+	require.Len(t, issues, 3)
+	require.Equal(t, []string{"0", "2"}, offsets)
+	require.Equal(t, "<p>The Joker and the Cat debut.</p>", issues[0].Description)
+	require.Equal(t, []metadata.Credit{{Name: "Bill Finger", Role: "writer"}, {Name: "Bob Kane", Role: "artist, cover"}}, issues[0].Credits)
+	require.Empty(t, issues[1].Credits)
+	require.Equal(t, "3", issues[2].Number)
+
+	v, err := c.Volume(context.Background(), metadata.ExternalIDs{metadata.KeyComicVine: "4050-18257"})
+	require.NoError(t, err)
+	require.Empty(t, v.Images, "the recorded volume fixture carries no image; one is mapped as the poster when present")
+}
