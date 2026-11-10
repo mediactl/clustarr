@@ -90,10 +90,12 @@ func VolumePackFirst(co *catalogv1alpha1.Comic) bool {
 	return co != nil && ptr.Deref(co.Spec.Monitored, true) && co.Status.MissingChildCount >= 2
 }
 
-// SeasonRequest is one open planned Search naming the series.
+// SeasonRequest is one open planned Search naming the container (the
+// Series, or the Comic for its volume).
 type SeasonRequest struct {
 	Search catalogv1alpha1.SeasonSearchRequest
-	// Season is spec.season; nil asks every season but the specials.
+	// Season is spec.season; nil asks every season but the specials (a
+	// Comic's one volume).
 	Season   *int32
 	Created  time.Time
 	Deleting bool
@@ -214,8 +216,13 @@ type SeasonFinal struct {
 // A Comic is the same plan over one season, its volume (2026-11-10 design
 // D10): the view's Kind is MediaKindComic, its one SeasonFacts is
 // VolumeNumber's (every monitored Issue), its state is status.volumeSearch,
-// and -- a Comic's Search CR fanning out per Issue instead -- it never has
-// a planned request, so it serves the automatic search alone.
+// and its planned requests are the Searches naming the Comic with
+// spec.season -- the volume, VolumeNumber -- and grabBest
+// (SearchSpec.PlannedByComic; the comic page's "Search Volume", design
+// §9.4), served one at a time as a Series' are: a request naming another
+// season is Skipped NoSuchSeason, one naming none asks for the volume. A
+// comic Search without spec.season fans out per Issue in the Search
+// controller and never reaches here.
 func DecideSeasons(v SeasonView, admit func(durable string, seq int64) dispatch.Decision, pace func(season int32) time.Time) SeasonPlan {
 	now := v.Now.UTC()
 	p := SeasonPlan{State: v.State.DeepCopy(), LastSearchedAt: v.LastSearched}

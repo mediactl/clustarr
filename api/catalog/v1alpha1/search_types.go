@@ -101,9 +101,10 @@ type GrabResult struct {
 // SearchSpec defines the desired state of Search.
 //
 // +kubebuilder:validation:XValidation:rule="(has(self.query) ? 1 : 0) + (has(self.mediaRef) ? 1 : 0) == 1",message="exactly one of query or mediaRef must be set"
-// +kubebuilder:validation:XValidation:rule="!has(self.season) || (has(self.mediaRef) && self.mediaRef.kind == 'series')",message="season needs mediaRef.kind series"
+// +kubebuilder:validation:XValidation:rule="!has(self.season) || (has(self.mediaRef) && (self.mediaRef.kind == 'series' || (self.mediaRef.kind == 'comic' && self.season == 1)))",message="season needs mediaRef.kind series, or comic with season 1 (the volume)"
 // +kubebuilder:validation:XValidation:rule="!has(self.mediaRef) || self.mediaRef.kind != 'series' || has(self.season) || (has(self.grabBest) && self.grabBest)",message="a series search either grabs (grabBest) or names a season: an interactive search is per season"
 // +kubebuilder:validation:XValidation:rule="!has(self.mediaRef) || self.mediaRef.kind != 'series' || !has(self.grabBest) || !self.grabBest || !has(self.grab) || size(self.grab) == 0",message="a series search with grabBest grabs through the series; spec.grab needs an interactive season search"
+// +kubebuilder:validation:XValidation:rule="!has(self.mediaRef) || self.mediaRef.kind != 'comic' || !has(self.season) || !has(self.grabBest) || !self.grabBest || !has(self.grab) || size(self.grab) == 0",message="a comic's volume search with grabBest grabs through the comic; spec.grab needs an interactive volume search"
 type SearchSpec struct {
 	// Query is a free-text search term.
 	// +optional
@@ -167,18 +168,59 @@ type SearchSpec struct {
 	// Season narrows a series search to one season (0 is the specials). With
 	// grabBest the series searches that season and grabs what it finds;
 	// without it this is an interactive season search, its results in
-	// status.results. Only with mediaRef.kind series.
+	// status.results. With mediaRef.kind series, or comic, whose one season
+	// is its volume, VolumeSearchSeason (2026-11-10 design D10, §9.4): a
+	// comic search naming it is the Comic's own volume pack search -- with
+	// grabBest planned by the Comic key from status.volumeSearch, without
+	// it interactive -- where one naming no season fans out per Issue
+	// (ContainerKind).
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Season *int32 `json:"season,omitempty"`
 }
 
-// PlannedBySeries reports a Search the Series key plans (Wave S): a series
-// or season search with grabBest. Its seasons are searched one at a time
-// by the Series, which grabs what they find; the Search mirrors the
-// Series' status.seasonSearch.
+// VolumeSearchSeason is the one spec.season a comic Search may name: a
+// Comic's volume, the season the Comic key's volume search plans
+// (searchplan.VolumeNumber, which the CEL rule above restates as 1).
+const VolumeSearchSeason int32 = 1
+
+// PlannedBySeries reports a Search a container's key plans and mirrors into
+// status.seasons: a series or season search with grabBest (Wave S), whose
+// seasons the Series searches one at a time, grabbing what they find, the
+// Search mirroring status.seasonSearch; or, since 2026-11-10 (the non-video
+// design D10), a comic's volume search with grabBest -- spec.season on a
+// Comic, the one season that is the volume -- which the Comic key serves
+// from status.volumeSearch the same way. The name predates the Comic's
+// volume search, as searchplan.SeasonView.Series does; a comic Search
+// naming no season still fans out per Issue (FansOut).
 func (s SearchSpec) PlannedBySeries() bool {
-	return s.MediaRef != nil && s.MediaRef.Kind == commonv1.MediaKindSeries && s.GrabBest
+	if s.MediaRef == nil || !s.GrabBest {
+		return false
+	}
+	switch s.MediaRef.Kind {
+	case commonv1.MediaKindSeries:
+		return true
+	case commonv1.MediaKindComic:
+		return s.Season != nil
+	default:
+		return false
+	}
+}
+
+// PlannedByComic reports the Comic key's share of PlannedBySeries: a
+// comic's volume search with grabBest.
+func (s SearchSpec) PlannedByComic() bool {
+	return s.PlannedBySeries() && s.MediaRef.Kind == commonv1.MediaKindComic
+}
+
+// FansOut reports a Search that fans out into its container's monitored
+// children -- an author's books, an artist's albums, a comic's issues
+// (ContainerKind) -- rather than searching the container itself. A comic's
+// volume search, spec.season set, is the Comic's own: planned (grabBest,
+// PlannedBySeries) or interactive, as a series' seasons are, so it never
+// fans out.
+func (s SearchSpec) FansOut() bool {
+	return s.MediaRef != nil && ContainerKind(s.MediaRef.Kind) && s.Season == nil
 }
 
 // SearchSeason is one season of a planned series search, as the Search
@@ -240,7 +282,9 @@ const MaxContainerChildren = 200
 // issues -- rather than searching for the item itself. A series is not one:
 // television wants season packs, which this fan-out does not do; a series
 // is searched one season at a time by the Series itself (SearchSpec.Season,
-// PlannedBySeries).
+// PlannedBySeries). A comic is one only without spec.season: naming its
+// volume makes the Search the Comic's own pack search (SearchSpec.FansOut
+// says which).
 func ContainerKind(kind commonv1.MediaKind) bool {
 	switch kind {
 	case commonv1.MediaKindAuthor, commonv1.MediaKindArtist, commonv1.MediaKindComic:

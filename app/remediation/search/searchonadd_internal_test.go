@@ -32,6 +32,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
+	"github.com/mediactl/clustarr/app/catalog/seriessearch"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -182,6 +183,13 @@ func TestAnIssueOfAComicAddedUnsearchedIsNotDispatchedLive(t *testing.T) {
 		r := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
 			WithIndex(&catalogv1alpha1.Issue{}, comic.IssueByComicRefIndex, func(o client.Object) []string {
 				return []string{o.(*catalogv1alpha1.Issue).Spec.ComicRef}
+			}).
+			// The Comic's pass lists its planned volume Searches (C6).
+			WithIndex(&catalogv1alpha1.Search{}, seriessearch.IndexSearchesBySeries, func(o client.Object) []string {
+				if s := o.(*catalogv1alpha1.Search); s.Spec.PlannedBySeries() && s.Spec.MediaRef.Name != "" {
+					return []string{s.Spec.MediaRef.Name}
+				}
+				return nil
 			}).
 			WithObjects(objs...).Build()
 		bus := membus.New(clockwork.NewFakeClockAt(now))

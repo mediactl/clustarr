@@ -207,3 +207,71 @@ func TestSearchSeasonAndInteractiveSeasonSearchCreateTheRightSpec(t *testing.T) 
 	require.True(t, w.creates[0].obj.(*catalogv1alpha1.Search).Spec.GrabBest)
 	require.False(t, w.creates[1].obj.(*catalogv1alpha1.Search).Spec.GrabBest)
 }
+
+// TestSearchVolumeAndInteractiveVolumeSearchCreateTheRightSpec: the comic
+// page's two volume buttons (2026-11-10 design §9.4, D10) each create one
+// labelled Search on the Comic with spec.season its volume
+// (actions.VolumeNumber, the one season the Search CRD admits on a comic),
+// under the ui's field manager -- "Search Volume" with grabBest, which the
+// Comic key plans as a pack search; the interactive one without, its
+// results for a person to pick from. A Comic with no namespace or name is
+// refused without a write; with no writer the methods refuse.
+func TestSearchVolumeAndInteractiveVolumeSearchCreateTheRightSpec(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		create   func(c actions.Creator, ns, comic string) (*catalogv1alpha1.Search, error)
+		grabBest bool
+	}{
+		{"the pack search", func(c actions.Creator, ns, comic string) (*catalogv1alpha1.Search, error) {
+			return actions.SearchVolume(t.Context(), c, ns, comic)
+		}, true},
+		{"the person", func(c actions.Creator, ns, comic string) (*catalogv1alpha1.Search, error) {
+			return actions.InteractiveVolumeSearch(t.Context(), c, ns, comic)
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &fakeWriter{}
+			s, err := tc.create(w, "media", "saga")
+			require.NoError(t, err)
+			require.Len(t, w.creates, 1)
+			require.Same(t, s, w.creates[0].obj)
+			require.Equal(t, actions.FieldManager, w.creates[0].opts.FieldManager)
+			require.Equal(t, "saga-", s.GenerateName)
+			require.Equal(t, "media", s.Namespace)
+			require.Equal(t, map[string]string{actions.LabelOrigin: actions.OriginUI}, s.Labels)
+			volume := catalogv1alpha1.VolumeSearchSeason
+			require.Equal(t, catalogv1alpha1.SearchSpec{
+				MediaRef: &commonv1.MediaRef{Kind: commonv1.MediaKindComic, Name: "saga"},
+				Season:   &volume,
+				GrabBest: tc.grabBest,
+			}, s.Spec)
+			require.True(t, s.Spec.PlannedBySeries() == tc.grabBest, "only the pack search is the Comic key's to plan")
+			require.False(t, s.Spec.FansOut(), "a volume search never fans out per issue")
+
+			for name, args := range map[string]struct{ ns, comic string }{
+				"no namespace": {"", "saga"},
+				"no comic":     {"media", ""},
+			} {
+				w := &fakeWriter{}
+				_, err := tc.create(w, args.ns, args.comic)
+				require.ErrorIs(t, err, actions.ErrInvalid, name)
+				require.Empty(t, w.creates, "%s: refused, so nothing is created", name)
+			}
+		})
+	}
+
+	var none *actions.Actions
+	_, err := none.SearchVolume(t.Context(), "media", "saga")
+	require.ErrorIs(t, err, actions.ErrNoWriter)
+	_, err = actions.New(nil).InteractiveVolumeSearch(t.Context(), "media", "saga")
+	require.ErrorIs(t, err, actions.ErrNoWriter)
+
+	w := &fakeWriter{}
+	_, err = actions.New(w).SearchVolume(t.Context(), "media", "saga")
+	require.NoError(t, err)
+	_, err = actions.New(w).InteractiveVolumeSearch(t.Context(), "media", "saga")
+	require.NoError(t, err)
+	require.Len(t, w.creates, 2, "each method writes through the Actions' writer")
+	require.True(t, w.creates[0].obj.(*catalogv1alpha1.Search).Spec.GrabBest)
+	require.False(t, w.creates[1].obj.(*catalogv1alpha1.Search).Spec.GrabBest)
+}

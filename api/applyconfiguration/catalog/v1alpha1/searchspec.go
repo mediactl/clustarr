@@ -63,7 +63,12 @@ type SearchSpecApplyConfiguration struct {
 	// Season narrows a series search to one season (0 is the specials). With
 	// grabBest the series searches that season and grabs what it finds;
 	// without it this is an interactive season search, its results in
-	// status.results. Only with mediaRef.kind series.
+	// status.results. With mediaRef.kind series, or comic, whose one season
+	// is its volume, VolumeSearchSeason (2026-11-10 design D10, §9.4): a
+	// comic search naming it is the Comic's own volume pack search -- with
+	// grabBest planned by the Comic key from status.volumeSearch, without
+	// it interactive -- where one naming no season fans out per Issue
+	// (ContainerKind).
 	Season *int32 `json:"season,omitempty"`
 }
 

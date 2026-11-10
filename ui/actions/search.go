@@ -24,6 +24,7 @@ import (
 	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -34,6 +35,11 @@ import (
 
 // maxGrabs is Search.spec.grab's MaxItems.
 const maxGrabs = 50
+
+// VolumeNumber is the one season a Comic has, its volume: the spec.season
+// a comic's volume Search names (catalogv1alpha1.VolumeSearchSeason, which
+// restates searchplan.VolumeNumber -- the ui links no app code).
+const VolumeNumber = catalogv1alpha1.VolumeSearchSeason
 
 // InteractiveSearch is Sonarr's and Radarr's interactive search: it creates
 // a Search for the catalog item kind/name in namespace exactly as
@@ -110,6 +116,65 @@ func InteractiveSeasonSearch(ctx context.Context, c Creator, namespace, series s
 
 // seasonSearch is the Search a season's two buttons create: [uiSearch] on
 // the series with spec.season set. A negative season is [ErrInvalid].
+// SearchVolume is the comic page's "Search Volume" (2026-11-10 design §9.4,
+// D10): a Search naming the Comic with spec.season its volume and grabBest,
+// which the Comic key's volume planner serves as one pack search of every
+// missing issue (SearchSpec.PlannedByComic), mirrored in status.volumeSearch
+// and the Search's status.seasons -- where a comic Search without a season
+// fans out per issue.
+func SearchVolume(ctx context.Context, c Creator, namespace, comic string) (*catalogv1alpha1.Search, error) {
+	ctx, span := tracing.Start(ctx, "ui.actions.SearchVolume")
+	defer span.End()
+
+	search, err := volumeSearch(namespace, comic)
+	if err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	search.Spec.GrabBest = true
+	if err := c.Create(ctx, search, client.FieldOwner(FieldManager)); err != nil {
+		err = fmt.Errorf("actions: create volume Search for comic %s/%s: %w", namespace, comic, err)
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	logging.FromContext(ctx).Info("ui action: volume search requested",
+		"search", search.Name, "namespace", namespace, "comic", comic)
+	return search, nil
+}
+
+// InteractiveVolumeSearch is the comic page's interactive volume search: the
+// same Search without grabBest, its ranked results in status.results for the
+// person to pick from, as InteractiveSeasonSearch is a season's.
+func InteractiveVolumeSearch(ctx context.Context, c Creator, namespace, comic string) (*catalogv1alpha1.Search, error) {
+	ctx, span := tracing.Start(ctx, "ui.actions.InteractiveVolumeSearch")
+	defer span.End()
+
+	search, err := volumeSearch(namespace, comic)
+	if err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	if err := c.Create(ctx, search, client.FieldOwner(FieldManager)); err != nil {
+		err = fmt.Errorf("actions: create interactive volume Search for comic %s/%s: %w", namespace, comic, err)
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	logging.FromContext(ctx).Info("ui action: interactive volume search requested",
+		"search", search.Name, "namespace", namespace, "comic", comic)
+	return search, nil
+}
+
+// volumeSearch is a Search of the comic's volume: mediaRef kind comic and
+// spec.season VolumeNumber, the one season the Search CRD admits on a comic.
+func volumeSearch(namespace, comic string) (*catalogv1alpha1.Search, error) {
+	if err := validateItem(namespace, commonv1.MediaKindComic, comic); err != nil {
+		return nil, err
+	}
+	search := uiSearch(namespace, commonv1.MediaKindComic, comic)
+	search.Spec.Season = ptr.To(VolumeNumber)
+	return search, nil
+}
+
 func seasonSearch(namespace, series string, season int32) (*catalogv1alpha1.Search, error) {
 	if err := validateItem(namespace, commonv1.MediaKindSeries, series); err != nil {
 		return nil, err
@@ -248,6 +313,20 @@ func (a *Actions) InteractiveSeasonSearch(ctx context.Context, namespace, series
 }
 
 // GrabRelease is [GrabRelease] over the Actions' writer.
+func (a *Actions) SearchVolume(ctx context.Context, namespace, comic string) (*catalogv1alpha1.Search, error) {
+	if a == nil || a.w == nil {
+		return nil, ErrNoWriter
+	}
+	return SearchVolume(ctx, a.w, namespace, comic)
+}
+
+func (a *Actions) InteractiveVolumeSearch(ctx context.Context, namespace, comic string) (*catalogv1alpha1.Search, error) {
+	if a == nil || a.w == nil {
+		return nil, ErrNoWriter
+	}
+	return InteractiveVolumeSearch(ctx, a.w, namespace, comic)
+}
+
 func (a *Actions) GrabRelease(
 	ctx context.Context, search *catalogv1alpha1.Search, guid string, override bool,
 ) (*catalogv1alpha1.Search, error) {

@@ -27,9 +27,16 @@ import (
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
+
+// comicVolumeNumber is the one season a Comic has, its volume: the
+// spec.season the volume Searches name and the season of status.volumeSearch
+// the badge reads (actions.VolumeNumber, which restates
+// catalogv1alpha1.VolumeSearchSeason; the issue page reads it too).
+const comicVolumeNumber = actions.VolumeNumber
 
 // A comic's page (2026-11-10 design §9.4; plan W4b.3) is the series page
 // for a volume: the hero on the cover with the publisher, years, volume
@@ -38,12 +45,6 @@ import (
 // read at request time through Options.Reader as the series page's seasons
 // are. Nothing here writes but the volume search, which goes through
 // ui/actions as every action does.
-
-// comicVolumeNumber is the one season a Comic has, its volume: the number
-// status.volumeSearch names (app/catalog/searchplan.VolumeNumber, which the
-// ui does not import; TestComicVolumeNumberIsTheSearchPlanners holds the
-// two equal).
-const comicVolumeNumber int32 = 1
 
 // handleComicPage serves GET /library/{namespace}/comic/{name}: the comic's
 // page, which beats the shared item route by its literal segment. A comic
@@ -157,31 +158,64 @@ func comicVineGUID(resourceType, id string) string {
 }
 
 // handleComicVolumeSearch serves POST
-// /library/{namespace}/comic/{name}/volume/search, the action bar's "Search
-// Volume": a Search with grabBest on the Comic (actions.SearchNow), answered
-// into #action-status as a season's magnifier is. A Comic has no planned
-// volume request -- the Search CRD admits spec.season on a series alone, and
-// the season planner serves a Comic's automatic volume search only (design
-// D10) -- so the button asks the Comic's own search, which fans out over its
-// monitored issues, and the page's badge reads status.volumeSearch, the
-// automatic pack search's state.
+// /library/{namespace}/comic/{name}/volume/search, the comic page's two
+// volume searches (2026-11-10 design §9.4, D10): "Search Volume" --
+// actions.SearchVolume, a Search naming the Comic with spec.season its
+// volume and grabBest, which the Comic key's volume planner serves as one
+// pack search of every missing issue (mirrored in status.volumeSearch, the
+// badge) -- answering in place for htmx and redirecting a form post; and,
+// with the form's "interactive" field, the interactive volume search --
+// actions.InteractiveVolumeSearch, the same Search without grabBest --
+// whose ranked results open in the volume's modal (#issue-modal, the comic
+// page's) and are polled through the shared /searches routes, every result
+// listed (a volume release is no season pack). The one route carries both,
+// since the comic's routes are the plan's (routes_comics.go).
 func (s *Server) handleComicVolumeSearch(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
-	if _, ok := findLibraryItem(s.opts.Library(r.Context()), ns, string(commonv1.MediaKindComic), name); !ok {
+	item, ok := findLibraryItem(s.opts.Library(r.Context()), ns, string(commonv1.MediaKindComic), name)
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	_, err := s.opts.Actions.SearchNow(r.Context(), ns, commonv1.MediaKindComic, name)
-	s.finishActionWith(w, r, err, "Searching the volume")
+	if r.FormValue("interactive") != "true" {
+		_, err := s.opts.Actions.SearchVolume(r.Context(), ns, name)
+		s.finishActionWith(w, r, err, "Searching the volume")
+		return
+	}
+	search, aerr := s.opts.Actions.InteractiveVolumeSearch(r.Context(), ns, name)
+	if !isHTMX(r) {
+		if aerr != nil {
+			s.finishAction(w, r, aerr)
+			return
+		}
+		http.Redirect(w, r, searchPanelURL(search)+"?filter=all", http.StatusSeeOther)
+		return
+	}
+	var p views.SearchPanel
+	if aerr != nil {
+		p = views.SearchPanel{Phase: string(catalogv1.SearchPhaseFailed), Failed: "the search was not started", Error: failureOf(r, aerr), Season: true}
+	} else {
+		p = searchPanel(search, time.Now())
+	}
+	p = withFilter(p, "all")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if rerr := views.VolumeSearchModal(s.itemDetail(r.Context(), item), p).Render(r.Context(), w); rerr != nil {
+		logging.FromContext(r.Context()).Error("render volume search modal", "error", rerr)
+	}
 }
 
-// comicVolumeBadge is the comic's volume search badge from
-// status.volumeSearch, seasonSearchBadge over the one volume: Queued,
-// Searching, or "Searched: N approved" with its age; zero for no state, or
-// a volume skipped, failed or canceled.
+// comicVolumeBadge is the issues card's volume search badge, read from
+// status.volumeSearch as the series page reads a season's from
+// status.seasonSearch: Queued, Searching, or "Searched: N approved". A state
+// serving a person's planned volume Search (the state names it) says so in
+// the tooltip; the automatic volume search names none.
 func comicVolumeBadge(st *catalogv1.SeasonSearchState, now time.Time) views.SeasonSearchBadge {
 	if st == nil {
 		return views.SeasonSearchBadge{}
+	}
+	in := ""
+	if st.Request.UID != "" {
+		in = fmt.Sprintf(" (the search %s)", st.Request.Name)
 	}
 	for _, se := range st.Seasons {
 		if se.Number != comicVolumeNumber {
@@ -189,13 +223,13 @@ func comicVolumeBadge(st *catalogv1.SeasonSearchState, now time.Time) views.Seas
 		}
 		switch se.Phase {
 		case catalogv1.SeasonSearchQueued:
-			return views.SeasonSearchBadge{Phase: string(se.Phase), Label: "Queued", Title: "The volume waits its turn to be searched"}
+			return views.SeasonSearchBadge{Phase: string(se.Phase), Label: "Queued", Title: "The volume waits its turn to be searched" + in}
 		case catalogv1.SeasonSearchSearching:
-			return views.SeasonSearchBadge{Phase: string(se.Phase), Label: "Searching", Title: "The volume is being searched for a pack"}
+			return views.SeasonSearchBadge{Phase: string(se.Phase), Label: "Searching", Title: "The volume is being searched for a pack" + in}
 		case catalogv1.SeasonSearchAnswered:
 			b := views.SeasonSearchBadge{Phase: string(se.Phase), Label: fmt.Sprintf("Searched: %d approved", se.Approved)}
 			if se.AnsweredAt != nil {
-				b.Title = fmt.Sprintf("%d releases, %d approved, %s ago", se.Candidates, se.Approved, ageLabel(now.Sub(se.AnsweredAt.Time)))
+				b.Title = fmt.Sprintf("%d releases, %d approved, %s ago%s", se.Candidates, se.Approved, ageLabel(now.Sub(se.AnsweredAt.Time)), in)
 			}
 			return b
 		}

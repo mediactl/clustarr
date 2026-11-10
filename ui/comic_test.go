@@ -72,7 +72,10 @@ func comicFixture(t *testing.T) (*ui.Server, client.Client) {
 				{Type: catalogv1.ImageTypePoster, Digest: "p0st3r"},
 				{Type: catalogv1.ImageTypeFanart, Digest: "f4n4rt"},
 			},
+			// The volume search's state serves a person's planned volume
+			// Search (C6), which the badge names.
 			VolumeSearch: &catalogv1.SeasonSearchState{
+				Request:   catalogv1.SeasonSearchRequest{Name: "saga-volume-x1", UID: "uid-search"},
 				StartedAt: metav1.NewTime(time.Now().Add(-time.Minute)),
 				Seasons:   []catalogv1.SeasonSearchSeason{{Number: 1, Phase: catalogv1.SeasonSearchSearching}},
 			},
@@ -211,15 +214,21 @@ func TestComicPageIsMylarsIssuesTable(t *testing.T) {
 		`data-action="rename-dry-run"`, `data-action="rename-apply"`} {
 		require.Contains(t, bar, a, "the actions live in the bar")
 	}
-	require.NotContains(t, bar, `data-action="comic-interactive-search"`, "a comic has no interactive search of its own")
+	require.NotContains(t, bar, `data-action="comic-interactive-search"`, "a comic has no interactive search of itself as an item")
+	require.Contains(t, bar, `data-action="comic-volume-interactive-search"`, "the volume's interactive search, a season header's person")
 	require.Less(t, strings.Index(bar, `data-action="search-now"`), strings.Index(bar, `data-action="comic-volume-search"`))
-	require.Less(t, strings.Index(bar, `data-action="comic-volume-search"`), strings.Index(bar, `data-action="rename-dry-run"`))
+	require.Less(t, strings.Index(bar, `data-action="comic-volume-search"`), strings.Index(bar, `data-action="comic-volume-interactive-search"`))
+	require.Less(t, strings.Index(bar, `data-action="comic-volume-interactive-search"`), strings.Index(bar, `data-action="rename-dry-run"`))
 	requireTag(t, page, `id="volume-search-saga"`, `action="/library/default/comic/saga/volume/search"`,
 		`hx-post="/library/default/comic/saga/volume/search"`, `hx-target="#action-status"`)
+	requireTag(t, page, `id="volume-interactive-search-saga"`, `action="/library/default/comic/saga/volume/search"`,
+		`hx-post="/library/default/comic/saga/volume/search"`, `hx-target="#issue-modal"`)
+	require.Regexp(t, `id="volume-interactive-search-saga"[^>]*>[\s\S]*?name="interactive" value="true"[\s\S]*?</form>`, page,
+		"the interactive volume search is the one route's form with the interactive field")
 	require.Contains(t, page, "Search Monitored Issues")
 
 	// The issues table and its volume badge.
-	requireTag(t, page, `data-volume-search="Searching"`, `title="The volume is being searched for a pack"`)
+	requireTag(t, page, `data-volume-search="Searching"`, `title="The volume is being searched for a pack (the search saga-volume-x1)"`)
 	require.Equal(t, 1, strings.Count(page, `data-issue-table`), "the issues are one table")
 	for name, status := range map[string]string{
 		"saga-001.0": "file", "saga-002.0": "downloading", "saga-003.0": "pending", "saga-004.0": "missing",
@@ -251,12 +260,12 @@ func TestComicPageIsMylarsIssuesTable(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/comic/nope", false).Code)
 }
 
-// The action bar's "Search Volume" asks the Comic's own search -- a Search
-// with grabBest on the Comic, which fans out over its monitored issues --
-// since the Search CRD admits a planned season on a series alone (design
-// D10: a Comic's volume search is automatic). It answers in place for
-// htmx and redirects a form post.
-func TestComicVolumeSearchAsksTheComicsSearch(t *testing.T) {
+// The action bar's "Search Volume" plans the volume: a Search naming the
+// Comic with spec.season its volume (actions.VolumeNumber) and grabBest,
+// which the Comic key's volume planner serves as one pack search (design
+// §9.4, D10; the W4b.3 leftover), never a Search that fans out per issue.
+// It answers in place for htmx and redirects a form post.
+func TestComicVolumeSearchPlansTheVolume(t *testing.T) {
 	srv, c := comicFixture(t)
 	req := httptest.NewRequest(http.MethodPost, "/library/default/comic/saga/volume/search", nil)
 	req.Header.Set("HX-Request", "true")
@@ -272,7 +281,10 @@ func TestComicVolumeSearchAsksTheComicsSearch(t *testing.T) {
 	require.Len(t, list.Items, 1)
 	require.Equal(t, &commonv1.MediaRef{Kind: commonv1.MediaKindComic, Name: "saga"}, list.Items[0].Spec.MediaRef)
 	require.True(t, list.Items[0].Spec.GrabBest, "the volume search grabs its best")
-	require.Nil(t, list.Items[0].Spec.Season, "no planned season: the CRD admits one on a series alone")
+	require.NotNil(t, list.Items[0].Spec.Season)
+	require.Equal(t, actions.VolumeNumber, *list.Items[0].Spec.Season, "the Comic's one season, its volume")
+	require.True(t, list.Items[0].Spec.PlannedBySeries(), "the Comic key plans it")
+	require.False(t, list.Items[0].Spec.FansOut(), "it never fans out per issue")
 
 	rec = postForm(t, srv, "/library/default/comic/saga/volume/search", url.Values{"return": {"/library/default/comic/saga"}}, false)
 	require.Equal(t, http.StatusSeeOther, rec.Code)
@@ -281,4 +293,44 @@ func TestComicVolumeSearchAsksTheComicsSearch(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, postForm(t, srv, "/library/default/comic/nope/volume/search", url.Values{}, true).Code)
 	require.NoError(t, c.List(t.Context(), &list, client.InNamespace("default"), client.MatchingLabels{actions.LabelOrigin: actions.OriginUI}))
 	require.Len(t, list.Items, 2, "nothing is created for an unknown comic")
+}
+
+// The action bar's "Interactive" volume search -- the one route with the
+// form's "interactive" field -- creates the same Search without grabBest
+// (actions.InteractiveVolumeSearch) and opens the volume's modal in
+// #issue-modal for htmx, its panel polling the shared /searches route with
+// every release listed; a form post redirects to the panel. The badge
+// names the planned Search its state serves.
+func TestComicInteractiveVolumeSearchOpensTheVolumeModal(t *testing.T) {
+	srv, c := comicFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/library/default/comic/saga/volume/search",
+		strings.NewReader(url.Values{"interactive": {"true"}, "return": {"/library/default/comic/saga"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Target", "issue-modal")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, `data-volume-search-modal="saga"`)
+	require.Contains(t, body, "Saga - Volume")
+	require.NotContains(t, body, `data-season-search-modal`, "the volume's own modal, not a season's")
+
+	var list catalogv1.SearchList
+	require.NoError(t, c.List(t.Context(), &list, client.InNamespace("default"), client.MatchingLabels{actions.LabelOrigin: actions.OriginUI}))
+	require.Len(t, list.Items, 1)
+	s := list.Items[0]
+	require.Equal(t, &commonv1.MediaRef{Kind: commonv1.MediaKindComic, Name: "saga"}, s.Spec.MediaRef)
+	require.False(t, s.Spec.GrabBest, "the person picks")
+	require.Equal(t, actions.VolumeNumber, *s.Spec.Season)
+	require.False(t, s.Spec.PlannedBySeries(), "an interactive volume search is the Search controller's own")
+	require.Contains(t, body, `hx-get="/searches/default/`+s.Name+`?filter=all"`, "the panel polls with every release listed")
+
+	rec = postForm(t, srv, "/library/default/comic/saga/volume/search", url.Values{"interactive": {"true"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.NoError(t, c.List(t.Context(), &list, client.InNamespace("default"), client.MatchingLabels{actions.LabelOrigin: actions.OriginUI}))
+	require.Len(t, list.Items, 2)
+	require.Regexp(t, `^/searches/default/saga-[a-z0-9]+\?filter=all$`, rec.Header().Get("Location"))
+
+	require.Equal(t, http.StatusNotFound, postForm(t, srv, "/library/default/comic/nope/volume/search", url.Values{"interactive": {"true"}}, true).Code)
 }

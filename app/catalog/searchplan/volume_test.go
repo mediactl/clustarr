@@ -59,7 +59,7 @@ func TestAComicVolumeIsSearchedAsOneSeason(t *testing.T) {
 	v := volumeView(now)
 	p := searchplan.DecideSeasons(v, admitAll, paceNow(now))
 	require.NotNil(t, p.State)
-	require.True(t, searchplan.Automatic(p.State), "a Comic has no planned request: its Search CR fans out per Issue")
+	require.True(t, searchplan.Automatic(p.State), "no planned request waiting: the automatic volume search")
 	require.Equal(t, map[int32]catalogv1alpha1.SeasonSearchPhase{searchplan.VolumeNumber: catalogv1alpha1.SeasonSearchSearching}, phases(p.State))
 	require.NotNil(t, p.Publish)
 	task := p.Publish
@@ -120,6 +120,79 @@ func TestAComicVolumeIsSearchedAsOneSeason(t *testing.T) {
 // TestVolumePackFirstReadsTheMissingCount is design D10's test, from the
 // Comic's container rollup: monitored with two or more monitored, released
 // issues missing.
+// A planned volume Search -- the comic page's "Search Volume", a Search
+// naming the Comic with spec.season VolumeNumber and grabBest (design
+// §9.4, D10) -- is served as a Series' season search is: the state names
+// the request, one season task goes out for the volume as a person's, its
+// answer finishes the state, and the next request waits for the handshake.
+// A request naming another season is skipped, since a comic has one
+// volume, and one naming none asks for the volume.
+func TestAPlannedVolumeSearchIsServedAsASeasonSearch(t *testing.T) {
+	now := t0
+	v := volumeView(now)
+	v.Seasons[0].FirstSearch = 0 // every issue searched before: nothing automatic to serve
+	v.Requests = []searchplan.SeasonRequest{request("volume", seasonN(searchplan.VolumeNumber), now.Add(-time.Minute))}
+	p := searchplan.DecideSeasons(v, admitAll, paceNow(now))
+	require.NotNil(t, p.State)
+	require.True(t, p.Started)
+	require.False(t, searchplan.Automatic(p.State), "the state serves the Search")
+	require.Equal(t, catalogv1alpha1.SeasonSearchRequest{Name: "volume", UID: "uid-volume"}, p.State.Request)
+	require.Equal(t, map[int32]catalogv1alpha1.SeasonSearchPhase{searchplan.VolumeNumber: catalogv1alpha1.SeasonSearchSearching}, phases(p.State))
+	require.NotNil(t, p.Publish)
+	task := p.Publish
+	require.Equal(t, commonv1.MediaKindComic, task.Payload.MediaRef.Kind)
+	require.Equal(t, "saga", task.Payload.MediaRef.Name)
+	require.Equal(t, saga, task.Payload.Item, "the Comic is the item: no Issue search")
+	require.Equal(t, searchplan.VolumeNumber, *task.Payload.Season)
+	require.Equal(t, schema.SearchReasonSeason, task.Payload.Reason)
+	require.True(t, task.Payload.UserInvoked, "a person asked")
+	require.True(t, task.Live)
+	require.Equal(t, events.MsgIDForSeasonSearch("uid-saga", searchplan.VolumeNumber, task.Payload.Seq), task.MsgID)
+
+	v = next(v, p, now.Add(time.Minute))
+	v.Records[searchplan.VolumeNumber] = seasonAnswer(p, now.Add(30*time.Second), records.StateAnswered, false, 2)
+	done := searchplan.DecideSeasons(v, admitAll, paceNow(v.Now))
+	require.True(t, done.Answered)
+	require.NotNil(t, done.State.FinishedAt)
+	require.Equal(t, "uid-volume", done.State.Request.UID)
+	require.Equal(t, catalogv1alpha1.SeasonSearchAnswered, done.State.Seasons[0].Phase)
+	require.EqualValues(t, 2, done.State.Seasons[0].Approved)
+	require.Len(t, done.Finals, 1)
+	require.Equal(t, "uid-volume", done.Finals[0].Request.UID)
+
+	// The handshake: the next request waits for the Search to copy its
+	// outcome, then is served; a request for another season is skipped.
+	v = next(v, done, v.Now.Add(time.Minute))
+	v.Requests = append(v.Requests, request("second", seasonN(2), v.Now))
+	held := searchplan.DecideSeasons(v, admitAll, paceNow(v.Now))
+	require.False(t, held.Started, "the served Search has not settled")
+	v.ServedSettled = true
+	served := searchplan.DecideSeasons(v, admitAll, paceNow(v.Now))
+	require.True(t, served.Started)
+	require.Equal(t, "uid-second", served.State.Request.UID)
+	require.Equal(t, catalogv1alpha1.SeasonSearchSkipped, served.State.Seasons[0].Phase)
+	require.Equal(t, catalogv1alpha1.SeasonSearchNoSuchSeason, served.State.Seasons[0].Reason, "a comic has one volume")
+	require.Nil(t, served.Publish)
+
+	t.Run("a request naming no season asks for the volume", func(t *testing.T) {
+		v := volumeView(now)
+		v.Requests = []searchplan.SeasonRequest{request("whole", nil, now)}
+		p := searchplan.DecideSeasons(v, admitAll, paceNow(now))
+		require.Equal(t, "uid-whole", p.State.Request.UID)
+		require.Equal(t, map[int32]catalogv1alpha1.SeasonSearchPhase{searchplan.VolumeNumber: catalogv1alpha1.SeasonSearchSearching}, phases(p.State))
+	})
+	t.Run("nothing wanted is skipped at once, as a season is", func(t *testing.T) {
+		v := volumeView(now)
+		v.Seasons[0].Wanted = 0
+		v.Requests = []searchplan.SeasonRequest{request("volume", seasonN(searchplan.VolumeNumber), now)}
+		p := searchplan.DecideSeasons(v, admitAll, paceNow(now))
+		require.Equal(t, catalogv1alpha1.SeasonSearchSkipped, p.State.Seasons[0].Phase)
+		require.Equal(t, catalogv1alpha1.SeasonSearchNothingWanted, p.State.Seasons[0].Reason)
+		require.NotNil(t, p.State.FinishedAt)
+		require.Nil(t, p.Publish)
+	})
+}
+
 func TestVolumePackFirstReadsTheMissingCount(t *testing.T) {
 	comic := func(monitored *bool, missing int32) *catalogv1alpha1.Comic {
 		co := &catalogv1alpha1.Comic{}

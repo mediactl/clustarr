@@ -83,6 +83,7 @@ func TestAdmission(t *testing.T) {
 	cases = append(cases, transcodeProfileCases()...)
 	cases = append(cases, importListKindCases()...)
 	cases = append(cases, rootFolderPathCases()...)
+	cases = append(cases, searchSeasonCases()...)
 
 	ctx := context.Background()
 	for _, c := range cases {

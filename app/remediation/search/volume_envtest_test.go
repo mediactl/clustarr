@@ -182,3 +182,109 @@ func TestAComicIsSearchedAsAVolumeBeforeItsIssues(t *testing.T) {
 	require.NotNil(t, iss.Status.LastLiveSearchAt, "the volume asked the indexers: the issue's live search too")
 	require.Len(t, searchTasks(t, f.Loop), 1, "no issue search in the same pass: its next is index-only, on its backoff")
 }
+
+// volumeSearch creates a person's volume Search of the comic (design §9.4:
+// the comic page's "Search Volume" with grabBest, its interactive volume
+// search without), a Search naming the Comic with spec.season the volume --
+// which the Search CRD admits since C6 (the CEL rule, pkg/crdcheck).
+func (f *fixture) volumeSearch(t *testing.T, name string, grabBest bool) *catalogv1alpha1.Search {
+	t.Helper()
+	s := &catalogv1alpha1.Search{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
+		Spec: catalogv1alpha1.SearchSpec{
+			MediaRef: &commonv1.MediaRef{Kind: commonv1.MediaKindComic, Name: "saga"},
+			GrabBest: grabBest, Season: ptr.To(searchplan.VolumeNumber), TTL: metav1.Duration{Duration: time.Hour},
+		},
+	}
+	require.NoError(t, f.API.Create(f.Ctx, s))
+	f.Synced(t, s)
+	return s
+}
+
+// A planned volume Search -- a Search naming the Comic with spec.season (the
+// volume) and grabBest, the comic page's "Search Volume" (design §9.4, D10;
+// the W4b.3 leftover) -- is served by the Comic key's volume planner as a
+// Series' planned Search is: S31 wakes the Comic, the pass takes the
+// request into status.volumeSearch (the state names the Search), one
+// season task goes out for the volume as a person's, its Issues wait for
+// it, the answer finishes the state and folds into each Issue, and the
+// finished state waits for the Search's handshake. The Search's own
+// status.seasons is the Search controller's mirror, not run here. A volume
+// Search without grabBest is interactive and no request of the planner's.
+func TestAPlannedVolumeSearchIsServedByTheComic(t *testing.T) {
+	f := newFixture(t, "rs-planned-volume", looptest.Options{})
+	co := f.comic(t, 2)
+	key := comicKey(f.ns)
+	woken := f.Woken.Count(key)
+	srch := f.volumeSearch(t, "volume", true)
+	require.Eventually(t, func() bool { return f.Woken.Count(key) > woken }, 5*time.Second, 20*time.Millisecond, "S31 never woke the Comic on its planned volume Search")
+
+	f.Pass(t, remediation.KindComic, f.ns, "saga")
+	tasks := searchTasks(t, f.Loop)
+	require.Len(t, tasks, 1, "one volume task")
+	task := tasks[0]
+	require.Equal(t, commonv1.MediaKindComic, task.MediaRef.Kind)
+	require.Equal(t, "saga", task.MediaRef.Name)
+	require.Equal(t, "Comic", task.Item.Kind, "no Issue search is published for the volume")
+	require.Equal(t, searchplan.VolumeNumber, *task.Season)
+	require.Equal(t, schema.SearchReasonSeason, task.Reason)
+	require.True(t, task.UserInvoked, "a person asked for the volume")
+	f.get(t, co)
+	st := co.Status.VolumeSearch
+	require.NotNil(t, st)
+	require.False(t, searchplan.Automatic(st), "the state serves the Search, not the automatic volume search")
+	require.Equal(t, catalogv1alpha1.SeasonSearchRequest{Name: srch.Name, UID: string(srch.UID)}, st.Request)
+	require.Equal(t, catalogv1alpha1.SeasonSearchSearching, st.Seasons[0].Phase)
+	require.True(t, st.Dispatch.InFlight())
+	f.Synced(t, co)
+
+	f.Pass(t, remediation.KindIssue, f.ns, "saga-1")
+	require.Len(t, searchTasks(t, f.Loop), 1, "the issue waits for its volume")
+
+	woken = f.Woken.Count(key)
+	answerVolume(t, f, co, task, 2)
+	require.Eventually(t, func() bool { return f.Woken.Count(key) > woken }, 5*time.Second, 20*time.Millisecond, "S29 never woke the Comic on its volume record")
+	f.Pass(t, remediation.KindComic, f.ns, "saga")
+	f.get(t, co)
+	st = co.Status.VolumeSearch
+	require.Equal(t, string(srch.UID), st.Request.UID)
+	require.Equal(t, catalogv1alpha1.SeasonSearchAnswered, st.Seasons[0].Phase)
+	require.EqualValues(t, 2, st.Seasons[0].Approved)
+	require.NotNil(t, st.FinishedAt)
+	f.Synced(t, co)
+
+	// The handshake: the Search has not settled (nothing mirrors it here),
+	// so another pass serves nothing new and keeps the finished state.
+	f.Pass(t, remediation.KindComic, f.ns, "saga")
+	f.get(t, co)
+	require.Equal(t, string(srch.UID), co.Status.VolumeSearch.Request.UID)
+	require.Len(t, searchTasks(t, f.Loop), 1)
+
+	// Each issue folds the volume's answer as its own search (S33 wakes
+	// them; here each is passed), so none waits for a first search and
+	// no automatic volume search follows the planned one.
+	for _, name := range []string{"saga-1", "saga-2"} {
+		iss := &catalogv1alpha1.Issue{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns}}
+		f.Pass(t, remediation.KindIssue, f.ns, iss.Name)
+		f.get(t, iss)
+		require.EqualValues(t, 1, iss.Status.SearchAttempts.Count, "the volume's answer is the issue's search")
+		require.NotNil(t, iss.Status.LastLiveSearchAt)
+		f.Synced(t, iss)
+	}
+	require.Len(t, searchTasks(t, f.Loop), 1)
+
+	// An interactive volume Search (no grabBest) is the Search controller's
+	// own, never a request of the planner's: with the planned Search gone
+	// the state stays the finished one, and nothing is published.
+	interactive := f.volumeSearch(t, "interactive", false)
+	require.NoError(t, f.API.Delete(f.Ctx, srch))
+	require.Eventually(t, func() bool {
+		return apierrors.IsNotFound(f.C.Get(f.Ctx, client.ObjectKeyFromObject(srch), &catalogv1alpha1.Search{}))
+	}, 5*time.Second, 20*time.Millisecond)
+	f.Pass(t, remediation.KindComic, f.ns, "saga")
+	f.get(t, co)
+	require.Equal(t, string(srch.UID), co.Status.VolumeSearch.Request.UID, "the interactive Search is no planned request")
+	require.NotEqual(t, string(interactive.UID), co.Status.VolumeSearch.Request.UID)
+	require.NotNil(t, co.Status.VolumeSearch.FinishedAt)
+	require.Len(t, searchTasks(t, f.Loop), 1)
+}

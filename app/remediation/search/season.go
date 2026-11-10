@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
@@ -64,11 +65,13 @@ const (
 const (
 	triggerSeries    = "series"
 	triggerSeason    = "season"
+	triggerVolume    = "volume"
 	triggerAutomatic = "automatic"
 )
 
 // servedSearch is what the stage read of the planned Searches naming a
-// Series: the open requests, oldest first, and each one's trigger.
+// container (a Series, or a Comic for its volume): the open requests,
+// oldest first, and each one's trigger.
 type servedSearch struct {
 	triggers map[string]string
 }
@@ -79,7 +82,10 @@ type servedSearch struct {
 // waiting, the automatic season search of its PackFirst seasons (owner,
 // 2026-10-27; §17); and since 2026-11-10 (design D10) the Comic key's
 // volume planner over status.volumeSearch, the same plan over the one
-// season that is the volume, automatic only. It publishes no Episode or
+// season that is the volume: a person's planned volume Search (a Search
+// naming the Comic with spec.season and grabBest, SearchSpec.PlannedByComic;
+// the comic page's "Search Volume", design §9.4) served one at a time, and
+// with none waiting the automatic volume search. It publishes no Episode or
 // Issue search.
 func (s *Stage) planContainer(ctx context.Context, env *remediation.Env, v *remediation.ItemView) (remediation.ItemResult, error) {
 	switch v.Item.(type) {
@@ -166,7 +172,7 @@ func (s *Stage) containerResult(kind remediation.KeyKind, sv searchplan.SeasonVi
 	for _, f := range plan.Finals {
 		trigger := served.triggers[f.Request.UID]
 		if trigger == "" {
-			trigger = inferTrigger(st, f.Request)
+			trigger = inferTrigger(kind, st, f.Request)
 		}
 		metrics.SeasonSearchesTotal.WithLabelValues(trigger, seasonOutcome(f.Season)).Inc()
 		if f.Season.Phase == catalogv1alpha1.SeasonSearchAnswered && f.Season.Approved > 0 {
@@ -193,11 +199,14 @@ func (s *Stage) containerResult(kind remediation.KeyKind, sv searchplan.SeasonVi
 }
 
 // inferTrigger is a final's trigger when its Search is gone: "automatic"
-// for the automatic season search, "season" for a state of one season, else
-// "series".
-func inferTrigger(st *catalogv1alpha1.SeasonSearchState, req catalogv1alpha1.SeasonSearchRequest) string {
+// for the automatic season (or volume) search, "volume" for a Comic's
+// planned request, "season" for a state of one season, else "series".
+func inferTrigger(kind remediation.KeyKind, st *catalogv1alpha1.SeasonSearchState, req catalogv1alpha1.SeasonSearchRequest) string {
 	if req.UID == "" {
 		return triggerAutomatic
+	}
+	if kind == remediation.KindComic {
+		return triggerVolume
 	}
 	if st != nil && st.Request.UID == req.UID && len(st.Seasons) == 1 {
 		return triggerSeason
@@ -241,19 +250,13 @@ func (s *Stage) gatherContainer(ctx context.Context, v *remediation.ItemView, no
 		Key:          dispatch.Key{Kind: ref.Kind, Namespace: ref.Namespace, Name: ref.Name, Sub: history.DispatchSubSeasonSearch},
 	}
 	served := servedSearch{triggers: map[string]string{}}
-	switch t := item.(type) {
-	case *catalogv1alpha1.Series:
-		sv.Anime = t.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
-		if err := s.plannedRequests(ctx, t, &sv, served); err != nil {
-			return sv, served, err
-		}
-	case *catalogv1alpha1.Comic:
-		// A Comic has no planned request (its Search CR fans out per Issue,
-		// SearchSpec.ContainerKind): its state is the automatic volume
-		// search's, with nothing to cancel it and no handshake to wait for.
-		if sv.State != nil {
-			sv.ServedGone, sv.ServedSettled = !searchplan.Automatic(sv.State), true
-		}
+	if ser, ok := item.(*catalogv1alpha1.Series); ok {
+		sv.Anime = ser.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
+	}
+	// The planned Searches naming the container: a Series' series and
+	// season searches, a Comic's volume searches (design D10, §9.4).
+	if err := s.plannedRequests(ctx, item, &sv, served); err != nil {
+		return sv, served, err
 	}
 
 	// The profile, protocols and priorities the season tasks carry.
@@ -321,19 +324,29 @@ func (s *Stage) gatherContainer(ctx context.Context, v *remediation.ItemView, no
 }
 
 // plannedRequests fills sv.Requests with the planned Searches naming the
-// series (seriessearch's index), oldest first, each one's trigger in
-// served, and the handshake state of the request sv.State serves.
-func (s *Stage) plannedRequests(ctx context.Context, ser *catalogv1alpha1.Series, sv *searchplan.SeasonView, served servedSearch) error {
-	searches, err := seriessearch.Of(ctx, s.o.Reader, ser.Namespace, ser.Name)
+// container (seriessearch's index, which keys every SearchSpec.PlannedBySeries
+// Search by the name it names, a Series' and a Comic's alike, so the kind
+// is checked here), oldest first, each one's trigger in served, and the
+// handshake state of the request sv.State serves.
+func (s *Stage) plannedRequests(ctx context.Context, container client.Object, sv *searchplan.SeasonView, served servedSearch) error {
+	searches, err := seriessearch.Of(ctx, s.o.Reader, container.GetNamespace(), container.GetName())
 	if err != nil {
 		return err
 	}
+	kind := itemread.MediaKind(container)
 	servedFound := false
 	for i := range searches {
 		srch := &searches[i]
+		if srch.Spec.MediaRef == nil || srch.Spec.MediaRef.Kind != kind {
+			// A same-named container of the other kind.
+			continue
+		}
 		uid := string(srch.UID)
 		trigger := triggerSeries
-		if srch.Spec.Season != nil {
+		switch {
+		case kind == commonv1.MediaKindComic:
+			trigger = triggerVolume
+		case srch.Spec.Season != nil:
 			trigger = triggerSeason
 		}
 		served.triggers[uid] = trigger
@@ -360,7 +373,8 @@ func (s *Stage) plannedRequests(ctx context.Context, ser *catalogv1alpha1.Series
 	}
 	if sv.State != nil && !servedFound {
 		// An automatic state names no Search: nothing to cancel it, and no
-		// handshake to wait for once it finishes.
+		// handshake to wait for once it finishes. A planned state whose
+		// Search is gone is canceled (ServedGone).
 		sv.ServedGone, sv.ServedSettled = !searchplan.Automatic(sv.State), true
 	}
 	return nil

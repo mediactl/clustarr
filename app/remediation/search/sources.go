@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
@@ -77,8 +78,9 @@ func (s *Stage) Sources(ctrl.Manager) ([]remediation.Source, error) {
 	out := []remediation.Source{
 		{Name: "S29/" + events.BucketSearches, Raw: src},
 		// S31 (Wave S): a planned Search -- a series or season search with
-		// grabBest -- created, changed (its phase settling is the
-		// handshake) or deleted wakes the Series it names, at once.
+		// grabBest, or a comic's volume search with grabBest (design D10)
+		// -- created, changed (its phase settling is the handshake) or
+		// deleted wakes the container it names, at once.
 		{Name: "S31/Search", Object: &catalogv1alpha1.Search{}, Handler: plannedSearchWakes()},
 		// S33 (design D10): a Comic's volumeSearch phase or reason moving
 		// wakes its Issues at low priority.
@@ -166,7 +168,13 @@ func plannedSearchWakes() handler.TypedEventHandler[client.Object, remediation.K
 			if !ok || !srch.Spec.PlannedBySeries() || srch.Spec.MediaRef.Name == "" {
 				continue
 			}
-			k := remediation.Key{Kind: remediation.KindSeries, Namespace: srch.Namespace, Name: srch.Spec.MediaRef.Name}
+			// The container the Search names: a Series, or a Comic for its
+			// volume search (design D10).
+			kind := remediation.KindSeries
+			if srch.Spec.MediaRef.Kind == commonv1.MediaKindComic {
+				kind = remediation.KindComic
+			}
+			k := remediation.Key{Kind: kind, Namespace: srch.Namespace, Name: srch.Spec.MediaRef.Name}
 			if pq, ok := q.(priorityqueue.PriorityQueue[remediation.Key]); ok {
 				pq.AddWithOpts(priorityqueue.AddOpts{Priority: new(remediation.PriorityUser)}, k)
 				continue

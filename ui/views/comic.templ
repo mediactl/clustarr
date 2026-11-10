@@ -23,13 +23,14 @@ import (
 
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/dialog"
 	"github.com/mediactl/clustarr/ui/components/table"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // A comic's page (2026-11-10 design §9.4) is the series page for a volume:
 // the action bar -- Refresh & Scan, Search, Search Volume (the pack
-// search), Rename, Edit, Delete -- a hero on the cover with the publisher,
+// search) and its interactive twin, Rename, Edit, Delete -- a hero on the cover with the publisher,
 // the run's years, the volume number, the issue count, the publication
 // status, the kind (comic or manga and how it reads), the age rating, the
 // genres and the provider logos, then Mylar's issues table. An issue's
@@ -54,20 +55,51 @@ templ issueRegions() {
 
 // comicActions is the comic page's action bar: the shared slots by name
 // (ItemActions' Refresh & Scan, Search Monitored Issues, Rename, Edit,
-// Delete) with "Search Volume" between Search and Rename -- the pack
-// search of every missing issue, answered into #action-status as a season's
-// magnifier is. A comic has no interactive search of its own
-// (InteractiveSearchable): its issues have theirs.
+// Delete) with the volume's two searches between Search and Rename, a
+// season header's pair for the one season that is the volume (design §9.4,
+// D10): "Search Volume" -- a planned Search of the volume with grabBest,
+// one pack search of every missing issue, answered into #action-status as
+// a season's magnifier is -- and "Interactive", the same Search without
+// grabBest (the form's "interactive" field on the one route), whose
+// results open in #issue-modal. A comic has no interactive search of
+// itself as an item (InteractiveSearchable): its issues have theirs.
 templ comicActions(v ComicView) {
 	{{ d := v.Detail }}
+	{{ here := libraryDetailPath(d.Item) }}
 	@actionBar() {
 		@itemAction(d, ActionRefresh)
 		@itemAction(d, ActionSearch)
-		@actionForm("volume-search-"+d.Item.Ref.Name, v.VolumeSearchURL(), []Field{{"return", libraryDetailPath(d.Item)}}, "layers", "Volume", "Search Volume: one search for a pack of every missing issue", "comic-volume-search",
+		@actionForm("volume-search-"+d.Item.Ref.Name, v.VolumeSearchURL(), []Field{{"return", here}}, "layers", "Volume", "Search Volume: one search for a pack of every missing issue", "comic-volume-search",
 			templ.Attributes{"hx-post": v.VolumeSearchURL(), "hx-target": "#action-status"})
+		@actionForm("volume-interactive-search-"+d.Item.Ref.Name, v.VolumeSearchURL(), []Field{{"return", here}, {"interactive", "true"}}, "user-search", "Interactive", "Interactive Volume Search: pick a pack of the volume yourself", "comic-volume-interactive-search",
+			templ.Attributes{"hx-post": v.VolumeSearchURL(), "hx-target": "#issue-modal", "hx-swap": "innerHTML"})
 		@itemAction(d, ActionRename)
 		@itemAction(d, ActionEdit)
 		@itemAction(d, ActionDelete)
+	}
+}
+
+// VolumeSearchModal is the comic's interactive volume search (design §9.4):
+// the volume's results in a modal swapped into the page's #issue-modal,
+// opening as it lands -- the season search's modal for the one season that
+// is the volume, every release listed, since a volume release is no season
+// pack and the panel's pack filter would hide them all.
+templ VolumeSearchModal(comic Detail, p SearchPanel) {
+	@dialog.Dialog(dialog.Props{DefaultOpen: true}) {
+		@dialog.Content(dialog.ContentProps{
+			Class:      "max-h-[90vh] overflow-y-auto sm:max-w-6xl",
+			Attributes: templ.Attributes{"data-volume-search-modal": comic.Item.Ref.Name},
+		}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ comic.Item.Title + " - Volume" }
+				}
+				@dialog.Description() {
+					Interactive volume search 
+				}
+			}
+			@SearchPanelView(p)
+		}
 	}
 }
 

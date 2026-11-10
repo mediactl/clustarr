@@ -186,7 +186,12 @@ spec:
                   Season narrows a series search to one season (0 is the specials). With
                   grabBest the series searches that season and grabs what it finds;
                   without it this is an interactive season search, its results in
-                  status.results. Only with mediaRef.kind series.
+                  status.results. With mediaRef.kind series, or comic, whose one season
+                  is its volume, VolumeSearchSeason (2026-11-10 design D10, §9.4): a
+                  comic search naming it is the Comic's own volume pack search -- with
+                  grabBest planned by the Comic key from status.volumeSearch, without
+                  it interactive -- where one naming no season fans out per Issue
+                  (ContainerKind).
                 format: int32
                 minimum: 0
                 type: integer
@@ -202,9 +207,11 @@ spec:
             x-kubernetes-validations:
             - message: exactly one of query or mediaRef must be set
               rule: '(has(self.query) ? 1 : 0) + (has(self.mediaRef) ? 1 : 0) == 1'
-            - message: season needs mediaRef.kind series
-              rule: '!has(self.season) || (has(self.mediaRef) && self.mediaRef.kind
-                == ''series'')'
+            - message: season needs mediaRef.kind series, or comic with season 1 (the
+                volume)
+              rule: '!has(self.season) || (has(self.mediaRef) && (self.mediaRef.kind
+                == ''series'' || (self.mediaRef.kind == ''comic'' && self.season ==
+                1)))'
             - message: 'a series search either grabs (grabBest) or names a season:
                 an interactive search is per season'
               rule: '!has(self.mediaRef) || self.mediaRef.kind != ''series'' || has(self.season)
@@ -213,6 +220,11 @@ spec:
                 needs an interactive season search
               rule: '!has(self.mediaRef) || self.mediaRef.kind != ''series'' || !has(self.grabBest)
                 || !self.grabBest || !has(self.grab) || size(self.grab) == 0'
+            - message: a comic's volume search with grabBest grabs through the comic;
+                spec.grab needs an interactive volume search
+              rule: '!has(self.mediaRef) || self.mediaRef.kind != ''comic'' || !has(self.season)
+                || !has(self.grabBest) || !self.grabBest || !has(self.grab) || size(self.grab)
+                == 0'
           status:
             description: SearchStatus describes the observed state of Search.
             properties:
