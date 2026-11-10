@@ -55,6 +55,12 @@ const (
 // then, or one under a scan still in progress.
 const recheckAfter = time.Minute
 
+// collisionRecheck is how long a collision holds its proposal back: the
+// proposal is not tried again before it has passed, and is once it has,
+// since the file in the way may have moved on (refusedBefore). A var, so a
+// test shortens it.
+var collisionRecheck = time.Minute
+
 // Options configures the actuator.
 type Options struct {
 	Recorder k8sevents.EventRecorder // recorder "rename"
@@ -62,13 +68,25 @@ type Options struct {
 
 // Actuator is the rename actuator.
 type Actuator struct {
-	o       Options
-	mu      sync.Mutex
-	refused map[types.UID]string // "<spec.path>|<expectedPath>" of a proposal that ended in a collision or a hold
+	o   Options
+	now func() time.Time
+	mu  sync.Mutex
+	// refused is each file's last refused proposal: a hold stands until
+	// the proposal changes, a collision for collisionRecheck.
+	refused map[types.UID]refusal
+}
+
+// refusal is a proposal ("<spec.path>|<expectedPath>") that ended in a
+// collision, at the time it did, or in a hold (at zero).
+type refusal struct {
+	proposal string
+	at       time.Time
 }
 
 // New is the rename actuator.
-func New(o Options) *Actuator { return &Actuator{o: o, refused: map[types.UID]string{}} }
+func New(o Options) *Actuator {
+	return &Actuator{o: o, now: time.Now, refused: map[types.UID]refusal{}}
+}
 
 // Name implements remediation.Actuator.
 func (*Actuator) Name() string { return "rename" }
@@ -76,15 +94,17 @@ func (*Actuator) Name() string { return "rename" }
 // Act renames applied's file when it is renameable (mediafilespec.Renameable),
 // its RootFolder sets renameFiles (or renameTranscoded for a file transcode
 // transcoded, in its own folder), no LibraryScan walks its folder, and this
-// proposal was not refused before. A scan in progress or a changed file asks
-// for a pass in a minute.
+// proposal is not held or still waiting out a collision (refusedBefore). A
+// scan in progress or a changed file asks for a pass in a minute; a
+// collision asks for none of its own, and a pass that finds the proposal
+// still waiting it out asks for the one that retries it.
 func (a *Actuator) Act(ctx context.Context, env *remediation.Env, c client.Client, applied *catalogv1alpha1.MediaFile) (time.Duration, error) {
 	if k8s.IsDeleting(applied) || !mediafilespec.Renameable(applied) || inFlight(applied) {
 		a.forget(applied)
 		return 0, nil
 	}
-	if a.refusedBefore(applied) {
-		return 0, nil
+	if wait, refused := a.refusedBefore(applied); refused {
+		return wait, nil
 	}
 	roots, mode, err := a.renameMode(ctx, env.Reader, applied)
 	if err != nil || mode == renameOff {
@@ -110,15 +130,20 @@ func (a *Actuator) Act(ctx context.Context, env *remediation.Env, c client.Clien
 		a.event(applied, corev1.EventTypeNormal, ReasonRenamed, "renamed %s to %s", out.From, out.To)
 		logging.FromContext(ctx).Info("renamed a library file to its canonical path", "from", out.From, "to", out.To)
 	case out.Reason == mediafilespec.RenameCollision:
+		// No pass of its own: the file's next wake retries it once the
+		// interval has passed (refusedBefore). A pass a minute per
+		// permanently colliding file -- tied canonical paths under a
+		// preset without a part token, NamingCurrent False for good --
+		// would cost an uncached Get and two stats each, forever.
 		a.event(applied, corev1.EventTypeWarning, out.Reason, "not renamed to %s: something already exists there", out.To)
-		a.remember(applied)
+		a.remember(applied, a.now())
 	case out.Reason == mediafilespec.RenameChanged:
 		a.event(applied, corev1.EventTypeWarning, out.Reason,
 			"not renamed to %s: the file changed since it was recorded; retrying once it is re-observed", out.To)
 		return recheckAfter, nil
 	case out.Reason == mediafilespec.RenameHeld:
 		a.event(applied, corev1.EventTypeNormal, out.Reason, "not renamed to %s: %s", out.To, heldBecause(applied))
-		a.remember(applied)
+		a.remember(applied, time.Time{})
 	}
 	return 0, nil
 }
@@ -143,17 +168,38 @@ func proposal(mf *catalogv1alpha1.MediaFile) string {
 	return mf.Spec.Path + "|" + mf.Status.Naming.ExpectedPath
 }
 
-func (a *Actuator) refusedBefore(mf *catalogv1alpha1.MediaFile) bool {
+// refusedBefore reports mf's proposal refused before and not due again --
+// a held one until it changes, a collided one until collisionRecheck has
+// passed since the collision -- and how long until it is. A collision's
+// target may be vacated since (2026-11-10 design D11: X renamed to "(01)",
+// its tied sibling Y collided there on its low-priority re-plan, X's own
+// pass moved it on to "(02)", which woke Y again, and Y's unchanged
+// proposal was never tried again before a restart), so a pass within the
+// interval asks for the pass at its end, which tries it again; a file
+// permanently in the way raises a Warning at most once an interval, on a
+// pass something else asks for, never on a pass of its own every minute.
+func (a *Actuator) refusedBefore(mf *catalogv1alpha1.MediaFile) (wait time.Duration, refused bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	p, ok := a.refused[mf.UID]
-	return ok && p == proposal(mf)
+	r, ok := a.refused[mf.UID]
+	if !ok || r.proposal != proposal(mf) {
+		return 0, false
+	}
+	if r.at.IsZero() {
+		return 0, true
+	}
+	if wait = collisionRecheck - a.now().Sub(r.at); wait > 0 {
+		return wait, true
+	}
+	return 0, false
 }
 
-func (a *Actuator) remember(mf *catalogv1alpha1.MediaFile) {
+// remember records mf's proposal as refused: a collision at the time it
+// was seen, a hold at zero.
+func (a *Actuator) remember(mf *catalogv1alpha1.MediaFile, at time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.refused[mf.UID] = proposal(mf)
+	a.refused[mf.UID] = refusal{proposal: proposal(mf), at: at}
 }
 
 func (a *Actuator) forget(mf *catalogv1alpha1.MediaFile) {

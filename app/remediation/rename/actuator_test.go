@@ -18,17 +18,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package rename
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -128,4 +134,106 @@ func TestRenameModeReadsRenameFilesForEveryKindAndRenameTranscodedForVideoOnly(t
 	_, mode, err = a.renameMode(t.Context(), c, file(commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "heat"}, true))
 	require.NoError(t, err)
 	assert.Equal(t, renameOff, mode, "an original movie file under renameTranscoded alone")
+}
+
+// TestAVacatedCollisionTargetIsRetriedAfterTheRecheckInterval is 2026-11-10
+// design D11 at the actuator: a collision is remembered with its time, so
+// the same proposal is not tried again within collisionRecheck -- a pass
+// that changes nothing raises no second Warning -- and is once it has
+// passed, when the file in the way may have moved on (an audiobook's tied
+// sibling renamed to "(01)" and then, by its own pass, on to "(02)");
+// until then the proposal was never retried before a restart. The
+// collision asks for no pass of its own; a refused pass within the
+// interval asks for the one that retries it. The interval is the test's
+// own (10 s over a fake clock, the production minute asserted once) and
+// the advances are literal, so a longer or never-expiring interval and the
+// old no-expiry semantics fail it alike.
+func TestAVacatedCollisionTargetIsRetriedAfterTheRecheckInterval(t *testing.T) {
+	require.Equal(t, time.Minute, collisionRecheck, "the production interval (design D11: retried after a minute)")
+	prev := collisionRecheck
+	collisionRecheck = 10 * time.Second
+	t.Cleanup(func() { collisionRecheck = prev })
+
+	dir := t.TempDir()
+	from, to := filepath.Join(dir, "Guards! Guards! (02).mp3"), filepath.Join(dir, "Guards! Guards! (01).mp3")
+	require.NoError(t, os.WriteFile(from, []byte("part one"), 0o644))
+	require.NoError(t, os.WriteFile(to, []byte("in the way"), 0o644))
+	info, err := os.Stat(from)
+	require.NoError(t, err)
+
+	mf := &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "guards-2", UID: "uid-guards-2"},
+		Spec: catalogv1alpha1.MediaFileSpec{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-audio"},
+			Path:     from, SizeBytes: info.Size(), ModTime: metav1.NewTime(info.ModTime()),
+		},
+		Status: catalogv1alpha1.MediaFileStatus{
+			Naming: &catalogv1alpha1.NamingStatus{ExpectedPath: to},
+			Conditions: []metav1.Condition{
+				{Type: catalogv1alpha1.ConditionNamingCurrent, Status: metav1.ConditionFalse, Reason: "Stale"},
+				{Type: catalogv1alpha1.MediaFileConditionReady, Status: metav1.ConditionTrue, Reason: "Ready"},
+				{Type: catalogv1alpha1.MediaFileConditionProbed, Status: metav1.ConditionTrue, Reason: "Probed"},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(
+		&catalogv1alpha1.RootFolder{ObjectMeta: objMeta("audiobooks"), Spec: catalogv1alpha1.RootFolderSpec{
+			Path: dir, Kind: catalogv1alpha1.RootFolderKindAudiobook, Naming: catalogv1alpha1.NamingSpec{RenameFiles: ptr.To(true)},
+		}},
+		&catalogv1alpha1.Audiobook{ObjectMeta: objMeta("guards-audio"), Spec: catalogv1alpha1.AudiobookSpec{ASIN: "B1", RootFolderRef: "audiobooks"}},
+		mf,
+	).Build()
+	rec := k8sevents.NewFakeRecorder(16)
+	a := New(Options{Recorder: rec})
+	clock := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return clock }
+	env := &remediation.Env{Reader: c, APIReader: c}
+
+	wake, err := a.Act(t.Context(), env, c, mf)
+	require.NoError(t, err)
+	assert.Zero(t, wake, "a collision asks for no pass of its own (a permanent one would pass every minute for good)")
+	assert.Len(t, withPrefix(drain(rec), "Warning Collision"), 1)
+	assert.FileExists(t, from)
+
+	require.NoError(t, os.Remove(to))
+	clock = clock.Add(5 * time.Second)
+	wake, err = a.Act(t.Context(), env, c, mf)
+	require.NoError(t, err)
+	assert.Empty(t, drain(rec), "the same proposal is not tried again within the interval")
+	assert.Equal(t, 5*time.Second, wake, "and the pass at the interval's end, which will try it, is asked for")
+	assert.FileExists(t, from)
+
+	clock = clock.Add(5 * time.Second)
+	wake, err = a.Act(t.Context(), env, c, mf)
+	require.NoError(t, err)
+	assert.Zero(t, wake)
+	assert.Len(t, withPrefix(drain(rec), "Normal Renamed"), 1, "the vacated target is taken once the interval has passed")
+	assert.NoFileExists(t, from)
+	assert.FileExists(t, to)
+	var got catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(mf), &got))
+	assert.Equal(t, to, got.Spec.Path)
+}
+
+// drain is every event rec holds.
+func drain(rec *k8sevents.FakeRecorder) []string {
+	var out []string
+	for {
+		select {
+		case ev := <-rec.Events:
+			out = append(out, ev)
+		default:
+			return out
+		}
+	}
+}
+
+func withPrefix(evs []string, prefix string) []string {
+	var out []string
+	for _, ev := range evs {
+		if strings.HasPrefix(ev, prefix) {
+			out = append(out, ev)
+		}
+	}
+	return out
 }
