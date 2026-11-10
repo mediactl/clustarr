@@ -36,3 +36,21 @@ func Artist(name, mbid string) string { return ChildName(name, "artist", mbid) }
 
 // Author is the name an Author for an Open Library author key gets.
 func Author(name, olid string) string { return ChildName(name, "author", olid) }
+
+// Comic is the name a Comic for a metadata source's volume id gets
+// (2026-11-10 design §9.1, Add New): the source is part of the identity,
+// since a ComicVine volume id and a MangaDex manga UUID are different
+// namespaces, so "comicvine"/"123" and "mangadex"/"123" never collide.
+func Comic(title, source, sourceID string) string {
+	return ChildName(title, "comic", source, sourceID)
+}
+
+// Audiobook is the name an Audiobook for an Audible ASIN gets.
+func Audiobook(title, asin string) string { return ChildName(title, "audiobook", asin) }
+
+// Book is the name a standalone Book for an Open Library work key gets: a
+// book Add New adds with no author. An author's own books are named by
+// the Author controller after the author (app/catalog/controller/author's
+// BookName), so a work added by hand and one an author fans out are two
+// objects.
+func Book(title, workID string) string { return ChildName(title, "book", workID) }

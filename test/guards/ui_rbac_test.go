@@ -81,11 +81,16 @@ var uiActionGrants = map[uiGrant]bool{
 	{"catalog.clustarr.io", "series", "patch"}:        true,
 
 	// Add New (docs/superpowers/specs/2026-09-29-add-new-design.md): the
-	// library pages create the four addable kinds.
-	{"catalog.clustarr.io", "movies", "create"}:  true,
-	{"catalog.clustarr.io", "series", "create"}:  true,
-	{"catalog.clustarr.io", "artists", "create"}: true,
-	{"catalog.clustarr.io", "authors", "create"}: true,
+	// library pages create the four addable kinds -- and, since the
+	// 2026-11-10 non-video libraries design (§9.1), a Comic, an Audiobook
+	// and a standalone Book.
+	{"catalog.clustarr.io", "movies", "create"}:     true,
+	{"catalog.clustarr.io", "series", "create"}:     true,
+	{"catalog.clustarr.io", "artists", "create"}:    true,
+	{"catalog.clustarr.io", "authors", "create"}:    true,
+	{"catalog.clustarr.io", "comics", "create"}:     true,
+	{"catalog.clustarr.io", "audiobooks", "create"}: true,
+	{"catalog.clustarr.io", "books", "create"}:      true,
 
 	// Task G3-4: the Settings page's edit forms, one patch grant per kind.
 	{"catalog.clustarr.io", "rootfolders", "patch"}:         true,

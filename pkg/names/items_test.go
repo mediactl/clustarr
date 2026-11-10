@@ -43,3 +43,16 @@ func TestArtistAndAuthorNamesHashKindAndID(t *testing.T) {
 	require.Equal(t, names.ChildName("Jane Austen", "author", "OL21594A"), names.Author("Jane Austen", "OL21594A"))
 	require.NotEqual(t, names.ChildName("x", "artist", "1"), names.ChildName("x", "author", "1"))
 }
+
+// TestComicAudiobookAndBookNamesHashKindAndID: the non-video kinds Add New
+// adds (2026-11-10 design §9.1) take the same shape -- the title for
+// reading, a hash of kind and id for identity -- and a comic's hash
+// carries its source, so a ComicVine volume and a MangaDex manga with one
+// id are two objects.
+func TestComicAudiobookAndBookNamesHashKindAndID(t *testing.T) {
+	require.Equal(t, names.ChildName("Saga", "comic", "comicvine", "4050-56907"), names.Comic("Saga", "comicvine", "4050-56907"))
+	require.NotEqual(t, names.Comic("Saga", "comicvine", "1"), names.Comic("Saga", "mangadex", "1"))
+	require.Equal(t, names.ChildName("Dune", "audiobook", "B002V1OF70"), names.Audiobook("Dune", "B002V1OF70"))
+	require.Equal(t, names.ChildName("Dune", "book", "OL893415W"), names.Book("Dune", "OL893415W"))
+	require.NotEqual(t, names.Book("x", "1"), names.Audiobook("x", "1"))
+}

@@ -20,11 +20,12 @@ package actions
 import (
 	"context"
 	"fmt"
-	"k8s.io/utils/ptr"
+	"regexp"
 	"strconv"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -35,9 +36,10 @@ import (
 )
 
 // AddRequest is one Add New submission (docs/superpowers/specs/
-// 2026-09-29-add-new-design.md). Title only names the object; the
-// provider fills the item's metadata once it exists. Each option field is
-// the kind's own spec field; one a kind does not have is ignored.
+// 2026-09-29-add-new-design.md; the non-video kinds since the 2026-11-10
+// design §9.1). Title only names the object; the provider fills the item's
+// metadata once it exists. Each option field is the kind's own spec field;
+// one a kind does not have is ignored.
 type AddRequest struct {
 	Kind                commonv1.MediaKind
 	Namespace           string
@@ -53,11 +55,24 @@ type AddRequest struct {
 	SeasonFolder        bool
 	SearchCutoffUnmet   bool
 	MonitorNewItems     string
+	// Source is a Comic's metadata source (comicvine, mangadex), which with
+	// ProviderID -- the ComicVine volume id or the MangaDex manga UUID --
+	// identifies the volume; every other kind ignores it.
+	Source string
+	// ComicKind is a Comic's spec.kind (comic, manga); empty takes the CRD
+	// default.
+	ComicKind string
+	// Region is an Audiobook's Audible marketplace (spec.region); empty
+	// takes the CRD default, us.
+	Region string
 }
 
-// AddableKinds are the kinds AddItem creates: the four library types.
+// AddableKinds are the kinds AddItem creates: the four library types of
+// the 2026-09-29 design, and since the 2026-11-10 design (§9.1) a Comic,
+// an Audiobook and a standalone Book.
 var AddableKinds = []commonv1.MediaKind{
 	commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist, commonv1.MediaKindAuthor,
+	commonv1.MediaKindComic, commonv1.MediaKindAudiobook, commonv1.MediaKindBook,
 }
 
 // AddItem creates the catalog item req describes, with spec only and under
@@ -161,9 +176,65 @@ func buildItem(req AddRequest) (client.Object, error) {
 				Source:          source,
 			},
 		}, nil
+	case commonv1.MediaKindComic:
+		// The source is the volume's identity with the id (spec.source and
+		// spec.sourceID, both immutable), so it is never guessed from the
+		// id's shape.
+		src := catalogv1alpha1.ComicSourceProvider(req.Source)
+		if src != catalogv1alpha1.ComicSourceComicVine && src != catalogv1alpha1.ComicSourceMangaDex {
+			return nil, fmt.Errorf("%w: %q is not a comic source (comicvine, mangadex)", ErrInvalid, req.Source)
+		}
+		spec := catalogv1alpha1.ComicSpec{
+			Source: src, SourceID: req.ProviderID, Kind: catalogv1alpha1.ComicKind(req.ComicKind),
+			Monitored:         new(req.Monitored),
+			QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
+			AddOptions: catalogv1alpha1.ComicAddOptions{
+				Monitor: catalogv1alpha1.ComicMonitorMode(req.Monitor), SearchForMissing: ptr.To(req.SearchOnAdd),
+			},
+			AddSource: source,
+		}
+		// A comic has no monitor-new mode, only the flag: the form's
+		// "all"/"none" is spec.monitorNewIssues; unsaid, the CRD default.
+		switch req.MonitorNewItems {
+		case string(catalogv1alpha1.MonitorNewChildrenAll):
+			spec.MonitorNewIssues = ptr.To(true)
+		case string(catalogv1alpha1.MonitorNewChildrenNone):
+			spec.MonitorNewIssues = ptr.To(false)
+		}
+		return &catalogv1alpha1.Comic{
+			ObjectMeta: metav1.ObjectMeta{Name: names.Comic(req.Title, req.Source, req.ProviderID), Namespace: req.Namespace},
+			Spec:       spec,
+		}, nil
+	case commonv1.MediaKindAudiobook:
+		return &catalogv1alpha1.Audiobook{
+			ObjectMeta: metav1.ObjectMeta{Name: names.Audiobook(req.Title, req.ProviderID), Namespace: req.Namespace},
+			Spec: catalogv1alpha1.AudiobookSpec{
+				ASIN: req.ProviderID, Region: catalogv1alpha1.AudiobookRegion(req.Region), Monitored: new(req.Monitored),
+				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
+				AddOptions: catalogv1alpha1.AudiobookAddOptions{SearchForMissing: ptr.To(req.SearchOnAdd)},
+				Source:     source,
+			},
+		}, nil
+	case commonv1.MediaKindBook:
+		// A standalone book: no author, so its profile and root folder are
+		// its own (the CRD's rule for a book without an authorRef).
+		if !openLibraryWorkID.MatchString(req.ProviderID) {
+			return nil, fmt.Errorf("%w: %q is not an Open Library work key", ErrInvalid, req.ProviderID)
+		}
+		return &catalogv1alpha1.Book{
+			ObjectMeta: metav1.ObjectMeta{Name: names.Book(req.Title, req.ProviderID), Namespace: req.Namespace},
+			Spec: catalogv1alpha1.BookSpec{
+				WorkID: req.ProviderID, Monitored: new(req.Monitored),
+				QualityProfileRef: ptr.To(req.QualityProfileRef), RootFolderRef: ptr.To(req.RootFolderRef),
+			},
+		}, nil
 	}
 	return nil, fmt.Errorf("%w: %q is not a kind Add New adds", ErrInvalid, req.Kind)
 }
+
+// openLibraryWorkID is BookSpec.workID's pattern, checked here so a hit
+// that cannot key a Book is ErrInvalid before any request.
+var openLibraryWorkID = regexp.MustCompile(`^OL[0-9]+W$`)
 
 // addedAuthorLanguage is the one language an author added here lists works
 // in (spec.metadataProfile.allowedLanguages): the MetadataProvider's

@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,11 +34,15 @@ import (
 )
 
 // EditRequest is what the item page's Edit dialog saves (Radarr's Edit
-// Movie, Sonarr's Edit Series): the item's quality profile, whether it is
-// monitored, and the one more field each video kind has.
+// Movie, Sonarr's Edit Series; since the 2026-11-10 design §9.2-§9.5 the
+// non-video kinds' own fields): the item's quality profile, whether it is
+// monitored, and the fields each kind has. A field left at its zero value
+// is not sent, so it keeps its value; a field set on a kind that does not
+// have it refuses the request.
 type EditRequest struct {
 	// QualityProfileRef is the QualityProfile to rank the item against.
-	// Required: every editable kind's spec requires one.
+	// Required for every editable kind but a Book, whose profile is an
+	// override of its author's and is sent only when given.
 	QualityProfileRef string
 	// Monitored, when set, is written too.
 	Monitored *bool
@@ -55,14 +60,55 @@ type EditRequest struct {
 	// is refused.
 	Seasons         []catalogv1alpha1.SeasonSpec
 	ResourceVersion string
+	// MonitorNewItems is an artist's spec.monitorNewItems (all, none, new)
+	// or an author's (all, none); empty leaves it.
+	MonitorNewItems string
+	// MusicProfile, when set, is an artist's spec.metadataProfile: which
+	// MusicBrainz release groups become Albums.
+	MusicProfile *MusicProfile
+	// BookProfile, when set, is an author's spec.metadataProfile: which
+	// Open Library works become Books.
+	BookProfile *BookProfile
+	// ComicKind and SpecialVersion are a comic's spec.kind (comic, manga)
+	// and spec.specialVersion (normal, tpb, oneShot, hardCover, omnibus,
+	// volumeAsIssue); MonitorNewIssues, when set, its spec.monitorNewIssues.
+	ComicKind        string
+	SpecialVersion   string
+	MonitorNewIssues *bool
+	// Region is an audiobook's spec.region, an Audible marketplace.
+	// AuthorRef and BookRef, when set, are its links to an Author and a
+	// Book; an empty string clears one.
+	Region    string
+	AuthorRef *string
+	BookRef   *string
+	// RootFolderRef is a standalone book's spec.rootFolderRef, sent with
+	// its QualityProfileRef (design §9.3: a standalone Book is editable --
+	// profile, root, monitored); empty leaves it.
+	RootFolderRef string
 }
 
-// editables are the kinds with a top-level spec.qualityProfileRef: the
-// ones the Edit dialog is for. An Episode, Album, Book or Issue ranks under
-// its parent's profile and has no dialog.
+// MusicProfile is an artist's spec.metadataProfile as the Edit dialog
+// saves it: each list whole, since a merge patch replaces a list.
+type MusicProfile struct {
+	PrimaryTypes, SecondaryTypes, ReleaseStatuses []string
+}
+
+// BookProfile is an author's spec.metadataProfile as the Edit dialog
+// saves it. MinPopularity, a quantity the dialog has no control for, is
+// left as it is.
+type BookProfile struct {
+	AllowedLanguages                                                        []string
+	SkipMissingDate, SkipMissingISBN, SkipPartsAndSets, SkipSeriesSecondary bool
+	MinPages                                                                int32
+}
+
+// editables are the kinds with a quality profile in their spec: the ones
+// the Edit dialog is for. An Episode, Album or Issue ranks under its
+// parent's profile and has no dialog; a Book carries an optional override
+// of its author's -- a standalone book's own (2026-11-10 design §9.3).
 var editables = []commonv1.MediaKind{
 	commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist,
-	commonv1.MediaKindAuthor, commonv1.MediaKindComic, commonv1.MediaKindAudiobook,
+	commonv1.MediaKindAuthor, commonv1.MediaKindComic, commonv1.MediaKindAudiobook, commonv1.MediaKindBook,
 }
 
 // EditableKinds returns, sorted, every kind [EditItem] accepts.
@@ -72,10 +118,45 @@ func EditableKinds() []commonv1.MediaKind {
 	return kinds
 }
 
+// The enumerations the dialog's selects and checkboxes offer, as the CRDs
+// spell them (api/catalog/v1alpha1); a value outside one is refused here
+// rather than by the apiserver, so the message names the field.
 var (
 	seriesTypes           = []string{"standard", "daily", "anime"}
 	minimumAvailabilities = []string{"tba", "announced", "inCinemas", "released"}
+	artistMonitorNew      = []string{"all", "none", "new"}
+	authorMonitorNew      = []string{"all", "none"}
+	comicKinds            = []string{"comic", "manga"}
+	comicSpecialVersions  = []string{"normal", "tpb", "oneShot", "hardCover", "omnibus", "volumeAsIssue"}
+	audiobookRegions      = []string{"us", "uk", "ca", "au", "de", "fr", "es", "in", "it", "jp"}
+	// MusicBrainz's release-group types and statuses as
+	// MusicMetadataProfile spells them (artist_types.go).
+	musicPrimaryTypes   = []string{"album", "ep", "single", "broadcast", "other"}
+	musicSecondaryTypes = []string{
+		"studio", "compilation", "soundtrack", "spokenword", "interview", "audiobook", "live",
+		"remix", "djMix", "mixtape", "demo", "audioDrama", "fieldRecording",
+	}
+	musicReleaseStatuses = []string{"official", "promotion", "bootleg", "pseudoRelease"}
 )
+
+// EditChoices are the enumerations the Edit dialog offers, exported so the
+// dialog's selects and the action refuse the same values (ui/views reads
+// them; TestEditDialogChoicesAreTheActions holds them equal).
+type EditChoices struct {
+	ArtistMonitorNew, AuthorMonitorNew, ComicKinds, ComicSpecialVersions, AudiobookRegions []string
+	MusicPrimaryTypes, MusicSecondaryTypes, MusicReleaseStatuses                           []string
+}
+
+// Choices returns the Edit dialog's enumerations.
+func Choices() EditChoices {
+	return EditChoices{
+		ArtistMonitorNew: slices.Clone(artistMonitorNew), AuthorMonitorNew: slices.Clone(authorMonitorNew),
+		ComicKinds: slices.Clone(comicKinds), ComicSpecialVersions: slices.Clone(comicSpecialVersions),
+		AudiobookRegions:  slices.Clone(audiobookRegions),
+		MusicPrimaryTypes: slices.Clone(musicPrimaryTypes), MusicSecondaryTypes: slices.Clone(musicSecondaryTypes),
+		MusicReleaseStatuses: slices.Clone(musicReleaseStatuses),
+	}
+}
 
 // EditItem saves the Edit dialog: one JSON merge patch of the spec leaves
 // req names on the catalog item kind/name in namespace, made as
@@ -93,35 +174,10 @@ func EditItem(
 		tracing.RecordError(span, err)
 		return nil, err
 	}
-	if !slices.Contains(editables, kind) {
-		err := fmt.Errorf("%w: a %s has no quality profile of its own", ErrInvalid, kind)
+	spec, err := editSpec(kind, req)
+	if err != nil {
 		tracing.RecordError(span, err)
 		return nil, err
-	}
-	if req.QualityProfileRef == "" {
-		err := fmt.Errorf("%w: a quality profile is required", ErrInvalid)
-		tracing.RecordError(span, err)
-		return nil, err
-	}
-	spec := map[string]any{"qualityProfileRef": req.QualityProfileRef}
-	if req.Monitored != nil {
-		spec["monitored"] = *req.Monitored
-	}
-	if req.SeriesType != "" {
-		if kind != commonv1.MediaKindSeries || !slices.Contains(seriesTypes, req.SeriesType) {
-			err := fmt.Errorf("%w: series type %q on a %s", ErrInvalid, req.SeriesType, kind)
-			tracing.RecordError(span, err)
-			return nil, err
-		}
-		spec["seriesType"] = req.SeriesType
-	}
-	if req.MinimumAvailability != "" {
-		if kind != commonv1.MediaKindMovie || !slices.Contains(minimumAvailabilities, req.MinimumAvailability) {
-			err := fmt.Errorf("%w: minimum availability %q on a %s", ErrInvalid, req.MinimumAvailability, kind)
-			tracing.RecordError(span, err)
-			return nil, err
-		}
-		spec["minimumAvailability"] = req.MinimumAvailability
 	}
 	body := map[string]any{"spec": spec}
 	if req.Seasons != nil {
@@ -152,6 +208,148 @@ func EditItem(
 	logging.FromContext(ctx).Info("ui action: item edited",
 		"namespace", namespace, "kind", kind, "item", name, "qualityProfile", req.QualityProfileRef)
 	return obj, nil
+}
+
+// editSpec is the spec half of the merge patch: what req names, each
+// field checked against the kind that has it and the values its CRD takes.
+func editSpec(kind commonv1.MediaKind, req EditRequest) (map[string]any, error) {
+	if !slices.Contains(editables, kind) {
+		return nil, fmt.Errorf("%w: a %s has no quality profile of its own", ErrInvalid, kind)
+	}
+	spec := map[string]any{}
+	if req.QualityProfileRef != "" {
+		spec["qualityProfileRef"] = req.QualityProfileRef
+	} else if kind != commonv1.MediaKindBook {
+		return nil, fmt.Errorf("%w: a quality profile is required", ErrInvalid)
+	}
+	if req.Monitored != nil {
+		spec["monitored"] = *req.Monitored
+	}
+	// one is "field, its kind, its allowed values": set on another kind or
+	// outside the values, the request is refused.
+	type enumField struct {
+		name, value string
+		kind        commonv1.MediaKind
+		allowed     []string
+	}
+	for _, f := range []enumField{
+		{"seriesType", req.SeriesType, commonv1.MediaKindSeries, seriesTypes},
+		{"minimumAvailability", req.MinimumAvailability, commonv1.MediaKindMovie, minimumAvailabilities},
+		{"kind", req.ComicKind, commonv1.MediaKindComic, comicKinds},
+		{"specialVersion", req.SpecialVersion, commonv1.MediaKindComic, comicSpecialVersions},
+		{"region", req.Region, commonv1.MediaKindAudiobook, audiobookRegions},
+	} {
+		if f.value == "" {
+			continue
+		}
+		if kind != f.kind || !slices.Contains(f.allowed, f.value) {
+			return nil, fmt.Errorf("%w: %s %q on a %s", ErrInvalid, f.name, f.value, kind)
+		}
+		spec[f.name] = f.value
+	}
+	if req.MonitorNewItems != "" {
+		allowed := map[commonv1.MediaKind][]string{commonv1.MediaKindArtist: artistMonitorNew, commonv1.MediaKindAuthor: authorMonitorNew}[kind]
+		if !slices.Contains(allowed, req.MonitorNewItems) {
+			return nil, fmt.Errorf("%w: monitorNewItems %q on a %s", ErrInvalid, req.MonitorNewItems, kind)
+		}
+		spec["monitorNewItems"] = req.MonitorNewItems
+	}
+	if req.MusicProfile != nil {
+		if kind != commonv1.MediaKindArtist {
+			return nil, fmt.Errorf("%w: a music metadata profile on a %s", ErrInvalid, kind)
+		}
+		mp := map[string]any{}
+		for _, l := range []struct {
+			name    string
+			values  []string
+			allowed []string
+		}{
+			{"primaryTypes", req.MusicProfile.PrimaryTypes, musicPrimaryTypes},
+			{"secondaryTypes", req.MusicProfile.SecondaryTypes, musicSecondaryTypes},
+			{"releaseStatuses", req.MusicProfile.ReleaseStatuses, musicReleaseStatuses},
+		} {
+			values := cleanList(l.values)
+			// An empty list would let no release group through, which no
+			// one means by unticking everything.
+			if len(values) == 0 {
+				return nil, fmt.Errorf("%w: at least one of metadataProfile.%s", ErrInvalid, l.name)
+			}
+			for _, v := range values {
+				if !slices.Contains(l.allowed, v) {
+					return nil, fmt.Errorf("%w: metadataProfile.%s %q", ErrInvalid, l.name, v)
+				}
+			}
+			mp[l.name] = values
+		}
+		spec["metadataProfile"] = mp
+	}
+	if req.BookProfile != nil {
+		if kind != commonv1.MediaKindAuthor {
+			return nil, fmt.Errorf("%w: a book metadata profile on a %s", ErrInvalid, kind)
+		}
+		if req.BookProfile.MinPages < 0 {
+			return nil, fmt.Errorf("%w: metadataProfile.minPages %d", ErrInvalid, req.BookProfile.MinPages)
+		}
+		mp := map[string]any{
+			"skipMissingDate": req.BookProfile.SkipMissingDate, "skipMissingISBN": req.BookProfile.SkipMissingISBN,
+			"skipPartsAndSets": req.BookProfile.SkipPartsAndSets, "skipSeriesSecondary": req.BookProfile.SkipSeriesSecondary,
+			"minPages": req.BookProfile.MinPages,
+		}
+		// No language is "every language", which a merge patch spells as
+		// null: an empty list would be kept as a list.
+		if langs := cleanList(req.BookProfile.AllowedLanguages); len(langs) > 0 {
+			mp["allowedLanguages"] = langs
+		} else {
+			mp["allowedLanguages"] = nil
+		}
+		spec["metadataProfile"] = mp
+	}
+	if req.MonitorNewIssues != nil {
+		if kind != commonv1.MediaKindComic {
+			return nil, fmt.Errorf("%w: monitorNewIssues on a %s", ErrInvalid, kind)
+		}
+		spec["monitorNewIssues"] = *req.MonitorNewIssues
+	}
+	for _, ref := range []struct {
+		name  string
+		value *string
+	}{{"authorRef", req.AuthorRef}, {"bookRef", req.BookRef}} {
+		if ref.value == nil {
+			continue
+		}
+		if kind != commonv1.MediaKindAudiobook {
+			return nil, fmt.Errorf("%w: %s on a %s", ErrInvalid, ref.name, kind)
+		}
+		if *ref.value == "" {
+			spec[ref.name] = nil // a merge patch's null removes the link
+		} else {
+			spec[ref.name] = *ref.value
+		}
+	}
+	if req.RootFolderRef != "" {
+		if kind != commonv1.MediaKindBook {
+			return nil, fmt.Errorf("%w: a root folder on a %s; only a standalone book's is edited", ErrInvalid, kind)
+		}
+		spec["rootFolderRef"] = req.RootFolderRef
+	}
+	if len(spec) == 0 {
+		return nil, fmt.Errorf("%w: nothing to edit", ErrInvalid)
+	}
+	return spec, nil
+}
+
+// cleanList trims each value and drops the empty ones (a form's unticked
+// group posts nothing, a hidden marker posts "") and duplicates, keeping
+// the order given.
+func cleanList(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v != "" && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // EditItem is [EditItem] over the Actions' writer.

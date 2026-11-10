@@ -143,3 +143,114 @@ func TestAddItemRefusesAnIncompleteRequest(t *testing.T) {
 	require.NoError(t, c.List(t.Context(), &list))
 	require.Empty(t, list.Items, "an invalid request writes nothing")
 }
+
+// TestAddItemBuildsTheNonVideoKinds: the Comics and Audiobooks tabs' Add
+// New and the Books tab's standalone Book (2026-11-10 design §9.1) create
+// each kind with spec only, named as pkg/names names it: a comic by its
+// source and id (both immutable), an audiobook by its ASIN in the root's
+// region, a book by its work key with its own profile and root and no
+// author.
+func TestAddItemBuildsTheNonVideoKinds(t *testing.T) {
+	c := addClient(t)
+	ctx := t.Context()
+
+	name, existed, err := actions.AddItem(ctx, c, actions.AddRequest{
+		Kind: commonv1.MediaKindComic, Namespace: "media", Title: "Saga", ProviderID: "56907", Source: "comicvine",
+		RootFolderRef: "comics", QualityProfileRef: "cbz", Monitored: true, Monitor: "missing", SearchOnAdd: true,
+		ComicKind: "comic", MonitorNewItems: "none",
+	})
+	require.NoError(t, err)
+	require.False(t, existed)
+	require.Equal(t, names.Comic("Saga", "comicvine", "56907"), name)
+	var co catalogv1.Comic
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: "media", Name: name}, &co))
+	require.Equal(t, catalogv1.ComicSourceComicVine, co.Spec.Source)
+	require.Equal(t, "56907", co.Spec.SourceID)
+	require.Equal(t, catalogv1.ComicKindComic, co.Spec.Kind)
+	require.Equal(t, catalogv1.ComicMonitorMissing, co.Spec.AddOptions.Monitor)
+	require.True(t, *co.Spec.AddOptions.SearchForMissing)
+	require.NotNil(t, co.Spec.MonitorNewIssues)
+	require.False(t, *co.Spec.MonitorNewIssues, "the form's monitor-new none is the flag off")
+	require.Equal(t, "comics", co.Spec.RootFolderRef)
+	require.Equal(t, "cbz", co.Spec.QualityProfileRef)
+	require.NotNil(t, co.Spec.AddSource)
+	require.Empty(t, co.Spec.AddSource.ImportListRef, "added by hand")
+	require.Equal(t, catalogv1.ComicStatus{}, co.Status, "the UI never writes status")
+
+	name, _, err = actions.AddItem(ctx, c, actions.AddRequest{
+		Kind: commonv1.MediaKindComic, Namespace: "media", Title: "Berserk", ProviderID: "801513ba-a712-498c-8f57-cae55b38cc92", Source: "mangadex",
+		RootFolderRef: "comics", QualityProfileRef: "cbz", Monitored: true, Monitor: "all", ComicKind: "manga",
+	})
+	require.NoError(t, err)
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: "media", Name: name}, &co))
+	require.Equal(t, catalogv1.ComicSourceMangaDex, co.Spec.Source)
+	require.Equal(t, catalogv1.ComicKindManga, co.Spec.Kind)
+	require.Nil(t, co.Spec.MonitorNewIssues, "unsaid, the CRD default")
+	require.NotEqual(t, names.Comic("Berserk", "comicvine", "801513ba-a712-498c-8f57-cae55b38cc92"), name, "the source is part of the identity")
+
+	name, _, err = actions.AddItem(ctx, c, actions.AddRequest{
+		Kind: commonv1.MediaKindAudiobook, Namespace: "media", Title: "Dune", ProviderID: "B002V1OF70", Region: "uk",
+		RootFolderRef: "audiobooks", QualityProfileRef: "m4b", Monitored: false, SearchOnAdd: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, names.Audiobook("Dune", "B002V1OF70"), name)
+	var ab catalogv1.Audiobook
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: "media", Name: name}, &ab))
+	require.Equal(t, "B002V1OF70", ab.Spec.ASIN)
+	require.Equal(t, catalogv1.AudiobookRegionUK, ab.Spec.Region)
+	require.False(t, *ab.Spec.Monitored, "false is sent, not dropped")
+	require.True(t, *ab.Spec.AddOptions.SearchForMissing)
+	require.Nil(t, ab.Spec.AuthorRef, "Add New links no author: the search hit names none")
+	require.Equal(t, "audiobooks", ab.Spec.RootFolderRef)
+
+	name, _, err = actions.AddItem(ctx, c, actions.AddRequest{
+		Kind: commonv1.MediaKindBook, Namespace: "media", Title: "Dune", ProviderID: "OL893415W",
+		RootFolderRef: "books", QualityProfileRef: "ebook", Monitored: true, SearchOnAdd: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, names.Book("Dune", "OL893415W"), name)
+	var bk catalogv1.Book
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: "media", Name: name}, &bk))
+	require.Equal(t, "OL893415W", bk.Spec.WorkID)
+	require.Nil(t, bk.Spec.AuthorRef, "a standalone book")
+	require.Equal(t, "ebook", *bk.Spec.QualityProfileRef)
+	require.Equal(t, "books", *bk.Spec.RootFolderRef)
+	require.True(t, *bk.Spec.Monitored)
+}
+
+// A comic without a known source, or a book whose id is no work key, is
+// ErrInvalid before any request: the apiserver would refuse them anyway,
+// and the page should say which field.
+func TestAddItemRefusesAComicWithoutASourceAndABookWithoutAWorkKey(t *testing.T) {
+	c := addClient(t)
+	for name, req := range map[string]actions.AddRequest{
+		"no source":      {Kind: commonv1.MediaKindComic, Namespace: "media", Title: "Saga", ProviderID: "1", RootFolderRef: "r", QualityProfileRef: "p"},
+		"unknown source": {Kind: commonv1.MediaKindComic, Namespace: "media", Title: "Saga", ProviderID: "1", Source: "metron", RootFolderRef: "r", QualityProfileRef: "p"},
+		"an author key":  {Kind: commonv1.MediaKindBook, Namespace: "media", Title: "Dune", ProviderID: "OL21594A", RootFolderRef: "r", QualityProfileRef: "p"},
+	} {
+		_, _, err := actions.AddItem(t.Context(), c, req)
+		require.ErrorIs(t, err, actions.ErrInvalid, name)
+	}
+	var comics catalogv1.ComicList
+	require.NoError(t, c.List(t.Context(), &comics))
+	require.Empty(t, comics.Items)
+	var books catalogv1.BookList
+	require.NoError(t, c.List(t.Context(), &books))
+	require.Empty(t, books.Items)
+}
+
+// AddableKinds is what Grants derives the create verbs from: every kind an
+// Add New page creates, and each one AddItem builds.
+func TestAddableKindsAreTheOnesAddNewCreates(t *testing.T) {
+	require.ElementsMatch(t, []commonv1.MediaKind{
+		commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist, commonv1.MediaKindAuthor,
+		commonv1.MediaKindComic, commonv1.MediaKindAudiobook, commonv1.MediaKindBook,
+	}, actions.AddableKinds)
+	for _, g := range []actions.Grant{
+		{Group: "catalog.clustarr.io", Resource: "comics", Verb: "create"},
+		{Group: "catalog.clustarr.io", Resource: "audiobooks", Verb: "create"},
+		{Group: "catalog.clustarr.io", Resource: "books", Verb: "create"},
+	} {
+		require.Contains(t, actions.Grants(), g)
+	}
+}

@@ -68,7 +68,7 @@ func TestEditItemRefusesWhatTheDialogCannotMean(t *testing.T) {
 		req  actions.EditRequest
 	}{
 		"an episode ranks under its series":  {commonv1.MediaKindEpisode, actions.EditRequest{QualityProfileRef: "any"}},
-		"a book ranks under its author":      {commonv1.MediaKindBook, actions.EditRequest{QualityProfileRef: "any"}},
+		"an issue ranks under its comic":     {commonv1.MediaKindIssue, actions.EditRequest{QualityProfileRef: "any"}},
 		"no profile":                         {commonv1.MediaKindMovie, actions.EditRequest{}},
 		"a series type on a movie":           {commonv1.MediaKindMovie, actions.EditRequest{QualityProfileRef: "any", SeriesType: "anime"}},
 		"an unknown series type":             {commonv1.MediaKindSeries, actions.EditRequest{QualityProfileRef: "any", SeriesType: "cartoon"}},
@@ -91,7 +91,7 @@ func TestEditItemRefusesWhatTheDialogCannotMean(t *testing.T) {
 // each goes to its own type.
 func TestEditableKindsAreTheOnesWithAProfileOfTheirOwn(t *testing.T) {
 	require.Equal(t, []commonv1.MediaKind{
-		commonv1.MediaKindArtist, commonv1.MediaKindAudiobook, commonv1.MediaKindAuthor,
+		commonv1.MediaKindArtist, commonv1.MediaKindAudiobook, commonv1.MediaKindAuthor, commonv1.MediaKindBook,
 		commonv1.MediaKindComic, commonv1.MediaKindMovie, commonv1.MediaKindSeries,
 	}, actions.EditableKinds())
 	for _, kind := range actions.EditableKinds() {
@@ -116,6 +116,116 @@ func kindOf(obj any) commonv1.MediaKind {
 		return commonv1.MediaKindComic
 	case *catalogv1alpha1.Audiobook:
 		return commonv1.MediaKindAudiobook
+	case *catalogv1alpha1.Book:
+		return commonv1.MediaKindBook
 	}
 	return ""
+}
+
+// The non-video kinds' own fields (2026-11-10 design §9.2-§9.5) ride the
+// same merge patch: an artist's monitor-new mode and metadata profile, an
+// author's, a comic's kind, special version and monitor-new flag, an
+// audiobook's region and its links (an empty link clears it), and a
+// standalone book's profile and root folder.
+func TestEditItemSendsEachKindsOwnFields(t *testing.T) {
+	on, off := true, false
+	none, dune := "", "dune"
+	for name, tc := range map[string]struct {
+		kind commonv1.MediaKind
+		req  actions.EditRequest
+		want string
+	}{
+		"artist": {commonv1.MediaKindArtist, actions.EditRequest{
+			QualityProfileRef: "lossless", MonitorNewItems: "new",
+			MusicProfile: &actions.MusicProfile{PrimaryTypes: []string{"album", "ep", "", "album"}, SecondaryTypes: []string{"studio", "live"}, ReleaseStatuses: []string{"official"}},
+		}, `{"spec":{"qualityProfileRef":"lossless","monitorNewItems":"new","metadataProfile":{"primaryTypes":["album","ep"],"secondaryTypes":["studio","live"],"releaseStatuses":["official"]}}}`},
+		"author": {commonv1.MediaKindAuthor, actions.EditRequest{
+			QualityProfileRef: "ebook", MonitorNewItems: "none",
+			BookProfile: &actions.BookProfile{AllowedLanguages: []string{"en", " fr "}, SkipMissingDate: true, MinPages: 50},
+		}, `{"spec":{"qualityProfileRef":"ebook","monitorNewItems":"none","metadataProfile":{"allowedLanguages":["en","fr"],"skipMissingDate":true,"skipMissingISBN":false,"skipPartsAndSets":false,"skipSeriesSecondary":false,"minPages":50}}}`},
+		"author, every language": {commonv1.MediaKindAuthor, actions.EditRequest{
+			QualityProfileRef: "ebook", BookProfile: &actions.BookProfile{},
+		}, `{"spec":{"qualityProfileRef":"ebook","metadataProfile":{"allowedLanguages":null,"skipMissingDate":false,"skipMissingISBN":false,"skipPartsAndSets":false,"skipSeriesSecondary":false,"minPages":0}}}`},
+		"comic": {commonv1.MediaKindComic, actions.EditRequest{
+			QualityProfileRef: "cbz", Monitored: &on, ComicKind: "manga", SpecialVersion: "volumeAsIssue", MonitorNewIssues: &off,
+		}, `{"spec":{"qualityProfileRef":"cbz","monitored":true,"kind":"manga","specialVersion":"volumeAsIssue","monitorNewIssues":false}}`},
+		"audiobook": {commonv1.MediaKindAudiobook, actions.EditRequest{
+			QualityProfileRef: "m4b", Region: "uk", AuthorRef: &none, BookRef: &dune,
+		}, `{"spec":{"qualityProfileRef":"m4b","region":"uk","authorRef":null,"bookRef":"dune"}}`},
+		"book": {commonv1.MediaKindBook, actions.EditRequest{
+			QualityProfileRef: "ebook", RootFolderRef: "books", Monitored: &off,
+		}, `{"spec":{"qualityProfileRef":"ebook","rootFolderRef":"books","monitored":false}}`},
+		"an author's book, monitored alone": {commonv1.MediaKindBook, actions.EditRequest{Monitored: &on},
+			`{"spec":{"monitored":true}}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := &fakeWriter{}
+			obj, err := actions.EditItem(t.Context(), w, "media", tc.kind, "x", tc.req)
+			require.NoError(t, err)
+			require.Len(t, w.patches, 1)
+			require.Equal(t, tc.kind, kindOf(obj))
+			require.Equal(t, types.MergePatchType, w.patches[0].patchType)
+			require.JSONEq(t, tc.want, string(w.patches[0].data))
+		})
+	}
+}
+
+// A kind field on another kind, a value its CRD refuses, an empty
+// metadata-profile list (which would admit nothing) or a book edit naming
+// nothing is ErrInvalid before any patch.
+func TestEditItemRefusesAKindFieldOnTheWrongKindOrOutOfItsValues(t *testing.T) {
+	off := false
+	ref := "x"
+	cases := map[string]struct {
+		kind commonv1.MediaKind
+		req  actions.EditRequest
+	}{
+		"a comic kind on an artist":        {commonv1.MediaKindArtist, actions.EditRequest{QualityProfileRef: "p", ComicKind: "manga"}},
+		"an unknown comic kind":            {commonv1.MediaKindComic, actions.EditRequest{QualityProfileRef: "p", ComicKind: "webtoon"}},
+		"an unknown special version":       {commonv1.MediaKindComic, actions.EditRequest{QualityProfileRef: "p", SpecialVersion: "annual"}},
+		"monitor new issues on an author":  {commonv1.MediaKindAuthor, actions.EditRequest{QualityProfileRef: "p", MonitorNewIssues: &off}},
+		"an unknown region":                {commonv1.MediaKindAudiobook, actions.EditRequest{QualityProfileRef: "p", Region: "nz"}},
+		"a region on a comic":              {commonv1.MediaKindComic, actions.EditRequest{QualityProfileRef: "p", Region: "us"}},
+		"an author link on a book":         {commonv1.MediaKindBook, actions.EditRequest{QualityProfileRef: "p", AuthorRef: &ref}},
+		"an author's monitor-new on movie": {commonv1.MediaKindMovie, actions.EditRequest{QualityProfileRef: "p", MonitorNewItems: "all"}},
+		"new on an author":                 {commonv1.MediaKindAuthor, actions.EditRequest{QualityProfileRef: "p", MonitorNewItems: "new"}},
+		"a music profile on an author":     {commonv1.MediaKindAuthor, actions.EditRequest{QualityProfileRef: "p", MusicProfile: &actions.MusicProfile{PrimaryTypes: []string{"album"}, SecondaryTypes: []string{"studio"}, ReleaseStatuses: []string{"official"}}}},
+		"no primary type at all":           {commonv1.MediaKindArtist, actions.EditRequest{QualityProfileRef: "p", MusicProfile: &actions.MusicProfile{PrimaryTypes: []string{""}, SecondaryTypes: []string{"studio"}, ReleaseStatuses: []string{"official"}}}},
+		"an unknown secondary type":        {commonv1.MediaKindArtist, actions.EditRequest{QualityProfileRef: "p", MusicProfile: &actions.MusicProfile{PrimaryTypes: []string{"album"}, SecondaryTypes: []string{"karaoke"}, ReleaseStatuses: []string{"official"}}}},
+		"a book profile on an artist":      {commonv1.MediaKindArtist, actions.EditRequest{QualityProfileRef: "p", BookProfile: &actions.BookProfile{}}},
+		"negative pages":                   {commonv1.MediaKindAuthor, actions.EditRequest{QualityProfileRef: "p", BookProfile: &actions.BookProfile{MinPages: -1}}},
+		"a root folder on a comic":         {commonv1.MediaKindComic, actions.EditRequest{QualityProfileRef: "p", RootFolderRef: "r"}},
+		"a book edit naming nothing":       {commonv1.MediaKindBook, actions.EditRequest{}},
+		"an album ranks under its artist":  {commonv1.MediaKindAlbum, actions.EditRequest{QualityProfileRef: "p"}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			w := &fakeWriter{}
+			_, err := actions.EditItem(t.Context(), w, "media", c.kind, "x", c.req)
+			require.ErrorIs(t, err, actions.ErrInvalid)
+			require.Empty(t, w.patches)
+		})
+	}
+}
+
+// The dialog's enumerations are the action's: what a select offers is
+// what EditItem admits.
+func TestEditChoicesAreTheCRDsEnumerations(t *testing.T) {
+	ch := actions.Choices()
+	require.Equal(t, []string{"all", "none", "new"}, ch.ArtistMonitorNew)
+	require.Equal(t, []string{"all", "none"}, ch.AuthorMonitorNew)
+	require.Equal(t, []string{"comic", "manga"}, ch.ComicKinds)
+	require.Equal(t, []string{"normal", "tpb", "oneShot", "hardCover", "omnibus", "volumeAsIssue"}, ch.ComicSpecialVersions)
+	require.Len(t, ch.AudiobookRegions, 10)
+	require.Equal(t, []string{"album", "ep", "single", "broadcast", "other"}, ch.MusicPrimaryTypes)
+	require.Contains(t, ch.MusicSecondaryTypes, "studio")
+	require.Equal(t, []string{"official", "promotion", "bootleg", "pseudoRelease"}, ch.MusicReleaseStatuses)
+	for _, kind := range ch.ComicKinds {
+		_, err := actions.EditItem(t.Context(), &fakeWriter{}, "media", commonv1.MediaKindComic, "x", actions.EditRequest{QualityProfileRef: "p", ComicKind: kind})
+		require.NoError(t, err, kind)
+	}
+	for _, region := range ch.AudiobookRegions {
+		_, err := actions.EditItem(t.Context(), &fakeWriter{}, "media", commonv1.MediaKindAudiobook, "x", actions.EditRequest{QualityProfileRef: "p", Region: region})
+		require.NoError(t, err, region)
+	}
 }

@@ -764,7 +764,10 @@ rules:
   - catalog.clustarr.io
   resources:
   - artists
+  - audiobooks
   - authors
+  - books
+  - comics
   - libraryscans
   - movies
   - searches

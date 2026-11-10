@@ -134,7 +134,8 @@ type Grant struct {
 // Grants returns every RBAC permission this package's actions need, and
 // nothing else: create on searches and libraryscans, patch on searches
 // (an interactive search's grab, 2026-10-07), create on each
-// [AddableKinds] kind (Add New, 2026-09-29), patch on each catalog
+// [AddableKinds] kind (Add New, 2026-09-29; a Comic, an Audiobook and a
+// standalone Book since the 2026-11-10 design §9.1), patch on each catalog
 // kind in [MediaKinds] ("monitor this", §A3.2), plus -- Task G3-4, the
 // Settings page -- patch on each kind [settingsGrants] (settings.go) names.
 // It is a declaration, not a computation -- the envtest proves the §A3.2
