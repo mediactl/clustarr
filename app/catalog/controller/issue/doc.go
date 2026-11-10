@@ -15,12 +15,14 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package issue implements the Issue controller: acquisition state as a pure
-// function, and a thin Reconciler around it plus the file/download rollup
-// from its MediaFiles and Downloads, run as the remediation loop's Issue item
-// key (loop spec §3.12) -- mirroring
-// app/catalog/controller/episode exactly for the Comic -> Issue pair (task
-// G2-2).
+// Package issue implements the Issue controller: the Issue's view of the
+// shared leaf phase (PhaseInputs over rollup.LeafPhase, 2026-11-10 design
+// D4; until then Mylar's state enum, issue.State), and a thin Reconciler
+// around it plus the file/download rollup from its MediaFiles and its
+// Comic's grab entries, run as the remediation loop's Issue item key (loop
+// spec §3.12) -- mirroring app/catalog/controller/episode exactly for the
+// Comic -> Issue pair (task G2-2), the start-time skip of idle Issues
+// included (IdleInputs, design D14).
 //
 // Issue objects are created and owned by the Comic controller (Comic sets
 // spec.comicRef/number/calculatedNumberCentis and, at creation or per
@@ -28,8 +30,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // writes this Issue's provider-sourced status fields
 // (sourceID/title/date) -- but under the distinct
 // k8s.ManagerCatalogFanout field manager, never k8s.ManagerCatalog,
-// which this reconciler alone uses for
-// State/Conditions/HasFile/FileRef/FileQuality/ActiveDownloadRef. Server-side
+// which this reconciler alone uses for Phase/CutoffReason/Conditions/
+// HasFile/FileRef/FileQuality/FileFormat/FileFormatScore/CutoffMet/
+// ActiveDownloadRef/DownloadPhase. Server-side
 // apply replaces a manager's whole ownership set on every apply, so two
 // writers sharing one manager name would silently release each other's
 // fields the next time either side reconciles -- the same empirical finding
@@ -49,10 +52,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Like Episode, an Issue is ranked against a profile it does not name: its
 // Comic's spec.qualityProfileRef. This reconciler resolves that profile
-// (resolveProfile) and writes the outcome to status.cutoffMet and the
-// CutoffMet condition, so a comic file below its profile's cutoff stays an
-// upgrade candidate. IssueStatus has no FileFormatScore leaf, and a comic
-// profile scores no custom formats (pkg/quality.FromCRD gives every
-// non-video profile an empty Scores), so that return value of
-// rollup.FileState is not read.
+// (resolveProfile) and writes the outcome to status.cutoffMet and
+// status.cutoffReason (CutoffMet, CutoffUnmet, ProfileUnresolved, Pending
+// while no file backs it), so a comic file below its profile's cutoff stays
+// an upgrade candidate and one no profile judged reads CutoffUnevaluated. The
+// file's format is the quality's name as the comic ladder names it (CBZ,
+// CBR, PDF) and its format score the frozen one, 0 while a comic profile
+// scores no custom formats (pkg/quality.FromCRD gives every non-video
+// profile an empty Scores).
 package issue

@@ -405,8 +405,8 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			if err := c.Get(ctx, key, &got); err != nil {
 				return false
 			}
-			return got.Status.CutoffReason == "NoFile"
-		}, 5*time.Second, 20*time.Millisecond, "no file yet: CutoffMet=False/NoFile")
+			return got.Status.CutoffReason == commonv1.CutoffReasonPending
+		}, 5*time.Second, 20*time.Millisecond, "no file yet: cutoffReason Pending")
 
 		require.NoError(t, c.Create(ctx, testMediaFile("issue-ns", "saga-001-mf", "saga-001.0", commonv1.Quality{Name: "CBR"})))
 		var got catalogv1alpha1.Issue
@@ -414,7 +414,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			if err := c.Get(ctx, key, &got); err != nil {
 				return false
 			}
-			return got.Status.HasFile && got.Status.CutoffReason == "BelowCutoff"
+			return got.Status.HasFile && got.Status.CutoffReason == commonv1.CutoffReasonCutoffUnmet
 		}, 5*time.Second, 20*time.Millisecond, "a CBR file under a CBZ cutoff is below it")
 		assert.False(t, got.Status.CutoffMet)
 
@@ -441,7 +441,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			if err := c.Get(ctx, key, &got); err != nil {
 				return false
 			}
-			return !got.Status.CutoffMet && got.Status.CutoffReason == "BelowCutoff"
+			return !got.Status.CutoffMet && got.Status.CutoffReason == commonv1.CutoffReasonCutoffUnmet
 		}, 5*time.Second, 20*time.Millisecond, "the Comic's profile change never reached the Issue")
 
 		// status.cutoffMet is this reconciler's leaf under catalog, and

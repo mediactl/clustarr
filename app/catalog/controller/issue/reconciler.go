@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -41,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -61,16 +61,20 @@ import (
 // identical marker and comment for the occasion this repo learned it.
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
-// Reconciler reconciles an Issue: state from monitored/hasFile/downloading,
-// the file/download rollup from its MediaFiles (the remediation loop wakes it
-// when one's rollup inputs move, loop spec §3.12) and Downloads, and the
-// cutoff decision against the owning Comic's QualityProfile. It is the sole
-// writer of status.observedGeneration, status.conditions
-// (Ready/HasFile/Released/CutoffMet), status.state, status.hasFile,
-// status.fileRef, status.fileQuality, status.cutoffMet and
-// status.activeDownloadRef; the provider-sourced fields (sourceID/title/date)
-// belong to the Comic reconciler -- see this package's doc comment for the
-// field-manager split.
+// Reconciler reconciles an Issue: its phase and cutoffReason through
+// rollup.LeafPhase (2026-11-10 design D4) from its monitor flags, its cover
+// date, the file/download rollup from its MediaFiles (the remediation loop
+// wakes it when one's rollup inputs move, loop spec §3.12) and its Comic's
+// grab entries, and the cutoff decision against the owning Comic's
+// QualityProfile. It is the sole writer of status.observedGeneration,
+// status.conditions (Ready, DeadLettered), status.phase, status.cutoffReason,
+// status.hasFile, status.fileRef, status.fileQuality, status.fileFormat,
+// status.fileFormatScore, status.cutoffMet, status.activeDownloadRef and
+// status.downloadPhase; the provider-sourced fields (sourceID, title, date
+// and the rest the fan-out writes) belong to the Comic reconciler -- see
+// this package's doc comment for the field-manager split. It records a
+// Kubernetes Event on every phase edge and on the edge into an unresolved
+// profile (rollup.Reporter, design D14).
 //
 // An Issue carries no QualityProfileRef of its own: it is ranked against its
 // Comic's spec.qualityProfileRef (ComicSpec's "the QualityProfile issues are
@@ -108,13 +112,33 @@ func RegisterIndexes(context.Context, client.FieldIndexer) error { return nil }
 // profile -- wakes that Comic's Issues (mapComic).
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
-		{Object: &catalogv1alpha1.Issue{}, Map: rollup.Self, Predicates: []predicate.Predicate{issuePredicate()}},
+		{Object: &catalogv1alpha1.Issue{}, Map: rollup.Self, Predicates: []predicate.Predicate{issuePredicate()}, SkipInitial: r.idleAtStart},
 		{Object: &catalogv1alpha1.Comic{}, Map: r.mapComic, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 	}
 }
 
 var _ rollup.Item = (*Reconciler)(nil)
+
+// idleAtStart is the Issue watch's SkipInitial (2026-11-10 design D14, the
+// Episode's of 2026-10-28): an Issue whose pass at a manager's start would
+// change nothing -- unmonitored, itself or through its Comic, or imported,
+// with nothing in flight (rollup.LeafIdleAtStart) -- is left to its watches.
+// A Comic the cache lacks reads unmonitored, which is what the pass would
+// write too.
+func (r *Reconciler) idleAtStart(ctx context.Context, o client.Object) bool {
+	iss, ok := o.(*catalogv1alpha1.Issue)
+	if !ok {
+		return false
+	}
+	monitored, err := itemread.Monitored(ctx, r.Client, iss)
+	if err != nil {
+		return false
+	}
+	return rollup.LeafIdleAtStart(IdleInputs(iss, monitored))
+}
+
+func (r *Reconciler) reporter() rollup.Reporter { return rollup.Reporter{Recorder: r.Recorder} }
 
 func issuePredicate() predicate.Predicate {
 	return k8s.Or(
@@ -271,14 +295,24 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, iss *catalogv1alpha1.I
 	return ctrl.Result{}, nil
 }
 
-// reconcileNormal computes hasFile from its MediaFiles, folds in a
-// watched Download's overlay, computes State and the HasFile/Released
-// conditions, and patches status. It never sets
+// reconcileNormal computes hasFile and the file fields from its MediaFiles,
+// its phase and cutoffReason through rollup.LeafPhase with its Comic's live
+// grab entry overlaid, and patches status. It never sets
 // SourceID/Title/Date -- those belong to the Comic reconciler.
 func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.Issue) (ctrl.Result, error) {
 	now := time.Now().UTC()
-	monitored := ptr.Deref(iss.Spec.Monitored, true)
-	conditions := append([]metav1.Condition(nil), iss.Status.Conditions...)
+	// The Issue's own flag and its Comic's (design D3): an Issue of an
+	// unmonitored Comic is unmonitored, as the search path reads it.
+	monitored, err := itemread.Monitored(ctx, r.Client, iss)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// Ready and DeadLettered are the Issue's conditions; the three retired on
+	// 2026-11-10 (design D4: Released, HasFile, CutoffMet, which status.phase,
+	// status.hasFile and status.cutoffReason say) are dropped from an Issue
+	// still carrying them, since an apply that copied them from the cache
+	// would keep them for good.
+	conditions := rollup.DropRetiredLeafConditions(iss.Status.Conditions)
 	// The DLQ projector's clustarr.io/dead-lettered annotation becomes the
 	// DeadLettered condition here, on the one slice every status apply below
 	// declares -- early returns included -- so no apply releases it.
@@ -300,10 +334,10 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	// fileFormatScore is discarded: IssueStatus has no leaf for it, and a
-	// comic profile scores no custom formats anyway (pkg/quality.FromCRD
-	// gives a non-video profile an empty Scores).
-	hasFile, fileRef, fileQuality, _, cutoffMet := rollup.FileState(mf, profile)
+	// A comic profile scores no custom formats (pkg/quality.FromCRD gives a
+	// non-video profile an empty Scores), so fileFormatScore is the frozen
+	// 0 until one does; it is written all the same (design D5).
+	hasFile, fileRef, fileQuality, fileFormatScore, fileCutoffMet := rollup.FileState(mf, profile)
 	// Announced before the apply that records the new fileRef, so a failed
 	// apply re-announces the same edge under the same envelope id
 	// (rollup.MediaFileEvent) rather than losing it.
@@ -315,39 +349,45 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	_, active := rollup.EntryOverlay(dl)
+	overlayPhase, active := rollup.LeafOverlay(dl)
 
-	released := iss.Status.Date == nil || !now.Before(iss.Status.Date.Time)
-	state := State(monitored, hasFile, cutoffMet, active, iss.Status.PendingGrab != nil, released)
+	in := PhaseInputs(iss, monitored, hasFile, fileCutoffMet, profile != nil, now)
+	phase, reason := rollup.LeafPhase(in)
+	if overlayPhase != "" {
+		phase = overlayPhase
+	}
+	cutoffMet := rollup.LeafCutoffMet(in)
+	// On the edge into an unresolved profile, never while it persists: the
+	// parse errors are reported authoritatively on the QualityProfile, and
+	// the cutoffReason carries the steady state (Movie's rule).
+	if reason == commonv1.CutoffReasonProfileUnresolved && iss.Status.CutoffReason != reason {
+		r.reporter().Warn(iss, commonv1.CutoffReasonProfileUnresolved, "cutoff not evaluated: %s", profileProblem)
+	}
 
-	// The Released, HasFile and CutoffMet conditions were retired on
-	// 2026-11-10 (design D4): status.phase and status.hasFile say what
-	// they restated, and the cutoff's reason is status.cutoffReason, as
-	// Episode's since 2026-11-03. A retired condition still on the object
-	// is dropped by the one complete apply below.
-	_, reason, _ := CutoffCondition(hasFile, cutoffMet, profileProblem)
-	conditions = retiredIssueConditions(conditions)
-
-	// Ready is unconditionally true on a successful pass: unlike Movie/
-	// Episode, IssueState has no phase value meaning "blocked, waiting on
-	// something" (see state.go's doc comment) for Ready to gate on --
-	// IssueConditionReady's own doc comment reads "True when the issue is
-	// fully reconciled", not "True when acquired", and every branch above
-	// that could fail already returned before reaching here.
-	k8s.MarkReady(iss, &conditions, true, k8s.ReasonReconciled, "state=%s", state)
+	// Ready is unconditionally true on a successful pass: an Issue has no
+	// metadata of its own to wait on (PhaseInputs), IssueConditionReady's
+	// own doc comment reads "True when the issue is fully reconciled", not
+	// "True when acquired", and every branch above that could fail already
+	// returned before reaching here.
+	k8s.MarkReady(iss, &conditions, true, k8s.ReasonReconciled, "phase=%s", phase)
 
 	statusAC := catalogac.IssueStatus().
 		WithObservedGeneration(iss.Generation).
-		WithPhase(state).
+		WithPhase(phase).
 		WithCutoffReason(reason).
 		WithHasFile(hasFile).
 		WithCutoffMet(cutoffMet).
+		WithFileFormatScore(fileFormatScore).
 		WithConditions(k8s.ConditionACs(conditions)...)
 	if fileRef != nil {
 		statusAC = statusAC.WithFileRef(*fileRef)
 	}
 	if fileQuality != nil {
 		statusAC = statusAC.WithFileQuality(*fileQuality)
+		// The format as the comic ladder names the quality (CBZ, CBR, PDF).
+		if fileQuality.Name != "" {
+			statusAC = statusAC.WithFileFormat(fileQuality.Name)
+		}
 	}
 	if active {
 		statusAC = statusAC.WithActiveDownloadRef(dl.ID).WithDownloadPhase(dl.Phase)
@@ -357,38 +397,23 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	// it under SSA, and since R-5 this manager is its only owner, so the
 	// release removes it.
 
-	// This reconciler owns exactly Phase/CutoffReason/Conditions/HasFile/FileRef/
-	// FileQuality/CutoffMet/ActiveDownloadRef/ObservedGeneration under
+	// This reconciler owns exactly Phase/CutoffReason/Conditions/HasFile/
+	// FileRef/FileQuality/FileFormat/FileFormatScore/CutoffMet/
+	// ActiveDownloadRef/DownloadPhase/ObservedGeneration under
 	// k8s.ManagerCatalog. The Comic reconciler writes this Issue's
-	// provider-sourced fields (SourceID/Title/Date) under the distinct
-	// k8s.ManagerCatalogFanout, so no pass-through of those fields is
-	// needed here -- see this package's doc.go.
+	// provider-sourced fields (SourceID/Title/Date and the rest) under the
+	// distinct k8s.ManagerCatalogFanout, so no pass-through of those fields
+	// is needed here -- see this package's doc.go.
 	if conflicted, err := itemstatus.Apply(ctx, r.Client, iss, catalogac.Issue(iss.Name, iss.Namespace).WithStatus(statusAC)); err != nil || conflicted {
 		return itemstatus.Requeue(conflicted), err
 	}
+	// After the apply, so a phase that never landed is never announced.
+	r.reporter().PhaseEdge(iss, string(iss.Status.Phase), string(phase))
 
 	if iss.Status.Date != nil && now.Before(iss.Status.Date.Time) {
 		return ctrl.Result{RequeueAfter: iss.Status.Date.Sub(now)}, nil
 	}
 	return ctrl.Result{}, nil
-}
-
-// CutoffCondition renders IssueConditionCutoffMet: True once the file backing
-// the issue meets its Comic's profile cutoff, otherwise False with the
-// reason it is not -- no file yet, a profile that could not be resolved
-// (problem, which also keeps cutoffMet false rather than guessing), or a
-// file below the cutoff, which leaves the issue an upgrade candidate.
-func CutoffCondition(hasFile, cutoffMet bool, problem string) (status metav1.ConditionStatus, reason, message string) {
-	switch {
-	case !hasFile:
-		return metav1.ConditionFalse, "NoFile", "no MediaFile backs this issue"
-	case problem != "":
-		return metav1.ConditionFalse, "ProfileUnresolved", "cutoff not evaluated: " + problem
-	case cutoffMet:
-		return metav1.ConditionTrue, "CutoffMet", "the file meets the quality profile's cutoff"
-	default:
-		return metav1.ConditionFalse, "BelowCutoff", "the file is below the quality profile's cutoff"
-	}
 }
 
 // resolveProfile fetches the QualityProfile iss is ranked against: its
@@ -420,21 +445,4 @@ func (r *Reconciler) resolveProfile(ctx context.Context, iss *catalogv1alpha1.Is
 		return nil, fmt.Sprintf("qualityProfile %q does not parse: %s", qp.Name, errors.Join(errs...)), nil
 	}
 	return &p, "", nil
-}
-
-// retiredIssueConditions drops the conditions D4 of the 2026-11-10 design
-// retired -- Released, HasFile and CutoffMet -- from an Issue still
-// carrying them, so the complete apply stops sending them and the apiserver
-// removes them; an apply that copied them from the cache would keep them
-// for good (the Episode's retiredEpisodeConditions, 2026-11-03).
-func retiredIssueConditions(conditions []metav1.Condition) []metav1.Condition {
-	out := conditions[:0:0]
-	for _, c := range conditions {
-		switch c.Type {
-		case "Released", "HasFile", "CutoffMet":
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
 }
