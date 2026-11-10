@@ -1125,6 +1125,15 @@ its own design:
 3. The chart's `libraries` gains `Clustarr Music` (`type: artist`,
    `/media/music`) and `Clustarr Audiobooks` (`/media/audiobooks`), the
    provider ids commented out until §7's roots are on.
+   (Read-only on talos's PMS, 2026-11-10 night, GET /system/agents?mediaType=8:
+   the artist agents are com.plexapp.agents.none (Personal Media Artists,
+   primary), com.plexapp.agents.lastfm (primary, prefs), tv.plex.agents.music
+   (Plex Music), tv.plex.agents.none and tv.plex.agents.nfo.music -- listed
+   twice, as "Plex NFO Music" (id 9) and as "Clustarr Music" (id 10), the
+   second of unknown origin and worth asking the cluster-plex sessions about
+   before provisioning; /media/providers lists no custom provider at all, so
+   the movies' and tv's registrations are not read there. The sections today
+   are 1 movie and 2 show on the clustarr custom providers.)
 
 ## 11. Waves and tasks
 
