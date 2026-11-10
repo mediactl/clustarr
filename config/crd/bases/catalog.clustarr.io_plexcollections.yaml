@@ -1,0 +1,471 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: plexcollections.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    - catalog
+    kind: PlexCollection
+    listKind: PlexCollectionList
+    plural: plexcollections
+    shortNames:
+    - pcol
+    singular: plexcollection
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.library
+      name: Library
+      type: string
+    - jsonPath: .spec.title
+      name: Title
+      type: string
+    - jsonPath: .status.itemCount
+      name: Items
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Synced")].reason
+      name: Synced
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          PlexCollection is a Plex collection, smart or normal, declared as a
+          resource; cluster-plex reconciles it into Plex.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PlexCollectionSpec is a Plex collection.
+            properties:
+              background:
+                description: |-
+                  PlexImage is an image cluster-plex fetches and uploads to Plex: https
+                  on a public host, or anything under clustarr UI's own /art/.
+                properties:
+                  url:
+                    pattern: ^https?://
+                    type: string
+                required:
+                - url
+                type: object
+              filter:
+                description: Filter makes the collection smart.
+                properties:
+                  match:
+                    default: all
+                    description: Match joins the top-level rules.
+                    enum:
+                    - all
+                    - any
+                    type: string
+                  rules:
+                    description: Rules are the filter's conditions and groups, in
+                      order.
+                    items:
+                      description: |-
+                        PlexFilterRule is a top-level entry of a filter: a condition, or a group
+                        of conditions with a match of its own. One level of groups.
+                      properties:
+                        field:
+                          description: Field, Operator and Value make this rule a
+                            condition (PlexCondition).
+                          pattern: ^[a-zA-Z]+(\.[a-zA-Z]+)?$
+                          type: string
+                        match:
+                          description: Match and Rules make this rule a group.
+                          enum:
+                          - all
+                          - any
+                          type: string
+                        operator:
+                          description: |-
+                            PlexOperator is a filter condition's operator, in words; cluster-plex
+                            turns it into Plex's symbol for the field's type
+                            (pkg/plexfilter.Operators says which a type takes).
+                          enum:
+                          - is
+                          - isNot
+                          - contains
+                          - doesNotContain
+                          - beginsWith
+                          - endsWith
+                          - greaterThan
+                          - lessThan
+                          - before
+                          - after
+                          - isTrue
+                          - isFalse
+                          type: string
+                        rules:
+                          items:
+                            description: 'PlexCondition is one row of a filter: a
+                              field, an operator and a value.'
+                            properties:
+                              field:
+                                description: |-
+                                  Field is Plex's filter key, as a library's Meta lists it: "title",
+                                  "genre", "show.network", "episode.audioLanguage".
+                                pattern: ^[a-zA-Z]+(\.[a-zA-Z]+)?$
+                                type: string
+                              operator:
+                                description: Operator compares the field with the
+                                  value.
+                                enum:
+                                - is
+                                - isNot
+                                - contains
+                                - doesNotContain
+                                - beginsWith
+                                - endsWith
+                                - greaterThan
+                                - lessThan
+                                - before
+                                - after
+                                - isTrue
+                                - isFalse
+                                type: string
+                              value:
+                                description: |-
+                                  Value is written as a person reads it: a tag's name ("Anime"), an
+                                  ISO 639-1 language ("en"), a date or Plex's relative form ("-6w").
+                                  isTrue and isFalse take none.
+                                type: string
+                            required:
+                            - field
+                            - operator
+                            type: object
+                          maxItems: 32
+                          minItems: 1
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        value:
+                          type: string
+                      type: object
+                      x-kubernetes-validations:
+                      - message: a rule is a condition (field, operator) or a group
+                          (match, rules), not both
+                        rule: has(self.field) != has(self.match)
+                      - message: a condition needs an operator
+                        rule: '!has(self.field) || has(self.operator)'
+                      - message: a group needs rules
+                        rule: '!has(self.match) || has(self.rules)'
+                    maxItems: 32
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: atomic
+                required:
+                - rules
+                type: object
+              itemType:
+                description: ItemType is what the collection holds.
+                enum:
+                - movie
+                - show
+                - season
+                - episode
+                type: string
+                x-kubernetes-validations:
+                - message: itemType is immutable
+                  rule: self == oldSelf
+              library:
+                description: Library is the Plex library section, by title.
+                minLength: 1
+                type: string
+                x-kubernetes-validations:
+                - message: library is immutable
+                  rule: self == oldSelf
+              limit:
+                description: Limit is a smart collection's LIMIT TO; absent keeps
+                  Plex's.
+                format: int32
+                minimum: 1
+                type: integer
+              members:
+                description: Members make the collection normal.
+                properties:
+                  items:
+                    items:
+                      description: |-
+                        PlexMember is one item of a normal collection: a clustarr Movie or
+                        Series in the collection's namespace.
+                      properties:
+                        kind:
+                          enum:
+                          - Movie
+                          - Series
+                          type: string
+                        name:
+                          minLength: 1
+                          type: string
+                      required:
+                      - kind
+                      - name
+                      type: object
+                    maxItems: 1000
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: atomic
+                required:
+                - items
+                type: object
+              poster:
+                description: |-
+                  Poster and Background are the collection's images; absent keeps
+                  Plex's.
+                properties:
+                  url:
+                    pattern: ^https?://
+                    type: string
+                required:
+                - url
+                type: object
+              settings:
+                description: Settings are the collection's mode and order; absent
+                  keeps Plex's.
+                properties:
+                  mode:
+                    description: Mode is how the collection and its items show in
+                      the library.
+                    enum:
+                    - default
+                    - hideCollection
+                    - hideItems
+                    - showCollectionAndItems
+                    type: string
+                  order:
+                    description: Order is a normal collection's item order.
+                    enum:
+                    - releaseDate
+                    - alphabetical
+                    type: string
+                type: object
+              sort:
+                description: Sort is a smart collection's sort; absent keeps Plex's.
+                properties:
+                  descending:
+                    type: boolean
+                  field:
+                    minLength: 1
+                    type: string
+                required:
+                - field
+                type: object
+              sortTitle:
+                description: SortTitle is the collection's sort title; absent keeps
+                  Plex's.
+                type: string
+              summary:
+                description: Summary is the collection's summary; absent keeps Plex's.
+                type: string
+              title:
+                description: Title is the collection's title in Plex.
+                minLength: 1
+                type: string
+              visibility:
+                description: |-
+                  Visibility is where Plex promotes the collection; absent keeps
+                  Plex's.
+                properties:
+                  friendsHome:
+                    type: boolean
+                  home:
+                    type: boolean
+                  libraryRecommended:
+                    type: boolean
+                required:
+                - friendsHome
+                - home
+                - libraryRecommended
+                type: object
+            required:
+            - itemType
+            - library
+            - title
+            type: object
+            x-kubernetes-validations:
+            - message: a collection is smart (filter) or normal (members), not both
+              rule: has(self.filter) != has(self.members)
+            - message: a collection cannot change between smart and normal
+              rule: has(self.filter) == has(oldSelf.filter)
+            - message: a normal collection holds movies or shows
+              rule: '!has(self.members) || self.itemType in [''movie'', ''show'']'
+            - message: sort and limit belong to a smart collection
+              rule: (!has(self.sort) && !has(self.limit)) || has(self.filter)
+            - message: settings.order belongs to a normal collection; a smart one
+                is ordered by its sort
+              rule: '!has(self.settings) || !has(self.settings.order) || has(self.members)'
+            - message: a movie collection's members are Movies, a show collection's
+                Series
+              rule: '!has(self.members) || self.members.items.all(m, m.kind == (self.itemType
+                == ''movie'' ? ''Movie'' : ''Series''))'
+          status:
+            description: PlexCollectionStatus is cluster-plex's, alone.
+            properties:
+              adopted:
+                description: Adopted is true when the collection existed before the
+                  resource.
+                type: boolean
+              background:
+                description: PlexImageStatus is the image cluster-plex last uploaded.
+                properties:
+                  fetchedAt:
+                    format: date-time
+                    type: string
+                  sha1:
+                    type: string
+                  url:
+                    type: string
+                required:
+                - sha1
+                - url
+                type: object
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              content:
+                description: |-
+                  Content is a smart collection's filter as Plex holds it after the
+                  last sync.
+                type: string
+              itemCount:
+                description: ItemCount is Plex's childCount after the last sync.
+                format: int32
+                type: integer
+              lastSyncedAt:
+                format: date-time
+                type: string
+              missing:
+                items:
+                  description: |-
+                    PlexMember is one item of a normal collection: a clustarr Movie or
+                    Series in the collection's namespace.
+                  properties:
+                    kind:
+                      enum:
+                      - Movie
+                      - Series
+                      type: string
+                    name:
+                      minLength: 1
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                maxItems: 20
+                type: array
+                x-kubernetes-list-type: atomic
+              missingMembers:
+                description: |-
+                  MissingMembers counts a normal collection's members Plex does not
+                  hold yet, and Missing names the first of them.
+                format: int32
+                type: integer
+              observedGeneration:
+                format: int64
+                type: integer
+              poster:
+                description: Poster and Background are the images last uploaded.
+                properties:
+                  fetchedAt:
+                    format: date-time
+                    type: string
+                  sha1:
+                    type: string
+                  url:
+                    type: string
+                required:
+                - sha1
+                - url
+                type: object
+              ratingKey:
+                description: RatingKey is the Plex collection this resource holds.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

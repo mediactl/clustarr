@@ -4351,6 +4351,229 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: group
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollection
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollectionSpec
+    - name: status
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollectionStatus
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollectionList
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: items
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollection
+          elementRelationship: atomic
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollectionMode
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollectionOrder
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollectionSettings
+  map:
+    fields:
+    - name: mode
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollectionMode
+    - name: order
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollectionOrder
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollectionSpec
+  map:
+    fields:
+    - name: background
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexImage
+    - name: filter
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexFilter
+    - name: itemType
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexItemType
+    - name: library
+      type:
+        scalar: string
+    - name: limit
+      type:
+        scalar: numeric
+    - name: members
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexMembers
+    - name: poster
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexImage
+    - name: settings
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollectionSettings
+    - name: sort
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexSort
+    - name: sortTitle
+      type:
+        scalar: string
+    - name: summary
+      type:
+        scalar: string
+    - name: title
+      type:
+        scalar: string
+    - name: visibility
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexVisibility
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCollectionStatus
+  map:
+    fields:
+    - name: adopted
+      type:
+        scalar: boolean
+    - name: background
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexImageStatus
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: content
+      type:
+        scalar: string
+    - name: itemCount
+      type:
+        scalar: numeric
+    - name: lastSyncedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: missing
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexMember
+          elementRelationship: atomic
+    - name: missingMembers
+      type:
+        scalar: numeric
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: poster
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexImageStatus
+    - name: ratingKey
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCondition
+  map:
+    fields:
+    - name: field
+      type:
+        scalar: string
+    - name: operator
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexOperator
+    - name: value
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexFilter
+  map:
+    fields:
+    - name: match
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexMatch
+      default: all
+    - name: rules
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexFilterRule
+          elementRelationship: atomic
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexFilterRule
+  map:
+    fields:
+    - name: field
+      type:
+        scalar: string
+    - name: match
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexMatch
+    - name: operator
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexOperator
+    - name: rules
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexCondition
+          elementRelationship: atomic
+    - name: value
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexImage
+  map:
+    fields:
+    - name: url
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexImageStatus
+  map:
+    fields:
+    - name: fetchedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: sha1
+      type:
+        scalar: string
+    - name: url
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexItemType
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexMatch
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexMember
+  map:
+    fields:
+    - name: kind
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexMembers
+  map:
+    fields:
+    - name: items
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexMember
+          elementRelationship: atomic
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexOperator
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexSeasonRef
   map:
     fields:
@@ -4360,6 +4583,27 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: number
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexSort
+  map:
+    fields:
+    - name: descending
+      type:
+        scalar: boolean
+    - name: field
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexVisibility
+  map:
+    fields:
+    - name: friendsHome
+      type:
+        scalar: boolean
+    - name: home
+      type:
+        scalar: boolean
+    - name: libraryRecommended
+      type:
+        scalar: boolean
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexWatchlist
   map:
     elementType:

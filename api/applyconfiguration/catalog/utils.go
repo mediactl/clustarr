@@ -285,8 +285,34 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.PendingGrabApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Perms"):
 		return &catalogv1alpha1.PermsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexCollection"):
+		return &catalogv1alpha1.PlexCollectionApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexCollectionSettings"):
+		return &catalogv1alpha1.PlexCollectionSettingsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexCollectionSpec"):
+		return &catalogv1alpha1.PlexCollectionSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexCollectionStatus"):
+		return &catalogv1alpha1.PlexCollectionStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexCondition"):
+		return &catalogv1alpha1.PlexConditionApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexFilter"):
+		return &catalogv1alpha1.PlexFilterApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexFilterRule"):
+		return &catalogv1alpha1.PlexFilterRuleApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexImage"):
+		return &catalogv1alpha1.PlexImageApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexImageStatus"):
+		return &catalogv1alpha1.PlexImageStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexMember"):
+		return &catalogv1alpha1.PlexMemberApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexMembers"):
+		return &catalogv1alpha1.PlexMembersApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlexSeasonRef"):
 		return &catalogv1alpha1.PlexSeasonRefApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexSort"):
+		return &catalogv1alpha1.PlexSortApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexVisibility"):
+		return &catalogv1alpha1.PlexVisibilityApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("QualityProfile"):
 		return &catalogv1alpha1.QualityProfileApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("QualityProfileSpec"):

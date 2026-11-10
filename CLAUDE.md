@@ -1874,6 +1874,25 @@ by TMDB id) into `collection.plexID`, and its summary, poster and background
 from TMDB into the movie's extended document. Both providers declare `match`,
 which Plex's provider docs require.
 
+**Plex collections are resources** (owner, 2026-11-10: "Custom Resource the
+clustarr UI can edit", then "also include normal collections, the ability to
+customize the image, the ability to change its settings";
+`docs/superpowers/specs/2026-11-10-plex-collections-design.md`). A
+`PlexCollection` (catalog.clustarr.io) is smart -- `spec.filter`, Plex's own
+filter keys (`show.genre`, `episode.audioLanguage`) with word operators and
+tag values by name, one level of groups, which cluster-plex compiles to Plex
+Web's encoding -- or normal -- `spec.members.items`, clustarr Movies or Series
+by name, found in Plex by the GUID cluster-plex's projection gives them --
+never both, and the choice, `library` and `itemType` never change. Its
+presentation is optional: `summary`, `sortTitle`, `poster`/`background` URLs
+(https on a public host, or under the UI's own `/art/`), `settings.mode` and
+`settings.order`, and `visibility` (library Recommended, Home, friends' Home).
+Every field left out keeps what Plex has, so adopting an existing collection
+by title changes only what the spec states; a metadata-made collection (a TMDB
+collection, GUID not `collection://`) is never adopted. cluster-plex
+reconciles them on its lease holder and writes their status and finalizer
+(below); the UI's Collections page (Library sub-menu) edits their spec.
+
 ## Music, books, comics and audiobooks
 
 The four non-video libraries reached the movies' and TV's parity on
@@ -1989,6 +2008,11 @@ Until the guard lands, review holds the invariant; drop the mark when it does.
   an item, a MediaFile, a grab and its transfer, a scan, a list sync, a search,
   an indexer's health -- is a state machine in the manager's reconcile loop, and
   every task an effect it admits and routes (`app/dispatch`).
+  One exception, outside clustarr's own processes: a `PlexCollection`'s status
+  and its finalizer (`clusterplex.io/plex-collection`) are cluster-plex's,
+  written under field manager `cluster-plex` (owner, 2026-11-10, the
+  collections design's option A); its spec is the UI's, kubectl's or
+  Terraform's, and clustarr's manager never writes it.
 - **One controller-writer per resource.** The sole exception is `MediaFile`, and
   the split is **spec versus status**, not status versus status, with both
   writers in the manager: `import-worker` creates the resource and owns
