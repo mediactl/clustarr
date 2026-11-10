@@ -19,8 +19,19 @@ package ui
 
 import "net/http"
 
-// comicRoutes registers the Comics library's comic and issue pages and the issue
-// search modal's routes (2026-11-10 design §9.4; plan W4b.3 owns this file): the
-// pages, their details and search routes, called from libraryKindRoutes.
-// Empty until W4b.3 lands.
-func (s *Server) comicRoutes(_ *http.ServeMux) {}
+// comicRoutes registers the Comics library's comic and issue pages and the
+// issue search modal's routes (2026-11-10 design §9.4; plan W4b.3 owns this
+// file), called from libraryKindRoutes. The comic's and the issue's pages
+// beat the shared /library/{namespace}/{kind}/{name} route by their literal
+// segment (ServeMux precedence), so neither needs a dispatch edit; the
+// issue's search panel and grab routes draw the results in comic columns,
+// where the shared /searches routes draw Sonarr's.
+func (s *Server) comicRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /library/{namespace}/comic/{name}", s.handleComicPage)
+	mux.HandleFunc("POST /library/{namespace}/comic/{name}/volume/search", s.handleComicVolumeSearch)
+	mux.HandleFunc("GET /library/{namespace}/issue/{name}", s.handleIssuePage)
+	mux.HandleFunc("GET /library/{namespace}/issue/{name}/details", s.handleIssueDetails)
+	mux.HandleFunc("POST /library/{namespace}/issue/{name}/search/interactive", s.handleIssueInteractiveSearch)
+	mux.HandleFunc("GET /library/{namespace}/issue/{name}/search/{search}", s.handleIssueSearchPanel)
+	mux.HandleFunc("POST /library/{namespace}/issue/{name}/search/{search}/grab", s.handleIssueGrabRelease)
+}
