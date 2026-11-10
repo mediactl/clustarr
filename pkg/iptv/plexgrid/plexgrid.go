@@ -28,6 +28,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -105,6 +106,7 @@ type Tag struct {
 type Media struct {
 	BeginsAt int64 `json:"beginsAt"`
 	EndsAt   int64 `json:"endsAt"`
+	Duration int64 `json:"duration"` // milliseconds
 	Live     bool  `json:"live"`
 	Premiere bool  `json:"premiere"`
 }
@@ -143,7 +145,7 @@ func (c *Client) Grid(ctx context.Context, gridKey string, from, to time.Time) (
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, redactErr(err, c.Token)
+		return nil, fmt.Errorf("plexgrid: grid %s: %w", gridKey, err)
 	}
 	defer resp.Body.Close()
 	switch resp.StatusCode {
@@ -152,13 +154,14 @@ func (c *Client) Grid(ctx context.Context, gridKey string, from, to time.Time) (
 		return nil, ErrNotFound
 	case http.StatusTooManyRequests:
 		secs, _ := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After")))
+		secs = max(secs, 0)
 		return nil, &RateLimitedError{RetryAfter: time.Duration(secs) * time.Second}
 	default:
 		return nil, fmt.Errorf("plexgrid: grid %s: %s", gridKey, resp.Status)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodyBytes+1))
 	if err != nil {
-		return nil, redactErr(err, c.Token)
+		return nil, fmt.Errorf("plexgrid: read grid %s: %w", gridKey, err)
 	}
 	if len(body) > MaxBodyBytes {
 		return nil, ErrResponseTooLarge
@@ -170,20 +173,24 @@ func (c *Client) Grid(ctx context.Context, gridKey string, from, to time.Time) (
 	return Reduce(a.MediaContainer.Metadata), nil
 }
 
-func redactErr(err error, token string) error {
-	if token == "" {
-		return err
-	}
-	return errors.New(strings.ReplaceAll(err.Error(), token, "REDACTED"))
-}
-
 // Reduce turns items into one Programme per airing, sorted by start.
 func Reduce(items []Item) []Programme {
 	var out []Programme
 	for _, it := range items {
 		l := listing(it)
 		for _, m := range it.Media {
-			p := Programme{Start: time.Unix(m.BeginsAt, 0).UTC(), Stop: time.Unix(m.EndsAt, 0).UTC(), Listing: l}
+			end := m.EndsAt
+			if end <= m.BeginsAt {
+				if m.Duration <= 0 {
+					continue
+				}
+				end = m.BeginsAt + m.Duration/1000
+				if end <= m.BeginsAt {
+					continue
+				}
+			}
+			p := Programme{Start: time.Unix(m.BeginsAt, 0).UTC(), Stop: time.Unix(end, 0).UTC(), Listing: l}
+			p.Categories = slices.Clone(l.Categories)
 			p.Live = m.Live
 			p.Premiere = m.Premiere
 			p.New = m.Premiere

@@ -44,7 +44,8 @@ type countLimiter struct{ n atomic.Int32 }
 func (c *countLimiter) Wait(context.Context) error { c.n.Add(1); return nil }
 
 func TestGridReducesTheRecordedAnswer(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(sample(t)) }))
+	body := sample(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(body) }))
 	defer srv.Close()
 	c := &Client{BaseURL: srv.URL, Token: "t", HTTP: srv.Client()}
 	ps, err := c.Grid(context.Background(), "k", time.Now(), time.Now())
@@ -104,10 +105,11 @@ func TestReduceSportsPremiereAndSeasonGUID(t *testing.T) {
 
 func TestGridHonoursTheLimiterAndSendsTheToken(t *testing.T) {
 	var tok, key, from, to string
+	body := sample(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tok = r.Header.Get("X-Plex-Token")
 		key, from, to = r.URL.Query().Get("channelGridKey"), r.URL.Query().Get("startDate"), r.URL.Query().Get("endDate")
-		_, _ = w.Write(sample(t))
+		_, _ = w.Write(body)
 	}))
 	defer srv.Close()
 	lim := &countLimiter{}
@@ -153,4 +155,42 @@ func TestABodyOverTheCapIsRefused(t *testing.T) {
 	defer srv.Close()
 	_, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Grid(context.Background(), "k", time.Now(), time.Now())
 	require.ErrorIs(t, err, ErrResponseTooLarge)
+}
+
+func TestAContextCancellationKeepsItsChain(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := (&Client{BaseURL: srv.URL, Token: "secret", HTTP: srv.Client()}).Grid(ctx, "k", time.Now(), time.Now())
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotContains(t, err.Error(), "secret")
+}
+
+func TestAnAiringWithABadEndTakesItsDurationOrIsSkipped(t *testing.T) {
+	ps := Reduce([]Item{{Type: "movie", Title: "M", Genre: []Tag{{Tag: "Drama"}}, Media: []Media{
+		{BeginsAt: 1000, Duration: 600000},                // end missing
+		{BeginsAt: 2000, EndsAt: 1500, Duration: 1800000}, // end before begin
+		{BeginsAt: 3000},                                 // no end, no duration: skipped
+		{BeginsAt: 4000, EndsAt: 4000},                   // not after, no duration: skipped
+		{BeginsAt: 5000, EndsAt: 5100, Duration: 999000}, // good end wins
+	}}})
+	require.Len(t, ps, 3)
+	require.Equal(t, int64(1600), ps[0].Stop.Unix())
+	require.Equal(t, int64(3800), ps[1].Stop.Unix())
+	require.Equal(t, int64(5100), ps[2].Stop.Unix())
+	ps[0].Categories[0] = "X"
+	require.Equal(t, "Drama", ps[1].Categories[0])
+}
+
+func TestANegativeRetryAfterIsZero(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "-5")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	_, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Grid(context.Background(), "k", time.Now(), time.Now())
+	var rl *RateLimitedError
+	require.ErrorAs(t, err, &rl)
+	require.Zero(t, rl.RetryAfter)
 }
