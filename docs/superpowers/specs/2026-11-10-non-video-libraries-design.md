@@ -953,7 +953,23 @@ actuator's remembered collision never retried once the target is free;
 `metron.Client.Page` as the client's own method (the gateway adapts it);
 FB2/DJVU quality tiers (owner); the Comic memo keyed on the flag; the ui's
 audiobook Parts table showing the ordinal (done by the controlling
-session's integration commit). **Browser check done (2026-11-10, the
+session's integration commit). **Wave E (nonvideo-implement-e, ten agents,
+2026-11-10):** a standalone Book's `status.path` is its own folder,
+`book.Path` agreeing with the import's `catalogctx.BookFilePath` byte for
+byte (ba7c7256; the ui admits the folder once the book has a file); an
+Album and a standalone Book are deletable (87afc7de, a196a7ed:
+`DeletableKinds`, a `librarydelete` kindSpec each with a `Keep` bound on the
+artist's folder, the manager role's `delete` on albums and books; a deleted
+album of a listed release group returns at the Artist's next fan-out as in
+Lidarr); coverage rejections name the covered kind (b903ea47; the caller is
+`app/catalog/controller/search/season.go`'s seasonItemState); a remembered
+rename collision expires after a minute (6760dc20); `childsync.Key` carries
+no add-options flag and `metron.Client.Page` is the client's own
+PageProvider (7450a5f9, edcfd506). Still open: Album and Book import-list
+exclusions; a fileless standalone book's page still offers Refresh & Scan
+and Rename (dead until it has a file); the sibling controllers' `status.path`
+joins no sanitized component where the import's does (a "?" in a title);
+the grab check's refusal reason reaches no log. **Browser check done (2026-11-10, the
 controlling session, headless Chrome against bin/ui at 819dc23f over an
 envtest apiserver filled by `ui/preview_harness_test.go`, with talos's NATS
 port-forwarded):** the artist, comic, issue, audiobook, author, book and

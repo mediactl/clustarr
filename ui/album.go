@@ -133,6 +133,10 @@ func (s *Server) albumPage(ctx context.Context, ns, name string) (views.AlbumVie
 	var artist catalogv1.Artist
 	if s.getObject(ctx, item.Ref, &artist) {
 		v.Backdrop = backdropArt(commonv1.MediaKindArtist, artist.GetUID(), artist.Status.Artwork)
+		// The album's files live in the artist's folder, which import leaves
+		// standing: the Delete dialog names the album's own folder only
+		// (views.DeleteFolder; librarydelete's Target.Keep).
+		v.SharedFolder = artist.Status.Path
 	}
 	v.Path = a.Status.Path
 	v.Links = albumLinks(a)

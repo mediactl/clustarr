@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -58,6 +59,37 @@ func FilesFolder(d Detail) string {
 		return ""
 	}
 	return dir
+}
+
+// DeleteFolder is the folder the dialog names, the one import removes with
+// the files: the files' one folder when it is not the resolved path
+// (FilesFolder), else the resolved path -- but for an item living in a
+// container's folder (d.SharedFolder, an album's artist's) only a folder
+// strictly under it, since import leaves that folder standing and such an
+// item loses its files alone (librarydelete's Target.Keep: an album whose
+// files lie straight in the artist's folder); "" names none.
+func DeleteFolder(d Detail) string {
+	dir := FilesFolder(d)
+	if dir == "" {
+		dir = d.Path
+	}
+	if d.SharedFolder != "" && !insideFolder(dir, d.SharedFolder) {
+		return ""
+	}
+	return dir
+}
+
+// insideFolder is whether path lies strictly inside dir: pkg/fsops
+// .StrictlyUnder's rule, restated so the views link no filesystem package.
+func insideFolder(path, dir string) bool {
+	if path == "" || !filepath.IsAbs(path) || !filepath.IsAbs(dir) {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(path))
+	if err != nil || rel == "." || rel == ".." {
+		return false
+	}
+	return !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // deletable is whether the item has the Delete button: a kind the library
@@ -100,8 +132,9 @@ func deleteFilesLine(d Detail) string {
 }
 
 // deleteDialog is the toolbar's Delete button and its confirmation
-// (docs/superpowers/specs/2026-09-30-library-delete-design.md): the folder,
-// the files where the page lists them (deleteFilesLine), and the two
+// (docs/superpowers/specs/2026-09-30-library-delete-design.md): the folder
+// import removes, when the item has one of its own (DeleteFolder), the
+// files where the page lists them (deleteFilesLine), and the two
 // checkboxes, both off. It is shadcn-templ's alert dialog (since
 // 2026-11-04): a destructive question that a click beside it does not
 // dismiss.
@@ -117,10 +150,8 @@ templ deleteDialog(d Detail) {
 					{ "Delete " + d.Item.Title }
 				}
 				@alertdialog.Description() {
-					if dir := FilesFolder(d); dir != "" {
+					if dir := DeleteFolder(d); dir != "" {
 						<span data-delete-folder>{ dir }</span>
-					} else if d.Path != "" {
-						<span data-delete-folder>{ d.Path }</span>
 					}
 					if line := deleteFilesLine(d); line != "" {
 						<span data-delete-files>{ line }</span>
@@ -136,7 +167,11 @@ templ deleteDialog(d Detail) {
 							Delete files and folders
 						}
 						@field.Description(field.DescriptionProps{Class: "text-destructive"}) {
-							This permanently deletes the folder and cannot be undone.
+							if DeleteFolder(d) != "" {
+								This permanently deletes the folder and cannot be undone.
+							} else {
+								This permanently deletes the files and cannot be undone.
+							}
 						}
 					}
 				}

@@ -935,10 +935,25 @@ a book row's forms return to the author's page (`views.AuthorURL`); the
 per-kind search-panel types are gone; the comic page's Metron logo links
 `status.metadata.links[type=metron]`; and an author's book whose
 `spec.rootFolderRef` overrides its author's root is not a standalone book
-(`bookHasFolder`: no authorRef), while a standalone book's folder is read
-from its file's directory when `status.path` is the root itself (the Book
-reconciler's `book.Path` writes the root for a book without an author; the
-controller fix is open).
+(`bookHasFolder`: no authorRef); since wave E (ba7c7256) the Book
+reconciler writes a standalone book's `status.path` as its own folder,
+`<root>/{Book Title}`, where the import places its file (`book.Path` and
+`catalogctx.BookFilePath` agree byte for byte, a test holds them), a book
+written before it taking its folder at its key's next pass, and the ui
+admits the folder to Refresh & Scan and Rename only once the book has a
+file (`itemFolder`; its file's directory is the belt for the old path).
+**An Album and a standalone Book are deletable** (wave E, 87afc7de,
+a196a7ed; design §9.2, §9.3): `catalogv1.DeletableKinds` takes both and
+`librarydelete` gains a kindSpec each -- an album's files delete removes
+its track files and its own subfolder, never its artist's folder (a `Keep`
+bound; refused while the artist's folder is unknown), an author's book is
+deleted with its author, a standalone book's folder is its own; the delete
+dialog names an album's shared folder only when the album's own lies
+strictly inside it. A deleted album of a provider-listed release group
+comes back at the Artist's next fan-out, monitored per its monitor mode,
+as in Lidarr: unmonitor the album or the artist first to be rid of it. The
+manager role's `delete` on albums and books lands with it (`config/rbac`,
+the chart copy).
 In the TV pane, only series should be shown. Clicking a series should present a page with the seasons and episodes.
 A season's episodes are Sonarr's table (2026-10-07, `ui/series.go`,
 `ui/episode.go`, `ui/views/episode.templ`): the monitor bookmark, number,
@@ -2001,8 +2016,9 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   keys of the remediation loop beside Series (`remediation.KindArtist`,
   `KindAuthor`, `KeyKind.Container()`); each pass fans its children out
   behind the in-process `app/remediation/childsync` memo (due again only
-  when the spec generation, `metadata.refreshedAt` or `addOptionsApplied`
-  moved; a subpackage because `app/remediation` imports the three
+  when the spec generation or `metadata.refreshedAt` moved;
+  `status.addOptionsApplied` is no input since 2026-11-10, every container
+  keying its fan-outs under it true, so `childsync.Key` dropped it; a subpackage because `app/remediation` imports the three
   controller packages for their indexes), folds them into
   `rollup.Container` (one `ContainerRollup` inline on the three kinds:
   phase, missing/downloading/cutoff-unmet child counts, next and previous
@@ -2051,7 +2067,10 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   or path, since a numbered part's path is the tie-break among equal keys
   (a disc rip without disc tags keys every disc's track 1 as 1001);
   `release.PartOf` reads parts 1..99. The audiobook page shows the same
-  ordinal (never `spec.partIndex`). A manual
+  ordinal (never `spec.partIndex`). The rename actuator forgets a
+  remembered collision after a minute (6760dc20), so a sibling whose
+  target the renamed part vacated is tried again at its next pass instead
+  of never. A manual
   assignment keeps the file's track attribution and part. `.fb2` and
   `.djvu` are books to `pkg/fsops`, probed without FFmpeg, but
   `pkg/quality`'s book ladder has no tier for them, so such a file is held
@@ -2079,8 +2098,9 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   messages, and runs an interactive volume Search as one season task of
   the Comic (`SearchSpec.FansOut` decides the fan-out), so both buttons
   work end to end; a release naming an issue the comic lacks reads
-  WrongItem in the modal's other-titles band (grabplan's coverage messages
-  still say "episode", open).
+  WrongItem in the modal's other-titles band, and a coverage rejection
+  names the covered items' kind ("the release covers no issue of the
+  comic"; `grabplan.CoverageRejections`' nouns, b903ea47).
 - **A supplementary provider's own page** (§9.3, §9.4, 2026-11-10):
   `metadata.PageProvider` (`Page(ctx, kind, ids)`, a Link of the provider's
   own type -- Hardcover's for an Author or Book Open Library answered,

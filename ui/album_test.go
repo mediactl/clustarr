@@ -21,6 +21,8 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +38,7 @@ import (
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/ui/views"
 )
 
 // musicFixture is an artist with albums of every type and in every state
@@ -540,6 +543,52 @@ func TestAlbumInteractiveSearchOpensLidarrsColumnsThroughTheSharedPanel(t *testi
 // reads why and offers Retry as it was asked (files, no exclusion) beside
 // the Cancel -- the album's card carries its delete annotations as a
 // projection card does (ui.albumItem).
+// An album's Delete dialog names the album's own folder alone (design
+// §9.2): an album whose files lie straight in its artist's folder -- its
+// status.path the artist's, or a preset folder not on disk beside files
+// that share the artist's -- has none of its own, import removes its files
+// alone and leaves the artist's folder standing, so the dialog names no
+// folder, counts the files and says so, where it named the artist's folder
+// under "deletes the folder".
+func TestAlbumPageDeleteNamesNoFolderForAnAlbumFlatInItsArtistsFolder(t *testing.T) {
+	srv, c := musicFixture(t)
+	setPaths := func(albumPath string) {
+		t.Helper()
+		var a catalogv1.Album
+		require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "dsotm"}, &a))
+		a.Status.Path = albumPath
+		require.NoError(t, c.Update(t.Context(), &a))
+		for _, name := range []string{"dsotm-01", "dsotm-02"} {
+			var f catalogv1.MediaFile
+			require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: name}, &f))
+			f.Spec.Path = "/data/music/Pink Floyd/" + filepath.Base(f.Spec.Path)
+			require.NoError(t, c.Update(t.Context(), &f))
+		}
+	}
+	for _, albumPath := range []string{"/data/music/Pink Floyd", "/data/music/Pink Floyd/Not Here (1973)"} {
+		setPaths(albumPath)
+		body := getPath(t, srv, "/library/default/album/dsotm", false).Body.String()
+		bar := section(t, body, `data-toolbar`)
+		bar = bar[:strings.Index(bar, `data-hero`)]
+		requireTag(t, bar, `data-action="delete"`)
+		require.NotContains(t, bar, `data-delete-folder`, albumPath)
+		require.Regexp(t, `data-delete-files>[^<]*2 file\(s\)`, bar)
+		require.Contains(t, bar, "This permanently deletes the files and cannot be undone.")
+		require.NotContains(t, bar, "deletes the folder")
+		require.Regexp(t, `data-fact="path"[\s\S]*?`+regexp.QuoteMeta(albumPath), body, "the Path fact still reads the album's path")
+	}
+
+	d := views.Detail{Path: "/data/music/Pink Floyd/DSOTM", SharedFolder: "/data/music/Pink Floyd"}
+	require.Equal(t, "/data/music/Pink Floyd/DSOTM", views.DeleteFolder(d), "a folder of the album's own")
+	d.Path = "/data/music/Pink Floyd"
+	require.Empty(t, views.DeleteFolder(d), "the artist's folder itself")
+	d.Path = "/data/music/Pink Floyd/DSOTM"
+	d.Files = []views.FileRow{{Path: "/data/music/Pink Floyd/01.flac"}}
+	require.Empty(t, views.DeleteFolder(d), "files straight in the artist's folder, whatever the preset says")
+	d.SharedFolder = ""
+	require.Equal(t, "/data/music/Pink Floyd", views.DeleteFolder(d), "a kind with a folder of its own names the files' folder, as a scanned movie does")
+}
+
 func TestAlbumPageShowsAPendingDeleteAndHidesTheButton(t *testing.T) {
 	srv, c := musicFixture(t)
 	var a catalogv1.Album

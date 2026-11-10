@@ -181,8 +181,14 @@ type Detail struct {
 	Language      string
 	Network       string
 	Path          string
-	Links         []Link
-	AltTitles     []string
+	// SharedFolder is the folder of the container the item lives in and
+	// leaves standing -- an album's artist's (librarydelete's Target.Keep)
+	// -- or "" for a kind with a folder of its own: the delete dialog names
+	// a folder only strictly under it (DeleteFolder), since import removes
+	// such an item's files alone otherwise.
+	SharedFolder string
+	Links        []Link
+	AltTitles    []string
 	// ImageSet is the image set in use: the owner's pasted one, or the one
 	// the mediux provider chose (status.imageSet). ImageSetAuto and
 	// ImageSetPinned are the item's spec.imageSet (not none) and

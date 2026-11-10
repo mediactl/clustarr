@@ -111,12 +111,19 @@ rules:
   - catalog.clustarr.io
   resources:
   - albums
+  - artists
+  - audiobooks
+  - authors
   - books
-  - episodes
-  - importexclusions
-  - issues
+  - comics
+  - libraryscans
+  - mediafiles
+  - movies
+  - searches
+  - series
   verbs:
   - create
+  - delete
   - get
   - list
   - patch
@@ -168,32 +175,25 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - artists
-  - audiobooks
-  - authors
-  - comics
-  - libraryscans
-  - mediafiles
-  - movies
-  - searches
-  - series
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
   - backlogsearches
   - delayprofiles
   - overlayprofiles
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - episodes
+  - importexclusions
+  - issues
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - catalog.clustarr.io

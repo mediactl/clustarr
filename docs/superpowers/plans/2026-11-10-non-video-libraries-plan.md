@@ -764,7 +764,7 @@ never retries a remembered collision once the colliding file moved on
 its memo on `addOptionsApplied` as read (pass true, then retire
 `childsync.Key.AddOptionsApplied`); `metron.Client.Page` would replace the
 gateway's `metronPages` adapter; `TestBuildRegistryWiresEveryProviderType`
-could cover `reg.Pages`; `ui/run_test.go`'s SSE-cancel test flakes under
+could cover `reg.Pages` (all three done, task E4: 7450a5f9, edcfd506); `ui/run_test.go`'s SSE-cancel test flakes under
 load; `events.ObjectStore.Get`'s doc could state the context-bound read
 contract natsbus honours; pre-existing red seen on clean exports:
 `app/catalog/controller/search`'s TestReconcilePublishesOneInteractiveSearchTaskAtHighPriority
@@ -773,6 +773,14 @@ pick goes to the owner's intake since ADR-0019), `pkg/obs/metrics`'
 TestCatalogueMatchesTheAmendmentTable and
 TestNoMetricIsLabelledByAnUnboundedDimension, `pkg/crdcheck`'s
 TestLiveTVCEL, `pkg/events/schema`'s version expectations.
+**Wave E (2026-11-10):** ten agents, none lost; the spec's §9 "Wave E"
+sentence lists the seven commits (E1 ba7c7256, E2 87afc7de/a196a7ed with
+the manager role regenerated and pasted into the chart by the controlling
+session, E3 b903ea47/6760dc20 -- its CoverageRejections caller is
+`app/catalog/controller/search/season.go`, not app/remediation/search --
+E4 7450a5f9/edcfd506) and what stays open; the E2 reviewer's album-dialog
+patch (a shared folder named only when strictly inside it) was applied by
+the controlling session.
 
 ## Order and gates
 
