@@ -707,6 +707,7 @@ rules:
   - mediafiles
   - metadataproviders
   - movies
+  - plexcollections
   - qualityprofiles
   - rootfolders
   - searches
@@ -791,6 +792,7 @@ rules:
   resources:
   - importlists
   - metadataproviders
+  - plexcollections
   - qualityprofiles
   - rootfolders
   verbs:

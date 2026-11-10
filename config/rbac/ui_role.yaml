@@ -36,7 +36,8 @@
 # Settings CRUD (docs/superpowers/specs/2026-09-24-settings-crud-design.md):
 # create and delete on the same eight kinds, so the Settings page can add
 # and remove what it edits, and create, patch and delete on importlists,
-# which the Import Lists page manages through the same forms (2026-09-24); create and patch on secrets -- never get, list
+# which the Import Lists page manages through the same forms (2026-09-24), and
+# on plexcollections, which the Collections page edits (2026-11-10); create and patch on secrets -- never get, list
 # or watch -- so the credentials a form collects can be stored without any
 # page being able to read one back; and reads on indexerdefinitions and
 # indexerproxies for the Indexer form's pickers.
@@ -67,6 +68,7 @@ rules:
   - mediafiles
   - metadataproviders
   - movies
+  - plexcollections
   - qualityprofiles
   - rootfolders
   - searches
@@ -151,6 +153,7 @@ rules:
   resources:
   - importlists
   - metadataproviders
+  - plexcollections
   - qualityprofiles
   - rootfolders
   verbs:

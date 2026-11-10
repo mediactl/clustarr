@@ -135,6 +135,13 @@ var uiActionGrants = map[uiGrant]bool{
 	{"clustarr.io", "iptvchannels", "create"}:  true,
 	{"clustarr.io", "iptvchannels", "patch"}:   true,
 	{"clustarr.io", "iptvchannels", "delete"}:  true,
+
+	// The Collections page (docs/superpowers/specs/2026-11-10-plex-collections-design.md):
+	// PlexCollection spec through ui/actions' typed writes; status is
+	// cluster-plex's alone.
+	{"catalog.clustarr.io", "plexcollections", "create"}: true,
+	{"catalog.clustarr.io", "plexcollections", "patch"}:  true,
+	{"catalog.clustarr.io", "plexcollections", "delete"}: true,
 }
 
 // uiRoleRule mirrors a ClusterRole rules entry, including the fields no rule
