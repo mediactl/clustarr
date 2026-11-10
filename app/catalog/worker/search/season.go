@@ -35,11 +35,13 @@ import (
 )
 
 // SeasonSearchable reports a task the worker answers as a season search
-// (series search design §5.2): MediaRef kind series with Season set. A
-// series task without a season is refused: Sonarr has no interactive
-// series search, and a series is searched one season at a time.
+// (series search design §5.2): MediaRef kind series with Season set, or
+// since 2026-11-10 (design D10) kind comic with Season set -- the volume
+// search, the manager's season task for a Comic. A series task without a
+// season is refused: Sonarr has no interactive series search, and a series
+// is searched one season at a time.
 func SeasonSearchable(task schema.SearchTask) bool {
-	return task.MediaRef.Kind == commonv1.MediaKindSeries && task.Season != nil
+	return (task.MediaRef.Kind == commonv1.MediaKindSeries || task.MediaRef.Kind == commonv1.MediaKindComic) && task.Season != nil
 }
 
 // snapshotSeason reads the Series and the season's Episodes (through
@@ -50,8 +52,12 @@ func SeasonSearchable(task schema.SearchTask) bool {
 // episode's runtime, and the identity of every episode of the season
 // (monitored or not: identity asks "is this release for this season", not
 // "is it wanted") in season-search mode, with the series' TheXEM table and
-// its library namesakes. Its owner is the Series.
+// its library namesakes. Its owner is the Series. A Comic's season is its
+// volume (snapshotVolume).
 func (w *Worker) snapshotSeason(ctx context.Context, ns string, ref commonv1.MediaRef, season int32) (itemSnapshot, error) {
+	if ref.Kind == commonv1.MediaKindComic {
+		return w.snapshotVolume(ctx, ns, ref)
+	}
 	snap := itemSnapshot{
 		Target: decision.Target{
 			Kind: commonv1.MediaKindSeries,
@@ -122,6 +128,43 @@ func (w *Worker) snapshotSeason(ctx context.Context, ns string, ref commonv1.Med
 	snap.Target.Identity.SeasonSearch = true
 	snap.Target.Identity.Namesakes = w.namesakes(ctx, ns, &s)
 	snap.Owner = ownerRef(string(commonv1.MediaKindSeries), &s)
+	return snap, nil
+}
+
+// snapshotVolume reads the Comic and builds the volume snapshot (2026-11-10
+// design D10: the Series' season search with the season layer removed): the
+// request's ids -- the comic's title and start year, no issue number, so
+// the text query is the title alone and the comics category -- and the
+// decision Target: kind comic, monitored, available, and the identity of
+// the volume in season-search mode (the comic's titles, no issue and no
+// year, since a volume runs for years and takes any issue of the series).
+// pkg/decision has no identity rule for a comic volume yet, so until it
+// learns one every release is refused as UnknownItem -- the query still
+// feeds the release index the Issues' own index-only searches read. Its
+// owner is the Comic. It reads no Issue: the manager asks for a volume only
+// when two or more of its monitored, released issues are missing.
+func (w *Worker) snapshotVolume(ctx context.Context, ns string, ref commonv1.MediaRef) (itemSnapshot, error) {
+	snap := itemSnapshot{
+		Target: decision.Target{
+			Kind: commonv1.MediaKindComic,
+			Key:  events.MediaKey(string(ref.Kind), ns, ref.Name),
+		},
+	}
+	var co catalogv1alpha1.Comic
+	if err := w.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: ref.Name}, &co); err != nil {
+		return snap, fmt.Errorf("get Comic %s/%s: %w", ns, ref.Name, err)
+	}
+	snap.QualityProfileRef = co.Spec.QualityProfileRef
+	snap.Target.Monitored = ptr.Deref(co.Spec.Monitored, true)
+	snap.Target.Available = true
+	snap.Target.Identity.SeasonSearch = true
+	if md := co.Status.Metadata; md != nil {
+		snap.IDs.Title = md.Title
+		snap.IDs.Year = md.Year
+		snap.Target.Identity.Titles = appendTitles(snap.Target.Identity.Titles, md.Title)
+		snap.Target.Identity.Titles = appendTitles(snap.Target.Identity.Titles, md.AlternateTitles...)
+	}
+	snap.Owner = ownerRef(string(commonv1.MediaKindComic), &co)
 	return snap, nil
 }
 

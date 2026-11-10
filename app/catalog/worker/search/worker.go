@@ -604,8 +604,12 @@ func (w *Worker) buildRequest(ns string, task schema.SearchTask, snap itemSnapsh
 	kind := task.MediaRef.Kind
 	if SeasonSearchable(task) {
 		// A season is a tv-search: the series' tvdb id and the season,
-		// no episode (series search design §5.2).
+		// no episode (series search design §5.2). A Comic's volume is a
+		// comics search by the title alone (design D10): no issue number.
 		kind = commonv1.MediaKindEpisode
+		if task.MediaRef.Kind == commonv1.MediaKindComic {
+			kind = commonv1.MediaKindIssue
+		}
 	}
 	req := BuildSearchRequest(ns, kind, snap.IDs, schema.MaxSearchReleases,
 		task.UserInvoked, indexerRefs, categories)
