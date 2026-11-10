@@ -19,6 +19,7 @@ package ui_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -522,6 +523,36 @@ func TestMangaDexHitsAreKeyedAsTheClientKeysThem(t *testing.T) {
 	require.Equal(t, string(catalogv1.ComicSourceComicVine), metadata.KeyComicVine)
 }
 
+// The ui decodes a hit under the JSON tags metadata.SearchHit and
+// metadata.NamedRef write (publisher, issueCount, startYear, authors{name,
+// asin}, narrators, releaseDate), which the ui binary cannot name (it links
+// no metadata client): a real SearchHit marshalled through the search
+// renders every field on its card and the first author's ASIN on its form,
+// so a tag renamed on either side blanks nothing silently.
+func TestAHitsFieldsRoundTripFromTheGatewaysSearchHit(t *testing.T) {
+	released := time.Date(2008, time.August, 12, 0, 0, 0, 0, time.UTC)
+	start, later := int32(1965), int32(1969)
+	full, err := json.Marshal(metadata.SearchHit{
+		IDs: metadata.ExternalIDs{metadata.KeyASIN: "B002V1OF70"}, Title: "Dune",
+		Publisher: "Macmillan Audio", IssueCount: 66, StartYear: &start,
+		Authors:   []metadata.NamedRef{{Name: "Frank Herbert", ASIN: "B000AP9A6K"}, {Name: "Somebody Else"}},
+		Narrators: []string{"Scott Brick", "Orlagh Cassidy"}, ReleaseDate: &released,
+	})
+	require.NoError(t, err)
+	// A hit with neither a year nor a release date shows its start year.
+	started, err := json.Marshal(metadata.SearchHit{IDs: metadata.ExternalIDs{metadata.KeyASIN: "B0START"}, Title: "Dune Messiah", StartYear: &later})
+	require.NoError(t, err)
+	srv, _ := addServerOpts(t, hits(commonv1.MediaKindAudiobook, string(full), string(started)), nil, nil, audiobooksRoot, m4bProfile)
+	body := get(t, srv, "/library/audiobooks/add/search?q=dune").Body.String()
+	require.Regexp(t, `data-hit-publisher[^>]*>\s*Macmillan Audio`, body)
+	require.Regexp(t, `data-hit-issues[^>]*>\s*66 issues`, body)
+	require.Regexp(t, `data-hit-authors[^>]*>\s*by Frank Herbert, Somebody Else`, body)
+	require.Regexp(t, `data-hit-narrators[^>]*>\s*narrated by Scott Brick, Orlagh Cassidy`, body)
+	require.Regexp(t, `data-hit-release[^>]*>\s*12 Aug 2008`, body)
+	requireTag(t, body, `name="authorASIN"`, `value="B000AP9A6K"`)
+	require.Contains(t, body, ">1969<", "a start year stands in for a missing year")
+}
+
 // addServerOpts is addServerWith with the lookup an audiobook's add asks
 // for its author (ui.Options.MetadataLookup).
 func addServerOpts(t *testing.T, search ui.MetadataSearch, lookup ui.MetadataLookup, library []projection.LibraryItem, objs ...client.Object) (*ui.Server, client.Client) {
@@ -664,14 +695,19 @@ func anAuthor(ns, name, metadataName string) *catalogv1.Author {
 
 // An audiobook hit shows its authors, narrators and release date (design
 // §9.5), and its form carries the first author's name and ASIN, which the
-// add resolves to the Author it links (D11, §5.6): the author is looked up
-// by ASIN through the bound MetadataLookup, in the form's region, and the
-// Author of the root's namespace whose name is the answer's -- through
-// release.TitleNorm, so case and punctuation do not part them -- is
-// spec.authorRef, beside the form's search as spec.addOptions.searchForMissing.
-// An author the lookup has no page for, a lookup that fails, no Author or
-// two of the name, another namespace's Author, a hit naming no author and a
-// ui with no lookup bound all link none and still add the audiobook.
+// add resolves to the Author it links (D11, §5.6): the Author of the root's
+// namespace whose name is the hit's author's -- through release.TitleNorm,
+// so case and punctuation do not part them -- is spec.authorRef, beside the
+// form's search as spec.addOptions.searchForMissing. The author is also
+// looked up by ASIN through the bound MetadataLookup, in the form's region,
+// and the name it answers matches as a second rendering of the same person;
+// an author the lookup has no page for, a lookup that fails, answers an
+// error or no name, a lookup's name no Author carries and a ui with no
+// lookup bound leave the hit's own name to decide (the design links by name
+// alone), and an author with no ASIN asks no lookup. No Author or two of
+// the name, the two names naming different Authors, another namespace's
+// Author and a hit naming no author link none; none of it fails the add,
+// and a form AddItem refuses spends no lookup.
 func TestAddAudiobooksShowThePeopleAndLinkTheAuthor(t *testing.T) {
 	dune := `{"ids":{"asin":"B002V1OF70"},"title":"Dune","year":2008,"releaseDate":"2008-08-12T00:00:00Z","publisher":"Macmillan Audio",` +
 		`"authors":[{"name":"Frank Herbert","asin":"B000AP9A6K"},{"name":"Somebody Else","asin":"B0ELSE"}],"narrators":["Scott Brick","Orlagh Cassidy"]}`
@@ -680,6 +716,7 @@ func TestAddAudiobooksShowThePeopleAndLinkTheAuthor(t *testing.T) {
 	elsewhere := anAuthor("media", "frank-herbert-media", "Frank Herbert")
 	unnamed := anAuthor("library", "unnamed-x", "")
 	namesake := anAuthor("library", "frank-herbert-ii", "Frank  Herbert.")
+	brian := anAuthor("library", "brian-herbert-x", "Brian Herbert")
 
 	type lookupCall struct {
 		mu    sync.Mutex
@@ -693,8 +730,12 @@ func TestAddAudiobooksShowThePeopleAndLinkTheAuthor(t *testing.T) {
 			return resp, err
 		}
 	}
-	found := schema.MetadataResponse{Kind: commonv1.MediaKindAuthor, Provider: "audnexus", IDs: map[string]string{"asin": "B000AP9A6K"},
-		Result: []byte(`{"ids":{"asin":"B000AP9A6K"},"name":"frank herbert","genres":["Science Fiction & Fantasy"]}`)}
+	// answering is the gateway's author answer naming the ASIN's author name.
+	answering := func(name string) schema.MetadataResponse {
+		return schema.MetadataResponse{Kind: commonv1.MediaKindAuthor, Provider: "audnexus", IDs: map[string]string{"asin": "B000AP9A6K"},
+			Result: []byte(`{"ids":{"asin":"B000AP9A6K"},"name":"` + name + `","genres":["Science Fiction & Fantasy"]}`)}
+	}
+	found := answering("frank herbert")
 	form := url.Values{
 		"title": {"Dune"}, "id": {"B002V1OF70"}, "rootFolder": {"library/audiobooks"}, "qualityProfile": {"m4b"},
 		"region": {"uk"}, "monitored": {"false", "true"}, "searchOnAdd": {"false", "true"},
@@ -737,15 +778,20 @@ func TestAddAudiobooksShowThePeopleAndLinkTheAuthor(t *testing.T) {
 	for tc, want := range map[string]struct {
 		lookup ui.MetadataLookup
 		objs   []client.Object
-		form   url.Values
+		ref    string // the Author linked; "" for none
 	}{
-		"an author the provider has no page for": {lookup: lookupAnswering(&lookupCall{}, schema.MetadataResponse{Error: metadata.ErrNotFound.Error()}, nil), objs: []client.Object{herbert}},
-		"a lookup that fails":                    {lookup: lookupAnswering(&lookupCall{}, schema.MetadataResponse{}, errors.New("natsbus: timeout")), objs: []client.Object{herbert}},
-		"a lookup answering an error":            {lookup: lookupAnswering(&lookupCall{}, schema.MetadataResponse{Error: "metadata: no audiobook author metadata provider is configured"}, nil), objs: []client.Object{herbert}},
+		// The hit's own name decides where the lookup gives none (§5.6).
+		"an author the provider has no page for": {lookup: lookupAnswering(&lookupCall{}, schema.MetadataResponse{Error: metadata.ErrNotFound.Error()}, nil), objs: []client.Object{herbert}, ref: "frank-herbert-x"},
+		"a lookup that fails":                    {lookup: lookupAnswering(&lookupCall{}, schema.MetadataResponse{}, errors.New("natsbus: timeout")), objs: []client.Object{herbert}, ref: "frank-herbert-x"},
+		"a lookup answering an error":            {lookup: lookupAnswering(&lookupCall{}, schema.MetadataResponse{Error: "metadata: no audiobook author metadata provider is configured"}, nil), objs: []client.Object{herbert}, ref: "frank-herbert-x"},
+		"a lookup answering no name":             {lookup: lookupAnswering(&lookupCall{}, schema.MetadataResponse{Result: []byte(`{"ids":{"asin":"B000AP9A6K"}}`)}, nil), objs: []client.Object{herbert}, ref: "frank-herbert-x"},
+		"a lookup's name no Author carries":      {lookup: lookupAnswering(&lookupCall{}, answering("Frank Patrick Herbert"), nil), objs: []client.Object{herbert}, ref: "frank-herbert-x"},
+		"no lookup bound":                        {lookup: nil, objs: []client.Object{herbert}, ref: "frank-herbert-x"},
+		// Never a guess.
 		"no Author of the name":                  {lookup: lookupAnswering(&lookupCall{}, found, nil), objs: []client.Object{unnamed}},
 		"two Authors of the name":                {lookup: lookupAnswering(&lookupCall{}, found, nil), objs: []client.Object{herbert, namesake}},
+		"the two names naming different Authors": {lookup: lookupAnswering(&lookupCall{}, answering("Brian Herbert"), nil), objs: []client.Object{herbert, brian}},
 		"another namespace's Author":             {lookup: lookupAnswering(&lookupCall{}, found, nil), objs: []client.Object{elsewhere}},
-		"no lookup bound":                        {lookup: nil, objs: []client.Object{herbert}},
 	} {
 		t.Run(tc, func(t *testing.T) {
 			objs := append([]client.Object{audiobooksRoot, m4bProfile}, want.objs...)
@@ -753,10 +799,31 @@ func TestAddAudiobooksShowThePeopleAndLinkTheAuthor(t *testing.T) {
 			rec := post(t, srv, "/library/audiobooks/add", form)
 			require.Equal(t, http.StatusSeeOther, rec.Code, "the add never fails for its author link: %s", rec.Body.String())
 			ab := added(t, c)
-			require.Nil(t, ab.Spec.AuthorRef, "no authorRef at all, not an empty one")
+			if want.ref == "" {
+				require.Nil(t, ab.Spec.AuthorRef, "no authorRef at all, not an empty one")
+			} else {
+				require.NotNil(t, ab.Spec.AuthorRef, "the Author of the hit's author's name")
+				require.Equal(t, want.ref, *ab.Spec.AuthorRef)
+			}
 			require.True(t, *ab.Spec.AddOptions.SearchForMissing)
 		})
 	}
+
+	t.Run("an author without an Audible page links by name and asks no lookup", func(t *testing.T) {
+		calls := &lookupCall{}
+		srv, c := addServerOpts(t, search, lookupAnswering(calls, found, nil), nil, audiobooksRoot, m4bProfile, herbert)
+		named := url.Values{}
+		for k, v := range form {
+			named[k] = v
+		}
+		named["authorASIN"] = []string{""}
+		rec := post(t, srv, "/library/audiobooks/add", named)
+		require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+		ab := added(t, c)
+		require.NotNil(t, ab.Spec.AuthorRef)
+		require.Equal(t, "frank-herbert-x", *ab.Spec.AuthorRef)
+		require.Empty(t, calls.asked, "no ASIN, no lookup")
+	})
 
 	t.Run("a hit naming no author asks no lookup", func(t *testing.T) {
 		calls := &lookupCall{}
@@ -773,8 +840,9 @@ func TestAddAudiobooksShowThePeopleAndLinkTheAuthor(t *testing.T) {
 		require.Empty(t, calls.asked)
 	})
 
-	t.Run("a rejected add keeps the author on the form", func(t *testing.T) {
-		srv, _ := addServerOpts(t, search, lookupAnswering(&lookupCall{}, found, nil), nil, audiobooksRoot, m4bProfile, herbert)
+	t.Run("a rejected add keeps the author on the form and spends no lookup", func(t *testing.T) {
+		calls := &lookupCall{}
+		srv, _ := addServerOpts(t, search, lookupAnswering(calls, found, nil), nil, audiobooksRoot, m4bProfile, herbert)
 		bad := url.Values{}
 		for k, v := range form {
 			bad[k] = v
@@ -786,5 +854,6 @@ func TestAddAudiobooksShowThePeopleAndLinkTheAuthor(t *testing.T) {
 		body := rec.Body.String()
 		requireTag(t, body, `name="authorName"`, `value="Frank Herbert"`)
 		requireTag(t, body, `name="authorASIN"`, `value="B000AP9A6K"`)
+		require.Empty(t, calls.asked, "a form AddItem refuses is refused before the author lookup")
 	})
 }

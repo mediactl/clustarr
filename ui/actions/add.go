@@ -110,6 +110,17 @@ func AddItem(ctx context.Context, c Creator, req AddRequest) (name string, exist
 	return name, false, nil
 }
 
+// Validate is AddItem's own check of req without the write: the ErrInvalid
+// buildItem raises for a request with no namespace, id, root folder or
+// profile, a kind Add New does not add, or an id that cannot key the kind,
+// else nil. ui/add.go asks it before the work an add spends ahead of the
+// write (an audiobook's author lookup, a gateway round trip), so a form
+// AddItem would refuse costs none of it.
+func Validate(req AddRequest) error {
+	_, err := buildItem(req)
+	return err
+}
+
 // buildItem renders req as the object AddItem creates.
 func buildItem(req AddRequest) (client.Object, error) {
 	if req.Namespace == "" || req.ProviderID == "" || req.RootFolderRef == "" || req.QualityProfileRef == "" {

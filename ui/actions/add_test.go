@@ -138,10 +138,12 @@ func TestAddItemRefusesAnIncompleteRequest(t *testing.T) {
 		mutate(&r)
 		_, _, err := actions.AddItem(t.Context(), c, r)
 		require.ErrorIs(t, err, actions.ErrInvalid, name)
+		require.ErrorIs(t, actions.Validate(r), actions.ErrInvalid, "Validate refuses what AddItem refuses: %s", name)
 	}
+	require.NoError(t, actions.Validate(ok), "Validate admits what AddItem adds")
 	var list catalogv1.MovieList
 	require.NoError(t, c.List(t.Context(), &list))
-	require.Empty(t, list.Items, "an invalid request writes nothing")
+	require.Empty(t, list.Items, "an invalid request writes nothing, and Validate never writes")
 }
 
 // TestAddItemBuildsTheNonVideoKinds: the Comics and Audiobooks tabs' Add

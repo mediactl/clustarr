@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -386,7 +387,6 @@ func (s *Server) addSearch(ctx context.Context, k views.AddKind, q string, res *
 	var (
 		hits      []views.AddHit
 		answered  bool
-		noProv    int
 		firstFail *sourceAnswer
 	)
 	for i := range answers {
@@ -396,7 +396,8 @@ func (s *Server) addSearch(ctx context.Context, k views.AddKind, q string, res *
 			answered = true
 			hits = append(hits, s.addHits(ctx, k, a.source.Source, a.resp.Results)...)
 		case a.err == nil && noProviderConfigured(a.resp.Error):
-			noProv++
+			// An unconfigured source is skipped; the "no provider" prompt
+			// follows below from no source having answered or failed.
 		default:
 			if firstFail == nil {
 				firstFail = a
@@ -537,8 +538,15 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 		SearchCutoffUnmet: checked(r, "searchCutoffUnmet"), MonitorNewItems: r.PostFormValue("monitorNewItems"),
 		ComicKind: r.PostFormValue("comicKind"), Region: r.PostFormValue("region"),
 	}
+	// The request is checked before the author link is resolved, so a form
+	// AddItem refuses (no profile, an id that cannot key the kind) never
+	// spends the lookup's gateway round trip.
+	if err := actions.Validate(req); err != nil {
+		s.rejectAdd(w, r, k, err)
+		return
+	}
 	if k.Kind == commonv1.MediaKindAudiobook {
-		req.AuthorRef = s.audiobookAuthorRef(r.Context(), ns, r.PostFormValue("authorASIN"), req.Region)
+		req.AuthorRef = s.audiobookAuthorRef(r.Context(), ns, r.PostFormValue("authorName"), r.PostFormValue("authorASIN"), req.Region)
 	}
 	name, _, err := s.opts.Actions.AddItem(r.Context(), req)
 	if err != nil {
@@ -549,50 +557,42 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 // audiobookAuthorRef is the Author an added audiobook is linked to
-// (spec.authorRef; 2026-11-10 design D11, §5.6): the hit's first author,
-// an Audible author by ASIN -- the form carries it as authorASIN -- is
-// looked up through the metadata gateway (Options.MetadataLookup, Kind
-// author with ids {asin, region}: Audnexus's /authors/{asin}, task C4a),
-// and the Author in ns whose name is the answer's is the ref, names
-// compared through release.TitleNorm so case, punctuation and accents do
-// not part "J.R.R. Tolkien" from "J. R. R. Tolkien". The form resolves no
-// Book (Add New sets no bookRef), from whose author the ref would
-// otherwise come.
+// (spec.authorRef; 2026-11-10 design D11, §5.6): the Author in ns whose
+// name is the hit's first author's -- the form carries it as authorName --
+// names compared through release.TitleNorm so case, punctuation and
+// accents do not part "J.R.R. Tolkien" from "J. R. R. Tolkien". When the
+// author has an Audible page (the form's authorASIN) it is also looked up
+// through the metadata gateway (Options.MetadataLookup, Kind author with
+// ids {asin, region}: Audnexus's /authors/{asin}, task C4a), and the name
+// it answers is a second rendering of the same person to match by, since
+// the providers spell one author differently ("frank herbert"). The form
+// resolves no Book (Add New sets no bookRef), from whose author the ref
+// would otherwise come.
 //
-// Exactly one Author of that name links. None, two (two authors of one
-// name: never a guess), an author Audnexus has no page for (ErrNotFound on
-// the wire), a lookup that failed or did not answer, and a ui with no
-// lookup or no reader bound all link none, logged, and never fail the add:
-// the Audiobook is still created, and its Edit dialog links an author by
-// hand.
-func (s *Server) audiobookAuthorRef(ctx context.Context, ns, asin, region string) string {
-	if asin == "" || s.opts.MetadataLookup == nil || s.opts.Reader == nil {
+// Exactly one Author links: the one both names match, or the one only one
+// of them does. None, two (two Authors of one name, or the two names
+// naming different Authors: never a guess) and a ui with no reader bound
+// all link none, logged, and never fail the add: the Audiobook is still
+// created, and its Edit dialog links an author by hand. A lookup that
+// failed or did not answer, an author Audnexus has no page for
+// (ErrNotFound on the wire: Tolkien's B000AQ1S22 answers 404), an answer
+// with no name and a ui with no lookup bound leave the hit's own name to
+// decide, as the design links by name alone.
+func (s *Server) audiobookAuthorRef(ctx context.Context, ns, name, asin, region string) string {
+	if (name == "" && asin == "") || s.opts.Reader == nil {
 		return ""
 	}
-	log := logging.FromContext(ctx).With("asin", asin, "namespace", ns)
+	log := logging.FromContext(ctx).With("author", name, "asin", asin, "namespace", ns)
 	ctx, cancel := context.WithTimeout(ctx, s.addSearchTimeout)
 	defer cancel()
-	ids := map[string]string{metadata.KeyASIN: asin}
-	if region != "" {
-		ids["region"] = region
+	names := make([]string, 0, 2)
+	if name != "" {
+		names = append(names, name)
 	}
-	resp, err := s.opts.MetadataLookup(ctx, schema.MetadataRequest{Kind: commonv1.MediaKindAuthor, IDs: ids})
-	switch {
-	case err != nil:
-		log.Warn("add new: audiobook author lookup failed; no author linked", "error", err)
-		return ""
-	case resp.Error == metadata.ErrNotFound.Error():
-		log.Info("add new: the audiobook's author has no provider page; no author linked")
-		return ""
-	case resp.Error != "":
-		log.Warn("add new: audiobook author lookup failed; no author linked", "error", resp.Error)
-		return ""
+	if looked := s.lookupAuthorName(ctx, log, asin, region); looked != "" {
+		names = append(names, looked)
 	}
-	var author struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(resp.Result, &author); err != nil || author.Name == "" {
-		log.Warn("add new: audiobook author lookup answered no name; no author linked", "error", err)
+	if len(names) == 0 {
 		return ""
 	}
 	var list catalogv1.AuthorList
@@ -600,24 +600,63 @@ func (s *Server) audiobookAuthorRef(ctx context.Context, ns, asin, region string
 		log.Warn("add new: list authors; no author linked", "error", err)
 		return ""
 	}
-	matches := authorsNamed(author.Name, list.Items)
+	matches := authorsNamed(names, list.Items)
 	switch len(matches) {
 	case 1:
 		return matches[0]
 	case 0:
-		log.Info("add new: no Author of the audiobook author's name; no author linked", "author", author.Name)
+		log.Info("add new: no Author of the audiobook author's name; no author linked", "names", names)
 	default:
-		log.Info("add new: several Authors of the audiobook author's name; no author linked", "author", author.Name, "authors", matches)
+		log.Info("add new: several Authors of the audiobook author's name; no author linked", "names", names, "authors", matches)
 	}
 	return ""
 }
 
-// authorsNamed is the names of the Authors whose metadata name is name
-// through release.TitleNorm; an Author without metadata yet has no name to
-// match.
-func authorsNamed(name string, authors []catalogv1.Author) []string {
-	want := release.TitleNorm(name)
-	if want == "" {
+// lookupAuthorName is the name the metadata gateway's author lookup
+// answers for an Audible author's ASIN in region, or "" when there is no
+// ASIN or no lookup bound, or the lookup failed, answered an error or
+// answered no name, each logged: the hit's own name is matched alone then.
+func (s *Server) lookupAuthorName(ctx context.Context, log *slog.Logger, asin, region string) string {
+	if asin == "" || s.opts.MetadataLookup == nil {
+		return ""
+	}
+	ids := map[string]string{metadata.KeyASIN: asin}
+	if region != "" {
+		ids["region"] = region
+	}
+	resp, err := s.opts.MetadataLookup(ctx, schema.MetadataRequest{Kind: commonv1.MediaKindAuthor, IDs: ids})
+	switch {
+	case err != nil:
+		log.Warn("add new: audiobook author lookup failed; the hit's name alone is matched", "error", err)
+		return ""
+	case resp.Error == metadata.ErrNotFound.Error():
+		log.Info("add new: the audiobook's author has no provider page; the hit's name alone is matched")
+		return ""
+	case resp.Error != "":
+		log.Warn("add new: audiobook author lookup failed; the hit's name alone is matched", "error", resp.Error)
+		return ""
+	}
+	var author struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(resp.Result, &author); err != nil || author.Name == "" {
+		log.Warn("add new: audiobook author lookup answered no name; the hit's name alone is matched", "error", err)
+		return ""
+	}
+	return author.Name
+}
+
+// authorsNamed is the names of the Authors whose metadata name is one of
+// names through release.TitleNorm, each Author once, in the list's order;
+// an Author without metadata yet has no name to match.
+func authorsNamed(names []string, authors []catalogv1.Author) []string {
+	want := make(map[string]bool, len(names))
+	for _, n := range names {
+		if norm := release.TitleNorm(n); norm != "" {
+			want[norm] = true
+		}
+	}
+	if len(want) == 0 {
 		return nil
 	}
 	var out []string
@@ -626,7 +665,7 @@ func authorsNamed(name string, authors []catalogv1.Author) []string {
 		if md == nil || md.Name == "" {
 			continue
 		}
-		if release.TitleNorm(md.Name) == want {
+		if want[release.TitleNorm(md.Name)] {
 			out = append(out, authors[i].Name)
 		}
 	}
