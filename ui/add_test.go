@@ -266,3 +266,247 @@ func TestAddRefusesARootFolderThePageDidNotOffer(t *testing.T) {
 	require.NoError(t, c.List(t.Context(), &list))
 	require.Empty(t, list.Items)
 }
+
+// The non-video tabs' Add New (2026-11-10 design §9.1): a comic root, an
+// audiobook root reading Audible's UK marketplace, a book root, and a
+// profile of each kind.
+var (
+	comicsRoot = &catalogv1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: "comics", Namespace: "library"},
+		Spec:       catalogv1.RootFolderSpec{Path: "/data/media/comics", Kind: catalogv1.RootFolderKindComic},
+	}
+	audiobooksRoot = &catalogv1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: "audiobooks", Namespace: "library"},
+		Spec: catalogv1.RootFolderSpec{
+			Path: "/data/media/audiobooks", Kind: catalogv1.RootFolderKindAudiobook,
+			Defaults: catalogv1.RootDefaults{Region: catalogv1.AudiobookRegionUK},
+		},
+	}
+	booksRoot = &catalogv1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: "books", Namespace: "library"},
+		Spec:       catalogv1.RootFolderSpec{Path: "/data/media/books", Kind: catalogv1.RootFolderKindBook},
+	}
+	cbzProfile = &catalogv1.QualityProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "cbz"},
+		Spec: catalogv1.QualityProfileSpec{
+			MediaKind: catalogv1.ProfileMediaKindComic, Cutoff: "cbz",
+			Tiers: []catalogv1.Tier{{Name: "cbz", Qualities: []string{"CBZ"}}},
+		},
+	}
+	m4bProfile = &catalogv1.QualityProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "m4b"},
+		Spec: catalogv1.QualityProfileSpec{
+			MediaKind: catalogv1.ProfileMediaKindAudiobook, Cutoff: "m4b",
+			Tiers: []catalogv1.Tier{{Name: "m4b", Qualities: []string{"M4B"}}},
+		},
+	}
+	ebookProfile = &catalogv1.QualityProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "ebook"},
+		Spec: catalogv1.QualityProfileSpec{
+			MediaKind: catalogv1.ProfileMediaKindBook, Cutoff: "epub",
+			Tiers: []catalogv1.Tier{{Name: "epub", Qualities: []string{"EPUB"}}},
+		},
+	}
+)
+
+// addServerWith is addServer over the given library.
+func addServerWith(t *testing.T, search ui.MetadataSearch, library []projection.LibraryItem, objs ...client.Object) (*ui.Server, client.Client) {
+	t.Helper()
+	c := fake.NewClientBuilder().WithScheme(ui.MustNewReaderScheme()).WithObjects(objs...).Build()
+	return ui.NewServer(t.Context(), ui.Options{
+		Reader: c, Actions: actions.New(c), Namespace: "media", MetadataSearch: search,
+		Library: func(context.Context) []projection.LibraryItem { return library },
+	}), c
+}
+
+// The Comics tab's Add New searches the comic providers through the one
+// metadata search and reads each hit's source off its id key -- a ComicVine
+// volume or a MangaDex manga -- which rides the form and names the Comic's
+// immutable source; the form offers the comic roots and profiles, Mylar's
+// monitor modes, the kind (comic or manga), new issues and the search; a
+// comic the library holds is found under its "<source>:<id>" ProviderID.
+func TestAddComicsReadsEachHitsSourceAndCreatesTheComic(t *testing.T) {
+	inLibrary := []projection.LibraryItem{{
+		Ref: types.NamespacedName{Namespace: "media", Name: "berserk-x"}, Kind: commonv1.MediaKindComic,
+		Tab: projection.TabComics, Title: "Berserk", ProviderID: "mangadex:801513ba",
+	}}
+	srv, c := addServerWith(t, hits(commonv1.MediaKindComic,
+		`{"IDs":{"comicvine":"56907"},"Title":"Saga","Year":2012,"Poster":"https://comicvine.gamespot.com/a/saga.jpg"}`,
+		`{"IDs":{"mangadex":"801513ba","anilist":"30002"},"Title":"Berserk","Year":1989}`,
+		`{"IDs":{"metron":"7"},"Title":"No source we add"}`,
+	), inLibrary, comicsRoot, cbzProfile, moviesRoot, hdProfile)
+	rec := get(t, srv, "/library/comics/add/search?q=saga")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	requireTag(t, body, `data-add-hit="56907"`, `data-add-source="comicvine"`)
+	require.Regexp(t, `data-hit-source="comicvine"[^>]*>\s*ComicVine`, body, "the hit says which provider it came from")
+	requireTag(t, body, `name="source"`, `value="comicvine"`)
+	requireTag(t, body, `data-add-hit="801513ba"`, `data-add-source="mangadex"`)
+	require.Contains(t, body, `href="/library/media/comic/berserk-x"`, "the manga in the library links to it, by its source-prefixed id")
+	require.NotContains(t, body, "No source we add", "a hit with neither id is dropped")
+	for _, want := range []string{`name="comicKind"`, `data-templ-value="manga"`, `name="monitor"`, `data-templ-value="missing"`, "Monitor new issues", `data-templ-value="library/comics"`, `data-templ-value="cbz"`, "Start search for missing issues"} {
+		require.Contains(t, body, want)
+	}
+	require.NotContains(t, body, "library/movies", "a movie root is not offered for a comic")
+	require.NotContains(t, body, `data-templ-value="hd"`, "a video profile is not offered for a comic")
+
+	rec = post(t, srv, "/library/comics/add", url.Values{
+		"title": {"Saga"}, "id": {"56907"}, "source": {"comicvine"}, "rootFolder": {"library/comics"}, "qualityProfile": {"cbz"},
+		"monitor": {"missing"}, "comicKind": {"comic"}, "monitorNewItems": {"none"}, "monitored": {"false", "true"}, "searchOnAdd": {"false", "true"},
+	})
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	name := names.Comic("Saga", "comicvine", "56907")
+	require.Equal(t, "/library/library/comic/"+name, rec.Header().Get("Location"), "the comic's own page")
+	var co catalogv1.Comic
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "library", Name: name}, &co))
+	require.Equal(t, catalogv1.ComicSourceComicVine, co.Spec.Source)
+	require.Equal(t, "56907", co.Spec.SourceID)
+	require.Equal(t, catalogv1.ComicKindComic, co.Spec.Kind)
+	require.Equal(t, catalogv1.ComicMonitorMissing, co.Spec.AddOptions.Monitor)
+	require.False(t, *co.Spec.MonitorNewIssues)
+	require.True(t, *co.Spec.Monitored)
+
+	// The manga the library holds is not created twice: its add goes to it.
+	rec = post(t, srv, "/library/comics/add", url.Values{"title": {"Berserk"}, "id": {"801513ba"}, "source": {"mangadex"}, "rootFolder": {"library/comics"}, "qualityProfile": {"cbz"}, "monitor": {"all"}})
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.Equal(t, "/library/media/comic/berserk-x", rec.Header().Get("Location"))
+
+	// A comic posted without its source is refused, and the form comes back.
+	rec = post(t, srv, "/library/comics/add", url.Values{"q": {"saga"}, "title": {"Saga"}, "id": {"1"}, "rootFolder": {"library/comics"}, "qualityProfile": {"cbz"}, "monitor": {"all"}})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "comic source")
+}
+
+// The Audiobooks tab's Add New asks Audible's catalog in the audiobook
+// root's region (defaults.region, else us), which the form's region select
+// defaults to and the Audiobook is created in; its hits are keyed by ASIN,
+// and one the library holds is found under "asin:<id>".
+func TestAddAudiobooksSearchesInTheRootsRegion(t *testing.T) {
+	var asked schema.MetadataRequest
+	search := func(_ context.Context, req schema.MetadataRequest) (schema.MetadataResponse, error) {
+		asked = req
+		return schema.MetadataResponse{Kind: req.Kind, Results: [][]byte{
+			[]byte(`{"IDs":{"asin":"B002V1OF70"},"Title":"Dune","Poster":"https://m.media-amazon.com/images/I/dune.jpg"}`),
+			[]byte(`{"IDs":{"asin":"B0INLIB"},"Title":"In the library"}`),
+		}}, nil
+	}
+	inLibrary := []projection.LibraryItem{{
+		Ref: types.NamespacedName{Namespace: "media", Name: "in-library-x"}, Kind: commonv1.MediaKindAudiobook,
+		Tab: projection.TabAudiobooks, Title: "In the library", ProviderID: "asin:B0INLIB",
+	}}
+	srv, c := addServerWith(t, search, inLibrary, audiobooksRoot, m4bProfile, booksRoot, ebookProfile)
+	body := get(t, srv, "/library/audiobooks/add/search?q=dune").Body.String()
+	require.Equal(t, commonv1.MediaKindAudiobook, asked.Kind)
+	require.Equal(t, "uk", asked.Region, "the audiobook root's marketplace")
+	requireTag(t, body, `data-add-hit="B002V1OF70"`)
+	require.Contains(t, body, "/art/search?src=", "Audible's image host goes through the proxy")
+	requireTag(t, body, `name="region"`, `value="uk"`)
+	require.Contains(t, body, `data-templ-value="jp"`, "every marketplace is offered")
+	require.Contains(t, body, `href="/library/media/audiobook/in-library-x"`)
+	require.NotContains(t, body, `name="monitor"`, "an audiobook has no monitor modes")
+	require.Contains(t, body, `name="monitored"`)
+	require.Contains(t, body, `name="searchOnAdd"`)
+	require.NotContains(t, body, "library/books", "a book root is not offered for an audiobook")
+
+	rec := post(t, srv, "/library/audiobooks/add", url.Values{
+		"title": {"Dune"}, "id": {"B002V1OF70"}, "rootFolder": {"library/audiobooks"}, "qualityProfile": {"m4b"},
+		"region": {"uk"}, "monitored": {"false", "true"}, "searchOnAdd": {"false"},
+	})
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	name := names.Audiobook("Dune", "B002V1OF70")
+	require.Equal(t, "/library/library/audiobook/"+name, rec.Header().Get("Location"))
+	var ab catalogv1.Audiobook
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "library", Name: name}, &ab))
+	require.Equal(t, "B002V1OF70", ab.Spec.ASIN)
+	require.Equal(t, catalogv1.AudiobookRegionUK, ab.Spec.Region)
+	require.False(t, *ab.Spec.AddOptions.SearchForMissing)
+
+	// With no region on any audiobook root, Audible's US catalog.
+	plain := audiobooksRoot.DeepCopy()
+	plain.Spec.Defaults.Region = ""
+	srv, _ = addServerWith(t, search, nil, plain, m4bProfile)
+	body = get(t, srv, "/library/audiobooks/add/search?q=dune").Body.String()
+	require.Equal(t, "us", asked.Region)
+	requireTag(t, body, `name="region"`, `value="us"`)
+}
+
+// The Books tab adds an Author, or a standalone Book (design §9.1, §9.3):
+// the page switches between the two, the query kept; the book search asks
+// Open Library's works and its form offers the book roots and profiles and
+// monitored alone (a Book has no add options); the Book is created with no
+// author and its own profile and root, and the page sent to is the book's.
+func TestAddBooksOffersAnAuthorOrAStandaloneBook(t *testing.T) {
+	srv, c := addServerWith(t, hits(commonv1.MediaKindBook,
+		`{"IDs":{"olwork":"OL893415W","olauthor":"OL79034A"},"Title":"Dune","Year":1965,"Poster":"https://covers.openlibrary.org/b/id/1-M.jpg"}`,
+	), nil, booksRoot, ebookProfile, audiobooksRoot, m4bProfile)
+
+	page := get(t, srv, "/library/books/add?q=dune")
+	require.Equal(t, http.StatusOK, page.Code)
+	body := page.Body.String()
+	require.Contains(t, body, "Add Author")
+	requireTag(t, body, `data-add-kinds="author"`)
+	requireTag(t, body, `data-add-kind="author"`, `hx-get="/library/books/add?q=dune"`)
+	requireTag(t, body, `data-add-kind="book"`, `hx-get="/library/books/add?kind=book&amp;q=dune"`, `hx-target="#page-body"`)
+	require.NotContains(t, body, `hx-vals`, "the tab's own kind rides no hx-vals")
+
+	page = get(t, srv, "/library/books/add?kind=book&q=dune")
+	require.Equal(t, http.StatusOK, page.Code)
+	body = page.Body.String()
+	require.Contains(t, body, "Add Book")
+	requireTag(t, body, `data-add-kinds="book"`)
+	requireTag(t, body, `hx-get="/library/books/add/search"`, `name="q"`, `hx-vals="{&#34;kind&#34;:&#34;book&#34;}"`)
+	requireThemedComponents(t, "/library/books/add?kind=book", body)
+	require.Equal(t, http.StatusNotFound, get(t, srv, "/library/books/add?kind=comic").Code, "a kind the tab does not add")
+	require.Equal(t, http.StatusNotFound, get(t, srv, "/library/movies/add?kind=book").Code)
+
+	body = get(t, srv, "/library/books/add/search?q=dune&kind=book").Body.String()
+	requireTag(t, body, `data-add-hit="OL893415W"`)
+	requireTag(t, body, `name="kind"`, `value="book"`)
+	require.Contains(t, body, `action="/library/books/add"`)
+	require.Contains(t, body, `data-templ-value="library/books"`)
+	require.Contains(t, body, `data-templ-value="ebook"`)
+	require.NotContains(t, body, "library/audiobooks", "an audiobook root is not offered for a book")
+	require.NotContains(t, body, `name="monitor"`, "a book has no monitor modes")
+	require.NotContains(t, body, `name="searchOnAdd"`, "a book has no add options")
+	require.NotContains(t, body, `name="monitorNewItems"`)
+	require.Contains(t, body, `name="monitored"`)
+	require.Contains(t, body, "/art/search?src=", "an Open Library cover goes through the proxy")
+
+	rec := post(t, srv, "/library/books/add", url.Values{
+		"kind": {"book"}, "title": {"Dune"}, "id": {"OL893415W"}, "rootFolder": {"library/books"}, "qualityProfile": {"ebook"},
+		"monitored": {"false", "true"},
+	})
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	name := names.Book("Dune", "OL893415W")
+	require.Equal(t, "/library/library/book/"+name, rec.Header().Get("Location"), "the book's own page")
+	var bk catalogv1.Book
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "library", Name: name}, &bk))
+	require.Equal(t, "OL893415W", bk.Spec.WorkID)
+	require.Nil(t, bk.Spec.AuthorRef, "a standalone book")
+	require.Equal(t, "ebook", *bk.Spec.QualityProfileRef)
+	require.Equal(t, "books", *bk.Spec.RootFolderRef)
+	var authors catalogv1.AuthorList
+	require.NoError(t, c.List(t.Context(), &authors))
+	require.Empty(t, authors.Items, "the Books tab's own kind was not what was posted")
+
+	// A failed search's retry keeps the kind.
+	slow := func(ctx context.Context, _ schema.MetadataRequest) (schema.MetadataResponse, error) {
+		<-ctx.Done()
+		return schema.MetadataResponse{}, ctx.Err()
+	}
+	srv, _ = addServerWith(t, slow, nil, booksRoot, ebookProfile)
+	ui.SetAddSearchTimeoutForTest(srv, 50*time.Millisecond)
+	body = get(t, srv, "/library/books/add/search?q=dune&kind=book").Body.String()
+	requireTag(t, body, `data-action="retry-search"`, `hx-get="/library/books/add/search?q=dune&amp;kind=book"`)
+}
+
+// The non-video tabs' add pages render whole, with the kind's choices,
+// so a tab with nothing added yet still offers its Add New.
+func TestEveryTabHasAnAddPage(t *testing.T) {
+	srv, _ := addServerWith(t, nil, nil, comicsRoot, cbzProfile, audiobooksRoot, m4bProfile, booksRoot, ebookProfile)
+	for _, tab := range projection.Tabs() {
+		rec := get(t, srv, "/library/"+string(tab)+"/add")
+		require.Equal(t, http.StatusOK, rec.Code, tab)
+		require.Contains(t, rec.Body.String(), "Metadata search is not available", tab)
+	}
+}

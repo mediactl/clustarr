@@ -114,19 +114,13 @@ templ LibraryFindResults(tab projection.Tab, q string, items []projection.Librar
 			if tab == "" {
 				<p class="flex flex-wrap gap-x-3">
 					for _, t := range projection.Tabs() {
-						<a
-							class="font-medium underline underline-offset-4"
-							data-action="find-add-new"
-							href={ templ.SafeURL("/library/" + string(t) + "/add?q=" + url.QueryEscape(q)) }
-						>Add a new { addLabel(t) }</a>
+						@findAddLinks(t, q)
 					}
 				</p>
 			} else {
-				<a
-					class="font-medium underline underline-offset-4"
-					data-action="find-add-new"
-					href={ templ.SafeURL("/library/" + string(tab) + "/add?q=" + url.QueryEscape(q)) }
-				>Add a new { addLabel(tab) }</a>
+				<p class="flex flex-wrap gap-x-3">
+					@findAddLinks(tab, q)
+				</p>
 			}
 		</div>
 	} else {
@@ -162,6 +156,26 @@ templ LibraryFindResults(tab projection.Tab, q string, items []projection.Librar
 				}
 			</ul>
 		}
+	}
+}
+
+// findAddLinks are the empty state's Add New links for tab, the text
+// already typed carried along: the tab's own kind and, on the Books tab, a
+// standalone Book as well (2026-11-10 design §9.1: the Books tab adds an
+// Author or a Book).
+templ findAddLinks(tab projection.Tab, q string) {
+	<a
+		class="font-medium underline underline-offset-4"
+		data-action="find-add-new"
+		href={ templ.SafeURL("/library/" + string(tab) + "/add?q=" + url.QueryEscape(q)) }
+	>Add a new { addLabel(tab) }</a>
+	if tab == projection.TabBooks {
+		<a
+			class="font-medium underline underline-offset-4"
+			data-action="find-add-new"
+			data-add-kind="book"
+			href={ templ.SafeURL("/library/" + string(tab) + "/add?kind=book&q=" + url.QueryEscape(q)) }
+		>Add a new book</a>
 	}
 }
 

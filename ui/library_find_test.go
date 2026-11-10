@@ -170,3 +170,22 @@ func TestTheFindKeysScriptIsServedAndLoaded(t *testing.T) {
 	_, page := findGet(t, h, "/library/movies")
 	require.Regexp(t, regexp.MustCompile(`<script[^>]*src="/static/find.js"`), page)
 }
+
+// On the Books tab the empty state offers both of the tab's kinds -- an
+// author, and a standalone book (2026-11-10 design §9.1) -- and the
+// whole-library search offers every tab's.
+func TestLibraryFindOffersAStandaloneBookOnTheBooksTab(t *testing.T) {
+	code, body := findGet(t, findServer(t), "/library/books/find?q=zardoz")
+	require.Equal(t, http.StatusOK, code)
+	require.Contains(t, body, "No monitored authors match")
+	requireTag(t, body, `data-action="find-add-new"`, `href="/library/books/add?q=zardoz"`)
+	requireTag(t, body, `data-add-kind="book"`, `href="/library/books/add?kind=book&amp;q=zardoz"`)
+	require.Equal(t, 2, strings.Count(body, `data-action="find-add-new"`))
+
+	_, body = findGet(t, findServer(t), "/library/comics/find?q=zardoz")
+	requireTag(t, body, `data-action="find-add-new"`, `href="/library/comics/add?q=zardoz"`)
+	require.Equal(t, 1, strings.Count(body, `data-action="find-add-new"`), "a comic is the Comics tab's one kind")
+
+	_, body = findGet(t, findServer(t), "/library/find?q=zardoz")
+	require.Equal(t, len(projection.Tabs())+1, strings.Count(body, `data-action="find-add-new"`), "every tab's kind, and the standalone book")
+}

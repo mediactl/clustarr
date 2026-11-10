@@ -6,7 +6,6 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/components/alert"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
@@ -18,10 +17,20 @@ import (
 	"github.com/mediactl/clustarr/ui/components/input"
 	selectcomp "github.com/mediactl/clustarr/ui/components/select"
 	"github.com/mediactl/clustarr/ui/components/spinner"
+	"github.com/mediactl/clustarr/ui/components/togglegroup"
+	"github.com/mediactl/clustarr/ui/components/utils"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // AddOption is one choice of an Add New select.
 type AddOption struct{ Value, Label string }
+
+// AddIDKey is one id key a kind's search hits may carry, with the source
+// it names: a comic's hits carry a ComicVine id or a MangaDex one, and the
+// Comic is created with that source (2026-11-10 design §9.1).
+type AddIDKey struct {
+	Key, Source, Label string
+}
 
 // AddKind is Add New for one library tab (ui/add.go's addKinds).
 type AddKind struct {
@@ -33,12 +42,23 @@ type AddKind struct {
 	ProfileKind catalogv1.ProfileMediaKind
 	Monitor     []AddOption
 	MonitorNew  []AddOption
+	// IDKeys, when set, are the id keys a hit may carry instead of IDKey,
+	// tried in order, each naming the hit's source.
+	IDKeys []AddIDKey
+	// Alternate is a kind the tab adds beside its own (a Book on the Books
+	// tab), reached with ?kind=<kind> on every one of its URLs.
+	Alternate bool
+	// SearchOnAdd labels the "start a search" checkbox; "" for a kind
+	// without add options (a Book).
+	SearchOnAdd string
 }
 
 // AddPageData is the Add New page: the search box, and the action error
 // of a rejected add.
 type AddPageData struct {
-	Kind      AddKind
+	Kind AddKind
+	// Kinds are the tab's kinds, its own first: a switch when there are two.
+	Kinds     []AddKind
 	Available bool
 	ErrorCode string
 	Error     string
@@ -50,8 +70,10 @@ type AddPageData struct {
 
 // AddHit is one search result: InLibrary is the item's detail path when
 // the library already holds it, and Poster the /art/search path or "".
+// Source and SourceLabel name a comic hit's provider (comicvine, MangaDex).
 type AddHit struct {
 	ID, Title, Poster, InLibrary string
+	Source, SourceLabel          string
 	Year                         int32
 }
 
@@ -69,12 +91,70 @@ type AddResultsData struct {
 	// the values the owner submitted.
 	OpenID string
 	Posted url.Values
+	// Region is the Audible marketplace an audiobook search asked in, the
+	// form's default (the audiobook root's defaults.region, else us).
+	Region string
+}
+
+// kindQuery is the ?kind= an alternate kind's URLs carry, "" for a tab's own.
+func kindQuery(k AddKind) string {
+	if !k.Alternate {
+		return ""
+	}
+	return "kind=" + string(k.Kind)
+}
+
+// withQuery appends the non-empty parts as path's query.
+func withQuery(path string, parts ...string) string {
+	q := ""
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if q != "" {
+			q += "&"
+		}
+		q += p
+	}
+	if q == "" {
+		return path
+	}
+	return path + "?" + q
+}
+
+// AddPageURL is k's Add New page, with q in the box when given.
+func AddPageURL(k AddKind, q string) string {
+	var query string
+	if q != "" {
+		query = "q=" + url.QueryEscape(q)
+	}
+	return withQuery("/library/"+string(k.Tab)+"/add", kindQuery(k), query)
+}
+
+// AddSearchURL is k's search for q.
+func AddSearchURL(k AddKind, q string) string {
+	return withQuery("/library/"+string(k.Tab)+"/add/search", "q="+url.QueryEscape(q), kindQuery(k))
+}
+
+// addPostURL is where k's form posts; the alternate kind rides as a hidden
+// field.
+func addPostURL(k AddKind) string { return "/library/" + string(k.Tab) + "/add" }
+
+// searchVals is the search input's hx-vals: the alternate kind beside q.
+func searchVals(k AddKind) string {
+	if !k.Alternate {
+		return ""
+	}
+	return fmt.Sprintf(`{"kind":%q}`, string(k.Kind))
 }
 
 templ AddPage(d AddPageData) {
 	@Shell(Chrome{Title: "Add " + d.Kind.Label, Tab: d.Kind.Tab, Crumbs: []Crumb{{Label: tabLabel(d.Kind.Tab), Href: "/library/" + string(d.Kind.Tab)}, {Label: "Add New"}}}) {
 		<h1 class="mb-2 text-2xl font-semibold tracking-tight">Add { d.Kind.Label }</h1>
 		<p class="mb-6 text-sm text-muted-foreground">Search by title, then choose how to add it.</p>
+		if len(d.Kinds) > 1 {
+			@addKindSwitch(d)
+		}
 		if d.Error != "" {
 			<div class="mb-6">
 				@ActionError(d.ErrorCode, d.Error)
@@ -98,14 +178,7 @@ templ AddPage(d AddPageData) {
 			Placeholder: "Search for a " + d.Kind.Label + " by title",
 			Value:       d.Query,
 			Class:       "max-w-xl",
-			Attributes: templ.Attributes{
-				"aria-label":   "Search",
-				"autofocus":    true,
-				"hx-get":       "/library/" + string(d.Kind.Tab) + "/add/search",
-				"hx-trigger":   addSearchTrigger(d.Query),
-				"hx-target":    "#add-results",
-				"hx-indicator": "#add-searching",
-			},
+			Attributes:  searchAttrs(d),
 		})
 		<p id="add-searching" class="htmx-indicator mt-2 flex items-center gap-2 text-sm text-muted-foreground">
 			@spinner.Spinner()
@@ -117,6 +190,55 @@ templ AddPage(d AddPageData) {
 			}
 		</div>
 	}
+}
+
+// searchAttrs are the search box's htmx attributes: the kind's search
+// route, the alternate kind in hx-vals, and a search as the page loads
+// when it arrives with a query.
+func searchAttrs(d AddPageData) templ.Attributes {
+	attrs := templ.Attributes{
+		"aria-label":   "Search",
+		"autofocus":    true,
+		"hx-get":       "/library/" + string(d.Kind.Tab) + "/add/search",
+		"hx-trigger":   addSearchTrigger(d.Query),
+		"hx-target":    "#add-results",
+		"hx-indicator": "#add-searching",
+	}
+	if v := searchVals(d.Kind); v != "" {
+		attrs["hx-vals"] = v
+	}
+	return attrs
+}
+
+// addKindSwitch is the Books tab's "Author | Book" (2026-11-10 design
+// §9.1): a toggle group whose items swap the page body to the other
+// kind's Add New, the query kept, as the sidebar's sub-entries swap it.
+templ addKindSwitch(d AddPageData) {
+	@togglegroup.ToggleGroup(togglegroup.Props{
+		Variant:    togglegroup.VariantOutline,
+		Size:       togglegroup.SizeSm,
+		Spacing:    utils.Ptr(0),
+		Class:      "mb-6",
+		Value:      []string{string(d.Kind.Kind)},
+		Attributes: templ.Attributes{"data-add-kinds": string(d.Kind.Kind), "aria-label": "What to add"},
+	}) {
+		for _, k := range d.Kinds {
+			@togglegroup.Item(togglegroup.ItemProps{
+				Value:      string(k.Kind),
+				Attributes: kindSwitchAttrs(k, d.Query),
+			}) {
+				{ k.Label }
+			}
+		}
+	}
+}
+
+// kindSwitchAttrs swap the page body to k's Add New (subNavAttrs, the
+// sidebar's own swap), marked for the tests.
+func kindSwitchAttrs(k AddKind, q string) templ.Attributes {
+	attrs := subNavAttrs(AddPageURL(k, q))
+	attrs["data-add-kind"] = string(k.Kind)
+	return attrs
 }
 
 // AddPending is the detail page of an item Add New just created, before
@@ -183,7 +305,7 @@ templ AddResults(d AddResultsData) {
 }
 
 templ addHitCard(d AddResultsData, h AddHit) {
-	@card.Card(card.Props{Size: card.SizeSm, Attributes: templ.Attributes{"data-add-hit": h.ID}}) {
+	@card.Card(card.Props{Size: card.SizeSm, Attributes: templ.Attributes{"data-add-hit": h.ID, "data-add-source": h.Source}}) {
 		@card.Content(card.ContentProps{Class: "flex gap-4"}) {
 			if h.Poster != "" {
 				<img src={ h.Poster } alt="" loading="lazy" class="aspect-[2/3] w-20 shrink-0 rounded bg-muted object-cover"/>
@@ -192,8 +314,17 @@ templ addHitCard(d AddResultsData, h AddHit) {
 			}
 			<div class="min-w-0 flex-1">
 				<p class="font-medium">{ h.Title }</p>
-				if h.Year > 0 {
-					<p class="text-sm text-muted-foreground">{ fmt.Sprint(h.Year) }</p>
+				if h.Year > 0 || h.SourceLabel != "" {
+					<p class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+						if h.Year > 0 {
+							<span>{ fmt.Sprint(h.Year) }</span>
+						}
+						if h.SourceLabel != "" {
+							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Attributes: templ.Attributes{"data-hit-source": h.Source}}) {
+								{ h.SourceLabel }
+							}
+						}
+					</p>
 				}
 				if h.InLibrary != "" {
 					<a href={ templ.SafeURL(h.InLibrary) } class="mt-2 inline-block">
@@ -211,20 +342,31 @@ templ addHitCard(d AddResultsData, h AddHit) {
 
 // addForm is a hit's add form behind an "Add" link (shadcn-templ's
 // collapsible, since 2026-11-04), open from the start for the hit whose
-// post was refused.
+// post was refused. Each kind's own fields follow the root folder and the
+// profile: a movie's availability, a series' type and folders, a comic's
+// kind (comic or manga), an audiobook's Audible region; a kind with
+// monitor modes offers them, and one with add options the search.
 templ addForm(d AddResultsData, h AddHit) {
 	@collapsible.Collapsible(collapsible.Props{Class: "mt-2", DefaultOpen: d.OpenID != "" && d.OpenID == h.ID}) {
 		@button.Button(button.Props{Variant: button.VariantLink, Class: "h-auto p-0 text-sm", Attributes: collapsible.Trigger(ctx)}) {
 			Add
 		}
 		@collapsible.Content() {
-			<form method="post" action={ templ.SafeURL("/library/" + string(d.Kind.Tab) + "/add") } class="mt-3 grid gap-3" data-settings-form>
+			<form method="post" action={ templ.SafeURL(addPostURL(d.Kind)) } class="mt-3 grid gap-3" data-settings-form>
 				<input type="hidden" name="title" value={ h.Title }/>
 				<input type="hidden" name="id" value={ h.ID }/>
 				<input type="hidden" name="q" value={ d.Query }/>
+				if d.Kind.Alternate {
+					<input type="hidden" name="kind" value={ string(d.Kind.Kind) }/>
+				}
+				if h.Source != "" {
+					<input type="hidden" name="source" value={ h.Source }/>
+				}
 				@addSelect("rootFolder", h.ID, "Root folder", d.RootFolders, posted(d, h, "rootFolder", onlyValue(d.RootFolders)))
 				@addSelect("qualityProfile", h.ID, "Quality profile", d.Profiles, posted(d, h, "qualityProfile", onlyValue(d.Profiles)))
-				@addSelect("monitor", h.ID, "Monitor", d.Kind.Monitor, posted(d, h, "monitor", d.Kind.Monitor[0].Value))
+				if len(d.Kind.Monitor) > 0 {
+					@addSelect("monitor", h.ID, "Monitor", d.Kind.Monitor, posted(d, h, "monitor", d.Kind.Monitor[0].Value))
+				}
 				switch d.Kind.Kind {
 					case commonv1.MediaKindMovie:
 						@addSelect("minimumAvailability", h.ID, "Minimum availability", []AddOption{{Value: "announced", Label: "Announced"}, {Value: "inCinemas", Label: "In cinemas"}, {Value: "released", Label: "Released"}}, posted(d, h, "minimumAvailability", "released"))
@@ -232,12 +374,18 @@ templ addForm(d AddResultsData, h AddHit) {
 						@addSelect("seriesType", h.ID, "Series type", []AddOption{{Value: "standard", Label: "Standard"}, {Value: "daily", Label: "Daily"}, {Value: "anime", Label: "Anime"}}, posted(d, h, "seriesType", "standard"))
 						@addCheck("seasonFolder", h.ID, "Season folders", postedCheck(d, h, "seasonFolder", true))
 						@addCheck("searchCutoffUnmet", h.ID, "Search for cutoff unmet", postedCheck(d, h, "searchCutoffUnmet", false))
+					case commonv1.MediaKindComic:
+						@addSelect("comicKind", h.ID, "Kind", comicKindOptions, posted(d, h, "comicKind", comicKindOptions[0].Value))
+					case commonv1.MediaKindAudiobook:
+						@addSelect("region", h.ID, "Audible region", audiobookRegionOptions, posted(d, h, "region", selectedOf(audiobookRegionOptions, d.Region)))
 				}
 				if len(d.Kind.MonitorNew) > 0 {
-					@addSelect("monitorNewItems", h.ID, "Monitor new items", d.Kind.MonitorNew, posted(d, h, "monitorNewItems", d.Kind.MonitorNew[0].Value))
+					@addSelect("monitorNewItems", h.ID, monitorNewLabel(d.Kind.Kind), d.Kind.MonitorNew, posted(d, h, "monitorNewItems", d.Kind.MonitorNew[0].Value))
 				}
 				@addCheck("monitored", h.ID, "Monitored", postedCheck(d, h, "monitored", true))
-				@addCheck("searchOnAdd", h.ID, "Start search for missing", postedCheck(d, h, "searchOnAdd", true))
+				if d.Kind.SearchOnAdd != "" {
+					@addCheck("searchOnAdd", h.ID, d.Kind.SearchOnAdd, postedCheck(d, h, "searchOnAdd", true))
+				}
 				<div>
 					@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "add"}}) {
 						Add { h.Title }
@@ -245,6 +393,31 @@ templ addForm(d AddResultsData, h AddHit) {
 				</div>
 			</form>
 		}
+	}
+}
+
+// comicKindOptions and audiobookRegionOptions are a comic's spec.kind and
+// an audiobook's spec.region as the CRDs spell them (the same values
+// ui/actions.Choices admits; TestAddAndEditOptionsAreTheActionsChoices
+// holds them equal).
+var (
+	comicKindOptions       = []AddOption{{Value: "comic", Label: "Comic"}, {Value: "manga", Label: "Manga"}}
+	audiobookRegionOptions = []AddOption{
+		{Value: "us", Label: "United States (audible.com)"}, {Value: "uk", Label: "United Kingdom (audible.co.uk)"},
+		{Value: "ca", Label: "Canada (audible.ca)"}, {Value: "au", Label: "Australia (audible.com.au)"},
+		{Value: "de", Label: "Germany (audible.de)"}, {Value: "fr", Label: "France (audible.fr)"},
+		{Value: "es", Label: "Spain (audible.es)"}, {Value: "in", Label: "India (audible.in)"},
+		{Value: "it", Label: "Italy (audible.it)"}, {Value: "jp", Label: "Japan (audible.co.jp)"},
+	}
+)
+
+// monitorNewLabel names the monitor-new choice by what the kind discovers.
+func monitorNewLabel(kind commonv1.MediaKind) string {
+	switch kind {
+	case commonv1.MediaKindComic:
+		return "Monitor new issues"
+	default:
+		return "Monitor new items"
 	}
 }
 
