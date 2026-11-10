@@ -26,13 +26,13 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/ui/paging"
-	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/card"
 	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/components/progress"
 	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // DownloadView is one Downloads-page row: a grab entry as the projection
@@ -41,57 +41,6 @@ import (
 type DownloadView struct {
 	Row      projection.DownloadRow
 	Progress *schema.DownloadProgress
-}
-
-// Downloads renders the Downloads page: a DownloadClient summary card per
-// client, then one row per grab entry, live-updated over the
-// /events/downloads SSE stream. It is a full page, wrapped in Layout, so a
-// plain GET renders something useful before htmx's SSE extension connects.
-//
-// #downloads-rows is the sse-swap target, mirroring the Pipeline page:
-// everything inside it (and only what's inside it) is exactly what
-// DownloadList renders. Client cards render outside it: client
-// configuration does not move on the cadence of transfer state.
-templ Downloads(p paging.Page, rows []DownloadView, clients []downloadv1.DownloadClient) {
-	@Layout("Downloads") {
-		<h1 class="mb-4 text-2xl font-bold">Downloads</h1>
-		@ActionStatusRegion()
-		if len(clients) > 0 {
-			@downloadClientsSection(clients)
-		}
-		<div
-			id="downloads-rows"
-			hx-ext="sse, morph"
-			sse-connect={ "/events/downloads" + p.Query(p.Number) }
-			sse-swap="downloads"
-			hx-swap="morph:innerHTML"
-			class="space-y-4"
-		>
-			@DownloadList(p, rows)
-		</div>
-	}
-}
-
-// DownloadList is what #downloads-rows holds and what every
-// /events/downloads frame carries: the pager, the page's rows, the pager
-// again. rows is already the page's window.
-templ DownloadList(p paging.Page, rows []DownloadView) {
-	@Pager(p, "/downloads")
-	@DownloadRows(rows)
-	@Pager(p, "/downloads")
-}
-
-// DownloadRows renders the "nothing in flight" placeholder or the row
-// grid: the initial render and every live update produce the same markup.
-templ DownloadRows(rows []DownloadView) {
-	if len(rows) == 0 {
-		@emptyState("download", "No downloads in flight.", "A grab shows here from the moment it reaches a client until its import is done.", templ.Attributes{"data-empty": "downloads"})
-	}
-	@item.Group(item.GroupProps{Class: "gap-3"}) {
-		for _, d := range rows {
-			@downloadRow(d)
-		}
-	}
 }
 
 // downloadRow renders one grab entry: its release title linking to the
@@ -118,7 +67,9 @@ templ downloadRow(d DownloadView) {
 				<a class="hover:underline" href={ templ.SafeURL(ownerURL(d.Row)) }>{ downloadTitle(d.Row) }</a>
 			}
 			if len(d.Row.Covered) > 0 {
-				@item.Description() { { coveredLine(d.Row) } }
+				@item.Description() {
+					{ coveredLine(d.Row) }
+				}
 			}
 			if pct := downloadPercent(d); pct >= 0 {
 				@progressBar(pct)
@@ -147,7 +98,9 @@ templ downloadRow(d DownloadView) {
 			</div>
 		}
 		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
-			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: downloadPhaseTone(d.Row.Entry.Phase)}) { { downloadPhaseLabel(d.Row.Entry.Phase) } }
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: downloadPhaseTone(d.Row.Entry.Phase)}) {
+				{ downloadPhaseLabel(d.Row.Entry.Phase) }
+			}
 		}
 	}
 }
@@ -183,6 +136,17 @@ templ downloadAction(r projection.DownloadRow, action, label, vals string) {
 	}
 }
 
+// progressBar is the bar a download row shows while it moves: the fill
+// carries data-progress with the raw percentage, the width the clamped one.
+templ progressBar(percent int32) {
+	@progress.Progress(progress.Props{
+		Value:      int(clampPercent(percent)),
+		Class:      "mt-1 gap-0",
+		Attributes: templ.Attributes{"data-progress": fmt.Sprint(percent)},
+	})
+	<div class="text-xs text-muted-foreground">{ fmt.Sprintf("%d%%", percent) }</div>
+}
+
 // DownloadImport renders an entry's import records: the inspect's files
 // with every rejection, and what the execute placed or why it refused,
 // each a card holding a table (shadcn-templ's, since 2026-11-04).
@@ -216,16 +180,26 @@ templ DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRe
 					@table.Table() {
 						@table.Header() {
 							@table.Row() {
-								@table.Head() { File }
-								@table.Head() { Destination }
-								@table.Head() { Rejections }
+								@table.Head() {
+									File 
+								}
+								@table.Head() {
+									Destination 
+								}
+								@table.Head() {
+									Rejections 
+								}
 							}
 						}
 						@table.Body() {
 							for _, f := range inspect.Inspect.Files {
 								@table.Row(table.RowProps{Attributes: templ.Attributes{"data-import-file": f.Path}}) {
-									@table.Cell(table.CellProps{Class: "font-mono whitespace-normal break-all"}) { { f.Path } }
-									@table.Cell(table.CellProps{Class: "whitespace-normal break-all text-muted-foreground"}) { { f.Dest } }
+									@table.Cell(table.CellProps{Class: "font-mono whitespace-normal break-all"}) {
+										{ f.Path }
+									}
+									@table.Cell(table.CellProps{Class: "whitespace-normal break-all text-muted-foreground"}) {
+										{ f.Dest }
+									}
 									@table.Cell(table.CellProps{Class: "whitespace-normal text-destructive"}) {
 										for _, rj := range f.Rejections {
 											<div>{ rj.Text }</div>
@@ -255,7 +229,9 @@ templ DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRe
 						@table.Body() {
 							for _, f := range execute.Execute.Placed {
 								@table.Row(table.RowProps{Attributes: templ.Attributes{"data-import-placed": f.Dest}}) {
-									@table.Cell(table.CellProps{Class: "font-mono whitespace-normal break-all"}) { { f.Dest } }
+									@table.Cell(table.CellProps{Class: "font-mono whitespace-normal break-all"}) {
+										{ f.Dest }
+									}
 								}
 							}
 						}
@@ -291,7 +267,9 @@ templ downloadClientCard(c downloadv1.DownloadClient) {
 		},
 	}) {
 		@item.Content() {
-			@item.Title() { { c.Name } }
+			@item.Title() {
+				{ c.Name }
+			}
 			<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-4">
 				<span>{ fmt.Sprintf("active %d", c.Status.Active) }</span>
 				<span>{ fmt.Sprintf("queued %d", c.Status.Queued) }</span>
@@ -301,14 +279,20 @@ templ downloadClientCard(c downloadv1.DownloadClient) {
 				<span>{ fmt.Sprintf("free %s", formatBytes(c.Status.FreeBytes)) }</span>
 			</div>
 			if c.Status.Engine != nil {
-				@item.Description() { { fmt.Sprintf("engine %d/%d ready", c.Status.Engine.ReadyReplicas, c.Status.Engine.Replicas) } }
+				@item.Description() {
+					{ fmt.Sprintf("engine %d/%d ready", c.Status.Engine.ReadyReplicas, c.Status.Engine.Replicas) }
+				}
 			}
 			if via := clientProxyLabel(c); via != "" {
-				@item.Description() { { via } }
+				@item.Description() {
+					{ via }
+				}
 			}
 		}
 		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
-			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: clientEnabledTone(c)}) { { clientEnabledLabel(c) } }
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: clientEnabledTone(c)}) {
+				{ clientEnabledLabel(c) }
+			}
 		}
 	}
 }

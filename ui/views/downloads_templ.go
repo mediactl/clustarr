@@ -68,8 +68,8 @@ import (
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/card"
 	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/components/progress"
 	"github.com/mediactl/clustarr/ui/components/table"
-	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -81,16 +81,14 @@ type DownloadView struct {
 	Progress *schema.DownloadProgress
 }
 
-// Downloads renders the Downloads page: a DownloadClient summary card per
-// client, then one row per grab entry, live-updated over the
-// /events/downloads SSE stream. It is a full page, wrapped in Layout, so a
-// plain GET renders something useful before htmx's SSE extension connects.
-//
-// #downloads-rows is the sse-swap target, mirroring the Pipeline page:
-// everything inside it (and only what's inside it) is exactly what
-// DownloadList renders. Client cards render outside it: client
-// configuration does not move on the cadence of transfer state.
-func Downloads(p paging.Page, rows []DownloadView, clients []downloadv1.DownloadClient) templ.Component {
+// downloadRow renders one grab entry: its release title linking to the
+// owner's page, the covered episodes or issues, a progress bar and the
+// transfer's telemetry while it moves, the import's state, the failure, and
+// the entry's actions -- pause or resume, remove, import again -- each a
+// patch of one annotation on the owner (ADR-0019 §6.10). Every row carries
+// data-download (the entry id), data-phase and data-protocol (ruling R8):
+// tests assert on those attributes, not on visible copy.
+func downloadRow(d DownloadView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -123,197 +121,7 @@ func Downloads(p paging.Page, rows []DownloadView, clients []downloadv1.Download
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1 class=\"mb-4 text-2xl font-bold\">Downloads</h1>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = ActionStatusRegion().Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " ")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			if len(clients) > 0 {
-				templ_7745c5c3_Err = downloadClientsSection(clients).Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, " <div id=\"downloads-rows\" hx-ext=\"sse, morph\" sse-connect=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var3 string
-			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue("/events/downloads" + p.Query(p.Number))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 65, Col: 56}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" sse-swap=\"downloads\" hx-swap=\"morph:innerHTML\" class=\"space-y-4\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = DownloadList(p, rows).Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = Layout("Downloads").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-// DownloadList is what #downloads-rows holds and what every
-// /events/downloads frame carries: the pager, the page's rows, the pager
-// again. rows is already the page's window.
-func DownloadList(p paging.Page, rows []DownloadView) templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var4 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var4 == nil {
-			templ_7745c5c3_Var4 = templ.NopComponent
-		}
-		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = Pager(p, "/downloads").Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = DownloadRows(rows).Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = Pager(p, "/downloads").Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-// DownloadRows renders the "nothing in flight" placeholder or the row
-// grid: the initial render and every live update produce the same markup.
-func DownloadRows(rows []DownloadView) templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var5 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var5 == nil {
-			templ_7745c5c3_Var5 = templ.NopComponent
-		}
-		ctx = templ.ClearChildren(ctx)
-		if len(rows) == 0 {
-			templ_7745c5c3_Err = emptyState("download", "No downloads in flight.", "A grab shows here from the moment it reaches a client until its import is done.", templ.Attributes{"data-empty": "downloads"}).Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-		}
-		templ_7745c5c3_Var6 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			for _, d := range rows {
-				templ_7745c5c3_Err = downloadRow(d).Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = item.Group(item.GroupProps{Class: "gap-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-// downloadRow renders one grab entry: its release title linking to the
-// owner's page, the covered episodes or issues, a progress bar and the
-// transfer's telemetry while it moves, the import's state, the failure, and
-// the entry's actions -- pause or resume, remove, import again -- each a
-// patch of one annotation on the owner (ADR-0019 §6.10). Every row carries
-// data-download (the entry id), data-phase and data-protocol (ruling R8):
-// tests assert on those attributes, not on visible copy.
-func downloadRow(d DownloadView) templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var7 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var7 == nil {
-			templ_7745c5c3_Var7 = templ.NopComponent
-		}
-		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var8 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Var9 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var3 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -325,7 +133,7 @@ func downloadRow(d DownloadView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Var10 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var4 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -337,47 +145,162 @@ func downloadRow(d DownloadView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<a class=\"hover:underline\" href=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<a class=\"hover:underline\" href=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var11 templ.SafeURL
-					templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(ownerURL(d.Row)))
+					var templ_7745c5c3_Var5 templ.SafeURL
+					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(ownerURL(d.Row)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 118, Col: 68}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 67, Col: 68}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\">")
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var12 string
-					templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(downloadTitle(d.Row))
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 118, Col: 93}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</a>")
+					var templ_7745c5c3_Var6 string
+					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(downloadTitle(d.Row))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 67, Col: 93}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</a>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = item.Title().Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = item.Title().Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if len(d.Row.Covered) > 0 {
+					templ_7745c5c3_Var7 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						var templ_7745c5c3_Var8 string
+						templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(coveredLine(d.Row))
+						if templ_7745c5c3_Err != nil {
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 71, Col: 25}
+						}
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = item.Description().Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, " ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				if pct := downloadPercent(d); pct >= 0 {
+					templ_7745c5c3_Err = progressBar(pct).Render(ctx, templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, " ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				if pr := d.Progress; pr != nil {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-4\"><span>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var9 string
+					templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("down %s/s · up %s/s", formatBytes(pr.DownRateBytesPerSec), formatBytes(pr.UpRateBytesPerSec)))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 79, Col: 120}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</span> ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					if d.Row.Entry.Release.Protocol == commonv1.ProtocolTorrent {
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<span>")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						var templ_7745c5c3_Var10 string
+						templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("seeders %d · peers %d", pr.Seeders, pr.Peers))
+						if templ_7745c5c3_Err != nil {
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 81, Col: 73}
+						}
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</span> <span>")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						var templ_7745c5c3_Var11 string
+						templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("ratio %s", ratioString(pr.RatioMilli)))
+						if templ_7745c5c3_Err != nil {
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 82, Col: 65}
+						}
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</span> ")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<span>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var12 string
+					templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("ETA %s", formatETA(pr.ETASeconds)))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 84, Col: 60}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</span></div>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, " ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				if imp := d.Row.Entry.Import; imp != nil {
 					templ_7745c5c3_Var13 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -391,11 +314,28 @@ func downloadRow(d DownloadView) templ.Component {
 						}
 						ctx = templ.InitializeContext(ctx)
 						var templ_7745c5c3_Var14 string
-						templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(coveredLine(d.Row))
+						templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("import: %s", downloadImportDetail(imp)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 121, Col: 46}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 89, Col: 59}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, " <a class=\"ml-1 underline\" href=\"")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						var templ_7745c5c3_Var15 templ.SafeURL
+						templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(downloadURL(d.Row, "import")))
+						if templ_7745c5c3_Err != nil {
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 90, Col: 81}
+						}
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\">detail</a>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -406,162 +346,30 @@ func downloadRow(d DownloadView) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, " ")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				if pct := downloadPercent(d); pct >= 0 {
-					templ_7745c5c3_Err = progressBar(pct).Render(ctx, templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, " ")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				if pr := d.Progress; pr != nil {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<div class=\"grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-4\"><span>")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var15 string
-					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("down %s/s · up %s/s", formatBytes(pr.DownRateBytesPerSec), formatBytes(pr.UpRateBytesPerSec)))
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 128, Col: 120}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</span> ")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					if d.Row.Entry.Release.Protocol == commonv1.ProtocolTorrent {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<span>")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						var templ_7745c5c3_Var16 string
-						templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("seeders %d · peers %d", pr.Seeders, pr.Peers))
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 130, Col: 73}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</span> <span>")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						var templ_7745c5c3_Var17 string
-						templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("ratio %s", ratioString(pr.RatioMilli)))
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 131, Col: 65}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</span> ")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<span>")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var18 string
-					templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("ETA %s", formatETA(pr.ETASeconds)))
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 133, Col: 60}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</span></div>")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, " ")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				if imp := d.Row.Entry.Import; imp != nil {
-					templ_7745c5c3_Var19 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-						if !templ_7745c5c3_IsBuffer {
-							defer func() {
-								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-								if templ_7745c5c3_Err == nil {
-									templ_7745c5c3_Err = templ_7745c5c3_BufErr
-								}
-							}()
-						}
-						ctx = templ.InitializeContext(ctx)
-						var templ_7745c5c3_Var20 string
-						templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("import: %s", downloadImportDetail(imp)))
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 138, Col: 59}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, " <a class=\"ml-1 underline\" href=\"")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						var templ_7745c5c3_Var21 templ.SafeURL
-						templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(downloadURL(d.Row, "import")))
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 139, Col: 81}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\">detail</a>")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						return nil
-					})
-					templ_7745c5c3_Err = item.Description().Render(templ.WithChildren(ctx, templ_7745c5c3_Var19), templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if failed(d.Row.Entry.Phase) {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<div class=\"text-sm text-destructive\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<div class=\"text-sm text-destructive\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var22 string
-					templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(downloadFailureDetail(d.Row.Entry))
+					var templ_7745c5c3_Var16 string
+					templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(downloadFailureDetail(d.Row.Entry))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 143, Col: 78}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 94, Col: 78}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</div>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, " <div class=\"flex flex-wrap gap-1 pt-1\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, " <div class=\"flex flex-wrap gap-1 pt-1\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -569,21 +377,21 @@ func downloadRow(d DownloadView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = item.Content().Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = item.Content().Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Var23 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var17 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -595,7 +403,7 @@ func downloadRow(d DownloadView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Var24 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var18 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -607,24 +415,24 @@ func downloadRow(d DownloadView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					var templ_7745c5c3_Var25 string
-					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(downloadPhaseLabel(d.Row.Entry.Phase))
+					var templ_7745c5c3_Var19 string
+					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(downloadPhaseLabel(d.Row.Entry.Phase))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 150, Col: 148}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 102, Col: 43}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: downloadPhaseTone(d.Row.Entry.Phase)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var24), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: downloadPhaseTone(d.Row.Entry.Phase)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var18), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = item.Content(item.ContentProps{Class: "flex-none items-end"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = item.Content(item.ContentProps{Class: "flex-none items-end"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -640,7 +448,7 @@ func downloadRow(d DownloadView) templ.Component {
 				"data-phase":    string(d.Row.Entry.Phase),
 				"data-protocol": string(d.Row.Entry.Release.Protocol),
 			},
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
+		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -665,9 +473,9 @@ func downloadActions(r projection.DownloadRow) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var26 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var26 == nil {
-			templ_7745c5c3_Var26 = templ.NopComponent
+		templ_7745c5c3_Var20 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var20 == nil {
+			templ_7745c5c3_Var20 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		switch r.Entry.Phase {
@@ -699,7 +507,7 @@ func downloadActions(r projection.DownloadRow) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -729,12 +537,12 @@ func downloadAction(r projection.DownloadRow, action, label, vals string) templ.
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var27 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var27 == nil {
-			templ_7745c5c3_Var27 = templ.NopComponent
+		templ_7745c5c3_Var21 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var21 == nil {
+			templ_7745c5c3_Var21 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var28 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var22 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -746,12 +554,12 @@ func downloadAction(r projection.DownloadRow, action, label, vals string) templ.
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			var templ_7745c5c3_Var29 string
-			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(label)
+			var templ_7745c5c3_Var23 string
+			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 182, Col: 9}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 135, Col: 9}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -761,7 +569,59 @@ func downloadAction(r projection.DownloadRow, action, label, vals string) templ.
 			Variant:    button.VariantOutline,
 			Size:       button.SizeSm,
 			Attributes: downloadActionAttrs(r, action, label, vals),
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var28), templ_7745c5c3_Buffer)
+		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var22), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// progressBar is the bar a download row shows while it moves: the fill
+// carries data-progress with the raw percentage, the width the clamped one.
+func progressBar(percent int32) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var24 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var24 == nil {
+			templ_7745c5c3_Var24 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = progress.Progress(progress.Props{
+			Value:      int(clampPercent(percent)),
+			Class:      "mt-1 gap-0",
+			Attributes: templ.Attributes{"data-progress": fmt.Sprint(percent)},
+		}).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<div class=\"text-xs text-muted-foreground\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var25 string
+		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d%%", percent))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 147, Col: 74}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -788,12 +648,12 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var30 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var30 == nil {
-			templ_7745c5c3_Var30 = templ.NopComponent
+		templ_7745c5c3_Var26 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var26 == nil {
+			templ_7745c5c3_Var26 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var31 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var27 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -805,61 +665,61 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<h1 class=\"mb-2 text-2xl font-bold\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<h1 class=\"mb-2 text-2xl font-bold\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var32 string
-			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(downloadTitle(r))
+			var templ_7745c5c3_Var28 string
+			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(downloadTitle(r))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 191, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 155, Col: 56}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</h1><p class=\"mb-4 text-sm text-muted-foreground\"><a class=\"underline\" href=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var33 templ.SafeURL
-			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(ownerURL(r)))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 193, Col: 57}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</h1><p class=\"mb-4 text-sm text-muted-foreground\"><a class=\"underline\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "\">")
+			var templ_7745c5c3_Var29 templ.SafeURL
+			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(ownerURL(r)))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 157, Col: 57}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var34 string
-			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(string(r.OwnerKind) + " " + r.Owner.Name)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 193, Col: 102}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</a> ")
+			var templ_7745c5c3_Var30 string
+			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(string(r.OwnerKind) + " " + r.Owner.Name)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 157, Col: 102}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "</a> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if imp := r.Entry.Import; imp != nil {
-				var templ_7745c5c3_Var35 string
-				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(" · import: " + downloadImportDetail(imp))
+				var templ_7745c5c3_Var31 string
+				templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(" · import: " + downloadImportDetail(imp))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 195, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 159, Col: 48}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -869,12 +729,12 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if inspect != nil && inspect.Inspect != nil {
-				templ_7745c5c3_Var36 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var32 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -886,6 +746,93 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Var33 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						templ_7745c5c3_Var34 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+							templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+							templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+							if !templ_7745c5c3_IsBuffer {
+								defer func() {
+									templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+									if templ_7745c5c3_Err == nil {
+										templ_7745c5c3_Err = templ_7745c5c3_BufErr
+									}
+								}()
+							}
+							ctx = templ.InitializeContext(ctx)
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "Inspected files")
+							if templ_7745c5c3_Err != nil {
+								return templ_7745c5c3_Err
+							}
+							return nil
+						})
+						templ_7745c5c3_Err = card.Title().Render(templ.WithChildren(ctx, templ_7745c5c3_Var34), templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, " ")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						if len(inspect.Inspect.Rejections) > 0 {
+							templ_7745c5c3_Var35 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+								templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+								templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+								if !templ_7745c5c3_IsBuffer {
+									defer func() {
+										templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+										if templ_7745c5c3_Err == nil {
+											templ_7745c5c3_Err = templ_7745c5c3_BufErr
+										}
+									}()
+								}
+								ctx = templ.InitializeContext(ctx)
+								for _, rj := range inspect.Inspect.Rejections {
+									templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "<div data-import-rejection>")
+									if templ_7745c5c3_Err != nil {
+										return templ_7745c5c3_Err
+									}
+									var templ_7745c5c3_Var36 string
+									templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(rj.Text)
+									if templ_7745c5c3_Err != nil {
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 174, Col: 44}
+									}
+									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
+									if templ_7745c5c3_Err != nil {
+										return templ_7745c5c3_Err
+									}
+									templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</div>")
+									if templ_7745c5c3_Err != nil {
+										return templ_7745c5c3_Err
+									}
+								}
+								return nil
+							})
+							templ_7745c5c3_Err = card.Description(card.DescriptionProps{Class: "text-destructive"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var35), templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err != nil {
+								return templ_7745c5c3_Err
+							}
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = card.Header(card.HeaderProps{Class: "px-4 py-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var33), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, " ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
 					templ_7745c5c3_Var37 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -910,21 +857,6 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 								}()
 							}
 							ctx = templ.InitializeContext(ctx)
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "Inspected files")
-							if templ_7745c5c3_Err != nil {
-								return templ_7745c5c3_Err
-							}
-							return nil
-						})
-						templ_7745c5c3_Err = card.Title().Render(templ.WithChildren(ctx, templ_7745c5c3_Var38), templ_7745c5c3_Buffer)
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, " ")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						if len(inspect.Inspect.Rejections) > 0 {
 							templ_7745c5c3_Var39 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 								templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 								templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -937,79 +869,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 									}()
 								}
 								ctx = templ.InitializeContext(ctx)
-								for _, rj := range inspect.Inspect.Rejections {
-									templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<div data-import-rejection>")
-									if templ_7745c5c3_Err != nil {
-										return templ_7745c5c3_Err
-									}
-									var templ_7745c5c3_Var40 string
-									templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(rj.Text)
-									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 210, Col: 44}
-									}
-									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
-									if templ_7745c5c3_Err != nil {
-										return templ_7745c5c3_Err
-									}
-									templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</div>")
-									if templ_7745c5c3_Err != nil {
-										return templ_7745c5c3_Err
-									}
-								}
-								return nil
-							})
-							templ_7745c5c3_Err = card.Description(card.DescriptionProps{Class: "text-destructive"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var39), templ_7745c5c3_Buffer)
-							if templ_7745c5c3_Err != nil {
-								return templ_7745c5c3_Err
-							}
-						}
-						return nil
-					})
-					templ_7745c5c3_Err = card.Header(card.HeaderProps{Class: "px-4 py-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var37), templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, " ")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Var41 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-						if !templ_7745c5c3_IsBuffer {
-							defer func() {
-								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-								if templ_7745c5c3_Err == nil {
-									templ_7745c5c3_Err = templ_7745c5c3_BufErr
-								}
-							}()
-						}
-						ctx = templ.InitializeContext(ctx)
-						templ_7745c5c3_Var42 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-							templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-							templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-							if !templ_7745c5c3_IsBuffer {
-								defer func() {
-									templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-									if templ_7745c5c3_Err == nil {
-										templ_7745c5c3_Err = templ_7745c5c3_BufErr
-									}
-								}()
-							}
-							ctx = templ.InitializeContext(ctx)
-							templ_7745c5c3_Var43 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-								templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-								templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-								if !templ_7745c5c3_IsBuffer {
-									defer func() {
-										templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-										if templ_7745c5c3_Err == nil {
-											templ_7745c5c3_Err = templ_7745c5c3_BufErr
-										}
-									}()
-								}
-								ctx = templ.InitializeContext(ctx)
-								templ_7745c5c3_Var44 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+								templ_7745c5c3_Var40 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 									templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 									templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 									if !templ_7745c5c3_IsBuffer {
@@ -1021,7 +881,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 										}()
 									}
 									ctx = templ.InitializeContext(ctx)
-									templ_7745c5c3_Var45 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+									templ_7745c5c3_Var41 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 										templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 										templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 										if !templ_7745c5c3_IsBuffer {
@@ -1033,21 +893,21 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 											}()
 										}
 										ctx = templ.InitializeContext(ctx)
-										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "File ")
+										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "File ")
 										if templ_7745c5c3_Err != nil {
 											return templ_7745c5c3_Err
 										}
 										return nil
 									})
-									templ_7745c5c3_Err = table.Head().Render(templ.WithChildren(ctx, templ_7745c5c3_Var45), templ_7745c5c3_Buffer)
+									templ_7745c5c3_Err = table.Head().Render(templ.WithChildren(ctx, templ_7745c5c3_Var41), templ_7745c5c3_Buffer)
 									if templ_7745c5c3_Err != nil {
 										return templ_7745c5c3_Err
 									}
-									templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, " ")
+									templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, " ")
 									if templ_7745c5c3_Err != nil {
 										return templ_7745c5c3_Err
 									}
-									templ_7745c5c3_Var46 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+									templ_7745c5c3_Var42 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 										templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 										templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 										if !templ_7745c5c3_IsBuffer {
@@ -1059,21 +919,21 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 											}()
 										}
 										ctx = templ.InitializeContext(ctx)
-										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "Destination ")
+										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "Destination ")
 										if templ_7745c5c3_Err != nil {
 											return templ_7745c5c3_Err
 										}
 										return nil
 									})
-									templ_7745c5c3_Err = table.Head().Render(templ.WithChildren(ctx, templ_7745c5c3_Var46), templ_7745c5c3_Buffer)
+									templ_7745c5c3_Err = table.Head().Render(templ.WithChildren(ctx, templ_7745c5c3_Var42), templ_7745c5c3_Buffer)
 									if templ_7745c5c3_Err != nil {
 										return templ_7745c5c3_Err
 									}
-									templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, " ")
+									templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, " ")
 									if templ_7745c5c3_Err != nil {
 										return templ_7745c5c3_Err
 									}
-									templ_7745c5c3_Var47 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+									templ_7745c5c3_Var43 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 										templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 										templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 										if !templ_7745c5c3_IsBuffer {
@@ -1085,33 +945,33 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 											}()
 										}
 										ctx = templ.InitializeContext(ctx)
-										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "Rejections ")
+										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "Rejections ")
 										if templ_7745c5c3_Err != nil {
 											return templ_7745c5c3_Err
 										}
 										return nil
 									})
-									templ_7745c5c3_Err = table.Head().Render(templ.WithChildren(ctx, templ_7745c5c3_Var47), templ_7745c5c3_Buffer)
+									templ_7745c5c3_Err = table.Head().Render(templ.WithChildren(ctx, templ_7745c5c3_Var43), templ_7745c5c3_Buffer)
 									if templ_7745c5c3_Err != nil {
 										return templ_7745c5c3_Err
 									}
 									return nil
 								})
-								templ_7745c5c3_Err = table.Row().Render(templ.WithChildren(ctx, templ_7745c5c3_Var44), templ_7745c5c3_Buffer)
+								templ_7745c5c3_Err = table.Row().Render(templ.WithChildren(ctx, templ_7745c5c3_Var40), templ_7745c5c3_Buffer)
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}
 								return nil
 							})
-							templ_7745c5c3_Err = table.Header().Render(templ.WithChildren(ctx, templ_7745c5c3_Var43), templ_7745c5c3_Buffer)
+							templ_7745c5c3_Err = table.Header().Render(templ.WithChildren(ctx, templ_7745c5c3_Var39), templ_7745c5c3_Buffer)
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, " ")
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, " ")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
-							templ_7745c5c3_Var48 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+							templ_7745c5c3_Var44 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 								templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 								templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 								if !templ_7745c5c3_IsBuffer {
@@ -1124,7 +984,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 								}
 								ctx = templ.InitializeContext(ctx)
 								for _, f := range inspect.Inspect.Files {
-									templ_7745c5c3_Var49 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+									templ_7745c5c3_Var45 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 										templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 										templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 										if !templ_7745c5c3_IsBuffer {
@@ -1136,6 +996,68 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 											}()
 										}
 										ctx = templ.InitializeContext(ctx)
+										templ_7745c5c3_Var46 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+											templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+											templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+											if !templ_7745c5c3_IsBuffer {
+												defer func() {
+													templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+													if templ_7745c5c3_Err == nil {
+														templ_7745c5c3_Err = templ_7745c5c3_BufErr
+													}
+												}()
+											}
+											ctx = templ.InitializeContext(ctx)
+											var templ_7745c5c3_Var47 string
+											templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(f.Path)
+											if templ_7745c5c3_Err != nil {
+												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 198, Col: 18}
+											}
+											_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
+											if templ_7745c5c3_Err != nil {
+												return templ_7745c5c3_Err
+											}
+											return nil
+										})
+										templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "font-mono whitespace-normal break-all"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var46), templ_7745c5c3_Buffer)
+										if templ_7745c5c3_Err != nil {
+											return templ_7745c5c3_Err
+										}
+										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, " ")
+										if templ_7745c5c3_Err != nil {
+											return templ_7745c5c3_Err
+										}
+										templ_7745c5c3_Var48 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+											templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+											templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+											if !templ_7745c5c3_IsBuffer {
+												defer func() {
+													templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+													if templ_7745c5c3_Err == nil {
+														templ_7745c5c3_Err = templ_7745c5c3_BufErr
+													}
+												}()
+											}
+											ctx = templ.InitializeContext(ctx)
+											var templ_7745c5c3_Var49 string
+											templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(f.Dest)
+											if templ_7745c5c3_Err != nil {
+												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 201, Col: 18}
+											}
+											_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
+											if templ_7745c5c3_Err != nil {
+												return templ_7745c5c3_Err
+											}
+											return nil
+										})
+										templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "whitespace-normal break-all text-muted-foreground"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var48), templ_7745c5c3_Buffer)
+										if templ_7745c5c3_Err != nil {
+											return templ_7745c5c3_Err
+										}
+										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, " ")
+										if templ_7745c5c3_Err != nil {
+											return templ_7745c5c3_Err
+										}
 										templ_7745c5c3_Var50 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 											templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 											templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -1148,131 +1070,69 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 												}()
 											}
 											ctx = templ.InitializeContext(ctx)
-											var templ_7745c5c3_Var51 string
-											templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(f.Path)
-											if templ_7745c5c3_Err != nil {
-												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 227, Col: 96}
-											}
-											_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
-											if templ_7745c5c3_Err != nil {
-												return templ_7745c5c3_Err
-											}
-											return nil
-										})
-										templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "font-mono whitespace-normal break-all"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var50), templ_7745c5c3_Buffer)
-										if templ_7745c5c3_Err != nil {
-											return templ_7745c5c3_Err
-										}
-										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, " ")
-										if templ_7745c5c3_Err != nil {
-											return templ_7745c5c3_Err
-										}
-										templ_7745c5c3_Var52 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-											templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-											templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-											if !templ_7745c5c3_IsBuffer {
-												defer func() {
-													templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-													if templ_7745c5c3_Err == nil {
-														templ_7745c5c3_Err = templ_7745c5c3_BufErr
-													}
-												}()
-											}
-											ctx = templ.InitializeContext(ctx)
-											var templ_7745c5c3_Var53 string
-											templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(f.Dest)
-											if templ_7745c5c3_Err != nil {
-												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 228, Col: 108}
-											}
-											_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
-											if templ_7745c5c3_Err != nil {
-												return templ_7745c5c3_Err
-											}
-											return nil
-										})
-										templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "whitespace-normal break-all text-muted-foreground"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var52), templ_7745c5c3_Buffer)
-										if templ_7745c5c3_Err != nil {
-											return templ_7745c5c3_Err
-										}
-										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, " ")
-										if templ_7745c5c3_Err != nil {
-											return templ_7745c5c3_Err
-										}
-										templ_7745c5c3_Var54 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-											templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-											templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-											if !templ_7745c5c3_IsBuffer {
-												defer func() {
-													templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-													if templ_7745c5c3_Err == nil {
-														templ_7745c5c3_Err = templ_7745c5c3_BufErr
-													}
-												}()
-											}
-											ctx = templ.InitializeContext(ctx)
 											for _, rj := range f.Rejections {
-												templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "<div>")
+												templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<div>")
 												if templ_7745c5c3_Err != nil {
 													return templ_7745c5c3_Err
 												}
-												var templ_7745c5c3_Var55 string
-												templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(rj.Text)
+												var templ_7745c5c3_Var51 string
+												templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(rj.Text)
 												if templ_7745c5c3_Err != nil {
-													return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 231, Col: 25}
+													return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 205, Col: 25}
 												}
-												_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
+												_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 												if templ_7745c5c3_Err != nil {
 													return templ_7745c5c3_Err
 												}
-												templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "</div>")
+												templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "</div>")
 												if templ_7745c5c3_Err != nil {
 													return templ_7745c5c3_Err
 												}
 											}
 											return nil
 										})
-										templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "whitespace-normal text-destructive"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var54), templ_7745c5c3_Buffer)
+										templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "whitespace-normal text-destructive"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var50), templ_7745c5c3_Buffer)
 										if templ_7745c5c3_Err != nil {
 											return templ_7745c5c3_Err
 										}
 										return nil
 									})
-									templ_7745c5c3_Err = table.Row(table.RowProps{Attributes: templ.Attributes{"data-import-file": f.Path}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var49), templ_7745c5c3_Buffer)
+									templ_7745c5c3_Err = table.Row(table.RowProps{Attributes: templ.Attributes{"data-import-file": f.Path}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var45), templ_7745c5c3_Buffer)
 									if templ_7745c5c3_Err != nil {
 										return templ_7745c5c3_Err
 									}
 								}
 								return nil
 							})
-							templ_7745c5c3_Err = table.Body().Render(templ.WithChildren(ctx, templ_7745c5c3_Var48), templ_7745c5c3_Buffer)
+							templ_7745c5c3_Err = table.Body().Render(templ.WithChildren(ctx, templ_7745c5c3_Var44), templ_7745c5c3_Buffer)
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
 							return nil
 						})
-						templ_7745c5c3_Err = table.Table().Render(templ.WithChildren(ctx, templ_7745c5c3_Var42), templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = table.Table().Render(templ.WithChildren(ctx, templ_7745c5c3_Var38), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = card.Content(card.ContentProps{Class: "border-t border-border p-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var41), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = card.Content(card.ContentProps{Class: "border-t border-border p-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var37), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = card.Card(card.Props{Class: "mb-4 gap-0 py-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var36), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = card.Card(card.Props{Class: "mb-4 gap-0 py-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var32), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if execute != nil && execute.Execute != nil {
-				templ_7745c5c3_Var56 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var52 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -1284,6 +1144,83 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Var53 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						templ_7745c5c3_Var54 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+							templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+							templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+							if !templ_7745c5c3_IsBuffer {
+								defer func() {
+									templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+									if templ_7745c5c3_Err == nil {
+										templ_7745c5c3_Err = templ_7745c5c3_BufErr
+									}
+								}()
+							}
+							ctx = templ.InitializeContext(ctx)
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "Placed")
+							if templ_7745c5c3_Err != nil {
+								return templ_7745c5c3_Err
+							}
+							return nil
+						})
+						templ_7745c5c3_Err = card.Title().Render(templ.WithChildren(ctx, templ_7745c5c3_Var54), templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, " ")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						if execute.Execute.Refused != "" {
+							templ_7745c5c3_Var55 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+								templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+								templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+								if !templ_7745c5c3_IsBuffer {
+									defer func() {
+										templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+										if templ_7745c5c3_Err == nil {
+											templ_7745c5c3_Err = templ_7745c5c3_BufErr
+										}
+									}()
+								}
+								ctx = templ.InitializeContext(ctx)
+								var templ_7745c5c3_Var56 string
+								templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs("refused: " + execute.Execute.Refused + " " + execute.Failure)
+								if templ_7745c5c3_Err != nil {
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 223, Col: 70}
+								}
+								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
+								if templ_7745c5c3_Err != nil {
+									return templ_7745c5c3_Err
+								}
+								return nil
+							})
+							templ_7745c5c3_Err = card.Description(card.DescriptionProps{Class: "text-destructive"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var55), templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err != nil {
+								return templ_7745c5c3_Err
+							}
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = card.Header(card.HeaderProps{Class: "px-4 py-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var53), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, " ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
 					templ_7745c5c3_Var57 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -1308,21 +1245,6 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 								}()
 							}
 							ctx = templ.InitializeContext(ctx)
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "Placed")
-							if templ_7745c5c3_Err != nil {
-								return templ_7745c5c3_Err
-							}
-							return nil
-						})
-						templ_7745c5c3_Err = card.Title().Render(templ.WithChildren(ctx, templ_7745c5c3_Var58), templ_7745c5c3_Buffer)
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, " ")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						if execute.Execute.Refused != "" {
 							templ_7745c5c3_Var59 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 								templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 								templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -1335,70 +1257,8 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 									}()
 								}
 								ctx = templ.InitializeContext(ctx)
-								var templ_7745c5c3_Var60 string
-								templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs("refused: " + execute.Execute.Refused + " " + execute.Failure)
-								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 249, Col: 70}
-								}
-								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
-								if templ_7745c5c3_Err != nil {
-									return templ_7745c5c3_Err
-								}
-								return nil
-							})
-							templ_7745c5c3_Err = card.Description(card.DescriptionProps{Class: "text-destructive"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var59), templ_7745c5c3_Buffer)
-							if templ_7745c5c3_Err != nil {
-								return templ_7745c5c3_Err
-							}
-						}
-						return nil
-					})
-					templ_7745c5c3_Err = card.Header(card.HeaderProps{Class: "px-4 py-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var57), templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, " ")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Var61 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-						if !templ_7745c5c3_IsBuffer {
-							defer func() {
-								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-								if templ_7745c5c3_Err == nil {
-									templ_7745c5c3_Err = templ_7745c5c3_BufErr
-								}
-							}()
-						}
-						ctx = templ.InitializeContext(ctx)
-						templ_7745c5c3_Var62 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-							templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-							templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-							if !templ_7745c5c3_IsBuffer {
-								defer func() {
-									templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-									if templ_7745c5c3_Err == nil {
-										templ_7745c5c3_Err = templ_7745c5c3_BufErr
-									}
-								}()
-							}
-							ctx = templ.InitializeContext(ctx)
-							templ_7745c5c3_Var63 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-								templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-								templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-								if !templ_7745c5c3_IsBuffer {
-									defer func() {
-										templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-										if templ_7745c5c3_Err == nil {
-											templ_7745c5c3_Err = templ_7745c5c3_BufErr
-										}
-									}()
-								}
-								ctx = templ.InitializeContext(ctx)
 								for _, f := range execute.Execute.Placed {
-									templ_7745c5c3_Var64 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+									templ_7745c5c3_Var60 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 										templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 										templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 										if !templ_7745c5c3_IsBuffer {
@@ -1410,7 +1270,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 											}()
 										}
 										ctx = templ.InitializeContext(ctx)
-										templ_7745c5c3_Var65 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+										templ_7745c5c3_Var61 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 											templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 											templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 											if !templ_7745c5c3_IsBuffer {
@@ -1422,56 +1282,56 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 												}()
 											}
 											ctx = templ.InitializeContext(ctx)
-											var templ_7745c5c3_Var66 string
-											templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(f.Dest)
+											var templ_7745c5c3_Var62 string
+											templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(f.Dest)
 											if templ_7745c5c3_Err != nil {
-												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 258, Col: 96}
+												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 233, Col: 18}
 											}
-											_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
+											_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 											if templ_7745c5c3_Err != nil {
 												return templ_7745c5c3_Err
 											}
 											return nil
 										})
-										templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "font-mono whitespace-normal break-all"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var65), templ_7745c5c3_Buffer)
+										templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "font-mono whitespace-normal break-all"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var61), templ_7745c5c3_Buffer)
 										if templ_7745c5c3_Err != nil {
 											return templ_7745c5c3_Err
 										}
 										return nil
 									})
-									templ_7745c5c3_Err = table.Row(table.RowProps{Attributes: templ.Attributes{"data-import-placed": f.Dest}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var64), templ_7745c5c3_Buffer)
+									templ_7745c5c3_Err = table.Row(table.RowProps{Attributes: templ.Attributes{"data-import-placed": f.Dest}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var60), templ_7745c5c3_Buffer)
 									if templ_7745c5c3_Err != nil {
 										return templ_7745c5c3_Err
 									}
 								}
 								return nil
 							})
-							templ_7745c5c3_Err = table.Body().Render(templ.WithChildren(ctx, templ_7745c5c3_Var63), templ_7745c5c3_Buffer)
+							templ_7745c5c3_Err = table.Body().Render(templ.WithChildren(ctx, templ_7745c5c3_Var59), templ_7745c5c3_Buffer)
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
 							return nil
 						})
-						templ_7745c5c3_Err = table.Table().Render(templ.WithChildren(ctx, templ_7745c5c3_Var62), templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = table.Table().Render(templ.WithChildren(ctx, templ_7745c5c3_Var58), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = card.Content(card.ContentProps{Class: "border-t border-border p-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var61), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = card.Content(card.ContentProps{Class: "border-t border-border p-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var57), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = card.Card(card.Props{Class: "gap-0 py-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var56), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = card.Card(card.Props{Class: "gap-0 py-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var52), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = Layout("Import").Render(templ.WithChildren(ctx, templ_7745c5c3_Var31), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Layout("Import").Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1498,16 +1358,16 @@ func downloadClientsSection(clients []downloadv1.DownloadClient) templ.Component
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var67 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var67 == nil {
-			templ_7745c5c3_Var67 = templ.NopComponent
+		templ_7745c5c3_Var63 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var63 == nil {
+			templ_7745c5c3_Var63 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "<h2 class=\"mb-2 text-lg font-semibold\">Clients</h2>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<h2 class=\"mb-2 text-lg font-semibold\">Clients</h2>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var68 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var64 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -1527,7 +1387,7 @@ func downloadClientsSection(clients []downloadv1.DownloadClient) templ.Component
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = item.Group(item.GroupProps{Class: "mb-6 grid gap-3 sm:grid-cols-2"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var68), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = item.Group(item.GroupProps{Class: "mb-6 grid gap-3 sm:grid-cols-2"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var64), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1554,12 +1414,12 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var69 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var69 == nil {
-			templ_7745c5c3_Var69 = templ.NopComponent
+		templ_7745c5c3_Var65 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var65 == nil {
+			templ_7745c5c3_Var65 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var70 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var66 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -1571,7 +1431,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Var71 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var67 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -1583,7 +1443,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Var72 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var68 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -1595,89 +1455,89 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					var templ_7745c5c3_Var73 string
-					templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
+					var templ_7745c5c3_Var69 string
+					templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 294, Col: 27}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 271, Col: 12}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = item.Title().Render(templ.WithChildren(ctx, templ_7745c5c3_Var72), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = item.Title().Render(templ.WithChildren(ctx, templ_7745c5c3_Var68), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, " <div class=\"grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-4\"><span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, " <div class=\"grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-4\"><span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var74 string
-				templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("active %d", c.Status.Active))
+				var templ_7745c5c3_Var70 string
+				templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("active %d", c.Status.Active))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 296, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 274, Col: 53}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "</span> <span>")
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var75 string
-				templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("queued %d", c.Status.Queued))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 297, Col: 53}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "</span> <span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "</span> ")
+				var templ_7745c5c3_Var71 string
+				templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("queued %d", c.Status.Queued))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 275, Col: 53}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if c.Spec.Protocol == commonv1.ProtocolTorrent {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "<span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var76 string
-					templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("seeding %d", c.Status.Seeding))
+					var templ_7745c5c3_Var72 string
+					templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("seeding %d", c.Status.Seeding))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 299, Col: 56}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 277, Col: 56}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "</span> ")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "</span> ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "<span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "<span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var77 string
-				templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("free %s", formatBytes(c.Status.FreeBytes)))
+				var templ_7745c5c3_Var73 string
+				templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("free %s", formatBytes(c.Status.FreeBytes)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 301, Col: 67}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 279, Col: 67}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "</span></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "</span></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if c.Status.Engine != nil {
-					templ_7745c5c3_Var78 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_Var74 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 						if !templ_7745c5c3_IsBuffer {
@@ -1689,28 +1549,28 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 							}()
 						}
 						ctx = templ.InitializeContext(ctx)
-						var templ_7745c5c3_Var79 string
-						templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("engine %d/%d ready", c.Status.Engine.ReadyReplicas, c.Status.Engine.Replicas))
+						var templ_7745c5c3_Var75 string
+						templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("engine %d/%d ready", c.Status.Engine.ReadyReplicas, c.Status.Engine.Replicas))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 304, Col: 118}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 283, Col: 97}
 						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var79))
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = item.Description().Render(templ.WithChildren(ctx, templ_7745c5c3_Var78), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = item.Description().Render(templ.WithChildren(ctx, templ_7745c5c3_Var74), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if via := clientProxyLabel(c); via != "" {
-					templ_7745c5c3_Var80 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_Var76 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 						if !templ_7745c5c3_IsBuffer {
@@ -1722,33 +1582,33 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 							}()
 						}
 						ctx = templ.InitializeContext(ctx)
-						var templ_7745c5c3_Var81 string
-						templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(via)
+						var templ_7745c5c3_Var77 string
+						templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(via)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 307, Col: 31}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 288, Col: 10}
 						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = item.Description().Render(templ.WithChildren(ctx, templ_7745c5c3_Var80), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = item.Description().Render(templ.WithChildren(ctx, templ_7745c5c3_Var76), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = item.Content().Render(templ.WithChildren(ctx, templ_7745c5c3_Var71), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = item.Content().Render(templ.WithChildren(ctx, templ_7745c5c3_Var67), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Var82 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var78 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -1760,7 +1620,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Var83 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var79 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -1772,24 +1632,24 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					var templ_7745c5c3_Var84 string
-					templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(clientEnabledLabel(c))
+					var templ_7745c5c3_Var80 string
+					templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(clientEnabledLabel(c))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 311, Col: 116}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 294, Col: 27}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: clientEnabledTone(c)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var83), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: clientEnabledTone(c)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var79), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = item.Content(item.ContentProps{Class: "flex-none items-end"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var82), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = item.Content(item.ContentProps{Class: "flex-none items-end"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var78), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1802,7 +1662,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 				"data-client":   c.Name,
 				"data-protocol": string(c.Spec.Protocol),
 			},
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var70), templ_7745c5c3_Buffer)
+		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var66), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

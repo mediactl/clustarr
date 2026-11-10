@@ -42,7 +42,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/prom"
@@ -124,13 +123,6 @@ type Options struct {
 	// check sits on the production path and not on construction.
 	AuthMode AuthMode
 
-	// Entries returns the current pipeline projection for the Pipeline page
-	// and its SSE stream. Production wiring backs this with a
-	// controller-runtime cache; tests inject a fixture directly, which is
-	// the whole point of the indirection: the page is testable without a
-	// cluster. A nil Entries behaves as if it always returned no rows.
-	Entries func(context.Context) []pipeline.Entry
-
 	// Reader is ui's one seam onto the cluster: an informer-backed
 	// [client.Reader], normally built by [NewClusterReader]. It is
 	// client.Reader and never client.Client or client.Writer on purpose --
@@ -145,13 +137,11 @@ type Options struct {
 	// page answers 404.
 	//
 	// Server reads it directly for data that does not ride the shared
-	// projection: GET /downloads' DownloadClients (and its rows when no
-	// projection is wired), the
+	// projection: the Downloads activity page's DownloadClients, the
 	// RootFolders behind the Library page's rescan toolbar, the Settings
-	// page's lists and the library-scan detail page -- and, when
-	// SubscribeDownloads is nil, NewServer's per-connection poll.
-	// cmd/ui hands the same reader to ui/projection, which backs
-	// Entries, Library, Unmatched and ImportLists and their streams.
+	// page's lists and the library-scan detail page. cmd/ui hands the same
+	// reader to ui/projection, which backs Dashboard, Library, Unmatched
+	// and ImportLists and their streams.
 	Reader client.Reader
 
 	// Artwork is the object store GET /art (ui/art.go's handleArt) serves
@@ -252,40 +242,10 @@ type Options struct {
 	// the namespace input blank.
 	Namespace string
 
-	// Subscribe returns a channel that receives the current pipeline
-	// projection immediately upon subscribing, and again whenever it
-	// changes, plus a func that unsubscribes -- the shape
-	// ui/projection.Projection's own Subscribe method has. /events/pipeline
-	// (ui/sse.go) reads from it instead of polling Entries itself on its
-	// own ticker, so production wiring can back this with ONE shared
-	// projection loop instead of one re-projection per open connection
-	// (design plan ruling R4).
-	//
-	// A nil Subscribe -- every test in this package that sets only Entries,
-	// and any `clustarr ui` process too short-lived to have wired one --
-	// defaults in [NewServer] to a per-connection poll of Entries on a fixed
-	// interval, which is exactly what /events/pipeline did before Task
-	// D3-1 existed. That keeps Entries the one seam a test needs to inject
-	// cluster state, same as before; Subscribe only needs setting in
-	// production, where cmd/ui wires both it and Entries to the same
-	// *projection.Projection.
-	Subscribe func() (<-chan []pipeline.Entry, func())
-
-	// SubscribeDownloads is Subscribe's counterpart for the Downloads page:
-	// a channel that receives the current grab rows (one per entry on an
-	// owner's status.downloads, ADR-0019 §6.12) immediately upon
-	// subscribing, and again whenever they change, plus a func that
-	// unsubscribes. Production wiring backs it with the SAME shared
-	// *projection.Projection as Subscribe (ruling R4).
-	//
-	// A nil SubscribeDownloads defaults in [NewServer] to a per-connection
-	// poll of Reader (projection.ListDownloadRows), mirroring Subscribe's
-	// own nil fallback.
-	SubscribeDownloads func() (<-chan []projection.DownloadRow, func())
-
-	// Dashboard reads the dashboard's transcode and download summary, the
-	// projection's (projection.Projection.Dashboard). A nil Dashboard renders
-	// every count as zero.
+	// Dashboard reads the projection's per-state lists of downloads,
+	// transcodes, subtitles and markers (projection.Projection.Dashboard),
+	// which the dashboard and the Activity pages show. A nil Dashboard
+	// renders every list empty.
 	Dashboard func(context.Context) projection.Dashboard
 
 	// Metrics answers the dashboard charts' range queries against a
@@ -306,20 +266,18 @@ type Options struct {
 	ImportDetail func(ctx context.Context, entryUID, phase string) (schema.ImportRecord, bool, error)
 
 	// Library returns the current library projection for the Library page
-	// (Task G3-3) and its SSE stream, mirroring Entries: production wiring
-	// backs this with the shared ui/projection.Projection (ruling R4 --
-	// Library reuses the same list round Entries already triggers, no
+	// (Task G3-3) and its SSE stream: production wiring backs this with the
+	// shared ui/projection.Projection (ruling R4 -- one list round, no
 	// separate cluster read of its own), tests inject a fixture directly. A
 	// nil Library behaves as if it always returned no rows.
 	Library func(context.Context) []projection.LibraryItem
 
-	// SubscribeLibrary is Subscribe's Library-page counterpart: a channel
-	// that receives the current library projection immediately upon
-	// subscribing, and again whenever it changes, plus a func that
-	// unsubscribes. A nil SubscribeLibrary -- every test in this package
-	// that sets only Library, and any `clustarr ui` process too short-lived
-	// to have wired one -- defaults in [NewServer] to a per-connection poll
-	// of Library, exactly as Subscribe's own nil fallback does for Entries.
+	// SubscribeLibrary is a channel that receives the current library
+	// projection immediately upon subscribing, and again whenever it
+	// changes, plus a func that unsubscribes. A nil SubscribeLibrary --
+	// every test in this package that sets only Library, and any `clustarr
+	// ui` process too short-lived to have wired one -- defaults in
+	// [NewServer] to a per-connection poll of Library.
 	SubscribeLibrary func() (<-chan []projection.LibraryItem, func())
 
 	// Unmatched returns the current unmatched-files projection for the
@@ -328,9 +286,8 @@ type Options struct {
 	// nil Unmatched behaves as if it always returned no rows.
 	Unmatched func(context.Context) []projection.UnmatchedEntry
 
-	// SubscribeUnmatched is Subscribe's Unmatched-page counterpart, with the
-	// same nil-defaults-to-a-per-connection-poll fallback as
-	// SubscribeLibrary.
+	// SubscribeUnmatched is SubscribeLibrary's Unmatched-page counterpart,
+	// with the same nil-defaults-to-a-per-connection-poll fallback.
 	SubscribeUnmatched func() (<-chan []projection.UnmatchedEntry, func())
 
 	// ImportLists returns the current import-list projection for the Import
@@ -340,9 +297,9 @@ type Options struct {
 	// ImportLists behaves as if it always returned no rows.
 	ImportLists func(context.Context) []projection.ImportListEntry
 
-	// SubscribeImportLists is Subscribe's Import Lists page counterpart, with
-	// the same nil-defaults-to-a-per-connection-poll fallback as
-	// SubscribeLibrary and SubscribeUnmatched.
+	// SubscribeImportLists is SubscribeLibrary's Import Lists page
+	// counterpart, with the same nil-defaults-to-a-per-connection-poll
+	// fallback.
 	SubscribeImportLists func() (<-chan []projection.ImportListEntry, func())
 
 	// WaitForSync reports whether Reader's cache has completed its initial
@@ -411,10 +368,10 @@ func authModeList() string {
 
 // Server is the ui service's whole surface: an HTTP handler and nothing
 // else. It holds no client, no cache and no field manager of its own (its
-// only writes are Options.Actions', made in ui/actions) --
-// Options.Entries is the only way it ever sees cluster state for the
-// Pipeline page, and Options.WaitForSync is the only way /readyz does. Both
-// are deliberately just functions, not interfaces, so a test can supply
+// only writes are Options.Actions', made in ui/actions) -- the projection's
+// functions (Options.Dashboard, Library, ...) are how it sees cluster
+// state, and Options.WaitForSync is the only way /readyz does. They are
+// deliberately just functions, not interfaces, so a test can supply
 // cluster state, or its absence, without a cluster.
 type Server struct {
 	opts Options
@@ -466,26 +423,11 @@ const DefaultArtCacheBytes = 64 << 20
 // also bounds the artwork index's watch, started here and stopped when ctx
 // ends ([Run] cancels it on shutdown).
 func NewServer(ctx context.Context, opts Options) *Server {
-	if opts.Entries == nil {
-		opts.Entries = func(context.Context) []pipeline.Entry { return nil }
-	}
-	if opts.Subscribe == nil {
-		// Defaulted from the already-defaulted Entries above, so this
-		// closure never sees a nil entries func even when a caller built
-		// Options directly with neither field set.
-		opts.Subscribe = defaultSubscribe(opts.Entries)
-	}
-	if opts.SubscribeDownloads == nil {
-		// opts.Reader may itself be nil here; the poller behind
-		// defaultSubscribeDownloads treats that as no rows.
-		opts.SubscribeDownloads = defaultSubscribeDownloads(opts.Reader)
-	}
 	if opts.Library == nil {
 		opts.Library = func(context.Context) []projection.LibraryItem { return nil }
 	}
 	if opts.SubscribeLibrary == nil {
-		// Defaulted from the already-defaulted Library above, mirroring
-		// Subscribe's own fallback for Entries.
+		// Defaulted from the already-defaulted Library above.
 		opts.SubscribeLibrary = defaultSubscribeLibrary(opts.Library)
 	}
 	if opts.Unmatched == nil {

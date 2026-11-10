@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -59,22 +58,23 @@ func letteredLibrary(n int) []projection.LibraryItem {
 }
 
 func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
-	srv := ui.NewServer(t.Context(), ui.Options{Entries: func(context.Context) []pipeline.Entry { return nil }})
+	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipeline", nil))
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unmatched", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 
 	require.Contains(t, body, `data-slot="sidebar"`)
 	require.Contains(t, body, `data-slot="sidebar-inset"`, "the page renders inside the sidebar's inset")
-	for _, href := range []string{"/pipeline", "/library", "/livetv", "/downloads", "/unmatched", "/import-lists", "/settings"} {
+	for _, href := range []string{"/dashboard", "/library", "/livetv", "/activity", "/unmatched", "/import-lists", "/settings"} {
 		requireTag(t, body, `href="`+href+`"`, `data-slot="sidebar-menu-button"`)
 	}
 	// The bare data-active attribute, not the data-active: variants in the
 	// class list.
 	activeAttr := regexp.MustCompile(`\sdata-active(\s|>)`)
-	require.Regexp(t, activeAttr, tagWith(t, body, `href="/pipeline"`), "the current page's entry is active")
-	require.NotRegexp(t, activeAttr, tagWith(t, body, `href="/downloads"`))
+	require.Regexp(t, activeAttr, tagWith(t, body, `href="/unmatched"`), "the current page's entry is active")
+	require.NotRegexp(t, activeAttr, tagWith(t, body, `href="/activity"`))
+	require.NotContains(t, body, `href="/pipeline"`, "the pipeline page is gone (owner, 2026-11-10)")
 
 	// The library's four media entries are the Library entry's sub-menu in
 	// the sidebar (2026-09-24, after shadcn's sidebar-07: MenuSub under the
@@ -112,12 +112,21 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	require.Greater(t, inset, 0)
 	sidebarHTML := body[:inset]
 	libraryEntry := strings.Index(sidebarHTML, `href="/library"`)
-	pipelineEntry := strings.Index(sidebarHTML, `href="/pipeline"`)
+	liveTVEntry := strings.Index(sidebarHTML, `href="/livetv"`)
 	sub := strings.Index(sidebarHTML, `data-slot="sidebar-menu-sub"`)
 	require.Greater(t, sub, libraryEntry, "the sub-menu follows the Library entry")
-	require.Less(t, sub, pipelineEntry, "the sub-menu sits inside the Library item, before Pipeline")
+	require.Less(t, sub, liveTVEntry, "the sub-menu sits inside the Library item, before Live TV")
 	requireTag(t, sidebarHTML, `data-slot="sidebar-menu-sub"`, `id="library-subnav"`)
-	require.Equal(t, 4+3, strings.Count(sidebarHTML, `data-slot="sidebar-menu-sub-button"`), "one sub-entry per library tab, and Live TV's three")
+	require.Equal(t, len(projection.Tabs())+3+4, strings.Count(sidebarHTML, `data-slot="sidebar-menu-sub-button"`),
+		"one sub-entry per library tab, Live TV's three and Activity's four")
+	// The Activity group (owner, 2026-11-10): its four pages under it.
+	activityEntry := strings.Index(sidebarHTML, `href="/activity"`)
+	activitySub := strings.Index(sidebarHTML, `id="activity-subnav"`)
+	require.Greater(t, activitySub, activityEntry, "Activity's sub-menu follows its entry")
+	for _, section := range []string{"downloads", "transcodes", "subtitles", "markers"} {
+		entry := requireTag(t, sidebarHTML[activitySub:], `href="/activity/`+section+`"`, `data-slot="sidebar-menu-sub-button"`, `hx-get="/activity/`+section+`"`)
+		require.NotRegexp(t, activeAttr, entry, "no Activity sub-entry is active on the Unmatched page")
+	}
 	for _, tab := range projection.Tabs() {
 		// hx-select-oob swaps the sub-menu itself from the response too, so
 		// the active mark follows the tab although the sidebar sits outside
@@ -125,7 +134,7 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 		entry := requireTag(t, sidebarHTML, `href="/library/`+string(tab)+`"`, `data-slot="sidebar-menu-sub-button"`,
 			`hx-get="/library/`+string(tab)+`"`, `hx-push-url="true"`, `hx-select="#page-body"`, `hx-select-oob="#app-nav,#page-crumbs,#header-find"`,
 			`hx-target="#page-body"`, `hx-swap="outerHTML"`)
-		require.NotRegexp(t, activeAttr, entry, "no library sub-entry is active on the pipeline page")
+		require.NotRegexp(t, activeAttr, entry, "no library sub-entry is active on the Unmatched page")
 	}
 	pageBody := strings.Index(body, `id="page-body"`)
 	require.Greater(t, pageBody, headerEnd, "the page body follows the top bar")
@@ -224,7 +233,7 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	// A-Z strip is the only thing on the right edge, as in Radarr.
 	require.Contains(t, tagWith(t, body, `<html`), `data-scrollbar="hidden"`)
 	rec = httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipeline", nil))
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unmatched", nil))
 	require.NotContains(t, tagWith(t, rec.Body.String(), `<html`), `data-scrollbar`, "other pages keep their scrollbar")
 	letter := tagWith(t, body, `data-jump="M"`)
 	require.Contains(t, letter, "flex-1", "the letters share the height evenly")
@@ -351,9 +360,9 @@ func TestLibraryScrollsInsteadOfPaging(t *testing.T) {
 // the sidebar hangs below it), the wordmark giving way on a narrow screen
 // while the mark stays. The sidebar carries no brand of its own.
 func TestLayoutCarriesTheClustarrMark(t *testing.T) {
-	srv := ui.NewServer(t.Context(), ui.Options{Entries: func(context.Context) []pipeline.Entry { return nil }})
+	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipeline", nil))
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unmatched", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 

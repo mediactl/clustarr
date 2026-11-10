@@ -28,35 +28,19 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
-// The four list pages paginate (design 2026-09-23: 817 movies and 15,630
+// The list pages paginate (design 2026-09-23: 817 movies and 15,630
 // episodes on one real library made each of them one unbounded response).
 // ?page and ?per select a window, the default page is 50 rows, the pager
 // links keep the size, and each page's SSE stream carries the same
 // parameters so a live push redraws only the page in view. The fixtures
 // are 120 rows so every page shows the default size, a middle page and a
 // short last page.
-
-func pipelineFixture(n int) []pipeline.Entry {
-	out := make([]pipeline.Entry, n)
-	for i := range out {
-		out[i] = pipeline.Entry{
-			Ref:   types.NamespacedName{Namespace: "default", Name: fmt.Sprintf("e-%03d", i)},
-			Kind:  commonv1.MediaKindMovie,
-			Title: fmt.Sprintf("Entry %03d", i),
-			Stage: pipeline.StageDownloading,
-		}
-	}
-	return out
-}
 
 func libraryFixture(n int) []projection.LibraryItem {
 	out := make([]projection.LibraryItem, n)
@@ -84,18 +68,6 @@ func unmatchedFixture(n int) []projection.UnmatchedEntry {
 	return out
 }
 
-func downloadsReader(t *testing.T, n int) client.Reader {
-	t.Helper()
-	scheme, err := ui.NewReaderScheme()
-	require.NoError(t, err)
-	objs := make([]client.Object, n)
-	for i := range objs {
-		id := fmt.Sprintf("d-%03d", i)
-		objs[i] = grabbingMovie(id, grabEntry(id, commonv1.DownloadPhaseDownloading))
-	}
-	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
-}
-
 func getPage(t *testing.T, srv *ui.Server, path string) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -109,10 +81,8 @@ func getPage(t *testing.T, srv *ui.Server, path string) string {
 // must not be on it.
 func TestListPagesShowOneWindowOfRows(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{
-		Entries:   func(context.Context) []pipeline.Entry { return pipelineFixture(120) },
 		Library:   func(context.Context) []projection.LibraryItem { return libraryFixture(120) },
 		Unmatched: func(context.Context) []projection.UnmatchedEntry { return unmatchedFixture(120) },
-		Reader:    downloadsReader(t, 120),
 	})
 
 	for name, tc := range map[string]struct {
@@ -123,26 +93,6 @@ func TestListPagesShowOneWindowOfRows(t *testing.T) {
 		wantOut  []string
 		pager    []string
 	}{
-		"pipeline default page": {
-			path: "/pipeline", rowAttr: `data-stage="`, wantRows: 50,
-			wantIn: []string{`data-ref="default/e-000"`, `data-ref="default/e-049"`}, wantOut: []string{`data-ref="default/e-050"`},
-			pager: []string{`data-pager`, `data-page="1"`, `data-last="3"`, `data-total="120"`, `href="/pipeline?page=2&amp;per=50"`},
-		},
-		"pipeline last page": {
-			path: "/pipeline?page=3", rowAttr: `data-stage="`, wantRows: 20,
-			wantIn: []string{`data-ref="default/e-100"`, `data-ref="default/e-119"`}, wantOut: []string{`data-ref="default/e-099"`},
-			pager: []string{`data-page="3"`, `href="/pipeline?page=2&amp;per=50"`},
-		},
-		"pipeline past the end clamps": {
-			path: "/pipeline?page=9&per=25", rowAttr: `data-stage="`, wantRows: 20,
-			wantIn: []string{`data-ref="default/e-119"`}, wantOut: []string{`data-ref="default/e-099"`},
-			pager: []string{`data-page="5"`, `data-last="5"`, `href="/pipeline?page=4&amp;per=25"`},
-		},
-		"downloads middle page": {
-			path: "/downloads?page=2", rowAttr: `data-download="`, wantRows: 50,
-			wantIn: []string{`data-download="d-050"`, `data-download="d-099"`}, wantOut: []string{`data-download="d-049"`, `data-download="d-100"`},
-			pager: []string{`data-page="2"`, `href="/downloads?page=1&amp;per=50"`, `href="/downloads?page=3&amp;per=50"`},
-		},
 		"unmatched small pages": {
 			path: "/unmatched?per=25&page=5", rowAttr: `data-path="`, wantRows: 20,
 			wantIn: []string{`Unknown 119/file.mkv`}, wantOut: []string{`Unknown 099/file.mkv`},
@@ -187,14 +137,10 @@ func TestListPagesShowOneWindowOfRows(t *testing.T) {
 // would redraw page 1 over whatever page the reader is on.
 func TestListPagesTellTheirStreamWhichPageToPush(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{
-		Entries:   func(context.Context) []pipeline.Entry { return pipelineFixture(120) },
 		Library:   func(context.Context) []projection.LibraryItem { return libraryFixture(120) },
 		Unmatched: func(context.Context) []projection.UnmatchedEntry { return unmatchedFixture(120) },
-		Reader:    downloadsReader(t, 120),
 	})
 	for path, want := range map[string]string{
-		"/pipeline?page=2&per=25":       `sse-connect="/events/pipeline?page=2&amp;per=25"`,
-		"/downloads?page=3":             `sse-connect="/events/downloads?page=3&amp;per=50"`,
 		"/unmatched?per=25":             `sse-connect="/events/unmatched?page=1&amp;per=25"`,
 		"/library/movies?page=2&per=50": `sse-connect="/events/library/movies?page=2&amp;per=50"`,
 	} {
@@ -208,17 +154,7 @@ func TestListPagesTellTheirStreamWhichPageToPush(t *testing.T) {
 func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
 	// Every subscription gets a channel of its own holding one push, so a
 	// case never waits on a push an earlier case's handler took.
-	dl := make([]projection.DownloadRow, 120)
-	for i := range dl {
-		dl[i] = grabRow(fmt.Sprintf("d-%03d", i), "")
-	}
-
 	srv := ui.NewServer(t.Context(), ui.Options{
-		Subscribe: func() (<-chan []pipeline.Entry, func()) {
-			ch := make(chan []pipeline.Entry, 1)
-			ch <- pipelineFixture(120)
-			return ch, func() {}
-		},
 		SubscribeLibrary: func() (<-chan []projection.LibraryItem, func()) {
 			ch := make(chan []projection.LibraryItem, 1)
 			ch <- libraryFixture(120)
@@ -227,11 +163,6 @@ func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
 		SubscribeUnmatched: func() (<-chan []projection.UnmatchedEntry, func()) {
 			ch := make(chan []projection.UnmatchedEntry, 1)
 			ch <- unmatchedFixture(120)
-			return ch, func() {}
-		},
-		SubscribeDownloads: func() (<-chan []projection.DownloadRow, func()) {
-			ch := make(chan []projection.DownloadRow, 1)
-			ch <- dl
 			return ch, func() {}
 		},
 	})
@@ -245,12 +176,10 @@ func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
 		wantIn  string
 		wantOut string
 	}{
-		"pipeline":             {"/events/pipeline?page=3&per=50", `data-stage="`, 20, `default/e-119`, `default/e-099`},
 		"library":              {"/events/library/movies?page=2&per=50", `data-ref="`, 50, `default/m-050`, `default/m-100`},
 		"library window":       {"/events/library/movies?page=1&per=50&pages=2", `data-ref="`, 100, `default/m-099`, `default/m-100`},
 		"library later window": {"/events/library/movies?page=2&per=50", `data-ref="`, 50, `data-load-prev`, `default/m-049`},
 		"unmatched":            {"/events/unmatched?page=5&per=25", `data-path="`, 20, `Unknown 100/`, `Unknown 099/`},
-		"downloads":            {"/events/downloads?page=1&per=25", `data-download="`, 25, `d-024`, `d-025`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())

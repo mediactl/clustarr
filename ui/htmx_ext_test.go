@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -41,7 +40,6 @@ import (
 // embedded static files beside htmx and the SSE extension.
 func TestLiveStreamsMorphTheirRows(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{
-		Entries: func(context.Context) []pipeline.Entry { return nil },
 		Library: func(context.Context) []projection.LibraryItem {
 			return []projection.LibraryItem{{
 				Ref: types.NamespacedName{Namespace: "default", Name: "arrival"}, Kind: commonv1.MediaKindMovie,
@@ -68,8 +66,6 @@ func TestLiveStreamsMorphTheirRows(t *testing.T) {
 
 	for path, id := range map[string]string{
 		"/library/movies": "library-rows",
-		"/pipeline":       "pipeline-rows",
-		"/downloads":      "downloads-rows",
 		"/unmatched":      "unmatched-rows",
 		"/import-lists":   "import-lists-rows",
 	} {
@@ -97,7 +93,6 @@ func TestLiveStreamsMorphTheirRows(t *testing.T) {
 // a wasted request. A page that is not preloaded stays uncacheable.
 func TestLibraryLinksPreload(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{
-		Entries: func(context.Context) []pipeline.Entry { return nil },
 		Library: func(context.Context) []projection.LibraryItem {
 			return []projection.LibraryItem{{
 				Ref: types.NamespacedName{Namespace: "default", Name: "arrival"}, Kind: commonv1.MediaKindMovie,
@@ -126,5 +121,7 @@ func TestLibraryLinksPreload(t *testing.T) {
 	item := get("/library/default/movie/arrival")
 	require.Equal(t, "private, max-age=10", item.Header().Get("Cache-Control"), "an item page is cacheable for the preload")
 	require.Contains(t, item.Header().Values("Vary"), "HX-Request")
-	require.Empty(t, get("/pipeline").Header().Get("Cache-Control"), "a page nothing preloads is not cached")
+	activity := get("/activity/transcodes")
+	require.Equal(t, "private, max-age=10", activity.Header().Get("Cache-Control"), "an Activity page is cacheable for its sub-menu's preload")
+	require.Empty(t, get("/unmatched").Header().Get("Cache-Control"), "a page nothing preloads is not cached")
 }

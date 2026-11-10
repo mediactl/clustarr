@@ -104,17 +104,18 @@ func TestReadyzDefaultsToReadyWithNoReaderConfigured(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestNilReaderStillServesThePipelinePage is the other half of that brief
-// paragraph, pinned directly to Options.Reader rather than relying on
-// ui/server_test.go's pre-existing Entries-only coverage to imply it: a nil
-// Reader (and so, transitively, an Entries this task does not wire) must
-// still serve /pipeline 200, exactly as it does today.
-func TestNilReaderStillServesThePipelinePage(t *testing.T) {
+// TestNilReaderStillServesTheActivityPages is the other half of that brief
+// paragraph, pinned directly to Options.Reader: a nil Reader (no
+// DownloadClients to list, no projection wired) must still serve every
+// Activity page 200.
+func TestNilReaderStillServesTheActivityPages(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{Reader: nil})
 
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipeline", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, path := range []string{"/activity/downloads", "/activity/transcodes", "/activity/subtitles", "/activity/markers"} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusOK, rec.Code, path)
+	}
 }
 
 // TestNewClusterReaderSeesRealObjects proves ui.NewClusterReader's wiring is

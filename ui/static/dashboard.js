@@ -1,13 +1,14 @@
 // Copyright 2026 The Clustarr Authors. GPL-3.0-or-later.
 //
-// The dashboard's tabbed cards and paged lists (owner, 2026-11-04): the
-// summary poller replaces the list cards every 10 s, and the charts poller
-// and the range picker the chart cards, so each of their requests says
+// The tabbed cards and paged lists of the dashboard (owner, 2026-11-04) and
+// the Activity pages (2026-11-10): the list poller ([data-list-poller])
+// replaces the list cards every 10 s, and on the dashboard the charts
+// poller and the range picker the chart cards, so each of their requests says
 // which tab every card shows (tab-<card>=<value>) and which page every
 // paged list shows (page-<list>=<n>), and the server renders those -- a
 // refresh never snaps a tab or a page back. A pager's link moves its list
-// to the page and asks the summary poller for it at once (dashboard:page);
-// without this script the link loads the dashboard on that page.
+// to the page and asks the list poller for it at once (dashboard:page);
+// without this script the link loads the page on that page.
 (function () {
   "use strict";
 
@@ -19,7 +20,7 @@
 
   document.addEventListener("htmx:configRequest", function (e) {
     var path = (e.detail && e.detail.path) || "";
-    if (path.indexOf("/dashboard/") !== 0) return;
+    if (path.indexOf("/dashboard/") !== 0 && path.indexOf("/activity/") !== 0) return;
     document.querySelectorAll("[data-dashboard-tabs]").forEach(function (root) {
       var tab = root.querySelector('[role="tab"][aria-selected="true"]');
       if (tab) {
@@ -29,7 +30,7 @@
     document.querySelectorAll("[data-dashboard-page-list]").forEach(function (list) {
       e.detail.parameters["page-" + list.getAttribute("data-dashboard-page-list")] = list.getAttribute("data-dashboard-page");
     });
-    if (path.indexOf("/dashboard/summary") === 0) {
+    if (path.indexOf("/dashboard/summary") === 0 || /^\/activity\/[^/]+\/list/.test(path)) {
       Object.keys(asked).forEach(function (key) {
         e.detail.parameters["page-" + key] = asked[key];
       });
@@ -42,7 +43,7 @@
     if (!link) return;
     var key = link.getAttribute("data-dashboard-list");
     var list = document.querySelector('[data-dashboard-page-list="' + key + '"]');
-    var poller = document.getElementById("dashboard-summary-poller");
+    var poller = document.querySelector("[data-list-poller]");
     if (!list || !poller || !window.htmx) return;
     e.preventDefault();
     asked[key] = link.getAttribute("data-dashboard-goto");

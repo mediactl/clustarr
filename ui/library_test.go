@@ -355,7 +355,7 @@ func TestRescanActionScansEveryRootFolderOfTheTab(t *testing.T) {
 func TestLibraryNavLinksOnEveryPage(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
 
-	for _, path := range []string{"/pipeline", "/downloads", "/library/movies", "/unmatched"} {
+	for _, path := range []string{"/activity/downloads", "/activity/transcodes", "/library/movies", "/unmatched"} {
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		require.Contains(t, rec.Body.String(), `href="/library"`, "page %s is missing the Library nav link", path)

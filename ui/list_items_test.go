@@ -32,46 +32,16 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
-// The pipeline, downloads and unmatched rows are shadcn-templ items like
+// The downloads and unmatched rows are shadcn-templ items like
 // the library's (design 2026-09-23): one item group per list, the title as
 // the item's title, the stage or phase as a badge that keeps its meaning
 // colour, the progress bar carrying data-progress, and the unmatched row's
 // manual-assign form in the item's footer. Every data attribute the
 // earlier tests key on stays on the item element.
-
-func TestPipelineRowsAreItems(t *testing.T) {
-	srv := ui.NewServer(t.Context(), ui.Options{Entries: func(context.Context) []pipeline.Entry {
-		return []pipeline.Entry{
-			{
-				Ref: types.NamespacedName{Namespace: "default", Name: "arrival"}, Kind: commonv1.MediaKindMovie,
-				Title: "Arrival", Stage: pipeline.StageDownloading, Percent: 42, Detail: "1.2 GiB of 2.9 GiB",
-			},
-			{
-				Ref: types.NamespacedName{Namespace: "default", Name: "heat"}, Kind: commonv1.MediaKindMovie,
-				Title: "Heat", Stage: pipeline.StageFailed, Percent: -1, Failure: "no seeders",
-			},
-		}
-	}})
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipeline", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
-	body := rec.Body.String()
-
-	require.Equal(t, 1, strings.Count(body, `data-slot="item-group"`))
-	require.Equal(t, 2, strings.Count(body, `data-slot="item"`))
-	requireTag(t, body, `data-ref="default/arrival"`, `data-slot="item"`, `data-kind="movie"`, `data-stage="Downloading"`)
-	require.Regexp(t, `data-slot="item-title"[^>]*>[^<]*Arrival`, body)
-	require.Regexp(t, `data-slot="badge"[^>]*bg-sky-500/20 text-sky-300"[^>]*>Downloading<`, body, "an in-flight stage keeps its colour")
-	require.Regexp(t, `data-slot="badge"[^>]*bg-red-500/20 text-red-300"[^>]*>Failed<`, body, "a failed stage keeps its colour")
-	require.Contains(t, body, `data-progress="42"`)
-	require.Equal(t, 1, strings.Count(body, `data-progress=`), "a stage without a meaningful percent shows no bar")
-	require.Contains(t, body, "no seeders")
-}
 
 func TestDownloadRowsAreItems(t *testing.T) {
 	scheme, err := ui.NewReaderScheme()
@@ -84,16 +54,23 @@ func TestDownloadRowsAreItems(t *testing.T) {
 		Status:     downloadv1.DownloadClientStatus{Active: 2, Queued: 1, Seeding: 3, FreeBytes: 1 << 30},
 	}
 	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d, c).Build()
+	rows, err := projection.ListDownloadRows(t.Context(), reader)
+	require.NoError(t, err)
 	// The progress bar's percent is the transfer's clustarr-progress
 	// telemetry, not a field of the entry.
 	srv := ui.NewServer(t.Context(), ui.Options{
 		Reader: reader,
+		Dashboard: func(context.Context) projection.Dashboard {
+			var dash projection.Dashboard
+			dash.Downloads.Active = projection.DownloadList{Rows: rows, Total: len(rows)}
+			return dash
+		},
 		TransferProgress: func(_ context.Context, uid string) (schema.DownloadProgress, bool, error) {
 			return schema.DownloadProgress{PercentMilli: 55000}, uid == "arrival-uid", nil
 		},
 	})
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/downloads", nil))
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/activity/downloads", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 

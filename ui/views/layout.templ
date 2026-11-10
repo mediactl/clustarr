@@ -45,6 +45,9 @@ type Chrome struct {
 	// LiveTV is the current Live TV page's path, which the sidebar's Live
 	// TV sub-menu marks; "" off the Live TV section.
 	LiveTV string
+	// Activity is the current Activity page's path, which the sidebar's
+	// Activity sub-menu marks; "" off the Activity section.
+	Activity string
 	// HideScrollbar hides the document's native scrollbar (data-scrollbar
 	// on <html>, app.css): the library, where the A-Z strip is the only
 	// thing on the right edge, as in Sonarr. ui/static/jump.js keeps the
@@ -75,8 +78,7 @@ var navEntries = []navEntry{
 	{"Dashboard", "/dashboard", "layout-dashboard"},
 	{"Library", "/library", "library"},
 	{"Live TV", "/livetv", "tv"},
-	{"Pipeline", "/pipeline", "activity"},
-	{"Downloads", "/downloads", "download"},
+	{"Activity", "/activity", "activity"},
 	{"Unmatched", "/unmatched", "file-question-mark"},
 	{"Import Lists", "/import-lists", "list"},
 	{"Settings", "/settings", "settings"},
@@ -88,6 +90,16 @@ var liveTVEntries = []navEntry{
 	{"Channels", "/livetv/channels", "list-video"},
 	{"M3U/EPG Manager", "/livetv/sources", "radio-tower"},
 	{"TV Guide", "/livetv/guide", "calendar-days"},
+}
+
+// activityEntries are the Activity entry's sub-menu (owner, 2026-11-10):
+// what clustarr is doing to the library, a page each, its states as tabs.
+// The pipeline page they replace is gone.
+var activityEntries = []navEntry{
+	{"Downloads", "/activity/downloads", "download"},
+	{"Transcodes", "/activity/transcodes", "film"},
+	{"Subtitles", "/activity/subtitles", "captions"},
+	{"Markers", "/activity/markers", "bookmark"},
 }
 
 // activeFor maps a page title onto the sidebar entry it belongs to. The
@@ -104,6 +116,15 @@ func activeFor(title string) string {
 		if n.Label == title {
 			return "/livetv"
 		}
+	}
+	// An Activity page, and a download's import detail beneath it.
+	for _, n := range activityEntries {
+		if n.Label == title {
+			return "/activity"
+		}
+	}
+	if title == "Import" {
+		return "/activity"
 	}
 	return "/library"
 }
@@ -200,6 +221,9 @@ templ Shell(c Chrome) {
 											}
 											if n.Href == "/livetv" {
 												@liveTVSubMenu(c.LiveTV)
+											}
+											if n.Href == "/activity" {
+												@activitySubMenu(c.Activity)
 											}
 										}
 									}
@@ -337,6 +361,25 @@ templ librarySubMenu(current projection.Tab) {
 templ liveTVSubMenu(current string) {
 	@sidebar.MenuSub(sidebar.MenuSubProps{ID: "livetv-subnav"}) {
 		for _, e := range liveTVEntries {
+			@sidebar.MenuSubItem() {
+				@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+					Href:       e.Href,
+					IsActive:   e.Href == current,
+					Attributes: subNavAttrs(e.Href),
+				}) {
+					<span>{ e.Label }</span>
+				}
+			}
+		}
+	}
+}
+
+// activitySubMenu is the Activity entry's sub-menu: Downloads, Transcodes,
+// Subtitles and Markers, each swapping the page body as the Library's tabs
+// do.
+templ activitySubMenu(current string) {
+	@sidebar.MenuSub(sidebar.MenuSubProps{ID: "activity-subnav"}) {
+		for _, e := range activityEntries {
 			@sidebar.MenuSubItem() {
 				@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
 					Href:       e.Href,

@@ -331,10 +331,16 @@ func (s *Server) dashboardSummary(ctx context.Context, r *http.Request) views.Da
 // pageOf is page n (from 1, clamped to the pages there are) of rows,
 // listPerPage to a page.
 func pageOf[T any](rows []T, n int) ([]T, views.ListPage) {
-	pages := max(1, (len(rows)+listPerPage-1)/listPerPage)
+	return pageOfSize(rows, n, listPerPage)
+}
+
+// pageOfSize is page n (from 1, clamped to the pages there are) of rows,
+// per to a page.
+func pageOfSize[T any](rows []T, n, per int) ([]T, views.ListPage) {
+	pages := max(1, (len(rows)+per-1)/per)
 	n = min(max(n, 1), pages)
-	from := (n - 1) * listPerPage
-	return rows[from:min(from+listPerPage, len(rows))], views.ListPage{Page: n, Pages: pages}
+	from := (n - 1) * per
+	return rows[from:min(from+per, len(rows))], views.ListPage{Page: n, Pages: pages}
 }
 
 // dashboardCharts queries every panel over rg, all at once.

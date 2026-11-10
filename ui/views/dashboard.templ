@@ -160,7 +160,7 @@ templ Dashboard(v DashboardView) {
 				@rangePicker(v.Charts, false)
 			}
 		</div>
-		<div id="dashboard-summary-poller" hidden hx-get="/dashboard/summary" hx-trigger={ "every " + SummaryRefresh + ", dashboard:page" } hx-swap="none"></div>
+		<div id="dashboard-summary-poller" data-list-poller hidden hx-get="/dashboard/summary" hx-trigger={ "every " + SummaryRefresh + ", dashboard:page" } hx-swap="none"></div>
 		if v.Charts.Configured {
 			@chartsPoller(v.Charts, false)
 		}
@@ -241,7 +241,7 @@ templ downloadsLive(v DashboardSummaryView) {
 				Body: downloadRows("downloads-failed", rowViews(d.Failed.Rows), v.Pages["downloads-failed"], "Nothing has failed.")},
 		}
 	}}
-	@sectionCard("downloads", "Downloads", "Grabs by state", "/downloads", tabList, selectedTab(tabList, v.Tabs["downloads"]))
+	@sectionCard("downloads", "Downloads", "Grabs by state", "/activity/downloads", tabList, selectedTab(tabList, v.Tabs["downloads"]))
 }
 
 // transcodesLive is the Transcodes section's card, as downloadsLive.
@@ -259,7 +259,7 @@ templ transcodesLive(v DashboardSummaryView) {
 				Body: transcodeRows("transcodes-skipped", t.Skipped.Rows, v.Pages["transcodes-skipped"], "No transcode was skipped.")},
 		}
 	}}
-	@sectionCard("transcodes", "Transcodes", "Transcodes by state", "/pipeline", tabList, selectedTab(tabList, v.Tabs["transcodes"]))
+	@sectionCard("transcodes", "Transcodes", "Transcodes by state", "/activity/transcodes", tabList, selectedTab(tabList, v.Tabs["transcodes"]))
 }
 
 // statTab is one tab of a section card, as shadcn's interactive chart
@@ -390,7 +390,7 @@ templ downloadRows(list string, rows []DownloadView, pg ListPage, none string) {
 			}
 		</div>
 	}
-	@listPager(list, pg)
+	@listPager("/dashboard", list, pg)
 }
 
 // transcodeRows is a transcode tab's content, as downloadRows.
@@ -407,33 +407,33 @@ templ transcodeRows(list string, rows []projection.TranscodeRow, pg ListPage, no
 			}
 		</div>
 	}
-	@listPager(list, pg)
+	@listPager("/dashboard", list, pg)
 }
 
 // listPager is a paged list's pages (shadcn's pagination), under every
 // list so the cards read alike (owner, 2026-11-04): Previous, the pages
-// around the one open, Next. Each is a link to the dashboard on that
-// page, which ui/static/dashboard.js turns into a refresh of the summary
-// on it (data-dashboard-goto).
-templ listPager(list string, pg ListPage) {
+// around the one open, Next. Each is a link to base (the dashboard, an
+// Activity page) on that page, which ui/static/dashboard.js turns into a
+// refresh of the page's lists on it (data-dashboard-goto).
+templ listPager(base, list string, pg ListPage) {
 	@pagination.Pagination(pagination.Props{Class: "mt-4", Attributes: templ.Attributes{"data-pager": list}}) {
 		@pagination.Content() {
 			@pagination.Item() {
-				@pagination.Previous(pagination.PreviousProps{Href: listPageHref(list, pg.Page-1), Disabled: pg.Page <= 1, Text: "Previous", Attributes: gotoAttrs(list, pg.Page-1)})
+				@pagination.Previous(pagination.PreviousProps{Href: listPageHref(base, list, pg.Page-1), Disabled: pg.Page <= 1, Text: "Previous", Attributes: gotoAttrs(list, pg.Page-1)})
 			}
 			for _, n := range listPageWindow(pg) {
 				@pagination.Item() {
 					if n == 0 {
 						@pagination.Ellipsis()
 					} else {
-						@pagination.Link(pagination.LinkProps{Href: listPageHref(list, n), IsActive: n == pg.Page, Attributes: gotoAttrs(list, n)}) {
+						@pagination.Link(pagination.LinkProps{Href: listPageHref(base, list, n), IsActive: n == pg.Page, Attributes: gotoAttrs(list, n)}) {
 							{ strconv.Itoa(n) }
 						}
 					}
 				}
 			}
 			@pagination.Item() {
-				@pagination.Next(pagination.NextProps{Href: listPageHref(list, pg.Page+1), Disabled: pg.Page >= pg.Pages, Text: "Next", Attributes: gotoAttrs(list, pg.Page+1)})
+				@pagination.Next(pagination.NextProps{Href: listPageHref(base, list, pg.Page+1), Disabled: pg.Page >= pg.Pages, Text: "Next", Attributes: gotoAttrs(list, pg.Page+1)})
 			}
 		}
 	}
@@ -461,10 +461,9 @@ func listPageWindow(pg ListPage) []int {
 	return out
 }
 
-// listPageHref is the dashboard on page n of list, the link without
-// JavaScript.
-func listPageHref(list string, n int) string {
-	return fmt.Sprintf("/dashboard?page-%s=%d", list, n)
+// listPageHref is base on page n of list, the link without JavaScript.
+func listPageHref(base, list string, n int) string {
+	return fmt.Sprintf("%s?page-%s=%d", base, list, n)
 }
 
 // gotoAttrs mark a listPager's link for ui/static/dashboard.js.

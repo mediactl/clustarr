@@ -1,0 +1,264 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"strconv"
+	"time"
+
+	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/components/separator"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// ActivityRefresh is how often an Activity page's card is fetched again.
+const ActivityRefresh = "10s"
+
+// ActivityView is one Activity page (owner, 2026-11-10: "Move pipeline and
+// downloads into a new group Activity ... Downloads, Transcodes, Subtitles,
+// Markers. Each page should have tabs like Running, Failed, etc like on
+// the dashboard"): the projection's lists for its section, each cut to the
+// page it shows, as tabs of the dashboard's card.
+type ActivityView struct {
+	// Section is the page's: downloads, transcodes, subtitles or markers.
+	Section, Title string
+	// Summary holds the section's lists, each cut to its page.
+	Summary projection.Dashboard
+	// Active are the running downloads' page with their transfer
+	// telemetry.
+	Active []DownloadView
+	// Clients are the DownloadClients, which the Downloads page heads.
+	Clients []downloadv1.DownloadClient
+	// Tab is the tab asked for; Pages each list's page.
+	Tab   string
+	Pages map[string]ListPage
+}
+
+// Activity is an Activity page: its title, on Downloads the clients and the
+// actions' status region, and the section's tabbed card, which a hidden
+// poller fetches again every ActivityRefresh on the tab and the pages the
+// reader has open (ui/static/dashboard.js).
+templ Activity(v ActivityView) {
+	@Shell(Chrome{Title: v.Title, Crumbs: []Crumb{{Label: "Activity", Href: "/activity"}, {Label: v.Title}}, Activity: "/activity/" + v.Section}) {
+		<h1 class="mb-6 text-2xl font-bold sm:mb-8">{ v.Title }</h1>
+		if v.Section == "downloads" {
+			@ActionStatusRegion()
+			if len(v.Clients) > 0 {
+				<div class="mb-6">
+					@downloadClientsSection(v.Clients)
+				</div>
+			}
+		}
+		<div id="activity-poller" data-list-poller hidden hx-get={ "/activity/" + v.Section + "/list" } hx-trigger={ "every " + ActivityRefresh + ", dashboard:page" } hx-swap="none"></div>
+		@activityCard(v, false)
+	}
+}
+
+// ActivityList is GET /activity/{section}/list: the card, out of band.
+templ ActivityList(v ActivityView) {
+	@activityCard(v, true)
+}
+
+// activityCard is the section's tabbed card, swapped in place by the
+// poller.
+templ activityCard(v ActivityView, oob bool) {
+	<div
+		id="activity-card"
+		data-activity={ v.Section }
+		if oob {
+			hx-swap-oob="true"
+		}
+	>
+		{{ tabList := activityTabs(v) }}
+		@sectionCard(v.Section, v.Title, activityDescription(v.Section), "", tabList, selectedTab(tabList, v.Tab))
+	</div>
+}
+
+// activityDescription is a card's one line.
+func activityDescription(section string) string {
+	switch section {
+	case "downloads":
+		return "Every grab, by state"
+	case "transcodes":
+		return "Every file's transcode, by state"
+	case "subtitles":
+		return "Every file's subtitles, by state"
+	case "markers":
+		return "Every movie's and episode's skip segments, by state"
+	}
+	return ""
+}
+
+// activityTabs are a section's tabs, as the dashboard's cards have them.
+func activityTabs(v ActivityView) []statTab {
+	base := "/activity/" + v.Section
+	pg := func(list string) ListPage { return v.Pages[list] }
+	switch v.Section {
+	case "downloads":
+		d := v.Summary.Downloads
+		return []statTab{
+			{Value: "running", Label: "Running", Color: "bg-sky-500", N: d.Active.Total,
+				Body: activityDownloads(base, "downloads-running", v.Active, pg("downloads-running"), "Nothing is downloading.")},
+			{Value: "queued", Label: "Queued", Color: "bg-blue-700", N: d.Pending.Total,
+				Body: activityDownloads(base, "downloads-queued", rowViews(d.Pending.Rows), pg("downloads-queued"), "Nothing is waiting.")},
+			{Value: "completed", Label: "Completed", Color: "bg-emerald-500", N: d.Completed.Total,
+				Body: activityDownloads(base, "downloads-completed", rowViews(d.Completed.Rows), pg("downloads-completed"), "Nothing has completed.")},
+			{Value: "failed", Label: "Failed", Color: "bg-red-500", N: d.Failed.Total,
+				Body: activityDownloads(base, "downloads-failed", rowViews(d.Failed.Rows), pg("downloads-failed"), "Nothing has failed.")},
+		}
+	case "transcodes":
+		t := v.Summary.Transcodes
+		return []statTab{
+			{Value: "running", Label: "Running", Color: "bg-sky-500", N: t.Running.Total,
+				Body: activityTranscodes(base, "transcodes-running", t.Running.Rows, pg("transcodes-running"), "Nothing is transcoding.")},
+			{Value: "pending", Label: "Pending", Color: "bg-blue-700", N: t.Pending.Total,
+				Body: activityTranscodes(base, "transcodes-pending", t.Pending.Rows, pg("transcodes-pending"), "Nothing is waiting.")},
+			{Value: "failed", Label: "Failed", Color: "bg-red-500", N: t.Failed.Total,
+				Body: activityTranscodes(base, "transcodes-failed", t.Failed.Rows, pg("transcodes-failed"), "Nothing has failed.")},
+			{Value: "skipped", Label: "Skipped", Color: "bg-amber-500", N: t.Skipped.Total,
+				Body: activityTranscodes(base, "transcodes-skipped", t.Skipped.Rows, pg("transcodes-skipped"), "No transcode was skipped.")},
+		}
+	case "subtitles":
+		s := v.Summary.Subtitles
+		return []statTab{
+			{Value: "searching", Label: "Searching", Color: "bg-sky-500", N: s.Searching.Total,
+				Body: activityFiles(base, "subtitles-searching", s.Searching.Rows, pg("subtitles-searching"), "Nothing is being searched for.")},
+			{Value: "wanted", Label: "Wanted", Color: "bg-blue-700", N: s.Wanted.Total,
+				Body: activityFiles(base, "subtitles-wanted", s.Wanted.Rows, pg("subtitles-wanted"), "No subtitle is waiting for its next search.")},
+			{Value: "failed", Label: "Failed", Color: "bg-red-500", N: s.Failed.Total,
+				Body: activityFiles(base, "subtitles-failed", s.Failed.Rows, pg("subtitles-failed"), "Nothing has failed.")},
+			{Value: "done", Label: "Done", Color: "bg-emerald-500", N: s.Satisfied.Total,
+				Body: activityFiles(base, "subtitles-done", s.Satisfied.Rows, pg("subtitles-done"), "No file has every subtitle it wants yet.")},
+		}
+	case "markers":
+		m := v.Summary.Markers
+		return []statTab{
+			{Value: "pending", Label: "Pending", Color: "bg-blue-700", N: m.Pending.Total,
+				Body: activityFiles(base, "markers-pending", m.Pending.Rows, pg("markers-pending"), "Every file has been looked at.")},
+			{Value: "found", Label: "Found", Color: "bg-emerald-500", N: m.Found.Total,
+				Body: activityFiles(base, "markers-found", m.Found.Rows, pg("markers-found"), "No segment has been found yet.")},
+			{Value: "none", Label: "None found", Color: "bg-amber-500", N: m.NotFound.Total,
+				Body: activityFiles(base, "markers-none", m.NotFound.Rows, pg("markers-none"), "Every file looked at had segments.")},
+			{Value: "error", Label: "Error", Color: "bg-red-500", N: m.Error.Total,
+				Body: activityFiles(base, "markers-error", m.Error.Rows, pg("markers-error"), "Nothing has failed.")},
+		}
+	}
+	return []statTab{{Value: "none", Label: "None"}}
+}
+
+// activityDownloads is a downloads tab: the Downloads page's rows, each
+// with its telemetry and its actions, a page of them, and the pages.
+templ activityDownloads(base, list string, rows []DownloadView, pg ListPage, none string) {
+	if len(rows) == 0 {
+		@emptyNote(none, "py-6", templ.Attributes{"data-dashboard-page-list": list, "data-dashboard-page": "1"})
+	} else {
+		@item.Group(item.GroupProps{Class: "gap-3", Attributes: templ.Attributes{"data-dashboard-page-list": list, "data-dashboard-page": strconv.Itoa(pg.Page)}}) {
+			for _, d := range rows {
+				@downloadRow(d)
+			}
+		}
+	}
+	@listPager(base, list, pg)
+}
+
+// activityTranscodes is a transcodes tab: the dashboard's rows, a row a
+// line.
+templ activityTranscodes(base, list string, rows []projection.TranscodeRow, pg ListPage, none string) {
+	if len(rows) == 0 {
+		@emptyNote(none, "py-6", templ.Attributes{"data-dashboard-page-list": list, "data-dashboard-page": "1"})
+	} else {
+		<div class="grid gap-3" data-dashboard-page-list={ list } data-dashboard-page={ strconv.Itoa(pg.Page) }>
+			for i, r := range rows {
+				if i > 0 {
+					@separator.Separator()
+				}
+				@dashboardTranscode(r)
+			}
+		</div>
+	}
+	@listPager(base, list, pg)
+}
+
+// activityFiles is a subtitles or markers tab: a file a line.
+templ activityFiles(base, list string, rows []projection.FileRow, pg ListPage, none string) {
+	if len(rows) == 0 {
+		@emptyNote(none, "py-6", templ.Attributes{"data-dashboard-page-list": list, "data-dashboard-page": "1"})
+	} else {
+		<div class="grid gap-3" data-dashboard-page-list={ list } data-dashboard-page={ strconv.Itoa(pg.Page) }>
+			for i, r := range rows {
+				if i > 0 {
+					@separator.Separator()
+				}
+				@activityFile(r)
+			}
+		</div>
+	}
+	@listPager(base, list, pg)
+}
+
+// activityFile is one file's subtitles or markers: its name linking to its
+// item, its state, the languages or segments and when, and a failure.
+templ activityFile(r projection.FileRow) {
+	<div class="min-w-0 space-y-1" data-file={ r.File.Name } data-state={ r.State }>
+		<div class="flex items-start justify-between gap-2">
+			<a class="min-w-0 truncate text-sm font-medium hover:underline" href={ templ.SafeURL(r.ItemURL) } title={ r.Name }>{ r.Name }</a>
+			<div class="flex flex-none gap-1">
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ r.State }
+				}
+			</div>
+		</div>
+		@rowDetail(fileDetail(r, time.Now()))
+		if r.Message != "" {
+			<div class="truncate text-xs text-destructive" title={ r.Message }>{ r.Message }</div>
+		}
+	</div>
+}
+
+// fileDetail is a file row's line: its detail and when, a time ahead read
+// as the next search.
+func fileDetail(r projection.FileRow, now time.Time) string {
+	parts := []string{}
+	if r.Detail != "" {
+		parts = append(parts, r.Detail)
+	}
+	switch {
+	case r.Since.IsZero():
+	case r.Since.After(now):
+		parts = append(parts, "next search "+untilLabel(r.Since.Sub(now)))
+	default:
+		parts = append(parts, sinceLabel(now.Sub(r.Since)))
+	}
+	return joinDot(parts)
+}
+
+// untilLabel is a duration ahead: "in 5m", "in 3h", "in 2d".
+func untilLabel(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return "in " + strconv.Itoa(int(d/time.Minute)) + "m"
+	case d < 48*time.Hour:
+		return "in " + strconv.Itoa(int(d/time.Hour)) + "h"
+	default:
+		return "in " + strconv.Itoa(int(d/(24*time.Hour))) + "d"
+	}
+}

@@ -27,8 +27,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // freeAddr reserves an ephemeral TCP port and immediately releases it, so
@@ -50,7 +50,7 @@ func freeAddr(t *testing.T) string {
 // ctx, a request's context is only ever cancelled by the client disconnecting,
 // so Shutdown (which waits for active connections to finish rather than
 // interrupting them) would burn the entire shutdownGrace on any client that
-// still has /events/pipeline open, and the handler goroutine would outlive
+// still has an SSE stream open, and the handler goroutine would outlive
 // Run's return. With BaseContext wired to ctx, cancelling ctx cancels every
 // in-flight request's context immediately (context.WithCancel propagates a
 // parent's cancellation to every context derived from it), so the SSE
@@ -58,8 +58,8 @@ func freeAddr(t *testing.T) string {
 // idle, and Shutdown returns almost immediately.
 func TestRunEndsAnOpenSSEStreamOnContextCancel(t *testing.T) {
 	addr := freeAddr(t)
-	entries := func(context.Context) []pipeline.Entry {
-		return []pipeline.Entry{{Title: "The Shawshank Redemption", Stage: pipeline.StageDownloading}}
+	unmatched := func(context.Context) []projection.UnmatchedEntry {
+		return []projection.UnmatchedEntry{{RootFolder: "movies", Path: "Unknown (2019)/file.mkv", Reason: "no_match"}}
 	}
 
 	runCtx, cancelRun := context.WithCancel(context.Background())
@@ -67,7 +67,7 @@ func TestRunEndsAnOpenSSEStreamOnContextCancel(t *testing.T) {
 
 	runErr := make(chan error, 1)
 	go func() {
-		runErr <- ui.Run(runCtx, ui.Options{BindAddress: addr, AuthMode: ui.AuthModeAnonymous, Entries: entries})
+		runErr <- ui.Run(runCtx, ui.Options{BindAddress: addr, AuthMode: ui.AuthModeAnonymous, Unmatched: unmatched})
 	}()
 
 	// Wait for the listener to come up.
@@ -82,7 +82,7 @@ func TestRunEndsAnOpenSSEStreamOnContextCancel(t *testing.T) {
 
 	// Open the SSE stream and keep draining it in the background so we can
 	// tell when the server closes it from its side.
-	streamReq, err := http.NewRequest(http.MethodGet, "http://"+addr+"/events/pipeline", nil)
+	streamReq, err := http.NewRequest(http.MethodGet, "http://"+addr+"/events/unmatched", nil)
 	require.NoError(t, err)
 	streamResp, err := http.DefaultClient.Do(streamReq)
 	require.NoError(t, err)

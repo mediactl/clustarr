@@ -179,7 +179,7 @@ func (s *Server) listChoices(ctx context.Context, ref forms.Ref) []forms.Option 
 			names([]string{sp.Name})
 		}
 	case forms.RefDownloadClients:
-		_, clients := s.listDownloads(ctx)
+		clients := s.downloadClients(ctx)
 		for _, dc := range clients {
 			names([]string{dc.Name})
 		}

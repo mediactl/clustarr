@@ -55,10 +55,14 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /dashboard", s.handleDashboard)
 	mux.HandleFunc("GET /dashboard/summary", s.handleDashboardSummary)
 	mux.HandleFunc("GET /dashboard/charts", s.handleDashboardCharts)
-	mux.HandleFunc("GET /pipeline", s.handlePipeline)
-	mux.HandleFunc("GET /events/pipeline", s.handlePipelineEvents)
-	mux.HandleFunc("GET /downloads", s.handleDownloads)
-	mux.HandleFunc("GET /events/downloads", s.handleDownloadsEvents)
+	// The Activity group (owner, 2026-11-10): Downloads, Transcodes,
+	// Subtitles and Markers, each a tabbed card a poller refreshes. The
+	// pages it replaced send old links to it.
+	mux.HandleFunc("GET /activity", s.handleActivityIndex)
+	mux.HandleFunc("GET /activity/{section}", s.handleActivity)
+	mux.HandleFunc("GET /activity/{section}/list", s.handleActivityList)
+	mux.HandleFunc("GET /pipeline", redirectTo("/activity"))
+	mux.HandleFunc("GET /downloads", redirectTo("/activity/downloads"))
 	mux.HandleFunc("GET /downloads/{namespace}/{kind}/{owner}/{entry}/import", s.handleDownloadImport)
 	mux.HandleFunc("POST /downloads/{namespace}/{kind}/{owner}/{entry}/{action}", s.handleDownloadAction)
 	mux.HandleFunc("GET /library", s.handleLibraryIndex)
@@ -203,45 +207,11 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard", http.StatusFound)
 }
 
-// handlePipeline renders the Pipeline page (§A3.4) from the current
-// projection returned by Options.Entries.
-func (s *Server) handlePipeline(w http.ResponseWriter, r *http.Request) {
-	entries := s.opts.Entries(r.Context())
-	p := paging.Parse(r.URL.Query()).Page(len(entries))
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.Pipeline(p, paging.Window(entries, p)).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render pipeline page", "error", err)
-	}
-}
-
-// handleDownloads renders the Downloads page: one row per grab entry
-// (ADR-0019 §6.12) from the shared projection, with each row's transfer
-// telemetry, and the DownloadClients read through Options.Reader.
-func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
-	rows, clients := s.listDownloads(r.Context())
-	p := paging.Parse(r.URL.Query()).Page(len(rows))
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.Downloads(p, s.downloadViews(r.Context(), paging.Window(rows, p)), clients).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render downloads page", "error", err)
-	}
-}
-
-// listDownloads is the grab rows -- the projection's, through one
-// SubscribeDownloads read -- and every DownloadClient through
-// Options.Reader, sorted by name. A nil Reader or a List error is "nothing
-// to show", never a 500.
-func (s *Server) listDownloads(ctx context.Context) ([]projection.DownloadRow, []downloadv1.DownloadClient) {
-	var rows []projection.DownloadRow
-	if s.opts.SubscribeDownloads != nil {
-		ch, unsubscribe := s.opts.SubscribeDownloads()
-		select {
-		case rows = <-ch:
-		case <-ctx.Done():
-		}
-		unsubscribe()
-	}
+// downloadClients is every DownloadClient through Options.Reader, sorted
+// by name. A nil Reader or a List error is "nothing to show", never a 500.
+func (s *Server) downloadClients(ctx context.Context) []downloadv1.DownloadClient {
 	if s.opts.Reader == nil {
-		return rows, nil
+		return nil
 	}
 	var clientList downloadv1.DownloadClientList
 	if err := s.opts.Reader.List(ctx, &clientList); err != nil {
@@ -249,13 +219,20 @@ func (s *Server) listDownloads(ctx context.Context) ([]projection.DownloadRow, [
 	}
 	clients := clientList.Items
 	sort.Slice(clients, func(i, j int) bool { return clients[i].Name < clients[j].Name })
-	return rows, clients
+	return clients
 }
 
 // findDownload is the grab row the path names: namespace, owner kind,
 // owner and entry id.
 func (s *Server) findDownload(ctx context.Context, r *http.Request) (projection.DownloadRow, bool) {
-	rows, _ := s.listDownloads(ctx)
+	if s.opts.Reader == nil {
+		return projection.DownloadRow{}, false
+	}
+	rows, err := projection.ListDownloadRows(ctx, s.opts.Reader)
+	if err != nil {
+		logging.FromContext(ctx).Error("list grab rows", "error", err)
+		return projection.DownloadRow{}, false
+	}
 	ns, kind, owner, entry := r.PathValue("namespace"), r.PathValue("kind"), r.PathValue("owner"), r.PathValue("entry")
 	for _, row := range rows {
 		if row.Owner.Namespace == ns && string(row.OwnerKind) == kind && row.Owner.Name == owner && row.Entry.ID == entry {
@@ -408,7 +385,7 @@ func ownerObject(kind commonv1.MediaKind) (client.Object, bool) {
 // handleLibrary renders the Library page (amendment §A3.4, Task G3-3) from
 // the current library projection returned by Options.Library, plus the
 // toolbar's single "Rescan", live when a RootFolder of the tab's kinds
-// exists (listRootFolders, mirroring listDownloads' own direct-Reader reads
+// exists (listRootFolders, mirroring downloadClients' own direct-Reader reads
 // for config-like data, narrowed by rootFoldersFor).
 func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	tab, ok := projection.ParseTab(r.PathValue("tab"))
@@ -453,7 +430,7 @@ func (s *Server) handleLibraryIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 // listRootFolders lists every RootFolder through Options.Reader, sorted by
-// name for a stable render -- listDownloads' own pattern for config-like
+// name for a stable render -- downloadClients' own pattern for config-like
 // data that does not need to ride the shared projection's live stream.
 func (s *Server) listRootFolders(ctx context.Context) []catalogv1.RootFolder {
 	if s.opts.Reader == nil {

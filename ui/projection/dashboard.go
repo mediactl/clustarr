@@ -30,17 +30,22 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
-// DashboardRows caps each list the dashboard shows, which it pages through
-// five at a time (owner, 2026-11-04: "All tables should have the same max
-// rows ... a pagination footer to browse more"); the totals count all.
-const DashboardRows = 100
+// DashboardRows caps each list the dashboard and the Activity pages show,
+// which they page through (owner, 2026-11-04: "All tables should have the
+// same max rows ... a pagination footer to browse more"); the totals count
+// all. 500 since the Activity pages (2026-11-10), which list each state in
+// full pages rather than the dashboard's four rows.
+const DashboardRows = 500
 
-// Dashboard is the dashboard's view of one projection round: the
-// MediaFiles' transcodes and the grab entries' downloads, counted by state,
-// with the first DashboardRows of each list.
+// Dashboard is the dashboard's and the Activity pages' view of one
+// projection round: the grab entries' downloads and the MediaFiles'
+// transcodes, subtitles and markers, counted by state, with the first
+// DashboardRows of each list.
 type Dashboard struct {
 	Transcodes TranscodeSummary
 	Downloads  DownloadSummary
+	Subtitles  SubtitleSummary
+	Markers    MarkerSummary
 }
 
 // TranscodeSummary is every MediaFile's status.transcode by state.
@@ -77,10 +82,13 @@ type TranscodeRow struct {
 
 // DownloadSummary is every grab entry by phase.
 type DownloadSummary struct {
-	Active   DownloadList // Downloading; the oldest grab first
-	Pending  DownloadList // Pending, Assigned, Queued, Paused; the oldest first
-	Failed   DownloadList // Failed, Blocklisted; the newest first
-	Imported int
+	Active  DownloadList // Downloading; the oldest grab first
+	Pending DownloadList // Pending, Assigned, Queued, Paused; the oldest first
+	Failed  DownloadList // Failed, Blocklisted; the newest first
+	// Completed are the entries past their transfer: Completed (waiting to
+	// import), Seeding, Imported and Removing; the newest first.
+	Completed DownloadList
+	Imported  int
 }
 
 // DownloadList is one state's rows and how many entries are in it.
@@ -128,7 +136,7 @@ func buildDashboard(ctx context.Context, files []*catalogv1.MediaFile, rows []Do
 		}
 	}
 
-	var active, waiting, broken []DownloadRow
+	var active, waiting, broken, done []DownloadRow
 	for _, row := range rows {
 		switch row.Entry.Phase {
 		case commonv1.DownloadPhaseDownloading:
@@ -139,11 +147,17 @@ func buildDashboard(ctx context.Context, files []*catalogv1.MediaFile, rows []Do
 			broken = append(broken, row)
 		case commonv1.DownloadPhaseImported:
 			d.Downloads.Imported++
+			done = append(done, row)
+		case commonv1.DownloadPhaseCompleted, commonv1.DownloadPhaseSeeding, commonv1.DownloadPhaseRemoving:
+			done = append(done, row)
 		}
 	}
 	d.Downloads.Active = downloadList(active, oldestFirst, DashboardRows)
 	d.Downloads.Pending = downloadList(waiting, oldestFirst, DashboardRows)
 	d.Downloads.Failed = downloadList(broken, newestFirst, DashboardRows)
+	d.Downloads.Completed = downloadList(done, newestFirst, DashboardRows)
+	d.Subtitles = buildSubtitles(files)
+	d.Markers = buildMarkers(files)
 	return d
 }
 

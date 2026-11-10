@@ -992,8 +992,8 @@ posts (2026-10-19). `ui/static/portals.js` has htmx process every portaled
 node a loaded swap owns. A test of the rendered markup cannot see this --
 the poll attributes were always there -- so check such a change in a
 browser.
-The live pages' stream containers (#library-rows, #pipeline-rows,
-#downloads-rows, #unmatched-rows, #import-lists-rows) morph each frame
+The live pages' stream containers (#library-rows, #unmatched-rows,
+#import-lists-rows) morph each frame
 in (idiomorph's htmx extension, `hx-swap="morph:innerHTML"`, 2026-10-21):
 a node whose markup is unchanged is left alone, so a frame no longer tears
 down every card's poster, hover state and open menu, and a card is paired
@@ -1098,6 +1098,27 @@ the `clustarr-livetv` store through `Info` and `Get`, decoding an object
 again only when its digest moves (`ui/livetvstore.go`), and serves logos
 at `/livetv/logo/...` from the tuner's stored copies. There is no playback
 in the browser and no DVR page (design §5.8, §5.9).
+
+**Activity** (owner, 2026-11-10: "Move pipeline and downloads into a new
+group Activity ... Downloads, Transcodes, Subtitles, Markers. Each page
+should have tabs like Running, Failed, etc like on the dashboard. We can
+remove the pipeline page entirely") is a sidebar entry after Live TV whose
+sub-entries swap the page body as the Library's do (`ui/activity.go`,
+`ui/views/activity.templ`): `/activity/{downloads,transcodes,subtitles,markers}`,
+each the dashboard's tabbed card (`sectionCard`) over the projection's
+per-state lists (`projection.Dashboard`, now with `Subtitles`, `Markers`
+and `Downloads.Completed`; `ui/projection/activity.go`), 25 rows a page,
+refreshed every 10 s by a hidden `[data-list-poller]` that
+`ui/static/dashboard.js` tells which tab and pages are open
+(`/activity/{section}/list`, out of band). Downloads keeps the clients and
+each entry's actions; subtitles are Searching, Wanted, Failed (Blocked, or
+a language whose fetch failed) and Done; markers are Pending (probed, no
+result yet), Found, None found and Error. A list holds at most
+`projection.DashboardRows` (500) rows while its tab counts all. The
+pipeline page, `/events/pipeline`, `/events/downloads` and Options
+`Entries`, `Subscribe` and `SubscribeDownloads` are gone; `/pipeline` and
+`/downloads` redirect. The e2e scenarios that read them (`test/e2e`
+ui, subtitle and transcode) still do, and are Phase H's to rewrite.
 
 The ui's home page is the **Dashboard** (2026-10-22: `ui/dashboard.go`,
 `ui/views/dashboard.templ`). `/` redirects to `/dashboard`, the sidebar's

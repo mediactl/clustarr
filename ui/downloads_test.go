@@ -23,20 +23,19 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/ui"
-	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
@@ -91,6 +90,26 @@ var allDownloadPhases = []commonv1.DownloadPhase{
 	commonv1.DownloadPhaseRemoving,
 }
 
+// renderRunning renders rows as the Downloads activity page's card does
+// (views.ActivityList), the rows on its Running tab.
+func renderRunning(t *testing.T, rows []views.DownloadView) string {
+	t.Helper()
+	v := views.ActivityView{Section: "downloads", Title: "Downloads", Active: rows, Pages: map[string]views.ListPage{}}
+	v.Summary.Downloads.Active.Total = len(rows)
+	var buf bytes.Buffer
+	require.NoError(t, views.ActivityList(v).Render(context.Background(), &buf))
+	return buf.String()
+}
+
+// renderClients renders the Downloads activity page with clients.
+func renderClients(t *testing.T, clients ...downloadv1.DownloadClient) string {
+	t.Helper()
+	var buf bytes.Buffer
+	v := views.ActivityView{Section: "downloads", Title: "Downloads", Clients: clients, Pages: map[string]views.ListPage{}}
+	require.NoError(t, views.Activity(v).Render(context.Background(), &buf))
+	return buf.String()
+}
+
 // TestAllElevenDownloadPhasesRenderWithoutPanicking is Task D3-2's own
 // acceptance check for ruling R5's "envtest writes status directly, so
 // D3-2 ... get[s] full coverage against hand-written status covering all 11
@@ -110,13 +129,11 @@ func TestAllElevenDownloadPhasesRenderWithoutPanicking(t *testing.T) {
 				Progress: &schema.DownloadProgress{PercentMilli: 37000},
 			}
 
-			var buf bytes.Buffer
-			require.NotPanics(t, func() {
-				require.NoError(t, views.DownloadRows([]views.DownloadView{d}).Render(context.Background(), &buf))
-			})
-			require.Contains(t, buf.String(), `data-phase="`+string(phase)+`"`)
-			require.Contains(t, buf.String(), `data-protocol="torrent"`)
-			require.Contains(t, buf.String(), `data-download="release-`+string(phase)+`"`)
+			var body string
+			require.NotPanics(t, func() { body = renderRunning(t, []views.DownloadView{d}) })
+			require.Contains(t, body, `data-phase="`+string(phase)+`"`)
+			require.Contains(t, body, `data-protocol="torrent"`)
+			require.Contains(t, body, `data-download="release-`+string(phase)+`"`)
 		})
 	}
 }
@@ -132,20 +149,17 @@ func TestDownloadRowRendersTheZeroValueStatusWithoutError(t *testing.T) {
 		Entry: catalogv1.DownloadEntry{ID: "unclaimed"},
 	}}
 
-	var buf bytes.Buffer
-	require.NotPanics(t, func() {
-		require.NoError(t, views.DownloadRows([]views.DownloadView{d}).Render(context.Background(), &buf))
-	})
-	require.Contains(t, buf.String(), `data-phase=""`)
-	require.Contains(t, buf.String(), `data-download="unclaimed"`)
+	var body string
+	require.NotPanics(t, func() { body = renderRunning(t, []views.DownloadView{d}) })
+	require.Contains(t, body, `data-phase=""`)
+	require.Contains(t, body, `data-download="unclaimed"`)
 }
 
 // TestDownloadRowWithNoMeaningfulPercentRendersNoProgressBar pins
 // downloadPercent's -1 sentinel (the same "no meaningful percentage"
 // convention pkg/pipeline.Entry.Percent uses) through to the row: a Pending
 // grab has not started transferring, so no percent is meaningful yet, and
-// helpers.go's clampPercent -- already relied on by the Pipeline page for
-// the identical sentinel -- must suppress the bar rather than render a
+// helpers.go's clampPercent must suppress the bar rather than render a
 // 0%-wide one.
 func TestDownloadRowWithNoMeaningfulPercentRendersNoProgressBar(t *testing.T) {
 	d := views.DownloadView{
@@ -153,22 +167,19 @@ func TestDownloadRowWithNoMeaningfulPercentRendersNoProgressBar(t *testing.T) {
 		Progress: &schema.DownloadProgress{PercentMilli: 0},
 	}
 
-	var buf bytes.Buffer
-	require.NoError(t, views.DownloadRows([]views.DownloadView{d}).Render(context.Background(), &buf))
 	// The bar is shadcn-templ's progress, role="progressbar"
-	// (pipeline.templ's progressMeter).
-	require.NotContains(t, buf.String(), `role="progressbar"`,
+	// (downloads.templ's progressBar).
+	require.NotContains(t, renderRunning(t, []views.DownloadView{d}), `role="progressbar"`,
 		"a Pending download has no meaningful progress and must not render a progress bar")
 }
 
-// TestDownloadRowsEmptyStateMirrorsThePipelinePage is the D3-2 bullet "Empty
-// state mirrors the pipeline page's 'Nothing in flight' treatment": same
-// muted-text paragraph style as ui/views/pipeline.templ's PipelineRows.
-func TestDownloadRowsEmptyStateMirrorsThePipelinePage(t *testing.T) {
-	var buf bytes.Buffer
-	require.NoError(t, views.DownloadRows(nil).Render(context.Background(), &buf))
-	require.Contains(t, buf.String(), "text-muted-foreground")
-	require.NotContains(t, buf.String(), `data-download`)
+// TestDownloadRowsEmptyStateSaysSo: an empty tab says what it holds none
+// of, in the dashboard's muted note.
+func TestDownloadRowsEmptyStateSaysSo(t *testing.T) {
+	body := renderRunning(t, nil)
+	require.Contains(t, body, "Nothing is downloading.")
+	require.Contains(t, body, "text-muted-foreground")
+	require.NotContains(t, body, `data-download`)
 }
 
 // TestDownloadsPageIncludesAClientSection covers the D3-2 bullet "A
@@ -188,44 +199,40 @@ func TestDownloadsPageIncludesAClientSection(t *testing.T) {
 		},
 	}
 
-	var buf bytes.Buffer
-	require.NoError(t, views.Downloads(paging.Paginate(0, 1, paging.DefaultPer), nil, []downloadv1.DownloadClient{c}).Render(context.Background(), &buf))
-	require.Contains(t, buf.String(), `data-client="qbittorrent"`)
-	require.Contains(t, buf.String(), `data-protocol="torrent"`)
+	body := renderClients(t, c)
+	require.Contains(t, body, `data-client="qbittorrent"`)
+	require.Contains(t, body, `data-protocol="torrent"`)
 }
 
-// TestDownloadsPageRendersWithoutACluster proves GET /downloads survives
-// Options.Reader being nil (no cluster configured at all), exactly as
-// GET /pipeline does with a nil Options.Entries -- see
-// ui/reader_test.go's TestNilReaderStillServesThePipelinePage, which this
-// mirrors for the new route.
+// TestDownloadsPageRendersWithoutACluster proves GET /activity/downloads
+// survives Options.Reader and Options.Dashboard being nil (no cluster
+// configured at all).
 func TestDownloadsPageRendersWithoutACluster(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/downloads", nil))
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/activity/downloads", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "text-muted-foreground")
 }
 
-// TestDownloadsPageListsThroughTheReader proves the handler wiring end to
-// end: a grab entry on a Movie seeded into a fake, scheme-matched
-// client.Reader (built from ui.NewReaderScheme, the same seam
-// ui.NewClusterReader itself uses, rather than pkg/k8s.MustNewScheme -- ui/
-// must not import pkg/k8s at all) shows up in the rendered page through
-// Options.Reader (projection.ListDownloadRows), with no projection running.
-func TestDownloadsPageListsThroughTheReader(t *testing.T) {
-	scheme, err := ui.NewReaderScheme()
-	require.NoError(t, err)
-
-	reader := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(grabbingMovie("arrival", grabEntry("arrival", commonv1.DownloadPhaseDownloading))).Build()
-
-	srv := ui.NewServer(t.Context(), ui.Options{Reader: reader})
+// TestDownloadsPageListsTheProjectionsRows proves the handler wiring end to
+// end: the grab rows come from the projection (Options.Dashboard), the
+// running one on the Running tab, a failed one on the Failed tab.
+func TestDownloadsPageListsTheProjectionsRows(t *testing.T) {
+	var d projection.Dashboard
+	d.Downloads.Active = projection.DownloadList{Rows: []projection.DownloadRow{grabRow("arrival", commonv1.DownloadPhaseDownloading)}, Total: 1}
+	d.Downloads.Failed = projection.DownloadList{Rows: []projection.DownloadRow{grabRow("heat", commonv1.DownloadPhaseFailed)}, Total: 1}
+	srv := ui.NewServer(t.Context(), ui.Options{Dashboard: func(context.Context) projection.Dashboard { return d }})
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/downloads", nil))
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/activity/downloads", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), `data-download="arrival"`)
-	require.Contains(t, rec.Body.String(), `data-phase="Downloading"`)
+	body := rec.Body.String()
+	running := body[strings.Index(body, `data-list="downloads-running"`):strings.Index(body, `data-list="downloads-queued"`)]
+	require.Contains(t, running, `data-download="arrival"`)
+	require.Contains(t, running, `data-phase="Downloading"`)
+	failedAt := strings.Index(body, `data-list="downloads-failed"`)
+	require.GreaterOrEqual(t, failedAt, 0)
+	require.Contains(t, body[failedAt:], `data-download="heat"`)
 }
 
 // erroringReader is a client.Reader whose Get and List always fail, standing
@@ -245,29 +252,26 @@ func (erroringReader) List(context.Context, client.ObjectList, ...client.ListOpt
 
 // TestDownloadsPageToleratesAListErrorFromTheReader proves a List error
 // degrades to an empty-but-200 page rather than a 500: Options.Reader is a
-// best-effort, read-only seam (see routes.go's listDownloads doc comment),
+// best-effort, read-only seam (see routes.go's downloadClients doc comment),
 // and a transient list failure is not a reason to fail the whole request.
 func TestDownloadsPageToleratesAListErrorFromTheReader(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{Reader: erroringReader{}})
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/downloads", nil))
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/activity/downloads", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NotContains(t, rec.Body.String(), `data-download`)
+	require.NotContains(t, rec.Body.String(), `data-client`)
 }
 
-// TestDownloadsNavLinkIsOnEveryPage covers the D3-2 bullet "Add /downloads
-// to the layout nav alongside the pipeline link": both pages must carry a
-// link to the other so a viewer never has to know the URL by hand.
-func TestDownloadsNavLinkIsOnEveryPage(t *testing.T) {
+// TestTheOldPagesRedirectToActivity: /downloads and /pipeline, which the
+// Activity group replaced (owner, 2026-11-10), send old links to it.
+func TestTheOldPagesRedirectToActivity(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
-
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipeline", nil))
-	require.Contains(t, rec.Body.String(), `href="/downloads"`)
-
-	rec = httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/downloads", nil))
-	require.Contains(t, rec.Body.String(), `href="/pipeline"`)
+	for path, to := range map[string]string{"/downloads": "/activity/downloads", "/pipeline": "/activity", "/activity": "/activity/downloads"} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusFound, rec.Code, path)
+		require.Equal(t, to, rec.Header().Get("Location"), path)
+	}
 }
 
 // TestDownloadsPageShowsATorrentClientsProxy: a proxied client says so,
@@ -280,12 +284,8 @@ func TestDownloadsPageShowsATorrentClientsProxy(t *testing.T) {
 			Proxy: &downloadv1.TorrentProxy{Host: "10.64.0.1", Port: 1080},
 		}},
 	}
-	var buf bytes.Buffer
-	require.NoError(t, views.Downloads(paging.Paginate(0, 1, paging.DefaultPer), nil, []downloadv1.DownloadClient{c}).Render(context.Background(), &buf))
-	require.Contains(t, buf.String(), "via SOCKS5 10.64.0.1:1080 (UDP)")
+	require.Contains(t, renderClients(t, c), "via SOCKS5 10.64.0.1:1080 (UDP)")
 
 	c.Spec.Torrent.Proxy.UDP = &udpOff
-	buf.Reset()
-	require.NoError(t, views.Downloads(paging.Paginate(0, 1, paging.DefaultPer), nil, []downloadv1.DownloadClient{c}).Render(context.Background(), &buf))
-	require.Contains(t, buf.String(), "via SOCKS5 10.64.0.1:1080<")
+	require.Contains(t, renderClients(t, c), "via SOCKS5 10.64.0.1:1080<")
 }

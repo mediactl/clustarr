@@ -20,24 +20,16 @@ package ui_test
 import (
 	"bufio"
 	"bytes"
-	"context"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui"
-	"github.com/mediactl/clustarr/ui/paging"
-	"github.com/mediactl/clustarr/ui/projection"
-	"github.com/mediactl/clustarr/ui/views"
 )
 
 // readSSEEvent reads one complete SSE event -- every line up to and
@@ -62,73 +54,11 @@ func readSSEEvent(t *testing.T, r *bufio.Reader) string {
 	return strings.Join(lines, "")
 }
 
-func TestPipelinePageRendersWithoutACluster(t *testing.T) {
-	srv := ui.NewServer(t.Context(), ui.Options{Entries: func(context.Context) []pipeline.Entry {
-		return []pipeline.Entry{{Title: "The Shawshank Redemption", Stage: pipeline.StageDownloading, Percent: 42}}
-	}})
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipeline", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "Shawshank")
-	require.Contains(t, rec.Body.String(), "42")
-}
-
 func TestHealthzDoesNotDependOnTheCluster(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestPipelinePageRendersWithNoEntries(t *testing.T) {
-	srv := ui.NewServer(t.Context(), ui.Options{})
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipeline", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "Nothing in flight")
-}
-
-func TestPipelineEventsStreamsServerSentEvents(t *testing.T) {
-	srv := ui.NewServer(t.Context(), ui.Options{Entries: func(context.Context) []pipeline.Entry {
-		return []pipeline.Entry{{Title: "The Shawshank Redemption", Stage: pipeline.StageDownloading, Percent: 42}}
-	}})
-
-	httpSrv := httptest.NewServer(srv.Handler())
-	defer httpSrv.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpSrv.URL+"/events/pipeline", nil)
-	require.NoError(t, err)
-
-	resp, err := httpSrv.Client().Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
-
-	reader := bufio.NewReader(resp.Body)
-	var lines []string
-	for {
-		line, err := reader.ReadString('\n')
-		lines = append(lines, line)
-		if err != nil || strings.TrimSpace(line) == "" && len(lines) > 1 {
-			break
-		}
-	}
-	joined := strings.Join(lines, "")
-	require.Contains(t, joined, "event: pipeline")
-	// The payload must be the same rendered HTML fragment views.PipelineRows
-	// produces for the initial page load -- htmx's sse-swap replaces
-	// #pipeline-rows's innerHTML with this verbatim, so raw JSON here would
-	// show up as literal text in the browser instead of a row. Assert on an
-	// attribute pipelineRow's markup writes and rule out a JSON encoding.
-	require.Contains(t, joined, `data-stage="Downloading"`)
-	require.Contains(t, joined, "Shawshank")
-	require.NotContains(t, joined, `"title"`)
-	require.NotContains(t, joined, `"stage"`)
 }
 
 // TestNewServerWarnsThroughTheContextLogger covers the removal of
@@ -149,206 +79,4 @@ func TestNewServerWarnsThroughTheContextLogger(t *testing.T) {
 
 	require.Contains(t, buf.String(), "ingress authentication",
 		"NewServer must log the §A3.5 warning through the logger on its context")
-}
-
-// TestDownloadsEventsStreamsServerSentEvents is Task D3-3's basic
-// acceptance test, mirroring TestPipelineEventsStreamsServerSentEvents:
-// GET /events/downloads must stream an "event: downloads" frame whose data
-// is rendered markup, not JSON. Per ruling R8, the assertions are on the
-// stable data-download/data-phase/data-protocol attributes downloads.templ
-// puts on every row, not on any visible copy.
-func TestDownloadsEventsStreamsServerSentEvents(t *testing.T) {
-	d := grabRow("arrival", commonv1.DownloadPhaseDownloading)
-	srv := ui.NewServer(t.Context(), ui.Options{
-		SubscribeDownloads: func() (<-chan []projection.DownloadRow, func()) {
-			ch := make(chan []projection.DownloadRow, 1)
-			ch <- []projection.DownloadRow{d}
-			return ch, func() {}
-		},
-	})
-
-	httpSrv := httptest.NewServer(srv.Handler())
-	defer httpSrv.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpSrv.URL+"/events/downloads", nil)
-	require.NoError(t, err)
-
-	resp, err := httpSrv.Client().Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
-
-	frame := readSSEEvent(t, bufio.NewReader(resp.Body))
-	require.Contains(t, frame, "event: downloads")
-	require.Contains(t, frame, `data-download="arrival"`)
-	require.Contains(t, frame, `data-phase="Downloading"`)
-	require.Contains(t, frame, `data-protocol="torrent"`)
-	require.NotContains(t, frame, `"phase"`)
-}
-
-// TestDownloadsEventsStreamReflectsAStatusChangeBetweenTicks is Task D3-3's
-// own bullet: "a status change between ticks produces a frame whose
-// data-phase changed." Options.SubscribeDownloads is given a channel the
-// test drives directly -- production feeds it from
-// ui/projection.Projection's ticker, but the handler only ever sees "the
-// next slice this channel yields," so pushing two slices for the same
-// Download, one per simulated tick, exercises exactly that contract without
-// waiting on a real timer.
-func TestDownloadsEventsStreamReflectsAStatusChangeBetweenTicks(t *testing.T) {
-	pending := grabRow("arrival", commonv1.DownloadPhasePending)
-	downloading := grabRow("arrival", commonv1.DownloadPhaseDownloading)
-
-	ch := make(chan []projection.DownloadRow, 2)
-	ch <- []projection.DownloadRow{pending}
-
-	srv := ui.NewServer(t.Context(), ui.Options{
-		SubscribeDownloads: func() (<-chan []projection.DownloadRow, func()) {
-			return ch, func() {}
-		},
-	})
-
-	httpSrv := httptest.NewServer(srv.Handler())
-	defer httpSrv.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpSrv.URL+"/events/downloads", nil)
-	require.NoError(t, err)
-
-	resp, err := httpSrv.Client().Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	reader := bufio.NewReader(resp.Body)
-
-	first := readSSEEvent(t, reader)
-	require.Contains(t, first, `data-phase="Pending"`)
-
-	// Simulate the next tick: the SAME grab entry, moved to Downloading.
-	ch <- []projection.DownloadRow{downloading}
-
-	second := readSSEEvent(t, reader)
-	require.Contains(t, second, `data-phase="Downloading"`)
-	require.NotContains(t, second, `data-phase="Pending"`,
-		"the second frame must reflect the status change, not repeat the first frame's phase")
-}
-
-// TestDownloadsEventsStreamEndsOnRequestContextCancel is Task D3-3's other
-// bullet, mirroring run_test.go's TestRunEndsAnOpenSSEStreamOnContextCancel
-// for /events/downloads specifically: handleDownloadsEvents' `case
-// <-ctx.Done(): return` must fire -- and so end the stream from the
-// server's side -- when the request's context is cancelled, exactly as
-// handlePipelineEvents' already does.
-//
-// This drives the cancellation from the client rather than through
-// ui.Run/BaseContext (run_test.go's version does that, generically, for
-// every route): net/http already cancels a server handler's
-// r.Context() once the client that issued the request cancels its own
-// request context, closing the underlying connection -- so this reaches the
-// same handler code path without spinning up ui.Run.
-func TestDownloadsEventsStreamEndsOnRequestContextCancel(t *testing.T) {
-	srv := ui.NewServer(t.Context(), ui.Options{
-		SubscribeDownloads: func() (<-chan []projection.DownloadRow, func()) {
-			ch := make(chan []projection.DownloadRow, 1)
-			ch <- []projection.DownloadRow{}
-			return ch, func() {}
-		},
-	})
-
-	httpSrv := httptest.NewServer(srv.Handler())
-	defer httpSrv.Close()
-
-	reqCtx, cancelReq := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, httpSrv.URL+"/events/downloads", nil)
-	require.NoError(t, err)
-
-	resp, err := httpSrv.Client().Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	streamEnded := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		close(streamEnded)
-	}()
-
-	// Give the client a moment to actually be attached to the stream before
-	// cancelling, mirroring run_test.go's own reasoning: exercise "cancel
-	// with a client connected", not a race with connection setup.
-	time.Sleep(50 * time.Millisecond)
-	cancelReq()
-
-	select {
-	case <-streamEnded:
-	case <-time.After(2 * time.Second):
-		t.Fatal("downloads SSE stream was not closed after the request context was cancelled")
-	}
-}
-
-// TestDownloadsEventPayloadIsExactlyViewsDownloadRows is the explicit
-// markup-contract sanity check the task brief calls for: D3-2 built
-// #downloads-rows and views.DownloadRows expecting /events/downloads (this
-// task) to feed it byte-for-byte identical markup, since htmx's sse-swap
-// replaces that element's innerHTML with the event's data verbatim
-// (ui/views/downloads.templ's doc comments on Downloads and DownloadRows
-// make the same point). This proves it directly: it renders the same
-// downloads slice straight through views.DownloadRows, reproduces
-// writeDownloadsEvent's own multi-line "data:" framing (ui/sse.go, unchanged
-// by this task) around that output, and asserts the wire frame equals that
-// byte-for-byte.
-func TestDownloadsEventPayloadIsExactlyViewsDownloadRows(t *testing.T) {
-	downloads := []projection.DownloadRow{grabRow("arrival", commonv1.DownloadPhaseDownloading)}
-
-	srv := ui.NewServer(t.Context(), ui.Options{
-		SubscribeDownloads: func() (<-chan []projection.DownloadRow, func()) {
-			ch := make(chan []projection.DownloadRow, 1)
-			ch <- downloads
-			return ch, func() {}
-		},
-	})
-
-	httpSrv := httptest.NewServer(srv.Handler())
-	defer httpSrv.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpSrv.URL+"/events/downloads", nil)
-	require.NoError(t, err)
-	resp, err := httpSrv.Client().Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	got := readSSEEvent(t, bufio.NewReader(resp.Body))
-
-	// The frame is the page's list fragment -- the pager, the rows, the
-	// pager -- for page 1 at the default size, exactly as GET /downloads
-	// first rendered it.
-	var direct bytes.Buffer
-	// No TransferProgress is wired, so each view is its row alone.
-	dviews := make([]views.DownloadView, len(downloads))
-	for i := range downloads {
-		dviews[i] = views.DownloadView{Row: downloads[i]}
-	}
-	require.NoError(t, views.DownloadList(paging.Paginate(len(downloads), 1, paging.DefaultPer), dviews).Render(context.Background(), &direct))
-
-	var want bytes.Buffer
-	want.WriteString("event: downloads\n")
-	for _, line := range bytes.Split(direct.Bytes(), []byte{'\n'}) {
-		want.WriteString("data: ")
-		want.Write(line)
-		want.WriteByte('\n')
-	}
-	want.WriteByte('\n')
-
-	require.Equal(t, want.String(), got,
-		"the event: downloads frame must carry exactly views.DownloadRows' rendered markup for #downloads-rows")
 }

@@ -36,7 +36,7 @@ import (
 // each rendered from the corresponding resources with an edit form that
 // patches spec". Unlike every live page, Settings has "None" for live
 // updates, so it reads directly through Options.Reader on every GET --
-// listRootFolders (ui/routes.go) and listDownloads' own DownloadClient half
+// listRootFolders (ui/routes.go) and downloadClients
 // already do this for the Library and Downloads pages' own config
 // sections -- rather than riding ui/projection's shared tick. Every write
 // goes through Options.Actions' Settings-page methods (ui/actions/
@@ -48,7 +48,7 @@ import (
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, downloadClients := s.listDownloads(ctx)
+	downloadClients := s.downloadClients(ctx)
 	if err := views.Settings(
 		s.listRootFolders(ctx),
 		s.listQualityProfiles(ctx),
@@ -185,7 +185,7 @@ func (s *Server) listTranscodeProfiles(ctx context.Context) []transcodev1.Transc
 }
 
 // namespacedLess orders two (namespace, name) pairs by namespace then name,
-// the same stable-render rule listRootFolders and listDownloads apply to
+// the same stable-render rule listRootFolders and downloadClients apply to
 // their own single-namespace lists, generalised here because several
 // Settings-page kinds are namespaced and this file lists them all the same
 // way.

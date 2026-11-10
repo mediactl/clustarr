@@ -126,7 +126,7 @@ func TestFindSearchesTheWholeLibraryOffATab(t *testing.T) {
 	_, body = findGet(t, findServer(t), "/library/find?q=")
 	require.Empty(t, strings.TrimSpace(body))
 
-	_, body = findGet(t, findServer(t), "/pipeline")
+	_, body = findGet(t, findServer(t), "/activity/downloads")
 	requireTag(t, body, `data-find-input`, `hx-get="/library/find"`)
 }
 
