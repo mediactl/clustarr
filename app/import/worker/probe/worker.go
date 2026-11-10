@@ -34,6 +34,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/mediainfo/pagecount"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -139,9 +140,14 @@ func (w *Worker) probe(ctx context.Context, t schema.ProbeTask) (schema.ProbeRec
 	rec.ProbeHash = mediainfo.ProbeHash(t.Path, before.Size(), before.ModTime())
 
 	// A comic archive or a PDF is no media file FFmpeg opens: its probe is
-	// its page count, by listing alone (2026-11-10 design D9).
-	if n, err := pagecount.Of(t.Path); !errors.Is(err, pagecount.ErrNoPageCount) {
-		if err != nil {
+	// its page count, by listing alone (2026-11-10 design D9). An ebook
+	// FFmpeg cannot read either (.epub, .mobi, .azw, .azw3, the book
+	// extensions pkg/fsops classifies) is its container alone -- no stream,
+	// and no page count, since an EPUB is not parsed (design §6; the plan's
+	// W3.1 leftover): until then the probe fell to FFmpeg and failed, which
+	// held every such Book at ProbePending and its file unnamed.
+	if n, err := pagecount.Of(t.Path); isEbook(t.Path) || !errors.Is(err, pagecount.ErrNoPageCount) {
+		if err != nil && !errors.Is(err, pagecount.ErrNoPageCount) {
 			return fail(false, outcomeFailed, "%v", err)
 		}
 		after, serr := os.Stat(t.Path)
@@ -170,6 +176,14 @@ func (w *Worker) probe(ctx context.Context, t schema.ProbeTask) (schema.ProbeRec
 	}
 	rec.State, rec.ProbedAt, rec.MediaInfo = schema.ProbeProbed, time.Now().UTC(), mi
 	return rec, outcomeProbed
+}
+
+// isEbook reports whether path carries a book extension (fsops's book
+// kind: .epub, .mobi, .azw, .azw3 and .pdf). A PDF's page count is read
+// before this is asked, so here it only keeps a PDF the counter could not
+// open from falling to FFmpeg.
+func isEbook(path string) bool {
+	return fsops.MediaExtensions[fsops.KindBook][strings.ToLower(filepath.Ext(path))]
 }
 
 // under reports whether path is root or inside it.
