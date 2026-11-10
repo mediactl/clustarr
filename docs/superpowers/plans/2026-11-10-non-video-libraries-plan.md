@@ -208,6 +208,15 @@ Owns `pkg/metadata/model.go`, `pkg/metadata/provider.go`,
   `Edition.IsEbook`; Author born/died/links (Wikidata id when present);
   Hardcover ratings; Hardcover `Books()` by Hardcover author id.
 
+**Done inline 2026-11-10 (W2a-W2b, all pushed):** W2a (746559b2); W2b.1's
+MusicBrainz paging, annotation, aliases and artist credit (d369cc34) and
+fanart's artist poster (4754a6ad); W2b.2 wikipedia (9787e6c0, seeded and
+probed d2e0a96e, in the registry ffa8208f); W2b.3's audible search client
+(9787e6c0; Audnexus chapters/fields remain); W2b.4's ComicVine paging,
+image, description and credits (dfa4b6e2; Metron/MangaDex remain); W2b.5's
+Open Library author links (4dcc89d3; Hardcover's author-id books and the
+book-level fields remain). What is left of W2b is one agent's work.
+
 ### W2c Gateway (one agent)
 
 Owns `app/catalog/metadata/` (every file), `app/catalog/controller/comic/
@@ -231,6 +240,13 @@ W4c's -- not here.
 6. Tests: builder goldens per kind; ratings enum round-trip; the fan-out's
    managedFields assertion.
 
+**Done inline 2026-11-10:** step 1's fields on every builder with
+`schemaVersion` and the model's own ratings in the CRD's vocabulary
+(`modelRatings`, `linksAC` in `patch.go`); `language`/`fetchLanguage`, the
+outdated refresh, the biography enrichment (registry `Biographies`), the
+`comic`/`audiobook` search verbs (registry `AudiobookSearchers`),
+`writeExtended` and the Comic fan-out's Issue fields remain.
+
 ## W3: import, probe, NFO (parallel)
 
 ### W3.1 The probe (D9, §6)
@@ -248,6 +264,11 @@ Owns `pkg/mediainfo/` (every file), `test/data/mediainfo/` fixtures.
 3. Tests: `TestAnAudioFileProbesWithoutVideo`, `TestTagsAreBounded`,
    `TestPageCountOfACBZ`, the native suite under `make test`'s variables.
 
+**Done inline 2026-11-10 (a5774543):** the tag, sample-rate and bit-depth
+mapping in `pkg/mediainfo/tags.go` and `ProbeVersion` 4; the native probe
+already fills the stream facts. Left: `pageCount` (archives, PDF), the
+FLAC/MP3/CBZ/PDF fixtures and the native suite's tests.
+
 ### W3.2 Track attribution and parts (D6, D11, §6)
 
 Owns `app/import/` (every file), `pkg/release/track.go` and `part.go`
@@ -264,6 +285,10 @@ Owns `app/import/` (every file), `pkg/release/track.go` and `part.go`
 3. Book quality frozen at import (`fileFormat`, `fileQuality`,
    `fileFormatScore` on the MediaFile spec as for Issue).
 4. Tests: attribution table; part ordering; book freeze.
+
+**Done inline 2026-11-10 (23fd2ef7):** `release.ParseTrackFileName`;
+`release.PartOf` already reads part numbers. The import's attribution,
+parts and book freeze remain.
 
 ### W3.3 pkg/nfo, the import-nfo handler, the nfo stage (D13, §8)
 
