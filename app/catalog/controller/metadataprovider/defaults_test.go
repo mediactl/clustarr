@@ -50,7 +50,7 @@ func TestSeedDefaultsCreatesEveryKeylessProvider(t *testing.T) {
 	require.NoError(t, metadataprovider.SeedDefaults(ctx, c, "media"))
 
 	got := providersIn(t, ctx, c, "media")
-	require.Len(t, got, 9)
+	require.Len(t, got, len(metadataprovider.KeylessTypes))
 	for _, typ := range []catalogv1alpha1.MetadataProviderType{
 		catalogv1alpha1.MetadataProviderTheIntroDB,
 		catalogv1alpha1.MetadataProviderMusicBrainz, catalogv1alpha1.MetadataProviderOpenLibrary,
@@ -86,7 +86,7 @@ func TestSeedDefaultsLeavesTheOwnersProvidersAlone(t *testing.T) {
 	require.NoError(t, metadataprovider.SeedDefaults(ctx, c, "media"), "a second start is a no-op")
 
 	got := providersIn(t, ctx, c, "media")
-	require.Len(t, got, 9)
+	require.Len(t, got, len(metadataprovider.KeylessTypes))
 	require.Equal(t, "mb-mirror", got[catalogv1alpha1.MetadataProviderMusicBrainz].Name, "no second musicbrainz")
 	require.Equal(t, "me", got[catalogv1alpha1.MetadataProviderMusicBrainz].Spec.ContactUserAgent)
 	require.False(t, *got[catalogv1alpha1.MetadataProviderKitsu].Spec.Enabled, "the owner's switch stays off")

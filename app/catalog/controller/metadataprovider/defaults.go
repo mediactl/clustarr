@@ -47,6 +47,11 @@ var KeylessTypes = []catalogv1alpha1.MetadataProviderType{
 	catalogv1alpha1.MetadataProviderKitsu,
 	catalogv1alpha1.MetadataProviderAnimeLists,
 	catalogv1alpha1.MetadataProviderTheIntroDB,
+	// The 2026-11-10 non-video design's two keyless sources: biographies
+	// from Wikipedia through an artist's or author's Wikidata link, and
+	// Audible's catalog search for Add New's audiobooks.
+	catalogv1alpha1.MetadataProviderWikipedia,
+	catalogv1alpha1.MetadataProviderAudible,
 }
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=metadataproviders,verbs=create

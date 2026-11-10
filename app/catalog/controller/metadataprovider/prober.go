@@ -28,12 +28,14 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/audible"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/audnexus"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/comicvine"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/musicbrainz"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/openlibrary"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tvdb"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/wikipedia"
 )
 
 // ErrProviderNotImplemented is returned by NewProber and buildSupplementary for a
@@ -149,6 +151,16 @@ func NewProber(spec catalogv1alpha1.MetadataProviderSpec, secret map[string][]by
 	case catalogv1alpha1.MetadataProviderAudnexus:
 		c := audnexus.New(httpClient, baseURL(spec), limiterFor(spec, limits.Audnexus, limits.AudnexusBurst))
 		return audnexusProber{c}, nil
+	case catalogv1alpha1.MetadataProviderWikipedia:
+		// Wikimedia's public allowance is 200 rps with a contact User-Agent;
+		// 5/5 is plenty for a biography per artist refresh.
+		c := wikipedia.New(wikipedia.Config{HTTPClient: httpClient, WikidataBaseURL: baseURL(spec), WikipediaBaseURL: "", Limiter: limiterFor(spec, 5, 5), UserAgent: spec.ContactUserAgent, Language: spec.Language})
+		return wikipediaProber{c}, nil
+	case catalogv1alpha1.MetadataProviderAudible:
+		// Audible publishes no limit for its catalog API; 2/4 is what Add
+		// New's typing needs.
+		c := audible.New(audible.Config{HTTPClient: httpClient, BaseURL: baseURL(spec), Limiter: limiterFor(spec, 2, 4), UserAgent: spec.ContactUserAgent})
+		return audibleProber{c, spec.Region}, nil
 
 	default:
 		return newSupplementaryProber(spec, secret, httpClient)
@@ -212,5 +224,30 @@ type audnexusProber struct{ c *audnexus.Client }
 
 func (p audnexusProber) Probe(ctx context.Context) (ProbeResult, error) {
 	_, err := p.c.Chapters(ctx, "B08G9PRS1K", "us")
+	return ProbeResult{}, err
+}
+
+type wikipediaProber struct{ c *wikipedia.Client }
+
+// probeWikidataID is Muse's Wikidata entity (MusicBrainz's url-rel for the
+// band): a fixed, stable id with one right answer, the pattern the other
+// probers use.
+const probeWikidataID = "https://www.wikidata.org/wiki/Q22151"
+
+func (p wikipediaProber) Probe(ctx context.Context) (ProbeResult, error) {
+	_, _, err := p.c.Biography(ctx, []metadata.Link{{Type: wikipedia.LinkWikidata, URL: probeWikidataID}})
+	return ProbeResult{}, err
+}
+
+type audibleProber struct {
+	c      *audible.Client
+	region string
+}
+
+// probeAudibleTitle is a title every marketplace carries.
+const probeAudibleTitle = "The Left Hand of Darkness"
+
+func (p audibleProber) Probe(ctx context.Context) (ProbeResult, error) {
+	_, err := p.c.Products(ctx, probeAudibleTitle, "", p.region)
 	return ProbeResult{}, err
 }
