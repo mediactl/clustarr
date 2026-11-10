@@ -62,6 +62,7 @@ import (
 	"slices"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/alertdialog"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/checkbox"
@@ -106,11 +107,33 @@ func excludable(d Detail) bool {
 	return ok
 }
 
+// deleteFilesLine is the dialog's count of the files the delete removes
+// with the folder: the files the page lists (a movie's, a container's
+// through ui.containerFiles), else, for a series whose files were not read
+// -- more than the page reads for one render (ui.maxContainerFiles) -- its
+// rollup's count (status.episodeFileCount) and the size its seasons sum to,
+// which the series' card already carries (projection.LibraryItem); "" when
+// the page knows neither.
+func deleteFilesLine(d Detail) string {
+	switch {
+	case len(d.Files) > 0:
+		return fmt.Sprintf(" -- %d file(s), %s", len(d.Files), formatBytes(totalSize(d.Files)))
+	case d.Item.Kind == commonv1.MediaKindSeries && d.Item.EpisodeFileCount > 0:
+		line := fmt.Sprintf(" -- %d file(s)", d.Item.EpisodeFileCount)
+		if d.Item.SizeBytes > 0 {
+			line += ", " + formatBytes(d.Item.SizeBytes)
+		}
+		return line
+	}
+	return ""
+}
+
 // deleteDialog is the toolbar's Delete button and its confirmation
 // (docs/superpowers/specs/2026-09-30-library-delete-design.md): the folder,
-// the files where the page lists them, and the two checkboxes, both off.
-// It is shadcn-templ's alert dialog (since 2026-11-04): a destructive
-// question that a click beside it does not dismiss.
+// the files where the page lists them (deleteFilesLine), and the two
+// checkboxes, both off. It is shadcn-templ's alert dialog (since
+// 2026-11-04): a destructive question that a click beside it does not
+// dismiss.
 func deleteDialog(d Detail) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -213,7 +236,7 @@ func deleteDialog(d Detail) templ.Component {
 						var templ_7745c5c3_Var7 string
 						templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs("Delete " + d.Item.Title)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 85, Col: 31}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 108, Col: 31}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 						if templ_7745c5c3_Err != nil {
@@ -249,7 +272,7 @@ func deleteDialog(d Detail) templ.Component {
 							var templ_7745c5c3_Var9 string
 							templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(dir)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 89, Col: 36}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 112, Col: 36}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 							if templ_7745c5c3_Err != nil {
@@ -267,7 +290,7 @@ func deleteDialog(d Detail) templ.Component {
 							var templ_7745c5c3_Var10 string
 							templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(d.Path)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 91, Col: 39}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 114, Col: 39}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 							if templ_7745c5c3_Err != nil {
@@ -282,15 +305,15 @@ func deleteDialog(d Detail) templ.Component {
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						if len(d.Files) > 0 {
+						if line := deleteFilesLine(d); line != "" {
 							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<span data-delete-files>")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
 							var templ_7745c5c3_Var11 string
-							templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf(" -- %d file(s), %s", len(d.Files), formatBytes(totalSize(d.Files))))
+							templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(line)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 94, Col: 112}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 117, Col: 36}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 							if templ_7745c5c3_Err != nil {
@@ -320,7 +343,7 @@ func deleteDialog(d Detail) templ.Component {
 				var templ_7745c5c3_Var12 templ.SafeURL
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(libraryActionURL(d.Item, "delete")))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 98, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 121, Col: 77}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
@@ -333,7 +356,7 @@ func deleteDialog(d Detail) templ.Component {
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.ResolveAttributeValue("/library/" + string(d.Item.Tab))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 99, Col: 79}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 122, Col: 79}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var13)
 				if templ_7745c5c3_Err != nil {
@@ -600,7 +623,7 @@ func deleteRetry(d Detail) templ.Component {
 		var templ_7745c5c3_Var24 templ.SafeURL
 		templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(libraryActionURL(d.Item, "delete")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 134, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 157, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 		if templ_7745c5c3_Err != nil {
@@ -613,7 +636,7 @@ func deleteRetry(d Detail) templ.Component {
 		var templ_7745c5c3_Var25 string
 		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue(libraryDetailPath(d.Item))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 135, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 158, Col: 70}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
 		if templ_7745c5c3_Err != nil {
@@ -694,7 +717,7 @@ func deleteCancel(d Detail) templ.Component {
 		var templ_7745c5c3_Var28 templ.SafeURL
 		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(libraryActionURL(d.Item, "delete/cancel")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 150, Col: 82}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 173, Col: 82}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 		if templ_7745c5c3_Err != nil {
@@ -707,7 +730,7 @@ func deleteCancel(d Detail) templ.Component {
 		var templ_7745c5c3_Var29 string
 		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue(libraryDetailPath(d.Item))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 151, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/delete.templ`, Line: 174, Col: 70}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 		if templ_7745c5c3_Err != nil {

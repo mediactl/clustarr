@@ -58,6 +58,9 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 			d.Profiles = append(d.Profiles, views.AddOption{Value: qp.Name, Label: qp.Name})
 		}
 	}
+	// known is the files a container's rollup counts, read off the object
+	// the switch fetches anyway, which bounds containerFiles below.
+	var known int32
 	switch item.Kind {
 	case commonv1.MediaKindMovie:
 		var m catalogv1.Movie
@@ -79,6 +82,7 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 		var sr catalogv1.Series
 		if s.getObject(ctx, item.Ref, &sr) {
 			d.SeriesType = string(sr.Spec.SeriesType)
+			known = sr.Status.EpisodeFileCount
 			fillSeries(&d, &sr)
 			d.ImageSet = imageSetNote(sr.Spec.Artwork, sr.Spec.SeasonArtwork, sr.Status.ImageSet)
 			d.ImageSetAuto, d.ImageSetPinned = sr.Spec.ImageSet != catalogv1.ImageSetNone, sr.Spec.ImageSetID
@@ -87,6 +91,7 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 		var a catalogv1.Artist
 		if s.getObject(ctx, item.Ref, &a) {
 			d.Path = a.Status.Path
+			known = a.Status.AlbumFileCount // albums with a file: a floor on the track files
 			if md := a.Status.Metadata; md != nil {
 				d.Overview, d.Genres = md.Overview, md.Genres
 			}
@@ -96,6 +101,7 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 		var a catalogv1.Author
 		if s.getObject(ctx, item.Ref, &a) {
 			d.Path = a.Status.Path
+			known = a.Status.BookFileCount
 			if md := a.Status.Metadata; md != nil {
 				d.Overview, d.Genres = md.Overview, md.Genres
 			}
@@ -105,12 +111,14 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 		var c catalogv1.Comic
 		if s.getObject(ctx, item.Ref, &c) {
 			d.Path = c.Status.Path
+			known = c.Status.IssueFileCount
 		}
 	}
 	// A container's files, for its Delete dialog and its Size fact (the
-	// comic page fills the rest of its Detail itself).
+	// comic page fills the rest of its Detail itself), bounded by
+	// maxContainerFiles.
 	if projection.IsContainer(item.Kind) || item.Kind == commonv1.MediaKindSeries {
-		d.Files = s.containerFiles(ctx, item, d.Path)
+		d.Files = s.containerFiles(ctx, item, d.Path, known)
 	}
 	return d
 }
@@ -118,7 +126,9 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 // hasFolder reports whether a kind has a folder of its own under a
 // RootFolder (status.path), which "Refresh & Scan" can rescan: the video
 // kinds, the containers and, since 2026-11-10 (design §9.1), a Comic and
-// an Audiobook. A Book's folder is its Author's, an Album's its Artist's.
+// an Audiobook. An Album's folder is its Artist's; a Book's is its
+// Author's unless it is standalone, which the kind alone cannot tell, so
+// a Book reads bookHasFolder.
 func hasFolder(kind commonv1.MediaKind) bool {
 	switch kind {
 	case commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist, commonv1.MediaKindAuthor,
@@ -127,6 +137,16 @@ func hasFolder(kind commonv1.MediaKind) bool {
 	default:
 		return false
 	}
+}
+
+// bookHasFolder reports whether b has a folder of its own: a standalone
+// Book (2026-11-10 design §9.3), whose spec.rootFolderRef names its root
+// and whose status.path is its folder under it, which "Refresh & Scan" and
+// Rename work on and whose profile and root the Edit dialog edits
+// (views.Editable). An author's book lives in its author's folder and has
+// none of the three.
+func bookHasFolder(b *catalogv1.Book) bool {
+	return b.Spec.RootFolderRef != nil && *b.Spec.RootFolderRef != ""
 }
 
 // getObject reads one object through the reader, reporting whether it was
@@ -452,6 +472,13 @@ func (s *Server) itemFolder(ctx context.Context, namespace string, kind commonv1
 		if s.getObject(ctx, ref, &a) {
 			itemPath, rootRef = a.Status.Path, a.Spec.RootFolderRef
 		}
+	case commonv1.MediaKindBook:
+		// A standalone book's own root and folder (bookHasFolder); an
+		// author's book names no root, so it has no folder of its own.
+		var b catalogv1.Book
+		if s.getObject(ctx, ref, &b) && bookHasFolder(&b) {
+			itemPath, rootRef = b.Status.Path, *b.Spec.RootFolderRef
+		}
 	}
 	if itemPath == "" || rootRef == "" {
 		return "", "", false
@@ -512,20 +539,39 @@ func clock(ms int64) string {
 	return fmt.Sprintf("%d:%02d", s/60, s%60)
 }
 
+// maxContainerFiles bounds what containerFiles reads for one page: a
+// container's page (and its hover preload) lists its children through the
+// reader's index and then Gets each file its children name from the cache,
+// one copy each, so a 1,100-episode series would cost 1,100 Episode and
+// 1,100 MediaFile copies a render. Up to this many files the rows are read
+// in full (BenchmarkContainerFiles, over the fake reader, which decodes
+// JSON per Get: a series page renders in 3.95 ms at 50 files, 12.7 ms at
+// 500 and 2.9 ms at 1,100 with nothing read, 2026-11-10; the ui's cache
+// deep-copies instead, cheaper); above it nothing is read -- the rollup's count
+// says so before any List when it can -- and the page shows no Size fact,
+// while its Delete dialog counts from the rollup where one is at hand (a
+// series' status.episodeFileCount and its seasons' sizes; deleteDialog).
+// The owner's largest series (Pokemon, 1,457 episodes; One Piece) are over
+// it, nearly every other container under.
+const maxContainerFiles = 500
+
 // containerFiles lists a container's files -- a series' episodes', an
 // artist's albums', an author's books', a comic's issues' -- for its
 // page's Delete dialog (the count and size the delete removes with the
 // folder; 2026-11-10 design §9.6) and its Size fact: the children through
 // the reader's parent indexes (never a namespace List filtered in
 // memory), then each file its status names, one cached Get each, as
-// rows relative to folder. A kind that is no container, or no reader, has
+// rows relative to folder. known is the files the container's rollup
+// counts (an artist's a floor, its albums with a file), which skips the
+// List outright when it is over maxContainerFiles; more file refs than
+// that skip the Gets. A kind that is no container, or no reader, has
 // none.
-func (s *Server) containerFiles(ctx context.Context, item projection.LibraryItem, folder string) []views.FileRow {
-	if s.opts.Reader == nil {
+func (s *Server) containerFiles(ctx context.Context, item projection.LibraryItem, folder string, known int32) []views.FileRow {
+	if s.opts.Reader == nil || known > maxContainerFiles {
 		return nil
 	}
 	refs := s.childFileRefs(ctx, item)
-	if len(refs) == 0 {
+	if len(refs) == 0 || len(refs) > maxContainerFiles {
 		return nil
 	}
 	rows := make([]views.FileRow, 0, len(refs))

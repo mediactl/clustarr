@@ -41,9 +41,15 @@ import (
 // have it refuses the request.
 type EditRequest struct {
 	// QualityProfileRef is the QualityProfile to rank the item against.
-	// Required for every editable kind but a Book, whose profile is an
-	// override of its author's and is sent only when given.
+	// Required for every editable kind but a Book and an Album, whose
+	// profile is an override of their author's or artist's and is sent only
+	// when given.
 	QualityProfileRef string
+	// InheritProfile, on an Album, clears spec.qualityProfileRef so the
+	// artist's profile applies again (the dialog's "Artist's" choice,
+	// 2026-11-10 design §9.2). Set on any other kind, or beside a
+	// QualityProfileRef, the request is refused.
+	InheritProfile bool
 	// Monitored, when set, is written too.
 	Monitored *bool
 	// SeriesType is a series' spec.seriesType (standard, daily, anime);
@@ -85,6 +91,14 @@ type EditRequest struct {
 	// its QualityProfileRef (design §9.3: a standalone Book is editable --
 	// profile, root, monitored); empty leaves it.
 	RootFolderRef string
+	// AnyReleaseOk and ReleaseID are an album's release choice (design
+	// §9.2: the album bar's Edit): spec.anyReleaseOk, whether a release of
+	// the group other than the pinned one is taken when it is the best
+	// match, and spec.releaseID, the MusicBrainz release pinned -- an empty
+	// string clears the pin, so the manager chooses. Either set on any
+	// other kind, the request is refused.
+	AnyReleaseOk *bool
+	ReleaseID    *string
 }
 
 // MusicProfile is an artist's spec.metadataProfile as the Edit dialog
@@ -103,12 +117,15 @@ type BookProfile struct {
 }
 
 // editables are the kinds with a quality profile in their spec: the ones
-// the Edit dialog is for. An Episode, Album or Issue ranks under its
-// parent's profile and has no dialog; a Book carries an optional override
-// of its author's -- a standalone book's own (2026-11-10 design §9.3).
+// the Edit dialog is for. An Episode or Issue ranks under its parent's
+// profile and has no dialog; a Book carries an optional override of its
+// author's -- a standalone book's own (2026-11-10 design §9.3) -- and an
+// Album an optional override of its artist's beside its release choice
+// (design §9.2, the album bar's Edit).
 var editables = []commonv1.MediaKind{
 	commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist,
 	commonv1.MediaKindAuthor, commonv1.MediaKindComic, commonv1.MediaKindAudiobook, commonv1.MediaKindBook,
+	commonv1.MediaKindAlbum,
 }
 
 // EditableKinds returns, sorted, every kind [EditItem] accepts.
@@ -217,9 +234,14 @@ func editSpec(kind commonv1.MediaKind, req EditRequest) (map[string]any, error) 
 		return nil, fmt.Errorf("%w: a %s has no quality profile of its own", ErrInvalid, kind)
 	}
 	spec := map[string]any{}
-	if req.QualityProfileRef != "" {
+	switch {
+	case req.InheritProfile && (kind != commonv1.MediaKindAlbum || req.QualityProfileRef != ""):
+		return nil, fmt.Errorf("%w: only an album's profile is inherited, and not beside a profile of its own", ErrInvalid)
+	case req.InheritProfile:
+		spec["qualityProfileRef"] = nil // a merge patch's null removes the override
+	case req.QualityProfileRef != "":
 		spec["qualityProfileRef"] = req.QualityProfileRef
-	} else if kind != commonv1.MediaKindBook {
+	case kind != commonv1.MediaKindBook && kind != commonv1.MediaKindAlbum:
 		return nil, fmt.Errorf("%w: a quality profile is required", ErrInvalid)
 	}
 	if req.Monitored != nil {
@@ -331,6 +353,22 @@ func editSpec(kind commonv1.MediaKind, req EditRequest) (map[string]any, error) 
 			return nil, fmt.Errorf("%w: a root folder on a %s; only a standalone book's is edited", ErrInvalid, kind)
 		}
 		spec["rootFolderRef"] = req.RootFolderRef
+	}
+	if req.AnyReleaseOk != nil {
+		if kind != commonv1.MediaKindAlbum {
+			return nil, fmt.Errorf("%w: anyReleaseOk on a %s", ErrInvalid, kind)
+		}
+		spec["anyReleaseOk"] = *req.AnyReleaseOk
+	}
+	if req.ReleaseID != nil {
+		if kind != commonv1.MediaKindAlbum {
+			return nil, fmt.Errorf("%w: a release pin on a %s", ErrInvalid, kind)
+		}
+		if *req.ReleaseID == "" {
+			spec["releaseID"] = nil // a merge patch's null removes the pin
+		} else {
+			spec["releaseID"] = *req.ReleaseID
+		}
 	}
 	if len(spec) == 0 {
 		return nil, fmt.Errorf("%w: nothing to edit", ErrInvalid)

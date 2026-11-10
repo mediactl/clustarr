@@ -529,7 +529,10 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 	}
 	// A row's toggle on a series', an artist's, an author's or a comic's
 	// page swaps the row, not the page: each child kind's row as its page
-	// draws it (2026-11-10 design §9.6).
+	// draws it (2026-11-10 design §9.6). An Audiobook has no row anywhere
+	// -- an author's page lists its books, a book's its editions and files
+	// -- so its toggle, the audiobook page's own bookmark, takes the
+	// redirect below as a movie's does.
 	if isHTMX(r) {
 		ns, name := r.PathValue("namespace"), r.PathValue("name")
 		switch kind {

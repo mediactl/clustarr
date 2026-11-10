@@ -124,9 +124,16 @@ func bookFixture(t *testing.T) (*ui.Server, client.Client) {
 		},
 		Status: catalogv1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{PageCount: 341}},
 	}
+	// The standalone book has a folder of its own under the books root
+	// (design §9.3), which its Refresh & Scan and Rename work on.
 	standalone := book("standalone", "", "A Standalone Book", date(2001, time.January, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted})
 	standalone.Spec.QualityProfileRef, standalone.Spec.RootFolderRef = new("ebook-standalone"), new("books")
-	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(author, file, dispossessed, earthsea, tombs, firelight, lathe, standalone,
+	standalone.Status.Path = "/data/books/A Standalone Book (2001)"
+	root := &catalogv1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: "books", Namespace: "default"},
+		Spec:       catalogv1.RootFolderSpec{Path: "/data/books", Kind: catalogv1.RootFolderKindBook},
+	}
+	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(author, root, file, dispossessed, earthsea, tombs, firelight, lathe, standalone,
 		book("left-hand", "le-guin", "The Left Hand of Darkness", date(1969, time.March, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),
 		book("lavinia", "le-guin", "Lavinia", date(2008, time.April, 1), catalogv1.BookStatus{Phase: catalogv1.BookPhaseDelayed}),
 		book("forthcoming", "le-guin", "Forthcoming", &future, catalogv1.BookStatus{Phase: catalogv1.BookPhaseWanted}),

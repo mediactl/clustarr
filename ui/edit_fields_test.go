@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,9 +46,11 @@ import (
 // editFixture is one of each editable non-video kind with its own fields
 // set, the Authors and Books an audiobook's links choose from, the book
 // roots and profiles a standalone book's selects offer (and a root of
-// another namespace and a comic profile, which they must not), and a
-// series whose episodes hold two files, for its Delete dialog. The fake
-// client is the reader and the writer, with the ui's children indexes.
+// another namespace and a comic profile, which they must not), an album
+// of the artist with two releases and no override of its own (the music
+// profiles its select offers), and a series whose episodes hold two files,
+// for its Delete dialog. The fake client is the reader and the writer,
+// with the ui's children indexes.
 func editFixture(t *testing.T) (*ui.Server, client.Client) {
 	t.Helper()
 	artist := &catalogv1.Artist{
@@ -56,6 +59,18 @@ func editFixture(t *testing.T) (*ui.Server, client.Client) {
 			MusicBrainzID: "a74b1b7f", QualityProfileRef: "lossless", RootFolderRef: "music", MonitorNewItems: catalogv1.MonitorNewItemsAll,
 			MetadataProfile: catalogv1.MusicMetadataProfile{PrimaryTypes: []string{"album", "single"}, SecondaryTypes: []string{"studio", "live"}, ReleaseStatuses: []string{"official"}},
 		},
+	}
+	released := metav1.NewTime(time.Date(1997, time.May, 21, 0, 0, 0, 0, time.UTC))
+	okComputer := &catalogv1.Album{
+		ObjectMeta: metav1.ObjectMeta{Name: "ok-computer", Namespace: "default"},
+		Spec:       catalogv1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg-ok", Monitored: new(true)},
+		Status: catalogv1.AlbumStatus{Metadata: &catalogv1.AlbumMetadata{
+			Title: "OK Computer", SelectedReleaseID: "rel-1",
+			Releases: []catalogv1.ReleaseSummary{
+				{ID: "rel-1", Status: "Official", Country: "GB", Label: "Parlophone", ReleaseDate: &released, TrackCount: 12},
+				{ID: "rel-2", Status: "Official", Country: "US", Label: "Capitol", Title: "OK Computer", Disambiguation: "Collector's Edition", TrackCount: 24},
+			},
+		}},
 	}
 	leGuin := &catalogv1.Author{
 		ObjectMeta: metav1.ObjectMeta{Name: "le-guin", Namespace: "default"},
@@ -129,12 +144,12 @@ func editFixture(t *testing.T) (*ui.Server, client.Client) {
 		WithIndex(&catalogv1.Album{}, ui.AlbumArtistRefField, ui.IndexAlbumByArtistRef).
 		WithIndex(&catalogv1.Issue{}, ui.IssueComicRefField, ui.IndexIssueByComicRef).
 		WithObjects(
-			artist, leGuin, gibson, comic, audiobook, standalone,
+			artist, okComputer, leGuin, gibson, comic, audiobook, standalone,
 			book("wizard", "le-guin", "A Wizard of Earthsea"), book("tombs", "le-guin", "The Tombs of Atuan"), book("neuromancer", "gibson", "Neuromancer"),
 			root("books", "default", catalogv1.RootFolderKindBook), root("books-2", "default", catalogv1.RootFolderKindBook),
 			root("books-other", "other", catalogv1.RootFolderKindBook), root("comics", "default", catalogv1.RootFolderKindComic),
 			profile("ebook", catalogv1.ProfileMediaKindBook), profile("ebook-2", catalogv1.ProfileMediaKindBook), profile("cbz", catalogv1.ProfileMediaKindComic),
-			profile("hd", catalogv1.ProfileMediaKindVideo),
+			profile("hd", catalogv1.ProfileMediaKindVideo), profile("lossless", catalogv1.ProfileMediaKindMusic), profile("mp3", catalogv1.ProfileMediaKindMusic),
 			series, episode("andor-s01e01", "andor-f1"), episode("andor-s01e02", "andor-f2"), episode("andor-s01e03", ""),
 			file("andor-f1", "/data/tv/Andor/Season 01/Andor - S01E01.mkv", 3<<30), file("andor-f2", "/data/tv/Andor/Season 01/Andor - S01E02.mkv", 2<<30),
 		).Build()
@@ -229,6 +244,29 @@ func TestEditFieldsRouteServesEachKindsBlock(t *testing.T) {
 	require.NotContains(t, authors, `name="qualityProfile"`, "an author's book inherits its profile and root")
 	require.NotContains(t, authors, `name="rootFolder"`)
 
+	// An album's block (design §9.2): its profile override over the music
+	// profiles behind the artist's, which applies without one and is the
+	// choice selected here; the release choice -- anyReleaseOk on by its
+	// CRD default, and the pin over the group's releases, Automatic selected
+	// here, each release named by what the metadata knows of it, the
+	// selected one said.
+	album := fields("/library/default/album/ok-computer/edit/fields")
+	requireTag(t, album, `name="fields"`, `value="album"`)
+	requireTag(t, album, `name="qualityProfile"`, `value="__none__"`)
+	require.Contains(t, album, "(lossless)", "the artist's profile is named as the inherited choice")
+	require.Contains(t, album, `data-templ-value="mp3"`, "every music profile is offered")
+	require.NotContains(t, album, `data-templ-value="cbz"`, "a comic profile is not")
+	require.NotContains(t, album, `data-templ-value="hd"`, "nor a video one")
+	requireTag(t, album, `name="anyReleaseOk"`, `value="false"`)
+	require.True(t, editChecked(t, album, "edit-anyReleaseOk-ok-computer"), "anyReleaseOk defaults on")
+	requireTag(t, album, `name="releaseID"`, `value="__none__"`)
+	require.Contains(t, album, "Automatic (the best release of the group)")
+	require.Contains(t, album, `data-templ-value="rel-1"`)
+	require.Contains(t, album, "GB · 1997-05-21 · 12 tracks · Parlophone (selected)")
+	require.Contains(t, album, `data-templ-value="rel-2"`)
+	require.Contains(t, album, "Collector&#39;s Edition · US · 24 tracks · Capitol")
+	require.NotContains(t, album, `name="rootFolder"`, "an album's folder is its artist's")
+
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/movie/andor/edit/fields", true).Code, "a movie's fields render with the page")
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/comic/nope/edit/fields", true).Code)
 }
@@ -322,6 +360,37 @@ func TestEditDialogSavesEachKindsFieldsOnlyWhenItsBlockWasLoaded(t *testing.T) {
 	require.False(t, *bk.Spec.Monitored)
 	require.Nil(t, bk.Spec.QualityProfileRef, "the author's profile still applies")
 	require.Equal(t, "le-guin", *bk.Spec.AuthorRef)
+
+	// An album (design §9.2): a profile override, anyReleaseOk off and a
+	// pinned release; then the artist's profile again (None clears the
+	// override) and no pin; and, without the block's marker, monitored
+	// alone, the release choice left as it is.
+	require.Equal(t, http.StatusSeeOther, save("/library/default/album/ok-computer/edit", url.Values{
+		"fields": {"album"}, "qualityProfile": {"mp3"}, "monitored": {"false"}, "anyReleaseOk": {"false"}, "releaseID": {"rel-2"},
+	}))
+	var al catalogv1.Album
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ok-computer"}, &al))
+	require.Equal(t, "mp3", *al.Spec.QualityProfileRef)
+	require.False(t, *al.Spec.Monitored)
+	require.False(t, *al.Spec.AnyReleaseOk)
+	require.Equal(t, "rel-2", *al.Spec.ReleaseID)
+	require.Equal(t, "rg-ok", al.Spec.ReleaseGroupID, "a merge patch leaves the rest")
+	require.Equal(t, http.StatusSeeOther, save("/library/default/album/ok-computer/edit", url.Values{
+		"fields": {"album"}, "qualityProfile": {"__none__"}, "monitored": {"false", "true"}, "anyReleaseOk": {"false", "true"}, "releaseID": {"__none__"},
+	}))
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ok-computer"}, &al))
+	require.Nil(t, al.Spec.QualityProfileRef, "the artist's profile applies again")
+	require.True(t, *al.Spec.Monitored)
+	require.True(t, *al.Spec.AnyReleaseOk)
+	require.Nil(t, al.Spec.ReleaseID, "Automatic clears the pin")
+	require.Equal(t, http.StatusSeeOther, save("/library/default/album/ok-computer/edit", url.Values{
+		"qualityProfile": {"mp3"}, "monitored": {"false"}, "anyReleaseOk": {"false"}, "releaseID": {"rel-1"},
+	}))
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ok-computer"}, &al))
+	require.Equal(t, "mp3", *al.Spec.QualityProfileRef, "the generic field is saved as before")
+	require.False(t, *al.Spec.Monitored)
+	require.True(t, *al.Spec.AnyReleaseOk, "the release choice posted without the marker is ignored")
+	require.Nil(t, al.Spec.ReleaseID)
 }
 
 // Each non-video item page's Edit dialog renders the generic fields with

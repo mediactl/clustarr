@@ -91,8 +91,8 @@ func TestEditItemRefusesWhatTheDialogCannotMean(t *testing.T) {
 // each goes to its own type.
 func TestEditableKindsAreTheOnesWithAProfileOfTheirOwn(t *testing.T) {
 	require.Equal(t, []commonv1.MediaKind{
-		commonv1.MediaKindArtist, commonv1.MediaKindAudiobook, commonv1.MediaKindAuthor, commonv1.MediaKindBook,
-		commonv1.MediaKindComic, commonv1.MediaKindMovie, commonv1.MediaKindSeries,
+		commonv1.MediaKindAlbum, commonv1.MediaKindArtist, commonv1.MediaKindAudiobook, commonv1.MediaKindAuthor,
+		commonv1.MediaKindBook, commonv1.MediaKindComic, commonv1.MediaKindMovie, commonv1.MediaKindSeries,
 	}, actions.EditableKinds())
 	for _, kind := range actions.EditableKinds() {
 		w := &fakeWriter{}
@@ -118,6 +118,8 @@ func kindOf(obj any) commonv1.MediaKind {
 		return commonv1.MediaKindAudiobook
 	case *catalogv1alpha1.Book:
 		return commonv1.MediaKindBook
+	case *catalogv1alpha1.Album:
+		return commonv1.MediaKindAlbum
 	}
 	return ""
 }
@@ -125,8 +127,9 @@ func kindOf(obj any) commonv1.MediaKind {
 // The non-video kinds' own fields (2026-11-10 design §9.2-§9.5) ride the
 // same merge patch: an artist's monitor-new mode and metadata profile, an
 // author's, a comic's kind, special version and monitor-new flag, an
-// audiobook's region and its links (an empty link clears it), and a
-// standalone book's profile and root folder.
+// audiobook's region and its links (an empty link clears it), a
+// standalone book's profile and root folder, and an album's profile
+// override (or its removal) and release choice (design §9.2).
 func TestEditItemSendsEachKindsOwnFields(t *testing.T) {
 	on, off := true, false
 	none, dune := "", "dune"
@@ -157,6 +160,14 @@ func TestEditItemSendsEachKindsOwnFields(t *testing.T) {
 		}, `{"spec":{"qualityProfileRef":"ebook","rootFolderRef":"books","monitored":false}}`},
 		"an author's book, monitored alone": {commonv1.MediaKindBook, actions.EditRequest{Monitored: &on},
 			`{"spec":{"monitored":true}}`},
+		"album": {commonv1.MediaKindAlbum, actions.EditRequest{
+			QualityProfileRef: "lossless", Monitored: &off, AnyReleaseOk: &off, ReleaseID: &dune,
+		}, `{"spec":{"qualityProfileRef":"lossless","monitored":false,"anyReleaseOk":false,"releaseID":"dune"}}`},
+		"album, the artist's profile and no pin": {commonv1.MediaKindAlbum, actions.EditRequest{
+			InheritProfile: true, AnyReleaseOk: &on, ReleaseID: &none,
+		}, `{"spec":{"qualityProfileRef":null,"anyReleaseOk":true,"releaseID":null}}`},
+		"album, monitored alone": {commonv1.MediaKindAlbum, actions.EditRequest{Monitored: &on},
+			`{"spec":{"monitored":true}}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := &fakeWriter{}
@@ -171,8 +182,9 @@ func TestEditItemSendsEachKindsOwnFields(t *testing.T) {
 }
 
 // A kind field on another kind, a value its CRD refuses, an empty
-// metadata-profile list (which would admit nothing) or a book edit naming
-// nothing is ErrInvalid before any patch.
+// metadata-profile list (which would admit nothing), a book or album edit
+// naming nothing, or an inherited profile anywhere but alone on an album
+// is ErrInvalid before any patch.
 func TestEditItemRefusesAKindFieldOnTheWrongKindOrOutOfItsValues(t *testing.T) {
 	off := false
 	ref := "x"
@@ -196,7 +208,11 @@ func TestEditItemRefusesAKindFieldOnTheWrongKindOrOutOfItsValues(t *testing.T) {
 		"negative pages":                   {commonv1.MediaKindAuthor, actions.EditRequest{QualityProfileRef: "p", BookProfile: &actions.BookProfile{MinPages: -1}}},
 		"a root folder on a comic":         {commonv1.MediaKindComic, actions.EditRequest{QualityProfileRef: "p", RootFolderRef: "r"}},
 		"a book edit naming nothing":       {commonv1.MediaKindBook, actions.EditRequest{}},
-		"an album ranks under its artist":  {commonv1.MediaKindAlbum, actions.EditRequest{QualityProfileRef: "p"}},
+		"an album edit naming nothing":     {commonv1.MediaKindAlbum, actions.EditRequest{}},
+		"anyReleaseOk on a movie":          {commonv1.MediaKindMovie, actions.EditRequest{QualityProfileRef: "p", AnyReleaseOk: &off}},
+		"a release pin on a book":          {commonv1.MediaKindBook, actions.EditRequest{QualityProfileRef: "p", ReleaseID: &ref}},
+		"an inherited profile on a movie":  {commonv1.MediaKindMovie, actions.EditRequest{InheritProfile: true}},
+		"inherited beside a profile":       {commonv1.MediaKindAlbum, actions.EditRequest{InheritProfile: true, QualityProfileRef: "p"}},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -37,12 +37,13 @@ import (
 
 // editableKinds are the kinds whose page has the Edit dialog: the ones
 // with a quality profile in their spec -- a Book's an override of its
-// author's, a standalone book's own (2026-11-10 design §9.3).
+// author's, a standalone book's own (2026-11-10 design §9.3), an Album's an
+// override of its artist's beside its release choice (design §9.2).
 // ui/actions.EditableKinds is the same list, held equal by ui/edit_test.go.
 var editableKinds = map[commonv1.MediaKind]bool{
 	commonv1.MediaKindMovie: true, commonv1.MediaKindSeries: true, commonv1.MediaKindArtist: true,
 	commonv1.MediaKindAuthor: true, commonv1.MediaKindComic: true, commonv1.MediaKindAudiobook: true,
-	commonv1.MediaKindBook: true,
+	commonv1.MediaKindBook: true, commonv1.MediaKindAlbum: true,
 }
 
 // EditableKinds is every kind whose page has the Edit dialog.
@@ -63,8 +64,26 @@ func sortKinds(kinds []commonv1.MediaKind) {
 	}
 }
 
-// Editable is whether d's item has the Edit dialog.
-func Editable(d Detail) bool { return editableKinds[d.Item.Kind] }
+// Editable is whether d's item has the Edit dialog. A Book's edits its
+// profile and root folder, which it has only when it is standalone (design
+// §9.3 names only a standalone Book editable): the same spec.rootFolderRef
+// that gives it a folder of its own, so a Book is editable exactly when it
+// can be scanned (d.CanScan, ui.bookHasFolder), and an author's book page
+// renders no Edit dialog.
+func Editable(d Detail) bool {
+	if d.Item.Kind == commonv1.MediaKindBook {
+		return d.CanScan
+	}
+	return editableKinds[d.Item.Kind]
+}
+
+// profileInBlock is whether kind's quality profile is in the dialog's kind
+// block rather than beside Monitored: a Book's and an Album's, which are
+// overrides of their author's or artist's, so the block offers the kind's
+// own profiles and, for an album, the artist's.
+func profileInBlock(kind commonv1.MediaKind) bool {
+	return kind == commonv1.MediaKindBook || kind == commonv1.MediaKindAlbum
+}
 
 // EditFields is the Edit dialog's kind block (2026-11-10 design
 // §9.2-§9.5): the item's current spec values and the choices its selects
@@ -94,9 +113,20 @@ type EditFields struct {
 	Authors, Books             []AddOption
 	// A book's: Standalone when it has no author, so its profile and root
 	// folder are its own to edit, over the book profiles and book roots.
+	// An album's QualityProfileRef is its override of its artist's, "" for
+	// none, over the music profiles.
 	Standalone                       bool
 	QualityProfileRef, RootFolderRef string
 	Profiles, RootFolders            []AddOption
+	// An album's (design §9.2): ParentProfile is its artist's profile, the
+	// one that applies without an override; AnyReleaseOk its
+	// spec.anyReleaseOk; ReleaseID the MusicBrainz release spec.releaseID
+	// pins, "" for none, over Releases, the release group's releases as the
+	// metadata lists them.
+	ParentProfile string
+	AnyReleaseOk  bool
+	ReleaseID     string
+	Releases      []AddOption
 }
 
 // EditFieldsNone is the value of an optional link's select that clears it
@@ -138,7 +168,7 @@ func EditOptions() map[string][]AddOption {
 func lazyEditFields(kind commonv1.MediaKind) bool {
 	switch kind {
 	case commonv1.MediaKindArtist, commonv1.MediaKindAuthor, commonv1.MediaKindComic,
-		commonv1.MediaKindAudiobook, commonv1.MediaKindBook:
+		commonv1.MediaKindAudiobook, commonv1.MediaKindBook, commonv1.MediaKindAlbum:
 		return true
 	}
 	return false
@@ -151,10 +181,11 @@ func lazyEditFields(kind commonv1.MediaKind) bool {
 // fetched as the dialog opens (EditKindFields: an artist's and an author's
 // monitor-new mode and metadata profile, a comic's kind, special version
 // and new-issues flag, an audiobook's region and links, a standalone
-// book's profile and root folder). Save posts the form to the item's edit
-// route (handleEditItem, ui/actions.EditItem), which patches those spec
-// leaves and returns to the page. A book's profile is in its block, since
-// an author's book inherits it.
+// book's profile and root folder, an album's profile override and release
+// choice). Save posts the form to the item's edit route (handleEditItem,
+// ui/actions.EditItem), which patches those spec leaves and returns to the
+// page. A book's and an album's profile is in its block (profileInBlock),
+// since each is an override of its parent's.
 templ editDialog(d Detail) {
 	@dialog.Dialog(dialog.Props{ID: "edit-" + d.Item.Ref.Name}) {
 		@button.Button(actionButtonProps(editTriggerAttrs(ctx))) {
@@ -176,7 +207,7 @@ templ editDialog(d Detail) {
 						Monitored
 					}
 				}
-				if d.Item.Kind != commonv1.MediaKindBook {
+				if !profileInBlock(d.Item.Kind) {
 					@editSelect("qualityProfile", d.Item.Ref.Name, "Quality Profile", d.Profiles, d.Item.QualityProfileRef)
 				}
 				if d.Item.Kind == commonv1.MediaKindSeries {
@@ -266,14 +297,53 @@ templ EditKindFields(f EditFields) {
 				} else {
 					<p class="text-sm text-muted-foreground" data-edit-inherits>This book's quality profile and root folder are its author's.</p>
 				}
+			case commonv1.MediaKindAlbum:
+				@editSelect("qualityProfile", f.Item, "Quality Profile", withInherited(f.Profiles, "Artist's", f.ParentProfile), noneFor(f.QualityProfileRef))
+				@editSwitch("anyReleaseOk", f.Item, "Take another release of the group when it is the best match", f.AnyReleaseOk)
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "edit-releaseID-" + f.Item + "-trigger"}) {
+						Release
+					}
+					@selectcomp.Select(selectcomp.Props{ID: "edit-releaseID-" + f.Item, Name: "releaseID", DefaultValue: noneFor(f.ReleaseID), Required: true}) {
+						@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full"}) {
+							@selectcomp.Value(selectcomp.ValueProps{Placeholder: "—"})
+						}
+						@selectcomp.Content() {
+							@selectcomp.Group() {
+								for _, o := range withNoneLabelled(f.Releases, "Automatic (the best release of the group)") {
+									@selectcomp.Item(selectcomp.ItemProps{Value: o.Value}) {
+										{ o.Label }
+									}
+								}
+							}
+						}
+					}
+					@field.Description() {
+						The MusicBrainz release the tracks are taken from; a pin is kept through refreshes.
+					}
+				}
 		}
 	</div>
 }
 
-// withNone is opts behind a "None" choice, the one that clears a link.
-func withNone(opts []AddOption) []AddOption {
-	return append([]AddOption{{EditFieldsNone, "None"}}, opts...)
+// withInherited is opts behind the choice that clears an override so the
+// parent's profile applies again ("Artist's", with the parent's profile
+// named when known): EditFieldsNone, as a link's None.
+func withInherited(opts []AddOption, parent, profile string) []AddOption {
+	label := parent
+	if profile != "" {
+		label += " (" + profile + ")"
+	}
+	return withNoneLabelled(opts, label)
 }
+
+// withNoneLabelled is opts behind an EditFieldsNone choice reading label.
+func withNoneLabelled(opts []AddOption, label string) []AddOption {
+	return append([]AddOption{{EditFieldsNone, label}}, opts...)
+}
+
+// withNone is opts behind a "None" choice, the one that clears a link.
+func withNone(opts []AddOption) []AddOption { return withNoneLabelled(opts, "None") }
 
 // noneFor is the select's value for a link: the name, or None for an
 // unset one.

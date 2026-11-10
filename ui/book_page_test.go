@@ -19,12 +19,16 @@ package ui_test
 
 import (
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 )
 
 // bookXCardRef is a library card's reference.
@@ -86,9 +90,10 @@ func TestBookPageIsTheMoviePageForABook(t *testing.T) {
 	require.Contains(t, page, "Science fiction")
 
 	// The action bar: Refresh (no folder of the book's own), Search Book
-	// and the interactive search into #book-modal; Rename needs a folder
-	// and Delete a kind the dialog takes, so neither is drawn; Edit is
-	// (W4c: a book's profile and root folder, in the dialog's kind block).
+	// and the interactive search into #book-modal; Rename needs a folder,
+	// Delete a kind the dialog takes and Edit a standalone book (design
+	// §9.3: an author's book takes its author's profile and root), so none
+	// of the three is drawn.
 	refresh := requireTag(t, page, `data-action="refresh-metadata"`, `form="refresh-dispossessed"`)
 	require.NotContains(t, refresh, "Scan", "a book has no folder of its own to scan")
 	require.NotContains(t, page, `name="scan" value="true"`)
@@ -96,7 +101,7 @@ func TestBookPageIsTheMoviePageForABook(t *testing.T) {
 	requireTag(t, page, `data-action="book-interactive-search"`, `form="interactive-search-dispossessed"`)
 	requireTag(t, page, `id="interactive-search-dispossessed"`, `hx-post="/library/default/book/dispossessed/search/interactive"`, `hx-target="#book-modal"`)
 	require.NotContains(t, page, `data-action="rename-apply"`)
-	requireTag(t, page, `data-edit-dialog="dispossessed"`)
+	require.NotContains(t, page, `data-edit-dialog="dispossessed"`, "an author's book is not editable (design §9.3)")
 	require.NotContains(t, page, `data-action="delete-confirm"`)
 
 	// The bookmark flips the book's monitoring and returns here.
@@ -171,8 +176,10 @@ func TestBookPageNeighboursFollowTheReadingOrder(t *testing.T) {
 
 // A standalone book (no authorRef) renders the same page from its own
 // card: no author link, its own profile, the tab's neighbours, a trail
-// without an author. A book whose author the library does not hold, or no
-// book, is not found.
+// without an author -- and, since it has a folder of its own under its
+// own root (design §9.3), its bar renders Refresh & Scan, Rename and Edit
+// where an author's book's renders Refresh alone. A book whose author the
+// library does not hold, or no book, is not found.
 func TestStandaloneBookPageNamesNoAuthor(t *testing.T) {
 	srv, _ := bookFixture(t)
 	rec := getPath(t, srv, "/library/default/book/standalone", false)
@@ -191,10 +198,60 @@ func TestStandaloneBookPageNamesNoAuthor(t *testing.T) {
 	require.Contains(t, page, "No file on disk.")
 	require.NotContains(t, page, `data-section="editions"`, "no editions known")
 	requireTag(t, page, `data-action="book-interactive-search"`, `form="interactive-search-standalone"`)
+	requireTag(t, page, `data-action="refresh-metadata"`, `title="Refresh &amp; Scan"`)
+	requireTag(t, page, `id="refresh-standalone"`, `action="/library/default/book/standalone/refresh"`)
+	require.Contains(t, page, `name="scan" value="true"`)
+	requireTag(t, page, `data-action="rename-dry-run"`, `form="rename-dry-run-standalone"`)
+	requireTag(t, page, `data-action="rename-apply"`, `form="rename-standalone"`)
+	requireTag(t, page, `data-edit-dialog="standalone"`)
+	require.NotContains(t, page, `data-action="delete-confirm"`, "a Book is no deletable kind (catalogv1.DeletableKinds)")
 
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/book/nope", false).Code)
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/book/neuromancer", false).Code,
 		"a book whose author the library does not hold")
+}
+
+// A standalone book's Refresh & Scan and Rename work on its own folder
+// under its own root (design §9.3; itemFolder's Book case): each creates a
+// LibraryScan restricted to it, as a movie's do. An author's book has no
+// folder of its own, so its refresh scans nothing and its rename is
+// refused, as for any item without one.
+func TestStandaloneBookScansAndRenamesItsOwnFolder(t *testing.T) {
+	srv, c := bookFixture(t)
+	rec := postForm(t, srv, "/library/default/book/standalone/refresh",
+		url.Values{"return": {"/library/default/book/standalone"}, "scan": {"true"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	var scans catalogv1.LibraryScanList
+	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
+	require.Len(t, scans.Items, 1)
+	require.Equal(t, "books", scans.Items[0].Spec.RootFolderRef)
+	require.Equal(t, "A Standalone Book (2001)", scans.Items[0].Spec.Subpath, "the scan is restricted to the book's own folder")
+
+	rec = postForm(t, srv, "/library/default/book/standalone/rename",
+		url.Values{"return": {"/library/default/book/standalone"}, "rename": {"dryRun"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
+	require.Len(t, scans.Items, 2)
+	var renames int
+	for _, sc := range scans.Items {
+		if sc.Spec.Rename == catalogv1.ScanRenameDryRun {
+			renames++
+			require.Equal(t, "A Standalone Book (2001)", sc.Spec.Subpath)
+		}
+	}
+	require.Equal(t, 1, renames)
+
+	// An author's book: the refresh alone, and no rename.
+	rec = postForm(t, srv, "/library/default/book/dispossessed/refresh",
+		url.Values{"return": {"/library/default/book/dispossessed"}, "scan": {"true"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
+	require.Len(t, scans.Items, 2, "an author's book has no folder of its own to scan")
+	rec = postForm(t, srv, "/library/default/book/dispossessed/rename",
+		url.Values{"return": {"/library/default/book/dispossessed"}, "rename": {"apply"}}, false)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
+	require.Len(t, scans.Items, 2)
 }
 
 // bookXOneLine joins a page's lines, so a regexp can span tags.

@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,8 +72,11 @@ var (
 // monitor-new mode and metadata profile, an author's, a comic's kind,
 // special version and new-issues flag, an audiobook's region and links
 // with the Authors of its namespace and the linked author's Books to
-// choose from, a book's profile and root folder when it is standalone.
-// false for a kind without a block or an item the reader does not hold.
+// choose from, a book's profile and root folder when it is standalone, an
+// album's profile override over the music profiles (its artist's named as
+// the choice that clears it) and its release choice over the release
+// group's releases (design §9.2). false for a kind without a block or an
+// item the reader does not hold.
 func (s *Server) editFields(ctx context.Context, ns string, kind commonv1.MediaKind, name string) (views.EditFields, bool) {
 	f := views.EditFields{Kind: kind, Item: name}
 	if s.opts.Reader == nil {
@@ -122,6 +126,32 @@ func (s *Server) editFields(ctx context.Context, ns string, kind commonv1.MediaK
 		}
 		f.Authors = s.authorOptions(ctx, ns)
 		f.Books = s.bookOptions(ctx, ns, f.AuthorRef, f.BookRef)
+	case commonv1.MediaKindAlbum:
+		var a catalogv1.Album
+		if !s.getObject(ctx, ref, &a) {
+			return f, false
+		}
+		if a.Spec.QualityProfileRef != nil {
+			f.QualityProfileRef = *a.Spec.QualityProfileRef
+		}
+		f.AnyReleaseOk = a.Spec.AnyReleaseOk == nil || *a.Spec.AnyReleaseOk
+		if a.Spec.ReleaseID != nil {
+			f.ReleaseID = *a.Spec.ReleaseID
+		}
+		var artist catalogv1.Artist
+		if s.getObject(ctx, types.NamespacedName{Namespace: ns, Name: a.Spec.ArtistRef}, &artist) {
+			f.ParentProfile = artist.Spec.QualityProfileRef
+		}
+		for _, qp := range s.listQualityProfiles(ctx) {
+			if qp.Spec.MediaKind == catalogv1.ProfileMediaKindMusic {
+				f.Profiles = append(f.Profiles, views.AddOption{Value: qp.Name, Label: qp.Name})
+			}
+		}
+		if md := a.Status.Metadata; md != nil {
+			for _, r := range md.Releases {
+				f.Releases = append(f.Releases, views.AddOption{Value: r.ID, Label: releaseLabel(r, r.ID == md.SelectedReleaseID)})
+			}
+		}
 	case commonv1.MediaKindBook:
 		var b catalogv1.Book
 		if !s.getObject(ctx, ref, &b) {
@@ -152,6 +182,42 @@ func (s *Server) editFields(ctx context.Context, ns string, kind commonv1.MediaK
 		return f, false
 	}
 	return f, true
+}
+
+// releaseLabel names one release of an album's group for the Release
+// select: its own title and disambiguation when it has them, the country,
+// the date, the track count, the label and catalogue number, a status other
+// than Official, each left out when unknown, and "(selected)" on the one
+// the tracks were taken from.
+func releaseLabel(r catalogv1.ReleaseSummary, selected bool) string {
+	var parts []string
+	add := func(p string) {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	add(r.Title)
+	add(r.Disambiguation)
+	add(r.Country)
+	if r.ReleaseDate != nil {
+		add(r.ReleaseDate.UTC().Format(time.DateOnly))
+	}
+	if r.TrackCount > 0 {
+		add(fmt.Sprintf("%d tracks", r.TrackCount))
+	}
+	add(r.Label)
+	add(r.CatalogNumber)
+	if r.Status != "" && !strings.EqualFold(r.Status, "official") {
+		add(r.Status)
+	}
+	if len(parts) == 0 {
+		add(r.ID)
+	}
+	label := strings.Join(parts, " · ")
+	if selected {
+		label += " (selected)"
+	}
+	return label
 }
 
 // orDefault is values, or def when there are none.
@@ -226,7 +292,8 @@ func sortOptions(opts []views.AddOption) {
 	})
 }
 
-// editRequest reads the Edit dialog's form for kind: the profile, the
+// editRequest reads the Edit dialog's form for kind: the profile (an
+// album's "Artist's" choice, views.EditFieldsNone, clears its override), the
 // monitored switch (its "true" after the form's "false"), a series' type
 // and a movie's availability as before, and the kind block's fields only
 // when the block posted its "fields" marker (views.EditKindFields) -- an
@@ -240,6 +307,9 @@ func editRequest(r *http.Request, kind commonv1.MediaKind) (actions.EditRequest,
 		Monitored:           &monitored,
 		SeriesType:          r.FormValue("seriesType"),
 		MinimumAvailability: r.FormValue("minimumAvailability"),
+	}
+	if kind == commonv1.MediaKindAlbum && req.QualityProfileRef == views.EditFieldsNone {
+		req.QualityProfileRef, req.InheritProfile = "", true
 	}
 	if r.FormValue("fields") != string(kind) {
 		return req, nil
@@ -276,6 +346,10 @@ func editRequest(r *http.Request, kind commonv1.MediaKind) (actions.EditRequest,
 		req.AuthorRef, req.BookRef = linkValue(r.FormValue("authorRef")), linkValue(r.FormValue("bookRef"))
 	case commonv1.MediaKindBook:
 		req.RootFolderRef = r.FormValue("rootFolder")
+	case commonv1.MediaKindAlbum:
+		anyRelease := formTrue(r, "anyReleaseOk")
+		req.AnyReleaseOk = &anyRelease
+		req.ReleaseID = linkValue(r.FormValue("releaseID"))
 	}
 	return req, nil
 }

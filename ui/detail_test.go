@@ -19,6 +19,7 @@ package ui_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -501,5 +502,168 @@ func TestSeriesPageStatusReadsItsEpisodes(t *testing.T) {
 		})
 		body := detailPage(t, srv, "/library/default/series/"+tc.name)
 		require.Contains(t, section(t, body, `data-fact="status"`), tc.want, tc.name)
+	}
+}
+
+// countingReader is the fixture's reader with its MediaFile Gets and its
+// Lists of a container's children (episodes, albums, books, issues)
+// counted, so a test can say what a page render read; the Edit dialog's
+// QualityProfile List is not counted.
+type countingReader struct {
+	client.Reader
+	fileGets, lists int
+}
+
+func (c *countingReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*catalogv1.MediaFile); ok {
+		c.fileGets++
+	}
+	return c.Reader.Get(ctx, key, obj, opts...)
+}
+
+func (c *countingReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	switch list.(type) {
+	case *catalogv1.EpisodeList, *catalogv1.AlbumList, *catalogv1.BookList, *catalogv1.IssueList:
+		c.lists++
+	}
+	return c.Reader.List(ctx, list, opts...)
+}
+
+// bigSeries is a series of n episodes, each with a file of 1 GiB under its
+// season folder, with its rollup saying so (status.episodeFileCount, the
+// seasons' sizes) unless files overrides the count the rollup reports.
+func bigSeries(name string, n int, files int32) []client.Object {
+	series := &catalogv1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec:       catalogv1.SeriesSpec{TvdbID: 1, QualityProfileRef: "hd", RootFolderRef: "tv", Monitored: new(true)},
+		Status: catalogv1.SeriesStatus{
+			Path: "/data/tv/" + name, EpisodeFileCount: files,
+			Seasons: []catalogv1.SeasonStatus{{Number: 1, EpisodeCount: int32(n), EpisodeFileCount: files, SizeBytes: int64(n) << 30}}, //nolint:gosec // a test's count
+		},
+	}
+	objs := []client.Object{series}
+	for i := 1; i <= n; i++ {
+		ep := fmt.Sprintf("%s-s01e%04d", name, i)
+		objs = append(objs,
+			&catalogv1.Episode{
+				ObjectMeta: metav1.ObjectMeta{Name: ep, Namespace: "default"},
+				Spec:       catalogv1.EpisodeSpec{SeriesRef: name, SeasonNumber: 1, EpisodeNumber: int32(i)}, //nolint:gosec // a test's count
+				Status:     catalogv1.EpisodeStatus{HasFile: true, FileRef: new(ep + "-file")},
+			},
+			&catalogv1.MediaFile{
+				ObjectMeta: metav1.ObjectMeta{Name: ep + "-file", Namespace: "default"},
+				Spec: catalogv1.MediaFileSpec{
+					MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: ep},
+					Path:     fmt.Sprintf("/data/tv/%s/Season 01/%s.mkv", name, ep), SizeBytes: 1 << 30,
+				},
+			})
+	}
+	return objs
+}
+
+// containerServer is a server over objs through a counting reader, with
+// the series and artist cards the pages are reached from.
+func containerServer(t testing.TB, objs []client.Object, items ...projection.LibraryItem) (*ui.Server, *countingReader) {
+	t.Helper()
+	scheme, err := ui.NewReaderScheme() // libraryTestScheme, for a benchmark too
+	require.NoError(t, err)
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithIndex(&catalogv1.Episode{}, ui.EpisodeSeriesRefField, ui.IndexEpisodeBySeriesRef).
+		WithIndex(&catalogv1.Album{}, ui.AlbumArtistRefField, ui.IndexAlbumByArtistRef).
+		WithObjects(objs...).Build()
+	reader := &countingReader{Reader: c}
+	return ui.NewServer(t.Context(), ui.Options{
+		Reader:  reader,
+		Library: func(context.Context) []projection.LibraryItem { return items },
+	}), reader
+}
+
+func seriesCard(name string, files int32, size int64) projection.LibraryItem {
+	return projection.LibraryItem{
+		Ref: types.NamespacedName{Namespace: "default", Name: name}, Kind: commonv1.MediaKindSeries, Tab: projection.TabTV,
+		Title: name, Monitored: true, QualityProfileRef: "hd", EpisodeFileCount: files, SizeBytes: size,
+	}
+}
+
+// A container's page reads its children's files for its Size fact and its
+// Delete dialog only up to a bound (ui.maxContainerFiles, 500): a series the
+// rollup counts over it is read no further -- no episode List, no MediaFile
+// Get -- its hero shows no Size fact, and its Delete dialog counts from the
+// rollup, the count and the seasons' size its card carries; a series under
+// it reads one file per episode, as before. An artist's rollup counts
+// albums, not tracks, so its albums are listed and the Gets are skipped once
+// the tracks' files run over the bound; its dialog, with no rollup count of
+// files at hand, names the folder alone.
+func TestContainerFilesAreBoundedByTheRollup(t *testing.T) {
+	// Over the bound: the rollup says 501 files, and the cluster holds the
+	// three the fake would otherwise read.
+	objs := bigSeries("big", 3, 501)
+	srv, reader := containerServer(t, objs, seriesCard("big", 501, 5<<30))
+	page := detailPage(t, srv, "/library/default/series/big")
+	require.NotContains(t, page, `data-fact="size"`, "no Size fact from files the page did not read")
+	require.Regexp(t, `data-delete-files>[^<]*501 file\(s\), 5\.00 GiB<`, page, "the Delete dialog counts from the rollup")
+	require.Contains(t, page, `data-delete-folder>/data/tv/big<`)
+	require.Zero(t, reader.fileGets, "no file is read for a container over the bound")
+	require.Zero(t, reader.lists, "nor are its children listed when the rollup already says so")
+
+	// Under the bound: every file is read, once.
+	srv, reader = containerServer(t, bigSeries("small", 3, 3), seriesCard("small", 3, 3<<30))
+	page = detailPage(t, srv, "/library/default/series/small")
+	require.Contains(t, section(t, page, `data-fact="size"`), "3.00 GiB")
+	require.Regexp(t, `data-delete-files>[^<]*3 file\(s\), 3\.00 GiB<`, page)
+	require.Equal(t, 3, reader.fileGets)
+
+	// An artist whose albums' tracks name more files than the bound: the
+	// albums are listed (the rollup counts albums, a floor), the Gets are
+	// not made.
+	artist := &catalogv1.Artist{
+		ObjectMeta: metav1.ObjectMeta{Name: "prolific", Namespace: "default"},
+		Spec:       catalogv1.ArtistSpec{MusicBrainzID: "mb-p", QualityProfileRef: "lossless", RootFolderRef: "music"},
+		Status:     catalogv1.ArtistStatus{Path: "/data/music/Prolific", AlbumFileCount: 3},
+	}
+	albums := []client.Object{artist}
+	for a := 1; a <= 3; a++ {
+		album := &catalogv1.Album{
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("prolific-%d", a), Namespace: "default"},
+			Spec:       catalogv1.AlbumSpec{ArtistRef: "prolific", ReleaseGroupID: fmt.Sprintf("rg-%d", a)},
+			Status:     catalogv1.AlbumStatus{TrackFileCount: 200},
+		}
+		for tr := 1; tr <= 200; tr++ {
+			album.Status.Tracks = append(album.Status.Tracks, catalogv1.Track{RecordingID: fmt.Sprintf("rec-%d-%d", a, tr), FileRef: new(fmt.Sprintf("prolific-%d-%03d", a, tr))})
+		}
+		albums = append(albums, album)
+	}
+	srv, reader = containerServer(t, albums, projection.LibraryItem{
+		Ref: types.NamespacedName{Namespace: "default", Name: "prolific"}, Kind: commonv1.MediaKindArtist, Tab: projection.TabMusic,
+		Title: "Prolific", Monitored: true, QualityProfileRef: "lossless",
+	})
+	page = detailPage(t, srv, "/library/default/artist/prolific")
+	require.NotContains(t, page, `data-fact="size"`)
+	require.NotContains(t, page, `data-delete-files`, "an artist's rollup counts albums, not files, so the dialog names the folder alone")
+	require.Contains(t, page, `data-delete-folder>/data/music/Prolific<`)
+	require.Zero(t, reader.fileGets, "600 track files are over the bound")
+	require.Equal(t, 2, reader.lists, "the albums were listed to learn that, once beside the page's own albums table")
+}
+
+// BenchmarkContainerFiles times a series page's render over the fake
+// reader -- the slow end, a JSON decode per Get -- at 50 and 500 files
+// (the bound, every file read) and at 1,100 (over it, nothing read), the
+// numbers ui.maxContainerFiles' doc records: 2026-11-10, on an i7-10750H,
+// 3.95 ms, 12.7 ms and 2.9 ms a render.
+func BenchmarkContainerFiles(b *testing.B) {
+	for _, n := range []int{50, 500, 1100} {
+		b.Run(fmt.Sprintf("files=%d", n), func(b *testing.B) {
+			srv, reader := containerServer(b, bigSeries("bench", n, int32(n)), seriesCard("bench", int32(n), int64(n)<<30)) //nolint:gosec // a benchmark's count
+			req := httptest.NewRequest(http.MethodGet, "/library/default/series/bench", nil)
+			b.ResetTimer()
+			for b.Loop() {
+				rec := httptest.NewRecorder()
+				srv.Handler().ServeHTTP(rec, req)
+				if rec.Code != http.StatusOK {
+					b.Fatal(rec.Code)
+				}
+			}
+			b.ReportMetric(float64(reader.fileGets)/float64(b.N), "gets/op")
+		})
 	}
 }
