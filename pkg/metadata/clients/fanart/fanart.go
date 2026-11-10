@@ -212,7 +212,11 @@ func (c *Client) Artwork(ctx context.Context, kind commonv1.MediaKind, ids metad
 	}
 
 	if albumID == "" {
-		return c.images(raw)
+		imgs, err := c.images(raw)
+		if err != nil || kind != commonv1.MediaKindArtist {
+			return imgs, err
+		}
+		return withArtistPosters(imgs), nil
 	}
 	album, err := findAlbum(raw["albums"], albumID)
 	if err != nil {
@@ -375,3 +379,20 @@ var orderedKeys = []string{
 }
 
 var _ metadata.ArtworkProvider = (*Client)(nil)
+
+// withArtistPosters gives an artist a poster: fanart.tv has no portrait
+// poster for an artist, only the landscape artistthumb, so each thumb is
+// also offered as a poster (2026-11-10 design §5.4). Without one an
+// artist's card showed the placeholder and the Plex artist no cover, since
+// every poster reader takes the poster entry alone.
+func withArtistPosters(imgs []metadata.Image) []metadata.Image {
+	out := imgs
+	for _, img := range imgs {
+		if img.Type == metadata.ImageTypeThumb {
+			p := img
+			p.Type = metadata.ImageTypePoster
+			out = append(out, p)
+		}
+	}
+	return out
+}

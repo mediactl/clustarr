@@ -126,7 +126,10 @@ func TestArtistArtworkIsTheArtistsOwnNotItsAlbums(t *testing.T) {
 	for _, i := range imgs {
 		types = append(types, i.Type)
 	}
-	require.Equal(t, []metadata.ImageType{metadata.ImageTypeFanart, metadata.ImageTypeLogo, metadata.ImageTypeBanner, metadata.ImageTypeThumb}, types)
+	// Since 2026-11-10 each artist thumb is offered as a poster too (fanart.tv
+	// has no portrait artist image, and every poster reader wants one).
+	require.Equal(t, []metadata.ImageType{metadata.ImageTypeFanart, metadata.ImageTypeLogo, metadata.ImageTypeBanner, metadata.ImageTypeThumb, metadata.ImageTypePoster}, types)
+	require.Equal(t, imgs[3].URL, imgs[4].URL, "the poster is the thumb's own image")
 }
 
 func TestAlbumArtworkPicksItsReleaseGroupFromEitherAlbumsShape(t *testing.T) {
