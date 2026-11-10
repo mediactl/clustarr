@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -364,17 +365,28 @@ func sniffExtension(path string) string {
 }
 
 // knownExtensions are the extensions a file may carry and be left alone by
-// the magic step: what the importer (pkg/fsops' media extensions, Calibre's
-// .fb2 and .djvu among the books since 2026-11-10), the unpacker and the
-// cleanup know.
-var knownExtensions = map[string]bool{
-	".mkv": true, ".mp4": true, ".m4v": true, ".avi": true, ".mov": true, ".wmv": true, ".flv": true,
-	".webm": true, ".ts": true, ".m2ts": true, ".mpg": true, ".mpeg": true, ".iso": true, ".img": true,
+// the magic step: every media extension the importer classifies, taken
+// from pkg/fsops' own table for every kind so the two cannot drift (until
+// 2026-11-10 this map was a copy of it that never learned .azw, .cb7,
+// .cbt, .wv, .ape or .wma, so a .cb7 -- a 7z container -- was renamed
+// .cb7.7z), plus what the unpacker and the cleanup know: the video
+// containers fsops does not import (.flv, disc images), subtitles, notes,
+// images, archives and par2.
+var knownExtensions = withMediaExtensions(map[string]bool{
+	".flv": true, ".iso": true, ".img": true,
 	".srt": true, ".sub": true, ".idx": true, ".ass": true, ".ssa": true, ".vtt": true,
 	".nfo": true, ".sfv": true, ".txt": true, ".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
-	".mp3": true, ".flac": true, ".m4a": true, ".m4b": true, ".ogg": true, ".wav": true, ".aac": true,
-	".epub": true, ".pdf": true, ".mobi": true, ".azw3": true, ".fb2": true, ".djvu": true, ".cbz": true, ".cbr": true,
 	".rar": true, ".zip": true, ".7z": true, ".par2": true,
+})
+
+// withMediaExtensions is extra plus every extension of every kind in
+// fsops.MediaExtensions.
+func withMediaExtensions(extra map[string]bool) map[string]bool {
+	out := maps.Clone(extra)
+	for _, exts := range fsops.MediaExtensions {
+		maps.Copy(out, exts)
+	}
+	return out
 }
 
 // hasUsableExtension reports whether a name carries an extension the rest

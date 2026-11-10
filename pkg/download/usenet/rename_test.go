@@ -29,6 +29,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/test/par2test"
 )
 
@@ -196,6 +197,14 @@ func TestSniffExtensionKnowsTheContainersThatMatter(t *testing.T) {
 	require.True(t, hasUsableExtension("release.r03"))
 	require.True(t, hasUsableExtension("war-and-peace.fb2"), "fsops' book extensions")
 	require.True(t, hasUsableExtension("taocp.DJVU"))
+	for _, name := range []string{"kindle.azw", "comic.cb7", "comic.cbt", "track.wv", "track.ape", "track.wma"} {
+		require.True(t, hasUsableExtension(name), "%s: in fsops' table and never in the usenet copy of it", name)
+	}
+	for kind, exts := range fsops.MediaExtensions {
+		for ext := range exts {
+			require.True(t, hasUsableExtension("file"+ext), "%s %s: every extension the importer classifies is usable", kind, ext)
+		}
+	}
 	require.False(t, hasUsableExtension("z75QORTuwk9NHlDJbb53izyP7TQqFzG4"))
 	require.False(t, hasUsableExtension("weird.bin"))
 }
