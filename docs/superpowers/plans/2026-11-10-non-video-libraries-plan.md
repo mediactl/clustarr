@@ -601,6 +601,24 @@ watch test's Artist, the import agent's consumer count (import-nfo), and
 the new Artist/Author item-path tests' memo counts -- repaired by three
 agents the same afternoon (their commits follow this note).
 
+**Repaired 2026-11-10 (a625715f, a3255ef1, f8d85f8f, 37846d53, 9b8de72c,
+8e4f094b, 58a75ef5; pushed, the talos deploy released at 58a75ef5).** Three
+real defects beside the stale fixtures: Album, Book, Audiobook and Comic
+marked MetadataReady False/Refreshing on an outdated-but-fresh document
+(schemaVersion 0, every pre-D8 document), where Movie, Series, Artist and
+Author read True/Upgrading -- every non-video item would have dropped out
+of Ready together at this upgrade; an Artist's or Author's fan-out asked the
+gateway for the whole child list on every wake before its metadata landed
+(three calls per new item; it now waits for the document and reads
+AlbumsSynced/BooksSynced MetadataPending meanwhile) and `childsync.KeyAt`
+truncates the refresh to the apiserver's second; the Comic's memo is
+consulted with or without a document (a Comic lists from its spec's source
+ids), so its wakes before the document fetch nothing more. Test debts
+noted: `app/catalog/metadata`'s 17 envtests want a records writer in their
+harness (the audiobook tests now build one over membus, the pattern to
+copy); `series/episodesync.go` fans out before metadata on every pass as
+the Comic did (since 2026-10-28, untouched).
+
 ## Order and gates
 
 ```
