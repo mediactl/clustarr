@@ -46,6 +46,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -437,7 +438,16 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 			itempass.Published(itempass.From(ctx), metadatainputs.Durable, seq)
 			k8s.MarkFalse(bk, &conditions, conditionQueueFull, "Published", "metadata task published")
 		}
-		k8s.MarkFalse(bk, &conditions, catalogv1alpha1.BookConditionMetadataReady, "Refreshing", "metadata refresh requested")
+		// An outdated document is still a fresh one: the condition stays
+		// True while the once-only refresh is in flight (Movie's and Series'
+		// "Upgrading"), as metaReady above already reads it, so the Book
+		// never drops out of Ready for a schema bump.
+		if outdated {
+			k8s.MarkTrue(bk, &conditions, catalogv1alpha1.BookConditionMetadataReady, "Upgrading",
+				"metadata schema %d is older than %d; refreshing once", bk.Status.Metadata.SchemaVersion, pkgmetadata.SchemaVersion)
+		} else {
+			k8s.MarkFalse(bk, &conditions, catalogv1alpha1.BookConditionMetadataReady, "Refreshing", "metadata refresh requested")
+		}
 	} else {
 		k8s.MarkTrue(bk, &conditions, catalogv1alpha1.BookConditionMetadataReady, k8s.ReasonReconciled, "metadata is fresh")
 	}
