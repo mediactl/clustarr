@@ -1130,8 +1130,11 @@ its own design:
    primary), com.plexapp.agents.lastfm (primary, prefs), tv.plex.agents.music
    (Plex Music), tv.plex.agents.none and tv.plex.agents.nfo.music -- listed
    twice, as "Plex NFO Music" (id 9) and as "Clustarr Music" (id 10), the
-   second of unknown origin and worth asking the cluster-plex sessions about
-   before provisioning; /media/providers lists no custom provider at all, so
+   second of unknown origin -- not the §7.6 spike, which ran against a
+   local PMS, and nothing in cluster-plex names music (clustarr-c0,
+   2026-11-10); the ui's own root is tv.plex.agents.custom.clustarr.music,
+   flagged off on talos -- so read the agents table in PostgreSQL (schema
+   plex, id 10's creation) before provisioning; /media/providers lists no custom provider at all, so
    the movies' and tv's registrations are not read there. The sections today
    are 1 movie and 2 show on the clustarr custom providers.)
 
