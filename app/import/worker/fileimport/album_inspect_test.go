@@ -194,16 +194,16 @@ func TestAnAlbumDownloadIsAttributedTrackByTrack(t *testing.T) {
 		assert.Equal(t, []string{album.Name}, files[intro].Keys)
 		// Placed where the loop's naming planner would put it (design D7):
 		// the album folder and the track preset's name, never the file's own.
-		assert.Equal(t, filepath.Join(album.Status.Path, "Muse - Absolution - 01 - Intro.flac"), files[intro].Dest,
-			"a track is placed at its canonical name under the album's folder")
+		assert.Equal(t, filepath.Join(album.Status.Path, "Disc 01", "Muse - Absolution - 01 - Intro.flac"), files[intro].Dest,
+			"a track is placed at its canonical name under the album's folder; a two-medium release puts each disc in its own folder (design D19), named Disc NN when the release records no medium format")
 		require.NotNil(t, files[intro].Frozen.Quality)
 		assert.Equal(t, "FLAC", files[intro].Frozen.Quality.Name, "frozen from the probe")
 
 		// No tags: "02 - Blackout" is track 2, and the CD2 folder its disc.
 		require.Empty(t, files[blackout].Rejections, "%+v", files[blackout].Rejections)
 		assert.Equal(t, "d2t2", files[blackout].Frozen.Track)
-		assert.Equal(t, filepath.Join(album.Status.Path, "Muse - Absolution - 02 - Blackout.flac"), files[blackout].Dest,
-			"the disc folder names the disc for the attribution and does not survive the import")
+		assert.Equal(t, filepath.Join(album.Status.Path, "Disc 02", "Muse - Absolution - 02 - Blackout.flac"), files[blackout].Dest,
+			"the CD2 folder names the disc for the attribution and is replaced by the preset's own medium folder")
 
 		// A second file tagged disc 1 track 1 is not that track too.
 		require.Len(t, files[alt].Rejections, 1, "%+v", files[alt])
@@ -243,7 +243,7 @@ func TestAnAlbumDownloadIsAttributedTrackByTrack(t *testing.T) {
 			"Muse - Absolution - 01 - Intro.flac":    {Kind: commonv1.MediaKindAlbum, Name: album.Name, Track: "d1t1"},
 			"Muse - Absolution - 02 - Blackout.flac": {Kind: commonv1.MediaKindAlbum, Name: album.Name, Track: "d2t2"},
 		}, refs)
-		assert.FileExists(t, filepath.Join(album.Status.Path, "Muse - Absolution - 02 - Blackout.flac"))
+		assert.FileExists(t, filepath.Join(album.Status.Path, "Disc 02", "Muse - Absolution - 02 - Blackout.flac"))
 		assert.FileExists(t, filepath.Join(r.root, "bonus.flac"), "a held file stays in the download")
 	})
 

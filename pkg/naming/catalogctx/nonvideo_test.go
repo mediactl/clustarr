@@ -146,10 +146,24 @@ func TestTrackFilePathMultiDisc(t *testing.T) {
 	assert.Equal(t, "/data/music/2Pac/All Eyez on Me (1996)/CD 02/2Pac - All Eyez on Me - 01 - Can't C Me.flac", got2)
 	assert.NotEqual(t, filepath.Dir(got1), filepath.Dir(got2), "each disc's track 1 has a folder of its own")
 
+	// A medium the selected release records no format for, and a release
+	// known only through status.tracks (the gateway's list capped before the
+	// selected release), name the folder "Disc NN", never a bare "02".
+	untyped := catalogv1alpha1.ReleaseSummary{ID: "rel-untyped", Media: []catalogv1alpha1.Medium{{Number: 1}, {Number: 2}}}
+	noFormat := album("/data/music/2Pac/All Eyez on Me (1996)", "rel-untyped", untyped)
+	cNF := mustAlbum(t, artist, noFormat, disc2)
+	assert.Equal(t, catalogctx.DefaultMediumFormat, cNF.MediumFormat)
+	got, err := catalogctx.TrackFilePath(root, artist, noFormat, cNF, ".flac")
+	require.NoError(t, err)
+	assert.Equal(t, "/data/music/2Pac/All Eyez on Me (1996)/Disc 02/2Pac - All Eyez on Me - 01 - Can't C Me.flac", got)
+	byTracks := album("/data/music/2Pac/All Eyez on Me (1996)", "rel-missing")
+	byTracks.Status.Tracks = []catalogv1alpha1.Track{*disc1, *disc2}
+	assert.Equal(t, catalogctx.DefaultMediumFormat, mustAlbum(t, artist, byTracks, disc2).MediumFormat, "the media off status.tracks")
+
 	// Without a resolved album path the medium folder sits under
 	// AlbumFolder's render, as the file does.
 	unresolved := album("", "rel-2cd", twoCDs)
-	got, err := catalogctx.TrackFilePath(root, artist, unresolved, mustAlbum(t, artist, unresolved, disc2), ".flac")
+	got, err = catalogctx.TrackFilePath(root, artist, unresolved, mustAlbum(t, artist, unresolved, disc2), ".flac")
 	require.NoError(t, err)
 	assert.Equal(t, "/data/music/2Pac/All Eyez on Me (1996)/CD 02/2Pac - All Eyez on Me - 01 - Can't C Me.flac", got)
 

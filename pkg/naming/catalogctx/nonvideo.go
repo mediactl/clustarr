@@ -65,10 +65,17 @@ func Album(artist *catalogv1alpha1.Artist, album *catalogv1alpha1.Album, track *
 		Year:         ReleaseYear(album.Status.Metadata.ReleaseDate),
 		Track:        int(track.Number),
 		Medium:       track.Medium,
-		MediumFormat: mediumFormat(SelectedRelease(album), track.Medium),
+		MediumFormat: mediumFormat(album, track.Medium),
 		TrackTitle:   track.Title,
 	}, true
 }
+
+// DefaultMediumFormat names a medium's folder when the album's selected
+// release records no format for it (MusicBrainz lists one for nearly every
+// medium; a release known only through status.tracks has none), so a
+// multi-disc album never renders a bare "02" folder: "Disc 02" is the shape
+// the rescan's disc-folder rule and a person both read.
+const DefaultMediumFormat = "Disc"
 
 // SelectedRelease is the release of album's release group its tracks were
 // taken from (status.metadata.selectedReleaseID among
@@ -106,14 +113,16 @@ func MultiDisc(album *catalogv1alpha1.Album) bool {
 
 // mediumFormat is the format of medium number n in rel ("CD", "Vinyl"),
 // empty when rel is nil or lists no such medium or no format for it.
-func mediumFormat(rel *catalogv1alpha1.ReleaseSummary, n int32) string {
-	if rel == nil {
-		return ""
-	}
-	for _, m := range rel.Media {
-		if m.Number == n {
-			return m.Format
+func mediumFormat(album *catalogv1alpha1.Album, n int32) string {
+	if rel := SelectedRelease(album); rel != nil {
+		for _, m := range rel.Media {
+			if m.Number == n && m.Format != "" {
+				return m.Format
+			}
 		}
+	}
+	if MultiDisc(album) {
+		return DefaultMediumFormat
 	}
 	return ""
 }
