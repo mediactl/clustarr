@@ -36,8 +36,9 @@ type LineupSpecApplyConfiguration struct {
 	// lineup altogether.
 	Exclude []string `json:"exclude,omitempty"`
 	// Categories are the rules that sort entries into categories, first
-	// match wins. Several rules may share a name; the first of a name
-	// carries its base.
+	// match wins. Several rules may share a name; the first rule of a name
+	// that carries a base sets the category's, and a later rule's is
+	// ignored.
 	Categories []LineupCategoryApplyConfiguration `json:"categories,omitempty"`
 }
 

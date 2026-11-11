@@ -180,7 +180,7 @@ func TestLiveTVCEL(t *testing.T) {
 }
 
 // TestLineupCEL holds the custom guides design's §5.1 rules: category bases
-// are unique, the first rule of a name carries a base, the Plex source's
+// are unique, every category carries a base on one of its rules, the Plex source's
 // rate is 1-10 and its lineups 24 hex, and a channel's spec.category of ""
 // (off every DVR) survives the round trip as the empty string.
 func TestLineupCEL(t *testing.T) {
@@ -220,7 +220,7 @@ func TestLineupCEL(t *testing.T) {
 	_, err = providers.Create(ctx, provider("dup-base", lineup(cat("News", 1000), cat("Sports", 1000))), metav1.CreateOptions{})
 	require.ErrorContains(t, err, "category bases must be unique")
 	_, err = providers.Create(ctx, provider("no-base", lineup(cat("News", 0))), metav1.CreateOptions{})
-	require.ErrorContains(t, err, "a category's first rule must carry base")
+	require.ErrorContains(t, err, "every category needs a base on one of its rules")
 	_, err = providers.Create(ctx, provider("second-rule", lineup(cat("News", 1000), cat("News", 0))), metav1.CreateOptions{})
 	require.NoError(t, err, "a second rule of a name needs no base beside a first that has one")
 

@@ -60,7 +60,7 @@ func (g *PlexGuide) LineupID() string {
 // §5.1). Without Enabled it is a dry run shown in the channels' status.
 //
 // +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.filter(c, has(c.base)).all(c, self.categories.filter(d, has(d.base) && d.base == c.base).size() == 1)",message="category bases must be unique"
-// +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.all(c, has(c.base) || self.categories.exists(d, d.name == c.name && has(d.base)))",message="a category's first rule must carry base"
+// +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.all(c, has(c.base) || self.categories.exists(d, d.name == c.name && has(d.base)))",message="every category needs a base on one of its rules"
 // +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.all(c, c.name != 'Automatic' && c.name != 'Off')",message="a category may not be named Automatic or Off"
 type LineupSpec struct {
 	// Enabled lets the lineup controller create, number and retire
@@ -83,8 +83,9 @@ type LineupSpec struct {
 	Exclude []string `json:"exclude,omitempty"`
 
 	// Categories are the rules that sort entries into categories, first
-	// match wins. Several rules may share a name; the first of a name
-	// carries its base.
+	// match wins. Several rules may share a name; the first rule of a name
+	// that carries a base sets the category's, and a later rule's is
+	// ignored.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=64
@@ -99,8 +100,12 @@ type LineupCategory struct {
 	// +kubebuilder:validation:MaxLength=64
 	Name string `json:"name"`
 
-	// Base is the number the category's channels begin at. Unique across
-	// categories; the first rule of a name carries it. At most 99000: a
+	// Base is the number the category's channels begin at, less one.
+	// Unique across rules. Every category needs one on one of its rules: the
+	// first rule of the name that carries one sets it, and a later rule's
+	// is ignored. Two categories' bases at least dvr.maxChannels apart:
+	// each numbers up to that many channels from its base+1, so the lineup
+	// controller refuses closer bases as InvalidLineup. At most 99000: a
 	// category holds at most 450 channels (dvr.maxChannels' cap), and the
 	// highest number, 99000+450, must stay the five digits IPTVChannel
 	// spec.number allows.

@@ -26,8 +26,12 @@ package v1alpha1
 type LineupCategoryApplyConfiguration struct {
 	// Name is the category, and the key of status.categories.
 	Name *string `json:"name,omitempty"`
-	// Base is the number the category's channels begin at. Unique across
-	// categories; the first rule of a name carries it. At most 99000: a
+	// Base is the number the category's channels begin at, less one.
+	// Unique across rules. Every category needs one on one of its rules: the
+	// first rule of the name that carries one sets it, and a later rule's
+	// is ignored. Two categories' bases at least dvr.maxChannels apart:
+	// each numbers up to that many channels from its base+1, so the lineup
+	// controller refuses closer bases as InvalidLineup. At most 99000: a
 	// category holds at most 450 channels (dvr.maxChannels' cap), and the
 	// highest number, 99000+450, must stay the five digits IPTVChannel
 	// spec.number allows.

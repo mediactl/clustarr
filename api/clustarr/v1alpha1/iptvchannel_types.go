@@ -240,7 +240,12 @@ type ChannelLineupStatus struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=16
 	Number string `json:"number,omitempty"`
-	// DuplicateOf is the key of the winning entry this one duplicates.
+	// DuplicateOf is what this channel duplicates. For a playlist entry
+	// the planner left out as a duplicate of another by its trimmed name,
+	// it is the winning entry's playlist key; for a second IPTVChannel of
+	// one playlist key (a copy made by hand, a timeshift copy), which the
+	// lineup controller deactivates, it is the object name of the channel
+	// that carries the key, cut to 64 characters.
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
 	DuplicateOf string `json:"duplicateOf,omitempty"`
