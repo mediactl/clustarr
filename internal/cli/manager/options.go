@@ -173,19 +173,8 @@ func DefaultOptions() Options {
 	return o
 }
 
-// parseLeaseRef reads --video-transcode-lease's <namespace>/<name>; empty
-// is none.
-// checkIntelWorkLease refuses an intel-work Lease outside the manager's
-// namespace: the chart's leader-election Role grants Lease writes there
-// alone, so a write anywhere else would be refused at the first pass.
-// An empty podNamespace (outside a pod) checks nothing.
-func checkIntelWorkLease(ref types.NamespacedName, podNamespace string) error {
-	if ref.Name == "" || podNamespace == "" || ref.Namespace == podNamespace {
-		return nil
-	}
-	return fmt.Errorf("--intel-work-lease %s: the Lease must be in the manager's namespace %s (the leader-election Role grants its writes there)", ref, podNamespace)
-}
-
+// parseLeaseRef reads a Lease flag's <namespace>/<name>
+// (--video-transcode-lease, --intel-work-lease); empty is none.
 func parseLeaseRef(s string) (types.NamespacedName, error) {
 	if s == "" {
 		return types.NamespacedName{}, nil
@@ -234,6 +223,21 @@ func (o Options) Validate() error {
 	}
 	if l := o.VideoTranscodeLease; l.Name != "" && len(o.WatchNamespaces) > 0 && !slices.Contains(o.WatchNamespaces, l.Namespace) {
 		errs = append(errs, fmt.Errorf("--video-transcode-lease %s: its namespace is not one --watch-namespace names, so the cache never holds it", l))
+	}
+	if l := o.IntelWorkLease; l.Name != "" {
+		// The leader-election Role grants Lease writes in the leader-election
+		// namespace alone, so a Lease anywhere else would be refused at the
+		// first pass; outside a pod (no namespace known) nothing is checked.
+		ns := o.LeaderElectionNamespace
+		if ns == "" {
+			ns = o.Namespace
+		}
+		if ns != "" && l.Namespace != ns {
+			errs = append(errs, fmt.Errorf("--intel-work-lease %s: the Lease must be in the manager's leader-election namespace %s (its Role grants Lease writes there)", l, ns))
+		}
+		if len(o.WatchNamespaces) > 0 && !slices.Contains(o.WatchNamespaces, l.Namespace) {
+			errs = append(errs, fmt.Errorf("--intel-work-lease %s: its namespace is not one --watch-namespace names, so the cache never holds it", l))
+		}
 	}
 	if o.RemediationConcurrency < 1 || o.RemediationConcurrency > 64 {
 		errs = append(errs, fmt.Errorf("--remediation-concurrency %d: must be 1 to 64", o.RemediationConcurrency))
