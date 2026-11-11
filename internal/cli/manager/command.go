@@ -20,7 +20,6 @@ package manager
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -193,9 +192,6 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		}
 		if o.IntelWorkLease, err = parseLeaseRef(intelWorkLease); err != nil {
 			return fmt.Errorf("--intel-work-lease: %w", err)
-		}
-		if err := checkIntelWorkLease(o.IntelWorkLease, os.Getenv("POD_NAMESPACE")); err != nil {
-			return err
 		}
 		if o.WorkerPlacement, err = placement.Parse(workerPlacement); err != nil {
 			return fmt.Errorf("--worker-placement: %w", err)

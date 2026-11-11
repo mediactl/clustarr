@@ -128,8 +128,12 @@ func (l *Ledger) Pass(in PassInputs) PassResult {
 	l.fillWindowLocked(in.Profiles, now)
 	l.grantGraftSlotsLocked(in, now)
 	l.metricsLocked(in.Profiles, now)
-	// The class's own budget, not the yielded copy: a yield is work waiting.
-	return PassResult{RequeueAfter: l.nextWakeLocked(now), IntelWork: intelWork(queued, running, holds, l.o.Slots)}
+	// The class's own budget, not the yielded copy: a yield is work waiting;
+	// gpu is the classes left usable after the unhealthy ones were dropped.
+	return PassResult{
+		RequeueAfter: l.nextWakeLocked(now),
+		IntelWork:    intelWork(queued, running, holds, l.o.Slots, gpu[transcodev1alpha1.HardwareIntel]),
+	}
 }
 
 // uidsOf is each profile's UID by name.

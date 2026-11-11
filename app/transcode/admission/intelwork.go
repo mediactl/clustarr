@@ -185,15 +185,20 @@ func (l *IntelWorkLease) Start(ctx context.Context) error {
 }
 
 // intelWork is the intel class's work in hand and waiting after a pass:
-// its slots in use (running), the candidates assigned to it this pass
-// (queued, admitted or not) and the holds of gpu files waiting class-less
-// for a GPU slot (WaitingForGPU), which the yield holds beside Plex's
-// streams. Nothing without an intel budget: a cluster that never admits
-// to intel has no intel work however many files wait. cluster-plex reads
-// the count from the Lease the admission controller publishes
-// (IntelWorkLease) to send Plex's conversions to its CPU pool while it is
-// above zero (its 2026-11-10 CPU video route design, §1).
-func intelWork(queued []candidate, running []Slot, holds []hold, budget map[string]int32) int {
+// its slots in use (running: Queued and Running files; a Swapping file
+// holds no slot and no GPU, as clustarr_transcode_jobs_active counts it),
+// the candidates assigned to it this pass (queued, admitted or not) and,
+// while the intel class is usable (intelUsable: an intel node with a
+// healthy pool), the holds of gpu files waiting class-less for a GPU slot
+// (WaitingForGPU), which the yield holds beside Plex's streams -- on a
+// cluster whose intel class is absent or unhealthy such a file waits for
+// nvidia, and Plex's conversions have no reason to leave the GPU. Nothing
+// without an intel budget: a cluster that never admits to intel has no
+// intel work however many files wait. cluster-plex reads the count from
+// the Lease the admission controller publishes (IntelWorkLease) to send
+// Plex's conversions to its CPU pool while it is above zero (its
+// 2026-11-10 CPU video route design, §1).
+func intelWork(queued []candidate, running []Slot, holds []hold, budget map[string]int32, intelUsable bool) int {
 	if budget[string(transcodev1alpha1.HardwareIntel)] <= 0 {
 		return 0
 	}
@@ -208,9 +213,11 @@ func intelWork(queued []candidate, running []Slot, holds []hold, budget map[stri
 			n++
 		}
 	}
-	for _, h := range holds {
-		if h.msg == WaitingForGPU {
-			n++
+	if intelUsable {
+		for _, h := range holds {
+			if h.msg == WaitingForGPU {
+				n++
+			}
 		}
 	}
 	return n

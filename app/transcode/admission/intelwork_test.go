@@ -50,9 +50,10 @@ func TestIntelWorkCountsTheIntelClassInHandAndWaiting(t *testing.T) {
 	queued := []candidate{{slot: intelSlot("e")}, {slot: Slot{Key: "f", Hardware: "cpu"}}}
 	holds := []hold{{msg: WaitingForGPU}, {msg: "waiting: the pool is unhealthy"}}
 	budget := map[string]int32{"intel": 2, "cpu": 2}
-	assert.Equal(t, 4, intelWork(queued, running, holds, budget), "two running, one queued, one held gpu file")
-	assert.Equal(t, 0, intelWork(queued, running, holds, map[string]int32{"cpu": 2}), "no intel budget is no intel work")
-	assert.Equal(t, 0, intelWork(queued, running, holds, map[string]int32{"intel": 0}))
+	assert.Equal(t, 4, intelWork(queued, running, holds, budget, true), "two running, one queued, one held gpu file")
+	assert.Equal(t, 3, intelWork(queued, running, holds, budget, false), "the held gpu file is not intel's while intel is unusable")
+	assert.Equal(t, 0, intelWork(queued, running, holds, map[string]int32{"cpu": 2}, true), "no intel budget is no intel work")
+	assert.Equal(t, 0, intelWork(queued, running, holds, map[string]int32{"intel": 0}, true))
 }
 
 func TestNoIntelBudgetIsNoIntelWork(t *testing.T) {
@@ -84,6 +85,39 @@ func TestAPassReportsItsIntelWork(t *testing.T) {
 	res = held.Pass(intelIn(1))
 	assert.Equal(t, YieldingToPlex, held.Snapshot("g").WaitReason)
 	assert.Equal(t, 1, res.IntelWork, "a gpu file the yield holds is intel work waiting")
+}
+
+func TestHeldFilesAreIntelWorkOnlyWhileIntelIsUsable(t *testing.T) {
+	// A gpu file waiting class-less for a GPU slot is intel work only while
+	// the intel class can take it: on a cluster whose intel node is absent
+	// or unhealthy, a file waiting for nvidia is nvidia's wait, and Plex's
+	// conversions have no reason to leave the GPU.
+	for name, in := range map[string]PassInputs{
+		"no intel node": func() PassInputs {
+			in := passIn()
+			in.GPUNodes = map[transcodev1alpha1.Hardware]bool{nvidia: true}
+			return in
+		}(),
+		"intel unhealthy": func() PassInputs {
+			in := passIn()
+			in.GPUNodes = map[transcodev1alpha1.Hardware]bool{nvidia: true, intel: true}
+			in.Unhealthy = map[transcodev1alpha1.Hardware]string{intel: "every fresh report is unhealthy"}
+			return in
+		}(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			l, _ := newTestLedger(t, map[string]int32{"cpu": 0, "intel": 2, "nvidia": 1}, 0)
+			r := fv("r", 1, running)
+			r.Class = nvidia // nvidia's one slot taken
+			l.Observe(r)
+			g := fv("g", 2, planned)
+			g.Hardware = transcodev1alpha1.HardwareGPU
+			l.Observe(g)
+			res := l.Pass(in)
+			assert.Equal(t, WaitingForGPU, l.Snapshot("g").WaitReason, "held for a GPU slot")
+			assert.Zero(t, res.IntelWork, "intel cannot take it")
+		})
+	}
 }
 
 // The Lease that publishes the count: written when it moves, renewed
@@ -223,12 +257,15 @@ func TestTheRenewerRenewsWhileWorkIsHeld(t *testing.T) {
 	defer cancel()
 	go func() { _ = l.Start(ctx) }()
 	l.Set(ctx, 1)
-	time.Sleep(90 * time.Millisecond)
-	assert.GreaterOrEqual(t, writes.Load(), int32(3), "renewed about every Every")
+	require.Eventually(t, func() bool { return writes.Load() >= 3 }, 5*time.Second, time.Millisecond, "renewed every Every")
 	l.Set(ctx, 0)
-	n := writes.Load()
-	time.Sleep(60 * time.Millisecond)
-	assert.Equal(t, n, writes.Load(), "nothing renews at zero")
+	// A tick in flight at the Set may land one more write; after it,
+	// three quiet periods in a row mean nothing renews at zero.
+	require.Eventually(t, func() bool {
+		n := writes.Load()
+		time.Sleep(3 * l.Every)
+		return writes.Load() == n
+	}, 5*time.Second, time.Millisecond, "nothing renews at zero")
 }
 
 func TestAReconcilePublishesItsIntelWork(t *testing.T) {

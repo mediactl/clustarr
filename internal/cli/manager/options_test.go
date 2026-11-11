@@ -78,12 +78,27 @@ func TestManagerCacheOptions(t *testing.T) {
 // The intel-work Lease is written through the leader-election Role, which
 // grants Leases in the manager's own namespace alone.
 func TestTheIntelWorkLeaseMustBeInTheManagersNamespace(t *testing.T) {
+	// The leader-election Role grants Lease writes in the leader-election
+	// namespace (--leader-election-namespace, else --namespace), so a Lease
+	// anywhere else would be refused at the first pass; and a Lease the
+	// cache never holds (outside --watch-namespace) could never be read.
 	ref := types.NamespacedName{Namespace: "clustarr-system", Name: "clustarr-intel-work"}
-	assert.NoError(t, checkIntelWorkLease(ref, "clustarr-system"))
-	assert.NoError(t, checkIntelWorkLease(types.NamespacedName{}, "clustarr-system"), "none configured")
-	assert.NoError(t, checkIntelWorkLease(ref, ""), "outside a pod the namespace is unknown")
-	err := checkIntelWorkLease(ref, "other")
+	check := func(mutate func(o *Options)) error {
+		o := valid()
+		o.Namespace, o.IntelWorkLease = "clustarr-system", ref
+		mutate(&o)
+		return o.Validate()
+	}
+	assert.NoError(t, check(func(*Options) {}))
+	assert.NoError(t, check(func(o *Options) { o.IntelWorkLease = types.NamespacedName{} }), "none configured")
+	assert.NoError(t, check(func(o *Options) { o.Namespace, o.LeaderElectionNamespace = "other", "clustarr-system" }), "the leader-election namespace is the one that counts")
+	err := check(func(o *Options) { o.Namespace = "other" })
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--intel-work-lease")
-	assert.Contains(t, err.Error(), "must be in the manager's namespace other")
+	assert.Contains(t, err.Error(), "leader-election namespace other")
+	err = check(func(o *Options) { o.LeaderElectionNamespace = "other" })
+	require.ErrorContains(t, err, "leader-election namespace other")
+	err = check(func(o *Options) { o.WatchNamespaces = []string{"media"} })
+	require.ErrorContains(t, err, "--watch-namespace")
+	assert.NoError(t, check(func(o *Options) { o.WatchNamespaces = []string{"media", "clustarr-system"} }))
 }

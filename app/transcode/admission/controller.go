@@ -454,15 +454,6 @@ func gpuNodeSignal(cfg pool.Config) func(client.Object) string {
 // generations, pool Job events and a graft Job's start, end or deletion (a
 // graft slot freed), all into the one Request.
 // MaxConcurrentReconciles is 1: a pass counts then grants.
-// publishIntelWork hands a pass's intel work to the Lease, when one is
-// configured; the write never fails or delays the pass.
-func (r *Reconciler) publishIntelWork(ctx context.Context, res PassResult) {
-	if r.IntelWork == nil {
-		return
-	}
-	r.IntelWork.Set(ctx, res.IntelWork)
-}
-
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.IntelWork != nil {
 		// The renewer, leader-only beside the controller.
@@ -486,4 +477,15 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		})))
 	}
 	return b.WithOptions(controller.Options{MaxConcurrentReconciles: 1, RecoverPanic: new(true)}).Complete(r)
+}
+
+// publishIntelWork hands a pass's intel work to the Lease, when one is
+// configured; a write that fails is logged, never returned, and holds the
+// pass no longer than publishTimeout (a hung apiserver aside, a pass makes
+// no apiserver request).
+func (r *Reconciler) publishIntelWork(ctx context.Context, res PassResult) {
+	if r.IntelWork == nil {
+		return
+	}
+	r.IntelWork.Set(ctx, res.IntelWork)
 }
