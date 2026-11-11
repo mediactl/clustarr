@@ -102,7 +102,8 @@ type kindSpec struct {
 	// kind that deletes every item).
 	guard func(client.Object) error
 	// exclusion is the ImportExclusion spec that keeps it out; ok false for
-	// a kind with none.
+	// a kind with none (every deletable kind has one since the 2026-11-10
+	// non-video design's D16 gave the Artist and the Author theirs).
 	exclusion func(client.Object) (catalogv1alpha1.ImportExclusionSpec, bool)
 }
 
@@ -121,12 +122,6 @@ type parentSpec struct {
 }
 
 const exclusionReason = "deleted from the library"
-
-// noExclusion is the exclusion of a kind with none (Artist, Author):
-// nothing reads one for them (catalogv1alpha1.ExclusionKindFor).
-func noExclusion(client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
-	return catalogv1alpha1.ImportExclusionSpec{}, false
-}
 
 // yearOf is the year of a metadata release date for an exclusion's display
 // field, 0 without one. The apiserver hands a metav1.Time back in the
@@ -197,7 +192,24 @@ func kinds() []kindSpec {
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Artist).Status.Path },
 			childKind:     commonv1.MediaKindAlbum,
 			newChildren:   func() client.ObjectList { return &catalogv1alpha1.AlbumList{} },
-			exclusion:     noExclusion,
+			// The exclusion is keyed by the artist's MusicBrainz artist id
+			// under the musicbrainz key, which the scan applier looks up
+			// before it creates the Artist a root scan finds by its folder
+			// (app/import/manager/scanapply's ensureItem; the 2026-11-10
+			// non-video design's D16) and the import-list sync reads,
+			// kind-blind. An album's exclusion shares the key with its
+			// release-group id: the two MBIDs never coincide.
+			exclusion: func(o client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
+				ar := o.(*catalogv1alpha1.Artist)
+				spec := catalogv1alpha1.ImportExclusionSpec{
+					Kind: catalogv1alpha1.ExclusionKindArtist, Reason: exclusionReason,
+					ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyMusicBrainz: ar.Spec.MusicBrainzID},
+				}
+				if md := ar.Status.Metadata; md != nil {
+					spec.Title = md.Name
+				}
+				return spec, true
+			},
 		},
 		{
 			kind:          commonv1.MediaKindAuthor,
@@ -207,7 +219,22 @@ func kinds() []kindSpec {
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Author).Status.Path },
 			childKind:     commonv1.MediaKindBook,
 			newChildren:   func() client.ObjectList { return &catalogv1alpha1.BookList{} },
-			exclusion:     noExclusion,
+			// The exclusion is keyed by the author's Open Library author id
+			// ("OL…A") under the openlibrary key, which the scan applier
+			// looks up before it creates the Author a root scan finds by its
+			// folder (D16, as the Artist's) and the import-list sync reads;
+			// a book's work id ("OL…W") under the same key never coincides.
+			exclusion: func(o client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
+				au := o.(*catalogv1alpha1.Author)
+				spec := catalogv1alpha1.ImportExclusionSpec{
+					Kind: catalogv1alpha1.ExclusionKindAuthor, Reason: exclusionReason,
+					ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyOpenLibrary: au.Spec.OpenLibraryID},
+				}
+				if md := au.Status.Metadata; md != nil {
+					spec.Title = md.Name
+				}
+				return spec, true
+			},
 		},
 		{
 			kind:          commonv1.MediaKindAudiobook,

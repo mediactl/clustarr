@@ -222,10 +222,14 @@ func (a *Applier) present(ctx context.Context, obs schema.ScanObservation, t *ta
 			return err
 		}
 		created = made
-		if ref.Kind == commonv1.MediaKindSeries {
-			// A new series has no episodes yet: its files await them (the
-			// walk counted it), and the scan of its folder its first
-			// episodes ask for attributes them (folderscan, smoke O8).
+		switch ref.Kind {
+		case commonv1.MediaKindSeries, commonv1.MediaKindArtist, commonv1.MediaKindAuthor:
+			// A container holds no file of its own: a new series has no
+			// episodes yet, a new artist no albums, a new author no books.
+			// Its files await them (the walk counted them), and the scan of
+			// its folder its children ask for attributes them (folderscan,
+			// smoke O8; the non-video design's D16, D18). An audiobook is
+			// its files' own item, so its create records the file.
 			return nil
 		}
 	} else if existing == nil {

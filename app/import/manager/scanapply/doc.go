@@ -21,19 +21,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (app/import/worker/rescan) walks, parses, fingerprints and attributes,
 // and reports; this package decides and writes:
 //
-//   - present, attributed: create the Movie or Series the attribution
-//     proposes when absent (names.Movie / names.Series under import-worker,
-//     addOptions.monitor none) unless an ImportExclusion names its id (P37)
-//     or the root folder sets no default profile (P38), never overwriting
-//     an existing object whose provider id differs (unmatched,
-//     nameCollision); validate a person's manual target again (P45); refuse
-//     to re-point a path recorded against another item (P41,
-//     recorded_elsewhere); refuse a new file of an item, existing or
+//   - present, attributed: create the item the attribution proposes when
+//     absent, named by pkg/names under import-worker with no add-time
+//     search -- a Movie; a Series pinned to its folder, monitoring every
+//     season but the specials (addOptions.monitor unmonitorSpecials); and,
+//     since the 2026-11-10 non-video libraries design's D16, an Artist or
+//     Author pinned to its folder or an Audiobook to its "<author>/<title>"
+//     folder, with the root's monitored, monitorNewItems and tags and
+//     every child monitored (addOptions.monitor all) -- unless an
+//     ImportExclusion names its id (P37) or the root folder sets no default
+//     profile (P38), never overwriting an existing object whose provider id
+//     differs (unmatched, nameCollision); validate a person's manual target
+//     again (P45); refuse to re-point a path recorded against another item
+//     (P41, recorded_elsewhere); refuse a new file of an item, existing or
 //     proposed, stored under another root folder (other_root_folder: a
 //     scan attributes only to the items of the root folder it scans);
 //     record the MediaFile spec through specwrite.ApplyFacts under
-//     import-worker, re-asserting an existing one's frozen fields; and
-//     hand a post-transcode change to catalog by the observed-fingerprint
+//     import-worker, re-asserting an existing one's frozen fields -- none
+//     for a proposed container (series, artist, author), whose files await
+//     its children and the folder scan they ask for; and hand a
+//     post-transcode change to catalog by the observed-fingerprint
 //     annotation under import (P42, W17).
 //   - present, a transcode's output (P44): never adopted, only counted.
 //   - stale basis: the MediaFile the agent read moved since (its spec no

@@ -21,7 +21,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -40,30 +42,42 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/names"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
-// createName is the name a proposed item takes: names.Movie or
-// names.Series of its title and provider id, the name an import list and
-// Add New give it too. The agent's proposed name is never trusted.
+// createName is the name a proposed item takes: names.Movie, names.Series,
+// names.Artist, names.Author or names.Audiobook of its title and provider
+// id, the name an import list and Add New give it too. The agent's proposed
+// name is never trusted.
 func createName(c *schema.ItemCreate) string {
 	switch commonv1.MediaKind(c.Kind) {
 	case commonv1.MediaKindMovie:
 		return names.Movie(c.Title, c.TmdbID)
 	case commonv1.MediaKindSeries:
 		return names.Series(c.Title, c.TvdbID)
+	case commonv1.MediaKindArtist:
+		return names.Artist(c.Title, c.MusicBrainzID)
+	case commonv1.MediaKindAuthor:
+		return names.Author(c.Title, c.OpenLibraryID)
+	case commonv1.MediaKindAudiobook:
+		return names.Audiobook(c.Title, c.ASIN)
 	}
 	return c.Name
 }
 
-// ensureItem creates the Movie or Series a scan's attribution proposes,
-// when absent (P36, P39). ok is false when it refused, listing the file as
-// unmatched: an ImportExclusion names the provider id (P37); the root
-// folder sets no default qualityProfileRef, which a new item requires
-// (P38); an object of that name exists with another provider id, which is
-// never overwritten (nameCollision), or with the same id under another root
-// folder, whose files are never attributed from this one (otherRootFolder,
-// smoke finding O4). created is true when this call created it; an item
-// already there with the same id is used as it is, never re-applied.
+// ensureItem creates the Movie, Series, Artist, Author or Audiobook a
+// scan's attribution proposes, when absent (P36, P39; the three containers
+// since the 2026-11-10 non-video libraries design's D16, a root scan
+// creating them from their folders). ok is false when it refused, listing
+// the file as unmatched: an ImportExclusion names the provider id (P37: a
+// TMDB, TheTVDB, MusicBrainz artist, Open Library author or ASIN id, keyed
+// as librarydelete writes the item's exclusion); the root folder sets no
+// default qualityProfileRef, which a new item requires (P38); an object of
+// that name exists with another provider id, which is never overwritten
+// (nameCollision), or with the same id under another root folder, whose
+// files are never attributed from this one (otherRootFolder, smoke finding
+// O4). created is true when this call created it; an item already there
+// with the same id is used as it is, never re-applied.
 func (a *Applier) ensureItem(
 	ctx context.Context, obs schema.ScanObservation, root *catalogv1alpha1.RootFolder, c *schema.ItemCreate,
 	rel string, t *tally,
@@ -92,8 +106,37 @@ func (a *Applier) ensureItem(
 		s := &catalogv1alpha1.Series{}
 		obj, idOf = s, func() string { return strconv.FormatInt(s.Spec.TvdbID, 10) }
 		rootOf = func() string { return s.Spec.RootFolderRef }
+	case commonv1.MediaKindArtist:
+		if c.MusicBrainzID == "" {
+			return false, false, fmt.Errorf("%w: an artist proposal without a MusicBrainz id", errMalformed)
+		}
+		provider, id = catalogv1alpha1.ExclusionIDKeyMusicBrainz, c.MusicBrainzID
+		ar := &catalogv1alpha1.Artist{}
+		obj, idOf = ar, func() string { return ar.Spec.MusicBrainzID }
+		rootOf = func() string { return ar.Spec.RootFolderRef }
+	case commonv1.MediaKindAuthor:
+		if !openLibraryAuthorID.MatchString(c.OpenLibraryID) {
+			return false, false, fmt.Errorf("%w: an author proposal without an Open Library author id (%q)", errMalformed, c.OpenLibraryID)
+		}
+		provider, id = catalogv1alpha1.ExclusionIDKeyOpenLibrary, c.OpenLibraryID
+		au := &catalogv1alpha1.Author{}
+		obj, idOf = au, func() string { return au.Spec.OpenLibraryID }
+		rootOf = func() string { return au.Spec.RootFolderRef }
+	case commonv1.MediaKindAudiobook:
+		if c.ASIN == "" {
+			return false, false, fmt.Errorf("%w: an audiobook proposal without an ASIN", errMalformed)
+		}
+		provider, id = catalogv1alpha1.ExclusionIDKeyASIN, c.ASIN
+		ab := &catalogv1alpha1.Audiobook{}
+		obj, idOf = ab, func() string { return ab.Spec.ASIN }
+		rootOf = func() string { return ab.Spec.RootFolderRef }
 	default:
-		return false, false, fmt.Errorf("%w: a %q proposal; scans create movies and series only", errMalformed, c.Kind)
+		return false, false, fmt.Errorf("%w: a %q proposal; scans create movies, series, artists, authors and audiobooks only",
+			errMalformed, c.Kind)
+	}
+	folder, err := createFolder(c, rel)
+	if err != nil {
+		return false, false, err
 	}
 
 	// An existing object is read fresh: one created since the walk read its
@@ -137,7 +180,13 @@ func (a *Applier) ensureItem(
 	case commonv1.MediaKindMovie:
 		err = a.applyMovie(ctx, ns, name, c.TmdbID, profile, root.Name)
 	case commonv1.MediaKindSeries:
-		err = a.applySeries(ctx, ns, name, c.TvdbID, profile, root.Name, seriesFolder(rel))
+		err = a.applySeries(ctx, ns, name, c.TvdbID, profile, root.Name, folder)
+	case commonv1.MediaKindArtist:
+		err = a.applyArtist(ctx, ns, name, c.MusicBrainzID, root, folder)
+	case commonv1.MediaKindAuthor:
+		err = a.applyAuthor(ctx, ns, name, c.OpenLibraryID, root, folder)
+	case commonv1.MediaKindAudiobook:
+		err = a.applyAudiobook(ctx, ns, name, c, root, folder)
 	}
 	if err != nil {
 		return false, false, err
@@ -147,12 +196,212 @@ func (a *Applier) ensureItem(
 	return true, true, nil
 }
 
+// openLibraryAuthorID is AuthorSpec.openLibraryID's pattern, checked here
+// so a proposal that cannot key an Author is dead-lettered as malformed
+// rather than refused by the apiserver at the apply.
+var openLibraryAuthorID = regexp.MustCompile(`^OL[0-9]+A$`)
+
 // seriesFolder is the folder a scanned series is pinned to: the first
 // segment of the file's path under the root folder, the folder whose
 // TheTVDB id named it.
 func seriesFolder(rel string) string {
 	first, _, _ := strings.Cut(filepath.ToSlash(rel), "/")
 	return first
+}
+
+// createFolder is the folder, relative to the root, a proposed item is
+// pinned to (spec.folder), so its status.path is the folder its files are
+// already in: none for a movie (the scan pins no movie's folder); a
+// series' first segment (seriesFolder); an artist's or author's the
+// proposal's Folder, the folder the scan resolved, else the path's first
+// segment; an audiobook's the proposal's Folder ("<author>/<title>"), else
+// the path's first two segments when a file lies below them. A Folder the
+// observed path does not lie in -- or one that is absolute or climbs out
+// of the root -- is malformed: the agent resolved the folder from the path
+// it reports.
+func createFolder(c *schema.ItemCreate, rel string) (string, error) {
+	rel = filepath.ToSlash(rel)
+	switch commonv1.MediaKind(c.Kind) {
+	case commonv1.MediaKindMovie:
+		return "", nil
+	case commonv1.MediaKindSeries:
+		return seriesFolder(rel), nil
+	}
+	if c.Folder == "" {
+		segs := strings.Split(rel, "/")
+		switch {
+		case commonv1.MediaKind(c.Kind) != commonv1.MediaKindAudiobook:
+			return segs[0], nil
+		case len(segs) >= 3:
+			return segs[0] + "/" + segs[1], nil
+		}
+		return "", nil
+	}
+	folder := path.Clean(filepath.ToSlash(c.Folder))
+	if path.IsAbs(folder) || folder == "." || folder == ".." || strings.HasPrefix(folder, "../") {
+		return "", fmt.Errorf("%w: a %s proposal's folder %q is not a folder under the root", errMalformed, c.Kind, c.Folder)
+	}
+	if rel != folder && !strings.HasPrefix(rel, folder+"/") {
+		return "", fmt.Errorf("%w: a %s proposal's folder %q does not hold the observed path %q", errMalformed, c.Kind, c.Folder, rel)
+	}
+	return folder, nil
+}
+
+// monitoredByDefault is the root's defaults.monitored, true when unset (the
+// CRD's default, which a RootFolder created from Go may not carry).
+func monitoredByDefault(d catalogv1alpha1.RootDefaults) bool {
+	return d.Monitored == nil || *d.Monitored
+}
+
+// applyArtist creates the Artist a scan found by its folder (D16), under
+// import-worker: pinned to the folder its files are in (spec.folder), with
+// the root's defaults -- qualityProfileRef, monitored, monitorNewItems when
+// set and tags -- every album monitored (addOptions.monitor all; a root
+// whose missing albums are not wanted sets defaults.monitored false before
+// its first scan, and the Artist gates its Albums) and no add-time search,
+// so a scan never starts a search storm. metadataProfile is sent empty so
+// the apiserver defaults its types and statuses (album and ep, studio,
+// official): its nested defaults apply only to an object that is present,
+// and an Artist without them lists no album at all.
+func (a *Applier) applyArtist(ctx context.Context, ns, name, mbid string, root *catalogv1alpha1.RootFolder, folder string) error {
+	d := root.Spec.Defaults
+	spec := catalogac.ArtistSpec().
+		WithMusicBrainzID(mbid).
+		WithMonitored(monitoredByDefault(d)).
+		WithMetadataProfile(catalogac.MusicMetadataProfile()).
+		WithQualityProfileRef(d.QualityProfileRef).
+		WithRootFolderRef(root.Name).
+		WithAddOptions(catalogac.ArtistAddOptions().
+			WithMonitor(catalogv1alpha1.ArtistMonitorAll).
+			WithSearchForMissing(false))
+	if d.MonitorNewItems != "" {
+		spec = spec.WithMonitorNewItems(d.MonitorNewItems)
+	}
+	if folder != "" {
+		spec = spec.WithFolder(folder)
+	}
+	if len(d.Tags) > 0 {
+		spec = spec.WithTags(d.Tags...)
+	}
+	if _, err := k8s.Apply(ctx, a.Client, mediafilespec.FieldManager, catalogac.Artist(name, ns).WithSpec(spec)); err != nil {
+		return fmt.Errorf("scanapply: create artist %s: %w", name, err)
+	}
+	return nil
+}
+
+// applyAuthor creates the Author a scan found by its folder (D16), as
+// applyArtist does the Artist: the pinned folder, the root's defaults,
+// every book monitored and no add-time search, and works listed in English
+// alone (metadataProfile.allowedLanguages [en], as Add New's author). An
+// Author's monitorNewItems is all or none: the root's "new", which only an
+// artist has, leaves it to the CRD's default, all.
+func (a *Applier) applyAuthor(ctx context.Context, ns, name, olid string, root *catalogv1alpha1.RootFolder, folder string) error {
+	d := root.Spec.Defaults
+	spec := catalogac.AuthorSpec().
+		WithOpenLibraryID(olid).
+		WithMonitored(monitoredByDefault(d)).
+		WithMetadataProfile(catalogac.BookMetadataProfile().WithAllowedLanguages(scannedAuthorLanguage)).
+		WithQualityProfileRef(d.QualityProfileRef).
+		WithRootFolderRef(root.Name).
+		WithAddOptions(catalogac.AuthorAddOptions().
+			WithMonitor(catalogv1alpha1.AuthorMonitorAll).
+			WithSearchForMissing(false))
+	switch mode := catalogv1alpha1.MonitorNewChildrenMode(d.MonitorNewItems); mode {
+	case catalogv1alpha1.MonitorNewChildrenAll, catalogv1alpha1.MonitorNewChildrenNone:
+		spec = spec.WithMonitorNewItems(mode)
+	}
+	if folder != "" {
+		spec = spec.WithFolder(folder)
+	}
+	if len(d.Tags) > 0 {
+		spec = spec.WithTags(d.Tags...)
+	}
+	if _, err := k8s.Apply(ctx, a.Client, mediafilespec.FieldManager, catalogac.Author(name, ns).WithSpec(spec)); err != nil {
+		return fmt.Errorf("scanapply: create author %s: %w", name, err)
+	}
+	return nil
+}
+
+// scannedAuthorLanguage is the one language a scanned author lists works in
+// (spec.metadataProfile.allowedLanguages), Add New's own (ui/actions'
+// addedAuthorLanguage).
+const scannedAuthorLanguage = "en"
+
+// applyAudiobook creates the Audiobook a scan found by its
+// "<author>/<title>" folder (D16): pinned to that folder, in the Audible
+// region the agent resolved its ASIN in (the root's defaults.region when
+// the proposal names none; unset, the CRD's us), with the root's defaults
+// and no add-time search, its files on disk already; linked to its Author
+// (spec.authorRef) when exactly one Author of the namespace is named as the
+// author folder is (audiobookAuthor), as Add New links one. No Author is
+// created.
+func (a *Applier) applyAudiobook(
+	ctx context.Context, ns, name string, c *schema.ItemCreate, root *catalogv1alpha1.RootFolder, folder string,
+) error {
+	d := root.Spec.Defaults
+	spec := catalogac.AudiobookSpec().
+		WithASIN(c.ASIN).
+		WithMonitored(monitoredByDefault(d)).
+		WithQualityProfileRef(d.QualityProfileRef).
+		WithRootFolderRef(root.Name).
+		WithAddOptions(catalogac.AudiobookAddOptions().WithSearchForMissing(false))
+	region := catalogv1alpha1.AudiobookRegion(c.Region)
+	if region == "" {
+		region = d.Region
+	}
+	if region != "" {
+		spec = spec.WithRegion(region)
+	}
+	if folder != "" {
+		spec = spec.WithFolder(folder)
+	}
+	if len(d.Tags) > 0 {
+		spec = spec.WithTags(d.Tags...)
+	}
+	authorRef, err := a.audiobookAuthor(ctx, ns, folder)
+	if err != nil {
+		return err
+	}
+	if authorRef != "" {
+		spec = spec.WithAuthorRef(authorRef)
+	}
+	if _, err := k8s.Apply(ctx, a.Client, mediafilespec.FieldManager, catalogac.Audiobook(name, ns).WithSpec(spec)); err != nil {
+		return fmt.Errorf("scanapply: create audiobook %s: %w", name, err)
+	}
+	return nil
+}
+
+// audiobookAuthor is the Author a scanned audiobook links to: the one
+// Author of ns whose metadata name is the author folder's (the first
+// segment of "<author>/<title>"), compared through release.TitleNorm, as Add
+// New compares (ui's authorsNamed). None -- no author folder, no Author of
+// the name, two of it, an Author without metadata yet -- links none, never
+// a guess: the audiobook's Edit dialog links one by hand.
+func (a *Applier) audiobookAuthor(ctx context.Context, ns, folder string) (string, error) {
+	author, _, ok := strings.Cut(folder, "/")
+	if !ok {
+		return "", nil
+	}
+	want := release.TitleNorm(author)
+	if want == "" {
+		return "", nil
+	}
+	var list catalogv1alpha1.AuthorList
+	if err := a.reader().List(ctx, &list, client.InNamespace(ns)); err != nil {
+		return "", fmt.Errorf("scanapply: list authors in %s: %w", ns, err)
+	}
+	var match []string
+	for i := range list.Items {
+		if md := list.Items[i].Status.Metadata; md != nil && md.Name != "" && release.TitleNorm(md.Name) == want {
+			match = append(match, list.Items[i].Name)
+		}
+	}
+	if len(match) != 1 {
+		logging.FromContext(ctx).Info("scanapply: no one Author of the audiobook's author folder; no author linked",
+			"authorFolder", author, "authors", match)
+		return "", nil
+	}
+	return match[0], nil
 }
 
 // applyMovie creates the Movie a scanned file names, under import-worker,
