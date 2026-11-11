@@ -24,7 +24,7 @@ import (
 	"sort"
 	"strings"
 
-	"sigs.k8s.io/yaml"
+	"go.yaml.in/yaml/v2"
 )
 
 // DefaultConfigPath is where the chart mounts the logging ConfigMap and
@@ -37,11 +37,16 @@ const DefaultConfigPath = DefaultConfigDir + "/logging.yaml"
 const DefaultConfigDir = "/etc/clustarr"
 
 // FileConfig is the config file's "logging:" section (design §4).
+//
+// The parser is go.yaml.in/yaml/v2, which api/common/v1alpha1 already
+// links, never sigs.k8s.io/yaml: every package that logs imports this
+// one, pkg/presence among them, which TestPresenceLinksNoKubernetes holds
+// to api/common's dependencies.
 type FileConfig struct {
-	Level      string            `json:"level,omitempty"`
-	Format     string            `json:"format,omitempty"`
-	AddSource  *bool             `json:"addSource,omitempty"`
-	Subsystems map[string]string `json:"subsystems,omitempty"`
+	Level      string            `yaml:"level,omitempty"`
+	Format     string            `yaml:"format,omitempty"`
+	AddSource  *bool             `yaml:"addSource,omitempty"`
+	Subsystems map[string]string `yaml:"subsystems,omitempty"`
 }
 
 // ReadConfig reads path's "logging:" key. A missing file's error wraps
@@ -59,7 +64,7 @@ func ReadConfig(path string) (FileConfig, error) {
 // config.yaml carries its own).
 func parseConfig(data []byte) (FileConfig, error) {
 	var raw struct {
-		Logging map[string]any `json:"logging"`
+		Logging yaml.MapSlice `yaml:"logging"`
 	}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return FileConfig{}, fmt.Errorf("parse logging config: %w", err)
