@@ -20,6 +20,7 @@ package ui_test
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -191,6 +192,56 @@ func TestProgrammeDialogShowsDetailsAndTheStreamURL(t *testing.T) {
 	news := get(t, srv, "/livetv/guide/programme?provider=media%2Fargon-tv&channel=1002&start=2026-10-27T18:00:00Z").Body.String()
 	assert.NotContains(t, news, "iptv-epg.example", "an image on a host the proxy does not fetch is left out")
 	assert.Equal(t, http.StatusNotFound, get(t, srv, "/livetv/guide/programme?provider=media%2Fargon-tv&channel=1001&start=2026-10-27T05:00:00Z").Code)
+}
+
+// TestTheProgrammeDialogShowsTheStillAndThePlexLink is the custom-guides
+// design's §5.7: a programme the guide index carries images and a Plex
+// identity for shows its still (else its poster, else its icon) through
+// /art/search, its backdrop behind the dialog, and a link to the item's
+// page on Plex; a programme with neither renders as it did.
+func TestTheProgrammeDialogShowsTheStillAndThePlexLink(t *testing.T) {
+	const (
+		still    = "https://metadata-static.plex.tv/a/gracenote/still.jpg"
+		poster   = "https://metadata-static.plex.tv/a/gracenote/poster.jpg"
+		backdrop = "https://metadata-static.plex.tv/a/gracenote/backdrop.jpg"
+		icon     = "https://image.tmdb.org/t/p/w500/icon.jpg"
+		plexID   = "5d9c08b5e9d5a1001f5fc1aa"
+		plexLink = "https://app.plex.tv/desktop/#!/provider/tv.plex.provider.epg/details?key=/library/metadata/" + plexID
+	)
+	at := func(h int) time.Time { return guideFrom.Add(time.Duration(h) * time.Hour) }
+	store := liveTVStore(t)
+	putObject(t, store, livetvstore.GuideIndexObject(tvKey), livetvstore.GuideIndex{From: guideFrom,
+		Channels: []livetvstore.IndexChannel{{Number: "1001", Name: "ESPN HD"}},
+		Programmes: []livetvstore.IndexProgramme{
+			{Channel: "1001", Start: at(18), Stop: at(19), Title: "SportsCenter", Image: icon, Poster: poster, Still: still,
+				Backdrop: backdrop, PlexGUID: "plex://episode/" + plexID},
+			{Channel: "1001", Start: at(19), Stop: at(20), Title: "NFL Live", Image: icon, Poster: poster},
+			{Channel: "1001", Start: at(20), Stop: at(21), Title: "Pardon the Interruption", Image: icon},
+		}})
+	srv, _ := tvServerWith(t, store, tvProvider(), tvChannel("argon-tv-espn", "n:espn", "1001", true, "Active", "plex/abc"))
+	programme := func(start string) string {
+		rec := get(t, srv, "/livetv/guide/programme?provider=media%2Fargon-tv&channel=1001&start=2026-10-27T"+start+":00:00Z")
+		require.Equal(t, http.StatusOK, rec.Code, start)
+		return rec.Body.String()
+	}
+	signed := func(src string) string { return `src="/art/search?src=` + url.QueryEscape(src) + `&amp;sig=` }
+
+	body := programme("18")
+	requireTag(t, body, `data-programme-image`, signed(still))
+	requireTag(t, body, `data-programme-backdrop`, signed(backdrop))
+	requireTag(t, body, `data-plex-link`, `href="`+plexLink+`"`, `target="_blank"`, `rel="noopener noreferrer"`)
+	assert.Contains(t, body, "Open in Plex")
+	assert.NotContains(t, body, `src="https://metadata-static.plex.tv`, "never hot-linked")
+
+	body = programme("19")
+	requireTag(t, body, `data-programme-image`, signed(poster))
+	assert.NotContains(t, body, "data-programme-backdrop")
+	assert.NotContains(t, body, "data-plex-link", "no Plex identity, no link")
+
+	body = programme("20")
+	requireTag(t, body, `data-programme-image`, signed(icon)) // the icon, as before
+	assert.NotContains(t, body, "data-programme-backdrop")
+	assert.NotContains(t, body, "Open in Plex")
 }
 
 func TestGuideTimesAreLabelledInTheBrowsersZone(t *testing.T) {

@@ -39,6 +39,7 @@ import (
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/iptv/lineup"
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -415,4 +416,208 @@ func TestCopyStreamURLIsTheTunersNeverTheProviders(t *testing.T) {
 	assert.NotContains(t, body, "panel.example")
 	requireTag(t, body, `data-copy="http://`+tvAddr+`/hdhr/AAAA0001/playlist.m3u"`)
 	requireTag(t, body, `data-copy="http://`+tvAddr+`/hdhr/AAAA0001/xmltv.xml"`)
+}
+
+// lineupFixture is argon-tv under an automatic lineup (enabled, or a dry run
+// when not): News (base 1000) and Sports (base 2000) in spec.lineup and, when
+// enabled, status.categories, and four channels the lineup placed -- CNN in
+// News by the person's override, ESPN in Sports on a Plex grid, ESPN2 left
+// out as ESPN's duplicate, and an Off one -- with plan, when set, stored as
+// the provider's lineup plan.
+func lineupFixture(t *testing.T, enabled bool, plan *livetvstore.LineupPlan) (*ui.Server, client.Client) {
+	t.Helper()
+	p := tvProvider()
+	p.Spec.Lineup = &clustarrv1.LineupSpec{Enabled: enabled, Categories: []clustarrv1.LineupCategory{
+		{Name: "News", Base: ptr.To[int32](1000), Groups: []string{"USA: NEWS"}},
+		{Name: "Sports", Base: ptr.To[int32](2000), Groups: []string{"USA: SPORTS"}},
+	}}
+	if enabled {
+		p.Status.Categories = []clustarrv1.CategoryStatus{{Name: "News", Base: 1000, Channels: 1, DeviceID: "BBBB0001"}, {Name: "Sports", Base: 2000, Channels: 1, DeviceID: "BBBB0002"}}
+	}
+	cnn := tvChannel("argon-tv-cnn", "n:cnn", "1001", true, clustarrv1.ReasonActive, "xmltv/US-CNN")
+	cnn.Spec.Category = ptr.To("News")
+	cnn.Status.Lineup = &clustarrv1.ChannelLineupStatus{Name: "CNN", Category: "News", Rule: "override", Number: "1001"}
+	espn := tvChannel("argon-tv-espn", "n:espn", "2001", true, clustarrv1.ReasonActive, "plex/5fc705e2088e7d002d4c6de2")
+	espn.Status.Lineup = &clustarrv1.ChannelLineupStatus{Name: "ESPN", Category: "Sports", Rule: "Sports[1]", Number: "2001"}
+	espn2 := tvChannel("argon-tv-espn2", "n:espn2", "2050", false, clustarrv1.ReasonInactive, "")
+	espn2.Status.Lineup = &clustarrv1.ChannelLineupStatus{Name: "ESPN", DuplicateOf: "n:espn"}
+	off := tvChannel("argon-tv-shop", "n:shop", "2051", false, clustarrv1.ReasonInactive, "dummy/60")
+	off.Spec.Category = ptr.To("")
+	off.Status.Lineup = &clustarrv1.ChannelLineupStatus{Name: "Shop"}
+
+	store := liveTVStore(t)
+	putObject(t, store, livetvstore.PlaylistObject(tvKey), livetvstore.Playlist{Entries: []livetvstore.PlaylistEntry{
+		{Key: "n:cnn", Name: "CNN", Group: "USA: NEWS"},
+		{Key: "n:espn", Name: "ESPN HD", Group: "USA: SPORTS"},
+		{Key: "n:espn2", Name: "ESPN [720p]", Group: "USA: SPORTS"},
+		{Key: "n:shop", Name: "Shop", Group: "USA: SHOPPING"},
+		{Key: "n:hbo", Name: "HBO", Group: "USA: MOVIES"},
+	}})
+	if plan != nil {
+		putObject(t, store, livetvstore.LineupPlanObject(tvKey), *plan)
+	}
+	return tvServerWith(t, store, p, cnn, espn, espn2, off)
+}
+
+// rowOf is channel name's row in body, through the next row or the table's
+// end.
+func rowOf(t *testing.T, body, name string) string {
+	t.Helper()
+	i := strings.Index(body, `id="channel-`+name+`"`)
+	require.GreaterOrEqual(t, i, 0, name)
+	end := strings.Index(body[i+1:], `<tr id="channel-`)
+	if end < 0 {
+		end = strings.Index(body[i:], "</tbody>")
+		require.Greater(t, end, 0)
+		return body[i : i+end]
+	}
+	return body[i : i+1+end]
+}
+
+func TestTheChannelsPageShowsCategoryAndSource(t *testing.T) {
+	srv, c := lineupFixture(t, true, nil)
+	body := get(t, srv, "/livetv/channels").Body.String()
+	requireTag(t, body, `data-column="category"`)
+	requireTag(t, body, `data-column="source"`)
+
+	espn := rowOf(t, body, "argon-tv-espn")
+	assert.Contains(t, tagWith(t, espn, `data-channel-category`), `data-channel-category="Sports"`, "the category the lineup gave it")
+	assert.Contains(t, espn, "rule Sports[1]", "the rule that placed it")
+	assert.Contains(t, tagWith(t, espn, `data-channel-source`), `data-channel-source="plex"`)
+	assert.Contains(t, espn, "Plex", "the guide source in use")
+	requireTag(t, espn, `name="name"`, `value="ESPN"`) // the lineup's trimmed name, which the tuner serves, not the playlist's "ESPN HD"
+	requireTag(t, espn, `name="category"`, `value="Automatic"`)
+	for _, choice := range []string{"Automatic", "Off", "News", "Sports"} {
+		requireTag(t, espn, `data-templ-value="`+choice+`"`)
+	}
+	form := tagWith(t, espn, `data-category-form`)
+	assert.Contains(t, form, `hx-post="/livetv/channels/media/argon-tv-espn"`)
+	assert.Contains(t, form, `hx-trigger="change"`)
+
+	cnn := rowOf(t, body, "argon-tv-cnn")
+	requireTag(t, cnn, `name="category"`, `value="News"`)
+	assert.Contains(t, cnn, "by its override", "a person's category, not a rule's")
+	assert.Contains(t, tagWith(t, cnn, `data-channel-source`), `data-channel-source="xmltv"`)
+
+	dup := rowOf(t, body, "argon-tv-espn2")
+	assert.Contains(t, dup, "duplicate of 2001 ESPN", "left out as a duplicate, with the channel it duplicates")
+
+	shop := rowOf(t, body, "argon-tv-shop")
+	requireTag(t, shop, `name="category"`, `value="Off"`)
+	assert.Contains(t, tagWith(t, shop, `data-channel-source`), `data-channel-source="dummy"`)
+
+	// The select posts the override in place.
+	rec := postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "category": {"Off"}})
+	require.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
+	assert.Equal(t, ptr.To(""), getChannel(t, c, "argon-tv-espn").Spec.Category, "off every DVR")
+	rec = postTo(t, srv, "/livetv/channels/media/argon-tv-cnn", "channel-argon-tv-cnn", url.Values{"gen": {"1"}, "category": {"Automatic"}})
+	require.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
+	assert.Nil(t, getChannel(t, c, "argon-tv-cnn").Spec.Category, "the override removed")
+
+	// A page without a lineup is as it was.
+	plain, _ := channelsFixture(t)
+	body = get(t, plain, "/livetv/channels").Body.String()
+	for _, absent := range []string{`data-column="category"`, `data-column="source"`, "data-channel-category", `name="category"`, "data-lineup-dry-run"} {
+		assert.NotContains(t, body, absent)
+	}
+	assert.NotContains(t, get(t, plain, "/livetv/channels/playlist?provider=media%2Fargon-tv&all=1").Body.String(), "data-plan-")
+}
+
+func TestANumberCannotBeEditedUnderAnAutomaticLineup(t *testing.T) {
+	srv, c := lineupFixture(t, true, nil)
+	body := get(t, srv, "/livetv/channels").Body.String()
+	number := tagWith(t, rowOf(t, body, "argon-tv-espn"), `name="number"`)
+	assert.Regexp(t, disabledAttr, number, "the lineup numbers it")
+	assert.NotContains(t, number, "hx-post", "and nothing posts it")
+
+	rec := postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "number": {"2005"}})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
+	assert.Equal(t, []string{"argon-tv-espn"}, channelRowIDs(rec.Body.String()), "the row, as it stands")
+	assert.Equal(t, "2001", getChannel(t, c, "argon-tv-espn").Spec.Number, "a posted number is not written")
+
+	rec = postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "number": {"2005"}, "name": {"ESPN East"}})
+	require.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
+	got := getChannel(t, c, "argon-tv-espn")
+	assert.Equal(t, "ESPN East", got.Spec.Name, "the rest of the edit is written")
+	assert.Equal(t, "2001", got.Spec.Number)
+
+	rec = postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-cnn@1"}, "op": {"renumber"}, "start": {"3001"}})
+	requireTag(t, rec.Body.String(), `data-action-error="invalid"`)
+	assert.Equal(t, "1001", getChannel(t, c, "argon-tv-cnn").Spec.Number, "nor renumbered in bulk")
+
+	// A dry run numbers nothing: the number is the person's still.
+	dry, dc := lineupFixture(t, false, nil)
+	body = get(t, dry, "/livetv/channels").Body.String()
+	assert.NotRegexp(t, disabledAttr, tagWith(t, rowOf(t, body, "argon-tv-espn"), `name="number"`))
+	rec = postTo(t, dry, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "number": {"2005"}})
+	require.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
+	assert.Equal(t, "2005", getChannel(t, dc, "argon-tv-espn").Spec.Number)
+}
+
+func TestTheDryRunBannerCountsTheCategories(t *testing.T) {
+	plan := &livetvstore.LineupPlan{PlannedAt: tvNow, DryRun: true}
+	plan.Channels = []lineup.Assignment{
+		{Key: "n:cnn", Name: "CNN", Group: "USA: NEWS", Category: "News", Rule: "News", Number: "1001"},
+		{Key: "n:espn", Name: "ESPN", Group: "USA: SPORTS", Category: "Sports", Rule: "Sports", Number: "2001"},
+		{Key: "n:espnu", Name: "ESPNU", Group: "USA: SPORTS", Category: "Sports", Rule: "Sports", Number: "2002"},
+	}
+	plan.Categories = []lineup.Category{{Name: "News", Base: 1000, Channels: 1}, {Name: "Sports", Base: 2000, Channels: 2}}
+	plan.Dropped = []lineup.Dropped{
+		{Key: "n:espn2", Name: "ESPN", Reason: lineup.ReasonDuplicate, DuplicateOf: "n:espn"},
+		{Key: "n:espnu2", Name: "ESPNU", Reason: lineup.ReasonDuplicate, DuplicateOf: "n:espnu"},
+		{Key: "n:shop", Name: "Shop", Reason: lineup.ReasonOff},
+		{Key: "n:hbo", Name: "HBO", Reason: lineup.ReasonUnmatched},
+	}
+	srv, _ := lineupFixture(t, false, plan)
+	body := get(t, srv, "/livetv/channels").Body.String()
+	banner := body[strings.Index(body, `data-lineup-dry-run="media/argon-tv"`):]
+	banner = banner[:strings.Index(banner, `id="channels-filter"`)]
+	assert.Contains(t, banner, "Dry run")
+	assert.Contains(t, tagWith(t, banner, `data-dry-run-category="News"`), "data-slot=\"badge\"")
+	assert.Contains(t, banner, "News 1")
+	assert.Contains(t, banner, "Sports 2")
+	for reason, want := range map[string]string{"duplicate": "2 duplicate", "off": "1 off", "unmatched": "1 unmatched"} {
+		requireTag(t, banner, `data-dry-run-dropped="`+reason+`"`)
+		assert.Contains(t, banner, want)
+	}
+	assert.NotContains(t, banner, `data-dry-run-dropped="excluded"`, "a reason nothing was dropped for is not named")
+
+	// The category select offers the plan's categories while the
+	// provider's status has none.
+	espn := rowOf(t, body, "argon-tv-espn")
+	requireTag(t, espn, `data-templ-value="Sports"`)
+	requireTag(t, espn, `data-templ-value="News"`)
+	assert.NotRegexp(t, disabledAttr, tagWith(t, espn, `name="number"`), "a dry run numbers nothing")
+
+	// The playlist pane shows where the plan puts each entry, or why not.
+	pane := get(t, srv, "/livetv/channels/playlist?provider=media%2Fargon-tv&all=1").Body.String()
+	assert.Contains(t, entryOf(t, pane, "n:cnn"), `data-plan-category="News"`)
+	assert.Contains(t, entryOf(t, pane, "n:espn"), `data-plan-category="Sports"`)
+	assert.Contains(t, entryOf(t, pane, "n:espn2"), `data-plan-dropped="duplicate"`)
+	assert.Contains(t, entryOf(t, pane, "n:hbo"), `data-plan-dropped="unmatched"`)
+
+	// Before the controller stored a plan, the banner says so.
+	none, _ := lineupFixture(t, false, nil)
+	body = get(t, none, "/livetv/channels").Body.String()
+	banner = body[strings.Index(body, `data-lineup-dry-run="media/argon-tv"`):]
+	assert.Contains(t, banner[:strings.Index(banner, `id="channels-filter"`)], "not planned yet")
+	// Enabled is no dry run.
+	on, _ := lineupFixture(t, true, nil)
+	assert.NotContains(t, get(t, on, "/livetv/channels").Body.String(), "data-lineup-dry-run")
+}
+
+// disabledAttr is a tag's disabled attribute, never a class naming it.
+var disabledAttr = regexp.MustCompile(`\sdisabled(\s|>|=|/)`)
+
+// entryOf is the playlist pane's entry key in body, through the next entry.
+func entryOf(t *testing.T, body, key string) string {
+	t.Helper()
+	i := strings.Index(body, `data-playlist-entry="`+key+`"`)
+	require.GreaterOrEqual(t, i, 0, key)
+	end := strings.Index(body[i+1:], `data-playlist-entry="`)
+	if end < 0 {
+		return body[i:]
+	}
+	return body[i : i+1+end]
 }

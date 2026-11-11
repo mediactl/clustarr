@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/ui/actions"
 )
 
@@ -152,6 +153,38 @@ func TestEditChannelsWritesThePlexChoice(t *testing.T) {
 	assert.Empty(t, w.patches)
 }
 
+// TestACategoryOverridePatchesSpecCategory is the Channels page's category
+// select (the custom-guides design §5.7): "Off" writes the empty category
+// (no category: off every DVR), "Automatic" removes the override (null, so
+// the lineup's rules decide), and a category's name is written as it is.
+func TestACategoryOverridePatchesSpecCategory(t *testing.T) {
+	for _, c := range []struct {
+		category, want string
+	}{
+		{actions.CategoryOff, `{"category":""}`},
+		{actions.CategoryAutomatic, `{"category":null}`},
+		{"News", `{"category":"News"}`},
+		{"Entertainment / Comedy", `{"category":"Entertainment / Comedy"}`},
+	} {
+		w := &fakeWriter{}
+		_, err := actions.EditChannels(t.Context(), channelGetter{"a": readChannel("a", 1, "3")}, w, "media",
+			[]actions.ChannelEdit{{Name: "a", Generation: 1, Category: ptr.To(c.category)}})
+		require.NoError(t, err, c.category)
+		require.Len(t, w.patches, 1)
+		assert.JSONEq(t, `{"metadata":{"resourceVersion":"3"},"spec":`+c.want+`}`, string(w.patches[0].data), c.category)
+	}
+	assert.Equal(t, "Off", actions.CategoryOff)
+	assert.Equal(t, "Automatic", actions.CategoryAutomatic)
+
+	for _, bad := range []string{"", strings.Repeat("c", 65)} {
+		w := &fakeWriter{}
+		_, err := actions.EditChannels(t.Context(), channelGetter{"a": readChannel("a", 1, "3")}, w, "media",
+			[]actions.ChannelEdit{{Name: "a", Generation: 1, Category: ptr.To(bad)}})
+		require.ErrorIs(t, err, actions.ErrInvalid, "%q is neither a choice nor a category's name", bad)
+		assert.Empty(t, w.patches)
+	}
+}
+
 func TestEditChannelsKeepsThePlexChoice(t *testing.T) {
 	w := &fakeWriter{}
 	_, err := actions.EditChannels(t.Context(), channelGetter{"a": readChannel("a", 1, "3")}, w, "media",
@@ -213,6 +246,17 @@ func TestAddChannelNamesTheObjectByItsKey(t *testing.T) {
 	assert.LessOrEqual(t, len(actions.ChannelObjectName(long, "n:abc")), 63)
 	_, err = actions.AddChannel(t.Context(), w, "media", "argon-tv", "n:abc", "abc", "ESPN")
 	require.ErrorIs(t, err, actions.ErrInvalid)
+}
+
+// TestChannelObjectNameIsTheLineupControllers holds ui/actions' restated
+// naming rule to pkg/iptv's, which the lineup controller names channels
+// by: a key has one channel whoever makes it.
+func TestChannelObjectNameIsTheLineupControllers(t *testing.T) {
+	for _, c := range []struct{ provider, key string }{
+		{"argon-tv", "n:abc"}, {"argon-tv", "t:espn.us"}, {strings.Repeat("p", 70), "n:abc"}, {"m3u", ""},
+	} {
+		assert.Equal(t, iptv.ChannelObjectName(c.provider, c.key), actions.ChannelObjectName(c.provider, c.key), "%+v", c)
+	}
 }
 
 func TestRefreshLiveTVWritesTheAnnotation(t *testing.T) {

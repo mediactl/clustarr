@@ -221,3 +221,20 @@ func (l *liveTVStore) PlexLineup(ctx context.Context, key types.NamespacedName) 
 	}
 	return v.(*plexguide.Lineup), true
 }
+
+// LineupPlan is key's lineup plan (spec.lineup), as the lineup controller
+// stored it last: the Channels page's dry-run banner and the playlist
+// pane's categories; false before the controller stored one.
+func (l *liveTVStore) LineupPlan(ctx context.Context, key types.NamespacedName) (*livetvstore.LineupPlan, bool) {
+	v, ok := l.read(ctx, livetvstore.LineupPlanObject(key), func(r io.Reader) (any, error) {
+		var lp livetvstore.LineupPlan
+		if err := livetvstore.Decode(r, &lp); err != nil {
+			return nil, err
+		}
+		return &lp, nil
+	})
+	if !ok {
+		return nil, false
+	}
+	return v.(*livetvstore.LineupPlan), true
+}

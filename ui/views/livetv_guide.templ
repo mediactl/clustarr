@@ -26,6 +26,7 @@ import (
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/input"
 )
 
@@ -87,10 +88,40 @@ type GuideSentinel struct {
 	URL    string
 }
 
-// ProgrammeDialog is a programme's details.
+// ProgrammeDialog is a programme's details. Image and Backdrop are
+// /art/search paths, never a provider's URL; PlexURL its item's Plex Web
+// page, "" without a Plex identity.
 type ProgrammeDialog struct {
 	livetvstore.IndexProgramme
 	Channel, ChannelName, StreamURL, Image string
+	Backdrop, PlexURL                      string
+}
+
+// programmeContentClass is the dialog's content, clipping its backdrop
+// when it has one.
+func programmeContentClass(d ProgrammeDialog) string {
+	if d.Backdrop != "" {
+		return "sm:max-w-2xl overflow-hidden"
+	}
+	return "sm:max-w-2xl"
+}
+
+// programmeBodyClass is the dialog's body, over its backdrop when it has
+// one.
+func programmeBodyClass(d ProgrammeDialog) string {
+	if d.Backdrop != "" {
+		return "relative flex gap-4"
+	}
+	return "flex gap-4"
+}
+
+// overBackdrop positions a part of the dialog over its backdrop, which is
+// positioned before it: "" without one.
+func overBackdrop(d ProgrammeDialog) string {
+	if d.Backdrop != "" {
+		return "relative"
+	}
+	return ""
 }
 
 func px(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) + "px" }
@@ -213,13 +244,19 @@ templ guideWindow(w GuideWindowView) {
 				<div class="flex items-center gap-1">
 					<span class="truncate text-sm font-medium">{ b.Title }</span>
 					if b.Episode != "" {
-						@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: guidePillClass}) { { b.Episode } }
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: guidePillClass}) {
+							{ b.Episode }
+						}
 					}
 					if b.Live {
-						@badge.Badge(badge.Props{Variant: badge.VariantDestructive, Class: guidePillClass + " font-semibold"}) { LIVE }
+						@badge.Badge(badge.Props{Variant: badge.VariantDestructive, Class: guidePillClass + " font-semibold"}) {
+							LIVE 
+						}
 					}
 					if b.New {
-						@badge.Badge(badge.Props{Class: guidePillClass + " font-semibold"}) { NEW }
+						@badge.Badge(badge.Props{Class: guidePillClass + " font-semibold"}) {
+							NEW 
+						}
 					}
 				</div>
 				<div class="truncate text-xs text-muted-foreground">
@@ -245,9 +282,15 @@ templ guideWindow(w GuideWindowView) {
 // #guide-dialog.
 templ ProgrammeDialogView(d ProgrammeDialog) {
 	@dialog.Dialog(dialog.Props{DefaultOpen: true}) {
-		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl"}) {
-			@dialog.Header() {
-				@dialog.Title() { { d.Title } }
+		@dialog.Content(dialog.ContentProps{Class: programmeContentClass(d)}) {
+			if d.Backdrop != "" {
+				<img data-programme-backdrop src={ d.Backdrop } alt="" class="pointer-events-none absolute inset-0 size-full object-cover opacity-40"/>
+				<div aria-hidden="true" class="pointer-events-none absolute inset-0 bg-background/70"></div>
+			}
+			@dialog.Header(dialog.HeaderProps{Class: overBackdrop(d)}) {
+				@dialog.Title() {
+					{ d.Title }
+				}
 				@dialog.Description() {
 					{ d.Channel + " " + d.ChannelName + " · " }
 					<time data-local="datetime" datetime={ rfc3339(d.Start) }>{ d.Start.UTC().Format("Mon 15:04 UTC") }</time>
@@ -255,9 +298,9 @@ templ ProgrammeDialogView(d ProgrammeDialog) {
 					<time data-local="time" datetime={ rfc3339(d.Stop) }>{ d.Stop.UTC().Format("15:04") }</time>
 				}
 			}
-			<div class="flex gap-4">
+			<div class={ programmeBodyClass(d) }>
 				if d.Image != "" {
-					<img src={ d.Image } alt="" class="w-32 shrink-0 rounded-md object-cover"/>
+					<img data-programme-image src={ d.Image } alt="" class="w-32 shrink-0 rounded-md object-cover"/>
 				}
 				<div class="min-w-0 space-y-2 text-sm">
 					if d.SubTitle != "" {
@@ -265,16 +308,24 @@ templ ProgrammeDialogView(d ProgrammeDialog) {
 					}
 					<div class="flex flex-wrap gap-1">
 						if d.Episode != "" {
-							@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { d.Episode } }
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+								{ d.Episode }
+							}
 						}
 						if d.Live {
-							@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { LIVE }
+							@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+								LIVE 
+							}
 						}
 						if d.New {
-							@badge.Badge() { NEW }
+							@badge.Badge() {
+								NEW 
+							}
 						}
 						for _, c := range d.Categories {
-							@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { c } }
+							@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+								{ c }
+							}
 						}
 					</div>
 					if d.Desc != "" {
@@ -285,6 +336,12 @@ templ ProgrammeDialogView(d ProgrammeDialog) {
 							<span class="min-w-0 truncate font-mono" title={ d.StreamURL }>{ d.StreamURL }</span>
 							@copyButton(d.StreamURL, "Copy the stream URL")
 						</div>
+					}
+					if d.PlexURL != "" {
+						@button.Button(button.Props{Href: d.PlexURL, Target: "_blank", Size: button.SizeSm, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-plex-link": true, "rel": "noopener noreferrer"}}) {
+							@icon.Icon("external-link")(icon.Props{Class: "mr-1 size-4"})
+							Open in Plex
+						}
 					}
 				</div>
 			</div>

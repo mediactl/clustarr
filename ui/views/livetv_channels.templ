@@ -21,11 +21,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
-	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/pkg/iptv/lineup"
+	"github.com/mediactl/clustarr/ui/actions"
+	"github.com/mediactl/clustarr/ui/components/alert"
 	"github.com/mediactl/clustarr/ui/components/alertdialog"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
@@ -37,8 +41,10 @@ import (
 	"github.com/mediactl/clustarr/ui/components/inputgroup"
 	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/components/pagination"
+	selectcomp "github.com/mediactl/clustarr/ui/components/select"
 	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
 	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // ChannelFilter is the Channels table's filters.
@@ -81,6 +87,35 @@ type ChannelsPage struct {
 	Groups    []string
 	Links     []BlockLinks
 	Pane      PlaylistPane
+	// DryRuns are the providers whose lineup is planned and not applied.
+	DryRuns []DryRunBanner
+}
+
+// DryRunBanner is a provider's lineup planned and not applied (the
+// custom-guides design §5.7): the plan's categories with their channel
+// counts, and what it leaves out, counted by reason, from the plan the
+// lineup controller stored. Planned is false before it stored one.
+type DryRunBanner struct {
+	Provider, Name string
+	Planned        bool
+	PlannedAt      *time.Time
+	Error          string
+	Categories     []DryRunCategory
+	Dropped        []DryRunDropped
+}
+
+// DryRunCategory is one category of a dry run's plan.
+type DryRunCategory struct {
+	Name     string
+	Channels int
+	TooMany  bool
+}
+
+// DryRunDropped counts a dry run's entries left out for Reason, one of
+// pkg/iptv/lineup's drop reasons.
+type DryRunDropped struct {
+	Reason string
+	Count  int
 }
 
 // PlaylistPane is a provider's playlist, filtered and paged.
@@ -113,6 +148,11 @@ func (p PlaylistPane) PageURL(n int) string {
 type PlaylistPaneEntry struct {
 	ID, Key, Name, Group, TvgID, LogoPath, Provider, Number string
 	Candidate                                               bool
+	// PlanCategory is the category the provider's lineup plan puts the
+	// entry in; PlanDropped why it leaves the entry out instead, and
+	// PlanDuplicateOf the entry it duplicates, by its planned name, else
+	// its key. All "" without a lineup.
+	PlanCategory, PlanDropped, PlanDuplicateOf string
 }
 
 // EPGPicker is a channel's guide picker; with Plex its Plex station picker
@@ -136,6 +176,13 @@ const channelsReturnPath = "/livetv/channels"
 // right.
 templ LiveTVChannels(p ChannelsPage) {
 	@liveTVPage("Channels", "/livetv/channels", channelsActions(p.Links)) {
+		if len(p.DryRuns) > 0 {
+			<div class="mb-6 space-y-3">
+				for _, b := range p.DryRuns {
+					@dryRunBanner(b)
+				}
+			</div>
+		}
 		<div class="grid gap-6 min-[1800px]:grid-cols-[minmax(0,1fr)_26rem]">
 			<div class="min-w-0 space-y-3">
 				@channelsFilterForm(p)
@@ -158,8 +205,12 @@ templ channelsActions(links []BlockLinks) {
 	@dialog.Dialog(dialog.Props{ID: "livetv-links"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-3xl"}) {
 			@dialog.Header() {
-				@dialog.Title() { Links }
-				@dialog.Description() { Each block's HDHomeRun device, M3U playlist and XMLTV guide on the livetv Service. }
+				@dialog.Title() {
+					Links 
+				}
+				@dialog.Description() {
+					Each block's HDHomeRun device, M3U playlist and XMLTV guide on the livetv Service. 
+				}
 			}
 			if len(links) == 0 {
 				@emptyNote("No block has a URL yet.", "py-3", nil)
@@ -182,6 +233,82 @@ templ channelsActions(links []BlockLinks) {
 			</div>
 		}
 	}
+}
+
+// dryRunBanner is a provider's lineup planned and not applied: an alert
+// (shadcn-templ's) naming each category and its channel count, then what
+// the plan leaves out by reason.
+templ dryRunBanner(b DryRunBanner) {
+	@alert.Alert(alert.Props{Attributes: templ.Attributes{"data-lineup-dry-run": b.Provider}}) {
+		@icon.Icon("flask-conical")()
+		@alert.Title() {
+			{ "Dry run: " + b.Name }
+		}
+		@alert.Description(alert.DescriptionProps{Class: "space-y-2"}) {
+			<p>The lineup below is the plan, not yet applied: channels keep their numbers and DVRs until spec.lineup.enabled.</p>
+			if !b.Planned {
+				<p>The lineup is not planned yet: the controller plans it after the provider's next playlist fetch.</p>
+			} else {
+				<div class="flex flex-wrap items-center gap-1">
+					for _, c := range b.Categories {
+						@badge.Badge(badge.Props{Variant: dryRunCategoryVariant(c), Attributes: templ.Attributes{"data-dry-run-category": c.Name, "title": dryRunCategoryTitle(c)}}) {
+							{ c.Name + " " + strconv.Itoa(c.Channels) }
+						}
+					}
+				</div>
+				if len(b.Dropped) > 0 {
+					<div class="flex flex-wrap items-center gap-1">
+						<span>Left out:</span>
+						for _, d := range b.Dropped {
+							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Attributes: templ.Attributes{"data-dry-run-dropped": d.Reason}}) {
+								{ strconv.Itoa(d.Count) + " " + dropLabel(d.Reason) }
+							}
+						}
+					</div>
+				}
+				if b.Error != "" {
+					<p class="text-destructive">{ "The spec does not plan: " + b.Error + "; the last good plan is shown." }</p>
+				}
+				if b.PlannedAt != nil {
+					<p class="text-xs">
+						Planned
+						@liveTVTime(b.PlannedAt)
+					</p>
+				}
+			}
+		}
+	}
+}
+
+func dryRunCategoryVariant(c DryRunCategory) badge.Variant {
+	if c.TooMany {
+		return badge.VariantDestructive
+	}
+	return badge.VariantSecondary
+}
+
+func dryRunCategoryTitle(c DryRunCategory) string {
+	if c.TooMany {
+		return "Over a DVR's limit: its channels would be on no DVR"
+	}
+	return c.Name
+}
+
+// dropLabel is a lineup drop reason as the page reads it.
+func dropLabel(reason string) string {
+	switch reason {
+	case lineup.ReasonExcluded:
+		return "excluded"
+	case lineup.ReasonDuplicate:
+		return "duplicate"
+	case lineup.ReasonUnmatched:
+		return "unmatched"
+	case lineup.ReasonOff:
+		return "off"
+	case lineup.ReasonTooMany:
+		return "over a DVR's limit"
+	}
+	return reason
 }
 
 // linkLine is one URL of the Links dialog: an input group (shadcn-templ's,
@@ -248,8 +375,12 @@ templ ChannelsDeleteConfirm(items []string) {
 					<input type="hidden" name="item" value={ it }/>
 				}
 				@alertdialog.Footer() {
-					@alertdialog.Cancel() { Cancel }
-					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) { Delete }
+					@alertdialog.Cancel() {
+						Cancel 
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+						Delete 
+					}
 				}
 			</form>
 		}
@@ -275,7 +406,9 @@ templ channelsBulkForm() {
 		@filterSelect("op", "Bulk action", "", []ProviderOption{{Value: "enable", Label: "Enable"}, {Value: "disable", Label: "Disable"}, {Value: "group", Label: "Assign group"}, {Value: "renumber", Label: "Renumber from"}, {Value: "delete", Label: "Delete"}}, "enable")
 		@input.Input(input.Props{Name: "value", Placeholder: "Group", Class: "h-8 w-36", Attributes: templ.Attributes{"aria-label": "Group"}})
 		@input.Input(input.Props{Name: "start", Placeholder: "Start number", Class: "h-8 w-28", Attributes: templ.Attributes{"aria-label": "Start number", "inputmode": "numeric"}})
-		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm}) { Apply }
+		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm}) {
+			Apply 
+		}
 	</form>
 }
 
@@ -292,16 +425,46 @@ templ ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) {
 		@table.Table() {
 			@table.Header() {
 				@table.Row() {
-					@table.Head(table.HeadProps{Class: "w-8"}) { <span class="sr-only">Select</span> }
-					@table.Head(table.HeadProps{Class: "w-12"}) { Active }
-					@table.Head(table.HeadProps{Class: "w-24"}) { Number }
-					@table.Head(table.HeadProps{Class: "w-12"}) { <span class="sr-only">Logo</span> }
-					@table.Head() { Name }
-					@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) { Group }
-					@table.Head(table.HeadProps{Class: "hidden md:table-cell"}) { Provider }
-					@table.Head() { EPG }
-					@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) { Plex }
-					@table.Head(table.HeadProps{Class: "w-28"}) { <span class="sr-only">Actions</span> }
+					@table.Head(table.HeadProps{Class: "w-8"}) {
+						<span class="sr-only">Select</span>
+					}
+					@table.Head(table.HeadProps{Class: "w-12"}) {
+						Active 
+					}
+					@table.Head(table.HeadProps{Class: "w-24"}) {
+						Number 
+					}
+					@table.Head(table.HeadProps{Class: "w-12"}) {
+						<span class="sr-only">Logo</span>
+					}
+					@table.Head() {
+						Name 
+					}
+					@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) {
+						Group 
+					}
+					if lineupColumns(rows) {
+						@table.Head(table.HeadProps{Class: "hidden md:table-cell", Attributes: templ.Attributes{"data-column": "category"}}) {
+							Category 
+						}
+					}
+					@table.Head(table.HeadProps{Class: "hidden md:table-cell"}) {
+						Provider 
+					}
+					@table.Head() {
+						EPG 
+					}
+					if lineupColumns(rows) {
+						@table.Head(table.HeadProps{Class: "hidden lg:table-cell", Attributes: templ.Attributes{"data-column": "source"}}) {
+							Source 
+						}
+					}
+					@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) {
+						Plex 
+					}
+					@table.Head(table.HeadProps{Class: "w-28"}) {
+						<span class="sr-only">Actions</span>
+					}
 				}
 			}
 			@table.Body() {
@@ -328,7 +491,9 @@ func channelPost(r projection.ChannelRow, vals string) templ.Attributes {
 }
 
 // genVals are an in-place edit's hx-vals: the generation the page read.
-func genVals(r projection.ChannelRow) string { return hxVals("gen", strconv.FormatInt(r.Generation, 10)) }
+func genVals(r projection.ChannelRow) string {
+	return hxVals("gen", strconv.FormatInt(r.Generation, 10))
+}
 
 // bulkValue is a row's selection value: namespace/name@generation.
 func bulkValue(r projection.ChannelRow) string {
@@ -358,7 +523,11 @@ templ ChannelRowView(r projection.ChannelRow) {
 			@switchcomp.Switch(switchcomp.Props{Checked: &r.Active, Size: switchcomp.SizeSm, Attributes: attrs})
 		}
 		@table.Cell() {
-			@input.Input(input.Props{Name: "number", Value: r.Number, Class: inPlaceInputClass + " w-20 tabular-nums", Attributes: inPlaceAttrs(r, "Number", "decimal")})
+			if r.LineupOn {
+				@input.Input(input.Props{Name: "number", Value: r.Number, Disabled: true, Class: inPlaceInputClass + " w-20 tabular-nums", Attributes: templ.Attributes{"aria-label": "Number", "title": "Numbered by the lineup's category"}})
+			} else {
+				@input.Input(input.Props{Name: "number", Value: r.Number, Class: inPlaceInputClass + " w-20 tabular-nums", Attributes: inPlaceAttrs(r, "Number", "decimal")})
+			}
 		}
 		@table.Cell() {
 			@channelLogo(r.LogoPath, r.Number)
@@ -370,15 +539,33 @@ templ ChannelRowView(r projection.ChannelRow) {
 					<span title="Named here, not by the playlist">renamed</span>
 				}
 				if !r.Ready {
-					@badge.Badge(badge.Props{Variant: channelReasonVariant(r.Reason)}) { { r.Reason } }
+					@badge.Badge(badge.Props{Variant: channelReasonVariant(r.Reason)}) {
+						{ r.Reason }
+					}
 				}
 			</div>
 		}
-		@table.Cell(table.CellProps{Class: "hidden max-w-48 truncate text-sm lg:table-cell"}) { { r.Group } }
-		@table.Cell(table.CellProps{Class: "hidden text-sm md:table-cell"}) { { r.Provider } }
+		@table.Cell(table.CellProps{Class: "hidden max-w-48 truncate text-sm lg:table-cell"}) {
+			{ r.Group }
+		}
+		if r.LineupColumns {
+			@categoryCell(r)
+		}
+		@table.Cell(table.CellProps{Class: "hidden text-sm md:table-cell"}) {
+			{ r.Provider }
+		}
 		@table.Cell() {
 			@pickerButton("/livetv/channels/"+r.Namespace+"/"+r.Name+"/epg", "Change the guide") {
 				{ epgLabel(r.EPG) }
+			}
+		}
+		if r.LineupColumns {
+			@table.Cell(table.CellProps{Class: "hidden text-sm lg:table-cell", Attributes: templ.Attributes{"data-channel-source": r.Source, "title": r.Guide}}) {
+				if r.Source == "" {
+					<span class="text-muted-foreground">—</span>
+				} else {
+					{ sourceLabel(r.Source) }
+				}
 			}
 		}
 		@table.Cell(table.CellProps{Class: "hidden text-sm lg:table-cell"}) {
@@ -415,6 +602,138 @@ templ ChannelRowView(r projection.ChannelRow) {
 			</div>
 		}
 	}
+}
+
+// lineupColumns is the table showing the Category and Source columns: its
+// rows' (projection.ChannelRow.LineupColumns), the same on each.
+func lineupColumns(rows []projection.ChannelRow) bool {
+	return len(rows) > 0 && rows[0].LineupColumns
+}
+
+// categoryCell is a channel's place in its provider's lineup (the
+// custom-guides design §5.7): the category, the rule that placed it or why
+// it is left out, the number a dry run would give it, and the override's
+// select. Empty for a channel whose provider has no lineup.
+templ categoryCell(r projection.ChannelRow) {
+	@table.Cell(table.CellProps{Class: "hidden text-sm md:table-cell", Attributes: categoryCellAttrs(r)}) {
+		if r.InLineup() {
+			<div class="flex flex-col items-start gap-1">
+				<div class="flex items-center gap-1">
+					if r.Category != "" {
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+							{ r.Category }
+						}
+					} else if r.DuplicateOf != "" {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+							duplicate 
+						}
+					} else if r.Dropped != "" {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+							{ dropLabel(r.Dropped) }
+						}
+					} else {
+						<span class="text-muted-foreground">no category</span>
+					}
+					if r.DryRun && r.LineupNumber != "" && r.LineupNumber != r.Number {
+						<span class="text-xs tabular-nums text-muted-foreground" title="The number the plan gives it">{ "→ " + r.LineupNumber }</span>
+					}
+				</div>
+				if r.DuplicateOf != "" {
+					<div class="max-w-48 truncate text-xs text-muted-foreground" title={ "duplicate of " + r.DuplicateOf }>{ "duplicate of " + r.DuplicateOf }</div>
+				} else if r.Rule != "" {
+					<div class="max-w-48 truncate text-xs text-muted-foreground">{ ruleLabel(r.Rule) }</div>
+				}
+				@categorySelect(r)
+			</div>
+		}
+	}
+}
+
+func categoryCellAttrs(r projection.ChannelRow) templ.Attributes {
+	if !r.InLineup() {
+		return nil
+	}
+	return templ.Attributes{"data-channel-category": r.Category}
+}
+
+// ruleLabel is status.lineup.rule as the page reads it: the person's
+// override, or the category rule that matched.
+func ruleLabel(rule string) string {
+	if rule == "override" {
+		return "by its override"
+	}
+	return "rule " + rule
+}
+
+// categorySelect is a channel's category override (spec.category):
+// shadcn-templ's select in a form posting the choice in place.
+templ categorySelect(r projection.ChannelRow) {
+	{{ attrs := channelPost(r, genVals(r)) }}
+	{{ attrs["hx-trigger"] = "change" }}
+	{{ attrs["data-category-form"] = true }}
+	<form { attrs... }>
+		{{ opts := categoryOptions(r) }}
+		@selectcomp.Select(selectcomp.Props{Name: "category", DefaultValue: categoryChoice(r), Items: selectItems("", opts)}) {
+			@selectcomp.Trigger(selectcomp.TriggerProps{Size: selectcomp.SizeSm, Class: "h-7 max-w-40 text-xs", Attributes: templ.Attributes{"aria-label": "Category", "title": "The category: automatic by the lineup's rules, off every DVR, or one chosen here"}}) {
+				@selectcomp.Value()
+			}
+			@selectcomp.Content() {
+				for _, o := range opts {
+					@selectcomp.Item(selectcomp.ItemProps{Value: o.Value}) {
+						{ o.Label }
+					}
+				}
+			}
+		}
+	</form>
+}
+
+// categoryChoice is the select's value for spec.category: Automatic for
+// none, Off for the empty category, else its name.
+func categoryChoice(r projection.ChannelRow) string {
+	switch {
+	case r.CategoryOverride == nil:
+		return actions.CategoryAutomatic
+	case *r.CategoryOverride == "":
+		return actions.CategoryOff
+	}
+	return *r.CategoryOverride
+}
+
+// categoryOptions are the select's choices: Automatic, Off, then the
+// provider's categories and an override naming one it no longer has. A
+// category named as one of the two choices cannot be told from it, so is
+// not offered.
+func categoryOptions(r projection.ChannelRow) []ProviderOption {
+	opts := []ProviderOption{{Value: actions.CategoryAutomatic, Label: actions.CategoryAutomatic}, {Value: actions.CategoryOff, Label: actions.CategoryOff}}
+	seen := map[string]bool{actions.CategoryAutomatic: true, actions.CategoryOff: true}
+	names := r.Categories
+	if c := categoryChoice(r); !seen[c] {
+		names = append(slices.Clip(names), c)
+	}
+	for _, n := range names {
+		if n != "" && !seen[n] {
+			seen[n] = true
+			opts = append(opts, ProviderOption{Value: n, Label: n})
+		}
+	}
+	return opts
+}
+
+// sourceLabel is a guide source (status.guide's first segment) as the page
+// reads it.
+func sourceLabel(source string) string {
+	switch source {
+	case "plex":
+		return "Plex"
+	case "xmltv":
+		return "XMLTV"
+	case "panel":
+		return "Panel"
+	case "dummy":
+		return "Dummy"
+	}
+	return source
 }
 
 // inPlaceInputClass is a row's in-place input (number, name): an input
@@ -526,7 +845,9 @@ templ PlaylistPaneView(p PlaylistPane) {
 			if len(p.Filters) > 0 {
 				<div class="flex flex-wrap gap-1">
 					for _, f := range p.Filters {
-						@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { f } }
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+							{ f }
+						}
 					}
 				</div>
 			}
@@ -594,8 +915,19 @@ templ PlaylistEntryRow(e PlaylistPaneEntry) {
 			}
 		}
 		@item.Actions() {
+			if e.PlanCategory != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline, Attributes: templ.Attributes{"data-plan-category": e.PlanCategory, "title": "The lineup's category"}}) {
+					{ e.PlanCategory }
+				}
+			} else if e.PlanDropped != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantGhost, Attributes: templ.Attributes{"data-plan-dropped": e.PlanDropped, "title": planDroppedTitle(e)}}) {
+					{ dropLabel(e.PlanDropped) }
+				}
+			}
 			if e.Number != "" {
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { "Channel " + e.Number } }
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ "Channel " + e.Number }
+				}
 			} else if e.Candidate {
 				@button.Button(button.Props{
 					Size: button.SizeXs, Variant: button.VariantOutline,
@@ -614,6 +946,14 @@ templ PlaylistEntryRow(e PlaylistPaneEntry) {
 	}
 }
 
+// planDroppedTitle is a playlist entry's drop reason in full.
+func planDroppedTitle(e PlaylistPaneEntry) string {
+	if e.PlanDuplicateOf != "" {
+		return "Left out of the lineup: a duplicate of " + e.PlanDuplicateOf
+	}
+	return "Left out of the lineup: " + dropLabel(e.PlanDropped)
+}
+
 // EPGPickerDialog is a channel's guide picker, open as it lands in
 // #epg-picker: automatic, dummy, or a guide channel matching the search.
 templ EPGPickerDialog(p EPGPicker) {
@@ -622,11 +962,19 @@ templ EPGPickerDialog(p EPGPicker) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl"}) {
 			@dialog.Header() {
 				if p.Plex {
-					@dialog.Title() { Plex guide }
-					@dialog.Description() { Which station of the Plex lineup this channel is on; Plex shows its programmes and its number. }
+					@dialog.Title() {
+						Plex guide 
+					}
+					@dialog.Description() {
+						Which station of the Plex lineup this channel is on; Plex shows its programmes and its number. 
+					}
 				} else {
-					@dialog.Title() { Guide }
-					@dialog.Description() { Which guide channel this channel takes its programmes from. }
+					@dialog.Title() {
+						Guide 
+					}
+					@dialog.Description() {
+						Which guide channel this channel takes its programmes from. 
+					}
 				}
 			}
 			@input.Input(input.Props{
@@ -642,18 +990,22 @@ templ EPGPickerDialog(p EPGPicker) {
 			})
 			<div id={ "epg-choices-" + p.Name } class="max-h-96 divide-y divide-border overflow-y-auto">
 				for _, c := range p.Choices {
-					{{ attrs := templ.Attributes{
-						"data-epg-choice": c.Value,
-						"hx-post":         "/livetv/channels/" + p.Namespace + "/" + p.Name,
-						"hx-vals":         hxVals("gen", strconv.FormatInt(p.Generation, 10), pickerRoute(p.Plex), c.Value),
-						"hx-target":       "#channel-" + p.Name,
-						"hx-swap":         "outerHTML",
-					} }}
-					{{ for k, v := range dialog.CloseFor(id) {
-						if k != "type" {
-							attrs[k] = v
+					{{
+						attrs := templ.Attributes{
+							"data-epg-choice": c.Value,
+							"hx-post":         "/livetv/channels/" + p.Namespace + "/" + p.Name,
+							"hx-vals":         hxVals("gen", strconv.FormatInt(p.Generation, 10), pickerRoute(p.Plex), c.Value),
+							"hx-target":       "#channel-" + p.Name,
+							"hx-swap":         "outerHTML",
 						}
-					} }}
+					}}
+					{{
+						for k, v := range dialog.CloseFor(id) {
+							if k != "type" {
+								attrs[k] = v
+							}
+						}
+					}}
 					@button.Button(button.Props{Variant: button.VariantGhost, Class: "h-auto w-full justify-between gap-3 rounded-none px-2 py-2 font-normal", Attributes: attrs}) {
 						<span class="truncate">{ c.Label }</span>
 						<span class="truncate font-mono text-xs text-muted-foreground">{ c.Hint }</span>

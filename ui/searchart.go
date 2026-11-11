@@ -61,19 +61,25 @@ const (
 // coverartarchive.org and redirects to archive.org ([archiveHost]). An
 // Issue's status.coverURL is on ComicVine's image host
 // (comicvine.gamespot.com) or MangaDex's cover host (uploads.mangadex.org),
-// which the issue page serves through the same proxy (design §9.4).
+// which the issue page serves through the same proxy (design §9.4). A
+// programme the tuner built from Plex's guide grids carries Plex's own
+// images (the custom-guides design §5.7): stills, posters and backdrops on
+// metadata-static.plex.tv, and provider-static.plex.tv's, which the TV
+// Guide's programme dialog shows.
 var searchArtHosts = map[string]bool{
-	"image.tmdb.org":         true,
-	"artworks.thetvdb.com":   true,
-	"coverartarchive.org":    true,
-	"covers.openlibrary.org": true,
-	"api.mediux.pro":         true,
-	"images.mediux.io":       true,
-	"theposterdb.com":        true,
-	"assets.fanart.tv":       true,
-	"m.media-amazon.com":     true,
-	"comicvine.gamespot.com": true,
-	"uploads.mangadex.org":   true,
+	"image.tmdb.org":          true,
+	"artworks.thetvdb.com":    true,
+	"coverartarchive.org":     true,
+	"covers.openlibrary.org":  true,
+	"api.mediux.pro":          true,
+	"images.mediux.io":        true,
+	"theposterdb.com":         true,
+	"assets.fanart.tv":        true,
+	"m.media-amazon.com":      true,
+	"comicvine.gamespot.com":  true,
+	"uploads.mangadex.org":    true,
+	"metadata-static.plex.tv": true,
+	"provider-static.plex.tv": true,
 }
 
 var errSearchArtRefused = errors.New("ui: search art: refused")

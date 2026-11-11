@@ -144,6 +144,50 @@ func TestAPlexGuideProviderShowsItsLineup(t *testing.T) {
 	assert.Contains(t, body, "dry run", "enabled is false: the channels stay on the XMLTV guide")
 }
 
+// TestTheSourcesPageShowsTheGuideSourcesAndCategories is the custom-guides
+// design's §5.7: the Plex grid source's state -- lineups, stations paired,
+// grids fetched, the last fetch, a rate-limit hold and its error -- beside
+// the guides, and the lineup's categories under the blocks.
+func TestTheSourcesPageShowsTheGuideSourcesAndCategories(t *testing.T) {
+	p := tvProvider()
+	p.Spec.GuideSources = &clustarrv1.GuideSources{Plex: &clustarrv1.PlexGuideSource{
+		CredentialsRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "plex-token"}, Key: "token"},
+		Lineups:        []string{"657c8183afd0f02cd353633f", "657cb97c00fec317e3e246e1"},
+	}}
+	fetched, hold := metav1.NewTime(tvNow.Add(-2*time.Hour)), metav1.NewTime(tvNow.Add(10*time.Minute))
+	p.Status.GuideSources = &clustarrv1.GuideSourcesStatus{Plex: &clustarrv1.PlexSourceStatus{
+		Lineups: 2, Stations: 212, Grids: 198, FetchedAt: &fetched, HoldUntil: &hold, Error: "429 Too Many Requests",
+	}}
+	p.Status.Categories = []clustarrv1.CategoryStatus{
+		{Name: "News", Base: 1000, Channels: 42, DeviceID: "BBBB0001"},
+		{Name: "Sports", Base: 2000, Channels: 451, Reason: clustarrv1.ReasonTooMany},
+	}
+	srv, _ := tvServer(t, p)
+	body := get(t, srv, "/livetv/sources").Body.String()
+
+	row := body[strings.Index(body, `data-guide-sources="media/argon-tv"`):]
+	row = row[:strings.Index(row, "</tr>")]
+	for _, want := range []string{"2 lineups", "212 stations", "198 grids", "429 Too Many Requests", "held until", hold.UTC().Format(time.RFC3339)} {
+		assert.Contains(t, row, want)
+	}
+	assert.Contains(t, row, fetched.UTC().Format(time.RFC3339), "the last fetch")
+	assert.NotContains(t, row, "plex-token", "never the credentials")
+
+	cats := body[strings.Index(body, `data-categories="media/argon-tv"`):]
+	news := tagWith(t, cats, `data-category="News"`)
+	require.NotEmpty(t, news)
+	for _, want := range []string{"News", "1000", "42", "BBBB0001", "Sports", "2000", "451"} {
+		assert.Contains(t, cats, want)
+	}
+	assert.Contains(t, cats[strings.Index(cats, `data-category="Sports"`):], "Too many", "a category over a DVR's limit")
+
+	// A provider with neither shows neither.
+	srv2, _ := tvServer(t, tvProvider())
+	plain := get(t, srv2, "/livetv/sources").Body.String()
+	assert.NotContains(t, plain, "data-guide-sources")
+	assert.NotContains(t, plain, "data-categories")
+}
+
 func TestSourcesTablesRefreshThemselves(t *testing.T) {
 	srv, _ := tvServer(t, tvProvider())
 	body := get(t, srv, "/livetv/sources").Body.String()

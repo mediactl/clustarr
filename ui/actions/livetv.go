@@ -19,11 +19,14 @@ package actions
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clustarrv1alpha1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -70,7 +72,26 @@ type ChannelEdit struct {
 	// Plex is the pairing with the provider's Plex lineup (spec.epg.plex):
 	// "" automatic, "off" kept off Plex, else a station's 24-hex gridKey.
 	Plex *string
+	// Category is the person's override of the lineup's category rule
+	// (spec.category, the custom-guides design §5.1): [CategoryAutomatic]
+	// removes it, [CategoryOff] puts the channel on no DVR (the empty
+	// category), else a category's name.
+	Category *string
 }
+
+// The category choices besides a category's name: the Channels page's
+// select posts them as they read.
+const (
+	// CategoryAutomatic leaves the channel's category to the lineup's
+	// rules: spec.category removed (null).
+	CategoryAutomatic = "Automatic"
+	// CategoryOff puts the channel in no category, on no DVR:
+	// spec.category "".
+	CategoryOff = "Off"
+)
+
+// maxCategory is IPTVChannelSpec.Category's CRD MaxLength, in characters.
+const maxCategory = 64
 
 // plexStation is a station's gridKey, as spec.epg.plex.station takes it.
 var plexStation = regexp.MustCompile(`^[0-9a-f]{24}$`)
@@ -121,6 +142,16 @@ func (e ChannelEdit) channelSpecPatch() map[string]any {
 	if len(epg) > 0 {
 		spec["epg"] = epg
 	}
+	if e.Category != nil {
+		switch *e.Category {
+		case CategoryAutomatic:
+			spec["category"] = nil
+		case CategoryOff:
+			spec["category"] = ""
+		default:
+			spec["category"] = *e.Category
+		}
+	}
 	return spec
 }
 
@@ -139,6 +170,10 @@ func (e ChannelEdit) validate() error {
 	}
 	if e.Plex != nil && *e.Plex != "" && *e.Plex != "off" && !plexStation.MatchString(*e.Plex) {
 		return fmt.Errorf("%w: channel %s: Plex station %q is not a 24-hex station id", ErrInvalid, e.Name, *e.Plex)
+	}
+	if e.Category != nil && (*e.Category == "" || utf8.RuneCountInString(*e.Category) > maxCategory) {
+		return fmt.Errorf("%w: channel %s: category %q is neither %s, %s nor a category's name of at most %d characters",
+			ErrInvalid, e.Name, *e.Category, CategoryAutomatic, CategoryOff, maxCategory)
 	}
 	return nil
 }
@@ -255,9 +290,20 @@ func DeleteChannels(ctx context.Context, g Getter, d Deleter, namespace string, 
 	return len(current), nil
 }
 
-// ChannelObjectName is the name an IPTVChannel the ui adds takes:
-// [iptv.ChannelObjectName], the name the lineup controller gives it too.
-func ChannelObjectName(provider, key string) string { return iptv.ChannelObjectName(provider, key) }
+// ChannelObjectName is the name an IPTVChannel the ui adds takes: its
+// provider's name, cut to 52 characters, and the first ten hex digits of
+// its key's SHA-256 -- pkg/iptv.ChannelObjectName's rule, the name the
+// lineup controller gives it too (a second add is AlreadyExists).
+// TestUINeverWrites holds ui/actions to api/, pkg/obs/ and pkg/names of
+// this module, so the rule is restated here, and
+// TestChannelObjectNameIsTheLineupControllers holds the two equal.
+func ChannelObjectName(provider, key string) string {
+	sum := sha256.Sum256([]byte(key))
+	if len(provider) > 52 {
+		provider = provider[:52]
+	}
+	return provider + "-" + hex.EncodeToString(sum[:])[:10]
+}
 
 // AddChannel creates an active IPTVChannel for the provider's playlist
 // entry key at number, named name, labelled UI-made, under [FieldManager].

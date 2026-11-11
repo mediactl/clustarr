@@ -80,7 +80,37 @@ type ChannelRow struct {
 	// Plex is the channel's pairing (status.plex); nil before the tuner
 	// paired it.
 	Plex *clustarrv1.ChannelPlexStatus
+
+	// The automatic lineup (the custom-guides design §5.7). LineupOn is
+	// the provider's spec.lineup enabled, which numbers its channels;
+	// DryRun its categories planned and not applied.
+	LineupOn, DryRun bool
+	// Category, Rule, LineupName and LineupNumber are what the lineup
+	// controller decided for the channel (status.lineup), LineupName its
+	// DisplayName under an applied lineup when no name overrides it, as the
+	// tuner serves it; DuplicateOf the
+	// channel a duplicate was left out for, as its number and name when it
+	// is a channel, else its playlist key; Dropped why the plan left the
+	// channel out, which the ui fills from the stored plan.
+	Category, Rule, LineupName, LineupNumber, DuplicateOf, Dropped string
+	// CategoryOverride is spec.category: nil automatic, "" off, else a
+	// category's name. Categories are the override's choices, the
+	// provider's status.categories, which the ui fills from the stored
+	// plan in a dry run.
+	CategoryOverride *string
+	Categories       []string
+	// Source is the guide source in use: status.guide's first segment
+	// (plex, xmltv, panel or dummy), "" on none.
+	Source string
+	// LineupColumns is the table's Category and Source columns, shown when
+	// some provider has spec.lineup or spec.guideSources: the same on every
+	// row, so a row rendered alone has the table's cells.
+	LineupColumns bool
 }
+
+// InLineup is a channel whose provider plans its category: an enabled
+// lineup or a dry run.
+func (r ChannelRow) InLineup() bool { return r.LineupOn || r.DryRun }
 
 // OnPlex is a channel paired with a station of its provider's Plex lineup.
 func (r ChannelRow) OnPlex() bool {
@@ -93,6 +123,14 @@ func LiveTVChannels(in LiveTVInputs) []ChannelRow {
 	for i := range in.Providers {
 		p := &in.Providers[i]
 		providers[types.NamespacedName{Namespace: p.Namespace, Name: p.Name}] = p
+	}
+	columns := false
+	categories := map[types.NamespacedName][]string{}
+	for key, p := range providers {
+		columns = columns || p.Spec.Lineup != nil || p.Spec.GuideSources != nil
+		for _, c := range p.Status.Categories {
+			categories[key] = append(categories[key], c.Name)
+		}
 	}
 	rows := make([]ChannelRow, 0, len(in.Channels))
 	for i := range in.Channels {
@@ -139,6 +177,21 @@ func LiveTVChannels(in LiveTVInputs) []ChannelRow {
 		if p != nil && p.Spec.PlexGuide != nil {
 			r.PlexGuide, r.PlexOn = true, p.Spec.PlexGuide.Enabled
 		}
+		r.LineupColumns = columns
+		r.Source, _, _ = strings.Cut(r.Guide, "/")
+		if p != nil && p.Spec.Lineup != nil {
+			r.LineupOn = p.Spec.Lineup.Enabled
+			r.DryRun = !r.LineupOn && len(p.Spec.Lineup.Categories) > 0
+			r.CategoryOverride, r.Categories = ch.Spec.Category, categories[pkey]
+			if l := ch.Status.Lineup; l != nil {
+				r.Category, r.Rule, r.LineupName, r.LineupNumber, r.DuplicateOf = l.Category, l.Rule, l.Name, l.Number, l.DuplicateOf
+				// An applied lineup's channel goes by its trimmed name
+				// unless the person named it (the tuner's rule).
+				if r.LineupOn && !r.NameOverridden && l.Name != "" {
+					r.DisplayName = l.Name
+				}
+			}
+		}
 		if p != nil && r.Active && r.Ready && (!r.PlexOn || r.OnPlex()) {
 			if b, ok := BlockOf(p.Status.Blocks, r.Number); ok {
 				r.BlockStart, r.Owner = b.Start, b.Owner
@@ -149,6 +202,7 @@ func LiveTVChannels(in LiveTVInputs) []ChannelRow {
 		}
 		rows = append(rows, r)
 	}
+	nameDuplicates(rows)
 	slices.SortStableFunc(rows, func(a, b ChannelRow) int {
 		if c := xmltv.CompareNumbers(a.Number, b.Number); c != 0 {
 			return c
@@ -156,6 +210,24 @@ func LiveTVChannels(in LiveTVInputs) []ChannelRow {
 		return strings.Compare(a.Namespace+"/"+a.Provider+"/"+a.Name, b.Namespace+"/"+b.Provider+"/"+b.Name)
 	})
 	return rows
+}
+
+// nameDuplicates names each duplicate's winner by its channel's number and
+// name, when the winner is a channel of the same provider; its key stands
+// otherwise.
+func nameDuplicates(rows []ChannelRow) {
+	type ref struct{ ns, provider, key string }
+	byKey := map[ref]int{}
+	for i, r := range rows {
+		byKey[ref{r.Namespace, r.Provider, r.Key}] = i
+	}
+	for i := range rows {
+		if d := rows[i].DuplicateOf; d != "" {
+			if w, ok := byKey[ref{rows[i].Namespace, rows[i].Provider, d}]; ok {
+				rows[i].DuplicateOf = strings.TrimSpace(rows[w].Number + " " + rows[w].DisplayName)
+			}
+		}
+	}
 }
 
 // BlockOf is the block number belongs to: the last whose start is at or
@@ -212,6 +284,14 @@ type SourceRow struct {
 	PlexOn                  bool
 	PlexLineup              string
 	PlexReason, PlexMessage string
+	// GuideSources is the Plex grid source (status.guideSources.plex) when
+	// spec.guideSources.plex names one: its lineups, stations, grids, last
+	// fetch, rate-limit hold and error; GuideSourcesHeld its hold lasting
+	// past now.
+	GuideSources     *clustarrv1.PlexSourceStatus
+	GuideSourcesHeld bool
+	// Categories are the lineup's category blocks (status.categories).
+	Categories []clustarrv1.CategoryStatus
 }
 
 // BlockRow is one of a provider's blocks: one Plex DVR.
@@ -282,6 +362,14 @@ func LiveTVSources(providers []clustarrv1.IPTVProvider, now time.Time) []SourceR
 				r.PlexReason, r.PlexMessage = c.Reason, c.Message
 			}
 		}
+		if g := p.Spec.GuideSources; g != nil && g.Plex != nil {
+			r.GuideSources = &clustarrv1.PlexSourceStatus{}
+			if st := p.Status.GuideSources; st != nil && st.Plex != nil {
+				r.GuideSources = st.Plex
+			}
+			r.GuideSourcesHeld = r.GuideSources.HoldUntil != nil && r.GuideSources.HoldUntil.After(now)
+		}
+		r.Categories = p.Status.Categories
 		for _, b := range p.Status.Blocks {
 			r.Blocks = append(r.Blocks, BlockRow{
 				Start: b.Start, First: b.First, Last: b.Last, DeviceID: b.DeviceID, URI: b.URI, FriendlyName: b.FriendlyName,

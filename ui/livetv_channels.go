@@ -34,6 +34,8 @@ import (
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
+	"github.com/mediactl/clustarr/pkg/iptv/lineup"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
@@ -88,10 +90,97 @@ func filterChannels(rows []projection.ChannelRow, f views.ChannelFilter) []proje
 	return out
 }
 
+// lineupPlanOf is provider p's lineup plan as the lineup controller stored
+// it, while p's spec.lineup stands; nil without one.
+func (s *Server) lineupPlanOf(ctx context.Context, p *clustarrv1.IPTVProvider) *livetvstore.LineupPlan {
+	if p.Spec.Lineup == nil {
+		return nil
+	}
+	lp, ok := s.liveTV.LineupPlan(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name})
+	if !ok {
+		return nil
+	}
+	return lp
+}
+
+// channelRows is every channel's row (projection.LiveTVChannels) with what
+// only the stored lineup plan says: why a channel is left out, and, while
+// the provider's status names no category (a dry run), the plan's
+// categories as the override's choices.
+func (s *Server) channelRows(ctx context.Context, in projection.LiveTVInputs) []projection.ChannelRow {
+	rows := projection.LiveTVChannels(in)
+	type planned struct {
+		dropped    map[string]string
+		categories []string
+	}
+	plans := map[types.NamespacedName]*planned{}
+	for i := range in.Providers {
+		lp := s.lineupPlanOf(ctx, &in.Providers[i])
+		if lp == nil {
+			continue
+		}
+		pl := &planned{dropped: make(map[string]string, len(lp.Dropped))}
+		for _, d := range lp.Dropped {
+			pl.dropped[d.Key] = d.Reason
+		}
+		for _, c := range lp.Categories {
+			pl.categories = append(pl.categories, c.Name)
+		}
+		plans[types.NamespacedName{Namespace: in.Providers[i].Namespace, Name: in.Providers[i].Name}] = pl
+	}
+	for i := range rows {
+		pl := plans[types.NamespacedName{Namespace: rows[i].Namespace, Name: rows[i].Provider}]
+		if pl == nil || !rows[i].InLineup() {
+			continue
+		}
+		rows[i].Dropped = pl.dropped[rows[i].Key]
+		if len(rows[i].Categories) == 0 {
+			rows[i].Categories = pl.categories
+		}
+	}
+	return rows
+}
+
+// dryRunReasons are the drop reasons in the order the dry-run banner
+// counts them.
+var dryRunReasons = []string{lineup.ReasonExcluded, lineup.ReasonDuplicate, lineup.ReasonUnmatched, lineup.ReasonOff, lineup.ReasonTooMany}
+
+// dryRunBanner is provider p's dry run (spec.lineup's categories, not
+// enabled) from its stored plan; false for a provider in no dry run.
+func (s *Server) dryRunBanner(ctx context.Context, p *clustarrv1.IPTVProvider) (views.DryRunBanner, bool) {
+	l := p.Spec.Lineup
+	if l == nil || l.Enabled || len(l.Categories) == 0 {
+		return views.DryRunBanner{}, false
+	}
+	b := views.DryRunBanner{Provider: p.Namespace + "/" + p.Name, Name: p.Name}
+	lp := s.lineupPlanOf(ctx, p)
+	if lp == nil {
+		return b, true
+	}
+	b.Planned, b.Error = true, lp.Error
+	if !lp.PlannedAt.IsZero() {
+		at := lp.PlannedAt.UTC()
+		b.PlannedAt = &at
+	}
+	for _, c := range lp.Categories {
+		b.Categories = append(b.Categories, views.DryRunCategory{Name: c.Name, Channels: c.Channels, TooMany: c.TooMany})
+	}
+	counts := map[string]int{}
+	for _, d := range lp.Dropped {
+		counts[d.Reason]++
+	}
+	for _, r := range dryRunReasons {
+		if counts[r] > 0 {
+			b.Dropped = append(b.Dropped, views.DryRunDropped{Reason: r, Count: counts[r]})
+		}
+	}
+	return b, true
+}
+
 // channelsPage builds the page's view from the cluster and the store.
 func (s *Server) channelsPage(ctx context.Context, f views.ChannelFilter, pane url.Values) views.ChannelsPage {
 	in := s.liveTVInputs(ctx)
-	rows := projection.LiveTVChannels(in)
+	rows := s.channelRows(ctx, in)
 	groups := map[string]bool{}
 	for _, r := range rows {
 		if r.Group != "" {
@@ -103,8 +192,11 @@ func (s *Server) channelsPage(ctx context.Context, f views.ChannelFilter, pane u
 		p.Groups = append(p.Groups, g)
 	}
 	slices.Sort(p.Groups)
-	for _, pr := range in.Providers {
+	for i, pr := range in.Providers {
 		p.Providers = append(p.Providers, views.ProviderOption{Value: pr.Namespace + "/" + pr.Name, Label: pr.Name})
+		if b, ok := s.dryRunBanner(ctx, &in.Providers[i]); ok {
+			p.DryRuns = append(p.DryRuns, b)
+		}
 		for _, b := range pr.Status.Blocks {
 			if b.URI == "" {
 				continue
@@ -139,7 +231,7 @@ func (s *Server) handleLiveTVChannelsTable(w http.ResponseWriter, r *http.Reques
 	f := parseChannelFilter(r.URL.Query())
 	in := s.liveTVInputs(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.ChannelsTable(filterChannels(projection.LiveTVChannels(in), f), f).Render(r.Context(), w); err != nil {
+	if err := views.ChannelsTable(filterChannels(s.channelRows(r.Context(), in), f), f).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render the channels table", "error", err)
 	}
 }
@@ -158,8 +250,10 @@ func (s *Server) answerInPlace(w http.ResponseWriter, r *http.Request, err error
 	}
 }
 
-// handleEditChannel is one field of a channel edited in place: rv and one
-// of active, number, name, group or epg. It answers the row.
+// handleEditChannel is one field of a channel edited in place: gen and one
+// of active, number, name, group, epg, plex or category. It answers the
+// row. Under an automatic lineup the lineup numbers the channel, so a
+// posted number is not written.
 func (s *Server) handleEditChannel(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		s.answerInPlace(w, r, fmt.Errorf("%w: %v", actions.ErrInvalid, err))
@@ -175,7 +269,7 @@ func (s *Server) handleEditChannel(w http.ResponseWriter, r *http.Request) {
 		v := strings.TrimSpace(r.PostForm.Get(k))
 		return &v
 	}
-	e.Number, e.DisplayName, e.Group, e.EPG, e.Plex = str("number"), str("name"), str("group"), str("epg"), str("plex")
+	e.Number, e.DisplayName, e.Group, e.EPG, e.Plex, e.Category = str("number"), str("name"), str("group"), str("epg"), str("plex"), str("category")
 	if r.PostForm.Has("active") {
 		switch r.PostForm.Get("active") {
 		case "true", "false":
@@ -186,18 +280,23 @@ func (s *Server) handleEditChannel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	patched, err := s.opts.Actions.EditChannels(r.Context(), ns, []actions.ChannelEdit{e})
-	if err != nil {
-		s.answerInPlace(w, r, err)
-		return
-	}
 	in := s.liveTVInputs(r.Context())
-	for i := range in.Channels {
-		if in.Channels[i].Namespace == ns && in.Channels[i].Name == name && len(patched) == 1 {
-			in.Channels[i] = *patched[0]
+	if e.Number != nil && lineupNumbers(in, ns, name) {
+		e.Number = nil
+	}
+	if e != (actions.ChannelEdit{Name: name, Generation: gen}) {
+		patched, err := s.opts.Actions.EditChannels(r.Context(), ns, []actions.ChannelEdit{e})
+		if err != nil {
+			s.answerInPlace(w, r, err)
+			return
+		}
+		for i := range in.Channels {
+			if in.Channels[i].Namespace == ns && in.Channels[i].Name == name && len(patched) == 1 {
+				in.Channels[i] = *patched[0]
+			}
 		}
 	}
-	for _, row := range projection.LiveTVChannels(in) {
+	for _, row := range s.channelRows(r.Context(), in) {
 		if row.Namespace == ns && row.Name == name {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if err := views.ChannelRowView(row).Render(r.Context(), w); err != nil {
@@ -206,6 +305,18 @@ func (s *Server) handleEditChannel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// lineupNumbers is channel ns/name's provider numbering it: its
+// spec.lineup enabled.
+func lineupNumbers(in projection.LiveTVInputs, ns, name string) bool {
+	for _, ch := range in.Channels {
+		if ch.Namespace == ns && ch.Name == name {
+			p, ok := providerOf(in, ns+"/"+ch.Spec.ProviderRef)
+			return ok && p.Spec.Lineup != nil && p.Spec.Lineup.Enabled
+		}
+	}
+	return false
 }
 
 // handleDeleteChannel deletes a channel; the empty answer removes its row.
@@ -259,6 +370,13 @@ func (s *Server) handleChannelsBulk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		start = n
+		in := projection.LiveTVInputs{Providers: s.listIPTVProviders(r.Context())}
+		for _, it := range items {
+			if p, ok := providerOf(in, it.ch.Namespace+"/"+it.ch.Spec.ProviderRef); ok && p.Spec.Lineup != nil && p.Spec.Lineup.Enabled {
+				s.finishActionWith(w, r, fmt.Errorf("%w: channel %s is numbered by %s's lineup", actions.ErrInvalid, it.ch.Spec.Number, p.Name), "")
+				return
+			}
+		}
 		slices.SortStableFunc(items, func(a, b bulkItem) int { return xmltv.CompareNumbers(a.ch.Spec.Number, b.ch.Spec.Number) })
 	}
 	byNS := map[string][]actions.ChannelEdit{}
@@ -370,6 +488,7 @@ func (s *Server) playlistPane(ctx context.Context, in projection.LiveTVInputs, q
 		}
 	}
 	rules := filterRules(p)
+	marks := s.planMarks(ctx, p)
 	needle := strings.ToLower(pane.Q)
 	var matched []views.PlaylistPaneEntry
 	for _, e := range pl.Entries {
@@ -388,6 +507,7 @@ func (s *Server) playlistPane(ctx context.Context, in projection.LiveTVInputs, q
 		}
 		pe := views.PlaylistPaneEntry{ID: paneEntryID(e.Key), Key: e.Key, Name: e.Name, Group: e.Group, TvgID: e.TvgID,
 			Provider: pane.Provider, Number: numbers[e.Key], Candidate: candidate}
+		marks.mark(&pe)
 		if e.Logo != "" {
 			pe.LogoPath = projection.LogoPath(key, e.Logo)
 		}
@@ -400,6 +520,43 @@ func (s *Server) playlistPane(ctx context.Context, in projection.LiveTVInputs, q
 	from := (pane.Page - 1) * playlistPageSize
 	pane.Entries = matched[from:min(from+playlistPageSize, len(matched))]
 	return pane
+}
+
+// planMarks are a provider's lineup plan by playlist key: the category each
+// entry is in, or why it is left out.
+type planMarks struct {
+	category, name map[string]string
+	dropped        map[string]lineup.Dropped
+}
+
+// planMarks is p's stored lineup plan by key; empty without one.
+func (s *Server) planMarks(ctx context.Context, p *clustarrv1.IPTVProvider) planMarks {
+	lp := s.lineupPlanOf(ctx, p)
+	if lp == nil {
+		return planMarks{}
+	}
+	m := planMarks{category: make(map[string]string, len(lp.Channels)), name: make(map[string]string, len(lp.Channels)),
+		dropped: make(map[string]lineup.Dropped, len(lp.Dropped))}
+	for _, a := range lp.Channels {
+		m.category[a.Key], m.name[a.Key] = a.Category, a.Name
+	}
+	for _, d := range lp.Dropped {
+		m.dropped[d.Key] = d
+	}
+	return m
+}
+
+// mark sets e's plan category or drop reason, a duplicate's winner by its
+// planned name when the plan carries it.
+func (m planMarks) mark(e *views.PlaylistPaneEntry) {
+	if c, ok := m.category[e.Key]; ok {
+		e.PlanCategory = c
+	} else if d, ok := m.dropped[e.Key]; ok {
+		e.PlanDropped, e.PlanDuplicateOf = d.Reason, d.DuplicateOf
+		if n := m.name[d.DuplicateOf]; n != "" {
+			e.PlanDuplicateOf = n
+		}
+	}
 }
 
 // handlePlaylistPane renders the playlist pane alone.
@@ -445,6 +602,7 @@ func (s *Server) handleAddChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	key, name := r.PostForm.Get("key"), strings.TrimSpace(r.PostForm.Get("name"))
 	entry := views.PlaylistPaneEntry{ID: paneEntryID(key), Key: key, Name: name, Provider: p.Namespace + "/" + p.Name, Candidate: true}
+	s.planMarks(r.Context(), p).mark(&entry)
 	ch, err := s.opts.Actions.AddChannel(r.Context(), p.Namespace, p.Name, key, nextChannelNumber(in, p), name)
 	switch {
 	case err == nil:

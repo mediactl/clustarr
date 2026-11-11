@@ -207,7 +207,31 @@ func (s *Server) handleLiveTVGuideWindow(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// handleLiveTVProgramme renders a programme's details dialog.
+// firstSearchArt is the first of srcs /art/search fetches, as its signed
+// path; "" when it fetches none.
+func (s *Server) firstSearchArt(srcs ...string) string {
+	for _, src := range srcs {
+		if u := s.searchArt.URL(src); u != "" {
+			return u
+		}
+	}
+	return ""
+}
+
+// plexItemURL is the Plex Web page of the item a programme's Plex GUID
+// names (plex://episode/<id>, the custom-guides design §5.7): its id, the
+// GUID's last path segment, under Plex's EPG provider; "" without one.
+func plexItemURL(guid string) string {
+	id := guid[strings.LastIndex(guid, "/")+1:]
+	if guid == "" || id == "" {
+		return ""
+	}
+	return "https://app.plex.tv/desktop/#!/provider/tv.plex.provider.epg/details?key=/library/metadata/" + url.PathEscape(id)
+}
+
+// handleLiveTVProgramme renders a programme's details dialog: its still,
+// else its poster, else its icon, its backdrop behind it, and a link to its
+// Plex page when the guide names its Plex identity.
 func (s *Server) handleLiveTVProgramme(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	g := s.loadGuide(r.Context(), q)
@@ -221,7 +245,8 @@ func (s *Server) handleLiveTVProgramme(w http.ResponseWriter, r *http.Request) {
 		if !p.Start.Equal(start) {
 			continue
 		}
-		d := views.ProgrammeDialog{IndexProgramme: p, Channel: channel, StreamURL: g.streams[channel], Image: s.searchArt.URL(p.Image)}
+		d := views.ProgrammeDialog{IndexProgramme: p, Channel: channel, StreamURL: g.streams[channel],
+			Image: s.firstSearchArt(p.Still, p.Poster, p.Image), Backdrop: s.searchArt.URL(p.Backdrop), PlexURL: plexItemURL(p.PlexGUID)}
 		for _, c := range g.view.Index.Channels {
 			if c.Number == channel {
 				d.ChannelName = c.Name
