@@ -19,13 +19,15 @@ package scanapply
 
 // The scan applier's RBAC (ADR-0019 §7.6): it creates and updates MediaFile
 // spec (import-worker) and the observed-fingerprint annotation (import),
-// deletes the MediaFile of a file gone from disk, creates the Movie or
-// Series a scan's attribution proposes, reads every item kind a file may
-// belong to (a part file's MediaFile among them), and
-// creates the LibraryScan that re-observes a folder whose basis moved.
+// deletes the MediaFile of a file gone from disk, creates the Movie,
+// Series, Artist, Author or Audiobook a scan's attribution proposes (the
+// three containers since the 2026-11-10 non-video libraries design's D16:
+// a root scan creates them from their folders), reads every item kind a
+// file may belong to (a part file's MediaFile among them), and creates the
+// LibraryScan that re-observes a folder whose basis moved.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes;artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors;audiobooks,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes;albums;books;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch;create
