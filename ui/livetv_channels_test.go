@@ -486,16 +486,17 @@ func TestTheChannelsPageShowsCategoryAndSource(t *testing.T) {
 	assert.Contains(t, tagWith(t, espn, `data-channel-source`), `data-channel-source="plex"`)
 	assert.Contains(t, espn, "Plex", "the guide source in use")
 	requireTag(t, espn, `name="name"`, `value="ESPN"`) // the lineup's trimmed name, which the tuner serves, not the playlist's "ESPN HD"
-	requireTag(t, espn, `name="category"`, `value="Automatic"`)
-	for _, choice := range []string{"Automatic", "Off", "News", "Sports"} {
-		requireTag(t, espn, `data-templ-value="`+choice+`"`)
+	// The override is a trigger loading its picker on demand: no select,
+	// no component script, in a row.
+	trigger := requireTag(t, espn, `hx-get="/livetv/channels/media/argon-tv-espn/category"`, `hx-target="#epg-picker"`)
+	assert.Contains(t, espn[strings.Index(espn, trigger):], ">Automatic<", "the trigger reads the choice")
+	for _, absent := range []string{`name="category"`, `data-slot="select"`, `data-slot="select-trigger"`, "data-templ-value"} {
+		assert.NotContains(t, espn, absent)
 	}
-	form := tagWith(t, espn, `data-category-form`)
-	assert.Contains(t, form, `hx-post="/livetv/channels/media/argon-tv-espn"`)
-	assert.Contains(t, form, `hx-trigger="change"`)
 
 	cnn := rowOf(t, body, "argon-tv-cnn")
-	requireTag(t, cnn, `name="category"`, `value="News"`)
+	trigger = requireTag(t, cnn, `hx-get="/livetv/channels/media/argon-tv-cnn/category"`)
+	assert.Contains(t, cnn[strings.Index(cnn, trigger):], ">News<", "the override's category")
 	assert.Contains(t, cnn, "by its override", "a person's category, not a rule's")
 	assert.Contains(t, tagWith(t, cnn, `data-channel-source`), `data-channel-source="xmltv"`)
 
@@ -503,10 +504,11 @@ func TestTheChannelsPageShowsCategoryAndSource(t *testing.T) {
 	assert.Contains(t, dup, "duplicate of 2001 ESPN", "left out as a duplicate, with the channel it duplicates")
 
 	shop := rowOf(t, body, "argon-tv-shop")
-	requireTag(t, shop, `name="category"`, `value="Off"`)
+	trigger = requireTag(t, shop, `hx-get="/livetv/channels/media/argon-tv-shop/category"`)
+	assert.Contains(t, shop[strings.Index(shop, trigger):], ">Off<")
 	assert.Contains(t, tagWith(t, shop, `data-channel-source`), `data-channel-source="dummy"`)
 
-	// The select posts the override in place.
+	// The picker's Save posts the override in place.
 	rec := postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "category": {"Off"}})
 	require.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
 	assert.Equal(t, ptr.To(""), getChannel(t, c, "argon-tv-espn").Spec.Category, "off every DVR")
@@ -517,10 +519,40 @@ func TestTheChannelsPageShowsCategoryAndSource(t *testing.T) {
 	// A page without a lineup is as it was.
 	plain, _ := channelsFixture(t)
 	body = get(t, plain, "/livetv/channels").Body.String()
-	for _, absent := range []string{`data-column="category"`, `data-column="source"`, "data-channel-category", `name="category"`, "data-lineup-dry-run"} {
+	for _, absent := range []string{`data-column="category"`, `data-column="source"`, "data-channel-category", "/category\"", "data-lineup-dry-run"} {
 		assert.NotContains(t, body, absent)
 	}
 	assert.NotContains(t, get(t, plain, "/livetv/channels/playlist?provider=media%2Fargon-tv&all=1").Body.String(), "data-plan-")
+}
+
+// TestTheCategoryPickerListsTheChoices is a channel's category override
+// loaded on demand (GET .../category, into #epg-picker): shadcn-templ's
+// select holding the current choice, offering Automatic, Off and the
+// provider's categories, and a Save posting it with the generation read,
+// answered by the row and closing the dialog.
+func TestTheCategoryPickerListsTheChoices(t *testing.T) {
+	srv, _ := lineupFixture(t, true, nil)
+	rec := get(t, srv, "/livetv/channels/media/argon-tv-cnn/category")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	requireTag(t, body, `data-slot="dialog-content"`)
+	requireTag(t, body, `name="category"`, `value="News"`)
+	var choices []string
+	for _, m := range regexp.MustCompile(`data-slot="select-item" data-templ-value="([^"]*)"`).FindAllStringSubmatch(body, -1) {
+		choices = append(choices, m[1])
+	}
+	assert.Equal(t, []string{"Automatic", "Off", "News", "Sports"}, choices)
+	save := requireTag(t, body, `data-category-save`, `hx-post="/livetv/channels/media/argon-tv-cnn"`, `hx-include="closest form"`,
+		`hx-target="#channel-argon-tv-cnn"`, `hx-swap="outerHTML"`, `data-templ-dialog-close="category-picker-argon-tv-cnn"`)
+	assert.Contains(t, html.UnescapeString(save), `{"gen":"1"}`)
+	requireTag(t, body, `data-category-form`)
+
+	espn := get(t, srv, "/livetv/channels/media/argon-tv-espn/category").Body.String()
+	requireTag(t, espn, `name="category"`, `value="Automatic"`)
+
+	plain, _ := channelsFixture(t)
+	assert.Equal(t, http.StatusNotFound, get(t, plain, "/livetv/channels/media/argon-tv-espn/category").Code, "no lineup, no category")
+	assert.Equal(t, http.StatusNotFound, get(t, srv, "/livetv/channels/media/nope/category").Code)
 }
 
 func TestANumberCannotBeEditedUnderAnAutomaticLineup(t *testing.T) {
@@ -583,12 +615,13 @@ func TestTheDryRunBannerCountsTheCategories(t *testing.T) {
 	}
 	assert.NotContains(t, banner, `data-dry-run-dropped="excluded"`, "a reason nothing was dropped for is not named")
 
-	// The category select offers the plan's categories while the
-	// provider's status has none.
 	espn := rowOf(t, body, "argon-tv-espn")
-	requireTag(t, espn, `data-templ-value="Sports"`)
-	requireTag(t, espn, `data-templ-value="News"`)
 	assert.NotRegexp(t, disabledAttr, tagWith(t, espn, `name="number"`), "a dry run numbers nothing")
+	// The category picker offers the plan's categories while the
+	// provider's status has none.
+	picker := get(t, srv, "/livetv/channels/media/argon-tv-espn/category").Body.String()
+	requireTag(t, picker, `data-templ-value="Sports"`)
+	requireTag(t, picker, `data-templ-value="News"`)
 
 	// The playlist pane shows where the plan puts each entry, or why not.
 	pane := get(t, srv, "/livetv/channels/playlist?provider=media%2Fargon-tv&all=1").Body.String()

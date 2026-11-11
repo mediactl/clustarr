@@ -697,6 +697,29 @@ func rankGuideChannels(gc *guideChannelsView, q string) []views.EPGChoice {
 	return choices
 }
 
+// handleChannelCategory answers a channel's category picker (the
+// custom-guides design §5.7): Automatic, Off and its provider's categories
+// (status.categories, else the stored plan's in a dry run), loaded on
+// demand so the table's rows carry no select. 404 for a channel whose
+// provider plans no lineup.
+func (s *Server) handleChannelCategory(w http.ResponseWriter, r *http.Request) {
+	ns, name := r.PathValue("namespace"), r.PathValue("name")
+	for _, row := range s.channelRows(r.Context(), s.liveTVInputs(r.Context())) {
+		if row.Namespace != ns || row.Name != name {
+			continue
+		}
+		if !row.InLineup() {
+			break
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := views.CategoryPickerDialog(views.NewCategoryPicker(row)).Render(r.Context(), w); err != nil {
+			logging.FromContext(r.Context()).Error("render the category picker", "error", err)
+		}
+		return
+	}
+	http.NotFound(w, r)
+}
+
 // handleChannelPlex answers a channel's Plex station picker: automatic,
 // kept off Plex, or a station of its provider's Plex lineup matching the
 // search (the Plex native guide design §5.7).

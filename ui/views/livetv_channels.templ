@@ -643,7 +643,9 @@ templ categoryCell(r projection.ChannelRow) {
 				} else if r.Rule != "" {
 					<div class="max-w-48 truncate text-xs text-muted-foreground">{ ruleLabel(r.Rule) }</div>
 				}
-				@categorySelect(r)
+				@pickerButton("/livetv/channels/"+r.Namespace+"/"+r.Name+"/category", "Change the category") {
+					{ categoryChoice(r) }
+				}
 			</div>
 		}
 	}
@@ -665,27 +667,72 @@ func ruleLabel(rule string) string {
 	return "rule " + rule
 }
 
-// categorySelect is a channel's category override (spec.category):
-// shadcn-templ's select in a form posting the choice in place.
-templ categorySelect(r projection.ChannelRow) {
-	{{ attrs := channelPost(r, genVals(r)) }}
-	{{ attrs["hx-trigger"] = "change" }}
-	{{ attrs["data-category-form"] = true }}
-	<form { attrs... }>
-		{{ opts := categoryOptions(r) }}
-		@selectcomp.Select(selectcomp.Props{Name: "category", DefaultValue: categoryChoice(r), Items: selectItems("", opts)}) {
-			@selectcomp.Trigger(selectcomp.TriggerProps{Size: selectcomp.SizeSm, Class: "h-7 max-w-40 text-xs", Attributes: templ.Attributes{"aria-label": "Category", "title": "The category: automatic by the lineup's rules, off every DVR, or one chosen here"}}) {
-				@selectcomp.Value()
-			}
-			@selectcomp.Content() {
-				for _, o := range opts {
-					@selectcomp.Item(selectcomp.ItemProps{Value: o.Value}) {
-						{ o.Label }
-					}
+// CategoryPicker is a channel's category picker (spec.category), loaded on
+// demand into #epg-picker so a row carries no select: Value is the current
+// choice, Options Automatic, Off and the provider's categories.
+type CategoryPicker struct {
+	Namespace, Name, Value string
+	// Generation is the channel's metadata.generation the picker read.
+	Generation int64
+	Options    []ProviderOption
+}
+
+// NewCategoryPicker is r's category picker.
+func NewCategoryPicker(r projection.ChannelRow) CategoryPicker {
+	return CategoryPicker{Namespace: r.Namespace, Name: r.Name, Generation: r.Generation, Value: categoryChoice(r), Options: categoryOptions(r)}
+}
+
+// CategoryPickerDialog is a channel's category picker, open as it lands in
+// #epg-picker: shadcn-templ's select listing the choices, and Save posting
+// the choice in place (the channel's row answers), closing the dialog.
+templ CategoryPickerDialog(p CategoryPicker) {
+	{{ id := "category-picker-" + p.Name }}
+	@dialog.Dialog(dialog.Props{ID: id, DefaultOpen: true}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Category
+				}
+				@dialog.Description() {
+					The lineup category this channel's DVR follows: automatic by the lineup's rules, off every DVR, or one chosen here.
 				}
 			}
+			<form data-category-form class="flex items-center gap-2">
+				@selectcomp.Select(selectcomp.Props{Name: "category", DefaultValue: p.Value, Items: selectItems("", p.Options)}) {
+					@selectcomp.Trigger(selectcomp.TriggerProps{Size: selectcomp.SizeSm, Class: "min-w-48", Attributes: templ.Attributes{"aria-label": "Category"}}) {
+						@selectcomp.Value()
+					}
+					@selectcomp.Content() {
+						for _, o := range p.Options {
+							@selectcomp.Item(selectcomp.ItemProps{Value: o.Value}) {
+								{ o.Label }
+							}
+						}
+					}
+				}
+				{{
+					attrs := templ.Attributes{
+						"data-category-save": true,
+						"hx-post":            "/livetv/channels/" + p.Namespace + "/" + p.Name,
+						"hx-vals":            hxVals("gen", strconv.FormatInt(p.Generation, 10)),
+						"hx-include":         "closest form",
+						"hx-target":          "#channel-" + p.Name,
+						"hx-swap":            "outerHTML",
+					}
+				}}
+				{{
+					for k, v := range dialog.CloseFor(id) {
+						if k != "type" {
+							attrs[k] = v
+						}
+					}
+				}}
+				@button.Button(button.Props{Size: button.SizeSm, Attributes: attrs}) {
+					Save
+				}
+			</form>
 		}
-	</form>
+	}
 }
 
 // categoryChoice is the select's value for spec.category: Automatic for
