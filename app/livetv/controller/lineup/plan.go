@@ -26,11 +26,11 @@ import (
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/pkg/iptv/blocks"
 	"github.com/mediactl/clustarr/pkg/iptv/lineup"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/names"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
@@ -67,11 +67,11 @@ func madeByLineup(ch *clustarrv1.IPTVChannel) bool {
 
 // channelsByKey indexes a provider's channels by spec.key. Two channels of
 // one key (one made by hand under another name) are one too many: the one
-// named by iptv.ChannelObjectName stands, else the first in channels (which
+// named by names.ChannelObjectName stands, else the first in channels (which
 // index.ChannelsOf orders by name), and the other is left as it is.
 func channelsByKey(provider string, channels []clustarrv1.IPTVChannel) map[string]*clustarrv1.IPTVChannel {
 	canonical := func(ch *clustarrv1.IPTVChannel) bool {
-		return ch.Name == iptv.ChannelObjectName(provider, ch.Spec.Key)
+		return ch.Name == names.ChannelObjectName(provider, ch.Spec.Key)
 	}
 	out := make(map[string]*clustarrv1.IPTVChannel, len(channels))
 	for i := range channels {
@@ -140,7 +140,7 @@ func changes(provider string, plan lineup.Plan, byKey map[string]*clustarrv1.IPT
 			out = append(out, change{name: ch.Name, ch: ch, key: a.Key, status: st})
 		case ch == nil:
 			out = append(out, change{
-				name: iptv.ChannelObjectName(provider, a.Key), key: a.Key, spec: true,
+				name: names.ChannelObjectName(provider, a.Key), key: a.Key, spec: true,
 				number: a.Number, active: true, label: true, status: st,
 			})
 		default:

@@ -39,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
+	"github.com/mediactl/clustarr/pkg/names"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -631,7 +632,7 @@ func (s *Server) handleAddChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	default: // added before: the row names the channel it is
 		var existing clustarrv1.IPTVChannel
-		if s.opts.Reader != nil && s.opts.Reader.Get(r.Context(), types.NamespacedName{Namespace: p.Namespace, Name: actions.ChannelObjectName(p.Name, key)}, &existing) == nil {
+		if s.opts.Reader != nil && s.opts.Reader.Get(r.Context(), types.NamespacedName{Namespace: p.Namespace, Name: names.ChannelObjectName(p.Name, key)}, &existing) == nil {
 			entry.Number = existing.Spec.Number
 		}
 	}

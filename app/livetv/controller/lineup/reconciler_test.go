@@ -44,10 +44,10 @@ import (
 	"github.com/mediactl/clustarr/app/livetv/index"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
-	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/pkg/iptv/lineup"
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
+	"github.com/mediactl/clustarr/pkg/names"
 )
 
 const (
@@ -81,7 +81,7 @@ func keyOf(name string) string { return m3u.NameKey("G", name) }
 func channel(name, number string, active bool, mutate ...func(*clustarrv1.IPTVChannel)) *clustarrv1.IPTVChannel {
 	ch := &clustarrv1.IPTVChannel{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: testNS, Name: iptv.ChannelObjectName(testProvider, keyOf(name)),
+			Namespace: testNS, Name: names.ChannelObjectName(testProvider, keyOf(name)),
 			Labels: map[string]string{clustarrv1.LabelOrigin: clustarrv1.OriginUI},
 		},
 		Spec: clustarrv1.IPTVChannelSpec{ProviderRef: testProvider, Key: keyOf(name), Number: number, Active: active},
@@ -273,7 +273,7 @@ func TestAnEnabledLineupCreatesNumbersAndActivatesChannels(t *testing.T) {
 
 	for name, number := range map[string]string{"ABC NEWS": "1001", "BBC NEWS": "1002"} {
 		ch := got[keyOf(name)]
-		assert.Equal(t, iptv.ChannelObjectName(testProvider, keyOf(name)), ch.Name, name)
+		assert.Equal(t, names.ChannelObjectName(testProvider, keyOf(name)), ch.Name, name)
 		assert.Equal(t, clustarrv1.IPTVChannelSpec{ProviderRef: testProvider, Key: keyOf(name), Number: number, Active: true}, ch.Spec, name)
 		assert.Equal(t, map[string]string{clustarrv1.LabelOrigin: clustarrv1.OriginLineup}, ch.Labels, name)
 		assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: name, Category: "News", Rule: "News[0]", Number: number}, ch.Status.Lineup, name)

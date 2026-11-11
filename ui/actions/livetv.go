@@ -19,8 +19,6 @@ package actions
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -36,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clustarrv1alpha1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/names"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -290,21 +289,6 @@ func DeleteChannels(ctx context.Context, g Getter, d Deleter, namespace string, 
 	return len(current), nil
 }
 
-// ChannelObjectName is the name an IPTVChannel the ui adds takes: its
-// provider's name, cut to 52 characters, and the first ten hex digits of
-// its key's SHA-256 -- pkg/iptv.ChannelObjectName's rule, the name the
-// lineup controller gives it too (a second add is AlreadyExists).
-// TestUINeverWrites holds ui/actions to api/, pkg/obs/ and pkg/names of
-// this module, so the rule is restated here, and
-// TestChannelObjectNameIsTheLineupControllers holds the two equal.
-func ChannelObjectName(provider, key string) string {
-	sum := sha256.Sum256([]byte(key))
-	if len(provider) > 52 {
-		provider = provider[:52]
-	}
-	return provider + "-" + hex.EncodeToString(sum[:])[:10]
-}
-
 // AddChannel creates an active IPTVChannel for the provider's playlist
 // entry key at number, named name, labelled UI-made, under [FieldManager].
 func AddChannel(ctx context.Context, c Creator, namespace, provider, key, number, name string) (*clustarrv1alpha1.IPTVChannel, error) {
@@ -327,7 +311,7 @@ func AddChannel(ctx context.Context, c Creator, namespace, provider, key, number
 		return nil, err
 	}
 	ch := &clustarrv1alpha1.IPTVChannel{
-		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: ChannelObjectName(provider, key), Labels: map[string]string{LabelOrigin: OriginUI}},
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: names.ChannelObjectName(provider, key), Labels: map[string]string{LabelOrigin: OriginUI}},
 		Spec:       clustarrv1alpha1.IPTVChannelSpec{ProviderRef: provider, Key: key, Number: number, Name: name, Active: true},
 	}
 	if err := c.Create(ctx, ch, client.FieldOwner(FieldManager)); err != nil {

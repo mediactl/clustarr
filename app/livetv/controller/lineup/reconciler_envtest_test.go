@@ -44,9 +44,9 @@ import (
 	"github.com/mediactl/clustarr/app/livetv/index"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
-	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/names"
 )
 
 var cfg *rest.Config
@@ -151,7 +151,7 @@ func TestTheLineupManagerOwnsOnlyItsFields(t *testing.T) {
 		},
 	}))
 	cnn, bbc, fox := lineupEntry("CNN"), lineupEntry("BBC NEWS"), lineupEntry("FOX NEWS")
-	objectName := func(e m3u.Entry) string { return iptv.ChannelObjectName(name, e.Key) }
+	objectName := func(e m3u.Entry) string { return names.ChannelObjectName(name, e.Key) }
 	// BBC's channel is the ui's, as actions.AddChannel makes one.
 	require.NoError(t, direct.Create(ctx, &clustarrv1.IPTVChannel{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: objectName(bbc), Labels: map[string]string{clustarrv1.LabelOrigin: clustarrv1.OriginUI}},

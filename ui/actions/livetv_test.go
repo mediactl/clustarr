@@ -19,8 +19,6 @@ package actions_test
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
@@ -36,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/iptv"
+	"github.com/mediactl/clustarr/pkg/names"
 	"github.com/mediactl/clustarr/ui/actions"
 )
 
@@ -234,29 +232,14 @@ func TestAddChannelNamesTheObjectByItsKey(t *testing.T) {
 	ch, err := actions.AddChannel(t.Context(), w, "media", "argon-tv", "n:abc", "1011", "ESPN")
 	require.NoError(t, err)
 	require.Len(t, w.creates, 1)
-	sum := sha256.Sum256([]byte("n:abc"))
-	assert.Equal(t, "argon-tv-"+hex.EncodeToString(sum[:])[:10], ch.Name)
-	assert.Equal(t, actions.ChannelObjectName("argon-tv", "n:abc"), ch.Name)
+	assert.Equal(t, names.ChannelObjectName("argon-tv", "n:abc"), ch.Name, "the lineup controller's name for the key")
 	assert.Equal(t, "media", ch.Namespace)
 	assert.Equal(t, clustarrv1.IPTVChannelSpec{ProviderRef: "argon-tv", Key: "n:abc", Number: "1011", Name: "ESPN", Active: true}, ch.Spec)
 	assert.Equal(t, actions.OriginUI, ch.Labels[actions.LabelOrigin])
 	assert.Equal(t, actions.FieldManager, w.creates[0].opts.FieldManager)
 
-	long := strings.Repeat("p", 70)
-	assert.LessOrEqual(t, len(actions.ChannelObjectName(long, "n:abc")), 63)
 	_, err = actions.AddChannel(t.Context(), w, "media", "argon-tv", "n:abc", "abc", "ESPN")
 	require.ErrorIs(t, err, actions.ErrInvalid)
-}
-
-// TestChannelObjectNameIsTheLineupControllers holds ui/actions' restated
-// naming rule to pkg/iptv's, which the lineup controller names channels
-// by: a key has one channel whoever makes it.
-func TestChannelObjectNameIsTheLineupControllers(t *testing.T) {
-	for _, c := range []struct{ provider, key string }{
-		{"argon-tv", "n:abc"}, {"argon-tv", "t:espn.us"}, {strings.Repeat("p", 70), "n:abc"}, {"m3u", ""},
-	} {
-		assert.Equal(t, iptv.ChannelObjectName(c.provider, c.key), actions.ChannelObjectName(c.provider, c.key), "%+v", c)
-	}
 }
 
 func TestRefreshLiveTVWritesTheAnnotation(t *testing.T) {
