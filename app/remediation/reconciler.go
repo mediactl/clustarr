@@ -163,6 +163,7 @@ func (r *Reconciler) PlannerNames() []PlannerName {
 // Reconcile runs one key's pass: a file key's (§3.4), or an item key's
 // through Items (§3.12).
 func (r *Reconciler) Reconcile(ctx context.Context, k Key) (reconcile.Result, error) {
+	ctx = logging.Subsystem(ctx, "remediation")
 	if k.Kind != KindMediaFile {
 		return r.Items.Reconcile(ctx, k)
 	}

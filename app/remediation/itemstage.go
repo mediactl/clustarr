@@ -175,7 +175,7 @@ func runStage(ctx context.Context, env *Env, s ItemStage, v *ItemView) (so stage
 		}
 		span.End()
 	}()
-	res, err := s.Plan(ctx, env, v)
+	res, err := s.Plan(logging.Subsystem(ctx, "remediation."+string(s.Name())), env, v)
 	switch {
 	case err == nil:
 		return stageOutcome{res: res}

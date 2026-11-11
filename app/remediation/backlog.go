@@ -64,6 +64,7 @@ func (b *CaptionBacklog) NeedLeaderElection() bool { return true }
 
 // Start reads the durable every 30 s until ctx ends.
 func (b *CaptionBacklog) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "remediation.backlog")
 	t := time.NewTicker(captionBacklogEvery)
 	defer t.Stop()
 	for {

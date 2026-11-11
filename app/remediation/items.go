@@ -110,6 +110,7 @@ const itemEffectRetry = 5 * time.Second
 // item apply is never skipped (§3.12), so a pass that returns no error
 // counts as applied.
 func (ir *ItemReconciler) Reconcile(ctx context.Context, k Key) (reconcile.Result, error) {
+	ctx = logging.Subsystem(ctx, "remediation.items")
 	it, ok := ir.Items[k.Kind]
 	if !ok {
 		return reconcile.Result{}, reconcile.TerminalError(fmt.Errorf("remediation: no item path for %s %s/%s", k.Kind, k.Namespace, k.Name))

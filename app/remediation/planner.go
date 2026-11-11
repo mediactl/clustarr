@@ -21,6 +21,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -122,7 +124,7 @@ func (b bound[In]) Copy(from, into *catalogv1alpha1.MediaFileStatus) { b.p.Copy(
 func (b bound[In]) unwrap() any                                      { return b.p }
 
 func (b bound[In]) gather(ctx context.Context, env *Env, v *View) (any, error) {
-	return b.p.Gather(ctx, env, v)
+	return b.p.Gather(logging.Subsystem(ctx, "remediation."+string(b.p.Name())), env, v)
 }
 
 func (b bound[In]) plan(v *View, in any, out *catalogv1alpha1.MediaFileStatus) (Result, error) {
