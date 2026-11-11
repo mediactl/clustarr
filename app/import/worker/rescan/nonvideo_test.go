@@ -63,12 +63,16 @@ func TestMatchAlbum(t *testing.T) {
 		{"folder without a year", "Radiohead/Kid A/01.flac", cands, verdict{name: "kid-a"}},
 		{"release-shaped album folder", "Radiohead/Radiohead - OK Computer (1997) [FLAC]/01.flac", cands, verdict{name: "ok-computer"}},
 		{"cleaned punctuation and case", "radiohead/ok computer! (1997)/01.flac", cands, verdict{name: "ok-computer"}},
+		{"an artist folder's mbid token is set aside", "Radiohead [mbid-a74b1b7f-71a5-4011-9441-d0b5e4122711]/Kid A/01.flac", cands, verdict{name: "kid-a"}},
 
 		// Every "must not match" case.
 		{"wrong year", "Radiohead/OK Computer (1998)/01.flac", cands, verdict{code: rescan.CodeNoMatch}},
 		{"right album, wrong artist", "Radiohed/OK Computer (1997)/01.flac", cands, verdict{code: rescan.CodeNoMatch}},
 		{"unknown album", "Radiohead/Amnesiac (2001)/01.flac", cands, verdict{code: rescan.CodeNoMatch}},
-		{"too shallow for the layout", "Radiohead/01 - Airbag.flac", cands, verdict{code: rescan.CodeUnrecognisedLayout}},
+		// D17: a flat artist folder is attributed by its tags; with none
+		// and no album folder it keeps the layout reason.
+		{"a flat file with no tags", "Radiohead/01 - Airbag.flac", cands, verdict{code: rescan.CodeUnrecognisedLayout}},
+		{"a file at the root names no artist", "01 - Airbag.flac", cands, verdict{code: rescan.CodeUnrecognisedLayout}},
 		{
 			"two albums share the names", "Radiohead/OK Computer/01.flac",
 			[]rescan.AlbumCandidate{okc, {Name: "ok-computer-oknotok", Title: "OK Computer", ArtistNames: []string{"Radiohead"}}},
@@ -82,16 +86,141 @@ func TestMatchAlbum(t *testing.T) {
 		{"no albums at all", "Radiohead/OK Computer (1997)/01.flac", nil, verdict{code: rescan.CodeNoMatch}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			check(t, rescan.MatchAlbum(filepath.Join(root, tc.rel), tc.rel, tc.cands), tc.want)
+			check(t, rescan.MatchAlbum(filepath.Join(root, tc.rel), tc.rel, nil, tc.cands), tc.want)
 		})
 	}
 
 	t.Run("declared folder decides without names", func(t *testing.T) {
 		declared := rescan.AlbumCandidate{Name: "renamed", Path: filepath.Join(root, "Whatever", "Folder")}
-		got := rescan.MatchAlbum(filepath.Join(root, "Whatever/Folder/01.flac"), "Whatever/Folder/01.flac",
+		got := rescan.MatchAlbum(filepath.Join(root, "Whatever/Folder/01.flac"), "Whatever/Folder/01.flac", nil,
 			[]rescan.AlbumCandidate{okc, declared})
 		check(t, got, verdict{name: "renamed"})
 		assert.Equal(t, commonv1.MediaKindAlbum, got.Ref.Kind)
+	})
+}
+
+// A track is attributed by its tags whatever the folder depth (2026-11-10
+// design D17): the release-group id, then a release id of the group, then
+// the album folder, then the ALBUM tag, each against the albums of the
+// artist the first segment names.
+func TestMatchAlbumByTags(t *testing.T) {
+	const (
+		okcGroup  = "b1392450-e666-3926-a536-22c65f834433"
+		kidaGroup = "a9b4dbb3-4ea8-3a4a-9a5e-48e5c0a0dc3f"
+		kidaUK    = "0ccbfe86-7d4c-4c1b-8b1c-97ec3d7d5e6b" // a release of Kid A's group
+	)
+	okc := rescan.AlbumCandidate{
+		Name: "ok-computer", Title: "OK Computer", Year: 1997, ArtistNames: []string{"Radiohead"},
+		ReleaseGroupID: okcGroup, ReleaseIDs: []string{"0b6b4ba0-d36f-47bd-b4ea-6a5b91842d29"},
+	}
+	kida := rescan.AlbumCandidate{
+		Name: "kid-a", Title: "Kid A", Year: 2000, ArtistNames: []string{"Radiohead"},
+		ReleaseGroupID: kidaGroup, ReleaseIDs: []string{"5b2c8c7d-2d1e-4d22-9b0a-3b2d7a5a6f01", kidaUK},
+	}
+	// Another artist's album of Kid A's title: never a candidate for a
+	// file in Radiohead's folder.
+	cover := rescan.AlbumCandidate{Name: "kid-a-cover", Title: "Kid A", ArtistNames: []string{"Somebody Else"}, ReleaseGroupID: "x"}
+	cands := []rescan.AlbumCandidate{okc, kida, cover}
+
+	for _, tc := range []struct {
+		desc string
+		rel  string
+		tags *commonv1.MediaTags
+		want verdict
+	}{
+		{"the release-group id", "Radiohead/track.flac", &commonv1.MediaTags{MusicBrainzReleaseGroupID: kidaGroup}, verdict{name: "kid-a"}},
+		{
+			"the release-group id before the album folder", "Radiohead/OK Computer (1997)/track.flac",
+			&commonv1.MediaTags{MusicBrainzReleaseGroupID: kidaGroup},
+			verdict{name: "kid-a"},
+		},
+		{"a release id of the group", "Radiohead/track.flac", &commonv1.MediaTags{MusicBrainzReleaseID: kidaUK}, verdict{name: "kid-a"}},
+		{
+			"ids naming no album pass to the next rule", "Radiohead/OK Computer/track.flac",
+			&commonv1.MediaTags{MusicBrainzReleaseGroupID: "unknown", MusicBrainzReleaseID: "unknown"},
+			verdict{name: "ok-computer"},
+		},
+		{"the album folder", "Radiohead/OK Computer (1997)/track.flac", &commonv1.MediaTags{Title: "Airbag"}, verdict{name: "ok-computer"}},
+		{"the ALBUM tag in a flat folder", "Radiohead/03 - Exit Music.flac", &commonv1.MediaTags{Album: "OK Computer"}, verdict{name: "ok-computer"}},
+		{
+			"the ALBUM tag when the album folder names nothing", "Radiohead/Rips/01.flac",
+			&commonv1.MediaTags{Album: "Kid A"},
+			verdict{name: "kid-a"},
+		},
+		{"the tag's year narrows", "Radiohead/01.flac", &commonv1.MediaTags{Album: "Kid A", Date: "2000-10-02"}, verdict{name: "kid-a"}},
+
+		{
+			"the tag's year contradicts", "Radiohead/01.flac", &commonv1.MediaTags{Album: "Kid A", Date: "1999"},
+			verdict{code: rescan.CodeNoChild},
+		},
+		{
+			"an ALBUM tag the artist has no album of", "Radiohead/01.flac", &commonv1.MediaTags{Album: "I Might Be Wrong"},
+			verdict{code: rescan.CodeNoChild},
+		},
+		{
+			"another artist's release-group id", "Radiohead/01.flac", &commonv1.MediaTags{MusicBrainzReleaseGroupID: "x"},
+			verdict{code: rescan.CodeUnrecognisedLayout},
+		},
+		{"tags naming no album, no album folder", "Radiohead/01.flac", &commonv1.MediaTags{Title: "Airbag"}, verdict{code: rescan.CodeUnrecognisedLayout}},
+		{"no tags, no album folder", "Radiohead/01.flac", nil, verdict{code: rescan.CodeUnrecognisedLayout}},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			check(t, rescan.MatchAlbum(filepath.Join(root, tc.rel), tc.rel, tc.tags, cands), tc.want)
+		})
+	}
+
+	t.Run("an ALBUM tag no album has names it", func(t *testing.T) {
+		got := rescan.MatchAlbum(filepath.Join(root, "Radiohead/01.flac"), "Radiohead/01.flac",
+			&commonv1.MediaTags{Album: "I Might Be Wrong"}, cands)
+		assert.Contains(t, got.Reason, `no album of Radiohead is titled "I Might Be Wrong"`)
+	})
+	t.Run("two albums of one release group are ambiguous", func(t *testing.T) {
+		twin := kida
+		twin.Name = "kid-a-twin"
+		got := rescan.MatchAlbum(filepath.Join(root, "Radiohead/01.flac"), "Radiohead/01.flac",
+			&commonv1.MediaTags{MusicBrainzReleaseGroupID: kidaGroup}, []rescan.AlbumCandidate{kida, twin})
+		check(t, got, verdict{code: rescan.CodeAmbiguousTitle})
+		assert.Equal(t, []string{"kid-a", "kid-a-twin"}, got.Candidates)
+	})
+}
+
+// MatchArtist names the existing artist of the root an artist folder is,
+// in layers, never guessing, and never another root's.
+func TestMatchArtist(t *testing.T) {
+	const mbid = "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+	radiohead := rescan.ArtistCandidate{Name: "radiohead", MusicBrainzID: mbid, Names: []string{"Radiohead", "On a Friday"}}
+	moved := rescan.ArtistCandidate{Name: "portishead", Path: "Portishead (Bristol)", Names: []string{"Portishead"}}
+	pinned := rescan.ArtistCandidate{Name: "bjork", Folder: "Bjork", Names: []string{"Björk"}}
+	elsewhere := rescan.ArtistCandidate{Name: "nirvana", Names: []string{"Nirvana"}, OtherRootFolder: "music-lossy"}
+	cands := []rescan.ArtistCandidate{radiohead, moved, pinned, elsewhere}
+
+	for _, tc := range []struct {
+		folder string
+		want   verdict
+	}{
+		{"Radiohead", verdict{name: "radiohead"}},
+		{"On a Friday", verdict{name: "radiohead"}},
+		{"Radiohead [mbid-" + mbid + "]", verdict{name: "radiohead"}},
+		{"Portishead (Bristol)", verdict{name: "portishead"}},
+		{"Bjork", verdict{name: "bjork"}},
+
+		{"Nirvana", verdict{code: rescan.CodeNoMatch}},
+		{"Radiohead {mbid-00000000-0000-0000-0000-000000000000}", verdict{code: rescan.CodeNoMatch}},
+		{"Radiohed", verdict{code: rescan.CodeNoMatch}},
+	} {
+		t.Run(tc.folder, func(t *testing.T) {
+			got := rescan.MatchArtist(tc.folder, cands)
+			check(t, got, tc.want)
+			if tc.want.name != "" {
+				assert.Equal(t, commonv1.MediaKindArtist, got.Ref.Kind)
+			}
+		})
+	}
+	t.Run("two artists of one name are ambiguous", func(t *testing.T) {
+		got := rescan.MatchArtist("Genesis", []rescan.ArtistCandidate{
+			{Name: "genesis-uk", Names: []string{"Genesis"}}, {Name: "genesis-us", Names: []string{"Genesis"}},
+		})
+		check(t, got, verdict{code: rescan.CodeAmbiguousTitle})
 	})
 }
 

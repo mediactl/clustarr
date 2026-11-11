@@ -166,13 +166,18 @@ type MatchResult struct {
 // ([MovieCandidate.OtherRootFolder]) is an unmatched file, never an
 // attribution to that movie nor a proposal of a second one.
 //
-// What it deliberately does not do is resolve a bare, id-less title by
-// searching the metadata gateway. §A1.5's "then against the metadata
-// gateway" is read here as covering step 2's id resolution only: turning an
-// arbitrary filename into a brand-new catalog item on the strength of a
-// provider search is the single riskiest form of guessing the never-guess
-// rule exists to forbid. A file like that is reported as unmatched with its
-// candidates, and a human decides.
+// §A1.5's "then against the metadata gateway" means the gateway is asked
+// and only an exact, unique answer is taken. For a movie it is asked step
+// 2's id resolution only, never a search for a bare, id-less title: a
+// movie's filename parses to a title and at best a year, and a provider
+// search on that names remakes, namesakes and re-releases a title and year
+// cannot tell apart, so turning an arbitrary filename into a new catalog
+// item on its strength would be the guess the never-guess rule forbids. A
+// file like that is reported as unmatched with its candidates, and a human
+// decides. A container folder of a music, book or audiobook root is
+// another matter (identify.go, the 2026-11-10 non-video libraries design's
+// D16): it is searched, and taken only when exactly one hit carries its
+// name exactly at the search's top score.
 //
 // It is pure: no cluster, no clock, and the only outbound call is resolve,
 // which is injected.

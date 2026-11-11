@@ -72,6 +72,21 @@ func TestAttributeTrack(t *testing.T) {
 	}
 }
 
+// A release that lists no tracks yet answers ErrTracksPending, and only it:
+// a library scan counts such a file as awaiting its album's tracks rather
+// than unmatched (2026-11-10 design D17), so a file of a listed release that
+// names no track must not read as pending.
+func TestAttributeTrackSaysWhenTheTracksArePending(t *testing.T) {
+	_, reason := AttributeTrack(nil, 0, tagged(1, 1, ""), "01.flac", false)
+	assert.Equal(t, ErrTracksPending, reason)
+	_, reason = AttributeTrack([]catalogv1alpha1.Track{}, 1, nil, "01.flac", true)
+	assert.Equal(t, ErrTracksPending, reason, "an empty listing is pending too")
+
+	_, reason = AttributeTrack(twoDiscs[:2], 1, tagged(1, 7, ""), "07 - Bonus.flac", false)
+	assert.NotEmpty(t, reason)
+	assert.NotEqual(t, ErrTracksPending, reason, "a track off a listed release is held, not pending")
+}
+
 func TestPartIndexOf(t *testing.T) {
 	assert.EqualValues(t, 1003, PartIndexOf(tagged(1, 3, ""), "x.m4b"))
 	assert.EqualValues(t, 2001, PartIndexOf(tagged(2, 1, ""), "x.m4b"))

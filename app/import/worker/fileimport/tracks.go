@@ -41,14 +41,24 @@ import (
 // "Disc 2", "Disk 02").
 var discFolderRE = regexp.MustCompile(`(?i)^(?:cd|disc|disk)\s*0*(\d{1,2})\b`)
 
+// ErrTracksPending is AttributeTrack's reason when the album's selected
+// release lists no tracks: the Album's track list has not arrived yet (its
+// release's lookup is pending, or the release lists none), so nothing says
+// which track the file is. It is a reason, not a verdict on the file: a
+// library scan counts such a file as awaiting its artist's albums
+// (scanprogress.Progress.AwaitingChildren) instead of listing it unmatched,
+// and the scan the Artist owes once its albums are settled attributes it
+// (the 2026-11-10 non-video libraries design's D17, D18).
+const ErrTracksPending = "the album's selected release lists no tracks"
+
 // AttributeTrack is the recording id of the track rel holds, or "" and the
-// reason it holds none. tracks is the album's selected release's listing,
-// media its disc count (0 when unknown, read off the tracks then), ap the
-// file's probe (nil when it failed) and lone whether the download holds one
-// audio file.
+// reason it holds none -- [ErrTracksPending] when the release lists no
+// tracks. tracks is the album's selected release's listing, media its disc
+// count (0 when unknown, read off the tracks then), ap the file's probe (nil
+// when it failed) and lone whether the download holds one audio file.
 func AttributeTrack(tracks []catalogv1alpha1.Track, media int32, ap *mediainfo.AudioProbe, rel string, lone bool) (string, string) {
 	if len(tracks) == 0 {
-		return "", "the album's selected release lists no tracks"
+		return "", ErrTracksPending
 	}
 	if media <= 0 {
 		for _, t := range tracks {

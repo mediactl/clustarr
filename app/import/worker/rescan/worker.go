@@ -19,6 +19,7 @@ package rescan
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -40,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -126,6 +128,18 @@ type Worker struct {
 	// the kept source's own record can confirm a kept output, and a scanned
 	// file freezes the quality its name says.
 	ProbeVideo VideoProber
+
+	// Lookup and Search ask the metadata gateway what an unmapped folder
+	// under a music, book or audiobook root is (identify.go; the 2026-11-10
+	// non-video libraries design's D16): Lookup validates the MusicBrainz
+	// artist id a folder's tags agree on, Search finds an artist, author or
+	// audiobook by the folder's name. nil asks over Bus
+	// (events.RPCMetadataLookup, events.RPCMetadataSearch). Each call is
+	// bounded by MetadataTimeout and preceded by a heartbeat, so a walk of
+	// 390 unmapped folders, one search each under the metadata agent's
+	// MusicBrainz limiter, never outlives its delivery.
+	Lookup LookupFunc
+	Search SearchFunc
 
 	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
 	// video file smaller than this whose name does not mark it a sample is
@@ -250,6 +264,20 @@ type scanState struct {
 
 	// lastHeartbeat is when the delivery's ack deadline was last extended.
 	lastHeartbeat time.Time
+
+	// keepAlive extends the delivery's ack deadline from inside one file's
+	// handling (walk sets it): now sends a heartbeat at once, before each
+	// RPC and probe a folder's identification makes, and otherwise one is
+	// sent only once HeartbeatInterval has passed. nil sends none.
+	keepAlive func(ctx context.Context, now bool) error
+}
+
+// beatNow is keepAlive, a no-op when the walk set none.
+func (s *scanState) beatNow(ctx context.Context, now bool) error {
+	if s.keepAlive == nil {
+		return nil
+	}
+	return s.keepAlive(ctx, now)
 }
 
 // incremental reports whether unchanged fingerprints may be skipped. The CRD
@@ -524,6 +552,12 @@ func walkOrderLess(a, b string) bool {
 // and the walk carries on. After each file the tally's Resume marker moves
 // to it, so a redelivery picks up after the last file checkpointed.
 func (w *Worker) walk(ctx context.Context, m events.Message, st *scanState) error {
+	st.keepAlive = func(ctx context.Context, now bool) error {
+		if now {
+			return w.heartbeat(ctx, m, st)
+		}
+		return w.beat(ctx, m, st)
+	}
 	classifier := fileimport.ClassifierFor(fileKindForRoot(st.root.Spec.Kind), st.root.Spec.Path, w.SampleMaxBytes)
 	return classifier.Walk(ctx, st.task.Path, func(path string, info os.FileInfo, class fsops.FileClass) error {
 		if err := w.beat(ctx, m, st); err != nil {
@@ -847,6 +881,101 @@ func (w *Worker) finalAttempt(m events.Message) bool {
 		return true
 	}
 	return m.Attempt() >= uint64(spec.MaxDeliver) //nolint:gosec // MaxDeliver is a small positive constant
+}
+
+// gateway is one folder identification's calls to the metadata gateway
+// (identify.go): each heartbeats first, runs under MetadataTimeout, and
+// goes to the Worker's Lookup or Search, else over Bus. A failed heartbeat
+// is kept in err, which the caller returns once the identification is
+// done: it ends the walk, and never reads as a lookup that failed.
+type gateway struct {
+	w   *Worker
+	st  *scanState
+	err error
+}
+
+func (g *gateway) lookup(ctx context.Context, kind commonv1.MediaKind, ids map[string]string) (string, error) {
+	if err := g.st.beatNow(ctx, true); err != nil {
+		g.err = err
+		return "", err
+	}
+	rpcCtx, cancel := context.WithTimeout(ctx, g.w.metadataTimeout())
+	defer cancel()
+	if g.w.Lookup != nil {
+		return g.w.Lookup(rpcCtx, kind, ids)
+	}
+	return g.w.lookupRPC(rpcCtx, kind, ids)
+}
+
+func (g *gateway) search(ctx context.Context, kind commonv1.MediaKind, text, region string) ([]metadata.SearchHit, error) {
+	if err := g.st.beatNow(ctx, true); err != nil {
+		g.err = err
+		return nil, err
+	}
+	rpcCtx, cancel := context.WithTimeout(ctx, g.w.metadataTimeout())
+	defer cancel()
+	if g.w.Search != nil {
+		return g.w.Search(rpcCtx, kind, text, region)
+	}
+	return g.w.searchRPC(rpcCtx, kind, text, region)
+}
+
+// lookupRPC asks the gateway's lookup verb for the item of kind ids name
+// and answers the name its document carries (an artist's or author's name,
+// an audiobook's title). An unreachable gateway, an answer carrying an
+// error, and a document naming nothing are errors, which identify.go turns
+// into an unmatched folder, never a guess.
+func (w *Worker) lookupRPC(ctx context.Context, kind commonv1.MediaKind, ids map[string]string) (string, error) {
+	if w.Bus == nil {
+		return "", fmt.Errorf("rescan: no bus to look a %s up with", kind)
+	}
+	var resp schema.MetadataResponse
+	if err := w.Bus.Request(ctx, events.RPCMetadataLookup, schema.MetadataRequest{Kind: kind, IDs: ids}, &resp); err != nil {
+		return "", fmt.Errorf("rescan: look up %s %v: %w", kind, ids, events.DescribeRequestError(events.RPCMetadataLookup, err))
+	}
+	if resp.Error != "" {
+		return "", fmt.Errorf("rescan: look up %s %v: %s", kind, ids, resp.Error)
+	}
+	var doc struct {
+		Name  string `json:"name"`
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(resp.Result, &doc); err != nil {
+		return "", fmt.Errorf("rescan: decode the %s lookup's answer: %w", kind, err)
+	}
+	if name := strings.TrimSpace(doc.Name); name != "" {
+		return name, nil
+	}
+	if title := strings.TrimSpace(doc.Title); title != "" {
+		return title, nil
+	}
+	return "", fmt.Errorf("rescan: the gateway's %s lookup of %v names nothing", kind, ids)
+}
+
+// searchRPC asks the gateway's search verb for items of kind named text
+// (in region, for an audiobook) and decodes its hits, in the provider's
+// order. Its answer is not cached: a walk asks once per unmapped folder.
+func (w *Worker) searchRPC(ctx context.Context, kind commonv1.MediaKind, text, region string) ([]metadata.SearchHit, error) {
+	if w.Bus == nil {
+		return nil, fmt.Errorf("rescan: no bus to search for a %s with", kind)
+	}
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: kind, Text: text, Region: region}
+	if err := w.Bus.Request(ctx, events.RPCMetadataSearch, req, &resp); err != nil {
+		return nil, fmt.Errorf("rescan: search for %s %q: %w", kind, text, events.DescribeRequestError(events.RPCMetadataSearch, err))
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("rescan: search for %s %q: %s", kind, text, resp.Error)
+	}
+	hits := make([]metadata.SearchHit, 0, len(resp.Results))
+	for _, raw := range resp.Results {
+		var h metadata.SearchHit
+		if err := json.Unmarshal(raw, &h); err != nil {
+			return nil, fmt.Errorf("rescan: decode a %s search hit: %w", kind, err)
+		}
+		hits = append(hits, h)
+	}
+	return hits, nil
 }
 
 // loadMovies reduces every Movie in the namespace to what MatchMovie needs,

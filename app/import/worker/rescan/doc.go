@@ -20,16 +20,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // what it finds, attributes each media file to a catalog item, and reports
 // it to the manager's scan applier (app/import/manager/scanapply) as an
 // observation on CLUSTARR_INTAKE -- proposing the Movie for a movie file
-// that carries a provider id (amendment §A1.3, §A1.5, §A1.6; §16 M1, M6;
-// ADR-0019 §7.6). It writes nothing to Kubernetes: every create, apply and
+// that carries a provider id, the Series for a folder that does, and the
+// Artist, Author or Audiobook a container folder is (amendment §A1.3, §A1.5,
+// §A1.6; §16 M1, M6; ADR-0019 §7.6; the 2026-11-10 non-video libraries
+// design's D16). It writes nothing to Kubernetes: every create, apply and
 // delete is the applier's decision.
 //
 // The scanner never guesses. A file that cannot be attributed with
 // confidence is recorded as an [UnmatchedFile] with a reason, never turned
-// into a speculative catalog item -- [MatchMovie], [MatchAlbum],
-// [MatchBook], [MatchAudiobook] and [MatchIssue] are the pure functions that
-// decision lives in, so the "must not match" cases are testable without a
-// cluster.
+// into a speculative catalog item -- [MatchMovie], [MatchSeries],
+// [MatchArtist], [MatchAlbum], [MatchBook], [MatchAudiobook] and
+// [MatchIssue] are the pure functions that decision lives in, so the "must
+// not match" cases are testable without a cluster. Where §A1.5 asks the
+// metadata gateway -- a movie's imdb id, a container folder no item has
+// ([IdentifyArtist], [IdentifyAuthor], [IdentifyAudiobook]) -- the gateway
+// is asked and only an exact, unique answer is taken; anything else is
+// unmatched, with the provider's hits as candidates for a person.
 //
 // Classification is fsops', as the root folder's kind
 // (fileimport.ClassifierFor), and happens before matching. A part, a file
@@ -74,13 +80,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     existing Movie or nothing. A newly recorded file is probed once, and
 //     the probe corrects the quality its name says
 //     (quality.AugmentFromMediaInfo); a probe failure leaves that quality.
-//   - music, book, audiobook, comic: attributed to an EXISTING Album, Book,
-//     Audiobook or Issue only (nonvideo.go explains why nothing on disk can
-//     honestly yield the provider id creating one would need). Files are
-//     classified as their own kind -- no video size floor, no video
-//     extras folders -- and freeze only the quality the file determines
-//     exactly (fileimport.FrozenFileQuality: a probe for music, the
-//     extension otherwise).
+//   - music, book, audiobook, comic: attributed to an existing Album, Book,
+//     Audiobook or Issue (nonvideo.go). A music root's first segment is its
+//     artist's folder and a book root's its author's: an Artist or Author
+//     of the root by status.path, spec.folder or name ([MatchArtist],
+//     [MatchAuthor]), else the one identify.go resolves -- an id token in
+//     the folder's name, an artist's MUSICBRAINZ_ARTISTID its files'
+//     tags agree on (validated by the gateway's lookup), else the
+//     gateway's search read strictly -- which is proposed once, pinned to
+//     the folder, its files counted as awaiting its children
+//     (Progress.AwaitingChildren) until the folder scan the container
+//     owes attributes them; a folder it cannot resolve is listed once as
+//     a folder (UnmatchedFile.folder) with the hits as candidates, its
+//     files counted, not listed. An audiobook's "<author>/<title>" folder
+//     no Audiobook holds is proposed from its ASIN in the root's region,
+//     or Audible's one exact hit, with every file. A music file of an
+//     existing artist is probed before it is matched: its tags name its
+//     album whatever the folder depth ([MatchAlbum]: the release-group and
+//     release ids, the album folder, the ALBUM tag) and its track
+//     (fileimport.AttributeTrack); a file whose albums or tracks have not
+//     arrived awaits them. Files are classified as their own kind -- no
+//     video size floor, no video extras folders -- and freeze only the
+//     quality the file determines exactly (fileimport.FrozenFileQuality: a
+//     probe for music, the extension otherwise).
 //   - series: attributed to a Series and its Episodes (series.go): the
 //     series by its folder -- status.path, a TheTVDB id in the folder name,
 //     spec.folder, or its title and year -- and the episode by the
@@ -221,5 +243,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Artists, Albums, Authors, Books, Audiobooks, Comics and Issues, and reads
 // QualityProfiles, through the agent's cache, so its role needs
 // get/list/watch on them, and nothing more: the package-level
-// +kubebuilder:rbac marker in worker.go says so.
+// +kubebuilder:rbac marker in worker.go says so. Identifying a container
+// folder asks the metadata agent's lookup and search verbs
+// (events.RPCMetadataLookup, events.RPCMetadataSearch) over the import
+// domain's bus, as resolving a movie's imdb id asks its resolve verb;
+// [Worker.Lookup] and [Worker.Search] replace them in a test.
 package rescan

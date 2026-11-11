@@ -32,38 +32,31 @@ import (
 
 // Non-video attribution: music, book, audiobook and comic root folders.
 //
-// Every matcher here attributes a file to an EXISTING catalog item and to
-// nothing else. None of them creates an item, because an Artist, Album,
-// Author, Book, Audiobook, Comic or Issue can only be created with an
-// immutable provider id (spec.musicBrainzID, spec.releaseGroupID,
-// spec.openLibraryID, spec.workID, spec.asin, spec.sourceID), and nothing
-// on disk yields one without a guess:
-//
-//   - pkg/release's id extraction knows tmdb, imdb and tvdb tokens only.
-//   - The metadata gateway's search verb would turn a folder name into an id,
-//     which is the id-less title resolution [MatchMovie] already refuses
-//     for movies -- and for artists it is a stub (musicbrainz.SearchArtists).
-//   - An Audible ASIN embedded in a folder name (Audiobookshelf's
-//     "[B002V0QK4C]") IS an id, but an audiobook's identity is the ASIN plus
-//     its marketplace (spec.region), and the folder carries only the ASIN.
-//     Creating one with the CRD's default region "us" would guess the other
-//     half. So an embedded ASIN matches an existing audiobook and is never
-//     used to create one.
+// The matchers here attribute a file to an EXISTING catalog item. What a
+// folder no item has becomes is identify.go's: amendment §A1.5 as written --
+// an embedded identifier first, then the catalog, then the metadata gateway
+// -- where the gateway is asked and only an exact, unique answer is taken
+// (the 2026-11-10 non-video libraries design's D16). An Artist, Author or
+// Audiobook is proposed from its folder that way; an Album, Book, Comic or
+// Issue never is, since each comes from its container's metadata fan-out.
 //
 // Matching is layered, each layer exact, and a layer that finds two or more
 // items reports them as ambiguous rather than picking one:
 //
-//  1. an embedded ASIN (audiobook only);
+//  1. an embedded id: an ASIN (audiobook), the MusicBrainz release-group
+//     and release ids a Picard-tagged track carries (album, D17), an
+//     artist folder's [mbid-...] token (artist);
 //  2. the item's declared folder -- status.path, which its own controller
-//     resolves -- for the kinds whose folder is theirs alone: an album, an
-//     audiobook and a comic. Not a book: pkg/naming's book folder is the
-//     AUTHOR's folder ("{Author Name}"), so a Book's folder does not
+//     resolves -- for the kinds whose folder is theirs alone: an artist, an
+//     album, an audiobook and a comic. Not a book: pkg/naming's book folder
+//     is the AUTHOR's folder ("{Author Name}"), so a Book's folder does not
 //     identify the book;
 //  3. the names the layout carries (pkg/naming's presets: "Artist/Album
 //     (Year)/...", "Author/Book Title/...", "Author/[Series/]Book/...",
-//     "Series/Series c001.cbz") compared by [release.CleanTitle] equality
-//     against the items' cached metadata, narrowed by year when both sides
-//     know one -- exactly [MatchMovie]'s title rule.
+//     "Series/Series c001.cbz") and, for a track, its ALBUM tag, compared by
+//     [release.CleanTitle] equality against the items' cached metadata,
+//     narrowed by year when both sides know one -- exactly [MatchMovie]'s
+//     title rule.
 //
 // Candidates are limited to the items stored under the root folder being
 // walked, so a file is never attributed across roots.
@@ -76,11 +69,15 @@ const (
 	CodeUnrecognisedLayout = "unrecognised_layout"
 
 	// CodeUnknownID means the file carried a provider id that no existing
-	// item has, and the id alone is not enough to create one.
+	// item has. [MatchAudiobook] says so for an ASIN; the walk then
+	// proposes the Audiobook from its folder's ASIN in the root's region
+	// (identify.go), and lists the file under this code only when no
+	// folder carries it.
 	CodeUnknownID = "unknown_id"
 
 	// CodeNoChild means the parent item was identified but none of its
-	// children (a comic's issues) matches.
+	// children (a comic's issues, an artist's albums by a track's ALBUM
+	// tag) matches.
 	CodeNoChild = "no_child_item"
 
 	// CodeRecordedElsewhere means a MediaFile for this path already points
@@ -110,8 +107,22 @@ type AlbumCandidate struct {
 	Year  int    // status.metadata.releaseDate's year; 0 when unknown
 	Path  string // status.path, when the Album controller has resolved it
 
+	// Artist is the Album's spec.artistRef: the walk reads an artist's
+	// albums by it (which of them are still waiting for their metadata or
+	// tracks), never the matcher.
+	Artist string
+
+	// ReleaseGroupID is spec.releaseGroupID and ReleaseIDs every release
+	// of the group status.metadata lists (status.metadata.releases[].id,
+	// with the selected release's id): the MUSICBRAINZ_RELEASEGROUPID and
+	// MUSICBRAINZ_ALBUMID tags a Picard-tagged track carries name one of
+	// them (2026-11-10 design D17).
+	ReleaseGroupID string
+	ReleaseIDs     []string
+
 	// ArtistNames are the names the artist's folder may carry: its
-	// metadata name, spec.folder, and the last segment of status.path.
+	// metadata name and aliases, spec.folder, and the last segment of
+	// status.path.
 	ArtistNames []string
 
 	// Tracks is the album's selected release's listing and Media its disc
@@ -126,6 +137,13 @@ type BookCandidate struct {
 	Name  string
 	Title string
 	Year  int
+
+	// Author is the Book's spec.authorRef ("" for a standalone book) and
+	// Path its status.path relative to the root: the walk reads an
+	// author's books by the one and keeps a standalone book's own folder
+	// from being taken for an author's by the other, never the matcher.
+	Author string
+	Path   string
 
 	// AuthorNames are the parent Author's metadata name, spec.folder and
 	// status.path's last segment. Standalone books have none.
@@ -171,6 +189,39 @@ type IssueCandidate struct {
 	Centis   int32
 }
 
+// ArtistCandidate is one existing Artist of the scan's namespace, with what
+// identifying an artist folder needs from it (MatchArtist; identify.go's
+// existing-id check reads every root's).
+type ArtistCandidate struct {
+	Name          string
+	MusicBrainzID string // spec.musicBrainzID
+
+	// Path is status.path relative to the root folder ("" when the Artist
+	// controller has not resolved it, or it lies outside this root), and
+	// Folder spec.folder as written: the folder the artist's files are in.
+	Path   string
+	Folder string
+
+	// Names are status.metadata.name and its aliases.
+	Names []string
+
+	// OtherRootFolder is spec.rootFolderRef when it is not the root folder
+	// being scanned, as on [MovieCandidate]: such an artist is never
+	// matched, and never proposed again for its id.
+	OtherRootFolder string
+}
+
+// AuthorCandidate is one existing Author of the scan's namespace; its fields
+// mean what [ArtistCandidate]'s do, keyed by an Open Library author id.
+type AuthorCandidate struct {
+	Name            string
+	OpenLibraryID   string // spec.openLibraryID
+	Path            string
+	Folder          string
+	Names           []string
+	OtherRootFolder string
+}
+
 var (
 	// titleYearRE splits "Title (1997)".
 	titleYearRE = regexp.MustCompile(`^(.*\S)\s*\((\d{4})\)$`)
@@ -195,9 +246,103 @@ var (
 	issueFileRE = regexp.MustCompile(`^(.+?)\s+c(\d+(?:\.\d+)?)$`)
 )
 
-// MatchAlbum attributes a file under a music root folder to one Album.
-// absPath is the file's absolute path, rel its path relative to the root.
-func MatchAlbum(absPath, rel string, cands []AlbumCandidate) ItemMatch {
+// MatchArtist identifies the existing Artist a first segment under a music
+// root names (2026-11-10 design D16, §5.7), in layers, each exact: an
+// [mbid-...] token naming an artist's id; the artist's resolved folder
+// (status.path); its spec.folder; its name or an alias by
+// [release.CleanTitle] equality. Only the artists of the root being walked
+// are candidates. A folder none of them names is unmatched, CodeNoMatch,
+// for identify.go to ask the metadata gateway about; a token naming no
+// artist of this root is that too, never a fall-back to the names.
+func MatchArtist(segment string, cands []ArtistCandidate) ItemMatch {
+	mine := make([]ArtistCandidate, 0, len(cands))
+	for _, c := range cands {
+		if c.OtherRootFolder == "" {
+			mine = append(mine, c)
+		}
+	}
+	return matchContainer(commonv1.MediaKindArtist, segment, mbidFolderRE, len(mine), func(i int) containerKeys {
+		c := mine[i]
+		return containerKeys{name: c.Name, id: c.MusicBrainzID, path: c.Path, folder: c.Folder, names: c.Names}
+	})
+}
+
+// MatchAuthor is [MatchArtist] for an author folder under a book root: an
+// [olid-OL...A] token, status.path, spec.folder, then the author's name.
+func MatchAuthor(segment string, cands []AuthorCandidate) ItemMatch {
+	mine := make([]AuthorCandidate, 0, len(cands))
+	for _, c := range cands {
+		if c.OtherRootFolder == "" {
+			mine = append(mine, c)
+		}
+	}
+	return matchContainer(commonv1.MediaKindAuthor, segment, olidFolderRE, len(mine), func(i int) containerKeys {
+		c := mine[i]
+		return containerKeys{name: c.Name, id: c.OpenLibraryID, path: c.Path, folder: c.Folder, names: c.Names}
+	})
+}
+
+// containerKeys is what [matchContainer] reads off one candidate.
+type containerKeys struct {
+	name, id, path, folder string
+	names                  []string
+}
+
+// matchContainer is MatchArtist's and MatchAuthor's layers over n
+// candidates, token being the kind's id token in a folder name.
+func matchContainer(
+	kind commonv1.MediaKind, segment string, token *regexp.Regexp, n int, at func(int) containerKeys,
+) ItemMatch {
+	layer := func(keep func(containerKeys) bool) []string {
+		var hits []string
+		for i := range n {
+			if k := at(i); keep(k) {
+				hits = append(hits, k.name)
+			}
+		}
+		return hits
+	}
+	if m := token.FindStringSubmatch(segment); m != nil {
+		// The id is the identity: never fall back to the names when it
+		// names no item of this root.
+		hits := layer(func(k containerKeys) bool { return k.id != "" && strings.EqualFold(k.id, m[1]) })
+		return decide(kind, hits, fmt.Sprintf("no existing %s of this root folder has the id %s its folder names", kind, m[1]))
+	}
+	for _, keep := range []func(containerKeys) bool{
+		func(k containerKeys) bool { return k.path != "" && filepath.ToSlash(k.path) == segment },
+		func(k containerKeys) bool {
+			return k.folder != "" && filepath.ToSlash(filepath.Clean(k.folder)) == segment
+		},
+		func(k containerKeys) bool { return anyCleanEq(k.names, segment) },
+	} {
+		if hits := layer(keep); len(hits) > 0 {
+			return decide(kind, hits, "")
+		}
+	}
+	return ItemMatch{Unmatched: true, Code: CodeNoMatch, Reason: fmt.Sprintf(
+		"no existing %s of this root folder has the folder or the name %q", kind, segment)}
+}
+
+// MatchAlbum attributes a file under a music root folder to one Album
+// (2026-11-10 design D17: Lidarr groups tracks by their tags, never by
+// folder). absPath is the file's absolute path, rel its path relative to the
+// root, tags the file's probed tags (nil when it carries none or was not
+// probed), cands the root's albums.
+//
+// An album whose resolved folder (status.path) holds the file takes it.
+// Otherwise the first segment names the artist (cands narrowed to the
+// albums whose ArtistNames it equals, an [mbid-...] token set aside), and
+// the file's album is, in order: the album the MUSICBRAINZ_RELEASEGROUPID
+// tag names; the album one of whose releases the MUSICBRAINZ_ALBUMID tag
+// names; the album folder's title and year when the file sits in one
+// (three or more segments); the ALBUM tag's title, its date's year
+// narrowing only when both sides know one. A rule that names no album
+// passes to the next; one that names two is ambiguous. With an ALBUM tag no
+// rule placed, the file is CodeNoChild, naming the tag ("no album of 2Pac
+// is titled ..."), honest for a compilation the artist's metadata profile
+// does not list; a file with no tags and no album folder keeps the layout
+// message.
+func MatchAlbum(absPath, rel string, tags *commonv1.MediaTags, cands []AlbumCandidate) ItemMatch {
 	var inFolder []AlbumCandidate
 	for _, c := range cands {
 		if underFolder(absPath, c.Path) {
@@ -211,26 +356,86 @@ func MatchAlbum(absPath, rel string, cands []AlbumCandidate) ItemMatch {
 		cands = inFolder
 	}
 
+	const layout = "a music file must sit at <artist>/<album>/<track> under the root folder"
 	segs := strings.Split(filepath.ToSlash(rel), "/")
-	if len(segs) < 3 {
-		return unmatchedLayout("a music file must sit at <artist>/<album>/<track> under the root folder")
+	if len(segs) < 2 {
+		return unmatchedLayout(layout)
 	}
-	artist, albumDir := segs[0], segs[1]
-	title, year := splitTitleYear(albumDir)
-	if p, err := release.ParseKind(albumDir, commonv1.MediaKindAlbum); err == nil && p.Music != nil {
-		// A folder still named like a release, "Artist - Album (1997) [FLAC]".
-		title, year = p.Music.Album, p.Music.Year
-	}
-
-	var hits []string
+	artist := strings.TrimSpace(mbidFolderRE.ReplaceAllString(segs[0], ""))
+	var mine []AlbumCandidate
 	for _, c := range cands {
-		if cleanEq(c.Title, title) && anyCleanEq(c.ArtistNames, artist) && yearOK(c.Year, year) {
-			hits = append(hits, c.Name)
+		if anyCleanEq(c.ArtistNames, artist) {
+			mine = append(mine, c)
 		}
 	}
-	return decide(commonv1.MediaKindAlbum, hits, fmt.Sprintf(
-		"no existing album titled %q by an artist named %q among %d albums under this root folder",
-		title, artist, len(cands)))
+	pick := func(keep func(AlbumCandidate) bool) []string {
+		var hits []string
+		for _, c := range mine {
+			if keep(c) {
+				hits = append(hits, c.Name)
+			}
+		}
+		return hits
+	}
+
+	if tags != nil {
+		if id := strings.TrimSpace(tags.MusicBrainzReleaseGroupID); id != "" {
+			if hits := pick(func(c AlbumCandidate) bool { return strings.EqualFold(c.ReleaseGroupID, id) }); len(hits) > 0 {
+				return decide(commonv1.MediaKindAlbum, hits, "")
+			}
+		}
+		if id := strings.TrimSpace(tags.MusicBrainzReleaseID); id != "" {
+			if hits := pick(func(c AlbumCandidate) bool {
+				return slices.ContainsFunc(c.ReleaseIDs, func(r string) bool { return strings.EqualFold(r, id) })
+			}); len(hits) > 0 {
+				return decide(commonv1.MediaKindAlbum, hits, "")
+			}
+		}
+	}
+
+	var folderMiss string
+	if len(segs) >= 3 {
+		albumDir := segs[1]
+		title, year := splitTitleYear(albumDir)
+		if p, err := release.ParseKind(albumDir, commonv1.MediaKindAlbum); err == nil && p.Music != nil {
+			// A folder still named like a release, "Artist - Album (1997) [FLAC]".
+			title, year = p.Music.Album, p.Music.Year
+		}
+		if hits := pick(func(c AlbumCandidate) bool { return cleanEq(c.Title, title) && yearOK(c.Year, year) }); len(hits) > 0 {
+			return decide(commonv1.MediaKindAlbum, hits, "")
+		}
+		folderMiss = fmt.Sprintf("no existing album titled %q by an artist named %q among %d albums under this root folder",
+			title, artist, len(cands))
+	}
+
+	if tags != nil && strings.TrimSpace(tags.Album) != "" {
+		year := tagYear(tags.Date)
+		if hits := pick(func(c AlbumCandidate) bool { return cleanEq(c.Title, tags.Album) && yearOK(c.Year, year) }); len(hits) > 0 {
+			return decide(commonv1.MediaKindAlbum, hits, "")
+		}
+		return ItemMatch{Unmatched: true, Code: CodeNoChild, Reason: fmt.Sprintf(
+			"no album of %s is titled %q among the %d albums of that artist under this root folder: its tags "+
+				"name no release group or release of one either, and an album the artist's metadata profile "+
+				"does not list (a compilation, a live album) is never attributed", artist, tags.Album, len(mine))}
+	}
+	if folderMiss != "" {
+		return ItemMatch{Unmatched: true, Code: CodeNoMatch, Reason: folderMiss}
+	}
+	return unmatchedLayout(layout)
+}
+
+// tagYear is the year a tag's date spells ("2004-03-15", "2004"), 0 when it
+// starts with none.
+func tagYear(date string) int {
+	date = strings.TrimSpace(date)
+	if len(date) < 4 {
+		return 0
+	}
+	y, err := strconv.Atoi(date[:4])
+	if err != nil || y < 1000 {
+		return 0
+	}
+	return y
 }
 
 // MatchBook attributes a file under a book root folder to one Book. It has
@@ -284,10 +489,10 @@ func MatchAudiobook(absPath, rel string, cands []AudiobookCandidate) ItemMatch {
 			}
 		}
 		if len(hits) == 0 {
+			// The walk proposes the Audiobook from an ASIN its folder
+			// carries, in the root's region (identify.go, design D16).
 			return ItemMatch{Unmatched: true, Code: CodeUnknownID, Reason: fmt.Sprintf(
-				"the path carries ASIN %s, which no existing audiobook under this root folder has; an ASIN alone "+
-					"does not say which Audible marketplace (spec.region) it belongs to, so it is not used to create one",
-				asin)}
+				"the path carries ASIN %s, which no existing audiobook under this root folder has", asin)}
 		}
 		// An embedded id is the identity: never fall back to the title
 		// when it names nothing, and report two audiobooks sharing it
@@ -308,11 +513,7 @@ func MatchAudiobook(absPath, rel string, cands []AudiobookCandidate) ItemMatch {
 		cands = inFolder
 	}
 
-	segs := strings.Split(filepath.ToSlash(rel), "/")
-	dirs := segs[:len(segs)-1]
-	for len(dirs) > 0 && discDirRE.MatchString(dirs[len(dirs)-1]) {
-		dirs = dirs[:len(dirs)-1]
-	}
+	dirs := bookDirs(rel)
 	if len(dirs) < 2 {
 		return unmatchedLayout("an audiobook file must sit at <author>/[<series>/]<book>/<file> under the root folder")
 	}
@@ -439,6 +640,17 @@ func issueCentis(number string) (int32, bool) {
 		return 0, false
 	}
 	return int32(c), true
+}
+
+// bookDirs is an audiobook file's folders under the root, its disc folders
+// ("Disc 2", "CD1") set aside: "<author>/[<series>/]<book>".
+func bookDirs(rel string) []string {
+	segs := strings.Split(filepath.ToSlash(rel), "/")
+	dirs := segs[:len(segs)-1]
+	for len(dirs) > 0 && discDirRE.MatchString(dirs[len(dirs)-1]) {
+		dirs = dirs[:len(dirs)-1]
+	}
+	return dirs
 }
 
 // embeddedASIN returns the first ASIN token in any segment of rel, upper-cased.

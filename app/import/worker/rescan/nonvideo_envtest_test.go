@@ -37,6 +37,7 @@ import (
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/metadata"
 )
 
 // smallFile is well under fsops' 50 MiB video "sample" floor: a non-video
@@ -140,10 +141,11 @@ func createArtistAlbum(t *testing.T, ctx context.Context, f *fixture) *catalogv1
 // A music root attributes a track to the existing Album the layout names
 // and to the track of its selected release the file's tags or name say it
 // is (2026-11-10 design D6), writes MediaFileSpec only, and never touches
-// the Album. Everything it cannot attribute -- an artist and album nobody
-// added, a track outside the <artist>/<album>/ layout, a file of the album
-// naming no track of the release -- is unmatched with a reason, and no
-// Artist or Album is guessed into existence.
+// the Album. Everything it cannot attribute -- an artist folder nobody
+// added that the metadata gateway names nothing for (listed once, as a
+// folder, its file awaiting; design D16), a flat track whose tags name no
+// album, a file of the album naming no track of the release -- is unmatched
+// with a reason, and no Artist or Album is guessed into existence.
 func TestHandleAttributesAMusicFileToAnExistingAlbumOnly(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-music", catalogv1alpha1.RootFolderKindMusic, "", catalogv1alpha1.ScanModeFull)
@@ -162,6 +164,11 @@ func TestHandleAttributesAMusicFileToAnExistingAlbumOnly(t *testing.T) {
 	mustWriteFile(t, filepath.Join(f.root, "Radiohead", "01 - Loose Track.flac"), smallFile)
 
 	w := rescan.NewWorker(f.c, f.bus, nil)
+	var searched []string
+	w.Search = func(_ context.Context, _ commonv1.MediaKind, text, _ string) ([]metadata.SearchHit, error) {
+		searched = append(searched, text)
+		return nil, nil // the gateway knows no such artist
+	}
 	w.ProbeAudio = func(_ context.Context, path string) (mediainfo.AudioProbe, error) {
 		ap := mediainfo.AudioProbe{Codec: "flac", SampleBits: 16}
 		if filepath.Ext(path) == ".mp3" {
@@ -177,13 +184,17 @@ func TestHandleAttributesAMusicFileToAnExistingAlbumOnly(t *testing.T) {
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Error)
 	assert.Equal(t, int64(6), got.FilesSeen, "the small audio files are media, not samples")
+	assert.Equal(t, map[string]int64{"artist": 1}, got.AwaitingChildren, "the unidentified folder's file is counted, not listed")
+	assert.Equal(t, []string{"Unknown Band"}, searched, "the gateway is asked about the folder no artist has, once")
 	assert.Zero(t, got.FilesSkipped, "cover.jpg is not media, so not a skipped media file")
 	assert.Equal(t, int64(1), got.NotMedia, "cover.jpg")
 	assert.Equal(t, int64(3), got.FilesMatched)
 	assert.Zero(t, got.ItemsCreated, "a non-video rescan never creates a catalog item")
 	unmatched := unmatchedByPath(got)
 	require.Len(t, unmatched, 3)
-	assert.Contains(t, unmatched[filepath.Join("Unknown Band", "Some Album (2001)", "01.flac")].Reason, "no existing album")
+	unknown := unmatched["Unknown Band"]
+	assert.True(t, unknown.Folder, "an unidentified artist folder is listed once, as a folder")
+	assert.Contains(t, unknown.Reason, `no artist of this root folder is named "Unknown Band"`)
 	assert.Contains(t, unmatched[filepath.Join("Radiohead", "01 - Loose Track.flac")].Reason, "<artist>/<album>/<track>")
 	bonus := unmatched[filepath.Join("Radiohead", "OK Computer (1997)", "09 - Bonus.flac")]
 	assert.Contains(t, bonus.Reason, "names no track of the selected release (3 tracks on 1 media)")
@@ -272,9 +283,11 @@ func TestHandleAttributesAComicFileToAnExistingIssueOnly(t *testing.T) {
 }
 
 // An audiobook root matches an embedded ASIN to the existing Audiobook
-// carrying it. An ASIN no audiobook has is unmatched -- the path does not
-// say which marketplace it belongs to -- and no Audiobook is created.
-func TestHandleMatchesAnEmbeddedASINAndNeverCreatesFromOne(t *testing.T) {
+// carrying it, never creating a second. (An ASIN no audiobook has proposes
+// the Audiobook in the root's region since the 2026-11-10 design's D16:
+// identify_test.go's TestARootScanIdentifiesUnmappedAudiobookFolders holds
+// the proposal, the scan applier's envtests its creation.)
+func TestHandleMatchesAnEmbeddedASIN(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-audiobook", catalogv1alpha1.RootFolderKindAudiobook, "", catalogv1alpha1.ScanModeFull)
 
@@ -286,14 +299,12 @@ func TestHandleMatchesAnEmbeddedASINAndNeverCreatesFromOne(t *testing.T) {
 	waitCached(t, ctx, f.c, ab, func() bool { return true })
 
 	mustWriteFile(t, filepath.Join(f.root, "Terry Goodkind", "Wizard's First Rule [B002V0QK4C]", "01.mp3"), smallFile)
-	mustWriteFile(t, filepath.Join(f.root, "Terry Goodkind", "Stone of Tears [B00UNKNOWN]", "01.mp3"), smallFile)
 
 	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(1), got.FilesMatched)
-	u := unmatchedByPath(got)[filepath.Join("Terry Goodkind", "Stone of Tears [B00UNKNOWN]", "01.mp3")]
-	assert.Contains(t, u.Reason, "ASIN B00UNKNOWN")
+	assert.Empty(t, got.Unmatched)
 
 	mf := mediaFilesIn(t, ctx, f.c, f.ns, 1)[0]
 	assert.Equal(t, commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: ab.Name}, mf.Spec.MediaRef)
@@ -302,7 +313,7 @@ func TestHandleMatchesAnEmbeddedASINAndNeverCreatesFromOne(t *testing.T) {
 
 	var abs catalogv1alpha1.AudiobookList
 	require.NoError(t, f.c.List(ctx, &abs, client.InNamespace(f.ns)))
-	assert.Len(t, abs.Items, 1, "an ASIN alone never creates an Audiobook")
+	assert.Len(t, abs.Items, 1, "the existing audiobook is the ASIN's, never a second")
 }
 
 // An audiobook's parts are ordered by spec.partIndex at rescan as at import
@@ -512,9 +523,19 @@ func TestHandleManualAssignmentRecordsOneFileAgainstTheNamedItem(t *testing.T) {
 	mustWriteFile(t, filepath.Join(f.root, rel), smallFile)
 	mustWriteFile(t, filepath.Join(f.root, "Misc", "untitled", "track 2.flac"), smallFile)
 
-	// The unmatched listing first, as the UI would see it.
-	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
-	require.Contains(t, unmatchedByPath(readProgress(t, ctx, f.bus, string(f.scan.UID))), rel)
+	// The unmatched listing first, as the UI would see it: a folder no
+	// artist has and the gateway names nothing for is listed once, as a
+	// folder, its files counted (2026-11-10 design D16), and a person
+	// assigns a file of it by hand.
+	lister := rescan.NewWorker(f.c, f.bus, nil)
+	lister.Search = func(context.Context, commonv1.MediaKind, string, string) ([]metadata.SearchHit, error) {
+		return nil, nil
+	}
+	require.NoError(t, lister.Handle(ctx, newFakeMessage(t, f.task(false))))
+	listed := readProgress(t, ctx, f.bus, string(f.scan.UID))
+	require.Contains(t, unmatchedByPath(listed), "Misc")
+	require.True(t, unmatchedByPath(listed)["Misc"].Folder)
+	require.Equal(t, map[string]int64{"artist": 2}, listed.AwaitingChildren)
 
 	scan, msg := f.assignScan(t, ctx, "assign-1", "album/"+album.Name, rel)
 	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg))
