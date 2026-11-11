@@ -63,8 +63,12 @@ type PassInputs struct {
 	VideoStreams int
 }
 
-// PassResult is when the next pass is due.
-type PassResult struct{ RequeueAfter time.Duration }
+// PassResult is when the next pass is due, and the intel class's work in
+// hand and waiting (intelWork), which IntelWorkLease publishes.
+type PassResult struct {
+	RequeueAfter time.Duration
+	IntelWork    int
+}
 
 // Pass is one admission pass (§5.7 steps 2-10): reroute directives, then the
 // candidates and what runs, their classes, the slot scheduler, dispatch
@@ -124,7 +128,8 @@ func (l *Ledger) Pass(in PassInputs) PassResult {
 	l.fillWindowLocked(in.Profiles, now)
 	l.grantGraftSlotsLocked(in, now)
 	l.metricsLocked(in.Profiles, now)
-	return PassResult{RequeueAfter: l.nextWakeLocked(now)}
+	// The class's own budget, not the yielded copy: a yield is work waiting.
+	return PassResult{RequeueAfter: l.nextWakeLocked(now), IntelWork: intelWork(queued, running, holds, l.o.Slots)}
 }
 
 // uidsOf is each profile's UID by name.
