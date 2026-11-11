@@ -171,7 +171,7 @@ func run(args []string, getenv func(string) string) int {
 		_ = shutdown(sctx)
 	}()
 
-	det, err := textdet.NewONNX(getenv("ORT_LIB_PATH"))
+	det, err := textdet.NewONNX(ctx, getenv("ORT_LIB_PATH"))
 	if err != nil {
 		log.ErrorContext(ctx, "the text detector is off; credits use the cheaper signals only", "error", err)
 		det = nil

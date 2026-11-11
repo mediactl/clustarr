@@ -43,6 +43,7 @@ import (
 
 	ort "github.com/shota3506/onnxruntime-purego/onnxruntime"
 
+	"github.com/mediactl/clustarr/pkg/ortlog"
 	"github.com/mediactl/clustarr/pkg/subtitles/pgs"
 )
 
@@ -84,19 +85,22 @@ type Recognizer struct {
 	mu      sync.Mutex
 	rt      *ort.Runtime
 	env     *ort.Env
+	stopLog func()
 	sess    *ort.Session
 	in, out string
 	chars   []string // index 0 is CTC's blank, the last the space
 }
 
 // New loads ONNX Runtime from libPath ("" searches the system's library
-// paths) and the embedded model and dictionary. Any failure is ErrUnavailable.
-func New(libPath string) (*Recognizer, error) {
+// paths) and the embedded model and dictionary, ORT's own lines going to
+// ctx's logger under the onnx subsystem (pkg/ortlog). Any failure is
+// ErrUnavailable.
+func New(ctx context.Context, libPath string) (*Recognizer, error) {
 	rt, err := ort.NewRuntime(libPath, apiVersion)
 	if err != nil {
 		return nil, fmt.Errorf("%w: load ONNX Runtime: %w", ErrUnavailable, err)
 	}
-	env, err := rt.NewEnv("clustarr-ocr", ort.LoggingLevelError)
+	env, stopLog, err := ortlog.NewEnv(ctx, rt, "clustarr-ocr")
 	if err != nil {
 		_ = rt.Close()
 		return nil, fmt.Errorf("%w: environment: %w", ErrUnavailable, err)
@@ -106,12 +110,14 @@ func New(libPath string) (*Recognizer, error) {
 	// CPU, and GOMAXPROCS reads the cgroup's limit since Go 1.25).
 	sess, err := rt.NewSessionFromReader(env, bytes.NewReader(model), &ort.SessionOptions{IntraOpNumThreads: max(1, runtime.GOMAXPROCS(0))})
 	if err != nil {
+		stopLog()
 		env.Close()
 		_ = rt.Close()
 		return nil, fmt.Errorf("%w: load the model: %w", ErrUnavailable, err)
 	}
 	if len(sess.InputNames()) != 1 || len(sess.OutputNames()) != 1 {
 		sess.Close()
+		stopLog()
 		env.Close()
 		_ = rt.Close()
 		return nil, fmt.Errorf("%w: the model has %d inputs and %d outputs, want 1 and 1",
@@ -123,12 +129,13 @@ func New(libPath string) (*Recognizer, error) {
 		chars = append(chars, sc.Text())
 	}
 	chars = append(chars, " ")
-	return &Recognizer{rt: rt, env: env, sess: sess, in: sess.InputNames()[0], out: sess.OutputNames()[0], chars: chars}, nil
+	return &Recognizer{rt: rt, env: env, stopLog: stopLog, sess: sess, in: sess.InputNames()[0], out: sess.OutputNames()[0], chars: chars}, nil
 }
 
 // Close releases the model and the runtime.
 func (r *Recognizer) Close() {
 	r.sess.Close()
+	r.stopLog()
 	r.env.Close()
 	_ = r.rt.Close()
 }

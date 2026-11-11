@@ -59,7 +59,7 @@ type imageReader struct {
 
 // Read reads a .sup as SubRip.
 func (r *imageReader) Read(ctx context.Context, sup io.Reader) ([]byte, error) {
-	r.once.Do(func() { r.rec, r.err = ocr.New(r.lib) })
+	r.once.Do(func() { r.rec, r.err = ocr.New(ctx, r.lib) })
 	if r.err != nil {
 		return nil, fmt.Errorf("%s=%q: %w", ORTLibEnv, r.lib, r.err)
 	}

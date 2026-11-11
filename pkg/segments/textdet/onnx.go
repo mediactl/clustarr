@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/mediactl/clustarr/pkg/ortlog"
 	ort "github.com/shota3506/onnxruntime-purego/onnxruntime"
 )
 
@@ -46,36 +47,40 @@ type onnxDetector struct {
 	mu      sync.Mutex // one Run at a time: frames are few, and memory stays flat
 	rt      *ort.Runtime
 	env     *ort.Env
+	stopLog func()
 	sess    *ort.Session
 	in, out string
 }
 
 // NewONNX loads ONNX Runtime from libPath ("" searches the system's library
-// paths) and the embedded model. Any failure is ErrUnavailable.
-func NewONNX(libPath string) (Detector, error) {
+// paths) and the embedded model, its own lines going to ctx's logger under
+// the onnx subsystem (pkg/ortlog). Any failure is ErrUnavailable.
+func NewONNX(ctx context.Context, libPath string) (Detector, error) {
 	rt, err := ort.NewRuntime(libPath, apiVersion)
 	if err != nil {
 		return nil, fmt.Errorf("%w: load ONNX Runtime: %w", ErrUnavailable, err)
 	}
-	env, err := rt.NewEnv("clustarr-textdet", ort.LoggingLevelError)
+	env, stopLog, err := ortlog.NewEnv(ctx, rt, "clustarr-textdet")
 	if err != nil {
 		_ = rt.Close()
 		return nil, fmt.Errorf("%w: environment: %w", ErrUnavailable, err)
 	}
 	sess, err := rt.NewSessionFromReader(env, bytes.NewReader(model), nil)
 	if err != nil {
+		stopLog()
 		env.Close()
 		_ = rt.Close()
 		return nil, fmt.Errorf("%w: load the model: %w", ErrUnavailable, err)
 	}
 	if len(sess.InputNames()) != 1 || len(sess.OutputNames()) != 1 {
 		sess.Close()
+		stopLog()
 		env.Close()
 		_ = rt.Close()
 		return nil, fmt.Errorf("%w: the model has %d inputs and %d outputs, want 1 and 1",
 			ErrUnavailable, len(sess.InputNames()), len(sess.OutputNames()))
 	}
-	return &onnxDetector{rt: rt, env: env, sess: sess, in: sess.InputNames()[0], out: sess.OutputNames()[0]}, nil
+	return &onnxDetector{rt: rt, env: env, stopLog: stopLog, sess: sess, in: sess.InputNames()[0], out: sess.OutputNames()[0]}, nil
 }
 
 // Density implements Detector. The frame is padded with black to a

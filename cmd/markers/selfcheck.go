@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,7 +53,7 @@ func selfCheck(w io.Writer, getenv func(string) string) int {
 		r.Failures = append(r.Failures, err.Error())
 	}
 	ort := getenv("ORT_LIB_PATH")
-	if _, err := textdet.NewONNX(ort); err != nil {
+	if _, err := textdet.NewONNX(context.Background(), ort); err != nil {
 		r.Failures = append(r.Failures, fmt.Sprintf("ONNX Runtime ($ORT_LIB_PATH=%q): %v", ort, err))
 	} else {
 		r.ONNXRuntime = ort

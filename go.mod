@@ -237,3 +237,11 @@ replace sigs.k8s.io/controller-runtime => github.com/mediactl/controller-runtime
 // fix, PR 1081 (branch clustarr, one commit on the tag). Drop the replace at
 // the first upstream release that carries it.
 replace github.com/anacrolix/torrent => github.com/mediactl/torrent v1.62.0-clustarr.1
+
+// The ONNX Runtime binding wraps CreateEnv alone, so ORT's own lines went
+// to stderr unlevelled; the fork is upstream's commit plus one: NewEnvWithLogger
+// (CreateEnvWithCustomLogger, API slot 4) and Env.SetLogLevel
+// (UpdateEnvWithCustomLogLevel), which pkg/ortlog routes under the onnx
+// subsystem. Offered upstream as shota3506/onnxruntime-purego#18; drop the
+// replace at the first upstream release that carries it.
+replace github.com/shota3506/onnxruntime-purego => github.com/mediactl/onnxruntime-purego v0.0.0-clustarr.1

@@ -2478,8 +2478,12 @@ v1.62.0-clustarr.N`, branch `clustarr`: the upstream tag plus upstream's
 open PR 1081, which resets a dropped torrent's announce state at its re-add
 -- anacrolix/torrent#1048, under which a published or re-grabbed torrent
 never got the tracker's answer; until 2026-11-10 `announce.go` tagged a
-re-add's tracker URLs with a fragment instead) and controller-runtime
-(below). **A third-party gap is never patched in this tree** (owner,
+re-add's tracker URLs with a fragment instead), the ONNX Runtime binding
+(`github.com/mediactl/onnxruntime-purego v0.0.0-clustarr.N`, branch
+`clustarr`: upstream plus `NewEnvWithLogger` and `Env.SetLogLevel`, ORT's
+custom logger, offered upstream as shota3506/onnxruntime-purego#18;
+`pkg/ortlog` routes ORT's lines under the `onnx` subsystem through it) and
+controller-runtime (below). **A third-party gap is never patched in this tree** (owner,
 2026-11-10): take the upstream release that has the fix, else a
 `mediactl/` fork rebased on the upstream tag with the fix as its own
 commit and the PR opened upstream, and drop the replace when upstream

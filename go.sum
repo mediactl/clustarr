@@ -348,6 +348,8 @@ github.com/mediactl/controller-runtime v0.25.1-clustarr.3 h1:fWAXB3ktCIlEeBJvy3d
 github.com/mediactl/controller-runtime v0.25.1-clustarr.3/go.mod h1:4QqLdT6z/L6Olj8JJCtvztid4/fnIiYsfaTFScegctc=
 github.com/mediactl/ffgo v0.0.0-clustarr.16 h1:ioPedxT+rDbBdrRIXSpYJPyrKAeMcIUV9eAvnu4LkGk=
 github.com/mediactl/ffgo v0.0.0-clustarr.16/go.mod h1:fAufbyKRrEfVGXJOYiqAW5MSeU+JFTuUG7BFxJhy5cQ=
+github.com/mediactl/onnxruntime-purego v0.0.0-clustarr.1 h1:iJeYiIwNVZQskEobgboEnGv9SWnObY++cRl1/DAVdQ0=
+github.com/mediactl/onnxruntime-purego v0.0.0-clustarr.1/go.mod h1:jsOuI9QymOruQ9UdLrCbMPFykhI13d5FcuV60R1wJ6Q=
 github.com/mediactl/par2go v0.1.1 h1:hwGl4ZBCbtWW3SGnLgmMt/OOgr2FXSLl2X56qmJMU9w=
 github.com/mediactl/par2go v0.1.1/go.mod h1:MTA/CCB+8t5igKeQtFDLQVKe6EUpKQKWGmtVQmEiedA=
 github.com/mediactl/torrent v1.62.0-clustarr.1 h1:ja2e5BFqu1THys20ye/10/z2QHTQdcR+keolcTUyjJU=
@@ -490,8 +492,6 @@ github.com/ryszard/goskiplist v0.0.0-20150312221310-2dfbae5fcf46 h1:GHRpF1pTW19a
 github.com/ryszard/goskiplist v0.0.0-20150312221310-2dfbae5fcf46/go.mod h1:uAQ5PCi+MFsC7HjREoAz1BU+Mq60+05gifQSsHSDG/8=
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 h1:1EYB5IzjZawrrnELUi78f9fPu57HuXjmddZPjrls/28=
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.3/go.mod h1:JXeL+ps8p7/KNMjDQk3TCwPpBy0wYklyWTfbkIzdIFU=
-github.com/shota3506/onnxruntime-purego v0.0.0-20260315223538-8db8bd7424b2 h1:jW34+ipjoob+BfuLfALS6FBJh84KJcmzFowmxsImA/o=
-github.com/shota3506/onnxruntime-purego v0.0.0-20260315223538-8db8bd7424b2/go.mod h1:jsOuI9QymOruQ9UdLrCbMPFykhI13d5FcuV60R1wJ6Q=
 github.com/sirupsen/logrus v1.2.0/go.mod h1:LxeOpSwHxABJmUn/MG1IvRgCAasNZTLOkJPxbbu5VWo=
 github.com/sirupsen/logrus v1.4.2/go.mod h1:tLMulIdttU9McNUspp0xgXVQah82FyeX6MwdIuYE2rE=
 github.com/smartystreets/assertions v0.0.0-20180927180507-b2de0cb4f26d/go.mod h1:OnSkiWE9lh6wB0YB77sQom3nweQdgAjqCqsofrRNTgc=

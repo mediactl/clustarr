@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -76,7 +77,7 @@ func SelfCheckWith(w io.Writer, needs ...ffruntime.Needs) error {
 		r.Par2go = par2child.Library()
 	}
 	ort := os.Getenv(captionagent.ORTLibEnv)
-	if rec, err := ocr.New(ort); err != nil {
+	if rec, err := ocr.New(context.Background(), ort); err != nil {
 		r.Failures = append(r.Failures, fmt.Sprintf("ONNX Runtime (%s=%q): %v", captionagent.ORTLibEnv, ort, err))
 	} else {
 		rec.Close()

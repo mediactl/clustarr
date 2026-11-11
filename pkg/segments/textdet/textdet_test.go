@@ -68,7 +68,7 @@ func TestFindStartNeedsTextAtTheEnd(t *testing.T) {
 }
 
 func TestUnavailableWithoutTheLibrary(t *testing.T) {
-	_, err := textdet.NewONNX(filepath.Join(t.TempDir(), "libonnxruntime.so"))
+	_, err := textdet.NewONNX(t.Context(), filepath.Join(t.TempDir(), "libonnxruntime.so"))
 	assert.True(t, errors.Is(err, textdet.ErrUnavailable), "%v", err)
 }
 
@@ -79,7 +79,7 @@ func TestONNXSeesCreditsText(t *testing.T) {
 	if lib == "" {
 		t.Skip("ORT_LIB_PATH is not set")
 	}
-	d, err := textdet.NewONNX(lib)
+	d, err := textdet.NewONNX(t.Context(), lib)
 	require.NoError(t, err)
 	read := func(name string) []byte {
 		b, err := os.ReadFile(filepath.Join("..", "..", "..", "test", "data", "segments", "textdet", name+".rgb"))

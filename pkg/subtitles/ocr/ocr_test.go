@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"image"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -33,6 +34,7 @@ import (
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/subtitles/ocr"
 	"github.com/mediactl/clustarr/pkg/subtitles/pgs/pgstest"
 )
@@ -67,10 +69,37 @@ func recognizer(t *testing.T) *ocr.Recognizer {
 	if lib == "" {
 		t.Skip("ORT_LIB_PATH is not set")
 	}
-	r, err := ocr.New(lib)
+	r, err := ocr.New(t.Context(), lib)
 	require.NoError(t, err)
 	t.Cleanup(r.Close)
 	return r
+}
+
+// An onnx: trace override reaches ONNX Runtime itself (design §4): the
+// recognizer's env is raised to verbose while it is set, so ORT's own lines
+// land under the onnx subsystem, and a recognizer built after the override
+// is gone writes none.
+func TestTheOnnxOverrideReachesORT(t *testing.T) {
+	lib := os.Getenv("ORT_LIB_PATH")
+	if lib == "" {
+		t.Skip("ORT_LIB_PATH is not set")
+	}
+	var buf bytes.Buffer
+	root := logging.New(logging.Options{Output: &buf, Level: slog.LevelInfo, Subsystems: map[string]slog.Level{"onnx": logging.LevelTrace}})
+	ctx := logging.NewContext(context.Background(), root)
+	r, err := ocr.New(ctx, lib)
+	require.NoError(t, err)
+	r.Close()
+	require.Contains(t, buf.String(), `"level":"TRACE"`, "ORT's verbose lines under the override")
+	require.Contains(t, buf.String(), `"subsystem":"onnx"`)
+
+	logging.LevelsOf(root).Set(slog.LevelInfo, nil)
+	buf.Reset()
+	r, err = ocr.New(ctx, lib)
+	require.NoError(t, err)
+	r.Close()
+	require.NotContains(t, buf.String(), `"level":"TRACE"`, "none once the override is gone")
+	require.NotContains(t, buf.String(), `"level":"INFO","msg":`, buf.String())
 }
 
 func TestRecognizesLinesOfASubtitleBitmap(t *testing.T) {
