@@ -26,6 +26,7 @@ package lineup
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,7 +48,9 @@ const (
 )
 
 // Rule puts the entries it matches into Category. Base is the category's
-// first number less one; only the first rule of a category carries it.
+// first number less one, 0 for none: the first rule of a category that
+// carries one sets it (the CRD admits it on any rule of the name), and a
+// later rule's is ignored.
 type Rule struct {
 	Category string
 	Base     int
@@ -109,8 +112,8 @@ type Plan struct {
 }
 
 // FromSpec is an IPTVProvider's spec.lineup as the planner's Spec, each
-// category a Rule in order; a later rule of a category carries no base (the
-// first one's stands, as Compile reads it). maxChannels is the provider's
+// category a Rule in order with its own base, if any (Compile takes the
+// first rule of a name that carries one). maxChannels is the provider's
 // spec.dvr.maxChannels. A nil s is a Spec with no rules.
 func FromSpec(s *clustarrv1.LineupSpec, maxChannels int) Spec {
 	out := Spec{MaxChannels: maxChannels}
@@ -166,7 +169,9 @@ func compileAll(pats []string, insensitive bool, what string) ([]*regexp.Regexp,
 }
 
 // Compile compiles every pattern of s once. An error names the rule (or the
-// spec's list) and the pattern.
+// spec's list) and the pattern, or the two categories whose numbers could
+// meet: each numbers up to MaxChannels channels from its base+1, so two
+// bases closer than that are refused.
 func Compile(s Spec) (*Planner, error) {
 	p := &Planner{max: s.MaxChannels, catIdx: map[string]int{}}
 	if p.max <= 0 {
@@ -193,12 +198,37 @@ func Compile(s Spec) (*Planner, error) {
 			return nil, err
 		}
 		p.rules = append(p.rules, cr)
-		if _, ok := p.catIdx[r.Category]; !ok {
-			p.catIdx[r.Category] = len(p.cats)
-			p.cats = append(p.cats, Category{Name: r.Category, Base: r.Base})
+		idx, ok := p.catIdx[r.Category]
+		if !ok {
+			idx = len(p.cats)
+			p.catIdx[r.Category] = idx
+			p.cats = append(p.cats, Category{Name: r.Category})
+		}
+		// The first rule of the name that carries a base sets it: a category
+		// whose first rule has none numbers from a later rule's, never from 1.
+		if p.cats[idx].Base == 0 && r.Base != 0 {
+			p.cats[idx].Base = r.Base
 		}
 	}
+	if err := overlapping(p.cats, p.max); err != nil {
+		return nil, err
+	}
 	return p, nil
+}
+
+// overlapping refuses two categories whose numbers could meet: by base, each
+// must end (base + maxChannels) at or before the next one's base.
+func overlapping(cats []Category, maxChannels int) error {
+	byBase := slices.Clone(cats)
+	sort.SliceStable(byBase, func(i, j int) bool { return byBase[i].Base < byBase[j].Base })
+	for i := 1; i < len(byBase); i++ {
+		a, b := byBase[i-1], byBase[i]
+		if a.Base+maxChannels > b.Base {
+			return fmt.Errorf("categories %q (base %d) and %q (base %d) overlap: each numbers up to %d channels from its base+1, so their bases must be at least %d apart",
+				a.Name, a.Base, b.Name, b.Base, maxChannels, maxChannels)
+		}
+	}
+	return nil
 }
 
 // TrimName applies the trim patterns in order, each replaced by "", then

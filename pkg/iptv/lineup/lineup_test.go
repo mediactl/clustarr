@@ -142,6 +142,61 @@ func TestASecondRuleOfANameJoinsTheCategory(t *testing.T) {
 	assert.Equal(t, "1002", plan.Channels[1].Number)
 }
 
+// TestACategorysBaseIsTheFirstRuleOfItsNameThatCarriesOne: the CRD's rule
+// takes the base on any rule of a name, so a category whose first rule has
+// none and a later one has 1000 numbers from 1001, not from 1; it is still
+// listed where its first rule is.
+func TestACategorysBaseIsTheFirstRuleOfItsNameThatCarriesOne(t *testing.T) {
+	p := planner(t, lineup.Spec{Rules: []lineup.Rule{
+		{Category: "News", Names: []string{"^CNN"}},
+		{Category: "Sports", Base: 2000, Groups: []string{"SPORTS"}},
+		{Category: "News", Base: 1000, Groups: []string{"NEWS"}},
+		{Category: "News", Base: 3000, Groups: []string{"TV"}},
+	}})
+	plan := p.Plan([]lineup.Entry{e("1", "CNN", "OTHER"), e("2", "BBC", "NEWS"), e("3", "ESPN", "SPORTS")}, nil)
+	require.Len(t, plan.Categories, 2)
+	assert.Equal(t, lineup.Category{Name: "News", Base: 1000, Channels: 2}, plan.Categories[0])
+	assert.Equal(t, lineup.Category{Name: "Sports", Base: 2000, Channels: 1}, plan.Categories[1])
+	got := map[string]string{}
+	for _, a := range plan.Channels {
+		got[a.Key] = a.Number
+	}
+	assert.Equal(t, map[string]string{"2": "1001", "1": "1002", "3": "2001"}, got)
+}
+
+// TestCategoryRangesMayNotOverlap: each category numbers up to
+// MaxChannels channels from its base+1, so two bases closer than that could
+// give two channels one number; Compile refuses them, naming both.
+func TestCategoryRangesMayNotOverlap(t *testing.T) {
+	for name, tc := range map[string]struct {
+		max   int
+		rules []lineup.Rule
+		names []string // in the error; none is no error
+	}{
+		"exactly maxChannels apart": {400, []lineup.Rule{{Category: "News", Base: 1000}, {Category: "Sports", Base: 1400}}, nil},
+		"one closer":                {400, []lineup.Rule{{Category: "News", Base: 1000}, {Category: "Sports", Base: 1399}}, []string{`"News" (base 1000)`, `"Sports" (base 1399)`}},
+		"by base, not rule order": {0, []lineup.Rule{
+			{Category: "Sports", Base: 2000}, {Category: "News", Base: 1000}, {Category: "Kids", Base: 1300},
+		}, []string{`"News" (base 1000)`, `"Kids" (base 1300)`}},
+		"a smaller maxChannels fits closer bases": {100, []lineup.Rule{{Category: "News", Base: 1000}, {Category: "Sports", Base: 1100}}, nil},
+		"a later rule's base counts": {400, []lineup.Rule{
+			{Category: "News"}, {Category: "Sports", Base: 1200}, {Category: "News", Base: 1000},
+		}, []string{`"News" (base 1000)`, `"Sports" (base 1200)`}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := lineup.Compile(lineup.Spec{MaxChannels: tc.max, Rules: tc.rules})
+			if tc.names == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, n := range tc.names {
+				assert.Contains(t, err.Error(), n)
+			}
+		})
+	}
+}
+
 func TestNumbersAreAlphabeticalFromBasePlusOne(t *testing.T) {
 	p := planner(t, lineup.Spec{Rules: []lineup.Rule{{Category: "News", Base: 1000}}})
 	plan := p.Plan([]lineup.Entry{e("b", "BBC NEWS", "G"), e("c", "CNN", "G"), e("a", "ABC NEWS", "G")}, nil)
