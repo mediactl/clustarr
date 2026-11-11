@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package catalogctx_test
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -84,7 +85,8 @@ func TestTrackFilePath(t *testing.T) {
 		c, ok := catalogctx.Album(tc.artist, tc.album, track)
 		require.True(t, ok, tc.name)
 		assert.Equal(t, 3, c.Track, tc.name)
-		assert.Equal(t, 1, c.Disc, tc.name)
+		assert.EqualValues(t, 1, c.Medium, tc.name)
+		assert.Empty(t, c.MediumFormat, "no selected release names the medium's format")
 		assert.Equal(t, 1998, c.Year, tc.name)
 		got, err := catalogctx.TrackFilePath(root, tc.artist, tc.album, c, ".flac")
 		require.NoError(t, err, tc.name)
@@ -100,6 +102,68 @@ func TestTrackFilePath(t *testing.T) {
 
 	_, err := catalogctx.TrackFilePath(root, artist("", nil), album("/data/movies/elsewhere"), mustAlbum(t, artist("", nil), album(""), track), ".flac")
 	require.Error(t, err, "an album resolved under another root is not renamed into it")
+}
+
+// TestTrackFilePathMultiDisc: a release of two or more media names each
+// track under its medium's folder below the album folder, "CD 02" (design
+// D19, Lidarr's multi-disc shape), so disc 2's track 1 and disc 1's no
+// longer render one path, as they did under the one-disc preset (All Eyez
+// on Me); the context carries the medium and the selected release's format
+// for it; a release of one medium keeps the flat preset; the album's
+// resolved folder still decides the folder above.
+func TestTrackFilePathMultiDisc(t *testing.T) {
+	root := rootAt("/data/music", catalogv1alpha1.RootFolderKindMusic)
+	artist := &catalogv1alpha1.Artist{
+		Spec:   catalogv1alpha1.ArtistSpec{MusicBrainzID: "382f1005-e9ab-42fd-a9a8-6c8d27fb2b2e"},
+		Status: catalogv1alpha1.ArtistStatus{Path: "/data/music/2Pac", Metadata: &catalogv1alpha1.ArtistMetadata{Name: "2Pac"}},
+	}
+	album := func(statusPath, selected string, releases ...catalogv1alpha1.ReleaseSummary) *catalogv1alpha1.Album {
+		return &catalogv1alpha1.Album{
+			Spec: catalogv1alpha1.AlbumSpec{ReleaseGroupID: "rg-aeom"},
+			Status: catalogv1alpha1.AlbumStatus{Path: statusPath, Metadata: &catalogv1alpha1.AlbumMetadata{
+				Title: "All Eyez on Me", ReleaseDate: utcDate(1996, time.February, 13),
+				Releases: releases, SelectedReleaseID: selected,
+			}},
+		}
+	}
+	twoCDs := catalogv1alpha1.ReleaseSummary{ID: "rel-2cd", Media: []catalogv1alpha1.Medium{{Number: 1, Format: "CD"}, {Number: 2, Format: "CD"}}}
+	oneCD := catalogv1alpha1.ReleaseSummary{ID: "rel-1cd", Media: []catalogv1alpha1.Medium{{Number: 1, Format: "CD"}}}
+	disc1 := &catalogv1alpha1.Track{RecordingID: "rec-1-1", Medium: 1, Number: 1, Title: "Ambitionz az a Ridah"}
+	disc2 := &catalogv1alpha1.Track{RecordingID: "rec-2-1", Medium: 2, Number: 1, Title: "Can't C Me"}
+
+	two := album("/data/music/2Pac/All Eyez on Me (1996)", "rel-2cd", oneCD, twoCDs)
+	assert.True(t, catalogctx.MultiDisc(two))
+	c1 := mustAlbum(t, artist, two, disc1)
+	c2 := mustAlbum(t, artist, two, disc2)
+	assert.EqualValues(t, 2, c2.Medium)
+	assert.Equal(t, "CD", c2.MediumFormat, "the selected release's format for the track's medium")
+
+	got1, err := catalogctx.TrackFilePath(root, artist, two, c1, ".flac")
+	require.NoError(t, err)
+	got2, err := catalogctx.TrackFilePath(root, artist, two, c2, ".flac")
+	require.NoError(t, err)
+	assert.Equal(t, "/data/music/2Pac/All Eyez on Me (1996)/CD 01/2Pac - All Eyez on Me - 01 - Ambitionz az a Ridah.flac", got1)
+	assert.Equal(t, "/data/music/2Pac/All Eyez on Me (1996)/CD 02/2Pac - All Eyez on Me - 01 - Can't C Me.flac", got2)
+	assert.NotEqual(t, filepath.Dir(got1), filepath.Dir(got2), "each disc's track 1 has a folder of its own")
+
+	// Without a resolved album path the medium folder sits under
+	// AlbumFolder's render, as the file does.
+	unresolved := album("", "rel-2cd", twoCDs)
+	got, err := catalogctx.TrackFilePath(root, artist, unresolved, mustAlbum(t, artist, unresolved, disc2), ".flac")
+	require.NoError(t, err)
+	assert.Equal(t, "/data/music/2Pac/All Eyez on Me (1996)/CD 02/2Pac - All Eyez on Me - 01 - Can't C Me.flac", got)
+
+	// A release of one medium, or none selected, keeps the one-disc preset
+	// and its medium 1 renders no folder.
+	for name, one := range map[string]*catalogv1alpha1.Album{
+		"one medium":    album("/data/music/2Pac/All Eyez on Me (1996)", "rel-1cd", oneCD, twoCDs),
+		"none selected": album("/data/music/2Pac/All Eyez on Me (1996)", "", oneCD, twoCDs),
+	} {
+		assert.False(t, catalogctx.MultiDisc(one), name)
+		got, err := catalogctx.TrackFilePath(root, artist, one, mustAlbum(t, artist, one, disc1), ".flac")
+		require.NoError(t, err, name)
+		assert.Equal(t, "/data/music/2Pac/All Eyez on Me (1996)/2Pac - All Eyez on Me - 01 - Ambitionz az a Ridah.flac", got, name)
+	}
 }
 
 func mustAlbum(t *testing.T, a *catalogv1alpha1.Artist, al *catalogv1alpha1.Album, tr *catalogv1alpha1.Track) naming.Context {

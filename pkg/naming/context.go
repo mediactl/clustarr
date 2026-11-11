@@ -86,6 +86,10 @@ const (
 	TokenAudiobookFile   = "audiobookFile"
 	TokenComicFolder     = "comicFolder"
 	TokenIssueFile       = "issueFile"
+	// TokenMultiDiscTrackFile overrides the track preset a release of two
+	// or more media renders by (Engine.MultiDiscTrackFile; Lidarr's
+	// MultiDiscTrackFormat, the 2026-11-10 non-video libraries design's D19).
+	TokenMultiDiscTrackFile = "multiDiscTrackFile"
 )
 
 // Config is the render-time configuration of an Engine: dialect, colon and
@@ -160,13 +164,19 @@ type Context struct {
 	// it "{Release Year}" too, the same text Radarr uses for a movie's
 	// year, so one Context field serves all three rather than three
 	// same-named tokens each reading a different field depending on kind.
-	ArtistName   string
-	ArtistMbID   string
-	AlbumTitle   string
-	AlbumMbID    string
-	TrackTitle   string
-	Track        int
-	Disc         int
+	ArtistName string
+	ArtistMbID string
+	AlbumTitle string
+	AlbumMbID  string
+	TrackTitle string
+	Track      int
+	// Medium is the 1-based medium (disc, side, tape) the track sits on,
+	// {medium} and {medium:00}, and MediumFormat the medium's MusicBrainz
+	// format ("CD", "Vinyl", "Digital Media"), {Medium Format}: the
+	// multi-disc track preset's folder segment (Lidarr's "{Medium Format}
+	// {medium:00}", the 2026-11-10 non-video libraries design's D19). A
+	// release of one medium renders neither.
+	Medium       int32
 	MediumFormat string
 
 	// Book / audiobook (Readarr)

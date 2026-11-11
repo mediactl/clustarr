@@ -47,23 +47,67 @@ import (
 // Album is the naming context of one track of album by artist: ok is false
 // until the Album's title and the Artist's name have arrived, since the
 // track preset names both. track is the Album's status.tracks entry the
-// file's spec.mediaRef.track addresses.
+// file's spec.mediaRef.track addresses; its medium and the medium's format
+// in the album's selected release ({medium:00}, {Medium Format}) are the
+// multi-disc preset's folder, which TrackFilePath renders when that
+// release lists two or more media (design D19).
 func Album(artist *catalogv1alpha1.Artist, album *catalogv1alpha1.Album, track *catalogv1alpha1.Track) (naming.Context, bool) {
 	if album.Status.Metadata == nil || album.Status.Metadata.Title == "" || track == nil ||
 		artist.Status.Metadata == nil || artist.Status.Metadata.Name == "" {
 		return naming.Context{}, false
 	}
 	return naming.Context{
-		Kind:       commonv1.MediaKindAlbum,
-		ArtistName: artist.Status.Metadata.Name,
-		ArtistMbID: artist.Spec.MusicBrainzID,
-		AlbumTitle: album.Status.Metadata.Title,
-		AlbumMbID:  album.Spec.ReleaseGroupID,
-		Year:       ReleaseYear(album.Status.Metadata.ReleaseDate),
-		Track:      int(track.Number),
-		Disc:       int(track.Medium),
-		TrackTitle: track.Title,
+		Kind:         commonv1.MediaKindAlbum,
+		ArtistName:   artist.Status.Metadata.Name,
+		ArtistMbID:   artist.Spec.MusicBrainzID,
+		AlbumTitle:   album.Status.Metadata.Title,
+		AlbumMbID:    album.Spec.ReleaseGroupID,
+		Year:         ReleaseYear(album.Status.Metadata.ReleaseDate),
+		Track:        int(track.Number),
+		Medium:       track.Medium,
+		MediumFormat: mediumFormat(SelectedRelease(album), track.Medium),
+		TrackTitle:   track.Title,
 	}, true
+}
+
+// SelectedRelease is the release of album's release group its tracks were
+// taken from (status.metadata.selectedReleaseID among
+// status.metadata.releases), nil while none is selected or the album's
+// metadata has not arrived.
+func SelectedRelease(album *catalogv1alpha1.Album) *catalogv1alpha1.ReleaseSummary {
+	m := album.Status.Metadata
+	if m == nil || m.SelectedReleaseID == "" {
+		return nil
+	}
+	for i := range m.Releases {
+		if m.Releases[i].ID == m.SelectedReleaseID {
+			return &m.Releases[i]
+		}
+	}
+	return nil
+}
+
+// MultiDisc is whether album's selected release lists two or more media,
+// which is when its tracks are named by the multi-disc preset, a folder
+// per medium below the album folder (design D19: the one-disc preset
+// renders every medium's track 1 as one name).
+func MultiDisc(album *catalogv1alpha1.Album) bool {
+	rel := SelectedRelease(album)
+	return rel != nil && len(rel.Media) >= 2
+}
+
+// mediumFormat is the format of medium number n in rel ("CD", "Vinyl"),
+// empty when rel is nil or lists no such medium or no format for it.
+func mediumFormat(rel *catalogv1alpha1.ReleaseSummary, n int32) string {
+	if rel == nil {
+		return ""
+	}
+	for _, m := range rel.Media {
+		if m.Number == n {
+			return m.Format
+		}
+	}
+	return ""
 }
 
 // Book is the naming context of book, by author when the Book is one of
@@ -305,15 +349,27 @@ func standaloneBook(root *catalogv1alpha1.RootFolder, c naming.Context) (folder,
 // folder, when it is AlbumFolder's join of the album segment onto the pin
 // as written (the Album's status.path is the same join, and a sanitize of
 // it would rewrite the pin); else AlbumFolder under the artist folder --
-// and the track preset's file segment plus ext. The import places an
-// album's files under the same folder with their own names (the TrackFile
+// and the track preset's path below its own album segment plus ext: the
+// file alone under the one-disc preset, the medium folder and the file
+// ("CD 02/...") under the multi-disc one, which a release of two or more
+// media renders by (MultiDisc, design D19; the album's status.path stays
+// the album folder, and the rename pass moves the file into the medium
+// folder only under the root's organizeFolders). The import places an
+// album's files under the album folder with their own names (the TrackFile
 // preset is the rename's).
 func TrackFilePath(root *catalogv1alpha1.RootFolder, artist *catalogv1alpha1.Artist, album *catalogv1alpha1.Album, c naming.Context, ext string) (string, error) {
-	file, err := EngineFor(root).TrackFile(c)
+	eng := EngineFor(root)
+	var file string
+	var err error
+	if MultiDisc(album) {
+		file, err = eng.MultiDiscTrackFile(c)
+	} else {
+		file, err = eng.TrackFile(c)
+	}
 	if err != nil {
 		return "", fmt.Errorf("catalogctx: render track file: %w", err)
 	}
-	file = path.Base(file) + ext
+	file = belowAlbumFolder(file) + ext
 	if _, pinned := pinnedFolder(artist.Spec.Folder); album.Status.Path != "" && !pinned {
 		return joinUnder(root.Spec.Path, renderedBase(root.Spec.Path, album.Status.Path), file)
 	}
@@ -322,6 +378,19 @@ func TrackFilePath(root *catalogv1alpha1.RootFolder, artist *catalogv1alpha1.Art
 		return "", err
 	}
 	return joinUnder(root.Spec.Path, albumFolder, file)
+}
+
+// belowAlbumFolder is a rendered track path below the album segment the
+// track presets carry first (Lidarr's convention: the track format is
+// album-relative, so its first segment is the album folder, which
+// TrackFilePath replaces by the resolved one): the file alone for the
+// one-disc preset, "<medium>/<file>" for the multi-disc one, and the whole
+// for an override of one segment.
+func belowAlbumFolder(rendered string) string {
+	if i := strings.Index(rendered, "/"); i >= 0 {
+		return rendered[i+1:]
+	}
+	return rendered
 }
 
 // BookFilePath is the canonical path of the book c describes, under root:

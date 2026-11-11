@@ -295,10 +295,16 @@ var tokenFuncs = map[string]tokenEntry{
 		}
 		return c.AirDate.Format("2006-01-02")
 	}},
-	"artist name":         {fn: func(c Context, _, _ int) string { return c.ArtistName }},
-	"album title":         {fn: func(c Context, _, _ int) string { return c.AlbumTitle }},
-	"track title":         {fn: func(c Context, _, _ int) string { return c.TrackTitle }},
-	"track":               {fn: func(c Context, pad, _ int) string { return padInt(c.Track, pad) }},
+	"artist name": {fn: func(c Context, _, _ int) string { return c.ArtistName }},
+	"album title": {fn: func(c Context, _, _ int) string { return c.AlbumTitle }},
+	"track title": {fn: func(c Context, _, _ int) string { return c.TrackTitle }},
+	"track":       {fn: func(c Context, pad, _ int) string { return padInt(c.Track, pad) }},
+	// Lidarr's {medium:0|00} and {Medium Format}: the multi-disc preset's
+	// own folder, "CD 02" (design D19). Both read the Context as given; a
+	// release of one medium renders the one-disc preset, which names
+	// neither.
+	"medium":              {fn: func(c Context, pad, _ int) string { return padInt(int(c.Medium), pad) }},
+	"medium format":       {fn: func(c Context, _, _ int) string { return c.MediumFormat }},
 	"author name":         {fn: func(c Context, _, _ int) string { return c.AuthorName }},
 	"book title":          {fn: func(c Context, _, _ int) string { return c.BookTitle }},
 	"book series":         {fn: func(c Context, _, _ int) string { return c.BookSeries }},
