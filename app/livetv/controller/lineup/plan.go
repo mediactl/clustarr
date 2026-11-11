@@ -311,3 +311,31 @@ func clampRunes(s string, n int) string {
 	}
 	return s
 }
+
+// collapseMin is the fewest deactivations the collapse guard refuses.
+const collapseMin = 10
+
+// deactivations counts the channels cs would take off every DVR -- each
+// active now that a change deactivates or deletes -- and the provider's
+// active channels.
+func deactivations(cs []change, channels []clustarrv1.IPTVChannel) (dropped, active int) {
+	for i := range channels {
+		if channels[i].Spec.Active {
+			active++
+		}
+	}
+	for _, c := range cs {
+		if c.ch != nil && c.ch.Spec.Active && (c.remove || (c.spec && !c.active)) {
+			dropped++
+		}
+	}
+	return dropped, active
+}
+
+// collapses reports whether a plan taking dropped of active channels off
+// every DVR collapses the lineup: at least collapseMin, and more than half.
+// A playlist come back nearly empty, or a rule edit that unmatches most of
+// the lineup, would otherwise delete every category's DVR in Plex.
+func collapses(dropped, active int) bool {
+	return dropped >= collapseMin && 2*dropped > active
+}

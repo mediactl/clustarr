@@ -89,6 +89,15 @@ const (
 // controller) both name it.
 const AnnotationLiveTVRefresh = "clustarr.io/livetv-refresh"
 
+// AnnotationLineupAllowCollapse "true" on an IPTVProvider lets the lineup
+// controller apply one plan that would deactivate more than half of the
+// active channels (and at least ten), which it otherwise refuses as
+// InvalidLineup: a playlist come back nearly empty, or a rule edit that
+// unmatches most of the lineup. It lets one such plan through while it is
+// set; remove it and set it again to let another through. A person sets it
+// (kubectl); the lineup controller only reads it.
+const AnnotationLineupAllowCollapse = "clustarr.io/lineup-allow-collapse"
+
 // The keys of a provider's credentials Secret.
 const (
 	CredentialsKeyUsername = "username"

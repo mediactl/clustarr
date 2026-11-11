@@ -57,6 +57,8 @@ import (
 const (
 	ReasonLineupApplied         = "LineupApplied"
 	ReasonLineupCategoryTooMany = "LineupCategoryTooMany"
+	ReasonLineupCollapseRefused = "LineupCollapseRefused"
+	ReasonLineupCollapseAllowed = "LineupCollapseAllowed"
 )
 
 // entriesRetry is how soon a provider whose playlist the tuner has not
@@ -90,9 +92,10 @@ type Reconciler struct {
 	// does (an error, or a dry run that changes no status). Called after
 	// every plan write; nil wakes nothing.
 	Wake func(types.NamespacedName)
-	// Recorder records the provider's LineupApplied and
-	// LineupCategoryTooMany Events; SetupWithManager sets the manager's
-	// when nil, and a nil one records nothing.
+	// Recorder records the provider's LineupApplied, LineupCategoryTooMany,
+	// LineupCollapseRefused and LineupCollapseAllowed Events;
+	// SetupWithManager sets the manager's when nil, and a nil one records
+	// nothing.
 	Recorder k8sevents.EventRecorder
 
 	mu sync.Mutex
@@ -134,12 +137,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 	now := r.now()
 	enabled := p.Spec.Lineup.Enabled
+	// The collapse guard's override, and whether it has let a plan through
+	// while it has been set (the stored plan remembers; it forgets once the
+	// annotation is gone).
+	allowCollapse, collapseUsed := p.Annotations[clustarrv1.AnnotationLineupAllowCollapse] == "true", false
+	if allowCollapse {
+		prev, ok, err := r.readPlan(ctx, key)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		collapseUsed = ok && prev.CollapseAllowed
+	}
 
 	planner, err := lineup.Compile(lineup.FromSpec(p.Spec.Lineup, int(p.Spec.MaxChannelsOrDefault())))
 	if err != nil {
 		// The provider controller reads the error as InvalidLineup; the last
 		// good plan, and every channel, stand.
-		if err := r.storeError(ctx, key, now, !enabled, err); err != nil {
+		if _, err := r.storeError(ctx, key, now, !enabled, collapseUsed, err); err != nil {
 			return ctrl.Result{}, err
 		}
 		r.wake(key)
@@ -155,12 +169,41 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 	byKey := index.ChannelsByKey(p.Name, channels)
 	plan, overBytes := refuseOverBytes(planner.Plan(toEntries(entries), overrides(byKey, entries, planner.Trim)))
-	planChanged, err := r.storePlan(ctx, key, livetvstore.LineupPlan{PlannedAt: now, DryRun: !enabled, Plan: plan})
+	cs := changes(p.Name, plan, channels, byKey, enabled, now)
+
+	// The collapse guard: a plan that would take more than half of the
+	// active channels off every DVR (and at least ten) is refused as an
+	// invalid one is -- its error stored beside the last good plan, nothing
+	// written to a channel -- unless the provider's lineup-allow-collapse
+	// annotation lets it through, once.
+	if dropped, active := deactivations(cs, channels); enabled && collapses(dropped, active) {
+		if !allowCollapse || collapseUsed {
+			refusal := fmt.Errorf("the plan would deactivate %d of %d active channels; refusing", dropped, active)
+			changed, err := r.storeError(ctx, key, now, false, collapseUsed, refusal)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			r.wake(key)
+			if changed {
+				how := fmt.Sprintf("set the %s annotation to \"true\" to let it through once", clustarrv1.AnnotationLineupAllowCollapse)
+				if collapseUsed {
+					how = fmt.Sprintf("the %s annotation has let one through already: remove it and set it again to let another through", clustarrv1.AnnotationLineupAllowCollapse)
+				}
+				r.event(&p, corev1.EventTypeWarning, ReasonLineupCollapseRefused, "%s; %s", refusal, how)
+				logging.FromContext(ctx).Warn("livetv: lineup plan refused: it would deactivate most of the lineup",
+					"provider", key.String(), "deactivate", dropped, "active", active)
+			}
+			return ctrl.Result{}, nil
+		}
+		collapseUsed = true
+		r.event(&p, corev1.EventTypeNormal, ReasonLineupCollapseAllowed,
+			"the %s annotation let a plan through that deactivates %d of %d active channels", clustarrv1.AnnotationLineupAllowCollapse, dropped, active)
+	}
+	planChanged, err := r.storePlan(ctx, key, livetvstore.LineupPlan{PlannedAt: now, DryRun: !enabled, CollapseAllowed: collapseUsed, Plan: plan})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	cs := changes(p.Name, plan, channels, byKey, enabled, now)
 	var n counts
 	var errs []error
 	for i := range cs {
@@ -340,17 +383,18 @@ func (r *Reconciler) storePlan(ctx context.Context, key types.NamespacedName, lp
 	return changed, nil
 }
 
-// storeError stores a plan that failed to compile: the error beside the
-// last good plan stored, which stands.
-func (r *Reconciler) storeError(ctx context.Context, key types.NamespacedName, now time.Time, dryRun bool, planErr error) error {
-	lp := livetvstore.LineupPlan{PlannedAt: now, DryRun: dryRun, Error: planErr.Error()}
+// storeError stores a plan that failed to compile, or that the collapse
+// guard refused: the error beside the last good plan stored, which stands.
+// collapseAllowed carries the guard's memory of its override. It reports
+// whether the object says something new.
+func (r *Reconciler) storeError(ctx context.Context, key types.NamespacedName, now time.Time, dryRun, collapseAllowed bool, planErr error) (bool, error) {
+	lp := livetvstore.LineupPlan{PlannedAt: now, DryRun: dryRun, Error: planErr.Error(), CollapseAllowed: collapseAllowed}
 	if prev, ok, err := r.readPlan(ctx, key); err != nil {
-		return err
+		return false, err
 	} else if ok {
 		lp.Plan = prev.Plan
 	}
-	_, err := r.storePlan(ctx, key, lp)
-	return err
+	return r.storePlan(ctx, key, lp)
 }
 
 // readPlan reads the provider's stored plan; ok is false when none is
@@ -394,9 +438,9 @@ func (r *Reconciler) forget(key types.NamespacedName) {
 	delete(r.stored, key)
 }
 
-// SetupWithManager registers the controller: the provider (a spec change),
-// its channels (a person's edit, a create or a delete) and the tuner's
-// notices (a playlist fetch).
+// SetupWithManager registers the controller: the provider (a spec change,
+// or its lineup-allow-collapse annotation), its channels (a person's edit,
+// a create or a delete) and the tuner's notices (a playlist fetch).
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := index.Register(context.Background(), mgr); err != nil {
 		return err
@@ -413,7 +457,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("iptvlineup").
-		For(&clustarrv1.IPTVProvider{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&clustarrv1.IPTVProvider{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{},
+			k8s.AnnotationsChanged(clustarrv1.AnnotationLineupAllowCollapse)))).
 		// A channel's status moves with every render; only its spec (a
 		// person's name or category) and labels feed the plan.
 		Watches(&clustarrv1.IPTVChannel{}, handler.EnqueueRequestsFromMapFunc(toProvider),

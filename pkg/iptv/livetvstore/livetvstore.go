@@ -91,12 +91,16 @@ func LineupPlanObject(key types.NamespacedName) string {
 }
 
 // LineupPlan is the stored lineup plan: when it was made, whether it was a
-// dry run, why planning failed (Error, the last good Plan kept), and the
-// plan itself.
+// dry run, why planning failed or was refused (Error, the last good Plan
+// kept), and the plan itself. CollapseAllowed records that the provider's
+// lineup-allow-collapse annotation has let a plan through while it has been
+// set, so it lets no second one through; it is false once the annotation
+// is gone.
 type LineupPlan struct {
-	PlannedAt time.Time
-	DryRun    bool
-	Error     string
+	PlannedAt       time.Time
+	DryRun          bool
+	Error           string
+	CollapseAllowed bool `json:",omitempty"`
 	lineup.Plan
 }
 

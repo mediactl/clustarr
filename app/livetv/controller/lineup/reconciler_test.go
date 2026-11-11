@@ -567,6 +567,109 @@ func TestASecondChannelOfAKeyIsDeactivated(t *testing.T) {
 	assert.Equal(t, &clustarrv1.ChannelLineupStatus{DuplicateOf: canonical}, dup.Status.Lineup)
 }
 
+// TestACollapseIsTenAndMoreThanHalf: a plan collapses the lineup when it
+// would take at least ten channels, and more than half of the active ones,
+// off every DVR.
+func TestACollapseIsTenAndMoreThanHalf(t *testing.T) {
+	for _, tc := range []struct {
+		n, active int
+		want      bool
+	}{
+		{0, 0, false}, {9, 9, false}, {9, 12, false}, {10, 20, false},
+		{10, 19, true}, {11, 20, true}, {16, 20, true}, {500, 1000, false}, {501, 1000, true},
+	} {
+		assert.Equal(t, tc.want, collapses(tc.n, tc.active), "%d of %d", tc.n, tc.active)
+	}
+}
+
+// TestACollapseIsRefusedUntilTheAnnotationLetsItThrough: a plan that would
+// deactivate more than half the active channels (and at least ten) -- a
+// playlist come back nearly empty, a rule edit that unmatches most of the
+// lineup -- is refused like an invalid one: its error stored beside the last
+// good plan, nothing written to a channel, one Warning Event. The provider's
+// clustarr.io/lineup-allow-collapse: "true" lets one such plan through; it
+// lets no second one through until it is removed and set again.
+func TestACollapseIsRefusedUntilTheAnnotationLetsItThrough(t *testing.T) {
+	all := make([]m3u.Entry, 0, 20)
+	for i := range 20 {
+		all = append(all, entry(fmt.Sprintf("N%02d NEWS", i)))
+	}
+	f := newFixture(t, provider(true, news()))
+	f.entries = all
+	f.reconcile()
+	require.Len(t, f.channels(), 20)
+	good := f.plan()
+	f.events()
+	active := func() int {
+		n := 0
+		for _, ch := range f.channels() {
+			if ch.Spec.Active {
+				n++
+			}
+		}
+		return n
+	}
+	refused := func(msg string) {
+		t.Helper()
+		lp := f.plan()
+		assert.Equal(t, "the plan would deactivate 16 of 20 active channels; refusing", lp.Error, msg)
+		assert.Equal(t, good.Plan, lp.Plan, "the last good plan stands")
+		assert.Equal(t, 20, active(), "no channel touched: %s", msg)
+	}
+
+	f.entries = all[:4]
+	f.woken = nil
+	f.reconcile()
+	refused("no annotation")
+	assert.Equal(t, []types.NamespacedName{testKey}, f.woken, "the provider controller reads the refusal")
+	ev := f.events()
+	require.Len(t, ev, 1)
+	assert.True(t, strings.HasPrefix(ev[0], "Warning LineupCollapseRefused "), ev[0])
+	assert.Contains(t, ev[0], "clustarr.io/lineup-allow-collapse")
+	f.reconcile()
+	assert.Empty(t, f.events(), "the same refusal records no second Event")
+
+	// The annotation lets it through once.
+	f.setProvider(func(p *clustarrv1.IPTVProvider) {
+		p.Annotations = map[string]string{clustarrv1.AnnotationLineupAllowCollapse: "true"}
+	})
+	f.reconcile()
+	assert.Empty(t, f.plan().Error)
+	assert.True(t, f.plan().CollapseAllowed)
+	assert.Equal(t, 4, active())
+
+	// Left in place, it lets no second collapse through.
+	f.entries = all
+	f.reconcile()
+	require.Equal(t, 20, active())
+	assert.True(t, f.plan().CollapseAllowed, "remembered while the annotation stays")
+	f.events()
+	f.entries = all[:4]
+	f.reconcile()
+	refused("the annotation already used")
+	ev = f.events()
+	require.Len(t, ev, 1)
+	assert.Contains(t, ev[0], "remove it and set it again")
+
+	// Removed and set again: one more.
+	f.setProvider(func(p *clustarrv1.IPTVProvider) { p.Annotations = nil })
+	f.reconcile()
+	refused("the annotation removed")
+	assert.False(t, f.plan().CollapseAllowed, "forgotten once the annotation is gone")
+	f.setProvider(func(p *clustarrv1.IPTVProvider) {
+		p.Annotations = map[string]string{clustarrv1.AnnotationLineupAllowCollapse: "true"}
+	})
+	f.reconcile()
+	assert.Empty(t, f.plan().Error)
+	assert.Equal(t, 4, active())
+
+	// A dry run deactivates nothing and is never refused.
+	f = newFixture(t, provider(false, news()))
+	f.entries = all[:4]
+	f.reconcile()
+	assert.Empty(t, f.plan().Error)
+}
+
 // TestNoPlaylistYetRequeues: before the tuner's first fetch nothing is
 // planned or written, and the provider is asked about again in 30 s.
 func TestNoPlaylistYetRequeues(t *testing.T) {
