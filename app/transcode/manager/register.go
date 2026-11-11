@@ -28,7 +28,6 @@ package manager
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 
@@ -103,7 +102,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	var intelWork *admission.IntelWorkLease
 	if o.IntelWorkLease.Name != "" {
 		intelWork = &admission.IntelWorkLease{
-			Client: mgr.GetClient(), Key: o.IntelWorkLease, Identity: os.Getenv("POD_NAME"), Log: slog.Default(),
+			Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Key: o.IntelWorkLease, Identity: os.Getenv("POD_NAME"),
 		}
 	}
 	adm := &admission.Reconciler{
