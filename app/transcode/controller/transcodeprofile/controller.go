@@ -35,6 +35,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	k8sevents "k8s.io/client-go/tools/events"
@@ -158,6 +160,7 @@ func (r *Reconciler) now() time.Time {
 // deleted before the ledger is rebuilt); then its status, skipped when
 // unchanged.
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "transcode.transcodeprofile")
 	ctx, span := tracing.Start(ctx, "transcodeprofile.Reconcile")
 	defer span.End()
 	var tp transcodev1alpha1.TranscodeProfile

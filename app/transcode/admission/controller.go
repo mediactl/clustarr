@@ -126,6 +126,7 @@ func (r *Reconciler) now() time.Time {
 // ledgerResync the resync), then Pass over what the cache and
 // clustarr-progress say.
 func (r *Reconciler) Reconcile(ctx context.Context, _ reconcile.Request) (reconcile.Result, error) {
+	ctx = logging.Subsystem(ctx, "transcode.admission")
 	ctx, span := tracing.Start(ctx, "admission.Reconcile")
 	defer span.End()
 	if !r.Ledger.Rebuilt() {

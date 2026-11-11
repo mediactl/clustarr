@@ -160,6 +160,7 @@ func (l *IntelWorkLease) Publish(ctx context.Context) error {
 // Start renews the Lease every Every while the count is above zero, until
 // ctx ends; a renewal that fails is logged and tried again next period.
 func (l *IntelWorkLease) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "transcode.admission.intelwork")
 	every := l.Every
 	if every <= 0 {
 		every = IntelWorkRenew
