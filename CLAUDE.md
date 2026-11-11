@@ -3646,9 +3646,26 @@ ships it.
 ## Code conventions
 
 - GPL-3.0 header from `hack/boilerplate.go.txt` on every Go file.
-- Logging is `slog` carried through `context` (`pkg/obs/logging.FromContext`). No
-  package-level logger, no logger struct fields. controller-runtime gets a
-  `logr.FromSlogHandler` bridge at startup.
+- Logging is `slog` carried through `context` (`pkg/obs/logging.FromContext`;
+  `docs/superpowers/specs/2026-11-10-structured-logging-design.md`,
+  `docs/observability.md`'s Logging section). No package-level logger, no
+  logger struct fields, and `slog.Default()` is only the drain for
+  third-party `log` output (`TestNoGlobalLogger`, `TestNoStdlibLogOrStderrPrints`).
+  Every entry point names its subsystem as its first statement -- a
+  `Reconcile`, a leader runnable's `Start`, a bus subscription, a server's
+  constructor, a binary after its root -- `ctx = logging.Subsystem(ctx,
+  "<svc>.<pkg>")`, the name a literal in the sorted `logging.Subsystems`
+  table (`TestEverySubsystemIsInTheTable`; the naming rule is the table's doc).
+  An error's key is `err`, never `error` (`TestNoErrorAttributeKey`). Levels
+  come from `/etc/clustarr/logging.yaml` (the installers' logging ConfigMap,
+  polled every 10 s; chart `global.logging` and `logging`), then set flags,
+  then `LOG_LEVEL`/`LOG_FORMAT`; a per-subsystem override covers every
+  subsystem below it by dotted prefix. controller-runtime (`logr`), client-go
+  (`klog`), nats.go, anacrolix, FFmpeg (`pkg/ffruntime/ffroute`, errors as
+  WARN) and ONNX Runtime (`pkg/ortlog`, through the `mediactl/onnxruntime-purego`
+  fork) are bridged onto the same stream under their own subsystems.
+  `service.name` is the process's tracing name: `manager`, `agent-<domain>`,
+  `engine-<client>`, `ui`, `markers`, `transcode`.
 - Spans wrap every `Reconcile`, work handler, outbound provider call and ffmpeg
   run; propagation rides the `Clustarr-Trace` header already in `pkg/events`.
 - Prometheus metrics use the `clustarr_` prefix and base units; the catalogue

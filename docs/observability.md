@@ -19,7 +19,7 @@ per process that has one:
 | Process | `service.name` | `/metrics` | `/healthz`, `/readyz` |
 |---|---|---|---|
 | `manager` (`cmd/manager`) | `manager` | `:8443`, https, behind controller-runtime's authn/authz filter | `:8081` |
-| `agent --domain <d>` (`cmd/agent`), one Deployment per domain and the download engines | `agent-<domain>` (`agent-catalog`, ..., `agent-torrent-engine`) | `:8443`, as the manager | `:8081` |
+| `agent --domain <d>` (`cmd/agent`), one Deployment per domain and the download engines | `agent-<domain>` (`agent-catalog`, ..., `agent-caption`); an engine `engine-<client>`, the DownloadClient it runs (`internal/cli/agent.agentServiceName`) | `:8443`, as the manager | `:8081` |
 | `markers` (`cmd/markers`) | `markers` | `:8080`, plain http (`--metrics-bind-address`), with its probes on the same port | `:8080` |
 | transcode pool and graft pods (`cmd/transcode`) | `transcode` | none: the manager records the transcode series from the records it incorporates | none (Jobs) |
 | `ui` (`cmd/ui`) | `ui` | none: it registers no collectors | on its one HTTP address |
@@ -33,7 +33,7 @@ subject may `get /metrics` (`clustarr-metrics-reader`, see `config/prometheus/RE
 
 | Piece | Today |
 |---|---|
-| Structured logging, `--log-*` flags, logger in context | **Wired** in every binary; controller-runtime's own output is bridged onto the same stream. |
+| Structured logging, `--log-*` flags, logger in context | **Wired** in every binary (the [Logging](#logging) section): one JSON record shape, a subsystem on every line, levels from the mounted `logging.yaml` without a restart; controller-runtime, client-go, nats.go, anacrolix, FFmpeg and ONNX Runtime are bridged onto the same stream. |
 | `/metrics` and the catalogue below | **Wired.** `pkg/obs/metrics.Register` runs once per process. A few series are registered and never recorded yet; the catalogue says which. |
 | `TracerProvider`, OTLP exporter, `--tracing-*` flags | **Wired** in every binary, one provider and one `service.name` per process. |
 | Spans | **Wired.** 241 production `tracing.Start` call sites: every reconciler (the remediation loop's file and item keys as `remediation.Reconcile`, each planner's gather and plan as `remediation.<planner>.<phase>`), every work handler, every outbound provider and indexer call. FFmpeg runs in-process (ADR-0017), inside its handler's span. |
@@ -214,11 +214,88 @@ and link to each other. A new metric worth watching gets a panel in the same cha
 a changed query with `promtool check rules` on a rule file holding it, with the dashboard's
 variables filled in: VictoriaMetrics accepts some MetricsQL that Prometheus does not.
 
+## Logging
+
+Every process writes one JSON object per line to stdout, built by
+`pkg/obs/logging` (`docs/superpowers/specs/2026-11-10-structured-logging-design.md`;
+cluster-plex writes the same shape under `service.namespace: cluster-plex`). The
+logger travels in the `context` (`logging.FromContext`); nothing holds a package-level
+logger, and `slog.Default()` is only a drain for third-party `log` output, under the
+`stdlog` subsystem.
+
+### The record
+
+| Key | Value |
+|---|---|
+| `time` | RFC 3339 with nanoseconds, UTC |
+| `level` | `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL` (slog's numbers named: below DEBUG is TRACE, above ERROR is FATAL) |
+| `msg` | a short sentence without values in it |
+| `service.namespace` | `clustarr` |
+| `service.name` | the process: `manager`, `agent-<domain>`, `engine-<client>`, `ui`, `markers`, `transcode`; the same string its traces carry as `service.name` |
+| `service.version` | the build, `pkg/version.Version`; the same string the pod's `app.kubernetes.io/version` label carries |
+| `service.instance.id` | the pod name, else the hostname |
+| `subsystem` | the unit that wrote the line, dotted and lowercase: `remediation.transcode`, `livetv.tuner`, `index.indexer`, `events.nats`, `controller-runtime`, `client-go`, `ffmpeg`, `onnx`, `stdlog`. The full list is `pkg/obs/logging.Subsystems` (89 names); `TestEverySubsystemIsInTheTable` holds every call site to it. A name is the package's path below `app/` with `/` as `.`, dropping `controller`, `worker`, `agent` and `manager` segments (`app/indexer` is `index`). |
+| `err` | an error's text; the one error key (`TestNoErrorAttributeKey` refuses `error`) |
+| `trace_id`, `span_id` | the active span's, hex, added by `tracing.Start` |
+| `namespace`, `name`, `controller`, `reconcileID` | controller-runtime's reconcile attributes, as its bridge emits them |
+| `source` | `file:line`, only with `addSource` on |
+
+Third-party writers are mapped onto the same stream at their own level: controller-runtime
+(`logr`) and client-go (`klog`) under their names, nats.go's connection handlers under
+`events.nats` (a lost connection is WARN, an async error ERROR), anacrolix's logger under
+`grab.torrent.anacrolix`, FFmpeg's log callback under `ffmpeg` (FFmpeg's errors stay WARN,
+since a decoder's complaint is rarely a failure of the job; `fatal` and `panic` are FATAL; its
+verbose lines appear only when the `ffmpeg` subsystem is at DEBUG, through `logging.Watch`) and
+ONNX Runtime under `onnx` (through the `mediactl/onnxruntime-purego` fork's custom logger).
+
+### Levels and the knob
+
+A process has a floor and per-subsystem overrides, each override covering every subsystem below
+it by dotted prefix (`livetv: warn` covers `livetv.tuner`). Precedence, highest first: the
+config file, a `--log-*` flag that was set, `LOG_LEVEL`/`LOG_FORMAT` in the environment, then
+the defaults (`info`, `json`).
+
+The file is `/etc/clustarr/logging.yaml` (`--log-config`), the installers' ConfigMap
+(`<release>-logging` in the chart from `global.logging` and `logging`, `clustarr-logging`
+in kustomize), mounted read-only as a directory in every pod the installers render and,
+optionally, in every pod the manager builds (the download engines, the transcode pools and the
+graft Jobs; the manager's `--logging-configmap`). Every process polls it every 10 s, so an
+edit reaches a running pod without a restart; a file that does not parse is reported once and
+the last good levels stand. Its shape:
+
+```yaml
+logging:
+  level: info          # trace | debug | info | warn | error | fatal
+  format: json         # json | text (text is for a terminal, never a pod)
+  addSource: false
+  subsystems:
+    livetv: warn
+    livetv.tuner: trace
+```
+
+The flags are the same knobs for a local run: `--log-level`, `--log-format`,
+`--log-add-source`, `--log-subsystem-level name=level` (repeatable) and `--log-config`.
+
+### Reading the logs
+
+In VictoriaLogs (LogsQL; Loki's LogQL reads the same fields as labels or JSON):
+
+```
+subsystem:livetv.tuner level:ERROR            # one unit's errors
+service.version:"v0.6.13"                     # every line a build wrote
+trace_id:4bf92f3577b34da6a3ce929d0e0e4736     # every line of one trace, across processes
+```
+
+The pod labels a log collector attaches (`app.kubernetes.io/name: clustarr`,
+`app.kubernetes.io/component`, `app.kubernetes.io/version`) match the record's
+`service.*` fields, on the pods the manager builds as well as the chart's.
+
 ## Traces
 
 Every binary installs an OpenTelemetry `TracerProvider` at startup, exporting over OTLP when
 `--tracing-enabled` is set, with its own `service.name`: `manager`, `agent-<domain>`,
-`markers`, `transcode` or `ui` (OD5). Spans wrap every reconcile, every work handler, every
+`engine-<client>`, `markers`, `transcode` or `ui` (OD5), under `service.namespace`
+`clustarr` and the build's `service.version`, the same three its log records carry. Spans wrap every reconcile, every work handler, every
 outbound HTTP call to an indexer or a metadata provider, and every import. `tracing.Start`
 enriches the logger carried by the context with `trace_id` and `span_id`, so a trace ID from a
 dashboard is also a `grep` key against the structured logs.

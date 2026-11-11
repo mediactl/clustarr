@@ -502,6 +502,8 @@ template.
 | Key | Description | Default |
 | --- | --- | --- |
 | `nameOverride`, `fullnameOverride` | Override the chart/release-derived name. | `""` |
+| `global.logging.level`/`.format`/`.addSource`/`.subsystems` | The logging knob every pod reads from the `<release>-logging` ConfigMap, mounted at `/etc/clustarr` and polled every 10 s, so an edit reaches a running pod without a restart. `global` so the cluster-plex subchart reads it too. `level` is the floor (`trace`..`fatal`), `format` `json` or `text`, `addSource` adds `file:line`, `subsystems` is per-subsystem levels by dotted prefix (`{livetv: warn, "livetv.tuner": trace}`; the table is `pkg/obs/logging/subsystems.go`). See `docs/observability.md`'s Logging section. | `info`, `json`, `false`, `{}` |
+| `logging` | clustarr's own override of `global.logging`, key by key, its `subsystems` merged over the global's; the cluster-plex subchart does not see it. | `{}` |
 | `image.registry` | Registry prefix for both images. | `ghcr.io` |
 | `image.pullPolicy` | `Always` \| `IfNotPresent` \| `Never`. | `IfNotPresent` |
 | `image.clustarr.repository`/`.tag` | The static image: `manager` and `ui`. An empty tag falls back to `.Chart.AppVersion`. | `mediactl/clustarr`, `""` |
