@@ -18,8 +18,153 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package admission
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strconv"
+	"sync"
+	"time"
+
+	coordinationv1 "k8s.io/api/coordination/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 )
+
+// The Lease the admission controller publishes its intel work in, for
+// cluster-plex's CPU video route: one annotation, one holder (the leader),
+// renewed every IntelWorkRenew while the count is above zero and stale to
+// its reader after IntelWorkStale (cluster-plex reads it by the rule
+// clustarr reads cluster-plex's video-transcode Lease, videolease.go).
+const (
+	IntelWorkAnnotation = "clustarr.io/intel-work"
+	IntelWorkRenew      = 10 * time.Second
+	IntelWorkStale      = 30 * time.Second
+)
+
+// IntelWorkLease publishes a pass's intel work (PassResult.IntelWork) into
+// Key: Set writes when the count moves, Start renews it while it is above
+// zero. The Lease is the manager's own, in its own namespace, where the
+// leader-election Role grants the writes; a write that fails is logged and
+// kept for the next try, never returned to a pass.
+type IntelWorkLease struct {
+	Client   client.Client
+	Key      types.NamespacedName
+	Identity string           // the holder: this pod's name
+	Now      func() time.Time // nil: time.Now
+	Every    time.Duration    // the renewal period; 0: IntelWorkRenew
+	Log      *slog.Logger     // nil: discarded
+
+	mu    sync.Mutex
+	n     int
+	known bool
+}
+
+func (l *IntelWorkLease) now() time.Time {
+	if l.Now == nil {
+		return time.Now()
+	}
+	return l.Now()
+}
+
+func (l *IntelWorkLease) log() *slog.Logger {
+	if l.Log == nil {
+		return slog.New(slog.DiscardHandler)
+	}
+	return l.Log
+}
+
+// NeedLeaderElection makes the renewer leader-only: the leader's passes
+// are the ones that count.
+func (l *IntelWorkLease) NeedLeaderElection() bool { return true }
+
+// Set records n and publishes it when it differs from the last count set
+// (or on the first call); a failed publish is logged and the value kept.
+func (l *IntelWorkLease) Set(ctx context.Context, n int) {
+	l.mu.Lock()
+	changed := !l.known || n != l.n
+	l.n, l.known = n, true
+	l.mu.Unlock()
+	if !changed {
+		return
+	}
+	if err := l.Publish(ctx); err != nil {
+		l.log().WarnContext(ctx, "transcode admission: cannot publish the intel-work Lease", "lease", l.Key.String(), "count", n, "error", err)
+	}
+}
+
+// Publish writes the count, the holder and a fresh renew time into the
+// Lease, creating it when missing, retrying a conflict from a fresh read.
+func (l *IntelWorkLease) Publish(ctx context.Context) error {
+	l.mu.Lock()
+	n := l.n
+	l.mu.Unlock()
+	now := l.now()
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var lease coordinationv1.Lease
+		err := l.Client.Get(ctx, l.Key, &lease)
+		create := apierrors.IsNotFound(err)
+		if err != nil && !create {
+			return fmt.Errorf("get lease: %w", err)
+		}
+		if create {
+			lease = coordinationv1.Lease{ObjectMeta: metav1.ObjectMeta{Namespace: l.Key.Namespace, Name: l.Key.Name}}
+		}
+		if lease.Annotations == nil {
+			lease.Annotations = map[string]string{}
+		}
+		lease.Annotations[IntelWorkAnnotation] = strconv.Itoa(n)
+		rt, secs, holder := metav1.NewMicroTime(now), int32(IntelWorkStale/time.Second), l.Identity
+		lease.Spec.HolderIdentity, lease.Spec.RenewTime, lease.Spec.LeaseDurationSeconds = &holder, &rt, &secs
+		if create {
+			if err := l.Client.Create(ctx, &lease); err != nil {
+				if apierrors.IsAlreadyExists(err) {
+					return apierrors.NewConflict(coordinationv1.Resource("leases"), l.Key.Name, err)
+				}
+				return fmt.Errorf("create lease: %w", err)
+			}
+			return nil
+		}
+		if err := l.Client.Update(ctx, &lease); err != nil {
+			if apierrors.IsConflict(err) {
+				return err
+			}
+			return fmt.Errorf("update lease: %w", err)
+		}
+		return nil
+	})
+}
+
+// Start renews the Lease every Every while the count is above zero, until
+// ctx ends; a renewal that fails is logged and tried again next period.
+func (l *IntelWorkLease) Start(ctx context.Context) error {
+	every := l.Every
+	if every <= 0 {
+		every = IntelWorkRenew
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+			l.mu.Lock()
+			n := l.n
+			l.mu.Unlock()
+			if n <= 0 {
+				continue
+			}
+			if err := l.Publish(ctx); err != nil {
+				l.log().WarnContext(ctx, "transcode admission: cannot renew the intel-work Lease", "lease", l.Key.String(), "count", n, "error", err)
+			}
+		}
+	}
+}
 
 // intelWork is the intel class's work in hand and waiting after a pass:
 // its slots in use (running), the candidates assigned to it this pass

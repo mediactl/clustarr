@@ -18,9 +18,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package admission
 
 import (
+	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	coordinationv1 "k8s.io/api/coordination/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 )
@@ -69,4 +80,109 @@ func TestAPassReportsItsIntelWork(t *testing.T) {
 	res = held.Pass(intelIn(1))
 	assert.Equal(t, YieldingToPlex, held.Snapshot("g").WaitReason)
 	assert.Equal(t, 1, res.IntelWork, "a gpu file the yield holds is intel work waiting")
+}
+
+// The Lease that publishes the count: written when it moves, renewed
+// every Every while above zero, one holder, a failure logged not returned.
+
+func intelWorkLease(t *testing.T, c client.Client, identity string, now *time.Time) *IntelWorkLease {
+	t.Helper()
+	return &IntelWorkLease{
+		Client: c, Key: types.NamespacedName{Namespace: "clustarr-system", Name: "clustarr-intel-work"},
+		Identity: identity, Now: func() time.Time { return *now },
+	}
+}
+
+func readLease(t *testing.T, c client.Client, key types.NamespacedName) *coordinationv1.Lease {
+	t.Helper()
+	var l coordinationv1.Lease
+	require.NoError(t, c.Get(t.Context(), key, &l))
+	return &l
+}
+
+func TestTheIntelWorkLeaseIsWrittenWhenTheCountMoves(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+	now := time.Date(2026, 11, 10, 23, 0, 0, 0, time.UTC)
+	l := intelWorkLease(t, c, "clustarr-manager-1", &now)
+	l.Set(t.Context(), 3)
+	got := readLease(t, c, l.Key)
+	assert.Equal(t, "3", got.Annotations[IntelWorkAnnotation])
+	assert.Equal(t, "clustarr-manager-1", *got.Spec.HolderIdentity)
+	assert.EqualValues(t, 30, *got.Spec.LeaseDurationSeconds)
+	assert.True(t, got.Spec.RenewTime.Time.Equal(now), "renewed now")
+
+	now = now.Add(time.Second)
+	l.Set(t.Context(), 3)
+	assert.True(t, readLease(t, c, l.Key).Spec.RenewTime.Time.Equal(now.Add(-time.Second)), "an unchanged count writes nothing")
+
+	l.Set(t.Context(), 5)
+	got = readLease(t, c, l.Key)
+	assert.Equal(t, "5", got.Annotations[IntelWorkAnnotation])
+	assert.True(t, got.Spec.RenewTime.Time.Equal(now))
+}
+
+func TestZeroIsPublishedAtOnce(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+	now := time.Date(2026, 11, 10, 23, 0, 0, 0, time.UTC)
+	l := intelWorkLease(t, c, "clustarr-manager-1", &now)
+	l.Set(t.Context(), 3)
+	now = now.Add(2 * time.Second)
+	l.Set(t.Context(), 0)
+	got := readLease(t, c, l.Key)
+	assert.Equal(t, "0", got.Annotations[IntelWorkAnnotation])
+	assert.True(t, got.Spec.RenewTime.Time.Equal(now), "zero is written the moment it is known")
+}
+
+func TestANewHolderReplacesTheOld(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+	now := time.Date(2026, 11, 10, 23, 0, 0, 0, time.UTC)
+	intelWorkLease(t, c, "clustarr-manager-1", &now).Set(t.Context(), 3)
+	intelWorkLease(t, c, "clustarr-manager-2", &now).Set(t.Context(), 2)
+	got := readLease(t, c, types.NamespacedName{Namespace: "clustarr-system", Name: "clustarr-intel-work"})
+	assert.Equal(t, "2", got.Annotations[IntelWorkAnnotation], "the new leader's count, not a sum")
+	assert.Equal(t, "clustarr-manager-2", *got.Spec.HolderIdentity)
+}
+
+func TestAFailedPublishIsLoggedNotReturned(t *testing.T) {
+	fail := true
+	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithInterceptorFuncs(interceptor.Funcs{
+		Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if fail {
+				return errors.New("leases is forbidden")
+			}
+			return cl.Create(ctx, obj, opts...)
+		},
+	}).Build()
+	now := time.Date(2026, 11, 10, 23, 0, 0, 0, time.UTC)
+	l := intelWorkLease(t, c, "clustarr-manager-1", &now)
+	l.Set(t.Context(), 4) // refused: logged, kept
+	var missing coordinationv1.Lease
+	require.Error(t, c.Get(t.Context(), l.Key, &missing))
+	fail = false
+	require.NoError(t, l.Publish(t.Context()), "the kept value is published on the next try")
+	assert.Equal(t, "4", readLease(t, c, l.Key).Annotations[IntelWorkAnnotation])
+}
+
+func TestTheRenewerRenewsWhileWorkIsHeld(t *testing.T) {
+	var writes atomic.Int32
+	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithInterceptorFuncs(interceptor.Funcs{
+		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			writes.Add(1)
+			return cl.Update(ctx, obj, opts...)
+		},
+	}).Build()
+	now := time.Date(2026, 11, 10, 23, 0, 0, 0, time.UTC)
+	l := intelWorkLease(t, c, "clustarr-manager-1", &now)
+	l.Every = 20 * time.Millisecond
+	assert.True(t, l.NeedLeaderElection(), "only the leader publishes")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() { _ = l.Start(ctx) }()
+	l.Set(ctx, 1)
+	time.Sleep(90 * time.Millisecond)
+	assert.GreaterOrEqual(t, writes.Load(), int32(3), "renewed about every Every")
+	l.Set(ctx, 0)
+	n := writes.Load()
+	time.Sleep(60 * time.Millisecond)
+	assert.Equal(t, n, writes.Load(), "nothing renews at zero")
 }
