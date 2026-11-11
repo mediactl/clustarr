@@ -175,17 +175,14 @@ spec:
 
 ### What to watch
 
-The build Jobs run in the namespace cluster-plex's manager runs in, **`media` on talos (confirm
-with `kubectl --context admin@talos get jobs -A -l clusterplex.io/guide-dvr`)**, not necessarily
-`clustarr-system`. Confirm the manager Deployment's name with
-`kubectl --context admin@talos -n clustarr-system get deploy` (the chart names it
-`<release>-manager`, so `clustarr-manager`).
+The manager is `deploy/clustarr-manager` and the build Jobs run beside it, both in `clustarr-system`
+(cluster-plex's manager namespace on talos; the kind rig uses `media`).
 
 ```bash
 kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}: {.message}{"\n"}{end}'
 kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv -o jsonpath='{range .status.categories[*]}{.name}{"\t"}{.channels}{"\t"}{.deviceID}{"\t"}{.reason}{"\n"}{end}'
 kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv -o jsonpath='{range .status.blocks[*]}{.deviceID}{"\t"}{.path}{"\t"}{.owner}{"\n"}{end}'
-kubectl --context admin@talos -n media get jobs -l clusterplex.io/guide-dvr --chunk-size=0 --no-headers -o wide
+kubectl --context admin@talos -n clustarr-system get jobs -l clusterplex.io/guide-dvr --chunk-size=0 --no-headers -o wide
 kubectl --context admin@talos -n clustarr-system logs deploy/clustarr-manager --since=15m | grep -i 'lineup\|livetv\|guide'
 ```
 
@@ -195,7 +192,7 @@ kubectl --context admin@talos -n clustarr-system logs deploy/clustarr-manager --
 - cluster-plex's log (the Plex pod holding the lease): `DVRDeviceReplaced`/`DVRProvisioned`/
   `DVRChannelMapSaved` events per category, a PMS `provider.epg.load` activity per DVR, and the
   builder's completion. PMS's DVR list, read-only, through a port-forward to the PMS pod (cluster-plex's recipe in
-  `docs/guide-rig.md`: forward to the pod in `media`, authenticate with PMS's `.LocalAdminToken`):
+  `docs/guide-rig.md`: forward to the `plex` pod in `clustarr-system`, authenticate with PMS's `.LocalAdminToken`):
   `GET /livetv/dvrs` should show one DVR per category and none for the cloud lineup. A device PMS
   marks dead is discovered again by the converger within a minute (`DVRDeviceRevived`).
 - **Stop and roll back if** any of: `LineupPending` for longer than 10 minutes (read the message's
