@@ -1500,7 +1500,11 @@ root's `defaults.tags`; two confirmations of one folder inside the ui's
 cache-sync window can both pass (an uncached reader closes it); the walk's
 second audiobook folder keeps the first's `Folder` (the applier tolerates
 it). Q8 and Q9 stand. The fileimport album test's two-medium fixture places
-each disc under `Disc NN` since 587465aa.
+each disc under `Disc NN` since 587465aa. **Live on talos as Helm rev 251
+since 2026-11-11 05:34Z** (chart 0.6.14 from 587465aa, images sha-587465a,
+the rootfolders, libraryscans and importexclusions CRDs by hand first;
+clustarr-df): every pod rolled clean, no manager error, no scan run yet;
+the music root keeps `defaults.monitored: true` pending the owner's Q9.
 
 ## 12. Tests and guards
 

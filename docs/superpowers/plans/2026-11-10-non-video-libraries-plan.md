@@ -1055,3 +1055,5 @@ record.
   spec paragraph's "Still open after wave G" list. Deploy: CRDs rootfolders,
   libraryscans and importexclusions by hand first; no chart value; nothing
   scans or moves until a scan is asked for and `organizeFolders` is set.
+  **Live on talos as Helm rev 251 since 2026-11-11 05:34Z** (chart 0.6.14,
+  images sha-587465a, the three CRDs by hand first; no scan run yet).
