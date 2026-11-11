@@ -677,7 +677,7 @@ func windowed(progs []plexgrid.Programme, from, to time.Time) []xmltv.Programme 
 		if !pr.Stop.After(from) || !pr.Start.Before(to) {
 			continue
 		}
-		out = append(out, xmltv.Programme{Start: pr.Start, Stop: pr.Stop, Inner: pr.Listing.Inner()})
+		out = append(out, xmltv.Programme{Start: pr.Start, Stop: pr.Stop, Inner: pr.Inner()})
 	}
 	return out
 }
