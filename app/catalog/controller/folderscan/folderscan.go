@@ -28,12 +28,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // machine kept in the item's FolderScanned condition:
 //
 //   - absent: nothing owed. The pass that first lists the item's children,
-//     when the status recorded none before, sets it False (Settling). An item
-//     that already had its children -- every item when this shipped -- never
-//     owes a scan.
-//   - False, Settling: the children were just created, and the import agent
-//     reads them from its own cache, fed by its own watch. The scan is asked
-//     for [SettleAfter] later, so it reads them.
+//     when the status recorded none before, sets it Unknown or False
+//     (Settling). An item that already had its children -- every item when
+//     this shipped -- never owes a scan.
+//   - Unknown, Settling: the children are listed, but some do not yet carry
+//     what the scan attributes the item's files by (design D18,
+//     [Request.ChildrenSettled]): an Album its track list ([AlbumListed]), a
+//     Book its metadata ([BookListed]); the message names how many. A scan
+//     now would count their files as awaiting, and this one is the item's
+//     only scan, so it waits: on talos 390 scanned artists' albums are
+//     thousands of MusicBrainz lookups at one a second, hours after the
+//     artists exist. No timer runs; each child's arrival wakes the item
+//     (the container's watch on its children). A Series' episodes come whole
+//     from its fan-out, so a Series never waits here.
+//   - False, Settling: the children are in, and the import agent reads them
+//     from its own cache, fed by its own watch. The scan is asked for
+//     [SettleAfter] after the condition turned False, the pass that found the
+//     last child in, so it reads them all. A child that falls back to
+//     waiting (an artist's new album) returns the condition to Unknown.
 //   - False, Pending: the folder is not known yet (the metadata write that
 //     makes it known wakes the item), could not be read, or the LibraryScan
 //     could not be created (both retried after [RetryAfter]).
@@ -67,6 +79,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/datapath"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -83,9 +96,10 @@ const (
 	ReasonNothingOnDisk = "NothingOnDisk"
 )
 
-// SettleAfter is how long after an item first lists its children its folder
-// scan is asked for: long enough for the import agent's cache to hold the
-// children the pass just created.
+// SettleAfter is how long after an item's children are in -- first listed,
+// or for an Artist or an Author the last of them listed (D18) -- its folder
+// scan is asked for: long enough for the import agent's cache to hold what
+// the pass just saw.
 const SettleAfter = 30 * time.Second
 
 // RetryAfter is how long a Pending scan waits before it is tried again.
@@ -155,6 +169,18 @@ type Request struct {
 	HadChildren, HasChildren bool
 	// Children names them, for the condition's message ("episodes").
 	Children string
+	// ChildrenSettled is whether every child the pass lists carries what a
+	// scan attributes the item's files by (design D18): true for a Series,
+	// whose episodes come whole from its fan-out; for an Artist, no Album of
+	// its fan-out pending ([AlbumsPending]); for an Author, no Book
+	// ([BooksPending]). The zero value waits, so a container that does not
+	// say never scans early. Until it is true the scan stays Settling.
+	ChildrenSettled bool
+	// Pending is how many of the Count children are not settled yet, and
+	// Awaits what they wait for ("track lists"), for the condition's message
+	// while it waits ("waiting for the track lists of 7 of its 23 albums").
+	Pending, Count int
+	Awaits         string
 	// FieldManager creates the LibraryScan.
 	FieldManager k8s.FieldManager
 	// Now is the pass's clock.
@@ -178,22 +204,43 @@ func ScanName(item client.Object) string {
 
 // Pass is one reconcile's step of the folder scan (see the package doc),
 // recorded in conditions under catalogv1alpha1.SeriesConditionFolderScanned.
-// A nil folders does nothing.
+// While req.ChildrenSettled is false a Settling scan waits, asking for no
+// timer; the pass that finds it true starts the settle. A nil folders does
+// nothing.
 func Pass(ctx context.Context, c client.Client, folders Folders, req Request, conditions *[]metav1.Condition) Outcome {
 	if folders == nil {
 		return Outcome{}
 	}
 	const condType = catalogv1alpha1.SeriesConditionFolderScanned
 	cond := k8s.FindCondition(*conditions, condType)
+	// waiting holds the scan for the children's lists (D18): Unknown, so the
+	// pass that finds the last of them in turns it False and the settle
+	// counts from then (a status change stamps lastTransitionTime). No
+	// timer: each child's arrival wakes the item.
+	waiting := func() Outcome {
+		k8s.MarkUnknown(req.Item, conditions, condType, ReasonSettling,
+			"waiting for the %s of %d of its %d %s; its folder is scanned for their files once they are in",
+			req.Awaits, req.Pending, req.Count, req.Children)
+		return Outcome{}
+	}
 	switch {
 	case cond == nil && (req.HadChildren || !req.HasChildren):
 		return Outcome{}
+	case cond == nil && !req.ChildrenSettled:
+		return waiting()
 	case cond == nil:
 		k8s.MarkFalse(req.Item, conditions, condType, ReasonSettling,
 			"its first %s are listed; its folder is scanned for their files once they settle", req.Children)
 		return Outcome{Retry: SettleAfter}
 	case cond.Status == metav1.ConditionTrue:
 		return Outcome{}
+	case cond.Reason == ReasonSettling && !req.ChildrenSettled:
+		return waiting()
+	case cond.Reason == ReasonSettling && cond.Status != metav1.ConditionFalse:
+		k8s.MarkFalse(req.Item, conditions, condType, ReasonSettling,
+			"the %s of all %d of its %s are in; its folder is scanned for their files once they settle",
+			req.Awaits, req.Count, req.Children)
+		return Outcome{Retry: SettleAfter}
 	case cond.Reason == ReasonSettling:
 		if wait := cond.LastTransitionTime.Add(SettleAfter).Sub(req.Now); wait > 0 {
 			return Outcome{Retry: wait}
@@ -253,4 +300,87 @@ func subpath(root, path string) (string, bool) {
 		return "", false
 	}
 	return rel, true
+}
+
+// albumConditionTracksSynced is the Album reconciler's own condition on its
+// track-listing RPC (album.conditionTracksSynced, unexported there; this
+// package cannot import album, which imports artist, which imports this):
+// True once a listing was taken (or the release group lists no releases),
+// False with the request's class (events.RequestErrorClass.Reason) when the
+// ask failed, or with the selection's verdict (NoAcceptedRelease,
+// PinnedReleaseMissing) when the listing holds nothing the artist takes.
+// The artist package's envtest runs the real Album reconciler and reads its
+// listing through AlbumListed, which holds this name to it.
+const albumConditionTracksSynced = "TracksSynced"
+
+// AlbumListed reports whether an Album's track list is in (design D18): it
+// lists tracks, or its track-listing RPC was answered with none -- the
+// release group lists no releases, no release is one the artist's metadata
+// profile takes, a pinned release is missing, or the gateway answered with
+// an error of its own (a release group MusicBrainz no longer has). An Album
+// whose first pass has not landed, or whose ask failed for a reason a retry
+// cures (no agent, a busy one, a timeout: the request classes the Album
+// retries on its own backoff), is still to come.
+//
+// D18 reads "status.tracks or a MetadataReady False condition"; on the
+// Album, MetadataReady is False ("Refreshing") on every pass before its
+// document lands, the first included, whether the listing landed or not, and
+// True once the document is in whatever the listing holds, so that reading
+// would take an Album whose ask timed out as settled (the 1/s MusicBrainz
+// queue on talos times out most first asks) and wait for good on one whose
+// listing holds no accepted release. The listing's own condition says what
+// the design meant: whether the Album will list tracks without another ask.
+func AlbumListed(alb *catalogv1alpha1.Album) bool {
+	if len(alb.Status.Tracks) > 0 {
+		return true
+	}
+	cond := k8s.FindCondition(alb.Status.Conditions, albumConditionTracksSynced)
+	switch {
+	case cond == nil:
+		return false
+	case cond.Status == metav1.ConditionTrue:
+		return true
+	}
+	return !retriedRequest(cond.Reason)
+}
+
+// retriedRequest reports whether reason names a request class an
+// idempotent caller asks again (events.RequestErrorClass.Retryable).
+func retriedRequest(reason string) bool {
+	for _, c := range []events.RequestErrorClass{events.RequestNoResponders, events.RequestBusy, events.RequestTimeout} {
+		if c.Retryable() && c.Reason() == reason {
+			return true
+		}
+	}
+	return false
+}
+
+// AlbumsPending is how many of albums are not yet listed (AlbumListed): the
+// Artist's [Request.Pending], over the Albums its fan-out holds.
+func AlbumsPending(albums []catalogv1alpha1.Album) int {
+	n := 0
+	for i := range albums {
+		if !AlbumListed(&albums[i]) {
+			n++
+		}
+	}
+	return n
+}
+
+// BookListed reports whether a Book's metadata is in (design D18): a scan
+// attributes a book file by the Book's title, which its document brings.
+func BookListed(bk *catalogv1alpha1.Book) bool {
+	return bk.Status.Metadata != nil
+}
+
+// BooksPending is how many of books have no metadata yet (BookListed): the
+// Author's [Request.Pending], over the Books its fan-out holds.
+func BooksPending(books []catalogv1alpha1.Book) int {
+	n := 0
+	for i := range books {
+		if !BookListed(&books[i]) {
+			n++
+		}
+	}
+	return n
 }

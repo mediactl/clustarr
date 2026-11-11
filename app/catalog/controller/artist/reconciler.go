@@ -195,13 +195,16 @@ func (r *Reconciler) mapRootFolder(ctx context.Context, o client.Object) []recon
 
 // albumRollupKey is what of an Album the Artist's rollup reads: its
 // monitor flag and phase, its file, and its release date (the container's
-// next and previous release dates).
+// next and previous release dates); and whether its track list is in
+// (folderscan.AlbumListed), which the folder scan a new artist owes waits
+// for (design D18) -- an unmonitored Album's tracks move no other leaf.
 type albumRollupKey struct {
 	monitored      bool
 	phase          commonv1.LeafPhase
 	hasFile        bool
 	trackFileCount int32
 	releaseDate    int64
+	listed         bool
 }
 
 func albumRollupKeyOf(o client.Object) albumRollupKey {
@@ -212,6 +215,7 @@ func albumRollupKeyOf(o client.Object) albumRollupKey {
 	k := albumRollupKey{
 		monitored: ptr.Deref(alb.Spec.Monitored, true), phase: alb.Status.Phase,
 		hasFile: alb.Status.HasFile, trackFileCount: alb.Status.TrackFileCount,
+		listed: folderscan.AlbumListed(alb),
 	}
 	if alb.Status.Metadata != nil && alb.Status.Metadata.ReleaseDate != nil {
 		k.releaseDate = alb.Status.Metadata.ReleaseDate.Unix()
@@ -220,8 +224,9 @@ func albumRollupKeyOf(o client.Object) albumRollupKey {
 }
 
 // albumRollupChanged wakes the Artist when an owned Album's rollup inputs
-// change, on its creation and its deletion, and not on the Album's other
-// status writes (its tracks, its downloads), which would loop it.
+// change or its track list first comes in, on its creation and its
+// deletion, and not on the Album's other status writes (a track list's
+// later edits, its downloads), which would loop it.
 func albumRollupChanged() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
@@ -498,10 +503,15 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Art
 	// before its albums were listed waited for the next scan. The pass that
 	// first lists them owes the artist's folder one scan, recorded in the
 	// FolderScanned condition; an artist whose status already held its
-	// albums owes none.
+	// albums owes none. A track file attributes to an Album's track list,
+	// so the scan waits until every Album the fan-out holds (the cache's)
+	// has listed its tracks (design D18): each Album's listing wakes the
+	// artist (albumRollupKey's listed).
+	pendingAlbums := folderscan.AlbumsPending(fan.albums)
 	folderScan := folderscan.Pass(ctx, r.Client, r.Folders, folderscan.Request{
 		Item: a, Root: root, Path: folder,
 		HadChildren: a.Status.AlbumCount > 0, HasChildren: len(fan.albums) > 0, Children: "albums",
+		ChildrenSettled: pendingAlbums == 0, Pending: pendingAlbums, Count: len(fan.albums), Awaits: "track lists",
 		FieldManager: k8s.ManagerCatalog, Now: now,
 	}, &conditions)
 	if folderScan.Scan != "" {

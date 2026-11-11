@@ -127,8 +127,10 @@ func TestPassScansTheFolderOnceItsFirstChildrenSettle(t *testing.T) {
 	folders := &fakeFolders{holds: map[string]bool{folder: true}}
 	s := series()
 	now := time.Now()
-	req := folderscan.Request{Item: s, Root: root, Path: folder, HasChildren: true, Children: "episodes",
-		FieldManager: k8s.ManagerCatalog, Now: now}
+	req := folderscan.Request{
+		Item: s, Root: root, Path: folder, HasChildren: true, Children: "episodes", ChildrenSettled: true,
+		FieldManager: k8s.ManagerCatalog, Now: now,
+	}
 
 	// The pass that creates the first episodes: owed, settling.
 	conds := append([]metav1.Condition(nil), s.Status.Conditions...)
@@ -180,8 +182,9 @@ func TestPassOwesNothingWithoutAFirstListing(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
 	folders := &fakeFolders{holds: map[string]bool{folder: true}}
 	for name, req := range map[string]folderscan.Request{
-		"children recorded before": {HadChildren: true, HasChildren: true},
+		"children recorded before": {HadChildren: true, HasChildren: true, ChildrenSettled: true},
 		"no children yet":          {},
+		"none settled, none owed":  {HadChildren: true, HasChildren: true, Pending: 3, Count: 3},
 	} {
 		req.Item, req.Root, req.Path, req.Now = series(), root, folder, time.Now()
 		var conds []metav1.Condition
@@ -204,8 +207,10 @@ var interceptCreate = interceptor.Funcs{
 
 // settled is a FolderScanned condition whose settle is long over.
 func settled() metav1.Condition {
-	return metav1.Condition{Type: catalogv1alpha1.SeriesConditionFolderScanned, Status: metav1.ConditionFalse,
-		Reason: folderscan.ReasonSettling, LastTransitionTime: metav1.NewTime(time.Now().Add(-time.Hour))}
+	return metav1.Condition{
+		Type: catalogv1alpha1.SeriesConditionFolderScanned, Status: metav1.ConditionFalse,
+		Reason: folderscan.ReasonSettling, LastTransitionTime: metav1.NewTime(time.Now().Add(-time.Hour)),
+	}
 }
 
 // A folder that is missing or empty is settled without a scan: there is
@@ -215,7 +220,7 @@ func TestPassScansNothingWhenTheFolderHoldsNothing(t *testing.T) {
 	folders := &fakeFolders{holds: map[string]bool{}}
 	conds := []metav1.Condition{settled()}
 	out := folderscan.Pass(context.Background(), c, folders, folderscan.Request{
-		Item: series(), Root: root, Path: folder, HadChildren: true, HasChildren: true, Now: time.Now(),
+		Item: series(), Root: root, Path: folder, HadChildren: true, HasChildren: true, ChildrenSettled: true, Now: time.Now(),
 	}, &conds)
 	assert.Equal(t, folderscan.Outcome{}, out)
 	assert.Empty(t, scans(t, c))
@@ -239,10 +244,14 @@ func TestPassRetriesWhatItCannotSettle(t *testing.T) {
 	}{
 		"no path yet": {root: root, folders: &fakeFolders{}},
 		"no root yet": {path: folder, folders: &fakeFolders{}},
-		"the read failed": {root: root, path: folder, retry: folderscan.RetryAfter,
-			folders: &fakeFolders{err: errors.New("remediation: /data I/O call timed out")}},
-		"the create failed": {root: root, path: folder, retry: folderscan.RetryAfter,
-			folders: &fakeFolders{holds: map[string]bool{folder: true}}},
+		"the read failed": {
+			root: root, path: folder, retry: folderscan.RetryAfter,
+			folders: &fakeFolders{err: errors.New("remediation: /data I/O call timed out")},
+		},
+		"the create failed": {
+			root: root, path: folder, retry: folderscan.RetryAfter,
+			folders: &fakeFolders{holds: map[string]bool{folder: true}},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			conds := []metav1.Condition{settled()}
@@ -252,7 +261,7 @@ func TestPassRetriesWhatItCannotSettle(t *testing.T) {
 				cl = fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithInterceptorFuncs(interceptCreate).Build()
 			}
 			out := folderscan.Pass(ctx, cl, tc.folders, folderscan.Request{
-				Item: series(), Root: tc.root, Path: tc.path, HadChildren: true, HasChildren: true, Now: time.Now(),
+				Item: series(), Root: tc.root, Path: tc.path, HadChildren: true, HasChildren: true, ChildrenSettled: true, Now: time.Now(),
 			}, &conds)
 			assert.Equal(t, tc.retry, out.Retry)
 			assert.Empty(t, out.Scan)
@@ -265,7 +274,7 @@ func TestPassRetriesWhatItCannotSettle(t *testing.T) {
 	conds := []metav1.Condition{settled()}
 	folders := &fakeFolders{holds: map[string]bool{"/data/media/other/Show": true}}
 	out := folderscan.Pass(ctx, c, folders, folderscan.Request{
-		Item: series(), Root: root, Path: "/data/media/other/Show", HadChildren: true, HasChildren: true, Now: time.Now(),
+		Item: series(), Root: root, Path: "/data/media/other/Show", HadChildren: true, HasChildren: true, ChildrenSettled: true, Now: time.Now(),
 	}, &conds)
 	assert.Equal(t, folderscan.Outcome{}, out, "a folder outside the root folder is never retried")
 	assert.Equal(t, metav1.ConditionTrue, k8s.FindCondition(conds, catalogv1alpha1.SeriesConditionFolderScanned).Status)
@@ -276,12 +285,14 @@ func TestPassRetriesWhatItCannotSettle(t *testing.T) {
 // created and records it, rather than creating a second.
 func TestPassFindsTheScanItAlreadyCreated(t *testing.T) {
 	s := series()
-	existing := &catalogv1alpha1.LibraryScan{ObjectMeta: metav1.ObjectMeta{Namespace: "tv", Name: folderscan.ScanName(s)},
-		Spec: catalogv1alpha1.LibraryScanSpec{RootFolderRef: "tv"}}
+	existing := &catalogv1alpha1.LibraryScan{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "tv", Name: folderscan.ScanName(s)},
+		Spec:       catalogv1alpha1.LibraryScanSpec{RootFolderRef: "tv"},
+	}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(existing).Build()
 	conds := []metav1.Condition{settled()}
 	out := folderscan.Pass(context.Background(), c, &fakeFolders{holds: map[string]bool{folder: true}}, folderscan.Request{
-		Item: s, Root: root, Path: folder, HadChildren: true, HasChildren: true, Now: time.Now(),
+		Item: s, Root: root, Path: folder, HadChildren: true, HasChildren: true, ChildrenSettled: true, Now: time.Now(),
 	}, &conds)
 	assert.Equal(t, folderscan.ScanName(s), out.Scan)
 	assert.Len(t, scans(t, c), 1)

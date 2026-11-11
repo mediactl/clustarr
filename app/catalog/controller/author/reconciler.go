@@ -214,12 +214,15 @@ func (r *Reconciler) mapRootFolder(ctx context.Context, o client.Object) []recon
 
 // bookRollupKey is what of a Book the Author's rollup reads: its monitor
 // flag and phase, its file, and its release date (the container's next and
-// previous release dates).
+// previous release dates); and whether its metadata is in
+// (folderscan.BookListed), which the folder scan a new author owes waits
+// for (design D18) -- an unmonitored Book's document moves no other leaf.
 type bookRollupKey struct {
 	monitored   bool
 	phase       commonv1.LeafPhase
 	hasFile     bool
 	releaseDate int64
+	listed      bool
 }
 
 func bookRollupKeyOf(o client.Object) bookRollupKey {
@@ -227,7 +230,10 @@ func bookRollupKeyOf(o client.Object) bookRollupKey {
 	if !ok {
 		return bookRollupKey{}
 	}
-	k := bookRollupKey{monitored: ptr.Deref(bk.Spec.Monitored, true), phase: bk.Status.Phase, hasFile: bk.Status.HasFile}
+	k := bookRollupKey{
+		monitored: ptr.Deref(bk.Spec.Monitored, true), phase: bk.Status.Phase, hasFile: bk.Status.HasFile,
+		listed: folderscan.BookListed(bk),
+	}
 	if bk.Status.Metadata != nil && bk.Status.Metadata.ReleaseDate != nil {
 		k.releaseDate = bk.Status.Metadata.ReleaseDate.Unix()
 	}
@@ -526,10 +532,15 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Aut
 	// before its works were listed waited for the next scan. The pass that
 	// first lists them owes the author's folder one scan, recorded in the
 	// FolderScanned condition; an author whose status already held its
-	// books owes none.
+	// books owes none. A book file attributes to a Book by its title, so
+	// the scan waits until every Book the fan-out holds (the cache's) has
+	// its metadata (design D18): each Book's document wakes the author
+	// (bookRollupKey's listed).
+	pendingBooks := folderscan.BooksPending(fan.books)
 	folderScan := folderscan.Pass(ctx, r.Client, r.Folders, folderscan.Request{
 		Item: a, Root: root, Path: folder,
 		HadChildren: a.Status.BookCount > 0, HasChildren: len(fan.books) > 0, Children: "books",
+		ChildrenSettled: pendingBooks == 0, Pending: pendingBooks, Count: len(fan.books), Awaits: "metadata",
 		FieldManager: k8s.ManagerCatalog, Now: now,
 	}, &conditions)
 	if folderScan.Scan != "" {

@@ -562,10 +562,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	// episodes were listed waited for the next scan. The pass that first
 	// lists them owes the series' folder one scan, recorded in the
 	// FolderScanned condition; a series whose status already held its
-	// episodes owes none.
+	// episodes owes none. Its episodes come whole from the fan-out, numbers
+	// and all, so they are settled once listed (design D18).
 	folderScan := folderscan.Pass(ctx, r.Client, r.Folders, folderscan.Request{
 		Item: s, Root: root, Path: folder,
-		HadChildren: len(s.Status.Seasons) > 0, HasChildren: len(episodes) > 0, Children: "episodes",
+		HadChildren: len(s.Status.Seasons) > 0, HasChildren: len(episodes) > 0, Children: "episodes", ChildrenSettled: true,
 		FieldManager: k8s.ManagerCatalog, Now: now,
 	}, &conditions)
 	if folderScan.Scan != "" {
