@@ -49,9 +49,12 @@ func DeletableKinds() []commonv1.MediaKind {
 // MusicBrainz artist id, ExclusionIDKeyMusicBrainz) and an Author's
 // (ExclusionKindAuthor, keyed by its Open Library author id,
 // ExclusionIDKeyOpenLibrary) answer true since the root scan creates both
-// from their folders (the 2026-11-10 design's D16, wave G): the scan
-// applier refuses a create the exclusion names, the import-list sync reads
-// the same two id keys, and nothing else re-creates a container. An Album
+// from their folders (the 2026-11-10 design's D16, wave G), and the box
+// holds only with both halves of that wave's W7.3 in: import's
+// librarydelete writes the exclusion (its kindSpec's exclusion, in place of
+// noExclusion) and the scan applier refuses a create it names; the
+// import-list sync reads the same two id keys, kind-blind, and nothing else
+// re-creates a container. An Album
 // has an exclusion kind (ExclusionKindAlbum, keyed by its MusicBrainz
 // release-group id, ExclusionIDKeyMusicBrainz, which the sync reads too and
 // which import's librarydelete writes when the delete-add-exclusion

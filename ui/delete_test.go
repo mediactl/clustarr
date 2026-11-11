@@ -39,6 +39,10 @@ func deleteServer(t *testing.T, item projection.LibraryItem) *ui.Server {
 	})
 }
 
+// Every container's page offers Delete, and the exclusion box wherever
+// catalogv1.ExclusionKindFor names a kind: an Artist and an Author too since
+// the root scan creates both from their folders (the 2026-11-10 non-video
+// design's D16). The Album, whose box is withheld, is album_test.go's.
 func TestEveryItemPageOffersDelete(t *testing.T) {
 	for _, tc := range []struct {
 		kind    commonv1.MediaKind
@@ -47,8 +51,8 @@ func TestEveryItemPageOffersDelete(t *testing.T) {
 	}{
 		{commonv1.MediaKindMovie, projection.TabMovies, true},
 		{commonv1.MediaKindSeries, projection.TabTV, true},
-		{commonv1.MediaKindArtist, projection.TabMusic, false},
-		{commonv1.MediaKindAuthor, projection.TabBooks, false},
+		{commonv1.MediaKindArtist, projection.TabMusic, true},
+		{commonv1.MediaKindAuthor, projection.TabBooks, true},
 	} {
 		item := projection.LibraryItem{Ref: types.NamespacedName{Namespace: "default", Name: "x"}, Kind: tc.kind, Tab: tc.tab, Title: "X", Monitored: true}
 		body := detailPage(t, deleteServer(t, item), "/library/default/"+string(tc.kind)+"/x")
