@@ -153,14 +153,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	byKey := channelsByKey(p.Name, channels)
+	byKey := index.ChannelsByKey(p.Name, channels)
 	plan, overBytes := refuseOverBytes(planner.Plan(toEntries(entries), overrides(byKey, entries, planner.Trim)))
 	planChanged, err := r.storePlan(ctx, key, livetvstore.LineupPlan{PlannedAt: now, DryRun: !enabled, Plan: plan})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	cs := changes(p.Name, plan, byKey, enabled, now)
+	cs := changes(p.Name, plan, channels, byKey, enabled, now)
 	var n counts
 	var errs []error
 	for i := range cs {

@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/names"
 )
 
 // ChannelByProvider is the field index an IPTVChannel is found under by its
@@ -59,6 +60,34 @@ func ChannelsOf(ctx context.Context, c client.Reader, namespace, provider string
 	}
 	slices.SortFunc(list.Items, func(a, b clustarrv1.IPTVChannel) int { return strings.Compare(a.Name, b.Name) })
 	return list.Items, nil
+}
+
+// ChannelsByKey indexes a provider's channels by spec.key, one channel a
+// key. Two channels of one key (one made by hand under another name, or a
+// timeshift copy) are one too many: the one named by names.ChannelObjectName
+// -- the lineup's and the ui's name for the key -- stands, else the first by
+// name, whatever order channels come in. The lineup controller applies its
+// plan to the chosen channel and deactivates the others; the provider
+// controller checks the plan against the same choice, so the two never
+// disagree on which channel carries a key. The pointers are into channels.
+func ChannelsByKey(provider string, channels []clustarrv1.IPTVChannel) map[string]*clustarrv1.IPTVChannel {
+	canonical := func(ch *clustarrv1.IPTVChannel) bool {
+		return ch.Name == names.ChannelObjectName(provider, ch.Spec.Key)
+	}
+	out := make(map[string]*clustarrv1.IPTVChannel, len(channels))
+	for i := range channels {
+		ch := &channels[i]
+		prev, ok := out[ch.Spec.Key]
+		switch {
+		case !ok:
+		case canonical(prev):
+			continue
+		case !canonical(ch) && prev.Name <= ch.Name:
+			continue
+		}
+		out[ch.Spec.Key] = ch
+	}
+	return out
 }
 
 var (

@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
+	"github.com/mediactl/clustarr/app/livetv/index"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/iptv/blocks"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
@@ -144,19 +145,19 @@ func categoryBlocks(lp *livetvstore.LineupPlan, channels []clustarrv1.IPTVChanne
 	return next, categories
 }
 
-// unapplied counts the channels that do not carry lp yet: a planned channel
-// missing, inactive, or off its planned number or category, and an active
-// channel still in a category the plan blocks (not refused as TooMany) that
-// the plan no longer places there.
-func unapplied(lp *livetvstore.LineupPlan, channels []clustarrv1.IPTVChannel) int {
+// unapplied counts the channels of provider that do not carry lp yet: a
+// planned channel missing, inactive, or off its planned number or category;
+// an active channel still in a category the plan blocks (not refused as
+// TooMany) that the plan no longer places there; and an active second
+// channel of a key, which the lineup controller deactivates. A key's channel
+// is the one index.ChannelsByKey chooses, as the lineup controller applies
+// the plan to it, so the two never wait on different channels.
+func unapplied(provider string, lp *livetvstore.LineupPlan, channels []clustarrv1.IPTVChannel) int {
 	blocked := map[string]bool{}
 	for _, c := range lp.Categories {
 		blocked[c.Name] = !c.TooMany
 	}
-	byKey := make(map[string]*clustarrv1.IPTVChannel, len(channels))
-	for i := range channels {
-		byKey[channels[i].Spec.Key] = &channels[i]
-	}
+	byKey := index.ChannelsByKey(provider, channels)
 	n := 0
 	planned := make(map[string]bool, len(lp.Channels))
 	for _, a := range lp.Channels {
@@ -168,7 +169,11 @@ func unapplied(lp *livetvstore.LineupPlan, channels []clustarrv1.IPTVChannel) in
 	}
 	for i := range channels {
 		ch := &channels[i]
-		if ch.Spec.Active && blocked[categoryOf(ch)] && !planned[ch.Spec.Key] {
+		switch {
+		case !ch.Spec.Active:
+		case byKey[ch.Spec.Key] != ch:
+			n++
+		case blocked[categoryOf(ch)] && !planned[ch.Spec.Key]:
 			n++
 		}
 	}
@@ -316,7 +321,7 @@ func (r *Reconciler) packBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 			// would hold old or half-rewritten numbers (one number in two
 			// categories' blocks), and every such render would move a block's
 			// lineupHash, a channel-map save and a guide rebuild in Plex.
-			if n := unapplied(lp, channels); n > 0 {
+			if n := unapplied(p.Name, lp, channels); n > 0 {
 				return keep(clustarrv1.ReasonLineupPending, fmt.Sprintf("waiting for the lineup controller to apply its plan: %d channels do not carry their planned number and category yet", n)), nil
 			}
 			next, catOf = categoryBlocks(lp, channels)

@@ -65,24 +65,6 @@ func madeByLineup(ch *clustarrv1.IPTVChannel) bool {
 	return ch.Labels[clustarrv1.LabelOrigin] == clustarrv1.OriginLineup
 }
 
-// channelsByKey indexes a provider's channels by spec.key. Two channels of
-// one key (one made by hand under another name) are one too many: the one
-// named by names.ChannelObjectName stands, else the first in channels (which
-// index.ChannelsOf orders by name), and the other is left as it is.
-func channelsByKey(provider string, channels []clustarrv1.IPTVChannel) map[string]*clustarrv1.IPTVChannel {
-	canonical := func(ch *clustarrv1.IPTVChannel) bool {
-		return ch.Name == names.ChannelObjectName(provider, ch.Spec.Key)
-	}
-	out := make(map[string]*clustarrv1.IPTVChannel, len(channels))
-	for i := range channels {
-		ch := &channels[i]
-		if prev, ok := out[ch.Spec.Key]; !ok || (!canonical(prev) && canonical(ch)) {
-			out[ch.Spec.Key] = ch
-		}
-	}
-	return out
-}
-
 // overrides are a person's spec.category and spec.name on the existing
 // channels, by key. A spec.name that is the entry's raw or trimmed name is
 // no override: the ui's add posts the playlist's raw name as spec.name on
@@ -119,11 +101,13 @@ func toEntries(in []m3u.Entry) []lineup.Entry {
 }
 
 // changes turns plan into one change per channel: every assignment (a
-// channel created while enabled), every drop whose channel exists, and,
-// while enabled, every channel of the provider whose key is in no entry at
-// all. A key both assigned and dropped (two playlist entries of one name
-// key) is assigned.
-func changes(provider string, plan lineup.Plan, byKey map[string]*clustarrv1.IPTVChannel, enabled bool, now time.Time) []change {
+// channel created while enabled), every drop whose channel exists, every
+// second channel of a key, and, while enabled, every channel of the
+// provider whose key is in no entry at all. A key both assigned and dropped
+// (two playlist entries of one name key) is assigned. byKey is
+// index.ChannelsByKey over channels: the plan goes to the channel it
+// chooses for a key, and every other channel of that key is a duplicate.
+func changes(provider string, plan lineup.Plan, channels []clustarrv1.IPTVChannel, byKey map[string]*clustarrv1.IPTVChannel, enabled bool, now time.Time) []change {
 	var out []change
 	seen := make(map[string]bool, len(plan.Channels)+len(plan.Dropped))
 	for _, a := range plan.Channels {
@@ -164,6 +148,27 @@ func changes(provider string, plan lineup.Plan, byKey map[string]*clustarrv1.IPT
 			// A drop has no rule; its reason is the plan object's.
 			status: clustarrv1.ChannelLineupStatus{Name: d.Name, DuplicateOf: d.DuplicateOf},
 		}
+		if enabled {
+			c.spec, c.number, c.label = true, ch.Spec.Number, madeByLineup(ch)
+		}
+		out = append(out, c)
+	}
+	// A second channel of a key (one made by hand under another name, or a
+	// timeshift copy): off every DVR, its duplicateOf the channel that
+	// carries the key, its number kept. It is never deleted: the lineup makes
+	// only the key's canonical channel. While the lineup is enabled the
+	// provider controller holds the blocks until it is inactive.
+	for i := range channels {
+		ch := &channels[i]
+		chosen := byKey[ch.Spec.Key]
+		if chosen == nil || chosen == ch {
+			continue
+		}
+		st := clustarrv1.ChannelLineupStatus{DuplicateOf: chosen.Name}
+		if prev := ch.Status.Lineup; prev != nil {
+			st.Name = prev.Name
+		}
+		c := change{name: ch.Name, ch: ch, key: ch.Spec.Key, status: st}
 		if enabled {
 			c.spec, c.number, c.label = true, ch.Spec.Number, madeByLineup(ch)
 		}

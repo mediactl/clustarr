@@ -36,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/lineup"
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
+	"github.com/mediactl/clustarr/pkg/names"
 )
 
 const testAddress = "clustarr-livetv.media.svc.cluster.local:80"
@@ -54,7 +55,9 @@ func fakeReconciler(t *testing.T, address string, objs ...*clustarrv1.IPTVProvid
 func activeChannels(numbers ...string) []clustarrv1.IPTVChannel {
 	out := make([]clustarrv1.IPTVChannel, 0, len(numbers))
 	for _, n := range numbers {
-		out = append(out, clustarrv1.IPTVChannel{Spec: clustarrv1.IPTVChannelSpec{Number: n, Active: true}})
+		// A key each, as the CRD requires (MinLength 1): channels of one key
+		// are duplicates the lineup deactivates.
+		out = append(out, clustarrv1.IPTVChannel{Spec: clustarrv1.IPTVChannelSpec{Key: "t:ch" + n, Number: n, Active: true}})
 	}
 	return out
 }
@@ -406,6 +409,43 @@ func TestAPlanNotYetOnTheChannelsHoldsTheBlocks(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, pl.reason)
 	assert.Empty(t, pl.blocks)
+}
+
+// TestTheProviderChoosesAKeysChannelAsTheLineupDoes: with two channels of
+// one key (a copy made by hand, a timeshift copy) the plan is checked
+// against the channel index.ChannelsByKey chooses -- the key's canonical
+// name -- as the lineup controller applies it there, so the categories are
+// published once the copy is inactive and held while it is still active.
+// unapplied used to keep the last channel of a key by name, and a copy
+// named after the canonical one held LineupPending for good.
+func TestTheProviderChoosesAKeysChannelAsTheLineupDoes(t *testing.T) {
+	own := catChannel("1001", "News")
+	own.Name = names.ChannelObjectName(lineupProviderName, own.Spec.Key)
+	dup := catChannel("7", "")
+	dup.Name, dup.Spec.Key, dup.Spec.Active = "zzz-cnn-timeshift", own.Spec.Key, false
+	dup.Status.Lineup = &clustarrv1.ChannelLineupStatus{DuplicateOf: own.Name}
+	require.Less(t, own.Name, dup.Name, "the copy is the last of the key by name")
+	lp := appliedPlanFor([]clustarrv1.IPTVChannel{own}, lineup.Category{Name: "News", Base: 1000, Channels: 1})
+
+	p := lineupProvider(true)
+	p.Status.Blocks = []clustarrv1.BlockStatus{{Start: "1001", First: "1001", Last: "1257", DeviceID: "8246E54A", GuidePath: BlockGuidePath}}
+	r := fakeReconciler(t, testAddress, p)
+	r.PlanReader = storedPlan(lp)
+	pl, err := r.planBlocks(context.Background(), p, []clustarrv1.IPTVChannel{own, dup})
+	require.NoError(t, err)
+	assert.Empty(t, pl.reason, pl.message)
+	require.Len(t, pl.blocks, 1)
+	assert.Equal(t, "News", pl.blocks[0].Category)
+	assert.Equal(t, []string{"1001"}, pl.numbers["1001"])
+
+	// The copy not yet deactivated: held until the lineup controller has.
+	dup.Spec.Active = true
+	pl, err = r.planBlocks(context.Background(), p, []clustarrv1.IPTVChannel{own, dup})
+	require.NoError(t, err)
+	assert.Equal(t, clustarrv1.ReasonLineupPending, pl.reason)
+	assert.Contains(t, pl.message, "1 channels")
+	require.Len(t, pl.blocks, 1)
+	assert.Equal(t, "8246E54A", pl.blocks[0].DeviceID)
 }
 
 // TestAVanishedPlanHoldsTheCategoryBlocks: with the lineup enabled and its

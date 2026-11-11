@@ -485,6 +485,74 @@ func TestTooManyDeactivatesTheCategory(t *testing.T) {
 	assert.Empty(t, f.events())
 }
 
+// byName are the provider's IPTVChannels by object name.
+func (f *fixture) byName() map[string]clustarrv1.IPTVChannel {
+	f.t.Helper()
+	var list clustarrv1.IPTVChannelList
+	require.NoError(f.t, f.c.List(context.Background(), &list, client.InNamespace(testNS)))
+	out := map[string]clustarrv1.IPTVChannel{}
+	for _, ch := range list.Items {
+		out[ch.Name] = ch
+	}
+	return out
+}
+
+// TestASecondChannelOfAKeyIsDeactivated: two channels of one key (a copy
+// made by hand, or a timeshift copy) are one too many. The plan goes to the
+// one index.ChannelsByKey chooses -- the key's canonical name, else the first
+// by name, as the provider controller chooses -- and the other is
+// deactivated, its number kept, status.lineup.duplicateOf naming the
+// chosen channel; the lineup never deletes it. A dry run writes only the
+// status.
+func TestASecondChannelOfAKeyIsDeactivated(t *testing.T) {
+	copyOf := func(name, number string) *clustarrv1.IPTVChannel {
+		return channel("CNN", number, true, func(ch *clustarrv1.IPTVChannel) {
+			ch.Name = name
+			ch.Labels = nil
+		})
+	}
+	canonical := names.ChannelObjectName(testProvider, keyOf("CNN"))
+
+	// The canonical channel sorts after the copy: still the chosen one.
+	f := newFixture(t, provider(true, news()), channel("CNN", "5", true), copyOf("aaa-cnn-timeshift", "6"))
+	f.entries = []m3u.Entry{entry("CNN"), entry("BBC NEWS")}
+	f.reconcile()
+	got := f.byName()
+	require.Len(t, got, 3)
+	assert.Equal(t, "1002", got[canonical].Spec.Number)
+	assert.True(t, got[canonical].Spec.Active)
+	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "CNN", Category: "News", Rule: "News[0]", Number: "1002"}, got[canonical].Status.Lineup)
+	dup := got["aaa-cnn-timeshift"]
+	assert.False(t, dup.Spec.Active, "the second channel of the key is off every DVR")
+	assert.Equal(t, "6", dup.Spec.Number, "its number kept")
+	assert.Equal(t, &clustarrv1.ChannelLineupStatus{DuplicateOf: canonical}, dup.Status.Lineup)
+	assert.Empty(t, dup.Labels, "no lineup label on a channel the lineup did not make")
+
+	// Seven days on, nothing is deleted.
+	f.now = f.now.Add(DeleteAbsentAfter + time.Hour)
+	f.reconcile()
+	assert.Contains(t, f.byName(), "aaa-cnn-timeshift")
+
+	// No canonical channel: the first by name carries the key.
+	f = newFixture(t, provider(true, news()), copyOf("mike-cnn", "6"), copyOf("bravo-cnn", "7"))
+	f.entries = []m3u.Entry{entry("CNN")}
+	f.reconcile()
+	got = f.byName()
+	require.Len(t, got, 2, "the key has a channel: none is created")
+	assert.Equal(t, "1001", got["bravo-cnn"].Spec.Number)
+	assert.True(t, got["bravo-cnn"].Spec.Active)
+	assert.False(t, got["mike-cnn"].Spec.Active)
+	assert.Equal(t, "bravo-cnn", got["mike-cnn"].Status.Lineup.DuplicateOf)
+
+	// A dry run: the status alone.
+	f = newFixture(t, provider(false, news()), channel("CNN", "5", true), copyOf("aaa-cnn-timeshift", "6"))
+	f.entries = []m3u.Entry{entry("CNN")}
+	f.reconcile()
+	dup = f.byName()["aaa-cnn-timeshift"]
+	assert.True(t, dup.Spec.Active, "a dry run writes no spec")
+	assert.Equal(t, &clustarrv1.ChannelLineupStatus{DuplicateOf: canonical}, dup.Status.Lineup)
+}
+
 // TestNoPlaylistYetRequeues: before the tuner's first fetch nothing is
 // planned or written, and the provider is asked about again in 30 s.
 func TestNoPlaylistYetRequeues(t *testing.T) {

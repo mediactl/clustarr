@@ -30,7 +30,8 @@ const maxChannelProvider = 52
 // entry key: the provider's name, cut to 52 characters, and the first ten
 // hex digits of the key's SHA-256, so a key has one channel whoever makes
 // it -- the ui's AddChannel and the lineup controller both name channels by
-// it (a second add is AlreadyExists).
+// it (a second add is AlreadyExists), and app/livetv/index.ChannelsByKey
+// keeps the channel of this name over any other of its key.
 func ChannelObjectName(provider, key string) string {
 	sum := sha256.Sum256([]byte(key))
 	if len(provider) > maxChannelProvider {

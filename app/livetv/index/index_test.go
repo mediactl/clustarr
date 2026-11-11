@@ -30,6 +30,7 @@ import (
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/index"
+	"github.com/mediactl/clustarr/pkg/names"
 )
 
 // A provider's channels come in name order whatever order the index holds
@@ -59,4 +60,44 @@ func TestChannelsOfListsInNameOrder(t *testing.T) {
 		names = append(names, chans[i].Name)
 	}
 	assert.Equal(t, []string{"alpha", "bravo", "mike", "zulu"}, names)
+}
+
+// TestChannelsByKeyKeepsTheCanonicalChannelElseTheFirstByName: one channel a
+// key, whatever order the channels come in -- the one named by
+// names.ChannelObjectName (the lineup's and the ui's name for the key), else
+// the first by name -- so the lineup controller and the provider controller
+// choose alike.
+func TestChannelsByKeyKeepsTheCanonicalChannelElseTheFirstByName(t *testing.T) {
+	ch := func(name, key string) clustarrv1.IPTVChannel {
+		return clustarrv1.IPTVChannel{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name},
+			Spec:       clustarrv1.IPTVChannelSpec{ProviderRef: "argon", Key: key},
+		}
+	}
+	canonical := names.ChannelObjectName("argon", "t:espn")
+	for name, chans := range map[string][]clustarrv1.IPTVChannel{
+		"the canonical last by name": {ch("aaa-espn-copy", "t:espn"), ch(canonical, "t:espn"), ch("zzz-espn", "t:espn"), ch("cnn", "t:cnn")},
+		"the canonical first":        {ch(canonical, "t:espn"), ch("aaa-espn-copy", "t:espn"), ch("cnn", "t:cnn")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := index.ChannelsByKey("argon", chans)
+			require.Len(t, got, 2)
+			assert.Equal(t, canonical, got["t:espn"].Name)
+			assert.Equal(t, "cnn", got["t:cnn"].Name)
+			for i := range chans {
+				if chans[i].Name == canonical {
+					assert.Same(t, &chans[i], got["t:espn"], "a pointer into the list")
+				}
+			}
+		})
+	}
+
+	// No canonical name: the first by name, in any order.
+	for _, chans := range [][]clustarrv1.IPTVChannel{
+		{ch("mike", "t:x"), ch("bravo", "t:x"), ch("zulu", "t:x")},
+		{ch("zulu", "t:x"), ch("mike", "t:x"), ch("bravo", "t:x")},
+	} {
+		assert.Equal(t, "bravo", index.ChannelsByKey("argon", chans)["t:x"].Name)
+	}
+	assert.Empty(t, index.ChannelsByKey("argon", nil))
 }
