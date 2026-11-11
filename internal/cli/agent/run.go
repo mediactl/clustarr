@@ -56,7 +56,7 @@ func Run(ctx context.Context, o Options) error {
 
 	// 3. Observability, named for the domain.
 	to := o.Tracing
-	to.ServiceName = "agent-" + o.Domain
+	to.ServiceName = agentServiceName(o.Domain, o.Engine)
 	ctx, shutdown, err := obs.Bootstrap(ctx, o.Logging, to)
 	if err != nil {
 		return err

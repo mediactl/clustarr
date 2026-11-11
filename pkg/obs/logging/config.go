@@ -100,7 +100,7 @@ func Resolve(file FileConfig, haveFile bool, flags Options, changed func(string)
 	switch {
 	case haveFile && file.Format != "":
 		out.Format = file.Format
-	case changed("log-format"):
+	case changed("log-format") && flags.Format != "":
 		out.Format = flags.Format
 	case getenv("LOG_FORMAT") != "":
 		out.Format = getenv("LOG_FORMAT")

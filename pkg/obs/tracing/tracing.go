@@ -39,6 +39,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // tracerName is the instrumentation scope every Clustarr span is recorded
@@ -204,13 +205,24 @@ func restingProvider() trace.TracerProvider {
 	return sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())))
 }
 
+// newResource is the spans' resource: service.name beside the
+// service.namespace and service.version every log record carries (the
+// 2026-11-10 logging design §3), so logs and traces share one identity.
+func newResource(serviceName string) *resource.Resource {
+	return resource.NewWithAttributes(semconv.SchemaURL,
+		semconv.ServiceName(serviceName),
+		semconv.ServiceNamespace(logging.ServiceNamespace),
+		semconv.ServiceVersion(version.Version),
+	)
+}
+
 // install does the one-time work Setup performs exactly once per process.
 func install(ctx context.Context, opts Options) (func(context.Context) error, error) {
 	name := opts.ServiceName
 	if name == "" {
 		name = defaultServiceName
 	}
-	res := resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName(name))
+	res := newResource(name)
 
 	tpOpts := []sdktrace.TracerProviderOption{
 		sdktrace.WithResource(res),

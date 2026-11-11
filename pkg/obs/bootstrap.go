@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/klog/v2"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/mediactl/clustarr/pkg/events"
@@ -71,12 +72,16 @@ var setLoggerOnce sync.Once
 //
 // It does three things, in this order:
 //
-//   - builds the root *slog.Logger from lo and installs it on ctx, so
-//     logging.FromContext works everywhere below;
+//   - builds the root *slog.Logger through logging.Root -- from lo, the
+//     logging config file and the environment, stamped with the process's
+//     service identity, slog's default and the log package drained through
+//     it -- and installs it on ctx, so logging.FromContext works everywhere
+//     below;
 //   - bridges that logger to controller-runtime with controller-runtime's
-//     log.SetLogger (ctrl.SetLogger is an alias of it), exactly once per
-//     process, so ctrl.LoggerFrom and controller-runtime's own output join
-//     the same stream in the same format (amendment §A2.1);
+//     log.SetLogger (ctrl.SetLogger is an alias of it) and to client-go
+//     with klog.SetLogger, exactly once per process, so their output joins
+//     the same stream in the same format under their own subsystems
+//     (amendment §A2.1, the 2026-11-10 logging design §4);
 //   - installs the process-wide TracerProvider via tracing.Setup.
 //
 // The returned shutdown flushes and closes the tracing exporter, bounded by
@@ -88,9 +93,18 @@ var setLoggerOnce sync.Once
 // A non-nil error means startup failed and the service must not continue;
 // Run returns it.
 func Bootstrap(ctx context.Context, lo logging.Options, to tracing.Options) (context.Context, func(), error) {
-	logger := logging.New(lo)
-	setLoggerOnce.Do(func() { crlog.SetLogger(logging.LogrBridge(logger)) })
-	ctx = logging.NewContext(ctx, logger)
+	ctx, logger, err := logging.Root(ctx, lo, logging.ServiceFor(to.ServiceName))
+	if err != nil {
+		return ctx, func() {}, err
+	}
+	setLoggerOnce.Do(func() {
+		// controller-runtime's own lines, and client-go's through klog
+		// (the reflector's "Failed to watch"), each under its subsystem
+		// (design §4): logr's V(0) is INFO, V(1) and deeper DEBUG, Error ERROR
+		// with err.
+		crlog.SetLogger(logging.LogrBridge(logging.SubsystemLogger(logger, "controller-runtime")))
+		klog.SetLogger(logging.LogrBridge(logging.SubsystemLogger(logger, "client-go")))
+	})
 
 	shutdown, err := tracing.Setup(ctx, to)
 	if err != nil {

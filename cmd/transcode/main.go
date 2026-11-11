@@ -115,7 +115,12 @@ func run(args []string, getenv func(string) string) int {
 		return jobspec.WorkerExitMisconfigured
 	}
 	if *graftTask != "" {
-		return runGraft(*graftTask, *dataDir, getenv, logging.New(*lo))
+		_, log, err := logging.Root(context.Background(), *lo, logging.ServiceFor("transcode"))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "transcode:", err)
+			return jobspec.WorkerExitMisconfigured
+		}
+		return runGraft(*graftTask, *dataDir, getenv, log)
 	}
 	need := map[string]string{}
 	for _, k := range []string{"NATS_URL", "CLUSTARR_POOL_PROFILE_UID", "CLUSTARR_POOL_CLASS", "POD_NAME"} {
@@ -127,9 +132,12 @@ func run(args []string, getenv func(string) string) int {
 
 	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stopSignals()
-	ctx = logging.NewContext(ctx, logging.New(*lo))
-	log := logging.FromContext(ctx)
 	to.ServiceName = "transcode"
+	ctx, log, err := logging.Root(ctx, *lo, logging.ServiceFor(to.ServiceName))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "transcode:", err)
+		return jobspec.WorkerExitMisconfigured
+	}
 	shutdown, err := tracing.Setup(ctx, *to)
 	if err != nil {
 		log.ErrorContext(ctx, "tracing", "error", err)

@@ -20,6 +20,7 @@ package obs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/pkg/events"
@@ -71,7 +73,7 @@ func (b *syncBuffer) String() string {
 // through ctrl.Log -- controller-runtime's own logger, the one
 // ctrl.LoggerFrom(ctx) falls back to -- has to land in the slog handler
 // Bootstrap built, with slog's keys and not zap's.
-func TestBootstrapBridgesControllerRuntimeToSlog(t *testing.T) {
+func TestBootstrapBridgesControllerRuntimeAndKlog(t *testing.T) {
 	var out syncBuffer
 
 	// The returned shutdown is deliberately NOT deferred here. tracing.Setup
@@ -129,6 +131,46 @@ func TestBootstrapBridgesControllerRuntimeToSlog(t *testing.T) {
 	}
 	if rec["k"] != "v" {
 		t.Errorf("k = %v, want \"v\": the bridge dropped the key/value args", rec["k"])
+	}
+	if rec["subsystem"] != "controller-runtime" || rec["level"] != "INFO" {
+		t.Errorf("ctrl.Log.Info is not INFO under controller-runtime: %v", rec)
+	}
+	if svc, _ := rec["service"].(map[string]any); svc["name"] != "bootstrap-test" || svc["namespace"] != "clustarr" {
+		t.Errorf("the record carries no service identity: %v", rec)
+	}
+
+	// The level map (design §4): V(1) is DEBUG, Error is ERROR with err; and
+	// client-go's klog lands under its own subsystem.
+	ctrl.Log.V(1).Info("verbose")
+	ctrl.Log.Error(errors.New("boom"), "failed")
+	klog.InfoS("Failed to watch", "reflector", "x")
+	klog.ErrorS(errors.New("timeout"), "watch")
+	var recs []map[string]any
+	for _, l := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		var r map[string]any
+		if err := json.Unmarshal([]byte(l), &r); err != nil {
+			t.Fatalf("%v: %s", err, l)
+		}
+		recs = append(recs, r)
+	}
+	if len(recs) != 5 {
+		t.Fatalf("want 5 records, got %d:\n%s", len(recs), out.String())
+	}
+	want := []struct{ level, subsystem, msg, err string }{
+		{"INFO", "controller-runtime", "probe", ""},
+		{"DEBUG", "controller-runtime", "verbose", ""},
+		{"ERROR", "controller-runtime", "failed", "boom"},
+		{"INFO", "client-go", "Failed to watch", ""},
+		{"ERROR", "client-go", "watch", "timeout"},
+	}
+	for i, w := range want {
+		r := recs[i]
+		if r["level"] != w.level || r["subsystem"] != w.subsystem || r["msg"] != w.msg {
+			t.Errorf("record %d = %v, want %+v", i, r, w)
+		}
+		if w.err != "" && r["err"] != w.err {
+			t.Errorf("record %d err = %v, want %q", i, r["err"], w.err)
+		}
 	}
 
 	// Part two, in the same test function because ctrl.SetLogger is
