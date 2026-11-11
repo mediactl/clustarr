@@ -28,6 +28,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/test/installtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -196,4 +197,177 @@ func productionFilesWithPositions(t *testing.T) map[string]parsedFile {
 		require.NoError(t, err)
 	}
 	return out
+}
+
+// subsystemPrefixSites are the files that name a subsystem from a prefix
+// and a runtime name rather than a literal, with the prefix each is allowed:
+// the remediation loop runs its planners and item stages by name.
+var subsystemPrefixSites = map[string]string{
+	"app/remediation/planner.go":   "remediation.",
+	"app/remediation/itemstage.go": "remediation.",
+}
+
+// subsystemTableSites are the files that name a subsystem per entry of a
+// table of literals in the same file, with the prefix those literals carry:
+// the import agent's consumers.
+var subsystemTableSites = map[string]string{
+	"app/import/agent/register.go": "import.",
+}
+
+// TestEverySubsystemIsInTheTable (design §5, §9): every logging.Subsystem and
+// SubsystemLogger call names its subsystem with a string literal (or a
+// package's own `const Subsystem`, or a "remediation."+name concatenation
+// where subsystemPrefixSites allows it); every such name is in
+// logging.Subsystems; every entry of the table is used; and every Reconcile
+// method taking a context names one.
+func TestEverySubsystemIsInTheTable(t *testing.T) {
+	table := map[string]bool{}
+	for i, name := range logging.Subsystems {
+		assert.False(t, table[name], "logging.Subsystems lists %q twice", name)
+		table[name] = true
+		if i > 0 {
+			assert.Less(t, logging.Subsystems[i-1], name, "logging.Subsystems is sorted")
+		}
+	}
+	used := map[string]bool{}
+	var problems []string
+	for path, pf := range productionFilesWithPositions(t) {
+		alias := importAlias(pf.file, "github.com/mediactl/clustarr/pkg/obs/logging", "logging")
+		if pf.file.Name.Name == "logging" && strings.HasPrefix(path, "pkg/obs/logging/") {
+			alias = ""
+		}
+		consts := map[string]string{}
+		ast.Inspect(pf.file, func(n ast.Node) bool {
+			gen, ok := n.(*ast.GenDecl)
+			if !ok || gen.Tok != token.CONST {
+				return true
+			}
+			for _, spec := range gen.Specs {
+				vs := spec.(*ast.ValueSpec)
+				for i, id := range vs.Names {
+					if i < len(vs.Values) {
+						if lit, ok := vs.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+							consts[id.Name] = strings.Trim(lit.Value, `"`)
+						}
+					}
+				}
+			}
+			return false
+		})
+		ast.Inspect(pf.file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			var nameArg ast.Expr
+			switch {
+			case alias != "" && (isSelector(call.Fun, alias, "Subsystem") || isSelector(call.Fun, alias, "SubsystemLogger")),
+				alias == "" && strings.HasPrefix(path, "pkg/obs/logging/") && (isIdent(call.Fun, "Subsystem") || isIdent(call.Fun, "SubsystemLogger")):
+				if len(call.Args) == 2 {
+					nameArg = call.Args[1]
+				}
+			default:
+				return true
+			}
+			where := fmt.Sprintf("%s:%d", path, pf.fset.Position(call.Pos()).Line)
+			switch v := nameArg.(type) {
+			case *ast.BasicLit:
+				name := strings.Trim(v.Value, `"`)
+				used[name] = true
+				if !table[name] {
+					problems = append(problems, where+": subsystem "+name+" is not in logging.Subsystems")
+				}
+			case *ast.Ident:
+				if strings.HasPrefix(path, "pkg/obs/logging/") {
+					return true // the package's own plumbing passes the name through
+				}
+				if prefix, ok := subsystemTableSites[path]; ok {
+					// The file's consumer table names each consumer's
+					// subsystem as the third element of its row, a literal
+					// with the prefix.
+					ast.Inspect(pf.file, func(n ast.Node) bool {
+						row, ok := n.(*ast.CompositeLit)
+						if !ok || len(row.Elts) != 3 {
+							return true
+						}
+						lit, ok := row.Elts[2].(*ast.BasicLit)
+						if !ok || lit.Kind != token.STRING {
+							return true
+						}
+						name := strings.Trim(lit.Value, `"`)
+						if !strings.HasPrefix(name, prefix) {
+							problems = append(problems, where+": consumer subsystem "+name+" lacks the prefix "+prefix)
+							return true
+						}
+						used[name] = true
+						if !table[name] {
+							problems = append(problems, where+": subsystem "+name+" is not in logging.Subsystems")
+						}
+						return true
+					})
+					return true
+				}
+				name, ok := consts[v.Name]
+				if !ok {
+					problems = append(problems, where+": the subsystem is not a literal or this file's const")
+					return true
+				}
+				used[name] = true
+				if !table[name] {
+					problems = append(problems, where+": subsystem "+name+" is not in logging.Subsystems")
+				}
+			case *ast.BinaryExpr:
+				lit, ok := v.X.(*ast.BasicLit)
+				prefix := subsystemPrefixSites[path]
+				if !ok || v.Op != token.ADD || prefix == "" || strings.Trim(lit.Value, `"`) != prefix {
+					problems = append(problems, where+": the subsystem is built from something other than this file's allowed prefix")
+					return true
+				}
+				for name := range table {
+					if strings.HasPrefix(name, prefix) {
+						used[name] = true
+					}
+				}
+			default:
+				problems = append(problems, where+": the subsystem is not a literal")
+			}
+			return true
+		})
+		for _, decl := range pf.file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || fn.Name.Name != "Reconcile" || fn.Body == nil || len(fn.Type.Params.List) == 0 || !isContextParam(fn.Type.Params.List[0].Type) {
+				continue
+			}
+			if names := fn.Type.Params.List[0].Names; len(names) == 1 && names[0].Name == "_" {
+				continue // a harness that ignores its context names nothing
+			}
+			names := false
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok && alias != "" && isSelector(call.Fun, alias, "Subsystem") {
+					names = true
+				}
+				return !names
+			})
+			if !names {
+				problems = append(problems, fmt.Sprintf("%s:%d: Reconcile names no subsystem", path, pf.fset.Position(fn.Pos()).Line))
+			}
+		}
+	}
+	for name := range table {
+		if !used[name] {
+			problems = append(problems, "logging.Subsystems lists "+name+", which nothing names")
+		}
+	}
+	sort.Strings(problems)
+	assert.Empty(t, problems, strings.Join(problems, "\n"))
+}
+
+// isContextParam reports whether e is the type expression context.Context.
+func isContextParam(e ast.Expr) bool {
+	sel, ok := e.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	x, ok := sel.X.(*ast.Ident)
+	return ok && x.Name == "context" && sel.Sel.Name == "Context"
 }
