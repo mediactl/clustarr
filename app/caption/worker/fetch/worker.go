@@ -138,7 +138,7 @@ func (w *Worker) SetupWithManager(mgr ctrl.Manager, t events.Topology) error {
 		}
 		sub := spec.Subscription()
 		if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-			stop, err := w.Bus.Subscribe(ctx, sub, w.Handle)
+			stop, err := w.Bus.Subscribe(logging.Subsystem(ctx, "caption.fetch"), sub, w.Handle)
 			if err != nil {
 				return fmt.Errorf("fetch: subscribe %s: %w", sub.Durable, err)
 			}

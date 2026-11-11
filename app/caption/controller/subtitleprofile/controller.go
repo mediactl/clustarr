@@ -31,6 +31,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
@@ -94,6 +96,7 @@ func NewReconciler(c client.Client, recorder events.EventRecorder) *Reconciler {
 // whether its selector overlaps another profile's wins, and applies status
 // only when it changed (§2.13: an unchanged apply is skipped).
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "caption.subtitleprofile")
 	ctx, span := tracing.Start(ctx, "subtitleprofile.Reconcile")
 	defer span.End()
 	var sp subtitlev1alpha1.SubtitleProfile

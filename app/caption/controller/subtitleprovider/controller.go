@@ -132,6 +132,7 @@ func (r *Reconciler) now() time.Time {
 // for it, and [throttle.State]'s own doc comment says why: "credentials do
 // not belong on a CRD".
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "caption.subtitleprovider")
 	ctx, span := tracing.Start(ctx, "subtitleprovider.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("subtitleprovider", req.NamespacedName)

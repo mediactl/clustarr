@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
@@ -58,6 +60,7 @@ func (w *Wake) NeedLeaderElection() bool { return true }
 
 // Start turns pending signals into one event per debounce until ctx ends.
 func (w *Wake) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "caption.subtitleprofile")
 	t := time.NewTicker(w.debounce)
 	defer t.Stop()
 	for {
