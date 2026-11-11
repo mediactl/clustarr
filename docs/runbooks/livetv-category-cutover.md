@@ -204,8 +204,8 @@ kubectl --context admin@talos -n clustarr-system logs deploy/clustarr-manager --
 ## 4. Verify
 
 - **Plex:** Live TV shows one guide per category, in the order of their bases; a few channels per
-  category tune; the guide rows carry titles, posters, stills and backgrounds; Local holds the 11
-  affiliates; a sports and a movie programme open with the right metadata. A Watchlist action works
+  category tune; the guide rows carry titles, posters, stills and backgrounds; Local holds 12 (the 11
+  affiliates plus the national ABC entry); a sports and a movie programme open with the right metadata. A Watchlist action works
   on a `plex://` programme.
 - **Stop and roll back if** a category DVR is missing in Plex, a DVR has no guide after its first load, or the ui's TV Guide disagrees with Plex.
 - **ui:** `/livetv/channels` reads the lineup (planned names and numbers, no dry-run banner), and
