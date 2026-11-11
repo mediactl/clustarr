@@ -112,7 +112,7 @@ func ShutdownAfter(ctx context.Context, budget time.Duration, bus events.Bus, nc
 		sctx, cancel := context.WithDeadline(context.WithoutCancel(ctx), start.Add(budget))
 		defer cancel()
 		if err := Shutdown(sctx, bus, nc); err != nil {
-			logging.FromContext(ctx).Warn("bus shutdown fell back to closing", "budget", budget, "error", err)
+			logging.FromContext(ctx).Warn("bus shutdown fell back to closing", "budget", budget, "err", err)
 		}
 	}
 }

@@ -315,7 +315,7 @@ func (ix *Index) Run(ctx context.Context, kv events.KV) error {
 	for {
 		ch, err := kv.Watch(ctx, Key)
 		if err != nil {
-			log.Warn("dubs: watching the MAL-Dubs list failed; retrying", "error", err)
+			log.Warn("dubs: watching the MAL-Dubs list failed; retrying", "err", err)
 		} else {
 			for e := range ch {
 				ix.apply(e)
@@ -380,7 +380,7 @@ func (r *Refresher) refresh(ctx context.Context) time.Duration {
 			cur = Record{}
 		}
 	case !errors.Is(err, events.ErrKeyNotFound):
-		log.Warn("dubs: reading the stored MAL-Dubs list failed", "error", err)
+		log.Warn("dubs: reading the stored MAL-Dubs list failed", "err", err)
 		return RetryInterval
 	}
 	if due := cur.FetchedAt.Add(RefreshInterval); !cur.FetchedAt.IsZero() && now.Before(due) {
@@ -396,7 +396,7 @@ func (r *Refresher) refresh(ctx context.Context) time.Duration {
 	}
 	rec, notModified, err := Fetch(ctx, r.HTTP, url, etag)
 	if err != nil {
-		log.Warn("dubs: fetching the MAL-Dubs list failed; the stored list stands", "error", err)
+		log.Warn("dubs: fetching the MAL-Dubs list failed; the stored list stands", "err", err)
 		return RetryInterval
 	}
 	if notModified {
@@ -408,7 +408,7 @@ func (r *Refresher) refresh(ctx context.Context) time.Duration {
 		_, err = r.KV.Put(ctx, Key, b)
 	}
 	if err != nil {
-		log.Warn("dubs: storing the MAL-Dubs list failed", "error", err)
+		log.Warn("dubs: storing the MAL-Dubs list failed", "err", err)
 		return RetryInterval
 	}
 	log.Info("dubs: MAL-Dubs list refreshed", "dubbed", len(rec.Dubbed), "incomplete", len(rec.Incomplete), "notModified", notModified)

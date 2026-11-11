@@ -163,7 +163,7 @@ func (j *job) takeGrant(ctx context.Context, candidates []string, suffix string,
 				return grant{}, ctxErr
 			}
 			// The ledger, not the release: wait and ask again.
-			log.WarnContext(ctx, "usenet: the connection ledger could not be reached; waiting", "download", j.id, "error", err)
+			log.WarnContext(ctx, "usenet: the connection ledger could not be reached; waiting", "download", j.id, "err", err)
 			j.waitingGrant.Store(true)
 			j.mu.Lock()
 			j.status = download.StatusQueued
@@ -306,7 +306,7 @@ func (j *job) clearGrantMessage() {
 func (j *job) give(ctx context.Context, g grant) {
 	if err := j.client.ledger.Give(ctx, g.Account, g.Holder); err != nil {
 		logging.FromContext(ctx).WarnContext(ctx, "usenet: could not return a connection grant; it expires on its own",
-			"download", j.id, "server", g.Server, "error", err)
+			"download", j.id, "server", g.Server, "err", err)
 	}
 }
 
@@ -401,7 +401,7 @@ func (c *Client) renewLoop(stop <-chan struct{}) {
 			c.dropGrant(h)
 		}
 		if err != nil {
-			logging.FromContext(c.baseCtx).WarnContext(c.baseCtx, "usenet: renewing connection grants failed; trying again next tick", "error", err)
+			logging.FromContext(c.baseCtx).WarnContext(c.baseCtx, "usenet: renewing connection grants failed; trying again next tick", "err", err)
 		}
 	}
 }

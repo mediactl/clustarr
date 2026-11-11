@@ -53,7 +53,7 @@ func (c *Client) SearchAuthors(ctx context.Context, q string) ([]metadata.Search
 	path := "/search/authors.json?q=" + url.QueryEscape(q) + "&limit=20"
 	if err := c.doGet(ctx, path, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logging.FromContext(ctx).ErrorContext(ctx, "openlibrary: author search failed", "error", err)
+		logging.FromContext(ctx).ErrorContext(ctx, "openlibrary: author search failed", "err", err)
 		return nil, err
 	}
 	hits := make([]metadata.SearchHit, 0, len(raw.Docs))

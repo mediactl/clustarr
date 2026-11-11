@@ -106,7 +106,7 @@ func (b *Bus) runWatcher(ctx context.Context, sub events.Subscription) {
 			cons = nil
 		default:
 			logging.FromContext(ctx).Warn("bus: dead-letter watcher fetch failed; retrying",
-				"watcher", name, "error", err)
+				"watcher", name, "err", err)
 			select {
 			case <-ctx.Done():
 				return
@@ -176,7 +176,7 @@ func (b *Bus) deadLetterLapsed(ctx context.Context, sub events.Subscription, dat
 	var adv maxDeliveriesAdvisory
 	if err := json.Unmarshal(data, &adv); err != nil {
 		log.Warn("bus: ignoring an undecodable MAX_DELIVERIES advisory",
-			"durable", sub.Durable, "error", err)
+			"durable", sub.Durable, "err", err)
 		return true
 	}
 	if adv.Type != maxDeliveriesAdvisoryType || adv.Stream != sub.Stream ||
@@ -203,7 +203,7 @@ func (b *Bus) deadLetterLapsed(ctx context.Context, sub events.Subscription, dat
 	case err != nil:
 		log.Error("bus: final delivery lapsed and was not dead-lettered; will retry",
 			"durable", adv.Consumer, "stream", adv.Stream, "stream_seq", adv.StreamSeq,
-			"deliveries", adv.Deliveries, "msg_id", msgID, "error", err)
+			"deliveries", adv.Deliveries, "msg_id", msgID, "err", err)
 		return false
 	default:
 		log.Warn("bus: final delivery lapsed unacknowledged; dead-lettered",

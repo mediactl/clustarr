@@ -153,7 +153,7 @@ func (c *Client) SearchBooks(ctx context.Context, q string) ([]metadata.SearchHi
 	path := "/search.json?q=" + url.QueryEscape(q) + "&fields=key,title,first_publish_year,cover_i"
 	if err := c.doGet(ctx, path, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "openlibrary: search failed", "query", q, "error", err)
+		logger.ErrorContext(ctx, "openlibrary: search failed", "query", q, "err", err)
 		return nil, err
 	}
 
@@ -209,7 +209,7 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	}
 	if err := c.doGet(ctx, "/authors/"+olid+".json", &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "openlibrary: author fetch failed", "olid", olid, "error", err)
+		logger.ErrorContext(ctx, "openlibrary: author fetch failed", "olid", olid, "err", err)
 		return nil, err
 	}
 
@@ -262,7 +262,7 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 			// The Open Library name stands; a label is a nicety, never a
 			// reason to fail the author.
 			logger.DebugContext(ctx, "openlibrary: wikidata label unavailable", "olid", olid,
-				"wikidata", raw.RemoteIDs.Wikidata, "error", err)
+				"wikidata", raw.RemoteIDs.Wikidata, "err", err)
 		case name != "":
 			a.Name = name
 		}
@@ -387,7 +387,7 @@ func (c *Client) Books(ctx context.Context, authorID string) ([]metadata.Book, e
 	}
 	if err := c.doGet(ctx, "/search.json?"+q.Encode(), &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "openlibrary: author works search failed", "olid", authorID, "error", err)
+		logger.ErrorContext(ctx, "openlibrary: author works search failed", "olid", authorID, "err", err)
 		return nil, err
 	}
 
@@ -613,7 +613,7 @@ func (c *Client) Book(ctx context.Context, ids metadata.ExternalIDs) (*metadata.
 	var raw workRecord
 	if err := c.doGet(ctx, "/works/"+workID+".json", &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "openlibrary: work fetch failed", "olid", workID, "error", err)
+		logger.ErrorContext(ctx, "openlibrary: work fetch failed", "olid", workID, "err", err)
 		return nil, err
 	}
 	b := mapWork(raw, "")
@@ -625,7 +625,7 @@ func (c *Client) Book(ctx context.Context, ids metadata.ExternalIDs) (*metadata.
 	path := "/works/" + workID + "/editions.json?limit=" + strconv.Itoa(editionsLimit)
 	if err := c.doGet(ctx, path, &eds); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "openlibrary: work editions fetch failed", "olid", workID, "error", err)
+		logger.ErrorContext(ctx, "openlibrary: work editions fetch failed", "olid", workID, "err", err)
 		return nil, err
 	}
 	for _, e := range eds.Entries {
@@ -759,7 +759,7 @@ func (c *Client) Edition(ctx context.Context, ids metadata.ExternalIDs) (*metada
 	var raw editionResponse
 	if err := c.doGet(ctx, "/isbn/"+isbn+".json", &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "openlibrary: edition fetch failed", "isbn", isbn, "error", err)
+		logger.ErrorContext(ctx, "openlibrary: edition fetch failed", "isbn", isbn, "err", err)
 		return nil, err
 	}
 

@@ -389,7 +389,7 @@ func (s *searchRun) search(ctx context.Context, params url.Values, paginate, pri
 			pol = p.currentPolicy()
 		}
 		if payload.isError() {
-			log.Debug("subdl: search returned an error payload", "error", string(payload.Error))
+			log.Debug("subdl: search returned an error payload", "err", string(payload.Error))
 			return nil
 		}
 		for _, it := range payload.Subtitles {

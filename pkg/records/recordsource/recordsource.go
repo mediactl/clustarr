@@ -183,7 +183,7 @@ func (s *Source[K]) Start(ctx context.Context, q workqueue.TypedRateLimitingInte
 		if time.Now().Add(wait).After(deadline) {
 			return fmt.Errorf("recordsource: watch %s: %w", s.bucket, err)
 		}
-		logging.FromContext(ctx).Warn("recordsource: could not open the records watch; retrying", "bucket", s.bucket, "error", err, "in", wait)
+		logging.FromContext(ctx).Warn("recordsource: could not open the records watch; retrying", "bucket", s.bucket, "err", err, "in", wait)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -273,7 +273,7 @@ func (s *Source[K]) reopen(ctx context.Context, kv events.KV, q workqueue.TypedR
 		w, recreated, err := s.open(ctx, kv, false)
 		if err != nil {
 			wait = min(wait*2, reopenMax)
-			log.Warn("recordsource: could not reopen the records watch; retrying", "error", err, "in", wait)
+			log.Warn("recordsource: could not reopen the records watch; retrying", "err", err, "in", wait)
 			continue
 		}
 		if recreated {

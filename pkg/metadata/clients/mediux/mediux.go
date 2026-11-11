@@ -468,7 +468,7 @@ func (c *Client) MovieSets(ctx context.Context, tmdbID string) (*Movie, error) {
 	case errors.Is(err, ErrQuery):
 		// The film keeps its own sets; the second query was never
 		// recorded live, and a schema MediUX changed must not cost them.
-		logging.FromContext(ctx).WarnContext(ctx, "mediux: a film's collection-set images could not be asked for; using its movie sets alone", "tmdb", tmdbID, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "mediux: a film's collection-set images could not be asked for; using its movie sets alone", "tmdb", tmdbID, "err", err)
 	case err != nil:
 		tracing.RecordError(span, err)
 		return nil, err

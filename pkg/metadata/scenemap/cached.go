@@ -161,7 +161,7 @@ func load[T any](ctx context.Context, c *Cached, key string, ttl time.Duration, 
 		hit, err := c.cache.Get(ctx, key, &v)
 		if err != nil {
 			// A corrupt or unreadable entry is a miss, not an outage.
-			logger.WarnContext(ctx, "scenemap: cache read failed; refetching", "key", key, "error", err)
+			logger.WarnContext(ctx, "scenemap: cache read failed; refetching", "key", key, "err", err)
 		} else if hit {
 			return v, nil
 		}
@@ -191,7 +191,7 @@ func load[T any](ctx context.Context, c *Cached, key string, ttl time.Duration, 
 		v, err = fetch(ctx)
 		if err == nil {
 			if serr := c.cache.Set(ctx, key, v, ttl); serr != nil {
-				logger.WarnContext(ctx, "scenemap: cache write failed", "key", key, "error", serr)
+				logger.WarnContext(ctx, "scenemap: cache write failed", "key", key, "err", serr)
 			}
 		}
 		f.err = err

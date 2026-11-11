@@ -615,14 +615,14 @@ func (p *Pool) fetchBatchOn(ctx context.Context, ids []string, servers []string,
 				!errors.Is(err, errAuth) && s.available(time.Now())
 			if retry {
 				log.WarnContext(ctx, "nntp connection failed mid-batch; retrying the rest on the same provider",
-					"provider", s.p.Name, "attempt", attempt, "of", maxArticleTries, "error", err)
+					"provider", s.p.Name, "attempt", attempt, "of", maxArticleTries, "err", err)
 				if err := sleepCtx(ctx, articleRetryBackoff*time.Duration(attempt)); err != nil {
 					return res, err
 				}
 				continue
 			}
 			log.WarnContext(ctx, "nntp provider failed a batch, failing over",
-				"provider", s.p.Name, "articles", len(batch), "attempts", attempt, "error", err)
+				"provider", s.p.Name, "articles", len(batch), "attempts", attempt, "err", err)
 			for _, idx := range asked {
 				if !done[idx] {
 					res[idx].Err = err

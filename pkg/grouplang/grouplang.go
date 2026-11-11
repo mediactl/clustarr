@@ -224,7 +224,7 @@ func (ix *Index) Run(ctx context.Context, kv events.KV) error {
 	for {
 		ch, err := kv.Watch(ctx, ">")
 		if err != nil {
-			log.Warn("grouplang: watching the release groups failed; retrying", "error", err)
+			log.Warn("grouplang: watching the release groups failed; retrying", "err", err)
 		} else {
 			for e := range ch {
 				ix.apply(e)

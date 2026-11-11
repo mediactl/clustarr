@@ -178,7 +178,7 @@ func (c *Client) Artwork(ctx context.Context, kind commonv1.MediaKind, ids metad
 	var raw index
 	if err := c.h.GetJSON(ctx, c.baseURL+path, nil, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logging.FromContext(ctx).DebugContext(ctx, "coverart: index fetch failed", "path", path, "error", err)
+		logging.FromContext(ctx).DebugContext(ctx, "coverart: index fetch failed", "path", path, "err", err)
 		return nil, err
 	}
 

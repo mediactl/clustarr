@@ -1113,7 +1113,7 @@ func (j *job) breach(ctx context.Context, detail string, cause error) error {
 	j.mu.Unlock()
 	j.client.turnChanged()
 	if err := j.checkpoint(); err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "usenet checkpoint failed", "download", j.id, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "usenet checkpoint failed", "download", j.id, "err", err)
 	}
 	logging.FromContext(ctx).WarnContext(ctx, "usenet download paused by its health action",
 		"download", j.id, "detail", detail)
@@ -1217,7 +1217,7 @@ func (j *job) startCheckpoint(ctx context.Context, fail func(error)) func() {
 						return
 					}
 					logging.FromContext(ctx).WarnContext(ctx, "usenet checkpoint failed",
-						"download", j.id, "error", err)
+						"download", j.id, "err", err)
 				}
 			}
 		}

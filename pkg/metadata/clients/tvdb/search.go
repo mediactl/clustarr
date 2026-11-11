@@ -56,7 +56,7 @@ func (c *Client) SearchSeries(ctx context.Context, q string) ([]metadata.SearchH
 	var raw searchResponse
 	if err := c.doRequest(ctx, http.MethodGet, path, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logging.FromContext(ctx).ErrorContext(ctx, "tvdb: series search failed", "error", err)
+		logging.FromContext(ctx).ErrorContext(ctx, "tvdb: series search failed", "err", err)
 		return nil, err
 	}
 	hits := make([]metadata.SearchHit, 0, len(raw.Data))

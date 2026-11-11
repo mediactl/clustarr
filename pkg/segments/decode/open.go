@@ -118,7 +118,7 @@ func open(ctx context.Context, path string, pick func([]*ffgo.StreamInfo) *ffgo.
 			_ = in.Close()
 			return fail(err)
 		}
-		logging.FromContext(ctx).DebugContext(ctx, "decode: seek failed; decoding from the start", "path", path, "at", atS, "error", err)
+		logging.FromContext(ctx).DebugContext(ctx, "decode: seek failed; decoding from the start", "path", path, "at", atS, "err", err)
 	}
 	if err := in.Discard(si.Index); err != nil { // after the seek, as ist_add does
 		_ = in.Close()

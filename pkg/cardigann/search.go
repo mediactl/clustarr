@@ -465,7 +465,7 @@ func applyDateHeader(ctx context.Context, rel *torznab.Release, row Doc, b Selec
 	}
 	t, err := parseUnknownDate(val, tc.effectiveNow())
 	if err != nil {
-		log.Debug("cardigann: dropping row: date header does not parse", "error", err)
+		log.Debug("cardigann: dropping row: date header does not parse", "err", err)
 		return false
 	}
 	rel.PubDate = t

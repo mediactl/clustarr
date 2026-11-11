@@ -104,12 +104,12 @@ func (r *LibraryRepairer) Repair(ctx context.Context, dir, indexFile string) (Pa
 		attribute.Int("par2.missing_files", res.Headers.MissingFiles),
 	)
 	log := logging.FromContext(ctx)
-	log.DebugContext(ctx, "par2 finished", "index", indexFile, "status", res.Status, "error", err, "library", res.Library)
+	log.DebugContext(ctx, "par2 finished", "index", indexFile, "status", res.Status, "err", err, "library", res.Library)
 	if errors.Is(err, par2child.ErrChildDied) && ctx.Err() != nil {
 		// Its deadline, grace and reap slack have passed: a read blocked in
 		// the kernel (D state on a hung NFS mount). The child is reaped,
 		// and par2child.Unreaped uncounts it, once that I/O returns.
-		log.ErrorContext(ctx, "par2 child did not exit after its deadline", "dir", abs, "error", err)
+		log.ErrorContext(ctx, "par2 child did not exit after its deadline", "dir", abs, "err", err)
 	}
 	out, verr := par2Verdict(res, err)
 	if verr != nil {

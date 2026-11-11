@@ -178,7 +178,7 @@ func (b *Bus) maybeLeave(r *responder, now time.Time) {
 		n, err := b.opts.peers(ctx, r.subject, r.queue)
 		cancel()
 		if err != nil {
-			log.Debug("bus: could not count a slow responder's peers; it stays", "subject", r.subject, "error", err)
+			log.Debug("bus: could not count a slow responder's peers; it stays", "subject", r.subject, "err", err)
 		} else {
 			peers = n
 		}
@@ -229,7 +229,7 @@ func (b *Bus) rejoin(r *responder) {
 	sub, err := r.subscribe()
 	if err != nil {
 		log.Warn("bus: responder could not rejoin its queue group; retrying",
-			"subject", r.subject, "queue", r.queue, "error", err)
+			"subject", r.subject, "queue", r.queue, "err", err)
 		r.rejoin = time.AfterFunc(b.opts.slowConsumerRejoin(), func() { b.rejoin(r) })
 		return
 	}

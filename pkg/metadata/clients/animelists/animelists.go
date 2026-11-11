@@ -283,7 +283,7 @@ func (c *Client) load(ctx context.Context) (*dataset, error) {
 	next, nextETag, err := c.download(ctx, etag, ds != nil)
 	if err != nil {
 		if ds != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "animelists: refresh failed; serving the dataset already loaded", "error", err)
+			logging.FromContext(ctx).WarnContext(ctx, "animelists: refresh failed; serving the dataset already loaded", "err", err)
 			c.mu.Lock()
 			c.loadedAt = c.now() // retry after another interval, not on every call
 			c.mu.Unlock()

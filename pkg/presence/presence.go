@@ -95,13 +95,13 @@ func (w *Writer) Run(ctx context.Context) error {
 	defer ticker.Stop()
 	for {
 		if err := w.write(ctx); err != nil && ctx.Err() == nil {
-			log.Warn("presence: could not write the presence key", "error", err)
+			log.Warn("presence: could not write the presence key", "err", err)
 		}
 		select {
 		case <-ctx.Done():
 			dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deleteTimeout)
 			if err := w.KV.Delete(dctx, w.Key()); err != nil {
-				log.Debug("presence: could not delete the presence key at stop", "error", err)
+				log.Debug("presence: could not delete the presence key at stop", "err", err)
 			}
 			cancel()
 			return nil

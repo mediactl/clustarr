@@ -54,7 +54,7 @@ func (b *Bus) bindConsumer(ctx context.Context, stream, durable string) (jetstre
 		}
 		if time.Since(warned) >= bindWarnEvery {
 			logging.FromContext(ctx).Warn("bus: waiting for a durable the manager creates",
-				"stream", stream, "durable", durable, "error", lookupError(stream, durable, err))
+				"stream", stream, "durable", durable, "err", lookupError(stream, durable, err))
 			warned = time.Now()
 		}
 		select {

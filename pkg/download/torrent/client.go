@@ -286,7 +286,7 @@ func (c *Client) Info(ctx context.Context) (download.Info, error) {
 
 	free, err := fsops.FreeBytes(c.cfg.DataDir)
 	if err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "torrent: statfs data dir failed", "dir", c.cfg.DataDir, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "torrent: statfs data dir failed", "dir", c.cfg.DataDir, "err", err)
 		free = 0
 	}
 
@@ -910,7 +910,7 @@ func (c *Client) publish(id string) {
 		sess.publishing = false
 		sess.mu.Unlock()
 		t.DisallowDataDownload()
-		log.Error("torrent: publish failed", "id", id, "reason", reason, "error", err)
+		log.Error("torrent: publish failed", "id", id, "reason", reason, "err", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 		fail(err)

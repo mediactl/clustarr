@@ -161,7 +161,7 @@ func (r *responder) call(ctx context.Context, reqEnv *events.Envelope, hooks eve
 		data, stack, err := events.CallResponder(wctx, r.handle, req)
 		if stack != nil {
 			logging.FromContext(wctx).Error("bus: responder handler panicked",
-				"subject", r.subject, "error", err, "stack", string(stack))
+				"subject", r.subject, "err", err, "stack", string(stack))
 		}
 		ch <- result{data: data, err: err}
 	}()

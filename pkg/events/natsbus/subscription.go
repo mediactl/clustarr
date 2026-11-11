@@ -229,11 +229,11 @@ func (s *subscription) pullLoop() {
 		case err == nil, ctx.Err() != nil, benignFetchError(err):
 		case consumerGone(err):
 			logging.FromContext(ctx).Warn("bus: durable gone; waiting for the manager to re-create it",
-				"stream", s.sub.Stream, "durable", s.sub.Durable, "error", err)
+				"stream", s.sub.Stream, "durable", s.sub.Durable, "err", err)
 			cons = nil
 		default:
 			logging.FromContext(ctx).Warn("bus: fetch failed; retrying",
-				"durable", s.sub.Durable, "error", err)
+				"durable", s.sub.Durable, "err", err)
 			select {
 			case <-ctx.Done():
 				return

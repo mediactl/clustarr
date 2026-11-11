@@ -1114,7 +1114,7 @@ func (j *job) waitForProviders(ctx context.Context, cause error) error {
 	j.mu.Unlock()
 	_ = j.checkpoint()
 	logging.FromContext(ctx).WarnContext(ctx, "no usenet provider could be asked; waiting to retry",
-		"download", j.id, "retryIn", j.client.cfg.ProviderRetryDelay, "error", cause)
+		"download", j.id, "retryIn", j.client.cfg.ProviderRetryDelay, "err", cause)
 
 	select {
 	case <-ctx.Done():
@@ -1141,7 +1141,7 @@ func (j *job) abort(ctx context.Context, err error) {
 		j.mu.Unlock()
 	}
 	j.fail(reason, err)
-	logging.FromContext(ctx).ErrorContext(ctx, "usenet download failed", "reason", reason, "error", err)
+	logging.FromContext(ctx).ErrorContext(ctx, "usenet download failed", "reason", reason, "err", err)
 }
 
 // failureReason classifies a pipeline error. ctx is the job's run context:
@@ -1232,7 +1232,7 @@ func (j *job) preCheck(ctx context.Context) error {
 		// The pre-check is an optimisation; it cannot judge a release it
 		// could not look at. The transfer waits for the providers instead.
 		logging.FromContext(ctx).WarnContext(ctx, "usenet pre-check skipped: no provider could be asked",
-			"download", j.id, "error", err)
+			"download", j.id, "err", err)
 		return nil
 	}
 	if err != nil {
@@ -1354,7 +1354,7 @@ func (j *job) postProcess(ctx context.Context) error {
 				len(archiveEntryPoints(j.nzb.Files)) > 0 && !j.failedInsideArchive() {
 				logging.FromContext(ctx).WarnContext(ctx,
 					"usenet: par2 could not repair, but no missing article is inside the archive set; letting the archive's checksums judge",
-					"download", j.id, "error", err)
+					"download", j.id, "err", err)
 			} else {
 				return err
 			}

@@ -119,7 +119,7 @@ func (c *Client) Audiobook(ctx context.Context, asin string, region string) (*me
 	path := "/books/" + asin + "?region=" + region
 	if err := c.doGet(ctx, path, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "audnexus: audiobook fetch failed", "asin", asin, "region", region, "error", err)
+		logger.ErrorContext(ctx, "audnexus: audiobook fetch failed", "asin", asin, "region", region, "err", err)
 		return nil, err
 	}
 
@@ -147,7 +147,7 @@ func (c *Client) Chapters(ctx context.Context, asin string, region string) ([]me
 	path := "/books/" + asin + "/chapters?region=" + region
 	if err := c.doGet(ctx, path, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "audnexus: chapters fetch failed", "asin", asin, "region", region, "error", err)
+		logger.ErrorContext(ctx, "audnexus: chapters fetch failed", "asin", asin, "region", region, "err", err)
 		return nil, err
 	}
 
@@ -193,7 +193,7 @@ func (c *Client) AudiobookAuthor(ctx context.Context, asin string, region string
 	path := "/authors/" + asin + "?region=" + region
 	if err := c.doGet(ctx, path, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "audnexus: author fetch failed", "asin", asin, "region", region, "error", err)
+		logger.ErrorContext(ctx, "audnexus: author fetch failed", "asin", asin, "region", region, "err", err)
 		return nil, err
 	}
 

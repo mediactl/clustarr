@@ -887,7 +887,7 @@ func (b *Bus) requeue(ctx context.Context, msg *message, sub events.Subscription
 		events.WithMsgID(events.RequeueMsgID(msg.msg.env.ID, msg.msg.seq)), events.WithExpectStream(sub.Stream))
 	if err != nil {
 		logging.FromContext(ctx).Warn("bus: requeue failed; the delivery is naked instead and spends one",
-			"durable", sub.Durable, "msg_id", msg.msg.env.ID, "reason", reason, "error", err)
+			"durable", sub.Durable, "msg_id", msg.msg.env.ID, "reason", reason, "err", err)
 		msg.stream.nak(msg.msg, msg.durable, b.clock.Now(), 0)
 		return
 	}
@@ -911,7 +911,7 @@ func (b *Bus) deadLetter(ctx context.Context, msg *message, durable, reason stri
 			"schema", msg.Envelope().Schema,
 			"dlq_subject", subject,
 			"reason", reason,
-			"error", err)
+			"err", err)
 	}
 }
 

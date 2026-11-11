@@ -66,7 +66,7 @@ func KeepTopology(ctx context.Context, nc *nats.Conn, bus events.Bus, t events.T
 	ensure := func(why string) {
 		if err := EnsureTopology(ctx, bus, t); err != nil {
 			if ctx.Err() == nil {
-				log.Error("bus: ensuring the topology failed; will retry", "why", why, "error", err)
+				log.Error("bus: ensuring the topology failed; will retry", "why", why, "err", err)
 			}
 			return
 		}
@@ -86,7 +86,7 @@ func KeepTopology(ctx context.Context, nc *nats.Conn, bus events.Bus, t events.T
 			switch {
 			case err != nil:
 				if ctx.Err() == nil {
-					log.Warn("bus: could not ask what topology is missing", "error", err)
+					log.Warn("bus: could not ask what topology is missing", "err", err)
 				}
 			case len(gone) > 0:
 				log.Warn("bus: topology objects missing; re-creating them", "missing", gone)

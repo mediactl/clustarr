@@ -482,7 +482,7 @@ func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 		// inside it can, leave the delivery unsettled for redelivery rather
 		// than losing it or panicking the dispatch goroutine.
 		logging.FromContext(ctx).Error("bus: receive failed; message left for redelivery",
-			"durable", sub.Durable, "error", rerr)
+			"durable", sub.Durable, "err", rerr)
 		return
 	}
 	var err error
@@ -509,7 +509,7 @@ func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 		// A stop cut it off: not a failure, so not the error below.
 		logging.FromContext(hctx).Info("bus: delivery requeued",
 			"durable", sub.Durable, "schema", msg.Envelope().Schema, "msg_id", msg.Envelope().ID,
-			"attempt", msg.Attempt(), "reason", s.Reason, "error", err)
+			"attempt", msg.Attempt(), "reason", s.Reason, "err", err)
 	} else if err != nil {
 		// A handler that fails on every delivery is otherwise completely
 		// silent: the message is naked and redelivered forever with nothing
@@ -524,7 +524,7 @@ func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 			"attempt", msg.Attempt(),
 			"action", string(s.Action),
 			"reason", s.Reason,
-			"error", err)
+			"err", err)
 	}
 	switch s.Action {
 	case events.SettleAck:
@@ -557,7 +557,7 @@ func (b *Bus) requeue(ctx context.Context, msg *message, sub events.Subscription
 	})
 	if err != nil {
 		logging.FromContext(ctx).Warn("bus: requeue failed; the delivery is naked instead and spends one",
-			"durable", sub.Durable, "msg_id", msg.Envelope().ID, "reason", reason, "error", err)
+			"durable", sub.Durable, "msg_id", msg.Envelope().ID, "reason", reason, "err", err)
 	}
 }
 
@@ -581,7 +581,7 @@ func (b *Bus) deadLetter(ctx context.Context, msg events.Message, durable, reaso
 			"schema", msg.Envelope().Schema,
 			"dlq_subject", subject,
 			"reason", reason,
-			"error", err)
+			"err", err)
 	}
 }
 
@@ -687,7 +687,7 @@ func (b *Bus) Serve(subject, queue string,
 		defer cancel()
 		if err := r.drain(ctx); err != nil {
 			logging.FromContext(r.ctx).Warn("bus: responder drain cut short; running handlers cancelled",
-				"subject", subject, "error", err)
+				"subject", subject, "err", err)
 		}
 		b.forgetResponder(r)
 	}
@@ -704,7 +704,7 @@ func (b *Bus) respond(ctx context.Context, gate *events.ServeGate, subject strin
 		// The caller has given up (or the bus closed) before a slot
 		// freed: nobody is listening for an answer, so run nothing.
 		logging.FromContext(ctx).Debug("bus: request dropped: no handler slot before its deadline",
-			"subject", m.Subject, "error", err)
+			"subject", m.Subject, "err", err)
 		return
 	}
 	defer release()
@@ -724,7 +724,7 @@ func (b *Bus) respond(ctx context.Context, gate *events.ServeGate, subject strin
 	data, stack, err := events.CallResponder(ctx, h, m.Data)
 	if stack != nil {
 		logging.FromContext(ctx).Error("bus: responder handler panicked",
-			"subject", subject, "error", err, "stack", string(stack))
+			"subject", subject, "err", err, "stack", string(stack))
 	}
 	if err != nil {
 		respondError(m, events.ServiceErrorFailed, events.OneLine(err))

@@ -229,7 +229,7 @@ func (c *Client) Movie(ctx context.Context, tmdbID string, region string) (*meta
 	if err != nil {
 		mapped := c.mapError(err)
 		tracing.RecordError(span, mapped)
-		logger.ErrorContext(ctx, "tmdb: movie fetch failed", "tmdb_id", tmdbID, "error", mapped)
+		logger.ErrorContext(ctx, "tmdb: movie fetch failed", "tmdb_id", tmdbID, "err", mapped)
 		return nil, mapped
 	}
 
@@ -280,7 +280,7 @@ func (c *Client) FindMovie(ctx context.Context, ids metadata.ExternalIDs) (*meta
 	if err != nil {
 		mapped := c.mapError(err)
 		tracing.RecordError(span, mapped)
-		logger.ErrorContext(ctx, "tmdb: find failed", "external_id", externalID, "source", source, "error", mapped)
+		logger.ErrorContext(ctx, "tmdb: find failed", "external_id", externalID, "source", source, "err", mapped)
 		return nil, mapped
 	}
 	if len(found.MovieResults) == 0 {
@@ -375,7 +375,7 @@ func (c *Client) SearchMovies(ctx context.Context, q string, year int) ([]metada
 	if err != nil {
 		mapped := c.mapError(err)
 		tracing.RecordError(span, mapped)
-		logger.ErrorContext(ctx, "tmdb: movie search failed", "query", q, "year", year, "error", mapped)
+		logger.ErrorContext(ctx, "tmdb: movie search failed", "query", q, "year", year, "err", mapped)
 		return nil, mapped
 	}
 
@@ -651,7 +651,7 @@ func (c *Client) addOriginalLanguage(ctx context.Context, id int, lang string, m
 		"include_image_language": lang,
 	})
 	if err != nil {
-		logger.DebugContext(ctx, "tmdb: original-language fetch failed; keeping the first", "tmdb_id", id, "error", c.mapError(err))
+		logger.DebugContext(ctx, "tmdb: original-language fetch failed; keeping the first", "tmdb_id", id, "err", c.mapError(err))
 		return
 	}
 	for _, g := range d.Genres {

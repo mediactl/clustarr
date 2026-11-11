@@ -182,7 +182,7 @@ func (c *Client) SearchArtists(ctx context.Context, q string) ([]metadata.Search
 	if err != nil {
 		mapped := mapError(err, outcome)
 		tracing.RecordError(span, mapped)
-		logger.ErrorContext(ctx, "musicbrainz: artist search failed", "query", q, "error", mapped)
+		logger.ErrorContext(ctx, "musicbrainz: artist search failed", "query", q, "err", mapped)
 		return nil, mapped
 	}
 
@@ -220,7 +220,7 @@ func (c *Client) Artist(ctx context.Context, mbArtistID string) (*metadata.Artis
 	if err != nil {
 		mapped := mapError(err, outcome)
 		tracing.RecordError(span, mapped)
-		logger.ErrorContext(ctx, "musicbrainz: artist fetch failed", "mbid", mbArtistID, "error", mapped)
+		logger.ErrorContext(ctx, "musicbrainz: artist fetch failed", "mbid", mbArtistID, "err", mapped)
 		return nil, mapped
 	}
 
@@ -259,7 +259,7 @@ func (c *Client) Albums(ctx context.Context, mbArtistID string) ([]metadata.Albu
 		if err != nil {
 			mapped := mapError(err, outcome)
 			tracing.RecordError(span, mapped)
-			logger.ErrorContext(ctx, "musicbrainz: albums browse failed", "mbid", mbArtistID, "offset", offset, "error", mapped)
+			logger.ErrorContext(ctx, "musicbrainz: albums browse failed", "mbid", mbArtistID, "offset", offset, "err", mapped)
 			return nil, mapped
 		}
 		for _, rg := range result.ReleaseGroups {
@@ -303,7 +303,7 @@ func (c *Client) Album(ctx context.Context, mbReleaseGroupID string) (*metadata.
 	if err != nil {
 		mapped := mapError(err, outcome)
 		tracing.RecordError(span, mapped)
-		logger.ErrorContext(ctx, "musicbrainz: album fetch failed", "mbid", mbReleaseGroupID, "error", mapped)
+		logger.ErrorContext(ctx, "musicbrainz: album fetch failed", "mbid", mbReleaseGroupID, "err", mapped)
 		return nil, mapped
 	}
 
@@ -311,7 +311,7 @@ func (c *Client) Album(ctx context.Context, mbReleaseGroupID string) (*metadata.
 	releases, err := c.releases(ctx, mbReleaseGroupID)
 	if err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "musicbrainz: album releases browse failed", "mbid", mbReleaseGroupID, "error", err)
+		logger.ErrorContext(ctx, "musicbrainz: album releases browse failed", "mbid", mbReleaseGroupID, "err", err)
 		return nil, err
 	}
 	album.Releases = releases

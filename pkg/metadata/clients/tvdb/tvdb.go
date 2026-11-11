@@ -402,7 +402,7 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 	var raw seriesExtendedResponse
 	if err := c.doRequest(ctx, http.MethodGet, "/series/"+tvdbID+"/extended?meta=translations", &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "tvdb: series fetch failed", "tvdb_id", tvdbID, "error", err)
+		logger.ErrorContext(ctx, "tvdb: series fetch failed", "tvdb_id", tvdbID, "err", err)
 		return nil, err
 	}
 
@@ -629,7 +629,7 @@ func (c *Client) translateSeasonNames(ctx context.Context, raw *seriesExtendedRe
 		translated++
 		t, err := c.seasonName(ctx, se.ID)
 		if err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "tvdb: season name translation", "season_id", se.ID, "error", err)
+			logging.FromContext(ctx).WarnContext(ctx, "tvdb: season name translation", "season_id", se.ID, "err", err)
 			continue
 		}
 		if t != "" && t != se.Name {
@@ -793,7 +793,7 @@ func (c *Client) walkEpisodes(ctx context.Context, path, tvdbID, order string) (
 	for page := 0; ; page++ {
 		var raw episodesResponse
 		if err := c.doRequest(ctx, http.MethodGet, path+"?page="+strconv.Itoa(page), &raw); err != nil {
-			logger.ErrorContext(ctx, "tvdb: episodes fetch failed", "tvdb_id", tvdbID, "order", order, "path", path, "page", page, "error", err)
+			logger.ErrorContext(ctx, "tvdb: episodes fetch failed", "tvdb_id", tvdbID, "order", order, "path", path, "page", page, "err", err)
 			return nil, err
 		}
 		out = append(out, raw.Data.Episodes...)
@@ -822,7 +822,7 @@ func (c *Client) Updates(ctx context.Context, since time.Time) ([]string, error)
 	var raw updatesResponse
 	if err := c.doRequest(ctx, http.MethodGet, path, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "tvdb: updates fetch failed", "error", err)
+		logger.ErrorContext(ctx, "tvdb: updates fetch failed", "err", err)
 		return nil, err
 	}
 

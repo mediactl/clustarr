@@ -127,7 +127,7 @@ func (b *Bus) BalanceLeaders(ctx context.Context, t events.Topology, o LeaderBal
 		case <-checkTick.C:
 			if bal.due(time.Now()) {
 				if err := bal.pass(ctx); err != nil && ctx.Err() == nil {
-					log.Warn("bus: balancing the JetStream leaders failed; the next election or start retries", "error", err)
+					log.Warn("bus: balancing the JetStream leaders failed; the next election or start retries", "err", err)
 				}
 			}
 		}
@@ -194,7 +194,7 @@ func (bal *balancer) sample(ctx context.Context) {
 	assets, servers, err := bal.b.leaderAssets(ctx, bal.t)
 	if err != nil {
 		if ctx.Err() == nil {
-			logging.FromContext(ctx).Debug("bus: sampling the JetStream leaders failed", "error", err)
+			logging.FromContext(ctx).Debug("bus: sampling the JetStream leaders failed", "err", err)
 		}
 		return
 	}
@@ -256,10 +256,10 @@ func (bal *balancer) move(ctx context.Context, m leaderMove) string {
 	if err := bal.b.stepDown(ctx, m.Key, m.To); err != nil {
 		var refused *stepDownRefused
 		if errors.As(err, &refused) {
-			logging.FromContext(ctx).Debug("bus: stepdown refused", "asset", m.Key.String(), "error", err)
+			logging.FromContext(ctx).Debug("bus: stepdown refused", "asset", m.Key.String(), "err", err)
 			return "refused"
 		}
-		logging.FromContext(ctx).Debug("bus: stepdown failed", "asset", m.Key.String(), "error", err)
+		logging.FromContext(ctx).Debug("bus: stepdown failed", "asset", m.Key.String(), "err", err)
 		return "failed"
 	}
 	deadline := time.Now().Add(bal.o.Confirm)

@@ -143,7 +143,7 @@ func Reduce(ctx context.Context, src, anchor string, required, optional []string
 		return "", fmt.Errorf("place the donor's audio: %w", err)
 	}
 	if err := os.Remove(src); err != nil && !errors.Is(err, os.ErrNotExist) {
-		logging.FromContext(ctx).Info("donoraudio: the donor's source stays", "path", src, "error", err)
+		logging.FromContext(ctx).Info("donoraudio: the donor's source stays", "path", src, "err", err)
 	}
 	return mka, nil
 }

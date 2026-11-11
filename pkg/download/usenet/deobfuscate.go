@@ -137,7 +137,7 @@ func (j *job) finalNames(ctx context.Context, dir string) {
 		if safeName(f.Name) == from {
 			if j.renameContent(ctx, i, to) {
 				if err := j.checkpoint(); err != nil {
-					logging.FromContext(ctx).WarnContext(ctx, "usenet checkpoint failed", "download", j.id, "error", err)
+					logging.FromContext(ctx).WarnContext(ctx, "usenet checkpoint failed", "download", j.id, "err", err)
 				}
 			}
 			return
@@ -205,7 +205,7 @@ func recoverUnpackedNames(ctx context.Context, dir string) {
 	}
 	for rel := range par2s {
 		if err := fsops.SafeRemove(ctx, dir, rel); err != nil {
-			log.WarnContext(ctx, "usenet: could not remove an unpacked par2 file", "file", rel, "error", err)
+			log.WarnContext(ctx, "usenet: could not remove an unpacked par2 file", "file", rel, "err", err)
 		}
 	}
 	for _, rel := range regularFiles(dir) {
@@ -273,7 +273,7 @@ func renamePath(ctx context.Context, dir, from, to string) bool {
 		return false
 	}
 	if err := os.Rename(filepath.Join(dir, from), filepath.Join(dir, to)); err != nil {
-		log.WarnContext(ctx, "usenet: rename failed", "from", from, "to", to, "error", err)
+		log.WarnContext(ctx, "usenet: rename failed", "from", from, "to", to, "err", err)
 		return false
 	}
 	log.InfoContext(ctx, "usenet: renamed", "from", from, "to", to)

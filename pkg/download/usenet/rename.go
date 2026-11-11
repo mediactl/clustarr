@@ -506,7 +506,7 @@ func (j *job) renameObfuscated(ctx context.Context) {
 	}
 	if renamed > 0 {
 		if err := j.checkpoint(); err != nil {
-			log.WarnContext(ctx, "usenet checkpoint failed", "download", j.id, "error", err)
+			log.WarnContext(ctx, "usenet checkpoint failed", "download", j.id, "err", err)
 		}
 	}
 }

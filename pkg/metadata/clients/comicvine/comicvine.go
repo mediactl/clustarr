@@ -208,7 +208,7 @@ func (c *Client) SearchVolumes(ctx context.Context, q string) ([]metadata.Search
 	query := url.Values{"resources": {"volume"}, "query": {q}, "field_list": {"id,name,start_year,publisher,count_of_issues,image"}}
 	if err := c.doGet(ctx, "/search/", query, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "comicvine: search failed", "query", q, "error", err)
+		logger.ErrorContext(ctx, "comicvine: search failed", "query", q, "err", err)
 		return nil, err
 	}
 
@@ -285,7 +285,7 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	guid, _, err := normalizeVolumeID(id)
 	if err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "comicvine: invalid volume id", "id", id, "error", err)
+		logger.ErrorContext(ctx, "comicvine: invalid volume id", "id", id, "err", err)
 		return nil, err
 	}
 
@@ -298,7 +298,7 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	// to the slashed form, an extra round trip per volume (X6a).
 	if err := c.doGet(ctx, "/volume/"+guid+"/", query, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "comicvine: volume fetch failed", "id", guid, "error", err)
+		logger.ErrorContext(ctx, "comicvine: volume fetch failed", "id", guid, "err", err)
 		return nil, err
 	}
 
@@ -343,7 +343,7 @@ func (c *Client) volumeStatus(ctx context.Context, lastIssueID int64, now time.T
 	var raw issueDatesResponse
 	query := url.Values{"field_list": {"cover_date,store_date"}}
 	if err := c.doGet(ctx, fmt.Sprintf("/issue/4000-%d/", lastIssueID), query, &raw); err != nil {
-		logger.WarnContext(ctx, "comicvine: latest-issue fetch failed; volume status unknown", "issue_id", lastIssueID, "error", err)
+		logger.WarnContext(ctx, "comicvine: latest-issue fetch failed; volume status unknown", "issue_id", lastIssueID, "err", err)
 		return ""
 	}
 	latest, err := time.Parse("2006-01-02", raw.Results.StoreDate)
@@ -407,7 +407,7 @@ func (c *Client) Issues(ctx context.Context, volumeID string) ([]metadata.ComicI
 	_, num, err := normalizeVolumeID(volumeID)
 	if err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "comicvine: invalid volume id", "volume_id", volumeID, "error", err)
+		logger.ErrorContext(ctx, "comicvine: invalid volume id", "volume_id", volumeID, "err", err)
 		return nil, err
 	}
 
@@ -424,7 +424,7 @@ func (c *Client) Issues(ctx context.Context, volumeID string) ([]metadata.ComicI
 		}
 		if err := c.doGet(ctx, "/issues/", query, &raw); err != nil {
 			tracing.RecordError(span, err)
-			logger.ErrorContext(ctx, "comicvine: issues fetch failed", "volume_id", num, "offset", offset, "error", err)
+			logger.ErrorContext(ctx, "comicvine: issues fetch failed", "volume_id", num, "offset", offset, "err", err)
 			return nil, err
 		}
 		for _, r := range raw.Results {
