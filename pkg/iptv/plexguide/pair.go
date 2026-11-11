@@ -89,6 +89,11 @@ type Pairing struct {
 	Candidates []Station
 	// MissingSince is set while the paired station is absent.
 	MissingSince time.Time
+	// Lineup is the lineup the pairing was judged against, the first of a
+	// provider's lineups to pair the channel (the custom-guides design
+	// §5.3); Pair leaves it to its caller, which knows the order. Empty
+	// before any lineup is held.
+	Lineup string
 }
 
 // group is one station under its base call sign (WEAR and WEARDT), served

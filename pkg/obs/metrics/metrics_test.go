@@ -141,10 +141,12 @@ const catalogueDoc = "../../../docs/observability.md"
 // and is still not registered here, so a series moved into this package
 // drops its entry.
 var registeredElsewhere = map[string]string{
-	"clustarr_ffgo_abandoned_calls":    "pkg/ffruntime/ffmetrics, on the registry of every binary that links ffgo",
-	"clustarr_segments_analyzed_total": "app/segments/worker, markers' own registry",
-	"clustarr_segments_stage_seconds":  "app/segments/worker, markers' own registry",
-	"clustarr_segments_dnn_available":  "app/segments/worker, markers' own registry",
+	"clustarr_ffgo_abandoned_calls":     "pkg/ffruntime/ffmetrics, on the registry of every binary that links ffgo",
+	"clustarr_segments_analyzed_total":  "app/segments/worker, markers' own registry",
+	"clustarr_segments_stage_seconds":   "app/segments/worker, markers' own registry",
+	"clustarr_segments_dnn_available":   "app/segments/worker, markers' own registry",
+	"clustarr_livetv_grid_calls_total":  "app/livetv/tuner, on controller-runtime's registry in the manager",
+	"clustarr_livetv_grid_hold_seconds": "app/livetv/tuner, on controller-runtime's registry in the manager",
 }
 
 var (

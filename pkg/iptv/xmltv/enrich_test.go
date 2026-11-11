@@ -166,6 +166,25 @@ func TestADescribedProgrammeIsNotLookedUp(t *testing.T) {
 	assert.Equal(t, []string{"Friends"}, asked)
 }
 
+// A Plex grid's programme (the custom-guides design §5.3) carries its plex
+// guid: the guide service already said what it is, so it is not looked up,
+// poster or not.
+func TestAGridProgrammeIsNotLookedUp(t *testing.T) {
+	var asked []string
+	e := &xmltv.Enricher{Art: func(q xmltv.ArtQuery) (xmltv.Art, bool) {
+		asked = append(asked, q.Title)
+		return xmltv.Art{URL: "y.png", Kind: xmltv.ArtSeries}, true
+	}}
+	inner := xmltv.Listing{Kind: xmltv.KindEpisode, Title: "The Outer Limits", SubTitle: "The Shroud", PlexGUID: "plex://episode/5fc6bf9abcd67c002d0836c8"}.Inner()
+	out := string(e.Enrich(inner, plain, t0, t0.Add(time.Hour)))
+	assert.Empty(t, asked, "a programme with a plex guid is described")
+	assert.NotContains(t, out, "<icon", "no art lookup, so no icon added")
+	assert.Contains(t, out, `<episode-num system="plex">plex://episode/5fc6bf9abcd67c002d0836c8</episode-num>`)
+
+	_ = e.Enrich(xmltv.Listing{Kind: xmltv.KindEpisode, Title: "Friends"}.Inner(), plain, t0, t0.Add(30*time.Minute))
+	assert.Equal(t, []string{"Friends"}, asked, "without a plex guid the lookup stands")
+}
+
 // What the source says stands: a category, an episode number and an icon
 // already there are never doubled, and a movie channel's unknown film keeps
 // Plex's movie fallback by getting no episode number.

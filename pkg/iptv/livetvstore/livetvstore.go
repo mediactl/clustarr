@@ -106,6 +106,14 @@ func PlexLineupObject(key types.NamespacedName) string {
 	return "plex-lineup/" + key.Namespace + "/" + key.Name
 }
 
+// PlexLineupObjectFor is one of a provider's Plex lineups (plexguide.Lineup,
+// JSON) by its id: every lineup its stations are paired over (the
+// custom-guides design §5.3), the cloud lineup of PlexLineupObject among
+// them.
+func PlexLineupObjectFor(key types.NamespacedName, lineupID string) string {
+	return PlexLineupObject(key) + "/" + lineupID
+}
+
 // LogoObject is the object caching one provider's processed logo, by its
 // source URL.
 func LogoObject(key types.NamespacedName, source string) string {

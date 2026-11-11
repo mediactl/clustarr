@@ -52,13 +52,20 @@ var (
 		Name: "clustarr_livetv_fetch_duration_seconds", Help: "Playlist and guide fetch time, per provider and source.",
 		Buckets: prometheus.ExponentialBuckets(0.1, 2, 12),
 	}, []string{"provider", "source"})
+	// The Plex grid fetch loop (the custom-guides design §5.3).
+	gridCalls = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "clustarr_livetv_grid_calls_total", Help: "Plex guide service grid requests, per provider and result (ok, held, error, empty).",
+	}, []string{"provider", "result"})
+	gridHold = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "clustarr_livetv_grid_hold_seconds", Help: "Seconds left of the hold the guide service's last 429 set on a provider's grid fetches; 0 when none holds.",
+	}, []string{"provider"})
 
 	metricsOnce sync.Once
 )
 
 func registerMetrics() {
 	metricsOnce.Do(func() {
-		ctrlmetrics.Registry.MustRegister(tunersInUse, viewers, streamBytes, upstreamErrors, viewersDropped, upstreamFirstByte, fetchDuration)
+		ctrlmetrics.Registry.MustRegister(tunersInUse, viewers, streamBytes, upstreamErrors, viewersDropped, upstreamFirstByte, fetchDuration, gridCalls, gridHold)
 	})
 }
 
@@ -72,4 +79,6 @@ func forgetMetrics(key types.NamespacedName) {
 	viewersDropped.DeletePartialMatch(l)
 	upstreamFirstByte.DeletePartialMatch(l)
 	fetchDuration.DeletePartialMatch(l)
+	gridCalls.DeletePartialMatch(l)
+	gridHold.DeletePartialMatch(l)
 }

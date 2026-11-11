@@ -43,6 +43,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -189,6 +190,13 @@ type provider struct {
 
 	// plex is the Plex lineup held for Config.Plex.
 	plex plexState
+	// lineups are spec.guideSources' lineups held, by id (the cloud
+	// lineup is plex's); sources schedules their fetch.
+	lineups map[string]plexguide.Lineup
+	sources lineupSchedule
+	// grids is the Plex grid fetch loop's state (the custom-guides design
+	// §5.3).
+	grids gridState
 }
 
 // surface is one block's rendered HDHomeRun surface and guide.
@@ -279,7 +287,10 @@ func (t *Tuner) Apply(c Config) {
 	t.mu.Lock()
 	p, ok := t.providers[c.Key]
 	if !ok {
-		p = &provider{key: c.Key, fetching: map[string]bool{}, logoMisses: map[string]time.Time{}, playlistDue: true, accountDue: true, guide: guide{due: true}, plex: plexState{due: true}}
+		p = &provider{
+			key: c.Key, fetching: map[string]bool{}, logoMisses: map[string]time.Time{}, playlistDue: true, accountDue: true, guide: guide{due: true},
+			plex: plexState{due: true}, sources: lineupSchedule{due: true},
+		}
 		t.providers[c.Key] = p
 	}
 	t.mu.Unlock()
@@ -296,6 +307,7 @@ func (t *Tuner) Apply(c Config) {
 	if first {
 		t.loadCache(p, c)
 		t.loadPlexLineup(p, c)
+		t.loadSourceLineups(p, c)
 	}
 
 	p.mu.Lock()
@@ -334,6 +346,7 @@ func (t *Tuner) Apply(c Config) {
 			p.plex.loaded = false
 		}
 	}
+	t.applyGuideSources(p, c, first, refreshed)
 	p.cfg = c
 	t.markWantedGuideDue(p)
 	p.mu.Unlock()
@@ -561,10 +574,26 @@ func (t *Tuner) dispatch(ctx context.Context) {
 			p.fetching["playlist"] = true
 			go t.fetchPlaylist(ctx, p, p.cfg)
 		}
-		if p.cfg.Plex != nil && p.cfg.Plex.LineupID != "" && p.cfg.Plex.Token != "" && isDue(p.plex.due, p.plex.next, now, p.fetching["plex"]) {
-			p.plex.due, p.plex.next = false, time.Time{}
+		// The Plex lineups, the cloud's and spec.guideSources', fetched in
+		// one pass.
+		cloudDue := cloudFetched(p.cfg) && isDue(p.plex.due, p.plex.next, now, p.fetching["plex"])
+		sourcesDue := len(sourceLineups(p.cfg)) > 0 && isDue(p.sources.due, p.sources.next, now, p.fetching["plex"])
+		if cloudDue || sourcesDue {
+			if cloudDue {
+				p.plex.due, p.plex.next = false, time.Time{}
+			}
+			if sourcesDue {
+				p.sources.due, p.sources.next = false, time.Time{}
+			}
 			p.fetching["plex"] = true
-			go t.fetchPlexLineup(ctx, p, p.cfg)
+			go t.fetchPlexLineups(ctx, p, p.cfg, cloudDue, sourcesDue)
+		}
+		if p.cfg.GuideSources != nil {
+			gridHold.WithLabelValues(label(p.key)).Set(max(0, p.grids.holdUntil.Sub(now).Seconds()))
+		}
+		if p.gridsDue(now) {
+			p.fetching["grids"] = true
+			go t.fetchGrids(ctx, p, p.cfg)
 		}
 		if p.playlistFetched && p.cfg.GuideSource() != "" && isDue(p.guide.due, p.guide.next, now, p.fetching["guide"]) {
 			p.guide.due, p.guide.next = false, time.Time{}

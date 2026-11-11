@@ -113,6 +113,9 @@ type programmeFacts struct {
 	// plexMovie is a programme whose plex guid (the profile's episode-num
 	// system="plex", Listing.PlexGUID) names a movie.
 	plexMovie bool
+	// plexGUID is a programme carrying a plex guid: a Plex grid's, whose
+	// guide service already said what it is.
+	plexGUID bool
 }
 
 // element is one child of <programme>, kept verbatim.
@@ -165,8 +168,10 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 	// A programme whose source already gives its image and says it is a
 	// movie or a series is not looked up: iptv-epg.org's guide carries both
 	// for most of its 1.1 million programmes, and every lookup queued is a
-	// gateway search and, once answered, a guide rebuild PMS reloads.
-	described := f.hasIcon && (f.categories["movie"] || f.categories["series"])
+	// gateway search and, once answered, a guide rebuild PMS reloads. A
+	// Plex grid's programme (its plex guid) is described whatever it
+	// carries: its images are the guide service's.
+	described := f.plexGUID || (f.hasIcon && (f.categories["movie"] || f.categories["series"]))
 	var art Art
 	var haveArt bool
 	if e != nil && e.Art != nil && !described && !event && class != classSports && class != classNews && lookupWorthy(title) {
@@ -374,8 +379,9 @@ func facts(elems []element) programmeFacts {
 				// The profile's plex guids are no episode numbers: PMS
 				// ignores them (spec §2.3), so they neither number the
 				// programme nor stand in for the dd_progid it needs.
-				if el.attr("system") == systemPlex && strings.HasPrefix(el.text, plexMovieGUID) {
-					f.plexMovie = true
+				if el.attr("system") == systemPlex {
+					f.plexGUID = true
+					f.plexMovie = f.plexMovie || strings.HasPrefix(el.text, plexMovieGUID)
 				}
 				continue
 			}

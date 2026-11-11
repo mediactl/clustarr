@@ -317,6 +317,9 @@ func (t *Tuner) rangeGuide(p *provider, rg channelRange) []byte {
 			loaded[GuideName] = g
 		}
 	}
+	if g, ok := p.plexGuide(chans); ok { // the grids the render merged
+		loaded[plexGuideName] = g
+	}
 
 	var b bytes.Buffer
 	_ = buildGuide(&b, chans, loaded, from, guideDays, enricher)

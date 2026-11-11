@@ -43,7 +43,7 @@ subject may `get /metrics` (`clustarr-metrics-reader`, see `config/prometheus/RE
 
 ## Metric catalogue
 
-Every series below except the four marked otherwise is registered by
+Every series below except the six marked otherwise is registered by
 `pkg/obs/metrics.Register`, called once per process against controller-runtime's registry --
 one place the catalogue is defined, one place a cardinality regression is caught
 (`pkg/obs/metrics/metrics_test.go` fails the build if a label named `title`, `path`, `file`,
@@ -177,6 +177,19 @@ notification.
 | `clustarr_rowcache_object_bytes` | gauge | `kind` | manager | The same objects' serialized size before compression, so `bytes / object_bytes` is the compression ratio (4.9-8.3x with a dictionary on the owner's library). | `clustarr_rowcache_bytes / clustarr_rowcache_object_bytes` |
 | `clustarr_rowcache_dictionary_bytes` | gauge | `kind` | manager | The size of the dictionary a kind's rows are compressed with; 0 until one is built from the initial list, which is when the ratio is at its worst. | `min by (kind) (clustarr_rowcache_dictionary_bytes) == 0` |
 | `clustarr_rowcache_decodes_total` | counter | `kind`, `reason` (`read`, `event`, `index`, `sample`) | manager | Rows decoded back into objects. A high `read` rate on a kind means something lists the whole collection instead of a marker index (the first deploy OOM-looped on three such map functions). | `sum by (kind, reason) (rate(clustarr_rowcache_decodes_total[5m]))` |
+
+### Live TV guide sources (2026-11-10)
+
+The tuner's Plex grid fetch loop (`app/livetv/tuner/grids.go`,
+`docs/superpowers/specs/2026-11-10-livetv-custom-guides-design.md` §5.3): one
+`/grid/bulk` request per paired station a day, paced at `guideSources.plex.rate`, held after a
+429. Both are registered by the tuner itself on controller-runtime's registry (not by
+`pkg/obs/metrics.Register`), so only the leader's `/metrics` carries them.
+
+| Metric | Type | Labels | Recorded by | What it signals | Example query |
+|---|---|---|---|---|---|
+| `clustarr_livetv_grid_calls_total` | counter | `provider`, `result` (`ok`, `held`, `error`, `empty`) | manager (the Live TV tuner, leader only) | Grid requests to Plex's guide service by outcome: `ok` stored a grid, `empty` (or a 404) left the channel on its next source, `held` was a 429 that held the provider's grids, `error` a failed request or store. About one `ok` per paired station a day; a steady `error` or `held` rate means channels are falling back to XMLTV. | `sum by (provider, result) (increase(clustarr_livetv_grid_calls_total[1d]))` |
+| `clustarr_livetv_grid_hold_seconds` | gauge | `provider` | manager (the Live TV tuner, leader only) | Seconds left of the hold the guide service's last 429 set (max of its Retry-After and a minute); 0 when none holds. | `max by (provider) (clustarr_livetv_grid_hold_seconds) > 0` |
 
 ### Adding a metric
 

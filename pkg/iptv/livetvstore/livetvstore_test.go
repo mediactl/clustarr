@@ -67,6 +67,11 @@ func TestGridObject(t *testing.T) {
 	assert.Equal(t, "grid/media/argon-tv/abc123", livetvstore.GridObject(key, "abc123"))
 }
 
+func TestPlexLineupObjectFor(t *testing.T) {
+	assert.Equal(t, "plex-lineup/media/argon-tv", livetvstore.PlexLineupObject(key), "the cloud lineup's, which the ui reads")
+	assert.Equal(t, "plex-lineup/media/argon-tv/657c8183afd0f02cd353633f", livetvstore.PlexLineupObjectFor(key, "657c8183afd0f02cd353633f"))
+}
+
 func TestLineupPlanObjectAndRoundTrip(t *testing.T) {
 	assert.Equal(t, "lineup-plan/media/argon-tv", livetvstore.LineupPlanObject(key))
 	in := livetvstore.LineupPlan{

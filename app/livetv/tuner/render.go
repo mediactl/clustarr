@@ -22,6 +22,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -137,6 +138,7 @@ func (t *Tuner) render(p *provider) {
 	states := make(map[string]ChannelState, len(chans))
 	taken := map[string]bool{}
 	var plexChans []plexguide.Channel
+	objOf := map[string]string{} // a placed channel's IPTVChannel, by number
 	numberOf := make(map[string]string, len(chans))
 	for _, ch := range chans {
 		numberOf[ch.Object] = ch.Number
@@ -165,8 +167,10 @@ func (t *Tuner) render(p *provider) {
 			continue
 		}
 		taken[ch.Number] = true
+		objOf[ch.Number] = ch.Object
 		name := firstNonEmpty(ch.Name, e.Name)
-		lc := xmltv.LineupChannel{Number: ch.Number, Name: name, TimeshiftMinutes: ch.TimeshiftMinutes, Group: ch.Group}
+		// The enricher classifies by the group, else the lineup category.
+		lc := xmltv.LineupChannel{Number: ch.Number, Name: name, TimeshiftMinutes: ch.TimeshiftMinutes, Group: firstNonEmpty(ch.Group, ch.Category)}
 		switch {
 		case ch.Map != nil:
 			m := *ch.Map
@@ -208,7 +212,7 @@ func (t *Tuner) render(p *provider) {
 		languages[ch.Number] = languageCode(ch.Language)
 		lineupChans = append(lineupChans, lc)
 		states[ch.Object] = st
-		if cfg.Plex != nil {
+		if cfg.Plex != nil || cfg.GuideSources != nil {
 			pc := plexguide.Channel{
 				Object: ch.Object, Number: ch.Number, Name: name, ChannelID: e.TvgID,
 				Station: ch.PlexStation, Off: ch.PlexOff, Timeshifted: ch.TimeshiftMinutes != 0, Prev: ch.PlexPrev,
@@ -219,44 +223,63 @@ func (t *Tuner) render(p *provider) {
 			plexChans = append(plexChans, pc)
 		}
 	}
-	// The channels' pairings with the Plex lineup (the Plex native guide
-	// design §5.3): none until a lineup is held, so a restart before the
-	// cache or the first fetch moves nobody.
+	// The channels' stations (the Plex native guide design §5.3, over the
+	// custom guides' lineups, §5.3 of 2026-11-10): a lineup not yet held
+	// keeps the pairings the statuses record, so a restart before the cache
+	// or the first fetch moves nobody. A Plex block's map is the cloud
+	// lineup's pairing alone; a station's grid feeds its channel only with
+	// guide sources configured.
+	recorded, cloud := p.pairStations(cfg, plexChans, t.o.Now())
 	plexByNumber := map[string]plexguide.Station{}
-	if cfg.Plex != nil {
-		var pairs map[string]plexguide.Pairing
-		if p.plex.loaded {
-			pairs = plexguide.Pair(p.plex.lineup, plexChans, t.o.Now())
-		} else {
-			// No lineup held yet (no cache, the first fetch pending): each
-			// channel keeps the pairing its status records, so a Plex block
-			// keeps serving its map and no channel's status moves.
-			pairs = make(map[string]plexguide.Pairing, len(plexChans))
-			for _, c := range plexChans {
-				pairs[c.Object] = plexguide.Pairing{Match: plexguide.NoLineup}
-				if c.Prev.Match.OnPlex() && c.Prev.Station.ID != "" {
-					pairs[c.Object] = plexguide.Pairing{Match: c.Prev.Match, Station: c.Prev.Station, MissingSince: c.Prev.MissingSince}
-				}
-			}
-		}
-		for obj, pair := range pairs {
-			st := states[obj]
-			st.Plex = &pair
-			states[obj] = st
-			if pair.Match.OnPlex() {
-				plexByNumber[numberOf[obj]] = pair.Station
-			}
+	for obj, pair := range cloud {
+		if pair.Match.OnPlex() {
+			plexByNumber[numberOf[obj]] = pair.Station
 		}
 	}
+	gridOf := map[string]string{} // channel number -> its station's grid key
+	for obj, pair := range recorded {
+		st := states[obj]
+		st.Plex = &pair
+		states[obj] = st
+		if cfg.GuideSources != nil && pair.Match.OnPlex() && pair.Station.GridKey != "" {
+			gridOf[numberOf[obj]] = pair.Station.GridKey
+		}
+	}
+	wantGrids := slices.Sorted(maps.Values(gridOf))
+	wantGrids = slices.Compact(wantGrids)
+	newGrid := false
+	for _, k := range wantGrids {
+		newGrid = newGrid || !slices.Contains(p.grids.want, k)
+	}
+	p.grids.want = wantGrids
 	plexSnap := p.plexSnapshot()
 	from := guideFrom(t.o.Now())
 	enricher := t.enricher(p)
 	p.mu.Unlock()
 
+	if newGrid {
+		t.poke() // a station's grid to fetch
+	}
+
 	if g := loaded[GuideName]; guideLoaded && fetched && g.Programmes == nil {
 		if programmes, ok := t.loadProgrammes(p); ok {
 			g.Programmes = programmes
 			loaded[GuideName] = g
+		}
+	}
+	// A channel's programmes come from its first source with any: its
+	// station's grid, else its XMLTV mapping, else its dummy guide (the
+	// custom-guides design §5.3). Sources are never mixed in a channel.
+	var gridByNumber map[string]string
+	if fetched && len(wantGrids) > 0 {
+		var (
+			plexG     xmltv.Guide
+			gridAdded int
+		)
+		plexG, gridByNumber, gridAdded = mergeGrids(lineupChans, objOf, gridOf, t.loadGrids(p, wantGrids, from), states)
+		unmapped -= gridAdded
+		if len(plexG.Programmes) > 0 {
+			loaded[plexGuideName] = plexG
 		}
 	}
 
@@ -330,7 +353,9 @@ func (t *Tuner) render(p *provider) {
 		Tuners:          effectiveTuners(cfg, p.account),
 		Channels:        states,
 		Plex:            plexSnap,
+		GuideSources:    p.guideSourcesSnapshot(cfg),
 	}
+	p.grids.byNumber = gridByNumber
 
 	putPlaylist := fetched && p.playlist.Hash != "" && p.playlist.Hash != p.storedPlaylistHash
 	var playlistEntries []m3u.Entry

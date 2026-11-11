@@ -57,15 +57,35 @@ type PlexMapping struct {
 	LineupIdentifier string `json:"lineupIdentifier"`
 }
 
+// fetchPlexLineups is one pass of the "plex" fetch: the cloud lineup when
+// its schedule is due, spec.guideSources' lineups when theirs is; a render
+// follows.
+func (t *Tuner) fetchPlexLineups(ctx context.Context, p *provider, cfg Config, cloud, sources bool) {
+	if cloud {
+		t.fetchPlexLineup(ctx, p, cfg)
+	}
+	if sources {
+		t.fetchSourceLineups(ctx, p, cfg)
+	}
+	p.mu.Lock()
+	delete(p.fetching, "plex")
+	removed := p.removed
+	p.mu.Unlock()
+	if removed {
+		return
+	}
+	t.scheduleRender(p)
+	t.poke()
+}
+
 // fetchPlexLineup fetches cfg.Plex's lineup from Plex's cloud guide, keeps
 // it and stores it; a failure keeps the last good one and backs off.
 func (t *Tuner) fetchPlexLineup(ctx context.Context, p *provider, cfg Config) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	l, err := t.plexLineup(ctx, cfg)
+	l, err := t.plexLineup(ctx, cfg, cfg.Plex.LineupID, cfg.Plex.Token)
 
 	p.mu.Lock()
-	delete(p.fetching, "plex")
 	if p.removed {
 		p.mu.Unlock()
 		return
@@ -76,7 +96,6 @@ func (t *Tuner) fetchPlexLineup(ctx context.Context, p *provider, cfg Config) {
 		// against or stored; the configured one is fetched next.
 		p.plex.due = true
 		p.mu.Unlock()
-		t.poke()
 		return
 	}
 	now := t.o.Now()
@@ -92,15 +111,16 @@ func (t *Tuner) fetchPlexLineup(ctx context.Context, p *provider, cfg Config) {
 	}
 	p.mu.Unlock()
 	if err == nil {
+		// The cloud lineup's own object, which the ui's station picker
+		// reads, and the one every lineup is held under by id.
 		t.putJSON(t.base, livetvstore.PlexLineupObject(p.key), l)
+		t.putJSON(t.base, livetvstore.PlexLineupObjectFor(p.key, l.ID), l)
 	}
-	t.scheduleRender(p)
 }
 
-// plexLineup reads the lineup's title and stations.
-func (t *Tuner) plexLineup(ctx context.Context, cfg Config) (plexguide.Lineup, error) {
-	id := cfg.Plex.LineupID
-	h := http.Header{"X-Plex-Token": {cfg.Plex.Token}, "Accept": {"application/json"}}
+// plexLineup reads lineup id's title and stations with token.
+func (t *Tuner) plexLineup(ctx context.Context, cfg Config, id, token string) (plexguide.Lineup, error) {
+	h := http.Header{"X-Plex-Token": {token}, "Accept": {"application/json"}}
 	var l plexguide.Lineup
 	body, err := t.getWith(ctx, cfg, plexguide.LineupURL(id), h)
 	if err != nil {
