@@ -139,6 +139,7 @@ func (r *Reconciler) httpClient() *http.Client {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "import.importlist")
 	ctx, span := tracing.Start(ctx, "importlist.Reconcile")
 	defer span.End()
 	ctx = logging.NewContext(ctx, logging.FromContext(ctx).With("importList", req.String()))

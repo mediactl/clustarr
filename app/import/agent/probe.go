@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/mediactl/clustarr/app/import/worker/probe"
@@ -44,7 +46,7 @@ func registerProbeWorkers(add func(manager.Runnable) error, bus events.Subscribe
 		}
 		sub := spec.Subscription()
 		if err := add(k8s.EveryReplica(func(ctx context.Context) error {
-			stop, err := bus.Subscribe(ctx, sub, w.Handle)
+			stop, err := bus.Subscribe(logging.Subsystem(ctx, "import.probe"), sub, w.Handle)
 			if err != nil {
 				return fmt.Errorf("import: subscribe %s: %w", name, err)
 			}

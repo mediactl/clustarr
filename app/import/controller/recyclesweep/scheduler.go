@@ -74,6 +74,7 @@ func MsgID(t time.Time) string { return "recycle-sweep/" + Slot(t).Format(time.R
 // Start publishes at once, then at each slot boundary; after a failed
 // publish it waits RetryDelay instead. It returns nil when ctx ends.
 func (s *Scheduler) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "import.recyclesweep")
 	log := logging.FromContext(ctx).With("runnable", "recyclesweep")
 	for {
 		_, err := s.PublishOnce(ctx, s.now())

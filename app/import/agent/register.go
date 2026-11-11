@@ -29,6 +29,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
@@ -88,25 +90,28 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 	for _, cons := range []struct {
 		durable string
 		handle  events.Handler
+		// subsystem names the consumer's unit on every delivery's records
+		// (the 2026-11-10 logging design §5).
+		subsystem string
 	}{
 		// The library rescan, on ConsumerImportScan ("import-scan"). Its
 		// incremental fingerprint check reads the spec.path field index
 		// (rescan.FieldIndexes), which the process registers before the
 		// manager starts. It reports observations on CLUSTARR_INTAKE and
 		// writes nothing (ADR-0019 §7.6).
-		{events.ConsumerImportScan, newScanWorker(c, bus, prober, o).Handle},
+		{events.ConsumerImportScan, newScanWorker(c, bus, prober, o).Handle, "import.rescan"},
 		// The completed-download import worker (amendment §A1.2, §A1.6; plan
 		// tasks D2-7/D2-8), on ConsumerImportFile ("import-fileimport",
 		// R6). It reads the spec.mediaRef.target field index
 		// (fileimport.FieldIndexes), which the process registers before the
 		// manager starts.
-		{events.ConsumerImportFile, newImportWorker(c, api, bus, prober, o).Handle},
+		{events.ConsumerImportFile, newImportWorker(c, api, bus, prober, o).Handle, "import.fileimport"},
 		// The import-list sync worker (amendment §A1.3, §A1.6; plan task G1-3),
 		// on ConsumerImportList ("import-list"): fetch, resolve ids, and
 		// report the listed set as a snapshot in clustarr-importlist, which
 		// the ImportList controller (app/import/manager) diffs and applies
 		// (ADR-0019 §7.6). It writes no Kubernetes object.
-		{events.ConsumerImportList, newListWorker(c, api, bus, o).Handle},
+		{events.ConsumerImportList, newListWorker(c, api, bus, o).Handle, "import.importlist"},
 		// The recycle-bin sweep (spec 2026-10-06 §3.5.3): the manager queues
 		// one task every 6 h on import-recycle, so this domain has no
 		// timer and can scale to zero. fileimport.RecycleSweeper (task X7a
@@ -116,19 +121,19 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		// the import domain, whose pods mount it. The same consumer moves the
 		// files a recycle.files.* task names into their bin
 		// (fileimport.RecycleFiles, ADR-0019 §7.6).
-		{events.ConsumerImportRecycle, fileimport.RecycleHandler(fileimport.NewRecycleSweeper(c), fileimport.NewRecycleFiles(c))},
+		{events.ConsumerImportRecycle, fileimport.RecycleHandler(fileimport.NewRecycleSweeper(c), fileimport.NewRecycleFiles(c)), "import.recycle"},
 		// The NFO writes (2026-11-10 design §8.2), on ConsumerImportNFO
 		// ("import-nfo"): the manager renders an item's artist.nfo or
 		// album.nfo and names the images to copy beside it; this domain,
 		// whose pods mount /data, writes the bytes atomically and answers
 		// in clustarr-nfo. It writes no Kubernetes object.
-		{events.ConsumerImportNFO, nfo.New(bus, o.DataDir, podName()).Handle},
+		{events.ConsumerImportNFO, nfo.New(bus, o.DataDir, podName()).Handle, "import.nfo"},
 	} {
 		spec, ok := topo.Consumer(cons.durable)
 		if !ok {
 			return catalogagent.Registration{}, fmt.Errorf("import domain: consumer %s missing from topology", cons.durable)
 		}
-		sub, handle := spec.Subscription(), cons.handle
+		sub, handle, subsystem := spec.Subscription(), cons.handle, cons.subsystem
 		// k8s.EveryReplica, not manager.RunnableFunc: amendment §A1.6 runs
 		// every work.import.* consumer on EVERY replica of import-worker,
 		// and a bare RunnableFunc has no NeedLeaderElection method, so
@@ -139,7 +144,7 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		// replica that DOES elect: exactly one of them would have opened the
 		// subscription.
 		if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-			stop, err := bus.Subscribe(ctx, sub, handle)
+			stop, err := bus.Subscribe(logging.Subsystem(ctx, subsystem), sub, handle)
 			if err != nil {
 				return fmt.Errorf("import domain: subscribe %s: %w", sub.Durable, err)
 			}

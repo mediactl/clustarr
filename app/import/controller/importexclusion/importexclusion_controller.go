@@ -88,6 +88,7 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "import.importexclusion")
 	ctx, span := tracing.Start(ctx, "importexclusion.Reconcile")
 	defer span.End()
 	ctx = logging.NewContext(ctx, logging.FromContext(ctx).With("importExclusion", req.String()))

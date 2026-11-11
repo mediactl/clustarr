@@ -105,6 +105,7 @@ func deleteRequested() predicate.Predicate {
 // writes delete-error and is not retried; an API or I/O error writes it
 // and is retried with backoff.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "import.librarydelete")
 	obj := r.kind.newObject()
 	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)

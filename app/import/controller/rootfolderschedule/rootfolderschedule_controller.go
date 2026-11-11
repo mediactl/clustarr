@@ -113,6 +113,7 @@ func (r *Reconciler) now() time.Time {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "import.rootfolderschedule")
 	ctx, span := tracing.Start(ctx, "rootfolderschedule.Reconcile")
 	defer span.End()
 	ctx = logging.NewContext(ctx, logging.FromContext(ctx).With("rootFolder", req.String()))
