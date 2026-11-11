@@ -544,7 +544,7 @@ func (p *Projection) project(
 	if err != nil {
 		return nil, nil, nil, nil, nil, Dashboard{}, err
 	}
-	unmatched := unmatchedFromScans(scans)
+	unmatched := unmatchedFromScans(ctx, p.reader, scans)
 
 	lists, err := listImportLists(ctx, p.reader, listOpts...)
 	if err != nil {

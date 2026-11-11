@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -301,8 +302,14 @@ func (s *Server) handleAddPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// ?q fills the box and searches at once: the library typeahead's
-	// "Add a new …" carries what the reader typed (2026-10-01).
-	s.renderAddPage(w, r, k, http.StatusOK, views.AddPageData{Query: strings.TrimSpace(r.URL.Query().Get("q"))})
+	// "Add a new …" carries what the reader typed (2026-10-01). ?folder and
+	// ?root arrive with it from the Unmatched page's "Search Add New" on a
+	// folder the scan could not identify (the 2026-11-10 non-video
+	// libraries design's D20): every hit's form pins that folder.
+	query := r.URL.Query()
+	s.renderAddPage(w, r, k, http.StatusOK, views.AddPageData{
+		Query: strings.TrimSpace(query.Get("q")), Folder: strings.TrimSpace(query.Get("folder")), Root: query.Get("root"),
+	})
 }
 
 // renderAddPage renders the Add New page from d, which carries the error
@@ -322,8 +329,12 @@ func (s *Server) handleAddSearch(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	res := views.AddResultsData{Kind: k, Query: q, Region: s.addRegion(r.Context(), k)}
+	query := r.URL.Query()
+	q := strings.TrimSpace(query.Get("q"))
+	res := views.AddResultsData{
+		Kind: k, Query: q, Region: s.addRegion(r.Context(), k),
+		Folder: strings.TrimSpace(query.Get("folder")), Root: query.Get("root"),
+	}
 	switch {
 	case utf8.RuneCountInString(q) < 2:
 		res.Prompt = true
@@ -331,6 +342,12 @@ func (s *Server) handleAddSearch(w http.ResponseWriter, r *http.Request) {
 		res.Error = "Metadata search is not available: the ui has no connection to the catalog metadata service."
 	default:
 		s.addSearch(r.Context(), k, q, &res)
+		if res.RetryURL != "" {
+			// A retry keeps the folder the hits' forms pin.
+			if fq := views.AddFolderQuery(res.Folder, res.Root); fq != "" {
+				res.RetryURL += "&" + fq
+			}
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.AddResults(res).Render(r.Context(), w); err != nil {
@@ -537,6 +554,10 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 		SeriesType: r.PostFormValue("seriesType"), SeasonFolder: checked(r, "seasonFolder"),
 		SearchCutoffUnmet: checked(r, "searchCutoffUnmet"), MonitorNewItems: r.PostFormValue("monitorNewItems"),
 		ComicKind: r.PostFormValue("comicKind"), Region: r.PostFormValue("region"),
+		Folder: r.PostFormValue("folder"),
+	}
+	if rf := s.rootFolderNamed(r.Context(), ns, root); rf != nil {
+		rootDefaults(&req, k, r.PostForm, rf.Spec.Defaults)
 	}
 	// The request is checked before the author link is resolved, so a form
 	// AddItem refuses (no profile, an id that cannot key the kind) never
@@ -554,6 +575,46 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/library/"+ns+"/"+string(k.Kind)+"/"+name, http.StatusSeeOther)
+}
+
+// rootFolderNamed is the RootFolder ns/name among those the page reads,
+// or nil.
+func (s *Server) rootFolderNamed(ctx context.Context, ns, name string) *catalogv1.RootFolder {
+	for _, rf := range s.listRootFolders(ctx) {
+		if rf.Namespace == ns && rf.Name == name {
+			return &rf
+		}
+	}
+	return nil
+}
+
+// rootDefaults fills each field of req the post left out -- absent, not
+// posted empty -- from the root folder's defaults, which RootFolderSpec
+// says are applied to the items added under it: the quality profile
+// (defaults.qualityProfileRef), monitored (defaults.monitored, unset
+// true), the monitor-new mode (defaults.monitorNewItems, when it is one k
+// offers) and an audiobook's region (defaults.region). The Add New form
+// posts every one of them, so only a post that leaves them out reads the
+// root: the Unmatched page's "Add as" on a folder the scan could not
+// identify (the 2026-11-10 non-video libraries design's D20), which posts
+// the hit, the root and the folder alone and so adds the item as the root
+// scan would have created it -- the root's profile and monitoring, the
+// kind's own monitor mode, and no search (searchOnAdd left out is false;
+// D16: a scan never starts a search storm).
+func rootDefaults(req *actions.AddRequest, k views.AddKind, form url.Values, d catalogv1.RootDefaults) {
+	absent := func(name string) bool { _, ok := form[name]; return !ok }
+	if absent("qualityProfile") {
+		req.QualityProfileRef = d.QualityProfileRef
+	}
+	if absent("monitored") {
+		req.Monitored = d.Monitored == nil || *d.Monitored
+	}
+	if absent("monitorNewItems") && slices.ContainsFunc(k.MonitorNew, func(o views.AddOption) bool { return o.Value == string(d.MonitorNewItems) }) {
+		req.MonitorNewItems = string(d.MonitorNewItems)
+	}
+	if absent("region") && k.Kind == commonv1.MediaKindAudiobook {
+		req.Region = string(d.Region)
+	}
 }
 
 // audiobookAuthorRef is the Author an added audiobook is linked to
@@ -747,10 +808,13 @@ func (s *Server) rejectAdd(w http.ResponseWriter, r *http.Request, k views.AddKi
 		// still links the Author.
 		hit.Authors = []views.AddPerson{{Name: name, ASIN: asin}}
 	}
+	// An Unmatched folder's pin rides the form again, and the search box,
+	// so a second post, or another search, still pins it.
+	folder, root := strings.TrimSpace(r.PostFormValue("folder")), r.PostFormValue("rootFolder")
 	res := &views.AddResultsData{
 		Kind: k, Query: q, OpenID: id, Posted: r.PostForm, Region: s.addRegion(r.Context(), k),
-		Hits: []views.AddHit{hit},
+		Hits: []views.AddHit{hit}, Folder: folder, Root: root,
 	}
 	res.RootFolders, res.Profiles = s.addChoices(r.Context(), k)
-	s.renderAddPage(w, r, k, status, views.AddPageData{ErrorCode: code, Error: err.Error(), Query: q, Results: res})
+	s.renderAddPage(w, r, k, status, views.AddPageData{ErrorCode: code, Error: err.Error(), Query: q, Results: res, Folder: folder, Root: root})
 }

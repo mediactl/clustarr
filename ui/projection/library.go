@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -239,9 +240,9 @@ func RootFolderKinds(tab Tab) []catalogv1.RootFolderKind {
 // UnmatchedEntry is one row on the Unmatched page (amendment §A3.4): one file
 // from one LibraryScan's status.unmatched list (A1.5's never-guess output),
 // plus enough of the scan's own identity for the row to be useful without a
-// second lookup. This task's Unmatched page is read-only (G3-4 adds the
-// manual-assign action once G2-4 defines its mechanism in import), so
-// this type carries no action-oriented fields.
+// second lookup: a file's manual-assign form (Task G3-4) needs no more, and
+// a folder's Add buttons (the 2026-11-10 non-video libraries design's D20)
+// read Folder, Tab and Kind.
 type UnmatchedEntry struct {
 	// ScanRef identifies the LibraryScan this file was reported by.
 	ScanRef types.NamespacedName
@@ -257,11 +258,116 @@ type UnmatchedEntry struct {
 	Reason string
 
 	// Candidates lists catalog items the scanner considered but could not
-	// confidently match to.
+	// confidently match to; for a Folder entry, the provider's hits, each
+	// "Name (disambiguation) [id]" ([ParseFolderCandidate]).
 	Candidates []string
+
+	// Folder marks an entry that is a folder the scan could not identify
+	// as an Artist, Author or Audiobook (UnmatchedFile.Folder; the
+	// 2026-11-10 non-video libraries design's D16): Path is the folder,
+	// relative to the root, and its files are counted among those awaiting
+	// their item's children, not listed. The Unmatched page offers its
+	// candidates as the item to add, the folder pinned (D20).
+	Folder bool
+
+	// Tab and Kind are, for a Folder entry, the library tab whose Add New
+	// the folder is added through and the kind it is added as: a music
+	// root's folder is an Artist, a book root's an Author, an audiobook
+	// root's an Audiobook ([FolderKind]), read off the scan's RootFolder.
+	// Both are empty for a file entry, and for a folder whose RootFolder
+	// could not be read or holds another kind, which the page then offers
+	// nothing to add for.
+	Tab  Tab
+	Kind commonv1.MediaKind
 
 	// SeenAt is when the scanner last observed this file.
 	SeenAt metav1.Time
+}
+
+// FolderKind is the kind a folder directly under a RootFolder of kind rk
+// is added as, and the tab that adds it -- a music root's folder is an
+// Artist on the Music tab, a book root's an Author on the Books tab, an
+// audiobook root's (its "<author>/<title>") an Audiobook on the Audiobooks
+// tab -- the three containers a root scan creates from their folders (the
+// 2026-11-10 non-video libraries design's D16). Any other kind is "", "":
+// a movie's and a series' folders are identified by their files' ids.
+func FolderKind(rk catalogv1.RootFolderKind) (commonv1.MediaKind, Tab) {
+	switch rk {
+	case catalogv1.RootFolderKindMusic:
+		return commonv1.MediaKindArtist, TabMusic
+	case catalogv1.RootFolderKindBook:
+		return commonv1.MediaKindAuthor, TabBooks
+	case catalogv1.RootFolderKindAudiobook:
+		return commonv1.MediaKindAudiobook, TabAudiobooks
+	}
+	return "", ""
+}
+
+// FolderCandidate is one provider hit an unidentified folder lists
+// (UnmatchedFile.Candidates): the hit's canonical Name, the provider's
+// Disambiguation ("90s US grunge band"; "" when it has none) and its ID --
+// a MusicBrainz artist id, an Open Library author key, an ASIN.
+type FolderCandidate struct {
+	Name, Disambiguation, ID string
+}
+
+// Label is the candidate as a person reads it: "Nirvana (90s US grunge
+// band)", the name alone when there is no disambiguation.
+func (c FolderCandidate) Label() string {
+	if c.Disambiguation == "" {
+		return c.Name
+	}
+	return c.Name + " (" + c.Disambiguation + ")"
+}
+
+// ParseFolderCandidate reads one candidate of a Folder entry, the shape
+// the rescan's folder identification writes (the design's D16): "Name
+// (disambiguation) [id]", or "Name [id]" for a hit with no
+// disambiguation. The id is the last bracketed token, and the
+// disambiguation the parenthesised group that closes the name, matched from
+// its closing parenthesis back, so a name that ends in parentheses of its
+// own ("Sunn O)))") keeps them. A string with no bracketed id or no name --
+// a file entry's candidate, an item name -- is no FolderCandidate.
+func ParseFolderCandidate(s string) (FolderCandidate, bool) {
+	s = strings.TrimSpace(s)
+	if !strings.HasSuffix(s, "]") {
+		return FolderCandidate{}, false
+	}
+	open := strings.LastIndex(s, " [")
+	if open <= 0 {
+		return FolderCandidate{}, false
+	}
+	id := s[open+2 : len(s)-1]
+	if id == "" || strings.ContainsAny(id, "[] \t") {
+		return FolderCandidate{}, false
+	}
+	name := strings.TrimSpace(s[:open])
+	c := FolderCandidate{Name: name, ID: id}
+	if strings.HasSuffix(name, ")") {
+		depth := 0
+		for i := len(name) - 1; i >= 0; i-- {
+			switch name[i] {
+			case ')':
+				depth++
+			case '(':
+				depth--
+			}
+			if depth != 0 {
+				continue
+			}
+			// The group closing the name opens at i; it is a
+			// disambiguation only when a space parts it from a name.
+			if i > 1 && name[i-1] == ' ' && strings.TrimSpace(name[:i-1]) != "" {
+				c.Name = strings.TrimSpace(name[:i-1])
+				c.Disambiguation = strings.TrimSpace(name[i+1 : len(name)-1])
+			}
+			break
+		}
+	}
+	if c.Name == "" {
+		return FolderCandidate{}, false
+	}
+	return c, true
 }
 
 // buildLibraryItems derives one [LibraryItem] per item, reusing the
@@ -631,20 +737,42 @@ func listLibraryScans(ctx context.Context, r client.Reader, opts ...client.ListO
 // into one slice, newest first across scans (each scan's own list is already
 // newest-first per its doc comment, but multiple scans' entries must be
 // merged and re-sorted rather than concatenated in list order, which is
-// undefined across separate objects).
-func unmatchedFromScans(scans []catalogv1.LibraryScan) []UnmatchedEntry {
+// undefined across separate objects). A Folder entry is given the tab and
+// kind its RootFolder's folders are added as ([FolderKind]), each
+// RootFolder read once per round through r -- a Get, which the ui's cache
+// answers, and only for a scan that lists a folder; a RootFolder's kind is
+// immutable, so no round needs to watch it.
+func unmatchedFromScans(ctx context.Context, r client.Reader, scans []catalogv1.LibraryScan) []UnmatchedEntry {
 	var out []UnmatchedEntry
+	roots := map[types.NamespacedName]catalogv1.RootFolderKind{}
+	rootKind := func(key types.NamespacedName) catalogv1.RootFolderKind {
+		if kind, ok := roots[key]; ok {
+			return kind
+		}
+		var rf catalogv1.RootFolder
+		if r != nil && r.Get(ctx, key, &rf) == nil {
+			roots[key] = rf.Spec.Kind
+		} else {
+			roots[key] = "" // gone, or unreadable: nothing to add the folder as
+		}
+		return roots[key]
+	}
 	for i := range scans {
 		scan := &scans[i]
 		for _, u := range scan.Status.Unmatched {
-			out = append(out, UnmatchedEntry{
+			e := UnmatchedEntry{
 				ScanRef:    types.NamespacedName{Namespace: scan.Namespace, Name: scan.Name},
 				RootFolder: scan.Spec.RootFolderRef,
 				Path:       u.Path,
 				Reason:     u.Reason,
 				Candidates: u.Candidates,
+				Folder:     u.Folder,
 				SeenAt:     u.SeenAt,
-			})
+			}
+			if u.Folder {
+				e.Kind, e.Tab = FolderKind(rootKind(types.NamespacedName{Namespace: scan.Namespace, Name: scan.Spec.RootFolderRef}))
+			}
+			out = append(out, e)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SeenAt.After(out[j].SeenAt.Time) })

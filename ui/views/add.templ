@@ -1,6 +1,7 @@
 package views
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -67,6 +68,13 @@ type AddPageData struct {
 	// search and the form they submitted.
 	Query   string
 	Results *AddResultsData
+	// Folder and Root arrive from the Unmatched page's "Search Add New" on
+	// a folder the scan could not identify (?folder=&root=; the 2026-11-10
+	// non-video libraries design's D20): the folder, relative to the root,
+	// that each hit's form pins as spec.folder, and the root folder
+	// ("namespace/name") it lies under, preselected. The search box carries
+	// both to its results.
+	Folder, Root string
 }
 
 // AddHit is one search result: InLibrary is the item's detail path when
@@ -132,6 +140,10 @@ type AddResultsData struct {
 	// Region is the Audible marketplace an audiobook search asked in, the
 	// form's default (the audiobook root's defaults.region, else us).
 	Region string
+	// Folder, when set, rides every hit's form hidden, which pins the
+	// added item's spec.folder (AddPageData.Folder); Root, when it is one of
+	// RootFolders, is the form's root folder.
+	Folder, Root string
 }
 
 // kindQuery is the ?kind= an alternate kind's URLs carry, "" for a tab's own.
@@ -178,12 +190,51 @@ func AddSearchURL(k AddKind, q string) string {
 // field.
 func addPostURL(k AddKind) string { return "/library/" + string(k.Tab) + "/add" }
 
-// searchVals is the search input's hx-vals: the alternate kind beside q.
-func searchVals(k AddKind) string {
-	if !k.Alternate {
+// searchVals is the search input's hx-vals: the alternate kind and an
+// Unmatched folder's folder and root beside q; "" when there is none.
+func searchVals(d AddPageData) string {
+	vals := map[string]string{}
+	if d.Kind.Alternate {
+		vals["kind"] = string(d.Kind.Kind)
+	}
+	if d.Folder != "" {
+		vals["folder"] = d.Folder
+		if d.Root != "" {
+			vals["root"] = d.Root
+		}
+	}
+	if len(vals) == 0 {
 		return ""
 	}
-	return fmt.Sprintf(`{"kind":%q}`, string(k.Kind))
+	out, err := json.Marshal(vals)
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+// AddFolderQuery is the query an Unmatched folder's Add New URLs carry:
+// "folder=…&root=…", "" without a folder.
+func AddFolderQuery(folder, root string) string {
+	if folder == "" {
+		return ""
+	}
+	q := url.Values{"folder": {folder}}
+	if root != "" {
+		q.Set("root", root)
+	}
+	return q.Encode()
+}
+
+// rootDefault is the root folder a hit's form starts on: the Unmatched
+// folder's root when it is one the form offers, else the only one.
+func rootDefault(d AddResultsData) string {
+	for _, o := range d.RootFolders {
+		if d.Root != "" && o.Value == d.Root {
+			return d.Root
+		}
+	}
+	return onlyValue(d.RootFolders)
 }
 
 templ AddPage(d AddPageData) {
@@ -242,7 +293,7 @@ func searchAttrs(d AddPageData) templ.Attributes {
 		"hx-target":    "#add-results",
 		"hx-indicator": "#add-searching",
 	}
-	if v := searchVals(d.Kind); v != "" {
+	if v := searchVals(d); v != "" {
 		attrs["hx-vals"] = v
 	}
 	return attrs
@@ -423,11 +474,14 @@ templ addForm(d AddResultsData, h AddHit) {
 				if h.Source != "" {
 					<input type="hidden" name="source" value={ h.Source }/>
 				}
+				if d.Folder != "" {
+					<input type="hidden" name="folder" value={ d.Folder } data-add-folder/>
+				}
 				if d.Kind.Kind == commonv1.MediaKindAudiobook && len(h.Authors) > 0 {
 					<input type="hidden" name="authorName" value={ h.Authors[0].Name }/>
 					<input type="hidden" name="authorASIN" value={ h.Authors[0].ASIN }/>
 				}
-				@addSelect("rootFolder", h.ID, "Root folder", d.RootFolders, posted(d, h, "rootFolder", onlyValue(d.RootFolders)))
+				@addSelect("rootFolder", h.ID, "Root folder", d.RootFolders, posted(d, h, "rootFolder", rootDefault(d)))
 				@addSelect("qualityProfile", h.ID, "Quality profile", d.Profiles, posted(d, h, "qualityProfile", onlyValue(d.Profiles)))
 				if len(d.Kind.Monitor) > 0 {
 					@addSelect("monitor", h.ID, "Monitor", d.Kind.Monitor, posted(d, h, "monitor", d.Kind.Monitor[0].Value))

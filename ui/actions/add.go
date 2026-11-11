@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -71,6 +72,15 @@ type AddRequest struct {
 	// the namespace's Authors by name). Empty links none; every other kind
 	// ignores it.
 	AuthorRef string
+	// Folder pins an Artist's, an Author's or an Audiobook's spec.folder:
+	// the item's folder under its root, relative to the root and taken as
+	// written, as a root scan pins the folder it found the item in (the
+	// 2026-11-10 non-video libraries design's D16). The Unmatched page's
+	// confirmation of a folder the scan could not identify carries it (D20),
+	// so the added item takes the folder its files are already in. Empty
+	// pins nothing (the root's naming preset decides); an absolute path or
+	// a "." or ".." component is ErrInvalid; every other kind ignores it.
+	Folder string
 }
 
 // AddableKinds are the kinds AddItem creates: the four library types of
@@ -86,8 +96,9 @@ var AddableKinds = []commonv1.MediaKind{
 // adds and one a list or the rescan finds are one object. An item that
 // already exists under that name is not an error: existed is true. The
 // apiserver validates every enum; a request with no namespace, id, root
-// folder or profile, a kind Add New does not add, or an id that cannot key
-// the kind is ErrInvalid and writes nothing.
+// folder or profile, a kind Add New does not add, an id that cannot key
+// the kind, or a folder pin that cannot lie under the root is ErrInvalid
+// and writes nothing.
 func AddItem(ctx context.Context, c Creator, req AddRequest) (name string, existed bool, err error) {
 	ctx, span := tracing.Start(ctx, "ui.actions.AddItem")
 	defer span.End()
@@ -112,8 +123,8 @@ func AddItem(ctx context.Context, c Creator, req AddRequest) (name string, exist
 
 // Validate is AddItem's own check of req without the write: the ErrInvalid
 // buildItem raises for a request with no namespace, id, root folder or
-// profile, a kind Add New does not add, or an id that cannot key the kind,
-// else nil. ui/add.go asks it before the work an add spends ahead of the
+// profile, a kind Add New does not add, an id that cannot key the kind or
+// a folder pin that cannot lie under the root, else nil. ui/add.go asks it before the work an add spends ahead of the
 // write (an audiobook's author lookup, a gateway round trip), so a form
 // AddItem would refuse costs none of it.
 func Validate(req AddRequest) error {
@@ -125,6 +136,10 @@ func Validate(req AddRequest) error {
 func buildItem(req AddRequest) (client.Object, error) {
 	if req.Namespace == "" || req.ProviderID == "" || req.RootFolderRef == "" || req.QualityProfileRef == "" {
 		return nil, fmt.Errorf("%w: an add needs a namespace, a provider id, a root folder and a quality profile", ErrInvalid)
+	}
+	folder, err := folderPin(req.Folder)
+	if err != nil {
+		return nil, err
 	}
 	source := &commonv1.AddSource{} // an empty importListRef: added by hand
 	switch req.Kind {
@@ -172,7 +187,7 @@ func buildItem(req AddRequest) (client.Object, error) {
 			Spec: catalogv1alpha1.ArtistSpec{
 				MusicBrainzID: req.ProviderID, Monitored: new(req.Monitored),
 				MonitorNewItems:   catalogv1alpha1.MonitorNewItemsMode(req.MonitorNewItems),
-				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
+				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef, Folder: folder,
 				AddOptions: catalogv1alpha1.ArtistAddOptions{
 					Monitor: catalogv1alpha1.ArtistMonitorMode(req.Monitor), SearchForMissing: ptr.To(req.SearchOnAdd),
 				},
@@ -185,7 +200,7 @@ func buildItem(req AddRequest) (client.Object, error) {
 			Spec: catalogv1alpha1.AuthorSpec{
 				OpenLibraryID: req.ProviderID, Monitored: new(req.Monitored),
 				MonitorNewItems:   catalogv1alpha1.MonitorNewChildrenMode(req.MonitorNewItems),
-				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
+				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef, Folder: folder,
 				AddOptions: catalogv1alpha1.AuthorAddOptions{
 					Monitor: catalogv1alpha1.AuthorMonitorMode(req.Monitor), SearchForMissing: ptr.To(req.SearchOnAdd),
 				},
@@ -225,7 +240,7 @@ func buildItem(req AddRequest) (client.Object, error) {
 	case commonv1.MediaKindAudiobook:
 		spec := catalogv1alpha1.AudiobookSpec{
 			ASIN: req.ProviderID, Region: catalogv1alpha1.AudiobookRegion(req.Region), Monitored: new(req.Monitored),
-			QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
+			QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef, Folder: folder,
 			AddOptions: catalogv1alpha1.AudiobookAddOptions{SearchForMissing: ptr.To(req.SearchOnAdd)},
 			Source:     source,
 		}
@@ -254,6 +269,29 @@ func buildItem(req AddRequest) (client.Object, error) {
 		}, nil
 	}
 	return nil, fmt.Errorf("%w: %q is not a kind Add New adds", ErrInvalid, req.Kind)
+}
+
+// folderPin is AddRequest.Folder as the spec.folder it pins: nil for an
+// empty or blank one, else its value with the surrounding whitespace and
+// any trailing "/" removed, every component kept as written (the pin names
+// a folder on disk, which pkg/naming/catalogctx joins under the root
+// without sanitizing). An absolute path, or a component that is blank or
+// walks the tree ("." or ".."), is ErrInvalid, as catalogctx's join would
+// refuse it: a pin outside the root names no folder of the item's.
+func folderPin(folder string) (*string, error) {
+	pin := strings.TrimRight(strings.TrimSpace(folder), "/")
+	if pin == "" {
+		return nil, nil
+	}
+	if strings.HasPrefix(pin, "/") {
+		return nil, fmt.Errorf("%w: folder %q is absolute; it is relative to the root folder", ErrInvalid, folder)
+	}
+	for comp := range strings.SplitSeq(pin, "/") {
+		if strings.TrimSpace(comp) == "" || comp == "." || comp == ".." {
+			return nil, fmt.Errorf("%w: folder %q has a blank, \".\" or \"..\" component", ErrInvalid, folder)
+		}
+	}
+	return &pin, nil
 }
 
 // openLibraryWorkID is BookSpec.workID's pattern, checked here so a hit

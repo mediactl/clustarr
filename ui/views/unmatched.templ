@@ -19,11 +19,14 @@ package views
 
 import (
 	"fmt"
+	"net/url"
+	"path"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/components/alert"
 	"github.com/mediactl/clustarr/ui/components/badge"
@@ -92,10 +95,13 @@ templ UnmatchedRows(entries []projection.UnmatchedEntry) {
 
 // unmatchedRow renders one UnmatchedEntry: its path, the scanner's reason,
 // any candidates it considered but would not guess between, and the
-// manual-assign form. Every row carries data-scan, data-root-folder,
-// data-path, data-reason and data-candidates (ruling R8): the UI tests
-// assert on these attributes, not on visible copy, so a wording change does
-// not break a test and a markup change does not pass one.
+// manual-assign form -- or, for a folder the scan could not identify
+// (Folder; the 2026-11-10 non-video libraries design's D20), its Add
+// buttons instead ([folderActions]). Every row carries data-scan,
+// data-root-folder, data-path, data-reason and data-candidates, and a
+// folder's data-folder (ruling R8): the UI tests assert on these
+// attributes, not on visible copy, so a wording change does not break a
+// test and a markup change does not pass one.
 templ unmatchedRow(e projection.UnmatchedEntry) {
 	@item.Item(item.Props{
 		Variant: item.VariantOutline,
@@ -106,8 +112,14 @@ templ unmatchedRow(e projection.UnmatchedEntry) {
 			"data-path":        e.Path,
 			"data-reason":      e.Reason,
 			"data-candidates":  strings.Join(e.Candidates, ","),
+			"data-folder":      e.Folder,
 		},
 	}) {
+		if e.Folder {
+			@item.Media(item.MediaProps{Variant: item.MediaVariantIcon}) {
+				@icon.Icon("folder")()
+			}
+		}
 		@item.Content() {
 			@item.Title() {
 				{ e.Path }
@@ -127,9 +139,104 @@ templ unmatchedRow(e projection.UnmatchedEntry) {
 			}
 		}
 		@item.Footer(item.FooterProps{Class: "basis-full"}) {
-			@manualAssignForm(e)
+			if e.Folder {
+				@folderActions(e)
+			} else {
+				@manualAssignForm(e)
+			}
 		}
 	}
+}
+
+// folderActions confirms a folder the scan could not identify as an
+// Artist, Author or Audiobook (the 2026-11-10 non-video libraries design's
+// D20, Lidarr's Library Import confirmation; the scan never picks among the
+// hits itself): one "Add as <kind>" button per candidate the scan listed,
+// each a form posting Add New's create to the folder's tab
+// (POST /library/{tab}/add, ui/add.go's handleAddCreate) with the hit's
+// title and provider id, the scan's root folder and the folder, which the
+// add pins as the item's spec.folder (actions.AddRequest.Folder); an
+// audiobook's "<author>/<title>" folder also names its author, which the add
+// links as Add New links a hit's (audiobookAuthorRef). The form posts no
+// profile, monitoring or search, so the add takes the root folder's
+// defaults and starts no search, as the scan's own create would have.
+// "Search Add New" opens the tab's Add New on the folder's name, the folder
+// and root riding along so the hit chosen there pins it too. A folder whose
+// root folder the projection could not read offers neither.
+templ folderActions(e projection.UnmatchedEntry) {
+	<div class="flex w-full flex-wrap items-center gap-2 border-t border-border pt-3" data-folder-actions={ e.Path }>
+		if e.Tab == "" {
+			@item.Description() {
+				Its root folder { e.RootFolder } is gone or holds no artists, authors or audiobooks, so there is nothing to add it as.
+			}
+		} else {
+			for _, c := range folderCandidates(e) {
+				<form method="post" action={ templ.SafeURL("/library/" + string(e.Tab) + "/add") } data-folder-add={ c.ID }>
+					<input type="hidden" name="title" value={ c.Name }/>
+					<input type="hidden" name="id" value={ c.ID }/>
+					<input type="hidden" name="rootFolder" value={ e.ScanRef.Namespace + "/" + e.RootFolder }/>
+					<input type="hidden" name="folder" value={ e.Path }/>
+					if author := folderAuthor(e); author != "" {
+						<input type="hidden" name="authorName" value={ author }/>
+					}
+					@button.Button(button.Props{
+						Type:       button.TypeSubmit,
+						Size:       button.SizeSm,
+						Variant:    button.VariantOutline,
+						Attributes: templ.Attributes{"data-action": "add-folder", "title": string(e.Kind) + " " + c.ID},
+					}) {
+						@icon.Icon("folder-plus")()
+						Add as { string(e.Kind) }: { c.Label() }
+					}
+				</form>
+			}
+			@button.Button(button.Props{
+				Variant:    button.VariantGhost,
+				Size:       button.SizeSm,
+				Href:       folderSearchURL(e),
+				Attributes: templ.Attributes{"data-action": "search-folder"},
+			}) {
+				@icon.Icon("search")()
+				Search Add New
+			}
+		}
+	</div>
+}
+
+// folderCandidates are a folder entry's candidates that name a provider
+// hit ("Name (disambiguation) [id]", projection.ParseFolderCandidate), in
+// the scan's order; any other string is shown among the candidates but
+// offers no button.
+func folderCandidates(e projection.UnmatchedEntry) []projection.FolderCandidate {
+	out := make([]projection.FolderCandidate, 0, len(e.Candidates))
+	for _, raw := range e.Candidates {
+		if c, ok := projection.ParseFolderCandidate(raw); ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// folderAuthor is the author an audiobook folder names, its first segment
+// ("<author>/<title>", the layout an audiobook root's scan reads); "" for
+// any other kind, or a folder of one segment.
+func folderAuthor(e projection.UnmatchedEntry) string {
+	if e.Kind != commonv1.MediaKindAudiobook {
+		return ""
+	}
+	author, _, ok := strings.Cut(e.Path, "/")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(author)
+}
+
+// folderSearchURL is the folder's tab's Add New, its search box filled with
+// the folder's own name (an audiobook's title, the last segment) and the
+// folder and root carried for the hit's form to pin (AddPageData.Folder).
+func folderSearchURL(e projection.UnmatchedEntry) string {
+	q := url.Values{"q": {path.Base(e.Path)}}
+	return "/library/" + string(e.Tab) + "/add?" + q.Encode() + "&" + AddFolderQuery(e.Path, e.ScanRef.Namespace+"/"+e.RootFolder)
 }
 
 // manualAssignForm renders one unmatched entry's "assign" form
@@ -249,6 +356,20 @@ templ LibraryScanDetail(scan catalogv1.LibraryScan) {
 					<span>{ fmt.Sprintf("items created %d", scan.Status.ItemsCreated) }</span>
 					<span>{ fmt.Sprintf("items updated %d", scan.Status.ItemsUpdated) }</span>
 				</div>
+				if progress := scanProgress(scan); progress != "" {
+					<p class="mt-3 text-sm text-muted-foreground" data-scan-progress>{ progress }</p>
+				}
+				if awaiting := scanAwaiting(scan); awaiting != "" {
+					@alert.Alert(alert.Props{Class: "mt-3", Attributes: templ.Attributes{"data-scan-awaiting": awaiting}}) {
+						@icon.Icon("hourglass")()
+						@alert.Title() {
+							Files awaiting their items' children
+						}
+						@alert.Description() {
+							{ awaiting }. Each item's own folder scan attributes its files once its children are listed.
+						}
+					}
+				}
 				if reason, message, ok := scanReadyFailure(scan); ok {
 					@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Attributes: templ.Attributes{"data-scan-failure": reason}}) {
 						@icon.CircleAlert()
@@ -298,15 +419,64 @@ func scanPhaseTone(phase catalogv1.ScanPhase) string {
 // (a bad target, a subpath outside the root, a path already recorded
 // elsewhere) surfaces.
 func scanReadyFailure(scan catalogv1.LibraryScan) (reason, message string, ok bool) {
+	c, found := scanReady(scan)
+	if !found || c.Status == metav1.ConditionTrue || c.Reason == scanReasonScanning {
+		// A running scan is not failed: its message is its progress.
+		return "", "", false
+	}
+	return c.Reason, c.Message, true
+}
+
+// scanReasonScanning is the Ready reason of a scan still walking
+// (app/import/controller/libraryscan.ReasonScanning, restated as
+// conditionReady is; TestTheScanPageShowsWhatAwaitsItsChildren holds the
+// two equal): its False Ready is the walk's progress, not a failure.
+const scanReasonScanning = "Scanning"
+
+// scanReady is the scan's Ready condition, when it has one.
+func scanReady(scan catalogv1.LibraryScan) (metav1.Condition, bool) {
 	const conditionReady = "Ready"
 	for _, c := range scan.Status.Conditions {
-		if c.Type != conditionReady {
+		if c.Type == conditionReady {
+			return c, true
+		}
+	}
+	return metav1.Condition{}, false
+}
+
+// scanProgress is the scan's progress line: the Ready condition's message
+// while the scan walks (reason Scanning) and once it succeeded, which the
+// LibraryScan controller writes as the tally's summary
+// (app/import/scanprogress.Progress.Summary: the counters, then the
+// breakdown the CRD has no field for); "" before the first condition and
+// for a failed scan, whose alert says it.
+func scanProgress(scan catalogv1.LibraryScan) string {
+	c, ok := scanReady(scan)
+	if !ok || (c.Status != metav1.ConditionTrue && c.Reason != scanReasonScanning) {
+		return ""
+	}
+	return c.Message
+}
+
+// scanAwaiting is the summary's clause counting the files that await their
+// items' children -- the scan progress's awaitingChildren, kind by kind,
+// "412 awaiting their artists' albums, 3 awaiting their series' episodes"
+// (scanprogress.Progress.Summary's "; <clauses>, which each one's own
+// folder scan attributes once they are listed"; the 2026-11-10 non-video
+// libraries design's D20) -- read from the Ready condition's message,
+// failed or not, since LibraryScanStatus has no field for it; "" when
+// nothing awaits.
+func scanAwaiting(scan catalogv1.LibraryScan) string {
+	c, ok := scanReady(scan)
+	if !ok {
+		return ""
+	}
+	for _, part := range strings.Split(c.Message, "; ") {
+		if !strings.Contains(part, " awaiting ") {
 			continue
 		}
-		if c.Status == metav1.ConditionTrue {
-			return "", "", false
-		}
-		return c.Reason, c.Message, true
+		clause, _, _ := strings.Cut(part, ", which ")
+		return strings.TrimSpace(clause)
 	}
-	return "", "", false
+	return ""
 }
