@@ -55,7 +55,7 @@ func (s *Server) handleArtistPage(w http.ResponseWriter, r *http.Request) {
 	preloadable(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.ArtistPage(s.artistPage(r.Context(), item)).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render artist page", "error", err)
+		logging.FromContext(r.Context()).Error("render artist page", "err", err)
 	}
 }
 
@@ -71,7 +71,7 @@ func (s *Server) artistPage(ctx context.Context, item projection.LibraryItem) vi
 	}
 	rows, err := s.albumRows(ctx, item.Ref.Namespace, item.Ref.Name)
 	if err != nil {
-		logging.FromContext(ctx).Error("list an artist's albums", "artist", item.Ref.String(), "error", err)
+		logging.FromContext(ctx).Error("list an artist's albums", "artist", item.Ref.String(), "err", err)
 	}
 	fillArtist(&v, &a, len(rows))
 	v.Groups = views.AlbumGroups(rows)

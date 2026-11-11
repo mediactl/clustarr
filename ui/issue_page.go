@@ -57,7 +57,7 @@ func (s *Server) renderIssuePage(w http.ResponseWriter, r *http.Request, preload
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.IssuePage(v).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render issue page", "error", err)
+		logging.FromContext(r.Context()).Error("render issue page", "err", err)
 	}
 }
 
@@ -140,7 +140,7 @@ func captionedLinks(parent []views.Link, caption string) []views.Link {
 func (s *Server) issueNeighbours(ctx context.Context, iss *catalogv1.Issue) (prev, next string) {
 	issues, err := s.listIssues(ctx, iss.Namespace, iss.Spec.ComicRef)
 	if err != nil {
-		logging.FromContext(ctx).Error("list issues for an issue's neighbours", "error", err)
+		logging.FromContext(ctx).Error("list issues for an issue's neighbours", "err", err)
 		return "", ""
 	}
 	sortIssues(issues)

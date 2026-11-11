@@ -141,7 +141,7 @@ func NewClusterReader(
 			return
 		}
 		if err := c.Start(ctx); err != nil && ctx.Err() == nil {
-			logging.FromContext(ctx).Error("ui cluster reader cache stopped", "error", err)
+			logging.FromContext(ctx).Error("ui cluster reader cache stopped", "err", err)
 		}
 	}()
 
@@ -181,7 +181,7 @@ func registerIndexes(ctx context.Context, c cache.Cache) bool {
 				break
 			}
 			logging.FromContext(ctx).Warn("ui cluster reader: register field index; retrying",
-				"kind", fmt.Sprintf("%T", ix.obj), "field", ix.field, "error", err, "retryIn", backoff)
+				"kind", fmt.Sprintf("%T", ix.obj), "field", ix.field, "err", err, "retryIn", backoff)
 			select {
 			case <-ctx.Done():
 				return false

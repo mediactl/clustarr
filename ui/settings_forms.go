@@ -249,12 +249,12 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, k forms.Kind
 	if err != nil {
 		page.ErrorCode, status = actionErrorCode(err)
 		page.Error = err.Error()
-		logging.FromContext(r.Context()).Error("settings form rejected", "kind", k.Kind, "error", err, "code", page.ErrorCode)
+		logging.FromContext(r.Context()).Error("settings form rejected", "kind", k.Kind, "err", err, "code", page.ErrorCode)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	if renderErr := views.SettingsForm(page).Render(r.Context(), w); renderErr != nil {
-		logging.FromContext(r.Context()).Error("render settings form", "error", renderErr)
+		logging.FromContext(r.Context()).Error("render settings form", "err", renderErr)
 	}
 }
 

@@ -140,7 +140,7 @@ func (h *handler) collectionDoc(ctx context.Context, movies []*catalogv1.Movie) 
 	for _, m := range movies {
 		doc, ok, err := h.opts.Extended(rctx, commonv1.MediaKindMovie, m.UID)
 		if err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "plex: read a collection's extended document", "error", err)
+			logging.FromContext(ctx).WarnContext(ctx, "plex: read a collection's extended document", "err", err)
 			return nil
 		}
 		if ok && doc.Collection != nil {

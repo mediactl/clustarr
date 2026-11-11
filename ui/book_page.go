@@ -71,7 +71,7 @@ func (s *Server) renderBookXPage(w http.ResponseWriter, r *http.Request, preload
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.BookXPage(v).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render book page", "error", err)
+		logging.FromContext(r.Context()).Error("render book page", "err", err)
 	}
 }
 
@@ -295,7 +295,7 @@ func (s *Server) bookXNeighbours(ctx context.Context, b *catalogv1.Book) (prev, 
 	}
 	books, err := s.bookXList(ctx, b.Namespace, *b.Spec.AuthorRef)
 	if err != nil {
-		logging.FromContext(ctx).Error("list books for a book's neighbours", "error", err)
+		logging.FromContext(ctx).Error("list books for a book's neighbours", "err", err)
 		return "", "", ""
 	}
 	now := time.Now()

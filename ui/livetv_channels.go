@@ -221,7 +221,7 @@ func (s *Server) handleLiveTVChannels(w http.ResponseWriter, r *http.Request) {
 	preloadable(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.LiveTVChannels(p).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the Channels page", "error", err)
+		logging.FromContext(r.Context()).Error("render the Channels page", "err", err)
 	}
 }
 
@@ -232,7 +232,7 @@ func (s *Server) handleLiveTVChannelsTable(w http.ResponseWriter, r *http.Reques
 	in := s.liveTVInputs(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.ChannelsTable(filterChannels(s.channelRows(r.Context(), in), f), f).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the channels table", "error", err)
+		logging.FromContext(r.Context()).Error("render the channels table", "err", err)
 	}
 }
 
@@ -241,12 +241,12 @@ func (s *Server) handleLiveTVChannelsTable(w http.ResponseWriter, r *http.Reques
 // aimed at.
 func (s *Server) answerInPlace(w http.ResponseWriter, r *http.Request, err error) {
 	code, _ := actionErrorCode(err)
-	logging.FromContext(r.Context()).Error("ui action failed", "error", err, "code", code)
+	logging.FromContext(r.Context()).Error("ui action failed", "err", err, "code", code)
 	w.Header().Set("HX-Retarget", "#action-status")
 	w.Header().Set("HX-Reswap", "innerHTML")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if renderErr := views.ActionErrorToast(code, err.Error()).Render(r.Context(), w); renderErr != nil {
-		logging.FromContext(r.Context()).Error("render action error", "error", renderErr)
+		logging.FromContext(r.Context()).Error("render action error", "err", renderErr)
 	}
 }
 
@@ -301,7 +301,7 @@ func (s *Server) handleEditChannel(w http.ResponseWriter, r *http.Request) {
 		if row.Namespace == ns && row.Name == name {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if err := views.ChannelRowView(row).Render(r.Context(), w); err != nil {
-				logging.FromContext(r.Context()).Error("render a channel row", "error", err)
+				logging.FromContext(r.Context()).Error("render a channel row", "err", err)
 			}
 			return
 		}
@@ -426,7 +426,7 @@ func (s *Server) handleChannelsBulk(w http.ResponseWriter, r *http.Request) {
 		if r.PostForm.Get("confirm") != "yes" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if err := views.ChannelsDeleteConfirm(r.PostForm["item"]).Render(r.Context(), w); err != nil {
-				logging.FromContext(r.Context()).Error("render the delete question", "error", err)
+				logging.FromContext(r.Context()).Error("render the delete question", "err", err)
 			}
 			return
 		}
@@ -582,7 +582,7 @@ func (s *Server) handlePlaylistPane(w http.ResponseWriter, r *http.Request) {
 	pane := s.playlistPane(r.Context(), s.liveTVInputs(r.Context()), r.URL.Query())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.PlaylistPaneView(pane).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the playlist pane", "error", err)
+		logging.FromContext(r.Context()).Error("render the playlist pane", "err", err)
 	}
 }
 
@@ -637,7 +637,7 @@ func (s *Server) handleAddChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.PlaylistEntryRow(entry).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render a playlist entry", "error", err)
+		logging.FromContext(r.Context()).Error("render a playlist entry", "err", err)
 	}
 }
 
@@ -672,7 +672,7 @@ func (s *Server) handleChannelEPG(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.EPGPickerDialog(picker).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the EPG picker", "error", err)
+		logging.FromContext(r.Context()).Error("render the EPG picker", "err", err)
 	}
 }
 
@@ -731,7 +731,7 @@ func (s *Server) handleChannelCategory(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := views.CategoryPickerDialog(views.NewCategoryPicker(row)).Render(r.Context(), w); err != nil {
-			logging.FromContext(r.Context()).Error("render the category picker", "error", err)
+			logging.FromContext(r.Context()).Error("render the category picker", "err", err)
 		}
 		return
 	}
@@ -763,7 +763,7 @@ func (s *Server) handleChannelPlex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.EPGPickerDialog(picker).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the Plex station picker", "error", err)
+		logging.FromContext(r.Context()).Error("render the Plex station picker", "err", err)
 	}
 }
 

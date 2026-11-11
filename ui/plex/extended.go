@@ -175,7 +175,7 @@ func (h *handler) seriesCast() func(ctx context.Context, series types.UID) []ext
 		}
 		doc, ok, err := h.opts.Extended(ctx, commonv1.MediaKindSeries, series)
 		if err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "plex: read the series' extended metadata document for its episode", "error", err)
+			logging.FromContext(ctx).WarnContext(ctx, "plex: read the series' extended metadata document for its episode", "err", err)
 		} else if ok {
 			ps = doc.Role
 		}
@@ -201,7 +201,7 @@ func (h *handler) enrichExtendedWith(ctx context.Context, u urls, md *Metadata, 
 	defer cancel()
 	doc, ok, err := h.opts.Extended(rctx, kind, uid)
 	if err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "plex: read the extended metadata document", "kind", kind, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "plex: read the extended metadata document", "kind", kind, "err", err)
 		return
 	}
 	if !ok {

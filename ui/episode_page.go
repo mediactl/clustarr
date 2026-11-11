@@ -59,7 +59,7 @@ func (s *Server) renderEpisodePage(w http.ResponseWriter, r *http.Request, prelo
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.EpisodePage(v).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render episode page", "error", err)
+		logging.FromContext(r.Context()).Error("render episode page", "err", err)
 	}
 }
 
@@ -149,7 +149,7 @@ func (s *Server) episodeStill(ep *catalogv1.Episode) string {
 func (s *Server) episodeNeighbours(ctx context.Context, ep *catalogv1.Episode) (prev, next string) {
 	episodes, err := s.listEpisodes(ctx, ep.Namespace, ep.Spec.SeriesRef)
 	if err != nil {
-		logging.FromContext(ctx).Error("list episodes for an episode's neighbours", "error", err)
+		logging.FromContext(ctx).Error("list episodes for an episode's neighbours", "err", err)
 		return "", ""
 	}
 	sort.Slice(episodes, func(i, j int) bool {

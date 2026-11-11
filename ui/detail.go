@@ -178,7 +178,7 @@ func (s *Server) getObject(ctx context.Context, ref types.NamespacedName, obj cl
 	}
 	if err := s.opts.Reader.Get(ctx, ref, obj); err != nil {
 		if !apierrors.IsNotFound(err) {
-			logging.FromContext(ctx).Error("get item for its page", "ref", ref.String(), "error", err)
+			logging.FromContext(ctx).Error("get item for its page", "ref", ref.String(), "err", err)
 		}
 		return false
 	}
@@ -683,7 +683,7 @@ func (s *Server) childFileRefs(ctx context.Context, item projection.LibraryItem)
 // the index, as a test's fake may be) is logged and reads as none.
 func (s *Server) listChildren(ctx context.Context, list client.ObjectList, ns, field, parent string) bool {
 	if err := s.opts.Reader.List(ctx, list, client.InNamespace(ns), client.MatchingFields{field: parent}); err != nil {
-		logging.FromContext(ctx).Warn("list a container's children for its page", "namespace", ns, "field", field, "parent", parent, "error", err)
+		logging.FromContext(ctx).Warn("list a container's children for its page", "namespace", ns, "field", field, "parent", parent, "err", err)
 		return false
 	}
 	return true

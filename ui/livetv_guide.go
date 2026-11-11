@@ -179,7 +179,7 @@ func (s *Server) handleLiveTVGuide(w http.ResponseWriter, r *http.Request) {
 	preloadable(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.LiveTVGuide(p).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the TV Guide", "error", err)
+		logging.FromContext(r.Context()).Error("render the TV Guide", "err", err)
 	}
 }
 
@@ -203,7 +203,7 @@ func (s *Server) handleLiveTVGuideWindow(w http.ResponseWriter, r *http.Request)
 		next = g.sentinel(k+dir, dir)
 	}
 	if err := views.GuideWindowPart(g.window(k), next).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render a TV Guide window", "error", err)
+		logging.FromContext(r.Context()).Error("render a TV Guide window", "err", err)
 	}
 }
 
@@ -254,7 +254,7 @@ func (s *Server) handleLiveTVProgramme(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := views.ProgrammeDialogView(d).Render(r.Context(), w); err != nil {
-			logging.FromContext(r.Context()).Error("render a programme", "error", err)
+			logging.FromContext(r.Context()).Error("render a programme", "err", err)
 		}
 		return
 	}

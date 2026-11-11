@@ -76,7 +76,7 @@ func (h *handler) handleExtras(root rootDef) http.HandlerFunc {
 			}
 			got, err := h.opts.Extras(r.Context(), plexID)
 			if err != nil {
-				logging.FromContext(r.Context()).Error("plex: ask the metadata gateway for extras", "plexID", plexID, "error", err)
+				logging.FromContext(r.Context()).Error("plex: ask the metadata gateway for extras", "plexID", plexID, "err", err)
 				http.Error(w, "the metadata gateway did not answer with extras", http.StatusBadGateway)
 				return
 			}

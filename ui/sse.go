@@ -62,7 +62,7 @@ func (s *Server) downloadViews(ctx context.Context, rows []projection.DownloadRo
 		}
 		pr, ok, err := s.opts.TransferProgress(ctx, rows[i].Entry.UID)
 		if err != nil {
-			logging.FromContext(ctx).Debug("read transfer progress", "entry", rows[i].Entry.ID, "error", err)
+			logging.FromContext(ctx).Debug("read transfer progress", "entry", rows[i].Entry.ID, "err", err)
 			continue
 		}
 		if ok {
@@ -191,7 +191,7 @@ func writeUnmatchedEvent(w http.ResponseWriter, ctx context.Context, p paging.Pa
 
 	var fragment bytes.Buffer
 	if err := views.UnmatchedList(p, entries).Render(ctx, &fragment); err != nil {
-		logging.FromContext(ctx).Error("render unmatched rows for sse", "error", err)
+		logging.FromContext(ctx).Error("render unmatched rows for sse", "err", err)
 		return false
 	}
 
@@ -265,7 +265,7 @@ func writeImportListsEvent(w http.ResponseWriter, ctx context.Context, entries [
 
 	var fragment bytes.Buffer
 	if err := views.ImportListRows(entries).Render(ctx, &fragment); err != nil {
-		logging.FromContext(ctx).Error("render import list rows for sse", "error", err)
+		logging.FromContext(ctx).Error("render import list rows for sse", "err", err)
 		return false
 	}
 

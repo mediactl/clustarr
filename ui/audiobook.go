@@ -80,7 +80,7 @@ func (s *Server) renderAudiobook(w http.ResponseWriter, r *http.Request, v views
 		view = views.AudiobookModal(v)
 	}
 	if err := view.Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render audiobook", "error", err)
+		logging.FromContext(r.Context()).Error("render audiobook", "err", err)
 	}
 }
 

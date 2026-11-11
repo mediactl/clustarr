@@ -173,7 +173,7 @@ func (a *searchArt) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok || time.Since(art.at) > searchArtTTL {
 		art, err = a.fetch(r.Context(), src)
 		if err != nil {
-			logging.FromContext(r.Context()).Debug("search poster refused", "src", src, "error", err)
+			logging.FromContext(r.Context()).Debug("search poster refused", "src", src, "err", err)
 			http.Error(w, "poster unavailable", http.StatusBadGateway)
 			return
 		}

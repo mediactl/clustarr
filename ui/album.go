@@ -60,7 +60,7 @@ func (s *Server) renderAlbumPage(w http.ResponseWriter, r *http.Request, preload
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.AlbumPage(v).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render album page", "error", err)
+		logging.FromContext(r.Context()).Error("render album page", "err", err)
 	}
 }
 
@@ -82,7 +82,7 @@ func (s *Server) handleAlbumDetails(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.AlbumModal(d).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render album details", "error", err)
+		logging.FromContext(r.Context()).Error("render album details", "err", err)
 	}
 }
 
@@ -437,7 +437,7 @@ func (s *Server) replyAlbumRow(w http.ResponseWriter, r *http.Request, ns, name 
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if rerr := views.AlbumRowView(row).Render(r.Context(), w); rerr != nil {
-		logging.FromContext(r.Context()).Error("render album row", "error", rerr)
+		logging.FromContext(r.Context()).Error("render album row", "err", rerr)
 	}
 }
 
@@ -446,7 +446,7 @@ func (s *Server) replyAlbumRow(w http.ResponseWriter, r *http.Request, ns, name 
 func (s *Server) albumNeighbours(ctx context.Context, a *catalogv1.Album) (prev, next string) {
 	albums, err := s.listAlbums(ctx, a.Namespace, a.Spec.ArtistRef)
 	if err != nil {
-		logging.FromContext(ctx).Error("list albums for an album's neighbours", "error", err)
+		logging.FromContext(ctx).Error("list albums for an album's neighbours", "err", err)
 		return "", ""
 	}
 	type ordered struct{ name, date, title string }

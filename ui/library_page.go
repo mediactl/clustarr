@@ -63,7 +63,7 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	defer done()
 	base := "/library/" + string(tab)
 	if err := views.Library(tab, items, view.toolbar(base, all, len(items)), rootFolders, bar).Render(r.Context(), out); err != nil {
-		logging.FromContext(r.Context()).Error("render library page", "error", err)
+		logging.FromContext(r.Context()).Error("render library page", "err", err)
 	}
 }
 
@@ -137,7 +137,7 @@ func (s *Server) handleLibraryFilterRow(w http.ResponseWriter, r *http.Request) 
 	all := projection.ForTab(s.opts.Library(r.Context()), tab)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.FilterRowView(string(tab), filterRow(tab, all, index, key, op, values)).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render library filter row", "error", err)
+		logging.FromContext(r.Context()).Error("render library filter row", "err", err)
 	}
 }
 
@@ -179,7 +179,7 @@ func (s *Server) handleLibraryCards(w http.ResponseWriter, r *http.Request) {
 	out, done := compressed(w, r)
 	defer done()
 	if err := views.LibraryCards(items).Render(r.Context(), out); err != nil {
-		logging.FromContext(r.Context()).Error("render library cards", "error", err)
+		logging.FromContext(r.Context()).Error("render library cards", "err", err)
 	}
 }
 

@@ -240,7 +240,7 @@ func (h *handler) index(w http.ResponseWriter, r *http.Request) (*projection.Ind
 	}
 	idx, err := h.opts.Index(r.Context())
 	if err != nil {
-		logging.FromContext(r.Context()).Error("plex: build catalog index", "error", err)
+		logging.FromContext(r.Context()).Error("plex: build catalog index", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to read the catalog")
 		return nil, false
 	}

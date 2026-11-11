@@ -55,6 +55,6 @@ func (s *Server) handleAlbumInteractiveSearch(w http.ResponseWriter, r *http.Req
 	p := views.AlbumSearchPanel{SearchPanel: *panel, Album: albumTableRow(a, time.Now()), ArtistTitle: item.Title}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.AlbumSearchModal(p).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render album search modal", "error", err)
+		logging.FromContext(r.Context()).Error("render album search modal", "err", err)
 	}
 }

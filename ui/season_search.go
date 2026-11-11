@@ -100,7 +100,7 @@ func (s *Server) handleSeasonInteractiveSearch(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if rerr := views.SeasonSearchModal(s.itemDetail(r.Context(), item), seasonRow(series, int32(n)), p).Render(r.Context(), w); rerr != nil {
-		logging.FromContext(r.Context()).Error("render season search modal", "error", rerr)
+		logging.FromContext(r.Context()).Error("render season search modal", "err", rerr)
 	}
 }
 

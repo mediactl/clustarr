@@ -103,7 +103,7 @@ func (s *Server) handleBookInteractiveSearch(w http.ResponseWriter, r *http.Requ
 func (s *Server) renderBookModal(w http.ResponseWriter, r *http.Request, d views.BookDetail) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.BookModal(d).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render book details", "error", err)
+		logging.FromContext(r.Context()).Error("render book details", "err", err)
 	}
 }
 
@@ -235,6 +235,6 @@ func (s *Server) replyBookRow(w http.ResponseWriter, r *http.Request, ns, name s
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if rerr := views.BookRowView(row).Render(r.Context(), w); rerr != nil {
-		logging.FromContext(r.Context()).Error("render book row", "error", rerr)
+		logging.FromContext(r.Context()).Error("render book row", "err", rerr)
 	}
 }

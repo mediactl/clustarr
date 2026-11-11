@@ -55,7 +55,7 @@ func (s *Server) handleEditFields(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.EditKindFields(f).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render edit fields", "error", err)
+		logging.FromContext(r.Context()).Error("render edit fields", "err", err)
 	}
 }
 
@@ -233,7 +233,7 @@ func orDefault(values, def []string) []string {
 func (s *Server) authorOptions(ctx context.Context, ns string) []views.AddOption {
 	var list catalogv1.AuthorList
 	if err := s.opts.Reader.List(ctx, &list, client.InNamespace(ns)); err != nil {
-		logging.FromContext(ctx).Error("list authors for the edit dialog", "namespace", ns, "error", err)
+		logging.FromContext(ctx).Error("list authors for the edit dialog", "namespace", ns, "err", err)
 		return nil
 	}
 	opts := make([]views.AddOption, 0, len(list.Items))
@@ -257,7 +257,7 @@ func (s *Server) bookOptions(ctx context.Context, ns, author, current string) []
 	if author != "" {
 		var list catalogv1.BookList
 		if err := s.opts.Reader.List(ctx, &list, client.InNamespace(ns), client.MatchingFields{BookAuthorRefField: author}); err != nil {
-			logging.FromContext(ctx).Error("list an author's books for the edit dialog", "namespace", ns, "author", author, "error", err)
+			logging.FromContext(ctx).Error("list an author's books for the edit dialog", "namespace", ns, "author", author, "err", err)
 		}
 		for i := range list.Items {
 			opts = append(opts, bookOption(&list.Items[i]))

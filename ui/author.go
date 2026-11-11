@@ -55,7 +55,7 @@ func (s *Server) handleAuthorXPage(w http.ResponseWriter, r *http.Request) {
 	preloadable(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.AuthorXPage(s.authorXPage(r.Context(), item)).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render author page", "error", err)
+		logging.FromContext(r.Context()).Error("render author page", "err", err)
 	}
 }
 
@@ -74,7 +74,7 @@ func (s *Server) authorXPage(ctx context.Context, item projection.LibraryItem) v
 	}
 	books, err := s.bookXRows(ctx, item.Ref.Namespace, item.Ref.Name)
 	if err != nil {
-		logging.FromContext(ctx).Error("list an author's books", "author", item.Ref.String(), "error", err)
+		logging.FromContext(ctx).Error("list an author's books", "author", item.Ref.String(), "err", err)
 	}
 	v.Books = books
 	return v

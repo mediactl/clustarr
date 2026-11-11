@@ -87,7 +87,7 @@ func (s *Server) handleIssueInteractiveSearch(w http.ResponseWriter, r *http.Req
 func (s *Server) renderIssueModal(w http.ResponseWriter, r *http.Request, d views.IssueDetail) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.IssueModal(d).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render issue details", "error", err)
+		logging.FromContext(r.Context()).Error("render issue details", "err", err)
 	}
 }
 
@@ -306,6 +306,6 @@ func (s *Server) replyIssueRow(w http.ResponseWriter, r *http.Request, ns, name 
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if rerr := views.IssueRowView(row).Render(r.Context(), w); rerr != nil {
-		logging.FromContext(r.Context()).Error("render issue row", "error", rerr)
+		logging.FromContext(r.Context()).Error("render issue row", "err", rerr)
 	}
 }

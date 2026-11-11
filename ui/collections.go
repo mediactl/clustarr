@@ -64,7 +64,7 @@ func (s *Server) plexCollections(ctx context.Context) ([]catalogv1.PlexCollectio
 func (s *Server) collectionsPage(ctx context.Context) views.CollectionsPage {
 	items, err := s.plexCollections(ctx)
 	if err != nil {
-		logging.FromContext(ctx).Error("list collections", "error", err)
+		logging.FromContext(ctx).Error("list collections", "err", err)
 	}
 	byLibrary := map[string][]views.CollectionRow{}
 	for _, pc := range items {
@@ -94,14 +94,14 @@ func (s *Server) collectionsPage(ctx context.Context) views.CollectionsPage {
 func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.Collections(s.collectionsPage(r.Context())).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the Collections page", "error", err)
+		logging.FromContext(r.Context()).Error("render the Collections page", "err", err)
 	}
 }
 
 func (s *Server) handleCollectionsList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.CollectionsList(s.collectionsPage(r.Context())).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the Collections list", "error", err)
+		logging.FromContext(r.Context()).Error("render the Collections list", "err", err)
 	}
 }
 
@@ -183,7 +183,7 @@ func (s *Server) handleCollectionMembers(w http.ResponseWriter, r *http.Request)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.CollectionMemberHits(hits).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the member search", "error", err)
+		logging.FromContext(r.Context()).Error("render the member search", "err", err)
 	}
 }
 
@@ -243,7 +243,7 @@ func (s *Server) renderEditorPage(w http.ResponseWriter, r *http.Request, status
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	if err := views.CollectionEditorPage(e).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the collection editor", "error", err)
+		logging.FromContext(r.Context()).Error("render the collection editor", "err", err)
 	}
 }
 
@@ -301,7 +301,7 @@ func (s *Server) handleCollectionEditor(w http.ResponseWriter, r *http.Request) 
 	e := s.editorModel(r.Context(), r.PostForm.Get("namespace"), r.PostForm.Get("name"), formGeneration(r.PostForm), spec, why)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.CollectionEditorForm(e).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the collection editor", "error", err)
+		logging.FromContext(r.Context()).Error("render the collection editor", "err", err)
 	}
 }
 

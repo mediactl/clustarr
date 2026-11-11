@@ -100,14 +100,14 @@ func (l *liveTVStore) read(ctx context.Context, name string, decode func(io.Read
 	}
 	_, rc, err := l.store.Get(ctx, name)
 	if err != nil {
-		logging.FromContext(ctx).Warn("live tv: read a store object; keeping the last", "object", name, "error", err)
+		logging.FromContext(ctx).Warn("live tv: read a store object; keeping the last", "object", name, "err", err)
 		o.checked = now
 		return o.view, o.view != nil
 	}
 	defer func() { _ = rc.Close() }()
 	v, err := decode(rc)
 	if err != nil {
-		logging.FromContext(ctx).Warn("live tv: decode a store object; keeping the last", "object", name, "error", err)
+		logging.FromContext(ctx).Warn("live tv: decode a store object; keeping the last", "object", name, "err", err)
 		o.checked = now
 		return o.view, o.view != nil
 	}

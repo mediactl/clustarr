@@ -262,7 +262,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.Dashboard(v).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render dashboard", "error", err)
+		logging.FromContext(r.Context()).Error("render dashboard", "err", err)
 	}
 }
 
@@ -273,7 +273,7 @@ func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) 
 	v := s.dashboardSummary(r.Context(), r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.DashboardSummary(v).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render dashboard summary", "error", err)
+		logging.FromContext(r.Context()).Error("render dashboard summary", "err", err)
 	}
 }
 
@@ -288,7 +288,7 @@ func (s *Server) handleDashboardCharts(w http.ResponseWriter, r *http.Request) {
 		v.Selected[section] = r.URL.Query().Get("tab-" + section + "-charts")
 	}
 	if err := views.DashboardCharts(v).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render dashboard charts", "error", err)
+		logging.FromContext(r.Context()).Error("render dashboard charts", "err", err)
 	}
 }
 

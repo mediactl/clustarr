@@ -146,7 +146,7 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(body); err != nil {
-		logging.FromContext(ctx).Error("write artwork response", "error", err)
+		logging.FromContext(ctx).Error("write artwork response", "err", err)
 	}
 }
 
@@ -157,7 +157,7 @@ func (s *Server) artError(w http.ResponseWriter, r *http.Request, kind commonv1.
 		http.NotFound(w, r)
 		return
 	}
-	logging.FromContext(r.Context()).Error("get artwork", "kind", string(kind), "type", string(t), "error", err)
+	logging.FromContext(r.Context()).Error("get artwork", "kind", string(kind), "type", string(t), "err", err)
 	http.Error(w, "failed to load artwork", http.StatusInternalServerError)
 }
 

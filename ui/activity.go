@@ -66,7 +66,7 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	preloadable(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.Activity(v).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render activity page", "section", v.Section, "error", err)
+		logging.FromContext(r.Context()).Error("render activity page", "section", v.Section, "err", err)
 	}
 }
 
@@ -80,7 +80,7 @@ func (s *Server) handleActivityList(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.ActivityList(v).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render activity list", "section", v.Section, "error", err)
+		logging.FromContext(r.Context()).Error("render activity list", "section", v.Section, "err", err)
 	}
 }
 

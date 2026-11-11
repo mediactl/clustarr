@@ -39,7 +39,7 @@ func (s *Server) handleLiveTVSources(w http.ResponseWriter, r *http.Request) {
 	preloadable(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.LiveTVSources(rows).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the M3U/EPG Manager", "error", err)
+		logging.FromContext(r.Context()).Error("render the M3U/EPG Manager", "err", err)
 	}
 }
 
@@ -49,7 +49,7 @@ func (s *Server) handleLiveTVSourcesTables(w http.ResponseWriter, r *http.Reques
 	rows := projection.LiveTVSources(s.listIPTVProviders(r.Context()), s.now())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.LiveTVSourcesTables(rows).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render the M3U/EPG Manager's tables", "error", err)
+		logging.FromContext(r.Context()).Error("render the M3U/EPG Manager's tables", "err", err)
 	}
 }
 

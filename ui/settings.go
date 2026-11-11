@@ -60,7 +60,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		s.listSubtitleProfiles(ctx),
 		s.listTranscodeProfiles(ctx),
 	).Render(ctx, w); err != nil {
-		logging.FromContext(ctx).Error("render settings page", "error", err)
+		logging.FromContext(ctx).Error("render settings page", "err", err)
 	}
 }
 
@@ -72,7 +72,7 @@ func (s *Server) listQualityProfiles(ctx context.Context) []catalogv1.QualityPro
 	}
 	var list catalogv1.QualityProfileList
 	if err := s.opts.Reader.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Error("list quality profiles", "error", err)
+		logging.FromContext(ctx).Error("list quality profiles", "err", err)
 		return nil
 	}
 	items := list.Items
@@ -88,7 +88,7 @@ func (s *Server) listIndexers(ctx context.Context) []indexv1.Indexer {
 	}
 	var list indexv1.IndexerList
 	if err := s.opts.Reader.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Error("list indexers", "error", err)
+		logging.FromContext(ctx).Error("list indexers", "err", err)
 		return nil
 	}
 	items := list.Items
@@ -106,7 +106,7 @@ func (s *Server) listIndexerProxies(ctx context.Context) []indexv1.IndexerProxy 
 	}
 	var list indexv1.IndexerProxyList
 	if err := s.opts.Reader.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Error("list indexer proxies", "error", err)
+		logging.FromContext(ctx).Error("list indexer proxies", "err", err)
 		return nil
 	}
 	items := list.Items
@@ -124,7 +124,7 @@ func (s *Server) listMetadataProviders(ctx context.Context) []catalogv1.Metadata
 	}
 	var list catalogv1.MetadataProviderList
 	if err := s.opts.Reader.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Error("list metadata providers", "error", err)
+		logging.FromContext(ctx).Error("list metadata providers", "err", err)
 		return nil
 	}
 	items := list.Items
@@ -142,7 +142,7 @@ func (s *Server) listSubtitleProviders(ctx context.Context) []subtitlev1.Subtitl
 	}
 	var list subtitlev1.SubtitleProviderList
 	if err := s.opts.Reader.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Error("list subtitle providers", "error", err)
+		logging.FromContext(ctx).Error("list subtitle providers", "err", err)
 		return nil
 	}
 	items := list.Items
@@ -160,7 +160,7 @@ func (s *Server) listSubtitleProfiles(ctx context.Context) []subtitlev1.Subtitle
 	}
 	var list subtitlev1.SubtitleProfileList
 	if err := s.opts.Reader.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Error("list subtitle profiles", "error", err)
+		logging.FromContext(ctx).Error("list subtitle profiles", "err", err)
 		return nil
 	}
 	items := list.Items
@@ -176,7 +176,7 @@ func (s *Server) listTranscodeProfiles(ctx context.Context) []transcodev1.Transc
 	}
 	var list transcodev1.TranscodeProfileList
 	if err := s.opts.Reader.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Error("list transcode profiles", "error", err)
+		logging.FromContext(ctx).Error("list transcode profiles", "err", err)
 		return nil
 	}
 	items := list.Items
@@ -331,6 +331,6 @@ func (s *Server) handleImportLists(w http.ResponseWriter, r *http.Request) {
 	entries := s.opts.ImportLists(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.ImportLists(entries).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render import lists page", "error", err)
+		logging.FromContext(r.Context()).Error("render import lists page", "err", err)
 	}
 }

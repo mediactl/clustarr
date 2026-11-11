@@ -45,7 +45,7 @@ func (s *Server) listIPTVProviders(ctx context.Context) []clustarrv1.IPTVProvide
 	}
 	var list clustarrv1.IPTVProviderList
 	if err := s.opts.Reader.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Error("list IPTV providers", "error", err)
+		logging.FromContext(ctx).Error("list IPTV providers", "err", err)
 		return nil
 	}
 	slices.SortFunc(list.Items, func(a, b clustarrv1.IPTVProvider) int {
@@ -61,7 +61,7 @@ func (s *Server) listIPTVChannels(ctx context.Context) []clustarrv1.IPTVChannel 
 	}
 	var list clustarrv1.IPTVChannelList
 	if err := s.opts.Reader.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Error("list IPTV channels", "error", err)
+		logging.FromContext(ctx).Error("list IPTV channels", "err", err)
 		return nil
 	}
 	return list.Items

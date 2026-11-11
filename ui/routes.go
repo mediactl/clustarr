@@ -233,7 +233,7 @@ func (s *Server) downloadClients(ctx context.Context) []downloadv1.DownloadClien
 	}
 	var clientList downloadv1.DownloadClientList
 	if err := s.opts.Reader.List(ctx, &clientList); err != nil {
-		logging.FromContext(ctx).Error("list download clients", "error", err)
+		logging.FromContext(ctx).Error("list download clients", "err", err)
 	}
 	clients := clientList.Items
 	sort.Slice(clients, func(i, j int) bool { return clients[i].Name < clients[j].Name })
@@ -248,7 +248,7 @@ func (s *Server) findDownload(ctx context.Context, r *http.Request) (projection.
 	}
 	rows, err := projection.ListDownloadRows(ctx, s.opts.Reader)
 	if err != nil {
-		logging.FromContext(ctx).Error("list grab rows", "error", err)
+		logging.FromContext(ctx).Error("list grab rows", "err", err)
 		return projection.DownloadRow{}, false
 	}
 	ns, kind, owner, entry := r.PathValue("namespace"), r.PathValue("kind"), r.PathValue("owner"), r.PathValue("entry")
@@ -280,7 +280,7 @@ func (s *Server) handleDownloadImport(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.DownloadImport(row, inspect, execute).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render download import page", "error", err)
+		logging.FromContext(r.Context()).Error("render download import page", "err", err)
 	}
 }
 
@@ -417,7 +417,7 @@ func (s *Server) listRootFolders(ctx context.Context) []catalogv1.RootFolder {
 
 	var list catalogv1.RootFolderList
 	if err := s.opts.Reader.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Error("list root folders", "error", err)
+		logging.FromContext(ctx).Error("list root folders", "err", err)
 		return nil
 	}
 	rootFolders := list.Items
@@ -475,7 +475,7 @@ func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
 		if s.justAdded(r.Context(), r.PathValue("namespace"), r.PathValue("kind"), r.PathValue("name")) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if err := views.AddPending(r.PathValue("name")).Render(r.Context(), w); err != nil {
-				logging.FromContext(r.Context()).Error("render add pending page", "error", err)
+				logging.FromContext(r.Context()).Error("render add pending page", "err", err)
 			}
 			return
 		}
@@ -490,7 +490,7 @@ func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.LibraryDetail(s.itemDetail(r.Context(), item)).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render library detail page", "error", err)
+		logging.FromContext(r.Context()).Error("render library detail page", "err", err)
 	}
 }
 
@@ -781,23 +781,23 @@ func (s *Server) finishActionWith(w http.ResponseWriter, r *http.Request, err er
 		var view templ.Component
 		if err != nil {
 			code, _ := actionErrorCode(err)
-			logging.FromContext(r.Context()).Error("ui action failed", "error", err, "code", code)
+			logging.FromContext(r.Context()).Error("ui action failed", "err", err, "code", code)
 			view = views.ActionErrorToast(code, err.Error())
 		} else {
 			view = views.ActionStatus(done)
 		}
 		if renderErr := view.Render(r.Context(), w); renderErr != nil {
-			logging.FromContext(r.Context()).Error("render action status", "error", renderErr)
+			logging.FromContext(r.Context()).Error("render action status", "err", renderErr)
 		}
 		return
 	}
 	if err != nil {
 		code, status := actionErrorCode(err)
-		logging.FromContext(r.Context()).Error("ui action failed", "error", err, "code", code)
+		logging.FromContext(r.Context()).Error("ui action failed", "err", err, "code", code)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(status)
 		if renderErr := views.ActionError(code, err.Error()).Render(r.Context(), w); renderErr != nil {
-			logging.FromContext(r.Context()).Error("render action error", "error", renderErr)
+			logging.FromContext(r.Context()).Error("render action error", "err", renderErr)
 		}
 		return
 	}
@@ -841,7 +841,7 @@ func (s *Server) handleUnmatched(w http.ResponseWriter, r *http.Request) {
 	p := paging.Parse(r.URL.Query()).Page(len(entries))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.Unmatched(p, paging.Window(entries, p)).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render unmatched page", "error", err)
+		logging.FromContext(r.Context()).Error("render unmatched page", "err", err)
 	}
 }
 
@@ -917,14 +917,14 @@ func (s *Server) handleLibraryScanDetail(w http.ResponseWriter, r *http.Request)
 			http.NotFound(w, r)
 			return
 		}
-		logging.FromContext(ctx).Error("get library scan", "error", err)
+		logging.FromContext(ctx).Error("get library scan", "err", err)
 		http.Error(w, "failed to load library scan", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.LibraryScanDetail(scan).Render(ctx, w); err != nil {
-		logging.FromContext(ctx).Error("render library scan detail page", "error", err)
+		logging.FromContext(ctx).Error("render library scan detail page", "err", err)
 	}
 }
 

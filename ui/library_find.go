@@ -47,7 +47,7 @@ func (s *Server) handleLibraryFind(w http.ResponseWriter, r *http.Request) {
 	}
 	items := projection.Find(projection.ForTab(s.opts.Library(r.Context()), tab), q, findLimit)
 	if err := views.LibraryFindResults(tab, q, items).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render library find", "error", err)
+		logging.FromContext(r.Context()).Error("render library find", "err", err)
 	}
 }
 
@@ -61,6 +61,6 @@ func (s *Server) handleFind(w http.ResponseWriter, r *http.Request) {
 	}
 	items := projection.Find(s.opts.Library(r.Context()), q, findLimit)
 	if err := views.LibraryFindResults("", q, items).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render library find", "error", err)
+		logging.FromContext(r.Context()).Error("render library find", "err", err)
 	}
 }

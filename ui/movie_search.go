@@ -46,6 +46,6 @@ func (s *Server) handleMovieInteractiveSearch(w http.ResponseWriter, r *http.Req
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.MovieSearchModal(movie, *panel).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render movie search modal", "error", err)
+		logging.FromContext(r.Context()).Error("render movie search modal", "err", err)
 	}
 }

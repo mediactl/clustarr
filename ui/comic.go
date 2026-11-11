@@ -59,14 +59,14 @@ func (s *Server) handleComicPage(w http.ResponseWriter, r *http.Request) {
 	}
 	v, err := s.comicPage(r.Context(), item)
 	if err != nil {
-		logging.FromContext(r.Context()).Error("list issues for comic page", "comic", item.Ref.String(), "error", err)
+		logging.FromContext(r.Context()).Error("list issues for comic page", "comic", item.Ref.String(), "err", err)
 		http.Error(w, "could not list issues", http.StatusInternalServerError)
 		return
 	}
 	preloadable(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.ComicPage(v).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render comic page", "error", err)
+		logging.FromContext(r.Context()).Error("render comic page", "err", err)
 	}
 }
 
@@ -212,7 +212,7 @@ func (s *Server) handleComicVolumeSearch(w http.ResponseWriter, r *http.Request)
 	p = withFilter(p, "all")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if rerr := views.VolumeSearchModal(s.itemDetail(r.Context(), item), p).Render(r.Context(), w); rerr != nil {
-		logging.FromContext(r.Context()).Error("render volume search modal", "error", rerr)
+		logging.FromContext(r.Context()).Error("render volume search modal", "err", rerr)
 	}
 }
 

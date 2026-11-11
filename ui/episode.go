@@ -183,7 +183,7 @@ func (s *Server) handleGrabRelease(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderEpisodeModal(w http.ResponseWriter, r *http.Request, d views.EpisodeDetail) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.EpisodeModal(d).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render episode details", "error", err)
+		logging.FromContext(r.Context()).Error("render episode details", "err", err)
 	}
 }
 
@@ -200,7 +200,7 @@ func (s *Server) renderSearchPanel(w http.ResponseWriter, r *http.Request, p vie
 		view = views.SearchPage(p, title)
 	}
 	if err := view.Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render search panel", "error", err)
+		logging.FromContext(r.Context()).Error("render search panel", "err", err)
 	}
 }
 

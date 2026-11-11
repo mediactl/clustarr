@@ -56,7 +56,7 @@ func (s *Server) renderSeriesPage(w http.ResponseWriter, r *http.Request, item p
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.SeriesDetail(s.itemDetail(r.Context(), item), seasons).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render series page", "error", err)
+		logging.FromContext(r.Context()).Error("render series page", "err", err)
 	}
 }
 
@@ -83,7 +83,7 @@ func (s *Server) handleSeason(w http.ResponseWriter, r *http.Request) {
 	}
 	episodes, err := s.listEpisodes(r.Context(), ns, name)
 	if err != nil {
-		logging.FromContext(r.Context()).Error("list episodes for season page", "error", err)
+		logging.FromContext(r.Context()).Error("list episodes for season page", "err", err)
 		http.Error(w, "could not list episodes", http.StatusInternalServerError)
 		return
 	}
@@ -93,12 +93,12 @@ func (s *Server) handleSeason(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if isHTMX(r) {
 		if err := views.EpisodeRows(rows).Render(r.Context(), w); err != nil {
-			logging.FromContext(r.Context()).Error("render episodes component", "error", err)
+			logging.FromContext(r.Context()).Error("render episodes component", "err", err)
 		}
 		return
 	}
 	if err := views.SeasonPage(s.itemDetail(r.Context(), item), seasonRow(series, int32(n)), rows).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render season page", "error", err)
+		logging.FromContext(r.Context()).Error("render season page", "err", err)
 	}
 }
 
@@ -141,7 +141,7 @@ func (s *Server) handleSetSeasonMonitored(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if rerr := views.SeasonHeader(row).Render(r.Context(), w); rerr != nil {
-		logging.FromContext(r.Context()).Error("render season header", "error", rerr)
+		logging.FromContext(r.Context()).Error("render season header", "err", rerr)
 	}
 }
 
@@ -168,7 +168,7 @@ func (s *Server) replyEpisodeRow(w http.ResponseWriter, r *http.Request, ns, nam
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if rerr := views.EpisodeRowView(row).Render(r.Context(), w); rerr != nil {
-		logging.FromContext(r.Context()).Error("render episode row", "error", rerr)
+		logging.FromContext(r.Context()).Error("render episode row", "err", rerr)
 	}
 }
 
@@ -176,7 +176,7 @@ func (s *Server) replyEpisodeRow(w http.ResponseWriter, r *http.Request, ns, nam
 // way finishAction logs one.
 func failureOf(r *http.Request, err error) views.ActionFailure {
 	code, _ := actionErrorCode(err)
-	logging.FromContext(r.Context()).Error("ui action failed", "error", err, "code", code)
+	logging.FromContext(r.Context()).Error("ui action failed", "err", err, "code", code)
 	return views.ActionFailure{Code: code, Message: err.Error()}
 }
 
@@ -189,7 +189,7 @@ func (s *Server) getSeries(ctx context.Context, ref types.NamespacedName) (*cata
 	var series catalogv1.Series
 	if err := s.opts.Reader.Get(ctx, ref, &series); err != nil {
 		if !apierrors.IsNotFound(err) {
-			logging.FromContext(ctx).Error("get series", "series", ref.String(), "error", err)
+			logging.FromContext(ctx).Error("get series", "series", ref.String(), "err", err)
 		}
 		return nil, false
 	}
