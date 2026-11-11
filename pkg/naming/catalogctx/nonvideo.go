@@ -87,13 +87,21 @@ func SelectedRelease(album *catalogv1alpha1.Album) *catalogv1alpha1.ReleaseSumma
 	return nil
 }
 
-// MultiDisc is whether album's selected release lists two or more media,
-// which is when its tracks are named by the multi-disc preset, a folder
-// per medium below the album folder (design D19: the one-disc preset
-// renders every medium's track 1 as one name).
+// MultiDisc is whether album's tracks lie on two or more media, which is
+// when they are named by the multi-disc preset, a folder per medium below
+// the album folder (design D19: the one-disc preset renders every medium's
+// track 1 as one name): the selected release's media when
+// status.metadata.releases lists it with its media, else the media its
+// status.tracks name. The gateway keeps a release group's first 50
+// releases (app/catalog/metadata's patch) while the Album's selection reads
+// the provider's whole list, so a heavily reissued album's selected release
+// may be past them -- its two discs' track 1 then rendered one path -- and
+// fileimport.AttributeTrack reads the media off the tracks the same way.
 func MultiDisc(album *catalogv1alpha1.Album) bool {
-	rel := SelectedRelease(album)
-	return rel != nil && len(rel.Media) >= 2
+	if rel := SelectedRelease(album); rel != nil && len(rel.Media) > 0 {
+		return len(rel.Media) >= 2
+	}
+	return slices.ContainsFunc(album.Status.Tracks, func(t catalogv1alpha1.Track) bool { return t.Medium >= 2 })
 }
 
 // mediumFormat is the format of medium number n in rel ("CD", "Vinyl"),
