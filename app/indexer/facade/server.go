@@ -184,6 +184,7 @@ func (s *Server) buildMux() *http.ServeMux {
 // with mgr.Add(k8s.EveryReplica(srv.Run)) exactly like index's other
 // every-replica runnables -- the facade has nothing that needs a leader.
 func (s *Server) Run(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "index.facade")
 	httpSrv := &http.Server{
 		Addr:              s.addr,
 		Handler:           s.mux,

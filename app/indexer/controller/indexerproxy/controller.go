@@ -74,6 +74,7 @@ func NewReconciler(c client.Client, recorder events.EventRecorder, httpClient *h
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "index.indexerproxy")
 	ctx, span := tracing.Start(ctx, "indexerproxy.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("indexerproxy", req.NamespacedName)

@@ -70,6 +70,7 @@ func NewReconciler(c client.Client, recorder events.EventRecorder) *Reconciler {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "index.indexerdefinition")
 	ctx, span := tracing.Start(ctx, "indexerdefinition.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("indexerdefinition", req.Name)

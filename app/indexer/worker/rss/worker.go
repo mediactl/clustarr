@@ -169,7 +169,7 @@ func (w *Worker) Subscription() events.Subscription {
 // leader lease.
 func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := bus.Subscribe(ctx, w.Subscription(), w.Handle)
+		stop, err := bus.Subscribe(logging.Subsystem(ctx, "index.rss"), w.Subscription(), w.Handle)
 		if err != nil {
 			return fmt.Errorf("index: subscribe rss: %w", err)
 		}

@@ -215,6 +215,7 @@ func (r *Reconciler) forget(uid types.UID) {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (res ctrl.Result, err error) {
+	ctx = logging.Subsystem(ctx, "index.indexer")
 	ctx, span := tracing.Start(ctx, "indexer.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("indexer", req.NamespacedName)

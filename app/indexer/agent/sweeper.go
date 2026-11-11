@@ -62,6 +62,7 @@ type indexSweeper struct {
 
 // Start implements manager.Runnable.
 func (s indexSweeper) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "index.sweeper")
 	pruneOnce(ctx, s.store)
 	ticker := time.NewTicker(IndexSweepInterval)
 	defer ticker.Stop()
