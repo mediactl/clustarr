@@ -45,6 +45,8 @@ kubectl --context admin@talos apply --server-side --field-manager=clustarr-deplo
 
 Both are additive; the running manager keeps working on the old object shape until the deploy.
 
+**Stop if** the apply is refused (a schema error): do not deploy; report the message.
+
 ## 1. Deploy clustarr and run the dry run
 
 1. **Publish.** Push main, tag a release so CI builds the multi-arch `clustarr` and `native`
@@ -78,16 +80,23 @@ kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv \
   `InvalidLineup` (a rule does not compile or a category is malformed; the provider still
   streams), `LineupPending` (only after the flip), `TooMany` (see below).
 - **`status.categories`**: a name, base, channel count (and device id and reason once enabled).
-  Expected from the planner's sample on the 2026-11-10 playlist: Sports about 114, Premium 46,
-  Drama & Crime 42, News 41, Movies 34, Reality 31, Kids 28, Music 22, Comedy 16, Science 15,
-  Faith 11, Classic TV 7, Local 11. **Local must show the 11 affiliates** (WEAR, WALA, WKRG,
-  WPMI and the New York flagships WABC, WNYW, WCBS, WPIX, WWOR, WNBC, WNET): if it shows more or
-  fewer, the `names` regexes or the ENTERTAINMENT group rule is wrong. The counts move a little with the playlist; every category must be under 400.
+  Expected, from Task 2's planner sample over `test/data/iptv/lineup_names.txt` (the 2026-11-10
+  playlist's names, which **lacks the affiliate and streaming groups**, so talos's numbers will be
+  larger for those): Sports about 114, Premium 46, `Entertainment / Drama & Crime` 42, News 41,
+  Movies 34, `Entertainment / Reality & Lifestyle` 31, Kids 28, `Entertainment / Music` 22,
+  `Entertainment / Comedy & Game Shows` 16, `Entertainment / Science, Nature & History` 15,
+  `Entertainment / Faith & Family` 11, `Entertainment / Classic TV` 7, Local 11.
+  `Entertainment / On Demand` (base 9500) is 0 in the sample, which had none of its groups;
+  expect the ORIGINALS loops on talos. **Local must show the 11 affiliates plus the national ABC
+  entry** (WEAR, WALA, WKRG, WPMI and the New York flagships WABC, WNYW, WCBS, WPIX, WWOR, WNBC,
+  WNET; the `^ABC$` rule is the extra): fewer or more means the `names` regexes or the
+  ENTERTAINMENT group rule is wrong. Every category must be under 400.
 - **`status.guideSources.plex`**: `stations` (paired to a Gracenote station), `grids` fetched,
   `fetchedAt`, and `holdUntil` / `error` if Plex answered 429 (the pass holds for max(Retry-After,
   1 min) and resumes). The first pass is about 1,000 calls at 2 per second, around 10 minutes;
   `GuideSourcesReady` reads Pending until it ends. A long `holdUntil` is a finding: lower `rate`.
-- **The Channels page** (`/livetv/channels`, the ui at clustarr.k8s.appkins.io): the dry-run banner
+- **The Channels page** (`/livetv/channels`, the ui at clustarr.k8s.appkins.io; the layout below is
+  described from the design and **untested on talos**, so trust the screen over this text): the dry-run banner
   with its counts (channels kept, dropped, duplicates), the per-row planned name, number and
   category, the **dropped** rows with their reason (the exclude rule or "no category"), and each
   duplicate beside the winner that took the channel. Read it as the owner reads a channel guide:
@@ -96,6 +105,11 @@ kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv \
   recompiles in a pass) or per channel with the category picker, which writes `spec.category`.
 - A category over the map budget (30,000 bytes, about 116 bytes a channel, so about 255) or over
   400 channels reads `TooMany`: split it by adding a rule that joins a second category.
+
+**Stop if** `LineupApplied` reads `InvalidLineup`, any category reads `TooMany`, a category is
+missing from `status.categories`, Local is not the 11 affiliates plus ABC, or `status.guideSources.plex`
+holds for long: fix the values and re-read; do not proceed to step 2 or 3. The action is to edit
+the values (or remove `spec.lineup`), never a rollback of the deploy.
 
 Iterate here for as long as needed. Nothing in step 1 needs rolling back: set nothing, or remove
 `spec.lineup`.
@@ -109,10 +123,23 @@ every block is the cloud one: only an XMLTV block asks for a build. Apply, then 
 Plex pods restarted cleanly and `kubectl -n clustarr-system get iptvprovider argon-tv` still
 reads Ready. This can ride with step 1's apply when the owner prefers one pass.
 
+`plex.liveTV.cloudGuide` is a **separate key** and stays as it is (`manager` on talos today); the
+cutover changes `xmltvGuide` only.
+
+**Stop if** a Plex pod does not come back ready or the provider leaves Ready: revert `xmltvGuide`
+to `pms` (inert either way) and report.
+
 ## 3. The flip, in one edit
 
-Wait for `status.guideSources.plex` to be complete (no `holdUntil`, `GuideSourcesReady` True) and
-for no `provider.epg.load` in PMS's `/activities`. Announce it. In cluster-bootstrap's argon-tv
+**Before the edit, record the cloud block's device id** (the rollback compares against it):
+
+```bash
+kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv \
+  -o jsonpath='{.status.blocks[*].deviceID}{"\n"}'
+```
+
+Go/no-go, all must hold: `status.guideSources.plex` complete (no `holdUntil`, `GuideSourcesReady` True), no `provider.epg.load` in PMS's `/activities`,
+step 1's stop-ifs clear, and the owner has accepted the loss of the recording rules. Announce it. In cluster-bootstrap's argon-tv
 object make exactly this edit and apply it:
 
 ```yaml
@@ -148,22 +175,33 @@ spec:
 
 ### What to watch
 
+The build Jobs run in the namespace cluster-plex's manager runs in, **`media` on talos (confirm
+with `kubectl --context admin@talos get jobs -A -l clusterplex.io/guide-dvr`)**, not necessarily
+`clustarr-system`. Confirm the manager Deployment's name with
+`kubectl --context admin@talos -n clustarr-system get deploy` (the chart names it
+`<release>-manager`, so `clustarr-manager`).
+
 ```bash
-P='kubectl --context admin@talos -n clustarr-system'
-$P get iptvprovider argon-tv -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}: {.message}{"\n"}{end}'
-$P get iptvprovider argon-tv -o jsonpath='{range .status.categories[*]}{.name}{"\t"}{.channels}{"\t"}{.deviceID}{"\t"}{.reason}{"\n"}{end}'
-$P get iptvprovider argon-tv -o jsonpath='{range .status.blocks[*]}{.deviceID}{"\t"}{.path}{"\t"}{.owner}{"\n"}{end}'
-$P get jobs -l clusterplex.io/guide-dvr --chunk-size=0   # the build Jobs (labelled with their DVR and plan stamp)
-$P logs deploy/clustarr-manager   # name the manager Deployment `kubectl get deploy` shows --since=15m | grep -i 'lineup\|livetv\|guide'
+kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}: {.message}{"\n"}{end}'
+kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv -o jsonpath='{range .status.categories[*]}{.name}{"\t"}{.channels}{"\t"}{.deviceID}{"\t"}{.reason}{"\n"}{end}'
+kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv -o jsonpath='{range .status.blocks[*]}{.deviceID}{"\t"}{.path}{"\t"}{.owner}{"\n"}{end}'
+kubectl --context admin@talos -n media get jobs -l clusterplex.io/guide-dvr --chunk-size=0 --no-headers -o wide
+kubectl --context admin@talos -n clustarr-system logs deploy/clustarr-manager --since=15m | grep -i 'lineup\|livetv\|guide'
 ```
+
 
 - Manager log: the lineup controller's pass (channels applied, plan stored), the tuner's
   renders (`withBlocks` publishes a device only once the tuner serves it), the grid fetch.
 - cluster-plex's log (the Plex pod holding the lease): `DVRDeviceReplaced`/`DVRProvisioned`/
   `DVRChannelMapSaved` events per category, a PMS `provider.epg.load` activity per DVR, and the
-  builder's completion. PMS's DVR list, read-only, through a port-forward to a Plex pod:
+  builder's completion. PMS's DVR list, read-only, through a port-forward to the PMS pod (cluster-plex's recipe in
+  `docs/guide-rig.md`: forward to the pod in `media`, authenticate with PMS's `.LocalAdminToken`):
   `GET /livetv/dvrs` should show one DVR per category and none for the cloud lineup. A device PMS
   marks dead is discovered again by the converger within a minute (`DVRDeviceRevived`).
+- **Stop and roll back if** any of: `LineupPending` for longer than 10 minutes (read the message's
+  pending count and the manager log for apply errors first); any category reads `TooMany`; a DVR's
+  first PMS load has not finished in 20 minutes; a build Job has failed. The action for each is the
+  rollback below, after reading the cause.
 - Never `reloadGuide` or POST a DVR by hand while a load is in progress (it deletes the DVR).
 
 ## 4. Verify
@@ -192,10 +230,15 @@ spec:
     enabled: true
 ```
 
-- The cloud block's device id derives from the lineup id and its sticky start, **unchanged**, so
-  cluster-plex re-registers that device and creates the DIRECTV DVR as it was, **minus its
-  recording rules**; the category devices and DVRs are removed. Plex Live TV is empty again for
-  the cloud DVR's first load (about 21 minutes for 167 channels in the 2026-11-03 measurement).
+- The cloud block's device id derives from `plex/<lineupID>/<start>`. After the flip the cloud
+  block has left `status.blocks`, so a rollback **repacks from the category numbers**, and its first
+  block's `start` is `1001` only by the coincidence that News's base is 1000. Compare the new
+  `status.blocks[*].deviceID` with the one recorded before the flip. **Same id:** cluster-plex
+  re-registers that device and creates the DIRECTV DVR as it was, **minus its recording rules**.
+  **Different id:** it is a new device and a new DVR, cluster-plex deletes the old one, and the
+  recording rules are lost a second time. Either way the category devices and DVRs are removed,
+  and Plex Live TV is empty for the cloud DVR's first load (the 2026-11-03 measurement,
+  **measured elsewhere**, was about 21 minutes for 167 channels; expect similar, not that).
 - The channels keep their planned numbers, names and activation until the next plan: with
   `lineup.enabled: false` the lineup controller stops owning `spec.number`, so the cloud block
   packs by the numbers they have now. Renumber by hand (the Channels page) or re-enable the
