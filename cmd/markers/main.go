@@ -155,13 +155,13 @@ func run(args []string, getenv func(string) string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
 	f.to.ServiceName = "markers"
-	ctx, log, err := logging.Root(ctx, *f.lo, logging.ServiceFor(f.to.ServiceName))
+	ctx, _, err = logging.Root(ctx, *f.lo, logging.ServiceFor(f.to.ServiceName))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "markers:", err)
 		return worker.ExitMisconfigured
 	}
 	ctx = logging.Subsystem(ctx, "markers")
-	log = logging.FromContext(ctx)
+	log := logging.FromContext(ctx)
 	shutdown, err := tracing.Setup(ctx, *f.to)
 	if err != nil {
 		log.ErrorContext(ctx, "tracing", "err", err)

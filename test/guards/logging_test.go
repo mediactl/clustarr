@@ -28,10 +28,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/test/installtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
 // The guards of the 2026-11-10 structured-logging design (§9): one error

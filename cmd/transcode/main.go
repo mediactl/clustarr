@@ -134,13 +134,13 @@ func run(args []string, getenv func(string) string) int {
 	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stopSignals()
 	to.ServiceName = "transcode"
-	ctx, log, err := logging.Root(ctx, *lo, logging.ServiceFor(to.ServiceName))
+	ctx, _, err := logging.Root(ctx, *lo, logging.ServiceFor(to.ServiceName))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "transcode:", err)
 		return jobspec.WorkerExitMisconfigured
 	}
 	ctx = logging.Subsystem(ctx, "transcode")
-	log = logging.FromContext(ctx)
+	log := logging.FromContext(ctx)
 	shutdown, err := tracing.Setup(ctx, *to)
 	if err != nil {
 		log.ErrorContext(ctx, "tracing", "err", err)
