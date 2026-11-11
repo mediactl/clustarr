@@ -25,6 +25,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/mediactl/clustarr/pkg/events"
@@ -68,6 +70,7 @@ func (c *ScanConsumer) NeedLeaderElection() bool { return true }
 // Start binds the durable the manager's topology created and applies every
 // observation until ctx ends.
 func (c *ScanConsumer) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "intake.scans")
 	if c.Bus == nil {
 		return errors.New("intake: the scan consumer needs the bus")
 	}

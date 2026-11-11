@@ -62,6 +62,7 @@ func (m *CertManager) NeedLeaderElection() bool { return true }
 // Start syncs at once and every Interval. A failed sync is logged and
 // retried; it never stops the manager.
 func (m *CertManager) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "autoscale.extmetrics")
 	interval := m.Interval
 	if interval <= 0 {
 		interval = DefaultSyncInterval

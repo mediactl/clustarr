@@ -65,6 +65,7 @@ func (q *QueueGauge) NeedLeaderElection() bool { return true }
 
 // Start updates at once and every Interval until ctx ends.
 func (q *QueueGauge) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "autoscale.extmetrics")
 	interval := q.Interval
 	if interval <= 0 {
 		interval = DefaultGaugeInterval

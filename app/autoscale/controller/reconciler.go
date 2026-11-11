@@ -22,6 +22,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
@@ -84,6 +86,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 // Deployment owns when it is unlabelled, paused or names no autoscaled
 // domain.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "autoscale")
 	ctx, span := tracing.Start(ctx, "autoscale.Reconcile")
 	defer span.End()
 

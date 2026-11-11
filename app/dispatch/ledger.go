@@ -201,6 +201,7 @@ func (l *Ledger) NeedLeaderElection() bool { return true }
 // can), then every TickInterval lapses reservations, detects unattended
 // durables and sets the waiting and unattended metrics, until ctx ends.
 func (l *Ledger) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "dispatch.ledger")
 	log := logging.FromContext(ctx).With("component", "dispatch-ledger")
 	for {
 		err := l.rebuild(ctx)

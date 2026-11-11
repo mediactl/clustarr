@@ -114,6 +114,7 @@ func (i *Intake) Wakes() <-chan cataloghistory.Target {
 // Start binds clustarr-task-events and the ack-metric subjects, and runs
 // the second net, until ctx ends.
 func (i *Intake) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "intake.advisory")
 	i.init()
 	if i.Bus == nil || i.Admin == nil || i.Book == nil {
 		return errors.New("advisory: the intake needs the bus, its stream admin and the delivery book")

@@ -51,6 +51,7 @@ func (g *NamespaceGuard) NeedLeaderElection() bool { return false }
 
 // Start waits for ctx to end, then checks once with its own deadline.
 func (g *NamespaceGuard) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "autoscale.extmetrics")
 	<-ctx.Done()
 	timeout := g.Timeout
 	if timeout <= 0 {

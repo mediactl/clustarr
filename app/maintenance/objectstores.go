@@ -67,6 +67,7 @@ func (m *ObjectStores) NeedLeaderElection() bool { return true }
 // Start sweeps at once and then every Interval until ctx ends. A failed
 // sweep is logged and retried on the next tick.
 func (m *ObjectStores) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "maintenance.objectstores")
 	interval := m.Interval
 	if interval <= 0 {
 		interval = artwork.DefaultReapInterval

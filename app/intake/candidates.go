@@ -56,6 +56,7 @@ func (c *CandidateConsumer) NeedLeaderElection() bool { return true }
 // Start binds the durable the manager's topology created and parks every
 // candidate until ctx ends.
 func (c *CandidateConsumer) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "intake.candidates")
 	if c.Bus == nil || c.Inbox == nil {
 		return errors.New("intake: the candidate consumer needs the bus and the inbox")
 	}
