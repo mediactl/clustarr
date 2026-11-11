@@ -146,9 +146,9 @@ func TestHandleCreatesASeriesFromTheTvdbIDInItsFolder(t *testing.T) {
 	assert.Equal(t, int64(3), got.FilesSeen)
 	assert.Zero(t, got.FilesMatched)
 	assert.Equal(t, int64(2), got.ItemsCreated, "one series per folder, not one per file")
-	assert.Equal(t, int64(3), got.AwaitingEpisodes)
+	assert.Equal(t, map[string]int64{"series": 3}, got.AwaitingChildren)
 	assert.Empty(t, got.Unmatched)
-	assert.Contains(t, got.Summary(), "3 awaiting the episodes of their series")
+	assert.Contains(t, got.Summary(), "3 awaiting their series' episodes")
 
 	var list catalogv1alpha1.SeriesList
 	require.NoError(t, f.api(t).List(ctx, &list, client.InNamespace(f.ns)))
@@ -195,7 +195,7 @@ func TestALaterScanAttributesTheFilesOfASeriesAScanCreated(t *testing.T) {
 	got := readProgress(t, ctx, f.bus, string(scan2.UID))
 	require.Empty(t, got.Error)
 	assert.Zero(t, got.ItemsCreated, "the series already exists")
-	assert.Equal(t, int64(2), got.AwaitingEpisodes)
+	assert.Equal(t, int64(2), got.Awaiting())
 	assert.Empty(t, got.Unmatched)
 
 	for i := 1; i <= 2; i++ {
@@ -214,7 +214,7 @@ func TestALaterScanAttributesTheFilesOfASeriesAScanCreated(t *testing.T) {
 	got = readProgress(t, ctx, f.bus, string(scan3.UID))
 	require.Empty(t, got.Error)
 	assert.Equal(t, int64(2), got.FilesMatched)
-	assert.Zero(t, got.AwaitingEpisodes)
+	assert.Zero(t, got.Awaiting())
 	refs := map[string]bool{}
 	for _, mf := range mediaFilesIn(t, ctx, f.c, f.ns, 2) {
 		refs[mf.Spec.MediaRef.Name] = true
@@ -232,7 +232,7 @@ func TestADryRunReportsTheSeriesItWouldCreate(t *testing.T) {
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Error)
 	assert.Equal(t, int64(1), got.ItemsCreated)
-	assert.Equal(t, int64(1), got.AwaitingEpisodes)
+	assert.Equal(t, int64(1), got.Awaiting())
 	var list catalogv1alpha1.SeriesList
 	require.NoError(t, f.api(t).List(ctx, &list, client.InNamespace(f.ns)))
 	assert.Empty(t, list.Items)

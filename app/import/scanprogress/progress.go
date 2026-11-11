@@ -48,6 +48,13 @@ type UnmatchedFile struct {
 	// the CRD's own MaxItems.
 	Candidates []string `json:"candidates,omitempty"`
 
+	// Folder marks an entry that is a folder the walk could not identify as
+	// an Artist, Author or Audiobook (the CRD's UnmatchedFile.Folder; the
+	// 2026-11-10 non-video libraries design's D16): Path is the folder, its
+	// Candidates the provider's hits, and its files are counted in
+	// AwaitingChildren, never listed here.
+	Folder bool `json:"folder,omitempty"`
+
 	// SeenAt is when the walk observed the file.
 	SeenAt time.Time `json:"seenAt"`
 }
@@ -105,7 +112,8 @@ func MergeRenamed(list []RenamedFile, more ...RenamedFile) []RenamedFile {
 //   - a media file of the root folder's kind (or a suspected sample) is
 //     SEEN, and then matched (FilesMatched), skipped (FilesSkipped, and one
 //     of Unchanged, Transcoded, TranscodeOutputs or Deferred says why),
-//     awaiting the episodes of its series (AwaitingEpisodes) or unmatched
+//     awaiting the children of its container (AwaitingChildren, by the
+//     container's kind) or unmatched
 //     (an entry in Unmatched, which is capped, so the count is not
 //     derivable from the list);
 //   - anything else is NOT CONSIDERED, and one of NotMedia, Parts, Extras
@@ -175,15 +183,23 @@ type Progress struct {
 	// writing the fields it owns. Also counted in FilesMatched.
 	HandedOver int64 `json:"handedOver,omitempty"`
 
-	// AwaitingEpisodes counts episode files of a series that has no
-	// episodes yet -- typically one this walk created from its folder's
-	// TheTVDB id, whose episode list the Series controller fans out only
-	// once its metadata arrives. They are attributable, just not yet, so
-	// they are counted rather than listed in the capped Unmatched, where
-	// thousands of them would evict the files that need a person. The
-	// series' own folder scan attributes them once its first episodes are
-	// listed (app/catalog/controller/folderscan, smoke finding O8).
-	AwaitingEpisodes int64 `json:"awaitingEpisodes,omitempty"`
+	// AwaitingChildren counts, by the container's kind (Kinds' keys: a
+	// commonv1.MediaKind as a string, "series", "artist", "author"), the
+	// files of a container whose children have not arrived -- an episode
+	// file of a series that has no episodes yet, typically one this walk
+	// created from its folder's TheTVDB id, whose episode list the Series
+	// controller fans out only once its metadata arrives; since the
+	// 2026-11-10 non-video libraries design's D16 and D17 the files of an
+	// artist or author folder the walk proposed as a create, or whose
+	// albums' track lists have not arrived, and the files of a folder it
+	// could not identify (an Unmatched entry with Folder). They are
+	// attributable, just not yet, so they are counted rather than listed in
+	// the capped Unmatched, where thousands of them would evict the files
+	// that need a person. The container's own folder scan attributes them
+	// once its children are listed and settled (app/catalog/controller/
+	// folderscan, smoke finding O8; D18). Await counts one; Awaiting sums
+	// every kind.
+	AwaitingChildren map[string]int64 `json:"awaitingChildren,omitempty"`
 
 	// NotMedia, Parts, Extras and Samples count the files the walk did not
 	// consider at all: a non-media extension, a partial download, a file in
@@ -235,8 +251,8 @@ func (p Progress) Summary() string {
 		))
 	}
 	fmt.Fprintf(&b, ", %d unmatched", len(p.Unmatched))
-	if p.AwaitingEpisodes > 0 {
-		fmt.Fprintf(&b, "; %d awaiting the episodes of their series, which each series' own folder scan attributes once they are listed", p.AwaitingEpisodes)
+	if awaiting := p.awaitingClauses(); awaiting != "" {
+		fmt.Fprintf(&b, "; %s, which each one's own folder scan attributes once they are listed", awaiting)
 	}
 	if p.HandedOver > 0 {
 		fmt.Fprintf(&b, "; %d transcoded files changed on disk, handed to catalog", p.HandedOver)
@@ -253,6 +269,56 @@ func (p Progress) Summary() string {
 		))
 	}
 	return b.String()
+}
+
+// Kinds names, for each container kind AwaitingChildren is keyed by, what
+// its files await, as Summary says it ("412 awaiting their artists'
+// albums"). A kind not listed here is said by its name.
+var Kinds = map[string]string{
+	"series": "their series' episodes",
+	"artist": "their artists' albums",
+	"author": "their authors' books",
+	"comic":  "their comics' issues",
+}
+
+// Await counts one file of a container of kind whose children have not
+// arrived (AwaitingChildren).
+func (p *Progress) Await(kind string) {
+	if p.AwaitingChildren == nil {
+		p.AwaitingChildren = map[string]int64{}
+	}
+	p.AwaitingChildren[kind]++
+}
+
+// Awaiting is the number of files awaiting their containers' children,
+// every kind summed.
+func (p Progress) Awaiting() int64 {
+	var n int64
+	for _, c := range p.AwaitingChildren {
+		n += c
+	}
+	return n
+}
+
+// awaitingClauses renders AwaitingChildren kind by kind, in kind order,
+// each as Kinds says it; empty when nothing awaits.
+func (p Progress) awaitingClauses() string {
+	kinds := make([]string, 0, len(p.AwaitingChildren))
+	for kind, n := range p.AwaitingChildren {
+		if n > 0 {
+			kinds = append(kinds, kind)
+		}
+	}
+	slices.Sort(kinds)
+	parts := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		what, ok := Kinds[kind]
+		if !ok {
+			what = "the children of their " + kind + " items"
+		}
+		parts = append(parts, fmt.Sprintf("%d awaiting %s", p.AwaitingChildren[kind], what))
+	}
+	return strings.Join(parts, ", ")
 }
 
 type clause struct {
@@ -331,7 +397,16 @@ func (p Progress) Merge(q Progress) Progress {
 	p.Deferred += q.Deferred
 	p.TranscodeOutputs += q.TranscodeOutputs
 	p.HandedOver += q.HandedOver
-	p.AwaitingEpisodes += q.AwaitingEpisodes
+	if len(q.AwaitingChildren) > 0 {
+		merged := make(map[string]int64, len(p.AwaitingChildren)+len(q.AwaitingChildren))
+		for kind, n := range p.AwaitingChildren {
+			merged[kind] = n
+		}
+		for kind, n := range q.AwaitingChildren {
+			merged[kind] += n
+		}
+		p.AwaitingChildren = merged
+	}
 	p.NotMedia += q.NotMedia
 	p.Parts += q.Parts
 	p.Extras += q.Extras

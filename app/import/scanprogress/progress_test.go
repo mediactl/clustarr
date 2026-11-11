@@ -54,6 +54,12 @@ func TestProgressEncodeDecodeRoundTrip(t *testing.T) {
 					Reason:     "ambiguous",
 					Candidates: []string{"movie-a", "movie-b"},
 					SeenAt:     seenAt,
+				}, {
+					Path:       "Nirvana",
+					Reason:     "two MusicBrainz artists are named Nirvana",
+					Candidates: []string{"Nirvana (90s US grunge band) [5b11f4ce]", "Nirvana (60s band from the UK) [9282c8b4]"},
+					Folder:     true,
+					SeenAt:     seenAt,
 				}},
 			},
 		},
@@ -62,7 +68,8 @@ func TestProgressEncodeDecodeRoundTrip(t *testing.T) {
 			in: scanprogress.Progress{
 				FilesSeen: 12, FilesMatched: 7, FilesSkipped: 4, Unchanged: 2, Transcoded: 1, Deferred: 1,
 				HandedOver: 1, NotMedia: 5, Parts: 1, Extras: 2, Samples: 3, Unreadable: 1,
-				Resume: "/data/media/movies/Heat (1995)/Heat (1995).mkv",
+				AwaitingChildren: map[string]int64{"series": 3, "artist": 412},
+				Resume:           "/data/media/movies/Heat (1995)/Heat (1995).mkv",
 			},
 		},
 		{
@@ -108,9 +115,18 @@ func TestProgressKeyIsNamespacedUnderScan(t *testing.T) {
 }
 
 // Summary is the Ready condition's message: the counters the status has,
-// then the breakdown it has no field for, zero clauses left out.
+// then the breakdown it has no field for, zero clauses left out; the files
+// awaiting their containers' children are said per kind, in kind order,
+// in Kinds' words.
 func TestProgressSummary(t *testing.T) {
 	assert.Equal(t, "0 files seen, 0 matched, 0 unmatched", scanprogress.Progress{}.Summary())
+	assert.Equal(t,
+		"415 files seen, 0 matched, 1 unmatched; 412 awaiting their artists' albums, 3 awaiting their series' episodes, "+
+			"which each one's own folder scan attributes once they are listed",
+		scanprogress.Progress{
+			FilesSeen: 415, AwaitingChildren: map[string]int64{"series": 3, "artist": 412, "author": 0},
+			Unmatched: []scanprogress.UnmatchedFile{{Path: "Nirvana", Folder: true}},
+		}.Summary())
 	assert.Equal(t,
 		"12 files seen, 7 matched, 5 skipped (2 unchanged, 1 transcoded, left to catalog, "+
 			"1 transcode outputs, left to catalog, 1 changed during the scan, left to the next), "+
@@ -121,6 +137,25 @@ func TestProgressSummary(t *testing.T) {
 			HandedOver: 1, Unreadable: 2, NotMedia: 5, Samples: 3, Parts: 1,
 			Unmatched: []scanprogress.UnmatchedFile{{Path: "x.mkv"}},
 		}.Summary())
+}
+
+// Await counts a file under its container's kind, Awaiting sums the kinds,
+// and Merge adds the applier's per-kind counts to the walk's, kind by
+// kind, leaving the receiver's map alone.
+func TestAwaitingChildrenCountAndMerge(t *testing.T) {
+	var walk scanprogress.Progress
+	walk.Await("series")
+	walk.Await("artist")
+	walk.Await("artist")
+	assert.Equal(t, map[string]int64{"series": 1, "artist": 2}, walk.AwaitingChildren)
+	assert.EqualValues(t, 3, walk.Awaiting())
+
+	applied := scanprogress.Progress{AwaitingChildren: map[string]int64{"artist": 5, "author": 1}}
+	merged := walk.Merge(applied)
+	assert.Equal(t, map[string]int64{"series": 1, "artist": 7, "author": 1}, merged.AwaitingChildren)
+	assert.EqualValues(t, 9, merged.Awaiting())
+	assert.Equal(t, map[string]int64{"series": 1, "artist": 2}, walk.AwaitingChildren, "Merge returns a new tally")
+	assert.Nil(t, scanprogress.Progress{}.Merge(scanprogress.Progress{}).AwaitingChildren, "nothing awaiting stays unset")
 }
 
 // MergeRenamed replaces an entry for a file already listed where it stands,

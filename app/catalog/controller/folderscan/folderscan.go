@@ -22,7 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // A Series a scan creates (or Add New, or an import list) has none until the
 // Series reconciler fans them out from its metadata, so the scan that found
 // the series counted the rest of its files as awaiting episodes
-// (Progress.AwaitingEpisodes) and attributed none of them -- they reached the
+// (Progress.AwaitingChildren) and attributed none of them -- they reached the
 // library only at the next scan (smoke finding O8: 131 series created, 433 of
 // 11,122 files matched). [Pass] is the one step that closes that gap, a state
 // machine kept in the item's FolderScanned condition:
