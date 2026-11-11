@@ -441,6 +441,7 @@ const DefaultArtCacheBytes = 64 << 20
 // also bounds the artwork index's watch, started here and stopped when ctx
 // ends ([Run] cancels it on shutdown).
 func NewServer(ctx context.Context, opts Options) *Server {
+	ctx = logging.Subsystem(ctx, "ui")
 	if opts.Library == nil {
 		opts.Library = func(context.Context) []projection.LibraryItem { return nil }
 	}
