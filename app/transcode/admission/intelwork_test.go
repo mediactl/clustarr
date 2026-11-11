@@ -18,8 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package admission
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // The intel class's work in hand and waiting (cluster-plex's 2026-11-10
@@ -155,12 +159,52 @@ func TestAFailedPublishIsLoggedNotReturned(t *testing.T) {
 	}).Build()
 	now := time.Date(2026, 11, 10, 23, 0, 0, 0, time.UTC)
 	l := intelWorkLease(t, c, "clustarr-manager-1", &now)
-	l.Set(t.Context(), 4) // refused: logged, kept
+	// The warning goes to the logger the context carries (the manager's,
+	// in its format and at its level), never a default or a field's own.
+	var logged bytes.Buffer
+	ctx := logging.NewContext(t.Context(), slog.New(slog.NewTextHandler(&logged, nil)))
+	l.Set(ctx, 4) // refused: logged, kept
 	var missing coordinationv1.Lease
 	require.Error(t, c.Get(t.Context(), l.Key, &missing))
+	assert.Contains(t, logged.String(), "cannot publish the intel-work Lease")
+	assert.Contains(t, logged.String(), "leases is forbidden")
 	fail = false
 	require.NoError(t, l.Publish(t.Context()), "the kept value is published on the next try")
 	assert.Equal(t, "4", readLease(t, c, l.Key).Annotations[IntelWorkAnnotation])
+}
+
+func TestASetDuringARenewalIsNeverOverwrittenByIt(t *testing.T) {
+	// A renewal in flight with the old count must not land after a Set
+	// that moved it (the zero the pass publishes at once): the renewal's
+	// retry from a fresh read would otherwise resurrect the old count with
+	// a fresh renew time, and cluster-plex would read work for 30 s more.
+	first, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithInterceptorFuncs(interceptor.Funcs{
+		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if obj.GetAnnotations()[IntelWorkAnnotation] == "3" {
+				once.Do(func() { close(first); <-release })
+			}
+			return cl.Update(ctx, obj, opts...)
+		},
+	}).Build()
+	now := time.Date(2026, 11, 10, 23, 0, 0, 0, time.UTC)
+	l := intelWorkLease(t, c, "clustarr-manager-1", &now)
+	l.Set(t.Context(), 3) // the Lease exists at 3
+
+	renewed := make(chan error, 1)
+	go func() { renewed <- l.Publish(t.Context()) }() // the renewer's tick, held in its Update
+	<-first
+	set := make(chan struct{})
+	go func() { l.Set(t.Context(), 0); close(set) }() // the pass moves the count meanwhile
+	select {
+	case <-set:
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	require.NoError(t, <-renewed)
+	<-set
+	assert.Equal(t, "0", readLease(t, c, l.Key).Annotations[IntelWorkAnnotation], "the count set last is the count published")
 }
 
 func TestTheRenewerRenewsWhileWorkIsHeld(t *testing.T) {

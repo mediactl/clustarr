@@ -20,7 +20,6 @@ package admission
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"sync"
 	"time"
@@ -33,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // The Lease the admission controller publishes its intel work in, for
@@ -52,30 +52,34 @@ const (
 // leader-election Role grants the writes; a write that fails is logged and
 // kept for the next try, never returned to a pass.
 type IntelWorkLease struct {
-	Client   client.Client
+	Client client.Client
+	// Reader reads the Lease before each write: the manager's APIReader,
+	// so a write never conflicts on its own cache's lag. nil: Client.
+	Reader   client.Reader
 	Key      types.NamespacedName
 	Identity string           // the holder: this pod's name
 	Now      func() time.Time // nil: time.Now
 	Every    time.Duration    // the renewal period; 0: IntelWorkRenew
-	Log      *slog.Logger     // nil: discarded
 
-	mu    sync.Mutex
+	mu    sync.Mutex // the count
 	n     int
 	known bool
+	// publishMu serialises the publishes: a Set's and a renewal's, so a
+	// renewal in flight with an older count never lands after the Set that
+	// moved it (its conflict retry would resurrect the old count with a
+	// fresh renew time, and cluster-plex would read work for 30 s more).
+	publishMu sync.Mutex
 }
+
+// publishTimeout bounds one publish, so a hung apiserver holds a pass no
+// longer than this (cluster-plex's counter bounds its writes the same way).
+const publishTimeout = 5 * time.Second
 
 func (l *IntelWorkLease) now() time.Time {
 	if l.Now == nil {
 		return time.Now()
 	}
 	return l.Now()
-}
-
-func (l *IntelWorkLease) log() *slog.Logger {
-	if l.Log == nil {
-		return slog.New(slog.DiscardHandler)
-	}
-	return l.Log
 }
 
 // NeedLeaderElection makes the renewer leader-only: the leader's passes
@@ -92,21 +96,35 @@ func (l *IntelWorkLease) Set(ctx context.Context, n int) {
 	if !changed {
 		return
 	}
-	if err := l.Publish(ctx); err != nil {
-		l.log().WarnContext(ctx, "transcode admission: cannot publish the intel-work Lease", "lease", l.Key.String(), "count", n, "error", err)
+	if err := l.publish(ctx); err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "transcode admission: cannot publish the intel-work Lease", "lease", l.Key.String(), "count", n, "error", err)
 	}
 }
 
+// publish is Publish under publishTimeout.
+func (l *IntelWorkLease) publish(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, publishTimeout)
+	defer cancel()
+	return l.Publish(ctx)
+}
+
 // Publish writes the count, the holder and a fresh renew time into the
-// Lease, creating it when missing, retrying a conflict from a fresh read.
+// Lease, creating it when missing, retrying a conflict from a fresh read;
+// one publish at a time, each attempt writing the count as it is then.
 func (l *IntelWorkLease) Publish(ctx context.Context) error {
-	l.mu.Lock()
-	n := l.n
-	l.mu.Unlock()
+	l.publishMu.Lock()
+	defer l.publishMu.Unlock()
+	reader := l.Reader
+	if reader == nil {
+		reader = l.Client
+	}
 	now := l.now()
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		l.mu.Lock()
+		n := l.n
+		l.mu.Unlock()
 		var lease coordinationv1.Lease
-		err := l.Client.Get(ctx, l.Key, &lease)
+		err := reader.Get(ctx, l.Key, &lease)
 		create := apierrors.IsNotFound(err)
 		if err != nil && !create {
 			return fmt.Errorf("get lease: %w", err)
@@ -159,8 +177,8 @@ func (l *IntelWorkLease) Start(ctx context.Context) error {
 			if n <= 0 {
 				continue
 			}
-			if err := l.Publish(ctx); err != nil {
-				l.log().WarnContext(ctx, "transcode admission: cannot renew the intel-work Lease", "lease", l.Key.String(), "count", n, "error", err)
+			if err := l.publish(ctx); err != nil {
+				logging.FromContext(ctx).WarnContext(ctx, "transcode admission: cannot renew the intel-work Lease", "lease", l.Key.String(), "count", n, "error", err)
 			}
 		}
 	}

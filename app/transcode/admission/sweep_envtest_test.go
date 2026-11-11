@@ -27,7 +27,9 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -92,11 +94,13 @@ func TestSweepWithdrawsADeletedFilesTaskAfterRestart(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, mfindex.Register(ctx, mgr.GetFieldIndexer()))
+	intelWork := types.NamespacedName{Namespace: ns, Name: "clustarr-intel-work"}
 	require.NoError(t, (&admission.Reconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Ledger: ledger, Bus: bus, Admin: admin,
 		Namespaces: []string{ns}, Pool: pool.Config{Namespace: ns},
 		Withdrawal: task.Withdrawal{Records: task.Requests(bus.KV(events.BucketTranscodes)),
 			Leases: bus.KV(events.BucketTranscodeLeases), Admin: admin},
+		IntelWork: &admission.IntelWorkLease{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Key: intelWork, Identity: "manager-a"},
 	}).SetupWithManager(mgr))
 	mctx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
@@ -108,6 +112,15 @@ func TestSweepWithdrawsADeletedFilesTaskAfterRestart(t *testing.T) {
 		return err == nil && len(subs) == 1 && subs[0] == kept
 	}, 30*time.Second, 200*time.Millisecond, "only the in-flight file's task is left")
 	assert.True(t, ledger.Rebuilt())
+
+	// The pass published its intel work (none: the budget is cpu alone)
+	// into the Lease through Reconcile's one wiring line.
+	require.Eventually(t, func() bool {
+		var lease coordinationv1.Lease
+		return c.Get(ctx, intelWork, &lease) == nil &&
+			lease.Annotations[admission.IntelWorkAnnotation] == "0" &&
+			lease.Spec.HolderIdentity != nil && *lease.Spec.HolderIdentity == "manager-a"
+	}, 10*time.Second, 100*time.Millisecond, "a reconcile publishes its pass's intel work")
 
 	e, err := bus.KV(events.BucketTranscodes).Get(ctx, events.RecordKey("deleted-file-uid"))
 	require.NoError(t, err)
