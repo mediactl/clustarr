@@ -61,6 +61,7 @@ func (g *PlexGuide) LineupID() string {
 //
 // +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.filter(c, has(c.base)).all(c, self.categories.filter(d, has(d.base) && d.base == c.base).size() == 1)",message="category bases must be unique"
 // +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.all(c, has(c.base) || self.categories.exists(d, d.name == c.name && has(d.base)))",message="a category's first rule must carry base"
+// +kubebuilder:validation:XValidation:rule="!has(self.categories) || self.categories.all(c, c.name != 'Automatic' && c.name != 'Off')",message="a category may not be named Automatic or Off"
 type LineupSpec struct {
 	// Enabled lets the lineup controller create, number and retire
 	// IPTVChannels. Until it is true the plan is a dry run (§5.1).

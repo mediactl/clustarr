@@ -362,6 +362,9 @@ spec:
                 - message: a category's first rule must carry base
                   rule: '!has(self.categories) || self.categories.all(c, has(c.base)
                     || self.categories.exists(d, d.name == c.name && has(d.base)))'
+                - message: a category may not be named Automatic or Off
+                  rule: '!has(self.categories) || self.categories.all(c, c.name !=
+                    ''Automatic'' && c.name != ''Off'')'
               playlistURL:
                 description: |-
                   PlaylistURL is an M3U provider's playlist, http or https; {username}

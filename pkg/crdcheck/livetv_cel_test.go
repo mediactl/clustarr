@@ -20,6 +20,7 @@ package crdcheck
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -223,6 +224,10 @@ func TestLineupCEL(t *testing.T) {
 	_, err = providers.Create(ctx, provider("second-rule", lineup(cat("News", 1000), cat("News", 0))), metav1.CreateOptions{})
 	require.NoError(t, err, "a second rule of a name needs no base beside a first that has one")
 
+	for _, n := range []string{"Automatic", "Off"} {
+		_, err = providers.Create(ctx, provider("reserved-"+strings.ToLower(n), lineup(cat(n, 1000))), metav1.CreateOptions{})
+		require.ErrorContains(t, err, "a category may not be named Automatic or Off", n)
+	}
 	_, err = providers.Create(ctx, provider("base-max", lineup(cat("News", 99000))), metav1.CreateOptions{})
 	require.NoError(t, err, "base 99000 is the highest")
 	_, err = providers.Create(ctx, provider("base-over", lineup(cat("News", 99001))), metav1.CreateOptions{})
