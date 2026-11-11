@@ -30,9 +30,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package logging
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/spf13/pflag"
 )
@@ -66,6 +69,16 @@ type Options struct {
 
 	// Service is stamped on every record as the service group.
 	Service Service
+
+	// flags is the set BindFlags bound this Options to, so Changed can say
+	// which flags the command line set.
+	flags *pflag.FlagSet
+}
+
+// Changed reports whether the command line set the named flag; false when
+// no flags were bound.
+func (o Options) Changed(name string) bool {
+	return o.flags != nil && o.flags.Changed(name)
 }
 
 // New builds a root *slog.Logger from opts: a [Handler] over slog's JSON or
@@ -91,7 +104,51 @@ func BindFlags(fs *pflag.FlagSet, opts *Options) {
 		`Log encoding: "json" or "text".`)
 	fs.BoolVar(&opts.AddSource, "log-add-source", opts.AddSource,
 		"Add the source file and line to every log record.")
+	fs.Var((*subsystemLevels)(&opts.Subsystems), "log-subsystem-level",
+		"A subsystem's level, name=level, repeatable; covers every subsystem below it by dotted prefix.")
+	if opts.ConfigPath == "" {
+		opts.ConfigPath = DefaultConfigPath
+	}
+	fs.StringVar(&opts.ConfigPath, "log-config", opts.ConfigPath,
+		"The logging config file, whose logging: section is re-read while the process runs. A missing file is not an error.")
+	opts.flags = fs
 }
+
+// subsystemLevels adapts a *map[string]slog.Level to pflag.Value for
+// --log-subsystem-level name=level, repeatable.
+type subsystemLevels map[string]slog.Level
+
+func (s *subsystemLevels) String() string {
+	names := make([]string, 0, len(*s))
+	for name := range *s {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, name+"="+LevelName((*s)[name]))
+	}
+	return strings.Join(parts, ",")
+}
+
+func (s *subsystemLevels) Set(v string) error {
+	name, level, ok := strings.Cut(v, "=")
+	name = strings.TrimSpace(name)
+	if !ok || name == "" {
+		return fmt.Errorf("--log-subsystem-level %q: want name=level", v)
+	}
+	l, err := ParseLevel(level)
+	if err != nil {
+		return fmt.Errorf("--log-subsystem-level %q: %w", v, err)
+	}
+	if *s == nil {
+		*s = map[string]slog.Level{}
+	}
+	(*s)[name] = l
+	return nil
+}
+
+func (s *subsystemLevels) Type() string { return "name=level" }
 
 // levelValue adapts *slog.Level to pflag.Value by way of slog's own text
 // codec, so --log-level accepts the same case-insensitive spellings
