@@ -290,7 +290,7 @@ test-race: envtest pg-assets native-assets chart-deps ## Run the suites under th
 
 # -timeout 20m: the transcode envtests took some 460 s alone and passed
 # go's 10m default under the whole suite's load (2026-10-06).
-test: envtest pg-assets native-assets chart-deps fork-status ## Run unit and envtest suites; a missing tool fails.
+test: envtest pg-assets native-assets chart-deps ## Run unit and envtest suites; a missing tool fails.
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || echo "warning: could not create $${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}; the import scan suites will skip"
 	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	CLUSTARR_PG_ASSETS="$(PG_ASSETS)" \
