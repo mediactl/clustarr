@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -72,4 +73,17 @@ func TestManagerCacheOptions(t *testing.T) {
 	o.SkipNameValidation = true
 	require.NotNil(t, managerOptions(o).Controller.SkipNameValidation)
 	assert.True(t, *managerOptions(o).Controller.SkipNameValidation)
+}
+
+// The intel-work Lease is written through the leader-election Role, which
+// grants Leases in the manager's own namespace alone.
+func TestTheIntelWorkLeaseMustBeInTheManagersNamespace(t *testing.T) {
+	ref := types.NamespacedName{Namespace: "clustarr-system", Name: "clustarr-intel-work"}
+	assert.NoError(t, checkIntelWorkLease(ref, "clustarr-system"))
+	assert.NoError(t, checkIntelWorkLease(types.NamespacedName{}, "clustarr-system"), "none configured")
+	assert.NoError(t, checkIntelWorkLease(ref, ""), "outside a pod the namespace is unknown")
+	err := checkIntelWorkLease(ref, "other")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--intel-work-lease")
+	assert.Contains(t, err.Error(), "must be in the manager's namespace other")
 }

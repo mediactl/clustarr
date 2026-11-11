@@ -25,6 +25,10 @@ creates those at runtime, owned by the object that asked for them.
 {{- with .Values.manager.videoTranscodeLease }}
 {{- $managerArgs = append $managerArgs (printf "--video-transcode-lease=%s" .) }}
 {{- end }}
+{{- /* Admission publishes its intel work for cluster-plex's CPU video route. */}}
+{{- with .Values.manager.intelWorkLease }}
+{{- $managerArgs = append $managerArgs (printf "--intel-work-lease=%s" .) }}
+{{- end }}
 {{- /* The facade's API-key Secret: the manager creates it when absent, the
        index agent only reads it, so both name the same one. */}}
 {{- $managerEnv := list

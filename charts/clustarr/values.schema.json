@@ -348,6 +348,11 @@
           "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-.a-z0-9]*[a-z0-9])?$",
           "description": "<namespace>/<name> of cluster-plex's video-transcode Lease (--video-transcode-lease): while it counts a conversion, no new file is admitted to intel. Empty yields to nothing."
         },
+        "intelWorkLease": {
+          "type": "string",
+          "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-.a-z0-9]*[a-z0-9])?$",
+          "description": "<namespace>/<name> of the Lease admission publishes its intel work in (--intel-work-lease; annotation clustarr.io/intel-work), which cluster-plex's manager reads to route Plex's conversions to its CPU pool. The namespace must be the manager's own. Empty publishes nothing."
+        },
         "engineMemoryLimits": {
           "type": "object",
           "additionalProperties": false,

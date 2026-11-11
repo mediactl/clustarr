@@ -186,3 +186,12 @@ func TestTheRenewerRenewsWhileWorkIsHeld(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 	assert.Equal(t, n, writes.Load(), "nothing renews at zero")
 }
+
+func TestAReconcilePublishesItsIntelWork(t *testing.T) {
+	(&Reconciler{}).publishIntelWork(t.Context(), PassResult{IntelWork: 2}) // none configured: nothing, no panic
+	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+	now := time.Date(2026, 11, 10, 23, 0, 0, 0, time.UTC)
+	r := &Reconciler{IntelWork: intelWorkLease(t, c, "clustarr-manager-1", &now)}
+	r.publishIntelWork(t.Context(), PassResult{IntelWork: 2})
+	assert.Equal(t, "2", readLease(t, c, r.IntelWork.Key).Annotations[IntelWorkAnnotation])
+}

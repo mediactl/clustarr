@@ -94,6 +94,10 @@ type Reconciler struct {
 	// (--video-transcode-lease): while it counts a conversion, no new file
 	// is admitted to intel. Zero reads none, and nothing yields.
 	VideoLease types.NamespacedName
+	// IntelWork publishes each pass's intel work (PassResult.IntelWork)
+	// into the Lease cluster-plex reads for its CPU video route
+	// (--intel-work-lease); nil publishes nothing.
+	IntelWork *IntelWorkLease
 
 	nextResync time.Time
 	// videoRecheck is when a live count goes stale unless renewed: the
@@ -152,6 +156,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ reconcile.Request) (reconc
 		return reconcile.Result{}, err
 	}
 	res := r.Ledger.Pass(in)
+	r.publishIntelWork(ctx, res)
 	r.nextPassAt = r.now().Add(passMinInterval)
 	after := min(res.RequeueAfter, time.Until(r.nextResync))
 	if in.VideoStreams > 0 {
@@ -449,7 +454,22 @@ func gpuNodeSignal(cfg pool.Config) func(client.Object) string {
 // generations, pool Job events and a graft Job's start, end or deletion (a
 // graft slot freed), all into the one Request.
 // MaxConcurrentReconciles is 1: a pass counts then grants.
+// publishIntelWork hands a pass's intel work to the Lease, when one is
+// configured; the write never fails or delays the pass.
+func (r *Reconciler) publishIntelWork(ctx context.Context, res PassResult) {
+	if r.IntelWork == nil {
+		return
+	}
+	r.IntelWork.Set(ctx, res.IntelWork)
+}
+
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.IntelWork != nil {
+		// The renewer, leader-only beside the controller.
+		if err := mgr.Add(r.IntelWork); err != nil {
+			return fmt.Errorf("add the intel-work Lease renewer: %w", err)
+		}
+	}
 	one := handler.EnqueueRequestsFromMapFunc(func(context.Context, client.Object) []reconcile.Request {
 		return []reconcile.Request{Request}
 	})
