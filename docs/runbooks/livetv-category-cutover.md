@@ -85,10 +85,10 @@ kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv \
   larger for those): Sports about 114, Premium 46, `Entertainment / Drama & Crime` 42, News 41,
   Movies 34, `Entertainment / Reality & Lifestyle` 31, Kids 28, `Entertainment / Music` 22,
   `Entertainment / Comedy & Game Shows` 16, `Entertainment / Science, Nature & History` 15,
-  `Entertainment / Faith & Family` 11, `Entertainment / Classic TV` 7, Local 11.
+  `Entertainment / Faith & Family` 11, `Entertainment / Classic TV` 7, Local 1 (the sample has no affiliate groups, so it counts only the `^ABC$` match).
   `Entertainment / On Demand` (base 9500) is 0 in the sample, which had none of its groups;
-  expect the ORIGINALS loops on talos. **Local must show the 11 affiliates plus the national ABC
-  entry** (WEAR, WALA, WKRG, WPMI and the New York flagships WABC, WNYW, WCBS, WPIX, WWOR, WNBC,
+  expect the ORIGINALS loops on talos. **On talos Local must show the 11 affiliates plus the national ABC
+  entry, 12** (WEAR, WALA, WKRG, WPMI and the New York flagships WABC, WNYW, WCBS, WPIX, WWOR, WNBC,
   WNET; the `^ABC$` rule is the extra): fewer or more means the `names` regexes or the
   ENTERTAINMENT group rule is wrong. Every category must be under 400.
 - **`status.guideSources.plex`**: `stations` (paired to a Gracenote station), `grids` fetched,
@@ -107,7 +107,7 @@ kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv \
   400 channels reads `TooMany`: split it by adding a rule that joins a second category.
 
 **Stop if** `LineupApplied` reads `InvalidLineup`, any category reads `TooMany`, a category is
-missing from `status.categories`, Local is not the 11 affiliates plus ABC, or `status.guideSources.plex`
+missing from `status.categories`, Local is not the 12 (11 affiliates plus ABC), or `status.guideSources.plex`
 holds for long: fix the values and re-read; do not proceed to step 2 or 3. The action is to edit
 the values (or remove `spec.lineup`), never a rollback of the deploy.
 
@@ -207,6 +207,7 @@ kubectl --context admin@talos -n clustarr-system logs deploy/clustarr-manager --
   category tune; the guide rows carry titles, posters, stills and backgrounds; Local holds the 11
   affiliates; a sports and a movie programme open with the right metadata. A Watchlist action works
   on a `plex://` programme.
+- **Stop and roll back if** a category DVR is missing in Plex, a DVR has no guide after its first load, or the ui's TV Guide disagrees with Plex.
 - **ui:** `/livetv/channels` reads the lineup (planned names and numbers, no dry-run banner), and
   the TV Guide page shows the same channels.
 - **Cluster:** `LineupApplied=True`, `PlexGuideReady` not required (it is disabled), no category
