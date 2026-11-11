@@ -23,9 +23,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -174,10 +177,14 @@ func TestGridsDue(t *testing.T) {
 		{"held", func(p *provider) { p.grids.holdUntil = day.Add(time.Minute) }, false},
 		{"a hold ended", func(p *provider) { p.grids.holdUntil = day }, true},
 		{"failed, retried later", func(p *provider) { p.grids.retry = map[string]time.Time{"k": day.Add(time.Minute)} }, false},
-		{"forced", func(p *provider) {
-			p.grids.fetched = map[string]gridObject{"k": {at: day}}
-			p.grids.force = true
+		{"fresh but stored before a force", func(p *provider) {
+			p.grids.fetched = map[string]gridObject{"k": {at: day.Add(-time.Hour)}}
+			p.grids.forceAt = day.Add(-time.Minute)
 		}, true},
+		{"stored since the force", func(p *provider) {
+			p.grids.fetched = map[string]gridObject{"k": {at: day}}
+			p.grids.forceAt = day.Add(-time.Minute)
+		}, false},
 		{"running", func(p *provider) { p.fetching["grids"] = true }, false},
 		{"no token", func(p *provider) { p.cfg.GuideSources = &GuideSourcesConfig{} }, false},
 		{"no guide sources", func(p *provider) { p.cfg.GuideSources = nil }, false},
@@ -279,4 +286,190 @@ func BenchmarkLoadGrids(b *testing.B) {
 			b.ReportMetric(float64(len(progs)), "airings")
 		})
 	}
+}
+
+// gridTransport answers the guide service's /grid/bulk by station.
+type gridTransport func(gridKey string) *http.Response
+
+func (f gridTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r.URL.Query().Get("channelGridKey")), nil
+}
+
+func gridAnswer(code int, body string, header ...string) *http.Response {
+	h := http.Header{}
+	for i := 0; i+1 < len(header); i += 2 {
+		h.Set(header[i], header[i+1])
+	}
+	return &http.Response{StatusCode: code, Status: http.StatusText(code), Header: h, Body: io.NopCloser(strings.NewReader(body))}
+}
+
+// gridTuner is a tuner on an in-memory store whose guide service is
+// answer, its clock at day, and a provider applied with guide sources but
+// no render pending (Debounce is an hour, and the one Apply asked for is
+// stopped).
+func gridTuner(t *testing.T, answer gridTransport, notified *atomic.Int32) (*Tuner, *provider, Config) {
+	t.Helper()
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
+	tn := New(Options{
+		Store: bus.ObjectStore(events.BucketLiveTV), Debounce: time.Hour, Now: func() time.Time { return day },
+		Fetch:  &http.Client{Transport: answer},
+		Notify: func(types.NamespacedName) { notified.Add(1) },
+	})
+	cfg := Config{
+		Key: types.NamespacedName{Namespace: "media", Name: "grids"}, Tuners: 1, Every: time.Hour,
+		Blocks:       []BlockConfig{{DeviceID: "dev1", Start: "1"}},
+		GuideSources: &GuideSourcesConfig{Token: "tok", Refresh: 24 * time.Hour, Rate: 1000},
+	}
+	tn.Apply(cfg)
+	p := tn.providers[cfg.Key]
+	p.mu.Lock()
+	if p.renderTimer != nil {
+		p.renderTimer.Stop()
+		p.renderTimer = nil
+	}
+	p.mu.Unlock()
+	t.Cleanup(func() { tn.Remove(cfg.Key) })
+	return tn, p, p.cfg
+}
+
+// pass runs one grid pass over want, as dispatch would.
+func pass(tn *Tuner, p *provider, cfg Config, want ...string) {
+	p.mu.Lock()
+	p.grids.want = want
+	p.fetching["grids"] = true
+	p.mu.Unlock()
+	tn.fetchGrids(context.Background(), p, cfg)
+}
+
+func renderPending(p *provider) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.renderTimer != nil
+}
+
+// A pass that stores no grid leaves the guide as it is: a start-up pass
+// that finds every grid fresh, and a pass of failures every retryMax while
+// the service is down, render nothing; only a stored grid asks for a
+// render.
+func TestAPassThatStoresNothingRendersNothing(t *testing.T) {
+	grid, err := os.ReadFile("../../../test/data/plexgrid/grid-sample.json")
+	require.NoError(t, err)
+	var asked atomic.Int32
+	var notified atomic.Int32
+	tn, p, cfg := gridTuner(t, func(k string) *http.Response {
+		asked.Add(1)
+		if k == "down" {
+			return gridAnswer(http.StatusBadGateway, "down")
+		}
+		return gridAnswer(http.StatusOK, string(grid))
+	}, &notified)
+
+	// A grid the store holds fresh, unseen since the start.
+	_, err = tn.putGrid(context.Background(), cfg.Key, "fresh", fixtureGrid(t))
+	require.NoError(t, err)
+	pass(tn, p, cfg, "fresh")
+	assert.Zero(t, asked.Load(), "a fresh stored grid is not asked for")
+	assert.False(t, renderPending(p), "nothing stored: no render")
+
+	// The service down: an error, no render; the snapshot says it in place.
+	p.mu.Lock()
+	p.snap = Snapshot{Channels: map[string]ChannelState{}} // as a render left it
+	n := cloneSnapshot(p.snap)
+	p.notified = &n
+	p.mu.Unlock()
+	pass(tn, p, cfg, "down")
+	assert.Equal(t, int32(1), asked.Load())
+	assert.False(t, renderPending(p), "a failure stores nothing: no render")
+	p.mu.Lock()
+	assert.Contains(t, p.snap.GuideSources.Error, "Bad Gateway")
+	assert.Equal(t, day, p.snap.GuideSources.FetchedAt)
+	p.mu.Unlock()
+	assert.Equal(t, int32(1), notified.Load(), "the controller is told the state moved")
+	pass(tn, p, cfg, "down")
+	assert.Equal(t, int32(1), asked.Load(), "retried only after retryMax")
+	assert.Equal(t, int32(1), notified.Load(), "a pass that asked nothing changes nothing")
+	p.mu.Lock()
+	assert.Contains(t, p.snap.GuideSources.Error, "Bad Gateway", "the failure stands until a pass asks again")
+	p.mu.Unlock()
+
+	pass(tn, p, cfg, "new")
+	assert.True(t, renderPending(p), "a stored grid asks for a render")
+}
+
+// A pass whose configuration is replaced while it runs keeps nothing: the
+// guide sources gone (or the provider removed) mid-pass, its 429 writes no
+// hold, no grid, and no series back.
+func TestAPassOfAReplacedConfigurationKeepsNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		replace func(tn *Tuner, cfg Config)
+	}{
+		{"the guide sources gone", func(tn *Tuner, cfg Config) {
+			cfg.GuideSources = nil
+			tn.Apply(cfg)
+		}},
+		{"another token", func(tn *Tuner, cfg Config) {
+			gs := *cfg.GuideSources
+			gs.Token = "another"
+			cfg.GuideSources = &gs
+			tn.Apply(cfg)
+		}},
+		{"the provider removed", func(tn *Tuner, cfg Config) { tn.Remove(cfg.Key) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			arrived, gate := make(chan struct{}, 1), make(chan struct{})
+			var notified atomic.Int32
+			tn, p, cfg := gridTuner(t, func(string) *http.Response {
+				arrived <- struct{}{}
+				<-gate
+				return gridAnswer(http.StatusTooManyRequests, "slow down", "Retry-After", "120")
+			}, &notified)
+			done := make(chan struct{})
+			go func() { pass(tn, p, cfg, "k1", "k2"); close(done) }()
+			<-arrived
+			tc.replace(tn, cfg)
+			close(gate)
+			<-done
+
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			assert.True(t, p.grids.holdUntil.IsZero(), "no hold written back")
+			assert.Empty(t, p.grids.fetched)
+			assert.Empty(t, p.grids.retry)
+			assert.False(t, gridHold.DeleteLabelValues(label(cfg.Key)), "no hold series made again")
+			if tc.name == "the provider removed" {
+				assert.Zero(t, gridCalls.DeletePartialMatch(map[string]string{"provider": label(cfg.Key)}), "no call series made again")
+			}
+		})
+	}
+}
+
+// A forced pass a hold cuts short leaves the grids it did not reach forced:
+// once the hold ends they are due, and the ones it stored are not.
+func TestAForceOutlivesAHeldPass(t *testing.T) {
+	grid, err := os.ReadFile("../../../test/data/plexgrid/grid-sample.json")
+	require.NoError(t, err)
+	var notified atomic.Int32
+	tn, p, cfg := gridTuner(t, func(k string) *http.Response {
+		if k == "k2" {
+			return gridAnswer(http.StatusTooManyRequests, "slow down", "Retry-After", "0")
+		}
+		return gridAnswer(http.StatusOK, string(grid))
+	}, &notified)
+	fresh := gridObject{at: day.Add(-time.Hour)}
+	p.mu.Lock()
+	p.grids.fetched = map[string]gridObject{"k1": fresh, "k2": fresh, "k3": fresh}
+	p.grids.forceAt = day.Add(-time.Minute) // a refresh value since they were stored
+	p.mu.Unlock()
+	pass(tn, p, cfg, "k1", "k2", "k3")
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	assert.Equal(t, day.Add(minGridHold), p.grids.holdUntil, "a Retry-After of 0 holds a minute")
+	assert.False(t, gridStale(p.grids.fetched["k1"], day, time.Hour*24, p.grids.forceAt), "stored by the pass")
+	assert.True(t, gridStale(p.grids.fetched["k2"], day, time.Hour*24, p.grids.forceAt), "held: still forced")
+	assert.True(t, gridStale(p.grids.fetched["k3"], day, time.Hour*24, p.grids.forceAt), "never reached: still forced")
+	assert.False(t, p.gridsDue(day), "not during the hold")
+	assert.True(t, p.gridsDue(p.grids.holdUntil), "once the hold ends")
 }

@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -77,8 +78,10 @@ type gridState struct {
 	retry map[string]time.Time
 	// holdUntil is the end of the hold the last 429 set.
 	holdUntil time.Time
-	// force makes every wanted grid due (a new refresh value, a new token).
-	force bool
+	// forceAt makes every wanted grid stored before it due (a new refresh
+	// value, a new token), each until it is stored again, so a pass a hold
+	// or a failure cut short leaves the rest forced.
+	forceAt time.Time
 	// fetchedAt is when the last pass ran; err is its last failure, "" for
 	// a clean pass.
 	fetchedAt time.Time
@@ -355,6 +358,7 @@ func (t *Tuner) applyGuideSources(p *provider, c Config, first, refreshed bool) 
 	gs := c.GuideSources
 	if gs == nil {
 		p.lineups, p.sources, p.grids = nil, lineupSchedule{due: true}, gridState{}
+		p.gridsGen++ // a pass running drops what it finds
 		gridHold.DeleteLabelValues(label(p.key))
 		return
 	}
@@ -365,9 +369,11 @@ func (t *Tuner) applyGuideSources(p *provider, c Config, first, refreshed bool) 
 	}
 	if tokenMoved || refreshed {
 		p.sources.due, p.sources.force = true, true
-		p.grids.force = true
+		p.grids.forceAt = t.o.Now()
 	}
 	if tokenMoved {
+		// A pass under the old token drops what it finds (fetchGrids).
+		p.gridsGen++
 		p.grids.retry, p.grids.holdUntil = nil, time.Time{}
 	}
 	maps.DeleteFunc(p.lineups, func(id string, _ plexguide.Lineup) bool { return !slices.Contains(gs.Lineups, id) })
@@ -389,46 +395,57 @@ func gridRate(gs *GuideSourcesConfig) int {
 	return gs.Rate
 }
 
-// gridsDue is whether a grid pass may start: a wanted grid has no object
-// known, or one older than the refresh, and no hold is in force; p.mu is
-// held.
+// gridsDue is whether a grid pass may start: a wanted grid not waiting on
+// a retry has no object known, or one older than the refresh or the last
+// force, and no hold is in force; p.mu is held.
 func (p *provider) gridsDue(now time.Time) bool {
 	gs := p.cfg.GuideSources
 	if gs == nil || gs.Token == "" || p.fetching["grids"] || len(p.grids.want) == 0 || now.Before(p.grids.holdUntil) {
 		return false
-	}
-	if p.grids.force {
-		return true
 	}
 	refresh := gridRefresh(gs)
 	for _, k := range p.grids.want {
 		if now.Before(p.grids.retry[k]) {
 			continue
 		}
-		if o, ok := p.grids.fetched[k]; !ok || now.Sub(o.at) >= refresh {
+		if o, ok := p.grids.fetched[k]; !ok || gridStale(o, now, refresh, p.grids.forceAt) {
 			return true
 		}
 	}
 	return false
 }
 
+// gridStale is whether a stored grid is due again: older than the refresh,
+// or stored before the last force.
+func gridStale(o gridObject, now time.Time, refresh time.Duration, forceAt time.Time) bool {
+	return now.Sub(o.at) >= refresh || o.at.Before(forceAt)
+}
+
 // fetchGrids is one grid pass: each wanted grid that is due is asked for
 // today through today+13 at the configured rate and stored; a 429 holds
-// every grid for max(Retry-After, 1 minute) and ends the pass. The render
-// it asks for takes the grids stored.
+// every grid for max(Retry-After, 1 minute) from its answer and ends the
+// pass. A pass that stored a grid asks for a render; one that stored none
+// leaves the guide as it is and puts its state in the snapshot in place.
+// A pass whose configuration was replaced meanwhile (another token, the
+// guide sources gone, the provider removed) stops and keeps nothing.
 func (t *Tuner) fetchGrids(ctx context.Context, p *provider, cfg Config) {
 	gs := cfg.GuideSources
 	p.mu.Lock()
+	gen := p.gridsGen
 	want := slices.Clone(p.grids.want)
 	fetched := maps.Clone(p.grids.fetched)
 	retry := maps.Clone(p.grids.retry)
-	force := p.grids.force
-	p.grids.force = false
+	forceAt := p.grids.forceAt
 	p.mu.Unlock()
+	current := func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return !p.removed && p.gridsGen == gen
+	}
 
-	now := t.o.Now()
+	start := t.o.Now()
 	refresh := gridRefresh(gs)
-	from := now.UTC().Truncate(24 * time.Hour)
+	from := start.UTC().Truncate(24 * time.Hour)
 	to := from.AddDate(0, 0, gridDays-1)
 	client := plexgrid.Client{Token: gs.Token, HTTP: t.o.Fetch, Limiter: rate.NewLimiter(rate.Limit(gridRate(gs)), 1)}
 	prov := label(p.key)
@@ -436,60 +453,62 @@ func (t *Tuner) fetchGrids(ctx context.Context, p *provider, cfg Config) {
 		known   = map[string]gridObject{}
 		stored  = map[string]gridObject{}
 		failed  = map[string]time.Time{}
+		calls   = map[string]int{}
 		hold    time.Time
 		lastErr string
 	)
-	result := func(r string) { gridCalls.WithLabelValues(prov, r).Inc() }
 	for _, k := range want {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || !current() {
 			break
 		}
-		if !force {
-			if now.Before(retry[k]) {
-				continue
+		now := t.o.Now()
+		if now.Before(retry[k]) {
+			continue
+		}
+		o, ok := fetched[k]
+		if !ok && t.o.Store != nil {
+			// Not seen since the start: the store says how old it is.
+			if info, err := t.o.Store.Info(ctx, livetvstore.GridObject(p.key, k)); err == nil {
+				o, ok = gridObject{at: info.ModTime, digest: info.Digest}, true
+				known[k] = o
 			}
-			o, ok := fetched[k]
-			if !ok && t.o.Store != nil {
-				// Not seen since the start: the store says how old it is.
-				if info, err := t.o.Store.Info(ctx, livetvstore.GridObject(p.key, k)); err == nil {
-					o, ok = gridObject{at: info.ModTime, digest: info.Digest}, true
-					known[k] = o
-				}
-			}
-			if ok && now.Sub(o.at) < refresh {
-				continue
-			}
+		}
+		if ok && !gridStale(o, now, refresh, forceAt) {
+			continue
 		}
 		gctx, cancel := context.WithTimeout(ctx, gridTimeout)
 		progs, err := client.Grid(gctx, k, from, to)
 		cancel()
+		// The answer's own time: a pass of a few hundred stations at the
+		// rate runs for minutes, and a hold timed from its start would have
+		// ended before it began.
+		at := t.o.Now()
 		var limited *plexgrid.RateLimitedError
 		switch {
 		case errors.As(err, &limited):
-			hold = now.Add(max(limited.RetryAfter, minGridHold))
-			result("held")
+			hold = at.Add(max(limited.RetryAfter, minGridHold))
+			calls["held"]++
 		case errors.Is(err, plexgrid.ErrNotFound), err == nil && len(progs) == 0:
 			// The service has nothing for the station: its channel keeps
 			// its next source until the next refresh asks again.
-			result("empty")
-			failed[k] = now.Add(refresh)
+			calls["empty"]++
+			failed[k] = at.Add(refresh)
 		case err != nil:
-			result("error")
+			calls["error"]++
 			lastErr = cfg.scrubGrid(fmt.Sprintf("fetch the grid of station %s: %v", k, err))
-			failed[k] = now.Add(min(retryMax, refresh))
+			failed[k] = at.Add(min(retryMax, refresh))
 		default:
 			digest, err := t.putGrid(ctx, p.key, k, progs)
 			if err != nil {
-				result("error")
+				calls["error"]++
 				lastErr = fmt.Sprintf("store the grid of station %s: %v", k, err)
-				failed[k] = now.Add(min(retryMax, refresh))
+				failed[k] = at.Add(min(retryMax, refresh))
 				break
 			}
-			result("ok")
-			stored[k] = gridObject{at: now, digest: digest}
+			calls["ok"]++
+			stored[k] = gridObject{at: at, digest: digest}
 		}
 		if !hold.IsZero() {
-			gridHold.WithLabelValues(prov).Set(hold.Sub(now).Seconds())
 			break
 		}
 	}
@@ -500,6 +519,16 @@ func (t *Tuner) fetchGrids(ctx context.Context, p *provider, cfg Config) {
 	p.mu.Lock()
 	delete(p.fetching, "grids")
 	if p.removed {
+		p.mu.Unlock() // its series are forgotten: none is made again
+		return
+	}
+	for r, n := range calls {
+		gridCalls.WithLabelValues(prov, r).Add(float64(n))
+	}
+	if p.gridsGen != gen {
+		// Another token, or the guide sources gone: the state this pass
+		// read was cleared, and nothing it found is the new
+		// configuration's.
 		p.mu.Unlock()
 		return
 	}
@@ -522,10 +551,33 @@ func (t *Tuner) fetchGrids(ctx context.Context, p *provider, cfg Config) {
 	maps.Copy(g.retry, failed)
 	if !hold.IsZero() {
 		g.holdUntil = hold
+		gridHold.WithLabelValues(prov).Set(max(0, hold.Sub(t.o.Now()).Seconds()))
 	}
-	g.fetchedAt, g.err = now, clamp(lastErr)
+	if len(calls) > 0 {
+		// A pass that asked nothing (every grid fresh, or waiting on a
+		// retry) fetched nothing and judged nothing.
+		g.fetchedAt, g.err = start, clamp(lastErr)
+	}
+	if len(stored) > 0 {
+		p.mu.Unlock()
+		t.scheduleRender(p)
+		return
+	}
+	// Nothing stored, so the guide is the one rendered: the snapshot takes
+	// the loop's state in place, as the account's does (fetchAccount). Before
+	// the first render there is none; that render takes it.
+	changed := false
+	if p.notified != nil {
+		p.snap.GuideSources = p.guideSourcesSnapshot(p.cfg)
+		if changed = !reflect.DeepEqual(*p.notified, p.snap); changed {
+			n := cloneSnapshot(p.snap)
+			p.notified = &n
+		}
+	}
 	p.mu.Unlock()
-	t.scheduleRender(p)
+	if changed {
+		t.o.Notify(p.key)
+	}
 }
 
 // putGrid stores one grid's programmes as gzip JSON and returns the stored

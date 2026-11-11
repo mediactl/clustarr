@@ -195,8 +195,10 @@ type provider struct {
 	lineups map[string]plexguide.Lineup
 	sources lineupSchedule
 	// grids is the Plex grid fetch loop's state (the custom-guides design
-	// §5.3).
-	grids gridState
+	// §5.3); gridsGen moves when a configuration clears it (another token,
+	// the guide sources gone), so a pass running then keeps nothing.
+	grids    gridState
+	gridsGen uint64
 }
 
 // surface is one block's rendered HDHomeRun surface and guide.
