@@ -223,13 +223,16 @@ func lineupIDOf(uri string) string {
 }
 
 // pairedStations is the active channels on Plex in the tuner's snapshot,
-// by number: the stations their blocks' channel maps carry.
-func pairedStations(channels []clustarrv1.IPTVChannel, snap tuner.Snapshot) map[string]plexguide.Station {
+// by number: the stations their blocks' channel maps carry. Only a pairing
+// with the cloud lineup counts (a station of another lineup is none the cloud
+// DVR lists); an empty Lineup is a status from before several lineups, when
+// only the cloud lineup existed.
+func pairedStations(channels []clustarrv1.IPTVChannel, snap tuner.Snapshot, cloud string) map[string]plexguide.Station {
 	out := map[string]plexguide.Station{}
 	for i := range channels {
 		ch := &channels[i]
 		st, ok := snap.Channels[ch.Name]
-		if !ch.Spec.Active || !ok || st.Plex == nil || !st.Plex.Match.OnPlex() {
+		if !ch.Spec.Active || !ok || st.Plex == nil || !st.Plex.Match.OnPlex() || (st.Plex.Lineup != "" && st.Plex.Lineup != cloud) {
 			continue
 		}
 		if _, dup := out[ch.Spec.Number]; !dup {
@@ -344,7 +347,7 @@ func (r *Reconciler) packBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 			// published blocks stay, or every Plex DVR would go.
 			return keep(clustarrv1.ReasonLineupPending, "waiting for the playlist to pair the channels with the Plex lineup"), nil
 		}
-		paired := pairedStations(channels, snap)
+		paired := pairedStations(channels, snap, p.Spec.PlexGuide.LineupID())
 		numbers = numbers[:0:0]
 		for n := range paired {
 			numbers = append(numbers, n)

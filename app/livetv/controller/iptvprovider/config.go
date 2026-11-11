@@ -266,7 +266,7 @@ func plexPrev(st *clustarrv1.ChannelPlexStatus) plexguide.Prev {
 	if !m.OnPlex() || st.Station == "" {
 		return plexguide.Prev{}
 	}
-	prev := plexguide.Prev{Match: m, Station: plexguide.Station{
+	prev := plexguide.Prev{Match: m, Lineup: st.Lineup, Station: plexguide.Station{
 		ID: st.ID, GridKey: st.Station, CallSign: st.CallSign, Title: st.Title, VCN: st.VCN,
 	}}
 	if st.MissingSince != nil {

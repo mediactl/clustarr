@@ -60,6 +60,10 @@ type Prev struct {
 	Match        Match
 	Station      Station
 	MissingSince time.Time
+	// Lineup is the id of the lineup the station came from; empty for a
+	// status written before several lineups (its station id then carries
+	// the prefix).
+	Lineup string
 }
 
 // Channel is one active channel of the lineup to pair.

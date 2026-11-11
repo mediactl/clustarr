@@ -227,3 +227,26 @@ func TestAMissingPlexTokenLeavesTheProviderValid(t *testing.T) {
 	assert.Empty(t, c.Plex.Token)
 	assert.Contains(t, c.Plex.TokenError, "plex-token", "the tuner says why it fetches nothing")
 }
+
+func TestAChannelPairedWithAnotherLineupIsInNoCloudBlock(t *testing.T) {
+	p := plexProvider(true)
+	chans := namedChannels("1001", "1002", "1003", "1004")
+	snap := pairedSnapshot(chans, "1001", "1002", "1003", "1004")
+	set := func(name, lineup string) {
+		st := snap.Channels[name]
+		pr := *st.Plex
+		pr.Lineup = lineup
+		st.Plex = &pr
+		snap.Channels[name] = st
+	}
+	set("ch-1001", plexLineupID)
+	set("ch-1002", "") // a status from before several lineups
+	set("ch-1003", "5f0000000000000000000abc")
+	set("ch-1004", "5f0000000000000000000abc")
+	r := fakeReconciler(t, testAddress, p)
+	r.Tuner = &snapTuner{snap: snap, ok: true}
+	pl, err := r.planBlocks(context.Background(), p, chans)
+	require.NoError(t, err)
+	require.Len(t, pl.blocks, 1)
+	assert.Equal(t, []string{"1001", "1002"}, pl.numbers[pl.blocks[0].Start])
+}

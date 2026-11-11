@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/yaml"
 )
 
 // TestLiveTVCEL holds the clustarr.io kinds' CEL rules as built. An
@@ -254,4 +255,28 @@ func TestLineupCEL(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found, "an empty category is kept, not pruned")
 	require.Equal(t, "", v)
+}
+
+// TestTheExampleLineupIsValid creates docs/examples/iptvprovider-argon-lineup.yaml
+// on the apiserver: the manifest references its Secrets by name only, which
+// the CRD does not check.
+func TestTheExampleLineupIsValid(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test` to install the CRDs")
+	}
+	b, err := os.ReadFile("../../docs/examples/iptvprovider-argon-lineup.yaml")
+	require.NoError(t, err)
+	obj := map[string]any{}
+	require.NoError(t, yaml.Unmarshal(b, &obj))
+	env := &envtest.Environment{CRDDirectoryPaths: []string{"../../config/crd/bases"}, ErrorIfCRDPathMissing: true}
+	cfg, err := env.Start()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, env.Stop()) })
+	dyn, err := dynamic.NewForConfig(cfg)
+	require.NoError(t, err)
+	u := &unstructured.Unstructured{Object: obj}
+	u.SetNamespace("default")
+	_, err = dyn.Resource(schema.GroupVersionResource{Group: "clustarr.io", Version: "v1alpha1", Resource: "iptvproviders"}).
+		Namespace("default").Create(context.Background(), u, metav1.CreateOptions{})
+	require.NoError(t, err)
 }

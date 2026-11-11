@@ -214,7 +214,7 @@ func (p *provider) pairStations(c Config, chans []plexguide.Channel, now time.Ti
 }
 
 // prevFor is chans with each last pairing cleared that is neither l's (its
-// station's id is "<lineup>-<gridKey>") nor a station l lists.
+// recorded lineup, else its station's id "<lineup>-<gridKey>") nor a station l lists.
 func prevFor(l plexguide.Lineup, chans []plexguide.Channel) []plexguide.Channel {
 	listed := make(map[string]bool, len(l.Stations))
 	for _, s := range l.Stations {
@@ -223,7 +223,14 @@ func prevFor(l plexguide.Lineup, chans []plexguide.Channel) []plexguide.Channel 
 	out := slices.Clone(chans)
 	for i, ch := range out {
 		st := ch.Prev.Station
-		if st.ID == "" || listed[st.GridKey] || strings.HasPrefix(st.ID, l.ID+"-") {
+		if st.ID == "" || listed[st.GridKey] {
+			continue
+		}
+		if ch.Prev.Lineup != "" {
+			if ch.Prev.Lineup == l.ID {
+				continue
+			}
+		} else if strings.HasPrefix(st.ID, l.ID+"-") {
 			continue
 		}
 		out[i].Prev = plexguide.Prev{}

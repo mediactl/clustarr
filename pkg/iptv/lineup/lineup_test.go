@@ -285,3 +285,9 @@ func compileTrim(t *testing.T, pats []string) []*regexp.Regexp {
 	}
 	return out
 }
+
+func TestTheExampleLineupDecodes(t *testing.T) {
+	spec := loadExample(t)
+	_, err := lineup.Compile(spec)
+	require.NoError(t, err)
+}

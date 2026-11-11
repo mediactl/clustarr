@@ -149,7 +149,7 @@ func plexStatus(p *plexguide.Pairing) *clustarrv1.ChannelPlexStatus {
 	if p == nil {
 		return nil
 	}
-	out := &clustarrv1.ChannelPlexStatus{Match: clustarrv1.PlexMatch(p.Match), TakenBy: p.TakenBy}
+	out := &clustarrv1.ChannelPlexStatus{Match: clustarrv1.PlexMatch(p.Match), TakenBy: p.TakenBy, Lineup: p.Lineup}
 	if s := p.Station; s.GridKey != "" {
 		out.Station, out.ID, out.CallSign, out.Title, out.VCN = s.GridKey, s.ID, s.CallSign, s.Title, s.VCN
 	}
@@ -168,6 +168,9 @@ func plexApply(st *clustarrv1.ChannelPlexStatus) *clustarrac.ChannelPlexStatusAp
 	ac := clustarrac.ChannelPlexStatus().WithMatch(st.Match)
 	if st.Station != "" {
 		ac.WithStation(st.Station).WithID(st.ID).WithCallSign(st.CallSign).WithTitle(st.Title).WithVCN(st.VCN)
+	}
+	if st.Lineup != "" {
+		ac.WithLineup(st.Lineup)
 	}
 	if st.TakenBy != "" {
 		ac.WithTakenBy(st.TakenBy)

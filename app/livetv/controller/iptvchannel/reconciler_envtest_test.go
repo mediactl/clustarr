@@ -45,6 +45,7 @@ import (
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/controller/iptvchannel"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -336,4 +337,27 @@ func TestAProvidersStatusWriteWakesNoChannel(t *testing.T) {
 	require.NoError(t, h.c.Status().Update(h.ctx, &p)) //nolint:forbidigo // the provider controller's write, simulated
 	time.Sleep(500 * time.Millisecond)
 	assert.Equal(t, asked, h.snaps.askedFor(key), "no channel reconciled")
+}
+
+// TestThePairedLineupRoundTripsToStatus: status.plex.lineup is the lineup the
+// station came from (Task 10).
+func TestThePairedLineupRoundTripsToStatus(t *testing.T) {
+	h := setup(t)
+	key := h.provider(t, "news")
+	h.channel(t, "a", "news", "1001", true)
+	h.until(t, "a", "Pending")
+	const lineupID = "5f0000000000000000000abc"
+	grid := "aaaaaaaaaaaaaaaaaaaa1"
+	h.snaps.set(key, tuner.Snapshot{PlaylistFetched: true, Channels: map[string]tuner.ChannelState{
+		"a": {Guide: "plex/" + grid, Plex: &plexguide.Pairing{
+			Match: plexguide.Automatic, Lineup: lineupID,
+			Station: plexguide.Station{ID: lineupID + "-" + grid, GridKey: grid, CallSign: "WABC", VCN: "7"},
+		}},
+	}})
+	h.wake(key)
+	require.Eventually(t, func() bool {
+		ch := h.get(t, "a")
+		return ch.Status.Plex != nil && ch.Status.Plex.Lineup == lineupID
+	}, 10*time.Second, 50*time.Millisecond)
+	assert.Equal(t, clustarrv1.PlexMatch(plexguide.Automatic), h.get(t, "a").Status.Plex.Match)
 }
