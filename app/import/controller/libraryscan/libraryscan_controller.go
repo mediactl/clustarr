@@ -438,7 +438,7 @@ func aggregate(scan *catalogv1alpha1.LibraryScan, p scanprogress.Progress) *cata
 	}
 	byPath := make(map[string]scanprogress.UnmatchedFile, len(s.Unmatched)+len(p.Unmatched))
 	for _, u := range s.Unmatched {
-		byPath[u.Path] = scanprogress.UnmatchedFile{Path: u.Path, Reason: u.Reason, Candidates: u.Candidates, SeenAt: u.SeenAt.Time}
+		byPath[u.Path] = unmatchedOf(u)
 	}
 	for _, u := range p.Unmatched {
 		byPath[u.Path] = u // the worker's own report of a path is the freshest
@@ -533,11 +533,7 @@ func baseStatus(scan *catalogv1alpha1.LibraryScan) *catalogac.LibraryScanStatusA
 	if len(s.Unmatched) > 0 {
 		acs := make([]*catalogac.UnmatchedFileApplyConfiguration, 0, len(s.Unmatched))
 		for _, u := range s.Unmatched {
-			acs = append(acs, catalogac.UnmatchedFile().
-				WithPath(u.Path).
-				WithReason(u.Reason).
-				WithCandidates(u.Candidates...).
-				WithSeenAt(u.SeenAt))
+			acs = append(acs, unmatchedAC(unmatchedOf(u)))
 		}
 		ac = ac.WithUnmatched(acs...)
 	}
@@ -584,13 +580,35 @@ func unmatchedACs(in []scanprogress.UnmatchedFile) []*catalogac.UnmatchedFileApp
 
 	out := make([]*catalogac.UnmatchedFileApplyConfiguration, 0, len(sorted))
 	for _, u := range sorted {
-		out = append(out, catalogac.UnmatchedFile().
-			WithPath(u.Path).
-			WithReason(u.Reason).
-			WithCandidates(u.Candidates...).
-			WithSeenAt(metav1.NewTime(u.SeenAt)))
+		out = append(out, unmatchedAC(u))
 	}
 	return out
+}
+
+// unmatchedOf converts a status.unmatched entry to the worker's, every
+// field carried, for aggregate's merge and baseStatus's re-assert.
+func unmatchedOf(u catalogv1alpha1.UnmatchedFile) scanprogress.UnmatchedFile {
+	return scanprogress.UnmatchedFile{
+		Path: u.Path, Reason: u.Reason, Candidates: u.Candidates, Folder: u.Folder, SeenAt: u.SeenAt.Time,
+	}
+}
+
+// unmatchedAC renders one unmatched entry with every field the CRD carries,
+// the one place both unmatchedACs and baseStatus build an entry, so a field
+// added to UnmatchedFile is sent by both or neither (with unmatchedOf, the
+// one copy out of status): a folder the walk could not identify (Folder, the
+// non-video design's D16) lost its flag at the first poll when each of the
+// three built its own.
+func unmatchedAC(u scanprogress.UnmatchedFile) *catalogac.UnmatchedFileApplyConfiguration {
+	ac := catalogac.UnmatchedFile().
+		WithPath(u.Path).
+		WithReason(u.Reason).
+		WithCandidates(u.Candidates...).
+		WithSeenAt(metav1.NewTime(u.SeenAt))
+	if u.Folder {
+		ac = ac.WithFolder(true)
+	}
+	return ac
 }
 
 // mode is spec.mode with the CRD's own default applied, for an object that
