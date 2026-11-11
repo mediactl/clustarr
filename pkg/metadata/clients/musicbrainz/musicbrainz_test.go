@@ -76,9 +76,13 @@ func TestSearchArtistsSendsAPlainTextDismaxQueryAndMapsHits(t *testing.T) {
 	hits, err := c.SearchArtists(context.Background(), "AC/DC && radiohead")
 
 	require.NoError(t, err)
+	// The recorded search's score and disambiguation reach the hit (the
+	// 2026-11-10 design's D16: the root scan takes a folder's artist only
+	// at the search's top score, and lists the rest with their
+	// disambiguations as candidates).
 	require.Equal(t, []metadata.SearchHit{
-		{IDs: metadata.ExternalIDs{metadata.KeyMBArtist: "a74b1b7f-71a5-4011-9441-d0b5e4122711"}, Title: "Radiohead", Year: 1991},
-		{IDs: metadata.ExternalIDs{metadata.KeyMBArtist: "c74f4726-2671-4011-81b6-f70da905c05a"}, Title: "On a Friday", Year: 1985},
+		{IDs: metadata.ExternalIDs{metadata.KeyMBArtist: "a74b1b7f-71a5-4011-9441-d0b5e4122711"}, Title: "Radiohead", Year: 1991, Score: 100},
+		{IDs: metadata.ExternalIDs{metadata.KeyMBArtist: "c74f4726-2671-4011-81b6-f70da905c05a"}, Title: "On a Friday", Year: 1985, Score: 65, Disambiguation: "pre‐Radiohead group, until 1991"},
 	}, hits)
 }
 

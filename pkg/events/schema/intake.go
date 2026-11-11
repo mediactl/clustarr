@@ -170,14 +170,22 @@ type ScanAttribution struct {
 	Keys       []string `json:"keys,omitempty"`
 	Track      string   `json:"track,omitempty"`
 	Evidence   string   `json:"evidence,omitempty"`
-	// Create names the Movie or Series to create when none exists.
+	// Create names the Movie, Series, Artist, Author or Audiobook to
+	// create when none exists.
 	Create *ItemCreate `json:"create,omitempty"`
 }
 
-// ItemCreate is a Movie or Series the scan applier creates under
-// import-worker, named by names.Movie or names.Series.
+// ItemCreate is a Movie, Series, Artist, Author or Audiobook the scan
+// applier creates under import-worker, named by pkg/names as the import
+// names it: a movie by its TMDB id, a series by its TheTVDB id, and -- the
+// 2026-11-10 non-video libraries design's D16, a root scan creating the
+// containers it finds -- an artist by its MusicBrainz id, an author by its
+// Open Library id and an audiobook by its ASIN. The applier pins a
+// container's spec.folder to Folder, the on-disk folder the scan resolved
+// (an artist's or author's first segment under the root, an audiobook's
+// "<author>/<title>"), as a scanned Series' is.
 type ItemCreate struct {
-	// Kind is "movie" or "series".
+	// Kind is "movie", "series", "artist", "author" or "audiobook".
 	Kind              string `json:"kind"`
 	Name              string `json:"name"`
 	TmdbID            int64  `json:"tmdbID,omitempty"`
@@ -187,6 +195,19 @@ type ItemCreate struct {
 	Title             string `json:"title,omitempty"`
 	Year              int32  `json:"year,omitempty"`
 	OriginalLanguage  string `json:"originalLanguage,omitempty"`
+	// MusicBrainzID is an artist's MusicBrainz artist id, OpenLibraryID an
+	// author's Open Library author id ("OL…A"), ASIN an audiobook's Audible
+	// ASIN and Region the Audible region the ASIN was resolved in (the
+	// root's defaults.region); each is the id of one kind and empty for the
+	// others.
+	MusicBrainzID string `json:"musicBrainzID,omitempty"`
+	OpenLibraryID string `json:"openLibraryID,omitempty"`
+	ASIN          string `json:"asin,omitempty"`
+	Region        string `json:"region,omitempty"`
+	// Folder is the item's folder as the scan found it, relative to the
+	// root, which the applier pins into the container's spec.folder so its
+	// status.path is the folder its files are already in.
+	Folder string `json:"folder,omitempty"`
 }
 
 // FrozenFields are the MediaFile spec fields frozen at import (loop spec
@@ -224,6 +245,11 @@ type UnmatchedFact struct {
 	Code       string   `json:"code"`
 	Reason     string   `json:"reason,omitempty"`
 	Candidates []string `json:"candidates,omitempty"`
+	// Folder marks a folder the scan could not identify as a container
+	// (catalogv1alpha1.UnmatchedFile.Folder; the 2026-11-10 non-video
+	// libraries design's D16): the observation's Path is the folder, its
+	// Candidates the provider's hits.
+	Folder bool `json:"folder,omitempty"`
 }
 
 // MissingFact is a MediaFile whose file the scan did not find.

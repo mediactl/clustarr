@@ -189,8 +189,10 @@ func (c *Client) SearchArtists(ctx context.Context, q string) ([]metadata.Search
 	hits := make([]metadata.SearchHit, 0, len(result.Artists))
 	for _, a := range result.Artists {
 		hit := metadata.SearchHit{
-			IDs:   metadata.ExternalIDs{metadata.KeyMBArtist: string(a.ID)},
-			Title: a.Name,
+			IDs:            metadata.ExternalIDs{metadata.KeyMBArtist: string(a.ID)},
+			Title:          a.Name,
+			Score:          int32(a.Score), //nolint:gosec // MusicBrainz scores are 0-100.
+			Disambiguation: a.Disambiguation,
 		}
 		if t, ok := partialDateToTime(a.LifeSpan.Begin); ok {
 			hit.Year = int32(t.Year())

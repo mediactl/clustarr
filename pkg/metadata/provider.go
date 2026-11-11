@@ -68,6 +68,17 @@ type SearchHit struct {
 	Year   int32       `json:"year,omitempty"`
 	Poster string      `json:"poster,omitempty"`
 
+	// Score is the provider's own relevance score for the hit, 0 to 100
+	// (MusicBrainz's search score), and Disambiguation the provider's
+	// comment telling two items of one name apart ("90s US grunge band").
+	// The root scan's identification of an unmapped folder reads both (the
+	// 2026-11-10 non-video libraries design's D16: exactly one hit whose
+	// name equals the folder's at the search's top score is the artist;
+	// several are listed as candidates, "Name (disambiguation) [id]").
+	// A searcher that scores nothing leaves them zero.
+	Score          int32  `json:"score,omitempty"`
+	Disambiguation string `json:"disambiguation,omitempty"`
+
 	// Comics.
 	Publisher  string `json:"publisher,omitempty"`
 	IssueCount int32  `json:"issueCount,omitempty"`
