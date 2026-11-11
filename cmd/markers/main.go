@@ -160,6 +160,8 @@ func run(args []string, getenv func(string) string) int {
 		fmt.Fprintln(os.Stderr, "markers:", err)
 		return worker.ExitMisconfigured
 	}
+	ctx = logging.Subsystem(ctx, "markers")
+	log = logging.FromContext(ctx)
 	shutdown, err := tracing.Setup(ctx, *f.to)
 	if err != nil {
 		log.ErrorContext(ctx, "tracing", "err", err)

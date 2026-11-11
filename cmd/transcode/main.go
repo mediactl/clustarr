@@ -121,7 +121,7 @@ func run(args []string, getenv func(string) string) int {
 			fmt.Fprintln(os.Stderr, "transcode:", err)
 			return jobspec.WorkerExitMisconfigured
 		}
-		return runGraft(*graftTask, *dataDir, getenv, log)
+		return runGraft(*graftTask, *dataDir, getenv, logging.SubsystemLogger(log, "transcode.graft"))
 	}
 	need := map[string]string{}
 	for _, k := range []string{"NATS_URL", "CLUSTARR_POOL_PROFILE_UID", "CLUSTARR_POOL_CLASS", "POD_NAME"} {
@@ -139,6 +139,8 @@ func run(args []string, getenv func(string) string) int {
 		fmt.Fprintln(os.Stderr, "transcode:", err)
 		return jobspec.WorkerExitMisconfigured
 	}
+	ctx = logging.Subsystem(ctx, "transcode")
+	log = logging.FromContext(ctx)
 	shutdown, err := tracing.Setup(ctx, *to)
 	if err != nil {
 		log.ErrorContext(ctx, "tracing", "err", err)
