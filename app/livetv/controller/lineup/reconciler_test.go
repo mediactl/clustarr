@@ -448,12 +448,15 @@ func TestAnEmptyOverrideDeactivates(t *testing.T) {
 	assert.Equal(t, "1001", got[keyOf("BBC NEWS")].Spec.Number, "the off channel takes no number")
 }
 
-// TestTooManyDeactivatesTheCategory: a category over spec.dvr.maxChannels
-// is refused whole: its existing channels are deactivated with their
-// numbers kept, none of it is created, the other categories go on, and the
-// provider gets a LineupCategoryTooMany Event.
-func TestTooManyDeactivatesTheCategory(t *testing.T) {
-	cnn := channel("CNN", "1001", true)
+// TestTooManyHoldsTheCategory: a category over spec.dvr.maxChannels is
+// refused whole and left as it was (the design's §5.2 step 5): its existing
+// channels keep their spec and their status.lineup, none of it is created,
+// the other categories go on, and the provider gets one
+// LineupCategoryTooMany Event a plan; the provider controller keeps the
+// category's published block. A dry run leaves them alone too.
+func TestTooManyHoldsTheCategory(t *testing.T) {
+	applied := &clustarrv1.ChannelLineupStatus{Name: "CNN", Category: "News", Rule: "News[0]", Number: "1001"}
+	cnn := channel("CNN", "1001", true, func(ch *clustarrv1.IPTVChannel) { ch.Status.Lineup = applied.DeepCopy() })
 	p := provider(true, news(), category("Kids", 5000, "^KIDS"))
 	p.Spec.DVR.MaxChannels = ptr.To(int32(2))
 	f := newFixture(t, p, cnn)
@@ -463,9 +466,9 @@ func TestTooManyDeactivatesTheCategory(t *testing.T) {
 
 	got := f.channels()
 	require.Len(t, got, 2, "no channel of the refused category is created")
-	assert.False(t, got[keyOf("CNN")].Spec.Active)
+	assert.True(t, got[keyOf("CNN")].Spec.Active, "a refused category's channel stays as it was")
 	assert.Equal(t, "1001", got[keyOf("CNN")].Spec.Number)
-	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "CNN"}, got[keyOf("CNN")].Status.Lineup)
+	assert.Equal(t, applied, got[keyOf("CNN")].Status.Lineup, "its status.lineup too")
 	assert.Equal(t, "5001", got[keyOf("KIDS TV")].Spec.Number)
 	assert.True(t, got[keyOf("KIDS TV")].Spec.Active)
 	assert.True(t, f.plan().Categories[0].TooMany)
@@ -479,10 +482,21 @@ func TestTooManyDeactivatesTheCategory(t *testing.T) {
 	}
 	require.Len(t, tooMany, 1, "%v", ev)
 	assert.Contains(t, tooMany[0], `"News"`)
+	assert.Contains(t, tooMany[0], "left as they were")
 
-	// The same plan again: no second Event.
+	// The same plan again: no second Event, nothing written.
+	before := f.channels()
 	f.reconcile()
 	assert.Empty(t, f.events())
+	assert.Equal(t, before, f.channels())
+
+	// A dry run leaves the refused category's channels alone as well.
+	p = provider(false, news())
+	p.Spec.DVR.MaxChannels = ptr.To(int32(2))
+	f = newFixture(t, p, channel("CNN", "1001", true, func(ch *clustarrv1.IPTVChannel) { ch.Status.Lineup = applied.DeepCopy() }))
+	f.entries = []m3u.Entry{entry("CNN"), entry("BBC NEWS"), entry("ABC NEWS")}
+	f.reconcile()
+	assert.Equal(t, applied, f.channels()[keyOf("CNN")].Status.Lineup)
 }
 
 // byName are the provider's IPTVChannels by object name.

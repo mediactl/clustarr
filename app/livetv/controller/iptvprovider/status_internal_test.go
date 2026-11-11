@@ -182,8 +182,9 @@ func condition(st *clustarrac.IPTVProviderStatusApplyConfiguration, typ string) 
 // TestCategoryStatusMirrorsThePlanAndTooMany: status.categories lists the
 // plan's categories in its order, each with its base, its active channels
 // counted from the channels' status.lineup.category, and its block's device;
-// a category the plan refuses as TooMany says so and has no block, and the
-// LineupApplied condition names it with the planner's count.
+// a category the plan refuses as TooMany says so and keeps the block it has
+// published (its channels left as they were), and the LineupApplied
+// condition names it with the planner's count and says it is held.
 func TestCategoryStatusMirrorsThePlanAndTooMany(t *testing.T) {
 	p := lineupProvider(true)
 	p.Generation = 3
@@ -192,9 +193,11 @@ func TestCategoryStatusMirrorsThePlanAndTooMany(t *testing.T) {
 	chans := []clustarrv1.IPTVChannel{
 		catChannel("1001", "News"), catChannel("1002", "News"), catChannel("1003", "News"), inactive,
 		catChannel("2001", "Sports"), catChannel("2002", "Sports"),
-		catChannel("4001", "Movies"), // a channel the lineup controller has not deactivated yet
+		catChannel("4001", "Movies"), // left as it was: the category is refused
 		catChannel("1500", ""),
 	}
+	moviesDev := hdhr.BlockDeviceID("media", lineupProviderName, "cat/Movies")
+	p.Status.Blocks = []clustarrv1.BlockStatus{{Start: "4001", First: "4001", Last: "4001", Channels: 1, Category: "Movies", DeviceID: moviesDev, GuidePath: BlockGuidePath}}
 	r := fakeReconciler(t, testAddress, p)
 	r.PlanReader = storedPlan(appliedPlanFor(chans,
 		lineup.Category{Name: "News", Base: 1000, Channels: 3},
@@ -204,7 +207,7 @@ func TestCategoryStatusMirrorsThePlanAndTooMany(t *testing.T) {
 	))
 	pl, err := r.planBlocks(context.Background(), p, chans)
 	require.NoError(t, err)
-	require.Len(t, pl.blocks, 2, "no block for the refused category")
+	require.Len(t, pl.blocks, 3, "the refused category keeps its published block")
 	tn := &snapTuner{snap: servedSnapshot(pl), ok: true}
 
 	ac := render(p, testAddress, pl, tn, validCondition, resolved{}, false, time.Now())
@@ -229,13 +232,15 @@ func TestCategoryStatusMirrorsThePlanAndTooMany(t *testing.T) {
 	assert.Equal(t, []row{
 		{"News", 1000, 3, hdhr.BlockDeviceID("media", lineupProviderName, "cat/News"), ""},
 		{"Sports", 2000, 2, hdhr.BlockDeviceID("media", lineupProviderName, "cat/Sports"), ""},
-		{"Movies", 4000, 1, "", clustarrv1.ReasonTooMany},
+		{"Movies", 4000, 1, moviesDev, clustarrv1.ReasonTooMany},
 		{"Kids", 5000, 0, "", ""},
 	}, got)
 
-	require.Len(t, st.Blocks, 2)
+	require.Len(t, st.Blocks, 3)
 	assert.Equal(t, "News", *st.Blocks[0].Category)
 	assert.Equal(t, "Sports", *st.Blocks[1].Category)
+	assert.Equal(t, "Movies", *st.Blocks[2].Category)
+	assert.Equal(t, moviesDev, *st.Blocks[2].DeviceID)
 
 	c := condition(st, clustarrv1.ConditionLineupApplied)
 	require.NotNil(t, c)
@@ -243,6 +248,7 @@ func TestCategoryStatusMirrorsThePlanAndTooMany(t *testing.T) {
 	assert.Equal(t, clustarrv1.ReasonTooMany, *c.Reason)
 	assert.Contains(t, *c.Message, "Movies")
 	assert.Contains(t, *c.Message, "512")
+	assert.Contains(t, *c.Message, "published block kept")
 	assert.Equal(t, int64(3), *c.ObservedGeneration)
 	assert.Equal(t, metav1.ConditionTrue, *condition(st, clustarrv1.ConditionReady).Status, "a refused category is the lineup's, not the provider's")
 }

@@ -4186,7 +4186,7 @@ func categoriesCard(r projection.SourceRow) templ.Component {
 											}
 											return nil
 										})
-										templ_7745c5c3_Err = badge.Badge(badge.Props{Variant: badge.VariantDestructive, Attributes: templ.Attributes{"title": "Over a DVR's limit: its channels are on no DVR"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var194), templ_7745c5c3_Buffer)
+										templ_7745c5c3_Err = badge.Badge(badge.Props{Variant: badge.VariantDestructive, Attributes: templ.Attributes{"title": "Over a DVR's limit: refused, its channels left as they were and its published block kept"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var194), templ_7745c5c3_Buffer)
 										if templ_7745c5c3_Err != nil {
 											return templ_7745c5c3_Err
 										}

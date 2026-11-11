@@ -176,11 +176,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		for _, c := range plan.Categories {
 			if b, ok := overBytes[c.Name]; ok {
 				r.event(&p, corev1.EventTypeWarning, ReasonLineupCategoryTooMany,
-					"category %q's channel map is %d bytes, over the %d a DVR takes: its channels are off every DVR",
+					"category %q's channel map is %d bytes, over the %d a DVR takes: its channels are left as they were and its published block is kept",
 					c.Name, b, blocks.DefaultMaxBytes)
 			} else if c.TooMany {
 				r.event(&p, corev1.EventTypeWarning, ReasonLineupCategoryTooMany,
-					"category %q has %d channels, over the %d a DVR takes: its channels are off every DVR",
+					"category %q has %d channels, over the %d a DVR takes: its channels are left as they were and its published block is kept",
 					c.Name, c.Channels, p.Spec.MaxChannelsOrDefault())
 			}
 		}

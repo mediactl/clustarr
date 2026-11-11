@@ -101,7 +101,8 @@ func toEntries(in []m3u.Entry) []lineup.Entry {
 }
 
 // changes turns plan into one change per channel: every assignment (a
-// channel created while enabled), every drop whose channel exists, every
+// channel created while enabled), every drop whose channel exists but a
+// refused (TooMany) category's, which is left as it was, every
 // second channel of a key, and, while enabled, every channel of the
 // provider whose key is in no entry at all. A key both assigned and dropped
 // (two playlist entries of one name key) is assigned. byKey is
@@ -140,7 +141,11 @@ func changes(provider string, plan lineup.Plan, channels []clustarrv1.IPTVChanne
 		}
 		seen[d.Key] = true
 		ch := byKey[d.Key]
-		if ch == nil {
+		// A refused category (TooMany) is left as it was (the design's §5.2
+		// step 5): its channels keep their spec and their status.lineup, and
+		// the provider controller keeps its published block, so a rule edit
+		// that overfills a category takes no DVR off Plex.
+		if ch == nil || d.Reason == lineup.ReasonTooMany {
 			continue
 		}
 		c := change{
@@ -207,7 +212,8 @@ func changes(provider string, plan lineup.Plan, channels []clustarrv1.IPTVChanne
 // refuseOverBytes refuses a category whose numbers' channel map is over
 // blocks.DefaultMaxBytes, cluster-plex's limit for one DVR's map (400
 // five-digit numbers are about 30.8 KB), as the planner refuses one over
-// its channel count: TooMany, every assignment of it a tooMany drop. The
+// its channel count: TooMany, every assignment of it a tooMany drop, which
+// changes leaves as it was. The
 // planner knows no map bytes; the rule is the DVR's, so it is here. It
 // returns each refused category's map bytes.
 func refuseOverBytes(plan lineup.Plan) (lineup.Plan, map[string]int) {

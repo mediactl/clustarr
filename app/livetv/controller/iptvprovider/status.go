@@ -207,9 +207,9 @@ func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarr
 
 // withCategories writes status.categories while spec.lineup is set: the
 // stored plan's categories in its order, each with its base, its active
-// channels (counted from their status.lineup.category; the channels of a
-// category the plan refuses as TooMany are on no DVR and carry none), and
-// the device of its published block. A plan holding only an error (its
+// channels (counted from their status.lineup.category; a category the plan
+// refuses as TooMany counts the channels the lineup controller left in it),
+// and the device of its published block (a refused category's held one). A plan holding only an error (its
 // rules did not compile) re-sends the categories the status has, as the
 // blocks are held.
 func withCategories(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarrv1.IPTVProvider, pl plan, published []clustarrv1.BlockStatus) {
@@ -259,7 +259,8 @@ const maxCategories = 64
 // lineupCondition is LineupApplied, from the stored plan: Pending before
 // one is stored, InvalidLineup with its error, DryRun while spec.lineup is
 // not enabled or the plan stored is a dry run's, TooMany while the plan
-// refuses a category, else Applied.
+// refuses a category (naming it: its channels are left as they were and
+// its published block is kept), else Applied.
 func lineupCondition(p *clustarrv1.IPTVProvider, pl plan) metav1.Condition {
 	c := metav1.Condition{Type: clustarrv1.ConditionLineupApplied, Status: metav1.ConditionFalse}
 	lp := pl.lineup
@@ -277,7 +278,8 @@ func lineupCondition(p *clustarrv1.IPTVProvider, pl plan) metav1.Condition {
 	}
 	refused := ""
 	if len(tooMany) > 0 {
-		refused = fmt.Sprintf("; over dvr.maxChannels (%d), on no DVR: %s", p.Spec.MaxChannelsOrDefault(), strings.Join(tooMany, ", "))
+		refused = fmt.Sprintf("; over dvr.maxChannels (%d) or a DVR's channel-map budget, its channels left as they were and its published block kept: %s",
+			p.Spec.MaxChannelsOrDefault(), strings.Join(tooMany, ", "))
 	}
 	// The blocks hold until the lineup controller has applied the plan to
 	// every channel (Ready=False LineupPending).

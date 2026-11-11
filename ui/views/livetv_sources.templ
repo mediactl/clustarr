@@ -593,7 +593,7 @@ templ categoriesCard(r projection.SourceRow) {
 							}
 							@table.Cell() {
 								if c.Reason == clustarrv1.ReasonTooMany {
-									@badge.Badge(badge.Props{Variant: badge.VariantDestructive, Attributes: templ.Attributes{"title": "Over a DVR's limit: its channels are on no DVR"}}) {
+									@badge.Badge(badge.Props{Variant: badge.VariantDestructive, Attributes: templ.Attributes{"title": "Over a DVR's limit: refused, its channels left as they were and its published block kept"}}) {
 										Too many 
 									}
 								} else if c.Reason != "" {

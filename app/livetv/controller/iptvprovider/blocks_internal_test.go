@@ -411,6 +411,52 @@ func TestAPlanNotYetOnTheChannelsHoldsTheBlocks(t *testing.T) {
 	assert.Empty(t, pl.blocks)
 }
 
+// TestATooManyCategoryKeepsItsPublishedBlock: the lineup controller leaves
+// a refused (TooMany) category's channels as they were (the design's §5.2
+// step 5), so the provider keeps the category's published block, at its
+// published start and device, serving the channels still in it; the other
+// categories are published as planned, and a channel the plan drops as
+// tooMany is not waited on wherever it still is. A refused category with no
+// published block has none.
+func TestATooManyCategoryKeepsItsPublishedBlock(t *testing.T) {
+	newsDev := hdhr.BlockDeviceID("media", lineupProviderName, "cat/News")
+	published := []clustarrv1.BlockStatus{
+		{Start: "1001", First: "1001", Last: "1002", Channels: 2, Category: "News", DeviceID: newsDev, GuidePath: BlockGuidePath},
+		{Start: "3801", First: "3801", Last: "3802", Channels: 2, Category: "Movies", DeviceID: "0A0B0C0D", GuidePath: BlockGuidePath},
+	}
+	// moved was in News; the plan now puts it in Movies, which it refuses.
+	moved := catChannel("1003", "News")
+	chans := []clustarrv1.IPTVChannel{catChannel("1001", "News"), catChannel("1002", "News"), catChannel("3801", "Movies"), catChannel("3802", "Movies"), moved}
+	lp := appliedPlanFor(chans[:2], lineup.Category{Name: "News", Base: 1000, Channels: 2}, lineup.Category{Name: "Movies", Base: 4000, Channels: 512, TooMany: true})
+	for _, ch := range []clustarrv1.IPTVChannel{chans[2], chans[3], moved} {
+		lp.Dropped = append(lp.Dropped, lineup.Dropped{Key: ch.Spec.Key, Reason: lineup.ReasonTooMany})
+	}
+
+	p := lineupProvider(true)
+	p.Status.Blocks = published
+	r := fakeReconciler(t, testAddress, p)
+	r.PlanReader = storedPlan(lp)
+	pl, err := r.planBlocks(context.Background(), p, chans)
+	require.NoError(t, err)
+	assert.Empty(t, pl.reason, "a refused category holds only its own block: %s", pl.message)
+	require.Len(t, pl.blocks, 2)
+	assert.Equal(t, "News", pl.blocks[0].Category)
+	movies := pl.blocks[1]
+	assert.Equal(t, "Movies", movies.Category)
+	assert.Equal(t, "3801", movies.Start, "its published start, not the new base+1")
+	assert.Equal(t, "0A0B0C0D", movies.DeviceID)
+	assert.Equal(t, []string{"3801", "3802"}, pl.numbers["3801"])
+	assert.Equal(t, []string{"1001", "1002", "1003"}, pl.numbers["1001"], "a channel left as it was stays where it was")
+
+	// Nothing published for the refused category: no block for it.
+	p.Status.Blocks = published[:1]
+	pl, err = r.planBlocks(context.Background(), p, chans)
+	require.NoError(t, err)
+	assert.Empty(t, pl.reason, pl.message)
+	require.Len(t, pl.blocks, 1)
+	assert.Equal(t, "News", pl.blocks[0].Category)
+}
+
 // TestTheProviderChoosesAKeysChannelAsTheLineupDoes: with two channels of
 // one key (a copy made by hand, a timeshift copy) the plan is checked
 // against the channel index.ChannelsByKey chooses -- the key's canonical

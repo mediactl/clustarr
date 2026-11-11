@@ -289,7 +289,7 @@ func dryRunCategoryVariant(c DryRunCategory) badge.Variant {
 
 func dryRunCategoryTitle(c DryRunCategory) string {
 	if c.TooMany {
-		return "Over a DVR's limit: its channels would be on no DVR"
+		return "Over a DVR's limit: refused, its channels left as they were and its published block kept"
 	}
 	return c.Name
 }
