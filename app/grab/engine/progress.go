@@ -110,6 +110,7 @@ func (p *ProgressPublisher) now() time.Time {
 // every interval until ctx is done. It returns nil on cancellation, like the
 // reapers, because a Runnable's error stops the whole manager.
 func (p *ProgressPublisher) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "grab.engine.progress")
 	log := logging.FromContext(ctx).With("runnable", "download-progress", "engine", p.EngineID)
 	ticker := time.NewTicker(p.interval())
 	defer ticker.Stop()

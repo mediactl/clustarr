@@ -128,6 +128,7 @@ func (r *Reporter) NeedLeaderElection() bool { return false }
 // on change, and transfer records on change, counters at most once a
 // minute and at least once a day.
 func (r *Reporter) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "grab.engine.report")
 	r.init()
 	log := logging.FromContext(ctx).With("runnable", "engine-reporter", "engine", r.Engine)
 	r.pruneRemoved(ctx)

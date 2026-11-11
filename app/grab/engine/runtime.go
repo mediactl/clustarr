@@ -25,6 +25,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/pkg/events"
@@ -108,7 +110,7 @@ func (rt *Runtime) Add(mgr ctrl.Manager, bus events.Bus) error {
 	}
 	sub := events.EngineConsumer(rt.client, rt.ordinal).Subscription()
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := bus.Subscribe(ctx, sub, rt.Handler.Handle)
+		stop, err := bus.Subscribe(logging.Subsystem(ctx, "grab.engine"), sub, rt.Handler.Handle)
 		if err != nil {
 			return fmt.Errorf("engine: subscribe %s: %w", sub.Durable, err)
 		}

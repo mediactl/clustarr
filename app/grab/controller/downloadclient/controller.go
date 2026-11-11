@@ -181,6 +181,7 @@ func (r *Reconciler) minFreeBytes() int64 {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "grab.downloadclient")
 	ctx, span := tracing.Start(ctx, "downloadclient.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("downloadclient", req.NamespacedName)
