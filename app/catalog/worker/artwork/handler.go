@@ -353,7 +353,7 @@ func (h *Handler) Render(ctx context.Context, key client.ObjectKey, kind commonv
 			// missing one is: an overlay left in place would go on being
 			// served ahead of the original it no longer describes.
 			logging.FromContext(ctx).Warn("artwork: the original poster cannot be drawn on; removing the overlay",
-				"kind", it.Kind, "item", client.ObjectKeyFromObject(it.Object).String(), "error", err)
+				"kind", it.Kind, "item", client.ObjectKeyFromObject(it.Object).String(), "err", err)
 			return h.clear(ctx, overlayKey)
 		}
 		return "", err

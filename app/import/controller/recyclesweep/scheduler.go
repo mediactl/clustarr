@@ -78,7 +78,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	for {
 		_, err := s.PublishOnce(ctx, s.now())
 		if err != nil && ctx.Err() == nil {
-			log.Warn("recyclesweep: could not queue the recycle-bin sweep; retrying", "error", err, "retryIn", s.retryDelay())
+			log.Warn("recyclesweep: could not queue the recycle-bin sweep; retrying", "err", err, "retryIn", s.retryDelay())
 		}
 		if s.OnTick != nil {
 			s.OnTick(err)

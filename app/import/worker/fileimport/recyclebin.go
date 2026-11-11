@@ -110,7 +110,7 @@ func keepAlive(ctx context.Context, m events.Message) (stop func()) {
 				return
 			case <-ticker.C:
 				if err := heartbeat(ctx, m); err != nil && ctx.Err() == nil {
-					logging.FromContext(ctx).Warn("fileimport: recycle sweep heartbeat failed", "error", err)
+					logging.FromContext(ctx).Warn("fileimport: recycle sweep heartbeat failed", "err", err)
 				}
 			}
 		}

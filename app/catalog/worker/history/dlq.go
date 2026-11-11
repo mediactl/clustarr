@@ -217,7 +217,7 @@ func (p *DLQProjector) sequenceOf(ctx context.Context, dlqSubject string) uint64
 	}
 	seq, err := p.Deps.DLQ.LastDeadLetterSeq(ctx, dlqSubject)
 	if err != nil {
-		logging.FromContext(ctx).Warn("dlqprojector: could not name the dead letter's sequence", "subject", dlqSubject, "error", err)
+		logging.FromContext(ctx).Warn("dlqprojector: could not name the dead letter's sequence", "subject", dlqSubject, "err", err)
 		return 0
 	}
 	return seq
@@ -266,7 +266,7 @@ func (p *DLQProjector) handle(ctx context.Context, m events.Message) error {
 			return nil
 		}
 		if err != nil {
-			log.Error("dlqprojector: apply dead-letter annotation", "error", err)
+			log.Error("dlqprojector: apply dead-letter annotation", "err", err)
 			return events.Retry(dlqRetry, err)
 		}
 		if seq != 0 {

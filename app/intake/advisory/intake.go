@@ -166,7 +166,7 @@ func (i *Intake) naked(ctx context.Context, adv advisory) {
 		// nak's visibility is lost, nothing else.
 		if !errors.Is(err, events.ErrMessageNotFound) {
 			logging.FromContext(ctx).Debug("advisory: could not read a naked message", "stream", adv.Stream,
-				"seq", adv.StreamSeq, "error", err)
+				"seq", adv.StreamSeq, "err", err)
 		}
 		count(adv.Consumer, kindNak, outcomeUnresolved)
 		return
@@ -251,7 +251,7 @@ func (i *Intake) sweep(ctx context.Context) {
 			for _, p := range i.due() {
 				if err := i.Projector.Annotate(ctx, p.target, p.seq); err != nil {
 					logging.FromContext(ctx).Warn("advisory: could not annotate a terminated task's CR",
-						"kind", p.target.Kind, "namespace", p.target.Namespace, "name", p.target.Name, "error", err)
+						"kind", p.target.Kind, "namespace", p.target.Namespace, "name", p.target.Name, "err", err)
 				}
 			}
 		}

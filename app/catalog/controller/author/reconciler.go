@@ -199,7 +199,7 @@ func mapAudiobookToAuthor(_ context.Context, o client.Object) []reconcile.Reques
 func (r *Reconciler) mapRootFolder(ctx context.Context, o client.Object) []reconcile.Request {
 	var list catalogv1alpha1.AuthorList
 	if err := r.List(ctx, &list, client.InNamespace(o.GetNamespace()), client.UnsafeDisableDeepCopy); err != nil {
-		logging.FromContext(ctx).Warn("author: list for a RootFolder change failed", "rootFolder", o.GetName(), "error", err)
+		logging.FromContext(ctx).Warn("author: list for a RootFolder change failed", "rootFolder", o.GetName(), "err", err)
 		return nil
 	}
 	var reqs []reconcile.Request
@@ -534,8 +534,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Aut
 	// FolderScanned condition; an author whose status already held its
 	// books owes none. A book file attributes to a Book by its title, so
 	// the scan waits until every Book the fan-out holds (the cache's) has
-	// its metadata (design D18): each Book's document wakes the author
-	// (bookRollupKey's listed).
+	// its metadata (design D18), at most folderscan.ChildrenWait: each
+	// Book's document wakes the author (bookRollupKey's listed).
 	pendingBooks := folderscan.BooksPending(fan.books)
 	folderScan := folderscan.Pass(ctx, r.Client, r.Folders, folderscan.Request{
 		Item: a, Root: root, Path: folder,

@@ -214,7 +214,7 @@ func volumeWakes(r client.Reader) handler.TypedEventHandler[client.Object, remed
 			}
 			var list catalogv1alpha1.IssueList
 			if err := r.List(ctx, &list, client.InNamespace(n.Namespace), client.MatchingFields{comic.IssueByComicRefIndex: n.Name}); err != nil {
-				logging.FromContext(ctx).Warn("search: S33 could not list a comic's issues", "comic", n.Name, "error", err)
+				logging.FromContext(ctx).Warn("search: S33 could not list a comic's issues", "comic", n.Name, "err", err)
 				return
 			}
 			for i := range list.Items {

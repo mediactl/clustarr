@@ -118,7 +118,7 @@ func getChunk(ctx context.Context, kv events.KV, uid string, n int) (schema.List
 	if err := json.Unmarshal(e.Value, &snap); err != nil {
 		// An undecodable chunk is no snapshot; the next sync rewrites it.
 		logging.FromContext(ctx).Warn("importlist: undecodable snapshot chunk; waiting for the next sync",
-			"chunk", n, "error", err)
+			"chunk", n, "err", err)
 		return schema.ListSnapshot{}, false, nil
 	}
 	return snap, true, nil

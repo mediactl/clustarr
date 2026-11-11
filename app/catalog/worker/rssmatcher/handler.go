@@ -230,7 +230,7 @@ func (h *Handler) decideOne(ctx context.Context, ns string, ref commonv1.MediaRe
 	if err != nil {
 		// A missing or invalid profile is a configuration problem: skipping
 		// this item and acknowledging keeps the firehose flowing.
-		log.Warn("rssmatcher: cannot resolve the quality profile; skipping this item", "error", err)
+		log.Warn("rssmatcher: cannot resolve the quality profile; skipping this item", "err", err)
 		return nil
 	}
 	profile = decision.ForDub(profile, st.dub)

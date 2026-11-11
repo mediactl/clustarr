@@ -239,7 +239,7 @@ func (r *Reconciler) items(ctx context.Context, ns string) ([]overlayplan.Item, 
 func (r *Reconciler) mapNamespaceProfiles(ctx context.Context, o client.Object) []reconcile.Request {
 	var list catalogv1alpha1.OverlayProfileList
 	if err := r.Client.List(ctx, &list, client.InNamespace(o.GetNamespace())); err != nil {
-		logging.FromContext(ctx).Warn("overlayprofile: list profiles for a watch event", "error", err)
+		logging.FromContext(ctx).Warn("overlayprofile: list profiles for a watch event", "err", err)
 		return nil
 	}
 	reqs := make([]reconcile.Request, 0, len(list.Items))

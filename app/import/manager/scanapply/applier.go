@@ -450,7 +450,7 @@ func (a *Applier) record(ctx context.Context, scanUID string, t *tally) {
 		switch {
 		case errors.Is(err, events.ErrKeyNotFound):
 		case err != nil:
-			logging.FromContext(ctx).Warn("scanapply: could not read the scan's applied tally", "error", err)
+			logging.FromContext(ctx).Warn("scanapply: could not read the scan's applied tally", "err", err)
 			return
 		default:
 			rev = e.Revision
@@ -473,7 +473,7 @@ func (a *Applier) record(ctx context.Context, scanUID string, t *tally) {
 		case errors.Is(err, events.ErrKeyExists), errors.Is(err, events.ErrRevisionMismatch):
 			continue
 		default:
-			logging.FromContext(ctx).Warn("scanapply: could not write the scan's applied tally", "error", err)
+			logging.FromContext(ctx).Warn("scanapply: could not write the scan's applied tally", "err", err)
 			return
 		}
 	}

@@ -96,7 +96,7 @@ func (s *extrasService) get(ctx context.Context, plexID string) schema.PlexExtra
 	extras, err := s.fetch(ctx, plexID)
 	if err != nil {
 		if have {
-			log.WarnContext(ctx, "metadata: refetch Plex extras; serving the stored answer", "plexID", plexID, "fetchedAt", stored.FetchedAt, "error", err)
+			log.WarnContext(ctx, "metadata: refetch Plex extras; serving the stored answer", "plexID", plexID, "fetchedAt", stored.FetchedAt, "err", err)
 			return schema.PlexExtrasResponse{Extras: stored.Extras, FetchedAt: stored.FetchedAt}
 		}
 		return schema.PlexExtrasResponse{Error: err.Error()}
@@ -104,11 +104,11 @@ func (s *extrasService) get(ctx context.Context, plexID string) schema.PlexExtra
 
 	entry := plexextras.Entry{FetchedAt: s.clock.Now(), Extras: extras}
 	if b, err := plexextras.Encode(entry); err != nil {
-		log.WarnContext(ctx, "metadata: encode Plex extras (not stored)", "plexID", plexID, "error", err)
+		log.WarnContext(ctx, "metadata: encode Plex extras (not stored)", "plexID", plexID, "err", err)
 	} else if _, err := s.kv.Put(ctx, key, b); err != nil {
 		// Not stored means asked again next time, which is the cost; the
 		// answer itself is good.
-		log.WarnContext(ctx, "metadata: store Plex extras", "plexID", plexID, "error", err)
+		log.WarnContext(ctx, "metadata: store Plex extras", "plexID", plexID, "err", err)
 	}
 	if entry.Extras == nil {
 		entry.Extras = []json.RawMessage{}
@@ -122,13 +122,13 @@ func (s *extrasService) read(ctx context.Context, key string) (plexextras.Entry,
 	e, err := s.kv.Get(ctx, key)
 	if err != nil {
 		if !errors.Is(err, events.ErrKeyNotFound) {
-			logging.FromContext(ctx).WarnContext(ctx, "metadata: read stored Plex extras", "key", key, "error", err)
+			logging.FromContext(ctx).WarnContext(ctx, "metadata: read stored Plex extras", "key", key, "err", err)
 		}
 		return plexextras.Entry{}, false
 	}
 	entry, err := plexextras.Decode(e.Value)
 	if err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "metadata: decode stored Plex extras", "key", key, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "metadata: decode stored Plex extras", "key", key, "err", err)
 		return plexextras.Entry{}, false
 	}
 	return entry, true

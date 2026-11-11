@@ -540,7 +540,7 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 			cause = ue.Err
 		}
 		if ctx.Err() == nil {
-			log.Warn("livetv: upstream failed", "channel", s.channel, "after", time.Since(began), "error", cause.Error())
+			log.Warn("livetv: upstream failed", "channel", s.channel, "after", time.Since(began), "err", cause.Error())
 		}
 		var ne net.Error
 		if errors.As(err, &ne) && ne.Timeout() {

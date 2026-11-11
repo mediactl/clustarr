@@ -158,7 +158,7 @@ func (r *Reconciler) diffKind(
 	for _, item := range deduped {
 		blocked, entry, err := isExcluded(ctx, exclusions, item.ExternalIDs)
 		if err != nil {
-			log.Warn("importlist: exclusion lookup failed; treating as not excluded", "error", err)
+			log.Warn("importlist: exclusion lookup failed; treating as not excluded", "err", err)
 		}
 		if blocked {
 			excludedCount++
@@ -256,7 +256,7 @@ func (r *Reconciler) diffKind(
 		}
 		if err != nil {
 			log.Warn("importlist: could not apply catalog item; skipping entry",
-				"title", item.Title, "error", err)
+				"title", item.Title, "err", err)
 			keepKnown(item)
 			continue
 		}
@@ -293,7 +293,7 @@ func (r *Reconciler) diffKind(
 			other, err := r.listedElsewhere(ctx, kv, il, si)
 			if err != nil {
 				log.Warn("importlist: could not check the other lists; retrying at the next sync",
-					"title", d.Item.Title, "error", err)
+					"title", d.Item.Title, "err", err)
 				remembered = append(remembered, si)
 				actionErrs = append(actionErrs, fmt.Errorf("%s: %w", si.ObjectName, err))
 				continue
@@ -311,7 +311,7 @@ func (r *Reconciler) diffKind(
 		acted, err := r.applySyncDecision(ctx, il, si, d.Action, syncedAt)
 		if err != nil {
 			log.Warn("importlist: sync-level action failed", "title", d.Item.Title,
-				"action", d.Action, "error", err)
+				"action", d.Action, "err", err)
 			// Remembered again, so the next snapshot's diff retries the same
 			// decision instead of silently forgetting the item. The failure
 			// is also this kind's error, so it reaches status.
@@ -326,7 +326,7 @@ func (r *Reconciler) diffKind(
 
 	if err := importliststate.SaveItems(ctx, kv, il.Namespace, il.Name, string(kind), rev, remembered); err != nil {
 		if !errors.Is(err, importliststate.ErrItemsChangedConcurrently) {
-			log.Warn("importlist: could not save remembered items", "error", err)
+			log.Warn("importlist: could not save remembered items", "err", err)
 		}
 		// Not fatal to this diff's own result: the catalog writes above are
 		// already durable. See SaveItems' doc comment.
@@ -476,7 +476,7 @@ func (r *Reconciler) publishSynced(
 	}
 	schemaName, data, err := schema.Encode(evt)
 	if err != nil {
-		logging.FromContext(ctx).Warn("importlist: encode history event failed", "error", err)
+		logging.FromContext(ctx).Warn("importlist: encode history event failed", "err", err)
 		return
 	}
 	env := &events.Envelope{
@@ -489,6 +489,6 @@ func (r *Reconciler) publishSynced(
 		Data:   data,
 	}
 	if _, err := r.Bus.Publish(ctx, events.CatalogImportListSyncedSubject(string(il.UID)), env); err != nil {
-		logging.FromContext(ctx).Warn("importlist: publish history event failed", "error", err)
+		logging.FromContext(ctx).Warn("importlist: publish history event failed", "err", err)
 	}
 }

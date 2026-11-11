@@ -189,10 +189,10 @@ func (l *Ledger) detect(ctx context.Context, c events.ConsumerSpec, domain strin
 	l.mu.Unlock()
 
 	if stErr != nil {
-		log.Debug("dispatch: could not read a durable's state; its attendance is unchanged", "consumer", c.Name, "error", stErr)
+		log.Debug("dispatch: could not read a durable's state; its attendance is unchanged", "consumer", c.Name, "err", stErr)
 	}
 	if prErr != nil {
-		log.Debug("dispatch: could not read presence; attendance by presence is unchanged", "domain", domain, "error", prErr)
+		log.Debug("dispatch: could not read presence; attendance by presence is unchanged", "domain", domain, "err", prErr)
 	}
 	if is {
 		metrics.DispatchUnattended.WithLabelValues(c.Name).Set(1)

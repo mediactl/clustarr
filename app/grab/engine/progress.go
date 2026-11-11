@@ -130,7 +130,7 @@ func (p *ProgressPublisher) tick(ctx context.Context, log *slog.Logger) {
 		}
 	}()
 	if err := p.PublishOnce(ctx); err != nil {
-		log.WarnContext(ctx, "download progress: sample failed", "error", err)
+		log.WarnContext(ctx, "download progress: sample failed", "err", err)
 	}
 }
 

@@ -373,7 +373,7 @@ func (s *Stage) indexers(ctx context.Context, ns string, v *grabplan.View) error
 		if err != nil {
 			// A ring the manager cannot read fails open: the index agent's
 			// payload fetch still refuses a grab past the limit (P95).
-			logging.FromContext(ctx).Warn("grab: read an indexer's grab ring", "indexer", idx.Name, "error", err)
+			logging.FromContext(ctx).Warn("grab: read an indexer's grab ring", "indexer", idx.Name, "err", err)
 			continue
 		}
 		if u.RetryAt.After(v.Now) {

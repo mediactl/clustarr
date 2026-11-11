@@ -745,7 +745,7 @@ func (w *Worker) folderTags(ctx context.Context, st *scanState, folder string) (
 		cancel()
 		if perr != nil {
 			logging.FromContext(ctx).Debug("could not probe a file for its folder's artist tags",
-				"path", relPath(st.root.Spec.Path, p), "error", perr)
+				"path", relPath(st.root.Spec.Path, p), "err", perr)
 			tags = append(tags, nil)
 			continue
 		}

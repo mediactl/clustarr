@@ -75,7 +75,7 @@ func (m *ObjectStores) Start(ctx context.Context) error {
 	defer t.Stop()
 	for {
 		if err := m.Sweep(ctx); err != nil && ctx.Err() == nil {
-			logging.FromContext(ctx).Warn("maintenance: object-store sweep incomplete", "error", err)
+			logging.FromContext(ctx).Warn("maintenance: object-store sweep incomplete", "err", err)
 		}
 		select {
 		case <-ctx.Done():

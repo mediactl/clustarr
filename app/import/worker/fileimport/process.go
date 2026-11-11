@@ -129,11 +129,11 @@ func (w *Worker) probeVideo(ctx context.Context, m events.Message, srcPath, rel 
 	mi, raw, perr := w.Prober.Probe(pctx, srcPath)
 	switch {
 	case errors.Is(perr, mediainfo.ErrNotMedia):
-		logging.FromContext(ctx).Warn("fileimport: the file is not media; refusing it", "source", rel, "error", perr)
+		logging.FromContext(ctx).Warn("fileimport: the file is not media; refusing it", "source", rel, "err", perr)
 		return nil, nil, perr, nil
 	case perr != nil:
 		logging.FromContext(ctx).Warn("fileimport: could not probe the file; importing it under its name-derived quality",
-			"source", rel, "error", perr)
+			"source", rel, "err", perr)
 		return nil, nil, nil, nil
 	}
 	return mi, raw, nil, nil

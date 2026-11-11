@@ -359,14 +359,14 @@ func (w *Worker) profile(ctx context.Context, st *scanState, name string) *quali
 	var qp catalogv1alpha1.QualityProfile
 	if err := w.Client.Get(ctx, client.ObjectKey{Name: name}, &qp); err != nil {
 		logging.FromContext(ctx).Info("cannot score scanned files against a quality profile; leaving them unscored",
-			"qualityProfile", name, "error", err)
+			"qualityProfile", name, "err", err)
 		st.profiles[name] = nil
 		return nil
 	}
 	resolved, errs := quality.FromCRD(&qp, w.catalogue())
 	if len(errs) > 0 {
 		logging.FromContext(ctx).Info("quality profile does not resolve; leaving scanned files unscored",
-			"qualityProfile", name, "error", errors.Join(errs...))
+			"qualityProfile", name, "err", errors.Join(errs...))
 		st.profiles[name] = nil
 		return nil
 	}

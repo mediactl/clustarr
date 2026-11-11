@@ -101,7 +101,7 @@ func BuildRegistryWith(ctx context.Context, c client.Client, providers []catalog
 				// reads bearer crash-looped catalog-metadata on kind,
 				// 2026-09-24).
 				logging.FromContext(ctx).Error("metadata provider skipped: its credentials cannot be read",
-					"namespace", p.Namespace, "provider", p.Name, "type", p.Spec.Type, "error", err)
+					"namespace", p.Namespace, "provider", p.Name, "type", p.Spec.Type, "err", err)
 				continue
 			}
 			return nil, err

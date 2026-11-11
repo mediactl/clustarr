@@ -97,7 +97,7 @@ func (l *IntelWorkLease) Set(ctx context.Context, n int) {
 		return
 	}
 	if err := l.publish(ctx); err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "transcode admission: cannot publish the intel-work Lease", "lease", l.Key.String(), "count", n, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "transcode admission: cannot publish the intel-work Lease", "lease", l.Key.String(), "count", n, "err", err)
 	}
 }
 
@@ -178,7 +178,7 @@ func (l *IntelWorkLease) Start(ctx context.Context) error {
 				continue
 			}
 			if err := l.publish(ctx); err != nil {
-				logging.FromContext(ctx).WarnContext(ctx, "transcode admission: cannot renew the intel-work Lease", "lease", l.Key.String(), "count", n, "error", err)
+				logging.FromContext(ctx).WarnContext(ctx, "transcode admission: cannot renew the intel-work Lease", "lease", l.Key.String(), "count", n, "err", err)
 			}
 		}
 	}

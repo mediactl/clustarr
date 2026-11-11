@@ -180,7 +180,7 @@ func mapAlbumToArtist(_ context.Context, o client.Object) []reconcile.Request {
 func (r *Reconciler) mapRootFolder(ctx context.Context, o client.Object) []reconcile.Request {
 	var list catalogv1alpha1.ArtistList
 	if err := r.List(ctx, &list, client.InNamespace(o.GetNamespace()), client.UnsafeDisableDeepCopy); err != nil {
-		logging.FromContext(ctx).Warn("artist: list for a RootFolder change failed", "rootFolder", o.GetName(), "error", err)
+		logging.FromContext(ctx).Warn("artist: list for a RootFolder change failed", "rootFolder", o.GetName(), "err", err)
 		return nil
 	}
 	var reqs []reconcile.Request
@@ -195,9 +195,10 @@ func (r *Reconciler) mapRootFolder(ctx context.Context, o client.Object) []recon
 
 // albumRollupKey is what of an Album the Artist's rollup reads: its
 // monitor flag and phase, its file, and its release date (the container's
-// next and previous release dates); and whether its track list is in
-// (folderscan.AlbumListed), which the folder scan a new artist owes waits
-// for (design D18) -- an unmonitored Album's tracks move no other leaf.
+// next and previous release dates); and whether its document and track
+// list are in (folderscan.AlbumListed), which the folder scan a new artist
+// owes waits for (design D18) -- an unmonitored Album's tracks move no other
+// leaf.
 type albumRollupKey struct {
 	monitored      bool
 	phase          commonv1.LeafPhase
@@ -503,15 +504,16 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Art
 	// before its albums were listed waited for the next scan. The pass that
 	// first lists them owes the artist's folder one scan, recorded in the
 	// FolderScanned condition; an artist whose status already held its
-	// albums owes none. A track file attributes to an Album's track list,
-	// so the scan waits until every Album the fan-out holds (the cache's)
-	// has listed its tracks (design D18): each Album's listing wakes the
-	// artist (albumRollupKey's listed).
+	// albums owes none. A track file attributes to an Album by its
+	// document and to its track list, so the scan waits until every Album
+	// the fan-out holds (the cache's) has both (design D18), at most
+	// folderscan.ChildrenWait: each Album's arrival wakes the artist
+	// (albumRollupKey's listed).
 	pendingAlbums := folderscan.AlbumsPending(fan.albums)
 	folderScan := folderscan.Pass(ctx, r.Client, r.Folders, folderscan.Request{
 		Item: a, Root: root, Path: folder,
 		HadChildren: a.Status.AlbumCount > 0, HasChildren: len(fan.albums) > 0, Children: "albums",
-		ChildrenSettled: pendingAlbums == 0, Pending: pendingAlbums, Count: len(fan.albums), Awaits: "track lists",
+		ChildrenSettled: pendingAlbums == 0, Pending: pendingAlbums, Count: len(fan.albums), Awaits: "metadata and track lists",
 		FieldManager: k8s.ManagerCatalog, Now: now,
 	}, &conditions)
 	if folderScan.Scan != "" {

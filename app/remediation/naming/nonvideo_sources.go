@@ -306,7 +306,7 @@ func nonVideoFilesOfRootFolder(ctx context.Context, c client.Reader, o client.Ob
 	}
 	ns, set := rf.Namespace, fileSet{}
 	warn := func(what string, err error) {
-		logging.FromContext(ctx).Warn("naming: list a RootFolder's "+what+" to re-name their files", "rootFolder", rf.Name, "error", err)
+		logging.FromContext(ctx).Warn("naming: list a RootFolder's "+what+" to re-name their files", "rootFolder", rf.Name, "err", err)
 	}
 	var artists catalogv1alpha1.ArtistList
 	if err := c.List(ctx, &artists, client.InNamespace(ns), client.UnsafeDisableDeepCopy); err != nil {
@@ -365,7 +365,7 @@ type fileSet map[types.NamespacedName]struct{}
 func (s fileSet) addFilesOf(ctx context.Context, c client.Reader, ns string, kind commonv1.MediaKind, name string) {
 	files, err := rowcache.Keys(ctx, c, &catalogv1alpha1.MediaFileList{}, client.InNamespace(ns), client.MatchingFields{mfindex.Item: mfindex.ItemKey(kind, name)})
 	if err != nil {
-		logging.FromContext(ctx).Warn("naming: list an item's files to re-name them", "kind", kind, "name", name, "error", err)
+		logging.FromContext(ctx).Warn("naming: list an item's files to re-name them", "kind", kind, "name", name, "err", err)
 		return
 	}
 	for _, f := range files {
@@ -377,7 +377,7 @@ func (s fileSet) addFilesOf(ctx context.Context, c client.Reader, ns string, kin
 func (s fileSet) addArtistFiles(ctx context.Context, c client.Reader, ns, artist string) {
 	albums, err := rowcache.Keys(ctx, c, &catalogv1alpha1.AlbumList{}, client.InNamespace(ns), client.MatchingFields{albumByArtistRefIndex: artist})
 	if err != nil {
-		logging.FromContext(ctx).Warn("naming: list an artist's albums to re-name their files", "artist", artist, "error", err)
+		logging.FromContext(ctx).Warn("naming: list an artist's albums to re-name their files", "artist", artist, "err", err)
 		return
 	}
 	for _, a := range albums {
@@ -389,7 +389,7 @@ func (s fileSet) addArtistFiles(ctx context.Context, c client.Reader, ns, artist
 func (s fileSet) addAuthorFiles(ctx context.Context, c client.Reader, ns, author string) {
 	books, err := rowcache.Keys(ctx, c, &catalogv1alpha1.BookList{}, client.InNamespace(ns), client.MatchingFields{bookByAuthorRefIndex: author})
 	if err != nil {
-		logging.FromContext(ctx).Warn("naming: list an author's books to re-name their files", "author", author, "error", err)
+		logging.FromContext(ctx).Warn("naming: list an author's books to re-name their files", "author", author, "err", err)
 		return
 	}
 	for _, b := range books {
@@ -401,7 +401,7 @@ func (s fileSet) addAuthorFiles(ctx context.Context, c client.Reader, ns, author
 func (s fileSet) addComicFiles(ctx context.Context, c client.Reader, ns, comic string) {
 	issues, err := rowcache.Keys(ctx, c, &catalogv1alpha1.IssueList{}, client.InNamespace(ns), client.MatchingFields{issueByComicRefIndex: comic})
 	if err != nil {
-		logging.FromContext(ctx).Warn("naming: list a comic's issues to re-name their files", "comic", comic, "error", err)
+		logging.FromContext(ctx).Warn("naming: list a comic's issues to re-name their files", "comic", comic, "err", err)
 		return
 	}
 	for _, iss := range issues {

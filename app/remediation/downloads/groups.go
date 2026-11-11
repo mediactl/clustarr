@@ -54,7 +54,7 @@ func (s *Stage) observeGroup(ctx context.Context, in importplan.Input) {
 		sum := sha256.Sum256([]byte(string(uid) + "\x00" + f.Path))
 		if err := grouplang.Observe(ctx, kv, group, hex.EncodeToString(sum[:8]), f.Probe.AudioLanguages, in.OriginalLanguage); err != nil {
 			logging.FromContext(ctx).Warn("downloads: recording a release group's audio failed; retrying at the next pass",
-				"group", group, "entry", in.Entry.ID, "error", err)
+				"group", group, "entry", in.Entry.ID, "err", err)
 			return
 		}
 	}

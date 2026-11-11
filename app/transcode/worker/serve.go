@@ -165,7 +165,7 @@ func (r *pullRetry) wait(ctx context.Context, op string, cause error) (giveUp bo
 		return true, nil
 	}
 	logging.FromContext(ctx).WarnContext(ctx, "transcode worker: pull failed; retrying",
-		"op", op, "error", cause, "backoff", r.backoff, "failingSince", r.failSince)
+		"op", op, "err", cause, "backoff", r.backoff, "failingSince", r.failSince)
 	select {
 	case <-r.clock.After(r.backoff):
 	case <-ctx.Done():
@@ -281,7 +281,7 @@ func (s *server) measureUntilHealthy(ctx context.Context) (transcode.Measurement
 			return m, nil
 		}
 		log.WarnContext(ctx, "transcode worker: the device cannot be used; taking no work until it can",
-			"class", class, "error", err, "retryIn", s.o.RemeasureEvery)
+			"class", class, "err", err, "retryIn", s.o.RemeasureEvery)
 		select {
 		case <-ctx.Done():
 			return transcode.Measurement{}, ctx.Err()
@@ -384,7 +384,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		defer cancel()
 		subj, dl := events.DeadLetter(m, s.sub.Durable, "undecodable task: "+err.Error())
 		if _, perr := s.bus.Publish(sctx, subj, dl); perr != nil {
-			log.WarnContext(ctx, "transcode worker: dead-letter publish failed", "error", perr)
+			log.WarnContext(ctx, "transcode worker: dead-letter publish failed", "err", perr)
 		}
 		_ = m.Term(sctx, "undecodable task")
 		return
@@ -405,7 +405,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		sctx, cancel := settle()
 		defer cancel()
 		if err != nil {
-			log.WarnContext(ctx, "transcode worker: cannot read the record; retrying", "error", err)
+			log.WarnContext(ctx, "transcode worker: cannot read the record; retrying", "err", err)
 			_ = m.Nak(sctx, s.o.HeldRetry)
 			return
 		}
@@ -506,7 +506,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		return
 	}
 	if _, err := s.answers.Answer(sctx, key, rec); err != nil {
-		log.WarnContext(ctx, "transcode worker: the answer was not recorded; redelivery redoes it", "error", err)
+		log.WarnContext(ctx, "transcode worker: the answer was not recorded; redelivery redoes it", "err", err)
 		release(sctx)
 		_ = m.Nak(sctx, 0)
 		return
@@ -639,14 +639,14 @@ func (s *server) settleFact(ctx context.Context, m events.Message, t task.Task, 
 			return
 		}
 		if !s.clock.Now().Before(deadline) {
-			log.WarnContext(ctx, "transcode worker: the fact's answer was not recorded; nak'd", "error", err)
+			log.WarnContext(ctx, "transcode worker: the fact's answer was not recorded; nak'd", "err", err)
 			if release != nil {
 				release(fctx)
 			}
 			_ = m.Nak(fctx, 0)
 			return
 		}
-		log.WarnContext(ctx, "transcode worker: the fact's answer was not recorded; retrying", "error", err, "backoff", backoff)
+		log.WarnContext(ctx, "transcode worker: the fact's answer was not recorded; retrying", "err", err, "backoff", backoff)
 		select {
 		case <-fctx.Done():
 			_ = m.Nak(context.WithoutCancel(ctx), 0)

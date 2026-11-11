@@ -198,7 +198,7 @@ func (r *Reconciler) kvSession(ctx context.Context, idx *indexv1alpha1.Indexer) 
 	sess, derr := cardigann.UnmarshalSession(e.Value)
 	if derr != nil {
 		logging.FromContext(ctx).Warn("indexer: the KV session does not decode; not mirroring it",
-			"indexer", client.ObjectKeyFromObject(idx), "error", derr)
+			"indexer", client.ObjectKeyFromObject(idx), "err", derr)
 		return nil, nil
 	}
 	return sess, nil

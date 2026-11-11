@@ -114,7 +114,7 @@ func (q *QueueGauge) Update(ctx context.Context) {
 			for _, g := range consumerGauges {
 				g.DeleteLabelValues(c.Stream, c.Name)
 			}
-			logging.FromContext(ctx).Debug("extmetrics: queue gauge could not read a consumer", "stream", c.Stream, "consumer", c.Name, "error", err)
+			logging.FromContext(ctx).Debug("extmetrics: queue gauge could not read a consumer", "stream", c.Stream, "consumer", c.Name, "err", err)
 			continue
 		}
 		metrics.WorkQueuePending.WithLabelValues(c.Stream, c.Name).Set(float64(st.Lag()))

@@ -178,7 +178,7 @@ func (r *Reconciler) throttled(now time.Time) (time.Duration, bool) {
 // sweeps again.
 func (r *Reconciler) logSweep(ctx context.Context) {
 	if err := r.sweep(ctx); err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "admission: the task sweep failed; the next resync sweeps again", "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "admission: the task sweep failed; the next resync sweeps again", "err", err)
 	}
 }
 
@@ -258,7 +258,7 @@ func (r *Reconciler) passInputs(ctx context.Context) (PassInputs, error) {
 	if err != nil {
 		// No GPU node is the safe reading: auto work goes to cpu, which
 		// every cluster has, rather than wait on a class nothing confirmed.
-		logging.FromContext(ctx).WarnContext(ctx, "admission: cannot list Nodes; auto files go to cpu this pass", "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "admission: cannot list Nodes; auto files go to cpu this pass", "err", err)
 	}
 	in.GPUNodes = gpu
 	in.Devices, in.Unhealthy = r.devices(ctx)
@@ -285,7 +285,7 @@ func (r *Reconciler) videoStreams(ctx context.Context) int {
 	if err := r.Client.Get(ctx, r.VideoLease, &l); err != nil {
 		if !apierrors.IsNotFound(err) {
 			logging.FromContext(ctx).WarnContext(ctx, "admission: cannot read the video-transcode Lease; nothing yields to Plex this pass",
-				"lease", r.VideoLease.String(), "error", err)
+				"lease", r.VideoLease.String(), "err", err)
 		}
 		return 0
 	}
@@ -370,7 +370,7 @@ func (r *Reconciler) devices(ctx context.Context) (map[transcodev1alpha1.Hardwar
 	var unhealthy map[transcodev1alpha1.Hardware]string
 	for _, class := range GPUClasses {
 		if health, err := task.ReadEncoderHealth(ctx, kv, string(class), now); err != nil {
-			log.WarnContext(ctx, "admission: cannot read the devices' health", "class", class, "error", err)
+			log.WarnContext(ctx, "admission: cannot read the devices' health", "class", class, "err", err)
 		} else if msg, ok := UnhealthyMessage(class, health); ok {
 			if unhealthy == nil {
 				unhealthy = map[transcodev1alpha1.Hardware]string{}

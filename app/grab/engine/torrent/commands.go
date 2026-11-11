@@ -66,7 +66,7 @@ func (t *Transfers) load(ctx context.Context) {
 	t.desc = map[string]descriptor{}
 	ds, errs := loadDescriptors(t.Engine.StateDir)
 	for _, err := range errs {
-		logging.FromContext(ctx).WarnContext(ctx, "torrent: a descriptor could not be read", "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "torrent: a descriptor could not be read", "err", err)
 	}
 	for _, d := range ds {
 		t.desc[d.ID] = d.Desc
@@ -110,7 +110,7 @@ func (t *Transfers) observe(ctx context.Context, it download.Item, d descriptor)
 		d.ContentRoot = it.ContentRoot
 	}
 	if err := saveDescriptor(t.Engine.StateDir, it.ID, nil, d); err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "torrent: persist descriptor failed", "id", it.ID, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "torrent: persist descriptor failed", "id", it.ID, "err", err)
 		return
 	}
 	t.desc[it.ID] = d
@@ -257,7 +257,7 @@ func (t *Transfers) RemoveByID(ctx context.Context, id string, removeData bool) 
 		return fmt.Errorf("torrent: remove %s: %w", id, err)
 	}
 	if derr := removeDescriptor(t.Engine.StateDir, id); derr != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "torrent: remove descriptor failed", "id", id, "error", derr)
+		logging.FromContext(ctx).WarnContext(ctx, "torrent: remove descriptor failed", "id", id, "err", derr)
 	}
 	t.mu.Lock()
 	if t.desc != nil {

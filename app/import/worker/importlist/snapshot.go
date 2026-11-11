@@ -70,7 +70,7 @@ func writeSnapshot(ctx context.Context, kv events.KV, snap schema.ListSnapshot) 
 	for i := len(chunks); i < previous; i++ {
 		if err := kv.Delete(ctx, importliststate.SnapshotKey(uid, i)); err != nil {
 			logging.FromContext(ctx).Warn("importlist: could not delete a stale snapshot chunk; the bucket's TTL retires it",
-				"chunk", i, "error", err)
+				"chunk", i, "err", err)
 		}
 	}
 	return nil

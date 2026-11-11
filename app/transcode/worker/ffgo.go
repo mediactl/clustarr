@@ -302,7 +302,7 @@ func sweepEarlierAttempts(ctx context.Context, part string) {
 	dir := filepath.Dir(part)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		log.WarnContext(ctx, "transcode worker: listing the output's folder for earlier attempts' part files failed", "dir", dir, "error", err)
+		log.WarnContext(ctx, "transcode worker: listing the output's folder for earlier attempts' part files failed", "dir", dir, "err", err)
 		return
 	}
 	for _, e := range entries {
@@ -315,7 +315,7 @@ func sweepEarlierAttempts(ctx context.Context, part string) {
 			continue
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			log.WarnContext(ctx, "transcode worker: removing an earlier attempt's part file failed", "path", path, "error", err)
+			log.WarnContext(ctx, "transcode worker: removing an earlier attempt's part file failed", "path", path, "err", err)
 			continue
 		}
 		log.InfoContext(ctx, "transcode worker: removed an earlier dispatch's part file", "path", path, "seq", p.Seq)

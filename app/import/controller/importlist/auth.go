@@ -152,7 +152,7 @@ func reconcileTraktAuth(
 				tok, refreshed = next, true
 				dueAt = refreshDueAt(tok, now)
 			case refusedByTrakt(err) && (in.NeedsToken || tok.Expired(now)):
-				log.Warn("importlist: trakt refused the refresh token; clearing the token and starting a device flow", "error", err)
+				log.Warn("importlist: trakt refused the refresh token; clearing the token and starting a device flow", "err", err)
 				if err := store.ClearToken(ctx); err != nil {
 					return authOutcome{}, fmt.Errorf("importlist: clear the refused trakt token: %w", err)
 				}
@@ -163,7 +163,7 @@ func reconcileTraktAuth(
 				// The token still works; the refresh is tried again later,
 				// and an expired token falls through to a device flow.
 				log.Warn("importlist: could not refresh the trakt token ahead of its expiry; retrying",
-					"error", err, "in", refreshRetry)
+					"err", err, "in", refreshRetry)
 				requeue = refreshRetry
 			}
 		}
@@ -264,7 +264,7 @@ func pollTraktDeviceCode(
 			return authOutcome{}, fmt.Errorf("importlist: save trakt token: %w", err)
 		}
 		if err := store.ClearDeviceCode(ctx); err != nil {
-			log.Warn("importlist: could not clear the spent trakt device code", "error", err)
+			log.Warn("importlist: could not clear the spent trakt device code", "err", err)
 		}
 		return authOutcome{
 			Authenticated: true,
@@ -281,7 +281,7 @@ func pollTraktDeviceCode(
 
 	default: // Expired, Denied, InvalidCode, AlreadyUsed
 		if err := store.ClearDeviceCode(ctx); err != nil {
-			log.Warn("importlist: could not clear the dead trakt device code", "error", err)
+			log.Warn("importlist: could not clear the dead trakt device code", "err", err)
 		}
 		log.Info("importlist: trakt device code did not complete", "status", status)
 		return authOutcome{

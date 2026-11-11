@@ -371,7 +371,7 @@ func (r *Reconciler) exclude(ctx context.Context, obj client.Object) error {
 // refusal returns nil, so it waits for a renewed request; anything else is
 // returned for the backoff retry.
 func (r *Reconciler) fail(ctx context.Context, obj client.Object, err error) error {
-	logging.FromContext(ctx).Warn("librarydelete: not deleted", "kind", string(r.kind.kind), "item", obj.GetName(), "error", err)
+	logging.FromContext(ctx).Warn("librarydelete: not deleted", "kind", string(r.kind.kind), "item", obj.GetName(), "err", err)
 	r.event(obj, corev1.EventTypeWarning, "DeleteFailed", "%s", err.Error())
 	patch, merr := json.Marshal(map[string]any{"metadata": map[string]any{
 		"annotations": map[string]string{catalogv1alpha1.AnnotationDeleteError: err.Error()},
@@ -381,7 +381,7 @@ func (r *Reconciler) fail(ctx context.Context, obj client.Object, err error) err
 		target.SetNamespace(obj.GetNamespace())
 		target.SetName(obj.GetName())
 		if perr := r.Patch(ctx, target, client.RawPatch(types.MergePatchType, patch), client.FieldOwner(k8s.ManagerImport.String())); perr != nil {
-			logging.FromContext(ctx).Error("librarydelete: record delete-error", "error", perr)
+			logging.FromContext(ctx).Error("librarydelete: record delete-error", "err", perr)
 		}
 	}
 	if errors.Is(err, ErrRefused) {

@@ -121,7 +121,7 @@ func (w *Worker) snapshotKind(
 				resolved[item.Key()] = r
 				if r.err != nil {
 					log.Warn("importlist: could not resolve the id this kind requires",
-						"title", item.Title, "error", r.err)
+						"title", item.Title, "err", r.err)
 				}
 			}
 			if r.err != nil {

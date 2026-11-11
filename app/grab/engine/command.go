@@ -138,7 +138,7 @@ func (h *Handler) retry(cmd schema.EngineCommand) {
 	if err := h.handle(ctx, log, cmd, 1); errors.As(err, &retry) {
 		h.deferApply(cmd, retry.After)
 	} else if err != nil {
-		log.WarnContext(ctx, "engine: a deferred command failed", "entry", cmd.Entry.ID, "seq", cmd.Seq, "error", err)
+		log.WarnContext(ctx, "engine: a deferred command failed", "entry", cmd.Entry.ID, "seq", cmd.Seq, "err", err)
 	}
 }
 
@@ -280,13 +280,13 @@ func (h *Handler) handle(ctx context.Context, log *slog.Logger, cmd schema.Engin
 	var deferred *PayloadDeferredError
 	switch {
 	case errors.Is(err, ErrPayloadUnavailable):
-		log.WarnContext(ctx, "engine: the payload can no longer be fetched", "entry", cmd.Entry.ID, "error", err)
+		log.WarnContext(ctx, "engine: the payload can no longer be fetched", "entry", cmd.Entry.ID, "err", err)
 		if werr := h.Reporter.WriteFailed(ctx, cmd, string(commonv1.DownloadFailurePayloadUnavailable), err.Error()); werr != nil {
 			return events.Retry(notReadyRetry, werr)
 		}
 		return nil
 	case errors.Is(err, ErrReleaseRefused):
-		log.WarnContext(ctx, "engine: the indexer keeps refusing this release; giving it up", "entry", cmd.Entry.ID, "error", err)
+		log.WarnContext(ctx, "engine: the indexer keeps refusing this release; giving it up", "entry", cmd.Entry.ID, "err", err)
 		if werr := h.Reporter.WriteFailed(ctx, cmd, string(commonv1.DownloadFailureReleaseRefused), err.Error()); werr != nil {
 			return events.Retry(notReadyRetry, werr)
 		}
@@ -301,7 +301,7 @@ func (h *Handler) handle(ctx context.Context, log *slog.Logger, cmd schema.Engin
 		// the grab. Never asked again blindly -- the next delivery runs
 		// find, and the usenet client's ByName, before it asks again.
 		log.WarnContext(ctx, "engine: the payload RPC timed out; re-reading before asking again",
-			"entry", cmd.Entry.ID, "seq", cmd.Seq, "error", err)
+			"entry", cmd.Entry.ID, "seq", cmd.Seq, "err", err)
 		return events.Retry(downloadTimeoutRetryAfter(attempt), err)
 	case errors.As(err, &deferred):
 		// The indexer named when it will serve the payload: the engine asks
@@ -313,16 +313,16 @@ func (h *Handler) handle(ctx context.Context, log *slog.Logger, cmd schema.Engin
 		if key := indexerOf(cmd); key != "" && !deferred.Release {
 			waiting := h.deferIndexer(key, cmd, wait)
 			log.WarnContext(ctx, "engine: the indexer deferred every payload", "entry", cmd.Entry.ID, "seq", cmd.Seq,
-				"indexer", key, "until", deferred.Until, "waiting", waiting, "error", err)
+				"indexer", key, "until", deferred.Until, "waiting", waiting, "err", err)
 			return nil
 		}
 		log.WarnContext(ctx, "engine: the payload is deferred by the indexer", "entry", cmd.Entry.ID, "seq", cmd.Seq,
-			"until", deferred.Until, "error", err)
+			"until", deferred.Until, "err", err)
 		h.deferApply(cmd, wait)
 		return nil
 	case err != nil:
 		log.WarnContext(ctx, "engine: cannot apply the command yet", "entry", cmd.Entry.ID, "seq", cmd.Seq,
-			"attempt", attempt, "error", err)
+			"attempt", attempt, "err", err)
 		return events.Retry(applyRetryAfter(attempt), err)
 	}
 	if err := h.writeDisplaced(ctx, log, cmd, adopted(prior, after)); err != nil {

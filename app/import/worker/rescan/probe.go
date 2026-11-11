@@ -105,7 +105,7 @@ func probedQuality(ctx context.Context, probe *fileProbe, rel string, q commonv1
 	}
 	if perr != nil {
 		logging.FromContext(ctx).Warn("rescan: could not probe the file; recording it under its name-derived quality",
-			"path", rel, "error", perr)
+			"path", rel, "err", perr)
 		return q, nil
 	}
 	q, _ = quality.AugmentFromMediaInfo(q, mi)

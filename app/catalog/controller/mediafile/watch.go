@@ -242,14 +242,14 @@ func FilesForRootFolder(ctx context.Context, c client.Reader, o client.Object) [
 	// manager's cache).
 	movies, err := rowcache.Keys(ctx, c, &catalogv1alpha1.MovieList{}, client.InNamespace(rf.Namespace), client.MatchingFields{movieByRootFolderIndex: rf.Name})
 	if err != nil {
-		logging.FromContext(ctx).Warn("mediafile: list a RootFolder's movies to re-name their files", "rootFolder", rf.Name, "error", err)
+		logging.FromContext(ctx).Warn("mediafile: list a RootFolder's movies to re-name their files", "rootFolder", rf.Name, "err", err)
 	}
 	for _, m := range movies {
 		addMediaFilesOf(ctx, c, set, rf.Namespace, commonv1.MediaKindMovie, m.Name)
 	}
 	series, err := rowcache.Keys(ctx, c, &catalogv1alpha1.SeriesList{}, client.InNamespace(rf.Namespace), client.MatchingFields{seriesByRootFolderIndex: rf.Name})
 	if err != nil {
-		logging.FromContext(ctx).Warn("mediafile: list a RootFolder's series to re-name their files", "rootFolder", rf.Name, "error", err)
+		logging.FromContext(ctx).Warn("mediafile: list a RootFolder's series to re-name their files", "rootFolder", rf.Name, "err", err)
 	}
 	for _, s := range series {
 		addSeriesMediaFiles(ctx, c, set, rf.Namespace, s.Name)
@@ -261,7 +261,7 @@ func FilesForRootFolder(ctx context.Context, c client.Reader, o client.Object) [
 func addSeriesMediaFiles(ctx context.Context, c client.Reader, set fileSet, ns, series string) {
 	eps, err := rowcache.Keys(ctx, c, &catalogv1alpha1.EpisodeList{}, client.InNamespace(ns), client.MatchingFields{seriesctl.EpisodeBySeriesRefIndex: series})
 	if err != nil {
-		logging.FromContext(ctx).Warn("mediafile: list a series' episodes to re-name their files", "series", series, "error", err)
+		logging.FromContext(ctx).Warn("mediafile: list a series' episodes to re-name their files", "series", series, "err", err)
 		return
 	}
 	for _, ep := range eps {
@@ -275,7 +275,7 @@ func addSeriesMediaFiles(ctx context.Context, c client.Reader, set fileSet, ns, 
 func addMediaFilesOf(ctx context.Context, c client.Reader, set fileSet, ns string, kind commonv1.MediaKind, name string) {
 	files, err := rowcache.Keys(ctx, c, &catalogv1alpha1.MediaFileList{}, client.InNamespace(ns), client.MatchingFields{mfindex.Item: mfindex.ItemKey(kind, name)})
 	if err != nil {
-		logging.FromContext(ctx).Warn("mediafile: list an item's files to re-name them", "kind", kind, "name", name, "error", err)
+		logging.FromContext(ctx).Warn("mediafile: list an item's files to re-name them", "kind", kind, "name", name, "err", err)
 		return
 	}
 	for _, f := range files {

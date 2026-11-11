@@ -49,7 +49,7 @@ func (c *limitsCache) publishHealth(ctx context.Context, m transcode.Measurement
 		return
 	}
 	if err := task.PublishMeasurement(ctx, c.kv, c.class, c.reporter, m, unhealthy, time.Now()); err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: could not publish the device's health", "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: could not publish the device's health", "err", err)
 	}
 }
 
@@ -64,6 +64,6 @@ func (c *limitsCache) withdraw(ctx context.Context) {
 	defer cancel()
 	if err := task.WithdrawEncoderLimits(wctx, c.kv, c.class, c.reporter, time.Now()); err != nil {
 		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: could not withdraw the device's report; it counts until it goes stale",
-			"error", err)
+			"err", err)
 	}
 }

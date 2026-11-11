@@ -62,7 +62,7 @@ func (g *NamespaceGuard) Start(ctx context.Context) error {
 	deleted, err := g.Check(cctx)
 	switch {
 	case err != nil:
-		log.Error("extmetrics: could not remove the APIService of a terminating namespace; delete it by hand: kubectl delete apiservice "+APIServiceName, "error", err)
+		log.Error("extmetrics: could not remove the APIService of a terminating namespace; delete it by hand: kubectl delete apiservice "+APIServiceName, "err", err)
 	case deleted:
 		log.Info("extmetrics: the release namespace is terminating; deleted the APIService", "apiservice", APIServiceName)
 	}

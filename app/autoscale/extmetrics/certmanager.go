@@ -68,7 +68,7 @@ func (m *CertManager) Start(ctx context.Context) error {
 	}
 	for {
 		if err := m.Sync(ctx); err != nil && ctx.Err() == nil {
-			logging.FromContext(ctx).Warn("extmetrics: keeping the TLS Secret and caBundle failed; retrying", "error", err)
+			logging.FromContext(ctx).Warn("extmetrics: keeping the TLS Secret and caBundle failed; retrying", "err", err)
 		}
 		select {
 		case <-ctx.Done():

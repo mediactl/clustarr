@@ -122,7 +122,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 			ans.Provider = h.Providers[0].Name()
 		}
 	default:
-		logging.FromContext(ctx).WarnContext(ctx, "image set lookup failed", "item", task.Item.Name, "kind", task.Inputs.Kind, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "image set lookup failed", "item", task.Item.Name, "kind", task.Inputs.Kind, "err", err)
 		failure = err.Error()
 	}
 	_, err = h.Answers.Answer(ctx, task, ans, failure)

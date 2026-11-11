@@ -173,7 +173,7 @@ func (r *Runnable) tick(ctx context.Context, at time.Time) {
 	}()
 	woken, err := r.runOnce(ctx, at)
 	if err != nil {
-		log.Error("wantedcron: sweep failed", "error", err)
+		log.Error("wantedcron: sweep failed", "err", err)
 	}
 	if r.OnTick != nil {
 		r.OnTick(woken, err)

@@ -194,7 +194,7 @@ func (s *Server) material(ctx context.Context) (*material, error) {
 	fresh, err := s.load(ctx)
 	if err != nil {
 		if m != nil {
-			logging.FromContext(ctx).Warn("extmetrics: reloading the TLS material failed; serving the previous one", "error", err)
+			logging.FromContext(ctx).Warn("extmetrics: reloading the TLS material failed; serving the previous one", "err", err)
 			kept := *m
 			kept.loadedAt = now
 			s.current.Store(&kept)

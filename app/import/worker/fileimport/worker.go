@@ -261,7 +261,7 @@ func (w *Worker) keepAlive(ctx context.Context, m events.Message, step func() er
 				return
 			case <-t.C:
 				if err := heartbeat(ctx, m); err != nil {
-					logging.FromContext(ctx).Warn("fileimport: a heartbeat during a long step failed", "error", err)
+					logging.FromContext(ctx).Warn("fileimport: a heartbeat during a long step failed", "err", err)
 				}
 			}
 		}

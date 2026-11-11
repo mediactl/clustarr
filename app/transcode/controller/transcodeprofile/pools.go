@@ -155,7 +155,7 @@ func (r *Reconciler) markUnschedulable(ctx context.Context, tp *transcodev1alpha
 		if err := r.APIReader.List(ctx, &pods, client.InNamespace(j.Namespace), client.MatchingLabels{
 			batchv1.JobNameLabel: j.Name, batchv1.ControllerUidLabel: string(j.UID),
 		}); err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "transcodeprofile: cannot list a pool's pods", "pool", j.Name, "error", err)
+			logging.FromContext(ctx).WarnContext(ctx, "transcodeprofile: cannot list a pool's pods", "pool", j.Name, "err", err)
 			continue
 		}
 		since := unschedulableSince(pods.Items)
@@ -226,7 +226,7 @@ func (r *Reconciler) applyPool(ctx context.Context, k pool.Key, tp *transcodev1a
 		}
 		r.Ledger.UpdatePool(k, func(p *admission.PoolState) { p.Recreate = true })
 		log.InfoContext(ctx, "transcodeprofile: the pool was created with a spec the apiserver will not change; draining it for recreation",
-			"pool", name, "dispatched", n, "error", err)
+			"pool", name, "dispatched", n, "err", err)
 		return nil
 	}
 	if err != nil {

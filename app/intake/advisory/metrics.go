@@ -91,7 +91,7 @@ func (i *Intake) subscribeAcks(ctx context.Context) (stop func()) {
 		// counted as a slow consumer (ADR-0020 §2).
 		s, err := cs.SubscribeCore(ctx, subj, events.CoreLimits{}, observeAck)
 		if err != nil {
-			log.Warn("advisory: could not subscribe to an ack metric subject; its samples are lost", "subject", subj, "error", err)
+			log.Warn("advisory: could not subscribe to an ack metric subject; its samples are lost", "subject", subj, "err", err)
 			continue
 		}
 		stops = append(stops, s)

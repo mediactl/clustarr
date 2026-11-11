@@ -211,7 +211,7 @@ func mapEpisodeToSeries(_ context.Context, o client.Object) []reconcile.Request 
 func (r *Reconciler) mapRootFolder(ctx context.Context, o client.Object) []reconcile.Request {
 	var list catalogv1alpha1.SeriesList
 	if err := r.List(ctx, &list, client.InNamespace(o.GetNamespace())); err != nil {
-		logging.FromContext(ctx).Warn("series: list for a RootFolder change failed", "rootFolder", o.GetName(), "error", err)
+		logging.FromContext(ctx).Warn("series: list for a RootFolder change failed", "rootFolder", o.GetName(), "err", err)
 		return nil
 	}
 	var reqs []reconcile.Request

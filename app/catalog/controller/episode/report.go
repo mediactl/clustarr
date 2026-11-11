@@ -61,12 +61,12 @@ func (r *Reconciler) publishFile(ctx context.Context, ep *catalogv1alpha1.Episod
 	media := commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: ep.Name}
 	subject, env, err := rollup.MediaFileEvent(ep, media, action, file, mf, now)
 	if err != nil {
-		log.Warn("episode: could not encode a media-file event", "action", action, "mediafile", file, "error", err)
+		log.Warn("episode: could not encode a media-file event", "action", action, "mediafile", file, "err", err)
 		return
 	}
 	tracing.Inject(ctx, env)
 	if _, err := r.Bus.Publish(ctx, subject, env); err != nil {
-		log.Warn("episode: could not publish a media-file event", "action", action, "mediafile", file, "subject", subject, "error", err)
+		log.Warn("episode: could not publish a media-file event", "action", action, "mediafile", file, "subject", subject, "err", err)
 	}
 }
 

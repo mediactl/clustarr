@@ -133,7 +133,7 @@ func (r *Reporter) Start(ctx context.Context) error {
 	r.pruneRemoved(ctx)
 	for {
 		if err := r.writeAll(ctx, true); err != nil {
-			log.WarnContext(ctx, "engine: the re-attach report failed; retrying", "error", err)
+			log.WarnContext(ctx, "engine: the re-attach report failed; retrying", "err", err)
 			select {
 			case <-ctx.Done():
 				return nil
@@ -147,7 +147,7 @@ func (r *Reporter) Start(ctx context.Context) error {
 	r.reattached = true
 	r.mu.Unlock()
 	if err := r.writeEngine(ctx); err != nil {
-		log.WarnContext(ctx, "engine: the engine record failed", "error", err)
+		log.WarnContext(ctx, "engine: the engine record failed", "err", err)
 	}
 	r.ready.Store(true)
 	log.InfoContext(ctx, "engine: re-attached and reported", "bootID", r.BootID)
@@ -161,11 +161,11 @@ func (r *Reporter) Start(ctx context.Context) error {
 			return nil
 		case <-tick.C:
 			if err := r.writeAll(ctx, false); err != nil {
-				log.WarnContext(ctx, "engine: a transfer report failed", "error", err)
+				log.WarnContext(ctx, "engine: a transfer report failed", "err", err)
 			}
 			if r.now().Sub(lastEngine) >= EngineRecordInterval {
 				if err := r.writeEngine(ctx); err != nil {
-					log.WarnContext(ctx, "engine: the engine record failed", "error", err)
+					log.WarnContext(ctx, "engine: the engine record failed", "err", err)
 					continue
 				}
 				lastEngine = r.now()
@@ -185,7 +185,7 @@ func (r *Reporter) pruneRemoved(ctx context.Context) {
 	log := logging.FromContext(ctx)
 	held, err := r.Source.List(ctx)
 	if err != nil {
-		log.WarnContext(ctx, "engine: cannot list transfers to prune removed entries", "error", err)
+		log.WarnContext(ctx, "engine: cannot list transfers to prune removed entries", "err", err)
 		return
 	}
 	for _, h := range held {
@@ -197,7 +197,7 @@ func (r *Reporter) pruneRemoved(ctx context.Context) {
 			continue
 		}
 		if err := r.Source.RemoveByID(ctx, h.Item.ID, false); err != nil && !errors.Is(err, download.ErrNotFound) {
-			log.WarnContext(ctx, "engine: cannot remove a transfer whose entry was removed", "entry", h.Journal.EntryUID, "id", h.Item.ID, "error", err)
+			log.WarnContext(ctx, "engine: cannot remove a transfer whose entry was removed", "entry", h.Journal.EntryUID, "id", h.Item.ID, "err", err)
 			continue
 		}
 		log.InfoContext(ctx, "engine: removed a transfer whose entry was already removed; its bytes kept",

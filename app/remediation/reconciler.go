@@ -398,7 +398,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 		wake, err := a.Act(ctx, r.env, r.c, appliedFile)
 		if err != nil {
 			if !IsTransient(err) {
-				logging.FromContext(ctx).Warn("remediation: actuator failed", "actuator", a.Name(), "error", err)
+				logging.FromContext(ctx).Warn("remediation: actuator failed", "actuator", a.Name(), "err", err)
 			}
 			transient = true
 		}
@@ -639,7 +639,7 @@ func (r *Reconciler) forgetTranscode(ctx context.Context, nn types.NamespacedNam
 		}
 		if err := w.Withdraw(ctx, r.env, Withdraw{UID: string(uid), Seq: math.MaxInt64}); err != nil {
 			logging.FromContext(ctx).Warn("remediation: could not withdraw a deleted file's transcode; the sweep will",
-				"uid", string(uid), "error", err)
+				"uid", string(uid), "err", err)
 		}
 	}
 }

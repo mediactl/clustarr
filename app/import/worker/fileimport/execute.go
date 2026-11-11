@@ -217,7 +217,7 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 		}
 		if _, err := fsops.Recycle(bin, b.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			logging.FromContext(ctx).Warn("fileimport: could not recycle the replaced file; leaving it in place",
-				"path", b.Path, "error", err)
+				"path", b.Path, "err", err)
 			continue
 		}
 		x.Recycled = append(x.Recycled, b.Path)
@@ -239,7 +239,7 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 		mka, err := w.reduceDonor(ctx, d.Dest, d.Anchor, d.Languages)
 		switch {
 		case errors.Is(err, donoraudio.ErrLacksLanguage):
-			logging.FromContext(ctx).Info("fileimport: the donor lacks a language at reduction", "donor", d.Dest, "error", err)
+			logging.FromContext(ctx).Info("fileimport: the donor lacks a language at reduction", "donor", d.Dest, "err", err)
 			x.Refused = schema.ImportRefusedDonorLacksLanguage
 			return x, err.Error(), nil
 		case err != nil:

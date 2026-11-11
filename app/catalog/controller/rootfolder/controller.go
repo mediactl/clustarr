@@ -131,7 +131,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 			WithConditions(k8s.ConditionACs(conditions)...),
 	)
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, ac); err != nil {
-		log.Error("patch status", "error", err)
+		log.Error("patch status", "err", err)
 		return ctrl.Result{}, err
 	}
 

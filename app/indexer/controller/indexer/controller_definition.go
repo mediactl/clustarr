@@ -135,7 +135,7 @@ func (r *Reconciler) reconcileDefinition(
 		switch {
 		case lerr != nil:
 			tracing.RecordError(span, lerr)
-			log.Warn("cardigann login failed", "reason", outcome.Reason, "error", cardigann.RedactErr(lerr))
+			log.Warn("cardigann login failed", "reason", outcome.Reason, "err", cardigann.RedactErr(lerr))
 		case sess != nil && def.RequiresSession():
 			// Both copies, the Secret first: it is the durable one, so a KV
 			// write that fails after it leaves the next Load reading the
@@ -206,7 +206,7 @@ func (r *Reconciler) proxyUnavailable(
 	err error,
 ) (ctrl.Result, error) {
 	logging.FromContext(ctx).Warn("indexer proxy unavailable; not probing the indexer directly",
-		"indexer", client.ObjectKeyFromObject(idx), "error", err)
+		"indexer", client.ObjectKeyFromObject(idx), "err", err)
 	k8s.MarkUnknown(idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, idxclients.ReasonProxyUnavailable, "%s", err.Error())
 	k8s.MarkReady(idx, &conditions, false, idxclients.ReasonProxyUnavailable, "%s", err.Error())
 	return r.patch(ctx, idx, conditions, ctrl.Result{RequeueAfter: definitionRetryInterval})

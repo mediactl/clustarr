@@ -489,7 +489,7 @@ func (w *Worker) resume(ctx context.Context, st *scanState) (done bool, err erro
 	if err != nil {
 		// An undecodable checkpoint cannot be resumed from; a fresh walk
 		// overwrites it.
-		logging.FromContext(ctx).Warn("ignoring an undecodable progress checkpoint", "error", err)
+		logging.FromContext(ctx).Warn("ignoring an undecodable progress checkpoint", "err", err)
 		return false, nil
 	}
 	if prev.Done {
@@ -840,7 +840,7 @@ func (w *Worker) checkpoint(ctx context.Context, st *scanState, force bool) erro
 		if force {
 			return err
 		}
-		logging.FromContext(ctx).Warn("checkpoint failed; continuing the walk", "error", err)
+		logging.FromContext(ctx).Warn("checkpoint failed; continuing the walk", "err", err)
 	}
 	return nil
 }
@@ -868,7 +868,7 @@ func (w *Worker) abort(ctx context.Context, m events.Message, st *scanState, cau
 	st.progress.Done = true
 	st.progress.Error = cause.Error()
 	if err := w.checkpoint(ctx, st, true); err != nil {
-		logging.FromContext(ctx).Error("could not report the failed scan", "error", err)
+		logging.FromContext(ctx).Error("could not report the failed scan", "err", err)
 	}
 	return cause
 }

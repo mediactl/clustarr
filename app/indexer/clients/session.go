@@ -108,7 +108,7 @@ func (s *SessionStore) Load(ctx context.Context, idx *indexv1alpha1.Indexer) (*c
 			// Not fatal: the Secret is the mirror, and a KV outage must
 			// not fail every search on a definition-backed indexer.
 			logging.FromContext(ctx).Warn("indexer: reading the session from KV failed; using the Secret",
-				"indexer", client.ObjectKeyFromObject(idx), "error", err)
+				"indexer", client.ObjectKeyFromObject(idx), "err", err)
 		}
 	}
 	if s.Reader == nil {

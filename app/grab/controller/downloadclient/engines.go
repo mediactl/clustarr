@@ -244,7 +244,7 @@ func (r *Reconciler) publishResync(ctx context.Context, dc *downloadv1alpha1.Dow
 		cmd := schema.EngineCommand{Desired: schema.EngineDesiredResync, ResyncSeq: seq, IssuedAt: now}
 		msgID := cevents.MsgIDForEngineResync(string(dc.UID), o, seq)
 		if err := r.publish(ctx, cevents.WorkEngineResyncSubject(dc.Name, o), msgID, dc, cmd, now); err != nil {
-			logging.FromContext(ctx).Warn("downloadclient: publish a resync", "ordinal", o, "error", err)
+			logging.FromContext(ctx).Warn("downloadclient: publish a resync", "ordinal", o, "err", err)
 		}
 	}
 	return pending
@@ -279,7 +279,7 @@ func (r *Reconciler) removeUnidentified(ctx context.Context, dc *downloadv1alpha
 			}
 			msgID := cevents.MsgIDForEngineRemoveID(string(dc.UID), o, u.DownloadID)
 			if err := r.publish(ctx, cevents.WorkEngineIDSubject(dc.Name, o, u.DownloadID), msgID, dc, cmd, now); err != nil {
-				logging.FromContext(ctx).Warn("downloadclient: publish an unidentified removal", "downloadID", u.DownloadID, "error", err)
+				logging.FromContext(ctx).Warn("downloadclient: publish an unidentified removal", "downloadID", u.DownloadID, "err", err)
 				continue
 			}
 			r.mu.Lock()
@@ -328,7 +328,7 @@ func (r *Reconciler) transfersRecreated(c client.Reader) *recordsource.Source[re
 		recordsource.OnRecreated(func(ctx context.Context, enqueue func(reconcile.Request)) {
 			var list downloadv1alpha1.DownloadClientList
 			if err := c.List(ctx, &list); err != nil {
-				logging.FromContext(ctx).Warn("downloadclient: list clients for a resync", "error", err)
+				logging.FromContext(ctx).Warn("downloadclient: list clients for a resync", "err", err)
 				return
 			}
 			r.mu.Lock()

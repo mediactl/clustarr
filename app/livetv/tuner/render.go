@@ -400,7 +400,7 @@ func (t *Tuner) storeGuides(p *provider, cfg Config, lineupChans []xmltv.LineupC
 	if wholeHash != prevGuideHash {
 		t.putGzip(t.base, livetvstore.GuideObject(p.key), whole, "application/xml")
 		if ix, err := livetvstore.IndexGuide(bytes.NewReader(whole), from); err != nil {
-			logging.FromContext(t.base).Warn("livetv: index the guide; the ui's TV Guide keeps the last index", "provider", label(p.key), "error", err)
+			logging.FromContext(t.base).Warn("livetv: index the guide; the ui's TV Guide keeps the last index", "provider", label(p.key), "err", err)
 		} else {
 			t.putJSON(t.base, livetvstore.GuideIndexObject(p.key), ix)
 		}

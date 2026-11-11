@@ -797,11 +797,11 @@ func (r *runner) observeOutcome(code int) {
 // must never replace the error that explains why.
 func removePart(ctx context.Context, path string) {
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: removing output failed", "path", path, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: removing output failed", "path", path, "err", err)
 	}
 	for _, s := range sidecarParts(path) {
 		if err := os.Remove(s); err != nil && !errors.Is(err, os.ErrNotExist) {
-			logging.FromContext(ctx).WarnContext(ctx, "transcode worker: removing a sidecar part failed", "path", s, "error", err)
+			logging.FromContext(ctx).WarnContext(ctx, "transcode worker: removing a sidecar part failed", "path", s, "err", err)
 		}
 	}
 }

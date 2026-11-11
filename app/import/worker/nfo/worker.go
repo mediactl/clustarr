@@ -240,7 +240,7 @@ func (w *Worker) keepAlive(ctx context.Context, m events.Message) (stop func()) 
 				return
 			case <-t.C:
 				if err := m.InProgress(ctx); err != nil && ctx.Err() == nil {
-					logging.FromContext(ctx).Warn("nfo: heartbeat failed", "error", err)
+					logging.FromContext(ctx).Warn("nfo: heartbeat failed", "err", err)
 				}
 			}
 		}

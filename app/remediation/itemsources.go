@@ -225,7 +225,7 @@ func coveredEpisodeKeys(ctx context.Context, c client.Reader, s *catalogv1alpha1
 	}
 	var list catalogv1alpha1.EpisodeList
 	if err := c.List(ctx, &list, client.InNamespace(s.Namespace), client.MatchingFields{series.EpisodeBySeriesRefIndex: s.Name}); err != nil {
-		logging.FromContext(ctx).Warn("remediation: S24 could not list a series' episodes", "series", s.Name, "error", err)
+		logging.FromContext(ctx).Warn("remediation: S24 could not list a series' episodes", "series", s.Name, "err", err)
 		return nil
 	}
 	var out []Key
@@ -247,7 +247,7 @@ func seasonEpisodeKeys(ctx context.Context, c client.Reader, s *catalogv1alpha1.
 	}
 	var list catalogv1alpha1.EpisodeList
 	if err := c.List(ctx, &list, client.InNamespace(s.Namespace), client.MatchingFields{series.EpisodeBySeriesRefIndex: s.Name}); err != nil {
-		logging.FromContext(ctx).Warn("remediation: S24 could not list a series' episodes", "series", s.Name, "error", err)
+		logging.FromContext(ctx).Warn("remediation: S24 could not list a series' episodes", "series", s.Name, "err", err)
 		return nil
 	}
 	var out []Key
@@ -268,7 +268,7 @@ func coveredIssueKeys(ctx context.Context, c client.Reader, co *catalogv1alpha1.
 	}
 	var list catalogv1alpha1.IssueList
 	if err := c.List(ctx, &list, client.InNamespace(co.Namespace), client.MatchingFields{comic.IssueByComicRefIndex: co.Name}); err != nil {
-		logging.FromContext(ctx).Warn("remediation: S24 could not list a comic's issues", "comic", co.Name, "error", err)
+		logging.FromContext(ctx).Warn("remediation: S24 could not list a comic's issues", "comic", co.Name, "err", err)
 		return nil
 	}
 	var out []Key
@@ -328,7 +328,7 @@ func (s *dubSource) keys(ctx context.Context, all bool, ids map[int]struct{}) []
 		out = append(out, Key{Kind: KindSeries, Namespace: nn.Namespace, Name: nn.Name})
 		eps, err := rowcache.Keys(ctx, s.c, &catalogv1alpha1.EpisodeList{}, client.InNamespace(nn.Namespace), client.MatchingFields{series.EpisodeBySeriesRefIndex: nn.Name})
 		if err != nil {
-			log.Warn("remediation: the MAL-Dubs source could not list a series' episodes", "series", nn.Name, "error", err)
+			log.Warn("remediation: the MAL-Dubs source could not list a series' episodes", "series", nn.Name, "err", err)
 			continue
 		}
 		for _, ep := range eps {
@@ -349,7 +349,7 @@ func (s *dubSource) moved(ctx context.Context, list client.ObjectList, all bool,
 	if all {
 		keys, err := rowcache.Keys(ctx, s.c, list, client.MatchingFields{itemread.AnimeIndex: itemread.IndexTrue})
 		if err != nil {
-			log.Warn("remediation: the MAL-Dubs source could not list the anime", "kind", fmt.Sprintf("%T", list), "error", err)
+			log.Warn("remediation: the MAL-Dubs source could not list the anime", "kind", fmt.Sprintf("%T", list), "err", err)
 		}
 		return keys
 	}
@@ -357,7 +357,7 @@ func (s *dubSource) moved(ctx context.Context, list client.ObjectList, all bool,
 	for id := range ids {
 		keys, err := rowcache.Keys(ctx, s.c, list, client.MatchingFields{itemread.MALIndex: strconv.Itoa(id)})
 		if err != nil {
-			log.Warn("remediation: the MAL-Dubs source could not list an anime by MAL id", "mal", id, "error", err)
+			log.Warn("remediation: the MAL-Dubs source could not list an anime by MAL id", "mal", id, "err", err)
 			continue
 		}
 		out = append(out, keys...)

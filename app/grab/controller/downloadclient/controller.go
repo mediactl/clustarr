@@ -218,7 +218,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if specErr == nil {
 		desiredReplicas, replicas, readyReplicas, err = r.reconcileWorkload(ctx, &dc, workloadName, ownerRef)
 		if err != nil {
-			log.Error("reconcile engine workload", "error", err)
+			log.Error("reconcile engine workload", "err", err)
 			return ctrl.Result{}, err
 		}
 	} else {
@@ -229,14 +229,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// The per-engine durables (§5.1): one per rendered ordinal, ensured by
 	// the manager; a scaled-away ordinal's goes once nothing is pinned to it.
 	if err := r.reconcileDurables(ctx, &dc, desiredReplicas); err != nil {
-		log.Error("reconcile engine durables", "error", err)
+		log.Error("reconcile engine durables", "err", err)
 		return ctrl.Result{}, err
 	}
 
 	// Engine records instead of the Downloads (§6.7).
 	es, err := r.engineRecords(ctx, &dc, desiredReplicas)
 	if err != nil {
-		log.Error("read engine records", "error", err)
+		log.Error("read engine records", "err", err)
 		return ctrl.Result{}, err
 	}
 
@@ -290,7 +290,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 	ac := downloadac.DownloadClient(dc.Name, dc.Namespace).WithStatus(st)
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerGrab, ac); err != nil {
-		log.Error("patch status", "error", err)
+		log.Error("patch status", "err", err)
 		return ctrl.Result{}, err
 	}
 	if wanted {

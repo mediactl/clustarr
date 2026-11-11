@@ -91,12 +91,12 @@ func encoderLimits(ctx context.Context, kv busevents.KV, now time.Time) []transc
 	for _, class := range []transcodev1alpha1.Hardware{transcodev1alpha1.HardwareIntel, transcodev1alpha1.HardwareNVIDIA} {
 		nodes, err := task.ReadEncoderLimitsByNode(ctx, kv, string(class), now)
 		if err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "transcodeprofile: cannot read the encoder limits", "class", class, "error", err)
+			logging.FromContext(ctx).WarnContext(ctx, "transcodeprofile: cannot read the encoder limits", "class", class, "err", err)
 			continue
 		}
 		health, err := task.ReadEncoderHealth(ctx, kv, string(class), now)
 		if err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "transcodeprofile: cannot read the devices' health", "class", class, "error", err)
+			logging.FromContext(ctx).WarnContext(ctx, "transcodeprofile: cannot read the devices' health", "class", class, "err", err)
 		}
 		names := make([]string, 0, len(nodes))
 		for n := range nodes {

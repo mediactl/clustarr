@@ -51,7 +51,7 @@ func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 func wakePendingProbes(ctx context.Context, c client.Reader, enqueue func(remediation.Key)) {
 	var list catalogv1alpha1.MediaFileList
 	if err := c.List(ctx, &list, client.UnsafeDisableDeepCopy); err != nil {
-		logging.FromContext(ctx).Warn("remediation: could not list MediaFiles to wake their pending probes", "error", err)
+		logging.FromContext(ctx).Warn("remediation: could not list MediaFiles to wake their pending probes", "err", err)
 		return
 	}
 	for i := range list.Items {

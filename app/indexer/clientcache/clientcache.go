@@ -356,7 +356,7 @@ func reloginFunc(cg *idxclients.CardigannClient, owner *indexv1alpha1.Indexer, s
 		sess, err := cg.Engine().Login(ctx, cg.Definition(), cfg)
 		if err != nil {
 			if derr := sessions.Drop(ctx, owner, stale); derr != nil {
-				log.Warn("indexer: dropping the expired session failed", "error", derr)
+				log.Warn("indexer: dropping the expired session failed", "err", derr)
 			}
 			return nil, fmt.Errorf("indexer: logging in again after the tracker expired the session: %w",
 				cardigann.RedactErr(err))
@@ -365,7 +365,7 @@ func reloginFunc(cg *idxclients.CardigannClient, owner *indexv1alpha1.Indexer, s
 			if serr := sessions.Save(ctx, owner, sess); serr != nil {
 				// The new session works in this client either way; the
 				// reconciler's next pass persists one of its own.
-				log.Warn("indexer: persisting the renewed session failed", "error", serr)
+				log.Warn("indexer: persisting the renewed session failed", "err", serr)
 			}
 		}
 		log.Info("indexer: the tracker expired the session; logged in again")
@@ -442,7 +442,7 @@ func (cc *ClientCache) Prune(ctx context.Context, now time.Time) {
 	var live map[types.UID]bool
 	var list indexv1alpha1.IndexerList
 	if err := cc.client.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Warn("clientcache: listing Indexers to prune failed; pruning by age only", "error", err)
+		logging.FromContext(ctx).Warn("clientcache: listing Indexers to prune failed; pruning by age only", "err", err)
 	} else {
 		live = make(map[types.UID]bool, len(list.Items))
 		for i := range list.Items {
@@ -492,7 +492,7 @@ func (cc *ClientCache) WatchSessions(ctx context.Context, kv events.KV) error {
 		case <-rewatch.C:
 			ch, err := kv.Watch(ctx, ">")
 			if err != nil {
-				log.Warn("clientcache: watching the sessions bucket failed; retrying", "error", err)
+				log.Warn("clientcache: watching the sessions bucket failed; retrying", "err", err)
 				rewatch.Reset(sessionRewatchDelay)
 				continue
 			}

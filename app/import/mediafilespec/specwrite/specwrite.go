@@ -391,11 +391,11 @@ func recordRename(
 	if err := applyRenamed(ctx, c, fresh, out.To, info); err != nil {
 		var now catalogv1alpha1.MediaFile
 		if getErr := api.Get(ctx, client.ObjectKeyFromObject(fresh), &now); getErr == nil && now.Spec.Path == out.To {
-			logging.FromContext(ctx).Info("the rename's apply reported an error but landed", "mediaFile", fresh.Name, "error", err)
+			logging.FromContext(ctx).Info("the rename's apply reported an error but landed", "mediaFile", fresh.Name, "err", err)
 		} else {
 			if undoErr := moveBack(out.To, out.From); undoErr != nil {
 				logging.FromContext(ctx).Error("a renamed file's MediaFile could not be updated, nor the file moved back; it names a path that no longer exists",
-					"mediaFile", fresh.Name, "from", out.From, "to", out.To, "error", err, "undoError", undoErr)
+					"mediaFile", fresh.Name, "from", out.From, "to", out.To, "err", err, "undoError", undoErr)
 				return out, errors.Join(err, undoErr)
 			}
 			var stale *mediafilespec.StaleReadError
@@ -466,7 +466,7 @@ func moveSidecars(ctx context.Context, sidecars []catalogv1alpha1.Sidecar, from,
 	}
 	found, err := subtitles.SidecarsOf(from)
 	if err != nil {
-		log.Warn("could not list a renamed file's folder for its sidecars", "file", from, "error", err)
+		log.Warn("could not list a renamed file's folder for its sidecars", "file", from, "err", err)
 	}
 	for _, p := range found {
 		paths[p] = true
@@ -479,7 +479,7 @@ func moveSidecars(ctx context.Context, sidecars []catalogv1alpha1.Sidecar, from,
 		if err := fsops.MoveNoReplace(p, dst); errors.Is(err, fsops.ErrExists) {
 			log.Warn("a sidecar's renamed path is taken; leaving it under the old name", "sidecar", p, "to", dst)
 		} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			log.Warn("could not move a sidecar with its renamed file", "sidecar", p, "to", dst, "error", err)
+			log.Warn("could not move a sidecar with its renamed file", "sidecar", p, "to", dst, "err", err)
 		}
 	}
 }

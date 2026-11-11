@@ -55,12 +55,12 @@ func (r *Reconciler) publishItem(ctx context.Context, bk *catalogv1alpha1.Book, 
 	log := logging.FromContext(ctx)
 	subject, env, err := rollup.ItemEvent(bk, commonv1.MediaKindBook, action, f, now)
 	if err != nil {
-		log.Warn("book: could not encode a catalog item event", "action", action, "error", err)
+		log.Warn("book: could not encode a catalog item event", "action", action, "err", err)
 		return
 	}
 	tracing.Inject(ctx, env)
 	if _, err := r.Bus.Publish(ctx, subject, env); err != nil {
-		log.Warn("book: could not publish a catalog item event", "action", action, "subject", subject, "error", err)
+		log.Warn("book: could not publish a catalog item event", "action", action, "subject", subject, "err", err)
 	}
 }
 
@@ -77,11 +77,11 @@ func (r *Reconciler) publishFile(ctx context.Context, bk *catalogv1alpha1.Book, 
 	media := commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: bk.Name}
 	subject, env, err := rollup.MediaFileEvent(bk, media, action, file, mf, now)
 	if err != nil {
-		log.Warn("book: could not encode a media-file event", "action", action, "mediafile", file, "error", err)
+		log.Warn("book: could not encode a media-file event", "action", action, "mediafile", file, "err", err)
 		return
 	}
 	tracing.Inject(ctx, env)
 	if _, err := r.Bus.Publish(ctx, subject, env); err != nil {
-		log.Warn("book: could not publish a media-file event", "action", action, "mediafile", file, "subject", subject, "error", err)
+		log.Warn("book: could not publish a media-file event", "action", action, "mediafile", file, "subject", subject, "err", err)
 	}
 }

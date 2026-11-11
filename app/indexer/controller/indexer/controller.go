@@ -254,7 +254,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (res 
 	// return is the partial-status bug -- it is returned after it.
 	if herr := r.incorporateHealth(ctx, &idx); herr != nil {
 		tracing.RecordError(span, herr)
-		log.Warn("incorporating the health record failed", "error", herr)
+		log.Warn("incorporating the health record failed", "err", herr)
 		defer func() {
 			if err == nil {
 				res, err = ctrl.Result{}, herr
@@ -268,7 +268,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (res 
 	// failure is returned after this pass's own apply.
 	if serr := r.syncSessionSecret(ctx, &idx); serr != nil {
 		tracing.RecordError(span, serr)
-		log.Warn("mirroring the session Secret failed", "error", serr)
+		log.Warn("mirroring the session Secret failed", "err", serr)
 		defer func() {
 			if err == nil {
 				res, err = ctrl.Result{}, serr
@@ -369,7 +369,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (res 
 			r.markProbed(idx.UID, idx.Generation, now)
 		} else {
 			tracing.RecordError(span, perr)
-			log.Warn("caps probe failed", "host", endpoint.Host, "reason", outcome.Reason, "error", perr)
+			log.Warn("caps probe failed", "host", endpoint.Host, "reason", outcome.Reason, "err", perr)
 		}
 		// The probe was a network round trip. Re-read before deriving the
 		// conditions from the worker's fields and applying.
@@ -533,12 +533,12 @@ func (r *Reconciler) projectWindows(ctx context.Context, idx *indexv1alpha1.Inde
 	kv := r.Bus.KV(events.BucketIndexerLimits)
 	log := logging.FromContext(ctx)
 	if q, err := limits.Queries(ctx, kv, idx, now); err != nil {
-		log.Warn("indexer: reading the query ring failed; keeping queriesInWindow", "error", err)
+		log.Warn("indexer: reading the query ring failed; keeping queriesInWindow", "err", err)
 	} else {
 		idx.Status.QueriesInWindow, w.query = q.Count, q.RetryAt
 	}
 	if g, err := limits.Grabs(ctx, kv, idx, now); err != nil {
-		log.Warn("indexer: reading the grab ring failed; keeping grabsInWindow", "error", err)
+		log.Warn("indexer: reading the grab ring failed; keeping grabsInWindow", "err", err)
 	} else {
 		idx.Status.GrabsInWindow, w.grab = g.Count, g.RetryAt
 	}
@@ -605,7 +605,7 @@ func (r *Reconciler) patch(
 			ac.WithConditions(k8s.ConditionACs(conditions)...)
 		})
 	if err != nil {
-		logging.FromContext(ctx).Error("patch status", "error", err)
+		logging.FromContext(ctx).Error("patch status", "err", err)
 		return ctrl.Result{}, err
 	}
 	return result, nil
@@ -740,7 +740,7 @@ func (r *Reconciler) sessionsSource() source.Source {
 func (r *Reconciler) indexerForSession(ctx context.Context, key string) *indexv1alpha1.Indexer {
 	var list indexv1alpha1.IndexerList
 	if err := r.Client.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Warn("indexer: listing Indexers for a session change failed", "error", err)
+		logging.FromContext(ctx).Warn("indexer: listing Indexers for a session change failed", "err", err)
 		return nil
 	}
 	for i := range list.Items {
@@ -761,7 +761,7 @@ func (r *Reconciler) indexersForRing(ctx context.Context, key string) []reconcil
 	token := key[:dot]
 	var list indexv1alpha1.IndexerList
 	if err := r.Client.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Warn("indexer: listing Indexers for a ring change failed", "error", err)
+		logging.FromContext(ctx).Warn("indexer: listing Indexers for a ring change failed", "err", err)
 		return nil
 	}
 	for i := range list.Items {
@@ -787,7 +787,7 @@ func (r *Reconciler) indexersForProxy(ctx context.Context, o client.Object) []re
 	var list indexv1alpha1.IndexerList
 	if err := r.Client.List(ctx, &list, client.InNamespace(p.Namespace)); err != nil {
 		logging.FromContext(ctx).Warn("indexer: listing Indexers for a proxy change failed",
-			"proxy", client.ObjectKeyFromObject(p), "error", err)
+			"proxy", client.ObjectKeyFromObject(p), "err", err)
 		return nil
 	}
 	sel, err := metav1.LabelSelectorAsSelector(&p.Spec.Selector)
@@ -832,7 +832,7 @@ func (r *Reconciler) indexersForDefinition(ctx context.Context, o client.Object)
 	var list indexv1alpha1.IndexerList
 	if err := r.Client.List(ctx, &list); err != nil {
 		logging.FromContext(ctx).Warn("indexer: listing Indexers for a definition change failed",
-			"definition", d.Name, "error", err)
+			"definition", d.Name, "err", err)
 		return nil
 	}
 	ids := map[string]bool{}

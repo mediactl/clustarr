@@ -294,7 +294,7 @@ func enrichRatings(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1
 			if err != nil {
 				tracing.RecordError(rSpan, err)
 				rSpan.End()
-				logging.FromContext(ctx).Warn("ratings provider failed", "provider", p.Name(), "error", err)
+				logging.FromContext(ctx).Warn("ratings provider failed", "provider", p.Name(), "err", err)
 				continue
 			}
 			rSpan.End()
@@ -415,7 +415,7 @@ func pageLinks(ctx context.Context, providers []pkgmetadata.PageProvider, kind c
 			tracing.RecordError(span, err)
 			span.End()
 			if !errors.Is(err, pkgmetadata.ErrUnsupported) {
-				logging.FromContext(ctx).Warn("page provider failed", "provider", p.Name(), "kind", kind, "error", err)
+				logging.FromContext(ctx).Warn("page provider failed", "provider", p.Name(), "kind", kind, "err", err)
 			}
 			continue
 		}

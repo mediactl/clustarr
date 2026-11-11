@@ -89,7 +89,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if err != nil {
 		tracing.RecordError(span, err)
 		message := truncate(err.Error(), maxMessage)
-		log.Warn("spec.yaml does not validate", "error", message)
+		log.Warn("spec.yaml does not validate", "err", message)
 		k8s.MarkFalse(&def, &conditions, indexv1alpha1.IndexerDefinitionConditionValid,
 			k8s.ReasonInvalidSpec, "%s", message)
 		if r.Recorder != nil {
@@ -135,7 +135,7 @@ func (r *Reconciler) patch(
 	// name and no namespace.
 	ac := indexac.IndexerDefinition(def.Name).WithStatus(statusFor(def.Generation, s, conditions))
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerIndex, ac); err != nil {
-		logging.FromContext(ctx).Error("patch status", "error", err)
+		logging.FromContext(ctx).Error("patch status", "err", err)
 		return err
 	}
 	return nil

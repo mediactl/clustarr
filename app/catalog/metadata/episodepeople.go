@@ -93,7 +93,7 @@ func (h *Handler) refreshEpisodePeople(
 	if err := h.Reader.List(ctx, &episodes, client.InNamespace(series.Namespace),
 		client.MatchingFields{episodeSeriesRefField: series.Name}); err != nil {
 		tracing.RecordError(span, err)
-		log.WarnContext(ctx, "metadata: list the series' episodes for their people (non-fatal)", "error", err)
+		log.WarnContext(ctx, "metadata: list the series' episodes for their people (non-fatal)", "err", err)
 		return
 	}
 
@@ -111,7 +111,7 @@ func (h *Handler) refreshEpisodePeople(
 		if e, err := h.Extended.Get(ctx, key); err == nil && now.Sub(e.Created) < EpisodePeopleTTL {
 			continue
 		} else if err != nil && !errors.Is(err, events.ErrKeyNotFound) {
-			log.WarnContext(ctx, "metadata: read an episode's extended document (non-fatal)", "episode", ep.Name, "error", err)
+			log.WarnContext(ctx, "metadata: read an episode's extended document (non-fatal)", "episode", ep.Name, "err", err)
 			continue
 		}
 		if fetched == episodePeoplePerPass {
@@ -120,7 +120,7 @@ func (h *Handler) refreshEpisodePeople(
 		}
 		if inProgress != nil && time.Since(beat) >= episodePeopleHeartbeat {
 			if err := inProgress(ctx); err != nil {
-				log.WarnContext(ctx, "metadata: extend the refresh's deadline (non-fatal)", "error", err)
+				log.WarnContext(ctx, "metadata: extend the refresh's deadline (non-fatal)", "err", err)
 			}
 			beat = time.Now()
 		}
@@ -133,7 +133,7 @@ func (h *Handler) refreshEpisodePeople(
 		case errors.Is(err, pkgmetadata.ErrNotFound):
 			people = nil
 		case err != nil:
-			log.WarnContext(ctx, "metadata: fetch an episode's people (non-fatal)", "episode", ep.Name, "error", err)
+			log.WarnContext(ctx, "metadata: fetch an episode's people (non-fatal)", "episode", ep.Name, "err", err)
 			continue
 		}
 		b, err := extended.Encode(extended.FromPeople(people, nil))
@@ -141,7 +141,7 @@ func (h *Handler) refreshEpisodePeople(
 			_, err = h.Extended.Put(ctx, key, b)
 		}
 		if err != nil {
-			log.WarnContext(ctx, "metadata: write an episode's extended document (non-fatal)", "episode", ep.Name, "error", err)
+			log.WarnContext(ctx, "metadata: write an episode's extended document (non-fatal)", "episode", ep.Name, "err", err)
 		}
 	}
 	if fetched > 0 || deferred > 0 {

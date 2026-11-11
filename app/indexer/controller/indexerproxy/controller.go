@@ -91,7 +91,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	if err := validateSpec(pxy.Spec); err != nil {
 		tracing.RecordError(span, err)
-		log.Warn("spec is not addressable", "error", err)
+		log.Warn("spec is not addressable", "err", err)
 		k8s.MarkReady(&pxy, &conditions, false, k8s.ReasonInvalidSpec, "%s", err.Error())
 		if r.Recorder != nil {
 			r.Recorder.Eventf(&pxy, nil, corev1.EventTypeWarning, k8s.ReasonInvalidSpec, "Reconcile", "%s", err.Error())
@@ -110,7 +110,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if ref := pxy.Spec.SecretRef; ref != nil {
 		if err := r.secretExists(ctx, pxy.Namespace, ref.Name); err != nil {
 			tracing.RecordError(span, err)
-			log.Info("proxy credentials are not available yet", "secret", ref.Name, "error", err)
+			log.Info("proxy credentials are not available yet", "secret", ref.Name, "err", err)
 			k8s.MarkReady(&pxy, &conditions, false, k8s.ReasonDependencyNotReady, "%s", err.Error())
 			// Same obligation on this path, which is the transient one: a
 			// Secret that has not been created yet is a blip, and a blip must
@@ -137,7 +137,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	if probeErr != nil {
 		tracing.RecordError(span, probeErr)
-		log.Info("proxy is unreachable", "error", probeErr)
+		log.Info("proxy is unreachable", "err", probeErr)
 		k8s.MarkReady(&pxy, &conditions, false, ReasonUnreachable, "%s", probeErr.Error())
 	} else {
 		k8s.MarkReady(&pxy, &conditions, true, k8s.ReasonReconciled, "reachable")
@@ -224,7 +224,7 @@ func (r *Reconciler) patch(
 
 	ac := indexac.IndexerProxy(pxy.Name, pxy.Namespace).WithStatus(status)
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerIndex, ac); err != nil {
-		logging.FromContext(ctx).Error("patch status", "error", err)
+		logging.FromContext(ctx).Error("patch status", "err", err)
 		return err
 	}
 	return nil

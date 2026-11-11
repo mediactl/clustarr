@@ -123,7 +123,7 @@ func (r *Reconciler) patch(ctx context.Context, mp *catalogv1alpha1.MetadataProv
 	}
 	ac := catalogac.MetadataProvider(mp.Name, mp.Namespace).WithStatus(statusAC)
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, ac); err != nil {
-		logging.FromContext(ctx).Error("patch status", "error", err)
+		logging.FromContext(ctx).Error("patch status", "err", err)
 		return ctrl.Result{}, err
 	}
 	return result, nil

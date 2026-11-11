@@ -91,7 +91,7 @@ func pruneOnce(ctx context.Context, store relindex.Store) {
 	deleted, err := store.Prune(ctx, time.Now().Add(-IndexRetention))
 	if err != nil {
 		tracing.RecordError(span, err)
-		log.Error("index: pruning the release index", "error", err)
+		log.Error("index: pruning the release index", "err", err)
 		return
 	}
 	if deleted > 0 {
@@ -104,7 +104,7 @@ func pruneOnce(ctx context.Context, store relindex.Store) {
 	blocks, err := store.PruneBlocks(ctx, time.Now())
 	if err != nil {
 		tracing.RecordError(span, err)
-		log.Error("index: pruning the blocklist", "error", err)
+		log.Error("index: pruning the blocklist", "err", err)
 		return
 	}
 	if blocks > 0 {

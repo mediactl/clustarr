@@ -206,7 +206,7 @@ func (t *Tuner) lookupArt(p *provider, art *programmeArt, batch map[string]xmltv
 			if err != nil {
 				failed++
 				if failed > 10 {
-					log.Warn("livetv: programme artwork lookups failing; the rest wait for the next pass", "provider", label(p.key), "error", err)
+					log.Warn("livetv: programme artwork lookups failing; the rest wait for the next pass", "provider", label(p.key), "err", err)
 					break
 				}
 				continue // left for the next render to queue again

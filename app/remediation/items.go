@@ -196,7 +196,7 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 					}
 				}
 				logging.FromContext(ctx).Warn("remediation: item stage failed; its stored values stand this pass",
-					"stage", name, "reason", so.failed.reason, "error", so.failed.message)
+					"stage", name, "reason", so.failed.reason, "err", so.failed.message)
 				continue
 			}
 			// 3. Merge: each field from at most one stage.
@@ -264,7 +264,7 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 				transient = true
 			} else {
 				effectFailed = true
-				logging.FromContext(ctx).Warn("remediation: item effect failed", "stage", name, "effect", eff.Kind(), "error", o.message)
+				logging.FromContext(ctx).Warn("remediation: item effect failed", "stage", name, "effect", eff.Kind(), "err", o.message)
 			}
 			break
 		}

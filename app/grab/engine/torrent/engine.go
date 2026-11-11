@@ -78,7 +78,7 @@ func (e *Engine) ReAttach(ctx context.Context) (ReAttachResult, error) {
 
 	descriptors, loadErrs := loadDescriptors(e.StateDir)
 	for _, err := range loadErrs {
-		log.ErrorContext(ctx, "torrent: re-attach: failed to load a descriptor", "error", err)
+		log.ErrorContext(ctx, "torrent: re-attach: failed to load a descriptor", "err", err)
 	}
 
 	var res ReAttachResult
@@ -87,7 +87,7 @@ func (e *Engine) ReAttach(ctx context.Context) (ReAttachResult, error) {
 		id, err := e.Client.Add(ctx, d.addRequest())
 		if err != nil {
 			res.Failed++
-			log.ErrorContext(ctx, "torrent: re-attach: add failed", "id", d.ID, "name", d.Desc.Name, "error", err)
+			log.ErrorContext(ctx, "torrent: re-attach: add failed", "id", d.ID, "name", d.Desc.Name, "err", err)
 			continue
 		}
 		if id != d.ID {

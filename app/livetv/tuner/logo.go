@@ -99,7 +99,7 @@ func (t *Tuner) serveLogo(w http.ResponseWriter, r *http.Request, p *provider, n
 	}
 	b, err := t.storeLogo(r.Context(), p, source)
 	if err != nil {
-		logging.FromContext(r.Context()).Info("livetv: a channel logo falls back to its source", "number", number, "error", err.Error())
+		logging.FromContext(r.Context()).Info("livetv: a channel logo falls back to its source", "number", number, "err", err.Error())
 		http.Redirect(w, r, source, http.StatusFound)
 		return
 	}
@@ -118,7 +118,7 @@ func (t *Tuner) storeLogo(ctx context.Context, p *provider, source string) ([]by
 			return nil, err
 		}
 		if _, err := t.o.Store.Put(t.base, name, bytes.NewReader(b), logoMeta(name, source)); err != nil {
-			logging.FromContext(t.base).Warn("livetv: cache a channel logo", "error", err)
+			logging.FromContext(t.base).Warn("livetv: cache a channel logo", "err", err)
 		}
 		return b, nil
 	})
@@ -182,7 +182,7 @@ func (t *Tuner) prefetchLogos(p *provider, sources map[string]bool) {
 				p.mu.Lock()
 				p.logoMisses[s] = t.o.Now()
 				p.mu.Unlock()
-				logging.FromContext(t.base).Info("livetv: a channel logo could not be stored", "provider", label(p.key), "error", err.Error())
+				logging.FromContext(t.base).Info("livetv: a channel logo could not be stored", "provider", label(p.key), "err", err.Error())
 			}
 		}()
 	}

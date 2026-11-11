@@ -77,7 +77,7 @@ func (s *Stage) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 		}
 		owners, err := dlindex.PinnedTo(context.Background(), reader, item.Namespace, name)
 		if err != nil {
-			logging.FromContext(context.Background()).Warn("downloads: owners pinned to a rebooted engine", "engine", name, "error", err)
+			logging.FromContext(context.Background()).Warn("downloads: owners pinned to a rebooted engine", "engine", name, "err", err)
 			return nil
 		}
 		keys := make([]remediation.Key, 0, len(owners))
@@ -133,7 +133,7 @@ func containsKey(keys []remediation.Key, k remediation.Key) bool {
 func (s *Stage) seedUnclaimed(ctx context.Context) {
 	keys, err := s.transfers.Keys(ctx, "")
 	if err != nil {
-		logging.FromContext(ctx).Warn("downloads: seed the unclaimed index", "error", err)
+		logging.FromContext(ctx).Warn("downloads: seed the unclaimed index", "err", err)
 		return
 	}
 	for _, k := range keys {

@@ -123,7 +123,7 @@ func filesOfProfile(ctx context.Context, c client.Reader, profile string) []Key 
 	set := map[types.NamespacedName]bool{}
 	var movies catalogv1alpha1.MovieList
 	if err := c.List(ctx, &movies, client.MatchingFields{movie.QualityProfileIndex: profile}, client.UnsafeDisableDeepCopy); err != nil {
-		logging.FromContext(ctx).Warn("remediation: list a QualityProfile's movies to wake their files", "qualityProfile", profile, "error", err)
+		logging.FromContext(ctx).Warn("remediation: list a QualityProfile's movies to wake their files", "qualityProfile", profile, "err", err)
 	}
 	for i := range movies.Items {
 		for _, nn := range mediafile.FilesForMovie(ctx, c, &movies.Items[i]) {
@@ -132,7 +132,7 @@ func filesOfProfile(ctx context.Context, c client.Reader, profile string) []Key 
 	}
 	var series catalogv1alpha1.SeriesList
 	if err := c.List(ctx, &series, client.MatchingFields{episode.SeriesByQualityProfileIndex: profile}, client.UnsafeDisableDeepCopy); err != nil {
-		logging.FromContext(ctx).Warn("remediation: list a QualityProfile's series to wake their files", "qualityProfile", profile, "error", err)
+		logging.FromContext(ctx).Warn("remediation: list a QualityProfile's series to wake their files", "qualityProfile", profile, "err", err)
 	}
 	for i := range series.Items {
 		for _, nn := range mediafile.FilesForSeries(ctx, c, &series.Items[i]) {

@@ -51,7 +51,7 @@ func (s *Sweeper) Run(ctx context.Context) error {
 	defer t.Stop()
 	for {
 		if n, err := s.Sweep(ctx); err != nil {
-			logging.FromContext(ctx).Warn("segmentplan: sweep failed", "error", err)
+			logging.FromContext(ctx).Warn("segmentplan: sweep failed", "err", err)
 		} else if n > 0 {
 			logging.FromContext(ctx).Info("segmentplan: deleted the segments records of files that are gone", "records", n)
 		}

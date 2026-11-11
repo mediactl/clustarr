@@ -170,7 +170,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		listed += len(k.Items)
 	}
 	if snap.Error != "" {
-		log.Warn("importlist: sync reported with errors", "error", snap.Error,
+		log.Warn("importlist: sync reported with errors", "err", snap.Error,
 			"kinds", len(snap.Kinds), "listed", listed, "needsToken", snap.NeedsToken)
 	} else {
 		log.Info("importlist: sync reported", "kinds", len(snap.Kinds), "listed", listed)

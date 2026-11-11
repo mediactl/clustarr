@@ -207,7 +207,7 @@ func (l *Ledger) Start(ctx context.Context) error {
 		if err == nil {
 			break
 		}
-		log.Warn("dispatch: could not rebuild the ledger from status; admission waits", "error", err)
+		log.Warn("dispatch: could not rebuild the ledger from status; admission waits", "err", err)
 		select {
 		case <-ctx.Done():
 			return nil
@@ -301,7 +301,7 @@ func (l *Ledger) audit(ctx context.Context) {
 		}
 		inFlight, err := l.inFlight(ctx, sources[durable], keys)
 		if err != nil {
-			log.Warn("dispatch: could not audit the ledger against status", "durable", durable, "error", err)
+			log.Warn("dispatch: could not audit the ledger against status", "durable", durable, "err", err)
 			continue
 		}
 		l.mu.Lock()

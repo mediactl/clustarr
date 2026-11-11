@@ -270,7 +270,7 @@ func (t *Transfers) update(ctx context.Context, cmd schema.EngineCommand, id str
 func (t *Transfers) RemoveByID(ctx context.Context, id string, removeData bool) error {
 	err := t.Client.Remove(ctx, id, removeData)
 	if err != nil && !errors.Is(err, download.ErrNotFound) {
-		logging.FromContext(ctx).WarnContext(ctx, "usenet: remove failed", "id", id, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "usenet: remove failed", "id", id, "err", err)
 		return fmt.Errorf("usenet: remove %s: %w", id, err)
 	}
 	return err

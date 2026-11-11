@@ -392,7 +392,7 @@ func (r *Reconciler) applied(ctx context.Context, scan *catalogv1alpha1.LibraryS
 	}
 	p, err := scanprogress.DecodeProgress(entry.Value)
 	if err != nil {
-		logging.FromContext(ctx).Warn("ignoring an undecodable scan-applier tally", "error", err)
+		logging.FromContext(ctx).Warn("ignoring an undecodable scan-applier tally", "err", err)
 		return scanprogress.Progress{}, nil
 	}
 	return p, nil

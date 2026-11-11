@@ -50,12 +50,12 @@ func (r *Reconciler) publishItem(ctx context.Context, s *catalogv1alpha1.Series,
 	}
 	subject, env, err := rollup.ItemEvent(s, commonv1.MediaKindSeries, action, f, now)
 	if err != nil {
-		log.Warn("series: could not encode a catalog event", "action", action, "error", err)
+		log.Warn("series: could not encode a catalog event", "action", action, "err", err)
 		return
 	}
 	tracing.Inject(ctx, env)
 	if _, err := r.Bus.Publish(ctx, subject, env); err != nil {
-		log.Warn("series: could not publish a catalog event", "action", action, "subject", subject, "error", err)
+		log.Warn("series: could not publish a catalog event", "action", action, "subject", subject, "err", err)
 	}
 }
 

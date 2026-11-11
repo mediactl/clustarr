@@ -128,7 +128,7 @@ func wakeAudiobookSiblings(ctx context.Context, c client.Reader, q workqueue.Typ
 		nns, err := rowcache.Keys(ctx, c, &catalogv1alpha1.MediaFileList{},
 			client.InNamespace(f.Namespace), client.MatchingFields{mfindex.Item: mfindex.ItemKey(commonv1.MediaKindAudiobook, f.Spec.MediaRef.Name)})
 		if err != nil {
-			logging.FromContext(ctx).Warn("naming: list an audiobook's parts to renumber them", "audiobook", f.Spec.MediaRef.Name, "error", err)
+			logging.FromContext(ctx).Warn("naming: list an audiobook's parts to renumber them", "audiobook", f.Spec.MediaRef.Name, "err", err)
 			continue
 		}
 		for _, nn := range nns {

@@ -400,7 +400,7 @@ func (h *Handler) writeExtended(ctx context.Context, kind commonv1.MediaKind, ta
 	}
 	if err != nil {
 		logging.FromContext(ctx).WarnContext(ctx, "metadata: write the extended document (non-fatal)",
-			"kind", kind, "name", target.GetName(), "error", err)
+			"kind", kind, "name", target.GetName(), "err", err)
 	}
 }
 
@@ -457,6 +457,6 @@ func (h *Handler) answerFailure(ctx context.Context, item schema.ItemRef, inputs
 	})
 	if err != nil {
 		logging.FromContext(ctx).WarnContext(ctx, "metadata: record a provider failure (non-fatal)",
-			"kind", item.Kind, "name", item.Name, "error", err)
+			"kind", item.Kind, "name", item.Name, "err", err)
 	}
 }

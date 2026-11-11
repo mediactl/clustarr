@@ -110,7 +110,7 @@ func Register(ctx context.Context, mgr ctrl.Manager, admin events.StreamAdmin, o
 		return mgr.Add(k8s.LeaderOnly(func(ctx context.Context) error {
 			n, err := controller.DeleteManagedHPAs(ctx, mgr.GetAPIReader(), mgr.GetClient(), o.Namespace)
 			if err != nil {
-				logging.FromContext(ctx).Warn("autoscale: --autoscale=false could not delete the HPAs it labelled", "error", err)
+				logging.FromContext(ctx).Warn("autoscale: --autoscale=false could not delete the HPAs it labelled", "err", err)
 				return nil
 			}
 			if n > 0 {

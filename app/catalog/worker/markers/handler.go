@@ -132,7 +132,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 			ans.Message = err.Error()
 		}
 	default:
-		logging.FromContext(ctx).WarnContext(ctx, "markers: fetch failed", "mediafile", task.File.Name, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "markers: fetch failed", "mediafile", task.File.Name, "err", err)
 		ans.Result, ans.Message = string(catalogv1alpha1.MarkersError), err.Error()
 	}
 	_, err = h.Answers.Answer(ctx, task, ans, false)
