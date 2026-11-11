@@ -196,7 +196,7 @@ func TestCategoryStatusMirrorsThePlanAndTooMany(t *testing.T) {
 		catChannel("1500", ""),
 	}
 	r := fakeReconciler(t, testAddress, p)
-	r.PlanReader = storedPlan(appliedPlan(
+	r.PlanReader = storedPlan(appliedPlanFor(chans,
 		lineup.Category{Name: "News", Base: 1000, Channels: 3},
 		lineup.Category{Name: "Sports", Base: 2000, Channels: 2},
 		lineup.Category{Name: "Movies", Base: 4000, Channels: 512, TooMany: true},
@@ -266,9 +266,13 @@ func TestTheLineupAppliedCondition(t *testing.T) {
 			&clustarrv1.LineupSpec{Enabled: true}, &livetvstore.LineupPlan{Error: "category News: names[0]: bad"},
 			metav1.ConditionFalse, clustarrv1.ReasonInvalidLineup, "category News: names[0]: bad",
 		},
-		"a dry run":         {&clustarrv1.LineupSpec{}, dry, metav1.ConditionFalse, clustarrv1.ReasonDryRun, "enabled is false"},
-		"enabled, not yet":  {&clustarrv1.LineupSpec{Enabled: true}, dry, metav1.ConditionFalse, clustarrv1.ReasonDryRun, "has not applied"},
-		"applied":           {&clustarrv1.LineupSpec{Enabled: true}, appliedPlan(news), metav1.ConditionTrue, clustarrv1.ReasonApplied, "1 channels in 1 categories"},
+		"a dry run":        {&clustarrv1.LineupSpec{}, dry, metav1.ConditionFalse, clustarrv1.ReasonDryRun, "enabled is false"},
+		"enabled, not yet": {&clustarrv1.LineupSpec{Enabled: true}, dry, metav1.ConditionFalse, clustarrv1.ReasonDryRun, "has not applied"},
+		"applied":          {&clustarrv1.LineupSpec{Enabled: true}, appliedPlanFor([]clustarrv1.IPTVChannel{catChannel("1001", "News")}, news), metav1.ConditionTrue, clustarrv1.ReasonApplied, "1 channels in 1 categories"},
+		"applied, not on the channels yet": {
+			&clustarrv1.LineupSpec{Enabled: true}, appliedPlanFor([]clustarrv1.IPTVChannel{catChannel("1007", "News")}, news),
+			metav1.ConditionTrue, clustarrv1.ReasonApplied, "1 channels in 1 categories; not on the channels yet",
+		},
 		"disabled, applied": {&clustarrv1.LineupSpec{}, appliedPlan(news), metav1.ConditionFalse, clustarrv1.ReasonDryRun, "enabled is false"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -283,9 +287,12 @@ func TestTheLineupAppliedCondition(t *testing.T) {
 			require.NotNil(t, c)
 			assert.Equal(t, tc.status, *c.Status)
 			assert.Equal(t, tc.reason, *c.Reason)
-			if tc.reason == clustarrv1.ReasonInvalidLineup {
+			switch {
+			case tc.reason == clustarrv1.ReasonInvalidLineup:
 				assert.Equal(t, tc.msg, *c.Message, "the message is the error")
-			} else {
+			case name == "applied":
+				assert.Equal(t, tc.msg, *c.Message, "nothing pending")
+			default:
 				assert.Contains(t, *c.Message, tc.msg)
 			}
 			if tc.stored == nil {

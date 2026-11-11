@@ -279,6 +279,12 @@ func lineupCondition(p *clustarrv1.IPTVProvider, pl plan) metav1.Condition {
 	if len(tooMany) > 0 {
 		refused = fmt.Sprintf("; over dvr.maxChannels (%d), on no DVR: %s", p.Spec.MaxChannelsOrDefault(), strings.Join(tooMany, ", "))
 	}
+	// The blocks hold until the lineup controller has applied the plan to
+	// every channel (Ready=False LineupPending).
+	pending := ""
+	if pl.reason == clustarrv1.ReasonLineupPending {
+		pending = "; not on the channels yet, the published blocks are kept"
+	}
 	switch {
 	case lp == nil:
 		c.Status, c.Reason, c.Message = metav1.ConditionUnknown, "Pending", "the lineup has not been planned yet"
@@ -291,10 +297,10 @@ func lineupCondition(p *clustarrv1.IPTVProvider, pl plan) metav1.Condition {
 		c.Reason, c.Message = clustarrv1.ReasonDryRun, "the lineup controller has not applied the plan yet"+refused
 	case len(tooMany) > 0:
 		c.Reason = clustarrv1.ReasonTooMany
-		c.Message = fmt.Sprintf("%d channels in %d categories", channels, categories) + refused
+		c.Message = fmt.Sprintf("%d channels in %d categories", channels, categories) + pending + refused
 	default:
 		c.Status, c.Reason = metav1.ConditionTrue, clustarrv1.ReasonApplied
-		c.Message = fmt.Sprintf("%d channels in %d categories", channels, categories)
+		c.Message = fmt.Sprintf("%d channels in %d categories", channels, categories) + pending
 	}
 	return c
 }

@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -143,15 +144,40 @@ func categoryBlocks(lp *livetvstore.LineupPlan, channels []clustarrv1.IPTVChanne
 	return next, categories
 }
 
-// expectsChannels reports whether lp places a channel in any category it
-// does not refuse.
-func expectsChannels(lp *livetvstore.LineupPlan) bool {
+// hasCategoryBlocks reports whether bs holds a lineup category's block.
+func hasCategoryBlocks(bs []clustarrv1.BlockStatus) bool {
+	return slices.ContainsFunc(bs, func(b clustarrv1.BlockStatus) bool { return b.Category != "" })
+}
+
+// unapplied counts the channels that do not carry lp yet: a planned channel
+// missing, inactive, or off its planned number or category, and an active
+// channel still in a category the plan blocks (not refused as TooMany) that
+// the plan no longer places there.
+func unapplied(lp *livetvstore.LineupPlan, channels []clustarrv1.IPTVChannel) int {
+	blocked := map[string]bool{}
 	for _, c := range lp.Categories {
-		if !c.TooMany && c.Channels > 0 {
-			return true
+		blocked[c.Name] = !c.TooMany
+	}
+	byKey := make(map[string]*clustarrv1.IPTVChannel, len(channels))
+	for i := range channels {
+		byKey[channels[i].Spec.Key] = &channels[i]
+	}
+	n := 0
+	planned := make(map[string]bool, len(lp.Channels))
+	for _, a := range lp.Channels {
+		planned[a.Key] = true
+		ch := byKey[a.Key]
+		if ch == nil || !ch.Spec.Active || ch.Spec.Number != a.Number || categoryOf(ch) != a.Category {
+			n++
 		}
 	}
-	return false
+	for i := range channels {
+		ch := &channels[i]
+		if ch.Spec.Active && blocked[categoryOf(ch)] && !planned[ch.Spec.Key] {
+			n++
+		}
+	}
+	return n
 }
 
 // bounds is the lowest and highest number of next's blocks.
@@ -266,26 +292,33 @@ func (r *Reconciler) packBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 	}
 
 	// With spec.lineup enabled and its plan applied, a block per category
-	// holding an active channel (the custom guides design §5.5). A plan that
-	// failed holds the published blocks: a rule that does not compile must
-	// not take a DVR off Plex. A dry run's plan, one not applied yet, or none
-	// stored packs by number as before.
+	// holding an active channel (the custom guides design §5.5). Until the
+	// channels carry the plan, the published blocks stand: a plan that
+	// failed (a rule that does not compile), one the lineup controller has
+	// not applied to every channel yet, or none stored while categories are
+	// published (a store lost) must not take a DVR off Plex. Before the
+	// first plan is applied, a dry run's plan or none stored packs by
+	// number as before.
 	var catOf map[string]string // start -> category
 	var next []blocks.Block
-	if lineupEnabled(p) && lp != nil {
+	if lineupEnabled(p) {
 		switch {
-		case lp.Error != "":
+		case lp != nil && lp.Error != "":
 			return keep(clustarrv1.ReasonInvalidLineup, "spec.lineup is invalid: "+lp.Error), nil
-		case !lp.DryRun:
-			next, catOf = categoryBlocks(lp, channels)
-			if len(next) == 0 && expectsChannels(lp) {
-				// The plan is stored before the lineup controller applies it
-				// to the channels, so for a moment no channel carries a
-				// category: publishing no block then would take every DVR
-				// off Plex at once, before the categories' devices are
-				// served.
-				return keep(clustarrv1.ReasonLineupPending, "waiting for the lineup controller to apply its plan to the channels"), nil
+		case lp == nil || lp.DryRun:
+			if hasCategoryBlocks(p.Status.Blocks) {
+				return keep(clustarrv1.ReasonLineupPending, "waiting for the lineup controller's plan: the published category blocks are kept"), nil
 			}
+		default:
+			// The lineup controller stores the plan, then applies each
+			// channel's number and status in turn: a block built meanwhile
+			// would hold old or half-rewritten numbers (one number in two
+			// categories' blocks), and every such render would move a block's
+			// lineupHash, a channel-map save and a guide rebuild in Plex.
+			if n := unapplied(lp, channels); n > 0 {
+				return keep(clustarrv1.ReasonLineupPending, fmt.Sprintf("waiting for the lineup controller to apply its plan: %d channels do not carry their planned number and category yet", n)), nil
+			}
+			next, catOf = categoryBlocks(lp, channels)
 			if len(next) > blocks.MaxBlocks {
 				return keep(clustarrv1.ReasonTooManyChannels, fmt.Sprintf("%d lineup categories hold active channels, more than %d blocks", len(next), blocks.MaxBlocks)), nil
 			}
@@ -407,6 +440,9 @@ func (r *Reconciler) packBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 		if bs.Category != "" {
 			bs.FriendlyName = friendly + " " + bs.Category
 		}
+		// spec.device.friendlyName (128) and a category (64) can outgrow
+		// the status field (160), which the apiserver would refuse.
+		bs.FriendlyName = clampRunes(bs.FriendlyName, maxBlockFriendlyName)
 		if plexOn {
 			bs.Lineup = lineup
 		} else {
@@ -427,6 +463,18 @@ func (r *Reconciler) packBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 		}
 	}
 	return out, nil
+}
+
+// maxBlockFriendlyName is status.blocks[].friendlyName's MaxLength, which
+// the apiserver counts in runes.
+const maxBlockFriendlyName = 160
+
+// clampRunes cuts s to at most n runes.
+func clampRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
 }
 
 // address gives b its device path and its URI on the livetv Service: the

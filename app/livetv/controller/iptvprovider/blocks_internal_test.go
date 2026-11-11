@@ -18,8 +18,10 @@ package iptvprovider
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -110,7 +112,7 @@ func lineupProvider(enabled bool) *clustarrv1.IPTVProvider {
 // none).
 func catChannel(number, category string) clustarrv1.IPTVChannel {
 	ch := clustarrv1.IPTVChannel{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "ch-" + number}}
-	ch.Spec = clustarrv1.IPTVChannelSpec{ProviderRef: lineupProviderName, Number: number, Active: true}
+	ch.Spec = clustarrv1.IPTVChannelSpec{ProviderRef: lineupProviderName, Key: "t:ch" + number, Number: number, Active: true}
 	if category != "" {
 		ch.Status.Lineup = &clustarrv1.ChannelLineupStatus{Category: category, Number: number}
 	}
@@ -132,6 +134,23 @@ func appliedPlan(cats ...lineup.Category) *livetvstore.LineupPlan {
 	return &livetvstore.LineupPlan{PlannedAt: time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC), Plan: lineup.Plan{Categories: cats}}
 }
 
+// appliedPlanFor is an applied plan the channels already carry: each active
+// channel of a listed category not refused as TooMany is assigned its
+// number.
+func appliedPlanFor(chans []clustarrv1.IPTVChannel, cats ...lineup.Category) *livetvstore.LineupPlan {
+	lp := appliedPlan(cats...)
+	blocked := map[string]bool{}
+	for _, c := range cats {
+		blocked[c.Name] = !c.TooMany
+	}
+	for _, ch := range chans {
+		if cat := categoryOf(&ch); ch.Spec.Active && blocked[cat] {
+			lp.Channels = append(lp.Channels, lineup.Assignment{Key: ch.Spec.Key, Category: cat, Number: ch.Spec.Number})
+		}
+	}
+	return lp
+}
+
 // TestCategoriesAreBlocksOfTheirOwn: with spec.lineup enabled and a plan
 // stored, each category holding an active channel is one block, starting at
 // its base+1, under a device of its own named for the category; a channel
@@ -147,7 +166,7 @@ func TestCategoriesAreBlocksOfTheirOwn(t *testing.T) {
 	}
 	r := fakeReconciler(t, testAddress, p)
 	// The plan lists its categories in rule order, not by base.
-	r.PlanReader = storedPlan(appliedPlan(
+	r.PlanReader = storedPlan(appliedPlanFor(chans,
 		lineup.Category{Name: "Sports", Base: 2000, Channels: 2},
 		lineup.Category{Name: "News", Base: 1000, Channels: 3},
 		lineup.Category{Name: "Movies", Base: 4000},
@@ -194,8 +213,9 @@ func TestCategoriesAreBlocksOfTheirOwn(t *testing.T) {
 func TestACategoryBlockKeepsItsDeviceIDAcrossARenumbering(t *testing.T) {
 	p := lineupProvider(true)
 	r := fakeReconciler(t, testAddress, p)
-	r.PlanReader = storedPlan(appliedPlan(lineup.Category{Name: "News", Base: 1000, Channels: 2}))
-	pl, err := r.planBlocks(context.Background(), p, []clustarrv1.IPTVChannel{catChannel("1001", "News"), catChannel("1002", "News")})
+	chans := []clustarrv1.IPTVChannel{catChannel("1001", "News"), catChannel("1002", "News")}
+	r.PlanReader = storedPlan(appliedPlanFor(chans, lineup.Category{Name: "News", Base: 1000, Channels: 2}))
+	pl, err := r.planBlocks(context.Background(), p, chans)
 	require.NoError(t, err)
 	require.Len(t, pl.blocks, 1)
 	fresh := pl.blocks[0].DeviceID
@@ -203,7 +223,9 @@ func TestACategoryBlockKeepsItsDeviceIDAcrossARenumbering(t *testing.T) {
 
 	// A third channel joins, and the numbers move: the same device.
 	p.Status.Blocks = pl.blocks
-	pl, err = r.planBlocks(context.Background(), p, []clustarrv1.IPTVChannel{catChannel("1001", "News"), catChannel("1002", "News"), catChannel("1003", "News")})
+	chans = append(chans, catChannel("1003", "News"))
+	r.PlanReader = storedPlan(appliedPlanFor(chans, lineup.Category{Name: "News", Base: 1000, Channels: 3}))
+	pl, err = r.planBlocks(context.Background(), p, chans)
 	require.NoError(t, err)
 	require.Len(t, pl.blocks, 1)
 	assert.Equal(t, fresh, pl.blocks[0].DeviceID)
@@ -212,8 +234,9 @@ func TestACategoryBlockKeepsItsDeviceIDAcrossARenumbering(t *testing.T) {
 	// The status's device for the category is kept even when it is not the
 	// hash, and across a new base.
 	p.Status.Blocks = []clustarrv1.BlockStatus{{Start: "1001", First: "1001", Last: "1003", Category: "News", DeviceID: "0A0B0C0D", GuidePath: BlockGuidePath}}
-	r.PlanReader = storedPlan(appliedPlan(lineup.Category{Name: "News", Base: 1100, Channels: 2}))
-	pl, err = r.planBlocks(context.Background(), p, []clustarrv1.IPTVChannel{catChannel("1101", "News"), catChannel("1102", "News")})
+	chans = []clustarrv1.IPTVChannel{catChannel("1101", "News"), catChannel("1102", "News")}
+	r.PlanReader = storedPlan(appliedPlanFor(chans, lineup.Category{Name: "News", Base: 1100, Channels: 2}))
+	pl, err = r.planBlocks(context.Background(), p, chans)
 	require.NoError(t, err)
 	require.Len(t, pl.blocks, 1)
 	assert.Equal(t, "1101", pl.blocks[0].Start, "base+1")
@@ -307,34 +330,144 @@ func TestCategoryBlocksKeepTheRulesAcrossProviders(t *testing.T) {
 	p := lineupProvider(true)
 	p.CreationTimestamp = metav1.NewTime(time.Unix(200, 0))
 	r := fakeReconciler(t, testAddress, older, p)
-	r.PlanReader = storedPlan(appliedPlan(lineup.Category{Name: "News", Base: 1000, Channels: 1}, lineup.Category{Name: "Sports", Base: 2000, Channels: 1}))
-	pl, err := r.planBlocks(context.Background(), p, []clustarrv1.IPTVChannel{catChannel("1001", "News"), catChannel("2001", "Sports")})
+	chans := []clustarrv1.IPTVChannel{catChannel("1001", "News"), catChannel("2001", "Sports")}
+	r.PlanReader = storedPlan(appliedPlanFor(chans, lineup.Category{Name: "News", Base: 1000, Channels: 1}, lineup.Category{Name: "Sports", Base: 2000, Channels: 1}))
+	pl, err := r.planBlocks(context.Background(), p, chans)
 	require.NoError(t, err)
 	assert.Equal(t, clustarrv1.ReasonNumberRangeOverlap, pl.reason)
 	assert.Empty(t, pl.blocks, "nothing published, nothing kept")
 }
 
 // TestAPlanNotYetOnTheChannelsHoldsTheBlocks: the lineup controller stores
-// its plan before it applies it to the channels, so a plan placing channels
-// that no channel's status names yet holds the published blocks rather than
-// publish none, which would take every DVR off Plex before the categories'
-// devices are served. A plan that places no channel publishes no block.
+// its plan, then applies each channel's number and status in turn, so until
+// every channel carries the plan the published blocks stand: blocks built
+// from the dry run's statuses and the old numbers, or from a half-applied
+// renumbering (one number in two categories), would each move a DVR's map.
+// A plan that places no channel publishes no block.
 func TestAPlanNotYetOnTheChannelsHoldsTheBlocks(t *testing.T) {
-	p := lineupProvider(true)
-	p.Status.Blocks = []clustarrv1.BlockStatus{{Start: "1001", First: "1001", Last: "1257", DeviceID: "8246E54A", GuidePath: BlockGuidePath}}
-	r := fakeReconciler(t, testAddress, p)
-	r.PlanReader = storedPlan(appliedPlan(lineup.Category{Name: "News", Base: 1000, Channels: 2}))
-	chans := activeChannels("1001", "1002")
-	pl, err := r.planBlocks(context.Background(), p, chans)
-	require.NoError(t, err)
-	assert.Equal(t, clustarrv1.ReasonLineupPending, pl.reason)
-	require.Len(t, pl.blocks, 1)
-	assert.Equal(t, "8246E54A", pl.blocks[0].DeviceID)
-	assert.Equal(t, []string{"1001", "1002"}, pl.numbers["1001"])
+	published := []clustarrv1.BlockStatus{{Start: "1001", First: "1001", Last: "1257", DeviceID: "8246E54A", GuidePath: BlockGuidePath}}
+	cats := []lineup.Category{{Name: "News", Base: 1000, Channels: 2}, {Name: "Sports", Base: 2000, Channels: 1}}
+	// The plan: CNN 1001 and MSNBC 1002 in News, ESPN 2001 in Sports.
+	planned := []clustarrv1.IPTVChannel{catChannel("1001", "News"), catChannel("1002", "News"), catChannel("2001", "Sports")}
+	lp := appliedPlanFor(planned, cats...)
 
+	// renumbered is the planned channels with spec numbers as given, the
+	// status the dry run (or the apply) wrote.
+	renumbered := func(numbers ...string) []clustarrv1.IPTVChannel {
+		out := make([]clustarrv1.IPTVChannel, len(planned))
+		for i := range planned {
+			out[i] = *planned[i].DeepCopy()
+			out[i].Spec.Number = numbers[i]
+		}
+		return out
+	}
+	for name, chans := range map[string][]clustarrv1.IPTVChannel{
+		"the dry run's statuses, the old numbers": renumbered("1017", "1001", "1120"),
+		// MSNBC is renumbered onto CNN's old number, CNN not yet: 1001 twice.
+		"half applied":           renumbered("1017", "1001", "2001"),
+		"no channel created yet": nil,
+		"a channel not yet given its category": func() []clustarrv1.IPTVChannel {
+			c := renumbered("1001", "1002", "2001")
+			c[2].Status.Lineup = nil
+			return c
+		}(),
+		"a dropped channel still active in a category": append(renumbered("1001", "1002", "2001"), catChannel("1003", "News")),
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := lineupProvider(true)
+			p.Status.Blocks = published
+			r := fakeReconciler(t, testAddress, p)
+			r.PlanReader = storedPlan(lp)
+			pl, err := r.planBlocks(context.Background(), p, chans)
+			require.NoError(t, err)
+			assert.Equal(t, clustarrv1.ReasonLineupPending, pl.reason)
+			assert.Contains(t, pl.message, "do not carry their planned number")
+			require.Len(t, pl.blocks, 1, "the published blocks are kept")
+			assert.Equal(t, "8246E54A", pl.blocks[0].DeviceID)
+		})
+	}
+
+	// Applied to every channel: the categories are published.
+	p := lineupProvider(true)
+	p.Status.Blocks = published
+	r := fakeReconciler(t, testAddress, p)
+	r.PlanReader = storedPlan(lp)
+	pl, err := r.planBlocks(context.Background(), p, renumbered("1001", "1002", "2001"))
+	require.NoError(t, err)
+	assert.Empty(t, pl.reason, pl.message)
+	require.Len(t, pl.blocks, 2)
+	assert.Equal(t, "News", pl.blocks[0].Category)
+
+	// A plan that places no channel publishes no block.
 	r.PlanReader = storedPlan(appliedPlan(lineup.Category{Name: "News", Base: 1000}, lineup.Category{Name: "Movies", Base: 4000, Channels: 900, TooMany: true}))
-	pl, err = r.planBlocks(context.Background(), p, chans)
+	pl, err = r.planBlocks(context.Background(), p, activeChannels("1001", "1002"))
 	require.NoError(t, err)
 	assert.Empty(t, pl.reason)
 	assert.Empty(t, pl.blocks)
+}
+
+// TestAVanishedPlanHoldsTheCategoryBlocks: with the lineup enabled and its
+// categories published, a plan object gone from the store (a bucket
+// re-created) or only a dry run's holds the blocks rather than pack by
+// number, which would replace every category's DVR; before the first apply
+// (no category block published) the packing by number goes on.
+func TestAVanishedPlanHoldsTheCategoryBlocks(t *testing.T) {
+	chans := []clustarrv1.IPTVChannel{catChannel("1001", "News"), catChannel("2001", "Sports")}
+	newsDev := hdhr.BlockDeviceID("media", lineupProviderName, "cat/News")
+	dry := appliedPlanFor(chans, lineup.Category{Name: "News", Base: 1000, Channels: 1}, lineup.Category{Name: "Sports", Base: 2000, Channels: 1})
+	dry.DryRun = true
+	for name, stored := range map[string]*livetvstore.LineupPlan{"none stored": nil, "a dry run's": dry} {
+		t.Run(name, func(t *testing.T) {
+			p := lineupProvider(true)
+			p.Status.Blocks = []clustarrv1.BlockStatus{
+				{Start: "1001", First: "1001", Last: "1001", Category: "News", DeviceID: newsDev, GuidePath: BlockGuidePath},
+				{Start: "2001", First: "2001", Last: "2001", Category: "Sports", DeviceID: "0A0B0C0D", GuidePath: BlockGuidePath},
+			}
+			r := fakeReconciler(t, testAddress, p)
+			r.PlanReader = storedPlan(stored)
+			pl, err := r.planBlocks(context.Background(), p, chans)
+			require.NoError(t, err)
+			assert.Equal(t, clustarrv1.ReasonLineupPending, pl.reason)
+			require.Len(t, pl.blocks, 2)
+			assert.Equal(t, newsDev, pl.blocks[0].DeviceID)
+			assert.Equal(t, "0A0B0C0D", pl.blocks[1].DeviceID)
+			assert.Equal(t, []string{"2001"}, pl.numbers["2001"])
+
+			// Before the first apply: packed by number.
+			p.Status.Blocks = []clustarrv1.BlockStatus{{Start: "1001", First: "1001", Last: "2001", DeviceID: "8246E54A", GuidePath: BlockGuidePath}}
+			pl, err = r.planBlocks(context.Background(), p, chans)
+			require.NoError(t, err)
+			assert.Empty(t, pl.reason)
+			require.Len(t, pl.blocks, 1)
+			assert.Equal(t, "8246E54A", pl.blocks[0].DeviceID)
+			assert.Empty(t, pl.blocks[0].Category)
+		})
+	}
+}
+
+// TestABlocksFriendlyNameFitsTheStatus: spec.device.friendlyName may be 128
+// runes and a category 64, and status.blocks[].friendlyName holds 160: the
+// name is cut on a rune boundary, or the apiserver would refuse every status
+// apply.
+func TestABlocksFriendlyNameFitsTheStatus(t *testing.T) {
+	friendly := strings.Repeat("é", 128)
+	category := strings.Repeat("ü", 64)
+	p := lineupProvider(true)
+	p.Spec.Device.FriendlyName = friendly
+	chans := []clustarrv1.IPTVChannel{catChannel("1001", category)}
+	r := fakeReconciler(t, testAddress, p)
+	r.PlanReader = storedPlan(appliedPlanFor(chans, lineup.Category{Name: category, Base: 1000, Channels: 1}))
+	pl, err := r.planBlocks(context.Background(), p, chans)
+	require.NoError(t, err)
+	require.Len(t, pl.blocks, 1)
+	name := pl.blocks[0].FriendlyName
+	assert.Equal(t, 160, utf8.RuneCountInString(name))
+	assert.True(t, utf8.ValidString(name), "cut on a rune boundary")
+	assert.Equal(t, friendly+" "+strings.Repeat("ü", 31), name)
+
+	// A name that fits is left whole.
+	p.Spec.Device.FriendlyName = "Clustarr"
+	pl, err = r.planBlocks(context.Background(), p, chans)
+	require.NoError(t, err)
+	assert.Equal(t, "Clustarr "+category, pl.blocks[0].FriendlyName)
 }
