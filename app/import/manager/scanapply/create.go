@@ -69,15 +69,26 @@ func createName(c *schema.ItemCreate) string {
 // scan's attribution proposes, when absent (P36, P39; the three containers
 // since the 2026-11-10 non-video libraries design's D16, a root scan
 // creating them from their folders). ok is false when it refused, listing
-// the file as unmatched: an ImportExclusion names the provider id (P37: a
-// TMDB, TheTVDB, MusicBrainz artist, Open Library author or ASIN id, keyed
-// as librarydelete writes the item's exclusion); the root folder sets no
-// default qualityProfileRef, which a new item requires (P38); an object of
-// that name exists with another provider id, which is never overwritten
-// (nameCollision), or with the same id under another root folder, whose
-// files are never attributed from this one (otherRootFolder, smoke finding
-// O4). created is true when this call created it; an item already there
-// with the same id is used as it is, never re-applied.
+// the file as unmatched -- or, for an artist or author, its folder
+// (Folder, D16: the walk counted the folder's files as awaiting the item's
+// children, so its proposing file is not listed beside them): an
+// ImportExclusion names the provider id (P37: a TMDB, TheTVDB, MusicBrainz
+// artist, Open Library author or ASIN id, keyed as librarydelete writes
+// the item's exclusion); the root folder sets no default qualityProfileRef,
+// which a new item requires (P38); an object of that name exists with
+// another provider id, which is never overwritten (nameCollision), or with
+// the same id under another root folder, whose files are never attributed
+// from this one (otherRootFolder, smoke finding O4). created is true when
+// this call created it; an item already there with the same id is used as
+// it is, never re-applied -- one observation at a time per item (creates),
+// so two parts of one audiobook never both create it.
+//
+// A proposal whose folder does not hold the observed path names the item
+// the walk proposed from another folder of the same identity (a second
+// copy of an audiobook: every file of a proposed audiobook carries the
+// first folder's create): it is used when it exists, refused as the first
+// folder's was, and otherwise deferred (reobserve) -- never created pinned
+// to a folder this observation did not see, and never dead-lettered.
 func (a *Applier) ensureItem(
 	ctx context.Context, obs schema.ScanObservation, root *catalogv1alpha1.RootFolder, c *schema.ItemCreate,
 	rel string, t *tally,
@@ -134,23 +145,33 @@ func (a *Applier) ensureItem(
 		return false, false, fmt.Errorf("%w: a %q proposal; scans create movies, series, artists, authors and audiobooks only",
 			errMalformed, c.Kind)
 	}
-	folder, err := createFolder(c, rel)
+	folder, folderErr := createFolder(c, rel)
+	elsewhere := errors.Is(folderErr, errFolderElsewhere)
+	if folderErr != nil && !elsewhere {
+		return false, false, folderErr
+	}
+	refuse := refusal(a, t, root, commonv1.MediaKind(c.Kind), rel, folder, elsewhere)
+
+	unlock, err := a.creates.lock(ctx, ns+"/"+c.Kind+"/"+name)
 	if err != nil {
 		return false, false, err
 	}
+	defer unlock()
 
 	// An existing object is read fresh: one created since the walk read its
-	// cache is used, never overwritten.
+	// cache -- or by another observation a moment ago -- is used, never
+	// overwritten.
 	switch err := a.apiReader().Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, obj); {
 	case err == nil:
 		if got := idOf(); got != id {
-			t.unmatched(root, rel, CodeNameCollision, fmt.Sprintf(
-				"the file names %s id %s, but %s %s exists with %s id %s; it is never overwritten",
-				provider, id, c.Kind, name, provider, got), []string{name}, a.now())
+			refuse.list(CodeNameCollision, fmt.Sprintf(
+				"the %s names %s id %s, but %s %s exists with %s id %s; it is never overwritten",
+				refuse.subject, provider, id, c.Kind, name, provider, got), []string{name})
 			return false, false, nil
 		}
 		if itemRoot := rootOf(); itemRoot != root.Name {
-			a.otherRootFolder(t, root, rel, commonv1.MediaRef{Kind: commonv1.MediaKind(c.Kind), Name: name}, itemRoot)
+			ref := commonv1.MediaRef{Kind: commonv1.MediaKind(c.Kind), Name: name}
+			refuse.list(CodeOtherRootFolder, otherRootReason(refuse.subject, root, ref, itemRoot), []string{name})
 			return false, false, nil
 		}
 		return true, false, nil
@@ -161,16 +182,25 @@ func (a *Applier) ensureItem(
 	if ex, excluded, err := a.excluded(ctx, provider, id); err != nil {
 		return false, false, err
 	} else if excluded {
-		t.unmatched(root, rel, CodeExcluded, fmt.Sprintf(
-			"excluded: the file names %s id %s, which import exclusion %s/%s keeps out",
-			provider, id, ex.Namespace, ex.Name), nil, a.now())
+		refuse.list(CodeExcluded, fmt.Sprintf(
+			"excluded: the %s names %s id %s, which import exclusion %s/%s keeps out",
+			refuse.subject, provider, id, ex.Namespace, ex.Name), nil)
 		return false, false, nil
 	}
 	profile := root.Spec.Defaults.QualityProfileRef
 	if profile == "" {
-		t.unmatched(root, rel, CodeNoQualityProfile, fmt.Sprintf(
-			"root folder %q sets no default qualityProfileRef, which a new %s requires", root.Name, c.Kind), nil, a.now())
+		refuse.list(CodeNoQualityProfile, fmt.Sprintf(
+			"root folder %q sets no default qualityProfileRef, which a new %s requires", root.Name, c.Kind), nil)
 		return false, false, nil
+	}
+	if elsewhere {
+		// The folder that proposed the item has not created it (yet): walk
+		// this file's folder again, by when that folder's create has landed
+		// and the walk finds the item -- or, if it never does, proposes the
+		// item from this folder.
+		logging.FromContext(ctx).Info("scanapply: a file proposes an item from another folder, which does not exist yet; "+
+			"re-observing its folder", "kind", c.Kind, "item", name, "folder", c.Folder, "path", obs.Path)
+		return false, false, a.reobserve(ctx, obs, root, t)
 	}
 
 	if err := a.pace(ctx, types.UID(ns+"/"+c.Kind+"/"+name)); err != nil {
@@ -196,6 +226,41 @@ func (a *Applier) ensureItem(
 	return true, true, nil
 }
 
+// createRefusal lists a refused create: the file, or for an artist or
+// author its folder (unmatchedFolder), saying which (subject).
+type createRefusal struct {
+	a       *Applier
+	t       *tally
+	root    *catalogv1alpha1.RootFolder
+	path    string
+	folder  bool
+	subject string
+}
+
+// refusal is how ensureItem lists a refusal of kind's create for the file
+// at rel: an artist's or author's folder (folder, else the path's first
+// segment when the proposal's folder is another's), anything else the file.
+func refusal(
+	a *Applier, t *tally, root *catalogv1alpha1.RootFolder, kind commonv1.MediaKind, rel, folder string, elsewhere bool,
+) createRefusal {
+	switch kind {
+	case commonv1.MediaKindArtist, commonv1.MediaKindAuthor:
+		if elsewhere || folder == "" {
+			folder = seriesFolder(rel)
+		}
+		return createRefusal{a: a, t: t, root: root, path: folder, folder: true, subject: "folder"}
+	}
+	return createRefusal{a: a, t: t, root: root, path: rel, subject: "file"}
+}
+
+func (r createRefusal) list(code, reason string, candidates []string) {
+	if r.folder {
+		r.t.unmatchedFolder(r.root, r.path, code, reason, candidates, r.a.now())
+		return
+	}
+	r.t.unmatched(r.root, r.path, code, reason, candidates, r.a.now())
+}
+
 // openLibraryAuthorID is AuthorSpec.openLibraryID's pattern, checked here
 // so a proposal that cannot key an Author is dead-lettered as malformed
 // rather than refused by the apiserver at the apply.
@@ -209,16 +274,19 @@ func seriesFolder(rel string) string {
 	return first
 }
 
+// errFolderElsewhere: a proposal's folder does not hold the observed path
+// (ensureItem: another folder's proposal of the same item). Not malformed.
+var errFolderElsewhere = errors.New("scanapply: the proposal's folder does not hold the observed path")
+
 // createFolder is the folder, relative to the root, a proposed item is
 // pinned to (spec.folder), so its status.path is the folder its files are
 // already in: none for a movie (the scan pins no movie's folder); a
 // series' first segment (seriesFolder); an artist's or author's the
 // proposal's Folder, the folder the scan resolved, else the path's first
 // segment; an audiobook's the proposal's Folder ("<author>/<title>"), else
-// the path's first two segments when a file lies below them. A Folder the
-// observed path does not lie in -- or one that is absolute or climbs out
-// of the root -- is malformed: the agent resolved the folder from the path
-// it reports.
+// the path's first two segments when a file lies below them. A Folder that
+// is absolute or climbs out of the root is malformed; one the observed path
+// does not lie in is errFolderElsewhere, with the Folder as the result.
 func createFolder(c *schema.ItemCreate, rel string) (string, error) {
 	rel = filepath.ToSlash(rel)
 	switch commonv1.MediaKind(c.Kind) {
@@ -242,7 +310,7 @@ func createFolder(c *schema.ItemCreate, rel string) (string, error) {
 		return "", fmt.Errorf("%w: a %s proposal's folder %q is not a folder under the root", errMalformed, c.Kind, c.Folder)
 	}
 	if rel != folder && !strings.HasPrefix(rel, folder+"/") {
-		return "", fmt.Errorf("%w: a %s proposal's folder %q does not hold the observed path %q", errMalformed, c.Kind, c.Folder, rel)
+		return folder, fmt.Errorf("%w: a %s proposal's folder %q, path %q", errFolderElsewhere, c.Kind, c.Folder, rel)
 	}
 	return folder, nil
 }

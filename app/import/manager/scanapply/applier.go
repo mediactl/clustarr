@@ -66,10 +66,16 @@ const (
 // otherRootFolder lists a file whose attributed item is stored under
 // itemRoot, another root folder than the scan's.
 func (a *Applier) otherRootFolder(t *tally, root *catalogv1alpha1.RootFolder, rel string, ref commonv1.MediaRef, itemRoot string) {
-	t.unmatched(root, rel, CodeOtherRootFolder, fmt.Sprintf(
-		"the file names %s %s, which is stored under root folder %q, not %q: a scan attributes a file only to "+
-			"an item of the root folder it scans; move the file under %q to import it",
-		ref.Kind, ref.Name, itemRoot, root.Name, itemRoot), []string{ref.Name}, a.now())
+	t.unmatched(root, rel, CodeOtherRootFolder, otherRootReason("file", root, ref, itemRoot), []string{ref.Name}, a.now())
+}
+
+// otherRootReason says why a file or folder (subject) naming ref, stored
+// under itemRoot, is not attributed under root.
+func otherRootReason(subject string, root *catalogv1alpha1.RootFolder, ref commonv1.MediaRef, itemRoot string) string {
+	return fmt.Sprintf(
+		"the %s names %s %s, which is stored under root folder %q, not %q: a scan attributes a file only to "+
+			"an item of the root folder it scans; move the %s under %q to import it",
+		subject, ref.Kind, ref.Name, itemRoot, root.Name, subject, itemRoot)
 }
 
 // errMalformed marks an observation the applier cannot act on: the intake
@@ -95,6 +101,9 @@ type Applier struct {
 	Limiter *remediation.WriteLimiter
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+
+	// creates serialises each item's create decision (ensureItem).
+	creates itemLocks
 }
 
 func (a *Applier) now() time.Time {
@@ -408,6 +417,15 @@ func (t *tally) unmatched(root *catalogv1alpha1.RootFolder, rel, code, reason st
 		kind = string(root.Spec.Kind)
 	}
 	metrics.ImportUnmatchedTotal.WithLabelValues(kind, code).Inc()
+}
+
+// unmatchedFolder lists a container folder the applier refused to create
+// an item from (UnmatchedFile.Folder; the non-video design's D16): the walk
+// counted its files as awaiting the item's children, so the folder is
+// listed once, never its proposing file beside them.
+func (t *tally) unmatchedFolder(root *catalogv1alpha1.RootFolder, folder, code, reason string, candidates []string, at time.Time) {
+	t.unmatched(root, folder, code, reason, candidates, at)
+	t.Unmatched[len(t.Unmatched)-1].Folder = true
 }
 
 // tallyAttempts bounds the compare-and-swap of the applied tally.

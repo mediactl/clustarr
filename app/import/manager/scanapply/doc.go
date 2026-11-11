@@ -31,9 +31,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     every child monitored (addOptions.monitor all) -- unless an
 //     ImportExclusion names its id (P37) or the root folder sets no default
 //     profile (P38), never overwriting an existing object whose provider id
-//     differs (unmatched, nameCollision); validate a person's manual target
-//     again (P45); refuse to re-point a path recorded against another item
-//     (P41, recorded_elsewhere); refuse a new file of an item, existing or
+//     differs (unmatched, nameCollision); a refused artist or author is
+//     listed as its folder (UnmatchedFile.Folder, D16), whose files the
+//     walk counted as awaiting; one observation decides an item's create
+//     at a time, so parts of one audiobook create it once; a proposal from
+//     another folder of the same item (an audiobook's second copy) is used
+//     when the item exists and its folder re-observed when not, never
+//     dead-lettered; validate a person's manual target again (P45);
+//     refuse to re-point a path recorded against another item (P41,
+//     recorded_elsewhere); refuse a new file of an item, existing or
 //     proposed, stored under another root folder (other_root_folder: a
 //     scan attributes only to the items of the root folder it scans);
 //     record the MediaFile spec through specwrite.ApplyFacts under

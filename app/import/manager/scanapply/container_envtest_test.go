@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -296,26 +297,54 @@ func TestAnExcludedArtistIsNotCreated(t *testing.T) {
 	assert.Empty(t, all.Items, "an excluded artist was created")
 	p := e.tally()
 	require.Len(t, p.Unmatched, 1)
-	assert.Contains(t, p.Unmatched[0].Reason, "excluded")
+	assert.Contains(t, p.Unmatched[0].Reason, "excluded: the folder names")
 	assert.Contains(t, p.Unmatched[0].Reason, e.ns+"/no-nirvana")
+	assert.Equal(t, "Nirvana", p.Unmatched[0].Path, "the folder is listed, as a folder")
+	assert.True(t, p.Unmatched[0].Folder)
 	assert.Zero(t, p.ItemsCreated)
 }
 
-// A root without a default qualityProfileRef cannot create the artist,
-// which requires one: the folder is listed unmatched saying so.
-func TestAnArtistCreateNeedsTheRootsDefaultProfile(t *testing.T) {
-	e := newScanEnv(t, "scanapply-artist-noprofile")
+// A root without a default qualityProfileRef cannot create the artist or
+// author, which requires one: the folder is listed unmatched saying so, as
+// a folder (UnmatchedFile.Folder, D16) -- the walk counted every file of
+// it, the proposing one included, as awaiting the item's children, so
+// listing that file too would count it twice and offer it a manual assign
+// to an item that will not exist.
+func TestAContainerCreateNeedsTheRootsDefaultProfile(t *testing.T) {
+	e := newScanEnv(t, "scanapply-container-noprofile")
 	music := e.root("music", catalogv1alpha1.RootFolderKindMusic, catalogv1alpha1.RootDefaults{})
+	books := e.root("books", catalogv1alpha1.RootFolderKindBook, catalogv1alpha1.RootDefaults{})
 
 	require.NoError(t, e.observe(music, "Nirvana/01 - Smells Like Teen Spirit.flac", artistAt(music.Name), nil))
+	require.NoError(t, e.observe(books, "J.R.R. Tolkien/The Hobbit.epub", authorAt(books.Name), nil))
 
-	var all catalogv1alpha1.ArtistList
-	require.NoError(t, e.c.List(e.ctx, &all, client.InNamespace(e.ns)))
-	assert.Empty(t, all.Items)
+	var artists catalogv1alpha1.ArtistList
+	require.NoError(t, e.c.List(e.ctx, &artists, client.InNamespace(e.ns)))
+	assert.Empty(t, artists.Items)
+	var authors catalogv1alpha1.AuthorList
+	require.NoError(t, e.c.List(e.ctx, &authors, client.InNamespace(e.ns)))
+	assert.Empty(t, authors.Items)
 	p := e.tally()
-	require.Len(t, p.Unmatched, 1)
+	require.Len(t, p.Unmatched, 2)
 	assert.Contains(t, p.Unmatched[0].Reason, "sets no default qualityProfileRef, which a new artist requires")
-	assert.Equal(t, "Nirvana/01 - Smells Like Teen Spirit.flac", p.Unmatched[0].Path)
+	assert.Equal(t, "Nirvana", p.Unmatched[0].Path, "the artist's folder is listed, not its proposing track")
+	assert.True(t, p.Unmatched[0].Folder, "the entry is the folder")
+	assert.Contains(t, p.Unmatched[1].Reason, "sets no default qualityProfileRef, which a new author requires")
+	assert.Equal(t, "J.R.R. Tolkien", p.Unmatched[1].Path)
+	assert.True(t, p.Unmatched[1].Folder)
+	assert.Zero(t, p.ItemsCreated)
+}
+
+// authorAt is the attribution the walk proposes for the author folder
+// "J.R.R. Tolkien" (2026-11-10 plan W7.1).
+func authorAt(root string) *schema.ScanAttribution {
+	return &schema.ScanAttribution{
+		Kind: string(commonv1.MediaKindAuthor), ProviderID: "openlibrary:OL26320A", Evidence: "folder",
+		Create: &schema.ItemCreate{
+			Kind: string(commonv1.MediaKindAuthor), OpenLibraryID: "OL26320A", Title: "J. R. R. Tolkien",
+			RootFolderRef: root, Folder: "J.R.R. Tolkien",
+		},
+	}
 }
 
 // A root scan creates the Author its folder names (D16) as it does an
@@ -329,15 +358,7 @@ func TestAScanCreatesTheAuthorItsFolderNames(t *testing.T) {
 	books := e.root("books", catalogv1alpha1.RootFolderKindBook, catalogv1alpha1.RootDefaults{
 		QualityProfileRef: "ebook", MonitorNewItems: catalogv1alpha1.MonitorNewItemsNew,
 	})
-	at := &schema.ScanAttribution{
-		Kind: string(commonv1.MediaKindAuthor), ProviderID: "openlibrary:OL26320A", Evidence: "folder",
-		Create: &schema.ItemCreate{
-			Kind: string(commonv1.MediaKindAuthor), OpenLibraryID: "OL26320A", Title: "J. R. R. Tolkien",
-			RootFolderRef: books.Name, Folder: "J.R.R. Tolkien",
-		},
-	}
-
-	require.NoError(t, e.observe(books, "J.R.R. Tolkien/The Hobbit.epub", at, nil))
+	require.NoError(t, e.observe(books, "J.R.R. Tolkien/The Hobbit.epub", authorAt(books.Name), nil))
 
 	var au catalogv1alpha1.Author
 	require.NoError(t, e.c.Get(e.ctx, types.NamespacedName{Namespace: e.ns, Name: names.Author("J. R. R. Tolkien", "OL26320A")}, &au))
@@ -367,20 +388,9 @@ func TestAScanCreatesTheAudiobookAndRecordsItsParts(t *testing.T) {
 	e.author("tolkien", "OL26320A", "J. R. R. Tolkien")
 	e.author("le-guin", "OL31467A", "Ursula K. Le Guin")
 	e.author("le-guin-dup", "OL31468A", "Ursula K. Le Guin")
-	hobbit := func(part int32) (*schema.ScanAttribution, *schema.FrozenFields) {
-		return &schema.ScanAttribution{
-				Kind: string(commonv1.MediaKindAudiobook), ProviderID: "asin:B0099SKT2Y", Evidence: "folder",
-				Create: &schema.ItemCreate{
-					Kind: string(commonv1.MediaKindAudiobook), ASIN: "B0099SKT2Y", Region: "uk", Title: "The Hobbit",
-					RootFolderRef: audio.Name, Folder: "J.R.R. Tolkien/The Hobbit",
-				},
-			},
-			&schema.FrozenFields{PartIndex: part}
-	}
-
 	for part := int32(1); part <= 2; part++ {
-		at, frozen := hobbit(part)
-		require.NoError(t, e.observe(audio, fmt.Sprintf("J.R.R. Tolkien/The Hobbit/The Hobbit - Part %d.m4b", part), at, frozen))
+		require.NoError(t, e.observe(audio, fmt.Sprintf("J.R.R. Tolkien/The Hobbit/The Hobbit - Part %d.m4b", part),
+			hobbitAt(audio.Name), &schema.FrozenFields{PartIndex: part}))
 	}
 
 	name := names.Audiobook("The Hobbit", "B0099SKT2Y")
@@ -422,6 +432,138 @@ func TestAScanCreatesTheAudiobookAndRecordsItsParts(t *testing.T) {
 	var authors catalogv1alpha1.AuthorList
 	require.NoError(t, e.c.List(e.ctx, &authors, client.InNamespace(e.ns)))
 	assert.Len(t, authors.Items, 3, "an audiobook create makes no Author")
+}
+
+// hobbitAt is the attribution the walk proposes for every part of the
+// audiobook folder "J.R.R. Tolkien/The Hobbit", resolved as ASIN
+// B0099SKT2Y in the uk region (2026-11-10 plan W7.1) -- and, since the walk
+// proposes an identity once, for every part of any other folder that
+// resolves to the same ASIN in the same walk (settle's second folder).
+func hobbitAt(root string) *schema.ScanAttribution {
+	return &schema.ScanAttribution{
+		Kind: string(commonv1.MediaKindAudiobook), ProviderID: "asin:B0099SKT2Y", Evidence: "folder",
+		Create: &schema.ItemCreate{
+			Kind: string(commonv1.MediaKindAudiobook), ASIN: "B0099SKT2Y", Region: "uk", Title: "The Hobbit",
+			RootFolderRef: root, Folder: "J.R.R. Tolkien/The Hobbit",
+		},
+	}
+}
+
+// A second copy of an audiobook -- another folder the walk resolves to the
+// same ASIN, whose parts it proposes with the first folder's create -- is
+// recorded against the audiobook the first folder created, as a later scan
+// would attribute it, never dead-lettered because the proposal's folder
+// does not hold its parts. Nothing is created twice and nothing is listed.
+func TestASecondCopyOfAnAudiobookIsRecordedAgainstTheFirsts(t *testing.T) {
+	e := newScanEnv(t, "scanapply-audiobook-copy")
+	audio := e.root("audio", catalogv1alpha1.RootFolderKindAudiobook, catalogv1alpha1.RootDefaults{QualityProfileRef: "spoken"})
+
+	require.NoError(t, e.observe(audio, "J.R.R. Tolkien/The Hobbit/01.m4b", hobbitAt(audio.Name), &schema.FrozenFields{PartIndex: 1}))
+	for part := int32(1); part <= 2; part++ {
+		require.NoError(t, e.observe(audio, fmt.Sprintf("Tolkien/The Hobbit {Rob Inglis}/%02d.m4b", part),
+			hobbitAt(audio.Name), &schema.FrozenFields{PartIndex: part}),
+			"the second copy's part %d was not applied", part)
+	}
+
+	name := names.Audiobook("The Hobbit", "B0099SKT2Y")
+	var ab catalogv1alpha1.Audiobook
+	require.NoError(t, e.c.Get(e.ctx, types.NamespacedName{Namespace: e.ns, Name: name}, &ab))
+	assert.Equal(t, ptr.To("J.R.R. Tolkien/The Hobbit"), ab.Spec.Folder, "the first folder's create stands")
+	paths := map[string]string{}
+	for _, mf := range e.mediaFiles() {
+		paths[mf.Spec.Path] = mf.Spec.MediaRef.Name
+	}
+	assert.Equal(t, map[string]string{
+		audio.Spec.Path + "/J.R.R. Tolkien/The Hobbit/01.m4b":       name,
+		audio.Spec.Path + "/Tolkien/The Hobbit {Rob Inglis}/01.m4b": name,
+		audio.Spec.Path + "/Tolkien/The Hobbit {Rob Inglis}/02.m4b": name,
+	}, paths)
+	p := e.tally()
+	assert.EqualValues(t, 1, p.ItemsCreated)
+	assert.EqualValues(t, 3, p.FilesMatched)
+	assert.Empty(t, p.Unmatched)
+}
+
+// A second copy's part that arrives before the audiobook exists -- the first
+// folder's create not landed (a transient failure, retried) -- creates
+// nothing pinned to a folder it did not see and is not dead-lettered: it is
+// deferred, its folder walked again by a LibraryScan of its own, which finds
+// the audiobook by then or proposes it from that folder.
+func TestASecondCopyBeforeTheAudiobookExistsIsReobserved(t *testing.T) {
+	e := newScanEnv(t, "scanapply-audiobook-copy-early")
+	audio := e.root("audio", catalogv1alpha1.RootFolderKindAudiobook, catalogv1alpha1.RootDefaults{QualityProfileRef: "spoken"})
+
+	require.NoError(t, e.observe(audio, "Tolkien/The Hobbit {Rob Inglis}/01.m4b", hobbitAt(audio.Name), &schema.FrozenFields{PartIndex: 1}))
+
+	var books catalogv1alpha1.AudiobookList
+	require.NoError(t, e.c.List(e.ctx, &books, client.InNamespace(e.ns)))
+	assert.Empty(t, books.Items, "an audiobook was created from a folder that does not hold the file")
+	assert.Empty(t, e.mediaFiles())
+	var scans catalogv1alpha1.LibraryScanList
+	require.NoError(t, e.c.List(e.ctx, &scans, client.InNamespace(e.ns)))
+	require.Len(t, scans.Items, 1, "the file's folder is walked again")
+	assert.Equal(t, "Tolkien/The Hobbit {Rob Inglis}", scans.Items[0].Spec.Subpath)
+	assert.Equal(t, audio.Name, scans.Items[0].Spec.RootFolderRef)
+	p := e.tally()
+	assert.EqualValues(t, 1, p.Deferred)
+	assert.Zero(t, p.ItemsCreated)
+	assert.Empty(t, p.Unmatched)
+}
+
+// Two parts of one proposed audiobook applied at once -- the intake's scan
+// durable runs several observations together -- create it once: the second
+// reads what the first wrote, rather than both reading it absent, both
+// applying and both counting it created (and the second's apply, from its
+// own read of the Authors, possibly releasing the first's authorRef).
+func TestTwoPartsOfOneAudiobookAtOnceCreateItOnce(t *testing.T) {
+	e := newScanEnv(t, "scanapply-audiobook-race")
+	audio := e.root("audio", catalogv1alpha1.RootFolderKindAudiobook, catalogv1alpha1.RootDefaults{QualityProfileRef: "spoken"})
+	gate := &audiobookGate{Reader: e.c, both: make(chan struct{})}
+	e.a.APIReader = gate
+
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = e.observe(audio, fmt.Sprintf("J.R.R. Tolkien/The Hobbit/%02d.m4b", i+1),
+				hobbitAt(audio.Name), &schema.FrozenFields{PartIndex: int32(i + 1)}) //nolint:gosec // 1 or 2
+		}()
+	}
+	wg.Wait()
+	require.NoError(t, errors.Join(errs...))
+
+	assert.Len(t, e.mediaFiles(), 2)
+	p := e.tally()
+	assert.EqualValues(t, 1, p.ItemsCreated, "the audiobook was counted created twice")
+	assert.EqualValues(t, 2, p.FilesMatched)
+}
+
+// audiobookGate holds each read of an Audiobook until a second one has
+// begun (or a second has passed), so two observations that may read the
+// item together do: without the applier's serialisation both read it
+// absent; with it the second read waits for the first's apply.
+type audiobookGate struct {
+	client.Reader
+	mu      sync.Mutex
+	arrived int
+	both    chan struct{}
+}
+
+func (g *audiobookGate) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*catalogv1alpha1.Audiobook); ok {
+		g.mu.Lock()
+		if g.arrived++; g.arrived == 2 {
+			close(g.both)
+		}
+		g.mu.Unlock()
+		select {
+		case <-g.both:
+		case <-time.After(time.Second):
+		}
+	}
+	return g.Reader.Get(ctx, key, obj, opts...)
 }
 
 // author creates an Author with its metadata name, the way the metadata
