@@ -31,10 +31,13 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 )
 
-// An unmonitored Album reads Unmonitored from its first pass on, so its
-// track list arriving moves none of the rollup's leaves; the artist's folder
-// scan waits for that list (design D18), so the list's arrival alone wakes
-// the artist. A later edit of a listed Album's tracks does not.
+// An unmonitored Album reads Unmonitored from its first pass on, so neither
+// its document nor its track list arriving moves any of the rollup's leaves
+// (a document without a release date); the artist's folder scan waits for
+// both (design D18), so whichever arrives last wakes the artist, in either
+// order: the track list from the Album's own lookup, often first, or the
+// document from the queued metadata task. A later edit of a listed Album's
+// tracks does not.
 func TestAnAlbumsTrackListWakesItsArtist(t *testing.T) {
 	timedOut := catalogv1alpha1.Album{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "music", Name: "muse-origin", Generation: 1},
@@ -43,14 +46,32 @@ func TestAnAlbumsTrackListWakesItsArtist(t *testing.T) {
 			{Type: "TracksSynced", Status: metav1.ConditionFalse, Reason: events.RequestTimeout.Reason()},
 		}},
 	}
-	listed := *timedOut.DeepCopy()
-	listed.Status.Tracks = []catalogv1alpha1.Track{{RecordingID: "r1", Medium: 1, Number: 1, Title: "New Born"}}
-	listed.Status.Conditions = []metav1.Condition{{Type: "TracksSynced", Status: metav1.ConditionTrue, Reason: "Best"}}
-	assert.True(t, albumRollupChanged().Update(event.UpdateEvent{ObjectOld: &timedOut, ObjectNew: &listed}),
-		"the track list's arrival wakes the artist")
+	tracked := func(alb catalogv1alpha1.Album) catalogv1alpha1.Album {
+		out := *alb.DeepCopy()
+		out.Status.Tracks = []catalogv1alpha1.Track{{RecordingID: "r1", Medium: 1, Number: 1, Title: "New Born"}}
+		out.Status.Conditions = []metav1.Condition{{Type: "TracksSynced", Status: metav1.ConditionTrue, Reason: "Best"}}
+		return out
+	}
+	documented := func(alb catalogv1alpha1.Album) catalogv1alpha1.Album {
+		out := *alb.DeepCopy()
+		out.Status.Metadata = &catalogv1alpha1.AlbumMetadata{Title: "Origin of Symmetry", RefreshedAt: metav1.Now()}
+		return out
+	}
+	changed := func(old, cur catalogv1alpha1.Album) bool {
+		return albumRollupChanged().Update(event.UpdateEvent{ObjectOld: &old, ObjectNew: &cur})
+	}
+
+	// The document first, then the track list.
+	withDoc := documented(timedOut)
+	listed := tracked(withDoc)
+	assert.True(t, changed(withDoc, listed), "the track list's arrival after the document wakes the artist")
+
+	// The track list first, then the document.
+	withTracks := tracked(timedOut)
+	assert.False(t, changed(timedOut, withTracks), "a track list without its document leaves the album to come")
+	assert.True(t, changed(withTracks, documented(withTracks)), "the document's arrival after the track list wakes the artist")
 
 	retitled := *listed.DeepCopy()
 	retitled.Status.Tracks[0].Title = "New Born (Remastered)"
-	assert.False(t, albumRollupChanged().Update(event.UpdateEvent{ObjectOld: &listed, ObjectNew: &retitled}),
-		"a listed Album's later track edits do not")
+	assert.False(t, changed(listed, retitled), "a listed Album's later track edits do not")
 }
