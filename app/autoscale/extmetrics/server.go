@@ -22,7 +22,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log/slog"
+	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -61,6 +61,10 @@ type ServerOptions struct {
 	// Cache is the read path shared with QueueGauge; nil builds the
 	// handler's own (split §9.4 as amended 2026-10-07).
 	Cache *StateCache
+	// ErrorLog is the http.Server's, the autoscale.extmetrics subsystem at
+	// WARN (logging.StdLogger); nil leaves net/http's default, which drains
+	// through slog's default under stdlog.
+	ErrorLog *log.Logger
 }
 
 // Server is the TLS listener for external.metrics.k8s.io. It needs only
@@ -128,7 +132,7 @@ func (s *Server) Runnable() (*manager.Server, error) {
 			Handler:           s.handler,
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       90 * time.Second,
-			ErrorLog:          slog.NewLogLogger(slog.Default().Handler(), slog.LevelDebug),
+			ErrorLog:          s.opts.ErrorLog,
 		},
 		Listener:        s.listener,
 		ShutdownTimeout: &shutdown,

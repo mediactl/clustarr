@@ -25,10 +25,10 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/ffruntime/ffmetrics"
+	"github.com/mediactl/clustarr/pkg/ffruntime/ffroute"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/mediainfo/native"
-	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // newProber is the import domain's prober; a variable for one test.
@@ -49,6 +49,6 @@ func registerProbe(ctx context.Context, live *k8s.Checks) (mediainfo.Prober, err
 	if err := ffmetrics.Register(ctrlmetrics.Registry); err != nil {
 		return nil, err
 	}
-	ffruntime.RouteLog(logging.FromContext(ctx))
+	ffroute.Log(ctx)
 	return p, nil
 }

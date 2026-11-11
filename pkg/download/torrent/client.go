@@ -254,7 +254,7 @@ func New(cfg Config) (download.Client, error) {
 		acfg.ListenHost = cfg.ListenHost
 	}
 	if cfg.Logger != nil {
-		acfg.Slogger = cfg.Logger
+		acfg.Slogger = anacrolixLogger(cfg)
 	}
 
 	c := &Client{cfg: cfg, sessions: make(map[string]*session)}
@@ -895,10 +895,7 @@ func (c *Client) publish(id string) {
 	sess.mu.Lock()
 	src, dst := sess.contentRoot, sess.publishDir
 	sess.mu.Unlock()
-	log := c.cfg.Logger
-	if log == nil {
-		log = slog.Default()
-	}
+	log := clientLogger(c.cfg)
 
 	t.DisallowDataUpload()
 	fail := func(err error) {
@@ -1018,4 +1015,20 @@ func (c *Client) publish(id string) {
 // process's TORRENT_STORAGE_DEFAULT_FILE_IO could choose it.
 func fileStorage(dir string) storage.ClientImplCloser {
 	return storage.NewFileOpts(storage.NewFileClientOpts{ClientBaseDir: dir, UsePartFiles: g.Some(true), DisableMmap: true})
+}
+
+// anacrolixLogger is the logger anacrolix's own lines go through: the
+// caller's under grab.torrent.anacrolix, so an override for that name quiets
+// the library alone (the 2026-11-10 logging design §4).
+func anacrolixLogger(cfg Config) *slog.Logger {
+	return logging.SubsystemLogger(cfg.Logger, "grab.torrent.anacrolix")
+}
+
+// clientLogger is the client's own logger: cfg.Logger, else the discard
+// logger -- never slog.Default.
+func clientLogger(cfg Config) *slog.Logger {
+	if cfg.Logger != nil {
+		return cfg.Logger
+	}
+	return logging.FromContext(context.Background())
 }

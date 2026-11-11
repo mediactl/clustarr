@@ -21,12 +21,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/obs"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // shutdownGrace is how long Run waits for in-flight requests -- including an
@@ -68,6 +70,7 @@ func Run(ctx context.Context, o Options) error {
 		Addr:              o.BindAddress,
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		ErrorLog:          logging.StdLogger(ctx, "ui", slog.LevelWarn),
 		// Every request's context is derived from whatever BaseContext
 		// returns (context.WithCancel(baseCtx), per net/http), so tying it
 		// to Run's own ctx means cancelling ctx cancels every in-flight

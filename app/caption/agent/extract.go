@@ -26,8 +26,8 @@ import (
 	"github.com/mediactl/clustarr/app/caption/providerset/build"
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/ffruntime/ffmetrics"
+	"github.com/mediactl/clustarr/pkg/ffruntime/ffroute"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/obs/logging"
 	embeddednative "github.com/mediactl/clustarr/pkg/subtitles/providers/embedded/native"
 )
 
@@ -48,7 +48,7 @@ func registerExtraction(ctx context.Context, b *build.Builder, live *k8s.Checks)
 	if err := ffmetrics.Register(ctrlmetrics.Registry); err != nil {
 		return err
 	}
-	ffruntime.RouteLog(logging.FromContext(ctx))
+	ffroute.Log(ctx)
 	b.Extract = embeddednative.Extract
 	return nil
 }

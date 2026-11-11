@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package natsbus
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"reflect"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
@@ -76,6 +78,17 @@ type asyncErrors struct {
 	last map[string]time.Time // kind + "\x00" + subject
 }
 
+// newAsyncErrors reports under the events.nats subsystem of log (the
+// 2026-11-10 logging design §4): an asynchronous error ERROR, a disconnect
+// WARN, a reconnect INFO. A nil log is the discard logger, never
+// slog.Default.
+func newAsyncErrors(log *slog.Logger) *asyncErrors {
+	if log == nil {
+		log = logging.FromContext(context.Background())
+	}
+	return &asyncErrors{log: logging.SubsystemLogger(log, "events.nats"), last: map[string]time.Time{}}
+}
+
 func (a *asyncErrors) onError(_ *nats.Conn, sub *nats.Subscription, err error) {
 	if err == nil {
 		return
@@ -87,7 +100,7 @@ func (a *asyncErrors) onError(_ *nats.Conn, sub *nats.Subscription, err error) {
 		subject = sub.Subject
 	}
 	if a.due(kind, subject) {
-		a.log.Warn("nats: asynchronous error", "kind", kind, "subject", subject, "error", err)
+		a.log.Error("nats: asynchronous error", "kind", kind, "subject", subject, "err", err)
 	}
 }
 
@@ -97,8 +110,16 @@ func (a *asyncErrors) onDisconnect(_ *nats.Conn, err error) {
 	}
 	metrics.NATSAsyncErrorsTotal.WithLabelValues("disconnect").Inc()
 	if a.due("disconnect", "") {
-		a.log.Warn("nats: disconnected", "error", err)
+		a.log.Warn("nats: disconnected", "err", err)
 	}
+}
+
+func (a *asyncErrors) onReconnect(nc *nats.Conn) {
+	url := ""
+	if nc != nil {
+		url = nc.ConnectedUrlRedacted()
+	}
+	a.log.Info("nats: reconnected", "url", url)
 }
 
 func (a *asyncErrors) due(kind, subject string) bool {

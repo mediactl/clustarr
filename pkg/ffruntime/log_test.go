@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"log/slog"
 	"strings"
 	"testing"
@@ -35,7 +36,8 @@ func newRouterForTest(t *testing.T, now func() time.Time) (*logRouter, *bytes.Bu
 	t.Helper()
 	var buf bytes.Buffer
 	r := newLogRouter(now)
-	r.logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	r.logger = logging.SubsystemLogger(logging.New(logging.Options{Output: &buf, Format: "text", Level: logging.LevelTrace}), "ffmpeg")
+	r.setLevel = func(ffgo.LogLevel) error { return nil }
 	return r, &buf
 }
 
@@ -148,4 +150,53 @@ func TestMuteSilencesSlogButNotCaptures(t *testing.T) {
 	assert.Equal(t, 2, got)
 	assert.NotContains(t, buf.String(), "muted")
 	assert.Contains(t, buf.String(), "heard")
+}
+
+// The record's shape (design §4): subsystem ffmpeg, FFmpeg's panic and
+// fatal FATAL, its errors WARN as the router collapsed them before (the
+// 2026-10-15 fix), the known decode noise DEBUG.
+func TestFFmpegRecordsCarryTheSubsystemAndNames(t *testing.T) {
+	r, buf := newRouterForTest(t, time.Now)
+	r.dispatch(ffgo.LogFatal, "cannot allocate\n")
+	r.dispatch(ffgo.LogPanic, "assertion\n")
+	r.dispatch(ffgo.LogError, "bad frame\n")
+	r.dispatch(ffgo.LogError, "Duplicate POC in a sequence\n")
+	out := buf.String()
+	assert.Equal(t, 4, strings.Count(out, "subsystem=ffmpeg"), out)
+	assert.Equal(t, 2, strings.Count(out, "level=FATAL"), out)
+	assert.Equal(t, 1, strings.Count(out, "level=WARN"), out)
+	assert.Equal(t, 1, strings.Count(out, "level=DEBUG"), out)
+}
+
+// An ffmpeg: debug override raises FFmpeg's own level to verbose and routes
+// what it then prints, warning WARN, info INFO, verbose DEBUG, debug and
+// trace TRACE, through the same window and bucket; taking it back restores
+// warning and routes nothing above error again (design §4).
+func TestTheFFmpegOverrideRaisesAndRestoresTheCSideLevel(t *testing.T) {
+	r, buf := newRouterForTest(t, time.Now)
+	var set []ffgo.LogLevel
+	r.setLevel = func(l ffgo.LogLevel) error { set = append(set, l); return nil }
+	r.dispatch(ffgo.LogWarning, "quiet\n")
+	assert.Empty(t, buf.String())
+
+	r.setVerbose(true)
+	assert.Equal(t, []ffgo.LogLevel{ffgo.LogVerbose}, set)
+	r.dispatch(ffgo.LogWarning, "w\n")
+	r.dispatch(ffgo.LogInfo, "i\n")
+	r.dispatch(ffgo.LogVerbose, "v\n")
+	r.dispatch(ffgo.LogDebug, "d\n")
+	r.dispatch(ffgo.LogTrace, "t\n")
+	out := buf.String()
+	for _, want := range []string{"level=WARN", "level=INFO", "level=DEBUG"} {
+		assert.Equal(t, 1, strings.Count(out, want), out)
+	}
+	assert.Equal(t, 2, strings.Count(out, "level=TRACE"), out)
+	r.dispatch(ffgo.LogInfo, "i\n")
+	assert.Equal(t, 1, strings.Count(buf.String(), "level=INFO"), "the repeat window still holds")
+
+	r.setVerbose(false)
+	assert.Equal(t, []ffgo.LogLevel{ffgo.LogVerbose, ffgo.LogWarning}, set)
+	before := buf.Len()
+	r.dispatch(ffgo.LogWarning, "quiet again\n")
+	assert.Equal(t, before, buf.Len())
 }

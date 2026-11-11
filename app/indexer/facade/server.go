@@ -22,6 +22,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -187,6 +188,7 @@ func (s *Server) Run(ctx context.Context) error {
 		Addr:              s.addr,
 		Handler:           s.mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		ErrorLog:          logging.StdLogger(ctx, "index.facade", slog.LevelWarn),
 		// Tying every request's context to ctx, not just the listener's
 		// lifetime, means cancelling ctx cancels in-flight handlers too --
 		// see ui.Run's identical wiring for why Shutdown alone is not

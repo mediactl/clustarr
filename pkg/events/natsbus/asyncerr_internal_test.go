@@ -18,12 +18,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package natsbus
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // TestAsyncErrorKinds: the async error counter's kind label is bounded to
@@ -43,4 +49,29 @@ func TestAsyncErrorKinds(t *testing.T) {
 	} {
 		assert.Equal(t, tc.want, asyncErrorKind(tc.err), "%v", tc.err)
 	}
+}
+
+// The connection's handlers log under events.nats with the level the design
+// gives each (§4): an asynchronous error ERROR, a disconnect WARN, a
+// reconnect INFO, the error under err; and a bus built with no logger
+// takes none, never slog.Default().
+func TestNATSHandlersLogUnderEventsNats(t *testing.T) {
+	var buf bytes.Buffer
+	ae := newAsyncErrors(logging.New(logging.Options{Output: &buf, Level: logging.LevelTrace}))
+	ae.onError(nil, nil, errors.New("slow consumer"))
+	ae.onDisconnect(nil, errors.New("eof"))
+	ae.onReconnect(nil)
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	require.Len(t, lines, 3, buf.String())
+	require.Contains(t, lines[0], `"level":"ERROR"`)
+	require.Contains(t, lines[0], `"err":"slow consumer"`)
+	require.Contains(t, lines[1], `"level":"WARN"`)
+	require.Contains(t, lines[1], `"err":"eof"`)
+	require.Contains(t, lines[2], `"level":"INFO"`)
+	for _, l := range lines {
+		require.Contains(t, l, `"subsystem":"events.nats"`)
+		require.NotContains(t, l, `"error"`)
+	}
+	quiet := newAsyncErrors(nil)
+	require.False(t, quiet.log.Enabled(context.Background(), logging.LevelFatal), "no logger means the discard logger, not slog.Default")
 }

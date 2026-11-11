@@ -184,7 +184,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	// 8. Every component, in a fixed order.
-	components, err := register(mgr, bus, o, dubIndex)
+	components, err := register(ctx, mgr, bus, o, dubIndex)
 	if err != nil {
 		return err
 	}
@@ -346,7 +346,7 @@ func newScanApplier(mgr ctrl.Manager, bus events.Bus, o Options) *scanapply.Appl
 // remediation, livetv (Live TV spec 2026-10-07), then autoscale. The
 // admission and intake planes come first: the components that dispatch
 // take them.
-func register(mgr ctrl.Manager, bus events.Bus, o Options, dubIndex *dubs.Index) ([]string, error) {
+func register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options, dubIndex *dubs.Index) ([]string, error) {
 	p, err := newPlanes(mgr, bus, o)
 	if err != nil {
 		return nil, err
@@ -436,7 +436,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options, dubIndex *dubs.Index)
 			if !ok {
 				return fmt.Errorf("manager: autoscaling needs a bus that reports consumer state; %T does not", bus)
 			}
-			return autoscale.Register(mgr, admin, autoscale.Options{
+			return autoscale.Register(ctx, mgr, admin, autoscale.Options{
 				Enabled:     o.Autoscale,
 				Namespace:   o.Namespace,
 				BindAddress: o.ExternalMetricsBindAddress,

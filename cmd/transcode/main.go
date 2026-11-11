@@ -48,6 +48,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/ffruntime"
+	"github.com/mediactl/clustarr/pkg/ffruntime/ffroute"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
@@ -159,7 +160,7 @@ func run(args []string, getenv func(string) string) int {
 		log.ErrorContext(ctx, "the in-process engine is unavailable", "error", err)
 		return jobspec.WorkerExitRetriable
 	}
-	ffruntime.RouteLog(log)
+	ffroute.Log(ctx)
 	if err := busconn.ValidateURL(need["NATS_URL"]); err != nil {
 		log.ErrorContext(ctx, "$NATS_URL", "error", err)
 		return jobspec.WorkerExitMisconfigured
@@ -242,7 +243,7 @@ func graftWithFFmpeg(ctx context.Context, t grafttask.Task, dataDir string, log 
 	if _, err := ffruntime.Load(); err != nil {
 		return grafttask.Failed(grafttask.ReasonError, "FFmpeg is unavailable in this image: %v", err)
 	}
-	ffruntime.RouteLog(log)
+	ffroute.Log(logging.NewContext(ctx, log))
 	return graft.Run(ctx, t, graft.Options{DataDir: dataDir})
 }
 

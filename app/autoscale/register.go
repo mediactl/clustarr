@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -85,7 +86,7 @@ func (o Options) Validate() error {
 // and NamespaceGuard; without it, a leader-only pass that deletes every
 // HPA the manager labelled. It adds no readiness check (§3.3): the API has
 // its own Service with publishNotReadyAddresses.
-func Register(mgr ctrl.Manager, admin events.StreamAdmin, o Options) error {
+func Register(ctx context.Context, mgr ctrl.Manager, admin events.StreamAdmin, o Options) error {
 	if err := o.Validate(); err != nil {
 		return err
 	}
@@ -129,6 +130,7 @@ func Register(mgr ctrl.Manager, admin events.StreamAdmin, o Options) error {
 	}
 	srv, err := extmetrics.NewServer(extmetrics.ServerOptions{
 		Namespace: o.Namespace, BindAddress: o.BindAddress, SecretName: o.SecretName, Series: series, Cache: cache,
+		ErrorLog: logging.StdLogger(ctx, "autoscale.extmetrics", slog.LevelWarn),
 	}, mgr.GetAPIReader(), admin)
 	if err != nil {
 		return err

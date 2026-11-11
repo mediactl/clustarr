@@ -29,10 +29,11 @@ import (
 
 // logRouter is the one FFmpeg log callback a process installs (FFmpeg's
 // log callback is process-wide; spec §7.4). Lines at LogError or worse go to
-// slog as "ffmpeg" unless muted: known decode noise at Debug (decodeNoise),
-// anything else at Warn, each message once per repeatWindow and then with
-// the count of its repeats, under a rate limit. Every line goes to each
-// Capture sink.
+// slog under the ffmpeg subsystem unless muted: known decode noise at Debug
+// (decodeNoise), panic and fatal at FATAL, anything else at Warn, each
+// message once per repeatWindow and then with the count of its repeats,
+// under a rate limit; with the subsystem at debug (verbose) every line is
+// routed the same way. Every line goes to each Capture sink.
 type logRouter struct {
 	mu        sync.Mutex
 	installed bool
@@ -43,7 +44,21 @@ type logRouter struct {
 	bucket    tokenBucket
 	now       func() time.Time
 	repeats   map[string]*repeat
+
+	// verbose is an ffmpeg: debug (or trace) override in force: FFmpeg's own
+	// level is raised to verbose through setLevel and every line it then
+	// prints is routed, still through the window and the bucket. Without it
+	// the C side stays at warning and only errors and worse are routed.
+	verbose  bool
+	setLevel func(ffgo.LogLevel) error
 }
+
+// The two levels slog does not name, as pkg/obs/logging names them (which
+// this package may not link): below DEBUG is TRACE, above ERROR is FATAL.
+const (
+	levelTrace slog.Level = -8
+	levelFatal slog.Level = 12
+)
 
 // repeat is one message's logging: when it was last logged and how often it
 // came again since.
@@ -81,18 +96,65 @@ var decodeNoise = []string{
 func newLogRouter(now func() time.Time) *logRouter {
 	return &logRouter{
 		sinks: map[int]func(ffgo.LogLevel, string){}, now: now, repeats: map[string]*repeat{},
-		bucket: tokenBucket{rate: 10, burst: 20, tokens: 20, now: now},
+		bucket:   tokenBucket{rate: 10, burst: 20, tokens: 20, now: now},
+		setLevel: ffgo.SetLogLevel,
 	}
 }
 
 var router = newLogRouter(time.Now)
 
-// RouteLog sends FFmpeg's errors to l from now on.
+// RouteLog sends FFmpeg's lines to l from now on: the caller hands it the
+// ffmpeg subsystem's logger and wires SetVerbose to that subsystem's level
+// (pkg/ffruntime/ffroute.Log does both), since this package links nothing of
+// clustarr's but ffgo (TestFFRuntimeImportsOnlyFFgo).
 func RouteLog(l *slog.Logger) {
 	router.mu.Lock()
 	router.logger = l
 	router.mu.Unlock()
 	router.install()
+}
+
+// SetVerbose raises FFmpeg's own level to verbose and routes every line it
+// then prints, or lowers it to warning and routes errors and worse again
+// (the 2026-11-10 logging design §4: an ffmpeg: debug override in force).
+func SetVerbose(on bool) { router.setVerbose(on) }
+
+// setVerbose raises or lowers FFmpeg's own level and what the router
+// forwards; the C side is left alone when it refuses the change.
+func (r *logRouter) setVerbose(on bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.verbose == on {
+		return
+	}
+	r.verbose = on
+	level := ffgo.LogWarning
+	if on {
+		level = ffgo.LogVerbose
+	}
+	if r.setLevel != nil {
+		_ = r.setLevel(level)
+	}
+}
+
+// slogLevelFor is the record's level for an FFmpeg line (design §4): panic
+// and fatal FATAL; error WARN, the collapse the router has made since
+// 2026-10-15 (an FFmpeg "error" is mostly a recoverable decode complaint,
+// and the job's own failure is logged by its worker at ERROR); warning WARN,
+// info INFO, verbose DEBUG, debug and trace TRACE.
+func slogLevelFor(level ffgo.LogLevel) slog.Level {
+	switch {
+	case level <= ffgo.LogFatal:
+		return levelFatal
+	case level <= ffgo.LogWarning:
+		return slog.LevelWarn
+	case level <= ffgo.LogInfo:
+		return slog.LevelInfo
+	case level <= ffgo.LogVerbose:
+		return slog.LevelDebug
+	default:
+		return levelTrace
+	}
 }
 
 // Capture hands every FFmpeg line to sink until release is called.
@@ -145,8 +207,8 @@ func (r *logRouter) dispatch(level ffgo.LogLevel, msg string) {
 		sinks = append(sinks, s)
 	}
 	logger := r.logger
-	slogLevel, repeated, toSlog := slog.LevelWarn, 0, false
-	if logger != nil && r.muted == 0 && level <= ffgo.LogError {
+	slogLevel, repeated, toSlog := slogLevelFor(level), 0, false
+	if logger != nil && r.muted == 0 && (level <= ffgo.LogError || r.verbose) {
 		if isDecodeNoise(text) {
 			slogLevel, toSlog = slog.LevelDebug, true
 		} else {

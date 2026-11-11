@@ -28,6 +28,7 @@ package tuner
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"reflect"
@@ -488,6 +489,7 @@ func (t *Tuner) Start(ctx context.Context) error {
 		srv = &http.Server{
 			Handler: t.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second,
 			BaseContext: func(net.Listener) context.Context { return ctx },
+			ErrorLog:    logging.StdLogger(ctx, "livetv.tuner", slog.LevelWarn),
 		}
 		go func() {
 			if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

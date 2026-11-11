@@ -104,7 +104,7 @@ func TestManagerFieldIndexes(t *testing.T) {
 	mgr, err := ctrl.NewManager(env.Config, managerOptions(o))
 	require.NoError(t, err)
 	rec := newRecordingManager(mgr)
-	_, err = register(rec, membus.New(clockwork.NewRealClock()), o, nil)
+	_, err = register(t.Context(), rec, membus.New(clockwork.NewRealClock()), o, nil)
 	require.NoError(t, err)
 
 	// §5.7 as built: the remediation loop's MediaFile and item indexes
@@ -157,7 +157,7 @@ func TestRegisterWiresAutoscaleByTheFlag(t *testing.T) {
 		mgr, err := ctrl.NewManager(env.Config, managerOptions(o))
 		require.NoError(t, err)
 		rec := newRecordingManager(mgr)
-		names, err := register(rec, membus.New(clockwork.NewRealClock()), o, nil)
+		names, err := register(t.Context(), rec, membus.New(clockwork.NewRealClock()), o, nil)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"catalog", "import", "index", "grab", "transcode", "caption", "remediation", "autoscale"}, names,
 			"every step runs, autoscale last, with --autoscale=%v", enabled)
@@ -207,7 +207,7 @@ func TestIntakeConsumersRunOnlyOnTheLeader(t *testing.T) {
 	mgr, err := ctrl.NewManager(env.Config, managerOptions(o))
 	require.NoError(t, err)
 	rec := newRecordingManager(mgr)
-	_, err = register(rec, membus.New(clockwork.NewRealClock()), o, nil)
+	_, err = register(t.Context(), rec, membus.New(clockwork.NewRealClock()), o, nil)
 	require.NoError(t, err)
 
 	leaderOnly := map[string]int{}

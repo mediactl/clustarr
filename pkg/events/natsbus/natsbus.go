@@ -103,7 +103,8 @@ func WithServeLimits(l events.ServeLimits) Option {
 }
 
 // WithLogger sets the logger the connection's asynchronous errors are
-// reported on (asyncErrors), slog.Default() by default, and the one every
+// reported on (asyncErrors, under events.nats; none by default, never
+// slog.Default), and the one every
 // Serve handler's context carries (logging.FromContext), none by default:
 // without it a responder's lines are discarded, which on talos (2026-10-28)
 // hid every refusal and 429 the index agent's download verb answered.
@@ -163,17 +164,16 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 	// dropped messages above all, which nats.go reports nowhere else but its
 	// default handler's stderr line -- unless the caller installed its own
 	// handler (S7).
-	log := o.log
-	if log == nil {
-		log = slog.Default()
-	}
-	ae := &asyncErrors{log: log, last: map[string]time.Time{}}
+	ae := newAsyncErrors(o.log)
 	if !callersErrorHandler(nc.Opts.AsyncErrorCB) {
 		nc.SetErrorHandler(ae.onError)
 	}
 	// A DisconnectedErrCB silences a DisconnectedCB, so neither is replaced.
 	if nc.Opts.DisconnectedErrCB == nil && nc.Opts.DisconnectedCB == nil {
 		nc.SetDisconnectErrHandler(ae.onDisconnect)
+	}
+	if nc.Opts.ReconnectedCB == nil {
+		nc.SetReconnectHandler(ae.onReconnect)
 	}
 	var (
 		js  jetstream.JetStream

@@ -97,7 +97,7 @@ func startGraftFixture(t *testing.T, name string) *graftFixture {
 
 	mgr, err := ctrl.NewManager(env.Config, managerOptions(o))
 	require.NoError(t, err)
-	_, err = register(mgr, bus, o, nil)
+	_, err = register(t.Context(), mgr, bus, o, nil)
 	require.NoError(t, err)
 	mctx, stop := context.WithCancel(context.Background())
 	done := make(chan error, 1)

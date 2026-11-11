@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/ffruntime/ffmetrics"
+	"github.com/mediactl/clustarr/pkg/ffruntime/ffroute"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
@@ -186,7 +187,7 @@ func run(args []string, getenv func(string) string) int {
 		log.ErrorContext(ctx, "FFmpeg lacks what decoding needs", "error", err)
 		return worker.ExitMisconfigured
 	}
-	ffruntime.RouteLog(log)
+	ffroute.Log(ctx)
 	if err := ffmetrics.Register(prometheus.DefaultRegisterer); err != nil {
 		log.ErrorContext(ctx, "metrics", "error", err)
 		return worker.ExitMisconfigured

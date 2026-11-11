@@ -82,7 +82,7 @@ func TestRegisterWithAutoscaleOffDeletesTheManagedHPAs(t *testing.T) {
 		Controller: config.Controller{SkipNameValidation: new(true)},
 	})
 	require.NoError(t, err)
-	require.NoError(t, autoscale.Register(mgr, stubAdmin{}, autoscale.Options{Namespace: ns, BindAddress: "0"}))
+	require.NoError(t, autoscale.Register(t.Context(), mgr, stubAdmin{}, autoscale.Options{Namespace: ns, BindAddress: "0"}))
 	runCtx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
 	go func() { _ = mgr.Start(runCtx) }()
