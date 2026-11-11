@@ -555,6 +555,64 @@ func TestTheCategoryPickerListsTheChoices(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, get(t, srv, "/livetv/channels/media/nope/category").Code)
 }
 
+// TestTheActiveSwitchIsTheCategoryUnderAnAutomaticLineup: an enabled
+// lineup owns spec.active as it owns spec.number, so a written active
+// would be reverted at its next apply. Under it the row's switch posts the
+// category override instead -- off is Off (spec.category ""), on is
+// Automatic (null) -- bulk enable and disable do the same, and a posted
+// active is not written. A dry run's switch is the person's spec.active.
+func TestTheActiveSwitchIsTheCategoryUnderAnAutomaticLineup(t *testing.T) {
+	srv, c := lineupFixture(t, true, nil)
+	body := get(t, srv, "/livetv/channels").Body.String()
+	switchVals := func(row string) map[string]string {
+		tag := tagWith(t, row, `aria-label="Active"`)
+		m := regexp.MustCompile(`hx-vals="([^"]*)"`).FindStringSubmatch(tag)
+		require.NotNil(t, m, tag)
+		var kv map[string]string
+		require.NoError(t, json.Unmarshal([]byte(html.UnescapeString(m[1])), &kv))
+		return kv
+	}
+	assert.Equal(t, map[string]string{"gen": "1", "category": "Off"}, switchVals(rowOf(t, body, "argon-tv-espn")), "turning an active channel off")
+	assert.Equal(t, map[string]string{"gen": "1", "category": "Automatic"}, switchVals(rowOf(t, body, "argon-tv-shop")), "turning an off channel back to the rules")
+
+	// What the switch posts.
+	rec := postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "category": {"Off"}})
+	require.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
+	got := getChannel(t, c, "argon-tv-espn")
+	assert.Equal(t, ptr.To(""), got.Spec.Category, "off every DVR")
+	assert.True(t, got.Spec.Active, "spec.active is the lineup's to write")
+
+	// A posted active is not written.
+	before := getChannel(t, c, "argon-tv-cnn").ResourceVersion
+	rec = postTo(t, srv, "/livetv/channels/media/argon-tv-cnn", "channel-argon-tv-cnn", url.Values{"gen": {"1"}, "active": {"false"}})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
+	assert.Equal(t, []string{"argon-tv-cnn"}, channelRowIDs(rec.Body.String()))
+	got = getChannel(t, c, "argon-tv-cnn")
+	assert.True(t, got.Spec.Active)
+	assert.Equal(t, before, got.ResourceVersion, "nothing written")
+
+	// Bulk disable and enable patch the category.
+	rec = postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-cnn@1"}, "op": {"disable"}})
+	requireTag(t, rec.Body.String(), `data-action-status="ok"`)
+	got = getChannel(t, c, "argon-tv-cnn")
+	assert.Equal(t, ptr.To(""), got.Spec.Category, "bulk disable is Off")
+	assert.True(t, got.Spec.Active)
+	rec = postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-shop@1"}, "op": {"enable"}})
+	requireTag(t, rec.Body.String(), `data-action-status="ok"`)
+	got = getChannel(t, c, "argon-tv-shop")
+	assert.Nil(t, got.Spec.Category, "bulk enable is Automatic")
+	assert.False(t, got.Spec.Active)
+
+	// A dry run's switch is spec.active, as without a lineup.
+	dry, dc := lineupFixture(t, false, nil)
+	assert.Equal(t, map[string]string{"gen": "1", "active": "false"}, switchVals(rowOf(t, get(t, dry, "/livetv/channels").Body.String(), "argon-tv-espn")))
+	rec = postTo(t, dry, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-espn@1"}, "op": {"disable"}})
+	requireTag(t, rec.Body.String(), `data-action-status="ok"`)
+	assert.False(t, getChannel(t, dc, "argon-tv-espn").Spec.Active)
+	assert.Nil(t, getChannel(t, dc, "argon-tv-espn").Spec.Category)
+}
+
 func TestANumberCannotBeEditedUnderAnAutomaticLineup(t *testing.T) {
 	srv, c := lineupFixture(t, true, nil)
 	body := get(t, srv, "/livetv/channels").Body.String()

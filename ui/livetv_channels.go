@@ -252,8 +252,9 @@ func (s *Server) answerInPlace(w http.ResponseWriter, r *http.Request, err error
 
 // handleEditChannel is one field of a channel edited in place: gen and one
 // of active, number, name, group, epg, plex or category. It answers the
-// row. Under an automatic lineup the lineup numbers the channel, so a
-// posted number is not written.
+// row. Under an enabled lineup the lineup numbers and activates the
+// channel, so a posted number or active is not written (the row's switch
+// posts the category override there instead).
 func (s *Server) handleEditChannel(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		s.answerInPlace(w, r, fmt.Errorf("%w: %v", actions.ErrInvalid, err))
@@ -281,8 +282,8 @@ func (s *Server) handleEditChannel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	in := s.liveTVInputs(r.Context())
-	if e.Number != nil && lineupNumbers(in, ns, name) {
-		e.Number = nil
+	if lineupOwns(in, ns, name) {
+		e.Number, e.Active = nil, nil
 	}
 	if e != (actions.ChannelEdit{Name: name, Generation: gen}) {
 		patched, err := s.opts.Actions.EditChannels(r.Context(), ns, []actions.ChannelEdit{e})
@@ -307,16 +308,22 @@ func (s *Server) handleEditChannel(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// lineupNumbers is channel ns/name's provider numbering it: its
-// spec.lineup enabled.
-func lineupNumbers(in projection.LiveTVInputs, ns, name string) bool {
+// lineupOwns is channel ns/name's provider's lineup enabled: the lineup
+// controller writes its spec.number and spec.active, so the page writes
+// neither (a written one would be reverted at its next apply).
+func lineupOwns(in projection.LiveTVInputs, ns, name string) bool {
 	for _, ch := range in.Channels {
 		if ch.Namespace == ns && ch.Name == name {
-			p, ok := providerOf(in, ns+"/"+ch.Spec.ProviderRef)
-			return ok && p.Spec.Lineup != nil && p.Spec.Lineup.Enabled
+			return lineupEnabled(in, &ch)
 		}
 	}
 	return false
+}
+
+// lineupEnabled is ch's provider's spec.lineup enabled.
+func lineupEnabled(in projection.LiveTVInputs, ch *clustarrv1.IPTVChannel) bool {
+	p, ok := providerOf(in, ch.Namespace+"/"+ch.Spec.ProviderRef)
+	return ok && p.Spec.Lineup != nil && p.Spec.Lineup.Enabled
 }
 
 // handleDeleteChannel deletes a channel; the empty answer removes its row.
@@ -362,6 +369,7 @@ func (s *Server) handleChannelsBulk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op := r.PostForm.Get("op")
+	providers := projection.LiveTVInputs{Providers: s.listIPTVProviders(r.Context())}
 	var start int
 	if op == "renumber" {
 		n, err := strconv.Atoi(strings.TrimSpace(r.PostForm.Get("start")))
@@ -370,10 +378,9 @@ func (s *Server) handleChannelsBulk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		start = n
-		in := projection.LiveTVInputs{Providers: s.listIPTVProviders(r.Context())}
 		for _, it := range items {
-			if p, ok := providerOf(in, it.ch.Namespace+"/"+it.ch.Spec.ProviderRef); ok && p.Spec.Lineup != nil && p.Spec.Lineup.Enabled {
-				s.finishActionWith(w, r, fmt.Errorf("%w: channel %s is numbered by %s's lineup", actions.ErrInvalid, it.ch.Spec.Number, p.Name), "")
+			if lineupEnabled(providers, it.ch) {
+				s.finishActionWith(w, r, fmt.Errorf("%w: channel %s is numbered by %s's lineup", actions.ErrInvalid, it.ch.Spec.Number, it.ch.Spec.ProviderRef), "")
 				return
 			}
 		}
@@ -385,6 +392,17 @@ func (s *Server) handleChannelsBulk(w http.ResponseWriter, r *http.Request) {
 		e := actions.ChannelEdit{Name: it.ch.Name, Generation: it.gen}
 		switch op {
 		case "enable", "disable":
+			// An enabled lineup writes spec.active: the category override
+			// turns its channel off every DVR (Off) or back to the rules
+			// (Automatic) instead.
+			if lineupEnabled(providers, it.ch) {
+				c := actions.CategoryOff
+				if op == "enable" {
+					c = actions.CategoryAutomatic
+				}
+				e.Category = &c
+				break
+			}
 			v := op == "enable"
 			e.Active = &v
 		case "group":

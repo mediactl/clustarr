@@ -495,6 +495,22 @@ func genVals(r projection.ChannelRow) string {
 	return hxVals("gen", strconv.FormatInt(r.Generation, 10))
 }
 
+// activeVals are the Active switch's hx-vals: spec.active flipped, or,
+// under an enabled lineup, which writes spec.active, the category override
+// that turns the channel off every DVR (Off) or back to the lineup's rules
+// (Automatic).
+func activeVals(r projection.ChannelRow) string {
+	gen := strconv.FormatInt(r.Generation, 10)
+	if r.LineupOn {
+		c := actions.CategoryAutomatic
+		if r.Active {
+			c = actions.CategoryOff
+		}
+		return hxVals("gen", gen, "category", c)
+	}
+	return hxVals("gen", gen, "active", fmt.Sprint(!r.Active))
+}
+
 // bulkValue is a row's selection value: namespace/name@generation.
 func bulkValue(r projection.ChannelRow) string {
 	return r.Namespace + "/" + r.Name + "@" + strconv.FormatInt(r.Generation, 10)
@@ -517,9 +533,12 @@ templ ChannelRowView(r projection.ChannelRow) {
 			@checkbox.Checkbox(checkbox.Props{Name: "item", Value: bulkValue(r), Form: "channels-bulk", Attributes: templ.Attributes{"aria-label": "Select", "data-channel-select": true}})
 		}
 		@table.Cell() {
-			{{ attrs := channelPost(r, hxVals("gen", strconv.FormatInt(r.Generation, 10), "active", fmt.Sprint(!r.Active))) }}
+			{{ attrs := channelPost(r, activeVals(r)) }}
 			{{ attrs["hx-trigger"] = "click" }}
 			{{ attrs["aria-label"] = "Active" }}
+			if r.LineupOn {
+				{{ attrs["title"] = "Off every DVR, or back to the lineup's rules" }}
+			}
 			@switchcomp.Switch(switchcomp.Props{Checked: &r.Active, Size: switchcomp.SizeSm, Attributes: attrs})
 		}
 		@table.Cell() {
