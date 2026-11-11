@@ -27,7 +27,10 @@ type LineupCategoryApplyConfiguration struct {
 	// Name is the category, and the key of status.categories.
 	Name *string `json:"name,omitempty"`
 	// Base is the number the category's channels begin at. Unique across
-	// categories; the first rule of a name carries it.
+	// categories; the first rule of a name carries it. At most 99000: a
+	// category holds at most 450 channels (dvr.maxChannels' cap), and the
+	// highest number, 99000+450, must stay the five digits IPTVChannel
+	// spec.number allows.
 	Base *int32 `json:"base,omitempty"`
 	// Groups are playlist group-titles the rule takes.
 	Groups []string `json:"groups,omitempty"`

@@ -222,6 +222,11 @@ func TestLineupCEL(t *testing.T) {
 	_, err = providers.Create(ctx, provider("second-rule", lineup(cat("News", 1000), cat("News", 0))), metav1.CreateOptions{})
 	require.NoError(t, err, "a second rule of a name needs no base beside a first that has one")
 
+	_, err = providers.Create(ctx, provider("base-max", lineup(cat("News", 99000))), metav1.CreateOptions{})
+	require.NoError(t, err, "base 99000 is the highest")
+	_, err = providers.Create(ctx, provider("base-over", lineup(cat("News", 99001))), metav1.CreateOptions{})
+	require.Error(t, err, "base 99001 would number channels past five digits")
+
 	plex := func(extra map[string]any) map[string]any {
 		p := map[string]any{"credentialsRef": map[string]any{"name": "plex", "key": "token"}, "lineups": []any{"657c8183afd0f02cd353633f"}}
 		for k, v := range extra {

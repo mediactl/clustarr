@@ -99,10 +99,13 @@ type LineupCategory struct {
 	Name string `json:"name"`
 
 	// Base is the number the category's channels begin at. Unique across
-	// categories; the first rule of a name carries it.
+	// categories; the first rule of a name carries it. At most 99000: a
+	// category holds at most 450 channels (dvr.maxChannels' cap), and the
+	// highest number, 99000+450, must stay the five digits IPTVChannel
+	// spec.number allows.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=99999
+	// +kubebuilder:validation:Maximum=99000
 	Base *int32 `json:"base,omitempty"`
 
 	// Groups are playlist group-titles the rule takes.

@@ -289,9 +289,12 @@ spec:
                         base:
                           description: |-
                             Base is the number the category's channels begin at. Unique across
-                            categories; the first rule of a name carries it.
+                            categories; the first rule of a name carries it. At most 99000: a
+                            category holds at most 450 channels (dvr.maxChannels' cap), and the
+                            highest number, 99000+450, must stay the five digits IPTVChannel
+                            spec.number allows.
                           format: int32
-                          maximum: 99999
+                          maximum: 99000
                           minimum: 1
                           type: integer
                         exclude:
