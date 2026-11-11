@@ -490,7 +490,7 @@ func channelsActions(links []BlockLinks) templ.Component {
 								var templ_7745c5c3_Var13 string
 								templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(l.Provider + " " + l.Start + "+")
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 223, Col: 42}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 223, Col: 42}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 								if templ_7745c5c3_Err != nil {
@@ -636,7 +636,7 @@ func dryRunBanner(b DryRunBanner) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs("Dry run: " + b.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 245, Col: 25}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 245, Col: 25}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
@@ -694,7 +694,7 @@ func dryRunBanner(b DryRunBanner) templ.Component {
 							var templ_7745c5c3_Var21 string
 							templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name + " " + strconv.Itoa(c.Channels))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 255, Col: 48}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 255, Col: 48}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 							if templ_7745c5c3_Err != nil {
@@ -732,7 +732,7 @@ func dryRunBanner(b DryRunBanner) templ.Component {
 								var templ_7745c5c3_Var23 string
 								templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(d.Count) + " " + dropLabel(d.Reason))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 264, Col: 59}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 264, Col: 59}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 								if templ_7745c5c3_Err != nil {
@@ -762,7 +762,7 @@ func dryRunBanner(b DryRunBanner) templ.Component {
 						var templ_7745c5c3_Var24 string
 						templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs("The spec does not plan: " + b.Error + "; the last good plan is shown.")
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 270, Col: 106}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 270, Col: 106}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 						if templ_7745c5c3_Err != nil {
@@ -894,7 +894,7 @@ func linkLine(label, value string) templ.Component {
 				var templ_7745c5c3_Var28 string
 				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 320, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 320, Col: 58}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 				if templ_7745c5c3_Err != nil {
@@ -1092,7 +1092,7 @@ func ChannelsDeleteConfirm(items []string) templ.Component {
 						var templ_7745c5c3_Var36 string
 						templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(deleteQuestion(len(items)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 360, Col: 33}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 360, Col: 33}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 						if templ_7745c5c3_Err != nil {
@@ -1148,7 +1148,7 @@ func ChannelsDeleteConfirm(items []string) templ.Component {
 					var templ_7745c5c3_Var38 string
 					templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue(it)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 375, Col: 48}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 375, Col: 48}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
 					if templ_7745c5c3_Err != nil {
@@ -1349,7 +1349,7 @@ func ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) templ.Componen
 		var templ_7745c5c3_Var45 string
 		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue("/livetv/channels/table?" + f.Values().Encode())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 421, Col: 58}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 421, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var45)
 		if templ_7745c5c3_Err != nil {
@@ -2011,7 +2011,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 						var templ_7745c5c3_Var70 string
 						templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(r.Reason)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 562, Col: 16}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 562, Col: 16}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 						if templ_7745c5c3_Err != nil {
@@ -2053,7 +2053,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 				var templ_7745c5c3_Var72 string
 				templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(r.Group)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 568, Col: 12}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 568, Col: 12}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 				if templ_7745c5c3_Err != nil {
@@ -2094,7 +2094,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 				var templ_7745c5c3_Var74 string
 				templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(r.Provider)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 574, Col: 15}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 574, Col: 15}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 				if templ_7745c5c3_Err != nil {
@@ -2137,7 +2137,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 					var templ_7745c5c3_Var77 string
 					templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(epgLabel(r.EPG))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 578, Col: 21}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 578, Col: 21}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 					if templ_7745c5c3_Err != nil {
@@ -2181,7 +2181,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 						var templ_7745c5c3_Var79 string
 						templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(sourceLabel(r.Source))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 586, Col: 28}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 586, Col: 28}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var79))
 						if templ_7745c5c3_Err != nil {
@@ -2227,7 +2227,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 						var templ_7745c5c3_Var82 string
 						templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(plexLabel(r))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 593, Col: 19}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 593, Col: 19}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 						if templ_7745c5c3_Err != nil {
@@ -2252,7 +2252,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 					var templ_7745c5c3_Var83 string
 					templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(r.BlockStart + "+")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 597, Col: 29}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 597, Col: 29}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 					if templ_7745c5c3_Err != nil {
@@ -2265,7 +2265,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 					var templ_7745c5c3_Var84 string
 					templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.ResolveAttributeValue(r.Owner)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 598, Col: 80}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 598, Col: 80}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var84)
 					if templ_7745c5c3_Err != nil {
@@ -2278,7 +2278,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 					var templ_7745c5c3_Var85 string
 					templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinStringErrs(r.Owner)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 598, Col: 92}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 598, Col: 92}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 					if templ_7745c5c3_Err != nil {
@@ -2458,7 +2458,7 @@ func categoryCell(r projection.ChannelRow) templ.Component {
 						var templ_7745c5c3_Var92 string
 						templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.JoinStringErrs(r.Category)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 643, Col: 19}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 643, Col: 19}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
 						if templ_7745c5c3_Err != nil {
@@ -2509,7 +2509,7 @@ func categoryCell(r projection.ChannelRow) templ.Component {
 						var templ_7745c5c3_Var95 string
 						templ_7745c5c3_Var95, templ_7745c5c3_Err = templ.JoinStringErrs(dropLabel(r.Dropped))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 651, Col: 29}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 651, Col: 29}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var95))
 						if templ_7745c5c3_Err != nil {
@@ -2535,7 +2535,7 @@ func categoryCell(r projection.ChannelRow) templ.Component {
 					var templ_7745c5c3_Var96 string
 					templ_7745c5c3_Var96, templ_7745c5c3_Err = templ.JoinStringErrs("→ " + r.LineupNumber)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 657, Col: 125}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 657, Col: 125}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var96))
 					if templ_7745c5c3_Err != nil {
@@ -2558,7 +2558,7 @@ func categoryCell(r projection.ChannelRow) templ.Component {
 					var templ_7745c5c3_Var97 string
 					templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.ResolveAttributeValue("duplicate of " + r.DuplicateOf)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 661, Col: 105}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 661, Col: 105}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var97)
 					if templ_7745c5c3_Err != nil {
@@ -2571,7 +2571,7 @@ func categoryCell(r projection.ChannelRow) templ.Component {
 					var templ_7745c5c3_Var98 string
 					templ_7745c5c3_Var98, templ_7745c5c3_Err = templ.JoinStringErrs("duplicate of " + r.DuplicateOf)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 661, Col: 141}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 661, Col: 141}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var98))
 					if templ_7745c5c3_Err != nil {
@@ -2589,7 +2589,7 @@ func categoryCell(r projection.ChannelRow) templ.Component {
 					var templ_7745c5c3_Var99 string
 					templ_7745c5c3_Var99, templ_7745c5c3_Err = templ.JoinStringErrs(ruleLabel(r.Rule))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 663, Col: 85}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 663, Col: 85}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var99))
 					if templ_7745c5c3_Err != nil {
@@ -2615,7 +2615,7 @@ func categoryCell(r projection.ChannelRow) templ.Component {
 					var templ_7745c5c3_Var101 string
 					templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.JoinStringErrs(categoryChoice(r))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 666, Col: 24}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 666, Col: 24}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var101))
 					if templ_7745c5c3_Err != nil {
@@ -2858,7 +2858,7 @@ func CategoryPickerDialog(p CategoryPicker) templ.Component {
 								var templ_7745c5c3_Var112 string
 								templ_7745c5c3_Var112, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 727, Col: 17}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 727, Col: 17}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var112))
 								if templ_7745c5c3_Err != nil {
@@ -3091,7 +3091,7 @@ func channelLogo(path, number string) templ.Component {
 			var templ_7745c5c3_Var117 string
 			templ_7745c5c3_Var117, templ_7745c5c3_Err = templ.ResolveAttributeValue(path)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 836, Col: 27}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 836, Col: 27}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var117)
 			if templ_7745c5c3_Err != nil {
@@ -3104,7 +3104,7 @@ func channelLogo(path, number string) templ.Component {
 			var templ_7745c5c3_Var118 string
 			templ_7745c5c3_Var118, templ_7745c5c3_Err = templ.JoinStringErrs(number)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 837, Col: 150}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 837, Col: 150}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var118))
 			if templ_7745c5c3_Err != nil {
@@ -3122,7 +3122,7 @@ func channelLogo(path, number string) templ.Component {
 			var templ_7745c5c3_Var119 string
 			templ_7745c5c3_Var119, templ_7745c5c3_Err = templ.JoinStringErrs(number)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 839, Col: 143}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 839, Col: 143}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var119))
 			if templ_7745c5c3_Err != nil {
@@ -3283,7 +3283,7 @@ func PlaylistPaneView(p PlaylistPane) templ.Component {
 						var templ_7745c5c3_Var125 string
 						templ_7745c5c3_Var125, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(p.Total))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 906, Col: 70}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 906, Col: 70}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var125))
 						if templ_7745c5c3_Err != nil {
@@ -3343,7 +3343,7 @@ func PlaylistPaneView(p PlaylistPane) templ.Component {
 							var templ_7745c5c3_Var128 string
 							templ_7745c5c3_Var128, templ_7745c5c3_Err = templ.JoinStringErrs(f)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 915, Col: 10}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 915, Col: 10}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var128))
 							if templ_7745c5c3_Err != nil {
@@ -3368,7 +3368,7 @@ func PlaylistPaneView(p PlaylistPane) templ.Component {
 				var templ_7745c5c3_Var129 string
 				templ_7745c5c3_Var129, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.Provider)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 927, Col: 59}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 927, Col: 59}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var129)
 				if templ_7745c5c3_Err != nil {
@@ -3498,7 +3498,7 @@ func PlaylistPaneView(p PlaylistPane) templ.Component {
 									var templ_7745c5c3_Var135 string
 									templ_7745c5c3_Var135, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("Page %d of %d", p.Page, p.Pages))
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 947, Col: 104}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 947, Col: 104}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var135))
 									if templ_7745c5c3_Err != nil {
@@ -3663,7 +3663,7 @@ func PlaylistEntryRow(e PlaylistPaneEntry) templ.Component {
 					var templ_7745c5c3_Var142 string
 					templ_7745c5c3_Var142, templ_7745c5c3_Err = templ.JoinStringErrs(e.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 974, Col: 12}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 974, Col: 12}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var142))
 					if templ_7745c5c3_Err != nil {
@@ -3694,7 +3694,7 @@ func PlaylistEntryRow(e PlaylistPaneEntry) templ.Component {
 					var templ_7745c5c3_Var144 string
 					templ_7745c5c3_Var144, templ_7745c5c3_Err = templ.JoinStringErrs(e.Group)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 977, Col: 13}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 977, Col: 13}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var144))
 					if templ_7745c5c3_Err != nil {
@@ -3708,7 +3708,7 @@ func PlaylistEntryRow(e PlaylistPaneEntry) templ.Component {
 						var templ_7745c5c3_Var145 string
 						templ_7745c5c3_Var145, templ_7745c5c3_Err = templ.JoinStringErrs(" · " + e.TvgID)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 979, Col: 23}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 979, Col: 23}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var145))
 						if templ_7745c5c3_Err != nil {
@@ -3759,7 +3759,7 @@ func PlaylistEntryRow(e PlaylistPaneEntry) templ.Component {
 						var templ_7745c5c3_Var148 string
 						templ_7745c5c3_Var148, templ_7745c5c3_Err = templ.JoinStringErrs(e.PlanCategory)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 986, Col: 21}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 986, Col: 21}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var148))
 						if templ_7745c5c3_Err != nil {
@@ -3787,7 +3787,7 @@ func PlaylistEntryRow(e PlaylistPaneEntry) templ.Component {
 						var templ_7745c5c3_Var150 string
 						templ_7745c5c3_Var150, templ_7745c5c3_Err = templ.JoinStringErrs(dropLabel(e.PlanDropped))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 990, Col: 31}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 990, Col: 31}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var150))
 						if templ_7745c5c3_Err != nil {
@@ -3820,7 +3820,7 @@ func PlaylistEntryRow(e PlaylistPaneEntry) templ.Component {
 						var templ_7745c5c3_Var152 string
 						templ_7745c5c3_Var152, templ_7745c5c3_Err = templ.JoinStringErrs("Channel " + e.Number)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 995, Col: 28}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 995, Col: 28}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var152))
 						if templ_7745c5c3_Err != nil {
@@ -4082,7 +4082,7 @@ func EPGPickerDialog(p EPGPicker) templ.Component {
 				var templ_7745c5c3_Var162 string
 				templ_7745c5c3_Var162, templ_7745c5c3_Err = templ.ResolveAttributeValue("epg-choices-" + p.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 1057, Col: 36}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 1057, Col: 36}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var162)
 				if templ_7745c5c3_Err != nil {
@@ -4124,7 +4124,7 @@ func EPGPickerDialog(p EPGPicker) templ.Component {
 						var templ_7745c5c3_Var164 string
 						templ_7745c5c3_Var164, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 1076, Col: 38}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 1076, Col: 38}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var164))
 						if templ_7745c5c3_Err != nil {
@@ -4137,7 +4137,7 @@ func EPGPickerDialog(p EPGPicker) templ.Component {
 						var templ_7745c5c3_Var165 string
 						templ_7745c5c3_Var165, templ_7745c5c3_Err = templ.JoinStringErrs(c.Hint)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `livetv_channels.templ`, Line: 1077, Col: 77}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_channels.templ`, Line: 1077, Col: 77}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var165))
 						if templ_7745c5c3_Err != nil {
