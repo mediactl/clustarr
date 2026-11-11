@@ -147,7 +147,7 @@ func (c *Client) Grid(ctx context.Context, gridKey string, from, to time.Time) (
 	if err != nil {
 		return nil, fmt.Errorf("plexgrid: grid %s: %w", gridKey, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusNotFound:
