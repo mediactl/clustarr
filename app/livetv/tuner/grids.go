@@ -83,25 +83,17 @@ type gridState struct {
 	// a clean pass.
 	fetchedAt time.Time
 	err       string
-	// decoded is each wanted grid's programmes in the guide's window, as
-	// last read from its object, so a render decodes only the moved ones.
-	decoded map[string]decodedGrid
 	// byNumber is the grid key whose programmes each channel took in the
-	// last render, by channel number (the ranges' guides read it).
+	// last render, by channel number (the ranges' guides read it). The
+	// programmes themselves are never kept between renders (2026-11-03:
+	// the parsed guide was 84 MB of the manager's heap); each render and
+	// range reads them back from the store.
 	byNumber map[string]string
 }
 
 type gridObject struct {
 	at     time.Time
 	digest string
-}
-
-// decodedGrid is one grid's programmes in [from, from+guideDays), their
-// inner XML rendered once.
-type decodedGrid struct {
-	digest     string
-	from       time.Time
-	programmes []xmltv.Programme
 }
 
 // lineupSchedule schedules the fetch of spec.guideSources' lineups, as one.
@@ -554,11 +546,12 @@ func (t *Tuner) putGrid(ctx context.Context, key types.NamespacedName, gridKey s
 	return info.Digest, nil
 }
 
-// loadGrids reads the grids of keys back from the store, each cut to
-// [from, from+guideDays) and its programmes' inner XML rendered; one whose
-// object did not move since the last read is taken from p's cache. A grid
-// with no object, or one that cannot be read, is left out: its channel
-// keeps its next source.
+// loadGrids reads the grids of keys back from the store, each once
+// however many channels share its station, cut to [from, from+guideDays)
+// with its programmes' inner XML rendered. Nothing of them is kept: the
+// caller's render or range drops them when it is done. A grid with no
+// object, or one that cannot be read, is left out: its channel keeps its
+// next source.
 func (t *Tuner) loadGrids(p *provider, keys []string, from time.Time) map[string][]xmltv.Programme {
 	out := make(map[string][]xmltv.Programme, len(keys))
 	if t.o.Store == nil || len(keys) == 0 {
@@ -566,29 +559,18 @@ func (t *Tuner) loadGrids(p *provider, keys []string, from time.Time) map[string
 	}
 	to := from.AddDate(0, 0, guideDays)
 	p.mu.Lock()
-	cached := make(map[string]decodedGrid, len(keys))
-	digests := make(map[string]string, len(keys))
 	absent := map[string]bool{}
 	for _, k := range keys {
-		if d, ok := p.grids.decoded[k]; ok {
-			cached[k] = d
-		}
-		o, stored := p.grids.fetched[k]
-		digests[k] = o.digest
 		// The pass found no object and nothing to store: no read to try.
+		_, stored := p.grids.fetched[k]
 		_, settled := p.grids.retry[k]
 		absent[k] = !stored && settled
 	}
 	p.mu.Unlock()
 
-	read := map[string]decodedGrid{}
 	seen := map[string]gridObject{}
 	for _, k := range keys {
-		if d, ok := cached[k]; ok && d.from.Equal(from) && d.digest != "" && d.digest == digests[k] {
-			out[k] = d.programmes
-			continue
-		}
-		if absent[k] {
+		if _, done := out[k]; done || absent[k] {
 			continue
 		}
 		name := livetvstore.GridObject(p.key, k)
@@ -609,29 +591,21 @@ func (t *Tuner) loadGrids(p *provider, keys []string, from time.Time) map[string
 			logging.FromContext(t.base).Warn("livetv: decode a Plex grid", "provider", label(p.key), "object", name, "err", err)
 			continue
 		}
-		d := decodedGrid{digest: info.Digest, from: from, programmes: windowed(progs, from, to)}
-		read[k], seen[k] = d, gridObject{at: info.ModTime, digest: info.Digest}
-		out[k] = d.programmes
+		out[k] = windowed(progs, from, to)
+		seen[k] = gridObject{at: info.ModTime, digest: info.Digest}
 	}
 
 	p.mu.Lock()
-	if p.grids.decoded == nil {
-		p.grids.decoded = map[string]decodedGrid{}
-	}
 	if p.grids.fetched == nil {
 		p.grids.fetched = map[string]gridObject{}
 	}
-	maps.Copy(p.grids.decoded, read)
 	for k, o := range seen {
-		// A read found the object the pass has not seen yet (a restart), or
-		// the digest the pass's store did not return.
+		// A read found an object the pass has not seen yet (a restart): its
+		// age decides the pass's next ask.
 		if f, ok := p.grids.fetched[k]; !ok || f.digest == "" {
 			p.grids.fetched[k] = o
 		}
 	}
-	// Only wanted grids are kept decoded: a station no channel holds any
-	// more costs no memory.
-	maps.DeleteFunc(p.grids.decoded, func(k string, _ decodedGrid) bool { return !slices.Contains(keys, k) })
 	p.mu.Unlock()
 	return out
 }
@@ -685,26 +659,39 @@ func mergeGrids(chans []xmltv.LineupChannel, objOf, gridOf map[string]string, gr
 	return g, byNumber, mapped
 }
 
-// plexGuide is the "plex" guide of chans as the last render merged it, for
-// a range's guide; false when none of chans takes a grid.
-func (p *provider) plexGuide(chans []xmltv.LineupChannel) (xmltv.Guide, bool) {
+// plexGuide is the "plex" guide of chans as the last render merged them,
+// read back from the store for a range's guide from from; false when none
+// of chans takes a grid.
+func (t *Tuner) plexGuide(p *provider, chans []xmltv.LineupChannel, from time.Time) (xmltv.Guide, bool) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	g := xmltv.Guide{Programmes: map[string][]xmltv.Programme{}}
+	keyOf := map[string]string{}
+	var keys []string
 	for _, lc := range chans {
 		if lc.Map == nil || lc.Map.Guide != plexGuideName {
 			continue
 		}
-		d, ok := p.grids.decoded[p.grids.byNumber[lc.Number]]
-		if !ok {
+		if k := p.grids.byNumber[lc.Number]; k != "" {
+			keyOf[lc.Number] = k
+			keys = append(keys, k)
+		}
+	}
+	p.mu.Unlock()
+	if len(keys) == 0 {
+		return xmltv.Guide{}, false
+	}
+	grids := t.loadGrids(p, keys, from)
+	g := xmltv.Guide{Programmes: map[string][]xmltv.Programme{}}
+	for number, k := range keyOf {
+		progs := grids[k]
+		if len(progs) == 0 {
 			continue
 		}
-		own := make([]xmltv.Programme, len(d.programmes))
-		for j, pr := range d.programmes {
-			pr.Channel = lc.Number
+		own := make([]xmltv.Programme, len(progs))
+		for j, pr := range progs {
+			pr.Channel = number
 			own[j] = pr
 		}
-		g.Programmes[lc.Number] = own
+		g.Programmes[number] = own
 	}
 	return g, len(g.Programmes) > 0
 }

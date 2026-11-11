@@ -18,14 +18,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tuner
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/plexgrid"
 	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
@@ -187,4 +197,86 @@ func TestNoGridErrorCarriesTheToken(t *testing.T) {
 	out := cfg.scrubGrid(err.Error())
 	assert.NotContains(t, out, "s3cr3t")
 	assert.Contains(t, out, "{plexToken}")
+}
+
+// fixtureGrid is test/data/plexgrid's recorded answer, reduced.
+func fixtureGrid(tb testing.TB) []plexgrid.Programme {
+	tb.Helper()
+	b, err := os.ReadFile("../../../test/data/plexgrid/grid-sample.json")
+	require.NoError(tb, err)
+	var a struct {
+		MediaContainer struct {
+			Metadata []plexgrid.Item `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	require.NoError(tb, json.Unmarshal(b, &a))
+	return plexgrid.Reduce(a.MediaContainer.Metadata)
+}
+
+// stationGrid is a station's 14 days at about 30 airings a day, built from
+// the fixture's airings with their descriptions made distinct (so gzip
+// finds as little to share as in a real grid) until it stores as about
+// 100 KB of gzip JSON, the design's estimate per station (§5.3).
+func stationGrid(tb testing.TB) []plexgrid.Programme {
+	tb.Helper()
+	base := fixtureGrid(tb)
+	rng := rand.New(rand.NewPCG(1, 2))
+	word := func() string {
+		const letters = "abcdefghijklmnopqrstuvwxyz"
+		n := 3 + rng.IntN(7)
+		b := make([]byte, n)
+		for i := range b {
+			b[i] = letters[rng.IntN(len(letters))]
+		}
+		return string(b)
+	}
+	var out []plexgrid.Programme
+	for i := range 14 * 30 {
+		pr := base[i%len(base)]
+		pr.Start = day.Add(time.Duration(i) * 48 * time.Minute)
+		pr.Stop = pr.Start.Add(48 * time.Minute)
+		words := make([]string, 50)
+		for j := range words {
+			words[j] = word()
+		}
+		pr.Desc = strings.Join(words, " ")
+		pr.SubTitle = word() + " " + word()
+		pr.Categories = append([]string(nil), pr.Categories...)
+		out = append(out, pr)
+	}
+	return out
+}
+
+// BenchmarkLoadGrids is a render's read of one station's grid from the
+// store (a Get, the gzip JSON decode, the window cut and each programme's
+// inner XML), which every render and range pays per paired station now
+// that no grid is kept between renders. Run with -bench LoadGrids.
+func BenchmarkLoadGrids(b *testing.B) {
+	for _, tc := range []struct {
+		name  string
+		progs func(testing.TB) []plexgrid.Programme
+	}{
+		{"fixture", fixtureGrid},
+		{"station-14d", stationGrid},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			bus := membus.New(nil)
+			require.NoError(b, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
+			tn := New(Options{Store: bus.ObjectStore(events.BucketLiveTV)})
+			key := types.NamespacedName{Namespace: "media", Name: "news"}
+			p := &provider{key: key}
+			progs := tc.progs(b)
+			var enc bytes.Buffer
+			require.NoError(b, livetvstore.Encode(&enc, progs))
+			_, err := tn.putGrid(context.Background(), key, "k", progs)
+			require.NoError(b, err)
+			for b.Loop() {
+				if got := tn.loadGrids(p, []string{"k"}, day); len(got["k"]) == 0 {
+					b.Fatal("no programmes read")
+				}
+			}
+			b.ReportMetric(float64(enc.Len())/1024, "gzipKB")
+			b.ReportMetric(float64(len(progs)), "airings")
+		})
+	}
 }

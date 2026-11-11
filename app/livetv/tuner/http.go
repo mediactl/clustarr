@@ -317,7 +317,7 @@ func (t *Tuner) rangeGuide(p *provider, rg channelRange) []byte {
 			loaded[GuideName] = g
 		}
 	}
-	if g, ok := p.plexGuide(chans); ok { // the grids the render merged
+	if g, ok := t.plexGuide(p, chans, from); ok { // the grids the render merged, read back
 		loaded[plexGuideName] = g
 	}
 

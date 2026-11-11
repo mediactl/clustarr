@@ -226,7 +226,7 @@ type Snapshot struct {
 
 // GuideSourcesConfig is spec.guideSources with its token read: the Plex
 // lineups whose grids the tuner fetches, the token (TokenError why there is
-// none), how often, and the requests a minute.
+// none), how often, and the calls per second (spec.guideSources.plex.rate).
 type GuideSourcesConfig struct {
 	Lineups    []string
 	Token      string

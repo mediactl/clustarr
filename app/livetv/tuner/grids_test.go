@@ -210,6 +210,11 @@ func TestAPairedStationsGridFeedsItsChannel(t *testing.T) {
 	assert.NotContains(t, abc, "World News Tonight", "a channel's programmes are one source's")
 	assert.NotContains(t, abc, "Sharknado 2", "past the guide's week")
 
+	// A range's guide reads the same grid back from the store.
+	code, ranged := h.get(t, "tuner.example", "/livetv/media/news/xmltv.xml?from=1001&to=1001")
+	require.Equal(t, http.StatusOK, code)
+	assert.Contains(t, strings.Join(programmesOf(ranged, "1001"), "\n"), `<episode-num system="plex">plex://episode/5fc6bf9abcd67c002d0836c8</episode-num>`)
+
 	// CNN's station has no grid: it keeps its XMLTV guide.
 	h.guideOf(t, "cnn", "xmltv/CNN.us")
 	assert.Contains(t, strings.Join(programmesOf(body, "1002"), "\n"), "Newsroom (xmltv)")
