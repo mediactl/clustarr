@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -144,7 +145,67 @@ type AddResultsData struct {
 	// added item's spec.folder (AddPageData.Folder); Root, when it is one of
 	// RootFolders, is the form's root folder.
 	Folder, Root string
+	// FolderDefaults, set with Folder when Root is one of RootFolders, are
+	// that root's defaults, which every hit's form starts from in place of
+	// Add New's own (ui/add.go's folderFormDefaults): the folder is added as
+	// the Unmatched page's "Add as" adds it (D20).
+	FolderDefaults *AddFormDefaults
 }
+
+// AddFormDefaults are the values an Unmatched folder's hit forms start
+// from, its root's defaults as the Unmatched page's "Add as" takes them:
+// the quality profile, monitored, the monitor-new mode ("" when the root's
+// is not one the kind offers) and an audiobook's Audible region ("" for
+// the CRD's default, us). The search box starts unticked: confirming a
+// folder starts no search (D16).
+type AddFormDefaults struct {
+	Profile, MonitorNew, Region string
+	Monitored                   bool
+}
+
+// profileDefault is the profile a hit's form starts on: an Unmatched
+// folder's root's default profile when the form offers it, else the only
+// one.
+func profileDefault(d AddResultsData) string {
+	if fd := d.FolderDefaults; fd != nil && slices.ContainsFunc(d.Profiles, func(o AddOption) bool { return o.Value == fd.Profile }) {
+		return fd.Profile
+	}
+	return onlyValue(d.Profiles)
+}
+
+// monitorNewDefault is the monitor-new mode a hit's form starts on: an
+// Unmatched folder's root's, when it names one, else the kind's first.
+func monitorNewDefault(d AddResultsData) string {
+	if fd := d.FolderDefaults; fd != nil && fd.MonitorNew != "" {
+		return fd.MonitorNew
+	}
+	return d.Kind.MonitorNew[0].Value
+}
+
+// regionDefault is the Audible region an audiobook's form starts on: an
+// Unmatched folder's root's (us when it sets none, as the CRD defaults
+// it), else the search's region.
+func regionDefault(d AddResultsData) string {
+	if fd := d.FolderDefaults; fd != nil {
+		if fd.Region == "" {
+			return string(catalogv1.AudiobookRegionUS)
+		}
+		return fd.Region
+	}
+	return d.Region
+}
+
+// monitoredDefault and searchOnAddDefault are the two boxes' starting
+// states: ticked on Add New, and on an Unmatched folder's the root's
+// defaults.monitored and no search.
+func monitoredDefault(d AddResultsData) bool {
+	if d.FolderDefaults != nil {
+		return d.FolderDefaults.Monitored
+	}
+	return true
+}
+
+func searchOnAddDefault(d AddResultsData) bool { return d.FolderDefaults == nil }
 
 // kindQuery is the ?kind= an alternate kind's URLs carry, "" for a tab's own.
 func kindQuery(k AddKind) string {
@@ -482,7 +543,7 @@ templ addForm(d AddResultsData, h AddHit) {
 					<input type="hidden" name="authorASIN" value={ h.Authors[0].ASIN }/>
 				}
 				@addSelect("rootFolder", h.ID, "Root folder", d.RootFolders, posted(d, h, "rootFolder", rootDefault(d)))
-				@addSelect("qualityProfile", h.ID, "Quality profile", d.Profiles, posted(d, h, "qualityProfile", onlyValue(d.Profiles)))
+				@addSelect("qualityProfile", h.ID, "Quality profile", d.Profiles, posted(d, h, "qualityProfile", profileDefault(d)))
 				if len(d.Kind.Monitor) > 0 {
 					@addSelect("monitor", h.ID, "Monitor", d.Kind.Monitor, posted(d, h, "monitor", d.Kind.Monitor[0].Value))
 				}
@@ -496,14 +557,14 @@ templ addForm(d AddResultsData, h AddHit) {
 					case commonv1.MediaKindComic:
 						@addSelect("comicKind", h.ID, "Kind", comicKindOptions, posted(d, h, "comicKind", comicKindOptions[0].Value))
 					case commonv1.MediaKindAudiobook:
-						@addSelect("region", h.ID, "Audible region", audiobookRegionOptions, posted(d, h, "region", selectedOf(audiobookRegionOptions, d.Region)))
+						@addSelect("region", h.ID, "Audible region", audiobookRegionOptions, posted(d, h, "region", selectedOf(audiobookRegionOptions, regionDefault(d))))
 				}
 				if len(d.Kind.MonitorNew) > 0 {
-					@addSelect("monitorNewItems", h.ID, monitorNewLabel(d.Kind.Kind), d.Kind.MonitorNew, posted(d, h, "monitorNewItems", d.Kind.MonitorNew[0].Value))
+					@addSelect("monitorNewItems", h.ID, monitorNewLabel(d.Kind.Kind), d.Kind.MonitorNew, posted(d, h, "monitorNewItems", monitorNewDefault(d)))
 				}
-				@addCheck("monitored", h.ID, "Monitored", postedCheck(d, h, "monitored", true))
+				@addCheck("monitored", h.ID, "Monitored", postedCheck(d, h, "monitored", monitoredDefault(d)))
 				if d.Kind.SearchOnAdd != "" {
-					@addCheck("searchOnAdd", h.ID, d.Kind.SearchOnAdd, postedCheck(d, h, "searchOnAdd", true))
+					@addCheck("searchOnAdd", h.ID, d.Kind.SearchOnAdd, postedCheck(d, h, "searchOnAdd", searchOnAddDefault(d)))
 				}
 				<div>
 					@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "add"}}) {

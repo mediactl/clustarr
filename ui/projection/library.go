@@ -20,6 +20,7 @@ package projection
 import (
 	"context"
 	"fmt"
+	"path"
 	"slices"
 	"sort"
 	"strconv"
@@ -368,6 +369,57 @@ func ParseFolderCandidate(s string) (FolderCandidate, bool) {
 		return FolderCandidate{}, false
 	}
 	return c, true
+}
+
+// FolderHolder is the item among objs that holds folder, a path relative
+// to the RootFolder named root in namespace ns whose spec.path is rootPath,
+// or nil: an Artist, an Author or an Audiobook of ns under that root (objs
+// of any other kind are passed over) whose spec.folder pins the folder, or
+// whose status.path is it -- an item the root's naming preset placed
+// there; never compared when rootPath is "". One folder holds one item (the
+// 2026-11-10 non-video libraries design's D20): two make every scan of the
+// folder ambiguous for good, so the Unmatched page drops a folder entry an
+// item holds and Add New refuses to pin a second item to it.
+func FolderHolder(objs []client.Object, ns, root, rootPath, folder string) client.Object {
+	if folder == "" {
+		return nil
+	}
+	want := path.Clean(folder)
+	abs := ""
+	if rootPath != "" {
+		abs = path.Join(rootPath, want)
+	}
+	for _, o := range objs {
+		if o.GetNamespace() != ns {
+			continue
+		}
+		ref, pin, at, ok := folderOf(o)
+		if !ok || ref != root {
+			continue
+		}
+		if pin != nil && *pin != "" && path.Clean(*pin) == want {
+			return o
+		}
+		if abs != "" && at != "" && path.Clean(at) == abs {
+			return o
+		}
+	}
+	return nil
+}
+
+// folderOf is the root folder, the folder pin and the resolved folder of
+// one of the three kinds a root scan creates from their folders; ok false
+// for any other.
+func folderOf(o client.Object) (root string, pin *string, at string, ok bool) {
+	switch v := o.(type) {
+	case *catalogv1.Artist:
+		return v.Spec.RootFolderRef, v.Spec.Folder, v.Status.Path, true
+	case *catalogv1.Author:
+		return v.Spec.RootFolderRef, v.Spec.Folder, v.Status.Path, true
+	case *catalogv1.Audiobook:
+		return v.Spec.RootFolderRef, v.Spec.Folder, v.Status.Path, true
+	}
+	return "", nil, "", false
 }
 
 // buildLibraryItems derives one [LibraryItem] per item, reusing the
@@ -741,21 +793,42 @@ func listLibraryScans(ctx context.Context, r client.Reader, opts ...client.ListO
 // kind its RootFolder's folders are added as ([FolderKind]), each
 // RootFolder read once per round through r -- a Get, which the ui's cache
 // answers, and only for a scan that lists a folder; a RootFolder's kind is
-// immutable, so no round needs to watch it.
-func unmatchedFromScans(ctx context.Context, r client.Reader, scans []catalogv1.LibraryScan) []UnmatchedEntry {
+// immutable, so no round needs to watch it. A Folder entry an item of
+// items already holds ([FolderHolder]) is left out: the scan's status
+// stands until the root's next scan, and its Add buttons would otherwise
+// offer to add a second item to a folder that has one.
+func unmatchedFromScans(ctx context.Context, r client.Reader, scans []catalogv1.LibraryScan, items []client.Object) []UnmatchedEntry {
 	var out []UnmatchedEntry
-	roots := map[types.NamespacedName]catalogv1.RootFolderKind{}
-	rootKind := func(key types.NamespacedName) catalogv1.RootFolderKind {
-		if kind, ok := roots[key]; ok {
-			return kind
+	type rootInfo struct {
+		kind catalogv1.RootFolderKind
+		path string
+	}
+	roots := map[types.NamespacedName]rootInfo{}
+	rootOf := func(key types.NamespacedName) rootInfo {
+		if info, ok := roots[key]; ok {
+			return info
 		}
 		var rf catalogv1.RootFolder
 		if r != nil && r.Get(ctx, key, &rf) == nil {
-			roots[key] = rf.Spec.Kind
+			roots[key] = rootInfo{kind: rf.Spec.Kind, path: rf.Spec.Path}
 		} else {
-			roots[key] = "" // gone, or unreadable: nothing to add the folder as
+			roots[key] = rootInfo{} // gone, or unreadable: nothing to add the folder as
 		}
 		return roots[key]
+	}
+	// The items that can hold a folder, picked out of the round's items
+	// once, and only for a round whose scans list a folder.
+	var holders []client.Object
+	holdersOf := func() []client.Object {
+		if holders == nil {
+			holders = []client.Object{}
+			for _, o := range items {
+				if _, _, _, ok := folderOf(o); ok {
+					holders = append(holders, o)
+				}
+			}
+		}
+		return holders
 	}
 	for i := range scans {
 		scan := &scans[i]
@@ -770,7 +843,11 @@ func unmatchedFromScans(ctx context.Context, r client.Reader, scans []catalogv1.
 				SeenAt:     u.SeenAt,
 			}
 			if u.Folder {
-				e.Kind, e.Tab = FolderKind(rootKind(types.NamespacedName{Namespace: scan.Namespace, Name: scan.Spec.RootFolderRef}))
+				info := rootOf(types.NamespacedName{Namespace: scan.Namespace, Name: scan.Spec.RootFolderRef})
+				if FolderHolder(holdersOf(), scan.Namespace, scan.Spec.RootFolderRef, info.path, u.Path) != nil {
+					continue
+				}
+				e.Kind, e.Tab = FolderKind(info.kind)
 			}
 			out = append(out, e)
 		}

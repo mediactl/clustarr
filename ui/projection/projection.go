@@ -224,7 +224,7 @@ func (p *Projection) runRound(ctx context.Context, due func() bool) {
 	entries, downloads, library, unmatched, importLists, dashboard, err := p.project(ctx)
 	if err != nil {
 		p.dirty.Store(true)
-		logging.FromContext(ctx).Error("compute pipeline projection", "error", err)
+		logging.FromContext(ctx).Error("compute pipeline projection", "err", err)
 		return
 	}
 	p.lastRound.Store(started.UnixNano())
@@ -469,7 +469,7 @@ func (p *Projection) watchChanges(ctx context.Context) {
 		}
 		if err != nil {
 			logging.FromContext(ctx).Error("watch for projection changes; projecting every tick instead",
-				"kind", fmt.Sprintf("%T", obj), "error", err)
+				"kind", fmt.Sprintf("%T", obj), "err", err)
 			return
 		}
 	}
@@ -544,7 +544,7 @@ func (p *Projection) project(
 	if err != nil {
 		return nil, nil, nil, nil, nil, Dashboard{}, err
 	}
-	unmatched := unmatchedFromScans(ctx, p.reader, scans)
+	unmatched := unmatchedFromScans(ctx, p.reader, scans, items)
 
 	lists, err := listImportLists(ctx, p.reader, listOpts...)
 	if err != nil {

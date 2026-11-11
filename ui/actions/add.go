@@ -81,6 +81,13 @@ type AddRequest struct {
 	// pins nothing (the root's naming preset decides); an absolute path or
 	// a "." or ".." component is ErrInvalid; every other kind ignores it.
 	Folder string
+	// Tags are an Artist's, an Author's or an Audiobook's spec.tags, which
+	// select DelayProfiles and other tag-matched policy: the root folder's
+	// defaults.tags, as a root scan and an import list give the items they
+	// create (ui/add.go's rootDefaults), so an item the Unmatched page
+	// confirms is matched as its siblings the scan created are (D20). Empty
+	// sets none; every other kind ignores it.
+	Tags []string
 }
 
 // AddableKinds are the kinds AddItem creates: the four library types of
@@ -188,6 +195,7 @@ func buildItem(req AddRequest) (client.Object, error) {
 				MusicBrainzID: req.ProviderID, Monitored: new(req.Monitored),
 				MonitorNewItems:   catalogv1alpha1.MonitorNewItemsMode(req.MonitorNewItems),
 				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef, Folder: folder,
+				Tags: req.Tags,
 				AddOptions: catalogv1alpha1.ArtistAddOptions{
 					Monitor: catalogv1alpha1.ArtistMonitorMode(req.Monitor), SearchForMissing: ptr.To(req.SearchOnAdd),
 				},
@@ -201,6 +209,7 @@ func buildItem(req AddRequest) (client.Object, error) {
 				OpenLibraryID: req.ProviderID, Monitored: new(req.Monitored),
 				MonitorNewItems:   catalogv1alpha1.MonitorNewChildrenMode(req.MonitorNewItems),
 				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef, Folder: folder,
+				Tags: req.Tags,
 				AddOptions: catalogv1alpha1.AuthorAddOptions{
 					Monitor: catalogv1alpha1.AuthorMonitorMode(req.Monitor), SearchForMissing: ptr.To(req.SearchOnAdd),
 				},
@@ -241,6 +250,7 @@ func buildItem(req AddRequest) (client.Object, error) {
 		spec := catalogv1alpha1.AudiobookSpec{
 			ASIN: req.ProviderID, Region: catalogv1alpha1.AudiobookRegion(req.Region), Monitored: new(req.Monitored),
 			QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef, Folder: folder,
+			Tags:       req.Tags,
 			AddOptions: catalogv1alpha1.AudiobookAddOptions{SearchForMissing: ptr.To(req.SearchOnAdd)},
 			Source:     source,
 		}

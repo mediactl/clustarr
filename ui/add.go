@@ -319,7 +319,7 @@ func (s *Server) renderAddPage(w http.ResponseWriter, r *http.Request, k views.A
 	w.WriteHeader(status)
 	d.Kind, d.Kinds, d.Available = k, tabKinds(k.Tab), s.opts.MetadataSearch != nil
 	if err := views.AddPage(d).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render add page", "error", err)
+		logging.FromContext(r.Context()).Error("render add page", "err", err)
 	}
 }
 
@@ -348,10 +348,11 @@ func (s *Server) handleAddSearch(w http.ResponseWriter, r *http.Request) {
 				res.RetryURL += "&" + fq
 			}
 		}
+		s.folderFormDefaults(r.Context(), k, &res)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.AddResults(res).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render add results", "error", err)
+		logging.FromContext(r.Context()).Error("render add results", "err", err)
 	}
 }
 
@@ -419,7 +420,7 @@ func (s *Server) addSearch(ctx context.Context, k views.AddKind, q string, res *
 			if firstFail == nil {
 				firstFail = a
 			}
-			logging.FromContext(ctx).Warn("add new: metadata search failed", "kind", k.Kind, "source", a.source.Source, "error", a.err, "response", a.resp.Error)
+			logging.FromContext(ctx).Warn("add new: metadata search failed", "kind", k.Kind, "source", a.source.Source, "err", a.err, "response", a.resp.Error)
 		}
 	}
 	switch {
@@ -556,13 +557,18 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 		ComicKind: r.PostFormValue("comicKind"), Region: r.PostFormValue("region"),
 		Folder: r.PostFormValue("folder"),
 	}
-	if rf := s.rootFolderNamed(r.Context(), ns, root); rf != nil {
+	rf := s.rootFolderNamed(r.Context(), ns, root)
+	if rf != nil {
 		rootDefaults(&req, k, r.PostForm, rf.Spec.Defaults)
 	}
 	// The request is checked before the author link is resolved, so a form
 	// AddItem refuses (no profile, an id that cannot key the kind) never
 	// spends the lookup's gateway round trip.
 	if err := actions.Validate(req); err != nil {
+		s.rejectAdd(w, r, k, err)
+		return
+	}
+	if err := s.checkFolderFree(r.Context(), k, req, rf); err != nil {
 		s.rejectAdd(w, r, k, err)
 		return
 	}
@@ -575,6 +581,76 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/library/"+ns+"/"+string(k.Kind)+"/"+name, http.StatusSeeOther)
+}
+
+// checkFolderFree refuses an add that pins req.Folder when an item of the
+// root already holds that folder (projection.FolderHolder: pins it, or
+// resolved its status.path to it), read through the ui's reader: one
+// folder holds one item (the 2026-11-10 non-video libraries design's D20).
+// The Unmatched page's folder row stands until the root's next scan, so a
+// second "Add as" -- the other candidate, after the first proved wrong --
+// would otherwise pin a second item to the folder, every later scan of it
+// would read the two as ambiguous and attribute nothing, and a delete of
+// either with its files would remove the folder they share, since no
+// MediaFile of it guards it. An item of the add's own provider id is not
+// another: the add is that item, which AddItem answers as existing. A
+// kind that pins no folder, or an add with none, is not checked; a pin
+// that cannot be checked -- no reader bound, or the list failed -- is
+// refused, never risked.
+func (s *Server) checkFolderFree(ctx context.Context, k views.AddKind, req actions.AddRequest, rf *catalogv1.RootFolder) error {
+	folder := strings.TrimRight(strings.TrimSpace(req.Folder), "/")
+	if folder == "" {
+		return nil
+	}
+	var list client.ObjectList
+	switch k.Kind {
+	case commonv1.MediaKindArtist:
+		list = &catalogv1.ArtistList{}
+	case commonv1.MediaKindAuthor:
+		list = &catalogv1.AuthorList{}
+	case commonv1.MediaKindAudiobook:
+		list = &catalogv1.AudiobookList{}
+	default:
+		return nil // buildItem pins no folder on any other kind
+	}
+	if s.opts.Reader == nil {
+		return fmt.Errorf("add new: the folder %q cannot be checked for an item already in it: the ui has no cluster reader", folder)
+	}
+	if err := s.opts.Reader.List(ctx, list, client.InNamespace(req.Namespace)); err != nil {
+		return fmt.Errorf("add new: the folder %q could not be checked for an item already in it: %w", folder, err)
+	}
+	var others []client.Object
+	switch v := list.(type) {
+	case *catalogv1.ArtistList:
+		for i := range v.Items {
+			if v.Items[i].Spec.MusicBrainzID != req.ProviderID {
+				others = append(others, &v.Items[i])
+			}
+		}
+	case *catalogv1.AuthorList:
+		for i := range v.Items {
+			if v.Items[i].Spec.OpenLibraryID != req.ProviderID {
+				others = append(others, &v.Items[i])
+			}
+		}
+	case *catalogv1.AudiobookList:
+		for i := range v.Items {
+			if v.Items[i].Spec.ASIN != req.ProviderID {
+				others = append(others, &v.Items[i])
+			}
+		}
+	}
+	rootPath := ""
+	if rf != nil {
+		rootPath = rf.Spec.Path
+	}
+	holder := projection.FolderHolder(others, req.Namespace, req.RootFolderRef, rootPath, folder)
+	if holder == nil {
+		return nil
+	}
+	kind := strings.ToLower(k.Label)
+	return fmt.Errorf("%w: the folder %q already holds the %s %s/%s, and a folder holds one item: delete that %s, or move it out of the folder, before adding another to it",
+		actions.ErrInvalid, folder, kind, holder.GetNamespace(), holder.GetName(), kind)
 }
 
 // rootFolderNamed is the RootFolder ns/name among those the page reads,
@@ -593,14 +669,18 @@ func (s *Server) rootFolderNamed(ctx context.Context, ns, name string) *catalogv
 // says are applied to the items added under it: the quality profile
 // (defaults.qualityProfileRef), monitored (defaults.monitored, unset
 // true), the monitor-new mode (defaults.monitorNewItems, when it is one k
-// offers) and an audiobook's region (defaults.region). The Add New form
-// posts every one of them, so only a post that leaves them out reads the
-// root: the Unmatched page's "Add as" on a folder the scan could not
-// identify (the 2026-11-10 non-video libraries design's D20), which posts
-// the hit, the root and the folder alone and so adds the item as the root
-// scan would have created it -- the root's profile and monitoring, the
+// offers), an audiobook's region (defaults.region) and, on the three kinds
+// a root scan creates from their folders (an Artist, an Author, an
+// Audiobook), the root's tags (defaults.tags, which the scan and an import
+// list give the items they create). The Add New form posts every one of
+// them but the tags, so only a post that leaves them out reads the root:
+// the Unmatched page's "Add as" on a folder the scan could not identify
+// (the 2026-11-10 non-video libraries design's D20), which posts the hit,
+// the root and the folder alone and so adds the item as the root scan
+// would have created it -- the root's profile, monitoring and tags, the
 // kind's own monitor mode, and no search (searchOnAdd left out is false;
-// D16: a scan never starts a search storm).
+// D16: a scan never starts a search storm). An Unmatched folder's Add New
+// form starts from the same values (folderFormDefaults).
 func rootDefaults(req *actions.AddRequest, k views.AddKind, form url.Values, d catalogv1.RootDefaults) {
 	absent := func(name string) bool { _, ok := form[name]; return !ok }
 	if absent("qualityProfile") {
@@ -614,6 +694,47 @@ func rootDefaults(req *actions.AddRequest, k views.AddKind, form url.Values, d c
 	}
 	if absent("region") && k.Kind == commonv1.MediaKindAudiobook {
 		req.Region = string(d.Region)
+	}
+	if absent("tags") && foldersAddedAs(k.Kind) {
+		req.Tags = slices.Clone(d.Tags)
+	}
+}
+
+// foldersAddedAs reports whether kind is one a root scan creates from its
+// folder -- an Artist, an Author or an Audiobook (projection.FolderKind) --
+// which takes the root's tags when added.
+func foldersAddedAs(kind commonv1.MediaKind) bool {
+	switch kind {
+	case commonv1.MediaKindArtist, commonv1.MediaKindAuthor, commonv1.MediaKindAudiobook:
+		return true
+	}
+	return false
+}
+
+// folderFormDefaults sets res.FolderDefaults for an Unmatched folder's Add
+// New (res.Folder set, res.Root one of res.RootFolders, the 2026-11-10
+// non-video libraries design's D20): the values every hit's form starts
+// from are the root's defaults as rootDefaults gives them to the Unmatched
+// page's "Add as" -- its profile, monitored, monitor-new mode and region,
+// and no search -- so the folder's two routes add the same item, and a
+// root set unmonitored before an existing library's first scan (D16) is
+// not monitored, nor its missing albums searched, by a box ticked from
+// the start. Without a folder, or with a root the form does not offer, it
+// is left nil and the forms start as Add New's always have.
+func (s *Server) folderFormDefaults(ctx context.Context, k views.AddKind, res *views.AddResultsData) {
+	res.FolderDefaults = nil
+	if res.Folder == "" || res.Root == "" || !slices.ContainsFunc(res.RootFolders, func(o views.AddOption) bool { return o.Value == res.Root }) {
+		return
+	}
+	ns, name, _ := strings.Cut(res.Root, "/")
+	rf := s.rootFolderNamed(ctx, ns, name)
+	if rf == nil {
+		return
+	}
+	var req actions.AddRequest
+	rootDefaults(&req, k, url.Values{}, rf.Spec.Defaults)
+	res.FolderDefaults = &views.AddFormDefaults{
+		Profile: req.QualityProfileRef, Monitored: req.Monitored, MonitorNew: req.MonitorNewItems, Region: req.Region,
 	}
 }
 
@@ -658,7 +779,7 @@ func (s *Server) audiobookAuthorRef(ctx context.Context, ns, name, asin, region 
 	}
 	var list catalogv1.AuthorList
 	if err := s.opts.Reader.List(ctx, &list, client.InNamespace(ns)); err != nil {
-		log.Warn("add new: list authors; no author linked", "error", err)
+		log.Warn("add new: list authors; no author linked", "err", err)
 		return ""
 	}
 	matches := authorsNamed(names, list.Items)
@@ -688,20 +809,20 @@ func (s *Server) lookupAuthorName(ctx context.Context, log *slog.Logger, asin, r
 	resp, err := s.opts.MetadataLookup(ctx, schema.MetadataRequest{Kind: commonv1.MediaKindAuthor, IDs: ids})
 	switch {
 	case err != nil:
-		log.Warn("add new: audiobook author lookup failed; the hit's name alone is matched", "error", err)
+		log.Warn("add new: audiobook author lookup failed; the hit's name alone is matched", "err", err)
 		return ""
 	case resp.Error == metadata.ErrNotFound.Error():
 		log.Info("add new: the audiobook's author has no provider page; the hit's name alone is matched")
 		return ""
 	case resp.Error != "":
-		log.Warn("add new: audiobook author lookup failed; the hit's name alone is matched", "error", resp.Error)
+		log.Warn("add new: audiobook author lookup failed; the hit's name alone is matched", "err", resp.Error)
 		return ""
 	}
 	var author struct {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(resp.Result, &author); err != nil || author.Name == "" {
-		log.Warn("add new: audiobook author lookup answered no name; the hit's name alone is matched", "error", err)
+		log.Warn("add new: audiobook author lookup answered no name; the hit's name alone is matched", "err", err)
 		return ""
 	}
 	return author.Name
@@ -792,7 +913,7 @@ func (s *Server) notFoundUnlessJustAdded(w http.ResponseWriter, r *http.Request,
 func (s *Server) renderAddPending(w http.ResponseWriter, r *http.Request, name string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.AddPending(name).Render(r.Context(), w); err != nil {
-		logging.FromContext(r.Context()).Error("render add pending page", "error", err)
+		logging.FromContext(r.Context()).Error("render add pending page", "err", err)
 	}
 }
 
@@ -800,7 +921,7 @@ func (s *Server) renderAddPending(w http.ResponseWriter, r *http.Request, name s
 // form as they submitted them, the rejected hit's form open (spec: Errors).
 func (s *Server) rejectAdd(w http.ResponseWriter, r *http.Request, k views.AddKind, err error) {
 	code, status := actionErrorCode(err)
-	logging.FromContext(r.Context()).Error("add rejected", "kind", k.Kind, "error", err, "code", code)
+	logging.FromContext(r.Context()).Error("add rejected", "kind", k.Kind, "err", err, "code", code)
 	id, q := r.PostFormValue("id"), r.PostFormValue("q")
 	hit := views.AddHit{ID: id, Source: r.PostFormValue("source"), Title: r.PostFormValue("title")}
 	if name, asin := r.PostFormValue("authorName"), r.PostFormValue("authorASIN"); name != "" || asin != "" {
@@ -816,5 +937,6 @@ func (s *Server) rejectAdd(w http.ResponseWriter, r *http.Request, k views.AddKi
 		Hits: []views.AddHit{hit}, Folder: folder, Root: root,
 	}
 	res.RootFolders, res.Profiles = s.addChoices(r.Context(), k)
+	s.folderFormDefaults(r.Context(), k, res)
 	s.renderAddPage(w, r, k, status, views.AddPageData{ErrorCode: code, Error: err.Error(), Query: q, Results: res, Folder: folder, Root: root})
 }
