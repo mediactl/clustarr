@@ -76,6 +76,7 @@ show. Its programme elements are written alphabetically, title last.
 | `<credits>` | actor and director → tag 6 ("stars", the first three in `tags_star`), writer → 5, producer → 7; presenter, guest, commentator, composer, editor ignored |
 | `<country>` | tag 8 and `tags_country` |
 | `<date>` | a movie's year (`20210315` keeps the year; oad = Jan 1); nothing on an episode |
+| `original-air-date` (an `episode-num` system) | written only beside an episode's numbers: PMS keys the episode by the numbers and stores the date; alone it would key the episode by date and suppress the dd_progid |
 | `<previously-shown>` | clears `at:premiere`; an EPISODE without it is flagged premiere; movies never are |
 | `<new>`, `<premiere>`, `<live>`, keyword, language, orig-language, length, url, video, audio, subtitles, review, last-chance, a second `<title>`, `episode-num` systems thetvdb.com / themoviedb.org / imdb.com / plex / tms | ignored |
 | channel `<display-name>` (first), `<icon>` (first) | callSign, `at:channelThumb`; channelTitle = "<number> <callSign>"; identifier = vcn = the device's GuideNumber |
@@ -173,7 +174,7 @@ Anti-goals:
   included under Entertainment / On Demand, adult groups excluded,
   non-English groups excluded, out-of-market affiliates and Spectrum's
   regional news excluded.
-- D3 (DEFAULT). The sports packages (NFL, NBA, NHL, MLB, NCAA, MLS, WNBA:
+- D3 (DEFAULT; deferred — see As built). The sports packages (NFL, NBA, NHL, MLB, NCAA, MLS, WNBA:
   532 per-game feeds) are one category "Sports Events" with their own DVR,
   their guide the event names argon puts in the playlist (no Gracenote
   station) rendered as sports events; the PPV placeholder groups (5,300
@@ -360,12 +361,15 @@ Programme (every element only when the source has it):
 | `episode-num system="xmltv_ns"` | season.episode. (zero-based) | PMS, builder, ui |
 | `episode-num system="onscreen"` | `S03E05` | PMS, ui |
 | `episode-num system="dd_progid"` | `EP…`/`SH…`/`MV…`/`SP…` as the enricher makes them today, for programmes with no numbers (so PMS files them right) | PMS, builder |
+| `episode-num system="original-air-date"` | the episode's first air date, only beside `xmltv_ns` and `onscreen` (PMS keys by the numbers and stores the date; alone it keys by date and suppresses the dd_progid) | PMS (oad), builder |
 | `episode-num system="plex"` | the programme's `plex://episode/…` or `plex://movie/…` | builder |
 | `episode-num system="plex.show"`, `"plex.season"` | the show's and season's `plex://` guids | builder |
 | `previously-shown` | on a repeat (Gracenote: not `premiere` and not the first airing of a new episode; iptv-epg.org: its own) | PMS (clears premiere), builder |
 | `premiere`, `new`, `live` | as the source says | builder, ui |
 | `rating system="VCHIP"` (first), then `"MPAA"` | the content rating | PMS (first), builder |
 | `length units="minutes"` | the duration | builder, ui |
+
+`Series` and `Movie` in `category` are genres PMS keeps (the builder's oracle against the rig's DVR 8 dump, 2026-11-10), not classifiers it drops.
 
 The builder keys an item exactly as PMS does for a programme without a
 `plex` guid (`tv.plex.xmltv://show/<title>`, `…/season/<title>/<n>`,
@@ -510,3 +514,35 @@ in one place.
 4. D9: the lineups to match against.
 5. The New York network feeds (1001-1004 today): keep them under Local beside
    the owner's market's affiliates?
+
+## As built (2026-11-10)
+
+Built on main, clustarr 4ddb81d4 onward; the plan is
+`docs/superpowers/plans/2026-11-10-livetv-custom-guides.md`, the narrative is
+CLAUDE.md's Live TV section ("The automatic lineup and the custom guides").
+Decisions the plan made where this spec left them open:
+
+- D3's Sports Events category is deferred: argon's package feeds rename per game and a channel's identity is its name key, so the category would churn IPTVChannels and renumber daily; it needs stream-id keys and event-name programmes (a follow-up design).
+- `spec.lineup.prefer` and `spec.lineup.languages` are not built: the duplicate rule is fixed (HD over SD, group order, playlist order) and a language is left out with `exclude`.
+- The lineup manager (`clustarr-livetv-lineup`) owns `spec.number`, `spec.active`, the `clustarr.io/origin: lineup` label and `status.lineup` of automatic channels, never `spec.name` or `spec.group` (the shown name is `spec.name`, else `status.lineup.name`; the guide group is `spec.group`, else the category).
+- A category may be named by several rules; the first carries the base.
+- The dry run writes `status.categories`, `status.lineup` on existing channels and the plan as `lineup-plan/<ns>/<name>`; no spec.
+- A block per category uses no packer: `start` is base+1, device id `BlockDeviceID(ns, name, "cat/"+category)`.
+- Grids are fetched by the tuner (it owns the lineup fetch and the store) under the fetch key `"grids"`.
+- cluster-plex's planner takes a provider flavour; the XMLTV a Job builds from is cached under `xmltv/<dvr>/<hash>`; the swap hook treats any DVR the manager builds as its own.
+
+Rulings taken during the build (what, why):
+
+- 2026-11-10, CRD uniqueness rule rewritten as filter/all/size()==1: Kubernetes CEL has no `toSet()`; the kind dry run found it.
+- Task 2: a News rule's excludes leave NEWS entries unmatched by design; an override skips the spec exclude; an undefined override category drops the entry unmatched.
+- Task 5: lineup entries are computed on demand under the lock, keyed on the playlist fetch, because a cached ok=true was empty before the first render and stale after an Apply.
+- Task 3: the plexgrid client keeps the error chain when it redacts, and unvalidated airing times (a missing end gave a 1970 stop) are Important: skipped or duration-derived.
+- Task 4: the `plex://movie` guard accepted; the first render moves every XMLTV block's `guideHash` (one reload per XMLTV DVR, none on talos).
+- Task 6: `status.lineup` name, group and category reach the tuner only while the lineup is enabled (a dry run renames nothing); blocks are held on an Error plan and on `LineupPending`; an invalid lineup reads `LineupApplied=False` `InvalidLineup` with `Valid` True (the provider still streams); a vanished plan does not re-pack every DVR; a friendly name over 160 is clamped (it refused every status apply).
+- Task 7: `status.lineup` rule, name and duplicateOf are clamped to their MaxLengths (an oversized string would hold `LineupPending` for good); a `spec.name` equal to the playlist's raw name is no override; a dropped entry's `rule` is "" and its reason lives in the plan's Dropped; the plan is stored every pass; `LineupCategory.base` has Maximum=99000 (the number pattern overflowed at 99600).
+- Task 8: the decoded-grid cache was dropped (it contradicts the 2026-11-03 no-programmes-between-renders rule): about 6 ms and 4 MB a station grid, 1.2 s and 800 MB of churn a render at 200 stations, to be measured on talos; the 429 hold is timed from the answer, not the pass's start; a render follows a no-op pass; a stale pass cannot commit over an Apply or Remove; `force` survives a held pass.
+- Task 10: a cloud block takes only pairings of the cloud lineup (`plexguide.Prev.Lineup`, `status.plex.lineup`).
+- Task 9: the in-row category select (22.6 KB a row, a component per row) became an on-demand picker dialog; under an enabled lineup the Active switch and bulk enable and disable post the override (Automatic or Off), since the lineup owns `spec.active`; a category may not be named `Automatic` or `Off` (CEL).
+- Task 17: `splitBlocks` no longer drops a channel no category lists onto the category block below it.
+- XMLTV: `original-air-date` only beside numbers; `Series` and `Movie` stay as genres PMS keeps (the cluster-plex oracle, not the brief's "classifiers dropped"); in cluster-plex a show carries its episodes' categories, credits, countries and rating, a movie's index is -1, media_item_count is the airings, show and season years stay empty.
+- Process: no worktree (primary checkout, pathspec commits); a wave's tasks ran in parallel on disjoint files; envtests were written per task and run once in the final gate.

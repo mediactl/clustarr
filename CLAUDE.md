@@ -847,6 +847,115 @@ which the ui's TV Guide reads instead of parsing XMLTV; the store's names
 and shapes are `pkg/iptv/livetvstore`. E2e scenario 19
 (`test/e2e/livetv_test.go`, `iptv-stub`) is written and has never run.
 
+**The automatic lineup and the custom guides** (owner, 2026-11-10: "let's go
+custom the whole way"; `docs/superpowers/specs/2026-11-10-livetv-custom-guides-design.md`,
+whose "As built" section lists the rulings). Every channel argon-tv lists
+within reason goes to Plex, split across DVRs by category, alphabetical
+within each, with a guide built outside Plex.
+**The lineup.** An IPTVProvider's `spec.lineup` (`enabled`, `trim`,
+`exclude`, `categories[]` each with a `name`, a `base` of at most 99000,
+`groups`, `names` and `exclude`) is planned by the pure `pkg/iptv/lineup`
+and applied by `app/livetv/controller/lineup`, a leader-only runnable in
+the manager. The planner trims each admitted entry's name, leaves out what
+`exclude` names, drops duplicates by trimmed name (HD over SD, then group
+order, then playlist order), classifies by the first category whose
+`groups` or `names` match and whose `exclude` does not (a later rule of the
+same name joins that category, and the first carries the base), and numbers
+each category alphabetically from `base`+1 with no gaps. A category over
+`dvr.maxChannels` (400) or whose channel map would pass the 30,000-byte
+budget (`blocks.MapBytes`) is `TooMany`: its channels are deactivated and
+it gets no block. An entry no rule matches is unclassified and off every
+DVR; its IPTVChannel exists, inactive, so the Channels page lists it. The
+dry run is `enabled: false` with categories set: nothing is written to a
+channel's spec; the plan is stored whole as the `lineup-plan/<ns>/<name>`
+object (assignments, duplicates and their winners, drops, `TooMany`), the
+provider's `status.categories` and each existing channel's `status.lineup`
+are written, and the Channels page reads it as a banner and per-row
+columns. The controller writes under field manager `clustarr-livetv-lineup`
+(`k8s.ManagerLiveTVLineup`), which owns exactly `spec.number`, `spec.active`,
+the `clustarr.io/origin: lineup` label on the channels it created and
+`status.lineup` (`rule`, `name`, `category`, `duplicateOf`, each clamped to
+its MaxLength so an oversized string cannot refuse every apply); it never
+writes `spec.name` or `spec.group`: the shown name is `spec.name`, else
+`status.lineup.name`, and the guide class group is `spec.group`, else the
+category. A `spec.name` equal to the playlist's raw name is no override
+(the ui posts the raw name on every add, and on talos every channel would
+keep it). `spec.category` is a person's: nil follows the rules, "" is off
+every DVR, a name moves the channel (an undefined name drops it as
+unmatched; an override skips the spec's `exclude`); a category may not be
+named `Automatic` or `Off`, the ui picker's two words (CEL on `LineupSpec`).
+An entry gone from the playlist is deactivated and deleted after 7 days
+only if the lineup created it; one that returns inside the week keeps its
+channel and its edits. An invalid rule (a `names` regexp that does not
+compile) reads `Valid=True`, `LineupApplied=False` reason `InvalidLineup`
+naming the rule, writes nothing and keeps the last applied lineup. The
+provider controller then publishes **a block per category**, with no
+packer: `status.blocks[].category`, `start` = `base`+1, device id
+`hdhr.BlockDeviceID(ns, name, "cat/"+category)` (kept across a new base),
+friendly name the category; a renumbering moves that device's `lineupHash`
+and costs one channel-map save, never a guide reload on a built guide. Until
+every channel carries its plan the published blocks stand (`LineupPending`),
+as they do on an invalid plan. `spec.channelNumberStart` is ignored while
+the lineup is enabled. The tuner's `splitBlocks` puts a channel no category
+lists on no category's device.
+**The guide sources.** `spec.guideSources.plex` (`credentialsRef`,
+`lineups`, `refresh`, `rate` calls per second, default 2) pairs each
+channel with a Gracenote station through `plexguide.Pair` over the lineups
+in order, the cloud lineup first when `plexGuide` is enabled, a hand pick
+before any (`spec.epg.plex.station` stays a station hint, not a DVR
+pairing); the first Manual or Automatic match wins and is recorded in
+`status.plex` (`Pairing.Lineup`/`status.plex.lineup`; a cloud block takes
+only pairings of the cloud lineup). The tuner fetches one `GET /grid/bulk`
+per paired station for 14 days (`pkg/iptv/plexgrid`; the fetch key
+`"grids"`), paced at `rate`; a 429 holds the pass for max(Retry-After,
+1 minute) **timed from the answer**, not the pass's start (a 200-station
+pass outlived the hold otherwise), recorded in `status.guideSources.plex`,
+and a held fetch never holds a render, which takes what the store has.
+Each grid is stored as `grid/<ns>/<name>/<gridKey>` (about 100 KB); a
+station whose grid is empty, or fails, leaves the channel on its next
+source (the grid, else iptv-epg.org, else the panel's, else the dummy; never
+mixed within a channel), recorded as `status.guide` `plex/<gridKey>`,
+`xmltv/<id>`, `panel/<id>` or `dummy/<minutes>`. **No decoded grid is kept
+between renders** (the 2026-11-03 rule; a cache was built and dropped): the
+measured cost is about 6 ms and 4 MB of short-lived heap per station grid,
+about 1.2 s and 800 MB of churn per render at 200 stations, accepted until
+measured on talos. A grid programme with a Plex guid counts as described, so
+no art lookup runs for it. Metrics: `clustarr_livetv_grid_calls_total` and
+`clustarr_livetv_grid_hold_seconds`. Grids of unpaired stations or removed
+providers are never swept (a maintenance sweep is a follow-up).
+**The XMLTV profile** (`pkg/iptv/xmltv.Listing`, `Programme.Listing()` its
+inverse; the one format for PMS's loader, the ui's TV Guide index and
+cluster-plex's builder): every programme in XMLTV's DTD order
+(`dtdOrder` in `enrich.go`, which now reorders every programme, not only the
+ones it changes), each channel with a second `<display-name>`, "<number>
+<name>" (PMS's channelTitle); `image` elements for the poster, backdrop and
+still (`size="3"`, `orient`), which PMS ignores and the builder reads; the
+`plex`, `plex.show` and `plex.season` `episode-num` systems; credits, rating,
+`previously-shown`. A programme with no episode numbers gets the enricher's
+`dd_progid`, so PMS files it alike whatever the source. `original-air-date`
+is written only beside an episode's numbers: PMS keys by the numbers and
+stores the date, but alone it keys the episode by date and suppresses the
+dd_progid. `Series` and `Movie` stay in `<category>` as genres PMS keeps (an
+oracle against the rig's DVR 8 dump decided it). The first render moves every
+XMLTV block's `guideHash` (the reorder and the second display-name): one
+reload per XMLTV DVR, none on talos today.
+**The ui.** The Channels page shows each channel's category, number, rule,
+the duplicate it lost to and its guide source; the category override is an
+on-demand picker dialog (`GET /livetv/channels/{ns}/{name}/category`, like
+the EPG picker; an in-row select cost 22.6 KB a row), listing Automatic, Off,
+then `status.categories` (the stored plan's in a dry run); under an enabled
+lineup the Active switch and the bulk enable and disable post the override
+(Automatic or Off), since the lineup owns `spec.active`. The dry-run banner
+carries the plan's summary. `docs/examples/iptvprovider-argon-lineup.yaml` is
+the example. **Sports Events is deferred** (design D3): the packages' feeds
+rename themselves per game and a channel's identity is its name key, so the
+category would churn IPTVChannels and renumber daily; it needs stream-id keys
+and event-name programmes, a follow-up design. `spec.lineup.prefer` and
+`languages` are not built: the duplicate rule is fixed and a language is left
+out with `exclude`. **The cluster-plex half** (builder from this XMLTV, the
+first PMS load imported and later ones refused) is `plex.liveTV.xmltvGuide:
+pms | manager` there; clustarr's contract is the profile above.
+
 ## UI
 
 The library's media types -- Movies, TV, Music, Books, Comics, Audiobooks

@@ -475,6 +475,19 @@ Live TV (cluster-plex 0.4.0) is on with `livetv.enabled`: `cluster-plex.plex.liv
 Plex as DVRs, one per block, each registered at its `status.blocks[].uri` on
 the `<release>-livetv` Service. Set both false together.
 
+An IPTVProvider's channels can be planned automatically (2026-11-10, design
+`docs/superpowers/specs/2026-11-10-livetv-custom-guides-design.md`): `spec.lineup`
+names categories (each a `base`, `groups`, `names`, `exclude`) and the manager's
+lineup controller numbers every admitted channel alphabetically within its
+category, one DVR block per category; `spec.guideSources.plex` (`credentialsRef`,
+`lineups`, `refresh`, `rate`) adds Gracenote grids fetched by the tuner, ahead of
+the XMLTV guide. Review it before it writes anything: set `spec.lineup` with
+`enabled: false` (the dry run: nothing is written to a channel), read the plan on
+the Live TV Channels page (category, number, rule, duplicates, guide source), edit
+the categories until it reads right, then set `enabled: true`. The example is
+`docs/examples/iptvprovider-argon-lineup.yaml`. The Plex half is cluster-plex's
+`plex.liveTV.xmltvGuide`.
+
 ## Values
 
 The full reference is `values.yaml` itself -- every value has a comment

@@ -1,5 +1,7 @@
 # Live TV: an IPTV proxy for Plex, after xTeVe
 
+Amended 2026-11-10 by `2026-11-10-livetv-custom-guides-design.md`: the automatic lineup, the category blocks, the grid sources, the XMLTV profile.
+
 Status: design, for the owner's approval (2026-10-07).
 
 **Owner rulings (2026-10-07):**
