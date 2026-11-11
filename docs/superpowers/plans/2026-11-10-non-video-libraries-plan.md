@@ -1005,4 +1005,53 @@ hand before the deploy.
 
 ### Done notes
 
-(filled by the controlling session as the wave lands)
+**Wave G (2026-11-10 night to 11-11; workflow nonvideo-wave-g, 18 agents,
+none lost, each task implement -> adversarial review -> fix; main
+587465aa, pushed 2026-11-11).** The spec's §11 "Wave G as built" paragraph
+lists every commit and every departure from the text; this is the per-task
+record.
+- **W7.0** (316b562c api, a8ba3bee schema+metadata, e95f0d70 naming,
+  cd5d1e1e scanprogress, 88924128 scanapply RBAC; the role and the chart
+  copy were already granting the verbs). Review: 1 high, 2 medium, 1 low;
+  fixed in ef1900e6 (the LibraryScan controller dropped `Folder` in all
+  three copies of a status entry), 666d1df6 (the ui delete test expects the
+  exclusion box on Artist and Author), dfa3f61b (`MultiDisc` reads media off
+  `status.tracks` when the releases list, capped at 50, lacks the selected
+  release). The low (a bare `02` folder for a format-less medium) closed in
+  587465aa as `Disc NN`.
+- **W7.1+W7.2** (292fcb2b, one owner for the rescan package). Review: 1
+  high (CleanTitle emptied a non-Latin or symbol-only artist folder, so its
+  albums were never candidates), 3 medium (no taken-track guard; the
+  identification under the 10 s resolve timeout failed fast at the shared
+  limiter; a settled list held a file), 4 low; all eight fixed in b6d9b72f
+  (`nameEq`, `trackHolder` and `duplicate_track`, `IdentifyTimeout` with a
+  heartbeating goroutine, `childrenWait`, the reissue-date rule, a merged
+  MBID, a file-name ASIN, no special-purpose artist).
+- **W7.3** (76831332 scanapply+librarydelete). Review: 1 medium (a second
+  folder of one audiobook dead-lettered at the Folder check before the
+  Get), 2 low (a refused container listed as its file, two parts creating
+  the audiobook twice); fixed in ca2b568b (`errFolderElsewhere`, folder
+  rows for refusals, `itemLocks`). Found while building: an Artist applied
+  without `metadataProfile` gets empty type lists and accepts no album.
+- **W7.4** (bd494579 folderscan). Review: 1 high (a transient gateway
+  failure read as a listed album, the talos limiter's fast-fail case), 1
+  medium (the album's document not required though the scan matches on
+  it); fixed in 22046800 (`AlbumListed` needs the document and a
+  TracksSynced answer, `ChildrenWait` 24 h bound).
+- **W7.5** (822e5db5 rename, specwrite, fsops; the 2026-09-24 naming
+  design's D5 as-built note). Review: 1 high (a move into the container
+  folder itself always failed on `MkdirUnder`, so audiobook parts, issues
+  and standalone books in subfolders retried every 5 min for good), 1 low
+  (a symlinked parent was followed); fixed in 9f7673d2.
+- **W7.6** (c9f86c07 ui). Review: 1 medium (two confirmations pinned two
+  items to one folder, after which neither attributed and a files delete
+  would have removed the shared folder), 2 low (no root tags; the Search
+  link's hits started from the generic defaults); fixed in 19e2bf46
+  (`FolderHolder`, `checkFolderFree`, the projection drops a held folder's
+  row, `AddRequest.Tags`, `views.AddFormDefaults`).
+- **Controlling session:** the gate on an export of HEAD (every wave G
+  package green, envtests included; the fileimport album test re-aligned
+  with the `Disc NN` rule, 587465aa), the push, the docs. Leftovers are the
+  spec paragraph's "Still open after wave G" list. Deploy: CRDs rootfolders,
+  libraryscans and importexclusions by hand first; no chart value; nothing
+  scans or moves until a scan is asked for and `organizeFolders` is set.

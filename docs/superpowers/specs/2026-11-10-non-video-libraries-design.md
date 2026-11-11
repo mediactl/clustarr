@@ -1428,6 +1428,80 @@ implement, adversarial review, fix; the controlling session gates, pushes
 and documents. CRDs by hand on talos first (ImportExclusion, RootFolder,
 LibraryScan).
 
+**Wave G as built (2026-11-11, eighteen agents, none lost; main 587465aa,
+every task reviewed and fixed):** W7.0 316b562c, a8ba3bee, e95f0d70,
+cd5d1e1e, 88924128 and its fix round ef1900e6, 666d1df6, dfa3f61b; W7.1+W7.2
+292fcb2b and b6d9b72f; W7.3 76831332 and ca2b568b; W7.4 bd494579 and
+22046800; W7.5 822e5db5 and 9f7673d2; W7.6 c9f86c07 and 19e2bf46; the
+controlling session's 587465aa. Where the build departs from the text
+above: (D16) the agent's lookups and searches run under `IdentifyTimeout`
+(2 min) on their own goroutine while the walk heartbeats, since they queue
+on the metadata agent's one MusicBrainz limiter beside the fan-outs the
+walk's own creates start (a 10 s deadline failed fast past ten queued
+requests); a gateway that cannot be asked is the new reason `lookup_failed`,
+a second file for one track `duplicate_track` (the album's recorded
+MediaFiles read once per walk through the import agent's target index, the
+first file in walk order holding the track); a merged MusicBrainz id is the
+artist it became; no special-purpose artist (Various Artists) is proposed;
+an ASIN in a file's name is its audiobook; a refused create (excluded, no
+default profile, a name collision, another root) is listed as the folder
+(`Folder: true`) for artists and authors, one entry per part for an
+audiobook, a series' still as its file; a second folder of one audiobook is
+used when the item exists, else re-observed, never dead-lettered, and one
+create decision runs per item at a time (`itemLocks`); an Artist created by
+server-side apply must send `metadataProfile` as an object, since the CRD
+defaults its lists only when the object is present (an empty profile
+accepts no album). (D17) the ALBUM tag's DATE refuses only a date before
+the album's first release and picks among albums sharing a title, never
+narrowing when the folder agrees; an artist folder named in any script,
+symbols only or with its token keeps its albums (`nameEq`: the folder as
+written, CleanTitle, TitleNorm); a settled list never holds a file: an
+Artist synced with no albums reads `no_child_item`, an Album whose
+TracksSynced answered empty too, and both wait at most 24 h on a transient
+answer (`childrenWait`, mirrored by `folderscan.ChildrenWait`). (D18) the
+built rule is "every listed Album carries its document and a TracksSynced
+answer" -- a transient gateway failure (RPCError, RPCTimeout, NoAgent,
+AgentBusy) is no answer, where the first cut read every False but three
+reasons as listed and the talos limiter's fast-fail would have spent the
+artist's one scan on albums with no tracks; the Album's title is required
+too, since `MatchAlbum` matches on `status.metadata`; the wait is bounded
+by `ChildrenWait` (24 h) from the Unknown condition's first transition.
+(D19) the medium folder renders `{Medium Format }{medium:00}` (the space in
+the format's wrapper), and a medium the selected release records no format
+for, the media read off `status.tracks` included (the gateway's releases
+list is capped at 50 before the selected release), is `Disc NN`
+(`catalogctx.DefaultMediumFormat`), never a bare `02`; a move whose target
+is the container folder itself (an audiobook part or issue in a disc
+subfolder, a standalone book in a subfolder of its own) is made
+(`fsops.MkdirUnder` answers the root itself), and a symbolic link anywhere
+on the way is a Collision, never followed; a source outside its container
+stays held (a standalone book at `<root>/x.epub` does not organize; owner's
+call). (D20) one folder holds one item: a confirmation is refused (400)
+when another Artist, Author or Audiobook of the root pins or resolves to
+the folder, and the projection drops the folder row once one does; a
+confirmed folder takes the root's `defaults.tags` as the scan's create
+does (Add New of those three kinds too, since `AddRequest.Tags`); the
+"Search Add New" link starts every hit form on the root's defaults
+(`views.AddFormDefaults`); the scan page's awaiting line is read out of the
+Ready message's Summary text (no status field carries it). Still open after
+wave G: a series refusal is still listed as its proposing file while the
+walk counts it awaiting (a one-line change in `scanapply.refusal` plus the
+CRD doc and a series folder row in the ui); two scans at once (a root's
+and an Artist's folder scan) can still record two files for one track,
+since the applier has no taken-track guard (its edit: list the album's
+MediaFiles by `mfindex.ItemKey` and refuse a second holder as
+`duplicate_track`); the 24 h wait has no shorter escape for a release group
+MusicBrainz answers 404 (the gateway's error is a plain string; a not-found
+flag on `MetadataResponse` and a TracksSynced reason would end it); the
+album package's `TracksSynced` condition name is repeated by folderscan and
+rescan (export `AlbumConditionTracksSynced`); `scanprogress.Kinds` has no
+audiobook phrase; Add New of a Movie, Series or Comic still ignores the
+root's `defaults.tags`; two confirmations of one folder inside the ui's
+cache-sync window can both pass (an uncached reader closes it); the walk's
+second audiobook folder keeps the first's `Folder` (the applier tolerates
+it). Q8 and Q9 stand. The fileimport album test's two-medium fixture places
+each disc under `Disc NN` since 587465aa.
+
 ## 12. Tests and guards
 
 - `pkg/crdcheck`: the new enums, caps and defaults (`TestNoCRDDefaultIs
