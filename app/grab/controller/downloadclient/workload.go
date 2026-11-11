@@ -169,16 +169,20 @@ func (rt EngineRuntime) loggingMount() *corev1ac.VolumeMountApplyConfiguration {
 }
 
 // podLabels are the pod template's labels: the selector's plus the
-// recommended name and version labels the chart's pods carry, which a log
-// store reads as the build. Never the selector's, which a StatefulSet
-// cannot change.
-func podLabels(selector map[string]string) map[string]string {
+// recommended name and version labels the chart's pods carry, the version
+// the tag of the image the pod runs (version.ImageTag; none for an untagged
+// image), which a log store reads as the build. Never the manager's own
+// build, which would roll every engine on a manager-only deploy, and never
+// the selector's, which a StatefulSet cannot change.
+func podLabels(selector map[string]string, image string) map[string]string {
 	labels := make(map[string]string, len(selector)+2)
 	for k, v := range selector {
 		labels[k] = v
 	}
 	labels["app.kubernetes.io/name"] = "clustarr"
-	labels["app.kubernetes.io/version"] = version.Version
+	if tag := version.ImageTag(image); tag != "" {
+		labels["app.kubernetes.io/version"] = tag
+	}
 	return labels
 }
 
@@ -449,9 +453,9 @@ func podSpecAC(dc *downloadv1alpha1.DownloadClient, container *corev1ac.Containe
 	return spec
 }
 
-func podTemplateAC(configHash string, labels map[string]string, spec *corev1ac.PodSpecApplyConfiguration) *corev1ac.PodTemplateSpecApplyConfiguration {
+func podTemplateAC(configHash, image string, labels map[string]string, spec *corev1ac.PodSpecApplyConfiguration) *corev1ac.PodTemplateSpecApplyConfiguration {
 	return corev1ac.PodTemplateSpec().
-		WithLabels(podLabels(labels)).
+		WithLabels(podLabels(labels, image)).
 		WithAnnotations(map[string]string{EngineConfigHashAnnotation: configHash}).
 		WithSpec(spec)
 }
@@ -827,7 +831,7 @@ func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir,
 	spec := appsv1ac.StatefulSetSpec().
 		WithReplicas(torrentReplicas(dc)).
 		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(engineConfigHash(dc, secrets), labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
+		WithTemplate(podTemplateAC(engineConfigHash(dc, secrets), image, labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
 	if scratchPerReplica(dc) {
 		sc := scratchSpec(dc)
 		modes := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
@@ -872,7 +876,7 @@ func buildDeployment(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, 
 		WithReplicas(1).
 		WithStrategy(appsv1ac.DeploymentStrategy().WithType(appsv1.RecreateDeploymentStrategyType)).
 		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(engineConfigHash(dc, secrets), labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
+		WithTemplate(podTemplateAC(engineConfigHash(dc, secrets), image, labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
 
 	return appsv1ac.Deployment(name, dc.Namespace).
 		WithLabels(labels).

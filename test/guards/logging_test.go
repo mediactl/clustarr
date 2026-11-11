@@ -23,6 +23,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -371,4 +372,23 @@ func isContextParam(e ast.Expr) bool {
 	}
 	x, ok := sel.X.(*ast.Ident)
 	return ok && x.Name == "context" && sel.Sel.Name == "Context"
+}
+
+// Every binary names its process as a subsystem right after its root
+// logger (design §5: "the binaries after their root"), so the lines written
+// under the root context -- its own start and stop, pkg/busconn, pkg/dubs,
+// pkg/presence -- carry a subsystem key and an override can reach them.
+func TestEveryBinaryNamesItsProcessSubsystem(t *testing.T) {
+	root := installtest.RepoRoot(t)
+	for file, name := range map[string]string{
+		"internal/cli/manager/run.go": "manager",
+		"internal/cli/agent/run.go":   "agent",
+		"ui/run.go":                   "ui",
+		"cmd/markers/main.go":         "markers",
+		"cmd/transcode/main.go":       "transcode",
+	} {
+		src, err := os.ReadFile(filepath.Join(root, file))
+		require.NoError(t, err)
+		assert.Contains(t, string(src), `logging.Subsystem(ctx, "`+name+`")`, "%s names no process subsystem", file)
+	}
 }

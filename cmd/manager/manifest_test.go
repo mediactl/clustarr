@@ -85,7 +85,7 @@ func TestInstallerArgsParseAsTheManager(t *testing.T) {
 		"helm, cardigann definitions": {out: func() []byte {
 			return installtest.RenderChart(t, "--set", "manager.cardigann.definitions.configMap=defs",
 				"--set", "manager.cardigann.bundled=false")
-		}, autoscale: true, defsDir: "/etc/clustarr/cardigann"},
+		}, autoscale: true, defsDir: "/etc/clustarr-cardigann"},
 		"kustomize": {out: func() []byte { return installtest.BuildKustomize(t, "config/default") }, autoscale: true},
 	} {
 		t.Run(name, func(t *testing.T) {

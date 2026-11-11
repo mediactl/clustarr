@@ -30,6 +30,7 @@ package logging
 // (the log package and slog.Default), ffmpeg, onnx and this package's own
 // logging.
 var Subsystems = []string{
+	"agent",
 	"autoscale",
 	"autoscale.extmetrics",
 	"caption.fetch",
@@ -92,6 +93,7 @@ var Subsystems = []string{
 	"livetv.tuner",
 	"logging",
 	"maintenance.objectstores",
+	"manager",
 	"markers",
 	"onnx",
 	"remediation",

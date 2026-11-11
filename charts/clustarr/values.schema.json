@@ -27,10 +27,10 @@
           "additionalProperties": false,
           "description": "The logging floor, format and per-subsystem levels every pod reads from the <release>-logging ConfigMap (structured-logging design §6).",
           "properties": {
-            "level": { "type": "string", "enum": ["trace", "debug", "info", "warn", "warning", "error", "fatal"] },
+            "level": { "type": "string", "enum": ["trace", "debug", "info", "warn", "error", "fatal"] },
             "format": { "type": "string", "enum": ["json", "text"] },
             "addSource": { "type": "boolean" },
-            "subsystems": { "type": "object", "additionalProperties": { "type": "string", "enum": ["trace", "debug", "info", "warn", "warning", "error", "fatal"] } }
+            "subsystems": { "type": "object", "additionalProperties": { "type": "string", "enum": ["trace", "debug", "info", "warn", "error", "fatal"] } }
           }
         }
       }
@@ -43,10 +43,10 @@
       "additionalProperties": false,
       "description": "The logging floor, format and per-subsystem levels every pod reads from the <release>-logging ConfigMap (structured-logging design §6).",
       "properties": {
-        "level": { "type": "string", "enum": ["trace", "debug", "info", "warn", "warning", "error", "fatal"] },
+        "level": { "type": "string", "enum": ["trace", "debug", "info", "warn", "error", "fatal"] },
         "format": { "type": "string", "enum": ["json", "text"] },
         "addSource": { "type": "boolean" },
-        "subsystems": { "type": "object", "additionalProperties": { "type": "string", "enum": ["trace", "debug", "info", "warn", "warning", "error", "fatal"] } }
+        "subsystems": { "type": "object", "additionalProperties": { "type": "string", "enum": ["trace", "debug", "info", "warn", "error", "fatal"] } }
       }
     },
 

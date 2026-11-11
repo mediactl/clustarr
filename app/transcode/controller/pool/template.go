@@ -431,13 +431,19 @@ func Template(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Ha
 	}
 	applyHardware(&pod, tp, class, cfg)
 	cfg.WorkerPlacement.Apply(&pod)
+	labels := map[string]string{
+		"app.kubernetes.io/name": "clustarr", "app.kubernetes.io/component": "transcode",
+		LabelManagedBy: ManagedByValue, LabelHardware: string(class),
+	}
+	// The version is the image's tag, as the chart's pods carry it, never
+	// the manager's own build: Hash covers the template, so that would
+	// recreate every pool on a manager-only deploy.
+	if tag := version.ImageTag(image); tag != "" {
+		labels["app.kubernetes.io/version"] = tag
+	}
 	return corev1.PodTemplateSpec{
-		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
-			"app.kubernetes.io/name": "clustarr", "app.kubernetes.io/component": "transcode",
-			"app.kubernetes.io/version": version.Version,
-			LabelManagedBy:              ManagedByValue, LabelHardware: string(class),
-		}},
-		Spec: pod,
+		ObjectMeta: metav1.ObjectMeta{Labels: labels},
+		Spec:       pod,
 	}
 }
 

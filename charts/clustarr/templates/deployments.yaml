@@ -96,7 +96,9 @@ creates those at runtime, owned by the object that asked for them.
        configMap and existingClaim together. */}}
 {{- with .Values.manager.cardigann.definitions }}
 {{- if or .configMap .existingClaim }}
-{{- $dir := "/etc/clustarr/cardigann" }}
+{{- /* Beside /etc/clustarr, the logging ConfigMap's read-only directory: a
+       mountpoint nested inside it could not be created. */}}
+{{- $dir := "/etc/clustarr-cardigann" }}
 {{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_CARDIGANN_DEFINITIONS_DIR" "value" $dir) }}
 {{- $mount := dict "name" "cardigann" "mountPath" $dir "readOnly" true }}
 {{- with .subPath }}

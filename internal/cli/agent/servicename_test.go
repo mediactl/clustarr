@@ -31,7 +31,9 @@ func TestAgentServiceNames(t *testing.T) {
 		{"catalog", "", "agent-catalog"},
 		{"import", "", "agent-import"},
 		{"torrent-engine", "qbt", "engine-qbt"},
-		{"usenet-engine", "nzb-0", "engine-nzb-0"},
+		{"torrent-engine", "qbt-2", "engine-qbt"},
+		{"usenet-engine", "nzb-0", "engine-nzb"},
+		{"usenet-engine", "my-client-0", "engine-my-client"},
 	} {
 		require.Equal(t, tc.want, agentServiceName(tc.domain, tc.engine), "%s/%s", tc.domain, tc.engine)
 	}

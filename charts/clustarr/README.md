@@ -317,7 +317,8 @@ helm upgrade --install clustarr charts/clustarr -n clustarr-system \
   --set manager.cardigann.definitions.configMap=cardigann-defs
 ```
 
-The chart mounts it read-only into the manager at `/etc/clustarr/cardigann` and sets
+The chart mounts it read-only into the manager at `/etc/clustarr-cardigann` (beside
+`/etc/clustarr`, the logging ConfigMap's directory, since 2026-11-10) and sets
 `CLUSTARR_CARDIGANN_DEFINITIONS_DIR`. The directory **replaces** the embedded
 corpus rather than adding to it, and only files directly in it (`*.yml`,
 `*.yaml`) are read. A ConfigMap holds at most 1 MiB, so for the whole corpus

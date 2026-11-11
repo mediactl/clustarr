@@ -19,12 +19,16 @@ package agent
 
 // agentServiceName is the process's service.name, on its records and its
 // spans (the 2026-11-10 logging design §3): agent-<domain>, except that an
-// engine is named for the DownloadClient it runs, engine-<client>, since a
-// cluster runs one engine process per client.
+// engine is named for the DownloadClient it runs, engine-<client>: the
+// same name on every replica (§2), the ordinal of --engine's
+// "<client>-<ordinal>" being service.instance.id's to tell apart.
 func agentServiceName(domain, engine string) string {
 	switch domain {
 	case "torrent-engine", "usenet-engine":
 		if engine != "" {
+			if client, err := engineClient(engine); err == nil {
+				return "engine-" + client
+			}
 			return "engine-" + engine
 		}
 	}

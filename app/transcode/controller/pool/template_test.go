@@ -329,7 +329,7 @@ func TestGPUPoolsRequestAMinimalShare(t *testing.T) {
 // as a directory at /etc/clustarr (the 2026-11-10 logging design §6), and
 // carry the build's version label beside name and component (design §2).
 func TestPoolPodsMountTheLoggingConfigOptionally(t *testing.T) {
-	tpl := Template(&transcodev1alpha1.TranscodeProfile{}, "cpu", Config{LoggingConfigMap: "clustarr-logging"})
+	tpl := Template(&transcodev1alpha1.TranscodeProfile{}, "cpu", Config{LoggingConfigMap: "clustarr-logging", Image: "ghcr.io/mediactl/clustarr/native:sha-n1"})
 	var vol *corev1.Volume
 	for i := range tpl.Spec.Volumes {
 		if v := &tpl.Spec.Volumes[i]; v.ConfigMap != nil && v.ConfigMap.Name == "clustarr-logging" {
@@ -349,11 +349,16 @@ func TestPoolPodsMountTheLoggingConfigOptionally(t *testing.T) {
 	assert.Equal(t, "/etc/clustarr", mount.MountPath)
 	assert.Empty(t, mount.SubPath)
 	assert.True(t, mount.ReadOnly)
-	assert.Equal(t, version.Version, tpl.Labels["app.kubernetes.io/version"])
+	// The version is the image's tag, as the chart's label is: never the
+	// manager's build, which pool.Hash would read as drift and recreate
+	// every pool on a manager-only deploy.
+	assert.Equal(t, "sha-n1", tpl.Labels["app.kubernetes.io/version"])
+	assert.NotEqual(t, version.Version, tpl.Labels["app.kubernetes.io/version"])
 	assert.Equal(t, "clustarr", tpl.Labels["app.kubernetes.io/name"])
 
-	bare := Template(&transcodev1alpha1.TranscodeProfile{}, "cpu", Config{})
+	bare := Template(&transcodev1alpha1.TranscodeProfile{}, "cpu", Config{Image: "native"})
 	for _, v := range bare.Spec.Volumes {
 		assert.Nil(t, v.ConfigMap, "no ConfigMap name, no volume")
 	}
+	assert.NotContains(t, bare.Labels, "app.kubernetes.io/version", "an image without a tag has no version")
 }

@@ -37,7 +37,7 @@ import (
 // render adds nothing: the binary's defaults are bundled on, no directory.
 // The index agent loads no bundle at all.
 func TestCardigannValuesReachTheManager(t *testing.T) {
-	const dir = "/etc/clustarr/cardigann"
+	const dir = "/etc/clustarr-cardigann" // beside /etc/clustarr, the logging ConfigMap's directory
 	for name, tc := range map[string]struct {
 		args   []string
 		env    map[string]string

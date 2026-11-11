@@ -108,11 +108,12 @@ func TestBuildStatefulSetShape(t *testing.T) {
 
 	require.NotNil(t, sts.Spec.Template)
 	// The template carries the selector's labels plus the recommended name
-	// and version (TestRuntimePodsCarryTheRecommendedLabels).
+	// (and the image's tag as the version, when it has one:
+	// TestRuntimePodsCarryTheRecommendedLabels).
 	for k, v := range sts.Spec.Selector.MatchLabels {
 		assert.Equal(t, v, sts.Spec.Template.Labels[k], k)
 	}
-	assert.Len(t, sts.Spec.Template.Labels, len(sts.Spec.Selector.MatchLabels)+2)
+	assert.Equal(t, "clustarr", sts.Spec.Template.Labels["app.kubernetes.io/name"])
 
 	require.NotNil(t, sts.Spec.Template.Spec)
 	require.Len(t, sts.Spec.Template.Spec.Containers, 1)
@@ -698,17 +699,25 @@ func TestRuntimePodsMountTheLoggingConfigOptionally(t *testing.T) {
 }
 
 // The engine pods carry the Kubernetes recommended labels the chart's pods
-// carry (design §2): name, component and the build's version; the
-// selectors, immutable on a StatefulSet, are unchanged.
+// carry (design §2): name, component and the version, which is the tag of
+// the image the pod runs, as the chart's is -- never the manager's own
+// build, which would roll every engine on a manager-only deploy -- and is
+// left off an image without a tag; the selectors, immutable on a
+// StatefulSet, are unchanged.
 func TestRuntimePodsCarryTheRecommendedLabels(t *testing.T) {
 	rt := EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}
-	sts := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
-	dep := buildDeployment(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+	const image = "ghcr.io/mediactl/clustarr/native:sha-abc123"
+	sts := buildStatefulSet(torrentClient("sab", 1), "sab-engine", image, "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+	dep := buildDeployment(usenetClient("nzb"), "nzb-engine", image, "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 	for name, tpl := range map[string]*corev1ac.PodTemplateSpecApplyConfiguration{"torrent": sts.Spec.Template, "usenet": dep.Spec.Template} {
 		assert.Equal(t, "clustarr", tpl.Labels["app.kubernetes.io/name"], name)
 		assert.Equal(t, componentEngine, tpl.Labels[labelComponent], name)
-		assert.Equal(t, version.Version, tpl.Labels["app.kubernetes.io/version"], name)
+		assert.Equal(t, "sha-abc123", tpl.Labels["app.kubernetes.io/version"], name)
+		assert.NotEqual(t, version.Version, tpl.Labels["app.kubernetes.io/version"], "%s: the manager's build is not the pod's version", name)
 	}
 	assert.NotContains(t, sts.Spec.Selector.MatchLabels, "app.kubernetes.io/version", "the selector stays what it was")
 	assert.NotContains(t, dep.Spec.Selector.MatchLabels, "app.kubernetes.io/version")
+
+	bare := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "native", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+	assert.NotContains(t, bare.Spec.Template.Labels, "app.kubernetes.io/version", "an image without a tag has no version")
 }

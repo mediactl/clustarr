@@ -84,6 +84,9 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	defer shutdown()
+	// The process's own lines, and every package that logs under the root
+	// context (pkg/busconn, pkg/dubs, pkg/presence), name the process.
+	ctx = logging.Subsystem(ctx, "manager")
 	// The release groups' dual-audio languages (pkg/grouplang) on the root
 	// context every runnable and reconciler inherits, for every reader of a
 	// release's languages; the built-in table answers until the bucket is

@@ -216,7 +216,7 @@ variables filled in: VictoriaMetrics accepts some MetricsQL that Prometheus does
 
 ## Logging
 
-Every process writes one JSON object per line to stdout, built by
+Every process writes one JSON object per line to stderr, built by
 `pkg/obs/logging` (`docs/superpowers/specs/2026-11-10-structured-logging-design.md`;
 cluster-plex writes the same shape under `service.namespace: cluster-plex`). The
 logger travels in the `context` (`logging.FromContext`); nothing holds a package-level

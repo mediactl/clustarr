@@ -64,6 +64,9 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("ui: %w", err)
 	}
 	defer shutdown()
+	// The process's own lines name the process; the servers below name
+	// their own subsystems under it.
+	ctx = logging.Subsystem(ctx, "ui")
 
 	srv := NewServer(ctx, o)
 	httpSrv := &http.Server{

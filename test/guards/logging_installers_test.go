@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package guards
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/test/installtest"
 )
 
@@ -72,16 +76,70 @@ func loggingMounts(t *testing.T, name string, out []byte) {
 			assert.Equal(t, loggingMountPath, mount.MountPath, "%s: %s/%s", name, d.Name, c.Name)
 			assert.True(t, mount.ReadOnly, "%s: %s/%s mounts the logging ConfigMap writable", name, d.Name, c.Name)
 			assert.Empty(t, mount.SubPath, "%s: %s/%s mounts the logging ConfigMap with a subPath, which never receives its updates", name, d.Name, c.Name)
+			// A mount nested inside the read-only ConfigMap directory needs its
+			// mountpoint created on a read-only filesystem, which fails at
+			// ContainerCreating; the manager's cardigann directory sat there.
+			for _, m := range c.VolumeMounts {
+				assert.False(t, strings.HasPrefix(m.MountPath, loggingMountPath+"/"),
+					"%s: %s/%s mounts %s inside the logging ConfigMap's directory", name, d.Name, c.Name, m.MountPath)
+			}
 		}
 	}
 }
 
 func TestEveryPodMountsTheLoggingConfig(t *testing.T) {
 	for name, out := range map[string][]byte{
-		"helm template clustarr":   installtest.RenderChart(t),
-		"kustomize config/default": installtest.BuildKustomize(t, "config/default"),
+		"helm template clustarr":      installtest.RenderChart(t),
+		"helm, cardigann definitions": installtest.RenderChart(t, "--set", "manager.cardigann.definitions.configMap=defs"),
+		"kustomize config/default":    installtest.BuildKustomize(t, "config/default"),
 	} {
 		loggingMounts(t, name, out)
+	}
+	// The kustomize render carries the ConfigMap itself: without it every
+	// pod would wait at ContainerCreating on a mount that is not optional.
+	var found bool
+	for _, obj := range installtest.Objects(t, installtest.BuildKustomize(t, "config/default")) {
+		found = found || (obj.GetKind() == "ConfigMap" && obj.GetName() == "clustarr-logging")
+	}
+	assert.True(t, found, "kustomize config/default renders no clustarr-logging ConfigMap")
+}
+
+// Every level the schema admits is one the binaries parse: a value the
+// schema lets through and logging.ParseLevel refuses makes the whole file
+// invalid, which drops its subsystems too.
+func TestTheSchemasLevelsParse(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(installtest.RepoRoot(t), "charts", "clustarr", "values.schema.json"))
+	require.NoError(t, err)
+	var schema map[string]any
+	require.NoError(t, json.Unmarshal(raw, &schema))
+	var enums [][]any
+	var walk func(v any, under bool)
+	walk = func(v any, under bool) {
+		switch v := v.(type) {
+		case map[string]any:
+			if e, ok := v["enum"].([]any); ok && under {
+				enums = append(enums, e)
+			}
+			for k, c := range v {
+				walk(c, under || k == "logging")
+			}
+		case []any:
+			for _, c := range v {
+				walk(c, under)
+			}
+		}
+	}
+	walk(schema, false)
+	require.NotEmpty(t, enums, "the schema declares no enum under logging")
+	for _, e := range enums {
+		for _, v := range e {
+			s, _ := v.(string)
+			if s == "json" || s == "text" {
+				continue // a format
+			}
+			_, err := logging.ParseLevel(s)
+			assert.NoError(t, err, "the schema admits level %q", s)
+		}
 	}
 }
 
