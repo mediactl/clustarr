@@ -141,7 +141,7 @@ func run(args []string, getenv func(string) string) int {
 	}
 	shutdown, err := tracing.Setup(ctx, *to)
 	if err != nil {
-		log.ErrorContext(ctx, "tracing", "error", err)
+		log.ErrorContext(ctx, "tracing", "err", err)
 		return jobspec.WorkerExitMisconfigured
 	}
 	defer func() {
@@ -157,18 +157,18 @@ func run(args []string, getenv func(string) string) int {
 	// without them this pod can do nothing (spec 2026-10-06 §7.4).
 	eng, err := inprocess.New(transcode.Hardware(need["CLUSTARR_POOL_CLASS"]))
 	if err != nil {
-		log.ErrorContext(ctx, "the in-process engine is unavailable", "error", err)
+		log.ErrorContext(ctx, "the in-process engine is unavailable", "err", err)
 		return jobspec.WorkerExitRetriable
 	}
 	ffroute.Log(ctx)
 	if err := busconn.ValidateURL(need["NATS_URL"]); err != nil {
-		log.ErrorContext(ctx, "$NATS_URL", "error", err)
+		log.ErrorContext(ctx, "$NATS_URL", "err", err)
 		return jobspec.WorkerExitMisconfigured
 	}
 	nc, err := nats.Connect(need["NATS_URL"],
 		append([]nats.Option{nats.Name("transcode/" + need["POD_NAME"])}, busconn.ReconnectOptions()...)...)
 	if err != nil {
-		log.ErrorContext(ctx, "nats connect", "error", err)
+		log.ErrorContext(ctx, "nats connect", "err", err)
 		return jobspec.WorkerExitRetriable
 	}
 	// Equivalent to obs.BusHooks(), inlined: pkg/obs (the top-level package)
@@ -178,7 +178,7 @@ func run(args []string, getenv func(string) string) int {
 		AfterReceive:  tracing.Extract,
 	}))
 	if err != nil {
-		log.ErrorContext(ctx, "bus", "error", err)
+		log.ErrorContext(ctx, "bus", "err", err)
 		busconn.ShutdownAfter(ctx, shutdownBudget, nil, nc)()
 		return jobspec.WorkerExitRetriable
 	}
@@ -205,7 +205,7 @@ func run(args []string, getenv func(string) string) int {
 	if ctx.Err() != nil {
 		return jobspec.WorkerExitDrained
 	}
-	log.ErrorContext(ctx, "serve", "error", err)
+	log.ErrorContext(ctx, "serve", "err", err)
 	return jobspec.WorkerExitRetriable
 }
 
@@ -258,7 +258,7 @@ func runGraft(taskJSON, dataDir string, getenv func(string) string, log *slog.Lo
 	ctx = logging.NewContext(ctx, log)
 	var t grafttask.Task
 	if err := json.Unmarshal([]byte(taskJSON), &t); err != nil || t.Schema != grafttask.TaskSchema || t.File.UID == "" || t.Seq <= 0 {
-		log.ErrorContext(ctx, "a --graft-task the loop did not issue", "error", err, "schema", t.Schema)
+		log.ErrorContext(ctx, "a --graft-task the loop did not issue", "err", err, "schema", t.Schema)
 		return 1
 	}
 	url, pod := getenv("NATS_URL"), getenv("POD_NAME")
@@ -267,12 +267,12 @@ func runGraft(taskJSON, dataDir string, getenv func(string) string, log *slog.Lo
 		return jobspec.WorkerExitMisconfigured
 	}
 	if err := busconn.ValidateURL(url); err != nil {
-		log.ErrorContext(ctx, "$NATS_URL", "error", err)
+		log.ErrorContext(ctx, "$NATS_URL", "err", err)
 		return jobspec.WorkerExitMisconfigured
 	}
 	nc, err := nats.Connect(url, append([]nats.Option{nats.Name("transcode/graft/" + pod)}, busconn.ReconnectOptions()...)...)
 	if err != nil {
-		log.ErrorContext(ctx, "nats connect", "error", err)
+		log.ErrorContext(ctx, "nats connect", "err", err)
 		return 1
 	}
 	bus, err := natsbus.New(nc, natsbus.WithHooks(events.Hooks{
@@ -280,7 +280,7 @@ func runGraft(taskJSON, dataDir string, getenv func(string) string, log *slog.Lo
 		AfterReceive:  tracing.Extract,
 	}))
 	if err != nil {
-		log.ErrorContext(ctx, "bus", "error", err)
+		log.ErrorContext(ctx, "bus", "err", err)
 		busconn.ShutdownAfter(ctx, shutdownBudget, nil, nc)()
 		return 1
 	}
@@ -294,7 +294,7 @@ func runGraft(taskJSON, dataDir string, getenv func(string) string, log *slog.Lo
 		log.InfoContext(ctx, "graft superseded", "file", t.File.Name, "seq", t.Seq)
 		return 0
 	case err != nil:
-		log.ErrorContext(ctx, "graft", "file", t.File.Name, "seq", t.Seq, "error", err)
+		log.ErrorContext(ctx, "graft", "file", t.File.Name, "seq", t.Seq, "err", err)
 		return 1
 	}
 	log.InfoContext(ctx, "graft finished", "file", t.File.Name, "seq", t.Seq, "phase", res.Phase, "reason", res.Reason, "message", res.Message)

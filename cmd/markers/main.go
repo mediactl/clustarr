@@ -162,7 +162,7 @@ func run(args []string, getenv func(string) string) int {
 	}
 	shutdown, err := tracing.Setup(ctx, *f.to)
 	if err != nil {
-		log.ErrorContext(ctx, "tracing", "error", err)
+		log.ErrorContext(ctx, "tracing", "err", err)
 		return worker.ExitMisconfigured
 	}
 	defer func() {
@@ -173,23 +173,23 @@ func run(args []string, getenv func(string) string) int {
 
 	det, err := textdet.NewONNX(ctx, getenv("ORT_LIB_PATH"))
 	if err != nil {
-		log.ErrorContext(ctx, "the text detector is off; credits use the cheaper signals only", "error", err)
+		log.ErrorContext(ctx, "the text detector is off; credits use the cheaper signals only", "err", err)
 		det = nil
 	} else {
 		worker.DNNAvailable.Set(1)
 	}
 	// §3.7 steps 7-8: FFmpeg 9 and what decoding needs, or the image is broken.
 	if _, err := ffruntime.Load(); err != nil {
-		log.ErrorContext(ctx, "FFmpeg is unavailable: the native image is broken", "error", err)
+		log.ErrorContext(ctx, "FFmpeg is unavailable: the native image is broken", "err", err)
 		return worker.ExitMisconfigured
 	}
 	if err := ffruntime.Require(decode.Needs); err != nil {
-		log.ErrorContext(ctx, "FFmpeg lacks what decoding needs", "error", err)
+		log.ErrorContext(ctx, "FFmpeg lacks what decoding needs", "err", err)
 		return worker.ExitMisconfigured
 	}
 	ffroute.Log(ctx)
 	if err := ffmetrics.Register(prometheus.DefaultRegisterer); err != nil {
-		log.ErrorContext(ctx, "metrics", "error", err)
+		log.ErrorContext(ctx, "metrics", "err", err)
 		return worker.ExitMisconfigured
 	}
 
@@ -221,20 +221,20 @@ func run(args []string, getenv func(string) string) int {
 		srv := &http.Server{Addr: *f.metricsAddr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 		go func() {
 			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.ErrorContext(ctx, "metrics", "error", err)
+				log.ErrorContext(ctx, "metrics", "err", err)
 			}
 		}()
 		defer func() { _ = srv.Close() }()
 	}
 
 	if err := busconn.ValidateURL(need["NATS_URL"]); err != nil {
-		log.ErrorContext(ctx, "$NATS_URL", "error", err)
+		log.ErrorContext(ctx, "$NATS_URL", "err", err)
 		return worker.ExitMisconfigured
 	}
 	nc, err := nats.Connect(need["NATS_URL"],
 		append([]nats.Option{nats.Name("markers/" + need["POD_NAME"])}, busconn.ReconnectOptions()...)...)
 	if err != nil {
-		log.ErrorContext(ctx, "nats connect", "error", err)
+		log.ErrorContext(ctx, "nats connect", "err", err)
 		return worker.ExitRetriable
 	}
 	ncRef.Store(nc)
@@ -247,7 +247,7 @@ func run(args []string, getenv func(string) string) int {
 	// controller-runtime, which this binary does not link.
 	bus, err := natsbus.New(nc, natsbus.WithHooks(events.Hooks{BeforePublish: tracing.Inject, AfterReceive: tracing.Extract}))
 	if err != nil {
-		log.ErrorContext(ctx, "bus", "error", err)
+		log.ErrorContext(ctx, "bus", "err", err)
 		busconn.ShutdownAfter(ctx, budget, nil, nc)()
 		return worker.ExitRetriable
 	}
@@ -272,7 +272,7 @@ func run(args []string, getenv func(string) string) int {
 	go func() {
 		defer close(presenceDone)
 		if err := pw.Run(pctx); err != nil {
-			log.ErrorContext(ctx, "presence", "error", err)
+			log.ErrorContext(ctx, "presence", "err", err)
 		}
 	}()
 	// Whatever ends run, the writer deletes its key on the way out (best
@@ -302,7 +302,7 @@ func run(args []string, getenv func(string) string) int {
 	// exits without it.
 	unsub, err := bus.Subscribe(ctx, sub, h.Handle)
 	if err != nil {
-		log.ErrorContext(ctx, "subscribe", "error", err)
+		log.ErrorContext(ctx, "subscribe", "err", err)
 		return worker.ExitRetriable
 	}
 	defer func() {
