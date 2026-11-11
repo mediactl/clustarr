@@ -55,27 +55,27 @@ type Options struct {
 
 	// Output is where the logger writes. Nil defaults to os.Stderr.
 	Output io.Writer
+
+	// Subsystems are the per-subsystem level overrides, by dotted prefix
+	// (design §4); Level is the floor under them.
+	Subsystems map[string]slog.Level
+
+	// ConfigPath is the logging config file (its "logging:" key), re-read
+	// while the process runs. Empty means none.
+	ConfigPath string
+
+	// Service is stamped on every record as the service group.
+	Service Service
 }
 
-// New builds a root *slog.Logger from opts.
+// New builds a root *slog.Logger from opts: a [Handler] over slog's JSON or
+// text handler, gating each line by its subsystem's level.
 func New(opts Options) *slog.Logger {
 	out := opts.Output
 	if out == nil {
 		out = os.Stderr
 	}
-
-	handlerOpts := &slog.HandlerOptions{
-		AddSource: opts.AddSource,
-		Level:     opts.Level,
-	}
-
-	var handler slog.Handler
-	if opts.Format == "text" {
-		handler = slog.NewTextHandler(out, handlerOpts)
-	} else {
-		handler = slog.NewJSONHandler(out, handlerOpts)
-	}
-	return slog.New(handler)
+	return slog.New(NewHandler(out, opts.Format, opts.AddSource, opts.Service, NewLevels(opts.Level, opts.Subsystems)))
 }
 
 // BindFlags registers the flags that configure opts on fs, using opts'
