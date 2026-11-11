@@ -28,6 +28,7 @@ package manager
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 
@@ -59,6 +60,7 @@ type Options struct {
 	JobWindow         int                  // most files per profile in a window phase (--job-window, loop spec §5.11)
 	GraftConcurrency  int                  // most standalone audio grafts running at once per namespace (--graft-concurrency): the ledger's graft slots
 	VideoLease        types.NamespacedName // cluster-plex's video-transcode Lease, yielded to (--video-transcode-lease); zero yields to nothing
+	IntelWorkLease    types.NamespacedName // the Lease admission publishes its intel work in, for cluster-plex's CPU video route (--intel-work-lease); zero publishes nothing
 	Ledger            *admission.Ledger    // shared with the remediation loop (the manager command builds it once)
 	Logging           logging.Options      // rendered onto the pool workers' args
 	Tracing           tracing.Options      // likewise
@@ -98,9 +100,15 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("transcode manager: %T cannot administer streams", bus)
 	}
 	cfg := poolConfig(o)
+	var intelWork *admission.IntelWorkLease
+	if o.IntelWorkLease.Name != "" {
+		intelWork = &admission.IntelWorkLease{
+			Client: mgr.GetClient(), Key: o.IntelWorkLease, Identity: os.Getenv("POD_NAME"), Log: slog.Default(),
+		}
+	}
 	adm := &admission.Reconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Ledger: o.Ledger, Bus: bus, Admin: admin,
-		Namespaces: namespacesOf(o.Options), Pool: cfg, VideoLease: o.VideoLease,
+		Namespaces: namespacesOf(o.Options), Pool: cfg, VideoLease: o.VideoLease, IntelWork: intelWork,
 		Withdrawal: task.Withdrawal{
 			Records: task.Requests(bus.KV(events.BucketTranscodes)),
 			Leases:  bus.KV(events.BucketTranscodeLeases), Admin: admin,

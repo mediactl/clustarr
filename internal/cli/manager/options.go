@@ -100,6 +100,12 @@ type Options struct {
 	// counting the video conversions its GPU pool runs, which transcode
 	// admission yields the intel class to. Zero yields to nothing.
 	VideoTranscodeLease types.NamespacedName
+	// IntelWorkLease is --intel-work-lease: the Lease transcode admission
+	// publishes the intel class's work in hand and waiting in, which
+	// cluster-plex reads to route Plex's conversions to its CPU pool. It
+	// lives in the manager's own namespace (checkIntelWorkLease). Zero
+	// publishes nothing.
+	IntelWorkLease types.NamespacedName
 
 	CardigannDefinitionsDir string
 	CardigannBundled        bool
@@ -169,6 +175,17 @@ func DefaultOptions() Options {
 
 // parseLeaseRef reads --video-transcode-lease's <namespace>/<name>; empty
 // is none.
+// checkIntelWorkLease refuses an intel-work Lease outside the manager's
+// namespace: the chart's leader-election Role grants Lease writes there
+// alone, so a write anywhere else would be refused at the first pass.
+// An empty podNamespace (outside a pod) checks nothing.
+func checkIntelWorkLease(ref types.NamespacedName, podNamespace string) error {
+	if ref.Name == "" || podNamespace == "" || ref.Namespace == podNamespace {
+		return nil
+	}
+	return fmt.Errorf("--intel-work-lease %s: the Lease must be in the manager's namespace %s (the leader-election Role grants its writes there)", ref, podNamespace)
+}
+
 func parseLeaseRef(s string) (types.NamespacedName, error) {
 	if s == "" {
 		return types.NamespacedName{}, nil

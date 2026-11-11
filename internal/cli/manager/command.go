@@ -20,6 +20,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -61,7 +62,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs := root.Flags()
 	common := ctrlflags.BindManager(fs)
 	d := DefaultOptions()
-	var slots, renderGroups, workerPlacement, videoLease string
+	var slots, renderGroups, workerPlacement, videoLease, intelWorkLease string
 	memoryLimitTorrent, memoryLimitUsenet := d.EngineMemoryLimitTorrent.String(), d.EngineMemoryLimitUsenet.String()
 
 	fs.StringVar(&d.DataDir, "data-dir", d.DataDir,
@@ -96,6 +97,10 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.StringVar(&videoLease, "video-transcode-lease", "",
 		"<namespace>/<name> of cluster-plex's Lease counting the video conversions its GPU pool runs: while it "+
 			"counts one, transcode admission admits no new file to intel, and running encodes finish. Empty yields to nothing.")
+	fs.StringVar(&intelWorkLease, "intel-work-lease", "",
+		"<namespace>/<name> of the Lease transcode admission publishes the intel class's work in hand and waiting in "+
+			"(clustarr.io/intel-work), which cluster-plex reads to route Plex's conversions to its CPU pool; the manager's own "+
+			"namespace. Empty publishes nothing.")
 	fs.StringVar(&renderGroups, "intel-render-groups", cli.EnvOr(cli.EnvIntelRenderGroups, ""),
 		"Comma-separated GIDs every Intel transcode pool's pod gets as supplementalGroups: the host group "+
 			"owning /dev/dri/renderD* on the Intel GPU nodes, e.g. 109 or 44,109. It varies per host install, "+
@@ -185,6 +190,12 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		}
 		if o.VideoTranscodeLease, err = parseLeaseRef(videoLease); err != nil {
 			return fmt.Errorf("--video-transcode-lease: %w", err)
+		}
+		if o.IntelWorkLease, err = parseLeaseRef(intelWorkLease); err != nil {
+			return fmt.Errorf("--intel-work-lease: %w", err)
+		}
+		if err := checkIntelWorkLease(o.IntelWorkLease, os.Getenv("POD_NAMESPACE")); err != nil {
+			return err
 		}
 		if o.WorkerPlacement, err = placement.Parse(workerPlacement); err != nil {
 			return fmt.Errorf("--worker-placement: %w", err)

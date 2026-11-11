@@ -386,7 +386,15 @@ renewed every 10 s, stale after 30 s), and while the count is above zero
 admission (`app/transcode/admission/videolease.go`) admits new files to
 the intel class only on the video engines the streams leave whole
 (`VideoAllowance`, owner 2026-11-05: "maximum transcode streams without
-throttling the streams"): each pool pod measures its device's engine count
+throttling the streams"; and since 2026-11-10 the same pass publishes the
+intel class's work in hand and waiting -- running, queued and Planned intel
+files and the yield's held gpu files, `PassResult.IntelWork` -- into the
+Lease `--intel-work-lease` names in the manager's own namespace (chart
+`manager.intelWorkLease`, annotation `clustarr.io/intel-work`, renewed
+every 10 s while above zero by the leader-only `admission.IntelWorkLease`),
+which cluster-plex's manager reads to send Plex's conversions to its
+libx264 pool while clustarr holds intel work, so clustarr keeps both
+engines: cluster-plex's `2026-11-10-cpu-video-route-design.md`): each pool pod measures its device's engine count
 from the kernel's DRM fdinfo (`pkg/transcode/drminfo`, `Limits.VideoEngines`,
 shown in TranscodeProfile `status.encoderLimits[].videoEngines`), a
 stream is reserved a quarter of an engine (measured 20% of one on
