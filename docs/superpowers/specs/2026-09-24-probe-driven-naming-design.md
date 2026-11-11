@@ -64,7 +64,14 @@ to the presets by default.
   `rootFolderRef` walk), remembers a hold keyed by the mode and container,
   so turning `organizeFolders` on retries what the whole-path rename held,
   and waits for a LibraryScan over the folder a file moves to as it does
-  for the folder the file is in (D6). A folder rename of the item itself is
+  for the folder the file is in (D6). The target's folder may be the
+  container itself -- an Audiobook's parts, an Issue and a standalone Book
+  are placed directly in it, so one left in a disc, volume or format folder
+  moves up -- where nothing is made; a file or a symbolic link, live or
+  dangling, anywhere between the container and the target is a
+  `Collision` (`fsops.ErrNotDirectory`), never followed out of the
+  container, and `fsops.PruneEmptyDirs` removes nothing through a symbolic
+  link (the W7.5 review, 2026-11-10). A folder rename of the item itself is
   still not built.
 - **D6. A rename never crosses a container boundary and never touches a file
   another job holds.** The extension is the file's real container (from the

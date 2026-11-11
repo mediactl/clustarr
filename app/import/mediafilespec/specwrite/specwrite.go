@@ -219,12 +219,14 @@ func (m RenameMode) String() string {
 // [mediafilespec.RenameHeld], as it has always been. Under [RenameOrganize]
 // a non-video file's proposed path may lie in another folder strictly under
 // container, the item's container folder, when the file already lies under
-// it too; the target's missing folders are created ([fsops.MkdirUnder]),
-// the sidecars move with the file, and once the move is recorded the
-// folders it emptied are pruned up to container, which is never removed
-// itself. A move that fails, or is moved back, prunes the folders it made
-// and no others. A proposal leaving container, or a file outside it, is
-// held. container is read only under RenameOrganize.
+// it too -- the container's own folder included; the target's missing
+// folders are created ([fsops.MkdirUnder]), the sidecars move with the
+// file, and once the move is recorded the folders it emptied are pruned up
+// to container, which is never removed itself. A move that fails, or is
+// moved back, prunes the folders it made and no others. A proposal leaving
+// container, or a file outside it, is held; a file or a symbolic link
+// where one of the target's folders would be is [mediafilespec.RenameCollision].
+// container is read only under RenameOrganize.
 //
 // A transcoded file (spec.original false) has its size, mtime and original
 // flag left out of the apply: catalog owns those once it incorporates a
@@ -329,7 +331,17 @@ func RenameFile(
 	// move that does not end recorded removes again.
 	var made string
 	if prune != "" {
+		// The target's folder may be the container itself -- an audiobook
+		// part, an issue or a standalone book leaving a subfolder for the
+		// folder its preset places it in -- where nothing is made.
 		if made, err = fsops.MkdirUnder(prune, filepath.Dir(out.To), 0o775); err != nil {
+			if errors.Is(err, fsops.ErrNotDirectory) {
+				// A file or a symbolic link stands where a folder of the
+				// target would be: never replaced, nor followed out of the
+				// container.
+				out.Reason = mediafilespec.RenameCollision
+				return out, nil
+			}
 			return out, fmt.Errorf("rescan: rename: %w", err)
 		}
 	}

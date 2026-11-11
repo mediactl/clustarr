@@ -143,7 +143,7 @@ func (a *Actuator) Act(ctx context.Context, env *remediation.Env, c client.Clien
 		// permanently colliding file -- tied canonical paths under a
 		// preset without a part token, NamingCurrent False for good --
 		// would cost an uncached Get and two stats each, forever.
-		a.event(applied, corev1.EventTypeWarning, out.Reason, "not renamed to %s: something already exists there", out.To)
+		a.event(applied, corev1.EventTypeWarning, out.Reason, "not renamed to %s: something already exists there, or where one of its folders would be", out.To)
 		a.remember(applied, how, a.now())
 	case out.Reason == mediafilespec.RenameChanged:
 		a.event(applied, corev1.EventTypeWarning, out.Reason,

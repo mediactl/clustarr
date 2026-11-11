@@ -479,6 +479,87 @@ func TestAVacatedCollisionTargetIsRetriedAfterTheRecheckInterval(t *testing.T) {
 	assert.Equal(t, to, got.Spec.Path)
 }
 
+// TestAnAudiobookPartMovesUpIntoItsAudiobooksFolder: under RenameOrganize
+// the container's own folder is a target like any other -- an Audiobook's
+// parts are placed directly in its folder -- so a part left in a disc
+// folder is renamed up into it, the disc folder pruned once empty, with no
+// error: until the fix every such pass failed and the loop retried it
+// every five minutes for good.
+func TestAnAudiobookPartMovesUpIntoItsAudiobooksFolder(t *testing.T) {
+	lib := t.TempDir()
+	book := filepath.Join(lib, "Terry Pratchett", "Guards! Guards!")
+	from, to := filepath.Join(book, "CD1", "01.mp3"), filepath.Join(book, "Guards! Guards! (01).mp3")
+	require.NoError(t, os.MkdirAll(filepath.Dir(from), 0o755))
+	require.NoError(t, os.WriteFile(from, []byte("part one"), 0o644))
+	info, err := os.Stat(from)
+	require.NoError(t, err)
+	mf := &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "guards-1", UID: "uid-guards-1"},
+		Spec: catalogv1alpha1.MediaFileSpec{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-audio"},
+			Path:     from, SizeBytes: info.Size(), ModTime: metav1.NewTime(info.ModTime()),
+		},
+		Status: catalogv1alpha1.MediaFileStatus{
+			Naming: &catalogv1alpha1.NamingStatus{ExpectedPath: to},
+			Conditions: []metav1.Condition{
+				{Type: catalogv1alpha1.ConditionNamingCurrent, Status: metav1.ConditionFalse, Reason: "Stale"},
+				{Type: catalogv1alpha1.MediaFileConditionReady, Status: metav1.ConditionTrue, Reason: "Ready"},
+				{Type: catalogv1alpha1.MediaFileConditionProbed, Status: metav1.ConditionTrue, Reason: "Probed"},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithStatusSubresource(&catalogv1alpha1.MediaFile{}).WithObjects(
+		&catalogv1alpha1.RootFolder{ObjectMeta: objMeta("audiobooks"), Spec: catalogv1alpha1.RootFolderSpec{
+			Path: lib, Kind: catalogv1alpha1.RootFolderKindAudiobook,
+			Naming: catalogv1alpha1.NamingSpec{RenameFiles: ptr.To(true), OrganizeFolders: ptr.To(true)},
+		}},
+		&catalogv1alpha1.Audiobook{
+			ObjectMeta: objMeta("guards-audio"), Spec: catalogv1alpha1.AudiobookSpec{ASIN: "B1", RootFolderRef: "audiobooks"},
+			Status: catalogv1alpha1.AudiobookStatus{Path: book},
+		},
+		mf,
+	).Build()
+	rec := k8sevents.NewFakeRecorder(16)
+	a := New(Options{Recorder: rec})
+
+	wake, err := a.Act(t.Context(), &remediation.Env{Reader: c, APIReader: c}, c, mf)
+	require.NoError(t, err)
+	assert.Zero(t, wake)
+	assert.Len(t, withPrefix(drain(rec), "Normal Renamed"), 1)
+	assert.FileExists(t, to)
+	assert.NoFileExists(t, from)
+	assert.NoDirExists(t, filepath.Dir(from), "the disc folder the move emptied is pruned")
+	assert.DirExists(t, book)
+}
+
+// TestASymbolicLinkWhereTheAlbumFolderWouldBeIsARememberedCollision: an
+// album folder that is a symbolic link -- which the move must never follow
+// out of the artist's folder -- is a Collision the actuator remembers like
+// any other, a Warning once and a pass at the interval's end, never an
+// error the loop retries every five minutes with a Warn of its own.
+func TestASymbolicLinkWhereTheAlbumFolderWouldBeIsARememberedCollision(t *testing.T) {
+	mf, c, from, to := organizeFixture(t, true, "")
+	elsewhere := t.TempDir()
+	require.NoError(t, os.Symlink(elsewhere, filepath.Dir(to)))
+	rec := k8sevents.NewFakeRecorder(16)
+	a := New(Options{Recorder: rec})
+	env := &remediation.Env{Reader: c, APIReader: c}
+
+	wake, err := a.Act(t.Context(), env, c, mf)
+	require.NoError(t, err)
+	assert.Zero(t, wake)
+	collided := withPrefix(drain(rec), "Warning Collision")
+	require.Len(t, collided, 1)
+	assert.Contains(t, collided[0], "where one of its folders would be")
+	assert.FileExists(t, from)
+	assert.NoFileExists(t, filepath.Join(elsewhere, filepath.Base(to)))
+
+	wake, err = a.Act(t.Context(), env, c, mf)
+	require.NoError(t, err)
+	assert.Positive(t, wake, "remembered: the pass at the interval's end is asked for")
+	assert.Empty(t, drain(rec))
+}
+
 // drain is every event rec holds.
 func drain(rec *k8sevents.FakeRecorder) []string {
 	var out []string

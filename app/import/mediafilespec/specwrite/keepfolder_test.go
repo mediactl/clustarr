@@ -100,22 +100,31 @@ func TestRenameFileKeepingTheFolderRenamesInPlace(t *testing.T) {
 // holding it.
 func flatTrack(t *testing.T, from, expected string) (*catalogv1alpha1.MediaFile, client.Client) {
 	t.Helper()
+	return plantNonVideo(t, commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "nirvana-nevermind", Track: "rec-01"}, from, expected, ".lrc")
+}
+
+// plantNonVideo plants a file of ref's item at from, whose canonical path
+// is expected, with a sidecar of the file's stem and sidecarExt that
+// status.sidecars records, and returns the MediaFile and a fake client
+// holding it.
+func plantNonVideo(t *testing.T, ref commonv1.MediaRef, from, expected, sidecarExt string) (*catalogv1alpha1.MediaFile, client.Client) {
+	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Dir(from), 0o755))
-	require.NoError(t, os.WriteFile(from, []byte("flac frames"), 0o644))
+	require.NoError(t, os.WriteFile(from, []byte("media frames"), 0o644))
 	stem := strings.TrimSuffix(filepath.Base(from), filepath.Ext(from))
-	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(from), stem+".lrc"), []byte("[00:01] lyrics"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(from), stem+sidecarExt), []byte("[00:01] lyrics"), 0o644))
 	info, err := os.Stat(from)
 	require.NoError(t, err)
 	mf := &catalogv1alpha1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: "nevermind-01", Namespace: "media"},
 		Spec: catalogv1alpha1.MediaFileSpec{
-			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "nirvana-nevermind", Track: "rec-01"},
+			MediaRef: ref,
 			Path:     from, SizeBytes: info.Size(), ModTime: metav1.NewTime(info.ModTime().Truncate(time.Second)),
 			Quality: commonv1.Quality{Name: "FLAC"},
 		},
 		Status: catalogv1alpha1.MediaFileStatus{
 			Naming:   &catalogv1alpha1.NamingStatus{ExpectedPath: expected},
-			Sidecars: []catalogv1alpha1.Sidecar{{Name: stem + ".lrc"}},
+			Sidecars: []catalogv1alpha1.Sidecar{{Name: stem + sidecarExt}},
 		},
 	}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
@@ -218,6 +227,113 @@ func TestRenameFileOrganizingHoldsAMoveOutsideTheContainer(t *testing.T) {
 			_, after := os.Stat(filepath.Dir(tc.expected))
 			assert.Equal(t, os.IsNotExist(before), os.IsNotExist(after), "no folder is made for a held move")
 			require.NoError(t, os.RemoveAll(filepath.Dir(tc.from)))
+		})
+	}
+}
+
+// The container's own folder is a target folder like any other: an
+// audiobook's parts, a comic's issues and a standalone book are placed
+// directly in their item's folder (AudiobookFilePath, IssueFilePath,
+// BookFilePath), so one left in a subfolder -- a disc, a volume, a format
+// folder -- moves up into the container, with its sidecar, and the
+// subfolder it emptied is pruned while the container stays. Until the fix
+// MkdirUnder refused the container as "not strictly under" itself and the
+// actuator retried every such file every five minutes for good.
+func TestRenameFileOrganizingMovesAFileUpIntoTheContainerItself(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		ref                  commonv1.MediaRef
+		container            string // relative to the root
+		from, to, sidecarExt string // relative to the container
+		emptied              string // the subfolder the move empties
+	}{
+		{
+			name:      "an audiobook part in a disc folder",
+			ref:       commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-audio"},
+			container: filepath.Join("Terry Pratchett", "Guards! Guards!"),
+			from:      filepath.Join("CD1", "01.mp3"), to: "Guards! Guards! (01).mp3", sidecarExt: ".cue",
+			emptied: "CD1",
+		},
+		{
+			name:      "a comic issue in a volume folder",
+			ref:       commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "saga-001"},
+			container: "Saga (2012)",
+			from:      filepath.Join("Volume 1", "saga 001.cbz"), to: "Saga (2012) - 001.cbz", sidecarExt: ".xml",
+			emptied: "Volume 1",
+		},
+		{
+			name:      "a standalone book in a format folder",
+			ref:       commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "dune"},
+			container: "Dune",
+			from:      filepath.Join("epub", "dune-herbert.epub"), to: "Dune.epub", sidecarExt: ".opf",
+			emptied: "epub",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			container := filepath.Join(t.TempDir(), tc.container)
+			from, expected := filepath.Join(container, tc.from), filepath.Join(container, tc.to)
+			mf, c := plantNonVideo(t, tc.ref, from, expected, tc.sidecarExt)
+
+			out, err := specwrite.RenameFile(ctx, c, c, mf, false, specwrite.RenameOrganize, container)
+			require.NoError(t, err)
+			require.True(t, out.Moved, "reason %q", out.Reason)
+			assert.Equal(t, expected, out.To)
+			assert.FileExists(t, expected)
+			assert.NoFileExists(t, from)
+			assert.FileExists(t, strings.TrimSuffix(expected, filepath.Ext(expected))+tc.sidecarExt, "the sidecar moved with it")
+			assert.NoDirExists(t, filepath.Join(container, tc.emptied), "the subfolder the move emptied is pruned")
+			assert.DirExists(t, container, "the container is never pruned")
+			var got catalogv1alpha1.MediaFile
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mf), &got))
+			assert.Equal(t, expected, got.Spec.Path)
+		})
+	}
+}
+
+// A symbolic link where one of the target's folders would be -- the album
+// folder linked elsewhere, live or dangling -- is a Collision: never
+// followed out of the container, never an error the actuator would retry
+// every five minutes for good. Before the fix a link whose target held the
+// disc folder was taken as found and the track moved through it, and the
+// other links failed the rename with an error.
+func TestRenameFileOrganizingCollidesWithASymbolicLinkWhereAFolderWouldBe(t *testing.T) {
+	const track = "Nirvana - Nevermind - 01 - Smells Like Teen Spirit.flac"
+	for _, tc := range []struct {
+		name     string
+		dangling bool
+		disc     string // the medium folder under the album's, which the link's target holds
+	}{
+		{name: "a link to a folder holding the disc folder", disc: "CD 01"},
+		{name: "a link to an empty folder"},
+		{name: "a dangling link", dangling: true},
+		{name: "a dangling link above the disc folder", dangling: true, disc: "CD 01"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			artist := filepath.Join(t.TempDir(), "Nirvana")
+			from := filepath.Join(artist, "01 Smells Like Teen Spirit.flac")
+			album := filepath.Join(artist, "Nevermind (1991)")
+			expected := filepath.Join(album, tc.disc, track)
+			mf, c := flatTrack(t, from, expected)
+			elsewhere := filepath.Join(t.TempDir(), "elsewhere")
+			if !tc.dangling {
+				require.NoError(t, os.MkdirAll(filepath.Join(elsewhere, tc.disc), 0o755))
+			}
+			require.NoError(t, os.Symlink(elsewhere, album))
+
+			out, err := specwrite.RenameFile(ctx, c, c, mf, false, specwrite.RenameOrganize, artist)
+			require.NoError(t, err)
+			assert.Equal(t, mediafilespec.RenameCollision, out.Reason)
+			assert.False(t, out.Moved)
+			assert.FileExists(t, from)
+			assert.NoFileExists(t, filepath.Join(elsewhere, tc.disc, track), "nothing moved through the link")
+			if tc.dangling {
+				assert.NoDirExists(t, elsewhere, "nothing made at a dangling link's target")
+			}
+			var got catalogv1alpha1.MediaFile
+			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mf), &got))
+			assert.Equal(t, from, got.Spec.Path)
 		})
 	}
 }

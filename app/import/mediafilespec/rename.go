@@ -37,8 +37,9 @@ const (
 	// specwrite.RenameOrganize), where a proposal leaving that folder is
 	// held too.
 	RenameHeld = "Held"
-	// RenameCollision: something already exists at the proposed path. It
-	// is never overwritten.
+	// RenameCollision: something already exists at the proposed path, or,
+	// for a move to another folder, a file or a symbolic link stands where
+	// one of its folders would be. It is never overwritten, nor followed.
 	RenameCollision = "Collision"
 	// RenameChanged: the file on disk is not what spec records -- its size
 	// or mtime moved -- or the MediaFile changed while the rename wrote it.

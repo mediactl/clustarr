@@ -74,9 +74,9 @@ func TestMkdirUnderNamesWhatItMadeAndPruneMadeRemovesOnlyThat(t *testing.T) {
 	assert.DirExists(t, artist)
 }
 
-// A folder outside the root, the root itself, or a path through something
-// that is not a directory -- a file, or a symbolic link that could lead a
-// move out of the root -- is refused with nothing created.
+// A folder outside the root, or a path through something that is not a
+// directory -- a file, or a symbolic link that could lead a move out of
+// the root -- is refused with nothing created.
 func TestMkdirUnderRefusesWhatItMayNotCreate(t *testing.T) {
 	root := t.TempDir()
 	artist := filepath.Join(root, "Nirvana")
@@ -89,13 +89,79 @@ func TestMkdirUnderRefusesWhatItMayNotCreate(t *testing.T) {
 	require.ErrorIs(t, err, fsops.ErrNotUnder)
 	assert.NoDirExists(t, filepath.Join(root, "Other"))
 
-	_, err = fsops.MkdirUnder(artist, artist, 0o775)
-	require.ErrorIs(t, err, fsops.ErrNotUnder, "the root itself")
-
 	_, err = fsops.MkdirUnder(artist, filepath.Join(artist, "link", "Album"), 0o775)
-	require.Error(t, err, "through a symbolic link")
+	require.ErrorIs(t, err, fsops.ErrNotDirectory, "through a symbolic link")
 	assert.NoDirExists(t, filepath.Join(elsewhere, "Album"))
 
 	_, err = fsops.MkdirUnder(artist, filepath.Join(artist, "Nevermind (1991)", "CD 01"), 0o775)
-	require.Error(t, err, "through a file")
+	require.ErrorIs(t, err, fsops.ErrNotDirectory, "through a file")
+}
+
+// The root itself is the folder an audiobook part, an issue or a
+// standalone book is placed in (the 2026-11-10 non-video design's D19
+// with every container whose preset names no subfolder): nothing is made,
+// and nothing is reported as made.
+func TestMkdirUnderCreatesNothingForTheRootItself(t *testing.T) {
+	audiobook := filepath.Join(t.TempDir(), "Terry Pratchett", "Guards! Guards!")
+	require.NoError(t, os.MkdirAll(audiobook, 0o755))
+	for _, dir := range []string{audiobook, audiobook + string(filepath.Separator)} {
+		made, err := fsops.MkdirUnder(audiobook, dir, 0o775)
+		require.NoError(t, err, dir)
+		assert.Empty(t, made, dir)
+	}
+	assert.DirExists(t, audiobook)
+}
+
+// A symbolic link anywhere between the root and the folder asked for is
+// refused, live or dangling, as the folder itself or above it -- not only
+// the deepest component that exists: an album folder linked elsewhere
+// whose target holds the disc folder would otherwise be taken as found and
+// a track moved through it out of the root.
+func TestMkdirUnderRefusesASymbolicLinkAnywhereOnTheWay(t *testing.T) {
+	artist := filepath.Join(t.TempDir(), "Nirvana")
+	require.NoError(t, os.MkdirAll(artist, 0o755))
+	elsewhere := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(elsewhere, "CD 01"), 0o755))
+	album := filepath.Join(artist, "Nevermind (1991)")
+	require.NoError(t, os.Symlink(elsewhere, album))
+	gone := filepath.Join(t.TempDir(), "gone")
+	dangling := filepath.Join(artist, "Bleach (1989)")
+	require.NoError(t, os.Symlink(gone, dangling))
+
+	for _, dir := range []string{
+		filepath.Join(album, "CD 01"), // exists through the link
+		filepath.Join(album, "CD 02"), // missing through the link
+		album,                         // the link itself
+		dangling,
+		filepath.Join(dangling, "CD 01"),
+	} {
+		made, err := fsops.MkdirUnder(artist, dir, 0o775)
+		require.ErrorIs(t, err, fsops.ErrNotDirectory, dir)
+		assert.Empty(t, made, dir)
+	}
+	assert.NoDirExists(t, filepath.Join(elsewhere, "CD 02"), "nothing is made through the link")
+	assert.NoFileExists(t, gone)
+	assert.NoDirExists(t, gone, "nor at a dangling link's target")
+}
+
+// PruneEmptyDirs removes empty directories only: a symbolic link on the
+// way -- which os.Remove would unlink whatever its target holds -- stops
+// it with nothing removed, the link and everything behind it kept.
+func TestPruneEmptyDirsNeverRemovesThroughASymbolicLink(t *testing.T) {
+	artist := filepath.Join(t.TempDir(), "Nirvana")
+	require.NoError(t, os.MkdirAll(artist, 0o755))
+	elsewhere := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(elsewhere, "CD 01"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(elsewhere, "02 In Bloom.flac"), []byte("x"), 0o644))
+	link := filepath.Join(artist, "Nevermind (1991)")
+	require.NoError(t, os.Symlink(elsewhere, link))
+
+	fsops.PruneEmptyDirs(artist, link)
+	_, err := os.Lstat(link)
+	require.NoError(t, err, "the link to a folder that is not empty is kept")
+
+	fsops.PruneEmptyDirs(artist, filepath.Join(link, "CD 01"))
+	assert.DirExists(t, filepath.Join(elsewhere, "CD 01"), "an empty folder behind the link is outside the root")
+	_, err = os.Lstat(link)
+	require.NoError(t, err)
 }
