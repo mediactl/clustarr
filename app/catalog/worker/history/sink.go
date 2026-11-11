@@ -81,7 +81,7 @@ func (s *Sink) Subscription() events.Subscription {
 // field manager are unchanged (R7).
 func (s *Sink) SetupLeaderOnly(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.LeaderOnly(func(ctx context.Context) error {
-		stop, err := bus.Subscribe(ctx, s.Subscription(), s.Handle)
+		stop, err := bus.Subscribe(logging.Subsystem(ctx, "catalog.history"), s.Subscription(), s.Handle)
 		if err != nil {
 			return fmt.Errorf("catalog: subscribe history: %w", err)
 		}

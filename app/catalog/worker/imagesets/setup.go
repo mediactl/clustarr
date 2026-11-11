@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	catalogimagesets "github.com/mediactl/clustarr/app/catalog/imagesets"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/metadata"
@@ -44,7 +46,7 @@ func Setup(ctx context.Context, o Options, providers []metadata.ImageSetProvider
 		Providers: providers, Answers: catalogimagesets.NewAnswers(o.Bus, o.Writer),
 		MaxDeliver: uint64(max(spec.MaxDeliver, 0)),
 	}
-	stop, err = o.Bus.Subscribe(ctx, spec.Subscription(), h.Handle)
+	stop, err = o.Bus.Subscribe(logging.Subsystem(ctx, "catalog.imagesets"), spec.Subscription(), h.Handle)
 	if err != nil {
 		return nil, fmt.Errorf("imagesets: subscribe %s: %w", events.ConsumerCatalogImageSet, err)
 	}

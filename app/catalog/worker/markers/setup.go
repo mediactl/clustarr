@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	catalogmarkers "github.com/mediactl/clustarr/app/catalog/markers"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/metadata"
@@ -44,7 +46,7 @@ func Setup(ctx context.Context, o Options, providers []metadata.MarkersProvider)
 		Providers: providers, Answers: catalogmarkers.NewAnswers(o.Bus, o.Writer),
 		MaxDeliver: uint64(max(spec.MaxDeliver, 0)),
 	}
-	stop, err = o.Bus.Subscribe(ctx, spec.Subscription(), h.Handle)
+	stop, err = o.Bus.Subscribe(logging.Subsystem(ctx, "catalog.markers"), spec.Subscription(), h.Handle)
 	if err != nil {
 		return nil, fmt.Errorf("markers: subscribe %s: %w", events.ConsumerCatalogMarkers, err)
 	}

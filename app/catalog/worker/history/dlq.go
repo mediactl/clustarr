@@ -184,7 +184,7 @@ func (p *DLQProjector) Subscription() events.Subscription {
 // Seen reports and calls its Annotate (the second net).
 func (p *DLQProjector) SetupLeaderOnly(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.LeaderOnly(func(ctx context.Context) error {
-		stop, err := bus.Subscribe(ctx, p.Subscription(), p.Handle)
+		stop, err := bus.Subscribe(logging.Subsystem(ctx, "catalog.history.dlq"), p.Subscription(), p.Handle)
 		if err != nil {
 			return fmt.Errorf("catalog: subscribe dlq-projector: %w", err)
 		}

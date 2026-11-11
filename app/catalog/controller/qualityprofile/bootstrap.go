@@ -118,6 +118,7 @@ type Bootstrap struct {
 }
 
 func (b *Bootstrap) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "catalog.qualityprofile")
 	return SeedBuiltins(ctx, b.Client, b.Catalogue)
 }
 

@@ -101,6 +101,7 @@ type Bootstrap struct {
 }
 
 func (b *Bootstrap) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "catalog.metadataprovider")
 	return SeedDefaults(ctx, b.Client, b.Namespace)
 }
 

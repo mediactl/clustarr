@@ -61,6 +61,7 @@ func NewReconciler(c client.Client, recorder events.EventRecorder, httpClient *h
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "catalog.metadataprovider")
 	ctx, span := tracing.Start(ctx, "metadataprovider.Reconcile")
 	defer span.End()
 

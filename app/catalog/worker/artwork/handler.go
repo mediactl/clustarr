@@ -225,7 +225,7 @@ func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 		return errors.New("artwork: the render Handler needs an uncached Reader and the artwork Store")
 	}
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := bus.Subscribe(ctx, h.Subscription(), h.Handle)
+		stop, err := bus.Subscribe(logging.Subsystem(ctx, "catalog.artwork"), h.Subscription(), h.Handle)
 		if err != nil {
 			return fmt.Errorf("catalog: subscribe %s: %w", events.ConsumerCatalogArtworkRender, err)
 		}

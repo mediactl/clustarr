@@ -84,6 +84,7 @@ type Reconciler struct {
 // A deleted profile has no status to write but still releases the items it
 // rendered, so the NotFound path runs the same publishing loop.
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "catalog.overlayprofile")
 	ctx, span := tracing.Start(ctx, "overlayprofile.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("overlayprofile", req.String())

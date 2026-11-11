@@ -702,7 +702,7 @@ func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 		}
 		sub := spec.Subscription()
 		if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-			stop, err := bus.Subscribe(ctx, sub, w.Handle)
+			stop, err := bus.Subscribe(logging.Subsystem(ctx, "catalog.search"), sub, w.Handle)
 			if err != nil {
 				return fmt.Errorf("subscribe %s: %w", sub.Durable, err)
 			}

@@ -150,6 +150,7 @@ type refreshKind struct {
 }
 
 func (k *refreshKind) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "catalog.metadatarefresh")
 	obj := &metav1.PartialObjectMetadata{}
 	obj.SetGroupVersionKind(k.gvk)
 	if err := k.r.Deps.Client.Get(ctx, req.NamespacedName, obj); err != nil {

@@ -142,6 +142,7 @@ func (r *Runnable) schedule() Schedule {
 // a Runnable that returns an error takes the whole manager down with it, and a
 // graceful shutdown is not an error.
 func (r *Runnable) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "catalog.wantedcron")
 	log := logging.FromContext(ctx).With("runnable", "wantedcron")
 	sched := r.schedule()
 	now := r.now()

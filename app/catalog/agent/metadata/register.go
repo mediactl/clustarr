@@ -34,6 +34,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -146,7 +148,7 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	}
 	fetch := &artwork.Handler{Fetcher: fetcher, Records: answers}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := bus.Subscribe(ctx, spec.Subscription(), fetch.Handle)
+		stop, err := bus.Subscribe(logging.Subsystem(ctx, "catalog.metadata.fetch"), spec.Subscription(), fetch.Handle)
 		if err != nil {
 			return fmt.Errorf("catalog: subscribe %s: %w", events.ConsumerCatalogArtworkFetch, err)
 		}

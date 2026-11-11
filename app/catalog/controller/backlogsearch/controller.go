@@ -79,6 +79,7 @@ func (r *Reconciler) now() time.Time {
 
 // Reconcile runs a cycle when one is due and requeues at the next.
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "catalog.backlogsearch")
 	ctx, span := tracing.Start(ctx, "backlogsearch.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("backlogsearch", req.NamespacedName)

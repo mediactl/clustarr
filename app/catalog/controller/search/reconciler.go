@@ -224,6 +224,7 @@ func (r *Reconciler) now() time.Time {
 
 // Reconcile implements reconcile.Reconciler.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "catalog.search")
 	ctx, span := tracing.Start(ctx, "search.Reconciler.Reconcile")
 	defer span.End()
 

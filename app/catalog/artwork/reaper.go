@@ -122,6 +122,7 @@ func (r *Reaper) clock() clockwork.Clock {
 // Start sweeps at once and then every Interval until ctx is done. A failed
 // sweep is logged and retried on the next tick; it never stops the loop.
 func (r *Reaper) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "catalog.artwork.reaper")
 	interval := r.Interval
 	if interval <= 0 {
 		interval = DefaultReapInterval

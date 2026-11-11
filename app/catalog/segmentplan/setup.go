@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mediactl/clustarr/pkg/events"
@@ -46,7 +48,7 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 	if !ok {
 		return nil, fmt.Errorf("segmenting: consumer %q missing from the default topology", events.ConsumerCatalogSegmentsPlan)
 	}
-	stop, err = o.Bus.Subscribe(ctx, spec.Subscription(), (&Planner{Reader: o.Reader, Bus: o.Bus}).Handle)
+	stop, err = o.Bus.Subscribe(logging.Subsystem(ctx, "catalog.segmentplan"), spec.Subscription(), (&Planner{Reader: o.Reader, Bus: o.Bus}).Handle)
 	if err != nil {
 		return nil, fmt.Errorf("segmenting: subscribe %s: %w", events.ConsumerCatalogSegmentsPlan, err)
 	}

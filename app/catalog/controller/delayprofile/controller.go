@@ -59,6 +59,7 @@ func NewReconciler(c client.Client, recorder events.EventRecorder) *Reconciler {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "catalog.delayprofile")
 	ctx, span := tracing.Start(ctx, "delayprofile.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("delayprofile", req.NamespacedName)

@@ -172,6 +172,7 @@ type replayKind struct {
 }
 
 func (k *replayKind) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "catalog.history.replay")
 	obj := &metav1.PartialObjectMetadata{}
 	obj.SetGroupVersionKind(k.gvk)
 	if err := k.p.Deps.Client.Get(ctx, req.NamespacedName, obj); err != nil {

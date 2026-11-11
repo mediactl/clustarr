@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	"github.com/jonboulle/clockwork"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -128,7 +130,7 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 		Extended:  o.Bus.KV(events.BucketMetadataExtended),
 		Languages: Languages(providers.Items),
 	}
-	stopSub, err := o.Bus.Subscribe(ctx, spec.Subscription(), h.Handle)
+	stopSub, err := o.Bus.Subscribe(logging.Subsystem(ctx, "catalog.metadata"), spec.Subscription(), h.Handle)
 	if err != nil {
 		return nil, fmt.Errorf("metadata: subscribe: %w", err)
 	}

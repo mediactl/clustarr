@@ -69,6 +69,7 @@ func NewReconciler(c client.Client, recorder events.EventRecorder) *Reconciler {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "catalog.rootfolder")
 	ctx, span := tracing.Start(ctx, "rootfolder.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("rootfolder", req.NamespacedName)
