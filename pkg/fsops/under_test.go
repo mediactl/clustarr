@@ -45,3 +45,57 @@ func TestPruneEmptyDirsStopsBelowTheRoot(t *testing.T) {
 	assert.DirExists(t, filepath.Join(root, "a"), "not empty")
 	assert.DirExists(t, root)
 }
+
+// MkdirUnder creates the missing folders strictly under its root and names
+// the topmost it made, so PruneMade removes exactly those: an empty folder
+// that was already there before the call -- a person's, or a scan's -- is
+// never removed with them.
+func TestMkdirUnderNamesWhatItMadeAndPruneMadeRemovesOnlyThat(t *testing.T) {
+	root := t.TempDir()
+	artist := filepath.Join(root, "Nirvana")
+	require.NoError(t, os.MkdirAll(filepath.Join(artist, "empty-before"), 0o755))
+	album := filepath.Join(artist, "Nevermind (1991)", "CD 01")
+
+	made, err := fsops.MkdirUnder(artist, album, 0o775)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(artist, "Nevermind (1991)"), made, "the topmost folder it created")
+	assert.DirExists(t, album)
+
+	again, err := fsops.MkdirUnder(artist, album, 0o775)
+	require.NoError(t, err)
+	assert.Empty(t, again, "a folder already there is not reported as made")
+
+	fsops.PruneMade(made, album)
+	assert.NoDirExists(t, filepath.Join(artist, "Nevermind (1991)"))
+	assert.DirExists(t, filepath.Join(artist, "empty-before"), "an empty folder it did not make stays")
+	assert.DirExists(t, artist, "the root is never removed")
+
+	fsops.PruneMade("", album) // nothing made: a no-op
+	assert.DirExists(t, artist)
+}
+
+// A folder outside the root, the root itself, or a path through something
+// that is not a directory -- a file, or a symbolic link that could lead a
+// move out of the root -- is refused with nothing created.
+func TestMkdirUnderRefusesWhatItMayNotCreate(t *testing.T) {
+	root := t.TempDir()
+	artist := filepath.Join(root, "Nirvana")
+	require.NoError(t, os.MkdirAll(artist, 0o755))
+	elsewhere := t.TempDir()
+	require.NoError(t, os.Symlink(elsewhere, filepath.Join(artist, "link")))
+	require.NoError(t, os.WriteFile(filepath.Join(artist, "Nevermind (1991)"), []byte("a file"), 0o644))
+
+	_, err := fsops.MkdirUnder(artist, filepath.Join(root, "Other", "Album"), 0o775)
+	require.ErrorIs(t, err, fsops.ErrNotUnder)
+	assert.NoDirExists(t, filepath.Join(root, "Other"))
+
+	_, err = fsops.MkdirUnder(artist, artist, 0o775)
+	require.ErrorIs(t, err, fsops.ErrNotUnder, "the root itself")
+
+	_, err = fsops.MkdirUnder(artist, filepath.Join(artist, "link", "Album"), 0o775)
+	require.Error(t, err, "through a symbolic link")
+	assert.NoDirExists(t, filepath.Join(elsewhere, "Album"))
+
+	_, err = fsops.MkdirUnder(artist, filepath.Join(artist, "Nevermind (1991)", "CD 01"), 0o775)
+	require.Error(t, err, "through a file")
+}

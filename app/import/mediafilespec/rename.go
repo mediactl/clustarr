@@ -29,8 +29,13 @@ const (
 	// file is already at it.
 	RenameNotCurrent = "NotCurrent"
 	// RenameHeld: catalog holds the proposal (status.naming.reason is
-	// set), or it names another folder -- this pass renames files only,
-	// never folders (spec D5).
+	// set), or it names another folder and the root does not organize
+	// folders -- the pass renames files only, never folders (the 2026-09-24
+	// naming design's D5), unless a root with renameFiles and
+	// organizeFolders lets a non-video file move to another folder inside
+	// its container's (the 2026-11-10 non-video design's D19,
+	// specwrite.RenameOrganize), where a proposal leaving that folder is
+	// held too.
 	RenameHeld = "Held"
 	// RenameCollision: something already exists at the proposed path. It
 	// is never overwritten.

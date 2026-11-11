@@ -186,7 +186,7 @@ func TestRenameFileMovesTheFileAndReappliesTheCompleteSpec(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, specwrite.RenameWhole, "")
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Moved: true}, out)
 
@@ -221,7 +221,7 @@ func TestRenameFileLeavesATranscodedFilesTakenOverFieldsToCatalog(t *testing.T) 
 	require.NoError(t, err)
 	require.NoError(t, takeOver(ctx, f.c, f.ns, sf.name, info.Size(), info.ModTime()))
 
-	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), f.read(t, ctx, sf.name), false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), f.read(t, ctx, sf.name), false, specwrite.RenameWhole, "")
 	require.NoError(t, err)
 	require.True(t, out.Moved, "outcome %+v", out)
 	requireExists(t, sf.expected)
@@ -246,7 +246,7 @@ func TestRenameFileRefusesACollision(t *testing.T) {
 	mustWriteFile(t, sf.expected, 1234)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, specwrite.RenameWhole, "")
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameCollision}, out)
 
@@ -269,7 +269,7 @@ func TestRenameFileRefusesAFileChangedInFlight(t *testing.T) {
 	restore := specwrite.SetRenameBeforeMove(func() { require.NoError(t, os.Truncate(sf.path, 10)) })
 	defer restore()
 
-	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, specwrite.RenameWhole, "")
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameChanged}, out)
 
@@ -286,7 +286,7 @@ func TestRenameFileDryRunTouchesNothing(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, true, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, true, specwrite.RenameWhole, "")
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameDryRun}, out)
 
@@ -342,16 +342,22 @@ func TestRenameFileHoldsWhatItMayNotMove(t *testing.T) {
 			f.seedNamingStatus(t, ctx, sf.name, tc.naming)
 			before := f.read(t, ctx, sf.name)
 
-			out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, out.Reason)
-			assert.False(t, out.Moved)
-			assert.Equal(t, sf.path, out.From)
-			if tc.to != "" {
-				assert.Equal(t, tc.to, out.To)
+			// A root without organizeFolders (RenameWhole), and a video file
+			// under one with it (RenameOrganize, its container the library):
+			// video keeps D5 (2026-11-10 non-video design D19).
+			for _, mode := range []specwrite.RenameMode{specwrite.RenameWhole, specwrite.RenameOrganize} {
+				out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, mode, f.root)
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, out.Reason, mode)
+				assert.False(t, out.Moved, mode)
+				assert.Equal(t, sf.path, out.From, mode)
+				if tc.to != "" {
+					assert.Equal(t, tc.to, out.To, mode)
+					requireAbsent(t, filepath.Dir(tc.to))
+				}
+				requireExists(t, sf.path)
+				assert.Equal(t, before.ResourceVersion, f.read(t, ctx, sf.name).ResourceVersion, "nothing was applied")
 			}
-			requireExists(t, sf.path)
-			assert.Equal(t, before.ResourceVersion, f.read(t, ctx, sf.name).ResourceVersion, "nothing was applied")
 		})
 	}
 }
@@ -373,7 +379,7 @@ func TestRenameFileMovesBackWhenTheMediaFileChangedInFlight(t *testing.T) {
 	})
 	defer restore()
 
-	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, specwrite.RenameWhole, "")
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameChanged}, out)
 
@@ -397,7 +403,7 @@ func TestRenameFileRefusesATargetThatAppearsBeforeTheMove(t *testing.T) {
 	restore := specwrite.SetRenameBeforeMove(func() { require.NoError(t, os.WriteFile(sf.expected, []byte("arrived late"), 0o644)) })
 	defer restore()
 
-	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, specwrite.RenameWhole, "")
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameCollision}, out)
 
@@ -446,7 +452,7 @@ func TestRenameFileRollsForwardAnUnrecordedMove(t *testing.T) {
 			before := f.read(t, ctx, sf.name)
 			tc.crash(t, sf)
 
-			out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
+			out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, specwrite.RenameWhole, "")
 			require.NoError(t, err)
 			after := f.read(t, ctx, sf.name)
 			if tc.want != "" {
@@ -464,4 +470,116 @@ func TestRenameFileRollsForwardAnUnrecordedMove(t *testing.T) {
 			assert.Equal(t, want, after.Spec)
 		})
 	}
+}
+
+// flatTrackFile is one steady album track MediaFile flat in its artist's
+// folder, the shape a root scan of a flat music library records (2026-11-10
+// non-video design D16-D19), whose canonical path is in an album folder
+// that does not exist yet.
+type flatTrackFile struct {
+	name, artist, album, path, expected, sidecar string
+}
+
+// plantFlatTrack plants a track and its .lrc sidecar flat in an artist
+// folder, with the album-level cover.jpg beside them, records it under
+// mediafilespec.FieldManager with the frozen fields a music import sets, and
+// seeds catalog's status proposing the track preset's path in the album
+// folder.
+func (f *fixture) plantFlatTrack(t *testing.T, ctx context.Context) flatTrackFile {
+	t.Helper()
+	artist := filepath.Join(f.root, "Nirvana")
+	path := filepath.Join(artist, "01 Smells Like Teen Spirit.flac")
+	mustWriteFile(t, path, 4096)
+	sidecar := filepath.Join(artist, "01 Smells Like Teen Spirit.lrc")
+	mustWriteFile(t, sidecar, 64)
+	mustWriteFile(t, filepath.Join(artist, "cover.jpg"), 32)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+
+	ref := commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "nirvana-nevermind", Track: "rec-01"}
+	name := k8s.ChildName(ref.Name, "mediafile", path)
+	_, err = k8s.Apply(ctx, f.c, mediafilespec.FieldManager, catalogac.MediaFile(name, f.ns).WithSpec(
+		catalogac.MediaFileSpec().
+			WithMediaRef(ref).
+			WithPath(path).
+			WithSizeBytes(info.Size()).
+			WithModTime(metav1.NewTime(info.ModTime())).
+			WithQuality(commonv1.Quality{Name: "FLAC"}).
+			WithReleaseGroup("GRP").
+			WithImportedFrom(catalogac.ImportSource().
+				WithDownloadRef("nevermind-dl").
+				WithReleaseTitle("Nirvana-Nevermind-1991-FLAC-GRP").
+				WithImportedAt(metav1.NewTime(time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)))).
+			WithOriginal(true)))
+	require.NoError(t, err)
+
+	album := filepath.Join(artist, "Nevermind (1991)")
+	expected := filepath.Join(album, "Nirvana - Nevermind - 01 - Smells Like Teen Spirit.flac")
+	f.seedNamingStatus(t, ctx, name, catalogac.NamingStatus().WithExpectedPath(expected).WithCurrent(false),
+		catalogac.Sidecar().WithName(filepath.Base(sidecar)))
+	return flatTrackFile{name: name, artist: artist, album: album, path: path, expected: expected, sidecar: sidecar}
+}
+
+// A root that organizes folders re-lays a flat artist folder (design D19):
+// the track moves into the album folder the rename creates, its sidecar
+// with it, the artist folder -- the container, holding the album-level
+// cover.jpg -- stays, and import's COMPLETE spec is re-applied with the new
+// path, every frozen field still owned by mediafilespec.FieldManager.
+func TestRenameFileOrganizesAFlatArtistFolder(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, ctx, "rn-organize", catalogv1alpha1.RootFolderKindMusic, "lossless", catalogv1alpha1.ScanModeFull)
+	tr := f.plantFlatTrack(t, ctx)
+	before := f.read(t, ctx, tr.name)
+
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, specwrite.RenameWhole, "")
+	require.NoError(t, err)
+	assert.Equal(t, mediafilespec.RenameHeld, out.Reason, "a root without organizeFolders holds the folder move")
+	requireAbsent(t, tr.album)
+
+	out, err = specwrite.RenameFile(ctx, f.c, f.api(t), before, false, specwrite.RenameOrganize, tr.artist)
+	require.NoError(t, err)
+	assert.Equal(t, mediafilespec.RenameOutcome{From: tr.path, To: tr.expected, Moved: true}, out)
+
+	requireAbsent(t, tr.path)
+	requireExists(t, tr.expected)
+	requireAbsent(t, tr.sidecar)
+	requireExists(t, filepath.Join(tr.album, "Nirvana - Nevermind - 01 - Smells Like Teen Spirit.lrc"))
+	requireExists(t, filepath.Join(tr.artist, "cover.jpg"))
+
+	after := f.read(t, ctx, tr.name)
+	want := before.Spec
+	want.Path = tr.expected
+	assert.Equal(t, want, after.Spec, "only the path changes; every frozen field is re-asserted verbatim")
+	for _, leaf := range []string{
+		"spec.mediaRef", "spec.path", "spec.sizeBytes", "spec.modTime", "spec.quality",
+		"spec.releaseGroup", "spec.importedFrom", "spec.original",
+	} {
+		assert.Equal(t, []string{string(mediafilespec.FieldManager)}, managersOf(t, after.ManagedFields, leaf), leaf)
+	}
+}
+
+// An organized move whose apply is refused -- the MediaFile changed under
+// it -- is moved back, and the album folder the move made is removed with
+// it: a failed move leaves no empty folder behind, and never the container.
+func TestRenameFileOrganizingRemovesTheFolderItMadeWhenMovedBack(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, ctx, "rn-organize-back", catalogv1alpha1.RootFolderKindMusic, "lossless", catalogv1alpha1.ScanModeFull)
+	tr := f.plantFlatTrack(t, ctx)
+	before := f.read(t, ctx, tr.name)
+
+	restore := specwrite.SetRenameBeforeMove(func() {
+		f.seedNamingStatus(t, ctx, tr.name, catalogac.NamingStatus().WithExpectedPath(tr.expected).WithCurrent(false),
+			catalogac.Sidecar().WithName(filepath.Base(tr.sidecar)).WithLanguage("en"))
+	})
+	defer restore()
+
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, specwrite.RenameOrganize, tr.artist)
+	require.NoError(t, err)
+	assert.Equal(t, mediafilespec.RenameOutcome{From: tr.path, To: tr.expected, Reason: mediafilespec.RenameChanged}, out)
+
+	requireExists(t, tr.path)
+	requireExists(t, tr.sidecar)
+	requireAbsent(t, tr.album)
+	requireExists(t, tr.artist)
+	assert.Equal(t, before.Spec, f.read(t, ctx, tr.name).Spec, "the rename applied nothing")
 }

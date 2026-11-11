@@ -41,6 +41,31 @@ to the presets by default.
   it does not say which film it is.
 - **D5. Files only, not folders, in v1.** The pass renames a file within its
   item folder. Folder renames follow metadata changes and are a separate pass.
+  *As built 2026-11-10 (the non-video libraries design's D19, plan W7.5):*
+  a video file keeps this rule, and so does every file under a root without
+  `naming.organizeFolders`. Under a root with `renameFiles` and
+  `organizeFolders` a non-video file may move to another folder, as long as
+  both where it is and where it goes lie strictly under its container's
+  folder -- an album track under its Artist's `status.path`, a book under
+  its Author's (or its own, for a book with a root of its own), a part under
+  its Audiobook's, an issue under its Comic's -- and that folder is strictly
+  under the root (an Artist whose name has not arrived has the root as its
+  folder and organizes nothing). `specwrite.RenameFile` takes a mode
+  (`RenameWhole`, today's renameFiles; `RenameInFolder`, renameTranscoded;
+  `RenameOrganize`, with the container): the target's missing folders are
+  created bounded by the container (`fsops.MkdirUnder`, which names the
+  topmost folder it made), the file moves by `fsops.MoveNoReplace` as
+  before, its sidecars follow it, and once the move is recorded the folders
+  it emptied are pruned up to the container, never the container or the
+  root; a move that fails, or is moved back when its apply is refused,
+  removes the folders it made and no others. Album-level files (`cover.jpg`,
+  `.cue`, `.log`) stay where they are. The rename actuator picks the mode
+  (`app/remediation/rename.renameMode`, the container from its
+  `rootFolderRef` walk), remembers a hold keyed by the mode and container,
+  so turning `organizeFolders` on retries what the whole-path rename held,
+  and waits for a LibraryScan over the folder a file moves to as it does
+  for the folder the file is in (D6). A folder rename of the item itself is
+  still not built.
 - **D6. A rename never crosses a container boundary and never touches a file
   another job holds.** The extension is the file's real container (from the
   probe, not the old name); a file with an unincorporated TranscodeJob, a
