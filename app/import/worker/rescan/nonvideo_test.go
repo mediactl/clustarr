@@ -147,10 +147,16 @@ func TestMatchAlbumByTags(t *testing.T) {
 			&commonv1.MediaTags{Album: "Kid A"},
 			verdict{name: "kid-a"},
 		},
-		{"the tag's year narrows", "Radiohead/01.flac", &commonv1.MediaTags{Album: "Kid A", Date: "2000-10-02"}, verdict{name: "kid-a"}},
+		{"the tag's year agrees", "Radiohead/01.flac", &commonv1.MediaTags{Album: "Kid A", Date: "2000-10-02"}, verdict{name: "kid-a"}},
+		{
+			// DATE is its own release's: a reissue's, an iTunes remaster's.
+			"a reissue's date is after the album's first release", "Radiohead/01.flac",
+			&commonv1.MediaTags{Album: "Kid A", Date: "2009-08-25"},
+			verdict{name: "kid-a"},
+		},
 
 		{
-			"the tag's year contradicts", "Radiohead/01.flac", &commonv1.MediaTags{Album: "Kid A", Date: "1999"},
+			"a date before the album's first release contradicts", "Radiohead/01.flac", &commonv1.MediaTags{Album: "Kid A", Date: "1999"},
 			verdict{code: rescan.CodeNoChild},
 		},
 		{
@@ -173,6 +179,37 @@ func TestMatchAlbumByTags(t *testing.T) {
 		got := rescan.MatchAlbum(filepath.Join(root, "Radiohead/01.flac"), "Radiohead/01.flac",
 			&commonv1.MediaTags{Album: "I Might Be Wrong"}, cands)
 		assert.Contains(t, got.Reason, `no album of Radiohead is titled "I Might Be Wrong"`)
+	})
+	t.Run("a date before the album's first release says so", func(t *testing.T) {
+		got := rescan.MatchAlbum(filepath.Join(root, "Radiohead/01.flac"), "Radiohead/01.flac",
+			&commonv1.MediaTags{Album: "Kid A", Date: "1999"}, cands)
+		assert.Contains(t, got.Reason, `the album of Radiohead titled "Kid A" was first released after 1999`)
+		assert.Equal(t, []string{"kid-a"}, got.Candidates)
+	})
+	t.Run("albums sharing a title are told apart by the first release's year", func(t *testing.T) {
+		hits90 := rescan.AlbumCandidate{Name: "hits-1990", Title: "Greatest Hits", Year: 1990, ArtistNames: []string{"Queen"}}
+		hits05 := rescan.AlbumCandidate{Name: "hits-2005", Title: "Greatest Hits", Year: 2005, ArtistNames: []string{"Queen"}}
+		both := []rescan.AlbumCandidate{hits90, hits05}
+		for date, want := range map[string]verdict{
+			"2005-03-01": {name: "hits-2005"},               // the later album's first release
+			"1995":       {name: "hits-1990"},               // only the earlier album was out
+			"2011":       {code: rescan.CodeAmbiguousTitle}, // a reissue of either
+			"":           {code: rescan.CodeAmbiguousTitle}, // no date
+			"1980":       {code: rescan.CodeNoChild},        // before both
+		} {
+			check(t, rescan.MatchAlbum(filepath.Join(root, "Queen/01.flac"), "Queen/01.flac",
+				&commonv1.MediaTags{Album: "Greatest Hits", Date: date}, both), want)
+		}
+	})
+	t.Run("a name CleanTitle empties is its own folder's and tag's", func(t *testing.T) {
+		utada := rescan.AlbumCandidate{Name: "hatsukoi", Title: "初恋", ArtistNames: []string{"宇多田ヒカル"}}
+		check(t, rescan.MatchAlbum(filepath.Join(root, "宇多田ヒカル/01.flac"), "宇多田ヒカル/01.flac",
+			&commonv1.MediaTags{Album: "初恋"}, []rescan.AlbumCandidate{utada}), verdict{name: "hatsukoi"})
+		check(t, rescan.MatchAlbum(filepath.Join(root, "宇多田ヒカル/初恋/01.flac"), "宇多田ヒカル/初恋/01.flac",
+			nil, []rescan.AlbumCandidate{utada}), verdict{name: "hatsukoi"})
+		bang := rescan.AlbumCandidate{Name: "myth-takes", Title: "Myth Takes", ArtistNames: []string{"!!!"}}
+		check(t, rescan.MatchAlbum(filepath.Join(root, "!!!/01.flac"), "!!!/01.flac",
+			&commonv1.MediaTags{Album: "Myth Takes"}, []rescan.AlbumCandidate{bang}), verdict{name: "myth-takes"})
 	})
 	t.Run("two albums of one release group are ambiguous", func(t *testing.T) {
 		twin := kida

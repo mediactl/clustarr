@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -84,6 +85,13 @@ const (
 	// at a different item. spec.mediaRef is immutable, so the file cannot
 	// be re-attributed by a rescan.
 	CodeRecordedElsewhere = "recorded_elsewhere"
+
+	// CodeDuplicateTrack means the file is a track another file already
+	// holds -- one recorded before, or one this walk attributed first. Every
+	// track takes one file (2026-11-10 design D6, the import's rule too):
+	// a second copy, a session or a live take tagged as the album's is a
+	// person's to place, never a second record of the track.
+	CodeDuplicateTrack = "duplicate_track"
 )
 
 // ItemMatch is a non-video matcher's verdict on one file.
@@ -130,6 +138,17 @@ type AlbumCandidate struct {
 	// (fileimport.AttributeTrack, 2026-11-10 design D6).
 	Tracks []catalogv1alpha1.Track
 	Media  int32
+
+	// NoTracks is why the album lists no track and will list none without
+	// another ask -- its track listing's settled verdict (no release the
+	// artist's metadata profile accepts, a pinned release the group lacks,
+	// a group that lists no releases), the TracksSynced condition's message
+	// -- and "" while the album lists tracks or its listing is still to
+	// come. Created is when the Album was created. Both are the walk's: a
+	// file of an album still to list its tracks awaits them, for a while
+	// (stillToCome), never the matcher's.
+	NoTracks string
+	Created  time.Time
 }
 
 // BookCandidate is one existing Book.
@@ -153,6 +172,10 @@ type BookCandidate struct {
 	// unknown on the catalog side, so the author folder cannot contradict
 	// it (the year rule's "only when both sides know" applied to authors).
 	Standalone bool
+
+	// Created is when the Book was created: the walk awaits a book's
+	// metadata for a while (stillToCome), never the matcher.
+	Created time.Time
 }
 
 // AudiobookCandidate is one existing Audiobook.
@@ -313,7 +336,7 @@ func matchContainer(
 		func(k containerKeys) bool {
 			return k.folder != "" && filepath.ToSlash(filepath.Clean(k.folder)) == segment
 		},
-		func(k containerKeys) bool { return anyCleanEq(k.names, segment) },
+		func(k containerKeys) bool { return anyNameEq(k.names, segment) },
 	} {
 		if hits := layer(keep); len(hits) > 0 {
 			return decide(kind, hits, "")
@@ -330,18 +353,24 @@ func matchContainer(
 // probed), cands the root's albums.
 //
 // An album whose resolved folder (status.path) holds the file takes it.
-// Otherwise the first segment names the artist (cands narrowed to the
-// albums whose ArtistNames it equals, an [mbid-...] token set aside), and
-// the file's album is, in order: the album the MUSICBRAINZ_RELEASEGROUPID
-// tag names; the album one of whose releases the MUSICBRAINZ_ALBUMID tag
-// names; the album folder's title and year when the file sits in one
-// (three or more segments); the ALBUM tag's title, its date's year
-// narrowing only when both sides know one. A rule that names no album
-// passes to the next; one that names two is ambiguous. With an ALBUM tag no
-// rule placed, the file is CodeNoChild, naming the tag ("no album of 2Pac
-// is titled ..."), honest for a compilation the artist's metadata profile
-// does not list; a file with no tags and no album folder keeps the layout
-// message.
+// Otherwise the first segment names the artist -- cands narrowed to the
+// albums whose ArtistNames hold the segment as it is (a folder name: the
+// Artist's spec.folder or status.path, or the one the walk resolved to it,
+// [mbid-...] token and all, whatever its letters) or a name equal to the
+// segment with its token set aside, by [release.CleanTitle] or, for a name
+// CleanTitle empties ("宇多田ヒカル", "!!!"), [release.TitleNorm] -- and the
+// file's album is, in order: the album the MUSICBRAINZ_RELEASEGROUPID tag
+// names; the album one of whose releases the MUSICBRAINZ_ALBUMID tag names;
+// the album folder's title and year when the file sits in one (three or
+// more segments); the ALBUM tag's title. A tag's DATE is its own release's,
+// a reissue's later than the group's first (the album's Year), so it never
+// refuses a lone album of the title: it refuses only a date before the
+// album's first release, and among albums sharing the title it picks the one
+// first released that year. A rule that names no album passes to the next;
+// one that names two is ambiguous. With an ALBUM tag no rule placed, the file
+// is CodeNoChild, naming the tag ("no album of 2Pac is titled ..."), honest
+// for a compilation the artist's metadata profile does not list; a file with
+// no tags and no album folder keeps the layout message.
 func MatchAlbum(absPath, rel string, tags *commonv1.MediaTags, cands []AlbumCandidate) ItemMatch {
 	var inFolder []AlbumCandidate
 	for _, c := range cands {
@@ -364,7 +393,7 @@ func MatchAlbum(absPath, rel string, tags *commonv1.MediaTags, cands []AlbumCand
 	artist := strings.TrimSpace(mbidFolderRE.ReplaceAllString(segs[0], ""))
 	var mine []AlbumCandidate
 	for _, c := range cands {
-		if anyCleanEq(c.ArtistNames, artist) {
+		if slices.Contains(c.ArtistNames, segs[0]) || anyNameEq(c.ArtistNames, artist) {
 			mine = append(mine, c)
 		}
 	}
@@ -401,7 +430,7 @@ func MatchAlbum(absPath, rel string, tags *commonv1.MediaTags, cands []AlbumCand
 			// A folder still named like a release, "Artist - Album (1997) [FLAC]".
 			title, year = p.Music.Album, p.Music.Year
 		}
-		if hits := pick(func(c AlbumCandidate) bool { return cleanEq(c.Title, title) && yearOK(c.Year, year) }); len(hits) > 0 {
+		if hits := pick(func(c AlbumCandidate) bool { return nameEq(c.Title, title) && yearOK(c.Year, year) }); len(hits) > 0 {
 			return decide(commonv1.MediaKindAlbum, hits, "")
 		}
 		folderMiss = fmt.Sprintf("no existing album titled %q by an artist named %q among %d albums under this root folder",
@@ -410,8 +439,23 @@ func MatchAlbum(absPath, rel string, tags *commonv1.MediaTags, cands []AlbumCand
 
 	if tags != nil && strings.TrimSpace(tags.Album) != "" {
 		year := tagYear(tags.Date)
-		if hits := pick(func(c AlbumCandidate) bool { return cleanEq(c.Title, tags.Album) && yearOK(c.Year, year) }); len(hits) > 0 {
-			return decide(commonv1.MediaKindAlbum, hits, "")
+		titled := pick(func(c AlbumCandidate) bool { return nameEq(c.Title, tags.Album) })
+		// A release is never dated before its group's first release.
+		plausible := pick(func(c AlbumCandidate) bool {
+			return nameEq(c.Title, tags.Album) && (c.Year == 0 || year == 0 || year >= c.Year)
+		})
+		if len(plausible) > 1 && year != 0 {
+			if first := pick(func(c AlbumCandidate) bool { return nameEq(c.Title, tags.Album) && c.Year == year }); len(first) == 1 {
+				plausible = first
+			}
+		}
+		if len(plausible) > 0 {
+			return decide(commonv1.MediaKindAlbum, plausible, "")
+		}
+		if len(titled) > 0 {
+			return ItemMatch{Unmatched: true, Code: CodeNoChild, Candidates: titled, Reason: fmt.Sprintf(
+				"the album of %s titled %q was first released after %d, the year its tags date this release, so the "+
+					"file is not its: its tags name no release group or release of one either", artist, tags.Album, year)}
 		}
 		return ItemMatch{Unmatched: true, Code: CodeNoChild, Reason: fmt.Sprintf(
 			"no album of %s is titled %q among the %d albums of that artist under this root folder: its tags "+
@@ -713,6 +757,17 @@ func anyCleanEq(names []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// nameEq is a music or book container's and an album's name rule: CleanTitle
+// equality, or TitleNorm equality (identify.go's normEq) for the names
+// CleanTitle, ASCII-only, empties or strips to their Latin residue: an
+// artist named "宇多田ヒカル" or an album "初恋" match their own folders and
+// tags, as identify.go's search reading matched them.
+func nameEq(a, b string) bool { return cleanEq(a, b) || normEq(a, b) }
+
+func anyNameEq(names []string, want string) bool {
+	return slices.ContainsFunc(names, func(n string) bool { return nameEq(n, want) })
 }
 
 // yearOK narrows only when both sides know a year, as in matchByTitle.

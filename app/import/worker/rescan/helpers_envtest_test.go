@@ -38,6 +38,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/import/manager/scanapply"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
+	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -93,7 +94,10 @@ func TestMain(m *testing.M) {
 			fmt.Fprintf(os.Stderr, "build manager: %v\n", err)
 			return 1
 		}
-		for _, fi := range rescan.FieldIndexes() {
+		// The import domain registers both packages' indexes
+		// (app/import/agent): a music walk reads an album's recorded tracks
+		// through fileimport's.
+		for _, fi := range append(rescan.FieldIndexes(), fileimport.FieldIndexes()...) {
 			if err := mgr.GetFieldIndexer().IndexField(ctx, fi.Object, fi.Name, fi.Extract); err != nil {
 				fmt.Fprintf(os.Stderr, "index media files: %v\n", err)
 				return 1

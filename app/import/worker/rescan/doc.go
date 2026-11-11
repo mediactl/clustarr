@@ -90,19 +90,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     gateway's search read strictly -- which is proposed once, pinned to
 //     the folder, its files counted as awaiting its children
 //     (Progress.AwaitingChildren) until the folder scan the container
-//     owes attributes them; a folder it cannot resolve is listed once as
-//     a folder (UnmatchedFile.folder) with the hits as candidates, its
-//     files counted, not listed. An audiobook's "<author>/<title>" folder
-//     no Audiobook holds is proposed from its ASIN in the root's region,
-//     or Audible's one exact hit, with every file. A music file of an
-//     existing artist is probed before it is matched: its tags name its
-//     album whatever the folder depth ([MatchAlbum]: the release-group and
-//     release ids, the album folder, the ALBUM tag) and its track
-//     (fileimport.AttributeTrack); a file whose albums or tracks have not
-//     arrived awaits them. Files are classified as their own kind -- no
-//     video size floor, no video extras folders -- and freeze only the
-//     quality the file determines exactly (fileimport.FrozenFileQuality: a
-//     probe for music, the extension otherwise).
+//     owes attributes them; a folder it cannot resolve, or resolves to
+//     one of MusicBrainz's special-purpose artists (Various Artists), is
+//     listed once as a folder (UnmatchedFile.folder) with the hits as
+//     candidates, its files counted, not listed. An audiobook's
+//     "<author>/<title>" folder no Audiobook holds is proposed from the
+//     ASIN its path names (the folder or the file's own name) in the
+//     root's region, or Audible's one exact hit, with every file. A music
+//     file of an existing artist is probed before it is matched: its tags
+//     name its album whatever the folder depth ([MatchAlbum]: the
+//     release-group and release ids, the album folder, the ALBUM tag) and
+//     its track (fileimport.AttributeTrack), which one file holds -- a
+//     second for a track, recorded or walked, is unmatched
+//     (CodeDuplicateTrack). A file whose albums, tracks or books are still
+//     to come awaits them; a list that settled without them, or has not
+//     come in the day since its item was created, is no reason to wait,
+//     and the file is listed with why. Files are classified as their own
+//     kind -- no video size floor, no video extras folders -- and freeze
+//     only the quality the file determines exactly
+//     (fileimport.FrozenFileQuality: a probe for music, the extension
+//     otherwise).
 //   - series: attributed to a Series and its Episodes (series.go): the
 //     series by its folder -- status.path, a TheTVDB id in the folder name,
 //     spec.folder, or its title and year -- and the episode by the

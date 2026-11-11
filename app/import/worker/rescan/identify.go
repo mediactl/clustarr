@@ -43,12 +43,14 @@ import (
 //
 //   - a token in the folder's name: [mbid-<uuid>] or {mbid-<uuid>} for an
 //     artist, [olid-OL...A] for an author, an ASIN ("[ASIN B0...]",
-//     "[B0...]") for an audiobook, which is read in the root's
-//     defaults.region;
+//     "[B0...]") for an audiobook, in its title folder or the name of the
+//     file that found it, which is read in the root's defaults.region;
 //   - for an artist, the MUSICBRAINZ_ARTISTID that up to five of the
 //     folder's audio files agree on, each whose album artist (else artist)
 //     tag is the folder's name, validated by the gateway's lookup
-//     (events.RPCMetadataLookup), whose answer names the artist;
+//     (events.RPCMetadataLookup), whose answer names the artist and its
+//     current MBID, the identity (a merged artist's old id names the
+//     artist it was merged into);
 //   - the gateway's search (events.RPCMetadataSearch) for the folder's
 //     name, read strictly: the hits whose name equals the folder's by
 //     [release.TitleNorm] (CleanTitle on ASCII; a non-Latin name keeps its
@@ -57,6 +59,13 @@ import (
 //     so there it is exactly one such hit). An audiobook's hit must also
 //     name the author folder among its authors, and its year the folder's
 //     when both say one.
+//
+// A folder resolved to one of MusicBrainz's special-purpose artists (Various
+// Artists, [unknown], [traditional] and the others its style guide lists),
+// by any of the three, is never proposed: such an "artist" credits
+// compilations and unknown performers, not one artist, and Lidarr refuses to
+// add it. A compilations folder is listed once, CodeSpecialArtist, and its
+// albums' own artists are added by hand or by their own folders.
 //
 // A folder none of them resolves is never guessed: it is listed once in
 // status.unmatched (UnmatchedFile.folder) with the hits as candidates,
@@ -70,6 +79,40 @@ import (
 // folder, or could not answer: nothing was learnt, so the folder is
 // unmatched this time and the next scan asks again. Never a guess.
 const CodeLookupFailed = "lookup_failed"
+
+// CodeSpecialArtist means the folder is one of MusicBrainz's special-purpose
+// artists (specialArtists), which is never added as an Artist.
+const CodeSpecialArtist = "special_purpose_artist"
+
+// specialArtists are MusicBrainz's special-purpose artists, by MBID, as its
+// style guide lists them (musicbrainz.org/doc/Style/Unknown_and_untitled/
+// Special_purpose_artist, read 2026-11-10): credits for compilations,
+// unknown or anonymous performers, traditional works and the like, never
+// one artist. [christmas music], [classical music], [soundtrack], [nature
+// sounds] and [news report] are listed there without an MBID and are not
+// here.
+var specialArtists = map[string]string{
+	"89ad4ac3-39f7-470e-963a-56509c546377": "Various Artists",
+	"125ec42a-7229-4250-afc5-e057484327fe": "[unknown]",
+	"f731ccc4-e22a-43af-a747-64213329e088": "[anonymous]",
+	"33cf029c-63b0-41a0-9855-be2a3665fb3b": "[data]",
+	"314e1c25-dde7-4e4d-b2f4-0a7b9f7c56dc": "[dialogue]",
+	"eec63d3c-3b81-4ad4-b1e4-7c147d4d2b61": "[no artist]",
+	"9be7f096-97ec-4615-8957-8d40b5dcbc41": "[traditional]",
+	"66ea0139-149f-4a0c-8fbf-5ea9ec4a6e49": "[Disney]",
+	"a0ef7e1d-44ff-4039-9435-7d5fefdeecc9": "[theatre]",
+	"90068d37-bae7-4292-be4a-704c145bd616": "[church chimes]",
+	"80a8851f-444c-4539-892b-ad2a49292aa9": "[language instruction]",
+	"7e84f845-ac16-41fe-9ff8-df12eb32af55": "MusicBrainz Test Artist",
+}
+
+// specialArtist refuses a folder identified as a special-purpose artist.
+func specialArtist(id, by string) FolderIdentity {
+	return FolderIdentity{Unmatched: true, Code: CodeSpecialArtist, Reason: fmt.Sprintf(
+		"the folder is MusicBrainz's special-purpose artist %s (%s, by its %s), which credits compilations or "+
+			"unknown performers rather than one artist and is never added: add its albums' own artists by hand, "+
+			"or give each its own folder", specialArtists[id], id, by)}
+}
 
 // maxTaggedFiles is how many of an unmapped artist folder's audio files the
 // walk probes for the MUSICBRAINZ_ARTISTID they agree on.
@@ -90,9 +133,12 @@ var (
 
 // LookupFunc asks the metadata gateway's lookup verb
 // (events.RPCMetadataLookup) for the item of kind ids name, and answers its
-// canonical name. An error is a lookup that did not answer: the gateway was
-// unreachable, or the provider knows no such item.
-type LookupFunc func(ctx context.Context, kind commonv1.MediaKind, ids map[string]string) (name string, err error)
+// canonical name and the provider ids its document carries -- the current
+// ones, which differ from those asked when the provider merged the asked
+// item into another (MusicBrainz answers a merged artist's old MBID with the
+// artist it was merged into). An error is a lookup that did not answer: the
+// gateway was unreachable, or the provider knows no such item.
+type LookupFunc func(ctx context.Context, kind commonv1.MediaKind, ids map[string]string) (name string, current map[string]string, err error)
 
 // SearchFunc asks the metadata gateway's search verb
 // (events.RPCMetadataSearch) for items of kind named text, in the Audible
@@ -127,19 +173,31 @@ type FolderIdentity struct {
 // IdentifyArtist identifies the artist an unmapped folder under a music root
 // is: its [mbid-...] token; else the MUSICBRAINZ_ARTISTID tags carries (the
 // probed tags of up to five of its audio files) agree on, validated by
-// lookup; else search, read strictly.
+// lookup, whose answer's current MBID is the identity (a merged artist's old
+// id names the artist it became); else search, read strictly. A
+// special-purpose artist (specialArtists) by any of them is refused; a search
+// naming one exactly refuses the folder whatever else it names, since a
+// "Various Artists" folder is a compilations folder, never a band of that
+// name.
 func IdentifyArtist(
 	ctx context.Context, folder string, tags []*commonv1.MediaTags, lookup LookupFunc, search SearchFunc,
 ) FolderIdentity {
 	if m := mbidFolderRE.FindStringSubmatch(folder); m != nil {
-		return FolderIdentity{ID: strings.ToLower(m[1]), Title: tokenless(folder, mbidFolderRE), Evidence: "token"}
+		id := strings.ToLower(m[1])
+		if _, ok := specialArtists[id]; ok {
+			return specialArtist(id, "token")
+		}
+		return FolderIdentity{ID: id, Title: tokenless(folder, mbidFolderRE), Evidence: "token"}
 	}
 	if id, ok := agreedArtistID(folder, tags); ok {
+		if _, special := specialArtists[id]; special {
+			return specialArtist(id, "tags")
+		}
 		if lookup == nil {
 			return FolderIdentity{Unmatched: true, Code: CodeLookupFailed, Reason: fmt.Sprintf(
 				"the files' MUSICBRAINZ_ARTISTID %s needs the metadata gateway to validate it and no lookup is configured", id)}
 		}
-		name, err := lookup(ctx, commonv1.MediaKindArtist, map[string]string{metadata.KeyMBArtist: id})
+		name, current, err := lookup(ctx, commonv1.MediaKindArtist, map[string]string{metadata.KeyMBArtist: id})
 		if err != nil || strings.TrimSpace(name) == "" {
 			reason := fmt.Sprintf("the metadata gateway could not validate the MUSICBRAINZ_ARTISTID %s the folder's files "+
 				"agree on, so the folder is not identified by it", id)
@@ -148,9 +206,38 @@ func IdentifyArtist(
 			}
 			return FolderIdentity{Unmatched: true, Code: CodeUnresolvedID, Reason: reason}
 		}
+		if cur := strings.ToLower(strings.TrimSpace(current[metadata.KeyMBArtist])); mbidRE.MatchString(cur) {
+			id = cur
+		}
+		if _, special := specialArtists[id]; special {
+			return specialArtist(id, "tags")
+		}
 		return FolderIdentity{ID: id, Title: name, Evidence: "tags"}
 	}
-	return searchStrictly(ctx, search, commonv1.MediaKindArtist, folder, folder, "", metadata.KeyMBArtist, nil)
+	var special string
+	var filtered SearchFunc
+	if search != nil {
+		filtered = func(ctx context.Context, kind commonv1.MediaKind, text, region string) ([]metadata.SearchHit, error) {
+			hits, err := search(ctx, kind, text, region)
+			kept := make([]metadata.SearchHit, 0, len(hits))
+			for _, h := range hits {
+				id := strings.ToLower(h.IDs[metadata.KeyMBArtist])
+				if _, ok := specialArtists[id]; ok {
+					if special == "" && normEq(h.Title, folder) {
+						special = id
+					}
+					continue
+				}
+				kept = append(kept, h)
+			}
+			return kept, err
+		}
+	}
+	id := searchStrictly(ctx, filtered, commonv1.MediaKindArtist, folder, folder, "", metadata.KeyMBArtist, nil)
+	if special != "" {
+		return specialArtist(special, "search")
+	}
+	return id
 }
 
 // IdentifyAuthor identifies the author an unmapped folder under a book root
@@ -164,14 +251,21 @@ func IdentifyAuthor(ctx context.Context, folder string, search SearchFunc) Folde
 }
 
 // IdentifyAudiobook identifies the audiobook a "<author>/<title>" folder
-// under an audiobook root is: the ASIN its title folder names, read in
-// region (the root's defaults.region); else Audible's search for the
-// folder's title in region, read strictly, a hit counting only when its
-// authors name the author folder and its year is the folder's when both
-// know one. author is "" for a title folder directly under the root, which
-// only a token identifies.
-func IdentifyAudiobook(ctx context.Context, author, folder, region string, search SearchFunc) FolderIdentity {
-	if asin := embeddedASIN(folder); asin != "" {
+// under an audiobook root is: the ASIN its title folder names, else asin,
+// the one the file that found the folder names in its own path (its name,
+// Libation's "Title [B0...].m4b", or the author folder), read in region (the
+// root's defaults.region) -- the ASIN MatchAudiobook found no audiobook for,
+// so the walk proposes the item the file itself names, never another
+// Audible's search would; else Audible's search for the folder's title in
+// region, read strictly, a hit counting only when its authors name the
+// author folder and its year is the folder's when both know one. author is
+// "" for a title folder directly under the root, which only an ASIN
+// identifies.
+func IdentifyAudiobook(ctx context.Context, author, folder, asin, region string, search SearchFunc) FolderIdentity {
+	if own := embeddedASIN(folder); own != "" {
+		asin = own
+	}
+	if asin = strings.ToUpper(strings.TrimSpace(asin)); asin != "" {
 		title, year := parseAudiobookFolder(tokenless(folder, asinTokenREs...))
 		return FolderIdentity{ID: asin, Title: title, Year: year, Evidence: "token"}
 	}

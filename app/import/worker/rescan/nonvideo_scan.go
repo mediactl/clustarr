@@ -19,13 +19,16 @@ package rescan
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/names"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -67,6 +71,84 @@ type nonVideoIndex struct {
 	// its verdict, and no identity is proposed twice.
 	folders  map[string]*folderVerdict
 	proposed map[string]*folderVerdict
+
+	// containers is what the walk reads off each Artist and Author of the
+	// root, by kind and name (containerKey): whether its fan-out has listed
+	// its children, and when it was created (stillToCome).
+	containers map[string]containerState
+
+	// tracks is every track a file holds, by album and recording id
+	// (trackKey), to that file's path relative to the root: the album's
+	// recorded MediaFiles, read at its first attribution in the walk
+	// (seeded), and the files the walk attributed since. Every track takes
+	// one file (2026-11-10 design D6): a second is unmatched,
+	// CodeDuplicateTrack, never a second record.
+	tracks map[string]string
+	seeded map[string]bool
+}
+
+// containerState is an Artist's or Author's own state the walk reads.
+type containerState struct {
+	// listed is the container's AlbumsSynced or BooksSynced condition True:
+	// its fan-out has listed its children, so a container with none under
+	// this root has none to come.
+	listed  bool
+	created time.Time
+}
+
+func containerKey(kind commonv1.MediaKind, name string) string { return string(kind) + "/" + name }
+
+func trackKey(album, track string) string { return album + "\x00" + track }
+
+// childrenWait is how long the walk awaits a child that has not arrived --
+// an Artist's album listing, an Album's document or track list, an Author's
+// books or a Book's document -- from the item's creation: the day the
+// container's own folder scan waits for its children before it scans with
+// what is in (design D18). A list that has not come by then (a lookup that
+// fails for good, a release group MusicBrainz no longer has) is not coming
+// by itself, and its files are listed with the reason rather than counted
+// as awaiting for good, where no one would see them.
+const childrenWait = 24 * time.Hour
+
+// stillToCome reports whether a child created at created is still awaited
+// (childrenWait). An item whose creation is unknown is.
+func (w *Worker) stillToCome(created time.Time) bool {
+	return created.IsZero() || w.now().Sub(created) < childrenWait
+}
+
+// albumConditionTracksSynced is the Album reconciler's condition on its
+// track listing (album.conditionTracksSynced, unexported there; folderscan
+// keeps its own copy, and neither package can be linked into the agent),
+// and the two selection verdicts it reports False on that no retry changes
+// (album.SelectionNoAcceptedRelease, album.SelectionPinnedReleaseMissing).
+const (
+	albumConditionTracksSynced         = "TracksSynced"
+	albumSelectionNoAcceptedRelease    = "NoAcceptedRelease"
+	albumSelectionPinnedReleaseMissing = "PinnedReleaseMissing"
+)
+
+// albumNoTracks is AlbumCandidate.NoTracks: an Album listing no tracks whose
+// listing is settled -- TracksSynced True (the group lists no releases), or
+// False with a selection verdict -- answers the condition's message; one
+// listing tracks, or whose listing is still to come (no condition yet, or
+// a failed ask the Album retries), answers "".
+func albumNoTracks(al *catalogv1alpha1.Album) string {
+	if len(al.Status.Tracks) > 0 {
+		return ""
+	}
+	c := k8s.FindCondition(al.Status.Conditions, albumConditionTracksSynced)
+	if c == nil {
+		return ""
+	}
+	settled := c.Status == metav1.ConditionTrue || c.Status == metav1.ConditionFalse &&
+		(c.Reason == albumSelectionNoAcceptedRelease || c.Reason == albumSelectionPinnedReleaseMissing)
+	if !settled {
+		return ""
+	}
+	if msg := strings.TrimSpace(c.Message); msg != "" {
+		return msg
+	}
+	return c.Reason
 }
 
 // knownItem is an existing item's provider id, and the root folder it is
@@ -82,6 +164,11 @@ type folderVerdict struct {
 	existing   string
 	create     *schema.ItemCreate
 	providerID string
+
+	// id is the provider id the folder was identified by (identify.go),
+	// whether it named an existing item or the one proposed; "" when the
+	// catalog's names or folders resolved it.
+	id string
 
 	// proposed is set once the create has been reported (an artist's or
 	// author's one observation) or counted in a dry run.
@@ -115,9 +202,12 @@ func fileKindForRoot(k catalogv1alpha1.RootFolderKind) commonv1.MediaKind {
 // proposed as an item another root already has.
 func (w *Worker) loadNonVideo(ctx context.Context, ns string, root *catalogv1alpha1.RootFolder) (*nonVideoIndex, error) {
 	idx := &nonVideoIndex{
-		known:    map[commonv1.MediaKind][]knownItem{},
-		folders:  map[string]*folderVerdict{},
-		proposed: map[string]*folderVerdict{},
+		known:      map[commonv1.MediaKind][]knownItem{},
+		folders:    map[string]*folderVerdict{},
+		proposed:   map[string]*folderVerdict{},
+		containers: map[string]containerState{},
+		tracks:     map[string]string{},
+		seeded:     map[string]bool{},
 	}
 	in := client.InNamespace(ns)
 	other := func(ref string) string {
@@ -146,6 +236,10 @@ func (w *Worker) loadNonVideo(ctx context.Context, ns string, root *catalogv1alp
 			idx.artists = append(idx.artists, c)
 			idx.known[commonv1.MediaKindArtist] = append(idx.known[commonv1.MediaKindArtist],
 				knownItem{name: ar.Name, id: ar.Spec.MusicBrainzID, otherRoot: c.OtherRootFolder})
+			idx.containers[containerKey(commonv1.MediaKindArtist, ar.Name)] = containerState{
+				listed:  k8s.IsConditionTrue(ar.Status.Conditions, catalogv1alpha1.ArtistConditionAlbumsSynced),
+				created: ar.CreationTimestamp.UTC(),
+			}
 		}
 		var albums catalogv1alpha1.AlbumList
 		if err := w.Client.List(ctx, &albums, in); err != nil {
@@ -160,6 +254,7 @@ func (w *Worker) loadNonVideo(ctx context.Context, ns string, root *catalogv1alp
 			c := AlbumCandidate{
 				Name: al.Name, Path: al.Status.Path, Tracks: al.Status.Tracks,
 				Artist: al.Spec.ArtistRef, ReleaseGroupID: al.Spec.ReleaseGroupID,
+				NoTracks: albumNoTracks(al), Created: al.CreationTimestamp.UTC(),
 			}
 			if m := al.Status.Metadata; m != nil {
 				c.Title = m.Title
@@ -202,6 +297,10 @@ func (w *Worker) loadNonVideo(ctx context.Context, ns string, root *catalogv1alp
 			idx.authors = append(idx.authors, c)
 			idx.known[commonv1.MediaKindAuthor] = append(idx.known[commonv1.MediaKindAuthor],
 				knownItem{name: au.Name, id: au.Spec.OpenLibraryID, otherRoot: c.OtherRootFolder})
+			idx.containers[containerKey(commonv1.MediaKindAuthor, au.Name)] = containerState{
+				listed:  k8s.IsConditionTrue(au.Status.Conditions, catalogv1alpha1.AuthorConditionBooksSynced),
+				created: au.CreationTimestamp.UTC(),
+			}
 		}
 		var books catalogv1alpha1.BookList
 		if err := w.Client.List(ctx, &books, in); err != nil {
@@ -219,7 +318,7 @@ func (w *Worker) loadNonVideo(ctx context.Context, ns string, root *catalogv1alp
 			}
 			c := BookCandidate{
 				Name: b.Name, Author: ptr.Deref(b.Spec.AuthorRef, ""), Standalone: ptr.Deref(b.Spec.AuthorRef, "") == "",
-				Path: underRoot(root.Spec.Path, b.Status.Path),
+				Path: underRoot(root.Spec.Path, b.Status.Path), Created: b.CreationTimestamp.UTC(),
 			}
 			if m := b.Status.Metadata; m != nil {
 				c.Title = m.Title
@@ -373,9 +472,13 @@ func (w *Worker) handleNonVideoFile(ctx context.Context, st *scanState, path, re
 // unmatched folder whose files are counted too. A file of an existing
 // artist is probed before it is matched -- its tags name its album
 // (MatchAlbum) and its track (fileimport.AttributeTrack) -- and a file
-// whose artist's albums, or whose album's tracks, have not arrived awaits
+// whose artist's albums, or whose album's tracks, are still to come awaits
 // them rather than reading as unmatched; the folder scan the Artist owes
-// once they are settled attributes it (D18).
+// once they are settled attributes it (D18). A list that has settled
+// without the file's album or track, or has not come in the day
+// (childrenWait) since its item was created, is no reason to wait: the file
+// is listed, with why. A track another file holds is listed too
+// (trackHolder).
 func (w *Worker) handleMusicFile(
 	ctx context.Context, st *scanState, path, rel string, info os.FileInfo, existing *catalogv1alpha1.MediaFile,
 ) error {
@@ -386,7 +489,7 @@ func (w *Worker) handleMusicFile(
 			"(<artist>/[<album>/]<track>)", nil, w.now())
 		return nil
 	}
-	v, err := w.containerFolder(ctx, st, commonv1.MediaKindArtist, segs[0])
+	v, err := w.containerFolder(ctx, st, commonv1.MediaKindArtist, segs[0], rel)
 	if err != nil {
 		return err
 	}
@@ -400,8 +503,19 @@ func (w *Worker) handleMusicFile(
 
 	albums := st.nonVideo.albumsOf(v.existing, segs[0])
 	if len(albums) == 0 {
-		// The Artist's fan-out has listed none of its albums yet.
-		st.progress.Await(awaiting)
+		cs := st.nonVideo.containers[containerKey(commonv1.MediaKindArtist, v.existing)]
+		if !cs.listed && w.stillToCome(cs.created) {
+			// The Artist's fan-out has listed none of its albums yet.
+			st.progress.Await(awaiting)
+			return nil
+		}
+		reason := fmt.Sprintf("artist %s lists no album under this root folder: the artist's metadata profile takes "+
+			"none of its release groups, so the file is no album's; a person assigns it, or widens the profile", v.existing)
+		if !cs.listed {
+			reason = fmt.Sprintf("artist %s has listed no album in the day since it was created (its AlbumsSynced "+
+				"condition says why), so the file is no album's yet", v.existing)
+		}
+		st.unmatched(rel, CodeNoChild, reason, []string{v.existing}, w.now())
 		return nil
 	}
 	// The probe runs before the match: a track's tags name its album
@@ -417,7 +531,7 @@ func (w *Worker) handleMusicFile(
 	m := MatchAlbum(path, rel, tags, albums)
 	if m.Unmatched {
 		if (m.Code == CodeNoMatch || m.Code == CodeNoChild) && slices.ContainsFunc(albums, func(c AlbumCandidate) bool {
-			return c.Title == ""
+			return w.mayBeUntitled(c, tags)
 		}) {
 			// An album whose metadata has not arrived has no title to
 			// match yet: the file may be its.
@@ -433,21 +547,95 @@ func (w *Worker) handleMusicFile(
 	cand := &albums[slices.IndexFunc(albums, func(c AlbumCandidate) bool { return c.Name == m.Ref.Name })]
 	id, reason := fileimport.AttributeTrack(cand.Tracks, cand.Media, ap, rel, len(cand.Tracks) == 1)
 	switch {
-	case reason == fileimport.ErrTracksPending:
+	case reason == fileimport.ErrTracksPending && cand.NoTracks == "" && w.stillToCome(cand.Created):
 		st.progress.Await(awaiting)
+		return nil
+	case reason == fileimport.ErrTracksPending:
+		why := cand.NoTracks
+		if why == "" {
+			why = "it has listed none in the day since it was created (its TracksSynced condition says why)"
+		}
+		st.unmatched(rel, CodeNoChild, fmt.Sprintf("album %s lists no track the file could be: %s", m.Ref.Name, why),
+			[]string{m.Ref.Name}, w.now())
 		return nil
 	case id == "":
 		st.unmatched(rel, CodeNoMatch, reason, []string{m.Ref.Name}, w.now())
+		return nil
+	}
+	holder, err := w.trackHolder(ctx, st, m.Ref.Name, id, path, rel)
+	if err != nil {
+		return err
+	}
+	if holder != "" {
+		st.unmatched(rel, CodeDuplicateTrack, fmt.Sprintf(
+			"the file is track %s of album %s, which %s already holds: a track takes one file, so a second copy, "+
+				"a session or a live take tagged as the album's is a person's to place", id, m.Ref.Name, holder),
+			[]string{m.Ref.Name}, w.now())
 		return nil
 	}
 	m.Ref.Track = id
 	return w.recordAttribution(ctx, st, path, rel, info, existing, m.Ref, fresh)
 }
 
+// mayBeUntitled reports whether an album the file did not match may still be
+// its: its document, which brings the title, has not arrived and is still
+// to come (stillToCome), and the file's tags name no release group, or the
+// album's own group is unknown -- a file naming a group is not an album's
+// whose group, known from its spec, is another.
+func (w *Worker) mayBeUntitled(c AlbumCandidate, tags *commonv1.MediaTags) bool {
+	if c.Title != "" || !w.stillToCome(c.Created) {
+		return false
+	}
+	return tags == nil || strings.TrimSpace(tags.MusicBrainzReleaseGroupID) == "" || c.ReleaseGroupID == ""
+}
+
+// trackHolder is the file (relative to the root) that already holds album's
+// track, or "" when none does, in which case rel now holds it. The album's
+// recorded MediaFiles are read once per walk, at its first attribution,
+// through the import domain's target index (fileimport.
+// MediaFileByTargetIndexKey, "album/<name>", which the domain registers
+// beside this package's): a record whose file is gone from disk holds
+// nothing, since the prune pass reports it and a moved track is the file at
+// its new path. Within the walk the first file attributed to a track holds
+// it, in walk order, as the import's inspection holds it.
+func (w *Worker) trackHolder(ctx context.Context, st *scanState, album, track, path, rel string) (string, error) {
+	idx := st.nonVideo
+	if !idx.seeded[album] {
+		var files catalogv1alpha1.MediaFileList
+		if err := w.Client.List(ctx, &files, client.InNamespace(st.scan.Namespace), client.MatchingFields{
+			fileimport.MediaFileByTargetIndexKey: string(commonv1.MediaKindAlbum) + "/" + album,
+		}); err != nil {
+			return "", fmt.Errorf("rescan: list album %s's media files: %w", album, err)
+		}
+		for i := range files.Items {
+			mf := &files.Items[i]
+			if mf.Spec.MediaRef.Kind != commonv1.MediaKindAlbum || mf.Spec.MediaRef.Track == "" || mf.Spec.Path == "" || mf.Spec.Path == path {
+				continue
+			}
+			if _, err := os.Lstat(mf.Spec.Path); errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			key := trackKey(album, mf.Spec.MediaRef.Track)
+			if _, held := idx.tracks[key]; !held {
+				idx.tracks[key] = relPath(st.root.Spec.Path, mf.Spec.Path)
+			}
+		}
+		idx.seeded[album] = true
+	}
+	key := trackKey(album, track)
+	if holder, held := idx.tracks[key]; held && holder != rel {
+		return holder, nil
+	}
+	idx.tracks[key] = rel
+	return "", nil
+}
+
 // albumsOf is the root's albums of the Artist named artist, each copy
 // carrying folder (the artist folder the walk resolved to that Artist) among
 // its ArtistNames, so MatchAlbum's artist rule agrees with the walk's
-// whatever layer resolved the folder (a token, an alias, the gateway).
+// whatever layer resolved the folder (a token, an alias, the gateway) and
+// whatever letters the folder's name has: MatchAlbum takes a candidate whose
+// ArtistNames hold the segment as it is.
 func (idx *nonVideoIndex) albumsOf(artist, folder string) []AlbumCandidate {
 	var out []AlbumCandidate
 	for _, c := range idx.albums {
@@ -464,8 +652,10 @@ func (idx *nonVideoIndex) albumsOf(artist, folder string) []AlbumCandidate {
 // Book MatchBook names; else, in an author folder no Author of the root
 // names, to the Author identify.go resolves and proposes (its files await
 // its books), or to an unmatched folder; a file of an existing Author whose
-// books have not arrived awaits them. A standalone book's own folder is
-// never taken for an author's.
+// books are still to come -- none listed by its fan-out, or none with its
+// metadata yet, within the day (childrenWait) since each was created --
+// awaits them. A standalone book's own folder is never taken for an
+// author's.
 func (w *Worker) handleBookFile(
 	ctx context.Context, st *scanState, path, rel string, info os.FileInfo, existing *catalogv1alpha1.MediaFile,
 ) error {
@@ -482,7 +672,7 @@ func (w *Worker) handleBookFile(
 		st.unmatched(rel, m.Code, m.Reason, m.Candidates, w.now())
 		return nil
 	}
-	v, err := w.containerFolder(ctx, st, commonv1.MediaKindAuthor, segs[0])
+	v, err := w.containerFolder(ctx, st, commonv1.MediaKindAuthor, segs[0], rel)
 	if err != nil {
 		return err
 	}
@@ -493,13 +683,32 @@ func (w *Worker) handleBookFile(
 		st.progress.Await(awaiting)
 		return nil
 	}
-	if !slices.ContainsFunc(st.nonVideo.books, func(c BookCandidate) bool { return c.Author == v.existing && c.Title != "" }) {
-		// The Author's fan-out has listed no book with its metadata yet.
+	if w.booksToCome(st, v.existing) {
 		st.progress.Await(awaiting)
 		return nil
 	}
 	st.unmatched(rel, m.Code, m.Reason, m.Candidates, w.now())
 	return nil
+}
+
+// booksToCome reports whether an existing Author's books may still bring
+// the one a file is: none carries its metadata yet, and either its fan-out
+// has listed none and the Author is still to come, or one of them is.
+func (w *Worker) booksToCome(st *scanState, author string) bool {
+	var mine []BookCandidate
+	for _, c := range st.nonVideo.books {
+		if c.Author == author {
+			if c.Title != "" {
+				return false
+			}
+			mine = append(mine, c)
+		}
+	}
+	if len(mine) == 0 {
+		cs := st.nonVideo.containers[containerKey(commonv1.MediaKindAuthor, author)]
+		return !cs.listed && w.stillToCome(cs.created)
+	}
+	return slices.ContainsFunc(mine, func(c BookCandidate) bool { return w.stillToCome(c.Created) })
 }
 
 // handleAudiobookFile attributes one file under an audiobook root: to the
@@ -516,13 +725,24 @@ func (w *Worker) handleAudiobookFile(
 	if m.Unmatched {
 		dirs := bookDirs(rel)
 		folder := strings.Join(dirs, "/")
-		if (m.Code != CodeUnknownID && m.Code != CodeNoMatch) || len(dirs) == 0 || (len(dirs) < 2 && embeddedASIN(folder) == "") {
+		asin := embeddedASIN(rel)
+		if (m.Code != CodeUnknownID && m.Code != CodeNoMatch) || len(dirs) == 0 || (len(dirs) < 2 && asin == "") {
 			st.unmatched(rel, m.Code, m.Reason, m.Candidates, w.now())
 			return nil
 		}
 		var err error
-		if v, err = w.containerFolder(ctx, st, commonv1.MediaKindAudiobook, folder); err != nil {
+		if v, err = w.containerFolder(ctx, st, commonv1.MediaKindAudiobook, folder, rel); err != nil {
 			return err
+		}
+		if asin != "" && v.id != "" && !strings.EqualFold(asin, v.id) {
+			// The folder was identified from another of its files (its
+			// name's ASIN, or the search): a file naming its own ASIN is
+			// that audiobook's, never this one's.
+			st.unmatched(rel, CodeUnknownID, fmt.Sprintf(
+				"the path carries ASIN %s, which no existing audiobook under this root folder has, and its folder %q "+
+					"is audiobook ASIN %s: a folder's files naming two ASINs are a person's to place", asin, folder, v.id),
+				nil, w.now())
+			return nil
 		}
 		switch {
 		case v.existing != "":
@@ -560,7 +780,10 @@ func (w *Worker) handleAudiobookFile(
 // the root by MatchArtist or MatchAuthor (MatchAudiobook already ran for an
 // audiobook), else identify.go's identity -- an item the namespace already
 // has, or one to propose -- else an unmatched folder, listed once.
-func (w *Worker) containerFolder(ctx context.Context, st *scanState, kind commonv1.MediaKind, folder string) (*folderVerdict, error) {
+//
+// rel is the file that found the folder, relative to the root: an
+// audiobook's ASIN may be in its name alone (IdentifyAudiobook).
+func (w *Worker) containerFolder(ctx context.Context, st *scanState, kind commonv1.MediaKind, folder, rel string) (*folderVerdict, error) {
 	idx := st.nonVideo
 	key := string(kind) + "/" + folder
 	if v, ok := idx.folders[key]; ok {
@@ -582,7 +805,7 @@ func (w *Worker) containerFolder(ctx context.Context, st *scanState, kind common
 	case m.Code == CodeAmbiguousTitle:
 		st.unmatchedFolder(folder, m.Code, m.Reason, m.Candidates, w.now())
 	default:
-		id, err := w.identify(ctx, st, kind, folder)
+		id, err := w.identify(ctx, st, kind, folder, rel)
 		if err != nil {
 			return nil, err
 		}
@@ -595,7 +818,7 @@ func (w *Worker) containerFolder(ctx context.Context, st *scanState, kind common
 // identify asks identify.go what the folder of kind is, through the
 // gateway's calls; for an artist, after probing up to maxTaggedFiles of the
 // folder's audio files for their tags. The error is a failed heartbeat's.
-func (w *Worker) identify(ctx context.Context, st *scanState, kind commonv1.MediaKind, folder string) (FolderIdentity, error) {
+func (w *Worker) identify(ctx context.Context, st *scanState, kind commonv1.MediaKind, folder, rel string) (FolderIdentity, error) {
 	g := &gateway{w: w, st: st}
 	var id FolderIdentity
 	switch kind {
@@ -617,7 +840,7 @@ func (w *Worker) identify(ctx context.Context, st *scanState, kind commonv1.Medi
 		if len(dirs) > 1 {
 			author = dirs[0]
 		}
-		id = IdentifyAudiobook(ctx, author, dirs[len(dirs)-1], st.region(), g.search)
+		id = IdentifyAudiobook(ctx, author, dirs[len(dirs)-1], embeddedASIN(rel), st.region(), g.search)
 	}
 	if g.err != nil {
 		return id, g.err
@@ -644,7 +867,7 @@ func (w *Worker) settle(st *scanState, kind commonv1.MediaKind, folder string, i
 			continue
 		}
 		if k.otherRoot == "" {
-			return &folderVerdict{existing: k.name}
+			return &folderVerdict{existing: k.name, id: id.ID}
 		}
 		st.unmatchedFolder(folder, CodeOtherRootFolder, fmt.Sprintf(
 			"the folder is %s %s (id %s, by its %s), which belongs to root folder %q, not to this one: a scan "+
@@ -653,7 +876,7 @@ func (w *Worker) settle(st *scanState, kind commonv1.MediaKind, folder string, i
 		return &folderVerdict{}
 	}
 	if v := idx.proposed[string(kind)+"/"+id.ID]; v != nil {
-		return &folderVerdict{create: v.create, providerID: v.providerID, proposed: true}
+		return &folderVerdict{create: v.create, providerID: v.providerID, id: id.ID, proposed: true}
 	}
 
 	title := id.Title
@@ -664,7 +887,7 @@ func (w *Worker) settle(st *scanState, kind commonv1.MediaKind, folder string, i
 		Kind: string(kind), QualityProfileRef: st.root.Spec.Defaults.QualityProfileRef, RootFolderRef: st.root.Name,
 		Title: title, Folder: folder,
 	}
-	v := &folderVerdict{create: c}
+	v := &folderVerdict{create: c, id: id.ID}
 	switch kind {
 	case commonv1.MediaKindArtist:
 		c.Name, c.MusicBrainzID = names.Artist(title, id.ID), id.ID

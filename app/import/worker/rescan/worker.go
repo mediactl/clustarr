@@ -79,6 +79,19 @@ const (
 	// must leave those files unmatched quickly rather than stall the scan.
 	defaultMetadataTimeout = 10 * time.Second
 
+	// defaultIdentifyTimeout bounds one call identifying an unmapped folder
+	// (identify.go: a search, a tag's lookup). Such a call waits its turn
+	// at the metadata agent's MusicBrainz limiter, one request a second,
+	// beside the metadata the walk's own proposals start (each new Artist's
+	// document, its album browse, every Album's lookup and track listing),
+	// and the gateway's handler is given the caller's remaining time as its
+	// deadline: rate.Limiter.Wait refuses at once a wait past it, so at
+	// defaultMetadataTimeout every folder after the first few failed while
+	// ten requests were queued. The walk heartbeats while the call is in
+	// flight (gateway.call), so the budget is not held to the delivery's
+	// ack deadline.
+	defaultIdentifyTimeout = 2 * time.Minute
+
 	// maxUnmatched caps the unmatched list the worker accumulates in
 	// memory. It is catalogv1alpha1.LibraryScanStatus.Unmatched's own
 	// MaxItems: the controller sorts newest-first and truncates to the same
@@ -105,6 +118,10 @@ type Worker struct {
 	// MetadataTimeout bounds one resolve RPC. Zero means
 	// defaultMetadataTimeout.
 	MetadataTimeout time.Duration
+
+	// IdentifyTimeout bounds one Lookup or Search identifying an unmapped
+	// folder. Zero means defaultIdentifyTimeout.
+	IdentifyTimeout time.Duration
 
 	// ProbeAudio reads a music file's codec and bitrate, so a lossy track
 	// freezes the tier its bitrate puts it on
@@ -135,9 +152,10 @@ type Worker struct {
 	// artist id a folder's tags agree on, Search finds an artist, author or
 	// audiobook by the folder's name. nil asks over Bus
 	// (events.RPCMetadataLookup, events.RPCMetadataSearch). Each call is
-	// bounded by MetadataTimeout and preceded by a heartbeat, so a walk of
-	// 390 unmapped folders, one search each under the metadata agent's
-	// MusicBrainz limiter, never outlives its delivery.
+	// bounded by IdentifyTimeout, long enough to wait its turn at the
+	// metadata agent's MusicBrainz limiter, and the walk heartbeats before
+	// it and while it is in flight, so a walk of 390 unmapped folders, one
+	// search each under that limiter, never outlives its delivery.
 	Lookup LookupFunc
 	Search SearchFunc
 
@@ -204,6 +222,13 @@ func (w *Worker) metadataTimeout() time.Duration {
 		return w.MetadataTimeout
 	}
 	return defaultMetadataTimeout
+}
+
+func (w *Worker) identifyTimeout() time.Duration {
+	if w.IdentifyTimeout > 0 {
+		return w.IdentifyTimeout
+	}
+	return defaultIdentifyTimeout
 }
 
 // scanState is everything one walk carries. It exists so the per-file
@@ -884,72 +909,114 @@ func (w *Worker) finalAttempt(m events.Message) bool {
 }
 
 // gateway is one folder identification's calls to the metadata gateway
-// (identify.go): each heartbeats first, runs under MetadataTimeout, and
-// goes to the Worker's Lookup or Search, else over Bus. A failed heartbeat
-// is kept in err, which the caller returns once the identification is
-// done: it ends the walk, and never reads as a lookup that failed.
+// (identify.go): each heartbeats first, runs under IdentifyTimeout with the
+// walk heartbeating every identifyBeat while it is in flight, and goes to
+// the Worker's Lookup or Search, else over Bus. A failed heartbeat is kept
+// in err, which the caller returns once the identification is done: it
+// ends the walk, and never reads as a lookup that failed.
 type gateway struct {
 	w   *Worker
 	st  *scanState
 	err error
 }
 
-func (g *gateway) lookup(ctx context.Context, kind commonv1.MediaKind, ids map[string]string) (string, error) {
+// identifyBeat is how often the walk heartbeats while an identification call
+// is in flight: HeartbeatInterval, a variable only so a test can watch the
+// beats without waiting seconds for each.
+var identifyBeat = HeartbeatInterval
+
+// call runs fn under IdentifyTimeout on its own goroutine while the walk's
+// goroutine, the only one that touches the scan's state, heartbeats every
+// identifyBeat: the call may wait minutes at the MusicBrainz limiter, past
+// the delivery's 30 s ack deadline. A failed heartbeat cancels the call and
+// is fn's error and g.err.
+func (g *gateway) call(ctx context.Context, fn func(ctx context.Context) error) error {
 	if err := g.st.beatNow(ctx, true); err != nil {
 		g.err = err
-		return "", err
+		return err
 	}
-	rpcCtx, cancel := context.WithTimeout(ctx, g.w.metadataTimeout())
+	rpcCtx, cancel := context.WithTimeout(ctx, g.w.identifyTimeout())
 	defer cancel()
-	if g.w.Lookup != nil {
-		return g.w.Lookup(rpcCtx, kind, ids)
+	done := make(chan error, 1)
+	go func() { done <- fn(rpcCtx) }()
+	tick := time.NewTicker(identifyBeat)
+	defer tick.Stop()
+	for {
+		select {
+		case err := <-done:
+			return err
+		case <-tick.C:
+			if err := g.st.beatNow(ctx, true); err != nil {
+				g.err = err
+				cancel()
+				<-done
+				return err
+			}
+		}
 	}
-	return g.w.lookupRPC(rpcCtx, kind, ids)
+}
+
+func (g *gateway) lookup(ctx context.Context, kind commonv1.MediaKind, ids map[string]string) (string, map[string]string, error) {
+	var name string
+	var current map[string]string
+	err := g.call(ctx, func(ctx context.Context) error {
+		var err error
+		if g.w.Lookup != nil {
+			name, current, err = g.w.Lookup(ctx, kind, ids)
+		} else {
+			name, current, err = g.w.lookupRPC(ctx, kind, ids)
+		}
+		return err
+	})
+	return name, current, err
 }
 
 func (g *gateway) search(ctx context.Context, kind commonv1.MediaKind, text, region string) ([]metadata.SearchHit, error) {
-	if err := g.st.beatNow(ctx, true); err != nil {
-		g.err = err
-		return nil, err
-	}
-	rpcCtx, cancel := context.WithTimeout(ctx, g.w.metadataTimeout())
-	defer cancel()
-	if g.w.Search != nil {
-		return g.w.Search(rpcCtx, kind, text, region)
-	}
-	return g.w.searchRPC(rpcCtx, kind, text, region)
+	var hits []metadata.SearchHit
+	err := g.call(ctx, func(ctx context.Context) error {
+		var err error
+		if g.w.Search != nil {
+			hits, err = g.w.Search(ctx, kind, text, region)
+		} else {
+			hits, err = g.w.searchRPC(ctx, kind, text, region)
+		}
+		return err
+	})
+	return hits, err
 }
 
 // lookupRPC asks the gateway's lookup verb for the item of kind ids name
 // and answers the name its document carries (an artist's or author's name,
-// an audiobook's title). An unreachable gateway, an answer carrying an
-// error, and a document naming nothing are errors, which identify.go turns
-// into an unmatched folder, never a guess.
-func (w *Worker) lookupRPC(ctx context.Context, kind commonv1.MediaKind, ids map[string]string) (string, error) {
+// an audiobook's title) and the ids the answer resolved (the provider's
+// current ones: MusicBrainz answers a merged artist's old MBID with the
+// artist it was merged into, under that artist's MBID). An unreachable
+// gateway, an answer carrying an error, and a document naming nothing are
+// errors, which identify.go turns into an unmatched folder, never a guess.
+func (w *Worker) lookupRPC(ctx context.Context, kind commonv1.MediaKind, ids map[string]string) (string, map[string]string, error) {
 	if w.Bus == nil {
-		return "", fmt.Errorf("rescan: no bus to look a %s up with", kind)
+		return "", nil, fmt.Errorf("rescan: no bus to look a %s up with", kind)
 	}
 	var resp schema.MetadataResponse
 	if err := w.Bus.Request(ctx, events.RPCMetadataLookup, schema.MetadataRequest{Kind: kind, IDs: ids}, &resp); err != nil {
-		return "", fmt.Errorf("rescan: look up %s %v: %w", kind, ids, events.DescribeRequestError(events.RPCMetadataLookup, err))
+		return "", nil, fmt.Errorf("rescan: look up %s %v: %w", kind, ids, events.DescribeRequestError(events.RPCMetadataLookup, err))
 	}
 	if resp.Error != "" {
-		return "", fmt.Errorf("rescan: look up %s %v: %s", kind, ids, resp.Error)
+		return "", nil, fmt.Errorf("rescan: look up %s %v: %s", kind, ids, resp.Error)
 	}
 	var doc struct {
 		Name  string `json:"name"`
 		Title string `json:"title"`
 	}
 	if err := json.Unmarshal(resp.Result, &doc); err != nil {
-		return "", fmt.Errorf("rescan: decode the %s lookup's answer: %w", kind, err)
+		return "", nil, fmt.Errorf("rescan: decode the %s lookup's answer: %w", kind, err)
 	}
 	if name := strings.TrimSpace(doc.Name); name != "" {
-		return name, nil
+		return name, resp.IDs, nil
 	}
 	if title := strings.TrimSpace(doc.Title); title != "" {
-		return title, nil
+		return title, resp.IDs, nil
 	}
-	return "", fmt.Errorf("rescan: the gateway's %s lookup of %v names nothing", kind, ids)
+	return "", nil, fmt.Errorf("rescan: the gateway's %s lookup of %v names nothing", kind, ids)
 }
 
 // searchRPC asks the gateway's search verb for items of kind named text

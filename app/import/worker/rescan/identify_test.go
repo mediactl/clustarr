@@ -37,6 +37,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
+	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -88,23 +89,28 @@ func (b *observingBus) observed(t *testing.T, root string) map[string]schema.Sca
 type gatewayFake struct {
 	mu       sync.Mutex
 	names    map[string]string               // lookup: id -> canonical name
+	merged   map[string]string               // lookup: an id MusicBrainz merged -> the artist's current id
 	hits     map[string][]metadata.SearchHit // search: text -> hits
 	lookups  []map[string]string
 	searches []string
 	regions  []string
 }
 
-func (g *gatewayFake) lookup(_ context.Context, kind commonv1.MediaKind, ids map[string]string) (string, error) {
+func (g *gatewayFake) lookup(_ context.Context, kind commonv1.MediaKind, ids map[string]string) (string, map[string]string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.lookups = append(g.lookups, ids)
 	if kind != commonv1.MediaKindArtist {
-		return "", errors.New("unexpected lookup kind " + string(kind))
+		return "", nil, errors.New("unexpected lookup kind " + string(kind))
 	}
-	if name, ok := g.names[ids[metadata.KeyMBArtist]]; ok {
-		return name, nil
+	id := ids[metadata.KeyMBArtist]
+	if cur, ok := g.merged[id]; ok {
+		id = cur
 	}
-	return "", errors.New("metadata: not found")
+	if name, ok := g.names[id]; ok {
+		return name, map[string]string{metadata.KeyMBArtist: id}, nil
+	}
+	return "", nil, errors.New("metadata: not found")
 }
 
 func (g *gatewayFake) search(_ context.Context, _ commonv1.MediaKind, text, region string) ([]metadata.SearchHit, error) {
@@ -140,11 +146,13 @@ func newWalkFixture(t *testing.T, kind catalogv1alpha1.RootFolderKind, defaults 
 		Spec:       catalogv1alpha1.LibraryScanSpec{RootFolderRef: rf.Name, Mode: catalogv1alpha1.ScanModeFull},
 	}
 	b := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(append(objs, rf, scan)...)
-	for _, fi := range rescan.FieldIndexes() {
+	// The import domain registers both packages' indexes (app/import/agent):
+	// the walk reads an album's recorded tracks through fileimport's.
+	for _, fi := range append(rescan.FieldIndexes(), fileimport.FieldIndexes()...) {
 		b = b.WithIndex(fi.Object, fi.Name, fi.Extract)
 	}
 	bus := &observingBus{Bus: newBus(t, context.Background())}
-	gw := &gatewayFake{names: map[string]string{}, hits: map[string][]metadata.SearchHit{}}
+	gw := &gatewayFake{names: map[string]string{}, merged: map[string]string{}, hits: map[string][]metadata.SearchHit{}}
 	w := &rescan.Worker{
 		Client: b.Build(), Bus: bus, Clock: time.Now, MetadataTimeout: time.Second,
 		Lookup: gw.lookup, Search: gw.search,
@@ -215,7 +223,10 @@ func musicLibrary(t *testing.T) (f *walkFixture, probed *[]string) {
 			Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "b1392450-e666-3926-a536-22c65f834433"},
 			Status: catalogv1alpha1.AlbumStatus{
 				Metadata: &catalogv1alpha1.AlbumMetadata{Title: "OK Computer", ReleaseDate: date(1997)},
-				Tracks:   []catalogv1alpha1.Track{{RecordingID: "airbag", Medium: 1, Number: 1, Title: "Airbag"}},
+				Tracks: []catalogv1alpha1.Track{
+					{RecordingID: "airbag", Medium: 1, Number: 1, Title: "Airbag"},
+					{RecordingID: "paranoid-android", Medium: 1, Number: 2, Title: "Paranoid Android"},
+				},
 			},
 		},
 		&catalogv1alpha1.Album{
@@ -235,7 +246,7 @@ func musicLibrary(t *testing.T) (f *walkFixture, probed *[]string) {
 		filepath.Join("Kate", "01.flac"),
 		filepath.Join("Radiohead", "OK Computer (1997)", "01 - Airbag.flac"),
 		filepath.Join("Radiohead", "Kid A", "01 - Everything In Its Right Place.flac"),
-		filepath.Join("Radiohead", "Airbag (BBC session).flac"), // flat: its tags name its album
+		filepath.Join("Radiohead", "Paranoid Android.flac"), // flat: its tags name its album
 	)
 	probed = &[]string{}
 	f.w.ProbeAudio = func(_ context.Context, path string) (mediainfo.AudioProbe, error) {
@@ -245,8 +256,8 @@ func musicLibrary(t *testing.T) (f *walkFixture, probed *[]string) {
 		switch {
 		case filepath.Dir(rel) == "portishead":
 			ap.Tags = &commonv1.MediaTags{AlbumArtist: "Portishead", Album: "Dummy", MusicBrainzArtistID: portisheadID}
-		case filepath.Base(rel) == "Airbag (BBC session).flac":
-			ap.Tags = &commonv1.MediaTags{AlbumArtist: "Radiohead", Album: "OK Computer", Date: "1997", TrackNumber: 1}
+		case filepath.Base(rel) == "Paranoid Android.flac":
+			ap.Tags = &commonv1.MediaTags{AlbumArtist: "Radiohead", Album: "OK Computer", Date: "1997", TrackNumber: 2}
 		}
 		return ap, nil
 	}
@@ -312,10 +323,10 @@ func TestARootScanIdentifiesUnmappedArtistFolders(t *testing.T) {
 	require.NotNil(t, track.Frozen)
 	require.NotNil(t, track.Frozen.Quality)
 	assert.Equal(t, "FLAC", track.Frozen.Quality.Name)
-	flat := obs[filepath.Join("Radiohead", "Airbag (BBC session).flac")]
+	flat := obs[filepath.Join("Radiohead", "Paranoid Android.flac")]
 	require.NotNil(t, flat.Attribution, "a flat file of an existing artist is attributed by its probed tags (D17)")
 	assert.Equal(t, "ok-computer", flat.Attribution.Name)
-	assert.Equal(t, "airbag", flat.Attribution.Track)
+	assert.Equal(t, "paranoid-android", flat.Attribution.Track)
 
 	folders := folderEntries(got)
 	require.Len(t, got.Unmatched, 3, "only the three unidentified folders are listed, each once: %v", got.Unmatched)
