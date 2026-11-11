@@ -170,7 +170,7 @@ func TestTheLineupManagerOwnsOnlyItsFields(t *testing.T) {
 	entries := []m3u.Entry{cnn, bbc, fox}
 	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	r := &lineup.Reconciler{
-		Client: cached, Store: bus.ObjectStore(events.BucketLiveTV), Now: func() time.Time { return now },
+		Client: cached, APIReader: direct, Store: bus.ObjectStore(events.BucketLiveTV), Now: func() time.Time { return now },
 		Entries: func(types.NamespacedName) ([]m3u.Entry, bool) { return slices.Clone(entries), true },
 	}
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}

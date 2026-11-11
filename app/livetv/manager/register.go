@@ -147,7 +147,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// the plan object through notifyTuners' push, the provider controller
 	// alone: the object's reader is the provider's status and blocks.
 	lineups := &lineup.Reconciler{
-		Client: mgr.GetClient(), Entries: tn.Entries, Store: bus.ObjectStore(events.BucketLiveTV),
+		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Entries: tn.Entries, Store: bus.ObjectStore(events.BucketLiveTV),
 		Events: lineupEvents, Now: time.Now, Wake: notifyTuners,
 	}
 	if err := lineups.SetupWithManager(mgr); err != nil {

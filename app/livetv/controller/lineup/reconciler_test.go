@@ -24,6 +24,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,6 +108,14 @@ type fixture struct {
 
 func newFixture(t *testing.T, p *clustarrv1.IPTVProvider, channels ...*clustarrv1.IPTVChannel) *fixture {
 	t.Helper()
+	return newFixtureWith(t, interceptor.Funcs{}, p, channels...)
+}
+
+// newFixtureWith is newFixture with the reconciler's client intercepted by
+// funcs (Apply defaults to applyKeepingFalse); the reconciler's APIReader
+// and the test's reads go to the fake underneath.
+func newFixtureWith(t *testing.T, funcs interceptor.Funcs, p *clustarrv1.IPTVProvider, channels ...*clustarrv1.IPTVChannel) *fixture {
+	t.Helper()
 	s := runtime.NewScheme()
 	require.NoError(t, clustarrv1.AddToScheme(s))
 	objs := []client.Object{p}
@@ -116,8 +125,10 @@ func newFixture(t *testing.T, p *clustarrv1.IPTVProvider, channels ...*clustarrv
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(objs...).
 		WithStatusSubresource(&clustarrv1.IPTVChannel{}, &clustarrv1.IPTVProvider{}).
 		WithIndex(&clustarrv1.IPTVChannel{}, index.ChannelByProvider, index.Extract).
-		WithInterceptorFuncs(interceptor.Funcs{Apply: applyKeepingFalse}).
 		Build()
+	if funcs.Apply == nil {
+		funcs.Apply = applyKeepingFalse
+	}
 	bus := membus.New(nil)
 	require.NoError(t, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
 	f := &fixture{
@@ -125,7 +136,7 @@ func newFixture(t *testing.T, p *clustarrv1.IPTVProvider, channels ...*clustarrv
 		now: time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC), ok: true, provider: p,
 	}
 	f.r = &Reconciler{
-		Client: c, Store: f.store, Recorder: f.rec,
+		Client: interceptor.NewClient(c, funcs), APIReader: c, Store: f.store, Recorder: f.rec,
 		Entries: func(key types.NamespacedName) ([]m3u.Entry, bool) {
 			f.asked++
 			if key != testKey {
@@ -234,7 +245,7 @@ func TestADryRunWritesThePlanAndStatusButNoSpec(t *testing.T) {
 	assert.Equal(t, mystery.Spec, got[keyOf("Mystery")].Spec)
 	assert.Equal(t, map[string]string{clustarrv1.LabelOrigin: clustarrv1.OriginUI}, got[keyOf("CNN")].Labels)
 	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "CNN", Category: "News", Rule: "News[0]", Number: "1002"}, got[keyOf("CNN")].Status.Lineup)
-	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "Mystery", Rule: "unmatched"}, got[keyOf("Mystery")].Status.Lineup)
+	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "Mystery"}, got[keyOf("Mystery")].Status.Lineup)
 	assert.Empty(t, f.events(), "a dry run records no Event")
 }
 
@@ -433,7 +444,7 @@ func TestAnEmptyOverrideDeactivates(t *testing.T) {
 	assert.False(t, ch.Spec.Active)
 	assert.Equal(t, "1001", ch.Spec.Number)
 	assert.Equal(t, ptr.To(""), ch.Spec.Category)
-	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "CNN", Rule: "off"}, ch.Status.Lineup)
+	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "CNN"}, ch.Status.Lineup)
 	assert.Equal(t, "1001", got[keyOf("BBC NEWS")].Spec.Number, "the off channel takes no number")
 }
 
@@ -454,7 +465,7 @@ func TestTooManyDeactivatesTheCategory(t *testing.T) {
 	require.Len(t, got, 2, "no channel of the refused category is created")
 	assert.False(t, got[keyOf("CNN")].Spec.Active)
 	assert.Equal(t, "1001", got[keyOf("CNN")].Spec.Number)
-	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "CNN", Rule: "tooMany"}, got[keyOf("CNN")].Status.Lineup)
+	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "CNN"}, got[keyOf("CNN")].Status.Lineup)
 	assert.Equal(t, "5001", got[keyOf("KIDS TV")].Spec.Number)
 	assert.True(t, got[keyOf("KIDS TV")].Spec.Active)
 	assert.True(t, f.plan().Categories[0].TooMany)
@@ -516,7 +527,8 @@ func TestAPlanWriteWakesTheProviderController(t *testing.T) {
 
 	f.woken = nil
 	f.reconcile()
-	assert.Empty(t, f.woken, "nothing written, nothing to read")
+	assert.Equal(t, []types.NamespacedName{testKey}, f.woken, "every pass writes the plan, so every pass wakes it")
+	f.woken = nil
 
 	f.setProvider(func(p *clustarrv1.IPTVProvider) {
 		p.Spec.Lineup.Categories = append(p.Spec.Lineup.Categories, category("Kids", 5000, "("))
@@ -559,6 +571,7 @@ func TestAChannelMapOverTheByteBudgetIsTooMany(t *testing.T) {
 	require.NotEmpty(t, ev)
 	assert.True(t, strings.HasPrefix(ev[0], "Warning LineupCategoryTooMany "), "%v", ev)
 	assert.Contains(t, ev[0], `"Big"`)
+	assert.Contains(t, ev[0], "channel map is 30043 bytes, over the 30000 a DVR takes", "the byte budget, not the count, refused it")
 }
 
 // TestTheByteBudgetIsTheBoundary: 389 five-digit numbers (29,966 bytes)
@@ -571,11 +584,13 @@ func TestTheByteBudgetIsTheBoundary(t *testing.T) {
 		}
 		return p
 	}
-	fits := refuseOverBytes(plan(389))
+	fits, overBytes := refuseOverBytes(plan(389))
+	assert.Empty(t, overBytes)
 	assert.False(t, fits.Categories[0].TooMany)
 	assert.Len(t, fits.Channels, 389)
 	assert.Empty(t, fits.Dropped)
-	over := refuseOverBytes(plan(390))
+	over, overBytes := refuseOverBytes(plan(390))
+	assert.Equal(t, map[string]int{"Big": 30043}, overBytes)
 	assert.True(t, over.Categories[0].TooMany)
 	assert.Empty(t, over.Channels)
 	assert.Len(t, over.Dropped, 390)
@@ -583,4 +598,118 @@ func TestTheByteBudgetIsTheBoundary(t *testing.T) {
 
 func lineupCategory(name string, base, channels int, tooMany bool) lineup.Category {
 	return lineup.Category{Name: name, Base: base, Channels: channels, TooMany: tooMany}
+}
+
+// TestLongNamesAreClampedToTheirBounds: status.lineup's strings are cut to
+// their CRD MaxLength in runes -- a rule label "<64-rune category>[10]" is
+// 68, and a playlist name is unbounded -- so the status applies; a clamped
+// status reads as unchanged on the next pass.
+func TestLongNamesAreClampedToTheirBounds(t *testing.T) {
+	long := strings.Repeat("é", 64)
+	var cats []clustarrv1.LineupCategory
+	for i := range 10 {
+		cats = append(cats, category(fmt.Sprintf("R%d", i), int32(1000*(i+1)), "^NOMATCH$"))
+	}
+	cats = append(cats, category(long, 20000, "^LONG"))
+	name := "LONG" + strings.Repeat("ü", 296)
+	require.Equal(t, 300, utf8.RuneCountInString(name))
+	f := newFixture(t, provider(true, cats...))
+	f.entries = []m3u.Entry{entry(name)}
+
+	f.reconcile()
+
+	st := f.channels()[keyOf(name)].Status.Lineup
+	require.NotNil(t, st, "the status applied")
+	assert.Equal(t, "20001", st.Number)
+	assert.Equal(t, long, st.Category, "a 64-rune category is within its bound")
+	assert.Equal(t, long, st.Rule, "the label's [10] is cut at 64 runes")
+	assert.Equal(t, 256, utf8.RuneCountInString(st.Name))
+	assert.True(t, strings.HasPrefix(name, st.Name))
+	assert.True(t, utf8.ValidString(st.Name))
+	f.events()
+
+	f.reconcile()
+	assert.Empty(t, f.events(), "the clamped status reads as unchanged")
+}
+
+// TestARawSpecNameIsNoOverride: the ui's add posts the playlist's raw name
+// as spec.name, so a spec.name equal to the entry's raw (or trimmed) name
+// is no override and the channel sorts and shows by the trimmed name; a
+// name of a person's own is kept.
+func TestARawSpecNameIsNoOverride(t *testing.T) {
+	p := provider(true, news())
+	p.Spec.Lineup.Trim = []string{`^USA: `, `\s*\[1080p\]`}
+	raw, intl, bbc := "USA: CNN [1080p]", "USA: CNN INTERNATIONAL [1080p]", "USA: BBC NEWS [1080p]"
+	f := newFixture(t, p,
+		channel(raw, "1", true, func(ch *clustarrv1.IPTVChannel) { ch.Spec.Name = raw }),
+		channel(intl, "2", true, func(ch *clustarrv1.IPTVChannel) { ch.Spec.Name = "CNN International (my pick)" }),
+		channel(bbc, "3", true, func(ch *clustarrv1.IPTVChannel) { ch.Spec.Name = "BBC NEWS" }),
+	)
+	f.entries = []m3u.Entry{entry(raw), entry(intl), entry(bbc)}
+
+	f.reconcile()
+
+	got := f.channels()
+	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "BBC NEWS", Category: "News", Rule: "News[0]", Number: "1001"}, got[keyOf(bbc)].Status.Lineup)
+	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "CNN", Category: "News", Rule: "News[0]", Number: "1002"}, got[keyOf(raw)].Status.Lineup,
+		"the raw spec.name is not an override: trimmed, it sorts as CNN")
+	assert.Equal(t, &clustarrv1.ChannelLineupStatus{Name: "CNN International (my pick)", Category: "News", Rule: "News[0]", Number: "1003"}, got[keyOf(intl)].Status.Lineup,
+		"a person's own name is kept")
+	assert.Equal(t, raw, got[keyOf(raw)].Spec.Name, "spec.name is never the lineup's to write")
+}
+
+// TestALostPlanObjectIsWrittenAgain: every pass writes the plan object, so
+// one lost while the manager runs is back at the next pass, the plan
+// unchanged.
+func TestALostPlanObjectIsWrittenAgain(t *testing.T) {
+	f := newFixture(t, provider(true, news()))
+	f.entries = []m3u.Entry{entry("CNN")}
+	f.reconcile()
+	want := f.plan()
+	require.NoError(t, f.store.Delete(context.Background(), livetvstore.LineupPlanObject(testKey)))
+
+	f.reconcile()
+
+	assert.Equal(t, want.Plan, f.plan().Plan)
+}
+
+// TestOnlyWhatHappenedIsCounted: a channel the cache does not show yet but
+// the apiserver holds is read before the lineup would create it, so it is
+// updated as existing (its ui label kept) and not counted as created; a
+// delete that finds the channel gone counts nothing.
+func TestOnlyWhatHappenedIsCounted(t *testing.T) {
+	hidden := channel("CNN", "5", false)
+	f := newFixtureWith(t, interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if err := c.List(ctx, list, opts...); err != nil {
+				return err
+			}
+			if l, ok := list.(*clustarrv1.IPTVChannelList); ok {
+				l.Items = slices.DeleteFunc(l.Items, func(ch clustarrv1.IPTVChannel) bool { return ch.Name == hidden.Name })
+			}
+			return nil
+		},
+		Delete: func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error {
+			return apierrors.NewNotFound(clustarrv1.GroupVersion.WithResource("iptvchannels").GroupResource(), "gone")
+		},
+	}, provider(true, news()), hidden)
+	f.entries = []m3u.Entry{entry("CNN"), entry("BBC NEWS")}
+
+	f.reconcile()
+
+	got := f.channels()
+	assert.Equal(t, clustarrv1.OriginUI, got[keyOf("CNN")].Labels[clustarrv1.LabelOrigin], "an existing channel the cache missed keeps its label")
+	assert.Equal(t, "1002", got[keyOf("CNN")].Spec.Number)
+	assert.True(t, got[keyOf("CNN")].Spec.Active)
+	ev := f.events()
+	require.Len(t, ev, 1)
+	assert.Contains(t, ev[0], "1 created, 1 renumbered, 1 activated")
+
+	// BBC leaves; seven days on its delete finds it gone: no deletion counted.
+	f.entries = []m3u.Entry{entry("CNN")}
+	f.reconcile()
+	f.events()
+	f.now = f.now.Add(DeleteAbsentAfter + time.Minute)
+	f.reconcile()
+	assert.Empty(t, f.events(), "a delete that found nothing is no change")
 }

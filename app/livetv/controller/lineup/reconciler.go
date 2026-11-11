@@ -45,6 +45,7 @@ import (
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/index"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/iptv/blocks"
 	"github.com/mediactl/clustarr/pkg/iptv/lineup"
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
@@ -80,10 +81,14 @@ type Reconciler struct {
 	Events <-chan event.GenericEvent
 	// Now is the clock; time.Now when nil.
 	Now func() time.Time
+	// APIReader reads a channel the cache does not show before the lineup
+	// creates it, so one that exists keeps its label and is not counted as
+	// created; the manager's API reader. Nil reads through Client.
+	APIReader client.Reader
 	// Wake wakes the provider controller for a provider, which reads the
 	// plan object: nothing else tells it the object moved when no channel
-	// does (an error, or a dry run that changes no status). Called once a
-	// reconcile wrote the plan or any channel; nil wakes nothing.
+	// does (an error, or a dry run that changes no status). Called after
+	// every plan write; nil wakes nothing.
 	Wake func(types.NamespacedName)
 	// Recorder records the provider's LineupApplied and
 	// LineupCategoryTooMany Events; SetupWithManager sets the manager's
@@ -92,8 +97,9 @@ type Reconciler struct {
 
 	mu sync.Mutex
 	// stored is the digest of each provider's last plan object written by
-	// this process, so an unchanged plan is not written again on every
-	// notice; a restart writes each once.
+	// this process. Every pass writes the object (a lost one is rewritten at
+	// the next); the digest only keeps the LineupCategoryTooMany Event to a
+	// plan that changed.
 	stored map[types.NamespacedName][sha256.Size]byte
 }
 
@@ -133,11 +139,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err != nil {
 		// The provider controller reads the error as InvalidLineup; the last
 		// good plan, and every channel, stand.
-		wrote, err := r.storeError(ctx, key, now, !enabled, err)
-		if wrote {
-			r.wake(key)
+		if err := r.storeError(ctx, key, now, !enabled, err); err != nil {
+			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, err
+		r.wake(key)
+		return ctrl.Result{}, nil
 	}
 	entries, ok := r.Entries(key)
 	if !ok {
@@ -148,7 +154,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 	byKey := channelsByKey(p.Name, channels)
-	plan := refuseOverBytes(planner.Plan(toEntries(entries), overrides(byKey)))
+	plan, overBytes := refuseOverBytes(planner.Plan(toEntries(entries), overrides(byKey, entries, planner.Trim)))
 	planChanged, err := r.storePlan(ctx, key, livetvstore.LineupPlan{PlannedAt: now, DryRun: !enabled, Plan: plan})
 	if err != nil {
 		return ctrl.Result{}, err
@@ -162,15 +168,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			errs = append(errs, err)
 		}
 	}
-	if planChanged || n.any() {
-		r.wake(key)
-	}
+	r.wake(key)
 	if !enabled {
 		return ctrl.Result{}, errors.Join(errs...)
 	}
 	if planChanged {
 		for _, c := range plan.Categories {
-			if c.TooMany {
+			if b, ok := overBytes[c.Name]; ok {
+				r.event(&p, corev1.EventTypeWarning, ReasonLineupCategoryTooMany,
+					"category %q's channel map is %d bytes, over the %d a DVR takes: its channels are off every DVR",
+					c.Name, b, blocks.DefaultMaxBytes)
+			} else if c.TooMany {
 				r.event(&p, corev1.EventTypeWarning, ReasonLineupCategoryTooMany,
 					"category %q has %d channels, over the %d a DVR takes: its channels are off every DVR",
 					c.Name, c.Channels, p.Spec.MaxChannelsOrDefault())
@@ -195,11 +203,26 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 func (r *Reconciler) apply(ctx context.Context, p *clustarrv1.IPTVProvider, c *change, n *counts) error {
 	if c.remove {
 		uid := c.ch.UID
-		if err := r.Delete(ctx, c.ch, client.Preconditions{UID: &uid}); err != nil && !apierrors.IsNotFound(err) {
+		switch err := r.Delete(ctx, c.ch, client.Preconditions{UID: &uid}); {
+		case apierrors.IsNotFound(err):
+		case err != nil:
 			return fmt.Errorf("livetv lineup: delete %s/%s: %w", p.Namespace, c.name, err)
+		default:
+			n.deleted++
 		}
-		n.deleted++
 		return nil
+	}
+	if c.ch == nil && c.spec {
+		// The cache shows no channel of the key: read the name through the
+		// apiserver before creating it, so an existing one (made a moment
+		// ago, or by the ui) is updated as existing -- its label its own.
+		var existing clustarrv1.IPTVChannel
+		switch err := r.reader().Get(ctx, client.ObjectKey{Namespace: p.Namespace, Name: c.name}, &existing); {
+		case err == nil:
+			c.ch, c.label = &existing, madeByLineup(&existing)
+		case !apierrors.IsNotFound(err):
+			return fmt.Errorf("livetv lineup: read %s/%s: %w", p.Namespace, c.name, err)
+		}
 	}
 	if c.spec && !specMatches(p.Name, c) {
 		ac := clustarrac.IPTVChannel(c.name, p.Namespace).WithSpec(clustarrac.IPTVChannelSpec().
@@ -224,11 +247,12 @@ func (r *Reconciler) apply(ctx context.Context, p *clustarrv1.IPTVProvider, c *c
 			}
 		}
 	}
-	if c.ch != nil && equality.Semantic.DeepEqual(c.ch.Status.Lineup, &c.status) {
+	st := clampStatus(c.status)
+	if c.ch != nil && equality.Semantic.DeepEqual(c.ch.Status.Lineup, &st) {
 		return nil
 	}
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerLiveTVLineup,
-		clustarrac.IPTVChannel(c.name, p.Namespace).WithStatus(clustarrac.IPTVChannelStatus().WithLineup(lineupStatus(c.status)))); err != nil {
+		clustarrac.IPTVChannel(c.name, p.Namespace).WithStatus(clustarrac.IPTVChannelStatus().WithLineup(lineupStatus(st)))); err != nil {
 		return fmt.Errorf("livetv lineup: %w", err)
 	}
 	n.statuses++
@@ -243,7 +267,8 @@ func specMatches(provider string, c *change) bool {
 		(!c.label || madeByLineup(ch))
 }
 
-// lineupStatus is st as its apply configuration, its empty fields unsent.
+// lineupStatus is st, clamped, as its apply configuration, its empty fields
+// unsent.
 func lineupStatus(st clustarrv1.ChannelLineupStatus) *clustarrac.ChannelLineupStatusApplyConfiguration {
 	ac := clustarrac.ChannelLineupStatus()
 	if st.Name != "" {
@@ -267,6 +292,13 @@ func lineupStatus(st clustarrv1.ChannelLineupStatus) *clustarrac.ChannelLineupSt
 	return ac
 }
 
+func (r *Reconciler) reader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
+}
+
 func (r *Reconciler) wake(key types.NamespacedName) {
 	if r.Wake != nil {
 		r.Wake(key)
@@ -279,19 +311,14 @@ func (r *Reconciler) event(p *clustarrv1.IPTVProvider, eventType, reason, note s
 	}
 }
 
-// storePlan writes lp as the provider's lineup-plan object unless this
-// process last wrote the same plan (PlannedAt aside); it reports whether it
+// storePlan writes lp as the provider's lineup-plan object, every pass, so
+// an object lost while the manager runs is back at the next; it reports
+// whether the plan differs (PlannedAt aside) from the last this process
 // wrote.
 func (r *Reconciler) storePlan(ctx context.Context, key types.NamespacedName, lp livetvstore.LineupPlan) (bool, error) {
 	digest, err := planDigest(lp)
 	if err != nil {
 		return false, err
-	}
-	r.mu.Lock()
-	same := r.stored[key] == digest
-	r.mu.Unlock()
-	if same {
-		return false, nil
 	}
 	var b bytes.Buffer
 	if err := livetvstore.Encode(&b, lp); err != nil {
@@ -304,24 +331,26 @@ func (r *Reconciler) storePlan(ctx context.Context, key types.NamespacedName, lp
 		return false, fmt.Errorf("livetv lineup: store %s: %w", name, err)
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.stored == nil {
 		r.stored = map[types.NamespacedName][sha256.Size]byte{}
 	}
+	changed := r.stored[key] != digest
 	r.stored[key] = digest
-	r.mu.Unlock()
-	return true, nil
+	return changed, nil
 }
 
 // storeError stores a plan that failed to compile: the error beside the
-// last good plan stored, which stands. It reports whether it wrote.
-func (r *Reconciler) storeError(ctx context.Context, key types.NamespacedName, now time.Time, dryRun bool, planErr error) (bool, error) {
+// last good plan stored, which stands.
+func (r *Reconciler) storeError(ctx context.Context, key types.NamespacedName, now time.Time, dryRun bool, planErr error) error {
 	lp := livetvstore.LineupPlan{PlannedAt: now, DryRun: dryRun, Error: planErr.Error()}
 	if prev, ok, err := r.readPlan(ctx, key); err != nil {
-		return false, err
+		return err
 	} else if ok {
 		lp.Plan = prev.Plan
 	}
-	return r.storePlan(ctx, key, lp)
+	_, err := r.storePlan(ctx, key, lp)
+	return err
 }
 
 // readPlan reads the provider's stored plan; ok is false when none is

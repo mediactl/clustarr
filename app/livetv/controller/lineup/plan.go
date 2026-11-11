@@ -30,6 +30,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/blocks"
 	"github.com/mediactl/clustarr/pkg/iptv/lineup"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
@@ -83,12 +84,26 @@ func channelsByKey(provider string, channels []clustarrv1.IPTVChannel) map[strin
 }
 
 // overrides are a person's spec.category and spec.name on the existing
-// channels, by key.
-func overrides(byKey map[string]*clustarrv1.IPTVChannel) map[string]lineup.Override {
+// channels, by key. A spec.name that is the entry's raw or trimmed name is
+// no override: the ui's add posts the playlist's raw name as spec.name on
+// every channel it makes, which would otherwise keep each one's raw,
+// untrimmed name and sort by it. trim is the planner's.
+func overrides(byKey map[string]*clustarrv1.IPTVChannel, entries []m3u.Entry, trim func(string) string) map[string]lineup.Override {
+	raw := make(map[string]string, len(entries))
+	for _, e := range entries {
+		raw[e.Key] = e.Name
+	}
 	out := map[string]lineup.Override{}
 	for key, ch := range byKey {
-		if ch.Spec.Category != nil || ch.Spec.Name != "" {
-			out[key] = lineup.Override{Category: ch.Spec.Category, Name: ch.Spec.Name}
+		var ov lineup.Override
+		ov.Category = ch.Spec.Category
+		if n := ch.Spec.Name; n != "" {
+			if r, ok := raw[key]; !ok || (n != r && n != trim(r)) {
+				ov.Name = n
+			}
+		}
+		if ov.Category != nil || ov.Name != "" {
+			out[key] = ov
 		}
 	}
 	return out
@@ -146,7 +161,8 @@ func changes(provider string, plan lineup.Plan, byKey map[string]*clustarrv1.IPT
 		}
 		c := change{
 			name: ch.Name, ch: ch, key: d.Key,
-			status: clustarrv1.ChannelLineupStatus{Name: d.Name, Rule: d.Reason, DuplicateOf: d.DuplicateOf},
+			// A drop has no rule; its reason is the plan object's.
+			status: clustarrv1.ChannelLineupStatus{Name: d.Name, DuplicateOf: d.DuplicateOf},
 		}
 		if enabled {
 			c.spec, c.number, c.label = true, ch.Spec.Number, madeByLineup(ch)
@@ -187,32 +203,59 @@ func changes(provider string, plan lineup.Plan, byKey map[string]*clustarrv1.IPT
 // blocks.DefaultMaxBytes, cluster-plex's limit for one DVR's map (400
 // five-digit numbers are about 30.8 KB), as the planner refuses one over
 // its channel count: TooMany, every assignment of it a tooMany drop. The
-// planner knows no map bytes; the rule is the DVR's, so it is here.
-func refuseOverBytes(plan lineup.Plan) lineup.Plan {
+// planner knows no map bytes; the rule is the DVR's, so it is here. It
+// returns each refused category's map bytes.
+func refuseOverBytes(plan lineup.Plan) (lineup.Plan, map[string]int) {
 	numbers := map[string][]string{}
 	for _, a := range plan.Channels {
 		numbers[a.Category] = append(numbers[a.Category], a.Number)
 	}
-	over := map[string]bool{}
+	over := map[string]int{}
 	for i := range plan.Categories {
 		c := &plan.Categories[i]
-		if !c.TooMany && blocks.MapBytes(numbers[c.Name]) > blocks.DefaultMaxBytes {
-			c.TooMany, over[c.Name] = true, true
+		if b := blocks.MapBytes(numbers[c.Name]); !c.TooMany && b > blocks.DefaultMaxBytes {
+			c.TooMany, over[c.Name] = true, b
 		}
 	}
 	if len(over) == 0 {
-		return plan
+		return plan, nil
 	}
 	kept := make([]lineup.Assignment, 0, len(plan.Channels))
 	for _, a := range plan.Channels {
-		if over[a.Category] {
+		if _, ok := over[a.Category]; ok {
 			plan.Dropped = append(plan.Dropped, lineup.Dropped{Key: a.Key, Name: a.Name, Reason: lineup.ReasonTooMany})
 			continue
 		}
 		kept = append(kept, a)
 	}
 	plan.Channels = kept
-	return plan
+	return plan, over
+}
+
+// The bounds of ChannelLineupStatus's fields (their CRD MaxLength).
+const (
+	maxLineupName     = 256
+	maxLineupCategory = 64
+	maxLineupRule     = 64
+	maxLineupNumber   = 16
+	maxLineupKey      = 64
+)
+
+// clampStatus fits st to its CRD bounds, each string sanitized and cut to
+// at most its MaxLength in runes (as the apiserver counts it, so a valid
+// 64-rune category is kept whole): a playlist name is unbounded, and a rule label
+// ("<category>[<index>]") can run 4 past a 64-rune category. One refused
+// status would hold the provider's category blocks back for good. It is
+// applied before st is compared with the stored status, so a clamped value
+// reads as unchanged on the next pass.
+func clampStatus(st clustarrv1.ChannelLineupStatus) clustarrv1.ChannelLineupStatus {
+	fit := func(s string, n int) string { return clampRunes(k8s.SanitizeText(s), n) }
+	st.Name = fit(st.Name, maxLineupName)
+	st.Category = fit(st.Category, maxLineupCategory)
+	st.Rule = fit(st.Rule, maxLineupRule)
+	st.Number = fit(st.Number, maxLineupNumber)
+	st.DuplicateOf = fit(st.DuplicateOf, maxLineupKey)
+	return st
 }
 
 // nextDeletion is how long until the first absent channel the lineup made
@@ -244,4 +287,16 @@ func objectMeta(name string) events.ObjectMeta {
 			events.ObjectMetaKeyWrittenBy: "manager@" + version.String(),
 		},
 	}
+}
+
+// clampRunes cuts s to at most n runes.
+func clampRunes(s string, n int) string {
+	i := 0
+	for j := range s {
+		if i == n {
+			return s[:j]
+		}
+		i++
+	}
+	return s
 }

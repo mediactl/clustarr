@@ -210,6 +210,10 @@ func TrimName(name string, trim []*regexp.Regexp) string {
 	return strings.Join(strings.Fields(name), " ")
 }
 
+// Trim is name as the planner trims it: the spec's trim patterns applied
+// by TrimName.
+func (p *Planner) Trim(name string) string { return TrimName(name, p.trim) }
+
 var resolutionRE = []struct {
 	re   *regexp.Regexp
 	rank int
