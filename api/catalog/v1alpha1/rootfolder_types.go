@@ -104,6 +104,10 @@ const (
 	NamingTokenAudiobookFile   = "audiobookFile"
 	NamingTokenComicFolder     = "comicFolder"
 	NamingTokenIssueFile       = "issueFile"
+	// NamingTokenMultiDiscTrackFile overrides the track preset a release of
+	// two or more media renders by (Lidarr's multi-disc shape, the
+	// 2026-11-10 non-video libraries design's D19).
+	NamingTokenMultiDiscTrackFile = "multiDiscTrackFile"
 )
 
 // RootDefaults are the per-folder defaults applied to items added under this
@@ -208,10 +212,12 @@ type NamingSpec struct {
 
 	// Overrides replaces individual naming tokens of the dialect. Recognised
 	// keys are movieFolder, movieFile, seriesFolder, seasonFolder, episodeFile,
-	// animeFile, dailyFile, artistFolder, albumFolder, trackFile, authorFolder,
-	// bookFile, audiobookFolder, audiobookFile, comicFolder and issueFile.
+	// animeFile, dailyFile, artistFolder, albumFolder, trackFile,
+	// multiDiscTrackFile (the track preset of a release with two or more
+	// media), authorFolder, bookFile, audiobookFolder, audiobookFile,
+	// comicFolder and issueFile.
 	// +optional
-	// +kubebuilder:validation:MaxProperties=16
+	// +kubebuilder:validation:MaxProperties=17
 	Overrides map[string]string `json:"overrides,omitempty"`
 
 	// RenameFiles lets import rename a library file to its canonical
@@ -221,6 +227,21 @@ type NamingSpec struct {
 	// +optional
 	// +kubebuilder:default=false
 	RenameFiles *bool `json:"renameFiles,omitempty"`
+
+	// OrganizeFolders lets the rename pass move a non-video file whose
+	// canonical path lies in another folder strictly under its container's
+	// folder -- an album track under its Artist's folder, a book under its
+	// Author's, a part under its Audiobook's, an issue under its Comic's --
+	// into that folder, creating it, with the file's sidecars, and pruning
+	// the empty folders it left up to the container's folder (the 2026-11-10
+	// non-video libraries design's D19; Lidarr's rename moves a track into
+	// its computed album folder). Off, such a proposal is held as a folder
+	// move (the 2026-09-24 naming design's D5: files only, not folders), as
+	// every video file's still is. Needs renameFiles. Off by default; read
+	// through OrganizeFoldersOrDefault.
+	// +optional
+	// +kubebuilder:default=false
+	OrganizeFolders *bool `json:"organizeFolders,omitempty"`
 
 	// RenameTranscoded lets import rename a file the transcode controller transcoded
 	// (status.transcode.profileTag) to its canonical file name, in the

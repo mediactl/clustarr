@@ -45,21 +45,31 @@ func DeletableKinds() []commonv1.MediaKind {
 // which the import-list sync reads since 2026-11-10 (the design's
 // delete-add-exclusion over the 2026-11-10 non-video libraries design's
 // §9.3 delete), and a standalone book, the one a person can delete, has no
-// container to re-create it. An Album has an exclusion kind
-// (ExclusionKindAlbum, keyed by its MusicBrainz release-group id,
-// ExclusionIDKeyMusicBrainz, which the sync reads too and which import's
-// librarydelete writes when the delete-add-exclusion annotation asks) but
-// answers false here: every Album has an Artist, whose fan-out re-creates
-// every listed release group it does not find and reads no exclusion, so
-// the checkbox would promise a block the one re-add path an album has
-// defeats. It answers true once the Artist's fan-out honours the
-// exclusion. Artist, Author and every child kind have none.
+// container to re-create it. An Artist's (ExclusionKindArtist, keyed by its
+// MusicBrainz artist id, ExclusionIDKeyMusicBrainz) and an Author's
+// (ExclusionKindAuthor, keyed by its Open Library author id,
+// ExclusionIDKeyOpenLibrary) answer true since the root scan creates both
+// from their folders (the 2026-11-10 design's D16, wave G): the scan
+// applier refuses a create the exclusion names, the import-list sync reads
+// the same two id keys, and nothing else re-creates a container. An Album
+// has an exclusion kind (ExclusionKindAlbum, keyed by its MusicBrainz
+// release-group id, ExclusionIDKeyMusicBrainz, which the sync reads too and
+// which import's librarydelete writes when the delete-add-exclusion
+// annotation asks) but answers false here: every Album has an Artist, whose
+// fan-out re-creates every listed release group it does not find and reads
+// no exclusion, so the checkbox would promise a block the one re-add path
+// an album has defeats. It answers true once the Artist's fan-out honours
+// the exclusion. Every child kind has none.
 func ExclusionKindFor(kind commonv1.MediaKind) (ExclusionKind, bool) {
 	switch kind {
 	case commonv1.MediaKindMovie:
 		return ExclusionKindMovie, true
 	case commonv1.MediaKindSeries:
 		return ExclusionKindSeries, true
+	case commonv1.MediaKindArtist:
+		return ExclusionKindArtist, true
+	case commonv1.MediaKindAuthor:
+		return ExclusionKindAuthor, true
 	case commonv1.MediaKindBook:
 		return ExclusionKindBook, true
 	case commonv1.MediaKindAudiobook:

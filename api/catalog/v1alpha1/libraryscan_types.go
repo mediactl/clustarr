@@ -92,10 +92,21 @@ type UnmatchedFile struct {
 	Reason string `json:"reason"`
 
 	// Candidates lists catalog items the scanner considered but could not
-	// confidently match to.
+	// confidently match to; for a folder (Folder), the provider's hits it
+	// could not choose between, each "Name (disambiguation) [id]".
 	// +optional
 	// +kubebuilder:validation:MaxItems=10
 	Candidates []string `json:"candidates,omitempty"`
+
+	// Folder marks an entry that is a folder the scan could not identify
+	// as an Artist, Author or Audiobook (the 2026-11-10 non-video libraries
+	// design's D16): Path is the folder, relative to the root, and its
+	// files are counted among those awaiting their item's children (the
+	// scan progress's awaitingChildren, said in the Ready condition's
+	// message) rather than listed here. The Unmatched page offers its
+	// Candidates as the item to add.
+	// +optional
+	Folder bool `json:"folder,omitempty"`
 
 	// SeenAt is when the scanner last observed this file.
 	// +required

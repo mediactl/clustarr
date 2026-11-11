@@ -36,14 +36,28 @@ type NamingSpecApplyConfiguration struct {
 	MultiEpisodeStyle *catalogv1alpha1.MultiEpisodeStyle `json:"multiEpisodeStyle,omitempty"`
 	// Overrides replaces individual naming tokens of the dialect. Recognised
 	// keys are movieFolder, movieFile, seriesFolder, seasonFolder, episodeFile,
-	// animeFile, dailyFile, artistFolder, albumFolder, trackFile, authorFolder,
-	// bookFile, audiobookFolder, audiobookFile, comicFolder and issueFile.
+	// animeFile, dailyFile, artistFolder, albumFolder, trackFile,
+	// multiDiscTrackFile (the track preset of a release with two or more
+	// media), authorFolder, bookFile, audiobookFolder, audiobookFile,
+	// comicFolder and issueFile.
 	Overrides map[string]string `json:"overrides,omitempty"`
 	// RenameFiles lets import rename a library file to its canonical
 	// name whenever catalog reports it is not (status.naming). Off by
 	// default: a library imported before codec tokens existed differs on
 	// every file. A LibraryScan with spec.rename runs a pass regardless.
 	RenameFiles *bool `json:"renameFiles,omitempty"`
+	// OrganizeFolders lets the rename pass move a non-video file whose
+	// canonical path lies in another folder strictly under its container's
+	// folder -- an album track under its Artist's folder, a book under its
+	// Author's, a part under its Audiobook's, an issue under its Comic's --
+	// into that folder, creating it, with the file's sidecars, and pruning
+	// the empty folders it left up to the container's folder (the 2026-11-10
+	// non-video libraries design's D19; Lidarr's rename moves a track into
+	// its computed album folder). Off, such a proposal is held as a folder
+	// move (the 2026-09-24 naming design's D5: files only, not folders), as
+	// every video file's still is. Needs renameFiles. Off by default; read
+	// through OrganizeFoldersOrDefault.
+	OrganizeFolders *bool `json:"organizeFolders,omitempty"`
 	// RenameTranscoded lets import rename a file the transcode controller transcoded
 	// (status.transcode.profileTag) to its canonical file name, in the
 	// folder it is already in, so a name that described the source codec
@@ -110,6 +124,14 @@ func (b *NamingSpecApplyConfiguration) WithOverrides(entries map[string]string) 
 // If called multiple times, the RenameFiles field is set to the value of the last call.
 func (b *NamingSpecApplyConfiguration) WithRenameFiles(value bool) *NamingSpecApplyConfiguration {
 	b.RenameFiles = &value
+	return b
+}
+
+// WithOrganizeFolders sets the OrganizeFolders field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the OrganizeFolders field is set to the value of the last call.
+func (b *NamingSpecApplyConfiguration) WithOrganizeFolders(value bool) *NamingSpecApplyConfiguration {
+	b.OrganizeFolders = &value
 	return b
 }
 

@@ -258,11 +258,22 @@ spec:
                     candidates:
                       description: |-
                         Candidates lists catalog items the scanner considered but could not
-                        confidently match to.
+                        confidently match to; for a folder (Folder), the provider's hits it
+                        could not choose between, each "Name (disambiguation) [id]".
                       items:
                         type: string
                       maxItems: 10
                       type: array
+                    folder:
+                      description: |-
+                        Folder marks an entry that is a folder the scan could not identify
+                        as an Artist, Author or Audiobook (the 2026-11-10 non-video libraries
+                        design's D16): Path is the folder, relative to the root, and its
+                        files are counted among those awaiting their item's children (the
+                        scan progress's awaitingChildren, said in the Ready condition's
+                        message) rather than listed here. The Unmatched page offers its
+                        Candidates as the item to add.
+                      type: boolean
                     path:
                       description: Path is the file path relative to the root folder.
                       type: string

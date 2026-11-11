@@ -4322,6 +4322,11 @@ func (in *NamingSpec) DeepCopyInto(out *NamingSpec) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.OrganizeFolders != nil {
+		in, out := &in.OrganizeFolders, &out.OrganizeFolders
+		*out = new(bool)
+		**out = **in
+	}
 	if in.WriteNFO != nil {
 		in, out := &in.WriteNFO, &out.WriteNFO
 		*out = new(bool)

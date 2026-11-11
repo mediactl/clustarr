@@ -4167,6 +4167,10 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MultiEpisodeStyle
       default: prefixedRange
+    - name: organizeFolders
+      type:
+        scalar: boolean
+      default: false
     - name: overrides
       type:
         map:
@@ -6190,6 +6194,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             scalar: string
           elementRelationship: atomic
+    - name: folder
+      type:
+        scalar: boolean
     - name: path
       type:
         scalar: string

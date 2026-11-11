@@ -35,8 +35,17 @@ type UnmatchedFileApplyConfiguration struct {
 	// Reason explains why the file could not be matched.
 	Reason *string `json:"reason,omitempty"`
 	// Candidates lists catalog items the scanner considered but could not
-	// confidently match to.
+	// confidently match to; for a folder (Folder), the provider's hits it
+	// could not choose between, each "Name (disambiguation) [id]".
 	Candidates []string `json:"candidates,omitempty"`
+	// Folder marks an entry that is a folder the scan could not identify
+	// as an Artist, Author or Audiobook (the 2026-11-10 non-video libraries
+	// design's D16): Path is the folder, relative to the root, and its
+	// files are counted among those awaiting their item's children (the
+	// scan progress's awaitingChildren, said in the Ready condition's
+	// message) rather than listed here. The Unmatched page offers its
+	// Candidates as the item to add.
+	Folder *bool `json:"folder,omitempty"`
 	// SeenAt is when the scanner last observed this file.
 	SeenAt *v1.Time `json:"seenAt,omitempty"`
 }
@@ -70,6 +79,14 @@ func (b *UnmatchedFileApplyConfiguration) WithCandidates(values ...string) *Unma
 	for i := range values {
 		b.Candidates = append(b.Candidates, values[i])
 	}
+	return b
+}
+
+// WithFolder sets the Folder field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Folder field is set to the value of the last call.
+func (b *UnmatchedFileApplyConfiguration) WithFolder(value bool) *UnmatchedFileApplyConfiguration {
+	b.Folder = &value
 	return b
 }
 

@@ -27,16 +27,20 @@ import (
 
 // A Book has had an exclusion kind of its own since 2026-11-10 (the
 // import-list sync reads the book's Open Library work id, and a standalone
-// book has no container to re-create it). An Album's exists
-// (ExclusionKindAlbum, which import's librarydelete writes and the sync
-// reads) but is withheld from the dialog until the Artist's fan-out honours
-// it, since the fan-out re-creates a deleted album of a listed release
-// group whatever the exclusion says; the two containers and every child
-// kind have none.
+// book has no container to re-create it), and an Artist and an Author
+// since the root scan creates both from their folders (the 2026-11-10
+// design's D16, wave G): the scan applier refuses an excluded create. An
+// Album's exists (ExclusionKindAlbum, which import's librarydelete writes
+// and the sync reads) but is withheld from the dialog until the Artist's
+// fan-out honours it, since the fan-out re-creates a deleted album of a
+// listed release group whatever the exclusion says; every child kind has
+// none.
 func TestExclusionKindFor(t *testing.T) {
 	for kind, want := range map[commonv1.MediaKind]catalogv1alpha1.ExclusionKind{
 		commonv1.MediaKindMovie:     catalogv1alpha1.ExclusionKindMovie,
 		commonv1.MediaKindSeries:    catalogv1alpha1.ExclusionKindSeries,
+		commonv1.MediaKindArtist:    catalogv1alpha1.ExclusionKindArtist,
+		commonv1.MediaKindAuthor:    catalogv1alpha1.ExclusionKindAuthor,
 		commonv1.MediaKindBook:      catalogv1alpha1.ExclusionKindBook,
 		commonv1.MediaKindAudiobook: catalogv1alpha1.ExclusionKindAudiobook,
 		commonv1.MediaKindComic:     catalogv1alpha1.ExclusionKindComic,
@@ -46,8 +50,7 @@ func TestExclusionKindFor(t *testing.T) {
 		assert.Equal(t, want, got, kind)
 	}
 	for _, kind := range []commonv1.MediaKind{
-		commonv1.MediaKindArtist, commonv1.MediaKindAuthor, commonv1.MediaKindEpisode,
-		commonv1.MediaKindIssue, commonv1.MediaKindAlbum,
+		commonv1.MediaKindEpisode, commonv1.MediaKindIssue, commonv1.MediaKindAlbum,
 	} {
 		_, ok := catalogv1alpha1.ExclusionKindFor(kind)
 		assert.False(t, ok, kind)

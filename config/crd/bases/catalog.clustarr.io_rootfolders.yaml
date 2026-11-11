@@ -231,15 +231,32 @@ spec:
                     - range
                     - prefixedRange
                     type: string
+                  organizeFolders:
+                    default: false
+                    description: |-
+                      OrganizeFolders lets the rename pass move a non-video file whose
+                      canonical path lies in another folder strictly under its container's
+                      folder -- an album track under its Artist's folder, a book under its
+                      Author's, a part under its Audiobook's, an issue under its Comic's --
+                      into that folder, creating it, with the file's sidecars, and pruning
+                      the empty folders it left up to the container's folder (the 2026-11-10
+                      non-video libraries design's D19; Lidarr's rename moves a track into
+                      its computed album folder). Off, such a proposal is held as a folder
+                      move (the 2026-09-24 naming design's D5: files only, not folders), as
+                      every video file's still is. Needs renameFiles. Off by default; read
+                      through OrganizeFoldersOrDefault.
+                    type: boolean
                   overrides:
                     additionalProperties:
                       type: string
                     description: |-
                       Overrides replaces individual naming tokens of the dialect. Recognised
                       keys are movieFolder, movieFile, seriesFolder, seasonFolder, episodeFile,
-                      animeFile, dailyFile, artistFolder, albumFolder, trackFile, authorFolder,
-                      bookFile, audiobookFolder, audiobookFile, comicFolder and issueFile.
-                    maxProperties: 16
+                      animeFile, dailyFile, artistFolder, albumFolder, trackFile,
+                      multiDiscTrackFile (the track preset of a release with two or more
+                      media), authorFolder, bookFile, audiobookFolder, audiobookFile,
+                      comicFolder and issueFile.
+                    maxProperties: 17
                     type: object
                   renameFiles:
                     default: false

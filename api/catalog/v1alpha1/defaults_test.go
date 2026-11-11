@@ -34,6 +34,23 @@ func TestCleanupDaysOrDefault(t *testing.T) {
 	}
 }
 
+// A nil renameFiles or organizeFolders reads false, the CRD default; the
+// field is a pointer so a Go client can send an explicit false
+// (pkg/crdcheck's TestNoCRDDefaultIsUnreachableFromGo).
+func TestNamingBoolsOrDefault(t *testing.T) {
+	for _, c := range []struct {
+		in   *bool
+		want bool
+	}{{nil, false}, {ptr.To(false), false}, {ptr.To(true), true}} {
+		if got := (NamingSpec{RenameFiles: c.in}).RenameFilesOrDefault(); got != c.want {
+			t.Errorf("RenameFilesOrDefault(%v) = %t, want %t", c.in, got, c.want)
+		}
+		if got := (NamingSpec{OrganizeFolders: c.in}).OrganizeFoldersOrDefault(); got != c.want {
+			t.Errorf("OrganizeFoldersOrDefault(%v) = %t, want %t", c.in, got, c.want)
+		}
+	}
+}
+
 func TestOverlayGeometryOrDefault(t *testing.T) {
 	// A nil *OverlayGeometry (spec.geometry unset entirely) and a non-nil
 	// OverlayGeometry whose own fields are nil (an explicit but empty

@@ -80,7 +80,9 @@ spec:
                 enum:
                 - movie
                 - series
+                - artist
                 - album
+                - author
                 - book
                 - audiobook
                 - comic

@@ -46,6 +46,14 @@ func (n NamingSpec) RenameFilesOrDefault() bool {
 	return n.RenameFiles != nil && *n.RenameFiles
 }
 
+// OrganizeFoldersOrDefault is naming.organizeFolders; unset means false,
+// the CRD default. It reads the field alone: the rename pass that acts on
+// it checks RenameFilesOrDefault beside it, since a root that renames
+// nothing organizes nothing.
+func (n NamingSpec) OrganizeFoldersOrDefault() bool {
+	return n.OrganizeFolders != nil && *n.OrganizeFolders
+}
+
 // OverlayGeometry's fields are reached through an optional pointer
 // (OverlayProfileSpec.Geometry), unlike RecycleBin and IndexerSpec above, so
 // every accessor below has a pointer receiver and treats a nil *OverlayGeometry

@@ -29,14 +29,21 @@ const (
 
 // ExclusionKind is the catalog kind an exclusion suppresses.
 //
-// +kubebuilder:validation:Enum=movie;series;album;book;audiobook;comic
+// +kubebuilder:validation:Enum=movie;series;artist;album;author;book;audiobook;comic
 type ExclusionKind string
 
-// Exclusion kinds.
+// Exclusion kinds. An artist's exclusion is keyed by its MusicBrainz
+// artist id (ExclusionIDKeyMusicBrainz) and an author's by its Open
+// Library author id (ExclusionIDKeyOpenLibrary): both refuse the Artist or
+// Author a root scan would create from its folder (the 2026-11-10
+// non-video libraries design, D16), written by the delete dialog as a
+// Movie's is.
 const (
 	ExclusionKindMovie     ExclusionKind = "movie"
 	ExclusionKindSeries    ExclusionKind = "series"
+	ExclusionKindArtist    ExclusionKind = "artist"
 	ExclusionKindAlbum     ExclusionKind = "album"
+	ExclusionKindAuthor    ExclusionKind = "author"
 	ExclusionKindBook      ExclusionKind = "book"
 	ExclusionKindAudiobook ExclusionKind = "audiobook"
 	ExclusionKindComic     ExclusionKind = "comic"
