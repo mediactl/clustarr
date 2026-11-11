@@ -6,6 +6,30 @@ nameOverride: ""
 fullnameOverride: ""
 
 # --------------------------------------------------------------------------
+# Logging (docs/superpowers/specs/2026-11-10-structured-logging-design.md §6)
+# --------------------------------------------------------------------------
+# One ConfigMap, <release>-logging, mounted read-only at /etc/clustarr in
+# every pod the chart renders and, optionally, in every pod the manager
+# builds (the download engines, the transcode pools and graft Jobs), polled
+# every 10 s: a level set here reaches a running pod without a restart.
+# global.logging is the knob the cluster-plex subchart reads too (a subchart
+# sees only the parent's global); logging, below, overrides it key by key
+# for clustarr's pods alone, its subsystems merged over the global's.
+#   level:      the floor -- trace, debug, info, warn, error, fatal
+#   format:     json or text
+#   addSource:  file:line on every record (costly; off)
+#   subsystems: per-subsystem levels by dotted prefix, e.g.
+#               {livetv: warn, "livetv.tuner": trace}; the table is
+#               pkg/obs/logging/subsystems.go
+global:
+  logging:
+    level: info
+    format: json
+    addSource: false
+    subsystems: {}
+logging: {}
+
+# --------------------------------------------------------------------------
 # Placement (docs/superpowers/specs/2026-10-21-control-plane-placement-design.md)
 # --------------------------------------------------------------------------
 # Two named profiles; each workload names one (its placement key). With

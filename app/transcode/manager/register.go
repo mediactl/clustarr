@@ -56,6 +56,7 @@ type Options struct {
 	NodeLabelNVIDIA   string               // the label marking an NVIDIA node
 	NodeLabelIntel    string               // the label marking an Intel GPU node
 	WorkerPlacement   placement.Profile    // the workers profile every pool and graft pod carries (--worker-placement)
+	LoggingConfigMap  string               // the logging ConfigMap every pool and graft pod mounts optionally (--logging-configmap)
 	JobWindow         int                  // most files per profile in a window phase (--job-window, loop spec §5.11)
 	GraftConcurrency  int                  // most standalone audio grafts running at once per namespace (--graft-concurrency): the ledger's graft slots
 	VideoLease        types.NamespacedName // cluster-plex's video-transcode Lease, yielded to (--video-transcode-lease); zero yields to nothing
@@ -152,6 +153,8 @@ func poolConfig(o Options) pool.Config {
 		// Control-plane placement design §5.6: every pool and graft pod on
 		// the workers.
 		WorkerPlacement: o.WorkerPlacement,
+		// Structured-logging design §6: the level knob reaches the pools.
+		LoggingConfigMap: o.LoggingConfigMap,
 		// §11: the pools create files with the same UMASK this
 		// Deployment was given.
 		Umask: os.Getenv(pool.UmaskEnv),

@@ -29,7 +29,12 @@ import (
 
 // DefaultConfigPath is where the chart mounts the logging ConfigMap and
 // --log-config's default (design §6).
-const DefaultConfigPath = "/etc/clustarr/logging.yaml"
+const DefaultConfigPath = DefaultConfigDir + "/logging.yaml"
+
+// DefaultConfigDir is the directory the installers and the manager mount the
+// logging ConfigMap at, as a directory and never a subPath (a subPath mount
+// never receives the ConfigMap's updates).
+const DefaultConfigDir = "/etc/clustarr"
 
 // FileConfig is the config file's "logging:" section (design §4).
 type FileConfig struct {

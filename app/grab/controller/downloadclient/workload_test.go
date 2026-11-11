@@ -39,6 +39,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/binpath"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 func fakeOwnerRef() *metav1ac.OwnerReferenceApplyConfiguration {
@@ -106,7 +107,12 @@ func TestBuildStatefulSetShape(t *testing.T) {
 	assert.Equal(t, map[string]string{labelComponent: componentEngine, labelClient: "sab"}, sts.Spec.Selector.MatchLabels)
 
 	require.NotNil(t, sts.Spec.Template)
-	assert.Equal(t, sts.Spec.Selector.MatchLabels, sts.Spec.Template.Labels)
+	// The template carries the selector's labels plus the recommended name
+	// and version (TestRuntimePodsCarryTheRecommendedLabels).
+	for k, v := range sts.Spec.Selector.MatchLabels {
+		assert.Equal(t, v, sts.Spec.Template.Labels[k], k)
+	}
+	assert.Len(t, sts.Spec.Template.Labels, len(sts.Spec.Selector.MatchLabels)+2)
 
 	require.NotNil(t, sts.Spec.Template.Spec)
 	require.Len(t, sts.Spec.Template.Spec.Containers, 1)
@@ -646,4 +652,59 @@ func TestClaimTemplatesChanged(t *testing.T) {
 	assert.False(t, claimTemplatesChanged(live(without), without))
 	assert.True(t, claimTemplatesChanged(live(without), with))
 	assert.True(t, claimTemplatesChanged(live(with), without))
+}
+
+// The logging ConfigMap the manager stamps onto the engine pods (the
+// 2026-11-10 logging design §6): mounted at /etc/clustarr as a directory
+// (a subPath never receives an update) and optional, so a DownloadClient in
+// a namespace without the ConfigMap still starts, on the defaults (Review
+// Focus 2). An empty name mounts nothing.
+func TestRuntimePodsMountTheLoggingConfigOptionally(t *testing.T) {
+	rt := EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount, LoggingConfigMap: "clustarr-logging"}
+	sts := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+	dep := buildDeployment(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+	for name, spec := range map[string]*corev1ac.PodSpecApplyConfiguration{"torrent": sts.Spec.Template.Spec, "usenet": dep.Spec.Template.Spec} {
+		t.Run(name, func(t *testing.T) {
+			var vol *corev1ac.VolumeApplyConfiguration
+			for i := range spec.Volumes {
+				if v := &spec.Volumes[i]; v.ConfigMap != nil && v.ConfigMap.Name != nil && *v.ConfigMap.Name == "clustarr-logging" {
+					vol = v
+				}
+			}
+			require.NotNil(t, vol, "no logging ConfigMap volume")
+			require.NotNil(t, vol.ConfigMap.Optional)
+			assert.True(t, *vol.ConfigMap.Optional, "the volume is optional")
+			var mount *corev1ac.VolumeMountApplyConfiguration
+			for i := range spec.Containers[0].VolumeMounts {
+				if m := &spec.Containers[0].VolumeMounts[i]; m.Name != nil && *m.Name == *vol.Name {
+					mount = m
+				}
+			}
+			require.NotNil(t, mount, "the container does not mount it")
+			assert.Equal(t, "/etc/clustarr", *mount.MountPath)
+			assert.Nil(t, mount.SubPath)
+			assert.True(t, mount.ReadOnly != nil && *mount.ReadOnly)
+		})
+	}
+	bare := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data",
+		EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, nil, fakeOwnerRef())
+	for _, v := range bare.Spec.Template.Spec.Volumes {
+		assert.Nil(t, v.ConfigMap, "no ConfigMap name, no volume")
+	}
+}
+
+// The engine pods carry the Kubernetes recommended labels the chart's pods
+// carry (design §2): name, component and the build's version; the
+// selectors, immutable on a StatefulSet, are unchanged.
+func TestRuntimePodsCarryTheRecommendedLabels(t *testing.T) {
+	rt := EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}
+	sts := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+	dep := buildDeployment(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+	for name, tpl := range map[string]*corev1ac.PodTemplateSpecApplyConfiguration{"torrent": sts.Spec.Template, "usenet": dep.Spec.Template} {
+		assert.Equal(t, "clustarr", tpl.Labels["app.kubernetes.io/name"], name)
+		assert.Equal(t, componentEngine, tpl.Labels[labelComponent], name)
+		assert.Equal(t, version.Version, tpl.Labels["app.kubernetes.io/version"], name)
+	}
+	assert.NotContains(t, sts.Spec.Selector.MatchLabels, "app.kubernetes.io/version", "the selector stays what it was")
+	assert.NotContains(t, dep.Spec.Selector.MatchLabels, "app.kubernetes.io/version")
 }

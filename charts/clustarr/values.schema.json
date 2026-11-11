@@ -4,295 +4,769 @@
   "description": "Values for the clustarr umbrella chart (0.5.0: the manager, agent and ui topology of spec 2026-10-06). Checks shapes (types, enums, known number/string formats) so a bad values file fails at `helm install`/`helm template`/`helm lint` with a schema-path error naming the exact key. The top level is closed: a key chart 0.5.0 retired (the eleven 0.4.x per-service blocks and keda, and image.controller/media/transcoder/transcoderCuda) fails here with a message naming its replacement; see the README's \"Upgrading from 0.4.x\". Cross-field invariants are clustarr.validate's in templates/_helpers.tpl. nats and cloudnative-pg pass through to the subcharts, which ship no schema of their own, and are checked only shallowly.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["image", "storage", "podSecurityContext", "securityContext", "autoscaling", "manager", "livetv", "agents", "markers"],
+  "required": [
+    "image",
+    "storage",
+    "podSecurityContext",
+    "securityContext",
+    "autoscaling",
+    "manager",
+    "livetv",
+    "agents",
+    "markers"
+  ],
   "patternProperties": {
-    "^catalog[a]rr$": { "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)" },
-    "^catalog[a]rrMetadata$": { "const": "retired in chart 0.5.0: use agents.metadata, which always runs one replica (README, Upgrading from 0.4.x)" },
-    "^import[a]rr$": { "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)" },
-    "^import[a]rrWorker$": { "const": "retired in chart 0.5.0: use agents.import (README, Upgrading from 0.4.x)" },
-    "^index[a]rr$": { "const": "retired in chart 0.5.0: use agents.index (facade, resources) and manager.cardigann; replicas is gone (README, Upgrading from 0.4.x)" },
-    "^grab[a]rr$": { "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)" },
-    "^squas[h]arr$": { "const": "retired in chart 0.5.0: use manager.slots, manager.intelRenderGroups and manager.gpuNodeLabel*; workerEngine is gone (README, Upgrading from 0.4.x)" },
-    "^caption[a]rr$": { "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)" },
-    "^caption[a]rrWorker$": { "const": "retired in chart 0.5.0: use agents.caption; ackWaitSeconds is gone, the grace comes from the code (README, Upgrading from 0.4.x)" },
-    "^segment[a]rrWorker$": { "const": "retired in chart 0.5.0: use markers; concurrency: N becomes consumerSlots: {markers-analyze: N} (README, Upgrading from 0.4.x)" }
+    "^catalog[a]rr$": {
+      "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)"
+    },
+    "^catalog[a]rrMetadata$": {
+      "const": "retired in chart 0.5.0: use agents.metadata, which always runs one replica (README, Upgrading from 0.4.x)"
+    },
+    "^import[a]rr$": {
+      "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)"
+    },
+    "^import[a]rrWorker$": {
+      "const": "retired in chart 0.5.0: use agents.import (README, Upgrading from 0.4.x)"
+    },
+    "^index[a]rr$": {
+      "const": "retired in chart 0.5.0: use agents.index (facade, resources) and manager.cardigann; replicas is gone (README, Upgrading from 0.4.x)"
+    },
+    "^grab[a]rr$": {
+      "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)"
+    },
+    "^squas[h]arr$": {
+      "const": "retired in chart 0.5.0: use manager.slots, manager.intelRenderGroups and manager.gpuNodeLabel*; workerEngine is gone (README, Upgrading from 0.4.x)"
+    },
+    "^caption[a]rr$": {
+      "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)"
+    },
+    "^caption[a]rrWorker$": {
+      "const": "retired in chart 0.5.0: use agents.caption; ackWaitSeconds is gone, the grace comes from the code (README, Upgrading from 0.4.x)"
+    },
+    "^segment[a]rrWorker$": {
+      "const": "retired in chart 0.5.0: use markers; concurrency: N becomes consumerSlots: {markers-analyze: N} (README, Upgrading from 0.4.x)"
+    }
   },
   "properties": {
-    "global": { "type": "object", "description": "Injected by Helm into a chart with dependencies; clustarr reads nothing from it." },
-    "keda": { "const": "retired in chart 0.5.0: use autoscaling.enabled; the manager scales the agents itself (README, Autoscaling)" },
-    "nameOverride": { "type": "string" },
-    "fullnameOverride": { "type": "string" },
-
+    "global": {
+      "type": "object",
+      "description": "Injected by Helm into a chart with dependencies. clustarr reads global.logging, the logging knob shared with the cluster-plex subchart; everything else passes through.",
+      "properties": {
+        "logging": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The logging floor, format and per-subsystem levels every pod reads from the <release>-logging ConfigMap (structured-logging design \u00a76).",
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "trace",
+                "debug",
+                "info",
+                "warn",
+                "warning",
+                "error",
+                "fatal"
+              ]
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "text"
+              ]
+            },
+            "addSource": {
+              "type": "boolean"
+            },
+            "subsystems": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "enum": [
+                  "trace",
+                  "debug",
+                  "info",
+                  "warn",
+                  "warning",
+                  "error",
+                  "fatal"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "keda": {
+      "const": "retired in chart 0.5.0: use autoscaling.enabled; the manager scales the agents itself (README, Autoscaling)"
+    },
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string"
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The logging floor, format and per-subsystem levels every pod reads from the <release>-logging ConfigMap (structured-logging design \u00a76).",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "warning",
+            "error",
+            "fatal"
+          ]
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "json",
+            "text"
+          ]
+        },
+        "addSource": {
+          "type": "boolean"
+        },
+        "subsystems": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "trace",
+              "debug",
+              "info",
+              "warn",
+              "warning",
+              "error",
+              "fatal"
+            ]
+          }
+        }
+      }
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["registry", "pullPolicy", "clustarr", "native"],
+      "required": [
+        "registry",
+        "pullPolicy",
+        "clustarr",
+        "native"
+      ],
       "properties": {
-        "registry": { "type": "string" },
-        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
-        "clustarr": { "$ref": "#/$defs/imageRef", "description": "The static image: manager and ui." },
-        "native": { "$ref": "#/$defs/imageRef", "description": "The FROM-scratch image: agent, markers and transcode on FFmpeg 9 and ONNX Runtime; every agent, markers, the download engines and the transcode pools run it." },
-        "controller": { "const": "retired in chart 0.5.0: use image.clustarr (README, Upgrading from 0.4.x)" },
-        "media": { "const": "retired in chart 0.5.0: everything that used it runs image.native (README, Upgrading from 0.4.x)" },
-        "transcoder": { "const": "retired in chart 0.5.0: use image.native (README, Upgrading from 0.4.x)" },
-        "transcoderCuda": { "const": "retired: there is no CUDA image (docs/adr/0015-no-cuda-image.md); nvidia pools run image.native" }
+        "registry": {
+          "type": "string"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        },
+        "clustarr": {
+          "$ref": "#/$defs/imageRef",
+          "description": "The static image: manager and ui."
+        },
+        "native": {
+          "$ref": "#/$defs/imageRef",
+          "description": "The FROM-scratch image: agent, markers and transcode on FFmpeg 9 and ONNX Runtime; every agent, markers, the download engines and the transcode pools run it."
+        },
+        "controller": {
+          "const": "retired in chart 0.5.0: use image.clustarr (README, Upgrading from 0.4.x)"
+        },
+        "media": {
+          "const": "retired in chart 0.5.0: everything that used it runs image.native (README, Upgrading from 0.4.x)"
+        },
+        "transcoder": {
+          "const": "retired in chart 0.5.0: use image.native (README, Upgrading from 0.4.x)"
+        },
+        "transcoderCuda": {
+          "const": "retired: there is no CUDA image (docs/adr/0015-no-cuda-image.md); nvidia pools run image.native"
+        }
       }
     },
     "imagePullSecrets": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
-        "properties": { "name": { "type": "string" } }
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
       }
     },
-
-    "natsUrl": { "type": "string" },
-    "natsSingleNode": { "type": ["boolean", "null"] },
+    "natsUrl": {
+      "type": "string"
+    },
+    "natsSingleNode": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "nats": {
       "type": "object",
-      "required": ["enabled"],
+      "required": [
+        "enabled"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
-        "config": { "type": "object" },
-        "promExporter": { "type": "object" },
-        "container": { "type": "object" }
+        "enabled": {
+          "type": "boolean"
+        },
+        "config": {
+          "type": "object"
+        },
+        "promExporter": {
+          "type": "object"
+        },
+        "container": {
+          "type": "object"
+        }
       }
     },
     "postgres": {
       "type": "object",
-      "required": ["enabled"],
+      "required": [
+        "enabled"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "cluster": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "instances": { "type": "integer", "minimum": 1 },
-            "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this Cluster takes with placement.enabled (placement.profiles)." },
-            "primaryUpdateMethod": { "type": "string", "enum": ["restart", "switchover"], "description": "CNPG primaryUpdateMethod; unset is restart with one instance and switchover with more (switchover moves the release index off a node, control-plane placement design §5.5)." },
-            "resources": { "$ref": "#/$defs/resources", "description": "CNPG Cluster.spec.resources, every instance's: requests and a memory limit keep an instance out of BestEffort." },
+            "instances": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "placement": {
+              "type": "string",
+              "enum": [
+                "controlPlane",
+                "workers"
+              ],
+              "description": "The placement profile this Cluster takes with placement.enabled (placement.profiles)."
+            },
+            "primaryUpdateMethod": {
+              "type": "string",
+              "enum": [
+                "restart",
+                "switchover"
+              ],
+              "description": "CNPG primaryUpdateMethod; unset is restart with one instance and switchover with more (switchover moves the release index off a node, control-plane placement design \u00a75.5)."
+            },
+            "resources": {
+              "$ref": "#/$defs/resources",
+              "description": "CNPG Cluster.spec.resources, every instance's: requests and a memory limit keep an instance out of BestEffort."
+            },
             "synchronous": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["method", "number"],
+              "required": [
+                "method",
+                "number"
+              ],
               "description": "CNPG postgresql.synchronous, rendered with more than one instance; unset keeps asynchronous streaming.",
               "properties": {
-                "method": { "type": "string", "enum": ["any", "first"] },
-                "number": { "type": "integer", "minimum": 1 },
-                "dataDurability": { "type": "string", "enum": ["required", "preferred"] }
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "any",
+                    "first"
+                  ]
+                },
+                "number": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "dataDurability": {
+                  "type": "string",
+                  "enum": [
+                    "required",
+                    "preferred"
+                  ]
+                }
               }
             },
-            "maxSlotWalKeepSize": { "type": "string", "description": "max_slot_wal_keep_size with more than one instance." },
-            "parameters": { "type": "object", "additionalProperties": { "type": "string" }, "description": "postgresql.parameters, verbatim." },
-            "affinity": { "type": "object", "description": "CNPG Cluster.spec.affinity, verbatim, laid over the placement profile's." },
+            "maxSlotWalKeepSize": {
+              "type": "string",
+              "description": "max_slot_wal_keep_size with more than one instance."
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "postgresql.parameters, verbatim."
+            },
+            "affinity": {
+              "type": "object",
+              "description": "CNPG Cluster.spec.affinity, verbatim, laid over the placement profile's."
+            },
             "storage": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "size": { "$ref": "#/$defs/quantity" },
-                "storageClass": { "type": "string" }
+                "size": {
+                  "$ref": "#/$defs/quantity"
+                },
+                "storageClass": {
+                  "type": "string"
+                }
               }
             }
           }
         },
-        "existingSecret": { "type": "string" }
+        "existingSecret": {
+          "type": "string"
+        }
       }
     },
     "cloudnative-pg": {
       "type": "object",
-      "required": ["enabled"],
-      "properties": { "enabled": { "type": "boolean" } }
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
     },
     "cluster-plex": {
       "type": "object",
       "description": "Passes through to the cluster-plex subchart (its values.yaml); checked only shallowly.",
-      "required": ["enabled"],
-      "properties": { "enabled": { "type": "boolean" } }
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
     },
     "plexDatabase": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "instances": { "type": "integer", "minimum": 1 },
-        "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this Cluster takes with placement.enabled (placement.profiles)." },
+        "instances": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "placement": {
+          "type": "string",
+          "enum": [
+            "controlPlane",
+            "workers"
+          ],
+          "description": "The placement profile this Cluster takes with placement.enabled (placement.profiles)."
+        },
         "synchronous": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["method", "number"],
-          "description": "CNPG postgresql.synchronous, rendered with more than one instance (control-plane placement design §5.1).",
+          "required": [
+            "method",
+            "number"
+          ],
+          "description": "CNPG postgresql.synchronous, rendered with more than one instance (control-plane placement design \u00a75.1).",
           "properties": {
-            "method": { "type": "string", "enum": ["any", "first"] },
-            "number": { "type": "integer", "minimum": 1 },
-            "dataDurability": { "type": "string", "enum": ["required", "preferred"] }
+            "method": {
+              "type": "string",
+              "enum": [
+                "any",
+                "first"
+              ]
+            },
+            "number": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "dataDurability": {
+              "type": "string",
+              "enum": [
+                "required",
+                "preferred"
+              ]
+            }
           }
         },
-        "maxSlotWalKeepSize": { "type": "string", "description": "max_slot_wal_keep_size with more than one instance." },
-        "primaryUpdateMethod": { "type": "string", "enum": ["restart", "switchover"], "description": "CNPG primaryUpdateMethod with more than one instance." },
-        "resources": { "$ref": "#/$defs/resources", "description": "CNPG Cluster.spec.resources, every instance's: requests and a memory limit keep an instance out of BestEffort." },
-        "affinity": { "type": "object", "description": "CNPG Cluster.spec.affinity, verbatim, laid over the placement profile's." },
-        "imageName": { "type": "string", "minLength": 1 },
+        "maxSlotWalKeepSize": {
+          "type": "string",
+          "description": "max_slot_wal_keep_size with more than one instance."
+        },
+        "primaryUpdateMethod": {
+          "type": "string",
+          "enum": [
+            "restart",
+            "switchover"
+          ],
+          "description": "CNPG primaryUpdateMethod with more than one instance."
+        },
+        "resources": {
+          "$ref": "#/$defs/resources",
+          "description": "CNPG Cluster.spec.resources, every instance's: requests and a memory limit keep an instance out of BestEffort."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "CNPG Cluster.spec.affinity, verbatim, laid over the placement profile's."
+        },
+        "imageName": {
+          "type": "string",
+          "minLength": 1
+        },
         "storage": {
           "type": "object",
           "additionalProperties": false,
-          "properties": { "size": { "$ref": "#/$defs/quantity" }, "storageClass": { "type": "string" } }
+          "properties": {
+            "size": {
+              "$ref": "#/$defs/quantity"
+            },
+            "storageClass": {
+              "type": "string"
+            }
+          }
         },
-        "parameters": { "type": "object", "additionalProperties": { "type": "string" } }
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
       }
     },
-
     "metrics": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "secure": { "type": "boolean" },
+        "secure": {
+          "type": "boolean"
+        },
         "serviceMonitor": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled"],
+          "required": [
+            "enabled"
+          ],
           "properties": {
-            "enabled": { "type": "boolean" },
-            "interval": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
-            "additionalLabels": { "type": "object" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "interval": {
+              "type": "string",
+              "pattern": "^[0-9]+(ms|s|m|h)$"
+            },
+            "additionalLabels": {
+              "type": "object"
+            }
           }
         },
         "prometheusRule": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled"],
+          "required": [
+            "enabled"
+          ],
           "properties": {
-            "enabled": { "type": "boolean" },
-            "additionalLabels": { "type": "object" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "additionalLabels": {
+              "type": "object"
+            }
           }
         },
         "grafanaDashboard": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled"],
+          "required": [
+            "enabled"
+          ],
           "properties": {
-            "enabled": { "type": "boolean" },
-            "namespace": { "type": "string" },
-            "labels": { "type": "object", "additionalProperties": { "type": "string" } },
-            "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+            "enabled": {
+              "type": "boolean"
+            },
+            "namespace": {
+              "type": "string"
+            },
+            "labels": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
           }
         }
       }
     },
-
     "storage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["data", "index"],
+      "required": [
+        "data",
+        "index"
+      ],
       "properties": {
         "data": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["existingClaim", "storageClass", "accessMode", "size"],
+          "required": [
+            "existingClaim",
+            "storageClass",
+            "accessMode",
+            "size"
+          ],
           "properties": {
-            "existingClaim": { "type": "string" },
-            "storageClass": { "type": "string" },
-            "accessMode": { "$ref": "#/$defs/pvcAccessMode" },
-            "size": { "$ref": "#/$defs/quantity" }
+            "existingClaim": {
+              "type": "string"
+            },
+            "storageClass": {
+              "type": "string"
+            },
+            "accessMode": {
+              "$ref": "#/$defs/pvcAccessMode"
+            },
+            "size": {
+              "$ref": "#/$defs/quantity"
+            }
           }
         },
         "index": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["existingClaim", "storageClass", "size"],
+          "required": [
+            "existingClaim",
+            "storageClass",
+            "size"
+          ],
           "properties": {
-            "existingClaim": { "type": "string" },
-            "storageClass": { "type": "string" },
-            "size": { "$ref": "#/$defs/quantity" }
+            "existingClaim": {
+              "type": "string"
+            },
+            "storageClass": {
+              "type": "string"
+            },
+            "size": {
+              "$ref": "#/$defs/quantity"
+            }
           }
         }
       }
     },
-
-    "podSecurityContext": { "type": "object" },
-    "securityContext": { "type": "object" },
-
+    "podSecurityContext": {
+      "type": "object"
+    },
+    "securityContext": {
+      "type": "object"
+    },
     "autoscaling": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled"],
+      "required": [
+        "enabled"
+      ],
       "properties": {
-        "enabled": { "type": "boolean", "description": "The manager owns the queue-driven workloads' HPAs and serves the External Metrics API they read; false renders fixed replicas, no APIService and --autoscale=false (README, \"Autoscaling\")." }
+        "enabled": {
+          "type": "boolean",
+          "description": "The manager owns the queue-driven workloads' HPAs and serves the External Metrics API they read; false renders fixed replicas, no APIService and --autoscale=false (README, \"Autoscaling\")."
+        }
       }
     },
-
     "placement": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "profiles"],
-      "description": "Placement profiles (docs/superpowers/specs/2026-10-21-control-plane-placement-design.md §3).",
+      "required": [
+        "enabled",
+        "profiles"
+      ],
+      "description": "Placement profiles (docs/superpowers/specs/2026-10-21-control-plane-placement-design.md \u00a73).",
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "profiles": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["controlPlane", "workers"],
+          "required": [
+            "controlPlane",
+            "workers"
+          ],
           "properties": {
             "controlPlane": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "replicas": { "type": "integer", "minimum": 1 },
-                "onePerNode": { "type": "boolean" },
+                "replicas": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "onePerNode": {
+                  "type": "boolean"
+                },
                 "nodeAffinity": {
                   "type": "array",
                   "items": {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["key", "operator"],
+                    "required": [
+                      "key",
+                      "operator"
+                    ],
                     "properties": {
-                      "key": { "type": "string" },
-                      "operator": { "type": "string", "enum": ["In", "NotIn", "Exists", "DoesNotExist", "Gt", "Lt"] },
-                      "values": { "type": "array", "items": { "type": "string" } }
+                      "key": {
+                        "type": "string"
+                      },
+                      "operator": {
+                        "type": "string",
+                        "enum": [
+                          "In",
+                          "NotIn",
+                          "Exists",
+                          "DoesNotExist",
+                          "Gt",
+                          "Lt"
+                        ]
+                      },
+                      "values": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
                     }
                   }
                 },
-                "tolerations": { "type": "array", "items": { "type": "object" } }
+                "tolerations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
               }
             },
             "workers": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "replicas": { "type": "integer", "minimum": 1 },
-                "onePerNode": { "type": "boolean" },
+                "replicas": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "onePerNode": {
+                  "type": "boolean"
+                },
                 "nodeAffinity": {
                   "type": "array",
                   "items": {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["key", "operator"],
+                    "required": [
+                      "key",
+                      "operator"
+                    ],
                     "properties": {
-                      "key": { "type": "string" },
-                      "operator": { "type": "string", "enum": ["In", "NotIn", "Exists", "DoesNotExist", "Gt", "Lt"] },
-                      "values": { "type": "array", "items": { "type": "string" } }
+                      "key": {
+                        "type": "string"
+                      },
+                      "operator": {
+                        "type": "string",
+                        "enum": [
+                          "In",
+                          "NotIn",
+                          "Exists",
+                          "DoesNotExist",
+                          "Gt",
+                          "Lt"
+                        ]
+                      },
+                      "values": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
                     }
                   }
                 },
-                "tolerations": { "type": "array", "items": { "type": "object" } }
+                "tolerations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
               }
             }
           }
         }
       }
     },
-
     "manager": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["slots", "intelRenderGroups", "gpuNodeLabelNvidia", "gpuNodeLabelIntel", "cardigann", "graftConcurrency", "engineMemoryLimits", "remediation", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": [
+        "slots",
+        "intelRenderGroups",
+        "gpuNodeLabelNvidia",
+        "gpuNodeLabelIntel",
+        "cardigann",
+        "graftConcurrency",
+        "engineMemoryLimits",
+        "remediation",
+        "resources",
+        "nodeSelector",
+        "tolerations",
+        "affinity"
+      ],
       "description": "Every controller in one process under the lease manager.clustarr.io; extra replicas (placement) are warm standbys.",
       "properties": {
-        "replicas": { "type": "integer", "minimum": 1, "description": "Unset is 1, or with placement.enabled the profile's; more than a onePerNode profile allows fails the render." },
-        "pprofBindAddress": { "type": "string", "description": "--pprof-bind-address; empty keeps the manager's default, 127.0.0.1:6060." },
-        "gogc": { "type": "integer", "minimum": 1, "description": "GOGC for the manager." },
-        "goMemLimit": { "type": "string", "pattern": "^[0-9]+(B|KiB|MiB|GiB|TiB)?$", "description": "GOMEMLIMIT in Go's syntax, in place of 90% of resources.limits.memory (automemlimit's share)." },
-        "automemlimit": { "type": "string", "pattern": "^(0\\.[0-9]+|1(\\.0+)?)$", "description": "AUTOMEMLIMIT: the share of resources.limits.memory the manager takes as its Go memory limit, in place of 0.9; goMemLimit wins over it." },
-        "watchReleaseNamespace": { "type": "boolean", "description": "--watch-namespace=<release namespace>: cache only the release's namespace." },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Unset is 1, or with placement.enabled the profile's; more than a onePerNode profile allows fails the render."
+        },
+        "pprofBindAddress": {
+          "type": "string",
+          "description": "--pprof-bind-address; empty keeps the manager's default, 127.0.0.1:6060."
+        },
+        "gogc": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GOGC for the manager."
+        },
+        "goMemLimit": {
+          "type": "string",
+          "pattern": "^[0-9]+(B|KiB|MiB|GiB|TiB)?$",
+          "description": "GOMEMLIMIT in Go's syntax, in place of 90% of resources.limits.memory (automemlimit's share)."
+        },
+        "automemlimit": {
+          "type": "string",
+          "pattern": "^(0\\.[0-9]+|1(\\.0+)?)$",
+          "description": "AUTOMEMLIMIT: the share of resources.limits.memory the manager takes as its Go memory limit, in place of 0.9; goMemLimit wins over it."
+        },
+        "watchReleaseNamespace": {
+          "type": "boolean",
+          "description": "--watch-namespace=<release namespace>: cache only the release's namespace."
+        },
         "slots": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9]*=[0-9]+(,[a-z][a-z0-9]*=[0-9]+)*$",
@@ -300,7 +774,10 @@
         },
         "intelRenderGroups": {
           "type": "array",
-          "items": { "type": "integer", "minimum": 0 },
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
           "uniqueItems": true,
           "description": "manager --intel-render-groups: GIDs of the host group owning /dev/dri/renderD* on the Intel GPU nodes, added to every Intel transcode pod as supplementalGroups. Host-specific, so no default."
         },
@@ -315,7 +792,10 @@
         "cardigann": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["bundled", "definitions"],
+          "required": [
+            "bundled",
+            "definitions"
+          ],
           "properties": {
             "bundled": {
               "type": "boolean",
@@ -324,11 +804,21 @@
             "definitions": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["configMap", "existingClaim", "subPath"],
+              "required": [
+                "configMap",
+                "existingClaim",
+                "subPath"
+              ],
               "description": "A directory of Cardigann definition files mounted read-only into the manager as --cardigann-definitions-dir, replacing the embedded corpus. Off while configMap and existingClaim are both empty. At most one may be set; clustarr.validate enforces that at render time, where it can say why.",
               "properties": {
-                "configMap": { "type": "string", "description": "An existing ConfigMap in the release namespace, one key per definition file. A ConfigMap holds at most 1 MiB." },
-                "existingClaim": { "type": "string", "description": "An existing PersistentVolumeClaim holding the definition files." },
+                "configMap": {
+                  "type": "string",
+                  "description": "An existing ConfigMap in the release namespace, one key per definition file. A ConfigMap holds at most 1 MiB."
+                },
+                "existingClaim": {
+                  "type": "string",
+                  "description": "An existing PersistentVolumeClaim holding the definition files."
+                },
                 "subPath": {
                   "type": "string",
                   "pattern": "^([^/].*)?$",
@@ -356,46 +846,112 @@
         "engineMemoryLimits": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["usenet", "torrent"],
+          "required": [
+            "usenet",
+            "torrent"
+          ],
           "description": "The memory limit a download engine pod gets when its DownloadClient's spec.resources sets none; its Go memory limit is 90% of it. A DownloadClient's own memory limit wins.",
           "properties": {
-            "usenet": { "$ref": "#/$defs/quantity", "description": "--engine-memory-limit-usenet." },
-            "torrent": { "$ref": "#/$defs/quantity", "description": "--engine-memory-limit-torrent." }
+            "usenet": {
+              "$ref": "#/$defs/quantity",
+              "description": "--engine-memory-limit-usenet."
+            },
+            "torrent": {
+              "$ref": "#/$defs/quantity",
+              "description": "--engine-memory-limit-torrent."
+            }
           }
         },
         "remediation": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["concurrency", "bulkWritesPerSecond", "ioWorkers"],
+          "required": [
+            "concurrency",
+            "bulkWritesPerSecond",
+            "ioWorkers"
+          ],
           "properties": {
-            "concurrency": { "type": "integer", "minimum": 1, "maximum": 64, "description": "MediaFiles and items the remediation loop reconciles at once (--remediation-concurrency)." },
-            "bulkWritesPerSecond": { "type": "integer", "minimum": 0, "description": "MediaFile status applies per second that no grant, answer, intent or first probe caused (--remediation-bulk-writes-per-second); 0 disables the pacing." },
-            "ioWorkers": { "type": "integer", "minimum": 1, "maximum": 64, "description": "Goroutines for the loop's /data calls (--remediation-io-workers)." }
+            "concurrency": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64,
+              "description": "MediaFiles and items the remediation loop reconciles at once (--remediation-concurrency)."
+            },
+            "bulkWritesPerSecond": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "MediaFile status applies per second that no grant, answer, intent or first probe caused (--remediation-bulk-writes-per-second); 0 disables the pacing."
+            },
+            "ioWorkers": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64,
+              "description": "Goroutines for the loop's /data calls (--remediation-io-workers)."
+            }
           }
         },
-        "resources": { "$ref": "#/$defs/resources" },
-        "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
-        "nodeSelector": { "type": "object" },
-        "tolerations": { "type": "array" },
-        "affinity": { "type": "object" }
+        "resources": {
+          "$ref": "#/$defs/resources"
+        },
+        "placement": {
+          "type": "string",
+          "enum": [
+            "controlPlane",
+            "workers"
+          ],
+          "description": "The placement profile this workload takes with placement.enabled (placement.profiles)."
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        }
       }
     },
-
     "livetv": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "port", "networkPolicy"],
+      "required": [
+        "enabled",
+        "port",
+        "networkPolicy"
+      ],
       "description": "Live TV (spec 2026-10-07): the manager's IPTV tuner, the <release>-livetv Service and the NetworkPolicy on the tuner port.",
       "properties": {
-        "enabled": { "type": "boolean", "description": "false renders --livetv-bind-address=0 and no livetv Service or NetworkPolicy." },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "The tuner's container port (--livetv-bind-address=:<port>); the livetv Service maps port 80 to it." },
+        "enabled": {
+          "type": "boolean",
+          "description": "false renders --livetv-bind-address=0 and no livetv Service or NetworkPolicy."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "The tuner's container port (--livetv-bind-address=:<port>); the livetv Service maps port 80 to it."
+        },
         "networkPolicy": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "allowFrom"],
+          "required": [
+            "enabled",
+            "allowFrom"
+          ],
           "properties": {
-            "enabled": { "type": "boolean", "description": "Render a NetworkPolicy on the manager pod admitting the tuner port only from allowFrom; every other manager port stays open." },
-            "allowFrom": { "type": "array", "minItems": 1, "items": { "type": "object" }, "description": "NetworkPolicyPeer list allowed to reach the tuner port. Default: Plex's pods (app.kubernetes.io/component: plex) in any namespace." }
+            "enabled": {
+              "type": "boolean",
+              "description": "Render a NetworkPolicy on the manager pod admitting the tuner port only from allowFrom; every other manager port stays open."
+            },
+            "allowFrom": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object"
+              },
+              "description": "NetworkPolicyPeer list allowed to reach the tuner port. Default: Plex's pods (app.kubernetes.io/component: plex) in any namespace."
+            }
           }
         }
       }
@@ -403,86 +959,219 @@
     "agents": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["catalog", "events", "metadata", "import", "index", "caption"],
+      "required": [
+        "catalog",
+        "events",
+        "metadata",
+        "import",
+        "index",
+        "caption"
+      ],
       "properties": {
         "catalog": {
           "allOf": [
-            { "$ref": "#/$defs/agentBlock" },
-            { "properties": { "consumerSlots": { "propertyNames": { "enum": ["catalog-search-high", "catalog-search-normal", "catalog-artwork-render"] } } } }
+            {
+              "$ref": "#/$defs/agentBlock"
+            },
+            {
+              "properties": {
+                "consumerSlots": {
+                  "propertyNames": {
+                    "enum": [
+                      "catalog-search-high",
+                      "catalog-search-normal",
+                      "catalog-artwork-render"
+                    ]
+                  }
+                }
+              }
+            }
           ]
         },
         "events": {
           "allOf": [
-            { "$ref": "#/$defs/agentBlock" },
-            { "properties": { "consumerSlots": { "propertyNames": { "enum": ["catalog-rss-matcher"] } } } }
+            {
+              "$ref": "#/$defs/agentBlock"
+            },
+            {
+              "properties": {
+                "consumerSlots": {
+                  "propertyNames": {
+                    "enum": [
+                      "catalog-rss-matcher"
+                    ]
+                  }
+                }
+              }
+            }
           ]
         },
         "metadata": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "resources", "nodeSelector", "tolerations", "affinity"],
+          "required": [
+            "enabled",
+            "resources",
+            "nodeSelector",
+            "tolerations",
+            "affinity"
+          ],
           "description": "Always one replica, Recreate: the metadata gateway's provider rate limiters live in process memory (ADR-0007).",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "resources": { "$ref": "#/$defs/resources" },
-            "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
-            "nodeSelector": { "type": "object" },
-            "tolerations": { "type": "array" },
-            "affinity": { "type": "object" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "resources": {
+              "$ref": "#/$defs/resources"
+            },
+            "placement": {
+              "type": "string",
+              "enum": [
+                "controlPlane",
+                "workers"
+              ],
+              "description": "The placement profile this workload takes with placement.enabled (placement.profiles)."
+            },
+            "nodeSelector": {
+              "type": "object"
+            },
+            "tolerations": {
+              "type": "array"
+            },
+            "affinity": {
+              "type": "object"
+            }
           }
         },
         "import": {
           "allOf": [
-            { "$ref": "#/$defs/agentBlock" },
-            { "properties": { "consumerSlots": { "propertyNames": { "enum": ["import-scan", "import-fileimport", "import-list", "import-recycle", "import-probe-high", "import-probe-low"] } } } }
+            {
+              "$ref": "#/$defs/agentBlock"
+            },
+            {
+              "properties": {
+                "consumerSlots": {
+                  "propertyNames": {
+                    "enum": [
+                      "import-scan",
+                      "import-fileimport",
+                      "import-list",
+                      "import-recycle",
+                      "import-probe-high",
+                      "import-probe-low"
+                    ]
+                  }
+                }
+              }
+            }
           ]
         },
         "index": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "facade", "resources", "nodeSelector", "tolerations", "affinity"],
+          "required": [
+            "enabled",
+            "facade",
+            "resources",
+            "nodeSelector",
+            "tolerations",
+            "affinity"
+          ],
           "description": "Always one replica, Recreate: the release index, the RPC responders, the Torznab facade and the per-host limiter are one process (spec 2026-10-06, R4 amendment).",
           "properties": {
-            "enabled": { "type": "boolean" },
+            "enabled": {
+              "type": "boolean"
+            },
             "facade": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["service", "apiKeySecret"],
+              "required": [
+                "service",
+                "apiKeySecret"
+              ],
               "properties": {
                 "service": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["type", "port"],
+                  "required": [
+                    "type",
+                    "port"
+                  ],
                   "properties": {
-                    "type": { "$ref": "#/$defs/serviceType" },
-                    "port": { "$ref": "#/$defs/port" }
+                    "type": {
+                      "$ref": "#/$defs/serviceType"
+                    },
+                    "port": {
+                      "$ref": "#/$defs/port"
+                    }
                   }
                 },
-                "apiKeySecret": { "type": "string", "description": "The facade's API-key Secret (--facade-api-key-secret on the manager and the index agent); empty means <release fullname>-index-facade, created by the manager." }
+                "apiKeySecret": {
+                  "type": "string",
+                  "description": "The facade's API-key Secret (--facade-api-key-secret on the manager and the index agent); empty means <release fullname>-index-facade, created by the manager."
+                }
               }
             },
-            "resources": { "$ref": "#/$defs/resources" },
-            "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
-            "nodeSelector": { "type": "object" },
-            "tolerations": { "type": "array" },
-            "affinity": { "type": "object" }
+            "resources": {
+              "$ref": "#/$defs/resources"
+            },
+            "placement": {
+              "type": "string",
+              "enum": [
+                "controlPlane",
+                "workers"
+              ],
+              "description": "The placement profile this workload takes with placement.enabled (placement.profiles)."
+            },
+            "nodeSelector": {
+              "type": "object"
+            },
+            "tolerations": {
+              "type": "array"
+            },
+            "affinity": {
+              "type": "object"
+            }
           }
         },
         "caption": {
           "allOf": [
-            { "$ref": "#/$defs/agentBlock" },
-            { "properties": { "consumerSlots": { "propertyNames": { "enum": ["caption-fetch-high", "caption-fetch-normal"] } } } }
+            {
+              "$ref": "#/$defs/agentBlock"
+            },
+            {
+              "properties": {
+                "consumerSlots": {
+                  "propertyNames": {
+                    "enum": [
+                      "caption-fetch-high",
+                      "caption-fetch-normal"
+                    ]
+                  }
+                }
+              }
+            }
           ]
         }
       }
     },
-
     "markers": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "replicas", "consumerSlots", "coresPerSlot", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": [
+        "enabled",
+        "replicas",
+        "consumerSlots",
+        "coresPerSlot",
+        "resources",
+        "nodeSelector",
+        "tolerations",
+        "affinity"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "replicas": {
           "type": "integer",
           "minimum": 0,
@@ -490,8 +1179,15 @@
         },
         "consumerSlots": {
           "type": "object",
-          "propertyNames": { "enum": ["markers-analyze"] },
-          "additionalProperties": { "type": "integer", "minimum": 1 },
+          "propertyNames": {
+            "enum": [
+              "markers-analyze"
+            ]
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
           "description": "Empty (the default): each pod runs one slot per coresPerSlot of the CPUs it can use, from 1 to 8. {markers-analyze: N}: every pod runs N slots, whatever its node (CLUSTARR_CONSUMER_SLOTS)."
         },
         "coresPerSlot": {
@@ -499,45 +1195,89 @@
           "minimum": 1,
           "description": "CPUs per automatic slot (--cores-per-slot): 2 by default, 1 where reads from /data bind before the CPUs do. Unused when consumerSlots names markers-analyze."
         },
-        "resources": { "$ref": "#/$defs/resources" },
-        "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
-        "nodeSelector": { "type": "object" },
-        "tolerations": { "type": "array" },
-        "affinity": { "type": "object" }
+        "resources": {
+          "$ref": "#/$defs/resources"
+        },
+        "placement": {
+          "type": "string",
+          "enum": [
+            "controlPlane",
+            "workers"
+          ],
+          "description": "The placement profile this workload takes with placement.enabled (placement.profiles)."
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        }
       }
     },
     "ui": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "auth", "plex", "service", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": [
+        "enabled",
+        "auth",
+        "plex",
+        "service",
+        "resources",
+        "nodeSelector",
+        "tolerations",
+        "affinity"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
-        "replicas": { "type": "integer", "minimum": 0 },
+        "enabled": {
+          "type": "boolean"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 0
+        },
         "auth": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["mode"],
-          "description": "ui --auth-mode: the authentication mode, chosen explicitly (the binary refuses to serve without one). anonymous serves every request without a login, so the Service must sit behind ingress authentication (design amendment §A3.5).",
+          "required": [
+            "mode"
+          ],
+          "description": "ui --auth-mode: the authentication mode, chosen explicitly (the binary refuses to serve without one). anonymous serves every request without a login, so the Service must sit behind ingress authentication (design amendment \u00a7A3.5).",
           "properties": {
             "mode": {
               "type": "string",
-              "enum": ["anonymous"]
+              "enum": [
+                "anonymous"
+              ]
             }
           }
         },
-        "pipelineHistory": {"type": "integer", "minimum": 0, "description": "Results the pipeline page keeps beside its in-flight entries (--pipeline-history); 0 shows in-flight entries only."},
+        "pipelineHistory": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Results the pipeline page keeps beside its in-flight entries (--pipeline-history); 0 shows in-flight entries only."
+        },
         "metrics": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "url": {"type": "string", "description": "Prometheus-compatible API the dashboard charts from, without /api/v1 (--metrics-url); empty leaves the charts unconfigured."}
+            "url": {
+              "type": "string",
+              "description": "Prometheus-compatible API the dashboard charts from, without /api/v1 (--metrics-url); empty leaves the charts unconfigured."
+            }
           }
         },
         "plex": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "externalURL", "plexGuids"],
-          "description": "The Plex Custom Metadata Provider (design spec §D): read-only, unauthenticated by protocol, must not sit behind a public ingress. See the chart README's \"Plex provider\" section.",
+          "required": [
+            "enabled",
+            "externalURL",
+            "plexGuids"
+          ],
+          "description": "The Plex Custom Metadata Provider (design spec \u00a7D): read-only, unauthenticated by protocol, must not sit behind a public ingress. See the chart README's \"Plex provider\" section.",
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -549,7 +1289,7 @@
             },
             "musicProvider": {
               "type": "boolean",
-              "description": "--plex-music-provider: also serve the music and audiobook roots, /plex/music and /plex/audiobooks (types 8, 9, 10). Keep false until a PMS build accepts a provider declaring them (2026-11-10 design §7.6)."
+              "description": "--plex-music-provider: also serve the music and audiobook roots, /plex/music and /plex/audiobooks (types 8, 9, 10). Keep false until a PMS build accepts a provider declaring them (2026-11-10 design \u00a77.6)."
             },
             "externalURL": {
               "type": "string",
@@ -560,72 +1300,151 @@
         "service": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "port"],
+          "required": [
+            "type",
+            "port"
+          ],
           "properties": {
-            "type": { "$ref": "#/$defs/serviceType" },
-            "port": { "$ref": "#/$defs/port" }
+            "type": {
+              "$ref": "#/$defs/serviceType"
+            },
+            "port": {
+              "$ref": "#/$defs/port"
+            }
           }
         },
         "autoscaling": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "minReplicas", "maxReplicas", "targetCPUUtilizationPercentage"],
+          "required": [
+            "enabled",
+            "minReplicas",
+            "maxReplicas",
+            "targetCPUUtilizationPercentage"
+          ],
           "description": "An autoscaling/v2 HorizontalPodAutoscaler on the ui's CPU, opt in: the Deployment then carries no spec.replicas and its pods spread one per node.",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "minReplicas": { "type": "integer", "minimum": 1 },
-            "maxReplicas": { "type": "integer", "minimum": 1, "description": "At most a onePerNode placement profile's replicas." },
-            "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Average utilization of resources.requests.cpu over the pods." },
-            "behavior": { "type": "object", "description": "autoscaling/v2 HorizontalPodAutoscalerBehavior, verbatim." }
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxReplicas": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "At most a onePerNode placement profile's replicas."
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Average utilization of resources.requests.cpu over the pods."
+            },
+            "behavior": {
+              "type": "object",
+              "description": "autoscaling/v2 HorizontalPodAutoscalerBehavior, verbatim."
+            }
           }
         },
         "httpRoute": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled"],
+          "required": [
+            "enabled"
+          ],
           "description": "A Gateway API HTTPRoute to the ui's Service, opt in: attach it only to a listener behind authentication, or internal (the ui has no login; the Plex provider under /plex none by protocol).",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+            "enabled": {
+              "type": "boolean"
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
             "parentRefs": {
               "type": "array",
               "description": "Gateway API ParentReferences, verbatim; required when enabled.",
               "items": {
                 "type": "object",
-                "required": ["name"],
+                "required": [
+                  "name"
+                ],
                 "properties": {
-                  "group": { "type": "string" },
-                  "kind": { "type": "string" },
-                  "name": { "type": "string", "minLength": 1 },
-                  "namespace": { "type": "string" },
-                  "sectionName": { "type": "string" },
-                  "port": { "type": "integer" }
+                  "group": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "namespace": {
+                    "type": "string"
+                  },
+                  "sectionName": {
+                    "type": "string"
+                  },
+                  "port": {
+                    "type": "integer"
+                  }
                 }
               }
             },
-            "hostnames": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+            "hostnames": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
         },
-        "resources": { "$ref": "#/$defs/resources" },
-        "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
-        "nodeSelector": { "type": "object" },
-        "tolerations": { "type": "array" },
-        "affinity": { "type": "object" }
+        "resources": {
+          "$ref": "#/$defs/resources"
+        },
+        "placement": {
+          "type": "string",
+          "enum": [
+            "controlPlane",
+            "workers"
+          ],
+          "description": "The placement profile this workload takes with placement.enabled (placement.profiles)."
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        }
       }
     }
   },
-
   "$defs": {
     "imageRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "tag"],
+      "required": [
+        "repository",
+        "tag"
+      ],
       "properties": {
-        "repository": { "type": "string" },
-        "tag": { "type": "string" }
+        "repository": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        }
       }
     },
-
     "quantity": {
       "type": "string",
       "minLength": 1,
@@ -640,14 +1459,27 @@
     },
     "pvcAccessMode": {
       "type": "string",
-      "enum": ["ReadWriteMany", "ReadWriteOnce", "ReadOnlyMany", "ReadWriteOncePod"]
+      "enum": [
+        "ReadWriteMany",
+        "ReadWriteOnce",
+        "ReadOnlyMany",
+        "ReadWriteOncePod"
+      ]
     },
     "serviceType": {
       "type": "string",
-      "enum": ["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"]
+      "enum": [
+        "ClusterIP",
+        "NodePort",
+        "LoadBalancer",
+        "ExternalName"
+      ]
     },
-    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
     "resources": {
       "type": "object",
       "additionalProperties": false,
@@ -656,27 +1488,44 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "cpu": { "$ref": "#/$defs/cpuQuantity" },
-            "memory": { "$ref": "#/$defs/quantity" }
+            "cpu": {
+              "$ref": "#/$defs/cpuQuantity"
+            },
+            "memory": {
+              "$ref": "#/$defs/quantity"
+            }
           }
         },
         "limits": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "cpu": { "$ref": "#/$defs/cpuQuantity" },
-            "memory": { "$ref": "#/$defs/quantity" }
+            "cpu": {
+              "$ref": "#/$defs/cpuQuantity"
+            },
+            "memory": {
+              "$ref": "#/$defs/quantity"
+            }
           }
         }
       }
     },
-
     "agentBlock": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "replicas", "consumerSlots", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": [
+        "enabled",
+        "replicas",
+        "consumerSlots",
+        "resources",
+        "nodeSelector",
+        "tolerations",
+        "affinity"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "replicas": {
           "type": "integer",
           "minimum": 0,
@@ -684,14 +1533,32 @@
         },
         "consumerSlots": {
           "type": "object",
-          "additionalProperties": { "type": "integer", "minimum": 1 },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
           "description": "Per-pod handler slots by consumer (CLUSTARR_CONSUMER_SLOTS), also the HPA's per-pod target; only the workload's own domain's consumers."
         },
-        "resources": { "$ref": "#/$defs/resources" },
-        "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
-        "nodeSelector": { "type": "object" },
-        "tolerations": { "type": "array" },
-        "affinity": { "type": "object" }
+        "resources": {
+          "$ref": "#/$defs/resources"
+        },
+        "placement": {
+          "type": "string",
+          "enum": [
+            "controlPlane",
+            "workers"
+          ],
+          "description": "The placement profile this workload takes with placement.enabled (placement.profiles)."
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        }
       }
     }
   }

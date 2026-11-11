@@ -22,6 +22,7 @@ labels:
     app.kubernetes.io/managed-by: kustomize
 
 resources:
+- logging.yaml
 - manager.yaml
 - agent-catalog.yaml
 - agent-events.yaml

@@ -131,6 +131,9 @@ spec:
               mountPath: /var/lib/clustarr/index
             - name: tmp
               mountPath: /tmp
+            - name: logging
+              mountPath: /etc/clustarr
+              readOnly: true
       volumes:
         - name: index
           persistentVolumeClaim:
@@ -138,3 +141,6 @@ spec:
         # readOnlyRootFilesystem: true, so /tmp has to be a volume.
         - name: tmp
           emptyDir: {}
+        - name: logging
+          configMap:
+            name: clustarr-logging

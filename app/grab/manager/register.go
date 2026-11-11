@@ -69,6 +69,9 @@ type Options struct {
 	// WorkerPlacement is the workers profile every engine pod carries
 	// (--worker-placement, control-plane placement design §5.6).
 	WorkerPlacement placement.Profile
+	// LoggingConfigMap is the logging ConfigMap every engine pod mounts
+	// optionally (--logging-configmap; downloadclient.EngineRuntime).
+	LoggingConfigMap string
 }
 
 // Cache contributions: none beyond today's Secret DisableFor, which the
@@ -123,5 +126,6 @@ func engineRuntime(o Options) downloadclient.EngineRuntime {
 		UsenetMemoryLimit:  o.EngineMemoryLimitUsenet,
 		PlainMetrics:       !o.MetricsSecure,
 		WorkerPlacement:    o.WorkerPlacement,
+		LoggingConfigMap:   o.LoggingConfigMap,
 	}
 }

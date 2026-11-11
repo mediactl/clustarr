@@ -486,7 +486,7 @@ func grabOptions(o Options) grabmanager.Options {
 		ScratchDir: o.EngineScratchDir, EngineImage: o.NativeImage, DataClaimName: o.DataClaim,
 		EngineServiceAccount:     o.EngineServiceAccount,
 		EngineMemoryLimitTorrent: o.EngineMemoryLimitTorrent, EngineMemoryLimitUsenet: o.EngineMemoryLimitUsenet,
-		WorkerPlacement: o.WorkerPlacement,
+		WorkerPlacement: o.WorkerPlacement, LoggingConfigMap: o.LoggingConfigMap,
 	}
 }
 
@@ -498,8 +498,8 @@ func transcodeOptions(o Options, ledger *admission.Ledger) transcodemanager.Opti
 		Options: o.Options, Slots: o.Slots,
 		DataDir: o.DataDir, WorkerImage: o.NativeImage, DataClaimName: o.DataClaim,
 		IntelRenderGroups: o.IntelRenderGroups, NodeLabelNVIDIA: o.NodeLabelNVIDIA, NodeLabelIntel: o.NodeLabelIntel,
-		WorkerPlacement: o.WorkerPlacement,
-		JobWindow:       o.JobWindow, GraftConcurrency: o.GraftConcurrency, Ledger: ledger,
+		WorkerPlacement: o.WorkerPlacement, LoggingConfigMap: o.LoggingConfigMap,
+		JobWindow: o.JobWindow, GraftConcurrency: o.GraftConcurrency, Ledger: ledger,
 		VideoLease: o.VideoTranscodeLease, IntelWorkLease: o.IntelWorkLease,
 		Logging: o.Logging, Tracing: o.Tracing,
 	}

@@ -26,6 +26,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/version"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -45,6 +48,8 @@ const (
 	labelComponent  = "app.kubernetes.io/component"
 	labelClient     = "download.clustarr.io/client"
 	componentEngine = "grab-engine"
+	// loggingVolumeName is the logging ConfigMap volume ([EngineRuntime.loggingVolume]).
+	loggingVolumeName = "logging"
 
 	// dataVolumeName, scratchVolumeName and tmpVolumeName are the pod-local
 	// volume names; they say nothing about the PVC or emptyDir backing them.
@@ -133,6 +138,48 @@ type EngineRuntime struct {
 	// carries as a required node affinity, beside the DownloadClient's own
 	// nodeSelector (control-plane placement design §5.6). Zero places nothing.
 	WorkerPlacement placement.Profile
+
+	// LoggingConfigMap names the logging ConfigMap (the installers'
+	// <release>-logging) every engine pod mounts read-only at
+	// [logging.DefaultConfigDir], optional so an engine in a namespace
+	// without it still starts on the defaults (structured-logging design
+	// §6). Empty mounts nothing.
+	LoggingConfigMap string
+}
+
+// loggingVolume is the optional ConfigMap volume for rt.LoggingConfigMap,
+// nil when none is named. It is mounted as a directory, never a subPath: a
+// subPath mount never receives the ConfigMap's updates, and the live level
+// knob would do nothing.
+func (rt EngineRuntime) loggingVolume() *corev1ac.VolumeApplyConfiguration {
+	if rt.LoggingConfigMap == "" {
+		return nil
+	}
+	return corev1ac.Volume().WithName(loggingVolumeName).WithConfigMap(
+		corev1ac.ConfigMapVolumeSource().WithName(rt.LoggingConfigMap).WithOptional(true))
+}
+
+// loggingMount is the read-only mount of [EngineRuntime.loggingVolume] at
+// [logging.DefaultConfigDir], nil when no ConfigMap is named.
+func (rt EngineRuntime) loggingMount() *corev1ac.VolumeMountApplyConfiguration {
+	if rt.LoggingConfigMap == "" {
+		return nil
+	}
+	return corev1ac.VolumeMount().WithName(loggingVolumeName).WithMountPath(logging.DefaultConfigDir).WithReadOnly(true)
+}
+
+// podLabels are the pod template's labels: the selector's plus the
+// recommended name and version labels the chart's pods carry, which a log
+// store reads as the build. Never the selector's, which a StatefulSet
+// cannot change.
+func podLabels(selector map[string]string) map[string]string {
+	labels := make(map[string]string, len(selector)+2)
+	for k, v := range selector {
+		labels[k] = v
+	}
+	labels["app.kubernetes.io/name"] = "clustarr"
+	labels["app.kubernetes.io/version"] = version.Version
+	return labels
 }
 
 // The engines' default memory limits, the manager's
@@ -380,6 +427,9 @@ func podSpecAC(dc *downloadv1alpha1.DownloadClient, container *corev1ac.Containe
 		}
 	}
 	volumes = append(volumes, corev1ac.Volume().WithName(tmpVolumeName).WithEmptyDir(corev1ac.EmptyDirVolumeSource()))
+	if v := rt.loggingVolume(); v != nil {
+		volumes = append(volumes, v)
+	}
 
 	spec := corev1ac.PodSpec().
 		WithSecurityContext(podSecurityContextAC()).
@@ -401,7 +451,7 @@ func podSpecAC(dc *downloadv1alpha1.DownloadClient, container *corev1ac.Containe
 
 func podTemplateAC(configHash string, labels map[string]string, spec *corev1ac.PodSpecApplyConfiguration) *corev1ac.PodTemplateSpecApplyConfiguration {
 	return corev1ac.PodTemplateSpec().
-		WithLabels(labels).
+		WithLabels(podLabels(labels)).
 		WithAnnotations(map[string]string{EngineConfigHashAnnotation: configHash}).
 		WithSpec(spec)
 }
@@ -547,6 +597,9 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scrat
 	if sc := scratchSpec(dc); sc != nil && sc.Path == "" {
 		mounts = append(mounts, corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratchDir))
 	}
+	if m := rt.loggingMount(); m != nil {
+		mounts = append(mounts, m)
+	}
 	cmd, args := EngineCommand(dc, dataDir, scratchDir)
 	args, metricsPort := rt.metrics(args)
 	rr := engineResources(dc, memoryLimitOr(rt.TorrentMemoryLimit, DefaultTorrentMemoryLimit))
@@ -579,6 +632,9 @@ func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratc
 		mounts = append(mounts, corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratch))
 	}
 	mounts = append(mounts, corev1ac.VolumeMount().WithName(tmpVolumeName).WithMountPath(tmpDir))
+	if m := rt.loggingMount(); m != nil {
+		mounts = append(mounts, m)
+	}
 	args, metricsPort := rt.metrics(args)
 	rr := engineResources(dc, memoryLimitOr(rt.UsenetMemoryLimit, DefaultUsenetMemoryLimit))
 	return corev1ac.Container().

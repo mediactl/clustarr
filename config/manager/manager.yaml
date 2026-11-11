@@ -92,7 +92,7 @@ spec:
           # which Plex is given each block's path. The chart renders the same from
           # manager.{slots,graftConcurrency,engineMemoryLimits,remediation}
           # and livetv.*.
-          args: ["--leader-elect", "--slots=cpu=2,nvidia=1,intel=1", "--nats-single-node", "--graft-concurrency=2", "--engine-memory-limit-torrent=2Gi", "--engine-memory-limit-usenet=8Gi", "--remediation-concurrency=16", "--remediation-bulk-writes-per-second=25", "--remediation-io-workers=8", "--livetv-bind-address=:5004", "--livetv-service=livetv"]
+          args: ["--leader-elect", "--slots=cpu=2,nvidia=1,intel=1", "--nats-single-node", "--graft-concurrency=2", "--engine-memory-limit-torrent=2Gi", "--engine-memory-limit-usenet=8Gi", "--remediation-concurrency=16", "--remediation-bulk-writes-per-second=25", "--remediation-io-workers=8", "--livetv-bind-address=:5004", "--livetv-service=livetv", "--logging-configmap=clustarr-logging"]
           env:
             - name: NATS_URL
               value: nats://nats.clustarr-system.svc:4222
@@ -185,6 +185,9 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+            - name: logging
+              mountPath: /etc/clustarr
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -192,3 +195,6 @@ spec:
         # readOnlyRootFilesystem: true, so /tmp has to be a volume.
         - name: tmp
           emptyDir: {}
+        - name: logging
+          configMap:
+            name: clustarr-logging

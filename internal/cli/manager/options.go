@@ -89,6 +89,11 @@ type Options struct {
 	// the manager builds carries -- the engines, the transcode pools and the
 	// graft Jobs (control-plane placement design §5.6). Zero places nothing.
 	WorkerPlacement placement.Profile
+	// LoggingConfigMap is --logging-configmap: the logging ConfigMap every
+	// pod the manager builds -- the engines, the transcode pools and the
+	// graft Jobs -- mounts optionally at /etc/clustarr, so a level set there
+	// reaches them too (structured-logging design §6). Empty mounts nothing.
+	LoggingConfigMap string
 
 	Slots             map[string]int32
 	IntelRenderGroups []int64

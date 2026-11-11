@@ -1,0 +1,34 @@
+{{- /*
+The logging ConfigMap (docs/superpowers/specs/2026-11-10-structured-logging-design.md
+§6): logging.yaml, mounted read-only at /etc/clustarr as a directory in every
+pod the chart renders (clustarr.workload, the ui, markers) and optionally in
+every pod the manager builds (--logging-configmap). global.logging is the
+knob the cluster-plex subchart reads too; .Values.logging overrides it key
+by key for clustarr's pods, its subsystems merged over the global's. A
+subPath mount would never receive an update, so no template uses one.
+*/}}
+{{- $g := default dict .Values.global.logging }}
+{{- $l := default dict .Values.logging }}
+{{- $cfg := dict
+      "level" (default "info" (coalesce $l.level $g.level))
+      "format" (default "json" (coalesce $l.format $g.format)) }}
+{{- if not (kindIs "invalid" $l.addSource) }}
+{{- $_ := set $cfg "addSource" $l.addSource }}
+{{- else if not (kindIs "invalid" $g.addSource) }}
+{{- $_ := set $cfg "addSource" $g.addSource }}
+{{- else }}
+{{- $_ := set $cfg "addSource" false }}
+{{- end }}
+{{- $subsystems := merge (deepCopy (default dict $l.subsystems)) (default dict $g.subsystems) }}
+{{- if $subsystems }}
+{{- $_ := set $cfg "subsystems" $subsystems }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "clustarr.fullname" . }}-logging
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+data:
+  logging.yaml: |
+    {{- dict "logging" $cfg | toYaml | nindent 4 }}

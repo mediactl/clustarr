@@ -21,6 +21,9 @@ import (
 	"cmp"
 	"strconv"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/version"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -75,6 +78,8 @@ const (
 	ScratchVolumeName = "scratch"
 	ScratchMountPath  = "/scratch"
 	TmpVolumeName     = "tmp"
+	// LoggingVolumeName is the logging ConfigMap volume (Config.LoggingConfigMap).
+	LoggingVolumeName = "logging"
 	TmpMountPath      = "/tmp"
 
 	// podUID and podGID are the identity every pool pod runs as: the
@@ -172,6 +177,13 @@ type Config struct {
 	// pod carries, ANDed into a GPU class's own node affinity (control-plane
 	// placement design §5.6). Zero places nothing.
 	WorkerPlacement placement.Profile
+
+	// LoggingConfigMap names the logging ConfigMap (the installers'
+	// <release>-logging) every pool and graft pod mounts read-only at
+	// [logging.DefaultConfigDir] as a directory, optional so a pod in a
+	// namespace without it still starts on the defaults (structured-logging
+	// design §6). Empty mounts nothing.
+	LoggingConfigMap string
 }
 
 // NodeLabel is the GPU node label key a class's pools are held to; "" for
@@ -410,12 +422,20 @@ func Template(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Ha
 			{Name: TmpVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		},
 	}
+	if cfg.LoggingConfigMap != "" {
+		pod.Volumes = append(pod.Volumes, corev1.Volume{Name: LoggingVolumeName, VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: cfg.LoggingConfigMap}, Optional: new(true)},
+		}})
+		pod.Containers[0].VolumeMounts = append(pod.Containers[0].VolumeMounts,
+			corev1.VolumeMount{Name: LoggingVolumeName, MountPath: logging.DefaultConfigDir, ReadOnly: true})
+	}
 	applyHardware(&pod, tp, class, cfg)
 	cfg.WorkerPlacement.Apply(&pod)
 	return corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
 			"app.kubernetes.io/name": "clustarr", "app.kubernetes.io/component": "transcode",
-			LabelManagedBy: ManagedByValue, LabelHardware: string(class),
+			"app.kubernetes.io/version": version.Version,
+			LabelManagedBy:              ManagedByValue, LabelHardware: string(class),
 		}},
 		Spec: pod,
 	}

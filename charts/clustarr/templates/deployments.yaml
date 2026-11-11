@@ -86,6 +86,9 @@ creates those at runtime, owned by the object that asked for them.
 {{- if not .Values.manager.cardigann.bundled }}
 {{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_CARDIGANN_BUNDLED" "value" "false") }}
 {{- end }}
+{{- /* The logging ConfigMap every pod the manager builds mounts optionally
+       (structured-logging design §6). */}}
+{{- $managerArgs = append $managerArgs (printf "--logging-configmap=%s-logging" $fullname) }}
 {{- $managerVolumes := list }}
 {{- $managerMounts := list }}
 {{- /* A definitions directory replaces the embedded corpus entirely
@@ -349,10 +352,12 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+        {{- include "clustarr.loggingMount" $ | nindent 8 }}
       {{- with (include "clustarr.placement" (dict "root" $ "values" $uiValues "component" "ui") | trim) }}
       {{- . | nindent 6 }}
       {{- end }}
       volumes:
       - name: tmp
         emptyDir: {}
+      {{- include "clustarr.loggingVolume" $ | nindent 6 }}
 {{- end }}

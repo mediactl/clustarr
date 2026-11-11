@@ -73,7 +73,8 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "clustarr.labels" . | nindent 8 }}
+        {{- /* markers runs the native image, so its version label is that tag. */}}
+        {{- include "clustarr.labels" . | fromYaml | merge (dict "app.kubernetes.io/version" (default .Chart.AppVersion .Values.image.native.tag)) | toYaml | nindent 8 }}
         app.kubernetes.io/component: markers
     spec:
       serviceAccountName: {{ $name }}
@@ -165,6 +166,7 @@ spec:
           readOnly: true
         - name: tmp
           mountPath: /tmp
+        {{- include "clustarr.loggingMount" . | nindent 8 }}
       volumes:
       - name: data
         persistentVolumeClaim:
@@ -173,4 +175,5 @@ spec:
       # readOnlyRootFilesystem: true, so /tmp has to be a volume.
       - name: tmp
         emptyDir: {}
+      {{- include "clustarr.loggingVolume" . | nindent 6 }}
 {{- end }}

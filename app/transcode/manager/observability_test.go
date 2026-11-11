@@ -51,7 +51,12 @@ func TestWorkerObservabilityArgsParse(t *testing.T) {
 	fs := pflag.NewFlagSet("worker", pflag.ContinueOnError)
 	gotLo, gotTo := obsflags.Bind(fs)
 	require.NoError(t, fs.Parse(args))
-	assert.Equal(t, lo, *gotLo, "the worker must parse back the controller's logging options")
+	// logging.Options also carries --log-config's default and the bound
+	// flag set, which no arg renders (the pods read the mounted ConfigMap),
+	// so only the three fields the args carry are compared.
+	assert.Equal(t, lo.Level, gotLo.Level, "--log-level did not round-trip")
+	assert.Equal(t, lo.Format, gotLo.Format, "--log-format did not round-trip")
+	assert.Equal(t, lo.AddSource, gotLo.AddSource, "--log-add-source did not round-trip")
 	// tracing.Options carries ServiceName too, which no flag renders (it is
 	// set programmatically, e.g. cmd/transcode-worker/main.go's
 	// to.ServiceName = "transcode-worker"), so only the four fields the args

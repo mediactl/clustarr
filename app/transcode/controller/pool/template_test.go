@@ -36,6 +36,7 @@ import (
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // Every transcode pool pod runs with the security settings every Deployment
@@ -322,4 +323,37 @@ func TestGPUPoolsRequestAMinimalShare(t *testing.T) {
 	def := Template(profile(), transcodev1alpha1.HardwareNVIDIA, Config{Image: "cpu:1"}).Spec.Containers[0].Resources
 	assert.True(t, def.Requests.Cpu().Equal(GPUPoolRequests[corev1.ResourceCPU]))
 	assert.True(t, def.Requests.Memory().Equal(GPUPoolRequests[corev1.ResourceMemory]))
+}
+
+// The pool pods mount the logging ConfigMap the manager names, optional and
+// as a directory at /etc/clustarr (the 2026-11-10 logging design §6), and
+// carry the build's version label beside name and component (design §2).
+func TestPoolPodsMountTheLoggingConfigOptionally(t *testing.T) {
+	tpl := Template(&transcodev1alpha1.TranscodeProfile{}, "cpu", Config{LoggingConfigMap: "clustarr-logging"})
+	var vol *corev1.Volume
+	for i := range tpl.Spec.Volumes {
+		if v := &tpl.Spec.Volumes[i]; v.ConfigMap != nil && v.ConfigMap.Name == "clustarr-logging" {
+			vol = v
+		}
+	}
+	require.NotNil(t, vol, "no logging ConfigMap volume")
+	require.NotNil(t, vol.ConfigMap.Optional)
+	assert.True(t, *vol.ConfigMap.Optional)
+	var mount *corev1.VolumeMount
+	for i := range tpl.Spec.Containers[0].VolumeMounts {
+		if m := &tpl.Spec.Containers[0].VolumeMounts[i]; m.Name == vol.Name {
+			mount = m
+		}
+	}
+	require.NotNil(t, mount)
+	assert.Equal(t, "/etc/clustarr", mount.MountPath)
+	assert.Empty(t, mount.SubPath)
+	assert.True(t, mount.ReadOnly)
+	assert.Equal(t, version.Version, tpl.Labels["app.kubernetes.io/version"])
+	assert.Equal(t, "clustarr", tpl.Labels["app.kubernetes.io/name"])
+
+	bare := Template(&transcodev1alpha1.TranscodeProfile{}, "cpu", Config{})
+	for _, v := range bare.Spec.Volumes {
+		assert.Nil(t, v.ConfigMap, "no ConfigMap name, no volume")
+	}
 }

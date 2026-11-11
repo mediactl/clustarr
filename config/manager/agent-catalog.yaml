@@ -115,6 +115,12 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: logging
+              mountPath: /etc/clustarr
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: logging
+          configMap:
+            name: clustarr-logging

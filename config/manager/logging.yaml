@@ -1,0 +1,15 @@
+# The logging ConfigMap (docs/superpowers/specs/2026-11-10-structured-logging-design.md
+# §6): logging.yaml, mounted read-only at /etc/clustarr as a directory in
+# every pod here and optionally in every pod the manager builds
+# (--logging-configmap). A subPath mount would never receive an update, so
+# none uses one. Edit the level here and every pod follows within 10 s.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clustarr-logging
+data:
+  logging.yaml: |
+    logging:
+      level: info
+      format: json
+      addSource: false

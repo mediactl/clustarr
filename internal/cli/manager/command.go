@@ -74,6 +74,9 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.StringVar(&d.NativeImage, "native-image", cli.EnvOr(cli.EnvNativeImage, d.NativeImage),
 		"Image the manager stamps onto the download engines and every transcode pool, nvidia's included "+
 			"(the NVIDIA runtime injects the driver). Required. Defaults to $"+cli.EnvNativeImage+".")
+	fs.StringVar(&d.LoggingConfigMap, "logging-configmap", d.LoggingConfigMap,
+		"ConfigMap holding logging.yaml, which every engine, transcode pool and graft pod the manager "+
+			"builds mounts optionally at /etc/clustarr, so a level set there reaches them. Empty mounts nothing.")
 	fs.StringVar(&d.DataClaim, "data-claim", cli.EnvOr(cli.EnvDataClaim, d.DataClaim),
 		"RWX PersistentVolumeClaim the engines and the transcode pools mount at --data-dir. "+
 			"Defaults to $"+cli.EnvDataClaim+".")

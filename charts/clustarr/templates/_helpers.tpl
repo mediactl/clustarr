@@ -39,10 +39,29 @@ helm.sh/chart: {{ include "clustarr.chart" . }}
 app.kubernetes.io/name: {{ include "clustarr.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/part-of: clustarr
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- /* The build the pods run (the clustarr image's tag, appVersion when
+       unset), which a log store reads as the version; markers.yaml
+       overrides it with the native image's. */}}
+{{- with default .Chart.AppVersion .Values.image.clustarr.tag }}
+app.kubernetes.io/version: {{ . | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end -}}
+
+{{/*
+The logging ConfigMap's volume and mount (structured-logging design §6):
+every pod mounts <release>-logging read-only at /etc/clustarr, as a
+directory and never a subPath, which would never receive an update.
+*/}}
+{{- define "clustarr.loggingVolume" -}}
+- name: logging
+  configMap:
+    name: {{ include "clustarr.fullname" . }}-logging
+{{- end -}}
+{{- define "clustarr.loggingMount" -}}
+- name: logging
+  mountPath: /etc/clustarr
+  readOnly: true
 {{- end -}}
 
 {{/*
@@ -601,6 +620,7 @@ spec:
         {{- end }}
         - name: tmp
           mountPath: /tmp
+        {{- include "clustarr.loggingMount" $root | nindent 8 }}
         {{- with .extraVolumeMounts }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -632,6 +652,7 @@ spec:
       # readOnlyRootFilesystem: true, so /tmp has to be a volume.
       - name: tmp
         emptyDir: {}
+      {{- include "clustarr.loggingVolume" $root | nindent 6 }}
       {{- with .extraVolumes }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
