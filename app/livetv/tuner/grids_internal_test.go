@@ -473,3 +473,32 @@ func TestAForceOutlivesAHeldPass(t *testing.T) {
 	assert.False(t, p.gridsDue(day), "not during the hold")
 	assert.True(t, p.gridsDue(p.grids.holdUntil), "once the hold ends")
 }
+
+func TestPrevForKeepsOnlyThePairingsOfTheLineup(t *testing.T) {
+	l := plexguide.Lineup{ID: "lineupaaaa", Stations: []plexguide.Station{{GridKey: "listedgrid"}}}
+	for _, c := range []struct {
+		name, lineup, id, grid string
+		keep                   bool
+	}{
+		{"recorded lineup is l's, id without prefix", "lineupaaaa", "other-g1", "g1", true},
+		{"recorded lineup is another's, id carries l's prefix", "lineupbbbb", "lineupaaaa-g1", "g1", false},
+		{"no recorded lineup, prefix matches", "", "lineupaaaa-g1", "g1", true},
+		{"no recorded lineup, prefix differs", "", "lineupbbbb-g1", "g1", false},
+		{"listed station, recorded lineup another's", "lineupbbbb", "lineupbbbb-listedgrid", "listedgrid", true},
+		{"listed station, no recorded lineup, prefix differs", "", "lineupbbbb-listedgrid", "listedgrid", true},
+		{"listed station, recorded lineup is l's", "lineupaaaa", "x-listedgrid", "listedgrid", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ch := plexguide.Channel{Object: "a", Prev: plexguide.Prev{
+				Match: plexguide.Automatic, Lineup: c.lineup,
+				Station: plexguide.Station{ID: c.id, GridKey: c.grid},
+			}}
+			got := prevFor(l, []plexguide.Channel{ch})[0].Prev
+			if c.keep {
+				assert.Equal(t, ch.Prev, got)
+			} else {
+				assert.Equal(t, plexguide.Prev{}, got)
+			}
+		})
+	}
+}

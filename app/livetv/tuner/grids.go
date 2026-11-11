@@ -213,8 +213,9 @@ func (p *provider) pairStations(c Config, chans []plexguide.Channel, now time.Ti
 	return recorded, cloud
 }
 
-// prevFor is chans with each last pairing cleared that is neither l's (its
-// recorded lineup, else its station's id "<lineup>-<gridKey>") nor a station l lists.
+// prevFor is chans with each last pairing kept only when a station l lists
+// or l's own. A pairing is l's by its recorded lineup, or, when none is
+// recorded, by its station id's "<lineup>-" prefix.
 func prevFor(l plexguide.Lineup, chans []plexguide.Channel) []plexguide.Channel {
 	listed := make(map[string]bool, len(l.Stations))
 	for _, s := range l.Stations {
