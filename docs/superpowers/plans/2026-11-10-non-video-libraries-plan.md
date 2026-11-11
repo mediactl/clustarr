@@ -821,3 +821,188 @@ merged tree before the push: correctness against the spec's D-decisions,
 the SSA complete-declaration rule for every new status field, the
 one-writer rule, bounded lists and strings, and no agent writing a
 Kubernetes object.
+
+## W7: scan an existing library (wave G; design D16-D20, §5.7, §9.7)
+
+The owner's music root on talos is 390 flat artist folders and the audio
+root one `<author>/<title>/<part>` audiobook (clustarr-2d, 2026-11-10,
+after the roots went live). Nothing attributes until the scan can create
+the containers and read the tags. Rules of the wave: W7.0 first, alone;
+W7.1-W7.6 in parallel with one owner per file; pathspec commits; every
+test built through the real producer and falsified by name; a report
+listing leftovers; no push. CRD changes land in W7.0 and go on talos by
+hand before the deploy.
+
+### W7.0 The API, the schema, the tokens (serial)
+
+- `pkg/events/schema/intake.go`: `ItemCreate` gains `MusicBrainzID`,
+  `OpenLibraryID`, `ASIN`, `Region`, `Folder string` (omitempty; the v1
+  payload keeps its name, `schematest/payloads.go` round-trips a create of
+  each kind); `Kind`'s doc names artist, author and audiobook.
+- `pkg/metadata/provider.go`: `SearchHit` gains `Score int32` and
+  `Disambiguation string`; `clients/musicbrainz.SearchArtists` maps
+  `Score` and `Disambiguation` from `musicbrainzws2.Artist`; the other
+  searchers leave them zero.
+- `api/catalog/v1alpha1`: `ExclusionKind` gains `artist` and `author`
+  (`ExclusionKindFor` maps Artist to `musicbrainz`, Author to `openlibrary`;
+  `delete.go`'s table); `NamingSpec.OrganizeFolders *bool` (doc: D19, needs
+  renameFiles, default false, `OrganizeFoldersOrDefault`); `UnmatchedFile.
+  Folder bool` (doc: the entry is a folder the scan could not identify, its
+  files counted in `awaitingChildren`); `LibraryScanProgress` (or wherever
+  `AwaitingEpisodes` is rendered) renders `awaitingChildren`.
+- `app/import/scanprogress`: `AwaitingEpisodes` becomes `AwaitingChildren`
+  with a `Kinds` map (series→episodes, artist→albums, author→books) so the
+  Summary line names each ("412 awaiting their artists' albums"); Merge
+  adds both. Every reader renamed (grep).
+- `pkg/naming`: tokens `{medium}`/`{medium:00}` (from `Context.Medium`, new
+  int32) and `{Medium Format}` (`Context.MediumFormat`, already present);
+  `multiDiscTrackFile` preset `{Album Title}{ (Release Year)}/{Medium
+  Format} {medium:00}/{Artist Name} - {Album Title} - {track:00}{ - Track
+  Title}` with its `NamingSpec` override (`multiDiscTrackFile`), rendered
+  by `catalogctx.TrackFilePath` when the album's selected release lists two
+  or more media (`catalogctx.Album` sets `Medium` and `MediumFormat` from
+  the Track and the release's medium format). `pkg/naming/catalogctx`
+  tests: a two-disc release's disc 2 track 1 renders under `CD 02/` and does
+  not collide with disc 1's.
+- `app/import/manager/scanapply/rbac.go`: markers for create/update/patch
+  on artists, authors, audiobooks; `make generate manifests` (clean); the
+  manager role's rules pasted between the chart's sentinels in
+  `charts/clustarr/templates/rbac.yaml`.
+- Gate: `go build ./...`, `go vet` on the touched packages, `pkg/crdcheck`
+  envtests, `TestNoCRDDefaultIsUnreachableFromGo`.
+
+### W7.1 Identify an unmapped folder (agent) — owns `rescan/identify.go` (new), `rescan/nonvideo_scan.go`, `rescan/doc.go`, `rescan/match.go`'s comment, `rescan/worker.go`'s RPC plumbing
+
+- `MatchArtist(rel first segment, cands []ArtistCandidate) ItemMatch`:
+  status.path, `spec.folder`, then `release.CleanTitle` of the names
+  (`status.metadata.name`, aliases); `nonVideoIndex` gains the candidates.
+- `identify.go`: `IdentifyArtist(ctx, folder, files, lookup, search)`:
+  the `[mbid-…]`/`{mbid-…}` token (`mbidFolderRE`); else the agreeing
+  `MUSICBRAINZ_ARTISTID` of up to five probed audio files whose album
+  artist (else artist) tag CleanTitle-equals the folder name, validated by
+  `RPCMetadataLookup{Kind: artist, IDs{mb-artist}}` (the hit's title is the
+  canonical name); else `RPCMetadataSearch{Kind: artist, Text: folder}`
+  read strictly (hits whose `release.TitleNorm` equals the folder name's;
+  exactly one at the top score of those; none `no_match`; several
+  `ambiguous_title` with candidates `Name (disambiguation) [mbid]`, at most
+  `MaxCandidates`). `IdentifyAuthor` the same through Open Library
+  (`[olid-OL…A]` token, no tag). `IdentifyAudiobook(author, title folder)`:
+  the ASIN token in the root's `defaults.region`, else Audible's search
+  (`SearchAudiobooks(title, region)`) with exactly one hit whose title
+  equals the folder's and whose authors name the author folder.
+- The walk: per first segment under a music or book root, resolve once
+  (memo per walk), propose one `present` observation with
+  `Attribution{Kind, ProviderID, Evidence: "folder", Create: &ItemCreate{...
+  Folder: segment, Title: hit's}}` and no Frozen, count the folder's other
+  files `AwaitingChildren[kind]`; an unresolved folder is one
+  `st.unmatched(folder, code, reason, candidates)` with `Folder: true`, its
+  files counted. Under an audiobook root the `<author>/<title>` folder's
+  files are proposed with the Create and their `Frozen` (PartIndex) each.
+  Music files of an existing Artist go to W7.2's `MatchAlbum(absPath, rel,
+  tags, cands)` after the probe (the probe moves before the match for music
+  files; `freshNonVideoSpec` runs once per file).
+- Tests through the real producer: a walk over a temp root with three
+  flat artist folders (a token, a tag-agreeing one against a fake lookup,
+  a search-resolved one against a fake search of two hits one of which
+  matches at the top score), one ambiguous folder (two exact hits at 100)
+  and one unknown; assert the four observations, the two unmatched folder
+  entries, the counts; falsify by reverting the strict rule (a lone
+  non-equal hit must not match).
+
+### W7.2 Attribute a track by its tags (agent) — owns `rescan/nonvideo.go`, `app/import/worker/fileimport/tracks.go`
+
+- `AlbumCandidate` gains `ReleaseGroupID`, `ReleaseIDs []string` (from
+  `status.metadata.releases[].id`) and keeps `Tracks`, `Media`.
+- `MatchAlbum(absPath, rel string, tags *commonv1.MediaTags, cands
+  []AlbumCandidate) ItemMatch`: status.path as today; then by the Artist
+  the first segment names (the candidates are already the root's): the
+  `MusicBrainzReleaseGroupID` tag; the `MusicBrainzReleaseID` tag against
+  `ReleaseIDs`; the album folder when the path has three or more segments
+  (today's title and year rule on segment two); else the `Album` tag's
+  CleanTitle against the titles, the year narrowing when both known. Two
+  hits `ambiguous_title`; none `no_child_item` naming the tag's album;
+  no tags and no album folder `unrecognised_layout` with the old message.
+  The `len(segs) < 3` refusal is gone; `nonvideo_test.go:71` and
+  `nonvideo_envtest_test.go:187` re-aligned to the new rule.
+- `fileimport.AttributeTrack` unchanged in signature; a file whose Album
+  lists no tracks yet answers a distinguishable reason
+  (`ErrTracksPending`) so the walk counts it awaiting instead of unmatched.
+- Tests: table over tag combinations (group id, release id, album folder,
+  album tag, none) against two albums of one artist; falsify by dropping
+  the release-id rule.
+
+### W7.3 Create at the applier (manager) — owns `app/import/manager/scanapply/*`, `app/import/controller/librarydelete/kinds.go`
+
+- `createName`: `names.Artist(c.Title, c.MusicBrainzID)`, `names.Author(
+  c.Title, c.OpenLibraryID)`, `names.Audiobook(c.Title, c.ASIN)`.
+- `ensureItem`: cases for the three kinds (provider keys musicbrainz,
+  openlibrary, asin; `idOf` from the spec; `rootOf`); the default arm's
+  message names the five kinds; `applyArtist`, `applyAuthor`,
+  `applyAudiobook` modelled on `applySeries`: `spec.folder` the first
+  segment (an audiobook's its `<author>/<title>`), the root's
+  `defaults.qualityProfileRef`, `monitored` (`defaults.monitored`, nil
+  true), `monitorNewItems` (`defaults.monitorNewItems` when set),
+  `tags`, `addOptions{monitor: all, searchForMissing: false}`, an Author's
+  `metadataProfile.allowedLanguages: ["en"]`, an Audiobook's `region` and
+  `authorRef` (the one Author of the name, `release.TitleNorm`, else none);
+  field manager `mediafilespec.FieldManager`; the write pace.
+- `present`: return after a created artist or author (no file recorded,
+  as for a series); an audiobook create records its file.
+- `librarydelete/kinds.go`: an Artist's and an Author's delete writes the
+  exclusion (`ExclusionKindArtist`/`Author`), replacing `noExclusion`.
+- `doc.go`'s stale "monitor none" sentence corrected.
+- Envtests: a scan observation carrying an artist create makes the Artist
+  with the pinned folder and the root's defaults; a second observation of
+  the same folder finds it (no duplicate); an exclusion refuses it
+  (`excluded`); a root without a default profile refuses it; falsify by
+  removing the Artist case (the observation dead-letters).
+
+### W7.4 The folder scan waits for the children's lists (manager) — owns `app/catalog/controller/folderscan`, the `folderscan.Pass` call sites in `artist/reconciler.go`, `author/reconciler.go`, `series/reconciler.go`
+
+- `folderscan.Request.ChildrenSettled bool` and `Pending int`; `Pass`
+  stays `Settling` ("waiting for the track lists of 7 of its 23 albums")
+  until it is true, then the 30 s settle as today. Series passes true.
+  Artist: every Album of `fan.albums` has `len(status.tracks) > 0` or a
+  MetadataReady False condition (read from the cache; the fan-out holds
+  them). Author: every Book has `status.metadata`.
+- Tests: `folderscan` unit tests for the pending branch and its message;
+  the Artist envtest drives a scan-created artist whose albums get tracks
+  one by one and asserts the scan is asked only after the last.
+
+### W7.5 Re-lay a flat folder (manager) — owns `app/import/mediafilespec/specwrite/*`, `app/import/mediafilespec/rename.go`, `app/remediation/rename/*`, `pkg/fsops/move.go`, `pkg/fsops/under.go`, `pkg/naming/catalogctx/nonvideo.go` (TrackFilePath's multi-disc case only if W7.0 left it), the 2026-09-24 naming design's as-built note
+
+- `specwrite.RenameFile(ctx, c, api, mf, dryRun, mode RenameMode, container
+  string)`: modes `RenameWhole` (today's keepFolder=false), `RenameInFolder`
+  (keepFolder=true), `RenameOrganize` (the target may lie in another folder
+  strictly under `container`, the item's folder; `fsops.StrictlyUnder`);
+  under it `os.MkdirAll(dir(to), 0o775)` before the move, the sidecars
+  with it, and after the recorded move `fsops.PruneEmptyDirs(container,
+  dir(from))`; a failed move prunes the folder it made. `RenameHeld`'s doc
+  and `heldBecause` say "and the root does not organize folders".
+- The actuator: `renameMode` returns `RenameOrganize` for a non-video file
+  under a root with `renameFiles` and `organizeFolders`, with the
+  container's folder (Album → its Artist's `status.path`; Book → its
+  Author's or its own; Audiobook and Issue → their own/Comic's) from
+  `rootFolderRef`'s walk; the memo `proposal` key carries the mode;
+  `openScanOver` waits on the target folder too.
+- Tests: `keepfolder_test.go` and `rename_envtest_test.go:320` keep the
+  hold for video and for a root without the field, and gain the organize
+  case (a flat track moved into a created album folder, sidecar along,
+  the flat folder kept since it is the container); a move outside the
+  container held; falsify by dropping the StrictlyUnder check.
+
+### W7.6 The Unmatched page confirms a folder (ui) — owns `ui/views/unmatched.templ`, `ui/add.go`, `ui/actions/add.go`, `ui/projection/library.go`'s UnmatchedEntry, `ui/views/libraryscan*.templ`
+
+- `UnmatchedEntry.Folder`; a folder row draws one "Add as <kind>" button
+  per candidate (parsed `Name (disambiguation) [id]`) as a form to the
+  tab's add route with title, provider id, root and `folder`, and a
+  "Search Add New" link (`?q=&folder=&root=`); Add New's create form
+  carries `folder` hidden; `AddRequest.Folder` pins `spec.folder` on
+  Artist, Author and Audiobook (`buildItem`); the scan page's progress
+  shows `awaitingChildren`.
+- Tests: the rendered folder row (buttons, the hidden folder), `AddItem`
+  with a folder, TestUINeverWrites still green.
+
+### Done notes
+
+(filled by the controlling session as the wave lands)

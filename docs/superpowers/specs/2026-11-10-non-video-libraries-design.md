@@ -251,6 +251,108 @@ analysis.
   config/crd/bases/`), and the old field's values are rebuilt by the next
   reconcile. The chart's values are edited with the deploy.
 
+- **D16. A root scan creates Artists, Authors and Audiobooks from their
+  folders, as it creates Movies and Series** (owner, 2026-11-10, after the
+  music and audio roots went live on talos and the rescan listed every file
+  as `unrecognised_layout`: /data/media/music is 390 artist folders with no
+  album folder, and `scanapply` creates movies and series only). The rule
+  is amendment A1.5 as written -- identity first, then the catalog, then the
+  gateway, never a speculative item -- and Lidarr's Library Import (its
+  `IdentificationService` fetches MusicBrainz candidates for an unmapped
+  folder and the person confirms the match). For the first segment under a
+  music root, in order: a `[mbid-<uuid>]`/`{mbid-<uuid>}` token in the folder
+  name; else the `MUSICBRAINZ_ARTISTID` tag that up to five of the folder's
+  audio files agree on, each whose album artist (else artist) tag is the
+  folder's name by `release.CleanTitle`, validated by the gateway's lookup
+  (`RPCMetadataLookup`, kind artist), which also gives the canonical name;
+  else the gateway's artist search (`RPCMetadataSearch`, text the folder
+  name) read strictly: the hits whose `release.TitleNorm` equals the folder
+  name's, and exactly one of them at the search's top score, is the artist;
+  none is `no_match`; two or more is `ambiguous_title`, listed once in
+  `status.unmatched` for the folder (`UnmatchedFile.folder: true`) with the
+  hits as candidates (`Name (disambiguation) [mbid]`), its files counted,
+  not listed. `pkg/metadata.SearchHit` carries `score` and `disambiguation`
+  for it (MusicBrainz's, dropped until now). An author folder under a book
+  root goes the same way through Open Library (`[olid-OL…A]` token, else
+  the search; no tag). An audiobook folder (`<author>/<title>`) is an
+  Audiobook when it names an ASIN (`[ASIN B0…]`, `[B0…]`) in the root's
+  `defaults.region`, which is why the old refusal ("the region would be a
+  guess", `rescan/nonvideo.go`) no longer holds, else when Audible's search
+  for the title in that region answers exactly one hit whose title equals
+  the folder's and whose authors name the author folder; it links
+  `spec.authorRef` as Add New does (exactly one Author of the name in the
+  namespace, else none) and creates no Author. The agent proposes
+  (`schema.ItemCreate` gains `musicBrainzID`, `openLibraryID`, `asin`,
+  `region` and `folder`; one `present` observation per folder, the Series'
+  shape, the folder's other files counted as awaiting the item's children)
+  and the manager's applier creates: `spec.folder` pinned to the on-disk
+  folder as a scanned Series' is, the root's `defaults.qualityProfileRef`
+  (required, as for every scan create), `defaults.monitored`,
+  `defaults.monitorNewItems` and `defaults.tags` (which the movie and
+  series creates still do not read), `addOptions.monitor: all` and
+  `searchForMissing: false` (a scan never starts a search storm; the owner
+  sets `defaults.monitored: false` on a root before the first scan of a
+  library whose missing albums are not wanted), an Author's
+  `metadataProfile.allowedLanguages: [en]` as Add New's. An ImportExclusion
+  of kind `artist` (MusicBrainz) or `author` (Open Library) refuses the
+  create, written by the delete dialog as a Movie's is.
+- **D17. Tracks attribute by their tags whatever the folder depth** (D6
+  extended to the rescan; Lidarr's `TrackGroupingService` groups by tag,
+  never by folder). Under a music root the walk probes every audio file
+  before it matches (the probe is the header read `fileimport.
+  FrozenFileQualityProbe` already runs after the match), the first segment
+  names the Artist (status.path, `spec.folder`, then its names), and the
+  file's Album is, in order: the `MUSICBRAINZ_RELEASEGROUPID` tag naming an
+  Album of that Artist; the `MUSICBRAINZ_ALBUMID` tag naming a release of
+  one (`AlbumCandidate` carries the group's release ids); the album folder
+  when the file sits in one (today's rule, segment two's title and year);
+  else the `ALBUM` tag's `CleanTitle` against the Artist's albums, the year
+  narrowing only when both sides know one. Two albums is `ambiguous_title`,
+  none is `no_child_item` naming the tag ("no album of 2Pac is titled
+  ..."), honest for a compilation or live album the artist's metadata
+  profile does not list. The track inside the album is `AttributeTrack` as
+  before. An Album whose `status.tracks` has not arrived counts its files
+  as awaiting (the `AwaitingEpisodes` precedent, generalised to
+  `awaitingChildren` with the kind's noun), never unmatched, and the
+  Artist asks for its folder scan only once its albums are settled (D18).
+  Audiobooks keep `<author>/<title>/<parts>`; books keep `MatchBook`.
+- **D18. The folder scan a container owes waits for its children's
+  lists.** `folderscan.Request` gains `ChildrenSettled`: a Series passes
+  true (its episodes come whole from the fan-out), an Artist passes "every
+  Album the fan-out listed has `status.tracks` or a MetadataReady False
+  condition", an Author "every Book has `status.metadata`"; `Pass` stays
+  `Settling` with a message naming how many are pending until then. On
+  talos 390 artists' albums are thousands of MusicBrainz lookups at one a
+  second, hours after the artists exist, so a scan asked 30 s after the
+  albums were listed would attribute nothing.
+- **D19. The rename pass re-lays a flat folder when the root asks.**
+  `RootFolder.spec.naming.organizeFolders` (default false; needs
+  `renameFiles`): under it a non-video file whose canonical path lies in
+  another folder strictly under its container's folder (an album track
+  under its Artist's folder, a book under its Author's, a part under its
+  Audiobook's, an issue under its Comic's) is moved there -- the target
+  folder created, `fsops.MoveNoReplace`, the sidecars beside it, the empty
+  source folders pruned up to the container's folder, never the container
+  folder or the root -- where the probe-driven naming design's D5 held
+  every move to another folder (`mediafilespec.RenameHeld`, "files only, not
+  folders"). Video keeps D5. Album-level files (`cover.jpg`, `.cue`, `.log`)
+  stay where they are; the nfo stage writes the album's own. The actuator's
+  remembered hold is keyed by the mode too, so turning the field on retries
+  what was held. Lidarr's rename moves a track into its computed album
+  folder; this is that, opt-in. And the music preset learns Lidarr's
+  multi-disc shape: a release of two or more media renders
+  `{Album Title}{ (Release Year)}/{Medium Format} {medium:00}/{Artist Name}
+  - {Album Title} - {track:00}{ - Track Title}` (`{medium:00}`, `{Medium
+  Format}` tokens; `multiDiscTrackFile` override), since the one-disc preset
+  collides every disc's track 1 (All Eyez on Me).
+- **D20. The Unmatched page confirms a folder.** An unmatched folder row
+  (D16's `folder: true`) offers its candidates as "Add as artist" (author,
+  audiobook) buttons, each Add New's create with the hit's id and title,
+  the root and the folder pinned (`AddRequest.Folder`), and a "Search" link
+  to Add New filled with the folder's name -- Lidarr's Interactive Import
+  confirmation, no automatic pick. The library-scan page's progress line
+  says how many files await their items' children.
+
 ## 3. Parity tables (what movies and TV have, per flavour, before this design)
 
 Legend: Y built, P partial, N missing. Lines name the as-built code.
@@ -588,6 +690,34 @@ exists in the namespace; the Audnexus lookup by ASIN -- the ui's third bound
 request, `ui.Options.MetadataLookup` -- renders the name when the hit
 carries none and runs only after the add's inputs are checked; no `bookRef`,
 since Add New resolves no Book and the ISBN lookup is not built.)
+
+### 5.7 Scanning an existing library (D16-D18, wave G)
+
+The walk under a music root (`rescan/nonvideo_scan.go`) runs per first
+segment: an existing Artist by `status.path`, `spec.folder` or name takes
+it; else `rescan/identify.go` resolves the folder (token, agreeing tags,
+strict search) and proposes one `ItemCreate{kind: artist}` observation
+(`Evidence: folder`), counting the folder's files as awaiting albums; a
+folder it cannot resolve is one `UnmatchedFile{folder: true}` with the hits
+as candidates. A file whose Artist exists is probed (tags) and matched to
+an Album by D17 through `MatchAlbum(absPath, rel, tags, cands)`, then to a
+track by `AttributeTrack`. A book root does the same for its author
+folders through Open Library and keeps `MatchBook`; an audiobook root
+proposes `ItemCreate{kind: audiobook}` from an ASIN token or Audible's one
+hit, the file recorded in the same observation with its `PartIndex`. The
+applier (`scanapply/create.go`) adds `createName`, `ensureItem`,
+`applyArtist`, `applyAuthor` and `applyAudiobook` beside the movie's and
+series' (names through `pkg/names`, the exclusion check by the kind's
+provider key, the write pace), returns after an artist or author create as
+after a series' (its files await the folder scan the container owes), and
+its role gains create/update/patch on artists, authors and audiobooks.
+`folderscan.Pass` takes `ChildrenSettled` (D18). The agent's search is one
+`RPCMetadataSearch` per unmapped folder under the metadata agent's
+MusicBrainz limiter (390 folders is about seven minutes), its answer not
+cached; the lookup validating a tag is `RPCMetadataLookup`. The
+never-guess comments in `rescan/match.go` and `rescan/nonvideo.go`
+are reworded to A1.5's text: the gateway is asked, and only an exact,
+unique answer is taken.
 
 ## 6. Import and probe (the import agent)
 
@@ -1132,6 +1262,18 @@ it). The typeahead's id prefixes gain `comicvine:`, `mangadex:`, `asin:`,
   (`d.Files` from the kind's MediaFiles).
 - The Settings page's MetadataProvider form is unchanged (generic).
 
+### 9.7 Unmatched folders (D20)
+
+`ui/views/unmatched.templ` draws a folder entry (`UnmatchedFile.folder`)
+as the folder, its reason and one button per candidate ("Add as artist:
+Nirvana (90s US grunge band)"), each a form to `POST /library/{tab}/add`
+with the hit's provider id and title, the scan's root and `folder` = the
+entry's path, which `actions.AddRequest.Folder` pins into `spec.folder`
+(Artist, Author, Audiobook); a "Search" link opens Add New with `?q=` the
+folder's base name and `&folder=`, which the create form carries hidden.
+A file entry keeps the manual-assign form. `views.LibraryScanProgress`
+shows `awaitingChildren` ("412 files await their artists' albums").
+
 ## 10. cluster-plex (the other repo; a separate deliverable)
 
 Recorded here so the two charts move together; built in cluster-plex under
@@ -1266,6 +1408,26 @@ index.go`, W5 owns those two), then W6. The `nfo` stage's planner is W3's
 and its registration in the item pass W1's, agreed on the `NFOWriteTask`
 schema in `pkg/events/schema` written in W0.
 
+**Wave G (scan an existing library; D16-D20; plan W7, 2026-11-10/11):**
+W7.0 serial (the API, schema and naming tokens: `ItemCreate`'s new fields,
+`SearchHit.score`/`disambiguation`, `ExclusionKind` artist/author,
+`naming.organizeFolders`, `UnmatchedFile.folder`, `scanprogress`
+`awaitingChildren`, `{medium:00}`/`{Medium Format}` and the multi-disc
+preset, `make generate manifests`, the scanapply role's RBAC markers and
+the chart copy), then in parallel W7.1 identify (`rescan/identify.go`,
+`nonvideo_scan.go`, the package docs), W7.2 attribute (`rescan/nonvideo.go`
+`MatchAlbum` with tags, `AlbumCandidate` ids, `fileimport/tracks.go`),
+W7.3 apply (`scanapply/create.go`, `applier.go`, `librarydelete`'s
+exclusions for Artist and Author), W7.4 settle (`folderscan.Request.
+ChildrenSettled`, the Artist's and Author's computation, the Series' true),
+W7.5 re-lay (`specwrite.RenameFile`'s mode, `fsops` mkdir and prune, the
+actuator's mode and memo key, `openScanOver` on the target folder, the
+2026-09-24 naming design's D5 as-built note, `TrackFilePath`'s multi-disc
+case), W7.6 the Unmatched page and Add New's folder pin; each task
+implement, adversarial review, fix; the controlling session gates, pushes
+and documents. CRDs by hand on talos first (ImportExclusion, RootFolder,
+LibraryScan).
+
 ## 12. Tests and guards
 
 - `pkg/crdcheck`: the new enums, caps and defaults (`TestNoCRDDefaultIs
@@ -1315,3 +1477,15 @@ schema in `pkg/events/schema` written in W0.
   agent may learn one; revisit when its field list is published.
 - **Q7.** Issue's `state` becomes `phase` cold turkey (D4). Any reader
   outside this repo? None found in cluster-plex.
+- **Q8.** D17 attributes a track only to the Album's selected release
+  (`status.tracks`), as the download import does; Lidarr matches across
+  every release of the group and picks the release the files fit. A flat
+  library tagged for a deluxe edition will read `TracksMissing` against the
+  standard release until `anyReleaseOk`'s selection moves on the files that
+  did attribute. Built as designed; a cross-release attribution is the
+  next step if the owner's library shows it.
+- **Q9.** D16 monitors a scan-created artist's albums `all` with no search
+  on add: the wanted sweep and the BacklogSearch then search every missing
+  album of 390 artists over time. Set the music root's
+  `defaults.monitored: false` before the first scan to add them unmonitored
+  (the Artist gates its Albums), and monitor the ones wanted by hand.
