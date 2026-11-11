@@ -144,11 +144,6 @@ func categoryBlocks(lp *livetvstore.LineupPlan, channels []clustarrv1.IPTVChanne
 	return next, categories
 }
 
-// hasCategoryBlocks reports whether bs holds a lineup category's block.
-func hasCategoryBlocks(bs []clustarrv1.BlockStatus) bool {
-	return slices.ContainsFunc(bs, func(b clustarrv1.BlockStatus) bool { return b.Category != "" })
-}
-
 // unapplied counts the channels that do not carry lp yet: a planned channel
 // missing, inactive, or off its planned number or category, and an active
 // channel still in a category the plan blocks (not refused as TooMany) that
@@ -298,10 +293,13 @@ func (r *Reconciler) packBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 	// holding an active channel (the custom guides design §5.5). Until the
 	// channels carry the plan, the published blocks stand: a plan that
 	// failed (a rule that does not compile), one the lineup controller has
-	// not applied to every channel yet, or none stored while categories are
-	// published (a store lost) must not take a DVR off Plex. Before the
-	// first plan is applied, a dry run's plan or none stored packs by
-	// number as before.
+	// not applied to every channel yet, or none stored, or only a dry run's,
+	// while any block is published must not take a DVR off Plex. That covers
+	// the one-edit flip (plexGuide.enabled false, lineup.enabled true): until
+	// the lineup controller's first enabled plan lands, packing by number
+	// would publish a fresh XMLTV block of every channel at its DIRECTV or
+	// parked number, and cluster-plex would put it in the cloud DVR's place.
+	// Only a provider with nothing published packs by number meanwhile.
 	var catOf map[string]string // start -> category
 	var next []blocks.Block
 	if lineupEnabled(p) {
@@ -309,8 +307,8 @@ func (r *Reconciler) packBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 		case lp != nil && lp.Error != "":
 			return keep(clustarrv1.ReasonInvalidLineup, "spec.lineup is invalid: "+lp.Error), nil
 		case lp == nil || lp.DryRun:
-			if hasCategoryBlocks(p.Status.Blocks) {
-				return keep(clustarrv1.ReasonLineupPending, "waiting for the lineup controller's plan: the published category blocks are kept"), nil
+			if len(p.Status.Blocks) > 0 {
+				return keep(clustarrv1.ReasonLineupPending, "waiting for the lineup controller's first enabled plan: the published blocks are kept"), nil
 			}
 		default:
 			// The lineup controller stores the plan, then applies each

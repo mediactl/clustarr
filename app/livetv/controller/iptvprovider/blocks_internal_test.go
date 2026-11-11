@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
 	"github.com/mediactl/clustarr/pkg/iptv/lineup"
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 )
 
 const testAddress = "clustarr-livetv.media.svc.cluster.local:80"
@@ -244,10 +245,11 @@ func TestACategoryBlockKeepsItsDeviceIDAcrossARenumbering(t *testing.T) {
 	assert.Equal(t, []string{"1101", "1102"}, pl.numbers["1101"])
 }
 
-// TestLineupOffPacksAsBefore: a provider without spec.lineup, with a dry
-// run, with no plan stored yet, or with a plan the lineup controller has not
-// applied yet, packs its blocks as before, whatever its channels' status
-// says; and blocks of categories are no boundaries of those.
+// TestLineupOffPacksAsBefore: a provider without spec.lineup or with a dry
+// run packs its blocks as before, whatever its channels' status says, and so
+// does an enabled lineup with no plan stored or only the dry run's while the
+// provider has published no block at all (one that has is held, below); and
+// blocks of categories are no boundaries of those.
 func TestLineupOffPacksAsBefore(t *testing.T) {
 	chans := []clustarrv1.IPTVChannel{catChannel("1001", "News"), catChannel("1002", "News"), catChannel("2001", "Sports")}
 	plain := &clustarrv1.IPTVProvider{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: lineupProviderName}}
@@ -265,11 +267,11 @@ func TestLineupOffPacksAsBefore(t *testing.T) {
 		lineup *clustarrv1.LineupSpec
 		stored *livetvstore.LineupPlan
 	}{
-		"no spec.lineup, a plan stored": {nil, applied},
-		"a dry run":                     {&clustarrv1.LineupSpec{}, dry},
-		"a dry run, a plan applied":     {&clustarrv1.LineupSpec{}, applied},
-		"enabled, no plan stored":       {&clustarrv1.LineupSpec{Enabled: true}, nil},
-		"enabled, the dry run's plan":   {&clustarrv1.LineupSpec{Enabled: true}, dry},
+		"no spec.lineup, a plan stored":                  {nil, applied},
+		"a dry run":                                      {&clustarrv1.LineupSpec{}, dry},
+		"a dry run, a plan applied":                      {&clustarrv1.LineupSpec{}, applied},
+		"enabled, no plan stored, nothing published":     {&clustarrv1.LineupSpec{Enabled: true}, nil},
+		"enabled, the dry run's plan, nothing published": {&clustarrv1.LineupSpec{Enabled: true}, dry},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := plain.DeepCopy()
@@ -409,8 +411,9 @@ func TestAPlanNotYetOnTheChannelsHoldsTheBlocks(t *testing.T) {
 // TestAVanishedPlanHoldsTheCategoryBlocks: with the lineup enabled and its
 // categories published, a plan object gone from the store (a bucket
 // re-created) or only a dry run's holds the blocks rather than pack by
-// number, which would replace every category's DVR; before the first apply
-// (no category block published) the packing by number goes on.
+// number, which would replace every category's DVR; so does any published
+// block before the first enabled plan lands (the one-edit flip, below), and
+// only a provider with nothing published packs by number meanwhile.
 func TestAVanishedPlanHoldsTheCategoryBlocks(t *testing.T) {
 	chans := []clustarrv1.IPTVChannel{catChannel("1001", "News"), catChannel("2001", "Sports")}
 	newsDev := hdhr.BlockDeviceID("media", lineupProviderName, "cat/News")
@@ -433,14 +436,59 @@ func TestAVanishedPlanHoldsTheCategoryBlocks(t *testing.T) {
 			assert.Equal(t, "0A0B0C0D", pl.blocks[1].DeviceID)
 			assert.Equal(t, []string{"2001"}, pl.numbers["2001"])
 
-			// Before the first apply: packed by number.
+			// Before the first apply, a block packed by number is published:
+			// held as it is, not repacked.
 			p.Status.Blocks = []clustarrv1.BlockStatus{{Start: "1001", First: "1001", Last: "2001", DeviceID: "8246E54A", GuidePath: BlockGuidePath}}
+			pl, err = r.planBlocks(context.Background(), p, chans)
+			require.NoError(t, err)
+			assert.Equal(t, clustarrv1.ReasonLineupPending, pl.reason)
+			require.Len(t, pl.blocks, 1)
+			assert.Equal(t, "8246E54A", pl.blocks[0].DeviceID)
+			assert.Empty(t, pl.blocks[0].Category)
+
+			// Nothing published: packed by number.
+			p.Status.Blocks = nil
 			pl, err = r.planBlocks(context.Background(), p, chans)
 			require.NoError(t, err)
 			assert.Empty(t, pl.reason)
 			require.Len(t, pl.blocks, 1)
-			assert.Equal(t, "8246E54A", pl.blocks[0].DeviceID)
+			assert.Equal(t, "1001", pl.blocks[0].Start)
 			assert.Empty(t, pl.blocks[0].Category)
+		})
+	}
+}
+
+// TestTheFlipHoldsTheCloudBlock: the cutover is one edit,
+// plexGuide.enabled false and lineup.enabled true. Until the lineup
+// controller's first enabled plan lands the stored plan is the dry run's (or
+// none), and packing by number then would publish a fresh XMLTV block of
+// every channel at its DIRECTV or parked number, which cluster-plex would
+// put in the cloud DVR's place. The published cloud block is kept instead,
+// its lineup and device as they were.
+func TestTheFlipHoldsTheCloudBlock(t *testing.T) {
+	cloudDev := hdhr.BlockDeviceID("media", lineupProviderName, "plex/"+plexLineupID+"/3")
+	cloud := clustarrv1.BlockStatus{
+		Start: "3", First: "3", Last: "9572", Channels: 248, DeviceID: cloudDev,
+		Lineup: plexguide.LineupURI(plexLineupID, "DIRECTV Mobile (1009 channels)"),
+	}
+	chans := []clustarrv1.IPTVChannel{catChannel("3", "Local"), catChannel("202", "News"), catChannel("10017", "")}
+	dry := appliedPlanFor(chans, lineup.Category{Name: "News", Base: 1000, Channels: 1}, lineup.Category{Name: "Local", Base: 10000, Channels: 1})
+	dry.DryRun = true
+	for name, stored := range map[string]*livetvstore.LineupPlan{"the dry run's plan": dry, "no plan stored": nil} {
+		t.Run(name, func(t *testing.T) {
+			p := lineupProvider(true)
+			p.Spec.PlexGuide = &clustarrv1.PlexGuide{Lineup: plexLineupID, Enabled: false}
+			p.Status.Blocks = []clustarrv1.BlockStatus{cloud}
+			r := fakeReconciler(t, testAddress, p)
+			r.PlanReader = storedPlan(stored)
+			pl, err := r.planBlocks(context.Background(), p, chans)
+			require.NoError(t, err)
+			assert.Equal(t, clustarrv1.ReasonLineupPending, pl.reason)
+			require.Len(t, pl.blocks, 1, "no XMLTV block packed by number")
+			assert.Equal(t, cloudDev, pl.blocks[0].DeviceID)
+			assert.Equal(t, cloud.Lineup, pl.blocks[0].Lineup, "still the cloud lineup's device")
+			assert.Empty(t, pl.blocks[0].GuidePath)
+			assert.Equal(t, "http://"+testAddress+"/hdhr/"+cloudDev, pl.blocks[0].URI)
 		})
 	}
 }
