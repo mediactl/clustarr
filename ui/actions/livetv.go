@@ -19,8 +19,6 @@ package actions
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -35,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clustarrv1alpha1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -256,16 +255,9 @@ func DeleteChannels(ctx context.Context, g Getter, d Deleter, namespace string, 
 	return len(current), nil
 }
 
-// ChannelObjectName is the name an IPTVChannel the ui adds takes: its
-// provider's name and a hash of its key, so a key is added once (a second
-// add is AlreadyExists).
-func ChannelObjectName(provider, key string) string {
-	sum := sha256.Sum256([]byte(key))
-	if len(provider) > 52 {
-		provider = provider[:52]
-	}
-	return provider + "-" + hex.EncodeToString(sum[:])[:10]
-}
+// ChannelObjectName is the name an IPTVChannel the ui adds takes:
+// [iptv.ChannelObjectName], the name the lineup controller gives it too.
+func ChannelObjectName(provider, key string) string { return iptv.ChannelObjectName(provider, key) }
 
 // AddChannel creates an active IPTVChannel for the provider's playlist
 // entry key at number, named name, labelled UI-made, under [FieldManager].

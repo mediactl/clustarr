@@ -29,39 +29,41 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
+	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/iptv/lineup"
 )
 
-// exampleLineup mirrors the CRD's spec.lineup json names; the planner does
-// not import the API.
-type exampleLineup struct {
-	Enabled    bool     `json:"enabled"`
-	Trim       []string `json:"trim"`
-	Exclude    []string `json:"exclude"`
-	Categories []struct {
-		Name    string   `json:"name"`
-		Base    int      `json:"base"`
-		Groups  []string `json:"groups"`
-		Names   []string `json:"names"`
-		Exclude []string `json:"exclude"`
-	} `json:"categories"`
-}
-
+// loadExample reads the example manifest's spec.lineup through the API type
+// and FromSpec, as the lineup controller does.
 func loadExample(t *testing.T) lineup.Spec {
 	t.Helper()
 	b, err := os.ReadFile("../../../docs/examples/iptvprovider-argon-lineup.yaml")
 	require.NoError(t, err)
-	var doc struct {
-		Spec struct {
-			Lineup exampleLineup `json:"lineup"`
-		} `json:"spec"`
-	}
-	require.NoError(t, yaml.Unmarshal(b, &doc))
-	s := lineup.Spec{Trim: doc.Spec.Lineup.Trim, Exclude: doc.Spec.Lineup.Exclude}
-	for _, c := range doc.Spec.Lineup.Categories {
-		s.Rules = append(s.Rules, lineup.Rule{Category: c.Name, Base: c.Base, Groups: c.Groups, Names: c.Names, Exclude: c.Exclude})
-	}
-	return s
+	var p clustarrv1.IPTVProvider
+	require.NoError(t, yaml.UnmarshalStrict(b, &p))
+	require.NotNil(t, p.Spec.Lineup)
+	return lineup.FromSpec(p.Spec.Lineup, int(p.Spec.MaxChannelsOrDefault()))
+}
+
+func TestFromSpecKeepsTheRulesInOrderAndTheFirstBase(t *testing.T) {
+	assert.Equal(t, lineup.Spec{MaxChannels: 400}, lineup.FromSpec(nil, 400))
+	news, sports := int32(1000), int32(2000)
+	got := lineup.FromSpec(&clustarrv1.LineupSpec{
+		Trim: []string{"^US: "}, Exclude: []string{"ADULT"},
+		Categories: []clustarrv1.LineupCategory{
+			{Name: "News", Base: &news, Groups: []string{"NEWS"}, Names: []string{"^CNN"}, Exclude: []string{"WEST"}},
+			{Name: "Sports", Base: &sports},
+			{Name: "News", Groups: []string{"TV"}},
+		},
+	}, 250)
+	assert.Equal(t, lineup.Spec{
+		Trim: []string{"^US: "}, Exclude: []string{"ADULT"}, MaxChannels: 250,
+		Rules: []lineup.Rule{
+			{Category: "News", Base: 1000, Groups: []string{"NEWS"}, Names: []string{"^CNN"}, Exclude: []string{"WEST"}},
+			{Category: "Sports", Base: 2000},
+			{Category: "News", Groups: []string{"TV"}},
+		},
+	}, got)
 }
 
 func planner(t *testing.T, s lineup.Spec) *lineup.Planner {
@@ -72,7 +74,7 @@ func planner(t *testing.T, s lineup.Spec) *lineup.Planner {
 }
 
 func TestTrimNameStripsTheMarkers(t *testing.T) {
-	var trim = loadExample(t).Trim
+	trim := loadExample(t).Trim
 	res := compileTrim(t, trim)
 	for in, want := range map[string]string{
 		"USA: CNN [1080p]":      "CNN",
@@ -213,7 +215,7 @@ func TestTheArgonSampleClassifies(t *testing.T) {
 	p := planner(t, spec)
 	f, err := os.Open("../../../test/data/iptv/lineup_names.txt")
 	require.NoError(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var entries []lineup.Entry
 	sc := bufio.NewScanner(f)
 	for i := 0; sc.Scan(); i++ {

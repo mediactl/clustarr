@@ -33,7 +33,8 @@ func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 	// (TestRetiredFieldManagersStayValid). clustarr-autoscale joined last
 	// (W4.62); Wave U unbranded every value (U3); catalog-backlog is the
 	// BacklogSearch controller's and catalog-nfo the remediation loop's nfo
-	// stage (2026-11-10).
+	// stage (2026-11-10), clustarr-livetv-lineup the Live TV lineup
+	// controller (custom guides, 2026-11-10).
 	want := []string{
 		"catalog", "catalog-series", "catalog-worker",
 		"catalog-metadata", "catalog-grab", "catalog-fanout",
@@ -44,7 +45,7 @@ func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 		"transcode", "transcode-pool",
 		"caption",
 		"clustarr-dlq-projector", "clustarr-ui", "clustarr-autoscale",
-		"clustarr-livetv", "clustarr-livetv-channel", "clustarr-livetv-endpoint",
+		"clustarr-livetv", "clustarr-livetv-channel", "clustarr-livetv-endpoint", "clustarr-livetv-lineup",
 	}
 	got := FieldManagers()
 	if len(got) != len(want) {

@@ -311,6 +311,13 @@ const (
 	// sole writer of the livetv Service's EndpointSlice (control-plane
 	// placement design §5.4).
 	ManagerLiveTVEndpoint FieldManager = "clustarr-livetv-endpoint"
+
+	// ManagerLiveTVLineup is the lineup controller (custom guides design
+	// §5.2): an automatic channel's spec.number and spec.active, the
+	// clustarr.io/origin label of the channels it created, and
+	// IPTVChannel.status.lineup. A person's spec.name, group, logo, epg,
+	// language and category are never in its applies.
+	ManagerLiveTVLineup FieldManager = "clustarr-livetv-lineup"
 )
 
 // DefaultFieldOwner is the field manager controller-runtime records for a
@@ -353,6 +360,7 @@ func FieldManagers() []FieldManager {
 		ManagerLiveTV,
 		ManagerLiveTVChannel,
 		ManagerLiveTVEndpoint,
+		ManagerLiveTVLineup,
 	}
 }
 

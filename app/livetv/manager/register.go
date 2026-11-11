@@ -17,8 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package manager registers Live TV in cmd/manager (spec 2026-10-07 §5,
 // §6): the tuner, a leader-only runnable serving every provider on one
-// port, and the IPTVProvider and IPTVChannel controllers that feed it and
-// write status from its snapshot.
+// port, the IPTVProvider and IPTVChannel controllers that feed it and
+// write status from its snapshot, and the lineup controller that numbers a
+// provider's channels from its spec.lineup (custom guides design §5.2).
 package manager
 
 import (
@@ -39,6 +40,7 @@ import (
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/controller/iptvchannel"
 	"github.com/mediactl/clustarr/app/livetv/controller/iptvprovider"
+	"github.com/mediactl/clustarr/app/livetv/controller/lineup"
 	"github.com/mediactl/clustarr/app/livetv/leaderendpoint"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -82,7 +84,7 @@ func TargetPort(bind string) (int32, error) {
 	return int32(n), nil
 }
 
-// Register adds the tuner and both controllers to mgr.
+// Register adds the tuner and the three controllers to mgr.
 func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if o.BindAddress == k8s.DisabledBindAddress {
 		return nil
@@ -93,8 +95,9 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 	providerEvents := make(chan event.GenericEvent, notifyBuffer)
 	channelEvents := make(chan event.GenericEvent, notifyBuffer)
-	// lineupEvents is kept for the lineup controller (Task 7); nothing reads
-	// it yet, and a full buffer drops a notice like the others.
+	// lineupEvents wakes the lineup controller at each snapshot change (a
+	// playlist fetch among them); a full buffer drops a notice like the
+	// others.
 	lineupEvents := make(chan event.GenericEvent, notifyBuffer)
 	notify, notifyTuners := notifiers(providerEvents, channelEvents, lineupEvents)
 	tn := tuner.New(tuner.Options{
@@ -140,6 +143,16 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := channel.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("livetv: iptvchannel: %w", err)
 	}
+	// The lineup controller wakes the provider controller after it writes
+	// the plan object through notifyTuners' push, the provider controller
+	// alone: the object's reader is the provider's status and blocks.
+	lineups := &lineup.Reconciler{
+		Client: mgr.GetClient(), Entries: tn.Entries, Store: bus.ObjectStore(events.BucketLiveTV),
+		Events: lineupEvents, Now: time.Now, Wake: notifyTuners,
+	}
+	if err := lineups.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("livetv: lineup: %w", err)
+	}
 	return nil
 }
 
@@ -161,10 +174,11 @@ func transport(headers time.Duration) *http.Transport {
 	return t
 }
 
-// notifiers are the tuner's two notices: a snapshot change wakes both
-// controllers and the lineup channel; a change in tuners in use, which only the provider's status
-// shows, wakes the provider controller alone. A full channel drops a notice:
-// the next change notifies again.
+// notifiers are the tuner's two notices: a snapshot change wakes all three
+// controllers; a change in tuners in use, which only the provider's status
+// shows, wakes the provider controller alone, as does the lineup
+// controller's plan write. A full channel drops a notice: the next change
+// notifies again.
 func notifiers(providers, channels, lineups chan event.GenericEvent) (notify, notifyTuners func(types.NamespacedName)) {
 	send := func(key types.NamespacedName, to ...chan event.GenericEvent) {
 		ev := event.GenericEvent{Object: &clustarrv1.IPTVProvider{ObjectMeta: metav1.ObjectMeta{Namespace: key.Namespace, Name: key.Name}}}

@@ -245,10 +245,13 @@ rules:
   - clustarr.io
   resources:
   - iptvchannels
-  - iptvproviders
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - clustarr.io
@@ -259,6 +262,14 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - clustarr.io
+  resources:
+  - iptvproviders
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - coordination.k8s.io
   resources:

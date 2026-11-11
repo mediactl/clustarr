@@ -18,9 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package lineup plans an IPTVProvider's custom lineup: it classifies a
 // playlist's entries into the categories of the provider's rules, drops what
 // the rules leave out, keeps one entry of each duplicated channel and numbers
-// every category alphabetically from its base. It is pure: no Kubernetes, no
+// every category alphabetically from its base. It is pure: no client, no
 // store, no clock -- the caller reduces its playlist entries to Entry and
-// reads the Plan back.
+// reads the Plan back. It reads the API's spec.lineup through FromSpec only.
 package lineup
 
 import (
@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 
+	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -105,6 +106,26 @@ type Plan struct {
 	Channels   []Assignment
 	Categories []Category
 	Dropped    []Dropped
+}
+
+// FromSpec is an IPTVProvider's spec.lineup as the planner's Spec, each
+// category a Rule in order; a later rule of a category carries no base (the
+// first one's stands, as Compile reads it). maxChannels is the provider's
+// spec.dvr.maxChannels. A nil s is a Spec with no rules.
+func FromSpec(s *clustarrv1.LineupSpec, maxChannels int) Spec {
+	out := Spec{MaxChannels: maxChannels}
+	if s == nil {
+		return out
+	}
+	out.Trim, out.Exclude = s.Trim, s.Exclude
+	for _, c := range s.Categories {
+		r := Rule{Category: c.Name, Groups: c.Groups, Names: c.Names, Exclude: c.Exclude}
+		if c.Base != nil {
+			r.Base = int(*c.Base)
+		}
+		out.Rules = append(out.Rules, r)
+	}
+	return out
 }
 
 type compiledRule struct {
