@@ -58,7 +58,7 @@ func buildCluster(ctx context.Context) (client.Reader, func(context.Context) boo
 	cfg, err := config.GetConfig()
 	if err != nil {
 		logger.Info("no cluster reachable; ui will serve empty pages and refuse every action",
-			"error", err.Error())
+			"err", err.Error())
 		return nil, nil, nil
 	}
 
