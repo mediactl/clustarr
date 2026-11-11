@@ -478,6 +478,7 @@ func (t *Tuner) Channel(key types.NamespacedName, object string) (ChannelView, b
 // Start listens on BindAddress and runs the fetch scheduler until ctx ends,
 // then ends every stream.
 func (t *Tuner) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "livetv.tuner")
 	log := logging.FromContext(ctx)
 	var srv *http.Server
 	if t.o.BindAddress != "" {

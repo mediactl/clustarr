@@ -21,6 +21,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+
 	coordinationv1 "k8s.io/api/coordination/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -67,6 +69,7 @@ type Reconciler struct {
 
 // Reconcile converges one provider.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "livetv.iptvprovider")
 	key := req.NamespacedName
 	var p clustarrv1.IPTVProvider
 	if err := r.Client.Get(ctx, key, &p); err != nil {

@@ -72,6 +72,7 @@ func (p *Publisher) NeedLeaderElection() bool { return true }
 // write from 1 s doubling to 30 s -- and holds until ctx ends. Without a pod
 // IP it publishes nothing: an empty address would route nowhere.
 func (p *Publisher) Start(ctx context.Context) error {
+	ctx = logging.Subsystem(ctx, "livetv.leaderendpoint")
 	log := logging.FromContext(ctx).With("service", p.Service)
 	if p.PodIP == "" {
 		log.Warn("livetv: no POD_IP, so this leader is not published as the livetv endpoint")

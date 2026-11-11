@@ -71,6 +71,7 @@ type Reconciler struct {
 
 // Reconcile writes one channel's status when it changed.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "livetv.iptvchannel")
 	var ch clustarrv1.IPTVChannel
 	if err := r.Client.Get(ctx, req.NamespacedName, &ch); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)

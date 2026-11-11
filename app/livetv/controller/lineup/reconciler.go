@@ -122,6 +122,7 @@ func (r *Reconciler) now() time.Time {
 
 // Reconcile plans one provider's lineup and applies it.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx = logging.Subsystem(ctx, "livetv.lineup")
 	key := req.NamespacedName
 	var p clustarrv1.IPTVProvider
 	if err := r.Get(ctx, key, &p); err != nil {
