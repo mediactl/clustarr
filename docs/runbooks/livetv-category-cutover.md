@@ -12,8 +12,10 @@ the steps below). Measured, as built and rulings: its "As built" section.
 their names and numbers (the lineup controller owns `spec.number`, `spec.active` and each
 channel's `status.lineup`, never `spec.name`: a channel's shown name is its `spec.name`, else
 `status.lineup.name`, the trimmed playlist name), and the tuner publishes one device per category. Each
-category is one XMLTV DVR whose guide cluster-plex builds in a Job (Gracenote grids from Plex's
-guide service where a station pairs, iptv-epg.org otherwise) and writes into PMS's guide schema.
+category is one XMLTV DVR whose guide cluster-plex builds in a Job (iptv-epg.org, else the panel's
+guide; Gracenote grids from Plex's guide service where a station pairs only when
+`spec.guideSources.plex` is set, which the owner has not asked for on talos) and writes into PMS's
+guide schema.
 
 **Accepted loss** (owner): every recording rule on the DIRECTV DVR, which is deleted with it.
 Re-create them in Plex afterwards. Recordings on disk stay.
@@ -68,13 +70,24 @@ Both are additive; the running manager keeps working on the old object shape unt
    ImagePullBackOff). In cluster-bootstrap raise `chart_version` and the image tags (double-quoted).
    A `chart_version` bump restarts every pod; announce it first and wait for any in-flight deploy
    and for `/activities` to list no `provider.epg.load` on PMS.
-2. **Stage the provider's new fields.** Paste
-   `/tmp/claude-1000/-home-appkins-src-mediactl-clustarr/6e036edc-2d9c-4acb-82c8-21b990d8880d/scratchpad/gv/cluster-bootstrap-argon-lineup.yaml`
-   (staged for the owner; not committed anywhere) under the `argon-tv` IPTVProvider's `spec` in
-   cluster-bootstrap's `resources.yaml`. It is `docs/examples/iptvprovider-argon-lineup.yaml`'s
-   `spec.lineup` (`enabled: false`) and `spec.guideSources.plex` (`credentialsRef: {name:
-   plex-token, key: token}`, `refresh: 24h`, `rate: 2`, the eleven lineup ids). Leave
-   `spec.plexGuide.enabled: true` as it is. Plan, read it, apply.
+2. **Stage the provider's new fields.** The source of truth is
+   `docs/examples/iptvprovider-argon-lineup.yaml` (committed; its comments carry the rules'
+   reasons). Copy its `spec.lineup` block (`enabled: false`), comments included, under the
+   `argon-tv` entry of `iptvproviders` in cluster-bootstrap's `clustarr/resources.yaml`, where
+   the spec's keys sit at four spaces (the example's sit at two), so:
+
+   ```bash
+   E=docs/examples/iptvprovider-argon-lineup.yaml
+   sed -n "$(grep -n '^  # The argon-tv lineup' $E | cut -d: -f1),$(( $(grep -n '^  guideSources:' $E | cut -d: -f1) - 1 ))p" $E | sed 's/^/  /'
+   ```
+
+   Leave `spec.plexGuide.enabled: true` as it is. **`spec.guideSources.plex`** (the example's
+   last block: `credentialsRef: {name: plex-token, key: token}`, `refresh: 24h`, `rate: 2`,
+   eleven lineup ids) is **not** staged: the owner's call for talos (2026-11-10, "stick with the
+   original iptv-epg.org setup") is no Gracenote fetched from Plex's guide service, so the
+   category guides come from iptv-epg.org and the panel's guide alone, and every line below that
+   reads `status.guideSources.plex` applies only if the owner later asks for it. Plan, read it,
+   apply.
 3. **Nothing moves yet.** A dry run renames and renumbers no channel, publishes no block and
    touches no DVR. The manager compiles the lineup, writes a plan object, and starts the Gracenote
    fetch.
@@ -122,7 +135,8 @@ kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv \
   entry, 12** (WEAR, WALA, WKRG, WPMI and the New York flagships WABC, WNYW, WCBS, WPIX, WWOR, WNBC,
   WNET; the `^ABC$` rule is the extra): fewer or more means the `names` regexes or the
   ENTERTAINMENT group rule is wrong. Every category must be under 400.
-- **`status.guideSources.plex`**: `stations` (paired to a Gracenote station), `grids` fetched,
+- **`status.guideSources.plex`** (only with `spec.guideSources.plex` set; absent otherwise):
+  `stations` (paired to a Gracenote station), `grids` fetched,
   `fetchedAt`, and `holdUntil` / `error` if Plex answered 429 (the pass holds for max(Retry-After,
   1 min) and resumes). The first pass is about 1,000 calls at 2 per second, around 10 minutes;
   `GuideSourcesReady` reads Pending until it ends. A long `holdUntil` is a finding: lower `rate`.
@@ -167,7 +181,11 @@ to `pms` (inert either way) and report.
 
 All three must pass before the flip; each is a measurement on the dry run, not a deploy.
 
-1. **The manager's memory.** Raise talos's `manager.resources` (cluster-bootstrap values) to at
+1. **The manager's memory.** Without `spec.guideSources.plex` the render's cost is the
+   whole-provider XMLTV it already carries today (about 800 channels where it serves 257): read
+   the live heap during a dry-run render as below and record it; the rest of this item is the
+   grid source's cost, for the day the owner asks for it. With it: raise talos's
+   `manager.resources` (cluster-bootstrap values) to at
    least `2Gi`, the request equal to the limit (the chart's default is 640Mi requested, 1664Mi
    limit). After the flip the tuner fetches and renders a Gracenote grid for about 800 stations
    where it serves 248 today: each costs about 0.3 MB live and 4 MB of short-lived churn a render
@@ -219,7 +237,8 @@ kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv \
 ```
 
 Go/no-go, all must hold: the pre-flight passed, `status.guideSources.plex` complete (no
-`holdUntil`, `GuideSourcesReady` True), no `provider.epg.load` in PMS's `/activities`, step 1's
+`holdUntil`, `GuideSourcesReady` True; skip this when `spec.guideSources.plex` is not set), no
+`provider.epg.load` in PMS's `/activities`, step 1's
 stop-ifs clear, and the owner has accepted the loss of the recording rules. "Complete" covers the
 stations of the channels that exist now: the channels the flip creates are paired and fetched
 after it (about 6 minutes at `rate: 2`), their guide comes from iptv-epg.org until then, and each
@@ -276,7 +295,6 @@ kubectl --context admin@talos -n clustarr-system get iptvprovider argon-tv -o js
 kubectl --context admin@talos -n clustarr-system get jobs -l clusterplex.io/guide-dvr --chunk-size=0 --no-headers -o wide
 kubectl --context admin@talos -n clustarr-system logs deploy/clustarr-manager --since=15m | grep -i 'lineup\|livetv\|guide'
 ```
-
 
 - Manager log: the lineup controller's pass (channels applied, plan stored), the tuner's
   renders (`withBlocks` publishes a device only once the tuner serves it), the grid fetch.
