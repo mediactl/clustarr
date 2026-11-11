@@ -868,12 +868,43 @@ the manager. The planner trims each admitted entry's name, leaves out what
 `exclude` names, drops duplicates by trimmed name (HD over SD, then group
 order, then playlist order), classifies by the first category whose
 `groups` or `names` match and whose `exclude` does not (a later rule of the
-same name joins that category, and the first carries the base), and numbers
-each category alphabetically from `base`+1 with no gaps. A category over
-`dvr.maxChannels` (400) or whose channel map would pass the 30,000-byte
-budget (`blocks.MapBytes`) is `TooMany`: its channels are deactivated and
-it gets no block. An entry no rule matches is unclassified and off every
-DVR; its IPTVChannel exists, inactive, so the Channels page lists it. The
+same name joins that category; the first rule of the name that carries a
+`base` sets it, and two categories whose bases are less than
+`dvr.maxChannels` apart are refused as `InvalidLineup`, since their numbers
+could meet), and numbers each category alphabetically from `base`+1 with no
+gaps. A category over `dvr.maxChannels` (400) or whose channel map would
+pass the 30,000-byte budget (`blocks.MapBytes`) is `TooMany` and **held**
+(the design's §5.2 step 5, restored by the final review, 2026-11-10): the
+lineup controller writes nothing to its channels, which keep their spec and
+`status.lineup`; the provider keeps the block it has published for the
+category at its published start and device (none published, none made)
+and does not wait on its channels; `LineupApplied=False` reason `TooMany`
+names it. Until then a rule edit that overfilled one category deleted that
+category's DVR in Plex. An entry no rule matches is unclassified and off
+every DVR: an IPTVChannel it already has is deactivated (its
+`status.lineup` naming no rule), and none is made for it, since the lineup
+creates channels only for its assignments, so a new unmatched entry shows
+only in the Channels page's playlist pane. **The collapse guard:** a plan
+that would take more than half of the active channels off every DVR (and
+at least ten) is refused as an invalid one is ("the plan would deactivate N
+of M active channels; refusing" stored beside the last good plan,
+`LineupApplied=False` `InvalidLineup`, nothing written to a channel, Event
+`LineupCollapseRefused`): a playlist come back nearly empty, or a rule edit
+that unmatches most of the lineup. The provider's
+`clustarr.io/lineup-allow-collapse: "true"`
+(`clustarrv1.AnnotationLineupAllowCollapse`) lets one such plan through;
+the plan object's `CollapseAllowed` remembers it while the annotation
+stays, so no second one passes until a person removes it and sets it again
+(the manager holds no patch on IPTVProviders and never removes it).
+**One channel a key:** two IPTVChannels of one playlist key (a copy made by
+hand, a timeshift copy) are one too many; `index.ChannelsByKey` keeps the
+key's `names.ChannelObjectName` channel (the one name the lineup and the
+ui's add give a key), else the first by name, for both controllers alike,
+and the lineup deactivates every other channel of the key, its number kept,
+`status.lineup.duplicateOf` naming the chosen channel (never deleted); the
+provider holds its blocks until they are inactive. So a timeshift copy is
+off every DVR under an automatic lineup: keeping one there is a follow-up
+for the owner. The
 dry run is `enabled: false` with categories set: nothing is written to a
 channel's spec; the plan is stored whole as the `lineup-plan/<ns>/<name>`
 object (assignments, duplicates and their winners, drops, `TooMany`), the
@@ -903,7 +934,11 @@ packer: `status.blocks[].category`, `start` = `base`+1, device id
 friendly name the category; a renumbering moves that device's `lineupHash`
 and costs one channel-map save, never a guide reload on a built guide. Until
 every channel carries its plan the published blocks stand (`LineupPending`),
-as they do on an invalid plan. `spec.channelNumberStart` is ignored while
+as they do on an invalid plan, and so does any published block (the cloud
+block at the one-edit flip included) while an enabled lineup has no plan
+stored or only the dry run's: only a provider with nothing published packs
+by number meanwhile, or the flip would publish an XMLTV block of every
+channel at its DIRECTV number in the cloud DVR's place. `spec.channelNumberStart` is ignored while
 the lineup is enabled. The tuner's `splitBlocks` puts a channel no category
 lists on no category's device.
 **The guide sources.** `spec.guideSources.plex` (`credentialsRef`,
