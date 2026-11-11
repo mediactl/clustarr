@@ -165,21 +165,20 @@ func TestTheSourcesPageShowsTheGuideSourcesAndCategories(t *testing.T) {
 	srv, _ := tvServer(t, p)
 	body := get(t, srv, "/livetv/sources").Body.String()
 
-	row := body[strings.Index(body, `data-guide-sources="media/argon-tv"`):]
-	row = row[:strings.Index(row, "</tr>")]
+	row := upTo(t, from(t, body, `data-guide-sources="media/argon-tv"`), "</tr>")
 	for _, want := range []string{"2 lineups", "212 stations", "198 grids", "429 Too Many Requests", "held until", hold.UTC().Format(time.RFC3339)} {
 		assert.Contains(t, row, want)
 	}
 	assert.Contains(t, row, fetched.UTC().Format(time.RFC3339), "the last fetch")
 	assert.NotContains(t, row, "plex-token", "never the credentials")
 
-	cats := body[strings.Index(body, `data-categories="media/argon-tv"`):]
+	cats := from(t, body, `data-categories="media/argon-tv"`)
 	news := tagWith(t, cats, `data-category="News"`)
 	require.NotEmpty(t, news)
 	for _, want := range []string{"News", "1000", "42", "BBBB0001", "Sports", "2000", "451"} {
 		assert.Contains(t, cats, want)
 	}
-	assert.Contains(t, cats[strings.Index(cats, `data-category="Sports"`):], "Too many", "a category over a DVR's limit")
+	assert.Contains(t, from(t, cats, `data-category="Sports"`), "Too many", "a category over a DVR's limit")
 
 	// A provider with neither shows neither.
 	srv2, _ := tvServer(t, tvProvider())

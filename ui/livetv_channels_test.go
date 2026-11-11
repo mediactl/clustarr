@@ -474,6 +474,24 @@ func rowOf(t *testing.T, body, name string) string {
 	return body[i : i+1+end]
 }
 
+// from is s from anchor's first appearance on; the test fails, rather than
+// panics on a slice bound, when s lacks anchor.
+func from(t *testing.T, s, anchor string) string {
+	t.Helper()
+	i := strings.Index(s, anchor)
+	require.GreaterOrEqual(t, i, 0, "no %s", anchor)
+	return s[i:]
+}
+
+// upTo is s before anchor's first appearance, failing the test when s lacks
+// anchor.
+func upTo(t *testing.T, s, anchor string) string {
+	t.Helper()
+	i := strings.Index(s, anchor)
+	require.GreaterOrEqual(t, i, 0, "no %s", anchor)
+	return s[:i]
+}
+
 func TestTheChannelsPageShowsCategoryAndSource(t *testing.T) {
 	srv, c := lineupFixture(t, true, nil)
 	body := get(t, srv, "/livetv/channels").Body.String()
@@ -489,14 +507,14 @@ func TestTheChannelsPageShowsCategoryAndSource(t *testing.T) {
 	// The override is a trigger loading its picker on demand: no select,
 	// no component script, in a row.
 	trigger := requireTag(t, espn, `hx-get="/livetv/channels/media/argon-tv-espn/category"`, `hx-target="#epg-picker"`)
-	assert.Contains(t, espn[strings.Index(espn, trigger):], ">Automatic<", "the trigger reads the choice")
+	assert.Contains(t, from(t, espn, trigger), ">Automatic<", "the trigger reads the choice")
 	for _, absent := range []string{`name="category"`, `data-slot="select"`, `data-slot="select-trigger"`, "data-templ-value"} {
 		assert.NotContains(t, espn, absent)
 	}
 
 	cnn := rowOf(t, body, "argon-tv-cnn")
 	trigger = requireTag(t, cnn, `hx-get="/livetv/channels/media/argon-tv-cnn/category"`)
-	assert.Contains(t, cnn[strings.Index(cnn, trigger):], ">News<", "the override's category")
+	assert.Contains(t, from(t, cnn, trigger), ">News<", "the override's category")
 	assert.Contains(t, cnn, "by its override", "a person's category, not a rule's")
 	assert.Contains(t, tagWith(t, cnn, `data-channel-source`), `data-channel-source="xmltv"`)
 
@@ -505,7 +523,7 @@ func TestTheChannelsPageShowsCategoryAndSource(t *testing.T) {
 
 	shop := rowOf(t, body, "argon-tv-shop")
 	trigger = requireTag(t, shop, `hx-get="/livetv/channels/media/argon-tv-shop/category"`)
-	assert.Contains(t, shop[strings.Index(shop, trigger):], ">Off<")
+	assert.Contains(t, from(t, shop, trigger), ">Off<")
 	assert.Contains(t, tagWith(t, shop, `data-channel-source`), `data-channel-source="dummy"`)
 
 	// The picker's Save posts the override in place.
@@ -661,8 +679,7 @@ func TestTheDryRunBannerCountsTheCategories(t *testing.T) {
 	}
 	srv, _ := lineupFixture(t, false, plan)
 	body := get(t, srv, "/livetv/channels").Body.String()
-	banner := body[strings.Index(body, `data-lineup-dry-run="media/argon-tv"`):]
-	banner = banner[:strings.Index(banner, `id="channels-filter"`)]
+	banner := upTo(t, from(t, body, `data-lineup-dry-run="media/argon-tv"`), `id="channels-filter"`)
 	assert.Contains(t, banner, "Dry run")
 	assert.Contains(t, tagWith(t, banner, `data-dry-run-category="News"`), "data-slot=\"badge\"")
 	assert.Contains(t, banner, "News 1")
@@ -691,8 +708,8 @@ func TestTheDryRunBannerCountsTheCategories(t *testing.T) {
 	// Before the controller stored a plan, the banner says so.
 	none, _ := lineupFixture(t, false, nil)
 	body = get(t, none, "/livetv/channels").Body.String()
-	banner = body[strings.Index(body, `data-lineup-dry-run="media/argon-tv"`):]
-	assert.Contains(t, banner[:strings.Index(banner, `id="channels-filter"`)], "not planned yet")
+	banner = from(t, body, `data-lineup-dry-run="media/argon-tv"`)
+	assert.Contains(t, upTo(t, banner, `id="channels-filter"`), "not planned yet")
 	// Enabled is no dry run.
 	on, _ := lineupFixture(t, true, nil)
 	assert.NotContains(t, get(t, on, "/livetv/channels").Body.String(), "data-lineup-dry-run")
