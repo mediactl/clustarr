@@ -22,6 +22,8 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"encoding/xml"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -29,7 +31,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -47,6 +51,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
+	"github.com/mediactl/clustarr/pkg/iptv/plexgrid"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
@@ -1335,4 +1340,244 @@ func TestEntriesAreNotThereBeforeTheFirstFetch(t *testing.T) {
 	tn.Apply(config("http://127.0.0.1:1"))
 	_, ok := tn.Entries(key)
 	assert.False(t, ok)
+}
+
+// The two devices of a category lineup, as the provider controller packs
+// them (the custom guides design §5.5): a block per category, its device
+// named for the category, its start the category's base+1.
+var (
+	newsCategoryDevice = hdhr.BlockDeviceID("media", "news", "cat/News")
+	entCategoryDevice  = hdhr.BlockDeviceID("media", "news", "cat/Entertainment")
+)
+
+// newLineupPanel is argon's panel (newArgonPanel) with a fourth entry, QVC,
+// which no lineup category takes. CNN's programme lists its children out of
+// XMLTV's order, as a guide may.
+func newLineupPanel(t *testing.T) *httptest.Server {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/get.php":
+			_, _ = fmt.Fprint(w, "#EXTM3U\n")
+			for i, e := range [][2]string{{"ABCEast_WABC.us", "ABC"}, {"CNN.us", "CNN"}, {"FoxEast_WNYW.us", "FOX"}, {"QVC.us", "QVC"}} {
+				_, _ = fmt.Fprintf(w, "#EXTINF:-1 tvg-id=%q tvg-name=%q group-title=\"USA: NEWS NETWORK\",%s\n%s/live/user/pass/%d.ts\n", e[0], e[1], e[1], srv.URL, i+1)
+			}
+		case "/xmltv.php":
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><tv>
+<channel id="ABCEast_WABC.us"><display-name>ABC</display-name></channel>
+<channel id="CNN.us"><display-name>CNN</display-name></channel>
+<channel id="QVC.us"><display-name>QVC</display-name></channel>
+<programme start="20261110180000 +0000" stop="20261110190000 +0000" channel="ABCEast_WABC.us"><title>World News Tonight (xmltv)</title></programme>
+<programme start="20261110180000 +0000" stop="20261110190000 +0000" channel="CNN.us"><episode-num system="onscreen">S01E02</episode-num><desc>The day in news.</desc><title>Newsroom (xmltv)</title></programme>
+<programme start="20261110180000 +0000" stop="20261110190000 +0000" channel="QVC.us"><title>Shopping (xmltv)</title></programme>
+</tv>`))
+		case "/player_api.php":
+			_, _ = w.Write([]byte(`{"user_info":{"auth":1,"status":"Active","max_connections":"1"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// categoryConfig is the lineup panel's channels in two categories, as the
+// provider controller hands them over: CNN and FOX in News from 1001, ABC
+// in Entertainment from 6001, each with its category and no group (so the
+// guide classes a channel by its category); QVC, which the ui added a
+// moment ago, active and in no category yet. The guide sources are DIRECTV
+// Mobile, whose grid the fake guide service holds for ABC's station alone.
+func categoryConfig(panel string) tuner.Config {
+	return tuner.Config{
+		Key: key, Server: panel, Username: "user", Password: "pass",
+		Blocks: []tuner.BlockConfig{
+			{Start: "1001", DeviceID: newsCategoryDevice, FriendlyName: "Clustarr news News", Numbers: []string{"1001", "1002"}, Category: "News"},
+			{Start: "6001", DeviceID: entCategoryDevice, FriendlyName: "Clustarr news Entertainment", Numbers: []string{"6001"}, Category: "Entertainment"},
+		},
+		UserAgent: "clustarr", Every: time.Hour,
+		Filters: []filter.Rule{{Type: "groupTitle", Match: "USA: NEWS NETWORK", Enabled: true}},
+		Channels: []tuner.ChannelConfig{
+			{Object: "cnn", Key: "t:CNN.us", Number: "1001", Name: "CNN", Active: true, Category: "News"},
+			{Object: "fox", Key: "t:FoxEast_WNYW.us", Number: "1002", Name: "FOX", Active: true, Category: "News"},
+			{Object: "abc", Key: "t:ABCEast_WABC.us", Number: "6001", Name: "ABC", Active: true, Category: "Entertainment"},
+			{Object: "qvc", Key: "t:QVC.us", Number: "6002", Name: "QVC", Active: true},
+		},
+		GuideSources: &tuner.GuideSourcesConfig{Lineups: []string{plexLineupID}, Token: gridToken, Refresh: 24 * time.Hour, Rate: 100},
+		Buffer:       1 << 20, Linger: time.Second,
+	}
+}
+
+// servedGuide is an XMLTV document as a device serves it.
+type servedGuide struct {
+	Channels []struct {
+		ID    string   `xml:"id,attr"`
+		Names []string `xml:"display-name"`
+	} `xml:"channel"`
+	Programmes []struct {
+		Channel string `xml:"channel,attr"`
+		Inner   []byte `xml:",innerxml"`
+	} `xml:"programme"`
+}
+
+// xmltvDTDOrder is a programme's children in the order XMLTV's DTD lists
+// them; live, Plex's and xTeVe's extension, sits beside new.
+var xmltvDTDOrder = []string{
+	"title", "sub-title", "desc", "credits", "date", "category", "keyword", "language",
+	"orig-language", "length", "icon", "url", "country", "episode-num", "video", "audio",
+	"previously-shown", "premiere", "last-chance", "new", "live", "subtitles", "rating",
+	"star-rating", "review", "image",
+}
+
+// childNames is the names of inner's top-level elements, in order.
+func childNames(t *testing.T, inner []byte) []string {
+	t.Helper()
+	d := xml.NewDecoder(bytes.NewReader(inner))
+	var out []string
+	depth := 0
+	for {
+		tok, err := d.Token()
+		if errors.Is(err, io.EOF) {
+			return out
+		}
+		require.NoError(t, err)
+		switch el := tok.(type) {
+		case xml.StartElement:
+			if depth == 0 {
+				out = append(out, el.Name.Local)
+			}
+			depth++
+		case xml.EndElement:
+			depth--
+		}
+	}
+}
+
+// TestACategoryDeviceServesItsGuideInTheProfile: a provider whose lineup is
+// two categories is two devices (the custom guides design §5.4-§5.6). Each
+// device's lineup.json holds its category's numbers alone -- a channel in no
+// category is on neither, though the provider's whole lineup lists it; each
+// device's xmltv.xml carries its channels under two display-names (the
+// name, then "<number> <name>") and every programme in XMLTV's DTD order,
+// title first, classed by its channel's category; and the guide hash of one
+// category's device moves when only its channel's Plex grid object does,
+// the other device's not.
+func TestACategoryDeviceServesItsGuideInTheProfile(t *testing.T) {
+	svc := newGuideService(t)
+	cfg := categoryConfig(newLineupPanel(t).URL)
+	store := newStore(t)
+	u, err := url.Parse(svc.srv.URL)
+	require.NoError(t, err)
+	h := startWith(t, store, cfg, gridNow, func(o *tuner.Options) {
+		o.Fetch = &http.Client{Transport: redirect{to: u}, Timeout: 10 * time.Second}
+	})
+
+	// The render that holds ABC's grid and CNN's XMLTV guide.
+	var snap tuner.Snapshot
+	require.Eventually(t, func() bool {
+		s, ok := h.tn.Snapshot(key)
+		snap = s
+		return ok && len(s.Blocks) == 2 && s.Blocks[0].GuideHash != "" && s.Blocks[1].GuideHash != "" &&
+			s.Channels["abc"].Guide == "plex/"+wabcGridKey && s.Channels["cnn"].Guide == "xmltv/CNN.us"
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, []string{newsCategoryDevice, entCategoryDevice}, []string{snap.Blocks[0].DeviceID, snap.Blocks[1].DeviceID})
+	assert.Equal(t, []int{2, 1}, []int{snap.Blocks[0].Active, snap.Blocks[1].Active})
+	assert.Equal(t, 4, snap.Lineup.Active, "QVC is in the provider's lineup")
+
+	type want struct {
+		device  string
+		numbers []string
+		names   [][]string
+	}
+	for _, w := range []want{
+		{newsCategoryDevice, []string{"1001", "1002"}, [][]string{{"CNN", "1001 CNN"}, {"FOX", "1002 FOX"}}},
+		{entCategoryDevice, []string{"6001"}, [][]string{{"ABC", "6001 ABC"}}},
+	} {
+		code, body := h.get(t, "tuner.example", device(w.device, "lineup.json"))
+		require.Equal(t, http.StatusOK, code, body)
+		assert.Equal(t, w.numbers, numbers(lineupOf(t, body)), "device %s lists its category's numbers alone", w.device)
+
+		code, body = h.get(t, "tuner.example", device(w.device, "xmltv.xml"))
+		require.Equal(t, http.StatusOK, code, body)
+		var g servedGuide
+		require.NoError(t, xml.Unmarshal([]byte(body), &g))
+		var ids []string
+		var names [][]string
+		for _, c := range g.Channels {
+			ids = append(ids, c.ID)
+			names = append(names, c.Names)
+		}
+		assert.Equal(t, w.numbers, ids, "device %s's guide holds its category's channels alone", w.device)
+		assert.Equal(t, w.names, names, "the shown name, then the number and the name")
+
+		perChannel := map[string]int{}
+		for _, p := range g.Programmes {
+			perChannel[p.Channel]++
+			got := childNames(t, p.Inner)
+			require.NotEmpty(t, got)
+			assert.Equal(t, "title", got[0], "%s", p.Inner)
+			last := -1
+			for _, name := range got {
+				i := slices.Index(xmltvDTDOrder, name)
+				require.GreaterOrEqual(t, i, 0, "%s is a programme child XMLTV knows: %s", name, p.Inner)
+				require.GreaterOrEqual(t, i, last, "%s comes after an element XMLTV places later: %s", name, p.Inner)
+				last = i
+			}
+		}
+		for _, n := range w.numbers {
+			assert.NotZero(t, perChannel[n], "channel %s has programmes on device %s", n, w.device)
+		}
+		assert.Len(t, perChannel, len(w.numbers), "device %s carries its channels' programmes alone", w.device)
+	}
+
+	// CNN is classed by its category, News; ABC's programmes are its
+	// station's grid, in Entertainment, no news.
+	_, news := h.get(t, "tuner.example", device(newsCategoryDevice, "xmltv.xml"))
+	cnn := strings.Join(programmesOf(news, "1001"), "\n")
+	assert.Contains(t, cnn, `<category lang="en">News</category>`)
+	assert.Contains(t, cnn, "<title>Newsroom (xmltv)</title><desc>The day in news.</desc>")
+	_, ent := h.get(t, "tuner.example", device(entCategoryDevice, "xmltv.xml"))
+	abc := strings.Join(programmesOf(ent, "6001"), "\n")
+	assert.Contains(t, abc, `<episode-num system="plex">plex://episode/5fc6bf9abcd67c002d0836c8</episode-num>`)
+	assert.NotContains(t, abc, ">News</category>")
+	assert.NotContains(t, abc, "World News Tonight", "a channel's programmes are one source's")
+
+	// The provider's whole lineup and guide, the ui's, still hold QVC.
+	_, whole := h.get(t, "tuner.example", "/livetv/media/news/lineup.json")
+	assert.Equal(t, []string{"1001", "1002", "6001", "6002"}, numbers(lineupOf(t, whole)))
+	_, wholeGuide := h.get(t, "tuner.example", "/livetv/media/news/xmltv.xml")
+	assert.Contains(t, wholeGuide, `<channel id="6002">`)
+	assert.Contains(t, strings.Join(programmesOf(wholeGuide, "6002"), "\n"), "Shopping (xmltv)")
+
+	// Only ABC's grid object changes, then a render runs (a relay setting
+	// moved, which no guide reads): Entertainment's guide hash moves,
+	// News's does not, and neither lineup does.
+	ctx := context.Background()
+	name := livetvstore.GridObject(key, wabcGridKey)
+	_, rc, err := store.Get(ctx, name)
+	require.NoError(t, err)
+	var progs []plexgrid.Programme
+	require.NoError(t, livetvstore.Decode(rc, &progs))
+	require.NoError(t, rc.Close())
+	require.NotEmpty(t, progs)
+	for i := range progs {
+		progs[i].Desc += " Replaced."
+	}
+	var b bytes.Buffer
+	require.NoError(t, livetvstore.Encode(&b, progs))
+	_, err = store.Put(ctx, name, &b, events.ObjectMeta{Headers: map[string]string{"Content-Type": "application/json", "Content-Encoding": "gzip"}})
+	require.NoError(t, err)
+	cfg.Linger = 2 * time.Second
+	h.tn.Apply(cfg)
+
+	var after tuner.Snapshot
+	require.Eventually(t, func() bool {
+		after, _ = h.tn.Snapshot(key)
+		return len(after.Blocks) == 2 && after.Blocks[1].GuideHash != snap.Blocks[1].GuideHash
+	}, 5*time.Second, 10*time.Millisecond, "Entertainment's guide hash moves with ABC's grid")
+	assert.Equal(t, snap.Blocks[0].GuideHash, after.Blocks[0].GuideHash, "News's guide is as it was")
+	assert.Equal(t, []string{snap.Blocks[0].LineupHash, snap.Blocks[1].LineupHash},
+		[]string{after.Blocks[0].LineupHash, after.Blocks[1].LineupHash}, "a grid moves no lineup")
+	_, ent = h.get(t, "tuner.example", device(entCategoryDevice, "xmltv.xml"))
+	assert.Contains(t, strings.Join(programmesOf(ent, "6001"), "\n"), " Replaced.")
+	assert.Equal(t, int32(1), svc.gridGets(wabcGridKey), "the grid is read back from the store, not fetched again")
 }

@@ -412,9 +412,10 @@ func (t *Tuner) storeGuides(p *provider, cfg Config, lineupChans []xmltv.LineupC
 			continue
 		}
 		if len(blockChans[i]) == len(lineupChans) {
-			// The blocks partition the lineup, so a block as long as it holds
-			// all of it, in the same order: the same bytes, built once (the
-			// owner's one block had the guide built twice).
+			// A block's channels are the lineup's in its order (a channel
+			// no category takes is on no block), so a block as long as it
+			// holds all of it, in the same order: the same bytes, built once
+			// (the owner's one block had the guide built twice).
 			sf.guideObject, sf.guideHash = livetvstore.GuideObject(p.key), wholeHash
 		} else {
 			g := build(blockChans[i])
@@ -441,8 +442,12 @@ func (t *Tuner) renderDone(p *provider) {
 }
 
 // splitBlocks is the lineup's entries and channels by block: a channel
-// belongs to the block listing its number, else to the last block starting
-// at or below it.
+// belongs to the block listing its number, else to the last block packed
+// by number starting at or below it (the first such block when none
+// does). A lineup category's block holds its category's numbers alone
+// (the custom guides design §5.5): a channel no category's block lists --
+// one the ui added a moment ago, before the lineup controller placed it --
+// is on no category's device, so with only category blocks it is on none.
 func splitBlocks(bs []BlockConfig, entries []hdhr.LineupEntry, chans []xmltv.LineupChannel) ([][]hdhr.LineupEntry, [][]xmltv.LineupChannel) {
 	member := map[string]int{}
 	for i, b := range bs {
@@ -454,9 +459,9 @@ func splitBlocks(bs []BlockConfig, entries []hdhr.LineupEntry, chans []xmltv.Lin
 		if i, ok := member[number]; ok {
 			return i
 		}
-		i := 0
+		i := -1
 		for j, b := range bs {
-			if xmltv.CompareNumbers(b.Start, number) <= 0 {
+			if b.Category == "" && (i < 0 || xmltv.CompareNumbers(b.Start, number) <= 0) {
 				i = j
 			}
 		}
@@ -469,6 +474,9 @@ func splitBlocks(bs []BlockConfig, entries []hdhr.LineupEntry, chans []xmltv.Lin
 	}
 	for i, e := range entries {
 		bi := blockOf(e.GuideNumber)
+		if bi < 0 {
+			continue
+		}
 		outE[bi] = append(outE[bi], e)
 		outC[bi] = append(outC[bi], chans[i])
 	}

@@ -44,10 +44,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	clustarrac "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/v1alpha1"
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/controller/iptvprovider"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
+	"github.com/mediactl/clustarr/pkg/iptv/lineup"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -107,7 +110,24 @@ type harness struct {
 	ns     string
 	ctx    context.Context
 	now    atomic.Pointer[time.Time]
+	// plans are the stored lineup plans by provider name, which the
+	// reconciler's PlanReader reads (storePlan).
+	plans sync.Map
 }
+
+// readPlan is the reconciler's PlanReader: the plan a test stored for the
+// provider, none when it stored none.
+func (h *harness) readPlan(_ context.Context, key types.NamespacedName) (*livetvstore.LineupPlan, bool, error) {
+	v, ok := h.plans.Load(key.Name)
+	if !ok {
+		return nil, false, nil
+	}
+	return v.(*livetvstore.LineupPlan), true, nil
+}
+
+// storePlan stores lp as provider's lineup plan, as the lineup controller
+// does; lp is not changed afterwards.
+func (h *harness) storePlan(provider string, lp *livetvstore.LineupPlan) { h.plans.Store(provider, lp) }
 
 var nsSeq atomic.Int32
 
@@ -130,8 +150,9 @@ func setup(t *testing.T) *harness {
 	require.NoError(t, err)
 	r := &iptvprovider.Reconciler{
 		Client: mgr.GetClient(), SecretReader: direct, Tuner: h.tuner,
-		Address: "livetv.clustarr-system.svc.cluster.local:80",
-		Events:  h.events, Now: func() time.Time { return *h.now.Load() },
+		Address:    "livetv.clustarr-system.svc.cluster.local:80",
+		PlanReader: h.readPlan,
+		Events:     h.events, Now: func() time.Time { return *h.now.Load() },
 	}
 	require.NoError(t, r.SetupWithManager(mgr))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -514,4 +535,99 @@ func TestAMissingCredentialsKeyReadsInvalid(t *testing.T) {
 		return c != nil && c.Reason == clustarrv1.ReasonSecretKeyNotFound
 	}, "Ready=False SecretKeyNotFound")
 	assert.NotContains(t, fmt.Sprint(got.Status), "usr-7f3c9d", "no credential in status")
+}
+
+// TestACategoryLineupPublishesABlockPerCategory: with spec.lineup enabled,
+// its plan stored, and every channel carrying it (status.lineup as the
+// lineup controller writes it, the planned spec.number and spec.active),
+// each category holding an active channel is a block of its own, started at
+// its base+1, under the device named for its category (the custom guides
+// design §5.5); status.categories lists the plan's categories in its order
+// with their bases, active channels and devices, and LineupApplied is True.
+// The tuner is handed the blocks with their categories and numbers, and
+// each channel with its category and its planned name.
+func TestACategoryLineupPublishesABlockPerCategory(t *testing.T) {
+	h := setup(t)
+	planned := []lineup.Assignment{
+		{Key: "t:cnn", Name: "CNN", Category: "News", Rule: "News[1]", Number: "1001", Base: 1000, Index: 0},
+		{Key: "t:msnbc", Name: "MSNBC", Category: "News", Rule: "News[1]", Number: "1002", Base: 1000, Index: 1},
+		{Key: "t:espn", Name: "ESPN", Category: "Sports", Rule: "Sports[0]", Number: "2001", Base: 2000, Index: 0},
+	}
+	for _, a := range planned {
+		name := "news-" + strings.TrimPrefix(a.Key, "t:")
+		require.NoError(t, h.c.Create(h.ctx, &clustarrv1.IPTVChannel{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: h.ns, Labels: map[string]string{clustarrv1.LabelOrigin: clustarrv1.OriginLineup}},
+			Spec:       clustarrv1.IPTVChannelSpec{ProviderRef: "news", Key: a.Key, Number: a.Number, Active: true},
+		}))
+		_, err := k8s.PatchStatus(h.ctx, h.c, k8s.ManagerLiveTVLineup, clustarrac.IPTVChannel(name, h.ns).WithStatus(
+			clustarrac.IPTVChannelStatus().WithLineup(clustarrac.ChannelLineupStatus().
+				WithName(a.Name).WithCategory(a.Category).WithRule(a.Rule).WithNumber(a.Number))))
+		require.NoError(t, err)
+	}
+	h.storePlan("news", &livetvstore.LineupPlan{
+		PlannedAt: time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC),
+		Plan: lineup.Plan{
+			Channels: planned,
+			// In rule order: Sports's rule comes first.
+			Categories: []lineup.Category{{Name: "Sports", Base: 2000, Channels: 1}, {Name: "News", Base: 1000, Channels: 2}},
+		},
+	})
+	h.provider(t, "news", func(p *clustarrv1.IPTVProvider) {
+		p.Spec.Lineup = &clustarrv1.LineupSpec{Enabled: true, Categories: []clustarrv1.LineupCategory{
+			{Name: "Sports", Base: ptr.To(int32(2000)), Names: []string{"^ESPN"}},
+			{Name: "News", Base: ptr.To(int32(1000)), Names: []string{"^CNN", "^MSNBC"}},
+		}}
+	})
+
+	p := h.until(t, "news", func(p *clustarrv1.IPTVProvider) bool {
+		c := meta.FindStatusCondition(p.Status.Conditions, clustarrv1.ConditionLineupApplied)
+		return len(p.Status.Blocks) == 2 && len(p.Status.Categories) == 2 && c != nil && c.Status == metav1.ConditionTrue
+	}, "two category blocks and the lineup applied")
+	newsID := hdhr.BlockDeviceID(h.ns, "news", "cat/News")
+	sportsID := hdhr.BlockDeviceID(h.ns, "news", "cat/Sports")
+	type block struct {
+		Start, Category, DeviceID, FriendlyName, First, Last string
+		Channels                                             int32
+	}
+	var got []block
+	for _, b := range p.Status.Blocks {
+		got = append(got, block{b.Start, b.Category, b.DeviceID, b.FriendlyName, b.First, b.Last, b.Channels})
+		assert.Equal(t, tuner.DeviceEndpoint(b.DeviceID), b.Path)
+		assert.Equal(t, "http://"+p.Status.Address+b.Path, b.URI, "the URI Plex is given")
+		assert.Equal(t, iptvprovider.BlockGuidePath, b.GuidePath, "a category's device serves its XMLTV guide")
+		assert.Empty(t, b.Lineup)
+	}
+	assert.Equal(t, []block{
+		{"1001", "News", newsID, "Clustarr news News", "1001", "1002", 2},
+		{"2001", "Sports", sportsID, "Clustarr news Sports", "2001", "2001", 1},
+	}, got, "a block per category, in start order, its device the category's")
+	assert.Equal(t, []clustarrv1.CategoryStatus{
+		{Name: "Sports", Base: 2000, Channels: 1, DeviceID: sportsID},
+		{Name: "News", Base: 1000, Channels: 2, DeviceID: newsID},
+	}, p.Status.Categories, "the plan's categories, in its order")
+	applied := meta.FindStatusCondition(p.Status.Conditions, clustarrv1.ConditionLineupApplied)
+	require.NotNil(t, applied)
+	assert.Equal(t, clustarrv1.ReasonApplied, applied.Reason)
+	assert.Equal(t, "3 channels in 2 categories", applied.Message)
+
+	c, ok := h.tuner.last(h.key("news"))
+	require.True(t, ok)
+	type tb struct {
+		Start, DeviceID, Category string
+		Numbers                   []string
+	}
+	var blocks []tb
+	for _, b := range c.Blocks {
+		blocks = append(blocks, tb{b.Start, b.DeviceID, b.Category, b.Numbers})
+	}
+	assert.Equal(t, []tb{{"1001", newsID, "News", []string{"1001", "1002"}}, {"2001", sportsID, "Sports", []string{"2001"}}}, blocks)
+	byKey := map[string]tuner.ChannelConfig{}
+	for _, ch := range c.Channels {
+		byKey[ch.Key] = ch
+	}
+	for _, a := range planned {
+		ch := byKey[a.Key]
+		assert.Equal(t, []string{a.Number, a.Category, a.Name, a.Category}, []string{ch.Number, ch.Category, ch.Name, ch.Group},
+			"%s: its number, category, the planned name, and its category as the guide's class", a.Key)
+	}
 }
