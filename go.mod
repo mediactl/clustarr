@@ -219,7 +219,7 @@ require (
 	zombiezen.com/go/sqlite v0.13.1 // indirect
 )
 
-replace github.com/obinnaokechukwu/ffgo => github.com/mediactl/ffgo v0.0.0-clustarr.16
+replace github.com/obinnaokechukwu/ffgo => github.com/mediactl/ffgo v0.0.0-clustarr.17
 
 // controller-runtime builds its client's and its cache's codec factories
 // without the CBOR serializer, so client-go's ClientsAllowCBOR and

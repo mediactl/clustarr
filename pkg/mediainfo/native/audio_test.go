@@ -153,3 +153,26 @@ func TestTagsAreBounded(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, mi.Tags, ap.Tags)
 }
+
+// A tag longer than 4 KiB probes, never panics (2026-11-14: ffgo's C-string
+// helper sliced a [4096]byte array one byte past its end, so a music file's
+// lyrics tag crashed the import agent on every probe of it, seven restarts in
+// an hour and a half on talos; ffgo v0.0.0-clustarr.17 reads to the
+// terminator). The lyrics are no field of MediaTags, so nothing of them is
+// carried; the tags beside them are.
+func TestATagOverFourKiBProbes(t *testing.T) {
+	p := testProber(t)
+	clip := ffmpegClip(t, "lyrics.flac",
+		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=8000:duration=0.2", "-c:a", "flac",
+		"-metadata", "TITLE=Rebel Yell", "-metadata", "LYRICS="+strings.Repeat("la ", 2000))
+
+	ap, err := p.ProbeAudio(context.Background(), clip)
+	require.NoError(t, err)
+	require.NotNil(t, ap.Tags)
+	assert.Equal(t, "Rebel Yell", ap.Tags.Title)
+
+	mi, _, err := p.Probe(context.Background(), clip)
+	require.NoError(t, err)
+	require.NotNil(t, mi.Tags)
+	assert.Equal(t, "Rebel Yell", mi.Tags.Title)
+}
