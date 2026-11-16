@@ -148,12 +148,12 @@ func TestArtworkAddsAnIconAndTheKind(t *testing.T) {
 	assert.Regexp(t, `EP\d{8}\.\d{4}`, out)
 }
 
-// A programme nothing marks as a first showing is a repeat (owner,
-// 2026-11-16: the iOS app badged every listing Live): PMS and cluster-plex's
-// builder read an episode without previously-shown as a premiere, so the
-// Enricher adds it unless the source says new, premiere or live, or the
-// programme is a live event, and never doubles one the source wrote.
-func TestOnlyAFirstShowingGoesWithoutPreviouslyShown(t *testing.T) {
+// Every programme that is not live is previously shown (owner, 2026-11-16:
+// the iOS app badged every listing Live): PMS and cluster-plex's builder
+// read an episode without previously-shown as a premiere, so the Enricher
+// adds it unless the source says live or the programme is a live event, and
+// never doubles one the source wrote.
+func TestOnlyALiveProgrammeGoesWithoutPreviouslyShown(t *testing.T) {
 	e := &xmltv.Enricher{}
 	enrich := func(inner string, ch xmltv.LineupChannel) string {
 		return string(e.Enrich([]byte(inner), ch, t0, t0.Add(time.Hour)))
@@ -167,13 +167,17 @@ func TestOnlyAFirstShowingGoesWithoutPreviouslyShown(t *testing.T) {
 		assert.Equal(t, 1, strings.Count(out, "<previously-shown"), out)
 		assert.NotContains(t, out, "<new", out)
 	}
+	// A source's new or premiere is no exception: only what is live goes
+	// without (owner, 2026-11-16), and the source's own element stays.
 	for _, inner := range []string{
 		`<title>Grimm</title><new/>`,
 		`<title>Grimm</title><premiere>Series premiere</premiere>`,
-		`<title>Good Morning America</title><live/>`,
 	} {
-		assert.NotContains(t, enrich(inner, plain), "<previously-shown", inner)
+		out := enrich(inner, plain)
+		assert.Equal(t, 1, strings.Count(out, "<previously-shown"), out)
+		assert.True(t, strings.Contains(out, "<new/>") || strings.Contains(out, "<premiere>"), out)
 	}
+	assert.NotContains(t, enrich(`<title>Good Morning America</title><live/>`, plain), "<previously-shown")
 
 	event := enrich(`<title>Live: NFL Football</title><desc>The Eagles host the Cowboys.</desc>`, sports)
 	assert.Contains(t, event, "<live/>")
