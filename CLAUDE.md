@@ -852,7 +852,14 @@ channel's programmes are News, a kids channel's Children; a children's
 programme, the source's or a kids channel's, is also Kids (owner,
 2026-11-16: PMS lists Kids On Now and Kids On Later for an XMLTV guide only
 when a genre named Kids exists, and offers the sports, news and movies
-on-now hubs to a cloud guide alone, whatever the guide's tags say); a programme the
+on-now hubs to a cloud guide alone, whatever the guide's tags say); a source's
+placeholder listing is left out of the built guide (owner, 2026-11-16,
+`xmltv.Filler`: "Paid Programming", "SIGN OFF", "Channel No Longer
+Available", "No EVENT Today", "No Data", "To Be Announced" and their like,
+by title; 3,786 of talos's 85,487 programmes, 27 of the 464 on at the
+moment, and 19 channels left with no listing): nothing but the airing
+itself puts a programme in Plex's What's On hubs, so there is no tag to
+take from it instead; a programme the
 source marks neither `<new/>`, `<premiere>` nor `<live/>`, and no live
 event, gets `<previously-shown/>`, as does every dummy block (owner,
 2026-11-16: the iOS app badged every What's On listing Live): PMS's reader
