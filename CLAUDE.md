@@ -508,6 +508,16 @@ The tuner fetches three things from the panel:
   the fallback's failure keeps its last good copy and is no guide error. A
   programme the guide already gives an image and a Movie or Series
   category is not looked up for artwork;
+- the stream list, `player_api.php?action=get_live_streams`, after each
+  playlist (owner, 2026-11-16): argon-tv's playlist carries no `tvg-id` on
+  any entry, and the panel names a stream's guide channel only here
+  (`epg_channel_id`). The tuner sets `m3u.Entry.GuideID` by the stream id
+  an entry's URL ends in (`tuner/streams.go`), never `TvgID`, so keys and
+  Plex pairing are untouched; an unmapped channel that maps by neither
+  tvg-id nor name takes its own stream's id, then the id of an admitted
+  entry of the same trimmed name (`tuner/twins.go`, `lineup.NameKey`: the
+  lineup keeps the HD entry while only the 720p one may carry the id). A
+  failed list keeps the last ids; the playlist cache carries them;
 - the account, `player_api.php`. Its `max_connections` is the tuner limit
   unless `tuners` overrides it; `status.account` shows its status, expiry
   and connections.
