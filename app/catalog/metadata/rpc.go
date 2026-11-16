@@ -26,6 +26,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -161,7 +162,7 @@ func lookupWith(ctx context.Context, reg *pkgmetadata.Registry, cache pkgmetadat
 		return lookupIssues(ctx, reg, req)
 	case commonv1.MediaKindAlbum:
 		if _, ok := req.IDs[pkgmetadata.KeyMBArtist]; ok {
-			return lookupAlbums(ctx, reg, req)
+			return lookupAlbums(ctx, reg, cache, req)
 		}
 		if resp, ok := cachedAlbum(ctx, cache, req); ok {
 			return resp
@@ -361,11 +362,21 @@ func comicSourceID(ids map[string]string) (key, value string) {
 // status.metadata) never carries its album list; Artist() and Albums() are
 // separate MusicBrainz calls, exactly as Series() and Episodes() are
 // separate TVDB calls.
-func lookupAlbums(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
+func lookupAlbums(ctx context.Context, reg *pkgmetadata.Registry, cache pkgmetadata.Cache, req schema.MetadataRequest) schema.MetadataResponse {
 	ctx, span := tracing.Start(ctx, "metadata.rpc.lookupAlbums")
 	defer span.End()
 
 	mbArtistID := req.IDs[pkgmetadata.KeyMBArtist]
+	key := cacheKey(albumListKind, pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: mbArtistID})
+	if cache != nil {
+		var cached albumList
+		hit, err := cache.Get(ctx, key, &cached)
+		if err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "metadata: artist album list: cache read failed; asking the provider", "mbid", mbArtistID, "err", err)
+		} else if hit {
+			return schema.MetadataResponse{Kind: req.Kind, Provider: cached.Provider, Results: marshalAll(cached.Albums)}
+		}
+	}
 	var lastErr error
 	for _, p := range reg.Artists {
 		aCtx, aSpan := tracing.Start(ctx, "metadata.ArtistProvider.Albums")
@@ -377,6 +388,11 @@ func lookupAlbums(ctx context.Context, reg *pkgmetadata.Registry, req schema.Met
 			continue
 		}
 		aSpan.End()
+		if cache != nil {
+			if err := cache.Set(ctx, key, albumList{Provider: p.Name(), Albums: albums}, albumListTTL); err != nil {
+				logging.FromContext(ctx).WarnContext(ctx, "metadata: artist album list: cache write failed", "mbid", mbArtistID, "err", err)
+			}
+		}
 		return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(albums)}
 	}
 	if lastErr == nil {
@@ -384,6 +400,26 @@ func lookupAlbums(ctx context.Context, reg *pkgmetadata.Registry, req schema.Met
 	}
 	tracing.RecordError(span, lastErr)
 	return schema.MetadataResponse{Kind: req.Kind, Error: lastErr.Error()}
+}
+
+// albumListKind keys an artist's album list in the gateway's cache
+// (lookupAlbums): its own namespace beside the documents the worker caches
+// by kind, since a list is no item's document.
+const albumListKind commonv1.MediaKind = "albumlist"
+
+// albumListTTL is how long an artist's fetched album list answers its
+// listing from the cache: a day, so a release group MusicBrainz gains shows
+// within one, while the listing every Artist's fan-out asks for after a
+// manager restart or a spec edit costs MusicBrainz nothing (talos,
+// 2026-11-16: 28 of 145 Artists' listings, a popular artist's several
+// pages, failed for days on MusicBrainz's one request a second). A failed
+// fetch is not cached.
+const albumListTTL = 24 * time.Hour
+
+// albumList is an artist's album list as the gateway caches it.
+type albumList struct {
+	Provider string              `json:"provider"`
+	Albums   []pkgmetadata.Album `json:"albums"`
 }
 
 // lookupBooks is Author->Book's counterpart to lookupAlbums: Kind=

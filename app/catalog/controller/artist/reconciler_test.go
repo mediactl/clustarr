@@ -20,6 +20,7 @@ package artist_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -44,6 +45,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/artist"
+	"github.com/mediactl/clustarr/app/catalog/controller/lookuphold"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -195,6 +197,100 @@ func statusFieldNames(fields map[string]any) map[string]bool {
 		out[k[2:]] = true // strip "f:"
 	}
 	return out
+}
+
+// switchingAlbumRPC is fakeAlbumRPC that counts its calls and can be
+// switched from failing to answering.
+type switchingAlbumRPC struct {
+	calls  atomic.Int32
+	albums []pkgmetadata.Album
+	err    error
+}
+
+func (f *switchingAlbumRPC) Request(ctx context.Context, subject string, in, out any) error {
+	f.calls.Add(1)
+	return fakeAlbumRPC{albums: f.albums, err: f.err}.Request(ctx, subject, in, out)
+}
+
+// A failed album listing holds the Artist's next one back: a pass the loop
+// runs before the hold ends reports the failure again without asking the
+// gateway and requeues for the hold's end, and fresh metadata lifts the
+// hold (talos, 2026-11-16: 28 of 145 Artists retried the listing every 30 s
+// against MusicBrainz's one request a second, behind the Albums' track
+// listings, and had no albums after five days).
+func TestAFailedAlbumListingHoldsTheArtistsNextLookup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	const ns = "artist-hold-ns"
+	require.NoError(t, c.Create(ctx, testNamespace(ns)))
+	require.NoError(t, c.Create(ctx, testRootFolder(ns, "music-root", "/data/media/music")))
+	a := &catalogv1alpha1.Artist{
+		ObjectMeta: metav1.ObjectMeta{Name: "cher", Namespace: ns},
+		Spec: catalogv1alpha1.ArtistSpec{
+			MusicBrainzID: "bfcc6d75-a6a5-4bc6-8282-47aec8531818", QualityProfileRef: "none", RootFolderRef: "music-root",
+			MetadataProfile: catalogv1alpha1.MusicMetadataProfile{PrimaryTypes: []string{"album"}, SecondaryTypes: []string{"studio"}, ReleaseStatuses: []string{"official"}},
+		},
+	}
+	require.NoError(t, c.Create(ctx, a))
+	key := types.NamespacedName{Namespace: ns, Name: a.Name}
+	refresh := func(at time.Time) {
+		t.Helper()
+		metaAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(catalogac.ArtistStatus().WithMetadata(
+			catalogac.ArtistMetadata().WithName("Cher").WithRefreshedAt(metav1.NewTime(at)).WithSchemaVersion(pkgmetadata.SchemaVersion)))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Artist
+			return c.Get(ctx, key, &got) == nil && got.Status.Metadata != nil && got.Status.Metadata.RefreshedAt.Time.Equal(at)
+		}, 5*time.Second, 10*time.Millisecond)
+	}
+	refresh(time.Now().Add(-time.Hour).Truncate(time.Second))
+
+	rpc := &switchingAlbumRPC{err: errors.New("metadata gateway: rate: Wait(n=1) would exceed context deadline")}
+	r := &artist.Reconciler{
+		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(100),
+		Bus: combinedBus{Publisher: fakePublisher{}, requester: rpc},
+	}
+	albumsSynced := func() *metav1.Condition {
+		var got catalogv1alpha1.Artist
+		if c.Get(ctx, key, &got) != nil {
+			return nil
+		}
+		return k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.ArtistConditionAlbumsSynced)
+	}
+
+	res, err := r.ReconcileItem(ctx, key)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, rpc.calls.Load())
+	assert.GreaterOrEqual(t, res.RequeueAfter, lookuphold.Min/2-time.Second)
+	assert.LessOrEqual(t, res.RequeueAfter, lookuphold.Min)
+	require.Eventually(t, func() bool {
+		cond := albumsSynced()
+		return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "RPCError"
+	}, 5*time.Second, 10*time.Millisecond)
+	failed := albumsSynced()
+
+	res, err = r.ReconcileItem(ctx, key)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, rpc.calls.Load(), "a pass inside the hold does not ask the gateway")
+	assert.Positive(t, res.RequeueAfter)
+	assert.LessOrEqual(t, res.RequeueAfter, lookuphold.Min, "it requeues for the hold's end")
+	held := albumsSynced()
+	require.NotNil(t, held)
+	assert.Equal(t, failed.Reason, held.Reason, "the failure is reported again")
+	assert.Equal(t, failed.Message, held.Message)
+
+	rpc.err = nil
+	refresh(time.Now().Truncate(time.Second))
+	_, err = r.ReconcileItem(ctx, key)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, rpc.calls.Load(), "fresh metadata is not held")
+	require.Eventually(t, func() bool {
+		cond := albumsSynced()
+		return cond != nil && cond.Status == metav1.ConditionTrue
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 // TestArtistReconcilerQueueFull proves ErrQueueFull from Publish sets

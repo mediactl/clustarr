@@ -20,10 +20,13 @@ package metadata_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -155,4 +158,71 @@ func TestAnAlbumLookupTheCacheLacksAsksTheProviderAndLeavesTheCacheToTheWorker(t
 
 	h.lookup(t)
 	require.EqualValues(t, 2, h.calls.Load(), "the worker's document answers the next lookup")
+}
+
+// countingListProvider is an ArtistProvider whose artist album list counts
+// its calls and can fail.
+type countingListProvider struct {
+	stubArtistOnlyProvider
+	lists  *atomic.Int32
+	albums []pkgmetadata.Album
+	err    error
+}
+
+func (p *countingListProvider) Albums(context.Context, string) ([]pkgmetadata.Album, error) {
+	p.lists.Add(1)
+	return p.albums, p.err
+}
+
+// An Artist's album list is answered from the gateway's cache for a day
+// after a fetch, so the listing every Artist's fan-out asks for after a
+// manager restart, or a spec edit, costs MusicBrainz nothing; a failed
+// fetch is not cached (talos, 2026-11-16: 28 of 145 Artists' listings
+// failed for days on MusicBrainz's one request a second, a popular
+// artist's list being several pages).
+func TestAnArtistsAlbumListIsAnsweredFromTheCacheForADay(t *testing.T) {
+	clock := clockwork.NewFakeClock()
+	cache, err := pkgmetadata.NewLRUCache(16, clock)
+	require.NoError(t, err)
+	h := newRecordHarness(t)
+	prov := &countingListProvider{
+		lists:  new(atomic.Int32),
+		albums: []pkgmetadata.Album{{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: "believe-group"}, Title: "Believe"}},
+	}
+	stop, err := metadata.ServeRPC(h.bus, &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{prov}}, cache)
+	require.NoError(t, err)
+	t.Cleanup(stop)
+	ask := func() schema.MetadataResponse {
+		t.Helper()
+		var resp schema.MetadataResponse
+		req := schema.MetadataRequest{Kind: commonv1.MediaKindAlbum, IDs: map[string]string{pkgmetadata.KeyMBArtist: "cher-mbid"}}
+		require.NoError(t, h.bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+		return resp
+	}
+	titles := func(resp schema.MetadataResponse) []string {
+		t.Helper()
+		require.Empty(t, resp.Error)
+		var out []string
+		for _, raw := range resp.Results {
+			var a pkgmetadata.Album
+			require.NoError(t, json.Unmarshal(raw, &a))
+			out = append(out, a.Title)
+		}
+		return out
+	}
+
+	assert.Equal(t, []string{"Believe"}, titles(ask()))
+	assert.Equal(t, []string{"Believe"}, titles(ask()))
+	require.EqualValues(t, 1, prov.lists.Load(), "the second listing is the cache's")
+
+	clock.Advance(25 * time.Hour)
+	assert.Equal(t, []string{"Believe"}, titles(ask()))
+	require.EqualValues(t, 2, prov.lists.Load(), "a day on, the list is fetched again")
+
+	clock.Advance(25 * time.Hour)
+	prov.err = errors.New("rate: Wait(n=1) would exceed context deadline")
+	assert.NotEmpty(t, ask().Error)
+	prov.err = nil
+	assert.Equal(t, []string{"Believe"}, titles(ask()))
+	assert.EqualValues(t, 4, prov.lists.Load(), "a failed fetch caches nothing")
 }

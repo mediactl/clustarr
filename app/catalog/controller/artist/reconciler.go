@@ -43,6 +43,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/folderscan"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
+	"github.com/mediactl/clustarr/app/catalog/controller/lookuphold"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
 	"github.com/mediactl/clustarr/app/remediation/childsync"
@@ -72,8 +73,10 @@ const albumByArtistRefIndexKey = ".spec.artistRef"
 // other readers of the cache (the nfo stage).
 const AlbumByArtistRefIndex = albumByArtistRefIndexKey
 
-// albumSyncRPCBackoff is the RequeueAfter used when the album-listing RPC
-// fails, mirroring series.episodeSyncRPCBackoff.
+// albumSyncRPCBackoff bounds one album-listing RPC, and is the requeue
+// after a fan-out that failed on anything but the listing itself (an
+// Album's create): a failed listing holds the Artist's next one back
+// (lookuphold), longer the longer it has been failing.
 const albumSyncRPCBackoff = 30 * time.Second
 
 // bus is the subset of events.Bus this reconciler actually calls: Publish
@@ -130,6 +133,16 @@ type Reconciler struct {
 	// childSync skips a fan-out whose inputs have not moved since the last
 	// complete one in this process (design D2's memo).
 	childSync childsync.Memo
+
+	// holds keeps a failed album listing's hold, keyed as the memo is, so
+	// fresh metadata (a refresh) lifts it (lookuphold).
+	holds lookuphold.Holds[holdKey]
+}
+
+// holdKey is an Artist's lookup hold key: its UID and its child-sync key.
+type holdKey struct {
+	uid types.UID
+	key childsync.Key
 }
 
 // RegisterIndexes registers the Album-by-spec.artistRef index under its
@@ -531,7 +544,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Art
 	}
 
 	if syncErr != nil {
-		return ctrl.Result{RequeueAfter: soonest(albumSyncRPCBackoff, folderScan.Retry)}, nil
+		after := albumSyncRPCBackoff
+		if !fan.retryAt.IsZero() {
+			after = max(time.Until(fan.retryAt), time.Second)
+		}
+		return ctrl.Result{RequeueAfter: soonest(after, folderScan.Retry)}, nil
 	}
 	// nextReleaseDate moves when an album is released, and nothing else
 	// wakes this item then, so come back just after it.
@@ -594,6 +611,8 @@ type fanOut struct {
 	synced  bool
 	created int
 	albums  []catalogv1alpha1.Album
+	// retryAt is when a failed listing may be asked again.
+	retryAt time.Time
 }
 
 // syncKey is the child-sync memo's key for a: its spec generation and its
@@ -656,6 +675,19 @@ func (r *Reconciler) syncAlbums(ctx context.Context, a *catalogv1alpha1.Artist, 
 		return out, nil
 	}
 
+	// A failed listing holds the next one back: every wake of the Artist
+	// runs this pass, not only its requeue, so the hold is kept here.
+	hk := holdKey{uid: a.UID, key: key}
+	if hold, held := r.holds.Held(hk, now); held {
+		out.retryAt = hold.Until
+		return out, hold.Err
+	}
+	failed := func(err error) (fanOut, error) {
+		since := lookuphold.Since(a.Status.Conditions, catalogv1alpha1.ArtistConditionAlbumsSynced, now, "MetadataPending")
+		out.retryAt = r.holds.Failed(hk, time.Now(), since, err).Until
+		return out, err
+	}
+
 	req := schema.MetadataRequest{
 		Kind: commonv1.MediaKindAlbum,
 		IDs:  map[string]string{pkgmetadata.KeyMBArtist: a.Spec.MusicBrainzID},
@@ -664,23 +696,24 @@ func (r *Reconciler) syncAlbums(ctx context.Context, a *catalogv1alpha1.Artist, 
 	defer cancel()
 
 	var resp schema.MetadataResponse
-	// An idempotent lookup: every class retries on the reconciler's
-	// requeue, and the condition names the class (ADR-0020 §4).
+	// An idempotent lookup: every class retries once its hold ends, and the
+	// condition names the class (ADR-0020 §4).
 	if rpcErr := r.Bus.Request(rpcCtx, events.RPCMetadataLookup, req, &resp); rpcErr != nil {
-		return out, events.DescribeRequestError(events.RPCMetadataLookup, rpcErr)
+		return failed(events.DescribeRequestError(events.RPCMetadataLookup, rpcErr))
 	}
 	if resp.Error != "" {
-		return out, fmt.Errorf("metadata gateway: %s", resp.Error)
+		return failed(fmt.Errorf("metadata gateway: %s", resp.Error))
 	}
 
 	fetched := make([]pkgmetadata.Album, 0, len(resp.Results))
 	for _, raw := range resp.Results {
 		var alb pkgmetadata.Album
 		if err := json.Unmarshal(raw, &alb); err != nil {
-			return out, fmt.Errorf("decode album: %w", err)
+			return failed(fmt.Errorf("decode album: %w", err))
 		}
 		fetched = append(fetched, alb)
 	}
+	r.holds.Clear(hk)
 
 	desired := DesiredAlbums(a, a.Status.AddOptionsApplied, existingIDs, fetched, now)
 	for _, d := range desired {

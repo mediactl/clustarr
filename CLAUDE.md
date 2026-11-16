@@ -2317,8 +2317,12 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   (`album.ReleaseCache.Failed`; owner, 2026-11-15: 1,082 of talos's 1,092
   Albums retried it every 30 s on MusicBrainz's one request a second behind
   a 10 s deadline, almost every request was abandoned mid-call, and the
-  music scan matched none of 3,249 files). The Artist, Author and Comic
-  fan-outs still retry their RPCs every 30 s. A music
+  music scan matched none of 3,249 files). An Artist's album list is
+  cached by the gateway for a day after a fetch (`albumlist` keys,
+  `metadata.lookupAlbums`) and a failed listing holds the Artist the same
+  way (`lookuphold`, the rule both share; 28 of 145 Artists had no albums
+  after five days). The Author and Comic fan-outs still retry their RPCs
+  every 30 s. A music
   file is probed before it is matched, and `MatchAlbum(absPath, rel, tags,
   cands)` takes the Artist the first segment names (as written, CleanTitle
   or TitleNorm, so 宇多田ヒカル and !!! keep their albums) and the Album by
@@ -2327,7 +2331,19 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   before the first release refuses; two hits `ambiguous_title`, none
   `no_child_item` naming the tag); the first file in walk order holds a
   track and a second is `duplicate_track` (the album's recorded MediaFiles
-  read once per walk; two scans at once can still race, open). A file whose
+  read once per walk; two scans at once can still race, open). A track is
+  never attributed by a number its title tag contradicts
+  (`fileimport.AttributeTrackIn`, `TitlesAgree`: featured-artist credits,
+  "&", apostrophes and spacing aside, any script): the scan asks the
+  gateway once a walk for the group's every release and takes the one
+  whose track at that number carries the title -- the file's own edition --
+  then the title alone, and holds a file whose title no release has; and an
+  album's selection goes, among releases holding the same files, to the one
+  with fewer tracks (`album.SelectRelease`; without files still the most).
+  On talos (owner, 2026-11-16) the flat scene rips were numbered against
+  the largest edition each album selected (Old's 4x12" vinyl numbered per
+  side, a 24-track deluxe, an a cappella edition): one matched track in six
+  was held and one in twenty would have been renamed to another song. A file whose
   Album lists no tracks yet is counted awaiting, and a container's owed
   folder scan waits for its children (`folderscan.Request.ChildrenSettled`:
   every listed Album with its document and a TracksSynced answer, a
