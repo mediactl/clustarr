@@ -74,9 +74,13 @@ func (w *Worker) tagAlbum(
 	segment, _, _ := strings.Cut(filepath.ToSlash(rel), "/")
 	var cands []AlbumCandidate
 	titles := map[string]string{}
+	// A file numbered past 3, or tagged with more than 3 tracks, is not a
+	// single's: Chief Keef's mixtape DIRTY NACHOS and his single Dirty Nachos
+	// otherwise name every file of the mixtape twice.
+	notSingle := tags.TrackNumber > 3 || tags.TrackTotal > 3
 	for _, alb := range groups {
 		id := alb.IDs[metadata.KeyMBReleaseGroup]
-		if id == "" || held[id] {
+		if id == "" || held[id] || (notSingle && strings.EqualFold(alb.PrimaryType, "Single")) {
 			continue
 		}
 		year := 0

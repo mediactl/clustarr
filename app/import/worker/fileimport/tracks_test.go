@@ -156,6 +156,11 @@ func TestTitlesAgree(t *testing.T) {
 		{"Cock It (Album Version (Explicit))", "Slow Motion", false},
 		{"MVP (Scored By DJ Premier)", "MVP", true},
 		{"Flesh and Blood", "Flesh + Blood", true},
+		// Vocal credits (talos, 2026-11-16: Warren G, Vangelis).
+		{"Annie Mae (Addl Vocals Nate Dogg)", "Annie Mae", true},
+		{"To All D.J.s (Background Vocals Dorinda Roberts) (Guest Appearance Malik)", "To All D.J.s", true},
+		{"Back Up (Lead Vocals By K-9 and P-C)", "Back Up", true},
+		{"Juno's Tender Call (Soprano Vocals – Angela Gheorghiu)", "Juno's Tender Call", true},
 		{"Go Head F/ Mac Bre-Z", "Go Head", true},
 		{"$$$ (Feat. Normani)", "$$$", true},
 		// A bare "Ft", a typo or a cut title are the song only where the number

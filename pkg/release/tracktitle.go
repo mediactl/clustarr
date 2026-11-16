@@ -31,10 +31,14 @@ import (
 
 var (
 	// trackBracketedCreditRE is a bracketed credit in a title: a featured
-	// artist's ("(feat. X)", "[ft X]", "(featuring X)", "(Co-Starring X)") or
-	// a producer's ("(prod. X)", "[produced by X]", "(Produced By: X)").
+	// artist's ("(feat. X)", "[ft X]", "(featuring X)", "(Co-Starring X)",
+	// "(Guest Appearance X)"), a producer's ("(prod. X)", "[produced by X]",
+	// "(Produced By: X)", "(Scored By X)") or a singer's ("(Addl Vocals X)",
+	// "(Background Vocals X)", "(Lead Vocals By X)", "(Soprano Vocals – X)").
 	trackBracketedCreditRE = regexp.MustCompile(
-		`(?i)[(\[]\s*(?:feat\.?|ft\.?|featuring|co-starring|prod\.?(?:\s+by)?:?|produced\s+by:?|scored\s+by:?)\s[^)\]]*[)\]]`)
+		`(?i)[(\[]\s*(?:feat\.?|ft\.?|featuring|co-starring|guest\s+appearance(?:\s+by)?:?|prod\.?(?:\s+by)?:?|` +
+			`produced\s+by:?|scored\s+by:?|(?:addl\.?|additional|background|backing|lead|soprano|guest)\s+vocals?(?:\s+by)?:?)` +
+			`\s[^)\]]*[)\]]`)
 	// trackBracketedWithRE is a bracketed "(with X)" credit, which may as well be
 	// the title's own ("(With Love)"): dropped only where the track number
 	// agrees too (TrackTitlesAgreeAtNumber).

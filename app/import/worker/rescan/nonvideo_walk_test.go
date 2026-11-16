@@ -587,3 +587,35 @@ func TestAFileOfAnAlbumTheProfileLeavesOutProposesThatAlbum(t *testing.T) {
 	assert.Contains(t, files[none].Reason, `"An Album Nobody Lists"`)
 	assert.Equal(t, []string{"rc-mbid"}, asked, "the artist's release groups are asked for once a walk")
 }
+
+// A mixtape and a single of one title (Chief Keef's DIRTY NACHOS and Dirty
+// Nachos, talos, 2026-11-16) are told apart by the file: one numbered past
+// 3, or tagged with more than 3 tracks, is not the single's.
+func TestAFileNumberedPastASinglesTracksProposesTheAlbumOfItsTitle(t *testing.T) {
+	persona := albumObj("persona", "chief-keef", "persona-group", "Finally Rich", "love-sosa")
+	f := newWalkFixture(t, catalogv1alpha1.RootFolderKindMusic, catalogv1alpha1.RootDefaults{QualityProfileRef: "lossless"},
+		artistObj("chief-keef", "ck-mbid", "Chief Keef"), persona)
+	f.w.ArtistAlbums = func(context.Context, string) ([]metadata.Album, error) {
+		return []metadata.Album{
+			{IDs: metadata.ExternalIDs{metadata.KeyMBReleaseGroup: "nachos-tape"}, Title: "DIRTY NACHOS", PrimaryType: "Album", SecondaryTypes: []string{"Mixtape/Street"}},
+			{IDs: metadata.ExternalIDs{metadata.KeyMBReleaseGroup: "nachos-single"}, Title: "Dirty Nachos", PrimaryType: "Single"},
+		}, nil
+	}
+	late := filepath.Join("Chief Keef", "016-chief_keef-status.flac")
+	early := filepath.Join("Chief Keef", "002-chief_keef-intro.flac")
+	f.plant(t, late, early)
+	f.probeTags(map[string]*commonv1.MediaTags{
+		late:  {Album: "Dirty Nachos", Title: "Status", TrackNumber: 16},
+		early: {Album: "Dirty Nachos", Title: "Intro", TrackNumber: 2},
+	})
+
+	got, _ := f.handle(t, false)
+	obs := f.bus.observed(t, f.root)
+	var proposed []string
+	for _, o := range obs {
+		if o.Attribution != nil && o.Attribution.Create != nil {
+			proposed = append(proposed, o.Attribution.Create.ReleaseGroupID)
+		}
+	}
+	assert.Equal(t, []string{"nachos-tape"}, proposed, "%v", got.Unmatched)
+}
