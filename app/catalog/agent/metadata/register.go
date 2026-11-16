@@ -102,6 +102,7 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 		Store:   bus.ObjectStore(events.BucketArtwork),
 		HTTP:    artworkHTTPClient,
 		Limiter: artwork.NewHostLimiters(artworkHostRate, artworkHostBurst),
+		Slots:   artwork.NewHostSlots(wikimediaMediaSlots, wikimediaMediaHosts...),
 	}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		start := func(ctx context.Context) (func(), error) {
@@ -181,3 +182,13 @@ const (
 	artworkHostRate  = 4
 	artworkHostBurst = 4
 )
+
+// Wikimedia's robot policy allows a client two media fetches at a time
+// across its media hosts (wikitech.wikimedia.org/wiki/Robot_policy): the
+// artist portraits Commons serves whole come from upload.wikimedia.org,
+// its renditions from thumb.wikimedia.org. Four a second with 32 fetch
+// handlers had put 24 portraits to upload.wikimedia.org at once, which
+// answered 429 to all of them (talos, 2026-11-16).
+const wikimediaMediaSlots = 2
+
+var wikimediaMediaHosts = []string{"upload.wikimedia.org", "thumb.wikimedia.org"}

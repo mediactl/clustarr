@@ -23,6 +23,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -444,4 +445,68 @@ func TestFetchOneRejectsAnSVGFromAHostWithNoPNGRendition(t *testing.T) {
 	fx := newFixture(t)
 	bad := fx.srv.serve("/logo.svg", "image/svg+xml", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`))
 	assertFailedFetchKeepsPrevious(t, fx, bad, "SVG")
+}
+
+// Wikimedia's robot policy allows a client two media fetches at a time
+// across its media hosts (talos, 2026-11-16: upload.wikimedia.org answered
+// 429 to a burst of 24 artist portraits at once): the hosts NewHostSlots
+// names share one bound, and a host it does not name has none.
+func TestFetchOneHoldsAHostToItsSlots(t *testing.T) {
+	fx := newFixture(t)
+	body := pngBytes(t, 4, 6, color.White)
+	var mu sync.Mutex
+	inFlight, most := 0, 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		inFlight++
+		most = max(most, inFlight)
+		mu.Unlock()
+		time.Sleep(50 * time.Millisecond)
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	host := strings.TrimPrefix(srv.URL, "http://")
+	fx.f.Slots = artwork.NewHostSlots(2, "upload.wikimedia.org", host)
+
+	var wg sync.WaitGroup
+	errs := make([]error, 6)
+	for i := range errs {
+		ref := fx.ref
+		ref.UID = types.UID(fmt.Sprintf("8b2c0000-0000-4000-8000-00000000010%d", i))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = fx.f.FetchOne(fx.ctx, ref, catalogv1alpha1.ImageTypePoster,
+				catalogartwork.Source{URL: srv.URL + "/poster.png", Kind: catalogv1alpha1.ArtworkSourceProvider})
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, 2, most, "two fetches from the host at a time, never more, and not one at a time")
+
+	slots := artwork.NewHostSlots(2, "upload.wikimedia.org", "thumb.wikimedia.org")
+	assert.Nil(t, slots("image.tmdb.org"), "a host not named is not bounded")
+	require.NotNil(t, slots("upload.wikimedia.org"))
+	assert.Equal(t, slots("upload.wikimedia.org"), slots("thumb.wikimedia.org"), "the named hosts share one bound")
+	assert.Equal(t, 2, cap(slots("thumb.wikimedia.org")))
+}
+
+// A fetch waiting for a slot gives up with its context.
+func TestFetchOneWaitingForASlotHonoursTheContext(t *testing.T) {
+	fx := newFixture(t)
+	url := fx.srv.serve("/poster.png", "image/png", pngBytes(t, 4, 6, color.White))
+	fx.f.Slots = artwork.NewHostSlots(1, strings.TrimPrefix(fx.srv.URL, "http://"))
+	fx.f.Slots(strings.TrimPrefix(fx.srv.URL, "http://")) <- struct{}{} // the one slot, taken
+	ctx, cancel := context.WithTimeout(fx.ctx, 20*time.Millisecond)
+	defer cancel()
+	err := fx.f.FetchOne(ctx, fx.ref, catalogv1alpha1.ImageTypePoster,
+		catalogartwork.Source{URL: url, Kind: catalogv1alpha1.ArtworkSourceProvider})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Zero(t, fx.srv.hitsFor("/poster.png"), "no request while every slot is held")
 }

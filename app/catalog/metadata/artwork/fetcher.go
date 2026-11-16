@@ -130,6 +130,14 @@ type Fetcher struct {
 	// passes NewHostLimiters.
 	Limiter func(host string) *rate.Limiter
 
+	// Slots returns the semaphore that bounds how many fetches from an
+	// image host run at once (a buffered channel whose capacity is the
+	// bound), or nil for no bound. A rate alone does not hold a burst to
+	// a host's concurrency: Wikimedia's robot policy allows two media
+	// fetches at a time. Nil is no bound -- tests only; the gateway's
+	// wiring passes NewHostSlots.
+	Slots func(host string) chan struct{}
+
 	// Clock stamps an original's clustarr.io/updated-at, from which the
 	// manager renders status.artwork[].updatedAt. Nil is the real clock.
 	Clock clockwork.Clock
@@ -332,13 +340,24 @@ func (f *Fetcher) fetchAndPut(ctx context.Context, key string, ref catalogartwor
 	return nil
 }
 
-// get fetches u under its host's rate limit and returns its body and media
+// get fetches u under its host's slots and rate limit and returns its body and media
 // type. A response that is not an accepted image is ErrNotAnImage, its body
 // unread; an SVG returns its media type too, so the caller can fetch the
 // host's PNG rendition instead.
 func (f *Fetcher) get(ctx context.Context, u *url.URL) ([]byte, string, error) {
+	host := strings.ToLower(u.Host)
+	if f.Slots != nil {
+		if slots := f.Slots(host); slots != nil {
+			select {
+			case slots <- struct{}{}:
+				defer func() { <-slots }()
+			case <-ctx.Done():
+				return nil, "", fmt.Errorf("waiting for a slot: %w", ctx.Err())
+			}
+		}
+	}
 	if f.Limiter != nil {
-		if l := f.Limiter(strings.ToLower(u.Host)); l != nil {
+		if l := f.Limiter(host); l != nil {
 			if err := l.Wait(ctx); err != nil {
 				return nil, "", fmt.Errorf("rate limit: %w", err)
 			}
@@ -429,6 +448,23 @@ func (f *Fetcher) pngRendition(u *url.URL) (*url.URL, bool) {
 	png.Path = u.Path[:len(u.Path)-len(".svg")] + ".png"
 	png.RawPath = ""
 	return &png, true
+}
+
+// NewHostSlots returns a Fetcher.Slots under which the named hosts share
+// one bound of n fetches at a time, held until the body is read, and every
+// other host has none.
+func NewHostSlots(n int, hosts ...string) func(host string) chan struct{} {
+	slots := make(chan struct{}, n)
+	named := make(map[string]bool, len(hosts))
+	for _, h := range hosts {
+		named[strings.ToLower(h)] = true
+	}
+	return func(host string) chan struct{} {
+		if named[host] {
+			return slots
+		}
+		return nil
+	}
 }
 
 // NewHostLimiters returns a Fetcher.Limiter that gives every image host its
