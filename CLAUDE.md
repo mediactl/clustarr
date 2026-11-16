@@ -860,10 +860,11 @@ by title; 3,786 of talos's 85,487 programmes, 27 of the 464 on at the
 moment, and 19 channels left with no listing): nothing but the airing
 itself puts a programme in Plex's What's On hubs, so there is no tag to
 take from it instead; every programme
-that is not live (the source's `<live/>`, or a live event) gets
-`<previously-shown/>`, a source's `<new/>` or `<premiere>` included, as
-does every dummy block (owner, 2026-11-16: the iOS app badged every What's
-On listing Live; then "tag all non live items"): PMS's reader
+says one of `<live/>`, `<new/>` and `<previously-shown/>` (owner,
+2026-11-16: the iOS app badged every What's On listing Live): live is the
+source's or a live event's, new the source's (its `<premiere>` gets the
+`<new/>` it implies), anything else previously shown, as every dummy block
+is: PMS's reader
 and cluster-plex's builder take an episode without it for a premiere,
 which Plex's apps badge (Plex Web "New", iOS "Live") and its What's On hubs
 list first, and since the dd_progid makes nearly every programme an
