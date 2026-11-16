@@ -50,7 +50,10 @@ func Filler(inner []byte) bool {
 	if fillerTitles[title] || fillerPattern.MatchString(title) {
 		return true
 	}
-	return fillerBare[title] && f.desc == "" && f.subtitle == ""
+	// A source that has only the title to give repeats it as the episode's
+	// ("Blackout", "Blackout"): that says nothing else either.
+	subtitle := strings.TrimSpace(fillerNorm.ReplaceAllString(strings.ToLower(f.subtitle), " "))
+	return fillerBare[title] && f.desc == "" && (subtitle == "" || subtitle == title)
 }
 
 var (
@@ -73,9 +76,10 @@ var (
 
 	// fillerPattern are the shapes a source varies: "No EVENT Today",
 	// "Marlins Baseball Sign Off", "Cricket Filler", "Upcoming - MLB Network
-	// Strike Zone" (an event channel between events).
+	// Strike Zone" (an event channel between events), "Paid Programming 1
+	// Inspiration Ministries".
 	fillerPattern = regexp.MustCompile(`^no (event|events|game|games|match|matches|race|races|fight|fights)( scheduled)?( today| tonight| available)?$` +
-		`| sign off$| no longer available$| filler$|^upcoming `)
+		`| sign off$| no longer available$| filler$|^upcoming |^paid program(ming|me|mes|s)? `)
 
 	// fillerBare are placeholders that are also real titles.
 	fillerBare = set("blackout", "black out", "programming", "movie", "film", "event", "live event", "program", "programme")
