@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 )
@@ -210,6 +211,79 @@ func TestMatchAlbumByTags(t *testing.T) {
 		bang := rescan.AlbumCandidate{Name: "myth-takes", Title: "Myth Takes", ArtistNames: []string{"!!!"}}
 		check(t, rescan.MatchAlbum(filepath.Join(root, "!!!/01.flac"), "!!!/01.flac",
 			&commonv1.MediaTags{Album: "Myth Takes"}, []rescan.AlbumCandidate{bang}), verdict{name: "myth-takes"})
+	})
+	// talos, 2026-11-16: 230 of 386 files whose ALBUM tag named no album
+	// spelled an existing one loosely or named an edition of it.
+	t.Run("an album title spelled loosely or naming an edition is the album's", func(t *testing.T) {
+		al := func(name, title string) rescan.AlbumCandidate {
+			return rescan.AlbumCandidate{Name: name, Title: title, ArtistNames: []string{"X"}}
+		}
+		cands := []rescan.AlbumCandidate{
+			al("naughty", "19 Naughty III"), al("nappiness", "Love, Peace and Nappiness"), al("motor", "Motor Booty Affair"),
+			al("nonetheless", "Nonetheless"), al("yellow", "Yellow Tape 2"), al("kool", "Still Kool"), al("siren", "Siren"),
+			al("skylarking", "Skylarking"), al("platinum", "Already Platinum"), al("rare", "RARE Family"),
+			al("bodytalk", "Body Talk Pt. 1"), al("fearless", "Fearless"), al("fearless-tv", "Fearless (Taylor's Version)"),
+		}
+		for album, want := range map[string]verdict{
+			"19NaughtyIII":                            {name: "naughty"},
+			"Love, Peace & Nappiness":                 {name: "nappiness"},
+			"Motor-Booty Affair":                      {name: "motor"},
+			"Nonetheless (Expanded Edition)":          {name: "nonetheless"},
+			"Yellow Tape 2 Deluxe":                    {name: "yellow"},
+			"Still Kool CD":                           {name: "kool"},
+			"Siren (2015 SHM-SACD)":                   {name: "siren"},
+			"Skylarking (Corrected Polarity Edition)": {name: "skylarking"},
+			"Already Platinum: Reloaded":              {name: "platinum"},
+			"RARE Family (Reloaded)":                  {name: "rare"},
+			"Body Talk Pt.1 CD":                       {name: "bodytalk"},
+			"Fearless (Taylor's Version)":             {name: "fearless-tv"},
+			"Fearless (Platinum Edition)":             {name: "fearless"},
+			// Another recording is never an edition of the studio album.
+			"Siren (Live Edition)":      {code: rescan.CodeNoChild},
+			"Siren (Remixes)":           {code: rescan.CodeNoChild},
+			"Skylarking - Instrumental": {code: rescan.CodeNoChild},
+			"Deluxe":                    {code: rescan.CodeNoChild},
+		} {
+			t.Run(album, func(t *testing.T) {
+				check(t, rescan.MatchAlbum(filepath.Join(root, "X/01.flac"), "X/01.flac",
+					&commonv1.MediaTags{Album: album}, cands), want)
+			})
+		}
+		check(t, rescan.MatchAlbum(filepath.Join(root, "X/Love, Peace & Nappiness/01.flac"), "X/Love, Peace & Nappiness/01.flac",
+			nil, cands), verdict{name: "nappiness"})
+	})
+	// talos, 2026-11-16: Stephan Bodzin's Boavista single and album, both of
+	// 2021, held all 17 of the album's files as ambiguous.
+	t.Run("albums sharing a title are told apart by the file's track", func(t *testing.T) {
+		single := rescan.AlbumCandidate{
+			Name: "boavista-single", Title: "Boavista", Year: 2021, ArtistNames: []string{"Stephan Bodzin"},
+			Media: 1, Tracks: []catalogv1alpha1.Track{{RecordingID: "s1", Medium: 1, Number: 1, Title: "Boavista"}},
+		}
+		album := rescan.AlbumCandidate{
+			Name: "boavista", Title: "Boavista", Year: 2021, ArtistNames: []string{"Stephan Bodzin"},
+			Media: 1, Tracks: []catalogv1alpha1.Track{
+				{RecordingID: "a1", Medium: 1, Number: 1, Title: "Boavista"},
+				{RecordingID: "a2", Medium: 1, Number: 2, Title: "Singularity"},
+				{RecordingID: "a3", Medium: 1, Number: 3, Title: "Odysseus"},
+			},
+		}
+		both := []rescan.AlbumCandidate{single, album}
+		for _, c := range []struct {
+			desc string
+			tags commonv1.MediaTags
+			want verdict
+		}{
+			{"a title only one holds", commonv1.MediaTags{Title: "Singularity"}, verdict{name: "boavista"}},
+			{"a title at its number only one holds", commonv1.MediaTags{Title: "Odysseus", TrackNumber: 3}, verdict{name: "boavista"}},
+			{"a title both hold, told by the track total", commonv1.MediaTags{Title: "Boavista", TrackNumber: 1, TrackTotal: 3}, verdict{name: "boavista"}},
+			{"a title both hold and nothing else", commonv1.MediaTags{Title: "Boavista", TrackNumber: 1}, verdict{code: rescan.CodeAmbiguousTitle}},
+			{"a title neither holds", commonv1.MediaTags{Title: "Rotation", TrackNumber: 4}, verdict{code: rescan.CodeAmbiguousTitle}},
+		} {
+			t.Run(c.desc, func(t *testing.T) {
+				c.tags.Album, c.tags.Date = "Boavista", "2021"
+				check(t, rescan.MatchAlbum(filepath.Join(root, "Stephan Bodzin/01.flac"), "Stephan Bodzin/01.flac", &c.tags, both), c.want)
+			})
+		}
 	})
 	t.Run("two albums of one release group are ambiguous", func(t *testing.T) {
 		twin := kida

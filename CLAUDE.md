@@ -2329,7 +2329,14 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   the release-group tag, the release-id tag (`AlbumCandidate.ReleaseIDs`),
   the album folder at three or more segments, else the ALBUM tag (a DATE
   before the first release refuses; two hits `ambiguous_title`, none
-  `no_child_item` naming the tag); the first file in walk order holds a
+  `no_child_item` naming the tag), a title compared as cleaned, then
+  spelled loosely (spacing, "&", hyphens: "19NaughtyIII"), then without
+  an edition note ("(Expanded Edition)", "Deluxe", "CD", "(2015
+  SHM-SACD)"; never "(Live ...)" or a remix), the first tier naming an
+  album deciding (`albumTitleTiers`), and two albums of one title told
+  apart by the one holding the file's track (`byTrackTitle`; owner,
+  2026-11-16: 230 of 386 held files, and Boavista's single and album);
+  the first file in walk order holds a
   track and a second is `duplicate_track` (the album's recorded MediaFiles
   read once per walk; two scans at once can still race, open). A track is
   never attributed by a number its title tag contradicts
@@ -2345,8 +2352,11 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   side, a 24-track deluxe, an a cappella edition): one matched track in six
   was held and one in twenty would have been renamed to another song. The
   title rule is `release.TrackTitlesAgree` (featured-artist and producer
-  credits, remaster and bonus-track notes, "part"/"pt" aside; a bracketed
-  "(with X)" only where the number agrees too), and a selection tie on the
+  credits with a colon or a co-star, remaster and bonus-track notes, the
+  album's own version notes -- "(Album Version (Explicit))", "(Explicit
+  Version)", "(Original Mix)", never a single version, radio edit or
+  session -- and "part"/"pt" aside; a bracketed "(with X)" only where the
+  number agrees too), and a selection tie on the
   same files goes to fewer tracks, then fewer media, then digital or CD
   over vinyl. **An album file's track is correctable**: MediaFile
   `spec.mediaRef`'s CEL rule keeps kind, name and keys immutable but not

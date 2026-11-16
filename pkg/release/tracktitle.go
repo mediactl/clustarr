@@ -30,9 +30,10 @@ import (
 
 var (
 	// trackBracketedCreditRE is a bracketed credit in a title: a featured
-	// artist's ("(feat. X)", "[ft X]", "(featuring X)") or a producer's
-	// ("(prod. X)", "[produced by X]").
-	trackBracketedCreditRE = regexp.MustCompile(`(?i)[(\[]\s*(?:feat\.?|ft\.?|featuring|prod\.?(?:\s+by)?|produced\s+by)\s[^)\]]*[)\]]`)
+	// artist's ("(feat. X)", "[ft X]", "(featuring X)", "(Co-Starring X)") or
+	// a producer's ("(prod. X)", "[produced by X]", "(Produced By: X)").
+	trackBracketedCreditRE = regexp.MustCompile(
+		`(?i)[(\[]\s*(?:feat\.?|ft\.?|featuring|co-starring|prod\.?(?:\s+by)?:?|produced\s+by:?)\s[^)\]]*[)\]]`)
 	// trackBracketedWithRE is a bracketed "(with X)" credit, which may as well be
 	// the title's own ("(With Love)"): dropped only where the track number
 	// agrees too (TrackTitlesAgreeAtNumber).
@@ -49,13 +50,19 @@ var (
 	// trackBonusRE is a bonus-track annotation: "(Bonus Track)", "(Japan Bonus
 	// Track)".
 	trackBonusRE = regexp.MustCompile(`(?i)[(\[]\s*(?:[\p{L}]+\s+)?bonus\s+track\s*[)\]]`)
+	// trackVersionRE is a version note naming the album's own recording:
+	// "(Album Version)", "(LP Version)", "(Album Version (Explicit))",
+	// "(Explicit Version)", "[Clean]", "(Original Mix)". A single version, a
+	// radio edit, a remix or a session is another recording and stays.
+	trackVersionRE = regexp.MustCompile(`(?i)[(\[]\s*(?:(?:album|lp)\s+version(?:\s*[(\[]\s*(?:explicit|clean)\s*[)\]])?|` +
+		`(?:explicit|clean)(?:\s+version)?|original\s+mix)\s*[)\]]`)
 	// trackApostrophes are dropped, so "Can't" and "Can’t" agree.
 	trackApostrophes = strings.NewReplacer("'", "", "\u2019", "", "\u2018", "", "`", "")
 )
 
 // TrackTitlesAgree reports whether a file's title tag names the track title:
 // equal once featured-artist and producer credits, remaster and bonus-track
-// annotations are dropped, "&" read as "and", "part" as "pt", trackApostrophes
+// annotations and the album's own version notes (trackVersionRE) are dropped, "&" read as "and", "part" as "pt", trackApostrophes
 // dropped, and both run through release.TitleNorm (case, accents,
 // punctuation and brackets, any script) with the spaces taken out, so a
 // stylised run-together title agrees. Anything else -- "(a cappella)",
@@ -85,6 +92,7 @@ func trackTitleKey(s string, with bool) string {
 	s = dropTrackCredit(s)
 	s = trackRemasterRE.ReplaceAllString(s, " ")
 	s = trackBonusRE.ReplaceAllString(s, " ")
+	s = trackVersionRE.ReplaceAllString(s, " ")
 	s = strings.ReplaceAll(s, "&", " and ")
 	s = trackApostrophes.Replace(s)
 	words := strings.Fields(TitleNorm(s))

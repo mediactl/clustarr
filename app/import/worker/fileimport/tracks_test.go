@@ -138,6 +138,22 @@ func TestTitlesAgree(t *testing.T) {
 		{"DROP", "GO FIRST", false},
 		{"初恋", "花束を君に", false},
 		{"", "Intro", false},
+
+		// Version notes naming the album's own recording, and credits with a
+		// colon or a co-star (talos, 2026-11-16: ~75 of 160 held files).
+		{"He'll Never Know (Album Version)", "He’ll Never Know", true},
+		{"Club - Skit (Album Version (Explicit))", "Club (skit)", true},
+		{"Choke Me, Spank Me (Pull My Hair) (Explicit Version)", "Choke Me, Spank Me (Pull My Hair)", true},
+		{"Song (Explicit)", "Song", true},
+		{"Song [Clean Version]", "Song", true},
+		{"Individual Breath (Original Mix)", "Individual Breath", true},
+		{"Blind Fold (Produced by: BandPlay)", "Blind Fold", true},
+		{"Do It Again (Co-Starring Keisa) (Produced By: Mr. Lee)", "Do it Again", true},
+		{"Say You Do (Album Version)", "Say You Do (Specially Remixed Version)", false},
+		{"Song (Single Version)", "Song", false},
+		{"Song (Radio Edit)", "Song", false},
+		{"Song (John Peel Session)", "Song", false},
+		{"Cock It (Album Version (Explicit))", "Slow Motion", false},
 	} {
 		assert.Equal(t, c.want, TitlesAgree(c.tag, c.track), "%q vs %q", c.tag, c.track)
 	}

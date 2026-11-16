@@ -362,7 +362,10 @@ func matchContainer(
 // file's album is, in order: the album the MUSICBRAINZ_RELEASEGROUPID tag
 // names; the album one of whose releases the MUSICBRAINZ_ALBUMID tag names;
 // the album folder's title and year when the file sits in one (three or
-// more segments); the ALBUM tag's title. A tag's DATE is its own release's,
+// more segments); the ALBUM tag's title. A title is compared through
+// albumTitleTiers, as cleaned, then spelled loosely, then without an edition
+// note, the first tier naming an album deciding; two albums of one title
+// are told apart by the file's track (byTrackTitle). A tag's DATE is its own release's,
 // a reissue's later than the group's first (the album's Year), so it never
 // refuses a lone album of the title: it refuses only a date before the
 // album's first release, and among albums sharing the title it picks the one
@@ -430,8 +433,10 @@ func MatchAlbum(absPath, rel string, tags *commonv1.MediaTags, cands []AlbumCand
 			// A folder still named like a release, "Artist - Album (1997) [FLAC]".
 			title, year = p.Music.Album, p.Music.Year
 		}
-		if hits := pick(func(c AlbumCandidate) bool { return nameEq(c.Title, title) && yearOK(c.Year, year) }); len(hits) > 0 {
-			return decide(commonv1.MediaKindAlbum, hits, "")
+		for _, eq := range albumTitleTiers {
+			if hits := pick(func(c AlbumCandidate) bool { return eq(c.Title, title) && yearOK(c.Year, year) }); len(hits) > 0 {
+				return decide(commonv1.MediaKindAlbum, byTrackTitle(hits, mine, tags), "")
+			}
 		}
 		folderMiss = fmt.Sprintf("no existing album titled %q by an artist named %q among %d albums under this root folder",
 			title, artist, len(cands))
@@ -439,20 +444,23 @@ func MatchAlbum(absPath, rel string, tags *commonv1.MediaTags, cands []AlbumCand
 
 	if tags != nil && strings.TrimSpace(tags.Album) != "" {
 		year := tagYear(tags.Date)
-		titled := pick(func(c AlbumCandidate) bool { return nameEq(c.Title, tags.Album) })
-		// A release is never dated before its group's first release.
-		plausible := pick(func(c AlbumCandidate) bool {
-			return nameEq(c.Title, tags.Album) && (c.Year == 0 || year == 0 || year >= c.Year)
-		})
-		if len(plausible) > 1 && year != 0 {
-			if first := pick(func(c AlbumCandidate) bool { return nameEq(c.Title, tags.Album) && c.Year == year }); len(first) == 1 {
-				plausible = first
+		for _, eq := range albumTitleTiers {
+			titled := pick(func(c AlbumCandidate) bool { return eq(c.Title, tags.Album) })
+			if len(titled) == 0 {
+				continue
 			}
-		}
-		if len(plausible) > 0 {
-			return decide(commonv1.MediaKindAlbum, plausible, "")
-		}
-		if len(titled) > 0 {
+			// A release is never dated before its group's first release.
+			plausible := pick(func(c AlbumCandidate) bool {
+				return eq(c.Title, tags.Album) && (c.Year == 0 || year == 0 || year >= c.Year)
+			})
+			if len(plausible) > 1 && year != 0 {
+				if first := pick(func(c AlbumCandidate) bool { return eq(c.Title, tags.Album) && c.Year == year }); len(first) == 1 {
+					plausible = first
+				}
+			}
+			if len(plausible) > 0 {
+				return decide(commonv1.MediaKindAlbum, byTrackTitle(plausible, mine, tags), "")
+			}
 			return ItemMatch{Unmatched: true, Code: CodeNoChild, Candidates: titled, Reason: fmt.Sprintf(
 				"the album of %s titled %q was first released after %d, the year its tags date this release, so the "+
 					"file is not its: its tags name no release group or release of one either", artist, tags.Album, year)}

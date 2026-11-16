@@ -1,0 +1,158 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package rescan
+
+import (
+	"regexp"
+	"slices"
+	"strings"
+
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/release"
+)
+
+// Album titles as a rip's folder or ALBUM tag spells them (talos,
+// 2026-11-16: 230 of the 386 music files whose album tag named no album
+// spelled one of the artist's loosely or named an edition of it).
+
+// albumTitleTiers are the comparisons MatchAlbum tries in turn among one
+// artist's albums, the first that names an album deciding, so a looser one
+// never takes a file a stricter one placed: the title as cleaned (case,
+// punctuation, articles); spelled loosely (spacing, "&" for "and",
+// hyphens: "19NaughtyIII", "Love, Peace & Nappiness", "Motor-Booty Affair");
+// without an edition note ("(Expanded Edition)", "Deluxe", "CD", "(2015
+// SHM-SACD)", ": Reloaded"). The track a file is attributed to is still
+// checked against its title tag, so an edition with other songs holds them.
+var albumTitleTiers = []func(a, b string) bool{nameEq, looseAlbumEq, editionAlbumEq}
+
+func looseAlbumEq(a, b string) bool {
+	ka := looseAlbumKey(a)
+	return ka != "" && ka == looseAlbumKey(b)
+}
+
+func editionAlbumEq(a, b string) bool {
+	return looseAlbumEq(stripAlbumEdition(a), stripAlbumEdition(b))
+}
+
+func looseAlbumKey(s string) string {
+	return strings.ReplaceAll(release.TitleNorm(strings.ReplaceAll(s, "&", " and ")), " ", "")
+}
+
+var (
+	// albumEditionWordRE names an edition of the album in a note.
+	albumEditionWordRE = regexp.MustCompile(`(?i)\b(?:deluxe|expanded|edition|remaster(?:ed)?|reissue|anniversary|` +
+		`explicit|clean|reloaded|bonus|sacd|shm|hdcd|cd\d*|disc)\b`)
+	// albumOtherRecordingRE names another recording than the studio
+	// album's, which no edition note makes the album's.
+	albumOtherRecordingRE = regexp.MustCompile(`(?i)\b(?:live|remix(?:es|ed)?|instrumentals?|a\s?cappella|acoustic|` +
+		`unplugged|demos?|karaoke|commentary)\b`)
+	// albumTrailingNoteRE is a trailing bracketed note, "(Expanded Edition)".
+	albumTrailingNoteRE = regexp.MustCompile(`\s*[(\[]([^()\[\]]*)[)\]]$`)
+	// albumTrailingTailRE is a trailing tail after " - " or ": ", "Already
+	// Platinum: Reloaded", "Album - Remastered 2011".
+	albumTrailingTailRE = regexp.MustCompile(`(?:\s+-\s+|:\s+)([^:]+?)$`)
+	// albumTrailingWordsRE are bare trailing edition words, "Still Kool
+	// CD", "Yellow Tape 2 Deluxe".
+	albumTrailingWordsRE = regexp.MustCompile(`(?i)\s+(?:cd\s*\d*|disc\s*\d+|(?:super\s+)?deluxe(?:\s+(?:edition|version))?)$`)
+)
+
+// stripAlbumEdition drops s's trailing edition notes, one after another,
+// keeping any note that names another recording and never the whole title.
+func stripAlbumEdition(s string) string {
+	t := strings.TrimSpace(s)
+	for {
+		cut := -1
+		if m := albumTrailingNoteRE.FindStringSubmatchIndex(t); m != nil && editionNote(t[m[2]:m[3]]) {
+			cut = m[0]
+		} else if m := albumTrailingTailRE.FindStringSubmatchIndex(t); m != nil &&
+			editionNote(t[m[2]:m[3]]) && len(strings.Fields(t[m[2]:m[3]])) <= 4 {
+			cut = m[0]
+		} else if m := albumTrailingWordsRE.FindStringIndex(t); m != nil {
+			cut = m[0]
+		}
+		if cut <= 0 || strings.TrimSpace(t[:cut]) == "" {
+			return t
+		}
+		t = strings.TrimSpace(t[:cut])
+	}
+}
+
+func editionNote(note string) bool {
+	return albumEditionWordRE.MatchString(note) && !albumOtherRecordingRE.MatchString(note)
+}
+
+// byTrackTitle narrows albums one title names to the one holding the
+// file's track (talos, 2026-11-16: Stephan Bodzin's Boavista single and
+// album of 2021 held all 17 of the album's files as ambiguous): the album
+// whose track at the file's number carries its title tag, else the one
+// album with a track of that title, else, among those at the number, the
+// one whose disc holds the file's track total. Anything else leaves hits
+// as they were, ambiguous.
+func byTrackTitle(hits []string, mine []AlbumCandidate, tags *commonv1.MediaTags) []string {
+	if len(hits) < 2 || tags == nil || strings.TrimSpace(tags.Title) == "" {
+		return hits
+	}
+	var cands []AlbumCandidate
+	for _, c := range mine {
+		if slices.Contains(hits, c.Name) {
+			cands = append(cands, c)
+		}
+	}
+	disc := tags.DiscNumber
+	var atNumber, anywhere []AlbumCandidate
+	for _, c := range cands {
+		d := disc
+		if d == 0 && c.Media <= 1 {
+			d = 1
+		}
+		if slices.ContainsFunc(c.Tracks, func(t catalogv1alpha1.Track) bool {
+			return tags.TrackNumber > 0 && t.Number == tags.TrackNumber && (d == 0 || t.Medium == d) &&
+				release.TrackTitlesAgreeAtNumber(tags.Title, t.Title)
+		}) {
+			atNumber = append(atNumber, c)
+		}
+		if slices.ContainsFunc(c.Tracks, func(t catalogv1alpha1.Track) bool { return release.TrackTitlesAgree(tags.Title, t.Title) }) {
+			anywhere = append(anywhere, c)
+		}
+	}
+	switch {
+	case len(atNumber) == 1:
+		return []string{atNumber[0].Name}
+	case len(atNumber) == 0 && len(anywhere) == 1:
+		return []string{anywhere[0].Name}
+	case len(atNumber) > 1 && tags.TrackTotal > 0:
+		var fit []string
+		for _, c := range atNumber {
+			d := max(disc, 1)
+			n := 0
+			for _, t := range c.Tracks {
+				if t.Medium == d || (t.Medium == 0 && d == 1) {
+					n++
+				}
+			}
+			if int32(n) == tags.TrackTotal { //nolint:gosec // a disc's tracks, far under int32
+				fit = append(fit, c.Name)
+			}
+		}
+		if len(fit) == 1 {
+			return fit
+		}
+	}
+	return hits
+}
