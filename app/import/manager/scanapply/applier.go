@@ -309,7 +309,13 @@ func (a *Applier) recordFile(
 	existing *catalogv1alpha1.MediaFile, ref commonv1.MediaRef, created bool, t *tally,
 ) error {
 	ns := obs.Scan.Namespace
-	if existing != nil && applied(existing, obs) {
+	// A recorded album file the scan attributes to another track of its
+	// Album is corrected: which recording a file is may be learnt again
+	// (2026-11-16: album files attributed by number against the wrong
+	// edition), the Album it backs never (P41, the CRD's rule).
+	corrects := existing != nil && existing.Spec.MediaRef.Kind == commonv1.MediaKindAlbum &&
+		ref.Track != "" && ref.Track != existing.Spec.MediaRef.Track
+	if existing != nil && applied(existing, obs) && !corrects {
 		// A full scan's unchanged file, or a redelivery after the write
 		// landed: re-asserting the same set would change nothing.
 		t.FilesMatched++
@@ -320,7 +326,13 @@ func (a *Applier) recordFile(
 	var frozen mediafilespec.Frozen
 	if existing != nil {
 		name, rv = existing.Name, existing.ResourceVersion
+		track := ref.Track
 		ref = existing.Spec.MediaRef
+		if corrects {
+			ref.Track = track
+			logging.FromContext(ctx).Info("scanapply: an album file's track corrected",
+				"mediaFile", existing.Name, "album", ref.Name, "from", existing.Spec.MediaRef.Track, "to", track)
+		}
 		frozen = mediafilespec.ReassertFrozen(&existing.Spec)
 	} else {
 		frozen = mediafilespec.FrozenFromScan(obs.Frozen, obs.Manual, a.now())

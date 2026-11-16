@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // maxExpectedPathLen is NamingStatus.ExpectedPath's CRD MaxLength. A longer
@@ -61,6 +63,9 @@ type namingOwner struct {
 	rootFolderRef     string
 	qualityProfileRef string
 	render            func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error)
+	// trackTitle is an album file's attributed track's title, which its
+	// own title tag must name (RenderNaming); "" for every other kind.
+	trackTitle string
 }
 
 // NamingLookup is what LoadNaming read for a file: the item it backs (or why
@@ -172,6 +177,14 @@ func RenderNaming(mf *catalogv1alpha1.MediaFile, look NamingLookup, mi *commonv1
 		return out, false
 	case look.rootMissing:
 		out.Reason = catalogv1alpha1.NamingReasonUnrenderable
+		return out, false
+	case look.owner.trackTitle != "" && mi.Tags != nil && strings.TrimSpace(mi.Tags.Title) != "" &&
+		!release.TrackTitlesAgreeAtNumber(mi.Tags.Title, look.owner.trackTitle):
+		// The file says it is another song than its track: renaming it
+		// would put that song's title on it (2026-11-16: album files
+		// attributed by number against the wrong edition). A scan that
+		// corrects its track names it.
+		out.Reason = catalogv1alpha1.NamingReasonTrackTitleMismatch
 		return out, false
 	}
 	// catalogctx.File's context carries only the catalogue's regexp deadline
@@ -324,6 +337,7 @@ func namingOwnerOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.Med
 			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
 				return catalogctx.TrackFilePath(root, &artist, &album, c, ext)
 			},
+			trackTitle: album.Status.Tracks[i].Title,
 		}, "", nil
 
 	case commonv1.MediaKindBook:

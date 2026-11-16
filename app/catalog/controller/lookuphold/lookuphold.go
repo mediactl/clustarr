@@ -87,12 +87,14 @@ func (h *Holds[K]) Held(k K, now time.Time) (Hold, bool) {
 // between Min and Max, so each wait about doubles the last, jittered to
 // between half and all of it, so items that failed together do not ask
 // again together. The lookup has been failing since its first failure this
-// process saw under k, or since, whichever is earlier: the caller passes
-// its condition's (Since), so a restarted manager asks once for an item
-// failing for days and then waits the longest, rather than every 30 s
-// again.
+// process saw under k; for that first failure, since: the caller passes its
+// condition's (Since), so a restarted manager asks once for an item failing
+// for days and then waits the longest, rather than every 30 s again. A
+// condition is read only then: one that went false for another reason
+// first (an Artist's metadata pending for hours) would otherwise date a
+// second failure back past the first (review of 1ac67d89, 2026-11-16).
 func (h *Holds[K]) Failed(k K, now, since time.Time, err error) Hold {
-	if prev, ok := h.cache().Peek(k); ok && prev.since.Before(since) {
+	if prev, ok := h.cache().Peek(k); ok {
 		since = prev.since
 	}
 	if since.After(now) {

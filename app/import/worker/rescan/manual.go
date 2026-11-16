@@ -267,6 +267,7 @@ func (w *Worker) assignManually(
 			if g.err != nil {
 				return g.err
 			}
+			reason = heldWithoutReleases(st, cand.ReleaseGroupID, reason)
 			if id == "" {
 				st.unmatched(rel, CodeNoMatch, reason, []string{ref.Name}, w.now())
 				return nil

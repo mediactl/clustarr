@@ -156,9 +156,13 @@ type Sidecar struct {
 // write under their own field manager, so the apiserver enforces the split
 // rather than convention.
 type MediaFileSpec struct {
-	// MediaRef points at the catalog item this file backs.
+	// MediaRef points at the catalog item this file backs. The item -- kind,
+	// name and keys -- is immutable; an album file's track may be corrected
+	// (a scan that finds the file is another recording of the same Album:
+	// 2026-11-16, album files attributed by number against the wrong
+	// edition).
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="mediaRef is immutable"
+	// +kubebuilder:validation:XValidation:rule="self.kind == oldSelf.kind && self.name == oldSelf.name && has(self.keys) == has(oldSelf.keys) && (!has(self.keys) || self.keys == oldSelf.keys)",message="mediaRef's kind, name and keys are immutable; only its track may be corrected"
 	MediaRef commonv1.MediaRef `json:"mediaRef"`
 
 	// Path is the file's absolute path. import sets it at import; it
@@ -488,7 +492,7 @@ type NamingStatus struct {
 
 	// Reason says why expectedPath is empty or the file is not renameable.
 	// +optional
-	// +kubebuilder:validation:Enum=MetadataPending;ProbePending;TranscodePending;Recycling;Unrenderable
+	// +kubebuilder:validation:Enum=MetadataPending;ProbePending;TranscodePending;Recycling;Unrenderable;TrackTitleMismatch
 	Reason NamingReason `json:"reason,omitempty"`
 
 	// Quality is the probe-corrected quality import re-applies into
@@ -500,7 +504,7 @@ type NamingStatus struct {
 // NamingReason says why a MediaFile's expectedPath is empty or the file is
 // not renameable.
 //
-// +kubebuilder:validation:Enum=MetadataPending;ProbePending;TranscodePending;Recycling;Unrenderable
+// +kubebuilder:validation:Enum=MetadataPending;ProbePending;TranscodePending;Recycling;Unrenderable;TrackTitleMismatch
 type NamingReason string
 
 // Naming reasons.
@@ -510,6 +514,10 @@ const (
 	NamingReasonTranscodePending NamingReason = "TranscodePending"
 	NamingReasonRecycling        NamingReason = "Recycling"
 	NamingReasonUnrenderable     NamingReason = "Unrenderable"
+	// NamingReasonTrackTitleMismatch: an album file's own title tag is
+	// another song than the track it is attributed to, so it is not named
+	// (and never renamed) until a scan corrects its track.
+	NamingReasonTrackTitleMismatch NamingReason = "TrackTitleMismatch"
 	// ConditionNamingCurrent mirrors status.naming.current.
 	ConditionNamingCurrent = "NamingCurrent"
 )

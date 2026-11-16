@@ -330,3 +330,36 @@ func TestSelectReleaseTheSameFilesOnFewerTracksWin(t *testing.T) {
 	assert.Equal(t, "vinyl", selectedID(t, got), "without anyReleaseOk the selection stays put")
 	assert.Equal(t, album.SelectionKept, sel)
 }
+
+// Releases holding the same files on as many tracks go to the one on fewer
+// media, then to a digital or CD release over vinyl or tape: a flat rip of
+// the CD is never named by a 2xLP's sides and moved into its disc folders
+// (review of bc1aa1ca, 2026-11-16). Without files, nothing moves.
+func TestSelectReleaseTheSameFilesOnFewerMediaThenDigitalWin(t *testing.T) {
+	lp := release("lp", "Official", "a", "b", "c", "d")
+	lp.Media = []pkgmetadata.Medium{
+		{Position: 1, Format: `12" Vinyl`, Tracks: lp.Media[0].Tracks[:2]},
+		{Position: 2, Format: `12" Vinyl`, Tracks: lp.Media[0].Tracks[2:]},
+	}
+	cd := release("cd", "Official", "a", "b", "c", "d")
+	cd.Media[0].Format = "CD"
+	files := map[string]string{"a": "mf-a", "b": "mf-b", "c": "mf-c", "d": "mf-d"}
+
+	got, sel := album.SelectRelease(catalogv1alpha1.AlbumSpec{}, officialOnly, "lp", []pkgmetadata.AlbumRelease{lp, cd}, files)
+	assert.Equal(t, "cd", selectedID(t, got), "the same files on one medium displace a 2xLP")
+	assert.Equal(t, album.SelectionBest, sel)
+	got, sel = album.SelectRelease(catalogv1alpha1.AlbumSpec{}, officialOnly, "cd", []pkgmetadata.AlbumRelease{lp, cd}, files)
+	assert.Equal(t, "cd", selectedID(t, got), "and stay")
+	assert.Equal(t, album.SelectionKept, sel)
+
+	single := release("lp1", "Official", "a", "b", "c", "d")
+	single.Media[0].Format = `12" Vinyl`
+	digital := release("digital", "Official", "a", "b", "c", "d")
+	digital.Media[0].Format = "Digital Media"
+	got, _ = album.SelectRelease(catalogv1alpha1.AlbumSpec{}, officialOnly, "lp1", []pkgmetadata.AlbumRelease{single, digital}, files)
+	assert.Equal(t, "digital", selectedID(t, got), "one medium each: digital over vinyl")
+
+	got, sel = album.SelectRelease(catalogv1alpha1.AlbumSpec{}, officialOnly, "lp", []pkgmetadata.AlbumRelease{lp, cd}, nil)
+	assert.Equal(t, "lp", selectedID(t, got), "no files keeps the selection")
+	assert.Equal(t, album.SelectionKept, sel)
+}

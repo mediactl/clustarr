@@ -75,7 +75,8 @@ type ReleasesFunc func() []metadata.AlbumRelease
 // cappella or a vinyl edition the album had selected, so about one track in
 // twenty would have been renamed to another song's title). In order:
 //
-//  1. a lone file of a one-track album is that track;
+//  1. a lone file of a one-track album is that track, unless its title tag
+//     names another song;
 //  2. the tags' disc and number on the selected release, when the title tag
 //     is absent or agrees (TitlesAgree);
 //  3. the album's release whose track at that disc and number carries the
@@ -99,9 +100,6 @@ func AttributeTrackIn(tracks []catalogv1alpha1.Track, media int32, releases Rele
 			media = max(media, t.Medium)
 		}
 	}
-	if lone && len(tracks) == 1 {
-		return tracks[0].RecordingID, ""
-	}
 	var tags *commonv1.MediaTags
 	if ap != nil {
 		tags = ap.Tags
@@ -109,6 +107,9 @@ func AttributeTrackIn(tracks []catalogv1alpha1.Track, media int32, releases Rele
 	title := ""
 	if tags != nil {
 		title = strings.TrimSpace(tags.Title)
+	}
+	if lone && len(tracks) == 1 && (title == "" || agreesAtNumber(title, tracks[0].Title)) {
+		return tracks[0].RecordingID, ""
 	}
 	var all []metadata.AlbumRelease
 	asked := false
@@ -122,7 +123,7 @@ func AttributeTrackIn(tracks []catalogv1alpha1.Track, media int32, releases Rele
 	var named *catalogv1alpha1.Track // the track the number names, which the title is not
 	if tags != nil && tags.TrackNumber > 0 {
 		if t := trackAt(tracks, media, tags.DiscNumber, tags.TrackNumber); t != nil {
-			if title == "" || TitlesAgree(title, t.Title) {
+			if title == "" || agreesAtNumber(title, t.Title) {
 				return t.RecordingID, ""
 			}
 			named = t
@@ -151,7 +152,7 @@ func AttributeTrackIn(tracks []catalogv1alpha1.Track, media int32, releases Rele
 			disc = discFromFolder(rel)
 		}
 		if t := trackAt(tracks, media, disc, tn.Number); t != nil {
-			if title == "" || TitlesAgree(title, t.Title) {
+			if title == "" || agreesAtNumber(title, t.Title) {
 				return t.RecordingID, ""
 			}
 			return "", fmt.Sprintf("%s is %q by its tags, but its name numbers track %d of the selected release, %q: the file is another edition's or another song, which a person places",
@@ -222,7 +223,7 @@ func fittingRelease(releases []metadata.AlbumRelease, tags *commonv1.MediaTags) 
 			}
 			for k := range m.Tracks {
 				t := &m.Tracks[k]
-				if t.Position != tags.TrackNumber || !TitlesAgree(tags.Title, t.Title) || t.IDs[metadata.KeyMBRecording] == "" {
+				if t.Position != tags.TrackNumber || !agreesAtNumber(tags.Title, t.Title) || t.IDs[metadata.KeyMBRecording] == "" {
 					continue
 				}
 				if hit != nil {
@@ -304,36 +305,13 @@ func oneRecording(ids []string) string {
 	return found
 }
 
-var (
-	// bracketedCreditRE is a bracketed featured-artist credit in a title:
-	// "(feat. X)", "[ft X]", "(featuring X)", "(with X)".
-	bracketedCreditRE = regexp.MustCompile(`(?i)[(\[]\s*(?:feat\.?|ft\.?|featuring|with)\s[^)\]]*[)\]]`)
-	// trailingCreditRE is an unbracketed credit running to the title's end:
-	// " feat. X", " ft X", " featuring X".
-	trailingCreditRE = regexp.MustCompile(`(?i)\s(?:feat\.?|ft\.?|featuring)\s.*$`)
-	// apostrophes are dropped, so "Can't" and "Can’t" agree.
-	apostrophes = strings.NewReplacer("'", "", "\u2019", "", "\u2018", "", "`", "")
-)
+// TitlesAgree reports whether a file's title tag names the track title
+// (release.TrackTitlesAgree).
+func TitlesAgree(tag, track string) bool { return release.TrackTitlesAgree(tag, track) }
 
-// TitlesAgree reports whether a file's title tag names the track title:
-// equal once featured-artist credits are dropped, "&" read as "and",
-// apostrophes dropped and both run through release.TitleNorm (case,
-// accents, punctuation and brackets, any script) with the spaces taken out,
-// so a stylised run-together title agrees. Anything else -- "(a cappella)",
-// "Pt. 2", another song -- is another recording. An empty title agrees with
-// nothing.
-func TitlesAgree(tag, track string) bool {
-	a := titleKey(tag)
-	return a != "" && a == titleKey(track)
-}
-
-func titleKey(s string) string {
-	s = bracketedCreditRE.ReplaceAllString(s, " ")
-	s = trailingCreditRE.ReplaceAllString(s, "")
-	s = strings.ReplaceAll(s, "&", " and ")
-	s = apostrophes.Replace(s)
-	return strings.ReplaceAll(release.TitleNorm(s), " ", "")
-}
+// agreesAtNumber is TitlesAgree for a track the file's number names too
+// (release.TrackTitlesAgreeAtNumber).
+func agreesAtNumber(tag, track string) bool { return release.TrackTitlesAgreeAtNumber(tag, track) }
 
 // discFromFolder is the disc a file's parent folder names, 0 when none.
 func discFromFolder(rel string) int32 {

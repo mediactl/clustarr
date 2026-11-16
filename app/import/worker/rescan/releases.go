@@ -21,7 +21,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -60,9 +62,13 @@ func (w *Worker) albumReleases(ctx context.Context, g *gateway, group string) fi
 			return err
 		})
 		if err != nil {
-			logging.FromContext(ctx).DebugContext(ctx, "rescan: an album's releases are not to be had; its files are attributed on its selected release alone",
+			logging.FromContext(ctx).InfoContext(ctx, "rescan: an album's releases are not to be had; its files are attributed on its selected release alone",
 				"releaseGroup", group, "err", err)
 			rs = nil
+			if g.st.releaseErrs == nil {
+				g.st.releaseErrs = map[string]error{}
+			}
+			g.st.releaseErrs[group] = err
 		}
 		if g.st.releases == nil {
 			g.st.releases = map[string][]metadata.AlbumRelease{}
@@ -70,6 +76,17 @@ func (w *Worker) albumReleases(ctx context.Context, g *gateway, group string) fi
 		g.st.releases[group] = rs
 		return rs
 	}
+}
+
+// heldWithoutReleases is reason, for a file AttributeTrackIn held, with why
+// its album's other releases were not consulted when this walk could not
+// read them: the hold is the gateway's failure, which the next scan asks
+// again, not a verdict on the file.
+func heldWithoutReleases(st *scanState, group, reason string) string {
+	if err := st.releaseErrs[group]; err != nil && reason != fileimport.ErrTracksPending {
+		return fmt.Sprintf("%s; the album's other releases could not be read this scan (%v), so the next scan tries them again", reason, err)
+	}
+	return reason
 }
 
 // releasesRPC asks the gateway's lookup verb for release group group's
@@ -92,4 +109,54 @@ func (w *Worker) releasesRPC(ctx context.Context, group string) ([]metadata.Albu
 		return nil, fmt.Errorf("rescan: decode release group %s: %w", group, err)
 	}
 	return doc.Releases, nil
+}
+
+// reattributeTrack is a full scan's second look at a recorded album file's
+// track: the file is attributed again within the Album it is recorded on
+// (fileimport.AttributeTrackIn, the album's other releases asked for as for
+// a new file) -- its Album never changes (P41) -- and a track it now fits
+// better is reported with the record as its basis, which the applier
+// corrects (2026-11-16: 3,664 of talos's album files had been attributed by
+// number against the wrong edition, and no scan could correct one). The
+// walk's track holds follow the correction, so a shifted album is put right
+// in one pass whatever its files' order. A file the releases cannot place
+// keeps its record, which the rename pass does not move while its title tag
+// names another song (TrackTitleMismatch).
+func (w *Worker) reattributeTrack(ctx context.Context, st *scanState, path, rel string, info os.FileInfo, existing *catalogv1alpha1.MediaFile) error {
+	ref := existing.Spec.MediaRef
+	cand := st.nonVideo.album(ref.Name)
+	if cand == nil || len(cand.Tracks) == 0 {
+		return w.proposeFile(ctx, st, path, info, existing, ref, nil, nil, "recorded")
+	}
+	if err := st.beatNow(ctx, false); err != nil {
+		return err
+	}
+	_, ap := w.freshNonVideoSpec(ctx, commonv1.MediaKindAlbum, path, rel)
+	g := &gateway{w: w, st: st}
+	id, _ := fileimport.AttributeTrackIn(cand.Tracks, cand.Media, w.albumReleases(ctx, g, cand.ReleaseGroupID), ap, rel, len(cand.Tracks) == 1)
+	if g.err != nil {
+		return g.err
+	}
+	evidence := "recorded"
+	if id != "" && id != ref.Track {
+		idx := st.nonVideo
+		if held, ok := idx.tracks[trackKey(ref.Name, ref.Track)]; ok && held == rel {
+			delete(idx.tracks, trackKey(ref.Name, ref.Track))
+		}
+		idx.tracks[trackKey(ref.Name, id)] = rel
+		logging.FromContext(ctx).InfoContext(ctx, "rescan: a recorded album file is another track of its album",
+			"album", ref.Name, "path", rel, "from", ref.Track, "to", id)
+		ref.Track, evidence = id, "tags"
+	}
+	return w.proposeFile(ctx, st, path, info, existing, ref, nil, nil, evidence)
+}
+
+// album is the root's album candidate named name, nil when none is.
+func (idx *nonVideoIndex) album(name string) *AlbumCandidate {
+	for i := range idx.albums {
+		if idx.albums[i].Name == name {
+			return &idx.albums[i]
+		}
+	}
+	return nil
 }

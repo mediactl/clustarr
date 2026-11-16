@@ -82,10 +82,12 @@ func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string
 // among existing movies, or left unmatched. The scanner never guesses.
 //
 // A path that already has a MediaFile is not attributed again. The
-// MediaFile IS its attribution -- spec.mediaRef is immutable -- so a rescan
-// only reports what it observes (size and mtime); the applier re-asserts
-// every frozen field verbatim. Re-running the matcher could only agree, or
-// list a file that is already in the catalog as unmatched.
+// MediaFile IS its attribution -- spec.mediaRef's item is immutable -- so a
+// rescan only reports what it observes (size and mtime); the applier
+// re-asserts every frozen field verbatim. Re-running the matcher could only
+// agree, or list a file that is already in the catalog as unmatched. The
+// one exception is an album file's track, which a full scan attributes
+// again within its recorded Album (reattributeTrack).
 func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path string, info os.FileInfo, probe *fileProbe) error {
 	now := w.now()
 	// Relative to the ROOT FOLDER, which is what
@@ -110,6 +112,9 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 	switch {
 	case st.manual != nil:
 		return w.assignManually(ctx, st, path, rel, info, existing)
+	case existing != nil && existing.Spec.MediaRef.Kind == commonv1.MediaKindAlbum && existing.Spec.MediaRef.Track != "" &&
+		!st.incremental() && st.nonVideo != nil:
+		return w.reattributeTrack(ctx, st, path, rel, info, existing)
 	case existing != nil:
 		return w.proposeFile(ctx, st, path, info, existing, existing.Spec.MediaRef, nil, nil, "recorded")
 	case st.root.Spec.Kind == catalogv1alpha1.RootFolderKindSeries:

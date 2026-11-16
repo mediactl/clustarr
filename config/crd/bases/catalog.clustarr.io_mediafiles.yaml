@@ -170,7 +170,12 @@ spec:
                 maxItems: 200
                 type: array
               mediaRef:
-                description: MediaRef points at the catalog item this file backs.
+                description: |-
+                  MediaRef points at the catalog item this file backs. The item -- kind,
+                  name and keys -- is immutable; an album file's track may be corrected
+                  (a scan that finds the file is another recording of the same Album:
+                  2026-11-16, album files attributed by number against the wrong
+                  edition).
                 properties:
                   keys:
                     description: Keys lists the Episode or Issue names covered by
@@ -214,8 +219,11 @@ spec:
                 - name
                 type: object
                 x-kubernetes-validations:
-                - message: mediaRef is immutable
-                  rule: self == oldSelf
+                - message: mediaRef's kind, name and keys are immutable; only its
+                    track may be corrected
+                  rule: self.kind == oldSelf.kind && self.name == oldSelf.name &&
+                    has(self.keys) == has(oldSelf.keys) && (!has(self.keys) || self.keys
+                    == oldSelf.keys)
                 - message: track addresses a Track within an Album, so it needs kind
                     album
                   rule: '!has(self.track) || self.kind == ''album'''

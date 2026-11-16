@@ -411,3 +411,29 @@ type failingList struct{ client.Reader }
 func (failingList) List(context.Context, client.ObjectList, ...client.ListOption) error {
 	return errors.New("the cache is not synced")
 }
+
+// An album file whose own title tag is another song than the track it is
+// attributed to is never named, so the rename pass never moves it under that
+// song's title: it reads TrackTitleMismatch until a scan corrects its track
+// (2026-11-16: album files attributed by number against the wrong edition,
+// about one in twenty on talos). A tag that agrees, or no title tag, names it.
+func TestAnAlbumFileWhoseTitleIsAnotherSongIsNotNamed(t *testing.T) {
+	c := nonVideoFixture(t)
+	file := nvFile("/data/music/Boards of Canada/MHTRTC/03.FLAC", commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "mhtrtc", Track: "rec-3"}, 0)
+	look := LoadNaming(t.Context(), c, file)
+	require.NoError(t, look.err)
+	tagged := func(title string) *commonv1.MediaInfo {
+		return &commonv1.MediaInfo{Container: "flac", Tags: &commonv1.MediaTags{Title: title, TrackNumber: 3}}
+	}
+
+	n, _ := RenderNaming(file, look, tagged("Roygbiv"), nil, file.Spec.Path, false, false)
+	require.NotNil(t, n)
+	assert.Equal(t, catalogv1alpha1.NamingReasonTrackTitleMismatch, n.Reason)
+	assert.Empty(t, n.ExpectedPath, "no path, so no rename")
+
+	n, _ = RenderNaming(file, look, tagged("Telephasic Workshop"), nil, file.Spec.Path, false, false)
+	assert.Empty(t, n.Reason)
+	assert.NotEmpty(t, n.ExpectedPath)
+	n, _ = RenderNaming(file, look, tagged(""), nil, file.Spec.Path, false, false)
+	assert.NotEmpty(t, n.ExpectedPath, "a file without a title tag is named by its track")
+}

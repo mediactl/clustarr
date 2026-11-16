@@ -19,6 +19,7 @@ package rescan_test
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -442,4 +443,94 @@ func TestAFlatRipIsAttributedInTheReleaseItFits(t *testing.T) {
 	files := unmatchedFiles(got)
 	require.Contains(t, files, stray)
 	assert.Contains(t, files[stray].Reason, "names no track")
+}
+
+// A file held while its album's other releases could not be read says so:
+// the hold is the gateway's failure, which the next scan asks again, not a
+// verdict on the file (review of bc1aa1ca, 2026-11-16).
+func TestAFileHeldForWantOfItsAlbumsReleasesSaysSo(t *testing.T) {
+	old := &catalogv1alpha1.Album{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "library", Name: "old"},
+		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "danny-brown", ReleaseGroupID: "old-group"},
+		Status: catalogv1alpha1.AlbumStatus{
+			Metadata: &catalogv1alpha1.AlbumMetadata{Title: "Old"},
+			Tracks: []catalogv1alpha1.Track{
+				{RecordingID: "side-a-old", Medium: 1, Number: 1, Title: "Side A (Old)"},
+				{RecordingID: "the-return", Medium: 1, Number: 2, Title: "The Return"},
+			},
+		},
+	}
+	f := newWalkFixture(t, catalogv1alpha1.RootFolderKindMusic, catalogv1alpha1.RootDefaults{QualityProfileRef: "lossless"},
+		artistObj("danny-brown", "danny-brown-mbid", "Danny Brown"), old)
+	f.w.Releases = func(context.Context, string) ([]metadata.AlbumRelease, error) {
+		return nil, errors.New("clustarr.rpc.catalog.metadata.lookup timed out")
+	}
+	kush := filepath.Join("Danny Brown", "18_danny_brown-kush_coma-fih.mp3")
+	f.plant(t, kush)
+	f.probeTags(map[string]*commonv1.MediaTags{kush: {Album: "Old", Title: "Kush Coma", TrackNumber: 18}})
+
+	got, _ := f.handle(t, false)
+	files := unmatchedFiles(got)
+	require.Contains(t, files, kush)
+	assert.Contains(t, files[kush].Reason, "could not be read")
+	assert.Contains(t, files[kush].Reason, "timed out")
+}
+
+// A full scan corrects every record an earlier scan numbered against the
+// wrong edition in one pass: a recorded file holds its track against another
+// only while its own attribution still names it, so a standard rip whose
+// records a deluxe's extra intro shifted by one (file 1 on the intro, file 2
+// on file 1's song) is put right whole, not one file per scan (review of
+// bc1aa1ca, 2026-11-16).
+func TestAFullScanCorrectsAShiftedAlbumInOnePass(t *testing.T) {
+	const ns = "library"
+	simple := &catalogv1alpha1.Album{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "simple"},
+		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "band", ReleaseGroupID: "simple-group"},
+		Status: catalogv1alpha1.AlbumStatus{
+			Metadata: &catalogv1alpha1.AlbumMetadata{Title: "Simple"},
+			Tracks: []catalogv1alpha1.Track{
+				{RecordingID: "intro", Medium: 1, Number: 1, Title: "Intro"},
+				{RecordingID: "a", Medium: 1, Number: 2, Title: "A Song"},
+				{RecordingID: "b", Medium: 1, Number: 3, Title: "B Song"},
+			},
+		},
+	}
+	f := newWalkFixture(t, catalogv1alpha1.RootFolderKindMusic, catalogv1alpha1.RootDefaults{QualityProfileRef: "lossless"},
+		artistObj("band", "band-mbid", "Band"), simple)
+	f.w.Releases = func(context.Context, string) ([]metadata.AlbumRelease, error) {
+		rec := func(id, title string, pos int32) metadata.Track {
+			return metadata.Track{IDs: metadata.ExternalIDs{metadata.KeyMBRecording: id}, Title: title, Position: pos, MediumNumber: 1}
+		}
+		return []metadata.AlbumRelease{
+			{IDs: metadata.ExternalIDs{metadata.KeyMBRelease: "deluxe"}, TrackCount: 3, Media: []metadata.Medium{{Position: 1, Tracks: []metadata.Track{rec("intro", "Intro", 1), rec("a", "A Song", 2), rec("b", "B Song", 3)}}}},
+			{IDs: metadata.ExternalIDs{metadata.KeyMBRelease: "standard"}, TrackCount: 2, Media: []metadata.Medium{{Position: 1, Tracks: []metadata.Track{rec("a", "A Song", 1), rec("b", "B Song", 2)}}}},
+		}, nil
+	}
+	one := filepath.Join("Band", "01-band-a_song.flac")
+	two := filepath.Join("Band", "02-band-b_song.flac")
+	f.plant(t, one, two)
+	record := func(rel, track string) client.Object {
+		return &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "rec-" + track},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "simple", Track: track},
+				Path:     filepath.Join(f.root, rel),
+			},
+		}
+	}
+	require.NoError(t, f.w.Client.Create(context.Background(), record(one, "intro")))
+	require.NoError(t, f.w.Client.Create(context.Background(), record(two, "a")))
+	f.probeTags(map[string]*commonv1.MediaTags{
+		one: {Album: "Simple", Title: "A Song", TrackNumber: 1, TrackTotal: 2},
+		two: {Album: "Simple", Title: "B Song", TrackNumber: 2, TrackTotal: 2},
+	})
+
+	got, _ := f.handle(t, false)
+	obs := f.bus.observed(t, f.root)
+	require.Empty(t, unmatchedFiles(got))
+	require.Contains(t, obs, one)
+	require.Contains(t, obs, two)
+	assert.Equal(t, "a", obs[one].Attribution.Track, "file 1 takes its song, which file 2's stale record held")
+	assert.Equal(t, "b", obs[two].Attribution.Track)
 }

@@ -2343,7 +2343,21 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   On talos (owner, 2026-11-16) the flat scene rips were numbered against
   the largest edition each album selected (Old's 4x12" vinyl numbered per
   side, a 24-track deluxe, an a cappella edition): one matched track in six
-  was held and one in twenty would have been renamed to another song. A file whose
+  was held and one in twenty would have been renamed to another song. The
+  title rule is `release.TrackTitlesAgree` (featured-artist and producer
+  credits, remaster and bonus-track notes, "part"/"pt" aside; a bracketed
+  "(with X)" only where the number agrees too), and a selection tie on the
+  same files goes to fewer tracks, then fewer media, then digital or CD
+  over vinyl. **An album file's track is correctable**: MediaFile
+  `spec.mediaRef`'s CEL rule keeps kind, name and keys immutable but not
+  the track, a full scan attributes a recorded album file again within its
+  recorded Album (`rescan.reattributeTrack`) and the applier writes the
+  corrected track (the walk's holds follow, so a shifted album is put right
+  in one pass); an incremental scan does not look again. And **an album file
+  whose title tag is another song than its track is never renamed**:
+  status.naming reads `TrackTitleMismatch` with no expectedPath
+  (`mediafile.RenderNaming`), the guard for every attribution made before
+  2026-11-16 (3,664 on talos, by number alone). A file whose
   Album lists no tracks yet is counted awaiting, and a container's owed
   folder scan waits for its children (`folderscan.Request.ChildrenSettled`:
   every listed Album with its document and a TracksSynced answer, a

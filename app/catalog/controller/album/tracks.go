@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package album
 
 import (
+	"strings"
+
 	"k8s.io/utils/ptr"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
@@ -81,9 +83,10 @@ const (
 //     is where Lidarr's importer moves the monitored release when files
 //     match another one, or as many of them on fewer tracks (holdsMore).
 //  4. Otherwise the candidate with the most files wins; then, among
-//     releases holding files, the one with the fewest tracks -- the files'
-//     own edition rather than a deluxe or a vinyl set holding the same
-//     recordings -- and among releases holding none, the one with the most
+//     releases holding files, the one with the fewest tracks, media, then a
+//     digital or CD one (fitsFiles) -- the files' own edition rather than a
+//     deluxe or a vinyl set holding the same recordings -- and among
+//     releases holding none, the one with the most
 //     tracks (MonitorSingleRelease's OrderByDescending(files)
 //     .ThenByDescending(TrackCount)); then the provider's order.
 //
@@ -151,17 +154,44 @@ func better(a, b *pkgmetadata.AlbumRelease, files map[string]string) bool {
 		return fa > fb
 	}
 	if fa > 0 {
-		return trackCount(a) < trackCount(b)
+		return fitsFiles(a, b)
 	}
 	return trackCount(a) > trackCount(b)
 }
 
 // holdsMore reports whether best displaces the kept selection: it holds
-// more of the album's files, or as many, and some, on fewer tracks. More
-// tracks alone never move a selection.
+// more of the album's files, or as many, and some, on a release that fits
+// them better (fitsFiles). More tracks alone never move a selection.
 func holdsMore(best, kept *pkgmetadata.AlbumRelease, files map[string]string) bool {
 	fb, fk := filesOn(best, files), filesOn(kept, files)
-	return fb > fk || (fb == fk && fb > 0 && trackCount(best) < trackCount(kept))
+	return fb > fk || (fb == fk && fb > 0 && fitsFiles(best, kept))
+}
+
+// fitsFiles orders two releases holding the same files: fewer tracks, then
+// fewer media, then a digital or CD release over vinyl or tape -- the
+// edition a flat rip of the album is, so its files are not numbered by a
+// 2xLP's sides and moved into disc folders (review of bc1aa1ca,
+// 2026-11-16). A tie is no better.
+func fitsFiles(a, b *pkgmetadata.AlbumRelease) bool {
+	if ta, tb := trackCount(a), trackCount(b); ta != tb {
+		return ta < tb
+	}
+	if ma, mb := len(a.Media), len(b.Media); ma != mb {
+		return ma < mb
+	}
+	return formatRank(a) < formatRank(b)
+}
+
+// formatRank ranks a release by its media's formats: 0 when every medium is
+// digital or a CD (or names no format), 1 otherwise.
+func formatRank(r *pkgmetadata.AlbumRelease) int {
+	for _, m := range r.Media {
+		f := strings.ToLower(m.Format)
+		if f != "" && !strings.Contains(f, "digital") && !strings.Contains(f, "cd") {
+			return 1
+		}
+	}
+	return 0
 }
 
 func releaseID(rel *pkgmetadata.AlbumRelease) string {

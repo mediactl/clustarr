@@ -550,6 +550,7 @@ func (w *Worker) handleMusicFile(
 	if g.err != nil {
 		return g.err
 	}
+	reason = heldWithoutReleases(st, cand.ReleaseGroupID, reason)
 	switch {
 	case reason == fileimport.ErrTracksPending && cand.NoTracks == "" && w.stillToCome(cand.Created):
 		st.progress.Await(awaiting)

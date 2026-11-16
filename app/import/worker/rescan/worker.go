@@ -254,8 +254,10 @@ type scanState struct {
 	nonVideo *nonVideoIndex
 
 	// releases is each release group's every release the walk asked the
-	// gateway for (albumReleases), nil for one it could not have.
-	releases map[string][]metadata.AlbumRelease
+	// gateway for (albumReleases), nil for one it could not have, and
+	// releaseErrs why it could not.
+	releases    map[string][]metadata.AlbumRelease
+	releaseErrs map[string]error
 
 	// series holds the series of a series root folder, with their
 	// episodes.

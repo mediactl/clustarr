@@ -112,7 +112,21 @@ func TestTitlesAgree(t *testing.T) {
 	}{
 		{"Pieces feat. Cornelia", "Pieces", true},
 		{"So Much (Feat. Philthy Rich, Stevie Joe & Ampichino)", "So Much", true},
-		{"née-nah (with Travis Scott & Metro Boomin)", "née-nah", true},
+		{"What Cha Day About (Prod. Qur'an Goodman)", "What Cha Day About", true},
+		{"Millitant Part 2", "Millitant, Pt. 2", true},
+		{"The Paw Paw Negro Blowtorch (2004 Digital Remaster)", "The Paw Paw Negro Blowtorch", true},
+		{"Opus 4", "Opus 4 (2017 remastered version)", true},
+		{"Song - Remastered 2011", "Song", true},
+		{"May The Music Never Die Again (Japan Bonus Track)", "May the Music Never Die Again", true},
+		{"?", "?", true},
+		{"...", "?", false},
+		{"Kush Coma ft. A$AP Rocky (Remix)", "Kush Coma", false},
+		{"Song feat. X - Live", "Song", false},
+		{"Song Ft X (Acoustic)", "Song Ft Y (Remix)", false},
+		{"6 Ft 7 Ft", "6 Ft Under", false},
+		{"Song (With Love)", "Song", false},
+		{"née-nah (with Travis Scott & Metro Boomin)", "née-nah", false},
+		{"Song (Remix)", "Song", false},
 		{"Snitches & Rats (Interlude)", "Snitches & Rats (interlude)", true},
 		{"Snitches and Rats (Interlude)", "Snitches & Rats (interlude)", true},
 		{"HOLLERTILYOUPASSOUT", "Holler Til You Pass Out", true},
@@ -158,6 +172,22 @@ func TestAttributeTrackNeverTakesANumberThatNamesAnotherSong(t *testing.T) {
 	assert.Equal(t, "go-first", id, "a title that agrees keeps the number's track")
 	id, _ = AttributeTrack(deluxe24, 1, tagged(0, 10, ""), "10.flac", false)
 	assert.Equal(t, "go-first", id, "a file without a title tag is still attributed by its number")
+
+	american := []catalogv1alpha1.Track{{RecordingID: "nee-nah", Medium: 1, Number: 9, Title: "née-nah"}, {RecordingID: "other", Medium: 1, Number: 1, Title: "Other"}}
+	id, _ = AttributeTrack(american, 1, titled(0, 9, "née-nah (with Travis Scott & Metro Boomin)"), "09.flac", false)
+	assert.Equal(t, "nee-nah", id, "a bracketed with-credit is dropped where the number agrees too")
+	id, _ = AttributeTrack(american, 1, titled(0, 4, "née-nah (with Travis Scott & Metro Boomin)"), "04.flac", false)
+	assert.Empty(t, id, "the title alone never drops a with-bracket, which may be the title's own ((With Love))")
+
+	single := []catalogv1alpha1.Track{{RecordingID: "the-single", Medium: 1, Number: 1, Title: "The Single"}}
+	id, _ = AttributeTrack(single, 1, titled(0, 7, "Another Song"), "07.flac", true)
+	assert.Empty(t, id, "a one-track album's lone file whose title is another song is not its track")
+	id, _ = AttributeTrack(single, 1, titled(0, 0, ""), "obfuscated.flac", true)
+	assert.Equal(t, "the-single", id, "a lone file saying nothing is a one-track album's track")
+
+	remix := []catalogv1alpha1.Track{{RecordingID: "song", Medium: 1, Number: 3, Title: "Song"}, {RecordingID: "other", Medium: 1, Number: 1, Title: "Other"}}
+	id, _ = AttributeTrack(remix, 1, titled(0, 15, "Song feat. X (Remix)"), "15.flac", false)
+	assert.Empty(t, id, "a remix is never attributed to the original by its title")
 }
 
 // vinylOld is Danny Brown's Old as the 4x12" vinyl clustarr selected: 38
