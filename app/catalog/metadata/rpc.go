@@ -32,6 +32,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/extid"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -62,10 +63,10 @@ type rpcVerb struct {
 //
 // stop drains the three responders (events.Requester.Serve's stop), for the
 // gateway's runnable to call at <-ctx.Done() (ADR-0020 §1).
-func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) (stop func(), err error) {
+func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry, cache pkgmetadata.Cache) (stop func(), err error) {
 	verbs := map[string]rpcVerb{
 		events.RPCMetadataLookup: {name: "lookup", fn: func(ctx context.Context, req schema.MetadataRequest) schema.MetadataResponse {
-			return lookup(ctx, reg, req)
+			return lookupWith(ctx, reg, cache, req)
 		}},
 		events.RPCMetadataSearch: {name: "search", fn: func(ctx context.Context, req schema.MetadataRequest) schema.MetadataResponse {
 			return search(ctx, reg, req)
@@ -144,6 +145,12 @@ func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) (stop func(), err
 // which no Open Library lookup sets -- goes to lookupAudiobookAuthor and
 // reg.AudiobookAuthors (Audnexus), for Add New's author link.
 func lookup(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
+	return lookupWith(ctx, reg, nil, req)
+}
+
+// lookupWith is lookup with the gateway's cache, which answers a release
+// group's lookup (cachedAlbum) before any provider is asked.
+func lookupWith(ctx context.Context, reg *pkgmetadata.Registry, cache pkgmetadata.Cache, req schema.MetadataRequest) schema.MetadataResponse {
 	ctx, span := tracing.Start(ctx, "metadata.rpc.lookup")
 	defer span.End()
 
@@ -155,6 +162,9 @@ func lookup(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataR
 	case commonv1.MediaKindAlbum:
 		if _, ok := req.IDs[pkgmetadata.KeyMBArtist]; ok {
 			return lookupAlbums(ctx, reg, req)
+		}
+		if resp, ok := cachedAlbum(ctx, cache, req); ok {
+			return resp
 		}
 	case commonv1.MediaKindBook:
 		if _, ok := req.IDs[pkgmetadata.KeyOpenLibraryAuthor]; ok {
@@ -182,6 +192,43 @@ func lookup(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataR
 		return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
 	}
 	return schema.MetadataResponse{Kind: req.Kind, IDs: idsOf(v), Result: result}
+}
+
+// cachedAlbum answers a release group's lookup -- the track listing every
+// Album's reconcile asks for (album.Reconciler.syncTracks) -- from the
+// document the metadata worker cached when it refreshed that Album: the
+// same Registry.Lookup(kind=album) answer, releases, media and recordings
+// included, under the same key (cacheKey over the Album's
+// {mb-release-group} ids, target.go's externalIDs). Without it every
+// lookup asked MusicBrainz again, at one request a second shared with the
+// whole gateway: on talos (2026-11-15) 1,082 of 1,092 Albums retried it
+// every 30 s behind a 10 s deadline, nearly every request was abandoned
+// mid-call, and only 10 got an answer in four and a half days, while the
+// cache held every one of them.
+//
+// It only reads. A miss falls through to the provider, and that answer is
+// not cached: the worker caches a document after enriching it (crosswalk
+// ids, artwork), and a refresh that took the lookup's bare document from
+// the cache would serve the Album without them. A cache that fails is a
+// miss, never the lookup's failure.
+func cachedAlbum(ctx context.Context, cache pkgmetadata.Cache, req schema.MetadataRequest) (schema.MetadataResponse, bool) {
+	if cache == nil {
+		return schema.MetadataResponse{}, false
+	}
+	var v pkgmetadata.Album
+	hit, err := cache.Get(ctx, cacheKey(commonv1.MediaKindAlbum, pkgmetadata.ExternalIDs(req.IDs)), &v)
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "metadata: album lookup: cache read failed; asking the provider", "ids", req.IDs, "err", err)
+		return schema.MetadataResponse{}, false
+	}
+	if !hit {
+		return schema.MetadataResponse{}, false
+	}
+	result, err := json.Marshal(&v)
+	if err != nil {
+		return schema.MetadataResponse{}, false
+	}
+	return schema.MetadataResponse{Kind: req.Kind, IDs: idsOf(&v), Result: result}, true
 }
 
 // lookupEpisodes is the Task C6 contract: Kind=MediaKindEpisode,

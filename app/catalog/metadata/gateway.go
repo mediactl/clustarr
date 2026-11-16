@@ -152,7 +152,7 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 		}
 	}
 
-	stopRPC, err := ServeRPC(o.Bus, reg)
+	stopRPC, err := ServeRPC(o.Bus, reg, cache)
 	if err != nil {
 		stopSub()
 		stopMarkers()

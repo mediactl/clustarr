@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -405,6 +406,112 @@ func TestAlbumReconcilerBuildsTracksFromTheExistingSingleLookupRPC(t *testing.T)
 	assert.EqualValues(t, 0, got.Status.TrackFileCount, "no track has an imported file yet")
 	assert.False(t, k8s.IsConditionTrue(got.Status.Conditions, catalogv1alpha1.AlbumConditionInvalid))
 	assert.True(t, k8s.IsConditionTrue(got.Status.Conditions, "TracksSynced"))
+}
+
+// countingLookupRPC is fakeAlbumLookupRPC that counts its calls and can
+// be switched from failing to answering.
+type countingLookupRPC struct {
+	calls atomic.Int32
+	album *pkgmetadata.Album
+	err   error
+}
+
+func (f *countingLookupRPC) Request(ctx context.Context, subject string, in, out any) error {
+	f.calls.Add(1)
+	return fakeAlbumLookupRPC{album: f.album, err: f.err}.Request(ctx, subject, in, out)
+}
+
+// A failed track listing holds the Album's next lookup back: a pass the
+// loop runs before the hold ends -- any wake, not only the requeue --
+// reports the failure again without asking the gateway, and requeues for
+// the hold's end. Fresh metadata lifts the hold (talos, 2026-11-15: every
+// pass of 1,082 Albums asked again 30 s after a failure, and the gateway's
+// MusicBrainz allowance went to answers no one waited for).
+func TestAFailedTrackListingHoldsTheAlbumsNextLookup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	const ns, rg = "album-hold-ns", "22f0c3da-122b-475b-94f8-4123a0a9c4fa"
+	require.NoError(t, c.Create(ctx, testNamespace(ns)))
+	require.NoError(t, c.Create(ctx, testRootFolder(ns, "music-root", "/data/media/music")))
+	createSteadyArtist(t, ctx, c, ns, "berner", "a74b1b7f-71a5-4011-9441-d0b5e4122711", "music-root")
+
+	alb := &catalogv1alpha1.Album{
+		ObjectMeta: metav1.ObjectMeta{Name: "border-wars", Namespace: ns},
+		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "berner", ReleaseGroupID: rg},
+	}
+	require.NoError(t, c.Create(ctx, alb))
+	key := types.NamespacedName{Namespace: ns, Name: alb.Name}
+	refresh := func(at time.Time) {
+		t.Helper()
+		metaAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
+			catalogac.AlbumMetadata().WithTitle("Border Wars").WithRefreshedAt(metav1.NewTime(at))))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Album
+			return c.Get(ctx, key, &got) == nil && got.Status.Metadata != nil &&
+				got.Status.Metadata.RefreshedAt.Time.Equal(at)
+		}, 5*time.Second, 10*time.Millisecond)
+	}
+	refresh(time.Now().Add(-time.Hour).Truncate(time.Second))
+
+	rpc := &countingLookupRPC{err: errors.New("metadata gateway: rate: Wait(n=1) would exceed context deadline")}
+	r := &album.Reconciler{
+		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(100),
+		Bus:      combinedBus{Publisher: fakePublisher{}, requester: rpc},
+		Releases: album.NewReleaseCache(0),
+	}
+	tracksSynced := func() *metav1.Condition {
+		var got catalogv1alpha1.Album
+		if c.Get(ctx, key, &got) != nil {
+			return nil
+		}
+		return k8s.FindCondition(got.Status.Conditions, "TracksSynced")
+	}
+
+	res, err := r.ReconcileItem(ctx, key)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, rpc.calls.Load())
+	assert.GreaterOrEqual(t, res.RequeueAfter, album.LookupRetryMin/2-time.Second)
+	assert.LessOrEqual(t, res.RequeueAfter, album.LookupRetryMin)
+	require.Eventually(t, func() bool {
+		cond := tracksSynced()
+		return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "RPCError"
+	}, 5*time.Second, 10*time.Millisecond)
+	failed := tracksSynced()
+
+	res, err = r.ReconcileItem(ctx, key)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, rpc.calls.Load(), "a pass inside the hold does not ask the gateway")
+	assert.Positive(t, res.RequeueAfter)
+	assert.LessOrEqual(t, res.RequeueAfter, album.LookupRetryMin, "it requeues for the hold's end")
+	held := tracksSynced()
+	require.NotNil(t, held)
+	assert.Equal(t, failed.Reason, held.Reason, "the failure is reported again")
+	assert.Equal(t, failed.Message, held.Message)
+
+	// The gateway's refresh caches the document the lookup is answered
+	// from, so fresh metadata asks at once.
+	rpc.err, rpc.album = nil, &pkgmetadata.Album{
+		IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: rg},
+		Releases: []pkgmetadata.AlbumRelease{{
+			IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "7e867e68-9598-466b-8148-6e05422407f7"}, Status: "Official",
+			Media: []pkgmetadata.Medium{{Position: 1, Tracks: []pkgmetadata.Track{
+				{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRecording: "a22ed7aa-0765-4855-958e-bd84b493813e"}, Title: "Thank You", Position: 2, MediumNumber: 1},
+			}}},
+		}},
+	}
+	refresh(time.Now().Truncate(time.Second))
+	res, err = r.ReconcileItem(ctx, key)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, rpc.calls.Load(), "fresh metadata is not held")
+	assert.Zero(t, res.RequeueAfter)
+	require.Eventually(t, func() bool {
+		cond := tracksSynced()
+		return cond != nil && cond.Status == metav1.ConditionTrue
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 func TestAlbumReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {

@@ -79,10 +79,6 @@ const (
 	albumByQualityProfileIndexKey = ".spec.qualityProfileRef"
 )
 
-// metadataSyncRPCBackoff is the RequeueAfter used when the track-listing RPC
-// fails, mirroring series.episodeSyncRPCBackoff.
-const metadataSyncRPCBackoff = 30 * time.Second
-
 // metadataSyncRPCTimeout bounds one track-listing RPC on a cache miss (loop
 // spec §3.12): the loop's workers are shared by every file and item, so a
 // slow gateway costs one worker 10 s, not 30.
@@ -640,7 +636,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	r.reporter().PhaseEdge(alb, string(alb.Status.Phase), string(phase))
 
 	if ts.err != nil {
-		return ctrl.Result{RequeueAfter: metadataSyncRPCBackoff}, nil
+		return ctrl.Result{RequeueAfter: max(time.Until(ts.retryAt), time.Second)}, nil
 	}
 	return ctrl.Result{}, nil
 }
@@ -738,6 +734,8 @@ type trackSync struct {
 	selected  string
 	selection Selection
 	err       error
+	// retryAt is when a failed lookup (err) may be asked again.
+	retryAt time.Time
 }
 
 // syncTracks fetches alb's release group via the metadata gateway's
@@ -756,7 +754,10 @@ type trackSync struct {
 //
 // The RPC runs only on a ReleaseCache miss: when the Album, its release
 // group or its metadata (status.metadata.refreshedAt) changed since the
-// last successful fetch (loop spec §3.12).
+// last successful fetch (loop spec §3.12). A failed one holds the next back
+// for a wait that grows with how long it has been failing
+// (ReleaseCache.Failed); a pass inside the hold reports the same failure
+// and returns retryAt for the reconcile's requeue.
 func (r *Reconciler) syncTracks(ctx context.Context, alb *catalogv1alpha1.Album, profile catalogv1alpha1.MusicMetadataProfile, files map[string]string) trackSync {
 	previous := ""
 	if alb.Status.Metadata != nil {
@@ -769,6 +770,19 @@ func (r *Reconciler) syncTracks(ctx context.Context, alb *catalogv1alpha1.Album,
 	cache := r.releaseCache()
 	releases, cached := cache.Get(alb)
 	if !cached {
+		// A failed lookup holds the next one back (ReleaseCache.Failed):
+		// every wake of the Album runs this pass, not only its requeue, so
+		// the hold is kept here, where the gateway is asked.
+		if hold, held := cache.Held(alb, time.Now()); held {
+			ts := kept(hold.Err)
+			ts.retryAt = hold.Until
+			return ts
+		}
+		failed := func(err error) trackSync {
+			ts := kept(err)
+			ts.retryAt = cache.Failed(alb, time.Now(), err).Until
+			return ts
+		}
 		req := schema.MetadataRequest{
 			Kind: commonv1.MediaKindAlbum,
 			IDs:  map[string]string{pkgmetadata.KeyMBReleaseGroup: alb.Spec.ReleaseGroupID},
@@ -779,15 +793,15 @@ func (r *Reconciler) syncTracks(ctx context.Context, alb *catalogv1alpha1.Album,
 		// An idempotent lookup: every class retries on the reconciler's
 		// requeue, and the condition names the class (ADR-0020 §4).
 		if rpcErr := r.Bus.Request(rpcCtx, events.RPCMetadataLookup, req, &resp); rpcErr != nil {
-			return kept(events.DescribeRequestError(events.RPCMetadataLookup, rpcErr))
+			return failed(events.DescribeRequestError(events.RPCMetadataLookup, rpcErr))
 		}
 		if resp.Error != "" {
-			return kept(fmt.Errorf("metadata gateway: %s", resp.Error))
+			return failed(fmt.Errorf("metadata gateway: %s", resp.Error))
 		}
 		var fetched pkgmetadata.Album
 		if len(resp.Result) > 0 {
 			if err := json.Unmarshal(resp.Result, &fetched); err != nil {
-				return kept(fmt.Errorf("decode album: %w", err))
+				return failed(fmt.Errorf("decode album: %w", err))
 			}
 		}
 		releases = fetched.Releases

@@ -821,7 +821,7 @@ func TestServeRPCLookupEpisodesSurvivesPlexFailing(t *testing.T) {
 // them when it ends (ServeRPC returns its stop since ADR-0020 §1).
 func mustServeRPC(t *testing.T, bus events.Requester, reg *pkgmetadata.Registry) {
 	t.Helper()
-	stop, err := ServeRPC(bus, reg)
+	stop, err := ServeRPC(bus, reg, nil)
 	require.NoError(t, err)
 	t.Cleanup(stop)
 }

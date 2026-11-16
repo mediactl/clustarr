@@ -2308,7 +2308,17 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   empty profile accepts no album. Identification RPCs run under
   `IdentifyTimeout` (2 min) on their own goroutine while the walk heartbeats
   (they queue on the metadata agent's one MusicBrainz limiter beside the
-  fan-outs the walk's creates start; a 10 s deadline failed fast). A music
+  fan-outs the walk's creates start; a 10 s deadline failed fast). An
+  Album's track listing (the lookup RPC, `album.Reconciler.syncTracks`) is
+  answered from the gateway's metadata cache, where the Album's own refresh
+  left the whole release list (`metadata.cachedAlbum`; a miss asks
+  MusicBrainz and caches nothing), and a failed one holds that Album's next
+  lookup back for as long as it has been failing, 30 s to 1 h, jittered
+  (`album.ReleaseCache.Failed`; owner, 2026-11-15: 1,082 of talos's 1,092
+  Albums retried it every 30 s on MusicBrainz's one request a second behind
+  a 10 s deadline, almost every request was abandoned mid-call, and the
+  music scan matched none of 3,249 files). The Artist, Author and Comic
+  fan-outs still retry their RPCs every 30 s. A music
   file is probed before it is matched, and `MatchAlbum(absPath, rel, tags,
   cands)` takes the Artist the first segment names (as written, CleanTitle
   or TitleNorm, so 宇多田ヒカル and !!! keep their albums) and the Album by
