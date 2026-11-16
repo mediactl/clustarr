@@ -23,6 +23,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -189,4 +190,43 @@ func TestTheIndexAnswersAsAutoMapDoes(t *testing.T) {
 	}
 	m, _ := ix.AutoMap("bbc1.uk", "")
 	assert.Equal(t, "a-first", m.Guide, "guides are taken in name order")
+}
+
+// TestADummyBlockIsAnEpisodeOfItsOwn: a channel without listings gets blocks
+// titled by its name, and each block is its own episode of one show (a
+// dd_progid whose show part is the channel's and whose episode part is the
+// block's). Bare titles made PMS file every block of a channel as one movie
+// with an airing per block (160 over two weeks), and a Live TV session reads
+// every airing of whatever is on now on every channel of its DVR: on
+// 2026-11-16 478 such channels on one DVR made that 76,480 rows, minutes of
+// PMS's time per tune, and Plex stopped answering.
+func TestADummyBlockIsAnEpisodeOfItsOwn(t *testing.T) {
+	lineup := []xmltv.LineupChannel{
+		{Number: "7", Name: "Seven", DummyMinutes: 60},
+		{Number: "8", Name: "Eight", DummyMinutes: 60},
+	}
+	var out bytes.Buffer
+	require.NoError(t, xmltv.BuildGuide(&out, lineup, nil, from, 14))
+	ids := map[string]map[string]int{} // channel -> dd_progid -> airings
+	shows := map[string]map[string]bool{}
+	re := regexp.MustCompile(`channel="(\d+)"><title>([^<]+)</title><sub-title>[^<]+</sub-title><episode-num system="dd_progid">(EP\d{8})\.(\d{4})</episode-num></programme>`) // the title, then the block's own id
+	for _, m := range re.FindAllStringSubmatch(out.String(), -1) {
+		if ids[m[1]] == nil {
+			ids[m[1]], shows[m[1]] = map[string]int{}, map[string]bool{}
+		}
+		ids[m[1]][m[3]+"."+m[4]]++
+		shows[m[1]][m[3]] = true
+	}
+	require.Len(t, ids, 2)
+	for ch, byID := range ids {
+		assert.Len(t, byID, 14*24, "channel %s: every block has an id of its own", ch)
+		assert.Len(t, shows[ch], 1, "channel %s: one show", ch)
+	}
+	assert.NotEqual(t, shows["7"], shows["8"], "each channel's show is its own")
+
+	var later bytes.Buffer
+	require.NoError(t, xmltv.BuildGuide(&later, lineup, nil, from.Add(24*time.Hour), 14))
+	block := regexp.MustCompile(`<programme start="` + from.Add(36*time.Hour).UTC().Format("20060102150405") + ` \+0000"[^>]*channel="7">.*</programme>`)
+	require.NotEmpty(t, block.FindString(out.String()))
+	assert.Equal(t, block.FindString(out.String()), block.FindString(later.String()), "a block keeps its id from one day's guide to the next")
 }

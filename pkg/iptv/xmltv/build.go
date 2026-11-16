@@ -124,9 +124,20 @@ func BuildGuideWith(w io.Writer, lineup []LineupChannel, guides map[string]Guide
 		var title bytes.Buffer
 		title.WriteString("<title>")
 		escape(&title, c.Name)
-		title.WriteString("</title>")
+		title.WriteString("</title><sub-title>")
+		escape(&title, c.Name) // the episode's title, where PMS would say "Episode 8561"
+		title.WriteString("</sub-title>")
+		// Each block is its own episode of the channel's one show: its
+		// dd_progid's show is the channel's name and its episode the block's
+		// place in time, the same from one day's guide to the next. Under a
+		// bare title PMS files every block of a channel as one movie with an
+		// airing a block, and a Live TV session reads every airing of what is
+		// on now on every channel of its DVR (2026-11-16: 478 such channels on
+		// one DVR, 76,480 rows a tune, and Plex stopped answering).
+		series := progSum("dummy", c.Name)
 		for t := from.UTC().Truncate(block); t.Before(to); t = t.Add(block) {
-			programme(&bw, c.Number, t, t.Add(block), title.Bytes())
+			inner := append(bytes.Clone(title.Bytes()), formatProgID("EP", series, uint64(t.Unix()/int64(block/time.Second)))...)
+			programme(&bw, c.Number, t, t.Add(block), inner)
 		}
 	}
 	bw.WriteString("</tv>\n")
