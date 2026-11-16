@@ -154,8 +154,55 @@ func TestTitlesAgree(t *testing.T) {
 		{"Song (Radio Edit)", "Song", false},
 		{"Song (John Peel Session)", "Song", false},
 		{"Cock It (Album Version (Explicit))", "Slow Motion", false},
+		{"MVP (Scored By DJ Premier)", "MVP", true},
+		{"Go Head F/ Mac Bre-Z", "Go Head", true},
+		{"$$$ (Feat. Normani)", "$$$", true},
+		// A bare "Ft", a typo or a cut title are the song only where the number
+		// says so too.
+		{"Area Codes Ft Nate Dogg", "Area Codes", false},
+		{"The Thrillest", "The Trillest", false},
 	} {
 		assert.Equal(t, c.want, TitlesAgree(c.tag, c.track), "%q vs %q", c.tag, c.track)
+	}
+}
+
+// At the file's own track number a title agrees through what rips do to it
+// -- a bare "Ft" credit, ID3v1's 30-character cut, a skit note, MusicBrainz's
+// "Interlude / Song", swapped words, a typo of a letter or two -- and never
+// across another recording (talos, 2026-11-16: Ludacris, Gucci Mane and
+// Missy Elliott rips held as other songs at their own numbers).
+func TestTitlesAgreeAtNumber(t *testing.T) {
+	for _, c := range []struct {
+		tag, track string
+		want       bool
+	}{
+		{"Area Codes Ft Nate Dogg", "Area Codes", true},
+		{"Freaky Thangs Ft Twista Jagged", "Freaky Thangs", true},
+		{"Ragtime Interlude/I'm Really H", "Ragtime Interlude / I’m Really Hot", true},
+		{"Toyz Interlude", "Toyz Interlude / Toyz", true},
+		{"Come On Over (Skit)", "Come On Over", true},
+		{"Catch The Sun", "Catch the Sun (from “Queen & Slim: The Soundtrack”)", true},
+		{"Black Fly Boy", "Black Boy Fly", true},
+		{"This Is Our Last Time feat Fab", "Is This Our Last Time", true},
+		{"The Thrillest", "The Trillest", true},
+		{"Like Shooting a Fish in a Barrel", "Like Shooting Fish in a Barrel", true},
+		{"Drink, Smoke + Fcuk", "Drink, Smoke + Fuck", true},
+		{"Money Do Not Matter F/ Torica", "Money Don’t Matter", true},
+		{"That's How It Be Happenin' (Album Version)", "That's How It Be Happening", true},
+		{"Gossip Folks (Mouse T. 's Pogo Remix Extended) (Bonus Track)", "Gossip Folks (Mousse T.'s Pogo remix extended)", true},
+		{"Do The Right Thang (Co-Starring Common & Spike Lee) (Scored By 9th Wonder)", "Do the Right Thang", true},
+
+		{"Intro", "Outro", false},
+		{"Move", "Move, Pt. 2", false},
+		{"Part 1", "Part 2", false},
+		{"Song (Remix)", "Song", false},
+		{"Stairway to Heaven (Live)", "Stairway to Heaven", false},
+		{"Money Conversations", "Money Conversations (a cappella)", false},
+		{"Baby Girl Intro feat Mary J. B", "Baby Girl Interlude / Intro", false},
+		{"Bob No1", "Bob n' I", false},
+		{"Short Title", "Short Title Is Longer", false},
+	} {
+		assert.Equal(t, c.want, agreesAtNumber(c.tag, c.track), "%q vs %q", c.tag, c.track)
 	}
 }
 

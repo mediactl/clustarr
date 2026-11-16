@@ -56,3 +56,15 @@ func TestComicAudiobookAndBookNamesHashKindAndID(t *testing.T) {
 	require.Equal(t, names.ChildName("Dune", "book", "OL893415W"), names.Book("Dune", "OL893415W"))
 	require.NotEqual(t, names.Book("x", "1"), names.Audiobook("x", "1"))
 }
+
+// TestAlbumNamesMatchTheLiveLibrary: an Album's name is its Artist's object
+// name and eight hex of its release group, as the Artist's fan-out names
+// it; a scan that creates an album its file's tags name (2026-11-16) lands
+// on the same object. Goldens from talos.
+func TestAlbumNamesMatchTheLiveLibrary(t *testing.T) {
+	require.Equal(t, "naughty-by-nature-fa76fa3b04-edbc7461",
+		names.Album("naughty-by-nature-fa76fa3b04", "dde7b901-e854-3565-a76b-60a918088194"))
+	require.Equal(t, "lost-boyz-965cafcba3-cfb27e9a",
+		names.Album("lost-boyz-965cafcba3", "27435bb6-2857-383e-87e8-648ff2136e22"))
+	require.Equal(t, "x-"+names.HashSuffix("rg")[:8], names.Album("", "rg"))
+}

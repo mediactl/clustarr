@@ -578,3 +578,64 @@ func (e *scanEnv) author(name, olid, display string) {
 		WithStatus(catalogac.AuthorStatus().WithMetadata(catalogac.AuthorMetadata().WithName(display))))
 	require.NoError(e.t, err)
 }
+
+// albumAt is the attribution the walk proposes for a file whose ALBUM tag
+// names a release group its artist's profile does not list (tagAlbum,
+// 2026-11-16).
+func albumAt(artist, group, title string) *schema.ScanAttribution {
+	return &schema.ScanAttribution{
+		Kind: string(commonv1.MediaKindAlbum), Name: names.Album(artist, group), ProviderID: group, Evidence: "tags",
+		Create: &schema.ItemCreate{
+			Kind: string(commonv1.MediaKindAlbum), Name: names.Album(artist, group), Title: title,
+			ReleaseGroupID: group, ArtistRef: artist,
+		},
+	}
+}
+
+// A scan creates the album a file's tags name when its artist's metadata
+// profile does not list it (owner, 2026-11-16: "Ensure that Unmatched has no
+// remaining music entries"): named as the Artist's fan-out names an album,
+// owned by the Artist as the fan-out's are, unmonitored -- the album is
+// there for the files on disk, never to be searched -- written under
+// import-worker; the file awaits the album's tracks, so no MediaFile is
+// recorded, and a second file of the album finds it. An album whose artist
+// is gone is refused, and the file listed.
+func TestAScanCreatesTheAlbumAFilesTagsName(t *testing.T) {
+	e := newScanEnv(t, "scanapply-album")
+	music := e.root("music", catalogv1alpha1.RootFolderKindMusic, catalogv1alpha1.RootDefaults{QualityProfileRef: "lossless"})
+	artist := &catalogv1alpha1.Artist{
+		ObjectMeta: metav1.ObjectMeta{Namespace: e.ns, Name: "rival-consoles"},
+		Spec: catalogv1alpha1.ArtistSpec{
+			MusicBrainzID: "e5e9b1d4-e3b2-4c1f-9a7e-0a3d2a9c7b11", QualityProfileRef: "lossless", RootFolderRef: music.Name,
+		},
+	}
+	require.NoError(t, e.c.Create(e.ctx, artist))
+	const group = "0f2d7a3c-7c1e-4a8e-9d4b-6f1e2a3b4c5d"
+
+	require.NoError(t, e.observe(music, "Rival Consoles/01 - Odyssey.flac", albumAt(artist.Name, group, "Odyssey / Sonne"), nil))
+
+	var al catalogv1alpha1.Album
+	require.NoError(t, e.c.Get(e.ctx, types.NamespacedName{Namespace: e.ns, Name: names.Album(artist.Name, group)}, &al),
+		"the scan created no Album")
+	assert.Equal(t, artist.Name, al.Spec.ArtistRef)
+	assert.Equal(t, group, al.Spec.ReleaseGroupID)
+	assert.Equal(t, ptr.To(false), al.Spec.Monitored, "an album made for its files is never searched")
+	require.Len(t, al.OwnerReferences, 1)
+	assert.Equal(t, artist.UID, al.OwnerReferences[0].UID, "owned by its Artist, as the fan-out's albums are")
+	assert.Equal(t, ptr.To(true), al.OwnerReferences[0].Controller)
+	assert.True(t, ownsField(&al, mediafilespec.FieldManager, "releaseGroupID"), "the create is import-worker's")
+	assert.Empty(t, e.mediaFiles(), "the file awaits the album's tracks")
+	assert.EqualValues(t, 1, e.tally().ItemsCreated)
+
+	require.NoError(t, e.observe(music, "Rival Consoles/02 - Sonne.flac", albumAt(artist.Name, group, "Odyssey / Sonne"), nil))
+	var all catalogv1alpha1.AlbumList
+	require.NoError(t, e.c.List(e.ctx, &all, client.InNamespace(e.ns)))
+	assert.Len(t, all.Items, 1, "a second file of the album found it")
+	assert.EqualValues(t, 1, e.tally().ItemsCreated)
+
+	require.NoError(t, e.observe(music, "Gone/01.flac", albumAt("gone", group, "Odyssey / Sonne"), nil))
+	p := e.tally()
+	require.Len(t, p.Unmatched, 1)
+	assert.Equal(t, "Gone/01.flac", p.Unmatched[0].Path)
+	assert.Contains(t, p.Unmatched[0].Reason, "which is gone")
+}

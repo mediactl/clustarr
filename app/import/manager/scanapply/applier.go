@@ -232,9 +232,10 @@ func (a *Applier) present(ctx context.Context, obs schema.ScanObservation, t *ta
 		}
 		created = made
 		switch ref.Kind {
-		case commonv1.MediaKindSeries, commonv1.MediaKindArtist, commonv1.MediaKindAuthor:
+		case commonv1.MediaKindSeries, commonv1.MediaKindArtist, commonv1.MediaKindAuthor, commonv1.MediaKindAlbum:
 			// A container holds no file of its own: a new series has no
-			// episodes yet, a new artist no albums, a new author no books.
+			// episodes yet, a new artist no albums, a new author no books;
+			// a new album has no tracks yet, so its file awaits them too.
 			// Its files await them (the walk counted them), and the scan of
 			// its folder its children ask for attributes them (folderscan,
 			// smoke O8; the non-video design's D16, D18). An audiobook is

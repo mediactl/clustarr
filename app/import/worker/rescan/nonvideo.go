@@ -127,6 +127,10 @@ type AlbumCandidate struct {
 	// them (2026-11-10 design D17).
 	ReleaseGroupID string
 	ReleaseIDs     []string
+	// ReleaseTitles are the group's releases' own titles where they differ
+	// from the group's (status.metadata.releases[].title: "F-1 Trillion: Long
+	// Bed" in F-1 Trillion's group), which an ALBUM tag may name.
+	ReleaseTitles []string
 
 	// ArtistNames are the names the artist's folder may carry: its
 	// metadata name and aliases, spec.folder, and the last segment of
@@ -367,9 +371,10 @@ func matchContainer(
 // note, the first tier naming an album deciding; two albums of one title
 // are told apart by the file's track (byTrackTitle). A tag's DATE is its own release's,
 // a reissue's later than the group's first (the album's Year), so it never
-// refuses a lone album of the title: it refuses only a date before the
-// album's first release, and among albums sharing the title it picks the one
-// first released that year. A rule that names no album passes to the next;
+// refuses a lone album of the title: it refuses only a date more than a
+// year before the album's first release (a pre-release or a leak is dated a
+// year early), and among albums sharing the title it picks the one first
+// released that year. A rule that names no album passes to the next;
 // one that names two is ambiguous. With an ALBUM tag no rule placed, the file
 // is CodeNoChild, naming the tag ("no album of 2Pac is titled ..."), honest
 // for a compilation the artist's metadata profile does not list; a file with
@@ -434,7 +439,7 @@ func MatchAlbum(absPath, rel string, tags *commonv1.MediaTags, cands []AlbumCand
 			title, year = p.Music.Album, p.Music.Year
 		}
 		for _, eq := range albumTitleTiers {
-			if hits := pick(func(c AlbumCandidate) bool { return eq(c.Title, title) && yearOK(c.Year, year) }); len(hits) > 0 {
+			if hits := pick(func(c AlbumCandidate) bool { return eq(c, title) && yearOK(c.Year, year) }); len(hits) > 0 {
 				return decide(commonv1.MediaKindAlbum, byTrackTitle(hits, mine, tags), "")
 			}
 		}
@@ -445,16 +450,18 @@ func MatchAlbum(absPath, rel string, tags *commonv1.MediaTags, cands []AlbumCand
 	if tags != nil && strings.TrimSpace(tags.Album) != "" {
 		year := tagYear(tags.Date)
 		for _, eq := range albumTitleTiers {
-			titled := pick(func(c AlbumCandidate) bool { return eq(c.Title, tags.Album) })
+			titled := pick(func(c AlbumCandidate) bool { return eq(c, tags.Album) })
 			if len(titled) == 0 {
 				continue
 			}
-			// A release is never dated before its group's first release.
+			// A release is never dated before its group's first release, but
+			// a tag may date a pre-release or a leak a year early (K Camp's
+			// Float 2 London: 2023 against 2024-01-12).
 			plausible := pick(func(c AlbumCandidate) bool {
-				return eq(c.Title, tags.Album) && (c.Year == 0 || year == 0 || year >= c.Year)
+				return eq(c, tags.Album) && (c.Year == 0 || year == 0 || year >= c.Year-1)
 			})
 			if len(plausible) > 1 && year != 0 {
-				if first := pick(func(c AlbumCandidate) bool { return eq(c.Title, tags.Album) && c.Year == year }); len(first) == 1 {
+				if first := pick(func(c AlbumCandidate) bool { return eq(c, tags.Album) && c.Year == year }); len(first) == 1 {
 					plausible = first
 				}
 			}

@@ -29,6 +29,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -61,6 +62,8 @@ func createName(c *schema.ItemCreate) string {
 		return names.Author(c.Title, c.OpenLibraryID)
 	case commonv1.MediaKindAudiobook:
 		return names.Audiobook(c.Title, c.ASIN)
+	case commonv1.MediaKindAlbum:
+		return names.Album(c.ArtistRef, c.ReleaseGroupID)
 	}
 	return c.Name
 }
@@ -99,6 +102,7 @@ func (a *Applier) ensureItem(
 		provider, id string
 		obj          client.Object
 		idOf, rootOf func() string
+		albumArtist  catalogv1alpha1.Artist
 	)
 	switch commonv1.MediaKind(c.Kind) {
 	case commonv1.MediaKindMovie:
@@ -141,9 +145,32 @@ func (a *Applier) ensureItem(
 		ab := &catalogv1alpha1.Audiobook{}
 		obj, idOf = ab, func() string { return ab.Spec.ASIN }
 		rootOf = func() string { return ab.Spec.RootFolderRef }
+	case commonv1.MediaKindAlbum:
+		// An album a file's tags name, which its artist's profile does not
+		// list (tagAlbum): the Artist must exist under this root, and owns it.
+		if c.ReleaseGroupID == "" || c.ArtistRef == "" {
+			return false, false, fmt.Errorf("%w: an album proposal without its release group and artist", errMalformed)
+		}
+		provider, id = catalogv1alpha1.ExclusionIDKeyMusicBrainz, c.ReleaseGroupID
+		al := &catalogv1alpha1.Album{}
+		obj, idOf = al, func() string { return al.Spec.ReleaseGroupID }
+		switch err := a.apiReader().Get(ctx, types.NamespacedName{Namespace: ns, Name: c.ArtistRef}, &albumArtist); {
+		case apierrors.IsNotFound(err):
+			t.unmatched(root, rel, CodeNoItem, fmt.Sprintf(
+				"the album its tags name, release group %s, is an album of artist %s, which is gone", c.ReleaseGroupID, c.ArtistRef),
+				[]string{c.ArtistRef}, a.now())
+			return false, false, nil
+		case err != nil:
+			return false, false, fmt.Errorf("scanapply: get artist %s: %w", c.ArtistRef, err)
+		}
+		rootOf = func() string { return albumArtist.Spec.RootFolderRef }
+		if itemRoot := rootOf(); itemRoot != root.Name {
+			a.otherRootFolder(t, root, rel, commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: c.ArtistRef}, itemRoot)
+			return false, false, nil
+		}
 	default:
-		return false, false, fmt.Errorf("%w: a %q proposal; scans create movies, series, artists, authors and audiobooks only",
-			errMalformed, c.Kind)
+		return false, false, fmt.Errorf("%w: a %q proposal; scans create movies, series, artists, authors, audiobooks "+
+			"and albums only", errMalformed, c.Kind)
 	}
 	folder, folderErr := createFolder(c, rel)
 	elsewhere := errors.Is(folderErr, errFolderElsewhere)
@@ -188,7 +215,7 @@ func (a *Applier) ensureItem(
 		return false, false, nil
 	}
 	profile := root.Spec.Defaults.QualityProfileRef
-	if profile == "" {
+	if profile == "" && commonv1.MediaKind(c.Kind) != commonv1.MediaKindAlbum {
 		refuse.list(CodeNoQualityProfile, fmt.Sprintf(
 			"root folder %q sets no default qualityProfileRef, which a new %s requires", root.Name, c.Kind), nil)
 		return false, false, nil
@@ -217,6 +244,8 @@ func (a *Applier) ensureItem(
 		err = a.applyAuthor(ctx, ns, name, c.OpenLibraryID, root, folder)
 	case commonv1.MediaKindAudiobook:
 		err = a.applyAudiobook(ctx, ns, name, c, root, folder)
+	case commonv1.MediaKindAlbum:
+		err = a.applyAlbum(ctx, ns, name, c, &albumArtist)
 	}
 	if err != nil {
 		return false, false, err
@@ -290,7 +319,7 @@ var errFolderElsewhere = errors.New("scanapply: the proposal's folder does not h
 func createFolder(c *schema.ItemCreate, rel string) (string, error) {
 	rel = filepath.ToSlash(rel)
 	switch commonv1.MediaKind(c.Kind) {
-	case commonv1.MediaKindMovie:
+	case commonv1.MediaKindMovie, commonv1.MediaKindAlbum:
 		return "", nil
 	case commonv1.MediaKindSeries:
 		return seriesFolder(rel), nil
@@ -470,6 +499,34 @@ func (a *Applier) audiobookAuthor(ctx context.Context, ns, folder string) (strin
 		return "", nil
 	}
 	return match[0], nil
+}
+
+// applyAlbum creates the album a scanned music file's tags name when its
+// artist's metadata profile does not list it (tagAlbum, owner 2026-11-16),
+// under import-worker: named, owned and specified as the Artist fan-out
+// creates an album (artist.ensureAlbum: its artist, its release group, the
+// Artist its controller), and unmonitored, since it is there for the files
+// on disk and never to be searched. The Album reconciler lists its tracks,
+// and the next scan of the artist's folder attributes its files.
+func (a *Applier) applyAlbum(
+	ctx context.Context, ns, name string, c *schema.ItemCreate, artist *catalogv1alpha1.Artist,
+) error {
+	ac := catalogac.Album(name, ns).
+		WithOwnerReferences(metav1ac.OwnerReference().
+			WithAPIVersion(catalogv1alpha1.GroupVersion.String()).
+			WithKind("Artist").
+			WithName(artist.Name).
+			WithUID(artist.UID).
+			WithController(true).
+			WithBlockOwnerDeletion(true)).
+		WithSpec(catalogac.AlbumSpec().
+			WithArtistRef(artist.Name).
+			WithReleaseGroupID(c.ReleaseGroupID).
+			WithMonitored(false))
+	if _, err := k8s.Apply(ctx, a.Client, mediafilespec.FieldManager, ac); err != nil {
+		return fmt.Errorf("scanapply: create album %s: %w", name, err)
+	}
+	return nil
 }
 
 // applyMovie creates the Movie a scanned file names, under import-worker,

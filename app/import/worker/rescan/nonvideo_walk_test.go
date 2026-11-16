@@ -36,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/names"
 )
 
 // Walk-level tests of the non-video rules the review of task W7.12 asked
@@ -533,4 +534,56 @@ func TestAFullScanCorrectsAShiftedAlbumInOnePass(t *testing.T) {
 	require.Contains(t, obs, two)
 	assert.Equal(t, "a", obs[one].Attribution.Track, "file 1 takes its song, which file 2's stale record held")
 	assert.Equal(t, "b", obs[two].Attribution.Track)
+}
+
+// A file whose ALBUM tag names a release group the artist's metadata profile
+// does not list -- a compilation, a mixtape, a single -- proposes that
+// album, unmonitored, and waits for its tracks, never listed as unmatched
+// (owner, 2026-11-16: "Ensure that Unmatched has no remaining music
+// entries"; the library is a person's picks, often a few tracks of an
+// album). The artist's every release group is asked for once a walk, and an
+// album is proposed once however many of its files the walk meets.
+func TestAFileOfAnAlbumTheProfileLeavesOutProposesThatAlbum(t *testing.T) {
+	persona := albumObj("persona", "rival-consoles", "persona-group", "Persona", "unfolding")
+	f := newWalkFixture(t, catalogv1alpha1.RootFolderKindMusic, catalogv1alpha1.RootDefaults{QualityProfileRef: "lossless"},
+		artistObj("rival-consoles", "rc-mbid", "Rival Consoles"), persona)
+	var asked []string
+	f.w.ArtistAlbums = func(_ context.Context, mbid string) ([]metadata.Album, error) {
+		asked = append(asked, mbid)
+		return []metadata.Album{
+			{IDs: metadata.ExternalIDs{metadata.KeyMBReleaseGroup: "persona-group"}, Title: "Persona", PrimaryType: "Album"},
+			{
+				IDs: metadata.ExternalIDs{metadata.KeyMBReleaseGroup: "odyssey-group"}, Title: "Odyssey / Sonne",
+				PrimaryType: "Album", SecondaryTypes: []string{"Compilation"},
+			},
+		}, nil
+	}
+	one := filepath.Join("Rival Consoles", "01-rival_consoles-odyssey.flac")
+	two := filepath.Join("Rival Consoles", "02-rival_consoles-sonne.flac")
+	none := filepath.Join("Rival Consoles", "01-rival_consoles-unknown.flac")
+	f.plant(t, one, two, none)
+	f.probeTags(map[string]*commonv1.MediaTags{
+		one:  {Album: "Odyssey / Sonne", Title: "Odyssey", TrackNumber: 1},
+		two:  {Album: "Odyssey / Sonne", Title: "Sonne", TrackNumber: 2},
+		none: {Album: "An Album Nobody Lists", Title: "Unknown", TrackNumber: 1},
+	})
+
+	got, _ := f.handle(t, false)
+	obs := f.bus.observed(t, f.root)
+	require.Contains(t, obs, one, "%v", got.Unmatched)
+	require.NotNil(t, obs[one].Attribution)
+	c := obs[one].Attribution.Create
+	require.NotNil(t, c)
+	assert.Equal(t, "album", c.Kind)
+	assert.Equal(t, "odyssey-group", c.ReleaseGroupID)
+	assert.Equal(t, "rival-consoles", c.ArtistRef)
+	assert.Equal(t, names.Album("rival-consoles", "odyssey-group"), c.Name)
+	assert.NotContains(t, obs, two, "an album is proposed once a walk")
+	files := unmatchedFiles(got)
+	assert.NotContains(t, files, one)
+	assert.NotContains(t, files, two)
+	assert.Equal(t, int64(2), got.AwaitingChildren["artist"])
+	require.Contains(t, files, none, "an album no list names is still listed")
+	assert.Contains(t, files[none].Reason, `"An Album Nobody Lists"`)
+	assert.Equal(t, []string{"rc-mbid"}, asked, "the artist's release groups are asked for once a walk")
 }

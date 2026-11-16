@@ -54,3 +54,15 @@ func Audiobook(title, asin string) string { return ChildName(title, "audiobook",
 // BookName), so a work added by hand and one an author fans out are two
 // objects.
 func Book(title, workID string) string { return ChildName(title, "book", workID) }
+
+// Album is an Album's name: its Artist's object name and the first eight
+// hex characters of HashSuffix(releaseGroupID), the Artist's fan-out's
+// "<artist>-<releasegroup-uid8>" (design §4.2), which a scan that creates
+// an album its file's tags name lands on too.
+func Album(artistObjectName, releaseGroupID string) string {
+	prefix := NormalizeName(artistObjectName)
+	if prefix == "" {
+		prefix = "x"
+	}
+	return prefix + "-" + HashSuffix(releaseGroupID)[:8]
+}

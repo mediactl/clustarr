@@ -157,8 +157,14 @@ func TestMatchAlbumByTags(t *testing.T) {
 		},
 
 		{
-			"a date before the album's first release contradicts", "Radiohead/01.flac", &commonv1.MediaTags{Album: "Kid A", Date: "1999"},
+			"a date before the album's first release contradicts", "Radiohead/01.flac", &commonv1.MediaTags{Album: "Kid A", Date: "1998"},
 			verdict{code: rescan.CodeNoChild},
+		},
+		{
+			// A tag dates a pre-release or leak a year early (talos,
+			// 2026-11-16: K Camp's Float 2 London, 2023 against 2024-01-12).
+			"a date a year before the album's first release is its", "Radiohead/01.flac", &commonv1.MediaTags{Album: "Kid A", Date: "1999"},
+			verdict{name: "kid-a"},
 		},
 		{
 			"an ALBUM tag the artist has no album of", "Radiohead/01.flac", &commonv1.MediaTags{Album: "I Might Be Wrong"},
@@ -183,8 +189,8 @@ func TestMatchAlbumByTags(t *testing.T) {
 	})
 	t.Run("a date before the album's first release says so", func(t *testing.T) {
 		got := rescan.MatchAlbum(filepath.Join(root, "Radiohead/01.flac"), "Radiohead/01.flac",
-			&commonv1.MediaTags{Album: "Kid A", Date: "1999"}, cands)
-		assert.Contains(t, got.Reason, `the album of Radiohead titled "Kid A" was first released after 1999`)
+			&commonv1.MediaTags{Album: "Kid A", Date: "1998"}, cands)
+		assert.Contains(t, got.Reason, `the album of Radiohead titled "Kid A" was first released after 1998`)
 		assert.Equal(t, []string{"kid-a"}, got.Candidates)
 	})
 	t.Run("albums sharing a title are told apart by the first release's year", func(t *testing.T) {
@@ -223,6 +229,10 @@ func TestMatchAlbumByTags(t *testing.T) {
 			al("nonetheless", "Nonetheless"), al("yellow", "Yellow Tape 2"), al("kool", "Still Kool"), al("siren", "Siren"),
 			al("skylarking", "Skylarking"), al("platinum", "Already Platinum"), al("rare", "RARE Family"),
 			al("bodytalk", "Body Talk Pt. 1"), al("fearless", "Fearless"), al("fearless-tv", "Fearless (Taylor's Version)"),
+			al("sremm", "SremmLife 2"),
+			// A release of the group under its own title (talos, 2026-11-16).
+			{Name: "f1", Title: "F-1 Trillion", ArtistNames: []string{"X"}, ReleaseTitles: []string{"F‐1 Trillion: Long Bed"}},
+			{Name: "boat", Title: "Lil Boat 3", ArtistNames: []string{"X"}, ReleaseTitles: []string{"Lil Boat 3.5"}},
 		}
 		for album, want := range map[string]verdict{
 			"19NaughtyIII":                            {name: "naughty"},
@@ -238,6 +248,9 @@ func TestMatchAlbumByTags(t *testing.T) {
 			"Body Talk Pt.1 CD":                       {name: "bodytalk"},
 			"Fearless (Taylor's Version)":             {name: "fearless-tv"},
 			"Fearless (Platinum Edition)":             {name: "fearless"},
+			"SremmLife II":                            {name: "sremm"},
+			"F-1 Trillion: Long Bed":                  {name: "f1"},
+			"Lil Boat 3.5":                            {name: "boat"},
 			// Another recording is never an edition of the studio album.
 			"Siren (Live Edition)":      {code: rescan.CodeNoChild},
 			"Siren (Remixes)":           {code: rescan.CodeNoChild},

@@ -33,25 +33,58 @@ import (
 
 // albumTitleTiers are the comparisons MatchAlbum tries in turn among one
 // artist's albums, the first that names an album deciding, so a looser one
-// never takes a file a stricter one placed: the title as cleaned (case,
-// punctuation, articles); spelled loosely (spacing, "&" for "and",
-// hyphens: "19NaughtyIII", "Love, Peace & Nappiness", "Motor-Booty Affair");
-// without an edition note ("(Expanded Edition)", "Deluxe", "CD", "(2015
-// SHM-SACD)", ": Reloaded"). The track a file is attributed to is still
-// checked against its title tag, so an edition with other songs holds them.
-var albumTitleTiers = []func(a, b string) bool{nameEq, looseAlbumEq, editionAlbumEq}
+// never takes a file a stricter one placed: the album's title as cleaned
+// (case, punctuation, articles); spelled loosely (spacing, "&" for "and",
+// hyphens, a Roman numeral: "19NaughtyIII", "Love, Peace & Nappiness",
+// "Motor-Booty Affair", "SremmLife II"); a release of the group under its
+// own title ("F-1 Trillion: Long Bed", "Lil Boat 3.5"); without an edition
+// note ("(Expanded Edition)", "Deluxe", "CD", "(2015 SHM-SACD)", ":
+// Reloaded"). The track a file is attributed to is still checked against
+// its title tag, so an edition with other songs holds them.
+var albumTitleTiers = []func(c AlbumCandidate, title string) bool{
+	func(c AlbumCandidate, t string) bool { return nameEq(c.Title, t) },
+	func(c AlbumCandidate, t string) bool { return looseAlbumEq(c.Title, t) },
+	func(c AlbumCandidate, t string) bool {
+		return slices.ContainsFunc(c.ReleaseTitles, func(r string) bool { return nameEq(r, t) || looseAlbumEq(r, t) })
+	},
+	func(c AlbumCandidate, t string) bool {
+		return editionAlbumEq(c.Title, t) ||
+			slices.ContainsFunc(c.ReleaseTitles, func(r string) bool { return editionAlbumEq(r, t) })
+	},
+}
 
+// looseAlbumEq compares two titles' loose keys, as written and with their
+// Roman numerals read as numbers: a stylised "19NaughtyIII" has no numeral
+// word to read, "SremmLife II" one.
 func looseAlbumEq(a, b string) bool {
-	ka := looseAlbumKey(a)
-	return ka != "" && ka == looseAlbumKey(b)
+	ka := looseAlbumKey(a, false)
+	if ka != "" && ka == looseAlbumKey(b, false) {
+		return true
+	}
+	ra := looseAlbumKey(a, true)
+	return ra != "" && ra == looseAlbumKey(b, true)
 }
 
 func editionAlbumEq(a, b string) bool {
 	return looseAlbumEq(stripAlbumEdition(a), stripAlbumEdition(b))
 }
 
-func looseAlbumKey(s string) string {
-	return strings.ReplaceAll(release.TitleNorm(strings.ReplaceAll(s, "&", " and ")), " ", "")
+// romanNumerals are the numeral words a loose key reads as numbers; "i",
+// "v" and "x" alone are too often words or letters ("Malcolm X").
+var romanNumerals = map[string]string{
+	"ii": "2", "iii": "3", "iv": "4", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "xi": "11", "xii": "12",
+}
+
+func looseAlbumKey(s string, roman bool) string {
+	words := strings.Fields(release.TitleNorm(strings.ReplaceAll(s, "&", " and ")))
+	if roman {
+		for i, w := range words {
+			if n, ok := romanNumerals[w]; ok {
+				words[i] = n
+			}
+		}
+	}
+	return strings.Join(words, "")
 }
 
 var (

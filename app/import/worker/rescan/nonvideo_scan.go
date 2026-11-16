@@ -261,6 +261,9 @@ func (w *Worker) loadNonVideo(ctx context.Context, ns string, root *catalogv1alp
 				c.Year = fileimport.ReleaseYear(m.ReleaseDate)
 				for _, rel := range m.Releases {
 					c.ReleaseIDs = append(c.ReleaseIDs, rel.ID)
+					if rel.Title != "" && rel.Title != m.Title && !slices.Contains(c.ReleaseTitles, rel.Title) {
+						c.ReleaseTitles = append(c.ReleaseTitles, rel.Title)
+					}
 					if rel.ID == m.SelectedReleaseID {
 						c.Media = int32(len(rel.Media)) //nolint:gosec // a release's discs, far under int32
 					}
@@ -511,6 +514,28 @@ func (w *Worker) handleMusicFile(
 		}
 		reason := fmt.Sprintf("artist %s lists no album under this root folder: the artist's metadata profile takes "+
 			"none of its release groups, so the file is no album's; a person assigns it, or widens the profile", v.existing)
+		if cs.listed {
+			// The album the file's tags name is wanted whatever the profile
+			// (tagAlbum).
+			if err := st.beatNow(ctx, false); err != nil {
+				return err
+			}
+			_, ap := w.freshNonVideoSpec(ctx, commonv1.MediaKindAlbum, path, rel)
+			if ap != nil {
+				g := &gateway{w: w, st: st}
+				c, ok := w.tagAlbum(ctx, g, path, rel, ap.Tags, v.existing)
+				if g.err != nil {
+					return g.err
+				}
+				if ok {
+					if err := w.proposeAlbum(ctx, st, path, info, c); err != nil {
+						return err
+					}
+					st.progress.Await(awaiting)
+					return nil
+				}
+			}
+		}
 		if !cs.listed {
 			reason = fmt.Sprintf("artist %s has listed no album in the day since it was created (its AlbumsSynced "+
 				"condition says why), so the file is no album's yet", v.existing)
@@ -537,6 +562,22 @@ func (w *Worker) handleMusicFile(
 			// match yet: the file may be its.
 			st.progress.Await(awaiting)
 			return nil
+		}
+		if m.Code == CodeNoMatch || (m.Code == CodeNoChild && len(m.Candidates) == 0) {
+			// No Album of the artist is the one the file names: it may be a
+			// release group the artist's profile does not list (tagAlbum).
+			g := &gateway{w: w, st: st}
+			c, ok := w.tagAlbum(ctx, g, path, rel, tags, v.existing)
+			if g.err != nil {
+				return g.err
+			}
+			if ok {
+				if err := w.proposeAlbum(ctx, st, path, info, c); err != nil {
+					return err
+				}
+				st.progress.Await(awaiting)
+				return nil
+			}
 		}
 		st.unmatched(rel, m.Code, m.Reason, m.Candidates, w.now())
 		return nil

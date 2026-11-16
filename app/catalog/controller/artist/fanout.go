@@ -22,8 +22,8 @@ import (
 	"time"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/names"
 )
 
 // mapPrimaryType folds MusicBrainz's release-group primary type
@@ -306,20 +306,11 @@ type DesiredAlbum struct {
 	Monitored *bool
 }
 
-// AlbumName renders "<artist>-<releasegroup-uid8>" per design §4.2.
-// k8s.HashSuffixLength (the §5 general convention) is ten hex characters;
-// Album follows the spec's own literal eight-character form instead
-// (matching §4.2's other explicit truncation, the design of record's
-// "<mediafile>-<profileHash[:8]>"), so this slices k8s.HashSuffix's ten hex
-// characters down to eight rather than adding a second hashing primitive to
-// pkg/k8s for one caller.
+// AlbumName renders "<artist>-<releasegroup-uid8>" per design §4.2:
+// names.Album, the one rule a scan that creates an album its file's tags
+// name follows too.
 func AlbumName(artistName, releaseGroupID string) string {
-	suffix := k8s.HashSuffix(releaseGroupID)[:8]
-	prefix := k8s.NormalizeName(artistName)
-	if prefix == "" {
-		prefix = "x"
-	}
-	return prefix + "-" + suffix
+	return names.Album(artistName, releaseGroupID)
 }
 
 // DesiredAlbums projects a provider's release-group list into the Album

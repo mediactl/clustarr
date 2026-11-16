@@ -2330,12 +2330,27 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   the album folder at three or more segments, else the ALBUM tag (a DATE
   before the first release refuses; two hits `ambiguous_title`, none
   `no_child_item` naming the tag), a title compared as cleaned, then
-  spelled loosely (spacing, "&", hyphens: "19NaughtyIII"), then without
-  an edition note ("(Expanded Edition)", "Deluxe", "CD", "(2015
+  spelled loosely (spacing, "&", hyphens, a Roman numeral: "19NaughtyIII",
+  "SremmLife II"), then as one of the group's releases' own titles
+  ("F-1 Trillion: Long Bed", `AlbumCandidate.ReleaseTitles`), then
+  without an edition note ("(Expanded Edition)", "Deluxe", "CD", "(2015
   SHM-SACD)"; never "(Live ...)" or a remix), the first tier naming an
-  album deciding (`albumTitleTiers`), and two albums of one title told
-  apart by the one holding the file's track (`byTrackTitle`; owner,
-  2026-11-16: 230 of 386 held files, and Boavista's single and album);
+  album deciding (`albumTitleTiers`), a tag DATE a year before the album's
+  first release still the album's (a pre-release's), and two albums of one
+  title told apart by the one holding the file's track (`byTrackTitle`;
+  owner, 2026-11-16: 230 of 386 held files, and Boavista's single and
+  album). **An ALBUM tag naming a release group the artist's metadata
+  profile leaves out creates that album** (owner, 2026-11-16: "Ensure
+  that Unmatched has no remaining music entries"; the library is a
+  person's picks, a few tracks of a compilation, mixtape or single):
+  `rescan.tagAlbum` matches the file by MatchAlbum's own rules against the
+  artist's every release group (the gateway's album-list cache, asked once
+  a walk per artist), those an Album holds aside, and proposes one album
+  create a walk (`schema.ItemCreate` kind album), which
+  `scanapply.applyAlbum` makes as the fan-out would (`names.Album`, owned
+  by the Artist) and unmonitored, never searched; its files await its
+  tracks until the next scan of the folder (an artist's own folder scan is
+  asked for once in its life, so a full root scan places them);
   the first file in walk order holds a
   track and a second is `duplicate_track` (the album's recorded MediaFiles
   read once per walk; two scans at once can still race, open). A track is
@@ -2352,11 +2367,15 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   side, a 24-track deluxe, an a cappella edition): one matched track in six
   was held and one in twenty would have been renamed to another song. The
   title rule is `release.TrackTitlesAgree` (featured-artist and producer
-  credits with a colon or a co-star, remaster and bonus-track notes, the
-  album's own version notes -- "(Album Version (Explicit))", "(Explicit
-  Version)", "(Original Mix)", never a single version, radio edit or
-  session -- and "part"/"pt" aside; a bracketed "(with X)" only where the
-  number agrees too), and a selection tie on the
+  credits with a colon, a co-star or "Scored By", " F/ X", remaster and
+  bonus-track notes, the album's own version notes -- "(Album Version
+  (Explicit))", "(Explicit Version)", "(Original Mix)", never a single
+  version, radio edit or session -- and "part"/"pt" aside; where the number
+  agrees too, also a bracketed "(with X)", a bare " Ft X", "(Skit)" or
+  "(from ...)", one part of MusicBrainz's "Interlude / Song", a title
+  ID3v1 cut at 30 characters, the same words in another order and a typo
+  of one or two letters in a title of eight or more,
+  `release.TrackTitlesAgreeAtNumber`), and a selection tie on the
   same files goes to fewer tracks, then fewer media, then digital or CD
   over vinyl. **An album file's track is correctable**: MediaFile
   `spec.mediaRef`'s CEL rule keeps kind, name and keys immutable but not

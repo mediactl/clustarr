@@ -185,7 +185,9 @@ type ScanAttribution struct {
 // (an artist's or author's first segment under the root, an audiobook's
 // "<author>/<title>"), as a scanned Series' is.
 type ItemCreate struct {
-	// Kind is "movie", "series", "artist", "author" or "audiobook".
+	// Kind is "movie", "series", "artist", "author", "audiobook" or
+	// "album" (the release group a music file's tags name, which the
+	// artist's metadata profile does not list: 2026-11-16).
 	Kind              string `json:"kind"`
 	Name              string `json:"name"`
 	TmdbID            int64  `json:"tmdbID,omitempty"`
@@ -208,6 +210,10 @@ type ItemCreate struct {
 	// root, which the applier pins into the container's spec.folder so its
 	// status.path is the folder its files are already in.
 	Folder string `json:"folder,omitempty"`
+	// ReleaseGroupID is an album's MusicBrainz release group and ArtistRef
+	// the Artist it is the album of; both empty for the other kinds.
+	ReleaseGroupID string `json:"releaseGroupID,omitempty"`
+	ArtistRef      string `json:"artistRef,omitempty"`
 }
 
 // FrozenFields are the MediaFile spec fields frozen at import (loop spec

@@ -19,6 +19,7 @@ package release
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -33,16 +34,23 @@ var (
 	// artist's ("(feat. X)", "[ft X]", "(featuring X)", "(Co-Starring X)") or
 	// a producer's ("(prod. X)", "[produced by X]", "(Produced By: X)").
 	trackBracketedCreditRE = regexp.MustCompile(
-		`(?i)[(\[]\s*(?:feat\.?|ft\.?|featuring|co-starring|prod\.?(?:\s+by)?:?|produced\s+by:?)\s[^)\]]*[)\]]`)
+		`(?i)[(\[]\s*(?:feat\.?|ft\.?|featuring|co-starring|prod\.?(?:\s+by)?:?|produced\s+by:?|scored\s+by:?)\s[^)\]]*[)\]]`)
 	// trackBracketedWithRE is a bracketed "(with X)" credit, which may as well be
 	// the title's own ("(With Love)"): dropped only where the track number
 	// agrees too (TrackTitlesAgreeAtNumber).
 	trackBracketedWithRE = regexp.MustCompile(`(?i)[(\[]\s*with\s[^)\]]*[)\]]`)
 	// trackTrailingCreditRE starts an unbracketed featured-artist credit (" feat.
-	// X", " feat X", " ft. X", " featuring X"; a bare "ft" without its dot
-	// is too often a word, "6 Ft Under"), which runs to the next bracket or
-	// " - " (dropTrackCredit), never over a version suffix.
-	trackTrailingCreditRE = regexp.MustCompile(`(?i)\s(?:feat\.?|ft\.|featuring)\s`)
+	// X", " feat X", " ft. X", " featuring X", " F/ X"; a bare "ft" without
+	// its dot is too often a word, "6 Ft Under", and is read as a credit only
+	// at the file's own number, trackBareFtRE), which runs to the next
+	// bracket or " - " (dropTrackCredit), never over a version suffix.
+	trackTrailingCreditRE = regexp.MustCompile(`(?i)\s(?:(?:feat\.?|ft\.|featuring)\s|f/)`)
+	trackBareFtRE         = regexp.MustCompile(`(?i)\sft\s`)
+	// trackNoteAtNumberRE is a note that is the track's own only where its
+	// number agrees too: "(Skit)", "(Interlude)", "(Intro)", "(Outro)" and a
+	// soundtrack's "(from “Queen & Slim: The Soundtrack”)", which may as well
+	// be a title ("(From Me to You)").
+	trackNoteAtNumberRE = regexp.MustCompile(`(?i)[(\[]\s*(?:from\s[^)\]]*|skit|interlude|intro|outro)\s*[)\]]`)
 	// trackRemasterRE is a remaster annotation, bracketed or after " - ":
 	// "(2004 Digital Remaster)", "(2017 remastered version)", " - Remastered
 	// 2011". A remaster is the song.
@@ -70,31 +78,90 @@ var (
 // punctuation alone agrees only with itself, and an empty one with nothing.
 func TrackTitlesAgree(tag, track string) bool { return trackTitlesAgree(tag, track, false) }
 
-// TrackTitlesAgreeAtNumber is TrackTitlesAgree for a track the file's number names too,
-// which also drops a bracketed "(with X)" credit: the number is the
-// evidence the bracket might be the title's own.
+// TrackTitlesAgreeAtNumber is TrackTitlesAgree for a track the file's number
+// names too, where the number is the evidence for what a title alone could
+// not carry (talos, 2026-11-16: Ludacris, Gucci Mane and Missy Elliott rips
+// held as other songs at their own numbers): it also drops a bracketed
+// "(with X)" credit, a bare " Ft X" credit and the notes trackNoteAtNumberRE
+// names, and it agrees with one part of MusicBrainz's "Interlude / Song", with
+// a title ID3v1 cut at 30 characters that the track's starts with, with the
+// same words in another order, and through a typo of one or two letters in a
+// title of eight or more ("The Thrillest", "Fcuk"; no more than one in six).
+// An added word ("Live", "Remix", "Pt. 2") is more than two letters, so it
+// never passes as a typo.
 func TrackTitlesAgreeAtNumber(tag, track string) bool { return trackTitlesAgree(tag, track, true) }
 
-func trackTitlesAgree(tag, track string, with bool) bool {
-	a, b := trackTitleKey(tag, with), trackTitleKey(track, with)
+// id3v1TitleRunes is ID3v1's title field, 30 bytes: a title of exactly that
+// length may have been cut.
+const id3v1TitleRunes = 30
+
+func trackTitlesAgree(tag, track string, atNumber bool) bool {
+	baseA, baseB := trackTitleBase(tag, atNumber), trackTitleBase(track, atNumber)
+	a, b := trackTitleKey(baseA), trackTitleKey(baseB)
 	if a == "" && b == "" {
-		t := strings.TrimSpace(tag)
-		return t != "" && t == strings.TrimSpace(track)
+		t := strings.TrimSpace(baseA)
+		return t != "" && t == strings.TrimSpace(baseB)
 	}
-	return a != "" && a == b
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	if !atNumber {
+		return false
+	}
+	for _, part := range strings.Split(baseB, "/") {
+		if strings.TrimSpace(part) != baseB && trackTitleKey(part) == a {
+			return true
+		}
+	}
+	if len([]rune(strings.TrimSpace(tag))) == id3v1TitleRunes && len(a) >= 10 && strings.HasPrefix(b, a) {
+		return true
+	}
+	if wa, wb := trackTitleWords(baseA), trackTitleWords(baseB); len(wa) >= 2 && slices.Equal(wa, wb) {
+		return true
+	}
+	ra, rb := []rune(a), []rune(b)
+	if min(len(ra), len(rb)) < 8 {
+		return false
+	}
+	d := osaDistance(ra, rb)
+	return d <= 2 && d*6 <= max(len(ra), len(rb))
 }
 
-func trackTitleKey(s string, with bool) string {
+// trackTitleBase is s with every credit and note the comparison sets aside
+// dropped, its own spelling otherwise.
+func trackTitleBase(s string, atNumber bool) string {
 	s = trackBracketedCreditRE.ReplaceAllString(s, " ")
-	if with {
+	if atNumber {
 		s = trackBracketedWithRE.ReplaceAllString(s, " ")
+		s = trackNoteAtNumberRE.ReplaceAllString(s, " ")
 	}
-	s = dropTrackCredit(s)
+	s = dropTrackCredit(s, trackTrailingCreditRE)
+	if atNumber {
+		s = dropTrackCredit(s, trackBareFtRE)
+	}
 	s = trackRemasterRE.ReplaceAllString(s, " ")
 	s = trackBonusRE.ReplaceAllString(s, " ")
-	s = trackVersionRE.ReplaceAllString(s, " ")
-	s = strings.ReplaceAll(s, "&", " and ")
-	s = trackApostrophes.Replace(s)
+	return trackVersionRE.ReplaceAllString(s, " ")
+}
+
+// trackTitleWords are a base's words as the key spells them, sorted.
+func trackTitleWords(base string) []string {
+	s := trackApostrophes.Replace(strings.ReplaceAll(base, "&", " and "))
+	words := strings.Fields(TitleNorm(s))
+	for i, w := range words {
+		if w == "part" {
+			words[i] = "pt"
+		}
+	}
+	slices.Sort(words)
+	return words
+}
+
+func trackTitleKey(base string) string {
+	s := trackApostrophes.Replace(strings.ReplaceAll(base, "&", " and "))
 	words := strings.Fields(TitleNorm(s))
 	for i, w := range words {
 		if w == "part" {
@@ -104,10 +171,36 @@ func trackTitleKey(s string, with bool) string {
 	return strings.Join(words, "")
 }
 
-// dropTrackCredit cuts an unbracketed featured-artist credit out of s: from
-// its marker to the next bracket or " - ", or the end.
-func dropTrackCredit(s string) string {
-	loc := trackTrailingCreditRE.FindStringIndex(s)
+// osaDistance is the optimal string alignment distance between a and b:
+// insertions, deletions, substitutions and adjacent transpositions.
+func osaDistance(a, b []rune) int {
+	prev2 := make([]int, len(b)+1)
+	prev := make([]int, len(b)+1)
+	cur := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+			if i > 1 && j > 1 && a[i-1] == b[j-2] && a[i-2] == b[j-1] {
+				cur[j] = min(cur[j], prev2[j-2]+1)
+			}
+		}
+		prev2, prev, cur = prev, cur, prev2
+	}
+	return prev[len(b)]
+}
+
+// dropTrackCredit cuts an unbracketed featured-artist credit re starts out
+// of s: from its marker to the next bracket or " - ", or the end.
+func dropTrackCredit(s string, re *regexp.Regexp) string {
+	loc := re.FindStringIndex(s)
 	if loc == nil {
 		return s
 	}

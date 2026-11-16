@@ -168,6 +168,14 @@ type Worker struct {
 	// Lookup is.
 	Releases ReleasesLookup
 
+	// ArtistAlbums answers every release group credited to an artist, of
+	// every type, for a file whose ALBUM tag names an album the artist's
+	// metadata profile does not list (tagAlbum): asked once a walk per
+	// artist. nil asks the metadata gateway's lookup verb over Bus, which
+	// answers from its album-list cache. Bounded by IdentifyTimeout,
+	// heartbeating, as Lookup is.
+	ArtistAlbums ArtistAlbumsLookup
+
 	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
 	// video file smaller than this whose name does not mark it a sample is
 	// a SUSPECTED sample. The walk records it in LibraryScan.status.unmatched
@@ -258,6 +266,13 @@ type scanState struct {
 	// releaseErrs why it could not.
 	releases    map[string][]metadata.AlbumRelease
 	releaseErrs map[string]error
+
+	// artistAlbums is each artist's (by MusicBrainz id) every release group
+	// the walk asked the gateway for (tagAlbum), nil for one it could not
+	// have; proposedAlbums the release groups the walk has proposed as
+	// albums, each once.
+	artistAlbums   map[string][]metadata.Album
+	proposedAlbums map[string]bool
 
 	// series holds the series of a series root folder, with their
 	// episodes.
