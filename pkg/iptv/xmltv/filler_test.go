@@ -49,6 +49,10 @@ func TestFillerNamesASourcesPlaceholders(t *testing.T) {
 	} {
 		assert.False(t, xmltv.Filler([]byte(inner)), inner)
 	}
+	// A title repeated as the episode's says nothing else.
+	assert.True(t, xmltv.Filler([]byte("<title>Blackout</title><sub-title>Blackout</sub-title>")))
+	assert.True(t, xmltv.Filler([]byte("<title>Paid Programming 1 Inspiration Ministries</title><sub-title>Paid Programming 1 Inspiration Ministries</sub-title>")))
+	assert.False(t, xmltv.Filler([]byte("<title>Portlandia</title><sub-title>Blackout</sub-title>")))
 	// A placeholder is one whatever its description says.
 	assert.True(t, xmltv.Filler([]byte("<title>Paid Programming</title><desc>Sponsored television programming.</desc>")))
 }
