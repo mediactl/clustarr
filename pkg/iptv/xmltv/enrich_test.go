@@ -247,6 +247,11 @@ func TestGroupsAndPassThrough(t *testing.T) {
 	assert.Contains(t, out, `<category lang="en">News</category>`)
 	out = string(e.Enrich([]byte(`<title>Bluey</title>`), xmltv.LineupChannel{Number: "1264", Group: "Kids"}, t0, t0.Add(time.Hour)))
 	assert.Contains(t, out, `<category lang="en">Children</category>`)
+	assert.Contains(t, out, `<category lang="en">Kids</category>`, "PMS builds Kids On Now from a genre named Kids")
+	out = string(e.Enrich([]byte(`<title>Arthur</title><category>Children</category>`), plain, t0, t0.Add(time.Hour)))
+	assert.Equal(t, 1, strings.Count(out, ">Kids</category>"), "a source's own Children programme is Kids too: %s", out)
+	out = string(e.Enrich([]byte(`<title>CNN Newsroom</title>`), plain, t0, t0.Add(time.Hour)))
+	assert.NotContains(t, out, "Kids")
 	broken := []byte(`<title>Unclosed`)
 	assert.Equal(t, broken, e.Enrich(broken, plain, t0, t0.Add(time.Hour)))
 }

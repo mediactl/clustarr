@@ -848,7 +848,11 @@ and no episode title, and on 2026-10-28 one "Paid Programming" id carried
 them all and took 20 to 46 s; MV for a known movie, unless the title airs
 more than 14 times), which keeps a one-off out of Plex's Movies
 while a movie channel's unknown film keeps the movie fallback; a news
-channel's programmes are News, a kids channel's Children; a programme the
+channel's programmes are News, a kids channel's Children; a children's
+programme, the source's or a kids channel's, is also Kids (owner,
+2026-11-16: PMS lists Kids On Now and Kids On Later for an XMLTV guide only
+when a genre named Kids exists, and offers the sports, news and movies
+on-now hubs to a cloud guide alone, whatever the guide's tags say); a programme the
 source marks neither `<new/>`, `<premiere>` nor `<live/>`, and no live
 event, gets `<previously-shown/>`, as does every dummy block (owner,
 2026-11-16: the iOS app badged every What's On listing Live): PMS's reader

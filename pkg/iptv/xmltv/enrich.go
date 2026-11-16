@@ -74,6 +74,8 @@ type ArtResolver func(ArtQuery) (Art, bool)
 //     resolver knows, unless the title airs more often than a film), which
 //     keeps a one-off broadcast out of Plex's Movies;
 //   - a news channel's programmes are News, a kids channel's Children;
+//   - a children's programme, the source's or a kids channel's, is also
+//     Kids, the one genre PMS builds on-now hubs from in an XMLTV guide;
 //   - a programme the source marks neither new, premiere nor live, and no
 //     live event, gets <previously-shown/>: PMS's reader (and cluster-plex's
 //     builder) takes an episode without it for a premiere, which Plex's
@@ -264,6 +266,15 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 		addCategory("News")
 	case classKids:
 		addCategory("Children")
+	}
+	if f.categories["children"] {
+		// PMS lists "Kids On Now" and "Kids On Later" for an XMLTV guide
+		// only when a genre named Kids exists, and fills them from the shows
+		// that carry it (owner, 2026-11-16; the per-category on-now hubs for
+		// sports, news and movies it offers a cloud guide alone). So a
+		// children's programme, the source's or a kids channel's, is Kids
+		// too.
+		addCategory("Kids")
 	}
 	if haveArt {
 		switch art.Kind {
