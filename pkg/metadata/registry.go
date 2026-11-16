@@ -53,6 +53,10 @@ type Registry struct {
 	// (wikipedia), first answer wins; the gateway asks only when the
 	// primary provider's own overview is empty (2026-11-10 design §5.4).
 	Biographies []BiographyProvider
+	// Portraits answer an artist's photo from its links when no Artwork
+	// provider gave it a poster (wikipedia: the Wikidata image), first
+	// answer wins.
+	Portraits []PortraitProvider
 	// Pages answer an Author's, a Book's or a Comic's page on a
 	// supplementary provider's site (hardcover, for an Open Library-keyed
 	// item; metron, for a ComicVine-keyed comic); the gateway asks every

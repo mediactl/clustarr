@@ -446,14 +446,20 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 			Limiter: supplementaryLimiter(p, animelists.DefaultRate, animelists.DefaultBurst), UserAgent: ua,
 		}))
 	case catalogv1alpha1.MetadataProviderWikipedia:
-		reg.Biographies = append(reg.Biographies, wikipedia.New(wikipedia.Config{
-			// One spec.baseURL stands in for both hosts: nothing overrides
-			// it in production, and the e2e stub serves Wikidata's api.php
-			// and Wikipedia's page summary under one prefix.
+		// One client serves an artist's or author's biography and an
+		// artist's portrait (the Wikidata image, 2026-11-16), all from its
+		// links.
+		wp := wikipedia.New(wikipedia.Config{
+			// One spec.baseURL stands in for every host: nothing overrides
+			// it in production, and the e2e stub serves Wikidata's api.php,
+			// Wikipedia's page summary and Commons' api.php under one prefix.
 			HTTPClient: httpClient, WikidataBaseURL: baseURL(p, wikipedia.DefaultWikidataBaseURL),
-			WikipediaBaseURL: baseURL(p, wikipedia.DefaultWikipediaBaseURL), Language: p.Spec.Language,
+			WikipediaBaseURL: baseURL(p, wikipedia.DefaultWikipediaBaseURL),
+			CommonsBaseURL:   baseURL(p, wikipedia.DefaultCommonsBaseURL), Language: p.Spec.Language,
 			Limiter: supplementaryLimiter(p, 5, 5), UserAgent: ua,
-		}))
+		})
+		reg.Biographies = append(reg.Biographies, wp)
+		reg.Portraits = append(reg.Portraits, wp)
 	case catalogv1alpha1.MetadataProviderAudible:
 		reg.AudiobookSearchers = append(reg.AudiobookSearchers, audible.New(audible.Config{
 			HTTPClient: httpClient, BaseURL: baseURL(p, ""),

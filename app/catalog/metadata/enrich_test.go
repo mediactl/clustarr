@@ -675,3 +675,58 @@ func TestEnrichKeepsOneURLInTwoRoles(t *testing.T) {
 	require.Equal(t, doc.Images, selectImages(append(doc.Images, doc.Images...), 50),
 		"the status keeps a URL once per type as well")
 }
+
+// stubPortraitProvider is a fake metadata.PortraitProvider answering img (or
+// err) and counting its calls.
+type stubPortraitProvider struct {
+	img   pkgmetadata.Image
+	err   error
+	calls *int
+}
+
+func (p stubPortraitProvider) Name() string { return "wikipedia" }
+func (p stubPortraitProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+
+func (p stubPortraitProvider) Portrait(context.Context, []pkgmetadata.Link) (pkgmetadata.Image, error) {
+	*p.calls++
+	return p.img, p.err
+}
+
+// An artist no artwork provider gave a poster takes its portrait (the
+// Wikidata image, owner 2026-11-16: 157 of 387 artists had no fanart.tv
+// portrait); one fanart.tv gave a poster never asks for it.
+func TestEnrichGivesAnArtistWithoutAPosterItsPortrait(t *testing.T) {
+	const photo = "https://upload.wikimedia.org/wikipedia/commons/d/df/Three_6_Mafia.jpg"
+	calls := 0
+	portraits := []pkgmetadata.PortraitProvider{stubPortraitProvider{
+		img: pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: photo}, calls: &calls,
+	}}
+	links := []pkgmetadata.Link{{Type: "wikidata", URL: "https://www.wikidata.org/wiki/Q1027165"}}
+
+	reg := &pkgmetadata.Registry{Portraits: portraits, Artwork: []pkgmetadata.ArtworkProvider{
+		stubArtworkProvider{name: "fanart", images: []pkgmetadata.Image{{Type: pkgmetadata.ImageTypeFanart, URL: "https://assets.fanart.tv/bg.jpg"}}},
+	}}
+	doc := &pkgmetadata.Artist{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: "mbid"}, Links: links}
+	enrich(context.Background(), reg, commonv1.MediaKindArtist, nil, nil, doc)
+	require.Equal(t, []pkgmetadata.Image{
+		{Type: pkgmetadata.ImageTypeFanart, URL: "https://assets.fanart.tv/bg.jpg"},
+		{Type: pkgmetadata.ImageTypePoster, URL: photo},
+	}, doc.Images)
+	require.Equal(t, 1, calls)
+
+	reg.Artwork = []pkgmetadata.ArtworkProvider{
+		stubArtworkProvider{name: "fanart", images: []pkgmetadata.Image{{Type: pkgmetadata.ImageTypePoster, URL: "https://assets.fanart.tv/thumb.jpg"}}},
+	}
+	doc = &pkgmetadata.Artist{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: "mbid"}, Links: links}
+	enrich(context.Background(), reg, commonv1.MediaKindArtist, nil, nil, doc)
+	require.Equal(t, 1, calls, "an artist with a fanart.tv poster is not asked for a portrait")
+
+	calls = 0
+	reg = &pkgmetadata.Registry{Portraits: []pkgmetadata.PortraitProvider{stubPortraitProvider{err: pkgmetadata.ErrNotFound, calls: &calls}}}
+	doc = &pkgmetadata.Artist{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: "mbid"}, Links: links}
+	enrich(context.Background(), reg, commonv1.MediaKindArtist, nil, nil, doc)
+	require.Equal(t, 1, calls, "a registry of portraits alone is still asked")
+	require.Empty(t, doc.Images)
+}

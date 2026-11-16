@@ -197,6 +197,17 @@ type BiographyProvider interface {
 	Biography(ctx context.Context, links []Link) (text string, source string, err error)
 }
 
+// PortraitProvider answers an artist's photo from its links when no
+// ArtworkProvider gave the artist a poster: the Wikidata entity's image
+// (P18) at Wikimedia Commons' rendition of about 1000 pixels, through the
+// wikipedia provider (owner, 2026-11-16: 157 of 387 artists had no
+// fanart.tv portrait, 111 of them a Wikidata image). The Image is a poster;
+// ErrNotFound when the links name no entity or it has no image.
+type PortraitProvider interface {
+	Provider
+	Portrait(ctx context.Context, links []Link) (Image, error)
+}
+
 // PageProvider answers an item's page on a supplementary provider's own
 // site, for an item another provider answered: Hardcover's author and book
 // pages for an Open Library-keyed Author or Book (2026-11-10 design §9.3),

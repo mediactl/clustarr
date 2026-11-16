@@ -49,6 +49,7 @@ import (
 const (
 	DefaultWikidataBaseURL  = "https://www.wikidata.org"
 	DefaultWikipediaBaseURL = "https://en.wikipedia.org"
+	DefaultCommonsBaseURL   = "https://commons.wikimedia.org"
 	// DefaultLanguage is the Wikipedia edition read; the Wikidata sitelink
 	// asked for is "<language>wiki".
 	DefaultLanguage = "en"
@@ -69,6 +70,7 @@ type Config struct {
 	HTTPClient       *http.Client
 	WikidataBaseURL  string
 	WikipediaBaseURL string
+	CommonsBaseURL   string
 	// Language is the Wikipedia edition ("en"); the Wikipedia base URL must
 	// serve it.
 	Language string
@@ -79,9 +81,9 @@ type Config struct {
 
 // Client reads biographies.
 type Client struct {
-	h              *httpjson.Client
-	wikidata, wiki string
-	language       string
+	h                       *httpjson.Client
+	wikidata, wiki, commons string
+	language                string
 }
 
 // New builds a Client.
@@ -94,13 +96,17 @@ func New(cfg Config) *Client {
 	if wp == "" {
 		wp = DefaultWikipediaBaseURL
 	}
+	cm := strings.TrimRight(cfg.CommonsBaseURL, "/")
+	if cm == "" {
+		cm = DefaultCommonsBaseURL
+	}
 	lang := cfg.Language
 	if lang == "" {
 		lang = DefaultLanguage
 	}
 	return &Client{
 		h:        &httpjson.Client{Provider: "wikipedia", HTTP: cfg.HTTPClient, Limiter: cfg.Limiter, UserAgent: cfg.UserAgent},
-		wikidata: wd, wiki: wp, language: lang,
+		wikidata: wd, wiki: wp, commons: cm, language: lang,
 	}
 }
 
@@ -232,3 +238,116 @@ func (c *Client) summary(ctx context.Context, title string) (string, error) {
 	}
 	return text, nil
 }
+
+// PortraitWidth is the width an artist's photo is asked for at: a square
+// card or page shows it at most this wide, and Commons answers its nearest
+// rendition (1280 for a larger photo) or, for a smaller one, the file.
+const PortraitWidth = 1000
+
+// Portrait implements metadata.PortraitProvider: the image (P18) of the
+// Wikidata entity the first wikidata link names, at Commons' rendition of
+// PortraitWidth -- two requests, the entity's image claim and the file's
+// imageinfo -- as a poster. An uploaded original runs to many megabytes
+// and is never asked for.
+func (c *Client) Portrait(ctx context.Context, links []metadata.Link) (metadata.Image, error) {
+	ctx, span := tracing.Start(ctx, "metadata.wikipedia.Portrait")
+	defer span.End()
+	id := ""
+	for _, l := range links {
+		if l.Type == LinkWikidata {
+			if id = entityID(l.URL); id != "" {
+				break
+			}
+		}
+	}
+	if id == "" {
+		return metadata.Image{}, fmt.Errorf("wikipedia: no wikidata link: %w", metadata.ErrNotFound)
+	}
+	file, err := c.imageClaim(ctx, id)
+	if err != nil {
+		tracing.RecordError(span, err)
+		return metadata.Image{}, err
+	}
+	img, err := c.rendition(ctx, file)
+	if err != nil {
+		tracing.RecordError(span, err)
+	}
+	return img, err
+}
+
+type claims struct {
+	Claims map[string][]struct {
+		Mainsnak struct {
+			Datavalue struct {
+				Value any `json:"value"`
+			} `json:"datavalue"`
+		} `json:"mainsnak"`
+	} `json:"claims"`
+}
+
+// imageClaim is the file name of the entity's first image (P18).
+func (c *Client) imageClaim(ctx context.Context, id string) (string, error) {
+	q := url.Values{"action": {"wbgetclaims"}, "entity": {id}, "property": {"P18"}, "format": {"json"}}
+	var out claims
+	if err := c.h.GetJSON(ctx, c.wikidata+"/w/api.php?"+q.Encode(), nil, &out); err != nil {
+		return "", err
+	}
+	for _, cl := range out.Claims["P18"] {
+		if name, ok := cl.Mainsnak.Datavalue.Value.(string); ok && name != "" {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("wikipedia: wikidata entity %s has no image: %w", id, metadata.ErrNotFound)
+}
+
+type imageInfo struct {
+	Query struct {
+		Pages map[string]struct {
+			ImageInfo []struct {
+				URL         string `json:"url"`
+				ThumbURL    string `json:"thumburl"`
+				ThumbWidth  int    `json:"thumbwidth"`
+				ThumbHeight int    `json:"thumbheight"`
+			} `json:"imageinfo"`
+		} `json:"pages"`
+	} `json:"query"`
+}
+
+// rendition is Commons' rendition of file at PortraitWidth, with Commons'
+// tracking parameters dropped.
+func (c *Client) rendition(ctx context.Context, file string) (metadata.Image, error) {
+	q := url.Values{
+		"action": {"query"}, "titles": {"File:" + file}, "prop": {"imageinfo"},
+		"iiprop": {"url|size"}, "iiurlwidth": {fmt.Sprint(PortraitWidth)}, "format": {"json"},
+	}
+	var out imageInfo
+	if err := c.h.GetJSON(ctx, c.commons+"/w/api.php?"+q.Encode(), nil, &out); err != nil {
+		return metadata.Image{}, err
+	}
+	for _, page := range out.Query.Pages {
+		for _, ii := range page.ImageInfo {
+			u := ii.ThumbURL
+			if u == "" {
+				u = ii.URL
+			}
+			if u == "" {
+				continue
+			}
+			return metadata.Image{Type: metadata.ImageTypePoster, URL: withoutQuery(u), Width: ii.ThumbWidth, Height: ii.ThumbHeight}, nil
+		}
+	}
+	return metadata.Image{}, fmt.Errorf("wikipedia: commons has no file %q: %w", file, metadata.ErrNotFound)
+}
+
+// withoutQuery drops a URL's query: Commons appends utm_ tracking
+// parameters, which name no different image.
+func withoutQuery(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	u.RawQuery = ""
+	return u.String()
+}
+
+var _ metadata.PortraitProvider = (*Client)(nil)

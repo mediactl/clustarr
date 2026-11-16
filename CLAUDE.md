@@ -2466,7 +2466,11 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   JPEG** (owner, 2026-11-16, "artist images are missing", "what's filling
   the artwork object store?"): an Artist's images come from fanart.tv
   alone (MusicBrainz has none; MetadataProvider `fanart`, Secret key
-  `apiKey`), its square `artistthumb` offered as its poster too, and the
+  `apiKey`), its square `artistthumb` offered as its poster too -- an
+  artist fanart.tv has no portrait for takes its Wikidata image (P18) at
+  Commons' ~1000-pixel rendition (`wikipedia.Client.Portrait`, a
+  `PortraitProvider` the gateway asks with the artist's links when no
+  artwork provider gave a poster; 111 of the 157 on talos) -- and the
   gateway keeps a URL once per image type (`imageRole`), not once, or the
   poster repeating the thumb's URL was dropped and no Artist had one; an
   Album's front cover is the Cover Art Archive's `thumbnails["1200"]`
