@@ -45,8 +45,8 @@ import (
 	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/httpjson"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // MaxImageBytes caps one image body (spec §B.4's ArtworkMaxImageBytes). It is
@@ -349,7 +349,10 @@ func (f *Fetcher) get(ctx context.Context, u *url.URL) ([]byte, string, error) {
 		return nil, "", errors.New("not a valid request URL")
 	}
 	req.Header.Set("Accept", "image/jpeg, image/png, image/webp")
-	req.Header.Set("User-Agent", "clustarr/"+version.String())
+	// Wikimedia's User-Agent policy limits a client that names no contact:
+	// upload.wikimedia.org answered 429 to every artist portrait asked for
+	// as "clustarr/<version>" (2026-11-16).
+	req.Header.Set("User-Agent", httpjson.DefaultUserAgent)
 	resp, err := f.httpClient().Do(req)
 	if err != nil {
 		// *url.Error repeats the whole URL, query string included; the

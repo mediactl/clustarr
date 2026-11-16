@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/httpjson"
 )
 
 // imageServer serves a fixed body and Content-Type per path and counts the
@@ -315,6 +316,24 @@ func TestDropDeletesTheOriginal(t *testing.T) {
 	_, err := fx.store.Info(fx.ctx, fx.key(catalogv1alpha1.ImageTypeLogo))
 	require.ErrorIs(t, err, events.ErrObjectNotFound, "the original goes with its override")
 	require.NoError(t, fx.f.Drop(fx.ctx, fx.ref, catalogv1alpha1.ImageTypeLogo), "dropping an absent original is success")
+}
+
+// An image host is told who is asking and how to reach them: Wikimedia's
+// User-Agent policy limits or blocks a client that names no contact, and on
+// 2026-11-16 upload.wikimedia.org answered 429 to all 24 artist portraits
+// the fetcher asked for as "clustarr/<version>".
+func TestFetchOneNamesItsContactInTheUserAgent(t *testing.T) {
+	fx := newFixture(t)
+	var ua string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngBytes(t, 4, 6, color.White))
+	}))
+	t.Cleanup(srv.Close)
+	require.NoError(t, fx.fetch(catalogv1alpha1.ImageTypePoster, srv.URL+"/poster.png"))
+	assert.Equal(t, httpjson.DefaultUserAgent, ua, "the metadata clients' descriptive User-Agent, contact URL included")
+	assert.Contains(t, ua, "(+https://github.com/mediactl/clustarr)")
 }
 
 func TestFetchOneUsesTheLimiterForTheImageHost(t *testing.T) {

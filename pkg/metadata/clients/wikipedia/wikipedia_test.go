@@ -173,6 +173,8 @@ func TestPortraitIsTheWikidataImageAtCommonsRendition(t *testing.T) {
 	img, err = c.Portrait(context.Background(), []metadata.Link{{Type: wikipedia.LinkWikidata, URL: "https://www.wikidata.org/wiki/Q1027165"}})
 	require.NoError(t, err)
 	assert.Equal(t, "https://upload.wikimedia.org/wikipedia/commons/d/df/Three_6_Mafia.jpg", img.URL, "a photo smaller than the rendition is served whole")
+	assert.Equal(t, [2]int{688, 450}, [2]int{img.Width, img.Height},
+		"a photo served whole is its own size, not the rendition's Commons reports for it (thumbnail_unscaled)")
 
 	_, err = c.Portrait(context.Background(), []metadata.Link{{Type: wikipedia.LinkWikidata, URL: "https://www.wikidata.org/wiki/Q100119314"}})
 	require.ErrorIs(t, err, metadata.ErrNotFound, "an entity with no image")

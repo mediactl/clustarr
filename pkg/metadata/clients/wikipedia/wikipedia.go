@@ -305,6 +305,8 @@ type imageInfo struct {
 		Pages map[string]struct {
 			ImageInfo []struct {
 				URL         string `json:"url"`
+				Width       int    `json:"width"`
+				Height      int    `json:"height"`
 				ThumbURL    string `json:"thumburl"`
 				ThumbWidth  int    `json:"thumbwidth"`
 				ThumbHeight int    `json:"thumbheight"`
@@ -326,14 +328,20 @@ func (c *Client) rendition(ctx context.Context, file string) (metadata.Image, er
 	}
 	for _, page := range out.Query.Pages {
 		for _, ii := range page.ImageInfo {
-			u := ii.ThumbURL
+			u, w, h := ii.ThumbURL, ii.ThumbWidth, ii.ThumbHeight
 			if u == "" {
 				u = ii.URL
 			}
 			if u == "" {
 				continue
 			}
-			return metadata.Image{Type: metadata.ImageTypePoster, URL: withoutQuery(u), Width: ii.ThumbWidth, Height: ii.ThumbHeight}, nil
+			// A file no wider than the rendition is served whole
+			// ("thumbnail_unscaled"), though Commons still reports the
+			// rendition's size for it.
+			if ii.Width > 0 && (w == 0 || w > ii.Width) {
+				w, h = ii.Width, ii.Height
+			}
+			return metadata.Image{Type: metadata.ImageTypePoster, URL: withoutQuery(u), Width: w, Height: h}, nil
 		}
 	}
 	return metadata.Image{}, fmt.Errorf("wikipedia: commons has no file %q: %w", file, metadata.ErrNotFound)
