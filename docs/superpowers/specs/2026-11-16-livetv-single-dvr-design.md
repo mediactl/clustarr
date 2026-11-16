@@ -128,8 +128,15 @@ group.
 ## Risks
 
 - **Guide query cost in one request** (above). Clients page the grid.
-- **Tuner slots.** Each device advertises 4; one DVR reads as 56 slots
-  while argon-tv allows 1 stream. The relay's rules are unchanged.
+- **Tuner slots.** The account allows 3 streams (`status.account`
+  `maxConnections` 3; owner, 2026-11-16), but `spec.tuners` is still 1 on
+  talos, set 2026-10-21 when the account refused a second stream. Each
+  device advertises `tuners` plus 3 spare, so one DVR reads as 56 slots
+  today and 84 at `tuners: 3`. Plex counts conflicts per device, so it
+  will let more than the account's streams start at once across devices;
+  the relay's cap decides, as it does across the 14 DVRs today. Raising
+  `spec.tuners` to 3 is a separate, one-line change the owner may want
+  first.
 - **Mid-cutover failure.** Deletes done and the create failing leaves Live
   TV off until a later pass succeeds; the pass retries on its own.
 - **Several Plex pods.** Unchanged: one-pod Live TV guard, and the other
