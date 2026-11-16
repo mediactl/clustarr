@@ -148,36 +148,32 @@ func TestArtworkAddsAnIconAndTheKind(t *testing.T) {
 	assert.Regexp(t, `EP\d{8}\.\d{4}`, out)
 }
 
-// Every programme that is not live is previously shown (owner, 2026-11-16:
-// the iOS app badged every listing Live): PMS and cluster-plex's builder
-// read an episode without previously-shown as a premiere, so the Enricher
-// adds it unless the source says live or the programme is a live event, and
-// never doubles one the source wrote.
-func TestOnlyALiveProgrammeGoesWithoutPreviouslyShown(t *testing.T) {
+// Every listing says one of live, new and previously shown (owner,
+// 2026-11-16): PMS and cluster-plex's builder read an episode without
+// previously-shown as a premiere, which Plex's apps badge, so the Enricher
+// adds previously-shown where the source says neither live nor new, gives a
+// source's premiere the new it implies, and never doubles what the source
+// wrote.
+func TestEveryListingSaysLiveNewOrPreviouslyShown(t *testing.T) {
 	e := &xmltv.Enricher{}
 	enrich := func(inner string, ch xmltv.LineupChannel) string {
 		return string(e.Enrich([]byte(inner), ch, t0, t0.Add(time.Hour)))
 	}
+	marks := func(out string) [3]int {
+		return [3]int{strings.Count(out, "<previously-shown"), strings.Count(out, "<new"), strings.Count(out, "<live")}
+	}
 	for _, inner := range []string{
-		`<title>Paid Programming</title>`,
+		`<title>Local Programming</title>`,
 		`<title>Grimm</title><episode-num system="xmltv_ns">1.10.</episode-num>`,
 		`<title>SportsCenter</title>`,
 	} {
-		out := enrich(inner, sports)
-		assert.Equal(t, 1, strings.Count(out, "<previously-shown"), out)
-		assert.NotContains(t, out, "<new", out)
+		assert.Equal(t, [3]int{1, 0, 0}, marks(enrich(inner, sports)), inner)
 	}
-	// A source's new or premiere is no exception: only what is live goes
-	// without (owner, 2026-11-16), and the source's own element stays.
-	for _, inner := range []string{
-		`<title>Grimm</title><new/>`,
-		`<title>Grimm</title><premiere>Series premiere</premiere>`,
-	} {
-		out := enrich(inner, plain)
-		assert.Equal(t, 1, strings.Count(out, "<previously-shown"), out)
-		assert.True(t, strings.Contains(out, "<new/>") || strings.Contains(out, "<premiere>"), out)
-	}
-	assert.NotContains(t, enrich(`<title>Good Morning America</title><live/>`, plain), "<previously-shown")
+	assert.Equal(t, [3]int{0, 1, 0}, marks(enrich(`<title>Grimm</title><new/>`, plain)))
+	premiere := enrich(`<title>Grimm</title><premiere>Series premiere</premiere>`, plain)
+	assert.Equal(t, [3]int{0, 1, 0}, marks(premiere), "a premiere is new: %s", premiere)
+	assert.Contains(t, premiere, "<premiere>Series premiere</premiere>")
+	assert.Equal(t, [3]int{0, 0, 1}, marks(enrich(`<title>Good Morning America</title><live/>`, plain)))
 
 	event := enrich(`<title>Live: NFL Football</title><desc>The Eagles host the Cowboys.</desc>`, sports)
 	assert.Contains(t, event, "<live/>")

@@ -76,10 +76,11 @@ type ArtResolver func(ArtQuery) (Art, bool)
 //   - a news channel's programmes are News, a kids channel's Children;
 //   - a children's programme, the source's or a kids channel's, is also
 //     Kids, the one genre PMS builds on-now hubs from in an XMLTV guide;
-//   - every programme that is not live -- the source's <live/>, or a live
-//     event -- gets <previously-shown/>, whatever the source says of new or
-//     premiere: PMS's reader (and cluster-plex's builder) takes an episode
-//     without it for a premiere, which Plex's apps badge New or Live
+//   - every programme says one of <live/>, <new/> and <previously-shown/>:
+//     live is the source's or a live event's, new the source's (its
+//     <premiere> implies it), and anything else is previously shown. PMS's
+//     reader (and cluster-plex's builder) takes an episode without
+//     previously-shown for a premiere, which Plex's apps badge New or Live
 //     (owner, 2026-11-16);
 //   - a title the art resolver knows gets its poster as <icon> and the
 //     category Movie or Series;
@@ -259,14 +260,20 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 			addElem("new", []byte("<new/>"))
 		}
 	}
-	if !f.hasPrev && (!event || recorded) && !f.hasLive {
-		// Everything that is not live is previously shown (owner,
-		// 2026-11-16: "The XMLTV guide should tag all non live items with
-		// <previously-shown />"), a source's new or premiere included: PMS
-		// (and cluster-plex's builder) reads an episode without it as a
-		// premiere, the one mark an XMLTV guide can set, which Plex's apps
-		// badge New or Live and its What's On hubs list first. The source's
-		// own new and premiere elements stay as it wrote them.
+	// Every listing says one of three things (owner, 2026-11-16: "*every*
+	// listing in the guide should include one of <previously-shown />,
+	// <new />, <live />"): it is live -- the source's <live/>, or a live
+	// event, marked above -- or new -- the source's <new/>, or its
+	// <premiere>, which gets the <new/> it implies -- or, when nothing says
+	// either, previously shown. PMS (and cluster-plex's builder) reads an
+	// episode without previously-shown as a premiere, the one mark an XMLTV
+	// guide can set, which Plex's apps badge New or Live and its What's On
+	// hubs list first; so nothing is left unsaid.
+	switch live := f.hasLive || (event && !recorded); {
+	case live, f.hasPrev, f.hasNew:
+	case f.hasPremiere:
+		addElem("new", []byte("<new/>"))
+	default:
 		addElem("previously-shown", []byte("<previously-shown/>"))
 	}
 	switch class {
