@@ -74,6 +74,10 @@ type ArtResolver func(ArtQuery) (Art, bool)
 //     resolver knows, unless the title airs more often than a film), which
 //     keeps a one-off broadcast out of Plex's Movies;
 //   - a news channel's programmes are News, a kids channel's Children;
+//   - a programme the source marks neither new, premiere nor live, and no
+//     live event, gets <previously-shown/>: PMS's reader (and cluster-plex's
+//     builder) takes an episode without it for a premiere, which Plex's
+//     apps badge New or Live (owner, 2026-11-16, SiliconDust's rule);
 //   - a title the art resolver knows gets its poster as <icon> and the
 //     category Movie or Series;
 //   - an episode iptv-epg.org numbers in its own way -- "S26 E32" in an
@@ -100,6 +104,7 @@ type programmeFacts struct {
 	categories               map[string]bool
 	hasEpisodeNum, hasIcon   bool
 	hasLive, hasNew, hasPrev bool
+	hasPremiere              bool
 	// The episode's numbers as the source gives them (episodeNumbers), 0
 	// for none, and what the Enricher rewrites to say them in XMLTV's own
 	// fields: the sub-title lifted from the description, the description
@@ -243,6 +248,14 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 		if !f.hasNew && !f.hasPrev {
 			addElem("new", []byte("<new/>"))
 		}
+	}
+	if !f.hasPrev && !event && !f.hasNew && !f.hasPremiere && !f.hasLive {
+		// Nothing says it is a first showing, so it is a repeat: PMS (and
+		// cluster-plex's builder) reads an episode without previously-shown
+		// as a premiere, which Plex's apps badge New or Live and its What's
+		// On hubs list first (owner, 2026-11-16: every listing badged in
+		// the iOS app).
+		addElem("previously-shown", []byte("<previously-shown/>"))
 	}
 	switch class {
 	case classSports:
@@ -411,6 +424,8 @@ func facts(elems []element) programmeFacts {
 			f.hasNew = true
 		case "previously-shown":
 			f.hasPrev = true
+		case "premiere":
+			f.hasPremiere = true
 		}
 	}
 	// "S26 E32 — Justice for Nikki", or "S2026 E41" alone, on the

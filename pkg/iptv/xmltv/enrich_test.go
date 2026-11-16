@@ -136,7 +136,7 @@ func TestArtworkAddsAnIconAndTheKind(t *testing.T) {
 	assert.Contains(t, out, `<icon src="https://img.example/friends.jpg"/>`)
 	assert.Contains(t, out, `<category lang="en">Series</category>`)
 	assert.Regexp(t, `EP\d{8}\.\d{4}`, out)
-	assert.Equal(t, []string{"title", "desc", "category", "icon", "episode-num"}, tags([]byte(out)))
+	assert.Equal(t, []string{"title", "desc", "category", "icon", "episode-num", "previously-shown"}, tags([]byte(out)))
 
 	out = string(e.Enrich([]byte(`<title>Heat (1995)</title><desc>A crew of thieves.</desc>`), plain, t0, t0.Add(3*time.Hour)))
 	assert.Contains(t, out, `<category lang="en">Movie</category>`)
@@ -146,6 +146,43 @@ func TestArtworkAddsAnIconAndTheKind(t *testing.T) {
 	out = string(e.Enrich([]byte(`<title>Paid Programming</title>`), plain, t0, t0.Add(30*time.Minute)))
 	assert.NotContains(t, out, "<icon")
 	assert.Regexp(t, `EP\d{8}\.\d{4}`, out)
+}
+
+// A programme nothing marks as a first showing is a repeat (owner,
+// 2026-11-16: the iOS app badged every listing Live): PMS and cluster-plex's
+// builder read an episode without previously-shown as a premiere, so the
+// Enricher adds it unless the source says new, premiere or live, or the
+// programme is a live event, and never doubles one the source wrote.
+func TestOnlyAFirstShowingGoesWithoutPreviouslyShown(t *testing.T) {
+	e := &xmltv.Enricher{}
+	enrich := func(inner string, ch xmltv.LineupChannel) string {
+		return string(e.Enrich([]byte(inner), ch, t0, t0.Add(time.Hour)))
+	}
+	for _, inner := range []string{
+		`<title>Paid Programming</title>`,
+		`<title>Grimm</title><episode-num system="xmltv_ns">1.10.</episode-num>`,
+		`<title>SportsCenter</title>`,
+	} {
+		out := enrich(inner, sports)
+		assert.Equal(t, 1, strings.Count(out, "<previously-shown"), out)
+		assert.NotContains(t, out, "<new", out)
+	}
+	for _, inner := range []string{
+		`<title>Grimm</title><new/>`,
+		`<title>Grimm</title><premiere>Series premiere</premiere>`,
+		`<title>Good Morning America</title><live/>`,
+	} {
+		assert.NotContains(t, enrich(inner, plain), "<previously-shown", inner)
+	}
+
+	event := enrich(`<title>Live: NFL Football</title><desc>The Eagles host the Cowboys.</desc>`, sports)
+	assert.Contains(t, event, "<live/>")
+	assert.Contains(t, event, "<new/>")
+	assert.NotContains(t, event, "<previously-shown", "a live event is a first showing")
+
+	shown := enrich(`<title>Grimm</title><previously-shown start="20260101"/>`, plain)
+	assert.Equal(t, 1, strings.Count(shown, "<previously-shown"), shown)
+	assert.Contains(t, shown, `<previously-shown start="20260101"/>`, "the source's own is kept")
 }
 
 // A programme its source already gives an image and a kind is not looked

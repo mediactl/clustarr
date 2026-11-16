@@ -838,7 +838,15 @@ and no episode title, and on 2026-10-28 one "Paid Programming" id carried
 them all and took 20 to 46 s; MV for a known movie, unless the title airs
 more than 14 times), which keeps a one-off out of Plex's Movies
 while a movie channel's unknown film keeps the movie fallback; a news
-channel's programmes are News, a kids channel's Children; the output keeps
+channel's programmes are News, a kids channel's Children; a programme the
+source marks neither `<new/>`, `<premiere>` nor `<live/>`, and no live
+event, gets `<previously-shown/>`, as does every dummy block (owner,
+2026-11-16: the iOS app badged every What's On listing Live): PMS's reader
+and cluster-plex's builder take an episode without it for a premiere,
+which Plex's apps badge (Plex Web "New", iOS "Live") and its What's On hubs
+list first, and since the dd_progid makes nearly every programme an
+episode, 57% of talos's airings had been premieres; PMS keeps no `<live/>`
+at all, so premiere is the only badge a guide can set; the output keeps
 XMLTV's element order, and nothing the source said is doubled or dropped,
 except that an episode iptv-epg.org numbers its own way -- "S26 E32" in an
 `<episode-num>` naming no system, "S26 E32 — Justice for Nikki" as the
