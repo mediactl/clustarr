@@ -386,3 +386,31 @@ func TestPlexEpisodeNumsPassThroughAndNumberNothing(t *testing.T) {
 	assert.NotContains(t, out, `system="xmltv_ns"`)
 	assert.NotContains(t, out, `system="onscreen"`)
 }
+
+// A matchup alone does not make a broadcast live: one the source marks as
+// shown before, or whose own words say it is a replay or name a past
+// season, is a recording, and Plex's apps are to badge only what is live.
+func TestARecordedGameIsNotLive(t *testing.T) {
+	for name, inner := range map[string]string{
+		"previously shown": `<title lang="en">NHL Hockey</title><desc lang="en">Boston Bruins at Toronto Maple Leafs.</desc><previously-shown/>`,
+		"a past season":    `<title lang="en">2022 Softball Championship -- Clemson vs. Florida State</title>`,
+		"a replay":         `<title lang="en">Football Replay</title><desc lang="en">Alabama vs. Auburn.</desc>`,
+		"a classic":        `<title lang="en">NBA Classic Games</title><desc lang="en">Celtics vs. Lakers.</desc>`,
+	} {
+		out := string((&xmltv.Enricher{}).Enrich([]byte(inner), sports, t0, t0.Add(3*time.Hour)))
+		assert.NotContains(t, out, "<live/>", name)
+		assert.NotContains(t, out, "<new/>", name)
+		assert.Contains(t, out, "<previously-shown/>", name)
+		assert.Contains(t, out, "Sports event", name)
+	}
+	// The source's own word still decides: it says live, so it is.
+	said := string((&xmltv.Enricher{}).Enrich([]byte(`<title lang="en">Football Replay</title><live/>`), sports, t0, t0.Add(time.Hour)))
+	assert.Equal(t, 1, strings.Count(said, "<live/>"))
+	// A game in the airing's own year is live.
+	now := string((&xmltv.Enricher{}).Enrich([]byte(`<title lang="en">`+t0.Format("2006")+` Softball Championship -- Clemson vs. Florida State</title>`), sports, t0, t0.Add(time.Hour)))
+	assert.Contains(t, now, "<live/>")
+	// So is one of a season named by both its years, in its second.
+	jan := time.Date(2026, 1, 10, 19, 0, 0, 0, time.UTC)
+	season := string((&xmltv.Enricher{}).Enrich([]byte(`<title lang="en">2025-26 NBA Basketball: Celtics vs. Lakers</title>`), sports, jan, jan.Add(time.Hour)))
+	assert.Contains(t, season, "<live/>")
+}

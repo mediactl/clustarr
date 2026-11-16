@@ -171,6 +171,13 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 	// flagged live without landing in Plex's sports-event hubs.
 	event := (class == classSports || sport != "") && (live || ok)
 	sportsEvent := event && (ok || sport != "")
+	// A matchup is also what a recording of a game says. Unless the source
+	// itself says live (its flag, or a "Live:" title), a broadcast it marks
+	// as shown before, or whose title says replay or names an earlier year,
+	// is a recording: Plex's apps are to badge only what is live (owner,
+	// 2026-11-16; talos's "2022 Softball Championship -- Clemson vs.
+	// Florida State" and 653 repeats read live).
+	recorded := !f.hasLive && !live && (f.hasPrev || recordedTitle(title, start))
 
 	// A programme whose source already gives its image and says it is a
 	// movie or a series is not looked up: iptv-epg.org's guide carries both
@@ -244,14 +251,14 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 				addCategory(sport)
 			}
 		}
-		if !f.hasLive {
+		if !f.hasLive && !recorded {
 			addElem("live", []byte("<live/>"))
 		}
-		if !f.hasNew && !f.hasPrev {
+		if !f.hasNew && !f.hasPrev && !recorded {
 			addElem("new", []byte("<new/>"))
 		}
 	}
-	if !f.hasPrev && !event && !f.hasNew && !f.hasPremiere && !f.hasLive {
+	if !f.hasPrev && (!event || recorded) && !f.hasNew && !f.hasPremiere && !f.hasLive {
 		// Nothing says it is a first showing, so it is a repeat: PMS (and
 		// cluster-plex's builder) reads an episode without previously-shown
 		// as a premiere, which Plex's apps badge New or Live and its What's
@@ -568,8 +575,10 @@ func channelClass(group string) channelClassKind {
 }
 
 var (
-	liveRE = regexp.MustCompile(`(?i)^\s*live\s*[:\-–]\s*`)
-	yearRE = regexp.MustCompile(`\s*\((19|20)\d\d\)\s*$`)
+	recordedRE  = regexp.MustCompile(`(?i)\b(replays?|classics?|encore|rewind|re-air|rerun|highlights)\b`)
+	titleYearRE = regexp.MustCompile(`\b((?:19|20)\d\d)([-/–]\d\d)?\b`)
+	liveRE      = regexp.MustCompile(`(?i)^\s*live\s*[:\-–]\s*`)
+	yearRE      = regexp.MustCompile(`\s*\((19|20)\d\d\)\s*$`)
 	// team is a side's name: up to four capitalized words ("Boston Celtics",
 	// "St. Louis Cardinals", "Ohio State").
 	team    = `([A-Z][\w.'&-]*(?: [A-Z][\w.'&-]*){0,3})`
@@ -614,6 +623,30 @@ func stripLive(title string) (string, bool) {
 		return strings.TrimSpace(title[m[1]:]), true
 	}
 	return title, false
+}
+
+// recordedTitle reports whether a title says the broadcast is a recording:
+// a replay, classic, encore, rewind or highlights, or a year before the
+// airing's own.
+func recordedTitle(title string, start time.Time) bool {
+	if recordedRE.MatchString(title) {
+		return true
+	}
+	for _, m := range titleYearRE.FindAllStringSubmatch(title, -1) {
+		y, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		if m[2] != "" {
+			// A season named by both its years ("2025-26") runs into the
+			// second.
+			y++
+		}
+		if y < start.UTC().Year() {
+			return true
+		}
+	}
+	return false
 }
 
 // stripYear takes a trailing "(2019)" off a title.
