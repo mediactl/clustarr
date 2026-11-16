@@ -144,9 +144,11 @@ func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaK
 	if imagesp == nil {
 		return
 	}
-	seen := make(map[string]bool, len(*imagesp))
+	// A URL is kept once per type: one image may serve two roles (an
+	// artist's fanart.tv thumb is its poster too, the only portrait it has).
+	seen := make(map[imageRole]bool, len(*imagesp))
 	for _, img := range *imagesp {
-		seen[img.URL] = true
+		seen[roleOf(img)] = true
 	}
 	for _, p := range reg.Artwork {
 		aCtx, aSpan := tracing.Start(ctx, "metadata.ArtworkProvider.Artwork")
@@ -158,10 +160,10 @@ func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaK
 		}
 		aSpan.End()
 		for _, img := range imgs {
-			if img.URL == "" || img.Season != nil || seen[img.URL] {
+			if img.URL == "" || img.Season != nil || seen[roleOf(img)] {
 				continue
 			}
-			seen[img.URL] = true
+			seen[roleOf(img)] = true
 			*imagesp = append(*imagesp, img)
 		}
 	}

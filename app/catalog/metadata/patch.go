@@ -878,6 +878,15 @@ const maxItemImages = 50
 // keeps. Plex offers a few of each to choose from; TMDB lists dozens.
 const imagesPerKey = 5
 
+// imageRole is an image's URL in one role: the key a document's images are
+// kept once by.
+type imageRole struct {
+	t   pkgmetadata.ImageType
+	url string
+}
+
+func roleOf(img pkgmetadata.Image) imageRole { return imageRole{img.Type, img.URL} }
+
 // selectImages chooses at most limit images the CRD can hold, in their
 // original order, so that every type in every language is represented
 // (every builder's since the 2026-11-10 design §5.4; until then the six
@@ -886,20 +895,21 @@ const imagesPerKey = 5
 // of each. Taking the first limit instead let one prolific source crowd out
 // the rest -- Your Name's English and untagged TMDB posters alone filled
 // fifty, so none of its Japanese images (Plex's OriginalImage) and none of
-// fanart.tv's, appended after TMDB's, reached status. A URL is kept once,
-// and an image outside the CRD's type enum is never counted.
+// fanart.tv's, appended after TMDB's, reached status. A URL is kept once
+// per type (an artist's fanart.tv thumb is its poster too, 2026-11-16), and
+// an image outside the CRD's type enum is never counted.
 func selectImages(imgs []pkgmetadata.Image, limit int) []pkgmetadata.Image {
 	type key struct {
 		t    pkgmetadata.ImageType
 		lang string
 	}
 	eligible := make([]bool, len(imgs))
-	seen := make(map[string]bool, len(imgs))
+	seen := make(map[imageRole]bool, len(imgs))
 	for i, img := range imgs {
-		if _, ok := mapImageType(img.Type); !ok || img.URL == "" || seen[img.URL] {
+		if _, ok := mapImageType(img.Type); !ok || img.URL == "" || seen[roleOf(img)] {
 			continue
 		}
-		seen[img.URL] = true
+		seen[roleOf(img)] = true
 		eligible[i] = true
 	}
 	chosen := make([]bool, len(imgs))

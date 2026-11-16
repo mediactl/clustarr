@@ -155,6 +155,7 @@ func TestTitlesAgree(t *testing.T) {
 		{"Song (John Peel Session)", "Song", false},
 		{"Cock It (Album Version (Explicit))", "Slow Motion", false},
 		{"MVP (Scored By DJ Premier)", "MVP", true},
+		{"Flesh and Blood", "Flesh + Blood", true},
 		{"Go Head F/ Mac Bre-Z", "Go Head", true},
 		{"$$$ (Feat. Normani)", "$$$", true},
 		// A bare "Ft", a typo or a cut title are the song only where the number

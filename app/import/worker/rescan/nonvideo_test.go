@@ -230,6 +230,9 @@ func TestMatchAlbumByTags(t *testing.T) {
 			al("skylarking", "Skylarking"), al("platinum", "Already Platinum"), al("rare", "RARE Family"),
 			al("bodytalk", "Body Talk Pt. 1"), al("fearless", "Fearless"), al("fearless-tv", "Fearless (Taylor's Version)"),
 			al("sremm", "SremmLife 2"),
+			al("being-there", "Being There"), al("sky-blue-sky", "Sky Blue Sky"), al("flesh", "Flesh + Blood"),
+			al("ego-remixes", "Age of the Ego: The Remixes"), al("ego", "Age of the Ego"), al("boss", "Boss of All Bosses"),
+			al("late-nite", "Late Nite Tip"),
 			// A release of the group under its own title (talos, 2026-11-16).
 			{Name: "f1", Title: "F-1 Trillion", ArtistNames: []string{"X"}, ReleaseTitles: []string{"F‐1 Trillion: Long Bed"}},
 			{Name: "boat", Title: "Lil Boat 3", ArtistNames: []string{"X"}, ReleaseTitles: []string{"Lil Boat 3.5"}},
@@ -251,6 +254,14 @@ func TestMatchAlbumByTags(t *testing.T) {
 			"SremmLife II":                            {name: "sremm"},
 			"F-1 Trillion: Long Bed":                  {name: "f1"},
 			"Lil Boat 3.5":                            {name: "boat"},
+			// talos, 2026-11-16, the second full scan's leftovers.
+			"Being There  (Reprise LP)":                                      {name: "being-there"},
+			"Sky Blue Sky  (180g 24/96)":                                     {name: "sky-blue-sky"},
+			"Flesh and Blood CD":                                             {name: "flesh"},
+			"Age Of The Ego (Remixes)":                                       {name: "ego-remixes"},
+			"Age Of The Ego (Instrumental)":                                  {code: rescan.CodeNoChild},
+			"Late Nite Tip / Hit 'Em":                                        {name: "late-nite"},
+			"Boss Of All Bosses Chopped & Screwed By Michael \"5000\" Watts": {name: "boss"},
 			// Another recording is never an edition of the studio album.
 			"Siren (Live Edition)":      {code: rescan.CodeNoChild},
 			"Siren (Remixes)":           {code: rescan.CodeNoChild},

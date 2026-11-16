@@ -66,11 +66,13 @@ var (
 		`(?:explicit|clean)(?:\s+version)?|original\s+mix)\s*[)\]]`)
 	// trackApostrophes are dropped, so "Can't" and "Can’t" agree.
 	trackApostrophes = strings.NewReplacer("'", "", "\u2019", "", "\u2018", "", "`", "")
+	// trackAnd reads "&" and "+" as "and": "Flesh + Blood".
+	trackAnd = strings.NewReplacer("&", " and ", "+", " and ")
 )
 
 // TrackTitlesAgree reports whether a file's title tag names the track title:
 // equal once featured-artist and producer credits, remaster and bonus-track
-// annotations and the album's own version notes (trackVersionRE) are dropped, "&" read as "and", "part" as "pt", trackApostrophes
+// annotations and the album's own version notes (trackVersionRE) are dropped, "&" and "+" read as "and", "part" as "pt", trackApostrophes
 // dropped, and both run through release.TitleNorm (case, accents,
 // punctuation and brackets, any script) with the spaces taken out, so a
 // stylised run-together title agrees. Anything else -- "(a cappella)",
@@ -149,7 +151,7 @@ func trackTitleBase(s string, atNumber bool) string {
 
 // trackTitleWords are a base's words as the key spells them, sorted.
 func trackTitleWords(base string) []string {
-	s := trackApostrophes.Replace(strings.ReplaceAll(base, "&", " and "))
+	s := trackApostrophes.Replace(trackAnd.Replace(base))
 	words := strings.Fields(TitleNorm(s))
 	for i, w := range words {
 		if w == "part" {
@@ -161,7 +163,7 @@ func trackTitleWords(base string) []string {
 }
 
 func trackTitleKey(base string) string {
-	s := trackApostrophes.Replace(strings.ReplaceAll(base, "&", " and "))
+	s := trackApostrophes.Replace(trackAnd.Replace(base))
 	words := strings.Fields(TitleNorm(s))
 	for i, w := range words {
 		if w == "part" {

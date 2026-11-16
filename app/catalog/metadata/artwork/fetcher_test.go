@@ -390,6 +390,36 @@ func TestFetchOneStoresThePNGRenditionOfAnSVGLogo(t *testing.T) {
 		"the object names the provider's image, so the plan finds it unchanged")
 }
 
+// A Cover Art Archive original is stored as the archive's 1200-pixel JPEG
+// rendition, never as uploaded: originals of up to 18 MB filled the 5 GiB
+// artwork store on talos (2026-11-16). The object still names the original,
+// so an album whose document lists it is not fetched again; one whose
+// rendition is not generated yet takes its original.
+func TestFetchOneStoresACoverArtArchiveOriginalsRendition(t *testing.T) {
+	fx := newFixture(t)
+	u, err := url.Parse(fx.srv.URL)
+	require.NoError(t, err)
+	fx.f.CoverArtHosts = []string{u.Host}
+	const rel = "/release/76df3287-6cda-33eb-8e9a-044b5e15ffdd/"
+	original := fx.srv.serve(rel+"829521842.png", "image/png", pngBytes(t, 3000, 3000, color.Black))
+	rendition := jpegBytes(t, 1200, 1200)
+	fx.srv.serve(rel+"829521842-1200.jpg", "image/jpeg", rendition)
+
+	require.NoError(t, fx.fetch(catalogv1alpha1.ImageTypePoster, original))
+
+	assert.Zero(t, fx.srv.hitsFor(rel+"829521842.png"), "the original is never downloaded")
+	info, err := fx.store.Info(fx.ctx, fx.key(catalogv1alpha1.ImageTypePoster))
+	require.NoError(t, err)
+	assert.Equal(t, digestOf(rendition), info.Digest)
+	assert.Equal(t, "image/jpeg", info.Headers[artwork.HeaderContentType])
+	assert.Equal(t, original, info.Headers[artwork.HeaderSourceURL])
+
+	missing := fx.srv.serve(rel+"5769316809.jpg", "image/jpeg", jpegBytes(t, 600, 600))
+	require.NoError(t, fx.fetch(catalogv1alpha1.ImageTypeDisc, missing))
+	assert.Equal(t, 1, fx.srv.hitsFor(rel+"5769316809-1200.jpg"), "the rendition was asked for first")
+	assert.Equal(t, 1, fx.srv.hitsFor(rel+"5769316809.jpg"), "a rendition not generated yet falls back to the original")
+}
+
 // An SVG from a host with no PNG rendition is still refused, saying why.
 func TestFetchOneRejectsAnSVGFromAHostWithNoPNGRendition(t *testing.T) {
 	fx := newFixture(t)

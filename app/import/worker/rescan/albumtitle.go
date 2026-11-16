@@ -51,19 +51,36 @@ var albumTitleTiers = []func(c AlbumCandidate, title string) bool{
 		return editionAlbumEq(c.Title, t) ||
 			slices.ContainsFunc(c.ReleaseTitles, func(r string) bool { return editionAlbumEq(r, t) })
 	},
+	// A double A-side's tag names both sides, "Late Nite Tip / Hit 'Em", and
+	// MusicBrainz the group by one.
+	func(c AlbumCandidate, t string) bool {
+		parts := strings.Split(t, " / ")
+		return len(parts) > 1 && slices.ContainsFunc(parts, func(p string) bool {
+			return nameEq(c.Title, p) || looseAlbumEq(c.Title, p)
+		})
+	},
 }
 
-// looseAlbumEq compares two titles' loose keys, as written and with their
-// Roman numerals read as numbers: a stylised "19NaughtyIII" has no numeral
-// word to read, "SremmLife II" one.
+// looseAlbumEq compares two titles' loose keys: as written; with their
+// Roman numerals read as numbers (a stylised "19NaughtyIII" has no numeral
+// word to read, "SremmLife II" one); and with their articles dropped
+// ("Age Of The Ego (Remixes)", "Age of the Ego: The Remixes").
 func looseAlbumEq(a, b string) bool {
-	ka := looseAlbumKey(a, false)
-	if ka != "" && ka == looseAlbumKey(b, false) {
-		return true
+	for _, form := range []looseForm{looseAsWritten, looseRoman, looseNoArticles} {
+		if ka := looseAlbumKey(a, form); ka != "" && ka == looseAlbumKey(b, form) {
+			return true
+		}
 	}
-	ra := looseAlbumKey(a, true)
-	return ra != "" && ra == looseAlbumKey(b, true)
+	return false
 }
+
+type looseForm int
+
+const (
+	looseAsWritten looseForm = iota
+	looseRoman
+	looseNoArticles
+)
 
 func editionAlbumEq(a, b string) bool {
 	return looseAlbumEq(stripAlbumEdition(a), stripAlbumEdition(b))
@@ -75,22 +92,29 @@ var romanNumerals = map[string]string{
 	"ii": "2", "iii": "3", "iv": "4", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "xi": "11", "xii": "12",
 }
 
-func looseAlbumKey(s string, roman bool) string {
-	words := strings.Fields(release.TitleNorm(strings.ReplaceAll(s, "&", " and ")))
-	if roman {
-		for i, w := range words {
-			if n, ok := romanNumerals[w]; ok {
-				words[i] = n
-			}
+// looseAlbumKey is s's words as release.TitleNorm spells them, "&" and "+"
+// read as "and", run together in form.
+func looseAlbumKey(s string, form looseForm) string {
+	words := strings.Fields(release.TitleNorm(albumAnd.Replace(s)))
+	out := words[:0]
+	for _, w := range words {
+		switch {
+		case form == looseRoman && romanNumerals[w] != "":
+			w = romanNumerals[w]
+		case form == looseNoArticles && (w == "the" || w == "a" || w == "an"):
+			continue
 		}
+		out = append(out, w)
 	}
-	return strings.Join(words, "")
+	return strings.Join(out, "")
 }
+
+var albumAnd = strings.NewReplacer("&", " and ", "+", " and ")
 
 var (
 	// albumEditionWordRE names an edition of the album in a note.
 	albumEditionWordRE = regexp.MustCompile(`(?i)\b(?:deluxe|expanded|edition|remaster(?:ed)?|reissue|anniversary|` +
-		`explicit|clean|reloaded|bonus|sacd|shm|hdcd|cd\d*|disc)\b`)
+		`explicit|clean|reloaded|bonus|sacd|shm|hdcd|cd\d*|disc|lp|vinyl|\d{3}g|\d{2}/\d{2,3}|\d{2}-?bit|hi-?res|hdtracks|flac)\b`)
 	// albumOtherRecordingRE names another recording than the studio
 	// album's, which no edition note makes the album's.
 	albumOtherRecordingRE = regexp.MustCompile(`(?i)\b(?:live|remix(?:es|ed)?|instrumentals?|a\s?cappella|acoustic|` +
@@ -103,6 +127,11 @@ var (
 	// albumTrailingWordsRE are bare trailing edition words, "Still Kool
 	// CD", "Yellow Tape 2 Deluxe".
 	albumTrailingWordsRE = regexp.MustCompile(`(?i)\s+(?:cd\s*\d*|disc\s*\d+|(?:super\s+)?deluxe(?:\s+(?:edition|version))?)$`)
+	// albumChoppedRE starts a Houston chopped-and-screwed version's note,
+	// bracketed or not, to the end: "Boss Of All Bosses Chopped & Screwed By
+	// Michael "5000" Watts". MusicBrainz seldom lists one as a group of its
+	// own, and its tracks carry the album's titles.
+	albumChoppedRE = regexp.MustCompile(`(?i)\s*[(\[]?\s*(?:chopped|screwed)\s*(?:&|and|n'?|\+)\s*(?:chopped|screwed)\b.*$`)
 )
 
 // stripAlbumEdition drops s's trailing edition notes, one after another,
@@ -117,6 +146,8 @@ func stripAlbumEdition(s string) string {
 			editionNote(t[m[2]:m[3]]) && len(strings.Fields(t[m[2]:m[3]])) <= 4 {
 			cut = m[0]
 		} else if m := albumTrailingWordsRE.FindStringIndex(t); m != nil {
+			cut = m[0]
+		} else if m := albumChoppedRE.FindStringIndex(t); m != nil {
 			cut = m[0]
 		}
 		if cut <= 0 || strings.TrimSpace(t[:cut]) == "" {

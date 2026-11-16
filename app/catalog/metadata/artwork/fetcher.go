@@ -29,6 +29,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -100,6 +101,14 @@ var acceptedContentTypes = map[string]bool{
 // (verified 2026-10-05).
 var DefaultSVGRenditionHosts = []string{"image.tmdb.org"}
 
+// DefaultCoverArtHosts are the hosts serving the Cover Art Archive's images,
+// each original /release/<mbid>/<id>.<ext> beside its JPEG renditions
+// <id>-250.jpg, <id>-500.jpg and <id>-1200.jpg.
+var DefaultCoverArtHosts = []string{"coverartarchive.org"}
+
+// coverArtOriginal is an original's path on a Cover Art Archive host.
+var coverArtOriginal = regexp.MustCompile(`^/release/([0-9a-fA-F-]{36})/([0-9]+)\.[A-Za-z]+$`)
+
 // svgContentType is what an SVG is served as.
 const svgContentType = "image/svg+xml"
 
@@ -130,6 +139,10 @@ type Fetcher struct {
 	// from them is stored as: the store keeps only JPEG, PNG and WebP. Nil
 	// is DefaultSVGRenditionHosts.
 	SVGRenditionHosts []string
+
+	// CoverArtHosts are the hosts whose original covers are fetched as their
+	// 1200-pixel rendition (coverRendition); nil is DefaultCoverArtHosts.
+	CoverArtHosts []string
 
 	mu    sync.Mutex
 	locks map[string]*itemLock
@@ -274,7 +287,7 @@ func (f *Fetcher) fetchAndPut(ctx context.Context, key string, ref catalogartwor
 	if err != nil || !catalogartwork.Fetchable(src.URL) {
 		return errors.New("not an absolute http(s) URL")
 	}
-	body, contentType, err := f.get(ctx, u)
+	body, contentType, err := f.getCover(ctx, u)
 	if contentType == svgContentType {
 		// Converted by its host: the same image as a PNG, at .png.
 		png, ok := f.pngRendition(u)
@@ -361,6 +374,42 @@ func (f *Fetcher) get(ctx context.Context, u *url.URL) ([]byte, string, error) {
 		return nil, contentType, err
 	}
 	return body, contentType, nil
+}
+
+// getCover is get of u, except that a Cover Art Archive original is fetched
+// as its 1200-pixel JPEG rendition, a square cover as large as any reader
+// shows it, falling back to the original only when the archive has not
+// generated the rendition yet: an original is a scan of any size and format
+// (talos, 2026-11-16: up to 18 MB, 4.3 MB at the 90th percentile, and 655
+// of them, 2.5 GB, filled the 5 GiB artwork store). The object still names
+// the original as its source, so the item's plan finds it unchanged.
+func (f *Fetcher) getCover(ctx context.Context, u *url.URL) ([]byte, string, error) {
+	if r, ok := f.coverRendition(u); ok {
+		if body, contentType, err := f.get(ctx, r); err == nil {
+			return body, contentType, nil
+		}
+	}
+	return f.get(ctx, u)
+}
+
+// coverRendition is the 1200-pixel JPEG of the Cover Art Archive original
+// at u, for a host in CoverArtHosts.
+func (f *Fetcher) coverRendition(u *url.URL) (*url.URL, bool) {
+	hosts := f.CoverArtHosts
+	if hosts == nil {
+		hosts = DefaultCoverArtHosts
+	}
+	if !slices.Contains(hosts, strings.ToLower(u.Host)) {
+		return nil, false
+	}
+	m := coverArtOriginal.FindStringSubmatch(u.Path)
+	if m == nil {
+		return nil, false
+	}
+	r := *u
+	r.Path = "/release/" + m[1] + "/" + m[2] + "-1200.jpg"
+	r.RawPath, r.RawQuery = "", ""
+	return &r, true
 }
 
 // pngRendition is the PNG its host renders of the SVG at u -- the same path

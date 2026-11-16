@@ -128,7 +128,29 @@ type index struct {
 		Back     bool     `json:"back"`
 		Types    []string `json:"types"`
 		Image    string   `json:"image"`
+		// Thumbnails are the CAA's JPEG renditions by size ("250", "500",
+		// "1200", and the older aliases "small" and "large").
+		Thumbnails map[string]string `json:"thumbnails"`
 	} `json:"images"`
+}
+
+// coverSizes are the renditions an album's image is taken at, best first:
+// the CAA's 1200-pixel JPEG, a square cover as large as any reader shows
+// it (fanart.tv's albumcover and artistthumb are 1000), then the 500-pixel
+// one, then the original as uploaded, for an image whose renditions are not
+// generated yet. An original is a scan of any size and format: on talos
+// (2026-11-16) they ran to 18 MB, 4.3 MB at the 90th percentile, and their
+// 1,985 covers filled the 5 GiB artwork store, so nothing was stored after.
+var coverSizes = []string{"1200", "500", "large"}
+
+// coverURL is img's best rendition (coverSizes), else its original.
+func coverURL(thumbnails map[string]string, original string) string {
+	for _, size := range coverSizes {
+		if u := thumbnails[size]; u != "" {
+			return u
+		}
+	}
+	return original
 }
 
 // Artwork returns the approved cover art for an album. kind must be
@@ -136,7 +158,9 @@ type index struct {
 // ids[KeyMBReleaseGroup] is preferred -- it is what an Album is keyed by
 // -- and ids[KeyMBRelease] is used when only a release is known.
 //
-// Only two CAA image types map onto a metadata.ImageType without a guess:
+// Each image is offered at its 1200-pixel JPEG rendition (coverURL), not
+// as uploaded. Only two CAA image types map onto a metadata.ImageType
+// without a guess:
 // the primary front cover ("front": true) is the album's poster, as the
 // Audnexus and Open Library clients already treat a cover, and a "Medium"
 // image is the disc. A back cover, booklet, tray, spine, obi or liner has
@@ -196,7 +220,7 @@ func (c *Client) Artwork(ctx context.Context, kind commonv1.MediaKind, ids metad
 		default:
 			continue
 		}
-		out = append(out, metadata.Image{Type: t, URL: httpsURL(img.Image)})
+		out = append(out, metadata.Image{Type: t, URL: httpsURL(coverURL(img.Thumbnails, img.Image))})
 	}
 	return out, nil
 }

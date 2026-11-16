@@ -63,10 +63,35 @@ func TestArtworkMapsTheFrontCoverAndTheDiscAndNothingElse(t *testing.T) {
 
 	require.NoError(t, err)
 	// Six images: Front(front=true), Front+Booklet(front=false), Booklet,
-	// Booklet, Back, Medium. Only the primary front and the medium map.
+	// Booklet, Back, Medium. Only the primary front and the medium map, each
+	// as the CAA's 1200-pixel JPEG rather than the uploaded original (talos,
+	// 2026-11-16: originals of up to 18 MB filled the 5 GiB artwork store).
 	require.Equal(t, []metadata.Image{
-		{Type: metadata.ImageTypePoster, URL: "https://coverartarchive.org/release/" + rel + "/829521842.jpg"},
-		{Type: metadata.ImageTypeDisc, URL: "https://coverartarchive.org/release/" + rel + "/5769316809.jpg"},
+		{Type: metadata.ImageTypePoster, URL: "https://coverartarchive.org/release/" + rel + "/829521842-1200.jpg"},
+		{Type: metadata.ImageTypeDisc, URL: "https://coverartarchive.org/release/" + rel + "/5769316809-1200.jpg"},
+	}, imgs)
+}
+
+// An image the CAA lists without a 1200-pixel thumbnail takes its 500-pixel
+// one, and one with no thumbnail at all (not yet generated) its original.
+func TestArtworkFallsBackToASmallerThumbnailThenTheOriginal(t *testing.T) {
+	const rg = "0b56cf2b-8e64-39e0-b6d5-9a89e46be9f6"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"images":[
+			{"approved":true,"front":true,"types":["Front"],"image":"http://coverartarchive.org/release/x/1.png",
+			 "thumbnails":{"250":"http://coverartarchive.org/release/x/1-250.jpg","500":"http://coverartarchive.org/release/x/1-500.jpg"}},
+			{"approved":true,"front":false,"types":["Medium"],"image":"http://coverartarchive.org/release/x/2.png"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := coverart.New(coverart.Config{HTTPClient: srv.Client(), BaseURL: srv.URL})
+
+	imgs, err := c.Artwork(context.Background(), commonv1.MediaKindAlbum, metadata.ExternalIDs{metadata.KeyMBReleaseGroup: rg})
+
+	require.NoError(t, err)
+	require.Equal(t, []metadata.Image{
+		{Type: metadata.ImageTypePoster, URL: "https://coverartarchive.org/release/x/1-500.jpg"},
+		{Type: metadata.ImageTypeDisc, URL: "https://coverartarchive.org/release/x/2.png"},
 	}, imgs)
 }
 

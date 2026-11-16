@@ -648,3 +648,30 @@ func TestEnrichRatingsReadsANonVideoSeedThroughTheEnum(t *testing.T) {
 	require.Nil(t, enrichRatings(context.Background(), reg, commonv1.MediaKindBook, nil, nil, nil))
 	require.Zero(t, calls)
 }
+
+// One URL may serve two roles: fanart.tv's artist thumb is offered as the
+// artist's poster too (its only portrait image), and every poster reader --
+// the library card, the NFO's artist.jpg -- wants that poster (talos,
+// 2026-11-16: with a fanart key, 387 Artists still had no poster, since
+// the poster repeated the thumb's URL and was dropped). A URL is kept once
+// per type.
+func TestEnrichKeepsOneURLInTwoRoles(t *testing.T) {
+	const thumb = "https://assets.fanart.tv/fanart/music/kendrick/artistthumb/a.jpg"
+	reg := &pkgmetadata.Registry{Artwork: []pkgmetadata.ArtworkProvider{
+		stubArtworkProvider{name: "fanart", images: []pkgmetadata.Image{
+			{Type: pkgmetadata.ImageTypeThumb, URL: thumb},
+			{Type: pkgmetadata.ImageTypePoster, URL: thumb},
+			{Type: pkgmetadata.ImageTypePoster, URL: thumb},
+		}},
+	}}
+	doc := &pkgmetadata.Artist{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: "mbid"}}
+
+	enrich(context.Background(), reg, commonv1.MediaKindArtist, nil, nil, doc)
+
+	require.Equal(t, []pkgmetadata.Image{
+		{Type: pkgmetadata.ImageTypeThumb, URL: thumb},
+		{Type: pkgmetadata.ImageTypePoster, URL: thumb},
+	}, doc.Images)
+	require.Equal(t, doc.Images, selectImages(append(doc.Images, doc.Images...), 50),
+		"the status keeps a URL once per type as well")
+}

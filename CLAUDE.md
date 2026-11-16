@@ -2352,12 +2352,14 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   the album folder at three or more segments, else the ALBUM tag (a DATE
   before the first release refuses; two hits `ambiguous_title`, none
   `no_child_item` naming the tag), a title compared as cleaned, then
-  spelled loosely (spacing, "&", hyphens, a Roman numeral: "19NaughtyIII",
-  "SremmLife II"), then as one of the group's releases' own titles
-  ("F-1 Trillion: Long Bed", `AlbumCandidate.ReleaseTitles`), then
-  without an edition note ("(Expanded Edition)", "Deluxe", "CD", "(2015
-  SHM-SACD)"; never "(Live ...)" or a remix), the first tier naming an
-  album deciding (`albumTitleTiers`), a tag DATE a year before the album's
+  spelled loosely (spacing, "&" or "+", hyphens, a Roman numeral, interior
+  articles: "19NaughtyIII", "SremmLife II", "Flesh and Blood"), then as one
+  of the group's releases' own titles ("F-1 Trillion: Long Bed",
+  `AlbumCandidate.ReleaseTitles`), then without an edition note
+  ("(Expanded Edition)", "Deluxe", "CD", "(2015 SHM-SACD)", a vinyl or
+  hi-res note "(180g 24/96)", a trailing "Chopped & Screwed ..."; never
+  "(Live ...)" or a remix), then one side of a double A-side's "A / B",
+  the first tier naming an album deciding (`albumTitleTiers`), a tag DATE a year before the album's
   first release still the album's (a pre-release's), and two albums of one
   title told apart by the one holding the file's track (`byTrackTitle`;
   owner, 2026-11-16: 230 of 386 held files, and Boavista's single and
@@ -2460,6 +2462,20 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   Artist's and an Audiobook's extended documents hold members/similar and
   narrators/authors. `pkg/metadata.SchemaVersion` stayed 8 so only the
   non-video documents (reading 0) refreshed once.
+- **Music images are square, and album covers are the archive's 1200-pixel
+  JPEG** (owner, 2026-11-16, "artist images are missing", "what's filling
+  the artwork object store?"): an Artist's images come from fanart.tv
+  alone (MusicBrainz has none; MetadataProvider `fanart`, Secret key
+  `apiKey`), its square `artistthumb` offered as its poster too, and the
+  gateway keeps a URL once per image type (`imageRole`), not once, or the
+  poster repeating the thumb's URL was dropped and no Artist had one; an
+  Album's front cover is the Cover Art Archive's `thumbnails["1200"]`
+  (`coverart.coverURL`), and the fetcher takes an original's
+  `<id>-1200.jpg` rendition (`Fetcher.getCover`): 655 originals of up to
+  18 MB were 2.5 GB of the 5 GiB `clustarr-artwork` store, which filled at
+  03:30Z, after which every artwork Put failed (discard New), the fetch
+  durable's 32 slots sat in its 1-6 h backoff (a store fault redelivers)
+  and nothing was stored for any kind.
 - **Plex reads music metadata from NFO files, not a provider** (ADR-0022,
   D12, D13): every PMS build through 1.43.5.11079 refuses a custom provider
   declaring artist/album/track (types 8, 9, 10: HTTP 400 "The provider
