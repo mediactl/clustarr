@@ -119,6 +119,7 @@ func (t *Tuner) render(p *provider) {
 		ix = xmltv.NewIndex(loaded)
 	}
 	guideIcons := channelIcons(loaded)
+	tw := newTwins(p.entries, cfg.Filters, cfg.Trim)
 
 	chans := slices.Clone(cfg.Channels)
 	slices.SortStableFunc(chans, func(a, b ChannelConfig) int {
@@ -176,7 +177,7 @@ func (t *Tuner) render(p *provider) {
 			m := *ch.Map
 			lc.Map = &m
 		case ch.DummyMinutes == 0:
-			if m, ok := ix.AutoMap(e.TvgID, e.Name); ok {
+			if m, ok := autoMap(ix, e.TvgID, e.Name, tw.of(e)); ok {
 				lc.Map = &m
 			}
 		}

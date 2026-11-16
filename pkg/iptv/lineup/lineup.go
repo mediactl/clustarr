@@ -240,6 +240,19 @@ func TrimName(name string, trim []*regexp.Regexp) string {
 	return strings.Join(strings.Fields(name), " ")
 }
 
+// CompileTrim compiles a spec's trim patterns as Compile does.
+func CompileTrim(trim []string) ([]*regexp.Regexp, error) {
+	return compileAll(trim, false, "trim")
+}
+
+// NameKey is the name the duplicate rule compares: two entries with one
+// NameKey are one channel, of which Plan keeps the better.
+func NameKey(name string, trim []*regexp.Regexp) string { return normOf(TrimName(name, trim)) }
+
+// Resolution ranks the marker a raw name carries, as the duplicate rule
+// does: 4K > 1080p > 720p > 480p > none.
+func Resolution(raw string) int { return resolution(raw) }
+
 // Trim is name as the planner trims it: the spec's trim patterns applied
 // by TrimName.
 func (p *Planner) Trim(name string) string { return TrimName(name, p.trim) }

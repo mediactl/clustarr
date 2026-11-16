@@ -75,6 +75,9 @@ type provider struct {
 	// newsIcon gives news.uk an icon in the panel's guide: 0 none, 1 one
 	// that loads, 2 one that does not (a dead picon host).
 	newsIcon atomic.Int32
+	// extraPlaylist is appended to the playlist fixture, its stream URLs
+	// rewritten as the fixture's are.
+	extraPlaylist atomic.Pointer[string]
 }
 
 func newProvider(t *testing.T) *provider {
@@ -115,7 +118,11 @@ func newProvider(t *testing.T) *provider {
 				_, _ = w.Write([]byte("#EXTM3U\n"))
 				return
 			}
-			_, _ = w.Write(bytes.ReplaceAll(m3uBody, []byte("http://provider.example"), []byte(p.srv.URL)))
+			body := m3uBody
+			if extra := p.extraPlaylist.Load(); extra != nil {
+				body = append(bytes.Clone(body), *extra...)
+			}
+			_, _ = w.Write(bytes.ReplaceAll(body, []byte("http://provider.example"), []byte(p.srv.URL)))
 		case r.URL.Path == "/xmltv.php":
 			if p.failGuide.Load() {
 				http.Error(w, "down", http.StatusInternalServerError)
@@ -861,6 +868,54 @@ func TestAChannelTheGuideURLLacksReadsThePanelsGuide(t *testing.T) {
 	_, guide := h.get(t, "x", device(deviceA, "xmltv.xml"))
 	assert.Contains(t, guide, ">Bulletin<", "1002 auto-maps to news.uk, which only the panel's guide has")
 	assert.Contains(t, guide, "The One Show (epg)")
+}
+
+// courtPlaylist lists one channel twice, as argon-tv does: the 1080p entry
+// with no guide id and the 720p one with news.uk's.
+const courtPlaylist = `#EXTINF:-1 tvg-id="" group-title="US",TV: Court  [1080p]
+http://provider.example/live/user/pass/2001.ts
+#EXTINF:-1 tvg-id="news.uk" group-title="US",USA: COURT [720p]
+http://provider.example/live/user/pass/2002.ts
+#EXTINF:-1 tvg-id="news.uk" group-title="SE",SWE: COURT [720p]
+http://provider.example/live/user/pass/2003.ts
+`
+
+// courtConfig is config with courtPlaylist's 1080p entry as its one
+// channel, the lineup's trim making the two US entries one name.
+func courtConfig(p *provider, filters ...filter.Rule) tuner.Config {
+	extra := courtPlaylist
+	p.extraPlaylist.Store(&extra)
+	cfg := config(p.srv.URL)
+	cfg.Trim = []string{`^(TV|USA|SWE): `, `\[\d+p\]`}
+	cfg.Filters = filters
+	cfg.Channels = []tuner.ChannelConfig{{Object: "court", Key: m3u.NameKey("US", "TV: Court  [1080p]"), Number: "1002", Active: true}}
+	return cfg
+}
+
+// TestAChannelWithoutAGuideIDTakesItsLowerQualityTwins: a provider lists a
+// channel once per quality, the lineup keeps the best, and on argon-tv only
+// a lower one carries the guide id (owner, 2026-11-16: "We should take the
+// guide id from the lower quality if none exists for higher quality"; about
+// 17 of talos's 478 channels on placeholder guides). The channel maps by its
+// own entry first, then by the guide id of an admitted entry of the same
+// trimmed name.
+func TestAChannelWithoutAGuideIDTakesItsLowerQualityTwins(t *testing.T) {
+	p := newProvider(t)
+	h := start(t, newStore(t), courtConfig(p, filter.Rule{Type: "groupTitle", Match: "US", Enabled: true}))
+	s := h.fetched(t)
+	assert.Equal(t, tuner.GuideName+"/news.uk", s.Channels["court"].Guide)
+	_, guide := h.get(t, "x", device(deviceA, "xmltv.xml"))
+	assert.True(t, strings.Contains(guide, ">Bulletin<"), "the 720p entry's guide")
+}
+
+// TestAGuideIDIsNeverTakenFromAnEntryTheFiltersLeaveOut: the same name in
+// a group the provider's filters do not admit is another country's channel
+// (argon-tv lists SWE: INVESTIGATION DISCOVERY beside the US one).
+func TestAGuideIDIsNeverTakenFromAnEntryTheFiltersLeaveOut(t *testing.T) {
+	p := newProvider(t)
+	h := start(t, newStore(t), courtConfig(p, filter.Rule{Type: "custom", Match: "TV: Court", Enabled: true}))
+	s := h.fetched(t)
+	assert.Equal(t, "dummy/60", s.Channels["court"].Guide)
 }
 
 // TestAFallbackChannelTakesThePanelsIconOnlyWhenItLoads: a channel the

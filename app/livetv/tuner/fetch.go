@@ -286,6 +286,9 @@ type wantSource struct {
 	m           *xmltv.Mapping
 	tvgID, name string
 	auto        bool
+	// twinIDs are the guide ids of the entry's twins (twins.of), which an
+	// unmapped channel takes when its own entry finds no guide channel.
+	twinIDs []string
 }
 
 // wantSources lists the active channels' mappings; p.mu is held.
@@ -294,6 +297,7 @@ func wantSources(p *provider) []wantSource {
 	for _, e := range p.entries {
 		byKey[e.Key] = e
 	}
+	tw := newTwins(p.entries, p.cfg.Filters, p.cfg.Trim)
 	var out []wantSource
 	for _, ch := range p.cfg.Channels {
 		if !ch.Active {
@@ -304,7 +308,7 @@ func wantSources(p *provider) []wantSource {
 			out = append(out, wantSource{m: ch.Map})
 		case ch.DummyMinutes == 0:
 			if e, ok := byKey[ch.Key]; ok {
-				out = append(out, wantSource{tvgID: e.TvgID, name: e.Name, auto: true})
+				out = append(out, wantSource{tvgID: e.TvgID, name: e.Name, auto: true, twinIDs: tw.of(e)})
 			}
 		}
 	}
@@ -322,7 +326,7 @@ func wanted(chans []xmltv.Channel, src []wantSource) map[string]bool {
 			}
 			continue
 		}
-		if m, ok := ix.AutoMap(s.tvgID, s.name); ok {
+		if m, ok := autoMap(ix, s.tvgID, s.name, s.twinIDs); ok {
 			out[m.ChannelID] = true
 		}
 	}

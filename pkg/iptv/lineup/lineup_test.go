@@ -346,3 +346,17 @@ func TestTheExampleLineupDecodes(t *testing.T) {
 	_, err := lineup.Compile(spec)
 	require.NoError(t, err)
 }
+
+// TestNameKeyIsTheDuplicateRulesName: the entries Plan drops as duplicates
+// of one another are exactly those with one NameKey, so a reader outside
+// the planner (the tuner, taking a guide id from a dropped duplicate) finds
+// the same twins.
+func TestNameKeyIsTheDuplicateRulesName(t *testing.T) {
+	trim, err := lineup.CompileTrim([]string{`^(TV|USA): `, `\[\d+p\]`})
+	require.NoError(t, err)
+	assert.Equal(t, lineup.NameKey("TV: Court TV  [1080p]", trim), lineup.NameKey("USA: COURT TV [720p]", trim))
+	assert.NotEqual(t, lineup.NameKey("TV: Court TV [1080p]", trim), lineup.NameKey("TV: Court TV 2 [1080p]", trim))
+	assert.Greater(t, lineup.Resolution("TV: Court TV [1080p]"), lineup.Resolution("USA: COURT TV [720p]"))
+	_, err = lineup.CompileTrim([]string{`(`})
+	require.Error(t, err)
+}
