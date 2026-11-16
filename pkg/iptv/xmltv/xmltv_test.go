@@ -209,7 +209,7 @@ func TestADummyBlockIsAnEpisodeOfItsOwn(t *testing.T) {
 	require.NoError(t, xmltv.BuildGuide(&out, lineup, nil, from, 14))
 	ids := map[string]map[string]int{} // channel -> dd_progid -> airings
 	shows := map[string]map[string]bool{}
-	re := regexp.MustCompile(`channel="(\d+)"><title>([^<]+)</title><sub-title>[^<]+</sub-title><episode-num system="dd_progid">(EP\d{8})\.(\d{4})</episode-num></programme>`) // the title, then the block's own id
+	re := regexp.MustCompile(`channel="(\d+)"><title>([^<]+)</title><sub-title>[^<]+</sub-title><episode-num system="dd_progid">(EP\d{8})\.(\d{4})</episode-num><previously-shown></previously-shown></programme>`) // the title, the block's own id, and never a first showing
 	for _, m := range re.FindAllStringSubmatch(out.String(), -1) {
 		if ids[m[1]] == nil {
 			ids[m[1]], shows[m[1]] = map[string]int{}, map[string]bool{}
@@ -223,6 +223,8 @@ func TestADummyBlockIsAnEpisodeOfItsOwn(t *testing.T) {
 		assert.Len(t, shows[ch], 1, "channel %s: one show", ch)
 	}
 	assert.NotEqual(t, shows["7"], shows["8"], "each channel's show is its own")
+	assert.Equal(t, strings.Count(out.String(), "<programme "), strings.Count(out.String(), "<previously-shown>"),
+		"no block is a first showing: PMS reads an episode without previously-shown as a premiere, which Plex's apps badge New or Live")
 
 	var later bytes.Buffer
 	require.NoError(t, xmltv.BuildGuide(&later, lineup, nil, from.Add(24*time.Hour), 14))

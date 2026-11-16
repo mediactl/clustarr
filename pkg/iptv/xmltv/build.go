@@ -134,9 +134,15 @@ func BuildGuideWith(w io.Writer, lineup []LineupChannel, guides map[string]Guide
 		// airing a block, and a Live TV session reads every airing of what is
 		// on now on every channel of its DVR (2026-11-16: 478 such channels on
 		// one DVR, 76,480 rows a tune, and Plex stopped answering).
+		//
+		// And no block is a first showing: PMS reads an episode without
+		// previously-shown as a premiere, which Plex's apps badge (the iOS
+		// app's "Live" banner on every placeholder channel, 2026-11-16) and
+		// its What's On hubs put first.
 		series := progSum("dummy", c.Name)
 		for t := from.UTC().Truncate(block); t.Before(to); t = t.Add(block) {
 			inner := append(bytes.Clone(title.Bytes()), formatProgID("EP", series, uint64(t.Unix()/int64(block/time.Second)))...)
+			inner = append(inner, "<previously-shown></previously-shown>"...)
 			programme(&bw, c.Number, t, t.Add(block), inner)
 		}
 	}
