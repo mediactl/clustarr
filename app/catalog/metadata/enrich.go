@@ -20,6 +20,7 @@ package metadata
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -81,7 +82,8 @@ func resolveIDs(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.Me
 // carries no images in pkg/metadata and an Audiobook a single one, so
 // neither takes artwork; no artwork provider serves those kinds anyway.
 func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaKind, specIDs, known pkgmetadata.ExternalIDs, doc any) {
-	if reg == nil || (len(reg.Resolvers) == 0 && len(reg.Artwork) == 0 && len(reg.Extras) == 0 && len(reg.Biographies) == 0 && len(reg.Pages) == 0) {
+	if reg == nil || (len(reg.Resolvers) == 0 && len(reg.Artwork) == 0 && len(reg.Extras) == 0 && len(reg.Biographies) == 0 &&
+		len(reg.Pages) == 0 && len(reg.Portraits) == 0) {
 		return
 	}
 	ctx, span := tracing.Start(ctx, "metadata.enrich")
@@ -167,6 +169,36 @@ func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaK
 			*imagesp = append(*imagesp, img)
 		}
 	}
+
+	// An artist no artwork provider gave a poster takes its portrait from
+	// its links (the Wikidata image; owner, 2026-11-16: 157 of 387 artists
+	// had no fanart.tv portrait, 111 of them a Wikidata image), so its card,
+	// page and artist.jpg have a picture.
+	if d, ok := doc.(*pkgmetadata.Artist); ok && !slices.ContainsFunc(*imagesp, func(img pkgmetadata.Image) bool {
+		return img.Type == pkgmetadata.ImageTypePoster
+	}) {
+		if img, ok := portrait(ctx, reg.Portraits, d.Links); ok && !seen[roleOf(img)] {
+			*imagesp = append(*imagesp, img)
+		}
+	}
+}
+
+// portrait is the first PortraitProvider's answer from links.
+func portrait(ctx context.Context, providers []pkgmetadata.PortraitProvider, links []pkgmetadata.Link) (pkgmetadata.Image, bool) {
+	for _, p := range providers {
+		pCtx, span := tracing.Start(ctx, "metadata.PortraitProvider.Portrait")
+		img, err := p.Portrait(pCtx, links)
+		if err != nil {
+			tracing.RecordError(span, err)
+			span.End()
+			continue
+		}
+		span.End()
+		if img.URL != "" {
+			return img, true
+		}
+	}
+	return pkgmetadata.Image{}, false
 }
 
 // ratingSources maps a provider's source name onto the CRD's RatingSource
