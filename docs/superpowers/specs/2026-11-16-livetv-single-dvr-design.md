@@ -205,7 +205,7 @@ guide on every tune", was wrong: the statements seen in `ClientWrite` for
   per block, the channel's name as sub-title). Rig, same guide: the tune
   answered in 5.4 s where it had not in 120 s; a one-hour grid 0.34 s
   where it took 2.7 s. This also cuts the 14 DVRs' tunes.
-- cluster-plex 49166dd: the converger asks PMS what it serves of a built
+- cluster-plex 49166dd, bd654b7: the converger asks PMS what it serves of a built
   one-DVR guide once the maps are saved and restarts this pod's PMS once
   when that is nothing; and PMS's own loads of such a guide are cancelled
   whenever they run when every DVR in PMS is such a one.
