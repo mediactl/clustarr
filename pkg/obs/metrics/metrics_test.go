@@ -142,6 +142,7 @@ const catalogueDoc = "../../../docs/observability.md"
 // drops its entry.
 var registeredElsewhere = map[string]string{
 	"clustarr_ffgo_abandoned_calls":     "pkg/ffruntime/ffmetrics, on the registry of every binary that links ffgo",
+	"clustarr_ffgo_panics_total":        "pkg/ffruntime/ffmetrics, on the registry of every binary that links ffgo",
 	"clustarr_segments_analyzed_total":  "app/segments/worker, markers' own registry",
 	"clustarr_segments_stage_seconds":   "app/segments/worker, markers' own registry",
 	"clustarr_segments_dnn_available":   "app/segments/worker, markers' own registry",

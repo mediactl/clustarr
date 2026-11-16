@@ -60,6 +60,9 @@ var (
 	ErrWedged = errors.New("ffruntime: FFmpeg calls are stuck; restart the process")
 	// ErrAbandoned is a call that outlived its context plus Grace.
 	ErrAbandoned = errors.New("ffruntime: an FFmpeg call outlived its context and was abandoned")
+	// ErrPanicked is wrapped by every *PanicError: an FFmpeg call that
+	// panicked and was recovered by Do.
+	ErrPanicked = errors.New("ffruntime: an FFmpeg call panicked")
 )
 
 var ffmpegReleases = map[int]int{58: 4, 59: 5, 60: 6, 61: 7, 62: 8, 63: 9}

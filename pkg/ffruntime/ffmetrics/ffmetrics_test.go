@@ -27,7 +27,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/ffruntime/ffmetrics"
 )
 
-func TestRegisterExportsTheAbandonedCallsGauge(t *testing.T) {
+func TestRegisterExportsTheAbandonedCallsGaugeAndThePanicsCounter(t *testing.T) {
 	r := prometheus.NewRegistry()
 	require.NoError(t, ffmetrics.Register(r))
 	require.NoError(t, ffmetrics.Register(r), "a second registration is not an error")
@@ -35,12 +35,17 @@ func TestRegisterExportsTheAbandonedCallsGauge(t *testing.T) {
 	// declare (app/catalog/metadata/tieredcache_test.go).
 	fams, err := r.Gather()
 	require.NoError(t, err)
-	n := 0
+	n, p := 0, 0
 	for _, f := range fams {
-		if f.GetName() == "clustarr_ffgo_abandoned_calls" {
+		switch f.GetName() {
+		case "clustarr_ffgo_abandoned_calls":
 			n += len(f.GetMetric())
 			assert.Zero(t, f.GetMetric()[0].GetGauge().GetValue(), "no call is abandoned in a fresh process")
+		case "clustarr_ffgo_panics_total":
+			p += len(f.GetMetric())
+			assert.Zero(t, f.GetMetric()[0].GetCounter().GetValue(), "no call has panicked in a fresh process")
 		}
 	}
 	assert.Equal(t, 1, n)
+	assert.Equal(t, 1, p)
 }

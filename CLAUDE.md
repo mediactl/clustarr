@@ -366,7 +366,11 @@ and `cmd/ui` must never link ffgo or purego, which make a dynamic binary the
 distroless `clustarr` image cannot start (`TestManagerNeverLinksADynamicLoader`†,
 `TestUINeverLinksADynamicLoader`†). Every binary that links ffgo
 passes `pkg/ffruntime` (FFmpeg 9, the shim's API, one log trampoline, calls
-bounded by their context and a grace).
+bounded by their context and a grace, a panic in one recovered as its error,
+`ffruntime.ErrPanicked`, counted in `clustarr_ffgo_panics_total`: `Do` runs
+the call on a goroutine of its own, beyond the bus's handler recover, so on
+2026-11-11 ffgo's 4 KiB tag bug killed the import agent at every delivery of
+the music scan).
 `hardware: gpu` (2026-10-01) is `auto` without the CPU overflow: a job
 takes NVIDIA, then Intel, and waits Planned ("waiting for a free GPU slot")
 when both are busy, rather than encode with libx265; it goes to cpu only

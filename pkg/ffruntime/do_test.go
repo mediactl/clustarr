@@ -20,6 +20,7 @@ package ffruntime
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -100,4 +101,47 @@ func TestMaxAbandonedWedgesTheProcess(t *testing.T) {
 	}
 	assert.ErrorIs(t, Do(context.Background(), func(context.Context) error { return nil }), ErrWedged)
 	assert.ErrorIs(t, Healthz(nil), ErrWedged)
+}
+
+// sliceTo panics as ffgo's goString did on 2026-11-11: a slice past its
+// array's length, a runtime.Error.
+func sliceTo(n int) error {
+	var buf [4096]byte
+	_ = buf[:n]
+	return nil
+}
+
+// A panic in the call is an error, not the process's end: Do's goroutine is
+// out of reach of the bus's handler recover, so an unrecovered one in a
+// binding killed the import agent at every delivery of a scan.
+func TestAPanickingCallIsAnErrorNamingWhereItPanicked(t *testing.T) {
+	seams(t, 50*time.Millisecond, MaxAbandoned)
+	before := Panics()
+	closed := false
+	err := Do(context.Background(), func(context.Context) error {
+		defer func() { closed = true }()
+		return sliceTo(4097)
+	})
+	require.ErrorIs(t, err, ErrPanicked)
+	var rerr runtime.Error
+	require.ErrorAs(t, err, &rerr, "the panic's own runtime.Error is wrapped")
+	var perr *PanicError
+	require.ErrorAs(t, err, &perr)
+	assert.Contains(t, perr.Frame, "ffruntime.sliceTo (do_test.go:", "the frame is the panicking function, not the runtime's")
+	assert.Contains(t, err.Error(), "slice bounds out of range [:4097] with length 4096")
+	assert.Contains(t, err.Error(), "ffruntime.sliceTo")
+	assert.Contains(t, string(perr.Stack), "ffruntime.sliceTo")
+	assert.True(t, closed, "the call's own defers ran before the recover")
+	assert.Equal(t, before+1, Panics())
+	assert.NotErrorIs(t, err, ErrAbandoned)
+	assert.NoError(t, Do(context.Background(), func(context.Context) error { return nil }), "the next call runs")
+}
+
+func TestAPanicWithAValueThatIsNoErrorIsAnError(t *testing.T) {
+	seams(t, 50*time.Millisecond, MaxAbandoned)
+	err := Do(context.Background(), func(context.Context) error { panic("boom") })
+	require.ErrorIs(t, err, ErrPanicked)
+	var rerr runtime.Error
+	assert.False(t, errors.As(err, &rerr))
+	assert.Contains(t, err.Error(), "boom (at github.com/mediactl/clustarr/pkg/ffruntime.TestAPanicWithAValueThatIsNoErrorIsAnError.func1")
 }
