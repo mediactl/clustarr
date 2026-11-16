@@ -50,7 +50,8 @@ type LineupChannel struct {
 // BuildGuide writes the XEPG guide: one <channel id="<number>"> per lineup
 // channel, since Plex maps an XMLTV channel to a lineup entry by its
 // GuideNumber (as xTeVe does), then each channel's programmes from its
-// mapped guide, timeshifted, or dummy blocks, over [from, from+days).
+// mapped guide, timeshifted, or dummy blocks, over [from, from+days). A
+// source's placeholder listings are left out (Filler).
 // Channels go in number order, so the same input gives the same bytes.
 func BuildGuide(w io.Writer, lineup []LineupChannel, guides map[string]Guide, from time.Time, days int) error {
 	return BuildGuideWith(w, lineup, guides, from, days, nil)
@@ -68,6 +69,22 @@ func BuildGuideWith(w io.Writer, lineup []LineupChannel, guides map[string]Guide
 		start, stop := p.Start.Add(shift), p.Stop.Add(shift)
 		return start, stop, stop.After(from) && start.Before(to)
 	}
+	// A source's placeholders are no programmes (Filler): each mapped
+	// channel's listings are read once, without them.
+	listed := map[[2]string][]Programme{}
+	listings := func(c LineupChannel) []Programme {
+		key := [2]string{c.Map.Guide, c.Map.ChannelID}
+		ps, ok := listed[key]
+		if !ok {
+			for _, p := range guides[c.Map.Guide].Programmes[c.Map.ChannelID] {
+				if !Filler(p.Inner) {
+					ps = append(ps, p)
+				}
+			}
+			listed[key] = ps
+		}
+		return ps
+	}
 	var rep *repeats
 	if e != nil {
 		rep = &repeats{episodes: map[string]*recurrence{}, titles: map[string]int{}}
@@ -75,7 +92,7 @@ func BuildGuideWith(w io.Writer, lineup []LineupChannel, guides map[string]Guide
 			if c.Map == nil {
 				continue
 			}
-			for _, p := range guides[c.Map.Guide].Programmes[c.Map.ChannelID] {
+			for _, p := range listings(c) {
 				if start, _, ok := inWindow(c, p); ok {
 					rep.count(p.Inner, c.Number, start)
 				}
@@ -104,7 +121,7 @@ func BuildGuideWith(w io.Writer, lineup []LineupChannel, guides map[string]Guide
 	}
 	for _, c := range chans {
 		if c.Map != nil {
-			for _, p := range guides[c.Map.Guide].Programmes[c.Map.ChannelID] {
+			for _, p := range listings(c) {
 				start, stop, ok := inWindow(c, p)
 				if !ok {
 					continue

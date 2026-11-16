@@ -86,7 +86,10 @@ func TestAListingOnEveryChannelAllWeekIsAiringsNotOneEpisode(t *testing.T) {
 		for d := range 4 {
 			airings = append(airings, airing{
 				channel: fmt.Sprint(1001 + c), start: t0.AddDate(0, 0, d).Add(time.Duration(c) * time.Hour),
-				inner: `<title>Paid Programming</title><desc>Paid programming.</desc>`,
+				// The rule's first case, "Paid Programming", is no longer a
+				// listing at all (Filler); another that reads the same on
+				// every channel all week stands for it.
+				inner: `<title>Local Programming</title><desc>Local programming.</desc>`,
 			})
 		}
 	}
