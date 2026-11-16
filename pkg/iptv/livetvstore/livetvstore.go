@@ -142,6 +142,7 @@ type PlaylistEntry struct {
 	Name      string `json:"name"`
 	Group     string `json:"group,omitempty"`
 	TvgID     string `json:"tvgID,omitempty"`
+	GuideID   string `json:"guideID,omitempty"`
 	TvgName   string `json:"tvgName,omitempty"`
 	Logo      string `json:"logo,omitempty"`
 	URL       string `json:"url"`

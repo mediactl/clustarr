@@ -150,6 +150,16 @@ func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, cfg Config) {
 		_ = body.Close()
 		sum = hex.EncodeToString(h.Sum(nil))
 	}
+	// An Xtream panel's stream list names the guide channels its playlist
+	// may not; its failure is no playlist failure.
+	var guideIDs map[string]string
+	if err == nil && !cfg.m3u() {
+		var gerr error
+		if guideIDs, gerr = t.fetchGuideIDs(ctx, cfg); gerr != nil {
+			guideIDs = nil
+			logging.FromContext(ctx).Warn("livetv: the panel's stream list failed; keeping the guide ids of the last one", "provider", label(p.key), "err", cfg.scrub(iptv.RedactError(gerr)))
+		}
+	}
 	fetchDuration.WithLabelValues(label(p.key), "playlist").Observe(time.Since(start).Seconds())
 
 	p.mu.Lock()
@@ -165,6 +175,9 @@ func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, cfg Config) {
 		p.playlistBackoff = nextBackoff(p.playlistBackoff, cfg.Every)
 		p.playlistNext = t.o.Now().Add(p.playlistBackoff)
 	} else {
+		if !cfg.m3u() {
+			withGuideIDs(pl.Entries, guideIDs, p.entries)
+		}
 		p.entries = pl.Entries
 		p.playlistFetched = true
 		p.playlist.FetchedAt = t.o.Now()
@@ -286,9 +299,10 @@ type wantSource struct {
 	m           *xmltv.Mapping
 	tvgID, name string
 	auto        bool
-	// twinIDs are the guide ids of the entry's twins (twins.of), which an
-	// unmapped channel takes when its own entry finds no guide channel.
-	twinIDs []string
+	// ids are the guide ids an unmapped channel takes when its entry's
+	// tvg-id and name find no guide channel: the panel's for its stream,
+	// then its twins' (twins.of).
+	ids []string
 }
 
 // wantSources lists the active channels' mappings; p.mu is held.
@@ -308,7 +322,7 @@ func wantSources(p *provider) []wantSource {
 			out = append(out, wantSource{m: ch.Map})
 		case ch.DummyMinutes == 0:
 			if e, ok := byKey[ch.Key]; ok {
-				out = append(out, wantSource{tvgID: e.TvgID, name: e.Name, auto: true, twinIDs: tw.of(e)})
+				out = append(out, wantSource{tvgID: e.TvgID, name: e.Name, auto: true, ids: tw.of(e)})
 			}
 		}
 	}
@@ -326,7 +340,7 @@ func wanted(chans []xmltv.Channel, src []wantSource) map[string]bool {
 			}
 			continue
 		}
-		if m, ok := autoMap(ix, s.tvgID, s.name, s.twinIDs); ok {
+		if m, ok := autoMap(ix, s.tvgID, s.name, s.ids); ok {
 			out[m.ChannelID] = true
 		}
 	}

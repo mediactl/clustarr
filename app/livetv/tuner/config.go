@@ -197,6 +197,10 @@ func guideFingerprint(c Config) string {
 // AccountURL is the panel's account report.
 func (c Config) AccountURL() string { return c.endpoint("player_api.php") }
 
+// StreamsURL is the panel's list of live streams, which names each
+// stream's guide channel.
+func (c Config) StreamsURL() string { return c.AccountURL() + "&action=get_live_streams" }
+
 func (c Config) endpoint(file string) string {
 	return c.Server + "/" + file + "?username=" + url.QueryEscape(c.Username) + "&password=" + url.QueryEscape(c.Password)
 }

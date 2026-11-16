@@ -126,7 +126,7 @@ func cachePlaylist(c Config, hash string, fetchedAt time.Time, entries []m3u.Ent
 			return livetvstore.Playlist{}, false
 		}
 		out.Entries = append(out.Entries, livetvstore.PlaylistEntry{
-			Key: e.Key, Name: e.Name, Group: e.Group, TvgID: e.TvgID, TvgName: e.TvgName, Logo: e.Logo,
+			Key: e.Key, Name: e.Name, Group: e.Group, TvgID: e.TvgID, GuideID: e.GuideID, TvgName: e.TvgName, Logo: e.Logo,
 			URL: tmpl, UserAgent: e.UserAgent,
 		})
 	}
@@ -147,7 +147,7 @@ func (t *Tuner) loadCache(p *provider, c Config) {
 		entries := make([]m3u.Entry, 0, len(pl.Entries))
 		for _, e := range pl.Entries {
 			entries = append(entries, m3u.Entry{
-				Key: e.Key, Name: e.Name, Group: e.Group, TvgID: e.TvgID, TvgName: e.TvgName, Logo: e.Logo,
+				Key: e.Key, Name: e.Name, Group: e.Group, TvgID: e.TvgID, GuideID: e.GuideID, TvgName: e.TvgName, Logo: e.Logo,
 				URL: expandURL(e.URL, c.Username, c.Password), UserAgent: e.UserAgent,
 			})
 		}

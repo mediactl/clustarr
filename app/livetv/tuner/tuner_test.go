@@ -78,6 +78,10 @@ type provider struct {
 	// extraPlaylist is appended to the playlist fixture, its stream URLs
 	// rewritten as the fixture's are.
 	extraPlaylist atomic.Pointer[string]
+	// streams is the panel's stream list (player_api.php's
+	// get_live_streams), "[]" unset; failStreams answers it 500.
+	streams     atomic.Pointer[string]
+	failStreams atomic.Bool
 }
 
 func newProvider(t *testing.T) *provider {
@@ -98,7 +102,14 @@ func newProvider(t *testing.T) *provider {
 	p := &provider{}
 	p.maxConns.Store(1)
 	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, _ := p.hits.LoadOrStore(r.URL.Path, new(atomic.Int32))
+		// The stream list is counted apart from the account, which shares
+		// its path.
+		streams := r.URL.Path == "/player_api.php" && r.URL.Query().Get("action") == "get_live_streams"
+		hit := r.URL.Path
+		if streams {
+			hit += "?streams"
+		}
+		c, _ := p.hits.LoadOrStore(hit, new(atomic.Int32))
 		c.(*atomic.Int32).Add(1)
 		if r.URL.Path == "/get.php" || r.URL.Path == "/xmltv.php" {
 			time.Sleep(time.Duration(p.headerDelay.Load()))
@@ -156,6 +167,16 @@ func newProvider(t *testing.T) *provider {
 				return
 			}
 			_, _ = w.Write(bytes.ReplaceAll(m3uBody, []byte("http://provider.example"), []byte(p.srv.URL)))
+		case streams:
+			if p.failStreams.Load() {
+				http.Error(w, "down", http.StatusInternalServerError)
+				return
+			}
+			body := "[]"
+			if v := p.streams.Load(); v != nil {
+				body = *v
+			}
+			_, _ = w.Write([]byte(body))
 		case r.URL.Path == "/player_api.php":
 			_, _ = fmt.Fprintf(w, `{"user_info":{"username":"user","password":"pass","auth":1,"status":"Active","exp_date":"1792556379","active_cons":"0","max_connections":"%d"}}`, p.maxConns.Load())
 		case strings.HasPrefix(r.URL.Path, "/live/"):
@@ -906,6 +927,91 @@ func TestAChannelWithoutAGuideIDTakesItsLowerQualityTwins(t *testing.T) {
 	assert.Equal(t, tuner.GuideName+"/news.uk", s.Channels["court"].Guide)
 	_, guide := h.get(t, "x", device(deviceA, "xmltv.xml"))
 	assert.True(t, strings.Contains(guide, ">Bulletin<"), "the 720p entry's guide")
+}
+
+// bareCourtPlaylist is courtPlaylist as argon-tv's get.php sends it: no
+// entry carries a tvg-id (none of its 1,451,700 did on 2026-11-16), and the
+// guide ids are in the panel's stream list alone.
+var bareCourtPlaylist = strings.ReplaceAll(courtPlaylist, `tvg-id="news.uk"`, `tvg-id=""`)
+
+func bareCourtConfig(p *provider, streams string) tuner.Config {
+	cfg := courtConfig(p, filter.Rule{Type: "groupTitle", Match: "US", Enabled: true})
+	extra := bareCourtPlaylist
+	p.extraPlaylist.Store(&extra)
+	p.streams.Store(&streams)
+	return cfg
+}
+
+// TestAChannelTakesThePanelsGuideIDWhenThePlaylistCarriesNone: an Xtream
+// panel's stream list (player_api.php?action=get_live_streams) names each
+// stream's guide channel, epg_channel_id, where its playlist may carry no
+// tvg-id at all (owner, 2026-11-16: "Can we fall back to argon-tv's own epg
+// guide"; TYT Network, EWTN and 16 more had programmes in the panel's
+// xmltv.php that nothing reached). A channel that maps by neither its
+// tvg-id nor its name takes its stream's id, as a number or a string.
+func TestAChannelTakesThePanelsGuideIDWhenThePlaylistCarriesNone(t *testing.T) {
+	for _, streams := range []string{
+		`[{"num":1,"name":"TV: Court  [1080p]","stream_id":2001,"epg_channel_id":"news.uk"},{"stream_id":2002,"epg_channel_id":null}]`,
+		`[{"stream_id":"2001","epg_channel_id":"news.uk"},{"stream_id":"2003","epg_channel_id":""}]`,
+	} {
+		p := newProvider(t)
+		h := start(t, newStore(t), bareCourtConfig(p, streams))
+		s := h.fetched(t)
+		assert.Equal(t, tuner.GuideName+"/news.uk", s.Channels["court"].Guide)
+		assert.Equal(t, int32(1), p.count("/player_api.php?streams"))
+		_, guide := h.get(t, "x", device(deviceA, "xmltv.xml"))
+		assert.True(t, strings.Contains(guide, ">Bulletin<"), "the panel's guide for the stream's id")
+	}
+}
+
+// TestAChannelTakesItsTwinsPanelGuideID: the id may be on the lower-quality
+// entry's stream alone.
+func TestAChannelTakesItsTwinsPanelGuideID(t *testing.T) {
+	p := newProvider(t)
+	h := start(t, newStore(t), bareCourtConfig(p, `[{"stream_id":2002,"epg_channel_id":"news.uk"}]`))
+	s := h.fetched(t)
+	assert.Equal(t, tuner.GuideName+"/news.uk", s.Channels["court"].Guide)
+}
+
+// TestAFailedStreamListIsNoPlaylistFailure: the playlist is served as
+// fetched and the channel keeps its placeholder guide; the ids of an
+// earlier fetch stay (TestTheStreamListsIDsOutliveAFailedFetch).
+func TestAFailedStreamListIsNoPlaylistFailure(t *testing.T) {
+	p := newProvider(t)
+	p.failStreams.Store(true)
+	h := start(t, newStore(t), bareCourtConfig(p, `[{"stream_id":2001,"epg_channel_id":"news.uk"}]`))
+	s := h.fetched(t)
+	assert.Empty(t, s.Playlist.Error)
+	assert.Equal(t, "dummy/60", s.Channels["court"].Guide)
+}
+
+// TestTheStreamListsIDsOutliveAFailedFetch: a refresh whose stream list
+// fails keeps each entry's id from the fetch before, and a restart reads
+// them from the playlist cache.
+func TestTheStreamListsIDsOutliveAFailedFetch(t *testing.T) {
+	p := newProvider(t)
+	store := newStore(t)
+	cfg := bareCourtConfig(p, `[{"stream_id":2001,"epg_channel_id":"news.uk"}]`)
+	h := start(t, store, cfg)
+	require.Equal(t, tuner.GuideName+"/news.uk", h.fetched(t).Channels["court"].Guide)
+
+	p.failStreams.Store(true)
+	cfg.Refresh = "again"
+	pl := p.count("/get.php")
+	h.tn.Apply(cfg)
+	require.Eventually(t, func() bool { return p.count("/get.php") == pl+1 }, 5*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool {
+		s, _ := h.tn.Snapshot(key)
+		return s.Channels["court"].Guide == tuner.GuideName+"/news.uk"
+	}, 5*time.Second, 5*time.Millisecond)
+
+	p.failPlaylist.Store(true)
+	require.Eventually(t, func() bool {
+		_, err := store.Info(context.Background(), livetvstore.PlaylistObject(key))
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond)
+	h2 := startAt(t, store, cfg, now.Add(30*time.Minute))
+	assert.Equal(t, tuner.GuideName+"/news.uk", h2.fetched(t).Channels["court"].Guide, "a restart serves the ids from the cache")
 }
 
 // TestAGuideIDIsNeverTakenFromAnEntryTheFiltersLeaveOut: the same name in

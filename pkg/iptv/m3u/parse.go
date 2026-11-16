@@ -62,6 +62,11 @@ type Entry struct {
 	Logo      string
 	URL       string
 	UserAgent string
+	// GuideID is the guide channel an Xtream panel's stream list names for
+	// the entry's stream (epg_channel_id), which the tuner fills in when
+	// the playlist carries no tvg-id; Parse never sets it and the key never
+	// reads it.
+	GuideID string
 }
 
 // Playlist is a parsed M3U.

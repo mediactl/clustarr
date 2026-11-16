@@ -27,7 +27,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
-// twins are a playlist's entries that carry a guide id, by the name the
+// twins are a playlist's entries that name a guide channel (guideID), by the name the
 // lineup's duplicate rule compares (lineup.NameKey): a provider lists a
 // channel once per quality, the lineup keeps the best, and on argon-tv only
 // a lower one may carry the guide id (owner, 2026-11-16: "We should take
@@ -45,7 +45,7 @@ func newTwins(entries []m3u.Entry, rules []filter.Rule, trim []string) *twins {
 	tw := &twins{by: map[string][]m3u.Entry{}}
 	tw.trim, _ = lineup.CompileTrim(trim)
 	for _, e := range entries {
-		if e.TvgID == "" || !admitted(e, rules) {
+		if guideID(e) == "" || !admitted(e, rules) {
 			continue
 		}
 		k := lineup.NameKey(e.Name, tw.trim)
@@ -70,20 +70,24 @@ func admitted(e m3u.Entry, rules []filter.Rule) bool {
 	return false
 }
 
-// of is the guide ids of e's twins, best first, e's own left out.
+// of is the guide ids e's channel may take past its own tvg-id and name:
+// the panel's for e's stream, then its twins', best first.
 func (tw *twins) of(e m3u.Entry) []string {
 	var out []string
+	if e.GuideID != "" {
+		out = append(out, e.GuideID)
+	}
 	for _, o := range tw.by[lineup.NameKey(e.Name, tw.trim)] {
-		if o.Key != e.Key && o.TvgID != e.TvgID && !slices.Contains(out, o.TvgID) {
-			out = append(out, o.TvgID)
+		if id := guideID(o); o.Key != e.Key && id != e.TvgID && !slices.Contains(out, id) {
+			out = append(out, id)
 		}
 	}
 	return out
 }
 
 // autoMap finds an unmapped channel's guide channel: by its own entry's
-// guide id or name (xmltv.AutoMap), else by the first of its twins' guide
-// ids the guides hold.
+// tvg-id or name (xmltv.AutoMap), else by the first of ids (twins.of) the
+// guides hold.
 func autoMap(ix *xmltv.Index, tvgID, name string, twinIDs []string) (xmltv.Mapping, bool) {
 	if m, ok := ix.AutoMap(tvgID, name); ok {
 		return m, true
