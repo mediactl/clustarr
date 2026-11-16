@@ -379,7 +379,7 @@ func artistHero(v ArtistView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = poster(li.Poster, li.Title, li.ArtKey).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = squarePoster(li.Poster, li.Title, li.ArtKey).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
