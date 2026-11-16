@@ -136,6 +136,15 @@ spec:
                     maximum: 450
                     minimum: 1
                     type: integer
+                  single:
+                    description: |-
+                      Single puts every block's device on one Plex DVR, with one guide of
+                      the whole lineup, where each block is otherwise a DVR of its own
+                      (docs/superpowers/specs/2026-11-16-livetv-single-dvr-design.md). The
+                      blocks, their devices and their numbers are the same either way: PMS's
+                      limit is a device's channel map, not a DVR's channels. Not with
+                      plexGuide.enabled, whose block is on Plex's own lineup.
+                    type: boolean
                 type: object
               enabled:
                 description: |-
@@ -506,6 +515,9 @@ spec:
                 && size(self.playlistURL) > 0) : (has(self.server) && size(self.server)
                 > 0 && has(self.credentialsRef) && has(self.credentialsRef.name) &&
                 size(self.credentialsRef.name) > 0)'
+            - message: dvr.single is not for a provider on Plex's own guide (plexGuide.enabled)
+              rule: '!(has(self.dvr) && has(self.dvr.single) && self.dvr.single &&
+                has(self.plexGuide) && has(self.plexGuide.enabled) && self.plexGuide.enabled)'
           status:
             description: |-
               IPTVProviderStatus is written by the IPTVProvider controller alone, under
@@ -748,6 +760,30 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              dvr:
+                description: |-
+                  DVR is the one Plex DVR over every block's device, published while
+                  spec.dvr.single is set and the blocks are: cluster-plex then creates
+                  one DVR on this guide in place of a DVR per block.
+                properties:
+                  guideHash:
+                    description: GuideHash moves when that guide's content does.
+                    maxLength: 64
+                    type: string
+                  guidePath:
+                    description: |-
+                      GuidePath is the whole lineup's XMLTV guide under status.address, and
+                      GuideURI its address as Plex is given it.
+                    maxLength: 512
+                    type: string
+                  guideURI:
+                    maxLength: 1024
+                    type: string
+                  title:
+                    description: Title names the DVR's lineup in Plex.
+                    maxLength: 160
+                    type: string
+                type: object
               guide:
                 description: Guide describes the guide the tuner serves.
                 properties:

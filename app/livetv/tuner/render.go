@@ -350,6 +350,7 @@ func (t *Tuner) render(p *provider) {
 		Account:         p.account,
 		Lineup:          lineup,
 		Blocks:          blockStates,
+		GuideHash:       p.storedGuideHash,
 		Tuners:          effectiveTuners(cfg, p.account),
 		Channels:        states,
 		Plex:            plexSnap,

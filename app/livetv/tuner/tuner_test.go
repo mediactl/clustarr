@@ -1581,3 +1581,27 @@ func TestACategoryDeviceServesItsGuideInTheProfile(t *testing.T) {
 	assert.Contains(t, strings.Join(programmesOf(ent, "6001"), "\n"), " Replaced.")
 	assert.Equal(t, int32(1), svc.gridGets(wabcGridKey), "the grid is read back from the store, not fetched again")
 }
+
+// TestTheWholeGuideIsServedFromTheStoreUnderItsHash: the range path's
+// xmltv.xml without a range is the whole lineup's guide, which a single DVR
+// over every block loads (the single-DVR design). It is the stored guide,
+// tagged with the snapshot's GuideHash, so cluster-plex's hash and the
+// tuner's ETag move together and no copy is rebuilt or held per request.
+func TestTheWholeGuideIsServedFromTheStoreUnderItsHash(t *testing.T) {
+	p := newProvider(t)
+	h := start(t, newStore(t), config(p.srv.URL))
+	snap := h.fetched(t)
+	require.NotEmpty(t, snap.GuideHash)
+
+	resp := h.do(t, "x", "/livetv/media/news/xmltv.xml", nil)
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, `"`+snap.GuideHash[:32]+`"`, resp.Header.Get("ETag"))
+	assert.Contains(t, string(body), "<tv")
+	assert.Contains(t, string(body), "<programme")
+
+	resp = h.do(t, "x", "/livetv/media/news/xmltv.xml", http.Header{"If-None-Match": {`"` + snap.GuideHash[:32] + `"`}})
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusNotModified, resp.StatusCode)
+}

@@ -53,6 +53,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &clustarrv1alpha1.DeviceSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DVRSpec"):
 		return &clustarrv1alpha1.DVRSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DVRStatus"):
+		return &clustarrv1alpha1.DVRStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GuideSources"):
 		return &clustarrv1alpha1.GuideSourcesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GuideSourcesStatus"):

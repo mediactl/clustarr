@@ -29,6 +29,13 @@ type DVRSpecApplyConfiguration struct {
 	// MaxChannels is a block's most channels. A block is also held under
 	// 30,000 bytes of channel map, whichever comes first. Default 400.
 	MaxChannels *int32 `json:"maxChannels,omitempty"`
+	// Single puts every block's device on one Plex DVR, with one guide of
+	// the whole lineup, where each block is otherwise a DVR of its own
+	// (docs/superpowers/specs/2026-11-16-livetv-single-dvr-design.md). The
+	// blocks, their devices and their numbers are the same either way: PMS's
+	// limit is a device's channel map, not a DVR's channels. Not with
+	// plexGuide.enabled, whose block is on Plex's own lineup.
+	Single *bool `json:"single,omitempty"`
 }
 
 // DVRSpecApplyConfiguration constructs a declarative configuration of the DVRSpec type for use with
@@ -42,5 +49,13 @@ func DVRSpec() *DVRSpecApplyConfiguration {
 // If called multiple times, the MaxChannels field is set to the value of the last call.
 func (b *DVRSpecApplyConfiguration) WithMaxChannels(value int32) *DVRSpecApplyConfiguration {
 	b.MaxChannels = &value
+	return b
+}
+
+// WithSingle sets the Single field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Single field is set to the value of the last call.
+func (b *DVRSpecApplyConfiguration) WithSingle(value bool) *DVRSpecApplyConfiguration {
+	b.Single = &value
 	return b
 }

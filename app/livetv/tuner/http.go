@@ -29,6 +29,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/livetv/relay"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
@@ -240,6 +241,24 @@ func (t *Tuner) serveRange(w http.ResponseWriter, r *http.Request, p *provider, 
 		if !fetched {
 			http.NotFound(w, r)
 			return
+		}
+		if rg.from == "" && rg.to == "" {
+			// The whole lineup's guide is the stored one, under its own
+			// hash (a single DVR's guide, status.dvr.guideHash): read only
+			// past the ETag check and never built or kept per request.
+			p.mu.Lock()
+			hash := p.storedGuideHash
+			p.mu.Unlock()
+			if hash != "" {
+				writeTaggedFrom(w, r, "application/xml", etagOf(hash), func() ([]byte, bool) {
+					b, ok := t.readGzip(r.Context(), livetvstore.GuideObject(key))
+					if !ok {
+						return nil, false
+					}
+					return withBase(b, base), true
+				})
+				return
+			}
 		}
 		writeTagged(w, r, "application/xml", withBase(t.rangeGuide(p, rg), base))
 	default:

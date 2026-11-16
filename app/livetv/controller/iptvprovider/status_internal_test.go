@@ -426,3 +426,66 @@ func TestAProviderWithoutTheNewBlocksHasNoNewStatus(t *testing.T) {
 		assert.Len(t, st.Conditions, 4, "Valid, PlaylistFetched, GuidesFetched, Ready")
 	}
 }
+
+// TestASingleDVRIsPublishedOverThePublishedBlocks: spec.dvr.single publishes
+// one DVR on the whole lineup's guide once blocks are published, its hash the
+// render's, and nothing without the flag (the single-DVR design).
+func TestASingleDVRIsPublishedOverThePublishedBlocks(t *testing.T) {
+	single := true
+	p := &clustarrv1.IPTVProvider{}
+	p.Namespace, p.Name = "media", "argon-tv"
+	p.Spec.Device.FriendlyName = "Clustarr Argon TV"
+	blocks := []clustarrv1.BlockStatus{{Start: "1001", DeviceID: "AAAA0001", URI: "http://tv:80/hdhr/AAAA0001"}}
+	snap := tuner.Snapshot{PlaylistFetched: true, GuideHash: "whole-1"}
+
+	st := clustarrac.IPTVProviderStatus()
+	withDVR(st, p, "tv:80", blocks, snap, true)
+	assert.Nil(t, st.DVR, "without spec.dvr.single there is a DVR per block")
+
+	p.Spec.DVR.Single = &single
+	st = clustarrac.IPTVProviderStatus()
+	withDVR(st, p, "tv:80", blocks, snap, true)
+	require.NotNil(t, st.DVR)
+	assert.Equal(t, "Clustarr Argon TV", *st.DVR.Title)
+	assert.Equal(t, "/livetv/media/argon-tv/xmltv.xml", *st.DVR.GuidePath)
+	assert.Equal(t, "http://tv:80/livetv/media/argon-tv/xmltv.xml", *st.DVR.GuideURI)
+	assert.Equal(t, "whole-1", *st.DVR.GuideHash)
+
+	st = clustarrac.IPTVProviderStatus()
+	withDVR(st, p, "tv:80", nil, snap, true)
+	assert.Nil(t, st.DVR, "no block published, no DVR")
+
+	st = clustarrac.IPTVProviderStatus()
+	withDVR(st, p, "tv:80", []clustarrv1.BlockStatus{{Start: "3", DeviceID: "BBBB0001", URI: "http://tv:80/hdhr/BBBB0001", Lineup: "lineup://x"}}, snap, true)
+	assert.Nil(t, st.DVR, "a block on Plex's own lineup is on no single DVR")
+}
+
+// TestASingleDVRKeepsItsHashWhileTheTunerHasNone: a tuner that has not
+// fetched yet (a manager just started) has no guide hash; releasing the
+// published one would have cluster-plex build the guide again.
+func TestASingleDVRKeepsItsHashWhileTheTunerHasNone(t *testing.T) {
+	single := true
+	p := &clustarrv1.IPTVProvider{}
+	p.Namespace, p.Name = "media", "argon-tv"
+	p.Spec.DVR.Single = &single
+	p.Status.DVR = &clustarrv1.DVRStatus{GuideHash: "whole-old"}
+	blocks := []clustarrv1.BlockStatus{{Start: "1001", DeviceID: "AAAA0001", URI: "http://tv:80/hdhr/AAAA0001"}}
+
+	for name, tc := range map[string]struct {
+		snap tuner.Snapshot
+		ok   bool
+	}{
+		"the tuner does not answer": {tuner.Snapshot{}, false},
+		"not fetched yet":           {tuner.Snapshot{GuideHash: ""}, true},
+	} {
+		st := clustarrac.IPTVProviderStatus()
+		withDVR(st, p, "tv:80", blocks, tc.snap, tc.ok)
+		require.NotNil(t, st.DVR, name)
+		assert.Equal(t, "whole-old", *st.DVR.GuideHash, name)
+	}
+
+	p.Status.DVR = nil
+	st := clustarrac.IPTVProviderStatus()
+	withDVR(st, p, "tv:80", blocks, tuner.Snapshot{}, true)
+	assert.Nil(t, st.DVR, "a DVR with no guide hash yet is not published")
+}

@@ -211,6 +211,10 @@ type Snapshot struct {
 	Lineup          LineupState
 	// Blocks are each block's lineup and guide, in Config.Blocks' order.
 	Blocks []BlockState
+	// GuideHash is the whole lineup's guide's (the range path's xmltv.xml,
+	// which a single DVR over every block loads); empty until a render has
+	// built it.
+	GuideHash string
 	// Tuners is the relay's limit: Config.Tuners, else the account's
 	// max_connections, else 1.
 	Tuners      int

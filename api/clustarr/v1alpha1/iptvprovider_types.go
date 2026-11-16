@@ -241,6 +241,7 @@ const (
 // DVR (Live TV spec §3, §3.1).
 //
 // +kubebuilder:validation:XValidation:rule="(has(self.type) && self.type == 'M3U') ? (has(self.playlistURL) && size(self.playlistURL) > 0) : (has(self.server) && size(self.server) > 0 && has(self.credentialsRef) && has(self.credentialsRef.name) && size(self.credentialsRef.name) > 0)",message="an Xtream provider needs server and credentialsRef; an M3U provider needs playlistURL"
+// +kubebuilder:validation:XValidation:rule="!(has(self.dvr) && has(self.dvr.single) && self.dvr.single && has(self.plexGuide) && has(self.plexGuide.enabled) && self.plexGuide.enabled)",message="dvr.single is not for a provider on Plex's own guide (plexGuide.enabled)"
 type IPTVProviderSpec struct {
 	// Enabled false stops this provider's tuner; Plex then sees its devices
 	// gone. Default true.
@@ -420,7 +421,19 @@ type DVRSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=450
 	MaxChannels *int32 `json:"maxChannels,omitempty"`
+
+	// Single puts every block's device on one Plex DVR, with one guide of
+	// the whole lineup, where each block is otherwise a DVR of its own
+	// (docs/superpowers/specs/2026-11-16-livetv-single-dvr-design.md). The
+	// blocks, their devices and their numbers are the same either way: PMS's
+	// limit is a device's channel map, not a DVR's channels. Not with
+	// plexGuide.enabled, whose block is on Plex's own lineup.
+	// +optional
+	Single *bool `json:"single,omitempty"`
 }
+
+// SingleDVR reports whether every block's device goes on one Plex DVR.
+func (d DVRSpec) SingleDVR() bool { return d.Single != nil && *d.Single }
 
 // StreamSpec tunes the stream relay.
 type StreamSpec struct {
@@ -475,6 +488,12 @@ type IPTVProviderStatus struct {
 	// +listMapKey=start
 	// +kubebuilder:validation:MaxItems=32
 	Blocks []BlockStatus `json:"blocks,omitempty"`
+
+	// DVR is the one Plex DVR over every block's device, published while
+	// spec.dvr.single is set and the blocks are: cluster-plex then creates
+	// one DVR on this guide in place of a DVR per block.
+	// +optional
+	DVR *DVRStatus `json:"dvr,omitempty"`
 
 	// Account is the panel's report of the account (player_api.php).
 	// +optional
@@ -621,6 +640,28 @@ type LineupStatus struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=16
 	Last string `json:"last,omitempty"`
+}
+
+// DVRStatus is the one Plex DVR of a provider under spec.dvr.single.
+type DVRStatus struct {
+	// Title names the DVR's lineup in Plex.
+	// +optional
+	// +kubebuilder:validation:MaxLength=160
+	Title string `json:"title,omitempty"`
+
+	// GuidePath is the whole lineup's XMLTV guide under status.address, and
+	// GuideURI its address as Plex is given it.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	GuidePath string `json:"guidePath,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	GuideURI string `json:"guideURI,omitempty"`
+
+	// GuideHash moves when that guide's content does.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	GuideHash string `json:"guideHash,omitempty"`
 }
 
 // BlockStatus is one block: one emulated HDHomeRun and one Plex DVR (Live TV

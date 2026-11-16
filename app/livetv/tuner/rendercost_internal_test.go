@@ -18,7 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tuner
 
 import (
+	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,6 +30,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
@@ -143,4 +148,44 @@ func TestABlockHoldingTheWholeLineupTakesTheProvidersGuide(t *testing.T) {
 	p2 := fetchedProvider(t, tn2, []BlockConfig{{DeviceID: "dev1", Start: "1", Numbers: []string{"1"}}, {DeviceID: "dev2", Start: "2"}})
 	tn2.render(p2)
 	assert.Equal(t, int32(3), builds.Load(), "two blocks each build their own guide beside the provider's")
+}
+
+// The whole lineup's guide on the range path is the stored one: a single
+// DVR's guide (the single-DVR design) is fetched at every hash change, and
+// rebuilding it per request held a second copy of tens of MB in the manager
+// until the next render.
+func TestTheWholeGuideOnTheRangePathBuildsNothing(t *testing.T) {
+	var builds atomic.Int32
+	orig := buildGuide
+	buildGuide = func(w io.Writer, lc []xmltv.LineupChannel, g map[string]xmltv.Guide, from time.Time, days int, e *xmltv.Enricher) error {
+		builds.Add(1)
+		return orig(w, lc, g, from, days, e)
+	}
+	t.Cleanup(func() { buildGuide = orig })
+
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
+	tn := New(Options{Debounce: time.Hour, Store: bus.ObjectStore(events.BucketLiveTV)})
+	p := fetchedProvider(t, tn, []BlockConfig{{DeviceID: "dev1", Start: "1", Numbers: []string{"1"}}, {DeviceID: "dev2", Start: "2", Numbers: []string{"2"}}})
+	tn.render(p)
+	p.mu.Lock()
+	hash := p.storedGuideHash
+	p.mu.Unlock()
+	require.NotEmpty(t, hash)
+	built := builds.Load()
+
+	rec := httptest.NewRecorder()
+	tn.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/livetv/media/news/xmltv.xml", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, etagOf(hash), rec.Header().Get("ETag"))
+	assert.Contains(t, rec.Body.String(), "<tv")
+	assert.Equal(t, built, builds.Load(), "serving the whole guide built it again")
+	p.mu.Lock()
+	assert.Empty(t, p.ranges, "the whole guide was cached in memory")
+	p.mu.Unlock()
+
+	rec = httptest.NewRecorder()
+	tn.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/livetv/media/news/xmltv.xml?from=1&to=1", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, built+1, builds.Load(), "a range is still built on demand")
 }

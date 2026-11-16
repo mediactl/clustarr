@@ -244,6 +244,24 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: maxChannels
       type:
         scalar: numeric
+    - name: single
+      type:
+        scalar: boolean
+- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.DVRStatus
+  map:
+    fields:
+    - name: guideHash
+      type:
+        scalar: string
+    - name: guidePath
+      type:
+        scalar: string
+    - name: guideURI
+      type:
+        scalar: string
+    - name: title
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.DeviceSpec
   map:
     fields:
@@ -506,6 +524,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: dvr
+      type:
+        namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.DVRStatus
     - name: guide
       type:
         namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.GuideStatus

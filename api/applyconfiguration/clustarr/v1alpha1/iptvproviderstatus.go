@@ -41,6 +41,10 @@ type IPTVProviderStatusApplyConfiguration struct {
 	// Blocks are the lineup's runs of contiguous numbers, one emulated
 	// HDHomeRun and one Plex DVR each, ordered by start (Live TV spec §3.1).
 	Blocks []BlockStatusApplyConfiguration `json:"blocks,omitempty"`
+	// DVR is the one Plex DVR over every block's device, published while
+	// spec.dvr.single is set and the blocks are: cluster-plex then creates
+	// one DVR on this guide in place of a DVR per block.
+	DVR *DVRStatusApplyConfiguration `json:"dvr,omitempty"`
 	// Account is the panel's report of the account (player_api.php).
 	Account *AccountStatusApplyConfiguration `json:"account,omitempty"`
 	// Playlist describes the playlist the tuner serves.
@@ -104,6 +108,14 @@ func (b *IPTVProviderStatusApplyConfiguration) WithBlocks(values ...*BlockStatus
 		}
 		b.Blocks = append(b.Blocks, *values[i])
 	}
+	return b
+}
+
+// WithDVR sets the DVR field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DVR field is set to the value of the last call.
+func (b *IPTVProviderStatusApplyConfiguration) WithDVR(value *DVRStatusApplyConfiguration) *IPTVProviderStatusApplyConfiguration {
+	b.DVR = value
 	return b
 }
 

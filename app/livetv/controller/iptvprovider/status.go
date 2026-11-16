@@ -75,6 +75,7 @@ func render(p *clustarrv1.IPTVProvider, address string, pl plan, tn Tuner, valid
 	}
 	published := withBlocks(st, p, pl, snap, ok)
 	withCategories(st, p, pl, published)
+	withDVR(st, p, address, published, snap, ok)
 
 	conds := slices.Clone(p.Status.Conditions)
 	set := func(c metav1.Condition) { c.ObservedGeneration = p.Generation; meta.SetStatusCondition(&conds, c) }
@@ -203,6 +204,37 @@ func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarr
 		st.WithBlocks(ac)
 	}
 	return blocks
+}
+
+// withDVR writes status.dvr under spec.dvr.single: the one Plex DVR over
+// every published block's device, on the whole lineup's guide at the range
+// path (docs/superpowers/specs/2026-11-16-livetv-single-dvr-design.md). The
+// guide may list a channel on no block; PMS maps only what a device lists.
+// Nothing is written before a block is published and a guide hash is known,
+// nor for a block on Plex's own lineup; a tuner with no hash yet (a manager
+// just started) keeps the status's, as the blocks keep theirs.
+func withDVR(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarrv1.IPTVProvider, address string, published []clustarrv1.BlockStatus, snap tuner.Snapshot, ok bool) {
+	if !p.Spec.DVR.SingleDVR() || len(published) == 0 || address == "" {
+		return
+	}
+	for _, b := range published {
+		if b.Lineup != "" || b.URI == "" {
+			return
+		}
+	}
+	hash := ""
+	if p.Status.DVR != nil {
+		hash = p.Status.DVR.GuideHash
+	}
+	if ok && snap.PlaylistFetched && snap.GuideHash != "" {
+		hash = snap.GuideHash
+	}
+	if hash == "" {
+		return
+	}
+	path := "/livetv/" + p.Namespace + "/" + p.Name + "/xmltv.xml"
+	st.WithDVR(clustarrac.DVRStatus().WithTitle(clampRunes(p.Spec.Device.FriendlyNameOrDefault(p.Name), maxBlockFriendlyName)).
+		WithGuidePath(path).WithGuideURI("http://" + address + path).WithGuideHash(hash))
 }
 
 // withCategories writes status.categories while spec.lineup is set: the
