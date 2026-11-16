@@ -444,7 +444,7 @@ func LibraryFindResults(tab projection.Tab, q string, items []projection.Library
 							}
 							return nil
 						})
-						templ_7745c5c3_Err = item.Media(item.MediaProps{Variant: item.MediaVariantImage, Class: "h-12 w-8 rounded-sm bg-muted"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = item.Media(item.MediaProps{Variant: item.MediaVariantImage, Class: artThumbClass(li.Kind)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}

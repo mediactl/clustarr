@@ -228,7 +228,7 @@ templ libraryCard(li projection.LibraryItem) {
 		<span data-select-mark aria-hidden="true" class="absolute top-2 left-2 z-10 hidden size-6 items-center justify-center rounded-full border-2 border-white/80 bg-black/40 text-primary-foreground shadow group-data-selecting/library:flex group-data-selected/card:border-primary group-data-selected/card:bg-primary">
 			@icon.Icon("check")(icon.Props{Class: "hidden size-4 group-data-selected/card:block"})
 		</span>
-		@aspectratio.AspectRatio(aspectratio.Props{Ratio: "2/3", Class: "w-full bg-muted", Attributes: templ.Attributes{"data-card-poster": true}}) {
+		@aspectratio.AspectRatio(aspectratio.Props{Ratio: artRatio(li.Kind), Class: "w-full bg-muted", Attributes: templ.Attributes{"data-card-poster": true}}) {
 			@posterFill(li.Poster, li.Title, li.ArtKey)
 		}
 		<div class={ stripeClass(projection.LibraryStatus(li)) } data-status={ projection.LibraryStatus(li) }></div>
@@ -448,6 +448,22 @@ templ poster(url, title, artKey string) {
 		/>
 	} else {
 		<div class="flex aspect-[2/3] w-full items-center justify-center rounded-sm bg-muted text-xs text-muted-foreground">no art</div>
+	}
+}
+
+// squarePoster is poster for an image that is square (squareArt): an
+// artist's, an album's or an audiobook's, framed 1:1 so nothing is cropped.
+templ squarePoster(url, title, artKey string) {
+	if url != "" {
+		<img
+			src={ templ.URL(url) }
+			data-art={ artKey }
+			alt={ title }
+			loading="lazy"
+			class="aspect-square w-full rounded-sm bg-muted object-cover"
+		/>
+	} else {
+		<div class="flex aspect-square w-full items-center justify-center rounded-sm bg-muted text-xs text-muted-foreground">no art</div>
 	}
 }
 

@@ -136,7 +136,7 @@ templ LibraryFindResults(tab projection.Tab, q string, items []projection.Librar
 							Class:      "rounded-none px-3 py-1.5 hover:bg-accent hover:text-accent-foreground data-[find-active]:bg-accent data-[find-active]:text-accent-foreground",
 							Attributes: templ.Attributes{"role": "option", "data-find-ref": li.Ref.String()},
 						}) {
-							@item.Media(item.MediaProps{Variant: item.MediaVariantImage, Class: "h-12 w-8 rounded-sm bg-muted"}) {
+							@item.Media(item.MediaProps{Variant: item.MediaVariantImage, Class: artThumbClass(li.Kind)}) {
 								if li.Poster != "" {
 									<img src={ templ.URL(li.Poster) } data-art={ li.ArtKey } alt="" loading="lazy" class="size-full object-cover"/>
 								}

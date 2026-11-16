@@ -458,9 +458,9 @@ templ addHitCard(d AddResultsData, h AddHit) {
 	@card.Card(card.Props{Size: card.SizeSm, Attributes: templ.Attributes{"data-add-hit": h.ID, "data-add-source": h.Source}}) {
 		@card.Content(card.ContentProps{Class: "flex gap-4"}) {
 			if h.Poster != "" {
-				<img src={ h.Poster } alt="" loading="lazy" class="aspect-[2/3] w-20 shrink-0 rounded bg-muted object-cover"/>
+				<img src={ h.Poster } alt="" loading="lazy" class={ addThumbClass(d.Kind.Kind) }/>
 			} else {
-				<div class="aspect-[2/3] w-20 shrink-0 rounded bg-muted" aria-hidden="true"></div>
+				<div class={ addThumbClass(d.Kind.Kind) } aria-hidden="true"></div>
 			}
 			<div class="min-w-0 flex-1">
 				<p class="font-medium">{ h.Title }</p>
