@@ -295,6 +295,18 @@ type MediaInfo struct {
 	// +kubebuilder:validation:MaxLength=320
 	TranscodeProfile string `json:"transcodeProfile,omitempty"`
 
+	// TranscodeVideo is the file's CLUSTARR_VIDEO container tag, which
+	// transcode stamps beside CLUSTARR_PROFILE: copy (the release's video,
+	// remuxed), encode (clustarr's own) or keep (the release's video, kept
+	// because its encode was no smaller; standard.KeepVideo). The planner
+	// reads it over the recorded plan's videoAction, since a swap recovered
+	// before the worker's answer landed records only the dispatched plan
+	// (talos, 2026-11-16). Empty when the file carries none of the three;
+	// pkg/mediainfo drops any other value.
+	// +optional
+	// +kubebuilder:validation:MaxLength=16
+	TranscodeVideo string `json:"transcodeVideo,omitempty"`
+
 	// VideoEncoder is the video stream's ENCODER tag, which ffmpeg writes
 	// when it encodes a stream ("Lavc61.3.100 hevc_qsv") and a release
 	// muxed from its own encode seldom carries. A libavcodec HEVC or AV1

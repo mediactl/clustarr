@@ -64,3 +64,28 @@ func TestFormatTagWithoutAFormatIsEmpty(t *testing.T) {
 	assert.Empty(t, FormatTag(nil, ProfileTagKey))
 	assert.Empty(t, FormatTag(&Raw{}, ProfileTagKey))
 }
+
+// TestToMediaInfoReadsTheTranscodeVideoTag pins how CLUSTARR_VIDEO reaches
+// MediaInfo.TranscodeVideo, which the transcode planner reads over the
+// recorded plan: a kept video (keep) is final, and a swap the loop
+// recovered before the worker's answer landed records only the dispatched
+// encode (talos, 2026-11-16, Spare Me, Great Lord! S01E11).
+func TestToMediaInfoReadsTheTranscodeVideoTag(t *testing.T) {
+	for name, c := range map[string]struct {
+		tags ffprobe.Tags
+		want string
+	}{
+		"no tags":                {nil, ""},
+		"copy":                   {ffprobe.Tags{"CLUSTARR_VIDEO": "copy"}, "copy"},
+		"encode":                 {ffprobe.Tags{"CLUSTARR_VIDEO": "encode"}, "encode"},
+		"keep, MP4's lower case": {ffprobe.Tags{"clustarr_video": " keep\n"}, "keep"},
+		"an unknown value":       {ffprobe.Tags{"CLUSTARR_VIDEO": "remux"}, ""},
+		"a value past the bound": {ffprobe.Tags{"CLUSTARR_VIDEO": strings.Repeat("k", 40)}, ""},
+		"a non-string value":     {ffprobe.Tags{"CLUSTARR_VIDEO": 1}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw := &Raw{Format: &ffprobe.Format{Filename: "movie.mp4", TagList: c.tags}}
+			assert.Equal(t, c.want, toMediaInfo(raw).TranscodeVideo)
+		})
+	}
+}

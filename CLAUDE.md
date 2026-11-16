@@ -309,7 +309,14 @@ layout with the source's video copied and tagged `CLUSTARR_VIDEO=keep`
 records as `status.transcode.plan` (`videoAction: keep`, mode remuxOnly,
 the message naming the encode's percent). A kept video is final like an
 encode: `standard.Plan` and `transcodeplan.KeptH264Dropped` never encode
-it again. On talos 82 such encodes had failed, lean 1 Mbps streaming
+it again. The probe reads the tag too (`MediaInfo.TranscodeVideo`, only
+copy, encode or keep kept), and the planner takes it over the record
+(`transcodeplan.VideoActionOf`, for every copied-video rule), and a swap's
+incorporation rewrites a record it contradicts: the first file kept on
+talos (2026-11-16, Spare Me S01E11) was swapped by the loop's FileMissing
+recovery before the worker's answer landed, recorded as the dispatched
+encode, and dispatched again at once. `ProbeVersion` was not raised: only
+outputs written since carry `keep`, each probed at its swap. On talos 82 such encodes had failed, lean 1 Mbps streaming
 WEB-DLs and grainy sources whose fixed-quality hevc_qsv encode ran 100-174%,
 each left Failed in its original Matroska. Every other encode over the
 limit -- a release's 10-bit HEVC, AV1, Hi10P or HDR H.264 -- is made for

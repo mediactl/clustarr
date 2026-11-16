@@ -170,16 +170,27 @@ func keptVideo(b *catalogv1alpha1.TranscodeState, r *task.Result) string {
 		return ""
 	}
 	k := r.KeptVideo
-	p := &catalogv1alpha1.TranscodePlan{
-		Mode: catalogv1alpha1.TranscodeModeRemuxOnly, Encoder: "copy", VideoAction: standard.VideoKept,
-		PlanHash: truncate(k.PlanHash, 64),
-	}
-	if b.Plan != nil {
-		p.Dropped = b.Plan.Dropped // the encode's audio and subtitles are the remux's
-	}
-	b.Plan = p
+	b.Plan = keptPlan(b.Plan, k.PlanHash)
 	return fmt.Sprintf("the encode came out %d%% of the source, so its video was kept and remuxed into the MP4 layout",
 		k.EncodePercent)
+}
+
+// keptPlan is status.transcode.plan for the remux that kept the video in
+// place of prev, the dispatched encode: remuxOnly, copy, videoAction keep,
+// planHash hash (prev's when the remux's own is unknown), prev's dropped
+// tracks, since the encode's audio and subtitles are the remux's.
+func keptPlan(prev *catalogv1alpha1.TranscodePlan, hash string) *catalogv1alpha1.TranscodePlan {
+	p := &catalogv1alpha1.TranscodePlan{
+		Mode: catalogv1alpha1.TranscodeModeRemuxOnly, Encoder: "copy", VideoAction: standard.VideoKept,
+		PlanHash: truncate(hash, 64),
+	}
+	if prev != nil {
+		p.Dropped = prev.Dropped
+		if p.PlanHash == "" {
+			p.PlanHash = prev.PlanHash
+		}
+	}
+	return p
 }
 
 // outputOf is a worker's result as status.transcode.result.

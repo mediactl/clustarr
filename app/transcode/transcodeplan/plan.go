@@ -27,6 +27,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/graftplan"
 	"github.com/mediactl/clustarr/app/transcode/task"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // maxMessage is status.transcode.message's MaxLength.
@@ -261,6 +262,14 @@ func planSwap(in Inputs) Decision {
 		return Decision{Block: b, Events: []Event{{Type: "Warning", Reason: ReasonInvalidSource, Message: b.Message}}}
 	}
 	b.Phase, b.Reason, b.Message = catalogv1alpha1.TranscodePhaseSucceeded, "", "transcode incorporated"
+	// The output's own CLUSTARR_VIDEO says what ran: a swap recovered before
+	// the worker's answer landed (recoverSwap) records only the dispatched
+	// encode, while the worker kept the video (standard.KeepVideo).
+	if mi := in.Draft.MediaInfo; mi != nil && mi.TranscodeVideo == standard.VideoKept &&
+		(b.Plan == nil || b.Plan.VideoAction != standard.VideoKept) {
+		b.Plan = keptPlan(b.Plan, "")
+		b.Message = "transcode incorporated: its encode was no smaller than the source, so its video was kept"
+	}
 	b.Compliant, b.ProfileTag, b.Result, b.ProbeHash = true, Tag(b.Profile, b.ProfileHash), nil, in.Draft.ProbeHash
 	return Decision{Block: b, Events: []Event{{Type: "Normal", Reason: "Succeeded", Message: "incorporated " + b.ProfileTag}}}
 }

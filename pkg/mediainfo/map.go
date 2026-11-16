@@ -109,7 +109,24 @@ func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 	mi.Chapters = int32(len(raw.Chapters))
 	mi.ChapterList = chapterList(raw.Chapters)
 	mi.TranscodeProfile = transcodeProfile(raw)
+	mi.TranscodeVideo = transcodeVideo(raw)
 	return mi
+}
+
+// VideoTagKey is the container format tag transcode stamps beside
+// ProfileTagKey: copy, encode or keep (pkg/transcode/standard.VideoTagKey,
+// restated here for the same reason ProfileTagKey is).
+const VideoTagKey = "CLUSTARR_VIDEO"
+
+// transcodeVideo is raw's CLUSTARR_VIDEO tag when it is one of the three
+// values transcode writes, else "": MediaInfo.TranscodeVideo is bounded,
+// and a value no transcode wrote means nothing.
+func transcodeVideo(raw *Raw) string {
+	switch tag := strings.TrimSpace(FormatTag(raw, VideoTagKey)); tag {
+	case "copy", "encode", "keep":
+		return tag
+	}
+	return ""
 }
 
 // ProfileTagKey is the container format tag transcode stamps into every file

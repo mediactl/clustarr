@@ -452,3 +452,13 @@ Owner, 2026-11-15, after "Spare Me, Great Lord! S01E11 [WETV][WEBDL-1080p][h264 
   this stay blocked for their hashes until retried (`transcode.clustarr.io/retry`).
 - **Parked:** the bit-rate-capped retry (ICQ first, then QVBR under the source) of 2026-11-02, which
   would shrink the grainy group rather than keep it.
+- **As deployed (2026-11-16): the probe carries the tag.** The first kept file on talos, Spare Me S01E11,
+  kept its video and swapped as built, but the loop's FileMissing recovery (`recoverSwap`: the source gone,
+  the output there) incorporated the swap before the worker's answer landed, so the record held the
+  dispatched encode; the planner dispatched the encode again at once and the worker refused it on the
+  file's own `CLUSTARR_VIDEO=keep` ("live plan is skip"). The probe now reads the tag
+  (`commonv1.MediaInfo.TranscodeVideo`, copy, encode or keep only), the planner reads the probe over the
+  record for every copied-video rule (`transcodeplan.VideoActionOf`: `KeptH264Dropped`, `RemuxOverLimit`,
+  `TenBitRemux`, `MediaInfoOf`), and the swap's incorporation rewrites a record the probe contradicts
+  (`planSwap`, `keptPlan`). `mediainfo.ProbeVersion` is not raised: only outputs written since carry `keep`,
+  and each is probed at its swap; older outputs keep reading the record.

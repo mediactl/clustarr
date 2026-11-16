@@ -40,7 +40,11 @@ import (
 // write under their own field manager, so the apiserver enforces the split
 // rather than convention.
 type MediaFileSpecApplyConfiguration struct {
-	// MediaRef points at the catalog item this file backs.
+	// MediaRef points at the catalog item this file backs. The item -- kind,
+	// name and keys -- is immutable; an album file's track may be corrected
+	// (a scan that finds the file is another recording of the same Album:
+	// 2026-11-16, album files attributed by number against the wrong
+	// edition).
 	MediaRef *commonv1alpha1.MediaRef `json:"mediaRef,omitempty"`
 	// Path is the file's absolute path. import sets it at import; it
 	// changes only when catalog swaps in a transcode written under a new

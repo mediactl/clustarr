@@ -132,8 +132,8 @@ func Eligible(f File, profiles []transcodev1alpha1.TranscodeProfile) Eligibility
 // smaller (videoAction keep, standard.KeepVideo; owner, 2026-11-15) is
 // final: encoding it again would come out the same.
 func KeptH264Dropped(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.TranscodeProfile) bool {
-	mi, tr := mf.Status.MediaInfo, mf.Status.Transcode
-	if RecordsATranscode(tr) && tr.Plan != nil && tr.Plan.VideoAction == standard.VideoKept {
+	mi := mf.Status.MediaInfo
+	if VideoActionOf(&mf.Status) == standard.VideoKept {
 		return false
 	}
 	return mi != nil && mi.TranscodeProfile != "" && mi.VideoCodec == "h264" &&
@@ -152,11 +152,11 @@ func KeptH264Dropped(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.T
 // Mbps, tagged before plans were recorded, were never planned again); the
 // worker's probe of the file's own tag still skips an encode it finds.
 func RemuxOverLimit(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.TranscodeProfile) bool {
-	mi, tr, limit := mf.Status.MediaInfo, mf.Status.Transcode, profile.Spec.Policy.MaxVideoBitrateKbps
+	mi, limit := mf.Status.MediaInfo, profile.Spec.Policy.MaxVideoBitrateKbps
 	if limit <= 0 || mi == nil || mi.TranscodeProfile == "" || mi.VideoCodec != "hevc" || mi.TranscodedElsewhere() {
 		return false
 	}
-	if RecordsATranscode(tr) && tr.Plan != nil && tr.Plan.VideoAction == standard.VideoEncoded {
+	if a := VideoActionOf(&mf.Status); a == standard.VideoEncoded || a == standard.VideoKept {
 		return false
 	}
 	return standard.NormalisedKbps(mi.VideoBitrateKbps, mi.Width, mi.Height) > int64(limit)
@@ -175,15 +175,33 @@ func RemuxOverLimit(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.Tr
 // 1080p or in HDR written before that tag reads to it as clustarr's own,
 // and is skipped.
 func TenBitRemux(mf *catalogv1alpha1.MediaFile) bool {
-	mi, tr := mf.Status.MediaInfo, mf.Status.Transcode
+	mi := mf.Status.MediaInfo
 	if mi == nil || mi.TranscodeProfile == "" || mi.VideoCodec != "hevc" || mi.TranscodedElsewhere() ||
 		(mi.VideoBitDepth != 10 && !strings.Contains(mi.PixelFormat, "10")) {
 		return false
 	}
-	if RecordsATranscode(tr) && tr.Plan != nil && tr.Plan.VideoAction != "" {
-		return tr.Plan.VideoAction == standard.VideoCopied
+	if a := VideoActionOf(&mf.Status); a != "" {
+		return a == standard.VideoCopied
 	}
 	return transcode.EightBitTarget(transcode.VideoStream{Height: mi.Height, HDR: transcode.HDRInfo{Format: mi.Hdr}})
+}
+
+// VideoActionOf is what the file's transcode did with its video -- copy,
+// encode or keep (standard.VideoTagKey's values) -- or "" when nothing says:
+// the probe's read of the file's own CLUSTARR_VIDEO first, then the video
+// action of the transcode catalog recorded. The probe wins because the
+// record can lag the file: a swap the loop recovers before the worker's
+// answer lands records only the dispatched plan, and a kept video
+// (standard.KeepVideo) ran another (talos, 2026-11-16: Spare Me, Great
+// Lord! S01E11, kept, was dispatched as an encode again at once).
+func VideoActionOf(st *catalogv1alpha1.MediaFileStatus) string {
+	if mi := st.MediaInfo; mi != nil && mi.TranscodeVideo != "" {
+		return mi.TranscodeVideo
+	}
+	if tr := st.Transcode; RecordsATranscode(tr) && tr.Plan != nil {
+		return tr.Plan.VideoAction
+	}
+	return ""
 }
 
 // UpgradeDownloading reports whether item -- a file's Movie or Episode --

@@ -28,12 +28,16 @@ import (
 //
 // TranscodePlan is what the transcode planner decided for the file.
 type TranscodePlanApplyConfiguration struct {
-	Mode        *catalogv1alpha1.TranscodeMode `json:"mode,omitempty"`
-	Encoder     *string                        `json:"encoder,omitempty"`
-	VideoAction *string                        `json:"videoAction,omitempty"`
-	Decode      *string                        `json:"decode,omitempty"`
-	HDRMode     *string                        `json:"hdrMode,omitempty"`
-	PlanHash    *string                        `json:"planHash,omitempty"`
+	Mode    *catalogv1alpha1.TranscodeMode `json:"mode,omitempty"`
+	Encoder *string                        `json:"encoder,omitempty"`
+	// VideoAction is the output's CLUSTARR_VIDEO: copy (the release's video,
+	// remuxed), encode (clustarr's own), or keep (the release's video,
+	// remuxed because its encode came out no smaller than the source, and
+	// final like an encode; standard.KeepVideo).
+	VideoAction *string `json:"videoAction,omitempty"`
+	Decode      *string `json:"decode,omitempty"`
+	HDRMode     *string `json:"hdrMode,omitempty"`
+	PlanHash    *string `json:"planHash,omitempty"`
 	// Dropped names each source subtitle the output carries neither embedded
 	// nor as a sidecar (standard.Result.Dropped: a codec the MP4 standard does
 	// not carry, or a second track for a sidecar name already planned), each

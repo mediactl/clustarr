@@ -6381,6 +6381,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: transcodeProfile
       type:
         scalar: string
+    - name: transcodeVideo
+      type:
+        scalar: string
     - name: videoBitDepth
       type:
         scalar: numeric

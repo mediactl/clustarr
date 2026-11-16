@@ -19,9 +19,11 @@ package transcodeplan
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/task"
@@ -92,4 +94,43 @@ func TestAKeptH264VideoIsNeverPlannedAgain(t *testing.T) {
 
 	st.Transcode.Plan.VideoAction = standard.VideoCopied
 	assert.True(t, Eligible(eligibleFile(st), hevcProfiles()).Eligible, "a remux kept only by policy.keepCodecs is encoded once")
+}
+
+// A swap the loop recovered before the worker's answer landed (talos,
+// 2026-11-16: Spare Me, Great Lord! S01E11) records only the dispatched
+// encode. The output's probe says the video was kept: the incorporation
+// rewrites the plan to the remux that ran, and the file is final -- where
+// the planner had dispatched the encode again at once, which the worker
+// refused on the file's own CLUSTARR_VIDEO=keep.
+func TestARecoveredSwapOfAKeptVideoIsFinal(t *testing.T) {
+	swapping := &catalogv1alpha1.TranscodeState{
+		Phase: catalogv1alpha1.TranscodePhaseSwapping, Profile: "hevc", ProfileHash: "d1spatched", ProfileTag: "hevc@d1spatched",
+		ProbeHash: "ph-1", FinishedAt: new(metav1.NewTime(t0)), Hardware: "auto", Class: "intel",
+		Dispatch: &catalogv1alpha1.Dispatch{Seq: 7, AnsweredSeq: 7, DispatchedAt: metav1.NewTime(t0.Add(-time.Hour))},
+		Plan: &catalogv1alpha1.TranscodePlan{
+			Mode: catalogv1alpha1.TranscodeModeTranscode, Encoder: "hevc_qsv", VideoAction: standard.VideoEncoded, PlanHash: "enc",
+		},
+	}
+	landed := probed("ph-out")
+	landed.ProbedAt = new(metav1.NewTime(t0.Add(time.Second)))
+	landed.MediaInfo.TranscodeProfile, landed.MediaInfo.TranscodeVideo = "hevc@d1spatched", standard.VideoKept
+	landed.MediaInfo.Container = "mov,mp4,m4a,3gp,3g2,mj2"
+	d := pass(inputs(swapping, landed, GrantNone))
+	require.NotNil(t, d.Block)
+	assert.Equal(t, catalogv1alpha1.TranscodePhaseSucceeded, d.Block.Phase)
+	require.NotNil(t, d.Block.Plan)
+	assert.Equal(t, standard.VideoKept, d.Block.Plan.VideoAction)
+	assert.Equal(t, catalogv1alpha1.TranscodeModeRemuxOnly, d.Block.Plan.Mode)
+	assert.Equal(t, "enc", d.Block.Plan.PlanHash, "the remux's own hash is unknown here")
+	assert.Contains(t, d.Block.Message, "its video was kept")
+
+	// The record still says encode (as before the incorporation): the probe
+	// alone keeps the file final.
+	landed.Transcode = &catalogv1alpha1.TranscodeState{
+		Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@d1spatched", Plan: swapping.Plan.DeepCopy(),
+	}
+	f := eligibleFile(landed)
+	f.MF.Spec.Original = new(false)
+	assert.Equal(t, ReasonTranscoded, Eligible(f, hevcProfiles()).Why)
+	assert.Equal(t, standard.VideoKept, VideoActionOf(landed), "the probe beats the record")
 }

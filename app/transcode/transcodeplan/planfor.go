@@ -56,11 +56,11 @@ func MediaInfoOf(path string, mf *catalogv1alpha1.MediaFile, st *catalogv1alpha1
 	info.OriginalLanguage = original
 	if t := recordedTag(st, tag); t != "" {
 		info.Tags = map[string]string{ProfileTagKey: t}
-		// The summary carries no CLUSTARR_VIDEO either; the recorded plan
-		// says whether this transcode copied or encoded the video, as the
-		// worker's probe reads it from an output written since Version 8.
-		if tr := st.Transcode; RecordsATranscode(tr) && tr.Plan != nil && tr.Plan.VideoAction != "" {
-			info.Tags[standard.VideoTagKey] = tr.Plan.VideoAction
+		// CLUSTARR_VIDEO is the probe's read of it, else the recorded plan's
+		// video action (VideoActionOf), as the worker's probe reads it from
+		// an output written since Version 8.
+		if a := VideoActionOf(st); a != "" {
+			info.Tags[standard.VideoTagKey] = a
 		}
 	}
 	return info, nil
