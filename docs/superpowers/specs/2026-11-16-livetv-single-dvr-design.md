@@ -1,6 +1,9 @@
 # Live TV: one Plex DVR over every block's device
 
-Status: proposed, 2026-11-16. Not built. Awaits the owner's approval.
+Status: built 2026-11-16 (clustarr eed4eeb8, b274f833; cluster-plex 5ac8f70,
+49166dd), approved by the owner the same day. Cut over on talos at 07:01Z
+and rolled back at 07:43Z; see "As built, and the talos cutover" at the end.
+Off on talos.
 
 ## Why
 
@@ -147,3 +150,68 @@ group.
 1. Approve the approach (one DVR over the existing devices, opt-in).
 2. The DVR's title.
 3. Whether to cut talos over once the rig proof passes, or review first.
+
+## As built, and the talos cutover (2026-11-16)
+
+**Built as designed**, with these differences:
+
+- No `GuideMismatch` check: PMS maps only the channels a device lists, so a
+  guide channel on no block is inert (rig: 1,350 guide channels, 700 mapped).
+- The DVR is created over one device and every other is attached
+  (`PUT /livetv/dvrs/<key>/devices/<deviceKey>`, proven on the rig; it
+  starts no load). No create names several devices.
+- The unranged `/livetv/<ns>/<name>/xmltv.xml` is served from the store
+  under the whole guide's hash; it was rebuilt per request and cached.
+- Under the managers' builder the loads the create and the saves start are
+  cancelled; a whole lineup's load is half an hour and every write waits.
+
+**Rig proof** (two devices, `xmltvGuide: manager`): per block to one DVR
+in 61 s, and back in 61 s; tunes went to the device carrying the channel.
+
+**talos**, by kubectl (the owner's call): CRD, manager `sha-eed4eeb`, Plex
+`cluster-plex:25d7e75` (7f641ac plus the converger change), then
+`spec.dvr.single: true` at 07:01:48Z. DVR 76 held all 14 devices and 796
+channels 691 s later, one Live TV source, 132,893 airings built. Then:
+
+1. **The guide was empty in Plex** until an in-place restart: PMS opens a
+   new DVR's guide before the build exists, and the load that would have
+   it open the guide again is cancelled.
+2. **Tunes hung and Plex stopped answering** (about 07:30-07:40Z, and again
+   at 07:44-07:47Z when the rollback's delete of DVR 76 hung PMS and the
+   supervisor restarted it). PMS held about 3 cores on the Pi.
+3. Rolled back at 07:43Z (`single: false`); 14 DVRs and 796 channels were
+   back at 08:47Z.
+4. At 08:05Z the Helm addon reconciled the release (rev 257) and undid the
+   kubectl images and, through the settings sync, `spec.dvr`. **A change
+   made by kubectl lasts under an hour on talos: this feature goes in
+   through cluster-bootstrap or not at all.**
+
+**The cause of 2**, reproduced on the rig with talos's guide (82 MB, 796
+channels) and a live MPEG-TS stream, and read from PostgreSQL's log: during
+a Live TV session PMS asks for what is on now on every channel of the DVR
+(one statement, `metadata_items.id IN (768 ids)`) joined to **every airing
+of each of those items**, and works the rows one at a time with further
+queries per row. A channel without listings had hourly dummy blocks under a
+bare title, which PMS files as one movie a channel with an airing a block:
+160 airings each on 478 channels, 76,480 rows a tune. With a DVR a category
+the same statement names that category's channels only (Sports, 281
+channels, about 34,000 rows today). The first reading, "PMS walks the whole
+guide on every tune", was wrong: the statements seen in `ClientWrite` for
+20 minutes were this one, not a scan.
+
+**Fixes** (built, rig-proven for the first; not deployed):
+
+- clustarr b274f833: each dummy block is its own episode (a `dd_progid`
+  per block, the channel's name as sub-title). Rig, same guide: the tune
+  answered in 5.4 s where it had not in 120 s; a one-hour grid 0.34 s
+  where it took 2.7 s. This also cuts the 14 DVRs' tunes.
+- cluster-plex 49166dd: the converger asks PMS what it serves of a built
+  one-DVR guide once the maps are saved and restarts this pod's PMS once
+  when that is nothing; and PMS's own loads of such a guide are cancelled
+  whenever they run when every DVR in PMS is such a one.
+
+**Before another cutover:** deploy the dummy-block fix first and watch a
+real client's tune time on the 14 DVRs; then cut over through
+cluster-bootstrap (images and `dvr.single` both), and test a real client
+before calling it done. A synthetic tune leaves a "Recording" session in
+Plex for minutes: cancel it (`DELETE /activities/<uuid>`).
