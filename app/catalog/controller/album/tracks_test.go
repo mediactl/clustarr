@@ -300,3 +300,33 @@ func TestBuildTracksReportsTruncationBeyond200(t *testing.T) {
 	assert.Len(t, tracks, 200, "AlbumStatus.Tracks' own +kubebuilder:validation:MaxItems=200")
 	assert.True(t, truncated, "a release with more than 200 tracks must raise Invalid, not silently truncate")
 }
+
+// Files every candidate holds alike are held best by the release with the
+// fewest tracks: Old's 19-track digital release over its 38-track 4x12"
+// vinyl, which holds the same recordings, so a library of digital rips is
+// named by the digital numbering, not by the vinyl's sides (talos,
+// 2026-11-16). Without files the selection is kept, and an album with none
+// still starts on the release of the most tracks.
+func TestSelectReleaseTheSameFilesOnFewerTracksWin(t *testing.T) {
+	vinyl := release("vinyl", "Official", "a", "b", "c", "a-inst", "b-inst", "c-inst")
+	digital := release("digital", "Official", "a", "b", "c")
+	releases := []pkgmetadata.AlbumRelease{vinyl, digital}
+	files := map[string]string{"a": "mf-a", "b": "mf-b", "c": "mf-c"}
+
+	got, sel := album.SelectRelease(catalogv1alpha1.AlbumSpec{}, officialOnly, "vinyl", releases, files)
+	assert.Equal(t, "digital", selectedID(t, got), "the same files on fewer tracks displace the selection")
+	assert.Equal(t, album.SelectionBest, sel)
+
+	got, _ = album.SelectRelease(catalogv1alpha1.AlbumSpec{}, officialOnly, "", releases, files)
+	assert.Equal(t, "digital", selectedID(t, got))
+
+	got, sel = album.SelectRelease(catalogv1alpha1.AlbumSpec{}, officialOnly, "vinyl", releases, nil)
+	assert.Equal(t, "vinyl", selectedID(t, got), "no files keeps the selection")
+	assert.Equal(t, album.SelectionKept, sel)
+	got, _ = album.SelectRelease(catalogv1alpha1.AlbumSpec{}, officialOnly, "", releases, nil)
+	assert.Equal(t, "vinyl", selectedID(t, got), "no files anywhere: most tracks")
+
+	got, sel = album.SelectRelease(catalogv1alpha1.AlbumSpec{AnyReleaseOk: new(false)}, officialOnly, "vinyl", releases, files)
+	assert.Equal(t, "vinyl", selectedID(t, got), "without anyReleaseOk the selection stays put")
+	assert.Equal(t, album.SelectionKept, sel)
+}

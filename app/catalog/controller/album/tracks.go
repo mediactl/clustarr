@@ -79,10 +79,13 @@ const (
 //     monitored release on every refresh. With spec.anyReleaseOk it gives
 //     way to a candidate holding strictly more of the album's files, which
 //     is where Lidarr's importer moves the monitored release when files
-//     match another one.
-//  4. Otherwise the candidate with the most files wins, then the one with
-//     the most tracks (MonitorSingleRelease's OrderByDescending(files)
-//     .ThenByDescending(TrackCount)), then the provider's order.
+//     match another one, or as many of them on fewer tracks (holdsMore).
+//  4. Otherwise the candidate with the most files wins; then, among
+//     releases holding files, the one with the fewest tracks -- the files'
+//     own edition rather than a deluxe or a vinyl set holding the same
+//     recordings -- and among releases holding none, the one with the most
+//     tracks (MonitorSingleRelease's OrderByDescending(files)
+//     .ThenByDescending(TrackCount)); then the provider's order.
 //
 // files maps a recording MBID to the MediaFile holding it (FilesByRecording);
 // a release's file count is how many of its recordings are in it.
@@ -129,19 +132,36 @@ func SelectRelease(
 			best = rel
 		}
 	}
-	if kept != nil && (!ptr.Deref(spec.AnyReleaseOk, true) || filesOn(best, files) <= filesOn(kept, files)) {
+	if kept != nil && (!ptr.Deref(spec.AnyReleaseOk, true) || !holdsMore(best, kept, files)) {
 		return kept, SelectionKept
 	}
 	return best, SelectionBest
 }
 
-// better orders SelectRelease's candidates: more files, then more tracks. A
-// tie keeps the incumbent, so the provider's order breaks it.
+// better orders SelectRelease's candidates: more files; then, with files,
+// fewer tracks, so the release holding the album's files with the fewest
+// tracks it lacks is the files' own edition (talos, 2026-11-16: Old's
+// 38-track 4x12" vinyl holds the same recordings as the 19-track digital
+// release the owner's rips are, and named them by its sides); without
+// files, more tracks (Lidarr's MonitorSingleRelease). A tie keeps the
+// incumbent, so the provider's order breaks it.
 func better(a, b *pkgmetadata.AlbumRelease, files map[string]string) bool {
-	if fa, fb := filesOn(a, files), filesOn(b, files); fa != fb {
+	fa, fb := filesOn(a, files), filesOn(b, files)
+	if fa != fb {
 		return fa > fb
 	}
+	if fa > 0 {
+		return trackCount(a) < trackCount(b)
+	}
 	return trackCount(a) > trackCount(b)
+}
+
+// holdsMore reports whether best displaces the kept selection: it holds
+// more of the album's files, or as many, and some, on fewer tracks. More
+// tracks alone never move a selection.
+func holdsMore(best, kept *pkgmetadata.AlbumRelease, files map[string]string) bool {
+	fb, fk := filesOn(best, files), filesOn(kept, files)
+	return fb > fk || (fb == fk && fb > 0 && trackCount(best) < trackCount(kept))
 }
 
 func releaseID(rel *pkgmetadata.AlbumRelease) string {

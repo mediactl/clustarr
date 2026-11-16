@@ -25,6 +25,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/metadata"
 )
 
 var twoDiscs = []catalogv1alpha1.Track{
@@ -93,4 +94,116 @@ func TestPartIndexOf(t *testing.T) {
 	assert.EqualValues(t, 1005, PartIndexOf(tagged(0, 5, ""), "x.m4b"), "no disc reads as disc 1")
 	assert.EqualValues(t, 7, PartIndexOf(nil, "The Left Hand of Darkness - Part 07.mp3"))
 	assert.EqualValues(t, 0, PartIndexOf(&mediainfo.AudioProbe{}, "The Left Hand of Darkness.m4b"))
+}
+
+func titled(disc, track int32, title string) *mediainfo.AudioProbe {
+	return &mediainfo.AudioProbe{Codec: "flac", Tags: &commonv1.MediaTags{DiscNumber: disc, TrackNumber: track, Title: title}}
+}
+
+// A title tag agrees with a track's title through the spellings rips and
+// MusicBrainz differ by -- case, a featured-artist credit, "&" for "and",
+// brackets, curly apostrophes, accents, a stylised run-together title, any
+// script -- and never across what makes another recording: a cappella, a
+// part two, another song (talos, 2026-11-16, the owner's scene rips).
+func TestTitlesAgree(t *testing.T) {
+	for _, c := range []struct {
+		tag, track string
+		want       bool
+	}{
+		{"Pieces feat. Cornelia", "Pieces", true},
+		{"So Much (Feat. Philthy Rich, Stevie Joe & Ampichino)", "So Much", true},
+		{"née-nah (with Travis Scott & Metro Boomin)", "née-nah", true},
+		{"Snitches & Rats (Interlude)", "Snitches & Rats (interlude)", true},
+		{"Snitches and Rats (Interlude)", "Snitches & Rats (interlude)", true},
+		{"HOLLERTILYOUPASSOUT", "Holler Til You Pass Out", true},
+		{"R U Still Down? [Remember Me]", "R U Still Down? (Remember Me)", true},
+		{"Can't C Me", "Can’t C Me", true},
+		{"初恋", "初恋", true},
+		{"Money Conversations", "Money Conversations (a cappella)", false},
+		{"Move", "Move, Pt. 2", false},
+		{"DROP", "GO FIRST", false},
+		{"初恋", "花束を君に", false},
+		{"", "Intro", false},
+	} {
+		assert.Equal(t, c.want, TitlesAgree(c.tag, c.track), "%q vs %q", c.tag, c.track)
+	}
+}
+
+// deluxe24 is a deluxe release whose numbering is not the standard
+// edition's: the file numbered 10 on the 13-track release is track 20 here
+// (DaBaby's BLAME IT ON BABY, talos, 2026-11-16).
+var deluxe24 = []catalogv1alpha1.Track{
+	{RecordingID: "billboard-baby", Medium: 1, Number: 1, Title: "BILLBOARD BABY"},
+	{RecordingID: "go-first", Medium: 1, Number: 10, Title: "GO FIRST"},
+	{RecordingID: "drop", Medium: 1, Number: 20, Title: "DROP"},
+}
+
+// A file's track number never attributes it to a track its title tag says
+// it is not: the title finds the track on the release instead, or the file
+// is held for a person, never renamed to another song.
+func TestAttributeTrackNeverTakesANumberThatNamesAnotherSong(t *testing.T) {
+	id, reason := AttributeTrack(deluxe24, 1, titled(0, 10, "DROP"), "10.DaBaby - DROP-TDS.flac", false)
+	assert.Equal(t, "drop", id, "the title finds the song the number does not: %s", reason)
+
+	acappella := []catalogv1alpha1.Track{
+		{RecordingID: "water-ac", Medium: 1, Number: 5, Title: "Water (Drowning Pt. 2) (a cappella)"},
+		{RecordingID: "money-ac", Medium: 1, Number: 6, Title: "Money Conversations (a cappella)"},
+	}
+	id, reason = AttributeTrack(acappella, 1, titled(0, 5, "Money Conversations"), "05-a_boogie_wit_da_hoodie-money_conversations.flac", false)
+	assert.Empty(t, id, "an a cappella edition holds no track the file is")
+	assert.Contains(t, reason, `"Money Conversations"`)
+	assert.Contains(t, reason, `"Water (Drowning Pt. 2) (a cappella)"`)
+
+	id, _ = AttributeTrack(deluxe24, 1, titled(0, 10, "Go First"), "10.flac", false)
+	assert.Equal(t, "go-first", id, "a title that agrees keeps the number's track")
+	id, _ = AttributeTrack(deluxe24, 1, tagged(0, 10, ""), "10.flac", false)
+	assert.Equal(t, "go-first", id, "a file without a title tag is still attributed by its number")
+}
+
+// vinylOld is Danny Brown's Old as the 4x12" vinyl clustarr selected: 38
+// tracks numbered per side, so no track 18 (talos, 2026-11-16). digitalOld
+// is the 19-track digital release the owner's rip is.
+var vinylOld = []catalogv1alpha1.Track{
+	{RecordingID: "side-a-old", Medium: 1, Number: 1, Title: "Side A (Old)"},
+	{RecordingID: "kush-coma-vinyl", Medium: 4, Number: 8, Title: "Kush Coma"},
+}
+
+func digitalOld() []metadata.AlbumRelease {
+	tracks := []metadata.Track{
+		{IDs: metadata.ExternalIDs{metadata.KeyMBRecording: "side-a-old"}, Title: "Side A (Old)", Position: 1, MediumNumber: 1},
+		{IDs: metadata.ExternalIDs{metadata.KeyMBRecording: "kush-coma"}, Title: "Kush Coma", Position: 18, MediumNumber: 1},
+	}
+	return []metadata.AlbumRelease{
+		{IDs: metadata.ExternalIDs{metadata.KeyMBRelease: "vinyl"}, TrackCount: 38, Media: []metadata.Medium{
+			{Position: 1, Tracks: []metadata.Track{{IDs: metadata.ExternalIDs{metadata.KeyMBRecording: "side-a-old"}, Title: "Side A (Old)", Position: 1, MediumNumber: 1}}},
+			{Position: 4, Tracks: []metadata.Track{{IDs: metadata.ExternalIDs{metadata.KeyMBRecording: "kush-coma-vinyl"}, Title: "Kush Coma", Position: 8, MediumNumber: 4}}},
+		}},
+		{IDs: metadata.ExternalIDs{metadata.KeyMBRelease: "digital"}, TrackCount: 19, Media: []metadata.Medium{{Position: 1, Tracks: tracks}}},
+	}
+}
+
+// A file the selected release does not number is attributed in the album's
+// release whose number and title it fits -- its own edition -- before any
+// title alone is trusted: Kush Coma is track 18 of the digital Old, which
+// the vinyl the album selected numbers nowhere. The releases are asked for
+// only when the selected one does not settle the file.
+func TestAttributeTrackInTakesTheEditionTheFileFits(t *testing.T) {
+	asked := 0
+	releases := func() []metadata.AlbumRelease { asked++; return digitalOld() }
+
+	id, reason := AttributeTrackIn(vinylOld, 4, releases, titled(0, 18, "Kush Coma"), "18_danny_brown-kush_coma_ft_asap_rocky_and_zelooperz-fih.mp3", false)
+	assert.Equal(t, "kush-coma", id, "the digital release numbers it 18 and names it Kush Coma: %s", reason)
+	assert.Equal(t, 1, asked)
+
+	asked = 0
+	id, _ = AttributeTrackIn(vinylOld, 4, releases, titled(1, 1, "Side A (Old)"), "01.mp3", false)
+	assert.Equal(t, "side-a-old", id)
+	assert.Zero(t, asked, "a file the selected release settles asks for no other release")
+
+	id, reason = AttributeTrackIn(vinylOld, 4, func() []metadata.AlbumRelease { return nil }, titled(0, 18, "Kush Coma"), "18.mp3", false)
+	assert.Equal(t, "kush-coma-vinyl", id, "without the other releases the title finds the selected release's own track: %s", reason)
+
+	id, reason = AttributeTrackIn(vinylOld, 4, releases, titled(0, 18, "Not On Old"), "18.mp3", false)
+	assert.Empty(t, id)
+	assert.NotEmpty(t, reason, "a song no release has is held")
 }

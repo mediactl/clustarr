@@ -391,3 +391,55 @@ func TestASpecialPurposeArtistIsNeverProposed(t *testing.T) {
 	}
 	assert.Equal(t, map[string]int64{"artist": 4}, got.AwaitingChildren)
 }
+
+// A flat folder of an edition's rip is attributed in the album's release the
+// files fit, not by their numbers alone against the release the album
+// selected (talos, 2026-11-16): Danny Brown's Old selected its 4x12" vinyl,
+// numbered per side, so the digital rip's track 18, Kush Coma, named no
+// track of it and was listed for a person. The album's releases are asked
+// for once a walk, and a song no release has is still held.
+func TestAFlatRipIsAttributedInTheReleaseItFits(t *testing.T) {
+	old := &catalogv1alpha1.Album{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "library", Name: "old"},
+		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "danny-brown", ReleaseGroupID: "old-group"},
+		Status: catalogv1alpha1.AlbumStatus{
+			Metadata: &catalogv1alpha1.AlbumMetadata{Title: "Old"},
+			Tracks: []catalogv1alpha1.Track{
+				{RecordingID: "side-a-old", Medium: 1, Number: 1, Title: "Side A (Old)"},
+				{RecordingID: "kush-coma-vinyl", Medium: 4, Number: 8, Title: "Kush Coma"},
+			},
+		},
+	}
+	f := newWalkFixture(t, catalogv1alpha1.RootFolderKindMusic, catalogv1alpha1.RootDefaults{QualityProfileRef: "lossless"},
+		artistObj("danny-brown", "danny-brown-mbid", "Danny Brown"), old)
+	var asked []string
+	f.w.Releases = func(_ context.Context, group string) ([]metadata.AlbumRelease, error) {
+		asked = append(asked, group)
+		return []metadata.AlbumRelease{
+			{IDs: metadata.ExternalIDs{metadata.KeyMBRelease: "vinyl"}, TrackCount: 38, Media: []metadata.Medium{
+				{Position: 1, Tracks: []metadata.Track{{IDs: metadata.ExternalIDs{metadata.KeyMBRecording: "side-a-old"}, Title: "Side A (Old)", Position: 1, MediumNumber: 1}}},
+				{Position: 4, Tracks: []metadata.Track{{IDs: metadata.ExternalIDs{metadata.KeyMBRecording: "kush-coma-vinyl"}, Title: "Kush Coma", Position: 8, MediumNumber: 4}}},
+			}},
+			{IDs: metadata.ExternalIDs{metadata.KeyMBRelease: "digital"}, TrackCount: 19, Media: []metadata.Medium{{Position: 1, Tracks: []metadata.Track{
+				{IDs: metadata.ExternalIDs{metadata.KeyMBRecording: "side-a-old"}, Title: "Side A (Old)", Position: 1, MediumNumber: 1},
+				{IDs: metadata.ExternalIDs{metadata.KeyMBRecording: "kush-coma"}, Title: "Kush Coma", Position: 18, MediumNumber: 1},
+			}}}},
+		}, nil
+	}
+	kush := filepath.Join("Danny Brown", "18_danny_brown-kush_coma_ft_asap_rocky_and_zelooperz-fih.mp3")
+	stray := filepath.Join("Danny Brown", "20_danny_brown-not_on_old-fih.mp3")
+	f.plant(t, kush, stray)
+	f.probeTags(map[string]*commonv1.MediaTags{
+		kush:  {Album: "Old", Title: "Kush Coma (feat. A$AP Rocky & Zelooperz)", TrackNumber: 18, TrackTotal: 19},
+		stray: {Album: "Old", Title: "Not On Old", TrackNumber: 20},
+	})
+
+	got, _ := f.handle(t, false)
+	obs := f.bus.observed(t, f.root)
+	require.Contains(t, obs, kush, "%v", got.Unmatched)
+	assert.Equal(t, "kush-coma", obs[kush].Attribution.Track, "the digital release numbers it 18 under its title")
+	assert.Equal(t, []string{"old-group"}, asked, "the releases are asked for once a walk")
+	files := unmatchedFiles(got)
+	require.Contains(t, files, stray)
+	assert.Contains(t, files[stray].Reason, "names no track")
+}

@@ -545,7 +545,11 @@ func (w *Worker) handleMusicFile(
 	// name, its recording id; a file naming none stays unmatched, with
 	// the reason, rather than backing the album as no track.
 	cand := &albums[slices.IndexFunc(albums, func(c AlbumCandidate) bool { return c.Name == m.Ref.Name })]
-	id, reason := fileimport.AttributeTrack(cand.Tracks, cand.Media, ap, rel, len(cand.Tracks) == 1)
+	g := &gateway{w: w, st: st}
+	id, reason := fileimport.AttributeTrackIn(cand.Tracks, cand.Media, w.albumReleases(ctx, g, cand.ReleaseGroupID), ap, rel, len(cand.Tracks) == 1)
+	if g.err != nil {
+		return g.err
+	}
 	switch {
 	case reason == fileimport.ErrTracksPending && cand.NoTracks == "" && w.stillToCome(cand.Created):
 		st.progress.Await(awaiting)

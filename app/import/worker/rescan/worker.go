@@ -159,6 +159,15 @@ type Worker struct {
 	Lookup LookupFunc
 	Search SearchFunc
 
+	// Releases answers every release of an album's release group, tracks
+	// and all, for a file the album's selected release does not settle
+	// (fileimport.AttributeTrackIn): the walk asks once per group and
+	// attributes the file in the release whose number and title it fits.
+	// nil asks the metadata gateway's lookup verb over Bus, which answers
+	// from its metadata cache. Bounded by IdentifyTimeout, heartbeating, as
+	// Lookup is.
+	Releases ReleasesLookup
+
 	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
 	// video file smaller than this whose name does not mark it a sample is
 	// a SUSPECTED sample. The walk records it in LibraryScan.status.unmatched
@@ -243,6 +252,10 @@ type scanState struct {
 	// nonVideo holds the candidates of a music, book, audiobook or comic
 	// root folder; nil for a movie root.
 	nonVideo *nonVideoIndex
+
+	// releases is each release group's every release the walk asked the
+	// gateway for (albumReleases), nil for one it could not have.
+	releases map[string][]metadata.AlbumRelease
 
 	// series holds the series of a series root folder, with their
 	// episodes.
