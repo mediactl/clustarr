@@ -32,6 +32,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"slices"
@@ -193,6 +194,12 @@ const (
 	VideoTagKey = "CLUSTARR_VIDEO"
 	// VideoCopied and VideoEncoded are VideoTagKey's values.
 	VideoCopied, VideoEncoded = "copy", "encode"
+	// VideoKept is VideoTagKey's third value: the release's video, copied
+	// because the standard's encode of it came out over
+	// policy.maxOutputToSourcePercent (KeepVideo). Like an encode it is final:
+	// no policy asks for it to be encoded again, since the encode already
+	// showed it saves nothing.
+	VideoKept = "keep"
 )
 
 // SubtitlePlan is one subtitle track embedded in the output: only a graft's
@@ -323,13 +330,15 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	// profile no longer keeps H.264 (owner, 2026-10-19), and one that copied
 	// HEVC over policy.maxVideoBitrateKbps is encoded once the policy says so
 	// (owner, 2026-10-27), and one that copied a release's 10-bit HEVC is
-	// encoded once since Version 9 (owner, 2026-11-02: copiedTenBit).
+	// encoded once since Version 9 (owner, 2026-11-02: copiedTenBit). A
+	// video kept because its encode was no smaller (VideoKept) is final.
 	elsewhere := (&commonv1.MediaInfo{VideoEncoder: v.Encoder}).TranscodedElsewhere()
 	overLimit := v.Codec == "hevc" && profile.MaxVideoBitrateKbps > 0 && !elsewhere &&
 		NormalisedKbps(v.BitRateKbps, v.Width, v.Height) > int64(profile.MaxVideoBitrateKbps)
 	videoTag := formatTag(info.Tags, VideoTagKey)
 	remux10 := tag != "" && !elsewhere && copiedTenBit(v, videoTag)
-	reencode := tag != "" && (keptH264Dropped(info, profile) || (overLimit && videoTag != VideoEncoded) || remux10)
+	reencode := tag != "" && videoTag != VideoKept &&
+		(keptH264Dropped(info, profile) || (overLimit && videoTag != VideoEncoded) || remux10)
 	if tag != "" && containerOf(info.Format.Name) == transcode.ContainerMP4 && !reencode {
 		return skip(p, "already transcoded (CLUSTARR_PROFILE "+tag+")")
 	}
@@ -443,6 +452,43 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	p.Video = encodeVideo(v, int32(vi), profile.Quality, hw, hdr, strip, eight)
 	p.Tags[VideoTagKey] = VideoEncoded
 	return p
+}
+
+// KeepVideo is the plan that runs in place of p, an encode of info whose
+// output came out over policy.maxOutputToSourcePercent, when
+// the source's video is one the standard encodes only to save space:
+// 8-bit SDR H.264, which a profile keeping H.264 (policy.keepCodecs) copies
+// as it is (owner, 2026-11-15). Such a video plays natively everywhere, so
+// an encode no smaller than it is a second-generation copy that buys
+// nothing; the file still takes the MP4 layout -- p's audio, sidecars,
+// chapters and any joined graft -- with its video copied and tagged
+// VideoKept, final under every policy. On talos 82 such encodes had failed,
+// lean 1 Mbps streaming WEB-DLs and grainy sources the Intel encoder's fixed
+// quality spent more bits on, each left Failed and in its original
+// Matroska. Any other encode -- a release's 10-bit HEVC, AV1, HEVC over
+// policy.maxVideoBitrateKbps, Hi10P or HDR H.264 -- is made for
+// playability or a bitrate the copy would not meet, and has none (false).
+func KeepVideo(p Result, info transcode.MediaInfo) (Result, bool) {
+	vi := primaryVideo(info.Video)
+	if p.Decision != DecisionEncode || vi < 0 {
+		return Result{}, false
+	}
+	v := info.Video[vi]
+	if hdr, _, ok := hdrMode(v); !ok || hdr != "sdr" || v.Codec != "h264" || v.PixFmt != "yuv420p" ||
+		isDolbyVision(v.HDR.Format) {
+		return Result{}, false
+	}
+	k := p
+	k.Tags = maps.Clone(p.Tags)
+	if k.Tags == nil {
+		k.Tags = map[string]string{}
+	}
+	k.Tags[VideoTagKey] = VideoKept
+	k.Decision = DecisionCopyVideo
+	k.Reason = "H.264 video kept and copied into the MP4 layout: its encode was no smaller than the source"
+	k.Video = VideoPlan{SourceIndex: int32(vi), Action: "copy"}
+	k.Expect.VideoCodec, k.Expect.PixelFormat = v.Codec, v.PixFmt
+	return k, true
 }
 
 // gpuUndecodable is why hw's GPU tier would decode v on the CPU, or "" when

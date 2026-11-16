@@ -25,6 +25,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/task"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // MaxAttempts is how many dispatches a retriable failure gets before it is
@@ -139,10 +140,16 @@ func applyAnswer(b *catalogv1alpha1.TranscodeState, a task.Answer, n Next, now t
 		b.Phase, b.Reason, b.FinishedAt = n.Phase, "", &metav1.Time{Time: at}
 		b.Result = outputOf(a.Result)
 		b.Message = "transcode succeeded; waiting for the output's probe"
+		if k := keptVideo(b, a.Result); k != "" {
+			b.Message = k + "; waiting for the output's probe"
+		}
 	case n.Phase == catalogv1alpha1.TranscodePhaseSucceeded: // a kept copy
 		b.Phase, b.Reason, b.FinishedAt = n.Phase, "", &metav1.Time{Time: at}
 		b.Result, b.Compliant, b.ProfileTag = outputOf(a.Result), false, Tag(b.Profile, b.ProfileHash)
 		b.Message = "transcoded to a copy beside the kept source"
+		if k := keptVideo(b, a.Result); k != "" {
+			b.Message = k + "; a copy beside the kept source"
+		}
 	case n.Phase == catalogv1alpha1.TranscodePhaseSkipped:
 		b.Phase, b.Reason, b.FinishedAt = n.Phase, firstNonEmpty(n.Reason, ReasonPlanSkip), &metav1.Time{Time: at}
 		b.Message = truncate(n.Message, maxMessage)
@@ -150,6 +157,29 @@ func applyAnswer(b *catalogv1alpha1.TranscodeState, a task.Answer, n Next, now t
 		b.Phase, b.Reason, b.Blocked, b.FinishedAt = catalogv1alpha1.TranscodePhaseFailed, n.Reason, n.Block, &metav1.Time{Time: at}
 		b.Message = truncate(n.Message, maxMessage)
 	}
+}
+
+// keptVideo records on b the remux the worker ran in place of an encode no
+// smaller than its source (task.Result.KeptVideo, standard.KeepVideo):
+// status.transcode.plan becomes that remux, its videoAction keep, which the
+// planner reads as final (KeptH264Dropped, MediaInfoOf), as the worker
+// reads the output's CLUSTARR_VIDEO=keep. It returns the block's message,
+// "" when r kept nothing.
+func keptVideo(b *catalogv1alpha1.TranscodeState, r *task.Result) string {
+	if r == nil || r.KeptVideo == nil {
+		return ""
+	}
+	k := r.KeptVideo
+	p := &catalogv1alpha1.TranscodePlan{
+		Mode: catalogv1alpha1.TranscodeModeRemuxOnly, Encoder: "copy", VideoAction: standard.VideoKept,
+		PlanHash: truncate(k.PlanHash, 64),
+	}
+	if b.Plan != nil {
+		p.Dropped = b.Plan.Dropped // the encode's audio and subtitles are the remux's
+	}
+	b.Plan = p
+	return fmt.Sprintf("the encode came out %d%% of the source, so its video was kept and remuxed into the MP4 layout",
+		k.EncodePercent)
 }
 
 // outputOf is a worker's result as status.transcode.result.

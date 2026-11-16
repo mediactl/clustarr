@@ -276,6 +276,9 @@ type runner struct {
 	// whether it encoded in local scratch, logged beside them.
 	times        *stageTimes
 	localScratch bool
+	// kept is the remux that ran in place of an encode no smaller than its
+	// source (encodeJob.keep), reported in the result; nil otherwise.
+	kept *task.KeptVideo
 }
 
 func (r *runner) run(ctx context.Context) error {
@@ -391,33 +394,33 @@ func (r *runner) run(ctx context.Context) error {
 		return retriable("transcode worker: scratch space: %w", err)
 	}
 
-	// 4. Encode.
-	r.times.enter("encode")
-	if err := job.encode(ctx); err != nil {
-		return err
-	}
-
-	// 5. Verify. From here until the rename, every failure removes the
-	// output and leaves the source exactly as it was.
-	r.times.enter("verify")
-	report, err := job.verify(ctx)
+	// 4. Encode, and 5. verify. From the verify until the rename, every
+	// failure removes the output and leaves the source exactly as it was.
+	report, err := r.encodeAndVerify(ctx, job, "encode", "verify")
 	if err != nil {
-		removePart(ctx, job.part)
-		// ffprobe could not run: that is the environment, not the output.
-		return retriable("transcode worker: verify: %w", err)
-	}
-	if !report.OK {
-		removePart(ctx, job.part)
-		return verifyFailed("transcode worker: output failed verification: %v", report.Problems)
+		return err
 	}
 	policy := jobspec.MaxOutputToSourcePercent(r.t.Profile.Spec.Policy)
 	if limit := sizeLimit(policy, sourceCodec(info)); outputTooLarge(job.plan, limit, report.SizeBytes, st.Size()) {
 		removePart(ctx, job.part)
+		pct := sizePercent(report.SizeBytes, st.Size())
 		over := fmt.Sprintf("policy.maxOutputToSourcePercent %d", limit)
 		if limit != policy {
 			over = fmt.Sprintf("the %d%% an AV1 source may reach", limit)
 		}
-		return verifyFailed("transcode worker: output is %d%% of the source, above %s", sizePercent(report.SizeBytes, st.Size()), over)
+		if job.keep == nil {
+			return verifyFailed("transcode worker: output is %d%% of the source, above %s", pct, over)
+		}
+		// An encode made only to save space that saves none: the file takes
+		// the MP4 layout with its own video, kept and final
+		// (standard.KeepVideo; owner, 2026-11-15).
+		log.InfoContext(ctx, "transcode worker: the encode is no smaller than the source; keeping its video",
+			"outputPercent", pct, "limit", over)
+		job = *job.keep
+		r.kept = &task.KeptVideo{PlanHash: job.plan.Hash(), EncodePercent: pct}
+		if _, err := r.encodeAndVerify(ctx, job, "keep", "keepVerify"); err != nil {
+			return err
+		}
 	}
 
 	// The encode can take hours. If the source changed under it, the
@@ -567,6 +570,10 @@ type encodeJob struct {
 	plan   standard.Result // its sidecars are placed before the swap
 	encode func(ctx context.Context) error
 	verify func(ctx context.Context) (*transcode.Report, error)
+	// keep runs in place of an encode whose output is over the size limit,
+	// copying the source's video into the MP4 layout (standard.KeepVideo);
+	// nil when the encode has none.
+	keep *encodeJob
 }
 
 // beforeSwap runs o.BeforeSwap, the pool worker's pre-swap lease reassert
@@ -751,6 +758,7 @@ func (r *runner) finish(ctx context.Context, out, local string, sourceSize int64
 		OutputPath:            out,
 		OutputSizeBytes:       st.Size(),
 		OutputToSourcePercent: sizePercent(st.Size(), sourceSize),
+		KeptVideo:             r.kept,
 	}
 
 	if sourceSize > 0 && r.tier != "" {
@@ -865,6 +873,28 @@ func formatTag(raw *mediainfo.Raw, key string) string {
 		}
 	}
 	return ""
+}
+
+// encodeAndVerify runs job's encode and verifies its output, timed as the
+// stages encodeStage and verifyStage. A verification that fails or cannot
+// run removes the output.
+func (r *runner) encodeAndVerify(ctx context.Context, job encodeJob, encodeStage, verifyStage string) (*transcode.Report, error) {
+	r.times.enter(encodeStage)
+	if err := job.encode(ctx); err != nil {
+		return nil, err
+	}
+	r.times.enter(verifyStage)
+	report, err := job.verify(ctx)
+	if err != nil {
+		removePart(ctx, job.part)
+		// ffprobe could not run: that is the environment, not the output.
+		return nil, retriable("transcode worker: verify: %w", err)
+	}
+	if !report.OK {
+		removePart(ctx, job.part)
+		return nil, verifyFailed("transcode worker: output failed verification: %v", report.Problems)
+	}
+	return report, nil
 }
 
 // outputTooLarge reports whether an encode's output of out bytes, from a

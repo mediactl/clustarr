@@ -32,4 +32,20 @@ type Result struct {
 	OutputToSourcePercent int32 `json:"outputToSourcePercent,omitempty"`
 	// VMAFCentis is the measured VMAF score in hundredths, so 95.42 is 9542.
 	VMAFCentis *int32 `json:"vmafCentis,omitempty"`
+	// KeptVideo is set when the planned encode came out over
+	// policy.maxOutputToSourcePercent and the worker copied the source's
+	// video into the MP4 layout instead (standard.KeepVideo): the output is
+	// that remux, tagged CLUSTARR_VIDEO=keep, and status.transcode.plan
+	// records it so the planner reads the file as final.
+	KeptVideo *KeptVideo `json:"keptVideo,omitempty"`
+}
+
+// KeptVideo is the remux that ran in place of an encode no smaller than its
+// source.
+type KeptVideo struct {
+	// PlanHash is the remux's standard.Result.Hash.
+	PlanHash string `json:"planHash"`
+	// EncodePercent is the refused encode's output as a percentage of the
+	// source.
+	EncodePercent int32 `json:"encodePercent"`
 }

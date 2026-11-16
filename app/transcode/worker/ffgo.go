@@ -144,6 +144,22 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 		"localScratch", stage != "")
 	durationMillis := info.Format.Duration.Milliseconds()
 	graft, plan := r.prepareGraft(ctx, local, plan)
+	job := r.jobFor(plan, tier, local, part, stage, durationMillis, graft)
+	// An encode made only to save space that comes out over the size limit
+	// copies the source's video instead (standard.KeepVideo): the same part,
+	// the same joined graft, the MP4 layout with the video kept.
+	if k, ok := standard.KeepVideo(plan, info); ok {
+		kj := r.jobFor(k, tier, local, part, stage, durationMillis, graft)
+		job.keep = &kj
+	}
+	return job, nil
+}
+
+// jobFor is the encode of plan from local into part (staged at stage when
+// part is in local scratch), carrying graft when one rides along.
+func (r *runner) jobFor(plan standard.Result, tier transcode.Tier, local, part, stage string, durationMillis int64,
+	graft *joinedGraft,
+) encodeJob {
 	return encodeJob{
 		part: part, stage: stage, plan: plan,
 		encode: func(ctx context.Context) error {
@@ -200,7 +216,7 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 			r.out.Graft = &done
 			return rep, nil
 		},
-	}, nil
+	}
 }
 
 // joinedGraft is a graft prepared to ride along with this transcode.

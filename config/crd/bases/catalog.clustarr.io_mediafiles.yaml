@@ -1726,9 +1726,15 @@ spec:
                         maxLength: 64
                         type: string
                       videoAction:
+                        description: |-
+                          VideoAction is the output's CLUSTARR_VIDEO: copy (the release's video,
+                          remuxed), encode (clustarr's own), or keep (the release's video,
+                          remuxed because its encode came out no smaller than the source, and
+                          final like an encode; standard.KeepVideo).
                         enum:
                         - copy
                         - encode
+                        - keep
                         type: string
                     required:
                     - mode

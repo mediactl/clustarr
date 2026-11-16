@@ -423,3 +423,32 @@ in the caption domain instead, and the transcode never changes for it:
 - **Not `mov_text`:** the text goes beside the MP4 as `<stem>.<lang>.srt`
   through the fetch worker's ordinary sidecar write, as every other
   subtitle does since phase 1.
+
+## Amendment (2026-11-15): a kept video when the encode saves nothing
+
+Owner, 2026-11-15, after "Spare Me, Great Lord! S01E11 [WETV][WEBDL-1080p][h264 8bit] Failed: output is
+110% of the source, above policy.maxOutputToSourcePercent 100".
+
+- **The finding.** 186 of talos's 322 failed transcodes were this refusal, all on the Intel class: 82
+  of 8-bit SDR H.264 (lean streaming WEB-DLs at 0.6-1.3 Mbps 1080p, median 110%; grainy sources such
+  as Naked and Afraid at 5 Mbps, up to 174%), 104 of a release's 10-bit HEVC and 2 of AV1 over 150%.
+  The QSV tier encodes at a fixed quality (`global_quality`, preset medium) with no bit-rate ceiling,
+  where NVENC caps at 70% of the source. A refused file stayed Failed, blocked for its hashes, in its
+  original Matroska.
+- **The rule.** 8-bit SDR H.264 is encoded only to save space (`policy.keepCodecs: [hevc]` since
+  2026-10-19): it plays natively everywhere, so a larger second-generation copy buys nothing. When such
+  an encode comes out over the limit, the worker removes it and, in the same attempt, remuxes the file
+  into the MP4 layout with the source's video copied (`standard.KeepVideo`: the encode's own audio,
+  sidecars, chapters and any joined graft).
+- **`CLUSTARR_VIDEO=keep`** (`standard.VideoKept`) is the tag's third value: the release's video, kept
+  because its encode was no smaller, final like an encode. `standard.Plan` and
+  `transcodeplan.KeptH264Dropped` never encode it again. The worker reports `task.Result.KeptVideo`
+  (the remux's plan hash, the encode's percent), and the loop records the remux as
+  `status.transcode.plan` (`mode: remuxOnly`, `encoder: copy`, `videoAction: keep`, CRD enum
+  `copy;encode;keep`), which the planner reads as it reads the tag.
+- **Not covered, on purpose.** An encode made for playability -- a release's 10-bit HEVC (Version 9),
+  AV1, Hi10P, HDR or Dolby Vision H.264 -- that runs over the limit still fails. No `standard.Version`
+  raise: the plan for a given file is unchanged, so nothing is re-planned. The files refused before
+  this stay blocked for their hashes until retried (`transcode.clustarr.io/retry`).
+- **Parked:** the bit-rate-capped retry (ICQ first, then QVBR under the source) of 2026-11-02, which
+  would shrink the grainy group rather than keep it.

@@ -204,8 +204,12 @@ type TranscodePlan struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
 	Encoder string `json:"encoder,omitempty"`
+	// VideoAction is the output's CLUSTARR_VIDEO: copy (the release's video,
+	// remuxed), encode (clustarr's own), or keep (the release's video,
+	// remuxed because its encode came out no smaller than the source, and
+	// final like an encode; standard.KeepVideo).
 	// +optional
-	// +kubebuilder:validation:Enum=copy;encode
+	// +kubebuilder:validation:Enum=copy;encode;keep
 	VideoAction string `json:"videoAction,omitempty"`
 	// +optional
 	// +kubebuilder:validation:Enum=cpu;nvdec;upload;vaapi;qsv

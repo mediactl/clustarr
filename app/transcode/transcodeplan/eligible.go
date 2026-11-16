@@ -127,9 +127,15 @@ func Eligible(f File, profiles []transcodev1alpha1.TranscodeProfile) Eligibility
 // profile kept it (policy.keepCodecs) -- tagged, its video still H.264 --
 // under a profile that no longer keeps H.264: the one transcode that is not
 // final, since its video is the release's (owner, 2026-10-19: 5,956 such
-// files remuxed before the owner dropped it). standard.Plan encodes it.
+// files remuxed before the owner dropped it). standard.Plan encodes it. A
+// remux whose recorded transcode kept the video because its encode was no
+// smaller (videoAction keep, standard.KeepVideo; owner, 2026-11-15) is
+// final: encoding it again would come out the same.
 func KeptH264Dropped(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.TranscodeProfile) bool {
-	mi := mf.Status.MediaInfo
+	mi, tr := mf.Status.MediaInfo, mf.Status.Transcode
+	if RecordsATranscode(tr) && tr.Plan != nil && tr.Plan.VideoAction == standard.VideoKept {
+		return false
+	}
 	return mi != nil && mi.TranscodeProfile != "" && mi.VideoCodec == "h264" &&
 		!slices.Contains(profile.Spec.Policy.KeepCodecs, "h264")
 }

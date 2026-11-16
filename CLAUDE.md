@@ -299,7 +299,22 @@ larger by design (`worker.outputTooLarge`), and an encode of an AV1
 source may run to 150% (`worker.AV1LimitPercent`, owner, 2026-11-03): the
 standard's HEVC of a lean AV1 encode lands at 100-105% of it (Attack on
 Titan's fourth season failed every attempt at 100), and is made for
-playability, since Plex here transcodes no video. A file is planned
+playability, since Plex here transcodes no video. **An encode made only
+to save space that saves none keeps its video** (owner, 2026-11-15:
+`standard.KeepVideo`): when the encode of 8-bit SDR H.264 -- what
+`policy.keepCodecs: [h264]` would copy -- comes out over the limit, the
+worker removes it and, in the same attempt, remuxes the file into the MP4
+layout with the source's video copied and tagged `CLUSTARR_VIDEO=keep`
+(`standard.VideoKept`), reporting `task.Result.KeptVideo`, which the loop
+records as `status.transcode.plan` (`videoAction: keep`, mode remuxOnly,
+the message naming the encode's percent). A kept video is final like an
+encode: `standard.Plan` and `transcodeplan.KeptH264Dropped` never encode
+it again. On talos 82 such encodes had failed, lean 1 Mbps streaming
+WEB-DLs and grainy sources whose fixed-quality hevc_qsv encode ran 100-174%,
+each left Failed in its original Matroska. Every other encode over the
+limit -- a release's 10-bit HEVC, AV1, Hi10P or HDR H.264 -- is made for
+playability and still fails. The files that failed before it stay blocked
+for their hashes until retried. A file is planned
 again at dispatch whenever its plan would differ (a profile edit, another
 class, new limits). **A new hash
 re-transcodes nothing**: the transcode planner (`app/transcode/transcodeplan`)

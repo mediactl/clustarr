@@ -175,6 +175,8 @@ func (p *TranscodePlan) Describe() string {
 	switch {
 	case p == nil:
 		return ""
+	case p.Mode == TranscodeModeRemuxOnly && p.VideoAction == "keep":
+		return "remux to MP4, video kept (its encode was no smaller)"
 	case p.Mode == TranscodeModeRemuxOnly:
 		return "remux to MP4, video copied"
 	case p.Encoder != "":
