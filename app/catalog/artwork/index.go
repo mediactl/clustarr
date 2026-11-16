@@ -112,6 +112,9 @@ type Object struct {
 	SourceURL string
 	Digest    string
 	UpdatedAt metav1.Time
+	// Unfit reports an original of a sized type stored before the current
+	// FitVersion (Unfit): the plan fetches it again, to be fitted.
+	Unfit bool
 }
 
 // ObjectsFromIndex is what the index knows of each type's original of the
@@ -123,7 +126,7 @@ func ObjectsFromIndex(idx *objindex.Index, kind commonv1.MediaKind, uid types.UI
 		if !ok {
 			continue
 		}
-		o := Object{Present: true, Digest: e.Digest}
+		o := Object{Present: true, Digest: e.Digest, Unfit: Unfit(t, e.Metadata)}
 		if entry, ok := EntryOf(t, e); ok {
 			o.Current, o.Source, o.SourceURL, o.UpdatedAt = true, entry.Source, entry.SourceURL, entry.UpdatedAt
 		}

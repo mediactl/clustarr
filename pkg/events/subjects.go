@@ -297,7 +297,11 @@ const (
 	ArtworkMetaKeySourceURL      = "clustarr.io/source-url"
 	ArtworkMetaKeyUpdatedAt      = "clustarr.io/updated-at"
 	ArtworkMetaKeyRenderedFrom   = "clustarr.io/rendered-from"
-	BucketMetaKeyKeyScheme       = "clustarr.io/key-scheme"
+	// ArtworkMetaKeyFit is the fit version an original of a sized image
+	// type was stored under (app/catalog/artwork.FitVersion): scaled into
+	// its type's box and re-encoded. Absent on a type stored as fetched.
+	ArtworkMetaKeyFit      = "clustarr.io/fit"
+	BucketMetaKeyKeyScheme = "clustarr.io/key-scheme"
 )
 
 // ArtworkKeyScheme is BucketArtwork's key scheme, recorded in the bucket's

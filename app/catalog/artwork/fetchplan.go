@@ -109,7 +109,8 @@ func (p FetchPlan) Hash() string {
 //
 //   - a source whose type has no original, or one whose metadata predates
 //     events.ArtworkMetaVersion (the fetcher backfills it), or one fetched
-//     from another URL or kind, or one older than RefetchAge, is fetched --
+//     from another URL or kind, or one older than RefetchAge, or one of a
+//     sized type stored before the current fit (Unfit), is fetched --
 //     unless that very URL failed less than FailureRetry ago, which waits;
 //   - an original whose type has no source any more is dropped when its
 //     metadata says it was a custom override (the override was removed); a
@@ -131,7 +132,7 @@ func PlanFetch(sources map[catalogv1alpha1.ImageType]Source, objects map[catalog
 			continue
 		}
 		need := !obj.Present || !obj.Current || obj.SourceURL != src.URL || obj.Source != src.Kind ||
-			now.Sub(obj.UpdatedAt.Time) > RefetchAge
+			now.Sub(obj.UpdatedAt.Time) > RefetchAge || obj.Unfit
 		if !need {
 			continue
 		}

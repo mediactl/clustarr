@@ -2511,6 +2511,18 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   03:30Z, after which every artwork Put failed (discard New), the fetch
   durable's 32 slots sat in its 1-6 h backoff (a store fault redelivers)
   and nothing was stored for any kind.
+- **Sized originals are stored fitted** (owner, 2026-11-16: "We can greatly
+  reduce the image cache by compressing jpegs and resizing images"): the
+  fetcher scales a poster into 500x750, a fanart, thumb or screenshot into
+  1280x720 and a banner into 758x140 (`catalogartwork.FitBox`; aspect kept,
+  never up, so a square album cover is 500x500) and encodes it as a JPEG at
+  quality 85 (`Fetcher.fit`); a transparent one stays a PNG, an image that
+  fits is encoded again only for a tenth saved, one over 40 megapixels is
+  stored as fetched, and logos, clearart, disc art and headshots are
+  untouched. Each such object records `clustarr.io/fit`
+  (`catalogartwork.FitVersion`), and the item key's plan fetches an
+  original without the current one again (`Object.Unfit`), so the first
+  deploy, or a raised version, refits the store as items are next planned.
 - **Plex reads music metadata from NFO files, not a provider** (ADR-0022,
   D12, D13): every PMS build through 1.43.5.11079 refuses a custom provider
   declaring artist/album/track (types 8, 9, 10: HTTP 400 "The provider

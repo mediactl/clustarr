@@ -430,7 +430,10 @@ func TestFetchOneStoresACoverArtArchiveOriginalsRendition(t *testing.T) {
 	assert.Zero(t, fx.srv.hitsFor(rel+"829521842.png"), "the original is never downloaded")
 	info, err := fx.store.Info(fx.ctx, fx.key(catalogv1alpha1.ImageTypePoster))
 	require.NoError(t, err)
-	assert.Equal(t, digestOf(rendition), info.Digest)
+	// A cover is a poster, so the rendition is fitted into the poster's box
+	// like any other (owner, 2026-11-16): 500 pixels square.
+	assert.Equal(t, "500", info.Metadata[events.ArtworkMetaKeyWidth])
+	assert.Equal(t, "500", info.Metadata[events.ArtworkMetaKeyHeight])
 	assert.Equal(t, "image/jpeg", info.Headers[artwork.HeaderContentType])
 	assert.Equal(t, original, info.Headers[artwork.HeaderSourceURL])
 

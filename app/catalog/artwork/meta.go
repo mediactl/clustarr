@@ -81,7 +81,10 @@ type Facts struct {
 	// and status.overlay.updatedAt from (ADR-0019 D13). Zero leaves the key
 	// out.
 	UpdatedAt time.Time
-	Overlay   *OverlayFacts
+	// Fit is the FitVersion an original of a boxed type was stored under
+	// (events.ArtworkMetaKeyFit); "" leaves the key out.
+	Fit     string
+	Overlay *OverlayFacts
 }
 
 // ObjectMeta is the complete header and metadata set of one artwork object
@@ -126,6 +129,9 @@ func ObjectMeta(ref ObjectRef, t catalogv1alpha1.ImageType, variant string, f Fa
 	}
 	if f.Language != "" {
 		meta[events.ArtworkMetaKeyLanguage] = f.Language
+	}
+	if f.Fit != "" {
+		meta[events.ArtworkMetaKeyFit] = f.Fit
 	}
 	if o := f.Overlay; o != nil {
 		headers[HeaderRenderedFrom] = o.RenderedFrom

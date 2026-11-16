@@ -154,6 +154,11 @@ type Fetcher struct {
 
 	mu    sync.Mutex
 	locks map[string]*itemLock
+
+	// fitMu holds the fits to one at a time: each decodes a whole image,
+	// up to MaxFitPixels of it, and the fetch durable runs many fetches at
+	// once.
+	fitMu sync.Mutex
 }
 
 // LockKey names one item for [Fetcher.Lock]: "<kind>/<namespace>/<name>".
@@ -327,13 +332,22 @@ func (f *Fetcher) fetchAndPut(ctx context.Context, key string, ref catalogartwor
 			ErrImageTooLarge, format, cfg.Width, cfg.Height, MaxImageDimension)
 	}
 
+	facts := catalogartwork.Facts{
+		ContentType: stored, Source: string(src.Kind), SourceURL: src.URL, Language: src.Language,
+		Width: cfg.Width, Height: cfg.Height, UpdatedAt: f.now(),
+	}
+	if box, sized := catalogartwork.FitBox(t); sized {
+		// Marked whether or not the bytes changed: the plan fetches an
+		// unmarked original of a sized type again.
+		facts.Fit = catalogartwork.FitVersion
+		if out, ok := f.fit(body, box, cfg); ok {
+			body, facts.ContentType, facts.Width, facts.Height = out.body, out.contentType, out.width, out.height
+		}
+	}
+
 	// The complete set (artwork design §B.2 as amended): a Put that omits a
 	// key releases it.
-	_, err = f.Store.Put(ctx, key, bytes.NewReader(body), catalogartwork.ObjectMeta(ref, t, events.ArtworkVariantOriginal,
-		catalogartwork.Facts{
-			ContentType: stored, Source: string(src.Kind), SourceURL: src.URL, Language: src.Language,
-			Width: cfg.Width, Height: cfg.Height, UpdatedAt: f.now(),
-		}))
+	_, err = f.Store.Put(ctx, key, bytes.NewReader(body), catalogartwork.ObjectMeta(ref, t, events.ArtworkVariantOriginal, facts))
 	if err != nil {
 		return fmt.Errorf("%w: put %s: %w", ErrStore, key, err)
 	}
