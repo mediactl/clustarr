@@ -71,4 +71,13 @@ func TestAMediaFilesTrackMayBeCorrectedButNotItsItem(t *testing.T) {
 	require.ErrorContains(t, update("name", "new"), "immutable", "the album it backs is not")
 	require.ErrorContains(t, update("kind", "movie"), "immutable")
 	require.ErrorContains(t, update("keys", []any{"a"}), "immutable")
+
+	// The manager writes the rename guard's reason (mediafile.RenderNaming)
+	// into status.naming; an enum that lacks it refuses the file's whole
+	// status apply.
+	got, err := files.Get(ctx, "kush-coma", metav1.GetOptions{})
+	require.NoError(t, err)
+	require.NoError(t, unstructured.SetNestedField(got.Object, map[string]any{"current": false, "reason": "TrackTitleMismatch"}, "status", "naming"))
+	_, err = files.UpdateStatus(ctx, got, metav1.UpdateOptions{})
+	require.NoError(t, err, "status.naming.reason admits TrackTitleMismatch")
 }

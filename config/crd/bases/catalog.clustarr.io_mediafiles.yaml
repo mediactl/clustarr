@@ -1213,6 +1213,7 @@ spec:
                     - TranscodePending
                     - Recycling
                     - Unrenderable
+                    - TrackTitleMismatch
                     type: string
                 required:
                 - current
