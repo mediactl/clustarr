@@ -233,6 +233,8 @@ func TestMatchAlbumByTags(t *testing.T) {
 			al("being-there", "Being There"), al("sky-blue-sky", "Sky Blue Sky"), al("flesh", "Flesh + Blood"),
 			al("ego-remixes", "Age of the Ego: The Remixes"), al("ego", "Age of the Ego"), al("boss", "Boss of All Bosses"),
 			al("late-nite", "Late Nite Tip"),
+			al("electronica", "Electronica 2: The Heart of Noise"),
+			{Name: "evolution", Title: "Ciara: The Evolution", ArtistNames: []string{"X", "Ciara"}},
 			// A release of the group under its own title (talos, 2026-11-16).
 			{Name: "f1", Title: "F-1 Trillion", ArtistNames: []string{"X"}, ReleaseTitles: []string{"F‐1 Trillion: Long Bed"}},
 			{Name: "boat", Title: "Lil Boat 3", ArtistNames: []string{"X"}, ReleaseTitles: []string{"Lil Boat 3.5"}},
@@ -261,6 +263,8 @@ func TestMatchAlbumByTags(t *testing.T) {
 			"Age Of The Ego (Remixes)":                                       {name: "ego-remixes"},
 			"Age Of The Ego (Instrumental)":                                  {code: rescan.CodeNoChild},
 			"Late Nite Tip / Hit 'Em":                                        {name: "late-nite"},
+			"Electronica 2- The Heart of Noise [88875196672]":                {name: "electronica"},
+			"The Evolution (Proper)":                                         {name: "evolution"},
 			"Boss Of All Bosses Chopped & Screwed By Michael \"5000\" Watts": {name: "boss"},
 			// Another recording is never an edition of the studio album.
 			"Siren (Live Edition)":      {code: rescan.CodeNoChild},
@@ -300,7 +304,10 @@ func TestMatchAlbumByTags(t *testing.T) {
 			{"a title only one holds", commonv1.MediaTags{Title: "Singularity"}, verdict{name: "boavista"}},
 			{"a title at its number only one holds", commonv1.MediaTags{Title: "Odysseus", TrackNumber: 3}, verdict{name: "boavista"}},
 			{"a title both hold, told by the track total", commonv1.MediaTags{Title: "Boavista", TrackNumber: 1, TrackTotal: 3}, verdict{name: "boavista"}},
-			{"a title both hold and nothing else", commonv1.MediaTags{Title: "Boavista", TrackNumber: 1}, verdict{code: rescan.CodeAmbiguousTitle}},
+			// Both hold the file's title at its number and nothing tells them
+			// apart: the album with more tracks holds it as well as the other
+			// (talos, 2026-11-16: WOPTOBER's 14- and 13-track groups).
+			{"a title both hold and nothing else", commonv1.MediaTags{Title: "Boavista", TrackNumber: 1}, verdict{name: "boavista"}},
 			{"a title neither holds", commonv1.MediaTags{Title: "Rotation", TrackNumber: 4}, verdict{code: rescan.CodeAmbiguousTitle}},
 		} {
 			t.Run(c.desc, func(t *testing.T) {

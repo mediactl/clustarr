@@ -47,6 +47,14 @@ var albumTitleTiers = []func(c AlbumCandidate, title string) bool{
 	func(c AlbumCandidate, t string) bool {
 		return slices.ContainsFunc(c.ReleaseTitles, func(r string) bool { return nameEq(r, t) || looseAlbumEq(r, t) })
 	},
+	// MusicBrainz titles some albums with the artist's name in front,
+	// "Ciara: The Evolution", where the tag names "The Evolution".
+	func(c AlbumCandidate, t string) bool {
+		return slices.ContainsFunc(c.ArtistNames, func(name string) bool {
+			rest, ok := withoutArtistPrefix(c.Title, name)
+			return ok && (nameEq(rest, t) || looseAlbumEq(rest, t) || editionAlbumEq(rest, t))
+		})
+	},
 	func(c AlbumCandidate, t string) bool {
 		return editionAlbumEq(c.Title, t) ||
 			slices.ContainsFunc(c.ReleaseTitles, func(r string) bool { return editionAlbumEq(r, t) })
@@ -82,6 +90,21 @@ const (
 	looseNoArticles
 )
 
+// withoutArtistPrefix is title without a leading "<name>: " or "<name> - ".
+func withoutArtistPrefix(title, name string) (string, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(title) <= len(name) || !strings.EqualFold(title[:len(name)], name) {
+		return "", false
+	}
+	rest := title[len(name):]
+	for _, sep := range []string{": ", " - ", " \u2013 "} {
+		if after, ok := strings.CutPrefix(rest, sep); ok && strings.TrimSpace(after) != "" {
+			return after, true
+		}
+	}
+	return "", false
+}
+
 func editionAlbumEq(a, b string) bool {
 	return looseAlbumEq(stripAlbumEdition(a), stripAlbumEdition(b))
 }
@@ -114,7 +137,11 @@ var albumAnd = strings.NewReplacer("&", " and ", "+", " and ")
 var (
 	// albumEditionWordRE names an edition of the album in a note.
 	albumEditionWordRE = regexp.MustCompile(`(?i)\b(?:deluxe|expanded|edition|remaster(?:ed)?|reissue|anniversary|` +
-		`explicit|clean|reloaded|bonus|sacd|shm|hdcd|cd\d*|disc|lp|vinyl|\d{3}g|\d{2}/\d{2,3}|\d{2}-?bit|hi-?res|hdtracks|flac)\b`)
+		`explicit|clean|reloaded|bonus|sacd|shm|hdcd|cd\d*|disc|lp|vinyl|\d{3}g|\d{2}/\d{2,3}|\d{2}-?bit|hi-?res|hdtracks|flac|` +
+		`proper|repack)\b`)
+	// albumCatalogNumberRE is a bracketed barcode or catalogue number,
+	// "[88875196672]".
+	albumCatalogNumberRE = regexp.MustCompile(`^\s*[0-9]{6,14}\s*$`)
 	// albumOtherRecordingRE names another recording than the studio
 	// album's, which no edition note makes the album's.
 	albumOtherRecordingRE = regexp.MustCompile(`(?i)\b(?:live|remix(?:es|ed)?|instrumentals?|a\s?cappella|acoustic|` +
@@ -158,7 +185,8 @@ func stripAlbumEdition(s string) string {
 }
 
 func editionNote(note string) bool {
-	return albumEditionWordRE.MatchString(note) && !albumOtherRecordingRE.MatchString(note)
+	return albumCatalogNumberRE.MatchString(note) ||
+		(albumEditionWordRE.MatchString(note) && !albumOtherRecordingRE.MatchString(note))
 }
 
 // byTrackTitle narrows albums one title names to the one holding the
@@ -166,8 +194,9 @@ func editionNote(note string) bool {
 // album of 2021 held all 17 of the album's files as ambiguous): the album
 // whose track at the file's number carries its title tag, else the one
 // album with a track of that title, else, among those at the number, the
-// one whose disc holds the file's track total. Anything else leaves hits
-// as they were, ambiguous.
+// one whose disc holds the file's track total, else the one of them with
+// the most tracks, which holds the file as well as any (WOPTOBER's 14- and
+// 13-track groups). Anything else leaves hits as they were, ambiguous.
 func byTrackTitle(hits []string, mine []AlbumCandidate, tags *commonv1.MediaTags) []string {
 	if len(hits) < 2 || tags == nil || strings.TrimSpace(tags.Title) == "" {
 		return hits
@@ -200,23 +229,50 @@ func byTrackTitle(hits []string, mine []AlbumCandidate, tags *commonv1.MediaTags
 		return []string{atNumber[0].Name}
 	case len(atNumber) == 0 && len(anywhere) == 1:
 		return []string{anywhere[0].Name}
-	case len(atNumber) > 1 && tags.TrackTotal > 0:
-		var fit []string
-		for _, c := range atNumber {
-			d := max(disc, 1)
-			n := 0
-			for _, t := range c.Tracks {
-				if t.Medium == d || (t.Medium == 0 && d == 1) {
-					n++
-				}
-			}
-			if int32(n) == tags.TrackTotal { //nolint:gosec // a disc's tracks, far under int32
-				fit = append(fit, c.Name)
-			}
-		}
-		if len(fit) == 1 {
-			return fit
+	case len(atNumber) > 1 && tags.TrackTotal > 0 && len(fitTotal(atNumber, disc, tags.TrackTotal)) == 1:
+		return fitTotal(atNumber, disc, tags.TrackTotal)
+	case len(atNumber) > 1:
+		// Every one holds the file's title at its number and nothing else
+		// tells them apart (WOPTOBER's 14- and 13-track groups): the one with
+		// the most tracks holds the file as well as any.
+		if most := mostTracks(atNumber); most != "" {
+			return []string{most}
 		}
 	}
 	return hits
+}
+
+// fitTotal are the candidates whose disc holds total tracks.
+func fitTotal(cands []AlbumCandidate, disc, total int32) []string {
+	d := max(disc, 1)
+	var fit []string
+	for _, c := range cands {
+		n := 0
+		for _, t := range c.Tracks {
+			if t.Medium == d || (t.Medium == 0 && d == 1) {
+				n++
+			}
+		}
+		if int32(n) == total { //nolint:gosec // a disc's tracks, far under int32
+			fit = append(fit, c.Name)
+		}
+	}
+	return fit
+}
+
+// mostTracks is the one candidate with the most tracks, "" on a tie.
+func mostTracks(cands []AlbumCandidate) string {
+	best, n, tie := "", -1, false
+	for _, c := range cands {
+		switch {
+		case len(c.Tracks) > n:
+			best, n, tie = c.Name, len(c.Tracks), false
+		case len(c.Tracks) == n:
+			tie = true
+		}
+	}
+	if tie {
+		return ""
+	}
+	return best
 }
