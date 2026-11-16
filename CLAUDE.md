@@ -859,10 +859,11 @@ Available", "No EVENT Today", "No Data", "To Be Announced" and their like,
 by title; 3,786 of talos's 85,487 programmes, 27 of the 464 on at the
 moment, and 19 channels left with no listing): nothing but the airing
 itself puts a programme in Plex's What's On hubs, so there is no tag to
-take from it instead; a programme the
-source marks neither `<new/>`, `<premiere>` nor `<live/>`, and no live
-event, gets `<previously-shown/>`, as does every dummy block (owner,
-2026-11-16: the iOS app badged every What's On listing Live): PMS's reader
+take from it instead; every programme
+that is not live (the source's `<live/>`, or a live event) gets
+`<previously-shown/>`, a source's `<new/>` or `<premiere>` included, as
+does every dummy block (owner, 2026-11-16: the iOS app badged every What's
+On listing Live; then "tag all non live items"): PMS's reader
 and cluster-plex's builder take an episode without it for a premiere,
 which Plex's apps badge (Plex Web "New", iOS "Live") and its What's On hubs
 list first, and since the dd_progid makes nearly every programme an

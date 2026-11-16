@@ -76,10 +76,11 @@ type ArtResolver func(ArtQuery) (Art, bool)
 //   - a news channel's programmes are News, a kids channel's Children;
 //   - a children's programme, the source's or a kids channel's, is also
 //     Kids, the one genre PMS builds on-now hubs from in an XMLTV guide;
-//   - a programme the source marks neither new, premiere nor live, and no
-//     live event, gets <previously-shown/>: PMS's reader (and cluster-plex's
-//     builder) takes an episode without it for a premiere, which Plex's
-//     apps badge New or Live (owner, 2026-11-16, SiliconDust's rule);
+//   - every programme that is not live -- the source's <live/>, or a live
+//     event -- gets <previously-shown/>, whatever the source says of new or
+//     premiere: PMS's reader (and cluster-plex's builder) takes an episode
+//     without it for a premiere, which Plex's apps badge New or Live
+//     (owner, 2026-11-16);
 //   - a title the art resolver knows gets its poster as <icon> and the
 //     category Movie or Series;
 //   - an episode iptv-epg.org numbers in its own way -- "S26 E32" in an
@@ -258,12 +259,14 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 			addElem("new", []byte("<new/>"))
 		}
 	}
-	if !f.hasPrev && (!event || recorded) && !f.hasNew && !f.hasPremiere && !f.hasLive {
-		// Nothing says it is a first showing, so it is a repeat: PMS (and
-		// cluster-plex's builder) reads an episode without previously-shown
-		// as a premiere, which Plex's apps badge New or Live and its What's
-		// On hubs list first (owner, 2026-11-16: every listing badged in
-		// the iOS app).
+	if !f.hasPrev && (!event || recorded) && !f.hasLive {
+		// Everything that is not live is previously shown (owner,
+		// 2026-11-16: "The XMLTV guide should tag all non live items with
+		// <previously-shown />"), a source's new or premiere included: PMS
+		// (and cluster-plex's builder) reads an episode without it as a
+		// premiere, the one mark an XMLTV guide can set, which Plex's apps
+		// badge New or Live and its What's On hubs list first. The source's
+		// own new and premiere elements stay as it wrote them.
 		addElem("previously-shown", []byte("<previously-shown/>"))
 	}
 	switch class {
