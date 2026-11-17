@@ -1,0 +1,1281 @@
+# Clustarr record: UI
+
+Moved verbatim out of CLAUDE.md on 2026-11-17 (owner: keep CLAUDE.md to the rules most tasks need). CLAUDE.md is the
+short core and says when to read this file; new decisions, dated owner rulings and incident notes for this area are
+recorded here.
+
+## UI
+
+The library's media types -- Movies, TV, Music, Books, Comics, Audiobooks
+(six since 2026-11-10, `projection.Tabs()`) -- are the Library
+entry's sub-menu in the sidebar (shadcn-templ `sidebar.MenuSub` under the
+Library `sidebar.MenuItem`, since 2026-09-24; before that a tab strip in
+the top bar). Each sub-entry swaps the page body through htmx so the
+sidebar stays put.
+**The four non-video libraries' pages are the movies' and TV's** (owner,
+2026-11-10, "just like we did the movies and TV"; the design's §9, built as
+plan W4a-W4c by ten agents in wave B): the Music tab lists Artists, the
+Books tab Authors and standalone Books, the Comics tab Comics, the
+Audiobooks tab Audiobooks, each card carrying the container rollup's status
+(`projection.containerStatus`: downloading, missing, cutoff-unmet,
+downloaded, unmonitored, so the Missing and Wanted presets match
+containers) and its provider id (`ProviderID`: a Comic's `<source>:<id>`,
+an Audiobook's `asin:`, a Book's `olid:`, which the typeahead matches by
+bare id or under its own prefix). Every kind has a page under its literal
+route, which beats the shared `/library/{ns}/{kind}/{name}` (`routes.go`'s
+`kindPage` sends the kind there however it is reached): an artist's
+(`ui/artist.go`) with Lidarr's albums table grouped by type and the album
+page (`ui/album.go`: the tracks table, a music-column search modal); an
+author's with its hero facts and the book page (`ui/book_page.go`:
+editions, files, neighbours in series order; a standalone Book is added,
+edited and shown from its own card); a comic's (`ui/comic.go`) with Mylar's
+issues table, the volume search button and the `status.volumeSearch`
+badge, and the issue page (`ui/issue_page.go`, its ComicVine or MangaDex
+cover through `/art/search`); an audiobook's (`ui/audiobook.go`) with its
+parts and chapters. Each child is listed through a reader field index
+(`ui/reader.go`: `AlbumArtistRefField`, `BookAuthorRefField`,
+`IssueComicRefField`, `AudiobookAuthorRefField`; a Book's and an
+Audiobook's `spec.authorRef` are not selectable at the apiserver, so those
+two work on the ui's cache alone), never a List filtered in memory. The
+Files table is kind-aware (`views.FileHeads`/`FileCells`: video cells for
+a movie or episode, codec, bitrate and sample rate for an album or
+audiobook, format and pages for a book or issue), the action bar is
+composed by name (`views.ItemActions` over `views.Action` slots;
+Interactive only for a leaf), and the provider logos under
+`ui/static/providers` cover MusicBrainz, Discogs, Wikipedia, Open Library,
+Hardcover, ComicVine, Metron, MangaDex, AniList, MyAnimeList, Audible,
+Audnexus and Goodreads (Simple Icons where CC0, else drawn). Add New
+serves every tab: Comics (ComicVine, then MangaDex; a hit's source badge
+names the Comic's immutable `spec.source`), Audiobooks (Audible, in the
+root's `defaults.region`) and on the Books tab an Author or a standalone
+Book (`?kind=book`); a page whose item Add New just created answers the
+"being added" page until the library view lists it
+(`notFoundUnlessJustAdded`; never an author's book, which Add New does not
+make). The Edit dialog fetches each kind's block as it opens
+(`GET .../edit/fields`, `ui/editfields.go`: an artist's metadata profile
+and monitor-new-albums, an author's languages, pages and skips, a comic's
+kind, special version and monitor-new-issues, an audiobook's region and
+its Author and Book links, a standalone book's profile and root) and saves
+a kind's fields only under the block's "fields" marker, so a save before
+the block lands leaves them alone; the Delete dialog counts a container's
+files from its children's MediaFiles (`containerFiles`, one cached Get per
+file). `--plex-music-provider` reaches the Plex roots
+(`ui.PlexOptions.MusicProvider`, off). Since wave C (2026-11-10, the
+same day): **one interactive-search panel serves every kind** --
+`views.SearchPanel` carries the Search's kind and `SearchPanelView` draws
+that kind's release table (`releaseTableFor`, `ui/views/search_tables.templ`:
+the video columns, the album's music columns, the audiobook's with its
+estimated bitrate, the format columns for a book or issue), every modal
+polling and grabbing through the shared `/searches/{ns}/{name}` and `/grab`
+routes, the video markup byte-identical; the children fragment is gone
+(`ui/children.go`, `views.ChildrenPage`); an Album is editable
+(`actions.EditItem`: monitored, the profile or the artist's, `anyReleaseOk`,
+the release pin) and a standalone Book is a folder kind (Refresh & Scan,
+Rename and Edit on its bar; an author's book renders no Edit); a container
+page reads its children's files up to `maxContainerFiles` (500; a series
+page renders in 4 ms at 50 files, 13 at 500, 3 at 1,100 with nothing read)
+and the Delete dialog counts a series from its rollup past that; a Comic's
+"Volume" and "Interactive" buttons create a planned volume Search
+(`spec.season` 1 on the Comic, `catalogv1.VolumeSearchSeason`; the Music
+section below). Since wave D (2026-11-10, the same day): Add New shows a
+comic hit's publisher, issue count and start year and an audiobook hit's
+authors, narrators and release date, asks ComicVine then MangaDex (one
+search per source, `MetadataRequest.Source`, a source without a provider
+skipped) and merges the hits under their source badges, and links an added
+audiobook to the one Author of the hit's author's name in its namespace
+(`release.TitleNorm`; the Audnexus lookup by ASIN through the third bound
+request, `ui.Options.MetadataLookup`, only renders the name when the hit
+carries none, and runs after the add's inputs are checked; no `bookRef`,
+since Add New resolves no Book); the album page renders its own Edit over
+the album's card (`ui.albumItem`; the artist's card is `AlbumView.Artist`);
+a book row's forms return to the author's page (`views.AuthorURL`); the
+per-kind search-panel types are gone; the comic page's Metron logo links
+`status.metadata.links[type=metron]`; and an author's book whose
+`spec.rootFolderRef` overrides its author's root is not a standalone book
+(`bookHasFolder`: no authorRef); since wave E (ba7c7256) the Book
+reconciler writes a standalone book's `status.path` as its own folder,
+`<root>/{Book Title}`, where the import places its file (`book.Path` and
+`catalogctx.BookFilePath` agree byte for byte, a test holds them), a book
+written before it taking its folder at its key's next pass, and the ui
+admits the folder to Refresh & Scan and Rename only once the book has a
+file (`itemFolder`; its file's directory is the belt for the old path).
+**An Album and a standalone Book are deletable** (wave E, 87afc7de,
+a196a7ed; design §9.2, §9.3): `catalogv1.DeletableKinds` takes both and
+`librarydelete` gains a kindSpec each -- an album's files delete removes
+its track files and its own subfolder, never its artist's folder (a `Keep`
+bound; refused while the artist's folder is unknown), an author's book is
+deleted with its author, a standalone book's folder is its own; the delete
+dialog names an album's shared folder only when the album's own lies
+strictly inside it. A deleted album of a provider-listed release group
+comes back at the Artist's next fan-out, monitored per its monitor mode,
+as in Lidarr: unmonitor the album or the artist first to be rid of it. The
+manager role's `delete` on albums and books lands with it (`config/rbac`,
+the chart copy).
+In the TV pane, only series should be shown. Clicking a series should present a page with the seasons and episodes.
+A season's episodes are Sonarr's table (2026-10-07, `ui/series.go`,
+`ui/episode.go`, `ui/views/episode.templ`): the monitor bookmark, number,
+title (the episode's page, below), air
+date, Sonarr's status cell (`episodeStatus`: downloading, pending, the
+file's quality -- amber below the cutoff -- TBA, unaired, unmonitored,
+missing; read from the Episode's status, which the catalog derives from
+its Series' grab entries -- `activeDownloadRef`, `pendingGrab` -- and its
+MediaFile's status) and two searches: the magnifier is "search now" (a
+Search with `grabBest`), the person an interactive search -- a Search
+without `grabBest` (`actions.InteractiveSearch`) whose ranked
+`status.results` the modal polls (`GET /searches/{ns}/{name}`) and whose
+download button adds the release to `spec.grab` (`actions.GrabRelease`: a
+merge patch of the whole list under the read resourceVersion, so a
+concurrent grab conflicts; `spec.override` for a permanent rejection,
+after a confirm). The Search controller sends each pick to the item's
+owner as a manual Candidate, and the panel polls until `status.grabbed`
+names the grab entry it became (`downloadRef`) or the owner's refusal.
+The ui role patches `searches` for it. Since 2026-11-04 (owner: "Each
+item should also include Languages, Score, Video and Audio Codec,
+Transcode status, Subtitle status, Marker status") the row also carries
+its file's columns, read from the Episode's MediaFile by name
+(`ui.episodeFiles`: a cached Get per file, never a List; `ui/episodefile.go`,
+`views.EpisodeFile`, `views.Cell`): the frozen languages (three as badges,
+the rest behind a count), the format score, the probe's video ("HEVC 10-bit
+HDR10", warned when `MediaFile.UndecodableVideo`) and its first audio track
+as Radarr labels it ("EAC3 - 5.1") with the count of the others, and the
+transcode, subtitles and markers as toned cells -- `status.transcode`'s
+phase (Succeeded as Transcoded, and Transcoded for a tagged file the loop
+holds no block for), `status.subtitles`' phase naming the languages still
+missing, the segments' kinds ("intro · credits") -- each detail in its
+tooltip, and every cell empty for a file the ui cannot read. Languages and
+score fold away below a laptop's width, the rest below a desktop's. The
+monitor toggle's reply reads the file too, so the swapped row keeps them. A
+season is searched as one
+query, planned by the Series (Wave S, 2026-10-07,
+`docs/superpowers/specs/2026-10-07-series-search-design.md`): each season
+header has Sonarr's two buttons -- the magnifier (`actions.SearchSeason`, a
+Search with `grabBest` and `spec.season`) and the person
+(`actions.InteractiveSeasonSearch`, `spec.season` without `grabBest`), whose
+results open in the season's modal listing season packs first
+(`?filter=packs|all`, `ReleaseDecision.coversSeason`) -- plus a badge from
+`Series.status.seasonSearch`. The series header's "search now" is the
+whole-series search. A planned Search (`SearchSpec.PlannedBySeries`) is
+served by the Series key's season planner (`searchplan.DecideSeasons`,
+the search stage's Series mode): one request at a time, one season task in
+flight, each behind the namespace's live-search pace slot and admitted on
+`catalog-search-high`; the Search mirrors it in `status.seasons`. With no
+planned Search waiting it also serves the automatic season search (owner,
+2026-10-27; the design's §17): every `searchplan.PackFirst` season (in
+`status.seasons`: not the specials, monitored, no next airing, two or more
+episodes without a file) with a wanted episode never searched is asked for
+as a season, a pack ahead of its episodes, in a state whose request names
+no Search (`searchplan.Automatic`, uid empty; never canceled, no
+handshake, its task not user-invoked), an hour after the last automatic
+state finished (`AutomaticCooldown`). An Episode never searched waits for
+such a season (`View.SeasonPackFirst`; a redownload does not), since a
+single grabbed first makes the grab planner refuse the pack as
+overlapping; the season's answer folds in as its search, as a planned
+one's does. A season answered with approved releases asks for the next
+pass at once (`ItemResult.Again`, 2026-11-02): the grab stage runs before
+the search stage and reads a season answer only from the stored
+`status.seasonSearch`, which wakes nothing, so the answer otherwise waited
+for an unrelated wake and aged out of `grabplan.CandidateWindow` ungrabbed
+-- 62 series' automatic answers of 2026-10-28, 91 Days' 101 approved
+releases among them, after which their episodes' searches went IndexOnly
+and found nothing. A pack still downloading holds every episode it covers
+(owner, 2026-11-02: "we shouldn't queue individual episode downloads
+unless the season pack fails or ends up missing episodes";
+`decision.ReasonPackDownloading`, `DownloadEntry.Pack`): no release is
+grabbed beside it for one of them, an upgrade or another pack included,
+only `spec.override`; once it has failed the episodes are wanted again,
+and once it has imported their files decide. **A pack replaces the
+singles of its season** (owner, 2026-11-03: "When a season pack is
+downloaded, we should *wait* to queue any episodes and remove any existing
+episode downloads for that season ... Episodes within the season pack
+should *replace* single episode files within the season/series folder",
+which reversed the same owner's 2026-11-02 "skip season pack
+downloads/searches if single episodes are already downloading"): a pack is
+grabbed over every single of an episode it covers that is downloading,
+upgrade or not (`decision.queueRejection`'s pack), unless under
+`audio.completeFirst` the single carries every wanted language and the pack
+does not (`decision.AudioOutranked`, `grabplan.Holds`,
+`decision.ReasonEpisodeDownloading`), and only such a single holds its
+season against the automatic season search (`holdsSeason`); once the pack
+is live, the lifecycle removes each automatic single-episode entry it
+covers that is still transferring and was grabbed no later
+(`lifecycle.supersede`, Event `SupersededByPack`: data removed, nothing
+blocklisted, no redownload owed), a person's pick and a complete single
+kept; and at import the pack's file (an entry of several episodes, or a
+release titled as a whole season) replaces a file a single-episode release
+brought (`spec.importedFrom.releaseTitle`), transcoded or not, past the
+transcoded rule and the upgrade table (`importplan.packRefit`), unless its
+probe lacks a language of the audio policy, wanted or optional, that the
+file carries, or the file's HDR; a file an earlier pack brought, or one
+recording no release, keeps the rules. A single still upgrades a live
+single. A Series is still not a Search fan-out kind (`ContainerKind`). Every interactive
+search's results are banded -- approved, rejected, then the identity
+mismatches (`WrongItem`, `UnknownItem`, `UnableToParse`) last, counted by
+`status.otherTitles` and collapsed behind "N releases for other titles",
+never dropped -- in the agent before its cap and again after the
+item-state rules; and a yearless, title-only match on a title another
+library item carries is `UnknownItem` (`decision.Identity.Namesakes`).
+An episode has a page of its own, the movie page for one episode (owner,
+2026-11-03; `ui/episode_page.go`, `ui/views/episode_page.templ`):
+`/library/{ns}/episode/{name}`, which its title in the season table opens
+and preloads, and where the details route sends anything but htmx. Its
+toolbar refreshes and scans the series (an episode's metadata is its
+series') and runs the episode's automatic and interactive searches (the
+modal, on its Search tab, in the page's `#episode-modal`); its hero is on
+the series' fanart with the episode's still (TVDB's screenshot through
+`/art/search`, else the series' poster), the bookmark, title, series,
+season and `S01E03`, absolute number, air date, runtime, finale and
+provider links (its own TVDB page, then the series' under a "Series"
+caption), and the movie page's facts -- the Status fact Transcoded
+from `status.cutoffReason` whatever the phase -- then the movie page's own
+Files, extra files and Subtitles sections, and the episodes either side
+of it. Edit, Image Set, Delete and Rename stay on the series' page. An item
+page's provider links are each site's logo, not a generic link icon
+(owner, 2026-11-04; `views.providerLinks`, `views.Link.Provider`): IMDb's
+yellow badge, TMDB's stacked mark and TheTVDB's dark-background logo,
+embedded under `ui/static/providers` (IMDb's letters and TMDB's mark from
+Simple Icons, CC0; TheTVDB's from its own site).
+An author's books are the same table (2026-10-07, `ui/book.go`,
+`ui/views/book.templ`): bookmark, title opening the book's modal
+(`/library/{ns}/book/{name}/details`, `#book-modal`), release date,
+`bookStatus` (an episode's cases with `unreleased` for TBA and unaired --
+an undated book reads missing) and both searches, the interactive one
+through the same `startInteractiveSearch` and `/searches` routes. The
+episode and book templates share `searchButtons`, `searchTab`,
+`fileTable` and `statusCell` (`views.RowStatus`); an artist's albums are
+`AlbumRows` (`views.AlbumRow`, the same table, since 2026-11-10). A movie's interactive search is Radarr's (2026-10-20,
+`ui/movie_search.go`): "Interactive Search" beside "Search Movie" in the
+movie page's toolbar opens `views.MovieSearchModal` ("Interactive Search -"
+and the title) in `#movie-modal`, the same results panel and `/searches` routes.
+Those modals (and the season search's) are shadcn-templ dialogs open by
+default, whose portal moves them to `<body>` a microtask after htmx swaps
+them in and before htmx settles the swap, so htmx processed only the empty
+portal owner and wired nothing inside: an interactive search's panel never
+polled past "Searching indexers…" and the modal's forms fell back to full
+posts (2026-10-19). `ui/static/portals.js` has htmx process every portaled
+node a loaded swap owns. A test of the rendered markup cannot see this --
+the poll attributes were always there -- so check such a change in a
+browser.
+The live pages' stream containers (#unmatched-rows, #import-lists-rows)
+morph each frame
+in (idiomorph's htmx extension, `hx-swap="morph:innerHTML"`, 2026-10-21):
+a node whose markup is unchanged is left alone, so a frame no longer tears
+down every row's hover state and open menu. **The library tabs do not
+paginate** (owner, 2026-11-10: "We should probably not paginate the
+libraries so we can mass select and scroll more smoothly";
+`ui/library_page.go`): a tab renders every card its view keeps (1,051
+movies, 2.6 MB of markup, 225 KB gzipped -- the page is gzipped,
+`compressed`), each card `content-visibility: auto`, and its stream sends
+no markup: a `library-manifest` event lists the cards in order with each
+one's `views.CardFingerprint` (`views.CardID`), only when that list moves,
+and `ui/static/library.js` fetches the new and changed cards from `POST
+/library/{tab}/cards`, morphs them in with `Idiomorph.morph` (a card keeps
+its loaded poster), drops the rest and reorders, re-applying the selection.
+The fingerprint must cover every field the card renders
+(`TestCardFingerprintMovesWithEveryRenderedField`, by reflection over
+`LibraryItem`). The A-Z letters link to their first title's card
+(`#card-...`); `?page`, `?per`, `?pages` and `?jump` mean nothing there any
+more. Every DOM change on a page has shadcn-templ's lifecycle observer
+rescan the document for each registered component and walk every element
+it started, so no card renders a component with a script: the cards' title
+tooltip is one `<template>` (`views.cardTooltip`) that library.js clones
+into a card when the pointer first rests on it or focus enters it, naming
+its link the trigger, then replays the hover or `focusin` the tooltip
+missed (owner, 2026-11-10: a tooltip per card was 40% of the page's load,
+each found its trigger by a document-wide query, and a mutation cost 10 ms
+over a thousand cards, 2.4 ms without them). Code that mutates the grid
+often still batches it or waits for the pointer to rest, as the card
+action bar does. A self-polling panel
+(the interactive search's `hx-trigger="load delay:2s"`) must stay a plain
+`outerHTML` swap: a morphed node whose attributes did not change is not
+re-processed, so its `load` would never fire again. The preload extension
+is on for the whole page (`hx-ext="preload"` on `<body>`): a library
+card's link and the Library sub-menu's entries carry `preload="mouseover"`,
+and the pages they open answer `Cache-Control: private, max-age=10` and
+`Vary: HX-Request` (`preloadable`, `ui/routes.go`), without which the
+browser would fetch the page a second time at the click; a page nothing
+preloads sends no Cache-Control.
+The look is Plex's native one (2026-10-22, after the iOS, tvOS and web
+apps): one dark canvas, every surface a translucent white over it so the
+artwork behind a page shows through the glass, Plex Gold the one accent,
+12px corners. The tokens are rgba in `ui/static/input.css` (and
+`ui/theme/plex.json`, kept in step), so a `bg-card` or `bg-muted/50` is
+glass wherever it is used; the frosted surfaces -- the sidebar, the top
+bar, a page toolbar (`glass`), every card and `.panel`, every dialog,
+menu, popover and tooltip, and the charts' tooltip (a bare
+`.recharts-tooltip-wrapper > div` that `chart.js` paints `bg-background`)
+-- take their blur, and a floating one its popover glass, from unlayered
+`[data-slot=...]` rules there, never from an edit to a vendored component
+or a class of a view's own (owner, 2026-11-04). Write only the standard
+`backdrop-filter`: Tailwind's minifier folded a pair written with
+`-webkit-backdrop-filter` into the prefixed one alone, which Chrome and
+Firefox ignore, so nothing blurred outside Safari until 2026-11-04; it adds
+the prefix itself. A blurred card is a containing block for fixed
+descendants, which is safe only because every floating layer portals to
+`<body>`. An item page's fanart is the page's
+backdrop: the hero's `<img data-backdrop class="page-backdrop">` is fixed
+over the viewport at z-index -1 with a `page-backdrop-shade` fading it
+into the canvas, which is why the canvas is the html element's background
+and the body and the sidebar's inset are transparent -- an opaque
+background on either paints over the art (both did, the first two tries).
+Library posters (shadcn items, not cards) do not blur (hundreds a page, a
+layer each) and lift under
+the pointer (`[data-library-grid]` rules, off under reduced motion). Check
+such a change in a browser with a fresh profile: `/static` is cached for
+an hour, so a reload shows the old stylesheet.
+Series monitoring is Sonarr's (2026-09-29): an episode is searched only
+when its Series and the episode itself are monitored (the Episode
+reconciler reads its Series, a Series' `spec.monitored` change wakes its
+episodes, and the search worker drops an automatic task for an item no
+longer monitored, as the *arrs' Monitored*Specification does); a season
+toggle writes `spec.seasons[n].monitored`, which the
+Series controller applies once to every episode of the season
+(`series.SeasonCascade`, recorded in `status.seasons[].appliedMonitored`, so
+an episode toggled afterwards keeps its flag) and to the season's new
+episodes; and a monitored series monitors all of its seasons but the
+specials (owner, 2026-10-27): a series is added with `addOptions.monitor:
+unmonitorSpecials` -- the CRD default, the rescan's, an import list's and
+Add New's first choice -- and the monitor toggle on an unmonitored series
+(card, page, bulk editor, Edit dialog) also writes every non-special
+season's `spec.seasons[n].monitored` (`actions.MonitorSeries`,
+`AllSeasonsMonitored`, under the read resourceVersion), which the cascade
+applies. A series already monitored keeps its season flags: the owner chose
+not to monitor the 6,967 missing episodes of the 331 series already in the
+library. From 2026-09-29 to then a series was added with `none` and
+searched nothing until a season or an episode was turned on, after the
+rescan's first `all` default queued 5,718 episode searches for a 147-show
+library. Specials never count
+toward the series: `status.episodeCount`, `episodeFileCount`, `nextAiring`
+and `previousAiring` leave season 0 out (`series.Rollup`, as Sonarr's series
+statistics do), and only the Specials row of `status.seasons` counts them.
+A series' library status is read from its episodes
+(`projection.seriesStatus`): Downloading while an episode's grab is in
+flight, Missing while `status.missingEpisodeCount` (monitored, aired, no
+file -- phase Wanted) is above zero, Downloaded once files are on disk and
+nothing is missing, else Unmonitored. A Series has no file of its own and
+its phase is only Ready, Pending or Unmonitored, so the movie rule read
+every monitored series as Missing until 2026-09-30.
+
+Each item should show the cover art, monitored status and selected quality profile
+
+The **Live TV** section (2026-10-27, the direct-tuners and ui design's
+§5; Dispatcharr's pages in the Plex look) is a sidebar entry after Library
+with three sub-entries swapped like the library's (every sub-entry carries
+the whole menu out of band, `#app-nav`). **Channels** (`/livetv/channels`)
+lists every IPTVChannel by number with its resolved name, group and logo
+(`ui/projection.LiveTVChannels`: the overrides, else the guide index and
+the playlist), edits number, name, active and the EPG mapping in place
+(`actions.EditChannels`: the channel read again through the apiserver,
+refused as a conflict, said in `#action-status`, when its
+`metadata.generation` is not the one the page read, else one merge patch
+under the version just read -- never the page's `resourceVersion`, which
+the controller's status write after every edit made stale within a
+second), edits in bulk (a delete asked about first), copies each
+channel's tuner stream URL and each block's HDHR/M3U/EPG URL, and pages
+the provider's playlist beside it, where an entry the provider's filters
+admit (`pkg/iptv/filter`) is added as a channel at the next free number
+(`actions.AddChannel`). The **M3U/EPG Manager** (`/livetv/sources`) lists
+each provider's playlist, guide and blocks, refreshing every 10 s, with
+"Refresh now" (the `clustarr.io/livetv-refresh` annotation) and the
+settings forms of both kinds (`iptvproviders`, `iptvchannels`, which the
+Settings page does not list). The **TV Guide** (`/livetv/guide`) draws the
+guide index in six-hour windows at 7.5 px a minute, loaded as they scroll
+into view, times in the browser's zone (`ui/static/guide.js`). The ui reads
+the `clustarr-livetv` store through `Info` and `Get`, decoding an object
+again only when its digest moves (`ui/livetvstore.go`), and serves logos
+at `/livetv/logo/...` from the tuner's stored copies. There is no playback
+in the browser and no DVR page (design §5.8, §5.9).
+
+**Activity** (owner, 2026-11-10: "Move pipeline and downloads into a new
+group Activity ... Downloads, Transcodes, Subtitles, Markers. Each page
+should have tabs like Running, Failed, etc like on the dashboard. We can
+remove the pipeline page entirely") is a sidebar entry after Live TV whose
+sub-entries swap the page body as the Library's do (`ui/activity.go`,
+`ui/views/activity.templ`): `/activity/{downloads,transcodes,subtitles,markers}`,
+each the dashboard's tabbed card (`sectionCard`) over the projection's
+per-state lists (`projection.Dashboard`, now with `Subtitles`, `Markers`
+and `Downloads.Completed`; `ui/projection/activity.go`), 25 rows a page,
+refreshed every 10 s by a hidden `[data-list-poller]` that
+`ui/static/dashboard.js` tells which tab and pages are open
+(`/activity/{section}/list`, out of band). Downloads keeps the clients and
+each entry's actions; subtitles are Searching, Wanted, Failed (Blocked, or
+a language whose fetch failed) and Done; markers are Pending (probed, no
+result yet), Found, None found and Error. A list holds at most
+`projection.DashboardRows` (500) rows while its tab counts all. The
+pipeline page, `/events/pipeline`, `/events/downloads` and Options
+`Entries`, `Subscribe` and `SubscribeDownloads` are gone; `/pipeline` and
+`/downloads` redirect. The e2e scenarios that read them (`test/e2e`
+ui, subtitle and transcode) still do, and are Phase H's to rewrite.
+
+The ui's home page is the **Dashboard** (2026-10-22: `ui/dashboard.go`,
+`ui/views/dashboard.templ`). `/` redirects to `/dashboard`, the sidebar's
+first entry. It is a section per subject (owner, 2026-11-04), in the order
+work flows: Downloads, Transcodes, then Plex's and Live TV's charts, each
+section a grid of eighths on a wide screen.
+
+Downloads and Transcodes are two half-row cards each, laid out as
+shadcn's "Bar Chart - Interactive" (`views.sectionCard`): the title and
+its one-line description at the header's left, square tabs at its right
+(one size on every card -- 4rem on a phone, 5 on a laptop, 6 on a wide
+screen -- so every header is as tall; on a phone a line of their own),
+each tab's colour a line along its bottom edge, dim until it is open, the
+open tab a frosted tile (input.css: the page's four UltraBlur corner
+colours fixed to the viewport as the html background is, so the tab shows
+the patch of canvas behind it, under a thin white frost, with a faint 1px
+rim and a soft shadow -- settled with the owner over six passes on
+2026-11-04, "looks *perfect*"; change its numbers only on the owner's
+word), its
+name and its figure (owner, 2026-11-04: "the tabs should be square ...
+the same size for all cards"; "moving the colored lines to the bottom";
+"Card height should be identical for all cards"). The cards of a grid row
+stretch to the tallest.
+
+- The first card's tabs are its lists from the projection round
+  (`Projection.Dashboard`): Running, Queued and Failed grab entries;
+  Running, Pending (Pending, Planned, Queued), Failed and Skipped
+  transcodes (MediaFile `status.transcode`). A tab counts its list and
+  opens its rows, every list a row a line, four to a page
+  (`ui.listPerPage`; five until the cards had to fit beside their charts)
+  with a pager under it, one page or many (up to
+  `projection.DashboardRows`, 100); a row's bar is the progress component
+  in full, its details the label and its percent the value.
+- The second card's tabs are the section's charts (`dashChartTabs`): a
+  series or a chart a tab, its figure the range's total, peak or latest.
+
+A section's grid holds two `display: contents` groups, its live cards and
+its charts, and two hidden pollers refresh them out of band: the summary
+every 10 s (`/dashboard/summary`), the charts every 60 s and at a range
+pick. `ui/static/dashboard.js` adds every card's open tab and every paged
+list's page to those requests (`tab-<card>`, `page-<list>`), and a pager's
+link asks for its page at once, so a refresh never snaps either back.
+
+The charts are shadcn-templ's chart component (`ui/components/chart`, an
+SVG runtime in the component bundle). They chart range queries the ui runs
+against a Prometheus-compatible API (`ui/prom`): `--metrics-url`, chart
+value `ui.metrics.url`, e.g. Mimir's `/prometheus`. Without one the charts
+show as not configured. They cover:
+
+- Plex sessions, bandwidth and plays, from cluster-plex's
+  `clusterplex_plex_*`;
+- Live TV;
+- transcodes finished, transcode workers and the transcode backlog;
+- grabs and imports.
+
+The range is 6h, 24h or 7d (`/dashboard/charts?range=`), refreshed every
+60 s. A gauge is charted as each step's peak (`max_over_time`). Answers are
+cached for 30 s and capped at 4 MiB, and only the ui queries the store,
+never the browser. A cached answer is shared by every render, so never
+modify its points in place: rescaling them did, and turned 40 Mb/s into 0
+from the second render on.
+
+Each library page has an **Add New** (`/library/{tab}/add`, since
+2026-09-29): it searches its kind through catalog's metadata search RPC
+(TMDB movies, TVDB series, MusicBrainz artists, Open Library authors) and
+adds the chosen item through `ui/actions.AddItem`; an item the library
+already holds is found by `LibraryItem.ProviderID` and opened instead.
+The top bar (2026-10-06, after Sonarr's) is shadcn's navigation menu: the
+sidebar trigger and the breadcrumbs (`#page-crumbs`) on the left, the
+search centred as an input group (`#header-find`), an Add New menu on the
+right; a tab's htmx swap carries the crumbs and search out of band beside
+`#library-subnav`. The search is a typeahead (2026-10-01, Sonarr's and
+Radarr's header search): on a tab `GET /library/{tab}/find?q=`, elsewhere
+`GET /library/find?q=` over every tab, answers a dropdown of up to 10
+**monitored** items (`projection.Find`: titles through
+`release.TitleNorm`, ranked exact, prefix, word prefix, anywhere; a
+`tmdb:603`-style or bare provider id first), from the projection alone,
+with the count (`#library-find-count`) out of band;
+`ui/static/find.js` gives it arrow keys, Enter and Escape and places the
+dropdown `position: fixed`. No match links to Add New with `?q=`, which
+fills and runs its search. The page toolbar is shadcn's menubar
+(`views.toolbar`; Options, Sort and Filter are its menus). An item page's
+bar -- a movie's, series', season's or episode's (`views.actionBar`, owner
+2026-11-04) -- is one shadcn-templ button group at its large size, the
+group itself the glass with no panel around it, centred under the top bar
+(owner, same day: "Simplify the toolbar ... like the large variant", then
+"a tad bit smaller"): outline buttons joined at their borders, each an
+icon over one word (Refresh, Search, Interactive, Preview,
+Rename, Edit, Images, Delete) with the whole action as its title. An
+action's form is hidden and named by its button's `form` attribute
+(`views.actionForm`), so the button is the group's own child and takes the
+joined borders while htmx still catches the submit; a dialog's trigger
+stands in the group itself, its portal hidden beside it. The library has
+Sonarr's mass editor: Select marks cards (`ui/static/library.js`, client
+side, re-applied over every stream frame) and a bottom bar posts the
+selection as `item=namespace/kind/name` to `POST /library/{tab}/bulk`
+(monitor, unmonitor, search, refresh, delete), which accepts only items on
+that tab in the projection, validates all before writing, and runs each
+item page's own `ui/actions` call; Options (poster size, details) are the
+reader's own, in localStorage. Every card has its actions on hover
+(Sonarr's poster buttons): the card is a div with a stretched link
+(`data-card-link`), and Refresh & Scan, Search, Monitor/Unmonitor post
+through htmx to the item's own routes with `HX-Target: action-status`,
+which `finishActionWith` answers in place (200 with `ActionStatus` or
+`ActionError`, never a redirect; the monitor toggle skips its row reply);
+Delete opens the page's delete dialog for that item alone. Since
+2026-11-10 one bar serves the page (`views.cardActionBar`): library.js
+moves it into the card the pointer rests on (60 ms) or focus enters, and
+names that card's route at `htmx:configRequest` in place of the
+placeholder `/library/card-action`; the card's `data-monitored` picks
+Monitor or Unmonitor by CSS. Four buttons a card had been half of every
+card's 10 KB. **The library filters as Radarr and Sonarr do** (owner,
+2026-11-10: "many more filtering options ... including custom filter
+options"): per-tab presets (`projection.LibraryFilters`, TV adding
+Continuing Only and Ended Only) and sorts (`LibrarySorts`: Added, Size on
+Disk, Rating, Runtime, Release Date; TV Network, Next and Previous Airing,
+Episode Progress; an unknown value sorts last either way), and custom
+filters: rows of field, predicate and value over about 35 fields a tab
+(`projection.LibraryFields`: genres, keywords, studio, original and audio
+language, certification, ratings, size, codec, HDR, quality, release dates,
+series status and type, network, airings, episode counts...; the
+projection reads them off each Movie, Series and the movie's MediaFile),
+every row kept, a row's values any of them. A filter is the page's URL, a
+repeated `?f=<field>:<op>:<value>[|<value>]` (`projection.Condition`;
+`ParseConditions` drops what a tab cannot test), so the page, its stream
+and a shared link agree; the active filter is chips under the toolbar,
+each removing itself. The builder is a dialog (`views.filterDialog`) whose
+rows `GET /library/{tab}/filter/row` draws and redraws on a field or
+predicate change, applied by a plain GET of `/library/{tab}/filter`, which
+redirects to the page's URL. Saved custom filters are the reader's own, per
+tab, in localStorage (`clustarr.library.filters`), listed in the Filter
+menu: the ui has no CRD to keep them in. TestUINeverWrites reads any
+`.Delete(` selector as a write, `slices.Delete` included. Tailwind's
+`group-hover` applies only under `(hover: hover)` -- headless Chromium
+reports `none`, so a screenshot shows no hover bar unless the rule is
+injected. The vendored shadcn-templ components are
+the registry's own (`shadcn-templ add … --overwrite`, 2026-10-06: hooks are
+`data-templ-*` and `window.templ`, the select's hidden input follows its
+trigger and a read-only select is `ReadOnly` with a disabled trigger, so
+its value still posts); Clustarr no longer keeps its own navigationmenu or
+scrollarea. The registry's catalogue and docs index is the `shadcn-templ`
+project skill (`.claude/skills/shadcn-templ/SKILL.md`): read it before
+choosing a component or running `shadcn-templ add`. Since 2026-11-04
+(owner: "determine what can migrate to a
+native shadcn-templ component"; "use the select component from
+shadcn-templ"; "all inputs/forms ... input groups or field groups") every
+control a person sees is a component: `shadcn-templ add` (the registry
+inlines its `cn-*` styles for the base-vega style as it writes, so a
+vendored file never carries them) brought collapsible, progress, spinner,
+toast, kbd, toggle, toggle-group and alert-dialog beside the earlier set,
+and the views hold no raw `<input>`, `<select>`, `<textarea>`, `<label>`,
+`<details>` or `<button>` -- only hidden inputs and the `<form>` elements
+themselves, which have no component. The rules the sweep settled: a select
+is `select`, never `nativeselect` (vendored once and removed); a disclosure
+is `collapsible`, and one that loads on first open asks on
+`views.expandOnce` (the collapsible's `collapsible-open-change[detail.open]
+once`, since a collapsible fires no `toggle`); a destructive question is an
+`alertdialog` (an item's Delete, Settings' and Import Lists' deletes, a bulk
+channel delete), and every `hx-confirm` asks through the layout's one
+(`views.confirmDialog`, `ui/static/confirm.js`), so nothing calls
+`window.confirm`; a card action's answer into `#action-status` is a toast
+marker (`ActionStatus`, `ActionErrorToast`; `toast.Toaster` in the layout)
+with the tests' `data-action-*` on its wrapper, while `ActionError` stays
+the inline alert an error page shows; an empty list is `views.emptyState`
+(icon, title, a line) and an empty section `views.emptyNote`; a progress
+bar is `progress`, its percent on `data-progress`; a segmented filter (the
+season search's packs|all, the dashboard's range) is a `togglegroup`; the
+alert dialog and the toast take their glass from input.css's `[data-slot]`
+rules as the dialog does. Not swapped, on purpose: the library's A-Z bar,
+the guide grid's geometry, the channel logos (`avatar.js` hides the image
+until it loads, which would flash the number tile on every refresh), the
+header search's dropdown shell (`command` and `combobox` filter client-side
+over their own items while find.js's list is server-filled), the sort and
+filter menus (menubar radio items carry no `href`), the Live TV copy
+button (`copy-button` is a docs-site part, not a registry item) and the
+monitor bookmarks (`toggle` is `type="button"`, and theirs are submits).
+Format a template with the project's templ, `go run
+github.com/a-h/templ/cmd/templ@v0.3.1020 fmt <file>`: the `templ` on PATH
+(v0.3.1100) formats differently, and `templ fmt ui/views` rewrote twenty
+untouched files.
+**The settings forms follow their own choices** (owner, 2026-11-16:
+"selecting an option like music or movies limits which fields are valid ...
+filter which input groups and specific inputs display based on the selected
+options"). A kind's overlay (`ui/forms/kinds.go`) states it three ways
+beside a group's `When`: `Only` (a field, or everything under an object,
+shown only while a condition holds: a movie root's series type is not
+drawn), `OptionsWhen` (one option of an enum or of a checkbox group) and
+`RefOptions` (a live object offered by its `Option.Class`: a root folder
+gets the quality profiles of its media kind, an indexer the download
+clients of its protocol). A `When` is `path=v1|v2`, `path!=…` with `Not`,
+joined by `And`; a field of several values has each, and **a field a
+condition hides reads as unset**, so what depends on it follows
+(`ui/static/settings.js` repeats the pass until nothing moves). Hide only
+what is certainly meaningless for the choice, and state it against the
+CRD's own rules: `TestEveryConditionWatchesARealFieldAndItsRealValues`
+holds every condition to a field the form carries and to values it can
+take. A hidden input still posts (the choices that hide are immutable or
+shaped by the kind's `Ensure`); only a hidden option of a checkbox group
+(`Checks`, an array of an enumerated string whose order means nothing)
+posts nothing. **An Indexer's settings are its definition's**
+(`ui/forms/definition.go`): the Definition section is built from the
+chosen IndexerDefinition's YAML (`cardigann.Load`), each declared setting
+an input of its type posting into `spec.settings` at map index 1000+i, a
+password or a credential by name (`SecretSetting`: username, cookie,
+passkey...) into the Indexer's Secret under the setting's name, which the
+engine reads over `spec.settings`; undeclared settings, and a credential
+an indexer keeps in `spec.settings`, stay in the free "Other settings"
+table so an edit never loses one. The section is a `forms.Dynamic`: htmx
+fetches `GET /settings/indexer-definition` again when the select changes,
+it carries `__meta.protocol` (every Cardigann definition is a torrent
+site's) for the torrent-only fields and clients, and offers the
+definition's first address to Base URL. A save drops settings that only
+restate the definition's defaults (`PruneDefinitionDefaults`). **Sections
+are accordion areas** on the Settings page and in every form: a Card that
+is a `collapsible`, its header shadcn's own (title, description, and Add
+and the chevron in `card.Action`), the Settings page's closed until
+opened and remembered in localStorage (`clustarr.settings.open`,
+`/settings#<slug>` opens one), a form's Advanced ones closed; a submit
+first opens a closed section holding an input the browser will refuse.
+The registry's `accordion` is not used: under the pinned CLI
+(v2.0.0-beta.10) `shadcn-templ bundle` concatenates scripts
+alphabetically, so `accordion.js` runs ahead of `baseui/` and its
+uncaught error stops every component on every page; check the bundle's
+order before adding any component that sorts before `baseui`. A map's
+rows decode by index, not position (`schema.decodeMap`: until then
+removing a middle row dropped every row after it on save).
+An import list likewise finds an item by provider id
+(`importlist.loadLibrary`) and writes only the items it added itself:
+one added by hand, by a rescan or by another list is recorded as listed
+and never changed or removed by it (Radarr), since item names hash the
+title as well as the id. **The one exception is `spec.listed`** (owner,
+2026-11-17: "import lists should be able to add additional tags and
+metadata to each item. This way it's easy to bundle them back into a
+collection"): its `tags`, `labels` and `annotations` go on every Movie and
+Series the list names, whoever added it, at each sync
+(`app/import/controller/importlist/listed.go`), under a field manager of
+the list's own (`k8s.ManagerImportListed`, "import-listed/<list>", a
+family `FieldManager.Valid` takes by prefix). Movie and Series
+`spec.tags` are a set (`+listType=set`), so the list's tags sit beside the
+ones an item was added with and beside another list's, a changed block
+replaces only the list's own, and an empty apply takes them off: when the
+item leaves the list, when the block goes, and when the list is deleted,
+which the finalizer `catalog.clustarr.io/listed-items` holds until its
+marks are off. A disabled list keeps what it put. Each remembered item
+records the block it carries (`StoredItem.Listed`), so a sync writes only
+where the block moved or someone removed a mark. A label or annotation key
+under `clustarr.io/`, `kubernetes.io/` or `k8s.io/` is refused (CEL, and
+again in the controller): those are read as instructions, and
+`catalog.clustarr.io/delete` on a list's 755 films would remove them.
+cluster-plex writes an item's `spec.tags` as Plex labels beside its
+keywords, so a smart PlexCollection filtering `label is <tag>` gathers a
+list: talos's Criterion Collection is the `great-films` list's tag. catalog seeds a MetadataProvider for every
+type that needs no key (`metadataprovider.SeedDefaults`: MusicBrainz,
+Cover Art Archive, Open Library, Audnexus, MangaDex, AniList, Kitsu,
+Anime-Lists) in its own namespace at start, create-only, skipping a type
+already configured under any name; `spec.enabled: false` turns one off,
+since a deleted seed returns at the next start. caption likewise seeds
+the default SubtitleProfile `english` (`subtitleprofile.SeedDefault`)
+when the cluster has no SubtitleProfile at all, with `audioExclude` so
+only media whose audio is not English is searched; a file with untagged or
+unprobed audio counts as its item's original language (the Movie's or the
+Series' `status.metadata.originalLanguage`, `subtitleplan.audioLanguages`).
+Books take English titles as movies and TV do (2026-09-30): the Open
+Library client (`WithLanguage`, from MetadataProvider `spec.language`)
+lists an author's works through its search API with `lang`, titles each
+by its edition in that language (and `Book` by its most common edition
+title, so a refresh keeps it), names the author by Wikidata's label, and
+gives each work `Languages` so `metadataProfile.allowedLanguages` can drop
+translations catalogued as works of their own; Add New sets it to `en`.
+One book is one Book: Open Library holds many works per book (19 for The
+Brothers Karamazov in Dostoevsky's top 100), so `Books` collapses works
+whose titles are the same book (`bookKey`: case, punctuation, articles,
+subtitle, brackets, byline, volume and edition words) into the
+most-published one, and with a language lists no work it cannot title in
+it (only-Cyrillic volumes).
+Each library item's page has **Delete**
+(`docs/superpowers/specs/2026-09-30-library-delete-design.md`, 2026-09-30):
+the ui only patches `catalog.clustarr.io/delete` (`files` or `records`)
+and `delete-add-exclusion`; import's `librarydelete` controller removes
+the folder permanently for `files` (never the RootFolder, refusing a path
+outside it or a folder holding another item's MediaFile), deletes the
+MediaFiles and then the item, or writes `delete-error`. The library scan
+skips a folder whose id an ImportExclusion names (unmatched `excluded`).
+Search posters are provider URLs, so they go through `/art/search` --
+signed by the ui, fetched only from the four providers' image hosts,
+capped and cached -- never straight to the browser (ADR-0011).
+The Plex provider answers with the full Metadata Response (2026-09-30,
+`docs/superpowers/specs/2026-09-30-plex-full-metadata-response-design.md`):
+tagline, studios, countries, per-country certifications (`contentRating`
+by `X-Plex-Country`, `cc/rating` outside the US), `isAdult`, season posters,
+episode stills, `SeasonType` for the stored order, `theme` for shows, and
+the original-language title, genres and images when Plex asks in another
+language; people and similar titles come from the
+`clustarr-metadata-extended` KV document the metadata gateway writes per
+item (`pkg/metadata/extended`; file-backed even on single-node NATS,
+`BucketSpec.Durable`, since a document is rebuilt only at the item's next
+refresh), which the ui reads through a closure under a 2 s deadline, never
+a KV handle. PMS 1.43 (11029) reaches the ui's cluster address only
+through its agent, which downloads a refreshed item's images; any image
+URL it keeps it fetches later through `images.plex.tv` or itself, refusing
+a private address ("not a permitted destination for a caller-supplied
+URL"; through `images.plex.tv` the failure reads "URL requested for photo
+transcode is over maximum size of 104857600 bytes", though nothing was
+that big). So, since 2026-10-26:
+- a movie's or show's poster, background and logo, and a season's
+  fallback to them, stay the ui's `/art` URLs, the poster overlay-first,
+  which PMS downloads, so the rating-badge overlay reaches Plex;
+- a match result (`POST .../matches`) carries them by the artwork entry's
+  `sourceURL` instead (`urls.sourced`, `artworkFor.url`), because PMS makes
+  a match result's thumb the item's and selects a refresh's download only
+  when it is a new file -- never a season's, whose poster is its show's.
+  Every season of 86 and A Model Family and 14 movies lost
+  their posters that way, as did 214 seasons in all;
+- person photos, season posters, episode stills and image-set overrides
+  go through `Options.PhotoURL` (`plexPhotoURL`): the source itself, only
+  on a host `/art/search` would fetch from. PMS keeps a person's photo as
+  a URL, which had broken 17,086 cast photos.
+
+ADR-0011's rule against hot-linking concerns the browser, and Plex's
+servers fetch these URLs. `/art/search` still signs with
+`$CLUSTARR_ART_SIGNING_KEY` from the chart's kept
+`<release>-ui-art-signing-key` Secret for the ui's own pages. A Movie or Series document
+older than `pkg/metadata.SchemaVersion` (`status.metadata.schemaVersion`)
+is refreshed once, past the L2 cache (whose key carries the version), and
+stays ready meanwhile -- raise the version when the gateway learns a field.
+An image set from MediUX or ThePosterDB (2026-10-21,
+`docs/superpowers/specs/2026-10-21-image-sets-design.md`) replaces a
+movie's or series' poster and background, a series' season posters and
+backgrounds and its episodes' thumbnails: the item page's **Image Set**
+dialog takes Kometa's image-files YAML (`pkg/imageset`: `url_poster`,
+`url_background`, `tpdb_*` ids, `seasons{n}`, `episodes{n}`), and
+`ui/actions.SetArtwork` patches `spec.artwork` and
+`Series.spec.seasonArtwork` (`{season, episode?, type, url}`, 1000 at
+most), the item's overrides of other types kept. The Plex provider hands
+PMS the season and episode overrides' own URLs on a host the `/art/search`
+allowlist names (it gained `api.mediux.pro` and `theposterdb.com`); an
+override on another host is not shown. PMS shows them at its next refresh of the
+show.
+Sets are also chosen automatically (2026-10-22,
+`docs/superpowers/specs/2026-10-22-mediux-image-sets-automation-design.md`;
+owner: automatic for every item, opt-out per item): a `mediux`
+MetadataProvider (secretRef key `token`, a MediUX bearer token; `spec.mediux`
+`preferredCreators`, `languages`, `quality`, `refresh`) makes the remediation
+loop's image-set stage (`app/remediation/imageset`, after metadata, before
+artwork) ask the metadata agent's `catalog-imageset` worker for every Movie
+and Series with a TMDB id (a series' TheTVDB id is mapped) whose
+`spec.imageSet` is not `none`, through a `clustarr-image-sets` record and
+the dispatch ledger; the agent (`app/catalog/worker/imagesets`) reads MediUX
+through `pkg/metadata/mediuxsets` over the `clustarr-mediux` cache
+(`pkg/metadata/mediuxcache`: id mappings for good, set lists a week, "no
+sets" a day, the daily `content_ids` list first, so an item MediUX has
+nothing for costs no request) and composes the item's images from all of
+its sets, slot by slot (owner, 2026-10-27: "combining various sets";
+`mediux.ComposeShow`/`ComposeMovie`, the design's "Composed sets"): the
+anchor -- a pinned set, else the best by preferred creator, poster
+language, completeness, a film's own set over a collection's,
+popularity, recency -- gives what it has, its creator's other sets and
+then the rest fill each poster, backdrop and season poster it lacks, and
+each season's titlecards come from one set (the anchor creator's with the
+most for it) with only its gaps filled elsewhere. MediUX's `popularity` is
+a rank, 1 the most popular, which the first cut read upside down. A film's
+candidates include the collection sets' images of it (a second query in
+AURA's shape, never recorded live: a GraphQL error from it alone,
+`mediux.ErrQuery`, leaves the film its movie sets). Every image carries
+its scope (a specials poster is season 0's, never the item's) and the set
+it came from; the stage writes the result into `status.imageSet` under
+`catalog-imageset` (its one field; `setID`, `title`, `creator` the
+anchor's, `sets` every set that supplied an image, at most 32),
+reconsidered every `refresh` (7 days; an hour after a failure), never the
+spec. MediUX has no logos, banners or season backgrounds, and any slot no
+set fills keeps the providers' images. Every reader takes the owner's
+`spec.artwork`/`spec.seasonArtwork` over it: the Plex provider's
+`seasonOverride`, the artwork fetch (`catalogartwork.WithImageSet`, so the
+set's poster and background are stored as custom originals) and the item
+page's "Images" fact (pasted set, else "MediUX set <title> by <creator>"
+and how many more sets filled it, linked to the anchor's
+`mediux.pro/sets/<id>` page, built from the set id, never from `status.imageSet.url`, which held AURA's `mediux.io/<kind>-set/<id>` until 2026-11-04 and which mediux.io no longer serves; the pin form accepts both shapes). A set cached as JSON must round-trip: `ShowSet` and `File` have
+`MarshalJSON` writing the wire's nested shape their decoders read, without
+which every cached set came back poster-only and the second choice was never
+the first's. The proxy allowlist has `images.mediux.io` too, the host the
+chosen sets link (`api.mediux.pro` refuses `key=jpg`). The dialog's second
+form sets the policy per item (`ui/actions.SetImageSetPolicy`): untick
+"choose automatically" for `spec.imageSet: none`, or pin a set by id or
+page URL into `spec.imageSetID`, which anchors the composition and keeps
+every image it has (fetched by id when the item's list lacks it, taken
+alone when the item has no id, passed over and named in the reason when
+MediUX does not find it, never a NotFound that clears the item's images)
+and a changed pin asks for at once. Only a series' own slots are filled
+when its shape is known (its seasons and the specials, each season's
+episode count). A MediUX limit longer than five minutes defers the record and acks,
+and the stage republishes the task at the reset (`Decision.Resume`,
+`MsgIDForImageSetAt`), as the markers worker does.
+A season named by TheTVDB ("Book 1: Water", "Steel Ball Run";
+2026-10-21) is titled by that name in Plex instead of "Season N", and on
+the series page beside its label: `/series/{id}/extended` carries each
+season's `name` in the show's original language, the client asks
+`/seasons/{id}/translations/<lang>` for the titles' language where
+`nameTranslations` lists it (at most 40 per series, a failed one keeping
+the original), and the gateway writes `status.metadata.seasonTitles`
+(per order, `SchemaVersion` 6); the provider takes the series' own
+order's title, else the aired order's, as it does the season poster.
+TheTVDB's Sub-Genre tags (Dark Comedy, Psychological Thriller;
+2026-10-27, `SchemaVersion` 7) are a series' `status.metadata.subGenres`,
+kept apart from `genres` (which classification and `originalGenres` read),
+and the Plex provider lists them after the genres as further `Genre`
+entries (`withSubGenres`), since Plex builds a TV library's categories from
+Genre and keeps no Label, Style or Mood from a provider (spike
+2026-10-08). Only the Sub-Genre group is taken: Setting, Time Period and
+Geographic Location are no genres, and coverage is crowd-sourced (Breaking
+Bad has three, Stranger Things none). TMDB's keywords ("time travel",
+"heist"; 2026-10-27, the same `SchemaVersion` 7) are a Movie's and a
+Series' `status.metadata.keywords` (50 at most; a movie's appended to its
+one TMDB request, a series' to the tv request that already fetches its
+tagline, `SeriesExtrasProvider`), and they never go through the Plex
+provider: PMS keeps no Label from one, so cluster-plex writes them into
+Plex's database as the item's Labels (tag type 11, verified live) beside
+the markers and streams it already seeds.
+Images are chosen per (type, language) before the CRD's 50
+(`selectImages`), so the original language's and fanart.tv's survive;
+TheTVDB's artworks, a series' own image and a season's list poster
+among them, rank by their score, ties going to the titles' language, no
+language, then the original (`tvdb.rankArtworks`, `SchemaVersion` 8,
+owner 2026-10-28: TheTVDB's own image for an anime is its best English
+poster, often never scored -- Cautious Hero's was a title card on black);
+`contentRating` prefixes the country the gateway chose the certification
+from (`status.metadata.certificationCountry`), and a request naming no
+language is answered in `status.metadata.language`. Response customization (`includeFields`/`excludeFields`/
+`includeElements`/`excludeElements`, never dropping ratingKey, key, guid or
+type) and `episodeOrder` (no seasons for an order clustarr does not store)
+are honoured. An episode answers its own `tvdb://` Guid and, since
+2026-10-07, its guest cast and crew: after each Series refresh the gateway
+lists the series' Episodes from the apiserver by Episode's selectable field
+`spec.seriesRef` (no cache, no index -- what the first cut lacked), and for
+each with a file whose document is missing or over 30 days old asks
+TheTVDB's `/episodes/{id}/extended` (`pkgmetadata.EpisodePeopleProvider`),
+at most 300 a pass, heartbeating the delivery
+(`app/catalog/metadata/episodepeople.go`); `SchemaVersion` 4 refreshes
+every series once to backfill.
+PMS also asks every provider for an item's extras on each refresh
+(`GET {root}/library/metadata/{ratingKey}/extras`, not in Plex's provider
+docs) and reads a 404 or an empty list as "none", deleting the trailers it
+holds -- which cost the library its Internet Video Archive trailers on
+2026-10-06. The route (`ui/plex/extras.go`) answers Plex's own extras for the
+item's (or season's) Plex id, which it asks the metadata gateway for over
+`rpc.catalog.metadata.extras` (2026-10-06): the gateway answers from the
+file-backed `clustarr-plex-extras` bucket (`pkg/metadata/plexextras`, keyed
+by Plex id) and on a miss, or an entry older than 7 days, fetches from
+`metadata.provider.plex.tv` with the `plex` MetadataProvider's token and
+stores it (`app/catalog/metadata/extras.go`); "none" is stored too, and a
+failed refetch serves the stale entry. The ui holds no Plex token. An item
+without a Plex id answers none, and a gateway that cannot answer is 502/503,
+never an empty list.
+Skip segments come from TheIntroDB (2026-09-30,
+`docs/superpowers/specs/2026-09-30-plex-analyze-bypass-design.md`): for a
+probed movie or episode MediaFile whose `status.markers` are due
+(`app/catalog/markers.Due`: never fetched, a new probe hash, Found older
+than 30 days, Error than 1, NotFound than 7 the first time, then 30, then
+90 once TheIntroDB has had nothing for 90 days, from
+`status.markers.notFoundSince`) the remediation loop's markers planner
+writes a request into the `clustarr-markers` record and publishes a
+`catalog-markers` task; the metadata agent's marker worker asks the keyless
+`theintrodb` MetadataProvider (a movie by TMDB id, an episode by its series'
+TVDB id, season and episode -- only in the aired order TheIntroDB numbers)
+with the probe's duration and answers in the record (`records.Answerer`), and
+the loop writes `status.markers` under `catalog` (ADR-0016; the
+`catalog-markers` field manager is gone, and a deferral to a key's reset is
+republished by the loop, ADR-0019). A series TheIntroDB
+lacks outright (`metadata.ErrNoTitle`, its `"media not found"` as against
+`"... for provided season/episode"`) answers its other episodes without a
+request for 24 hours; a file holding several episodes is not asked. Each
+key's allowance is its own: Secret `apiKey`, plus `apiKeys` one per line,
+spent in order, a spent key resting until its reset; the provider is
+probed every 6 hours, since its probe is a counted lookup. cluster-plex seeds them
+into Plex, with the probe's streams, straight into Plex's database: Plex's
+API can write neither (the spec's §2 is the proof).
+clustarr also detects segments itself (2026-10-01,
+`docs/superpowers/specs/2026-10-01-segment-detection-design.md`,
+`docs/research/segment-detection.md`), so Plex's pods run no detection
+(cluster-plex sets `MarkerSource=cloud`): `markers` (`cmd/markers`), a
+credential-less binary on the native image, decoding in-process on ffgo
+(`pkg/segments/decode`, ADR-0017), takes a season's (or a movie's)
+`AnalyzeTask` from the manager's segment planner (`app/catalog/segmentplan`,
+through its Episode and MediaFile indexes), and analyzes in Go -- a
+Chromaprint port bit-exact against ffmpeg's muxer for season-wide intros
+and ending themes, black/entropy/edge/scroll statistics of end frames, chapter
+names (Intro Skipper's patterns), and PaddleOCR text density on ONNX
+Runtime through purego only when the cheaper signals are weak. Fingerprints
+are cached in the `clustarr-fingerprints` object store (versioned keys and
+metadata, `segments.FingerprintVersion` 2) and raw results in the
+`clustarr-segments` bucket, written by compare-and-swap; its work and
+TheIntroDB's ride the durable `CLUSTARR_WORK_MARKERS` stream (gotcha below);
+the loop's markers planner merges them into `status.markers.segments` (each
+tagged `source` and `confidence`; `pkg/segments.Merge`) under
+TheIntroDB per kind, then chapters, then analysis at 60 or more -- except
+that a chapter wholly titled as credits ("Credits", "End Credits",
+"Ending", "Outro", and since 2026-11-09 anime's bare "ED") outranks
+TheIntroDB's credits (2026-10-01: of 107 files with both, 36 disagreed by
+more than 5 s, the chapter right in the worst cases), and TheIntroDB credits
+that start before the intro ends or cover more than half the runtime are
+dropped, leaving credits to the next source (owner, 2026-11-09: TheIntroDB
+answers To LOVE-Ru's first season with credits `{start_ms: 0, end_ms:
+null}`, the whole episode, so Plex offered to skip the credits as the intro
+ended on 21 of 26 episodes; `segments.implausibleCredits`, and a stored
+block holding such credits is merged again, `segments.ImplausibleCredits`;
+chapter confidence is set in the segments record, so the "ED" rule raised
+`AnalyzerVersion` to 4 and every file is analysed once more, its cached
+fingerprints kept), and a chapter intro that is the cold open beside an
+"OP" or "Opening" chapter is left out (owner, 2026-11-10: To LOVE-Ru
+S01E01's Blu-ray chapters "Intro" 0:00-1:29 then "OP" 1:29-2:59 both read as
+intros, so Plex offered "Skip intro" over the cold open; `segments.ColdOpens`,
+judged at every merge from the probe's `chapterList` titles rather than at
+analysis, so it raised nothing, and a stored block holding one is merged
+again, `segments.HasColdOpen`) -- in the loop's markers planner, which reads both records
+(TheIntroDB's in `clustarr-markers`, the analysis in `clustarr-segments`) and
+writes the merge in the loop's one apply (`app/catalog/segmenting.Applier`,
+the compare-and-swap path the two used to share, went with ADR-0016's fold).
+Raise `pkg/segments.AnalyzerVersion` when detection changes.
+The Plex provider (`ui/plex`, ADR-0012) matches a request by the file Plex
+names first (2026-09-30, rule 0 in `ui/plex/matchfile.go`): `filename`,
+relative to Plex's library folder, is matched as a path suffix of
+`MediaFile.spec.path` (`projection.Index.FilesEndingWith`) and answers only
+when it resolves to exactly one item; a path two items share, an unknown
+file or an unsafe name falls through to the guid and title rules, so the
+provider never guesses between two items.
+The provider answers items Plex knows with Plex's own GUIDs (2026-10-06,
+`docs/superpowers/specs/2026-10-06-plex-native-guids-design.md`): Plex Web
+offers Watchlist and Discover only for an item whose own `guid` is
+`plex://`, and PMS 1.43.4 accepts one from a custom provider while still
+reading the item from it, fetching by the GUID's id
+(`/library/metadata/<24 hex>`). A keyed `plex` MetadataProvider (secretRef
+key `token`) resolves the ids from `metadata.provider.plex.tv`
+(`pkg/metadata/clients/plex`): a Movie's or Series' into
+`status.metadata.externalIDs["plex"]` through the gateway's resolvers,
+seasons into `status.metadata.plexSeasons`, and episodes into Episode
+`status.plexID`, joined by TVDB episode id in the gateway's episode list,
+written by the Series reconciler and kept when a later list carries none.
+`ui/plex` builds `guid`, `parentGuid` and `grandparentGuid` from them
+(`--plex-guids`, chart `ui.plex.plexGuids`, on by default); `ratingKey` and
+`key` stay clustarr's, and every ratingKey route also resolves a Plex id
+(`projection.Index.ByPlexID`, which refuses an id two items claim), with the
+flag off too. This rests on PMS not enforcing its documented rule that a
+provider's GUID starts with its identifier; `--plex-guids=false` is the way
+back.
+Series type `anime` keeps the episode order (2026-10-06,
+`docs/superpowers/specs/2026-10-06-anime-dual-audio-design.md`): it reads
+absolute numbers for search, import and naming from
+`status.absoluteNumber`, and only `spec.episodeOrder: absolute` changes
+the order (design §4.2's "absolute forced when anime" collapsed a
+multi-season anime into one season). A RootFolder's `defaults.anime` moves
+a series whose TVDB genres name it Anime to that profile and type once
+(`series.Classify`, recorded in `status.classification`, spec patched
+under field manager `catalog-classify`), so the owner's later change
+stays; `catalog.clustarr.io/classify: off` skips one, and an import list's
+re-apply keeps a classified series' values. Movies have the same once-only
+move since 2026-10-20 (`movie.Classify`, Movie `status.classification`): TMDB
+has no anime genre, so a film is anime when a genre names Animation (or
+Anime) and its original language is Japanese, and the movie folder's
+`defaults.anime` (`anime-remux-1080p`, the Radarr anime built-in) gives it
+English plus the original in one release. That profile does not graft
+(owner, 2026-10-20: a dual-audio release, not a grafted dub) and scores
+Anime Dual Audio 1000. A file missing a language a non-grafting policy
+wants (`decision.IncompleteAudio`) reads CutoffUnmet, reason
+`MissingAudio`, transcoded or not, until a release carrying every wanted
+language replaces it. `videoItemState` lets such a release past
+TranscodedFinal, the baseline rules and the upgrade table. Import's
+`audioFill` takes it only when the file's own probe carries them all, and
+refuses it as a releaseFault when it does not. Akira had played
+Portuguese: its scanned file carried only Portuguese and Japanese audio,
+which `hd-bluray-web`'s `language: original` accepted. A file whose probed audio
+lacks the profile's language (`decision.LacksLanguage`; unknown or
+untagged audio never lacks) reads `WrongLanguage` and CutoffUnmet, unless
+it is transcoded. Without a quality upgrade it is replaced only by a
+release whose title names its language (an untagged one merely assumes the
+original, the assumption that imported the wrong file) and only when the
+new file's own probe carries the language (`importplan.replacesWrongLanguage`),
+so it never loops grab, reject and blocklist. The Movie and Episode
+item keys wake on a probe's audio languages
+(`rollup.AudioLanguagesObject`), and a RootFolder's spec edit wakes its
+unclassified series. A profile's `audio` (`languages`, `graft`, `default`;
+the anime built-ins want `[en, original]`, grafted) replaces its
+`language` in the decision (`decision.audioRejection`): a release carrying
+every wanted language is complete, a partial one is a video candidate only
+when the profile grafts and the release carries the original language (the
+anchor a graft aligns on), and a complete one wins a tie. The built-in
+`anime-web-1080p` scores Anime Dual Audio 1000 (2026-10-20; TRaSH 0, or
+101 to prefer), past the release-group tiers' spread (WEB 100-600, BD
+700-1400), so a dual-audio release outranks every Japanese-only one of its
+quality -- the quality tier and a REPACK's revision still rank first, and
+a -10000 group stays below the minimum. **Releases are ordered by one
+rank score** (owner, 2026-11-03: "all of our current rules impact scoring
+- which determines the order. For instance, instead of bumping dual audio
+to the top, we should add to the score so that we end up with the same
+order"; `pkg/rankscore`): the format score, clamped to +-9,999, plus a
+bonus per rule, each larger than everything below it can add -- the
+preferred protocol 20,000, a whole season 40,000 (owner, 2026-10-27:
+within a quality both rank ahead of the format score, where Sonarr has
+them after it), each version past the first 100,000 and each REAL
+1,000,000, each tier above the profile's worst 10,000,000, and complete
+audio under `completeFirst` 1,000,000,000 -- so the order is the one the
+rules made as a chain of tie-breaks (`decision.Rank` through
+`RankKey.Score`, `grabplan.better`), with size, episode count, indexer,
+flags and seeders breaking a tie after it. Search results carry it as
+`ReleaseDecision.score`, which the ui's results table shows, its title
+naming the parts (`rankscore.Parts`); the minimum, cutoff and upgrade rules
+still read the format score alone. Every built-in prefers usenet (`preferredProtocol: usenet`). A profile's `preferSmallest`
+(owner, 2026-10-28: every file is transcoded, so a bigger source is only a
+longer download and transcode) ranks the smallest release first right after
+the format score and languages, ahead of indexer, flags and seeders
+(`decision.less`, `grabplan.better`); the owner's transcode-first profiles
+pair it with one 1080p tier, `x265-hd` +300 at a minimum score of 0 (until
+2026-11-02 also `10bit` -150, which held x265 10-bit back with H.264 10-bit;
+now `h264-10bit` refuses H.264 10-bit, which no GPU here decodes, and
+`av1` 0 takes AV1, decoded on the Intel GPU since ffgo
+`v0.0.0-clustarr.16`) and a 5 MB-a-minute floor in `sizeLimits`,
+since TRaSH's x264 minimums reject a small HEVC encode. Their anime twins
+(`hevc-small-1080p-anime`, `-anime-tv`) also zero TRaSH's anime group tiers,
+which score 100-1,400 under every score set and would carry a tier-1 10-bit
+H.264 past the minimum (`TestAnAnimeTranscodeFirstProfileIgnoresGroupTiers`).
+An audio policy's `completeFirst` (owner, 2026-10-28: "We *must* always take
+dual audio if it exists") ranks a release carrying every wanted language ahead
+of every other key -- tier, revision, season pack, protocol, format score and
+size -- as the rank score's largest bonus
+(`decision.ReleaseCompletesAudio`); it ranks and never approves, so a
+dual-audio 10-bit H.264 is still refused, and it matters only to a grafting
+policy, since one that does not graft refuses an incomplete release outright.
+Under it the audio also decides before the upgrade table (owner, 2026-11-02:
+"Ensure we use dual audio as the highest priority"): a complete release passes
+a queued grab whose release languages (`decision.Queued.Languages`) lack one,
+a pack included, and an incomplete one is refused by a complete grab
+(`queueRejection`, `decision.AudioOutranks`); a file known to lack a wanted
+language is `decision.ReplaceableAudio` -- CutoffUnmet, reason
+`MissingAudio`, transcoded or not, replaced by a complete release (import's
+`audioFill`), its graft only the fallback -- and an incomplete release never
+replaces a file carrying them all (`ExistingHigherPreference`). Only a
+dual-audio single downloading holds a pack that is not dual audio back, and
+its season against the automatic season search (`grabplan.Holds`,
+`holdsSeason`; every other single a pack replaces, above). Remake our Life!'s
+EMBER dual-audio pack had been refused for SENPAI's Japanese-only singles, one
+1080p tier and a format cutoff of 0 making each "equal or higher preference";
+2,068 episodes of `hevc-small-1080p-anime-tv` held Japanese-only files, their
+grafts still searching. Only a non-grafting policy's import blocklists a file
+lacking a language as mislabelled (`decision.IncompleteAudio`).
+**An anime wants English only when the MAL-Dubs list names it** (owner,
+2026-11-03: English dubs and dual audio "*only* for series who's
+status.externalIDs.mal exists within" github.com/MAL-Dubs/MAL-Dubs'
+`dubInfo.json`; `pkg/dubs`). The manager's leader fetches the list once a
+day by its ETag (`dubs.Refresher`) into the durable `clustarr-mal-dubs`
+bucket, and the manager and every agent watch it into an index on their root
+context (`dubs.WithIndex`, as `pkg/grouplang`'s). An anime -- a Series of
+type `anime`, a Movie its classification calls anime -- is `Dubbed`,
+`Incomplete` (the list's `incomplete`: a simuldub), or `NotDubbed` (no MAL
+id, or one the list does not name); anything else, and every item before a
+list was read, is `Ungoverned`. `decision.ForDub` makes the state the item's
+audio policy wherever its profile is resolved (`itemread.ItemProfile`, the
+Episode and Movie reconcilers, the downloads stage, the search worker's
+snapshot, the RSS matcher), and the remediation loop's `dubs` source
+(`dubSource`) re-plans at low priority the anime a list change moved -- every
+one on the first list a process reads, then those whose MAL id changed
+state -- since nothing else wakes an item when the list changes (rev 177
+loaded the list and moved none of 864 not-dubbed episodes): NotDubbed drops English from the languages the
+policy wants, so no dub, donor or dual-audio release is searched for or
+ranked first; Incomplete moves it to `quality.Profile.AudioOptional`, so a
+file without it meets the cutoff and a release without it is not refused,
+while a release with it still ranks first (`LanguagesComplete`) and replaces
+a file lacking it (`decision.AudioUpgradeable`), and `status.audio` keeps it
+missing, so the donor search looks for it on the wanted backoff (weekly
+from the sixth try; IndexOnly after the first). An English original is
+still wanted through `original`, and the K-dramas' dual-audio profile, whose
+series carry no MAL id, is untouched. On talos then: 383 dubbed, 2
+incomplete, 97 not dubbed and 26 without a MAL id of the 508 anime series;
+27 of 28 anime films have one.
+An Episode carries two conditions, Ready and DeadLettered (owner,
+2026-11-03, cutting the manager's memory): the Aired, HasFile, CutoffMet and
+WrongLanguage conditions every episode carried restated `status.phase`,
+`hasFile` and `cutoffMet`, and their five structs per episode were 26 MB of
+the manager's cache for 27,558 episodes. What their readers needed is now
+`status.cutoffReason` (Pending, Transcoded, ProfileUnresolved, WrongLanguage,
+MissingAudio, BitrateOutOfRange, UndecodableVideo, CutoffMet, CutoffUnmet;
+the season search's `replacesAsPack` reads it) and `status.wrongLanguage`;
+the Episode reconciler drops the retired four from an episode still carrying
+them on its first pass (`retiredEpisodeConditions`), since an apply that
+copied them from the cache would keep them for good. Movies keep theirs
+(1,050 objects). The tuner keeps no guide in memory between renders (same
+day): a render drops the parsed programmes once the guides are built and
+reads them back from the guide cache object when needed, and a device serves
+`xmltv.xml` from the store (`GuideObject`, or `GuideBlockObject` for a block
+that does not hold the whole lineup), its ETag answered from the stored hash
+without a read.
+anime-web-1080p ranks Bluray-1080p, then WEB 1080p, then Remux-1080p,
+below the cutoff, so an encode replaces a remux, which is never transcoded
+(`demotedTiers` exempts that tier from the best-first guard). A bare scene WEB is a WEB-DL
+(`release.sourceRegex`, 2026-10-26: `1080p.WEB.h264-GROUP`, and the
+anime `[WEB]`, `(WEB 1080p`, `(BD 1080p` and `BD1080p` fallbacks); the
+first port read every one as quality Unknown, which every profile
+rejects, 20 of A Model Family's 26 episode results among them. A title
+naming a resolution and no source is HDTV at that resolution, SDTV below
+720p (*arr's last fallback, 2026-11-02): fansubs name only the resolution
+("[SubsPlease] ... (1080p)", "[Cleo]...Dual.Audio.10bit.1080p.x265"), and
+Somali and the Forest Spirit's dual-audio Cleo episodes read Unknown. A title
+naming neither stays Unknown: nzbgeek's and nzb-life's APIs report a
+release's audio and subtitle languages from its MediaInfo but no video
+(`t=details&extended=1`: no `video`, `resolution` or `framerate`), and the
+details page carrying it needs a web login. A file
+named for its episode alone parses, as Sonarr's "episodes without a title"
+do (`release.titlelessEpisodeRegex`, 2026-10-27): "S01E01 - Title.mkv",
+"1x05", leading bracket tags passed over. It parses with no title, so the
+import attributes it by its numbering, and when its name names no source it
+takes the release title's quality, revision, group and languages
+(`fileimport.fillFromRelease`, Sonarr's aggregation). A download's one
+video file whose own name attributes it to no episode of the series takes
+the release title's numbering when that names one (`plan.sceneParsed`,
+`fileimport.takeNumbering`), and a person's named episode takes such a lone
+file whatever its name says; a pack's numbered files keep their own
+verdicts. A resolution is never an episode number (`release.notResolution`):
+GUACAMOLE's "gua-drifters.2016.e08-1080p.mkv" read as absolute episode
+1080 (talos, 2026-11-02), and all eleven files were held for a person. The usenet engine
+names a file whose subject quotes an empty name (`- "" yEnc`) by the
+file-name-shaped token in it, as SABnzbd's name_extractor does
+(`usenet.fileName`), never by the subject's wrapper. A Sign of Affection's
+EMBER pack had all twelve files held as unparseable until then. A movie's
+edition (MediaFile `spec.edition`, which cluster-plex's projection writes
+as the Plex edition since 2026-10-27) is read after its title, never from
+it: "Uncut Gems" had been frozen as the Uncut edition. The parser
+reads a release's audio markers past Sonarr (2026-10-19,
+`release.namedLanguages`): a dual-audio title -- "Dual Audio"/"Dual-Audio",
+`[DUAL]`, or a bare DUAL after the resolution or right after the episode or
+year -- is English beside what it names, or beside the item's original
+language when it names nothing else (`ParsedRelease.DualAudio`,
+`LanguagesFor`); a bare DUBBED is English; a JA+EN-style code pair names
+both. Every reader takes that one reading -- the decision, the Search
+results the ui lists, import's frozen `spec.languages` -- under every
+profile; until then only the decision knew, under an anime score set, so a
+dual-audio release showed Japanese alone. Outside anime, DUAL means the
+original language plus the group's own language (2026-10-20: PD's "DUAL" NF
+WEB-DL of Akira carries Portuguese, as PD's file in the library did). So a
+DUAL title that names nothing else reads as the original plus the group's
+language (`ParsedRelease.LanguagesWith`). That language comes from
+`pkg/grouplang`'s index, learned from imports, or else
+`release.builtinGroupLanguages`, seeded from the library's evidence. The
+manager's downloads stage records every inspected file's pre-transcode
+audio against its release group (`grouplang.Observe`), refused imports
+included, in the durable `clustarr-release-groups` bucket. Only a file with
+exactly one language beside English and its original votes, and a group's
+verdict needs 2 votes, two thirds of the votes and a third of its files.
+Each binary puts the index on its root context (`release.WithGroupLanguages`),
+so every reader resolves through `release.GroupLanguagesFrom(ctx)`. The
+parser also reads Sonarr's original-language scene tags
+(`ParsedRelease.NamesOriginal`, resolved by `LanguagesFor`): German beside
+DL (never WEB-DL's) or ML, and French (VF, VFF, VFI, VFQ, VF2, TRUEFRENCH)
+beside VO or MULTi. It reads explicit runs of three-letter codes in title
+order (`ENG.ITA`, `JPN.ENG`); a code alone is no language. Where the
+indexer reports a release's audio languages from its MediaInfo, they beat
+all of these: nzbgeek sends one `language` attribute per track, and
+nzb-life sends `audio`/`language` lists mixing codes and names.
+`rss.ProjectRelease` stores them as `ReleaseInfo.IndexerLanguages`
+(`catalogue.ResolveLanguageName`), the grab entry keeps them
+(`DownloadRelease.IndexerLanguages`), and `decision.indexerLanguages` makes
+them the release's languages at search and at the grab check. Example:
+hallowed's untagged Akira Blu-ray is English and Japanese. One exception
+(owner, 2026-10-21): a title that says dual audio keeps the title parser's
+reading when the indexer names fewer than two languages. nzb-life names only
+Japanese for many dual-audio TV posts (Kitsune's DUAL Monster, 86 and BLUE
+LOCK), and such a release is Japanese and English for an episode, a season
+pack and a film alike. NFOs are not
+fetched, since nzbgeek ignores `t=getnfo`. Items report `status.audio` (wanted, present, missing,
+graft); a missing dub never blocks the video. Grafting (phase 4): the
+search planner queues a donor search (`SearchTask.Purpose: audioDonor`) for
+a monitored item whose graft reads `searching` or `failed`, on its own
+backoff (`status.donorSearchAttempts`), at most 20 first-time live ones per
+namespace per sweep (`searchplan.DonorBudget`); a donor is judged on its
+languages, never its quality, and is grabbed as a grab entry with
+`purpose: audioDonor` (a donor and a video grab of one item coexist, and a
+donor moves neither `activeDownloadRef` nor the phase). The import agent's
+execute task places it under `<RootFolder>/.clustarr/donors/<item-uid>/` (no
+walk enters `.clustarr`) and reduces it to its `.mka` at once
+(`pkg/transcode/donoraudio`), and the item records it (`status.audio.donor`,
+derived by the item key from the entry's execute record). The remediation
+loop's graft planner (`app/transcode/graftplan`) runs one graft Job per file
+-- `transcode --graft-task` on the cpu pool's pod template, owned by its
+MediaFile, at most `--graft-concurrency` (2) ledger slots, never beside an
+open transcode of the file, answering in `clustarr-grafts` -- which aligns
+the anchors (`pkg/audioalign`), muxes the dub in beside every copied stream
+(`engine.Options.Graft`), verifies the muxed track and swaps it in, tagged
+`CLUSTARR_GRAFT`. catalog re-probes it without making a transcode:
+`spec.original` stays, `status.graftTag` is recorded, and the size, mtime and
+path are catalog's from then on. A failed graft rejects that donor for the
+item (`status.audio.rejectedReleases` on the item). A graft rides along with
+its file's transcode when one is due: the transcode dispatch carries the
+file's graft (`task.Task.Graft`, recorded as `status.transcode.joinedGraft`),
+the pool worker aligns before it encodes and muxes the dub in the same pass
+(`worker.GraftEngine`), and a graft waits up to 6 h for such a transcode
+(`graftplan.JoinWait`) before it grafts alone; only a standalone graft
+(`status.graft` Running) holds a transcode back. A multi-episode file is
+never grafted (`MultiItemFile` on the item).
+The movies provider has Plex's collection feature (2026-10-06; type 18,
+Feature `collection` at `/library/collections`, movie libraries only): a
+collection is a TMDB collection (`status.metadata.collection`), its items
+the library's movies in it, answered at `/library/collections/<key>` and its
+`/children` (`ui/plex/collection.go`), by Plex id or `tmdb-collection-<id>`,
+and matched as type 18 by GUID or name. The gateway learns the collection's
+Plex id from the movie's own Plex metadata (Plex cannot look a collection up
+by TMDB id) into `collection.plexID`, and its summary, poster and background
+from TMDB into the movie's extended document. Both providers declare `match`,
+which Plex's provider docs require.
+
+**Plex collections are resources** (owner, 2026-11-10: "Custom Resource the
+clustarr UI can edit", then "also include normal collections, the ability to
+customize the image, the ability to change its settings";
+`docs/superpowers/specs/2026-11-10-plex-collections-design.md`). A
+`PlexCollection` (catalog.clustarr.io) is smart -- `spec.filter`, Plex's own
+filter keys (`show.genre`, `episode.audioLanguage`) with word operators and
+tag values by name, one level of groups, which cluster-plex compiles to Plex
+Web's encoding -- or normal -- `spec.members.items`, clustarr Movies or Series
+by name, found in Plex by the GUID cluster-plex's projection gives them -- or
+a TMDB collection's (owner, 2026-11-17; the design's amendment) --
+`spec.tmdbCollection.id`, a normal collection in Plex whose members are the
+library's Movies TMDB lists in it, which cluster-plex asks clustarr's own Plex
+provider for (`/plex/movies/library/collections/tmdb-collection-<id>` and its
+children) and whose title, summary, poster and background left out are TMDB's
+-- exactly one of the three, and the choice, `library` and `itemType` never
+change. **A smart collection never hides its items** (2026-11-17, the same on
+a stock server): Plex hides an item by a flag on its row
+(`metadata_items.absolute_index`) recomputed from the members it stores
+(`taggings`), and a smart collection stores none, so a collection whose items
+should hide behind it ("Hide items in this collection", or the library's
+setting) is a normal or a TMDB one. Its
+presentation is optional: `summary`, `sortTitle`, `poster`/`background` URLs
+(https on a public host, or under the UI's own `/art/`), `settings.mode` and
+`settings.order`, and `visibility` (library Recommended, Home, friends' Home).
+Every field left out keeps what Plex has, so adopting an existing collection
+by title changes only what the spec states; a collection Plex made from
+metadata (GUID not `collection://`) is never adopted. cluster-plex
+reconciles them on its lease holder and writes their status and finalizer
+(below); the UI's Collections page (Library sub-menu) edits their spec.
+
+**A library's hubs are a resource too** (owner, 2026-11-16: "Add a mechanism
+for managing \"Hubs\" within the libraries - including collections, sorting,
+and everything available from the provided Plex Web UI image", Plex Web's
+"Manage Recommendations"; `docs/superpowers/specs/2026-11-16-plex-hub-layouts-design.md`).
+A `PlexHubLayout` (catalog.clustarr.io, `phub`, one per Plex library,
+`spec.library` its title, immutable) lists the library's hubs in the order
+wanted: each `spec.hubs` entry (100 at most) is exactly one of `identifier`
+(a built-in hub: `movie.recentlyreleased`), `collection` (a PlexCollection
+of the namespace) and `collectionTitle` (a Plex collection no resource
+manages), with `libraryRecommended`, `home` and `friendsHome` always
+stated. The listed hubs come first in that order; a hub not listed keeps
+Plex's relative order after them, and its visibility; a listed collection
+without a hub gets one, and takes its visibility from the layout, not from
+PlexCollection `spec.visibility`. The annotation
+`catalog.clustarr.io/hubs-reset` (an RFC 3339 time, a nonce;
+`catalogv1alpha1.AnnotationPlexHubsReset`) asks for Plex's Reset
+Customization once, recorded in `status.resetHandled`. cluster-plex applies
+it and is the only writer of its status (`status.hubs`: Plex's whole list in
+Plex's order, 200 at most; condition `Ready`); it has no finalizer, and
+clustarr's manager never touches it. The UI's **Hubs** page (`/library/hubs`,
+Library sub-menu; `ui/hubs.go`, `ui/views/hubs.templ`) is a section a
+library, each row a hub with three switches, up and down and, for a listed
+entry, a remove, with "Add collection" and "Reset customization" (an alert
+dialog) above; the Collections list carries the same three switches per
+collection, which write the library's layout. Every write is
+`ui/actions/plexhublayout.go`: `HubRows` is the order shown (the spec's
+entries, then the hubs Plex reports that it does not list), and `EditHubs`
+first materialises a hub the spec does not list, with every row ahead of
+it and Plex's flags, so an edit never reorders the rest or drops their
+visibility; `EditPlexHubLayout` reads the layout through the apiserver and
+patches `spec.hubs` under the generation it read, creating the layout
+(`PlexHubLayoutName`) at a library's first write, and the reset sets the
+annotation and clears `spec.hubs` in one merge patch. An edit's answer
+draws the rows from the layout the write returned, never from the cache.
+The chart's Plex libraries are `Movies` and `TV Shows` since then, with
+`formerNames` the old `Clustarr Movies` and `Clustarr TV`, which needs a
+cluster-plex chart that reads the key. Built 2026-11-16, not deployed, not
+seen in a browser, and not yet run against cluster-plex's half.
+
