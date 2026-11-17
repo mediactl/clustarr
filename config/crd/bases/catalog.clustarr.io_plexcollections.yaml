@@ -39,8 +39,9 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          PlexCollection is a Plex collection, smart or normal, declared as a
-          resource; cluster-plex reconciles it into Plex.
+          PlexCollection is a Plex collection -- smart, normal or a TMDB
+          collection's -- declared as a resource; cluster-plex reconciles it into
+          Plex.
         properties:
           apiVersion:
             description: |-
@@ -283,9 +284,27 @@ spec:
                 description: Summary is the collection's summary; absent keeps Plex's.
                 type: string
               title:
-                description: Title is the collection's title in Plex.
+                description: |-
+                  Title is the collection's title in Plex. A TMDB collection may leave
+                  it out and take TMDB's.
                 minLength: 1
                 type: string
+              tmdbCollection:
+                description: TMDBCollection makes the collection a TMDB collection's.
+                properties:
+                  id:
+                    description: |-
+                      ID is the collection's TMDB id: 95051 in
+                      themoviedb.org/collection/95051-the-up-collection.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                    x-kubernetes-validations:
+                    - message: a TMDB collection's id is immutable
+                      rule: self == oldSelf
+                required:
+                - id
+                type: object
               visibility:
                 description: |-
                   Visibility is where Plex promotes the collection; absent keeps
@@ -305,20 +324,28 @@ spec:
             required:
             - itemType
             - library
-            - title
             type: object
             x-kubernetes-validations:
-            - message: a collection is smart (filter) or normal (members), not both
-              rule: has(self.filter) != has(self.members)
-            - message: a collection cannot change between smart and normal
-              rule: has(self.filter) == has(oldSelf.filter)
+            - message: a collection is exactly one of smart (filter), normal (members)
+                and a TMDB collection's (tmdbCollection)
+              rule: '(has(self.filter) ? 1 : 0) + (has(self.members) ? 1 : 0) + (has(self.tmdbCollection)
+                ? 1 : 0) == 1'
+            - message: a collection cannot change between smart, normal and a TMDB
+                collection's
+              rule: has(self.filter) == has(oldSelf.filter) && has(self.members) ==
+                has(oldSelf.members) && has(self.tmdbCollection) == has(oldSelf.tmdbCollection)
             - message: a normal collection holds movies or shows
               rule: '!has(self.members) || self.itemType in [''movie'', ''show'']'
+            - message: a TMDB collection holds movies
+              rule: '!has(self.tmdbCollection) || self.itemType == ''movie'''
+            - message: title is required, except on a TMDB collection, which takes
+                TMDB's
+              rule: has(self.title) || has(self.tmdbCollection)
             - message: sort and limit belong to a smart collection
               rule: (!has(self.sort) && !has(self.limit)) || has(self.filter)
-            - message: settings.order belongs to a normal collection; a smart one
-                is ordered by its sort
-              rule: '!has(self.settings) || !has(self.settings.order) || has(self.members)'
+            - message: settings.order belongs to a normal or TMDB collection; a smart
+                one is ordered by its sort
+              rule: '!has(self.settings) || !has(self.settings.order) || !has(self.filter)'
             - message: a movie collection's members are Movies, a show collection's
                 Series
               rule: '!has(self.members) || self.members.items.all(m, m.kind == (self.itemType
@@ -439,8 +466,10 @@ spec:
                 x-kubernetes-list-type: atomic
               missingMembers:
                 description: |-
-                  MissingMembers counts a normal collection's members Plex does not
-                  hold yet, and Missing names the first of them.
+                  MissingMembers counts a normal or TMDB collection's members Plex
+                  does not hold yet, and Missing names the first of them: a normal
+                  collection's by the member's name, a TMDB collection's by the
+                  movie's title.
                 format: int32
                 type: integer
               observedGeneration:

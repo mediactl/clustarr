@@ -27,8 +27,12 @@ import (
 
 // Describe is the Collections page's one-line reading of a collection: its
 // filter in Plex Web's words ("Genre is Anime and Audio Language is en"),
-// groups in parentheses and strings quoted, or a normal collection's size.
+// groups in parentheses and strings quoted, a normal collection's size, or
+// the TMDB collection it follows.
 func Describe(spec catalogv1.PlexCollectionSpec) string {
+	if t := spec.TMDBCollection; t != nil {
+		return fmt.Sprintf("TMDB collection %d: the library's movies in it", t.ID)
+	}
 	if spec.Members != nil {
 		if n := len(spec.Members.Items); n != 1 {
 			return fmt.Sprintf("%d items", n)

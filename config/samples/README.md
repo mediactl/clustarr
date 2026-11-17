@@ -46,10 +46,12 @@ NATS for both.
 
 ## PlexCollection samples
 
-`catalog_v1alpha1_plexcollection_{anime_dubbed,netflix,up}.yaml` are the
-design's three reference collections
-(`docs/superpowers/specs/2026-11-10-plex-collections-design.md`), reconciled
-by cluster-plex with `plex.clustarr.enabled`. They are deliberately not in
+`catalog_v1alpha1_plexcollection_{anime_dubbed,netflix,up,the_up_collection}.yaml`
+are the design's reference collections
+(`docs/superpowers/specs/2026-11-10-plex-collections-design.md`): three
+smart ones and a TMDB collection's (2026-11-17), the form to use when the
+collection's items should hide behind it. cluster-plex reconciles them
+with `plex.clustarr.enabled`. They are deliberately not in
 `kustomization.yaml`: cluster-plex adopts a person-made collection of the
 same title, and its finalizer deletes the Plex collection with the
 resource, so a `kubectl delete -k config/samples` would delete the owner's

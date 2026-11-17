@@ -2203,14 +2203,25 @@ customize the image, the ability to change its settings";
 filter keys (`show.genre`, `episode.audioLanguage`) with word operators and
 tag values by name, one level of groups, which cluster-plex compiles to Plex
 Web's encoding -- or normal -- `spec.members.items`, clustarr Movies or Series
-by name, found in Plex by the GUID cluster-plex's projection gives them --
-never both, and the choice, `library` and `itemType` never change. Its
+by name, found in Plex by the GUID cluster-plex's projection gives them -- or
+a TMDB collection's (owner, 2026-11-17; the design's amendment) --
+`spec.tmdbCollection.id`, a normal collection in Plex whose members are the
+library's Movies TMDB lists in it, which cluster-plex asks clustarr's own Plex
+provider for (`/plex/movies/library/collections/tmdb-collection-<id>` and its
+children) and whose title, summary, poster and background left out are TMDB's
+-- exactly one of the three, and the choice, `library` and `itemType` never
+change. **A smart collection never hides its items** (2026-11-17, the same on
+a stock server): Plex hides an item by a flag on its row
+(`metadata_items.absolute_index`) recomputed from the members it stores
+(`taggings`), and a smart collection stores none, so a collection whose items
+should hide behind it ("Hide items in this collection", or the library's
+setting) is a normal or a TMDB one. Its
 presentation is optional: `summary`, `sortTitle`, `poster`/`background` URLs
 (https on a public host, or under the UI's own `/art/`), `settings.mode` and
 `settings.order`, and `visibility` (library Recommended, Home, friends' Home).
 Every field left out keeps what Plex has, so adopting an existing collection
-by title changes only what the spec states; a metadata-made collection (a TMDB
-collection, GUID not `collection://`) is never adopted. cluster-plex
+by title changes only what the spec states; a collection Plex made from
+metadata (GUID not `collection://`) is never adopted. cluster-plex
 reconciles them on its lease holder and writes their status and finalizer
 (below); the UI's Collections page (Library sub-menu) edits their spec.
 

@@ -1,0 +1,20 @@
+# A TMDB collection's Plex collection: themoviedb.org/collection/95051, "The
+# Up Collection". Its members are the library's movies TMDB lists in it,
+# kept in step as movies come and go, and the title, summary, poster and
+# background left out here are TMDB's. In Plex it is a normal collection,
+# so hideItems hides its movies behind it -- which the smart "UP" sample
+# beside this one cannot do: Plex hides a collection's items by the members
+# it stores, and a smart collection stores none.
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: PlexCollection
+metadata:
+  name: the-up-collection
+  namespace: clustarr-system
+spec:
+  library: Clustarr Movies
+  itemType: movie
+  tmdbCollection:
+    id: 95051
+  settings:
+    mode: hideItems
+    order: releaseDate

@@ -30,7 +30,8 @@ import (
 type PlexCollectionSpecApplyConfiguration struct {
 	// Library is the Plex library section, by title.
 	Library *string `json:"library,omitempty"`
-	// Title is the collection's title in Plex.
+	// Title is the collection's title in Plex. A TMDB collection may leave
+	// it out and take TMDB's.
 	Title *string `json:"title,omitempty"`
 	// ItemType is what the collection holds.
 	ItemType *catalogv1alpha1.PlexItemType `json:"itemType,omitempty"`
@@ -42,6 +43,8 @@ type PlexCollectionSpecApplyConfiguration struct {
 	Limit *int32 `json:"limit,omitempty"`
 	// Members make the collection normal.
 	Members *PlexMembersApplyConfiguration `json:"members,omitempty"`
+	// TMDBCollection makes the collection a TMDB collection's.
+	TMDBCollection *PlexTMDBCollectionApplyConfiguration `json:"tmdbCollection,omitempty"`
 	// Summary is the collection's summary; absent keeps Plex's.
 	Summary *string `json:"summary,omitempty"`
 	// SortTitle is the collection's sort title; absent keeps Plex's.
@@ -116,6 +119,14 @@ func (b *PlexCollectionSpecApplyConfiguration) WithLimit(value int32) *PlexColle
 // If called multiple times, the Members field is set to the value of the last call.
 func (b *PlexCollectionSpecApplyConfiguration) WithMembers(value *PlexMembersApplyConfiguration) *PlexCollectionSpecApplyConfiguration {
 	b.Members = value
+	return b
+}
+
+// WithTMDBCollection sets the TMDBCollection field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TMDBCollection field is set to the value of the last call.
+func (b *PlexCollectionSpecApplyConfiguration) WithTMDBCollection(value *PlexTMDBCollectionApplyConfiguration) *PlexCollectionSpecApplyConfiguration {
+	b.TMDBCollection = value
 	return b
 }
 

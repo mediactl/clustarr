@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -31,8 +32,9 @@ import (
 
 // The Collections editor's form
 // (docs/superpowers/specs/2026-11-10-plex-collections-design.md): general
-// fields by name -- library, title, itemType, kind (smart | normal),
-// summary, sortTitle -- a smart collection's match, sort.field,
+// fields by name -- library, title, itemType, kind (smart | normal | tmdb),
+// summary, sortTitle -- a TMDB collection's tmdb.id (the number, or its
+// themoviedb.org address); a smart collection's match, sort.field,
 // sort.descending and limit, its top-level rules as rule.<i>.field |
 // operator | value | match, and a group's conditions as
 // rule.<i>.<j>.field | operator | value; a normal collection's members as
@@ -43,6 +45,28 @@ import (
 // same.
 
 var errEditorOp = errors.New("editor: no such rule")
+
+// tmdbCollectionURL finds the id in a TMDB collection's address:
+// themoviedb.org/collection/95051-the-up-collection.
+var tmdbCollectionURL = regexp.MustCompile(`/collection/(\d+)`)
+
+// parseTMDBCollectionID reads a TMDB collection's id as a person gives
+// it: the number, or the collection's page address. Empty is 0 and no
+// error, the editor's state before the id is typed; saving checks it.
+func parseTMDBCollectionID(raw string) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	if m := tmdbCollectionURL.FindStringSubmatch(raw); m != nil {
+		raw = m[1]
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id < 1 {
+		return 0, fmt.Errorf("tmdbCollection.id: %q is neither a TMDB collection's number nor its themoviedb.org address", raw)
+	}
+	return id, nil
+}
 
 // parseCollectionForm reads the editor's form into a spec. An empty
 // summary or sort title leaves the field out (Plex keeps its own).
@@ -72,7 +96,8 @@ func parseCollectionForm(v url.Values) (catalogv1.PlexCollectionSpec, error) {
 	if mode == "keep" {
 		mode = ""
 	}
-	if order == "keep" || v.Get("kind") != "normal" {
+	kind := v.Get("kind")
+	if order == "keep" || (kind != "normal" && kind != "tmdb") {
 		order = ""
 	}
 	if mode != "" || order != "" {
@@ -85,7 +110,12 @@ func parseCollectionForm(v url.Values) (catalogv1.PlexCollectionSpec, error) {
 			FriendsHome:        formBool(v.Get("visibility.friendsHome")),
 		}
 	}
-	if v.Get("kind") == "normal" {
+	if kind == "tmdb" {
+		id, err := parseTMDBCollectionID(v.Get("tmdb.id"))
+		spec.TMDBCollection = &catalogv1.PlexTMDBCollection{ID: id}
+		return spec, err
+	}
+	if kind == "normal" {
 		spec.Members = &catalogv1.PlexMembers{}
 		for _, i := range formIndexes(v, "member.") {
 			p := fmt.Sprintf("member.%d.", i)

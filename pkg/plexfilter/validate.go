@@ -48,8 +48,8 @@ func Validate(spec catalogv1.PlexCollectionSpec) error {
 	if strings.TrimSpace(spec.Library) == "" {
 		fail("library", "required")
 	}
-	if strings.TrimSpace(spec.Title) == "" {
-		fail("title", "required")
+	if strings.TrimSpace(spec.Title) == "" && spec.TMDBCollection == nil {
+		fail("title", "required, except on a TMDB collection, which takes TMDB's")
 	}
 	switch spec.ItemType {
 	case catalogv1.PlexItemMovie, catalogv1.PlexItemShow, catalogv1.PlexItemSeason, catalogv1.PlexItemEpisode:
@@ -57,11 +57,25 @@ func Validate(spec catalogv1.PlexCollectionSpec) error {
 		fail("itemType", "%q is not movie, show, season or episode", spec.ItemType)
 	}
 
+	forms := 0
+	for _, has := range []bool{spec.Filter != nil, spec.Members != nil, spec.TMDBCollection != nil} {
+		if has {
+			forms++
+		}
+	}
 	switch {
-	case spec.Filter != nil && spec.Members != nil:
-		fail("filter and members", "a collection is smart (filter) or normal (members), not both")
-	case spec.Filter == nil && spec.Members == nil:
-		fail("filter or members", "a collection needs a filter or members")
+	case forms > 1:
+		fail("filter, members and tmdbCollection", "a collection is exactly one of smart (filter), normal (members) and a TMDB collection's (tmdbCollection)")
+	case forms == 0:
+		fail("filter, members or tmdbCollection", "a collection needs a filter, members or a TMDB collection")
+	}
+	if t := spec.TMDBCollection; t != nil {
+		if t.ID < 1 {
+			fail("tmdbCollection.id", "a TMDB collection's id is a positive number, as in themoviedb.org/collection/95051")
+		}
+		if spec.ItemType != catalogv1.PlexItemMovie {
+			fail("tmdbCollection", "a TMDB collection holds movies, not %ss", spec.ItemType)
+		}
 	}
 	if spec.Filter != nil {
 		validateFilter(spec.ItemType, spec.Filter, fail)
@@ -90,8 +104,8 @@ func Validate(spec catalogv1.PlexCollectionSpec) error {
 		switch s.Order {
 		case "":
 		case catalogv1.PlexOrderReleaseDate, catalogv1.PlexOrderAlphabetical:
-			if spec.Members == nil {
-				fail("settings.order", "belongs to a normal collection; a smart one is ordered by its sort")
+			if spec.Filter != nil {
+				fail("settings.order", "belongs to a normal or TMDB collection; a smart one is ordered by its sort")
 			}
 		default:
 			fail("settings.order", "%q is not releaseDate or alphabetical", s.Order)

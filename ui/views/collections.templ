@@ -187,7 +187,11 @@ var itemTypeChoices = []Choice{
 	{Key: string(catalogv1.PlexItemEpisode), Label: "Episodes"},
 }
 
-var kindChoices = []Choice{{Key: "smart", Label: "Smart (a filter)"}, {Key: "normal", Label: "Normal (chosen items)"}}
+var kindChoices = []Choice{
+	{Key: "smart", Label: "Smart (a filter)"},
+	{Key: "normal", Label: "Normal (chosen items)"},
+	{Key: "tmdb", Label: "TMDB collection"},
+}
 
 var matchChoices = []Choice{
 	{Key: string(catalogv1.PlexMatchAll), Label: "Match all of the following"},
@@ -195,10 +199,22 @@ var matchChoices = []Choice{
 }
 
 func editorKind(e CollectionEditor) string {
-	if e.Spec.Members != nil {
+	switch {
+	case e.Spec.TMDBCollection != nil:
+		return "tmdb"
+	case e.Spec.Members != nil:
 		return "normal"
 	}
 	return "smart"
+}
+
+// tmdbCollectionID is the editor's value for a TMDB collection's id: empty
+// before one is typed.
+func tmdbCollectionID(e CollectionEditor) string {
+	if e.Spec.TMDBCollection == nil || e.Spec.TMDBCollection.ID == 0 {
+		return ""
+	}
+	return strconv.FormatInt(e.Spec.TMDBCollection.ID, 10)
 }
 
 func filterMatch(e CollectionEditor) string {
@@ -464,10 +480,13 @@ templ CollectionEditorForm(e CollectionEditor) {
 			}
 		}
 		@editorGeneral(e)
-		if editorKind(e) == "smart" {
-			@editorFilter(e)
-		} else {
-			@editorMembers(e)
+		switch editorKind(e) {
+			case "smart":
+				@editorFilter(e)
+			case "tmdb":
+				@editorTMDB(e)
+			default:
+				@editorMembers(e)
 		}
 		@editorImages(e)
 		@editorSettings(e)
@@ -501,7 +520,12 @@ templ editorGeneral(e CollectionEditor) {
 				@field.Label(field.LabelProps{For: "collection-title"}) {
 					Title
 				}
-				@input.Input(input.Props{ID: "collection-title", Name: "title", Value: e.Spec.Title, Required: true})
+				@input.Input(input.Props{ID: "collection-title", Name: "title", Value: e.Spec.Title, Required: editorKind(e) != "tmdb"})
+				if editorKind(e) == "tmdb" {
+					@field.Description() {
+						Left empty, TMDB's own title.
+					}
+				}
 			}
 			<div class="grid gap-4 sm:grid-cols-3">
 				@field.Field() {
@@ -529,7 +553,11 @@ templ editorGeneral(e CollectionEditor) {
 				}
 				@textarea.Textarea(textarea.Props{ID: "collection-summary", Name: "summary", Value: strValue(e.Spec.Summary), Rows: 3})
 				@field.Description() {
-					Left empty, Plex keeps its own.
+					if editorKind(e) == "tmdb" {
+						Left empty, TMDB's own summary.
+					} else {
+						Left empty, Plex keeps its own.
+					}
 				}
 			}
 			@field.Field() {
@@ -641,6 +669,29 @@ templ editorCondition(e CollectionEditor, prefix string, c catalogv1.PlexConditi
 			@icon.Icon("x")()
 		}
 	</div>
+}
+
+// editorTMDB is a TMDB collection's one field: its id. Read-only once the
+// collection exists, as its kind is (the CRD holds both).
+templ editorTMDB(e CollectionEditor) {
+	<section class="panel space-y-4 p-4" data-editor-section="tmdb">
+		@field.Field() {
+			@field.Label(field.LabelProps{For: "collection-tmdb-id"}) {
+				TMDB collection
+			}
+			@input.Input(input.Props{
+				ID:          "collection-tmdb-id",
+				Name:        "tmdb.id",
+				Value:       tmdbCollectionID(e),
+				Required:    true,
+				ReadOnly:    e.Name != "",
+				Placeholder: "95051 or https://www.themoviedb.org/collection/95051-the-up-collection",
+			})
+			@field.Description() {
+				Its members are the library's movies that TMDB lists in the collection, kept in step as movies are added and removed. The poster and background left empty below are TMDB's. In Plex it is a normal collection, so "Hide items in this collection" hides its movies, which a smart collection's never are.
+			}
+		}
+	</section>
 }
 
 // editorMembers is a normal collection's members and the search that adds
@@ -755,7 +806,7 @@ templ editorSettings(e CollectionEditor) {
 				}
 				@editorSelect("collection-mode", "settings.mode", "Collection mode", modeChoices, settingsMode(e), false)
 			}
-			if editorKind(e) == "normal" {
+			if editorKind(e) != "smart" {
 				@field.Field() {
 					@field.Label() {
 						Collection order

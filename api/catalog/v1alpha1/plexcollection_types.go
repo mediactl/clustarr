@@ -23,11 +23,20 @@ import (
 
 // A PlexCollection is a Plex collection declared as a resource
 // (docs/superpowers/specs/2026-11-10-plex-collections-design.md): a smart
-// one, whose filter Plex evaluates, or a normal one, whose members it
-// names, with the presentation it states. cluster-plex reconciles it into
-// Plex and is the only writer of its status and of its finalizer (the
-// design's option A, owner 2026-11-10); its spec is the UI's, kubectl's or
-// Terraform's. Every optional field left out keeps what Plex has.
+// one, whose filter Plex evaluates, a normal one, whose members it names,
+// or a TMDB collection's (owner, 2026-11-17), whose members are the
+// library's movies of that collection -- with the presentation it states.
+// cluster-plex reconciles it into Plex and is the only writer of its
+// status and of its finalizer (the design's option A, owner 2026-11-10);
+// its spec is the UI's, kubectl's or Terraform's. Every optional field
+// left out keeps what Plex has, except on a TMDB collection, where the
+// title, summary, poster and background left out are TMDB's.
+//
+// Only a smart collection is a filter in Plex. Plex hides a collection's
+// items (settings.mode hideItems, or the library's own setting) by the
+// members it stores, and a smart collection stores none, so its items are
+// never hidden (2026-11-17, the same on a stock server): a collection
+// whose items should hide is a normal or a TMDB one.
 
 const (
 	// PlexCollectionConditionSynced is True once Plex holds everything the
@@ -59,6 +68,9 @@ const (
 	PlexCollectionReasonConflict         = "Conflict"
 	PlexCollectionReasonImageUnavailable = "ImageUnavailable"
 	PlexCollectionReasonPlexUnavailable  = "PlexUnavailable"
+	// CatalogUnavailable: clustarr's Plex provider, which answers a TMDB
+	// collection's members and presentation, could not be asked.
+	PlexCollectionReasonCatalogUnavailable = "CatalogUnavailable"
 )
 
 // PlexItemType is what a collection holds, as Plex types it.
@@ -206,6 +218,19 @@ type PlexMembers struct {
 	Items []PlexMember `json:"items"`
 }
 
+// PlexTMDBCollection makes the collection a TMDB collection's: its members
+// are the Movies of the resource's namespace that TMDB lists in it
+// (Movie status.metadata.collection), kept in step as movies come and go,
+// and whatever the spec leaves out of title, summary, poster and
+// background is TMDB's. In Plex it is a normal collection.
+type PlexTMDBCollection struct {
+	// ID is the collection's TMDB id: 95051 in
+	// themoviedb.org/collection/95051-the-up-collection.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="a TMDB collection's id is immutable"
+	ID int64 `json:"id"`
+}
+
 // PlexImage is an image cluster-plex fetches and uploads to Plex: https
 // on a public host, or anything under clustarr UI's own /art/.
 type PlexImage struct {
@@ -232,11 +257,13 @@ type PlexVisibility struct {
 }
 
 // PlexCollectionSpec is a Plex collection.
-// +kubebuilder:validation:XValidation:rule="has(self.filter) != has(self.members)",message="a collection is smart (filter) or normal (members), not both"
-// +kubebuilder:validation:XValidation:rule="has(self.filter) == has(oldSelf.filter)",message="a collection cannot change between smart and normal"
+// +kubebuilder:validation:XValidation:rule="(has(self.filter) ? 1 : 0) + (has(self.members) ? 1 : 0) + (has(self.tmdbCollection) ? 1 : 0) == 1",message="a collection is exactly one of smart (filter), normal (members) and a TMDB collection's (tmdbCollection)"
+// +kubebuilder:validation:XValidation:rule="has(self.filter) == has(oldSelf.filter) && has(self.members) == has(oldSelf.members) && has(self.tmdbCollection) == has(oldSelf.tmdbCollection)",message="a collection cannot change between smart, normal and a TMDB collection's"
 // +kubebuilder:validation:XValidation:rule="!has(self.members) || self.itemType in ['movie', 'show']",message="a normal collection holds movies or shows"
+// +kubebuilder:validation:XValidation:rule="!has(self.tmdbCollection) || self.itemType == 'movie'",message="a TMDB collection holds movies"
+// +kubebuilder:validation:XValidation:rule="has(self.title) || has(self.tmdbCollection)",message="title is required, except on a TMDB collection, which takes TMDB's"
 // +kubebuilder:validation:XValidation:rule="(!has(self.sort) && !has(self.limit)) || has(self.filter)",message="sort and limit belong to a smart collection"
-// +kubebuilder:validation:XValidation:rule="!has(self.settings) || !has(self.settings.order) || has(self.members)",message="settings.order belongs to a normal collection; a smart one is ordered by its sort"
+// +kubebuilder:validation:XValidation:rule="!has(self.settings) || !has(self.settings.order) || !has(self.filter)",message="settings.order belongs to a normal or TMDB collection; a smart one is ordered by its sort"
 // +kubebuilder:validation:XValidation:rule="!has(self.members) || self.members.items.all(m, m.kind == (self.itemType == 'movie' ? 'Movie' : 'Series'))",message="a movie collection's members are Movies, a show collection's Series"
 type PlexCollectionSpec struct {
 	// Library is the Plex library section, by title.
@@ -244,9 +271,11 @@ type PlexCollectionSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="library is immutable"
 	Library string `json:"library"`
 
-	// Title is the collection's title in Plex.
+	// Title is the collection's title in Plex. A TMDB collection may leave
+	// it out and take TMDB's.
+	// +optional
 	// +kubebuilder:validation:MinLength=1
-	Title string `json:"title"`
+	Title string `json:"title,omitempty"`
 
 	// ItemType is what the collection holds.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="itemType is immutable"
@@ -268,6 +297,9 @@ type PlexCollectionSpec struct {
 	// Members make the collection normal.
 	// +optional
 	Members *PlexMembers `json:"members,omitempty"`
+	// TMDBCollection makes the collection a TMDB collection's.
+	// +optional
+	TMDBCollection *PlexTMDBCollection `json:"tmdbCollection,omitempty"`
 
 	// Summary is the collection's summary; absent keeps Plex's.
 	// +optional
@@ -324,8 +356,10 @@ type PlexCollectionStatus struct {
 	// +optional
 	ItemCount int32 `json:"itemCount,omitempty"`
 
-	// MissingMembers counts a normal collection's members Plex does not
-	// hold yet, and Missing names the first of them.
+	// MissingMembers counts a normal or TMDB collection's members Plex
+	// does not hold yet, and Missing names the first of them: a normal
+	// collection's by the member's name, a TMDB collection's by the
+	// movie's title.
 	// +optional
 	MissingMembers int32 `json:"missingMembers,omitempty"`
 	// +optional
@@ -359,8 +393,9 @@ type PlexCollectionStatus struct {
 // +kubebuilder:printcolumn:name="Synced",type=string,JSONPath=`.status.conditions[?(@.type=="Synced")].reason`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// PlexCollection is a Plex collection, smart or normal, declared as a
-// resource; cluster-plex reconciles it into Plex.
+// PlexCollection is a Plex collection -- smart, normal or a TMDB
+// collection's -- declared as a resource; cluster-plex reconciles it into
+// Plex.
 type PlexCollection struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

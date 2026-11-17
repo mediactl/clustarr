@@ -558,8 +558,8 @@ func TestCreateNamesATitleWithoutLatinLetters(t *testing.T) {
 	assert.Equal(t, "ポケモン", list.Items[0].Spec.Title)
 }
 
-// fullSpecs are a smart and a normal collection that between them set
-// every field of the spec.
+// fullSpecs are a smart, a normal and a TMDB collection that between them
+// set every field of the spec.
 func fullSpecs() []catalogv1.PlexCollectionSpec {
 	smart := refUP()
 	smart.Sort = &catalogv1.PlexSort{Field: "addedAt", Descending: true}
@@ -570,7 +570,65 @@ func fullSpecs() []catalogv1.PlexCollectionSpec {
 	smart.Background = &catalogv1.PlexImage{URL: "https://image.tmdb.org/t/p/original/up-bg.jpg"}
 	smart.Settings = &catalogv1.PlexCollectionSettings{Mode: catalogv1.PlexModeShowCollectionAndItems}
 	smart.Visibility = &catalogv1.PlexVisibility{FriendsHome: true}
-	return []catalogv1.PlexCollectionSpec{smart, refGhibli()}
+	return []catalogv1.PlexCollectionSpec{smart, refGhibli(), refUpCollection()}
+}
+
+// refUpCollection is a TMDB collection's, with the title left to TMDB.
+func refUpCollection() catalogv1.PlexCollectionSpec {
+	return catalogv1.PlexCollectionSpec{
+		Library: "Clustarr Movies", ItemType: catalogv1.PlexItemMovie,
+		TMDBCollection: &catalogv1.PlexTMDBCollection{ID: 95051},
+		Settings:       &catalogv1.PlexCollectionSettings{Mode: catalogv1.PlexModeHideItems, Order: catalogv1.PlexOrderReleaseDate},
+	}
+}
+
+func TestCreateATMDBCollection(t *testing.T) {
+	srv, c := collectionsServer(t, nil)
+	form := url.Values{
+		"library": {"Clustarr Movies"}, "itemType": {"movie"}, "kind": {"tmdb"},
+		"tmdb.id": {"https://www.themoviedb.org/collection/95051-the-up-collection"}, "settings.mode": {"hideItems"},
+		// What the editor still posts of the other kinds is not read.
+		"match": {"all"}, "rule.0.field": {"genre"}, "rule.0.operator": {"is"}, "rule.0.value": {"Documentary"},
+	}
+	rec := post(t, srv, "/library/collections", form)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+
+	var got catalogv1.PlexCollection
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pcolNS, Name: "tmdb-collection-95051"}, &got),
+		"without a title the resource is named for the collection's id")
+	assert.Equal(t, &catalogv1.PlexTMDBCollection{ID: 95051}, got.Spec.TMDBCollection)
+	assert.Nil(t, got.Spec.Filter)
+	assert.Nil(t, got.Spec.Members)
+	assert.Empty(t, got.Spec.Title, "the title is left to TMDB")
+	assert.Equal(t, catalogv1.PlexModeHideItems, got.Spec.Settings.Mode)
+
+	list := get(t, srv, "/library/collections").Body.String()
+	assert.Contains(t, list, "TMDB collection 95051", "listed by its id while it has no title of its own")
+
+	// A title names the resource as for any collection, and a bare number is an id too.
+	form.Set("title", "The Up Collection")
+	form.Set("tmdb.id", "95051")
+	rec = post(t, srv, "/library/collections", form)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pcolNS, Name: "the-up-collection"}, &got))
+	assert.Equal(t, int64(95051), got.Spec.TMDBCollection.ID)
+}
+
+func TestATMDBCollectionNeedsAnIDAndHoldsMovies(t *testing.T) {
+	srv, c := collectionsServer(t, nil)
+	for name, form := range map[string]url.Values{
+		"no id":         {"library": {"Clustarr Movies"}, "itemType": {"movie"}, "kind": {"tmdb"}},
+		"not a number":  {"library": {"Clustarr Movies"}, "itemType": {"movie"}, "kind": {"tmdb"}, "tmdb.id": {"the-up-collection"}},
+		"a TV library":  {"library": {"Clustarr TV"}, "itemType": {"show"}, "kind": {"tmdb"}, "tmdb.id": {"95051"}},
+		"a movie's URL": {"library": {"Clustarr Movies"}, "itemType": {"movie"}, "kind": {"tmdb"}, "tmdb.id": {"https://www.themoviedb.org/movie/51863-seven-up"}},
+	} {
+		rec := post(t, srv, "/library/collections", form)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, name)
+		assert.Contains(t, rec.Body.String(), "tmdbCollection", name)
+	}
+	var list catalogv1.PlexCollectionList
+	require.NoError(t, c.List(t.Context(), &list))
+	assert.Empty(t, list.Items, "nothing was written")
 }
 
 // Every field of PlexCollectionSpec is set by one of fullSpecs, so a field

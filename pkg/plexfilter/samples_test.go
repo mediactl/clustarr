@@ -31,14 +31,15 @@ import (
 )
 
 // The PlexCollection samples decode strictly into the API, pass the rules
-// the UI checks before a write, and read as the design's three reference
+// the UI checks before a write, and read as the design's reference
 // collections (config/samples/README.md: a sample is a claim about what
 // its controller does).
 func TestThePlexCollectionSamplesAreTheReferences(t *testing.T) {
 	for file, want := range map[string]catalogv1.PlexCollectionSpec{
-		"catalog_v1alpha1_plexcollection_anime_dubbed.yaml": animeDubbed(),
-		"catalog_v1alpha1_plexcollection_netflix.yaml":      netflix(),
-		"catalog_v1alpha1_plexcollection_up.yaml":           up(),
+		"catalog_v1alpha1_plexcollection_anime_dubbed.yaml":      animeDubbed(),
+		"catalog_v1alpha1_plexcollection_netflix.yaml":           netflix(),
+		"catalog_v1alpha1_plexcollection_up.yaml":                up(),
+		"catalog_v1alpha1_plexcollection_the_up_collection.yaml": upCollection(),
 	} {
 		raw, err := os.ReadFile("../../config/samples/" + file)
 		require.NoError(t, err, file)

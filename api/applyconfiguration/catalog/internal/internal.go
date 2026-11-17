@@ -4454,6 +4454,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: title
       type:
         scalar: string
+    - name: tmdbCollection
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexTMDBCollection
     - name: visibility
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexVisibility
@@ -4607,6 +4610,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: field
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexTMDBCollection
+  map:
+    fields:
+    - name: id
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexVisibility
   map:
     fields:

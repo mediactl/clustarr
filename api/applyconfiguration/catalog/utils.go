@@ -311,6 +311,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.PlexSeasonRefApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlexSort"):
 		return &catalogv1alpha1.PlexSortApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexTMDBCollection"):
+		return &catalogv1alpha1.PlexTMDBCollectionApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlexVisibility"):
 		return &catalogv1alpha1.PlexVisibilityApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("QualityProfile"):

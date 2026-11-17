@@ -69,7 +69,7 @@ func (s *Server) collectionsPage(ctx context.Context) views.CollectionsPage {
 	byLibrary := map[string][]views.CollectionRow{}
 	for _, pc := range items {
 		row := views.CollectionRow{
-			Namespace: pc.Namespace, Name: pc.Name, Title: pc.Spec.Title,
+			Namespace: pc.Namespace, Name: pc.Name, Title: collectionTitle(pc.Spec),
 			Reading: plexfilter.Describe(pc.Spec), Items: pc.Status.ItemCount,
 		}
 		if pc.Spec.Poster != nil {
@@ -89,6 +89,24 @@ func (s *Server) collectionsPage(ctx context.Context) views.CollectionsPage {
 	}
 	slices.SortFunc(p.Libraries, func(a, b views.CollectionLibrary) int { return strings.Compare(a.Title, b.Title) })
 	return p
+}
+
+// collectionTitle is the title the page lists a collection under: its
+// own, or for a TMDB collection that takes TMDB's, the collection's id.
+func collectionTitle(spec catalogv1.PlexCollectionSpec) string {
+	if spec.Title == "" && spec.TMDBCollection != nil {
+		return fmt.Sprintf("TMDB collection %d", spec.TMDBCollection.ID)
+	}
+	return spec.Title
+}
+
+// newCollectionName is a new collection's resource name: from its title,
+// or for a TMDB collection without one, from the collection's id.
+func newCollectionName(spec catalogv1.PlexCollectionSpec) string {
+	if spec.Title == "" && spec.TMDBCollection != nil {
+		return fmt.Sprintf("tmdb-collection-%d", spec.TMDBCollection.ID)
+	}
+	return actions.PlexCollectionName(spec.Title)
 }
 
 func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request) {
@@ -337,7 +355,7 @@ func (s *Server) savedSpec(r *http.Request) (catalogv1.PlexCollectionSpec, error
 func (s *Server) handleCollectionCreate(w http.ResponseWriter, r *http.Request) {
 	spec, err := s.savedSpec(r)
 	ns := s.opts.Namespace
-	name := actions.PlexCollectionName(spec.Title)
+	name := newCollectionName(spec)
 	if err == nil {
 		_, err = s.opts.Actions.CreatePlexCollection(r.Context(), ns, name, spec)
 	}

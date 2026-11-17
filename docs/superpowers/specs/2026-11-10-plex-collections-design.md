@@ -629,3 +629,53 @@ changes nothing.
 - How the reconciler caches section Meta and tag lists, and invalidates
   them.
 - The editor's markup within the UI's component rules.
+
+## Amendment, 2026-11-17: TMDB collections
+
+Owner, 2026-11-17: "The collections CRDs should support tmdb collections,
+normal collections and smart collections", after a smart collection set to
+"Hide items in this collection" hid nothing.
+
+**Why a smart collection cannot hide its items.** Plex hides an item by a
+flag on its row (`metadata_items.absolute_index = 1`; the library listing
+asks `absolute_index is null`), which it recomputes from the members it
+stores: `tags join taggings ... tag_type = 2`. A smart collection has a
+tag row and no taggings -- its members are its filter, evaluated when it
+is opened -- so nothing is ever flagged for it. The same on a stock
+1.43.5.11079; no statement in the server evaluates a filter for hiding.
+The recompute runs when a collection's settings or members change and at
+the end of a library scan. So a collection whose items should hide is a
+normal one.
+
+**The third form.** `spec.tmdbCollection.id` beside `filter` and
+`members`, exactly one of the three, and the form never changes (CEL). It
+holds movies. In Plex it is a normal collection whose members are the
+library's Movies that TMDB lists in the collection, kept in step as movies
+come and go; `settings.order` applies to it as to a normal one. Whatever
+the spec leaves out of `title`, `summary`, `poster` and `background` is
+TMDB's -- the one exception to "left out keeps what Plex has" -- so
+`title` is optional on this form alone. `status.missing` names a movie
+Plex does not hold by its title, where a normal collection's names the
+member.
+
+**Who answers it.** clustarr's Plex metadata provider already answers a
+TMDB collection as Plex's own metadata service does
+(`ui/plex/collection.go`: `GET {root}/library/collections/tmdb-collection-<id>`
+and its `/children`): TMDB's title, summary, poster and background from
+the movies' extended documents, and the library's movies under the GUIDs
+cluster-plex's projection keys their Plex items by. cluster-plex asks the
+providers `plex.metadataProviders` lists (`pkg/plex/collections`'
+`ProviderCatalog`); the movies one answers and the TV one says 404. It
+reads no Movie for this form and needs no grant it lacked. A provider that
+cannot be asked is `CatalogUnavailable` and changes nothing in Plex; a
+collection no Movie of the library belongs to is `Waiting`.
+
+**The editor.** Kind gains "TMDB collection" with one field, the id, which
+also takes the collection's themoviedb.org address. A collection saved
+without a title is named `tmdb-collection-<id>` and listed as "TMDB
+collection <id>".
+
+**Proof.** cluster-plex's `TestLiveATMDBCollectionHidesItsMovies` runs the
+sync against a stock server (`CLUSTERPLEX_TEST_PMS_URL`): a normal
+collection with TMDB's poster, mode "hide items", its movies gone from the
+library's listing and back once they leave the collection.

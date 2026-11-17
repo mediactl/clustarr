@@ -153,9 +153,18 @@ func ghibli() catalogv1.PlexCollectionSpec {
 	}
 }
 
+// upCollection is TMDB's "The Up Collection", its title left to TMDB.
+func upCollection() catalogv1.PlexCollectionSpec {
+	return catalogv1.PlexCollectionSpec{
+		Library: "Clustarr Movies", ItemType: catalogv1.PlexItemMovie,
+		TMDBCollection: &catalogv1.PlexTMDBCollection{ID: 95051},
+		Settings:       &catalogv1.PlexCollectionSettings{Mode: catalogv1.PlexModeHideItems, Order: catalogv1.PlexOrderReleaseDate},
+	}
+}
+
 func TestValidateAcceptsTheReferenceCollections(t *testing.T) {
 	for name, spec := range map[string]catalogv1.PlexCollectionSpec{
-		"Anime Dubbed": animeDubbed(), "Netflix": netflix(), "UP": up(), "Ghibli": ghibli(),
+		"Anime Dubbed": animeDubbed(), "Netflix": netflix(), "UP": up(), "Ghibli": ghibli(), "The Up Collection": upCollection(),
 	} {
 		assert.NoError(t, plexfilter.Validate(spec), name)
 	}
@@ -203,6 +212,27 @@ func TestValidateRejects(t *testing.T) {
 		{"a sort the item type lacks", func(s *catalogv1.PlexCollectionSpec) {
 			s.Sort = &catalogv1.PlexSort{Field: "unviewedLeafCount"}
 		}, up, "sort.field"},
+		{"a TMDB collection with a filter", func(s *catalogv1.PlexCollectionSpec) {
+			s.Filter = up().Filter
+		}, upCollection, "tmdbCollection"},
+		{"a TMDB collection with members", func(s *catalogv1.PlexCollectionSpec) {
+			s.Members = ghibli().Members
+		}, upCollection, "tmdbCollection"},
+		{"a TMDB collection without an id", func(s *catalogv1.PlexCollectionSpec) {
+			s.TMDBCollection.ID = 0
+		}, upCollection, "tmdbCollection.id"},
+		{"a TMDB collection of shows", func(s *catalogv1.PlexCollectionSpec) {
+			s.ItemType = catalogv1.PlexItemShow
+		}, upCollection, "tmdbCollection"},
+		{"a TMDB collection with a sort", func(s *catalogv1.PlexCollectionSpec) {
+			s.Sort = &catalogv1.PlexSort{Field: "titleSort"}
+		}, upCollection, "sort"},
+		{"a smart collection without a title", func(s *catalogv1.PlexCollectionSpec) {
+			s.Title = ""
+		}, up, "title"},
+		{"neither filter, members nor a TMDB collection", func(s *catalogv1.PlexCollectionSpec) {
+			s.Filter = nil
+		}, up, "filter, members or tmdbCollection"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -220,6 +250,7 @@ func TestDescribe(t *testing.T) {
 	assert.Equal(t, `Network is Netflix`, plexfilter.Describe(netflix()))
 	assert.Equal(t, `Title is "Seven Up!" or (Genre is Documentary and Title contains "Up")`, plexfilter.Describe(up()))
 	assert.Equal(t, `2 items`, plexfilter.Describe(ghibli()))
+	assert.Equal(t, `TMDB collection 95051: the library's movies in it`, plexfilter.Describe(upCollection()))
 }
 
 func TestImageURLAllowed(t *testing.T) {

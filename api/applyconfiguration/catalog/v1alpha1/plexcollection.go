@@ -31,8 +31,9 @@ import (
 // PlexCollectionApplyConfiguration represents a declarative configuration of the PlexCollection type for use
 // with apply.
 //
-// PlexCollection is a Plex collection, smart or normal, declared as a
-// resource; cluster-plex reconciles it into Plex.
+// PlexCollection is a Plex collection -- smart, normal or a TMDB
+// collection's -- declared as a resource; cluster-plex reconciles it into
+// Plex.
 type PlexCollectionApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`

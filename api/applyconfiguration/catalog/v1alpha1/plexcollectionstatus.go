@@ -39,8 +39,10 @@ type PlexCollectionStatusApplyConfiguration struct {
 	Content *string `json:"content,omitempty"`
 	// ItemCount is Plex's childCount after the last sync.
 	ItemCount *int32 `json:"itemCount,omitempty"`
-	// MissingMembers counts a normal collection's members Plex does not
-	// hold yet, and Missing names the first of them.
+	// MissingMembers counts a normal or TMDB collection's members Plex
+	// does not hold yet, and Missing names the first of them: a normal
+	// collection's by the member's name, a TMDB collection's by the
+	// movie's title.
 	MissingMembers *int32                         `json:"missingMembers,omitempty"`
 	Missing        []PlexMemberApplyConfiguration `json:"missing,omitempty"`
 	// Poster and Background are the images last uploaded.
