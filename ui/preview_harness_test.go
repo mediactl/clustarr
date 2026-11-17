@@ -57,7 +57,10 @@ import (
 // bin/ui --auth-mode anonymous --bind-address 127.0.0.1:8099 --nats-url
 // nats://127.0.0.1:<a port-forward of clustarr-nats> --namespace default
 // --plex-provider=false`; `touch /tmp/preview.stop` ends it. The build tag
-// keeps it out of every ordinary test run.
+// keeps it out of every ordinary test run. PREVIEW_SEED_DIR, when set, names
+// a directory of `kubectl get -o json` exports that are created beside the
+// inline items (preview_seed_test.go): a sample of a real library, every
+// write allowed.
 func TestPreviewHarness(t *testing.T) {
 	env := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "config", "crd", "bases")}, ErrorIfCRDPathMissing: true}
 	cfg, err := env.Start()
@@ -177,6 +180,12 @@ func TestPreviewHarness(t *testing.T) {
 			Series: &catalogv1.SeriesLink{Series: "Earthsea Cycle", Position: "1", Primary: true}, Chapters: []catalogv1.Chapter{{Title: "Warriors in the Mist", StartMs: 0}, {Title: "The Shadow", StartMs: 1800000}},
 			SchemaVersion: 8, FetchLanguage: "en", RefreshedAt: now}}
 	})
+
+	// A sample of a real library, exported with kubectl, beside the inline
+	// items (2026-11-17, seedPreviewFromDir).
+	if dir := os.Getenv("PREVIEW_SEED_DIR"); dir != "" {
+		seedPreviewFromDir(ctx, t, c, dir)
+	}
 
 	fmt.Println("HARNESS READY", kcPath)
 	stop := os.Getenv("PREVIEW_STOP")
