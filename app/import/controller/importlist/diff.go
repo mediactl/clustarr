@@ -192,13 +192,19 @@ func (r *Reconciler) diffKind(
 			remembered = append(remembered, prev)
 		}
 	}
-	var library map[int64]libraryItem
-	if autoAdd {
-		library, err = libraryByID(ctx, r.Client, il.Namespace, il.Name, kind)
+	// The list's marks (spec.listed) go on every item it names, so the
+	// library is read for them too; a block the apiserver would refuse on
+	// every item marks nothing and is this kind's error.
+	marks, marksErr := marksOf(il.Spec.Listed)
+	marking := marksErr == nil && (!marks.empty() || anyListed(existing))
+	var lib library
+	if autoAdd || marking {
+		lib, err = loadLibrary(ctx, r.Client, il.Namespace, il.Name, kind)
 		if err != nil {
 			return kindResult{fetched: fetched, excluded: excludedCount, err: err}
 		}
 	}
+	library := lib.byID
 	var added int32
 	for _, item := range included {
 		lr := byListedKey[item.Key()]
@@ -223,6 +229,11 @@ func (r *Reconciler) diffKind(
 			entry := importliststate.StoredItem{
 				Item: item, ObjectKind: string(kind), ObjectName: catalogName(kind, item.Title, id),
 				ResolvedID: id, ListedOnly: true,
+			}
+			if held, ok := library[id]; ok {
+				// The item is in the library under the name it was added
+				// with, which is the one the list's marks go on.
+				entry.ObjectName = held.name
 			}
 			if wasKnown && !prev.ListedOnly {
 				entry = prev
@@ -321,6 +332,27 @@ func (r *Reconciler) diffKind(
 		}
 		if acted {
 			removed++
+		}
+	}
+
+	if marksErr != nil {
+		actionErrs = append(actionErrs, marksErr)
+		// What each item carries is unchanged: nothing was written.
+		carried := make(map[string]string, len(existing))
+		for _, si := range existing {
+			carried[si.ObjectName] = si.Listed
+		}
+		for i := range remembered {
+			remembered[i].Listed = carried[remembered[i].ObjectName]
+		}
+	} else if marking {
+		done := r.markListed(ctx, il, kind, marks, existing, remembered, lib)
+		if done.marked > 0 || done.cleared > 0 || len(done.errs) > 0 {
+			log.Info("importlist: the list's marks were brought to its items",
+				"marked", done.marked, "cleared", done.cleared, "failed", len(done.errs))
+		}
+		if len(done.errs) > 0 {
+			actionErrs = append(actionErrs, fmt.Errorf("spec.listed: %d items could not be written, the first: %w", len(done.errs), done.errs[0]))
 		}
 	}
 

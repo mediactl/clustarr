@@ -66,6 +66,9 @@ type ImportListSpecApplyConfiguration struct {
 	Arr *ArrListApplyConfiguration `json:"arr,omitempty"`
 	// Defaults are applied to every catalog item this list adds.
 	Defaults *ListDefaultsApplyConfiguration `json:"defaults,omitempty"`
+	// Listed is put on every item the list names, whoever added it, and
+	// taken off when the list no longer names it.
+	Listed *ListedMetadataApplyConfiguration `json:"listed,omitempty"`
 	// SyncLevel says what happens to items that have fallen off the list.
 	SyncLevel *catalogv1alpha1.SyncLevel `json:"syncLevel,omitempty"`
 }
@@ -187,6 +190,14 @@ func (b *ImportListSpecApplyConfiguration) WithArr(value *ArrListApplyConfigurat
 // If called multiple times, the Defaults field is set to the value of the last call.
 func (b *ImportListSpecApplyConfiguration) WithDefaults(value *ListDefaultsApplyConfiguration) *ImportListSpecApplyConfiguration {
 	b.Defaults = value
+	return b
+}
+
+// WithListed sets the Listed field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Listed field is set to the value of the last call.
+func (b *ImportListSpecApplyConfiguration) WithListed(value *ListedMetadataApplyConfiguration) *ImportListSpecApplyConfiguration {
+	b.Listed = value
 	return b
 }
 

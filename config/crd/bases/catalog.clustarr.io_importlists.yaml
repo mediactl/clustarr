@@ -226,6 +226,47 @@ spec:
                 maxItems: 6
                 minItems: 1
                 type: array
+              listed:
+                description: |-
+                  Listed is put on every item the list names, whoever added it, and
+                  taken off when the list no longer names it.
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations are set on the item's metadata.annotations.
+                    maxProperties: 16
+                    type: object
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Labels are set on the item's metadata.labels. Keys and values follow
+                      Kubernetes' label syntax; a list whose labels do not is not applied
+                      (Synced reads InvalidListed).
+                    maxProperties: 16
+                    type: object
+                  tags:
+                    description: |-
+                      Tags are joined to the item's spec.tags. A tag is free text, shown
+                      in Plex as written ("Criterion Collection").
+                    items:
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: set
+                type: object
+                x-kubernetes-validations:
+                - message: 'labels may not use a clustarr.io, kubernetes.io or k8s.io
+                    key: those are read as instructions'
+                  rule: '!has(self.labels) || self.labels.all(k, !k.contains(''clustarr.io/'')
+                    && !k.contains(''kubernetes.io/'') && !k.contains(''k8s.io/''))'
+                - message: 'annotations may not use a clustarr.io, kubernetes.io or
+                    k8s.io key: those are read as instructions'
+                  rule: '!has(self.annotations) || self.annotations.all(k, !k.contains(''clustarr.io/'')
+                    && !k.contains(''kubernetes.io/'') && !k.contains(''k8s.io/''))'
               mdblist:
                 description: Mdblist follows a list hosted on mdblist.com.
                 properties:

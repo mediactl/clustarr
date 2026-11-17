@@ -62,7 +62,11 @@ type SeriesSpecApplyConfiguration struct {
 	Folder *string `json:"folder,omitempty"`
 	// AddOptions are applied once, when the series is first reconciled.
 	AddOptions *SeriesAddOptionsApplyConfiguration `json:"addOptions,omitempty"`
-	// Tags select DelayProfiles, TranscodeProfiles and SubtitleProfiles.
+	// Tags select DelayProfiles, TranscodeProfiles and SubtitleProfiles,
+	// and are the item's Plex labels beside its keywords (cluster-plex's
+	// projection). A set: each writer owns the tags it sent, so an
+	// ImportList's spec.listed.tags sit beside the ones the item was added
+	// with.
 	Tags []string `json:"tags,omitempty"`
 	// Source records the ImportList that added the series, if any.
 	Source *commonv1alpha1.AddSource `json:"source,omitempty"`

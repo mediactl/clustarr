@@ -17,7 +17,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package k8s
 
-import "fmt"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"strings"
+)
 
 // FieldManager is a server-side-apply field-manager name. Section 2 of the
 // design spec enumerates every manager Clustarr is allowed to use; §5 pins the
@@ -332,7 +337,31 @@ const (
 // cmd/manager only (ADR-0019 §6.8).
 const DefaultFieldOwner = "clustarr"
 
-// FieldManagers lists every manager name §2 allows, in spec order.
+// importListedPrefix starts the field manager an ImportList puts its
+// spec.listed under on the items it names: one manager a list
+// (ManagerImportListed), so server-side apply keeps each list's tags,
+// labels and annotations apart on an item two lists name, and a list's
+// empty apply takes its own off and nobody else's.
+const importListedPrefix = "import-listed/"
+
+// maxFieldManagerLength is the apiserver's limit on a manager's name.
+const maxFieldManagerLength = 128
+
+// ManagerImportListed is the field manager of the named ImportList's
+// spec.listed. A name too long for the apiserver's limit is cut and told
+// apart by a hash of the whole.
+func ManagerImportListed(listName string) FieldManager {
+	name := importListedPrefix + listName
+	if len(name) > maxFieldManagerLength {
+		sum := sha256.Sum256([]byte(listName))
+		name = name[:maxFieldManagerLength-17] + "-" + hex.EncodeToString(sum[:8])
+	}
+	return FieldManager(name)
+}
+
+// FieldManagers lists every manager name §2 allows, in spec order. The
+// per-list managers of ManagerImportListed are a family beside them, which
+// Valid accepts by its prefix.
 func FieldManagers() []FieldManager {
 	return []FieldManager{
 		ManagerCatalog,
@@ -376,6 +405,9 @@ func (f FieldManager) String() string { return string(f) }
 // Valid reports whether f is one of the names §2 enumerates, live or
 // retired.
 func (f FieldManager) Valid() bool {
+	if rest, ok := strings.CutPrefix(string(f), importListedPrefix); ok {
+		return rest != "" && len(f) <= maxFieldManagerLength
+	}
 	for _, known := range append(FieldManagers(), RetiredFieldManagers()...) {
 		if f == known {
 			return true

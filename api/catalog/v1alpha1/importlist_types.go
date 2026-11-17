@@ -229,6 +229,52 @@ type ListDefaults struct {
 	Tags []string `json:"tags,omitempty"`
 }
 
+// ListedMetadata is what a list puts on every catalog item it names --
+// one it added and one that was in the library already, by hand, by a scan
+// or by another list -- so the list's items can be told apart afterwards:
+// a smart Plex collection filters on a tag (cluster-plex writes an item's
+// spec.tags as its Plex labels), and a label is selectable with kubectl
+// (owner, 2026-11-17: "import lists should be able to add additional tags
+// and metadata to each item. This way it's easy to bundle them back into a
+// collection"). ListDefaults, by contrast, are an added item's first
+// values and only the list's own additions take them.
+//
+// The ImportList controller applies it at each sync under a field manager
+// of the list's own (k8s.ManagerImportListed), so two lists naming one item
+// each keep their own entries, and takes it off an item the list no longer
+// names, when the block changes, and when the list is deleted
+// (ImportListFinalizerListed). A disabled list keeps what it put.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.labels) || self.labels.all(k, !k.contains('clustarr.io/') && !k.contains('kubernetes.io/') && !k.contains('k8s.io/'))",message="labels may not use a clustarr.io, kubernetes.io or k8s.io key: those are read as instructions"
+// +kubebuilder:validation:XValidation:rule="!has(self.annotations) || self.annotations.all(k, !k.contains('clustarr.io/') && !k.contains('kubernetes.io/') && !k.contains('k8s.io/'))",message="annotations may not use a clustarr.io, kubernetes.io or k8s.io key: those are read as instructions"
+type ListedMetadata struct {
+	// Tags are joined to the item's spec.tags. A tag is free text, shown
+	// in Plex as written ("Criterion Collection").
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=63
+	Tags []string `json:"tags,omitempty"`
+
+	// Labels are set on the item's metadata.labels. Keys and values follow
+	// Kubernetes' label syntax; a list whose labels do not is not applied
+	// (Synced reads InvalidListed).
+	// +optional
+	// +kubebuilder:validation:MaxProperties=16
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// Annotations are set on the item's metadata.annotations.
+	// +optional
+	// +kubebuilder:validation:MaxProperties=16
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// ImportListFinalizerListed is the ImportList controller's on a list that
+// carries spec.listed, or did: before the list goes, what it put on its
+// items is taken off them.
+const ImportListFinalizerListed = "catalog.clustarr.io/listed-items"
+
 // DeviceAuth tracks a device-code authorization flow, as Trakt and Plex use.
 type DeviceAuth struct {
 	// State is where the flow has got to.
@@ -329,6 +375,11 @@ type ImportListSpec struct {
 	// Defaults are applied to every catalog item this list adds.
 	// +required
 	Defaults ListDefaults `json:"defaults"`
+
+	// Listed is put on every item the list names, whoever added it, and
+	// taken off when the list no longer names it.
+	// +optional
+	Listed *ListedMetadata `json:"listed,omitempty"`
 
 	// SyncLevel says what happens to items that have fallen off the list.
 	// +optional

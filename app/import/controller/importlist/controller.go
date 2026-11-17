@@ -149,12 +149,25 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&il) {
-		// No finalizer: the list's keys in clustarr-importlist (its
-		// snapshot and remembered items) are TTL'd, and the owned Trakt
-		// token Secret carries a controller owner reference, so it is
-		// garbage-collected with the ImportList. Nothing here needs
-		// cleaning up by hand.
-		return ctrl.Result{}, nil
+		// The list's keys in clustarr-importlist (its snapshot and
+		// remembered items) are TTL'd, and the owned Trakt token Secret
+		// carries a controller owner reference, so it is garbage-collected
+		// with the ImportList. What is cleaned up by hand is what the list
+		// put on its items (spec.listed), under its finalizer.
+		if !k8s.HasFinalizer(&il, catalogv1alpha1.ImportListFinalizerListed) {
+			return ctrl.Result{}, nil
+		}
+		if err := r.clearListed(ctx, &il); err != nil {
+			return ctrl.Result{}, fmt.Errorf("importlist: take the list's marks off its items: %w", err)
+		}
+		return ctrl.Result{}, r.ensureListedFinalizer(ctx, &il, false)
+	}
+	// Held from the moment the list says it marks its items; kept once it
+	// no longer does, since items may still carry what it put.
+	if il.Spec.Listed != nil {
+		if err := r.ensureListedFinalizer(ctx, &il, true); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	now := r.now()

@@ -53,7 +53,7 @@ import (
 //
 // A list writes only the items it added itself. diffKind finds every item
 // already in the namespace by the provider id its kind is keyed on
-// (libraryByID) and leaves one it did not add -- added by hand, by a
+// (loadLibrary) and leaves one it did not add -- added by hand, by a
 // library rescan or by another list -- exactly as it is, the way Radarr
 // skips a list movie already in the library. Before that rule a list
 // applied its defaults, under force, over any item of the same name, so it
@@ -130,42 +130,59 @@ type libraryItem struct {
 	// listRef is spec.source.importListRef: the list that added the item,
 	// or "" for one added by hand or by a library rescan.
 	listRef string
+	// tags, labels and annotations are what the item carries of what a
+	// list's spec.listed may put on it (listed.go).
+	tags        []string
+	labels      map[string]string
+	annotations map[string]string
 }
 
-// libraryByID returns kind's items in namespace by the provider id the
-// kind is keyed on (tmdbID for a movie, tvdbID for a series), so a sync
-// finds an item whatever title it was named under. Where two items carry
-// one id, the one listName added wins, so the list keeps acting on its own.
-func libraryByID(
+// library is kind's items in a namespace, read once a diff.
+type library struct {
+	// byID is by the provider id the kind is keyed on (tmdbID for a movie,
+	// tvdbID for a series), so a sync finds an item whatever title it was
+	// named under. Where two items carry the same id, the one the named
+	// list added wins, so the list keeps updating its own.
+	byID map[int64]libraryItem
+	// byName is every item by its object name.
+	byName map[string]libraryItem
+}
+
+// loadLibrary lists kind's items in namespace.
+func loadLibrary(
 	ctx context.Context, c client.Client, namespace, listName string, kind commonv1.MediaKind,
-) (map[int64]libraryItem, error) {
-	out := map[int64]libraryItem{}
-	put := func(id int64, name string, uid types.UID, src *commonv1.AddSource) {
-		it := libraryItem{name: name, uid: uid}
+) (library, error) {
+	out := library{byID: map[int64]libraryItem{}, byName: map[string]libraryItem{}}
+	put := func(id int64, obj client.Object, tags []string, src *commonv1.AddSource) {
+		it := libraryItem{
+			name: obj.GetName(), uid: obj.GetUID(),
+			tags: tags, labels: obj.GetLabels(), annotations: obj.GetAnnotations(),
+		}
 		if src != nil {
 			it.listRef = src.ImportListRef
 		}
-		if prev, ok := out[id]; ok && prev.listRef == listName {
+		out.byName[it.name] = it
+		if prev, ok := out.byID[id]; ok && prev.listRef == listName {
 			return
 		}
-		out[id] = it
+		out.byID[id] = it
 	}
 	switch kind {
 	case commonv1.MediaKindMovie:
 		var l catalogv1alpha1.MovieList
 		if err := c.List(ctx, &l, client.InNamespace(namespace)); err != nil {
-			return nil, fmt.Errorf("importlist: list movies: %w", err)
+			return library{}, fmt.Errorf("importlist: list movies: %w", err)
 		}
 		for i := range l.Items {
-			put(l.Items[i].Spec.TmdbID, l.Items[i].Name, l.Items[i].UID, l.Items[i].Spec.Source)
+			put(l.Items[i].Spec.TmdbID, &l.Items[i], l.Items[i].Spec.Tags, l.Items[i].Spec.Source)
 		}
 	case commonv1.MediaKindSeries:
 		var l catalogv1alpha1.SeriesList
 		if err := c.List(ctx, &l, client.InNamespace(namespace)); err != nil {
-			return nil, fmt.Errorf("importlist: list series: %w", err)
+			return library{}, fmt.Errorf("importlist: list series: %w", err)
 		}
 		for i := range l.Items {
-			put(l.Items[i].Spec.TvdbID, l.Items[i].Name, l.Items[i].UID, l.Items[i].Spec.Source)
+			put(l.Items[i].Spec.TvdbID, &l.Items[i], l.Items[i].Spec.Tags, l.Items[i].Spec.Source)
 		}
 	}
 	return out, nil

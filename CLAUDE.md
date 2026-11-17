@@ -1684,10 +1684,31 @@ order before adding any component that sorts before `baseui`. A map's
 rows decode by index, not position (`schema.decodeMap`: until then
 removing a middle row dropped every row after it on save).
 An import list likewise finds an item by provider id
-(`importlist.libraryByID`) and writes only the items it added itself:
+(`importlist.loadLibrary`) and writes only the items it added itself:
 one added by hand, by a rescan or by another list is recorded as listed
 and never changed or removed by it (Radarr), since item names hash the
-title as well as the id. catalog seeds a MetadataProvider for every
+title as well as the id. **The one exception is `spec.listed`** (owner,
+2026-11-17: "import lists should be able to add additional tags and
+metadata to each item. This way it's easy to bundle them back into a
+collection"): its `tags`, `labels` and `annotations` go on every Movie and
+Series the list names, whoever added it, at each sync
+(`app/import/controller/importlist/listed.go`), under a field manager of
+the list's own (`k8s.ManagerImportListed`, "import-listed/<list>", a
+family `FieldManager.Valid` takes by prefix). Movie and Series
+`spec.tags` are a set (`+listType=set`), so the list's tags sit beside the
+ones an item was added with and beside another list's, a changed block
+replaces only the list's own, and an empty apply takes them off: when the
+item leaves the list, when the block goes, and when the list is deleted,
+which the finalizer `catalog.clustarr.io/listed-items` holds until its
+marks are off. A disabled list keeps what it put. Each remembered item
+records the block it carries (`StoredItem.Listed`), so a sync writes only
+where the block moved or someone removed a mark. A label or annotation key
+under `clustarr.io/`, `kubernetes.io/` or `k8s.io/` is refused (CEL, and
+again in the controller): those are read as instructions, and
+`catalog.clustarr.io/delete` on a list's 755 films would remove them.
+cluster-plex writes an item's `spec.tags` as Plex labels beside its
+keywords, so a smart PlexCollection filtering `label is <tag>` gathers a
+list: talos's Criterion Collection is the `great-films` list's tag. catalog seeds a MetadataProvider for every
 type that needs no key (`metadataprovider.SeedDefaults`: MusicBrainz,
 Cover Art Archive, Open Library, Audnexus, MangaDex, AniList, Kitsu,
 Anime-Lists) in its own namespace at start, create-only, skipping a type

@@ -324,11 +324,17 @@ spec:
                 description: SubtitleProfileRef pins a SubtitleProfile.
                 type: string
               tags:
-                description: Tags select DelayProfiles, TranscodeProfiles and SubtitleProfiles.
+                description: |-
+                  Tags select DelayProfiles, TranscodeProfiles and SubtitleProfiles,
+                  and are the item's Plex labels beside its keywords (cluster-plex's
+                  projection). A set: each writer owns the tags it sent, so an
+                  ImportList's spec.listed.tags sit beside the ones the item was added
+                  with.
                 items:
                   type: string
                 maxItems: 64
                 type: array
+                x-kubernetes-list-type: set
               transcodeProfileRef:
                 description: TranscodeProfileRef pins a TranscodeProfile.
                 type: string

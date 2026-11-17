@@ -435,8 +435,13 @@ type SeriesSpec struct {
 	// +optional
 	AddOptions SeriesAddOptions `json:"addOptions,omitempty"`
 
-	// Tags select DelayProfiles, TranscodeProfiles and SubtitleProfiles.
+	// Tags select DelayProfiles, TranscodeProfiles and SubtitleProfiles,
+	// and are the item's Plex labels beside its keywords (cluster-plex's
+	// projection). A set: each writer owns the tags it sent, so an
+	// ImportList's spec.listed.tags sit beside the ones the item was added
+	// with.
 	// +optional
+	// +listType=set
 	// +kubebuilder:validation:MaxItems=64
 	Tags []string `json:"tags,omitempty"`
 

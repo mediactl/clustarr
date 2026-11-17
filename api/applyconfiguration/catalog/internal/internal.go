@@ -2974,6 +2974,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             scalar: string
           elementRelationship: atomic
+    - name: listed
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ListedMetadata
     - name: mdblist
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MdbList
@@ -3387,6 +3390,25 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             scalar: string
           elementRelationship: atomic
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ListedMetadata
+  map:
+    fields:
+    - name: annotations
+      type:
+        map:
+          elementType:
+            scalar: string
+    - name: labels
+      type:
+        map:
+          elementType:
+            scalar: string
+    - name: tags
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: associative
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MangaFlag
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MarkerKind
@@ -3984,7 +4006,7 @@ var schemaYAML = typed.YAMLObject(`types:
         list:
           elementType:
             scalar: string
-          elementRelationship: atomic
+          elementRelationship: associative
     - name: tmdbID
       type:
         scalar: numeric
@@ -5878,7 +5900,7 @@ var schemaYAML = typed.YAMLObject(`types:
         list:
           elementType:
             scalar: string
-          elementRelationship: atomic
+          elementRelationship: associative
     - name: transcodeProfileRef
       type:
         scalar: string

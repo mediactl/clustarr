@@ -276,6 +276,9 @@ var kinds = []Kind{
 				"defaults.qualityProfileRef", "defaults.rootFolderRef", "defaults.delayProfileRef", "defaults.monitored", "defaults.monitorNewItems",
 				"defaults.minimumAvailability", "defaults.seriesType", "defaults.seasonFolder", "defaults.searchOnAdd", "defaults.tags",
 			}},
+			{Title: "Listed items", Advanced: true, Help: "What every item the list names carries, whoever added it, until the list no longer names it. A tag is the item's Plex label, so a smart collection filtering on it gathers the list.", Paths: []string{
+				"listed.tags", "listed.labels", "listed.annotations",
+			}},
 		},
 		Checks: []string{"kinds"},
 		// What a provider can yield (the CRD's own rules), and what each

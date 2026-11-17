@@ -227,6 +227,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.LinkApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ListDefaults"):
 		return &catalogv1alpha1.ListDefaultsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ListedMetadata"):
+		return &catalogv1alpha1.ListedMetadataApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MarkerSegment"):
 		return &catalogv1alpha1.MarkerSegmentApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MdbList"):

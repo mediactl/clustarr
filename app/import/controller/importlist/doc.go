@@ -40,7 +40,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ImportExclusion (failing open); with spec.automaticAdd off they are
 // recorded as listed only; a list writes only the items it added itself,
 // finding every item by the provider id its kind is keyed on
-// (libraryByID); an id the agent could not resolve keeps a remembered item
+// (loadLibrary); an id the agent could not resolve keeps a remembered item
 // known; items are created or updated from the list's defaults under
 // k8s.ManagerImportWorker, keeping a classified series' profile and type
 // (seriesSpecFor, classified); and what fell off the list is logged,
@@ -51,6 +51,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // recycle bin, then deletes their MediaFiles and the item, each with a UID
 // precondition (W29). The remembered items (importliststate.ItemsKey) are
 // this controller's alone.
+//
+// # What a list puts on its items
+//
+// spec.listed (tags, labels, annotations) goes on every item the list
+// names, whoever added it, so the list can be gathered again -- a smart
+// Plex collection on the tag, a selector on the label (listed.go; owner,
+// 2026-11-17). It is the one thing a list writes on an item it did not
+// add, under a field manager of the list's own
+// (k8s.ManagerImportListed), and the finalizer
+// catalogv1alpha1.ImportListFinalizerListed holds a deleted list until its
+// marks are off its items.
 //
 // # Kinds a provider cannot yield (gap-fix ruling R-10)
 //

@@ -67,6 +67,12 @@ type StoredItem struct {
 	// still wanted, but never added by this list and so never acted on by
 	// this list's syncLevel. False means this list added ObjectName.
 	ListedOnly bool `json:"listedOnly,omitempty"`
+
+	// Listed names the list's spec.listed marks ObjectName carries (the
+	// controller's hash of them), or "" for none: a sync writes to an item
+	// only when the list's marks moved from what it carries, and takes
+	// them off an item that falls out of the remembered set.
+	Listed string `json:"listed,omitempty"`
 }
 
 // itemsSnapshot is the KV value ItemsKey stores: one list's remembered
