@@ -84,6 +84,7 @@ func TestAFailedFetchSaysWhy(t *testing.T) {
 		{"removed", "ERROR: [youtube] abc: Video unavailable. This video has been removed by the uploader", ErrUnavailable},
 		{"private", "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video", ErrUnavailable},
 		{"age", "ERROR: [youtube] abc: Sign in to confirm your age. This video may be inappropriate for some users.", ErrUnavailable},
+		{"a site that wants an account", "ERROR: [vimeo] 201799041: The web client only works when logged-in. Use --cookies, --cookies-from-browser, --username and --password", ErrUnavailable},
 		{"a check for a person", "ERROR: [youtube] abc: Sign in to confirm you’re not a bot. Use --cookies-from-browser", ErrThrottled},
 		{"a rate limit", "ERROR: unable to download video data: HTTP Error 429: Too Many Requests", ErrThrottled},
 		{"anything else", "ERROR: unable to download webpage: <urlopen error timed out>", nil},

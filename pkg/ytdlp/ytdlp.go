@@ -158,6 +158,8 @@ func classify(err error, stderr string) error {
 		"video unavailable", "private video", "has been removed", "is not available", "no longer available",
 		"confirm your age", "age-restricted", "members-only", "requested format is not available",
 		"this video is unavailable", "account associated with this video has been terminated",
+		// Vimeo, which serves nothing to a client that is not signed in.
+		"only works when logged-in",
 	} {
 		if strings.Contains(low, s) {
 			return fmt.Errorf("%w: %s", ErrUnavailable, last)
