@@ -20,6 +20,7 @@ package fileimport
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -101,7 +102,8 @@ func takeNumbering(p, r *release.ParsedRelease) {
 // technical description corrects the name-derived quality
 // (quality.AugmentFromMediaInfo) and names the file for its codec and
 // dynamic range (catalogctx.File). A file the prober found is no media
-// (mediainfo.ErrNotMedia: empty, or bytes no demuxer reads) is notMedia,
+// (mediainfo.ErrNotMedia: empty, or bytes no demuxer reads), or one whose
+// bytes have holes (mediainfo.ErrDamaged, videoHealth), is notMedia,
 // which the caller refuses as the release's fault: imported by name, a fake
 // release's encrypted "remuxes" and empty and zero-headed downloads reached
 // the library on talos (2026-10-15). Any other probe failure never fails the
@@ -136,7 +138,83 @@ func (w *Worker) probeVideo(ctx context.Context, m events.Message, srcPath, rel 
 			"source", rel, "err", perr)
 		return nil, nil, nil, nil
 	}
+	damaged, err := w.videoHealth(ctx, m, srcPath, rel)
+	if err != nil || damaged != nil {
+		return nil, nil, damaged, err
+	}
 	return mi, raw, nil, nil
+}
+
+// healthTimeout bounds videoHealth's read of a file of size bytes: a minute,
+// and a second for every 8 MiB, so a file on a mount that has stalled is
+// given up on, and one that is merely large is read out.
+func healthTimeout(size int64) time.Duration {
+	return time.Minute + time.Duration(size>>23)*time.Second
+}
+
+// videoHealth reads a probed video file end to end (mediainfo.HealthProber)
+// and returns mediainfo.ErrDamaged for one with parts of its timeline gone,
+// which the caller refuses as the release's fault, as it refuses a file
+// that is no media. A header probes whole whatever the bytes behind it
+// hold: two episodes of Fena: Pirate Princess came off usenet with 17% and
+// 40% of their articles never fetched (talos, 2026-11-17), were imported
+// under their names, and were transcoded with a quarter and more of their
+// frames gone (owner, 2026-11-17: "We should verify the video files are
+// healthy before considering a release ready for transfer and next
+// steps"). The read is the whole file's bytes, so it heartbeats on m every
+// HeartbeatInterval while it runs; a failed heartbeat ends it and is the
+// error. A read that could not finish -- the deadline, a prober that does
+// not read files so -- judges nothing, and the file imports as it did.
+func (w *Worker) videoHealth(ctx context.Context, m events.Message, srcPath, rel string) (damaged, err error) {
+	hp, ok := w.Prober.(mediainfo.HealthProber)
+	if !ok {
+		return nil, nil
+	}
+	st, err := os.Stat(srcPath)
+	if err != nil {
+		return nil, nil //nolint:nilerr // the import's own read of the file reports it.
+	}
+	if err := heartbeat(ctx, m); err != nil {
+		return nil, err
+	}
+	hctx, cancel := context.WithTimeout(ctx, healthTimeout(st.Size()))
+	defer cancel()
+	stop, beat := make(chan struct{}), make(chan error, 1)
+	go func() {
+		t := time.NewTicker(HeartbeatInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				beat <- nil
+				return
+			case <-t.C:
+				if err := heartbeat(ctx, m); err != nil {
+					cancel()
+					beat <- err
+					return
+				}
+			}
+		}
+	}()
+	started := time.Now()
+	h, herr := hp.Health(hctx, srcPath)
+	close(stop)
+	if err := <-beat; err != nil {
+		return nil, err
+	}
+	log := logging.FromContext(ctx)
+	switch {
+	case herr != nil:
+		log.Warn("fileimport: could not read the file end to end; importing it unjudged", "source", rel, "err", herr)
+		return nil, nil
+	case h.Damaged():
+		log.Warn("fileimport: the file is damaged; refusing it", "source", rel, "err", h.Err(), "took", time.Since(started).Round(time.Millisecond))
+		return h.Err(), nil
+	}
+	log.Debug("fileimport: read the file end to end", "source", rel, "judged", h.Judged, "holes", h.Holes,
+		"missing", h.Missing, "took", time.Since(started).Round(time.Millisecond))
+	return nil, nil
 }
 
 // importText is s as a MediaFile spec field bounded at maxBytes holds it:

@@ -20,12 +20,15 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/app/transcode/task"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -79,5 +82,25 @@ func TestOnlyAVideoEncodeFailureOnAGPUIsTheGPUs(t *testing.T) {
 			assert.Equal(t, c.want, f.reason)
 			assert.Equal(t, ExitRetriable, f.code)
 		})
+	}
+}
+
+// A source the engine's demux found damaged (mediainfo.ErrDamaged) is an
+// invalid source on any tier: no retry reads it differently, and a GPU's
+// class is not at fault. Fena: Pirate Princess S01E01 and E11 were encoded
+// from such sources and read Succeeded (talos, 2026-11-17).
+func TestADamagedSourceIsInvalidOnAnyTier(t *testing.T) {
+	damaged := fmt.Errorf("engine: demux: %w", mediainfo.Health{
+		Judged: true, Duration: 24 * time.Minute, Holes: 206, Missing: 333 * time.Second, Largest: 8 * time.Second,
+	}.Err())
+	require.ErrorIs(t, damaged, mediainfo.ErrDamaged)
+	for _, tier := range []transcode.Tier{transcode.TierQSV, transcode.TierCPUx265} {
+		r := &runner{o: Options{Engine: erringEngine{&scriptedEngine{}, damaged}}.withDefaults()}
+		err := r.encodeFFgo(context.Background(), standard.Result{Decision: standard.DecisionEncode}, tier, "in", "out", 0, nil)
+		var f *failure
+		require.ErrorAs(t, err, &f)
+		assert.Equal(t, ExitInvalidSource, f.code)
+		assert.Contains(t, err.Error(), "the source is damaged and was not encoded")
+		assert.Contains(t, err.Error(), "5m33s of 24m0s is missing")
 	}
 }

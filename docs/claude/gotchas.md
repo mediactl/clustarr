@@ -763,6 +763,44 @@ recorded here.
   (`ErrArticleMismatch`), so the next one's is taken, as for a corrupt one.
   The yEnc `name=` is no test: obfuscated posts name every article
   differently.
+- **An NZB can list only part of a post, and what it does not list is
+  missing (2026-11-17).** nzbgeek's NZBs for Fena: Pirate Princess S01E01
+  and E11 listed 1,735 of the file's 2,087 articles and 1,248 of 2,079, the
+  par2 volumes short the same way (the indexer showed 1,337 and 942 MiB
+  where a whole post is about 1,470). The transfer preallocates a file to
+  the size its first article declares and writes what it fetches inside it,
+  so the unlisted parts stayed zeros; every article *asked for* arrived, so
+  nothing was missing, par2 was skipped ("every article verified on
+  receipt") and `verifyContent` saw the declared size. The files imported
+  (a header probes whole), transcoded with 28% and 59% of their frames gone
+  and read `Transcoded`, cutoff met; the owner found it by eye. Three gates
+  since, each on the bytes it has:
+  `unlistedSegments` (`pkg/download/usenet/nzb.go`) counts the numbers an
+  NZB skips below its highest, and below the part count its yEnc subject
+  ends with (`yEnc (1/2087)`; a subject's `[3/74]` numbers files and is not
+  read), as missing on every server from the parse -- in `failedArticles`,
+  `exhaustedArticles` and the bytes beside them -- so the health gate, par2
+  and the bare-content rule judge it, and `unlistedGate` does so before a
+  byte moves; a retry or a chase still asks only for listed articles
+  (`failedListed`). The import reads every probed video end to end
+  (`fileimport.videoHealth`, `mediainfo.HealthProber`, heartbeating; owner:
+  "We should verify the video files are healthy before considering a
+  release ready for transfer and next steps") and refuses one with more
+  than `mediainfo.MaxMissing` (2 s) gone from *every* audio and video
+  stream at once as the release's fault (`mediainfo.ErrDamaged`, "not a
+  whole media file"): a hole in the bytes takes every stream's packets, and
+  a still in a variable-rate video or a late audio track does not. Only
+  Matroska and MP4 are judged, and only with both sound and picture; a read
+  that cannot finish judges nothing. The transcode engine feeds the same
+  `mediainfo.Tracker` from its own demux and fails a damaged source
+  (`InvalidSource`, "the source is damaged and was not encoded") rather
+  than encode what is left, which covers files imported before the gate.
+  The cost is one sequential read of each imported video. **Not built:** a
+  transcode's verdict does not blocklist the release or search again -- a
+  MediaFile records its release's title and indexer, not the GUID the
+  blocklist matches -- and nothing re-judges the library's existing
+  transcodes, whose damage is in their own timestamps (found by reading
+  each MP4's frame count through Plex, 2026-11-17).
 - **A usenet engine ran every job at once, and OOM-looped seventy times
   in six days (2026-10-14).** `Add` and re-attach started each job
   immediately, each with a worker per connection of every provider, and

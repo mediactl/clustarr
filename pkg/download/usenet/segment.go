@@ -225,6 +225,9 @@ func (j *job) transfer(ctx context.Context) error {
 	if err := j.waitForTurn(ctx); err != nil {
 		return err
 	}
+	if err := j.unlistedGate(ctx); err != nil {
+		return err
+	}
 	if j.client.cfg.PreCheck {
 		for {
 			err := j.preCheck(ctx)
@@ -341,7 +344,7 @@ dispatch:
 		server = servers[0]
 	}
 	j.giveGrant(ctx)
-	if j.failedArticles() == 0 {
+	if j.failedListed() == 0 {
 		return j.checkpoint()
 	}
 	// Every article has been asked for once. What is left -- the one retry
@@ -355,7 +358,7 @@ dispatch:
 	if err := j.retryOffSlot(ctx, server); err != nil {
 		return err
 	}
-	for j.failedArticles() > 0 {
+	for j.failedListed() > 0 {
 		err := j.chase(ctx, server)
 		if err == nil {
 			break
@@ -549,11 +552,12 @@ func (j *job) markExhausted(asked []seg) {
 	}
 }
 
-// exhaustedArticles counts the segments every server has refused.
+// exhaustedArticles counts the segments every server has refused, and the
+// ones the NZB does not list, which none can be asked for.
 func (j *job) exhaustedArticles() int {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	n := 0
+	n := j.nzb.Unlisted
 	for _, b := range j.exhausted {
 		n += b.count()
 	}
@@ -565,7 +569,7 @@ func (j *job) exhaustedArticles() int {
 func (j *job) exhaustedBytes() int64 {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	var total int64
+	total := j.nzb.UnlistedBytes
 	for fi, b := range j.exhausted {
 		f := &j.nzb.Files[fi]
 		if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
@@ -768,7 +772,7 @@ func (j *job) chaseServers(ctx context.Context, skip string, asked []seg) error 
 func (j *job) missingBytes() int64 {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	var total int64
+	total := j.nzb.UnlistedBytes
 	for fi, b := range j.failedSegs {
 		f := &j.nzb.Files[fi]
 		if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
@@ -957,7 +961,13 @@ func (j *job) recordFailure(fi, si int, err error) {
 	j.lastError = err
 }
 
-func (j *job) failedArticles() int {
+// failedArticles counts the segments that failed and the ones the NZB does
+// not list (nzbFile.Unlisted).
+func (j *job) failedArticles() int { return j.failedListed() + j.nzb.Unlisted }
+
+// failedListed counts the listed segments that failed: what a retry or a
+// chase can still ask a server for.
+func (j *job) failedListed() int {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	n := 0
@@ -1046,8 +1056,37 @@ func (j *job) healthVerdict(ctx context.Context) error {
 	if j.nzb.TotalSegments > 0 {
 		health = int32((j.nzb.TotalSegments - exhausted) * 100 / j.nzb.TotalSegments) //nolint:gosec // bounded by 100.
 	}
-	return j.breach(ctx, fmt.Sprintf("health %d%% is below the floor (abort %d%%, critical %d%%): %d of %d articles missing on every server",
-		health, j.abortHealth, j.nzb.criticalHealthPercent(), exhausted, j.nzb.TotalSegments), last)
+	return j.breach(ctx, fmt.Sprintf("health %d%% is below the floor (abort %d%%, critical %d%%): %d of %d articles missing on every server%s",
+		health, j.abortHealth, j.nzb.criticalHealthPercent(), exhausted, j.nzb.TotalSegments, j.nzb.unlistedNote()), last)
+}
+
+// unlistedGate judges an NZB that does not list every article of its post
+// before the first byte moves: what it lacks is known from the parse, so a
+// post par2 cannot complete, or bare content nothing can verify, is not
+// fetched to find that out. A health pause gives the slot and the grant
+// back, as the pre-check's does.
+func (j *job) unlistedGate(ctx context.Context) error {
+	if j.nzb.Unlisted == 0 {
+		return nil
+	}
+	var err error
+	switch {
+	case j.verdictBreached():
+		err = j.healthVerdict(ctx)
+	case j.nzb.par2Bytes() == 0 && len(archiveEntryPoints(j.nzb.Files)) == 0:
+		err = j.unverifiableGate(ctx)
+	default:
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	j.client.releaseSlot(j)
+	j.giveGrant(ctx)
+	if err := j.waitWhilePaused(ctx); err != nil {
+		return err
+	}
+	return j.waitForTurn(ctx)
 }
 
 // verdictBreached is breached over the articles every server has refused:
@@ -1078,8 +1117,8 @@ func (j *job) unverifiableGate(ctx context.Context) error {
 	j.mu.Lock()
 	last := j.lastError
 	j.mu.Unlock()
-	return j.breach(ctx, fmt.Sprintf("health %d%%: %d of %d articles missing, with no par2 to repair them and no archive to verify the result",
-		j.healthPercent(), failed, j.nzb.TotalSegments), last)
+	return j.breach(ctx, fmt.Sprintf("health %d%%: %d of %d articles missing, with no par2 to repair them and no archive to verify the result%s",
+		j.healthPercent(), failed, j.nzb.TotalSegments, j.nzb.unlistedNote()), last)
 }
 
 // breach applies [Config.HealthAction] to a health-floor breach described by

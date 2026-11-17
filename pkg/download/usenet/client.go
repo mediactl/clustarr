@@ -1446,7 +1446,7 @@ func (j *job) verifyContent() error {
 	j.mu.Lock()
 	wants := make([]want, 0, len(j.sizes))
 	for i, size := range j.sizes {
-		if size <= 0 || j.failedSegs[i].count() > 0 {
+		if size <= 0 || j.failedSegs[i].count() > 0 || j.nzb.Files[i].Unlisted > 0 {
 			continue
 		}
 		wants = append(wants, want{safeName(j.nzb.Files[i].Name), size})
@@ -1686,7 +1686,7 @@ func (j *job) item() download.Item {
 		rate = j.rate.bps()
 	}
 
-	failed := 0
+	failed := j.nzb.Unlisted
 	for _, b := range j.failedSegs {
 		failed += b.count()
 	}

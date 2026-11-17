@@ -657,7 +657,7 @@ func (j *job) adoptRepairedSet(ctx context.Context) error {
 	}
 	for i := range j.failedSegs {
 		f := &j.nzb.Files[i]
-		if f.Kind != kindArchive || isSet[f.Name] || j.failedSegs[i].count() == 0 {
+		if f.Kind != kindArchive || isSet[f.Name] || (j.failedSegs[i].count() == 0 && f.Unlisted == 0) {
 			continue
 		}
 		if _, err := os.Lstat(filepath.Join(dir, safeName(f.Name))); err == nil {
@@ -678,7 +678,7 @@ func (j *job) failedInsideArchive() bool {
 		if j.nzb.Files[fi].Kind != kindArchive {
 			continue
 		}
-		if b.count() > 0 {
+		if b.count() > 0 || j.nzb.Files[fi].Unlisted > 0 {
 			return true
 		}
 	}

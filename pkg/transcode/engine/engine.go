@@ -39,6 +39,8 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/fsops"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
@@ -457,6 +459,14 @@ func demuxPaced(ctx context.Context, d *ffgo.Decoder, shift map[int]int64, route
 			tbs[s.Index], kinds[s.Index] = s.TimeBase, s.Type
 		}
 	}
+	// The source's own health, from the packets this run reads anyway
+	// (mediainfo.Tracker): a file with stretches gone from every stream is
+	// not encoded as if it were whole. A graft's target is paced, and is
+	// not judged: it is a file this standard already made.
+	var health *mediainfo.Tracker
+	if pace == nil {
+		health = native.Track(d)
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -466,8 +476,12 @@ func demuxPaced(ctx context.Context, d *ffgo.Decoder, shift map[int]int64, route
 			return &Error{Stage: "demux", Err: err}
 		}
 		if p == nil {
+			if err := health.Health().Err(); err != nil {
+				return &Error{Stage: "demux", Err: err}
+			}
 			return nil
 		}
+		native.Follow(health, p)
 		idx := p.StreamIndex()
 		in, encoded := routes[idx]
 		slot, copied := copies[idx]

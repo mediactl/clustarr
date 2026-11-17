@@ -103,6 +103,10 @@ type nzbFile struct {
 	// Highest is the highest segment number the NZB lists for the file,
 	// which no article of the post can number past (segmentMismatch).
 	Highest int
+	// Unlisted is how many of the file's articles the NZB does not list
+	// (unlistedSegments): no server can be asked for them, so they are
+	// missing from the first moment, and the file is par2's to judge.
+	Unlisted int
 }
 
 // nzbJob is a parsed, classified NZB.
@@ -118,6 +122,11 @@ type nzbJob struct {
 
 	TotalBytes    int64
 	TotalSegments int
+	// Unlisted is the files' Unlisted together, counted in TotalSegments;
+	// UnlistedBytes is what they come to in the non-par2 files, at each
+	// file's own average article, and every file's share is in TotalBytes.
+	Unlisted      int
+	UnlistedBytes int64
 	// Posted is the earliest post time across the files, which is what the
 	// propagation delay is measured from.
 	Posted time.Time
@@ -182,6 +191,19 @@ func parseNZB(payload []byte, maxBytes int64) (*nzbJob, error) {
 		if len(nf.Segments) == 0 {
 			continue
 		}
+		if nf.Unlisted = unlistedSegments(f.Subject, nf); nf.Unlisted > 0 {
+			var listed int64
+			for _, s := range nf.Segments {
+				listed += s.Bytes
+			}
+			est := listed / int64(len(nf.Segments)) * int64(nf.Unlisted)
+			job.Unlisted += nf.Unlisted
+			job.TotalSegments += nf.Unlisted
+			job.TotalBytes += est
+			if nf.Kind != kindPar2Index && nf.Kind != kindPar2Volume {
+				job.UnlistedBytes += est
+			}
+		}
 		if !nf.Posted.IsZero() && (job.Posted.IsZero() || nf.Posted.Before(job.Posted)) {
 			job.Posted = nf.Posted
 		}
@@ -200,6 +222,43 @@ func parseNZB(payload []byte, maxBytes int64) (*nzbJob, error) {
 	job.Title = passwordInNameRE.ReplaceAllString(job.Title, "")
 	job.Title = strings.TrimSpace(job.Title)
 	return job, nil
+}
+
+// yencPartsRE reads the part count a yEnc subject ends with: `"name" yEnc
+// (1/2087)`, with or without the file's size between. Only that form is
+// read: a subject's other counter, `[3/74]`, numbers the post's files.
+var yencPartsRE = regexp.MustCompile(`(?i)\byenc\b[^()]*\((\d+)/(\d+)\)\s*$`)
+
+// unlistedSegments is how many of f's articles the NZB does not list: the
+// numbers absent below the highest it lists, and below the part count its
+// yEnc subject states when that is higher. An indexer's NZB can hold only
+// part of a post. On talos (2026-11-17) nzbgeek's NZBs for two episodes of
+// Fena: Pirate Princess listed 1,735 of a file's 2,087 articles and 1,248
+// of 2,079, par2 volumes short the same way; the transfer preallocates a
+// file to the size its first article declares, so the unlisted parts stayed
+// holes, nothing asked for had failed, par2 was skipped as "every article
+// verified on receipt", and the files were imported and transcoded with a
+// quarter and more of their frames gone. An article that is not listed is
+// one no server can be asked for: it counts as missing on every server from
+// the start (job.failedArticles, job.exhaustedArticles and the bytes beside
+// them), so the health gate, par2 and the bare-content rule judge the post
+// as they judge any other with articles gone.
+func unlistedSegments(subject string, f nzbFile) int {
+	total := f.Highest
+	if m := yencPartsRE.FindStringSubmatch(subject); m != nil {
+		part, _ := strconv.Atoi(m[1])
+		parts, _ := strconv.Atoi(m[2])
+		if part >= 1 && part <= parts {
+			total = max(total, parts)
+		}
+	}
+	seen := make(map[int]struct{}, len(f.Segments))
+	for _, s := range f.Segments {
+		if s.Number >= 1 {
+			seen[s.Number] = struct{}{}
+		}
+	}
+	return max(total-len(seen), 0)
 }
 
 // fileName derives a file's name from the NZB. nzbparser fills Filename from
@@ -338,6 +397,15 @@ func hopeless(totalBytes, par2Bytes, missingBytes int64) bool {
 		return false
 	}
 	return (totalBytes-missingBytes)*1000 < requiredCompletionPerMille*nonPar
+}
+
+// unlistedNote is the clause a health message ends with when part of what
+// is missing was never listed, "" otherwise.
+func (j *nzbJob) unlistedNote() string {
+	if j.Unlisted == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; the NZB does not list %d of the post's articles", j.Unlisted)
 }
 
 // criticalHealthPercent is the share of the non-par2 bytes that must be

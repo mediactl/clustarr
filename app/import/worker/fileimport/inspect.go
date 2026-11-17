@@ -110,9 +110,13 @@ func blockedRejection(format string, args ...any) schema.InspectRejection {
 }
 
 // notMediaRejection refuses a file the prober found is no media
-// (mediainfo.ErrNotMedia) as the release's fault: it is blocklisted and
-// searched for again, never imported under its name.
+// (mediainfo.ErrNotMedia), or damaged (mediainfo.ErrDamaged), as the
+// release's fault: it is blocklisted and searched for again, never imported
+// under its name.
 func notMediaRejection(rel string, err error) schema.InspectRejection {
+	if errors.Is(err, mediainfo.ErrDamaged) {
+		return inspectRejection(commonv1.ImportClassReleaseFault, "", "%s: not a whole media file: %v", rel, err)
+	}
 	return inspectRejection(commonv1.ImportClassReleaseFault, "", "%s: not a playable media file: %v", rel, err)
 }
 

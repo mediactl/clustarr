@@ -430,6 +430,14 @@ func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier tran
 	if logTail != "" {
 		r.applyStderrTail(logTail)
 	}
+	if errors.Is(runErr, mediainfo.ErrDamaged) {
+		// The source has stretches gone from every stream (the engine's
+		// demux, mediainfo.Tracker): no retry and no other class reads it
+		// differently, and what it would encode is the damage. Two episodes
+		// of Fena: Pirate Princess were encoded so and replaced their
+		// sources (talos, 2026-11-17).
+		return invalidSource("transcode worker: the source is damaged and was not encoded: %w", runErr)
+	}
 	if gpuTier(tier) && gpuFailure(plan, runErr) {
 		return gpuEncodeFailed(fmt.Errorf("transcode worker: engine: %w", runErr))
 	}
