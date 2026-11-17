@@ -147,10 +147,13 @@ func programmeContentClass(d ProgrammeDialog) string {
 // programmeBodyClass is the dialog's body, over its backdrop when it has
 // one.
 func programmeBodyClass(d ProgrammeDialog) string {
+	// A column on a phone, a row from sm; min-w-0 so a long description or
+	// stream URL cannot make the body wider than its dialog (it was 652 to
+	// 851px wide in a 358 to 672px dialog, and opened scrolled sideways).
 	if d.Backdrop != "" {
-		return "relative flex gap-4"
+		return "relative flex min-w-0 flex-col gap-4 sm:flex-row"
 	}
-	return "flex gap-4"
+	return "flex min-w-0 flex-col gap-4 sm:flex-row"
 }
 
 // overBackdrop positions a part of the dialog over its backdrop, which is
@@ -251,7 +254,7 @@ func LiveTVGuide(p GuidePage) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(rfc3339(p.From))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 168, Col: 121}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 171, Col: 121}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 				if templ_7745c5c3_Err != nil {
@@ -264,7 +267,7 @@ func LiveTVGuide(p GuidePage) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("width:" + px(GuideChannelPx))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 169, Col: 113}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 172, Col: 113}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -277,7 +280,7 @@ func LiveTVGuide(p GuidePage) templ.Component {
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("height:" + px(GuideHeaderPx))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 170, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 173, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {
@@ -295,7 +298,7 @@ func LiveTVGuide(p GuidePage) templ.Component {
 					var templ_7745c5c3_Var6 string
 					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(c.Number)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 172, Col: 40}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 175, Col: 40}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 					if templ_7745c5c3_Err != nil {
@@ -308,7 +311,7 @@ func LiveTVGuide(p GuidePage) templ.Component {
 					var templ_7745c5c3_Var7 string
 					templ_7745c5c3_Var7, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("height:" + px(GuideRowPx))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 172, Col: 137}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 175, Col: 137}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 					if templ_7745c5c3_Err != nil {
@@ -329,7 +332,7 @@ func LiveTVGuide(p GuidePage) templ.Component {
 					var templ_7745c5c3_Var8 string
 					templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(c.Number)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 175, Col: 74}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 178, Col: 74}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 					if templ_7745c5c3_Err != nil {
@@ -342,7 +345,7 @@ func LiveTVGuide(p GuidePage) templ.Component {
 					var templ_7745c5c3_Var9 string
 					templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(c.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 176, Col: 64}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 179, Col: 64}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 					if templ_7745c5c3_Err != nil {
@@ -355,7 +358,7 @@ func LiveTVGuide(p GuidePage) templ.Component {
 					var templ_7745c5c3_Var10 string
 					templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 176, Col: 75}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 179, Col: 75}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 					if templ_7745c5c3_Err != nil {
@@ -373,7 +376,7 @@ func LiveTVGuide(p GuidePage) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width:%s;height:%s", px(GuideWindows*windowPx), canvasHeight(len(p.Rows))))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 182, Col: 140}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 185, Col: 140}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -386,7 +389,7 @@ func LiveTVGuide(p GuidePage) templ.Component {
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("height:" + canvasHeight(len(p.Rows)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 183, Col: 136}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 186, Col: 136}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
@@ -498,7 +501,7 @@ func guideSentinel(s GuideSentinel) templ.Component {
 		var templ_7745c5c3_Var15 string
 		templ_7745c5c3_Var15, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(sentinelStyle(s))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 214, Col: 26}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 217, Col: 26}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 		if templ_7745c5c3_Err != nil {
@@ -511,7 +514,7 @@ func guideSentinel(s GuideSentinel) templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(s.URL)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 215, Col: 16}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 218, Col: 16}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 		if templ_7745c5c3_Err != nil {
@@ -553,7 +556,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.ResolveAttributeValue(strconv.Itoa(w.K))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 222, Col: 37}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 225, Col: 37}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var18)
 		if templ_7745c5c3_Err != nil {
@@ -566,7 +569,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 		var templ_7745c5c3_Var19 string
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(windowStyle(w))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 222, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 225, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 		if templ_7745c5c3_Err != nil {
@@ -579,7 +582,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 		var templ_7745c5c3_Var20 string
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("height:" + px(GuideHeaderPx))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 223, Col: 100}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 226, Col: 100}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 		if templ_7745c5c3_Err != nil {
@@ -597,7 +600,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 			var templ_7745c5c3_Var21 string
 			templ_7745c5c3_Var21, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("left:" + px(float64(i)*60*GuideMinutePx))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 225, Col: 164}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 228, Col: 164}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 			if templ_7745c5c3_Err != nil {
@@ -610,7 +613,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue(rfc3339(h))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 226, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 229, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 			if templ_7745c5c3_Err != nil {
@@ -623,7 +626,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(h.UTC().Format("15:04"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 226, Col: 78}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 229, Col: 78}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
@@ -658,7 +661,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 				var templ_7745c5c3_Var25 string
 				templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(b.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 245, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 248, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 				if templ_7745c5c3_Err != nil {
@@ -684,7 +687,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 						var templ_7745c5c3_Var27 string
 						templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(b.Episode)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 248, Col: 18}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 251, Col: 18}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 						if templ_7745c5c3_Err != nil {
@@ -753,7 +756,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 					var templ_7745c5c3_Var30 string
 					templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(b.SubTitle)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 264, Col: 18}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 267, Col: 18}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 					if templ_7745c5c3_Err != nil {
@@ -763,7 +766,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 					var templ_7745c5c3_Var31 string
 					templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(b.Desc)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 266, Col: 14}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 269, Col: 14}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 					if templ_7745c5c3_Err != nil {
@@ -777,7 +780,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 				var templ_7745c5c3_Var32 string
 				templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(rfc3339(b.IndexProgramme.Start))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 270, Col: 71}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 273, Col: 71}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 				if templ_7745c5c3_Err != nil {
@@ -790,7 +793,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 				var templ_7745c5c3_Var33 string
 				templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(b.IndexProgramme.Start.UTC().Format("15:04"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 270, Col: 120}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 273, Col: 120}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 				if templ_7745c5c3_Err != nil {
@@ -803,7 +806,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 				var templ_7745c5c3_Var34 string
 				templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs("–")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 271, Col: 12}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 274, Col: 12}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 				if templ_7745c5c3_Err != nil {
@@ -816,7 +819,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 				var templ_7745c5c3_Var35 string
 				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue(rfc3339(b.Stop))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 272, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 275, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
 				if templ_7745c5c3_Err != nil {
@@ -829,7 +832,7 @@ func guideWindow(w GuideWindowView) templ.Component {
 				var templ_7745c5c3_Var36 string
 				templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(b.Stop.UTC().Format("15:04"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 272, Col: 88}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 275, Col: 88}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 				if templ_7745c5c3_Err != nil {
@@ -921,7 +924,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 					var templ_7745c5c3_Var40 string
 					templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Backdrop)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 287, Col: 49}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 290, Col: 49}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var40)
 					if templ_7745c5c3_Err != nil {
@@ -963,7 +966,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 						var templ_7745c5c3_Var43 string
 						templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(d.Title)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 292, Col: 14}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 295, Col: 14}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 						if templ_7745c5c3_Err != nil {
@@ -994,7 +997,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 						var templ_7745c5c3_Var45 string
 						templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(d.Channel + " " + d.ChannelName + " · ")
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 295, Col: 47}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 298, Col: 47}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 						if templ_7745c5c3_Err != nil {
@@ -1007,7 +1010,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 						var templ_7745c5c3_Var46 string
 						templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(rfc3339(d.Start))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 296, Col: 60}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 299, Col: 60}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
 						if templ_7745c5c3_Err != nil {
@@ -1020,7 +1023,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 						var templ_7745c5c3_Var47 string
 						templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(d.Start.UTC().Format("Mon 15:04 UTC"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 296, Col: 102}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 299, Col: 102}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 						if templ_7745c5c3_Err != nil {
@@ -1033,7 +1036,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 						var templ_7745c5c3_Var48 string
 						templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(" – ")
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 297, Col: 14}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 300, Col: 14}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 						if templ_7745c5c3_Err != nil {
@@ -1046,7 +1049,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 						var templ_7745c5c3_Var49 string
 						templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.ResolveAttributeValue(rfc3339(d.Stop))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 298, Col: 55}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 301, Col: 55}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var49)
 						if templ_7745c5c3_Err != nil {
@@ -1059,7 +1062,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 						var templ_7745c5c3_Var50 string
 						templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(d.Stop.UTC().Format("15:04"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 298, Col: 88}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 301, Col: 88}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 						if templ_7745c5c3_Err != nil {
@@ -1115,7 +1118,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 					var templ_7745c5c3_Var53 string
 					templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Image)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 303, Col: 44}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 306, Col: 44}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
 					if templ_7745c5c3_Err != nil {
@@ -1138,7 +1141,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 					var templ_7745c5c3_Var54 string
 					templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(d.SubTitle)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 307, Col: 43}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 310, Col: 43}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 					if templ_7745c5c3_Err != nil {
@@ -1169,7 +1172,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 						var templ_7745c5c3_Var56 string
 						templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(d.Episode)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 312, Col: 19}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 315, Col: 19}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 						if templ_7745c5c3_Err != nil {
@@ -1246,7 +1249,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 						var templ_7745c5c3_Var60 string
 						templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(c)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 327, Col: 11}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 330, Col: 11}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 						if templ_7745c5c3_Err != nil {
@@ -1271,7 +1274,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 					var templ_7745c5c3_Var61 string
 					templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(d.Desc)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 332, Col: 47}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 335, Col: 47}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 					if templ_7745c5c3_Err != nil {
@@ -1290,7 +1293,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 					var templ_7745c5c3_Var62 string
 					templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.StreamURL)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 336, Col: 67}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 339, Col: 67}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var62)
 					if templ_7745c5c3_Err != nil {
@@ -1303,7 +1306,7 @@ func ProgrammeDialogView(d ProgrammeDialog) templ.Component {
 					var templ_7745c5c3_Var63 string
 					templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(d.StreamURL)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 336, Col: 83}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/livetv_guide.templ`, Line: 339, Col: 83}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 					if templ_7745c5c3_Err != nil {

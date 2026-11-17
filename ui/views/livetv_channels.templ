@@ -417,7 +417,7 @@ templ channelsBulkForm() {
 templ ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) {
 	<div
 		id="channels-table"
-		class="panel overflow-x-auto rounded-xl border border-border bg-card"
+		class="panel @container/table overflow-x-auto rounded-xl border border-border bg-card"
 		hx-get={ "/livetv/channels/table?" + f.Values().Encode() }
 		hx-trigger="channels-changed from:body"
 		hx-swap="outerHTML"
@@ -431,7 +431,7 @@ templ ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) {
 					@table.Head(table.HeadProps{Class: "w-12"}) {
 						Active 
 					}
-					@table.Head(table.HeadProps{Class: "w-24"}) {
+					@table.Head(table.HeadProps{Class: "hidden w-24 @md/table:table-cell"}) {
 						Number 
 					}
 					@table.Head(table.HeadProps{Class: "w-12"}) {
@@ -440,26 +440,26 @@ templ ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) {
 					@table.Head() {
 						Name 
 					}
-					@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) {
+					@table.Head(table.HeadProps{Class: "hidden @6xl/table:table-cell"}) {
 						Group 
 					}
 					if lineupColumns(rows) {
-						@table.Head(table.HeadProps{Class: "hidden md:table-cell", Attributes: templ.Attributes{"data-column": "category"}}) {
+						@table.Head(table.HeadProps{Class: "hidden @3xl/table:table-cell", Attributes: templ.Attributes{"data-column": "category"}}) {
 							Category 
 						}
 					}
-					@table.Head(table.HeadProps{Class: "hidden md:table-cell"}) {
+					@table.Head(table.HeadProps{Class: "hidden @3xl/table:table-cell"}) {
 						Provider 
 					}
-					@table.Head() {
+					@table.Head(table.HeadProps{Class: "hidden @md/table:table-cell"}) {
 						EPG 
 					}
 					if lineupColumns(rows) {
-						@table.Head(table.HeadProps{Class: "hidden lg:table-cell", Attributes: templ.Attributes{"data-column": "source"}}) {
+						@table.Head(table.HeadProps{Class: "hidden @6xl/table:table-cell", Attributes: templ.Attributes{"data-column": "source"}}) {
 							Source 
 						}
 					}
-					@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) {
+					@table.Head(table.HeadProps{Class: "hidden @6xl/table:table-cell"}) {
 						Plex 
 					}
 					@table.Head(table.HeadProps{Class: "w-28"}) {
@@ -541,7 +541,7 @@ templ ChannelRowView(r projection.ChannelRow) {
 			}
 			@switchcomp.Switch(switchcomp.Props{Checked: &r.Active, Size: switchcomp.SizeSm, Attributes: attrs})
 		}
-		@table.Cell() {
+		@table.Cell(table.CellProps{Class: "hidden @md/table:table-cell"}) {
 			if r.LineupOn {
 				@input.Input(input.Props{Name: "number", Value: r.Number, Disabled: true, Class: inPlaceInputClass + " w-20 tabular-nums", Attributes: templ.Attributes{"aria-label": "Number", "title": "Numbered by the lineup's category"}})
 			} else {
@@ -564,22 +564,22 @@ templ ChannelRowView(r projection.ChannelRow) {
 				}
 			</div>
 		}
-		@table.Cell(table.CellProps{Class: "hidden max-w-48 truncate text-sm lg:table-cell"}) {
+		@table.Cell(table.CellProps{Class: "hidden max-w-48 truncate text-sm @6xl/table:table-cell"}) {
 			{ r.Group }
 		}
 		if r.LineupColumns {
 			@categoryCell(r)
 		}
-		@table.Cell(table.CellProps{Class: "hidden text-sm md:table-cell"}) {
+		@table.Cell(table.CellProps{Class: "hidden text-sm @3xl/table:table-cell"}) {
 			{ r.Provider }
 		}
-		@table.Cell() {
+		@table.Cell(table.CellProps{Class: "hidden @md/table:table-cell"}) {
 			@pickerButton("/livetv/channels/"+r.Namespace+"/"+r.Name+"/epg", "Change the guide") {
 				{ epgLabel(r.EPG) }
 			}
 		}
 		if r.LineupColumns {
-			@table.Cell(table.CellProps{Class: "hidden text-sm lg:table-cell", Attributes: templ.Attributes{"data-channel-source": r.Source, "title": r.Guide}}) {
+			@table.Cell(table.CellProps{Class: "hidden text-sm @6xl/table:table-cell", Attributes: templ.Attributes{"data-channel-source": r.Source, "title": r.Guide}}) {
 				if r.Source == "" {
 					<span class="text-muted-foreground">—</span>
 				} else {
@@ -587,7 +587,7 @@ templ ChannelRowView(r projection.ChannelRow) {
 				}
 			}
 		}
-		@table.Cell(table.CellProps{Class: "hidden text-sm lg:table-cell"}) {
+		@table.Cell(table.CellProps{Class: "hidden text-sm @6xl/table:table-cell"}) {
 			if r.PlexGuide {
 				@pickerButton("/livetv/channels/"+r.Namespace+"/"+r.Name+"/plex", plexTitle(r)) {
 					{ plexLabel(r) }
@@ -635,7 +635,7 @@ func lineupColumns(rows []projection.ChannelRow) bool {
 // it is left out, the number a dry run would give it, and the override's
 // select. Empty for a channel whose provider has no lineup.
 templ categoryCell(r projection.ChannelRow) {
-	@table.Cell(table.CellProps{Class: "hidden text-sm md:table-cell", Attributes: categoryCellAttrs(r)}) {
+	@table.Cell(table.CellProps{Class: "hidden text-sm @3xl/table:table-cell", Attributes: categoryCellAttrs(r)}) {
 		if r.InLineup() {
 			<div class="flex flex-col items-start gap-1">
 				<div class="flex items-center gap-1">

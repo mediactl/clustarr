@@ -1342,7 +1342,7 @@ func ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) templ.Componen
 			templ_7745c5c3_Var44 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "<div id=\"channels-table\" class=\"panel overflow-x-auto rounded-xl border border-border bg-card\" hx-get=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "<div id=\"channels-table\" class=\"panel @container/table overflow-x-auto rounded-xl border border-border bg-card\" hx-get=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1465,7 +1465,7 @@ func ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) templ.Componen
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "w-24"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var51), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden w-24 @md/table:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var51), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1543,7 +1543,7 @@ func ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) templ.Componen
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden lg:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var54), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden @6xl/table:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var54), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1570,7 +1570,7 @@ func ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) templ.Componen
 							}
 							return nil
 						})
-						templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden md:table-cell", Attributes: templ.Attributes{"data-column": "category"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var55), templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden @3xl/table:table-cell", Attributes: templ.Attributes{"data-column": "category"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var55), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -1597,7 +1597,7 @@ func ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) templ.Componen
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden md:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var56), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden @3xl/table:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var56), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1623,7 +1623,7 @@ func ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) templ.Componen
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = table.Head().Render(templ.WithChildren(ctx, templ_7745c5c3_Var57), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden @md/table:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var57), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1650,7 +1650,7 @@ func ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) templ.Componen
 							}
 							return nil
 						})
-						templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden lg:table-cell", Attributes: templ.Attributes{"data-column": "source"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var58), templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden @6xl/table:table-cell", Attributes: templ.Attributes{"data-column": "source"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var58), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -1677,7 +1677,7 @@ func ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) templ.Componen
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden lg:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var59), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = table.Head(table.HeadProps{Class: "hidden @6xl/table:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var59), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1935,7 +1935,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = table.Cell().Render(templ.WithChildren(ctx, templ_7745c5c3_Var66), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden @md/table:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var66), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2061,7 +2061,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden max-w-48 truncate text-sm lg:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var71), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden max-w-48 truncate text-sm @6xl/table:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var71), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2102,7 +2102,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden text-sm md:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var73), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden text-sm @3xl/table:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var73), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2151,7 +2151,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = table.Cell().Render(templ.WithChildren(ctx, templ_7745c5c3_Var75), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden @md/table:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var75), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2190,7 +2190,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden text-sm lg:table-cell", Attributes: templ.Attributes{"data-channel-source": r.Source, "title": r.Guide}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var78), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden text-sm @6xl/table:table-cell", Attributes: templ.Attributes{"data-channel-source": r.Source, "title": r.Guide}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var78), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -2291,7 +2291,7 @@ func ChannelRowView(r projection.ChannelRow) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden text-sm lg:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var80), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden text-sm @6xl/table:table-cell"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var80), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2635,7 +2635,7 @@ func categoryCell(r projection.ChannelRow) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden text-sm md:table-cell", Attributes: categoryCellAttrs(r)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var90), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "hidden text-sm @3xl/table:table-cell", Attributes: categoryCellAttrs(r)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var90), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

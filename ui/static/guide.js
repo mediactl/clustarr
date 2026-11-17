@@ -3,7 +3,7 @@
 // The TV Guide's clock (the direct-tuners and ui design 2026-10-27 §5.6):
 // the grid is placed from the guide's first instant (data-from) at 7.5 px a
 // minute, server-side and timezone-free; here the browser scrolls it to now
-// less 30 minutes, moves the now line every second, dims past programmes,
+// less 30 minutes, moves the now line every 15 seconds, dims past programmes,
 // fills the live one's progress bar, and labels hours and days in its own
 // zone ("Today", "Tomorrow", a weekday).
 (function () {
@@ -30,37 +30,61 @@
     return d.toLocaleDateString([], { weekday: "short" });
   };
 
+  // One formatter per shape, made once: toLocaleTimeString builds one per
+  // call, and a guide holds nineteen thousand <time> elements.
+  var hourFmt = new Intl.DateTimeFormat([], { hour: "numeric" });
+  var timeFmt = new Intl.DateTimeFormat([], { hour: "numeric", minute: "2-digit" });
+
+  // label fills the <time> elements not yet labelled (data-done): every
+  // settle used to re-label all of them, about 4 s for one programme click.
   var label = function (root) {
-    root.querySelectorAll('time[data-local="hour"]').forEach(function (t, i, all) {
+    root.querySelectorAll('time[data-local="hour"]:not([data-done])').forEach(function (t) {
+      t.setAttribute("data-done", "");
       var d = new Date(t.getAttribute("datetime"));
       if (isNaN(d)) return;
-      var text = d.toLocaleTimeString([], { hour: "numeric" });
+      var text = hourFmt.format(d);
       var first = t.closest("[data-window]");
       if (d.getHours() === 0 || (first && first.querySelector('time[data-local="hour"]') === t)) {
         text = dayLabel(d) + " " + text;
       }
       t.textContent = text;
     });
-    root.querySelectorAll('time[data-local="time"]').forEach(function (t) {
+    root.querySelectorAll('time[data-local="time"]:not([data-done])').forEach(function (t) {
+      t.setAttribute("data-done", "");
       var d = new Date(t.getAttribute("datetime"));
-      if (!isNaN(d)) t.textContent = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      if (!isNaN(d)) t.textContent = timeFmt.format(d);
     });
   };
 
-  var tick = function () {
+  // line moves the now line; cells dims the programmes that are over and
+  // fills the live ones' progress, a walk of every cell, so it runs once a
+  // minute and when the guide itself gained cells, not every second.
+  var line = function () {
+    var g = guide();
+    var el = document.getElementById("guide-now");
+    if (g && el) el.style.left = pxAt(g, Date.now()) + "px";
+  };
+  var cells = function () {
     var g = guide();
     if (!g) return;
     var now = Date.now();
-    var line = document.getElementById("guide-now");
-    if (line) line.style.left = pxAt(g, now) + "px";
     g.querySelectorAll("[data-programme]").forEach(function (b) {
       var start = Date.parse(b.getAttribute("data-start"));
       var stop = Date.parse(b.getAttribute("data-stop"));
-      if (stop <= now) b.setAttribute("data-past", "");
-      else b.removeAttribute("data-past");
+      if (stop <= now) {
+        if (!b.hasAttribute("data-past")) b.setAttribute("data-past", "");
+      } else if (b.hasAttribute("data-past")) {
+        b.removeAttribute("data-past");
+      }
       var bar = b.querySelector("[data-progress]");
-      if (bar) bar.style.width = start <= now && now < stop ? ((now - start) / (stop - start)) * 100 + "%" : "0";
+      if (!bar) return;
+      var width = start <= now && now < stop ? ((now - start) / (stop - start)) * 100 + "%" : "0";
+      if (bar.style.width !== width) bar.style.width = width;
     });
+  };
+  var tick = function () {
+    line();
+    cells();
   };
 
   var place = function () {
@@ -78,10 +102,12 @@
   });
   // The whole document: a programme's dialog is moved to <body> before
   // htmx settles it (ui/static/portals.js).
-  document.addEventListener("htmx:afterSettle", function () {
+  document.addEventListener("htmx:afterSettle", function (e) {
     label(document);
     place();
-    tick();
+    var t = e.target;
+    if (t && t.closest && t.closest("[data-guide]")) tick();
   });
-  setInterval(tick, 1000);
+  setInterval(line, 15000);
+  setInterval(cells, 60000);
 })();

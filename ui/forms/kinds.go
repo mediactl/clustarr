@@ -584,6 +584,11 @@ var kinds = []Kind{
 			"epg.plex.station": unless("epg.plex.off", "true"),
 		},
 		ReadOnlyOnEdit: []string{"providerRef", "key"},
+		// The category override is the Channels page's (Automatic, Off, a
+		// category): the form does not draw it, and a save must carry the
+		// stored value, the empty string of "off every DVR" included --
+		// without this a save cleared it and turned an Off channel back on.
+		Hidden: []string{"category"},
 		// The dummy checkbox always posts, so an untouched Guide group
 		// decodes to {dummy: false}, which the CRD refuses (exactly one of
 		// channelID and dummy): no channel id and no dummy is no epg.

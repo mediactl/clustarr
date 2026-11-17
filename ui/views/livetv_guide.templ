@@ -109,10 +109,13 @@ func programmeContentClass(d ProgrammeDialog) string {
 // programmeBodyClass is the dialog's body, over its backdrop when it has
 // one.
 func programmeBodyClass(d ProgrammeDialog) string {
+	// A column on a phone, a row from sm; min-w-0 so a long description or
+	// stream URL cannot make the body wider than its dialog (it was 652 to
+	// 851px wide in a 358 to 672px dialog, and opened scrolled sideways).
 	if d.Backdrop != "" {
-		return "relative flex gap-4"
+		return "relative flex min-w-0 flex-col gap-4 sm:flex-row"
 	}
-	return "flex gap-4"
+	return "flex min-w-0 flex-col gap-4 sm:flex-row"
 }
 
 // overBackdrop positions a part of the dialog over its backdrop, which is
