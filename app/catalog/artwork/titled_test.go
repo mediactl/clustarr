@@ -30,7 +30,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
-	"github.com/mediactl/clustarr/app/catalog/itemread"
 )
 
 const (
@@ -95,9 +94,10 @@ func TestAnAnimeTakesTheTextlessPostersAndItsEnglishLogo(t *testing.T) {
 	}
 }
 
-// The predicate is itemread.Anime's: ItemOf restates it rather than import
-// the readers, and this holds the two together.
-func TestTitledPosterFollowsTheAnimePredicate(t *testing.T) {
+// Every Movie and Series takes a titled poster, an anime or not (owner,
+// 2026-11-17: "We should always overlay the title image ourselves to
+// standardize the positioning"; an anime alone took one until then).
+func TestEveryMovieAndSeriesTakesATitledPoster(t *testing.T) {
 	standard := animeSeries(animeImages())
 	standard.Spec.SeriesType = catalogv1alpha1.SeriesTypeStandard
 	film := animeMovie(animeImages())
@@ -110,13 +110,11 @@ func TestTitledPosterFollowsTheAnimePredicate(t *testing.T) {
 	} {
 		it, err := artwork.ItemOf(obj)
 		require.NoError(t, err)
-		assert.Equal(t, itemread.Anime(obj), it.TitledPoster, name)
-		if !itemread.Anime(obj) {
-			got := it.Sources()
-			assert.Equal(t, textPoster, got[catalogv1alpha1.ImageTypePoster].URL, name)
-			assert.Empty(t, got[catalogv1alpha1.ImageTypePoster].Logo, name)
-			assert.Equal(t, jaLogo, got[catalogv1alpha1.ImageTypeLogo].URL, name)
-		}
+		assert.True(t, it.TitledPoster, name)
+		got := it.Sources()
+		assert.Equal(t, textlessPoster, got[catalogv1alpha1.ImageTypePoster].URL, name)
+		assert.Equal(t, enLogo, got[catalogv1alpha1.ImageTypePoster].Logo, name)
+		assert.Equal(t, enLogo, got[catalogv1alpha1.ImageTypeLogo].URL, name)
 	}
 }
 
@@ -308,4 +306,37 @@ func TestPlanFetchJudgesATitledSourceByItsMark(t *testing.T) {
 	c := artwork.PlanFetch(map[catalogv1alpha1.ImageType]artwork.Source{catalogv1alpha1.ImageTypePoster: fewer}, obj("", provider, ""), nil, now)
 	assert.NotEqual(t, a.Hash(), b.Hash())
 	assert.NotEqual(t, a.Hash(), c.Hash())
+}
+
+// The poster an item falls back to is a provider's in the titles' language
+// when the provider's first is not (owner, 2026-11-17: "tmdb may also be
+// used for falling back to english language posters when no "xx"/no
+// language poster is found for overlay"): with no poster without text, and
+// as the titled source's plain poster. An override stays, and so does a
+// first poster already in that language.
+func TestThePlainPosterIsOneInTheTitlesLanguage(t *testing.T) {
+	const jaPoster, enPoster2 = "https://img.example/poster-ja.jpg", "https://img.example/poster-en-2.jpg"
+	poster := func(url, lang string) catalogv1alpha1.Image {
+		return catalogv1alpha1.Image{Type: catalogv1alpha1.ImageTypePoster, URL: url, Language: lang}
+	}
+	logo := catalogv1alpha1.Image{Type: catalogv1alpha1.ImageTypeLogo, URL: enLogo, Language: "en"}
+
+	noTextless := sourcesOf(t, animeSeries([]catalogv1alpha1.Image{poster(jaPoster, "ja"), poster(textPoster, "en"), poster(enPoster2, "en"), logo}))
+	assert.Equal(t, artwork.Source{URL: textPoster, Kind: catalogv1alpha1.ArtworkSourceProvider, Language: "en"},
+		noTextless[catalogv1alpha1.ImageTypePoster], "no poster without text: the first English one, not the Japanese first")
+
+	titled := sourcesOf(t, animeSeries([]catalogv1alpha1.Image{poster(jaPoster, "ja"), poster(textlessPoster, ""), poster(textPoster, "en"), logo}))
+	require.NotNil(t, titled[catalogv1alpha1.ImageTypePoster].Plain)
+	assert.Equal(t, textPoster, titled[catalogv1alpha1.ImageTypePoster].Plain.URL, "the titled source falls back to it")
+
+	only := sourcesOf(t, animeSeries([]catalogv1alpha1.Image{poster(jaPoster, "ja"), logo}))
+	assert.Equal(t, jaPoster, only[catalogv1alpha1.ImageTypePoster].URL, "none in the titles' language: the provider's first")
+
+	first := sourcesOf(t, animeSeries([]catalogv1alpha1.Image{poster(enPoster2, "en-US"), poster(textPoster, "en"), logo}))
+	assert.Equal(t, enPoster2, first[catalogv1alpha1.ImageTypePoster].URL, "already in the titles' language")
+
+	own := animeSeries([]catalogv1alpha1.Image{poster(jaPoster, "ja"), poster(textPoster, "en"), logo})
+	own.Status.ImageSet = &catalogv1alpha1.ImageSetStatus{Artwork: []catalogv1alpha1.ArtworkOverride{{Type: catalogv1alpha1.ImageTypePoster, URL: "https://img.example/set.jpg"}}}
+	assert.Equal(t, artwork.Source{URL: "https://img.example/set.jpg", Kind: catalogv1alpha1.ArtworkSourceCustom},
+		sourcesOf(t, own)[catalogv1alpha1.ImageTypePoster], "a chosen set's poster stays")
 }

@@ -71,7 +71,10 @@ func resolveIDs(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.Me
 //     the next refresh (CLAUDE.md: a transient failure must not gut a
 //     healthy object). The spec's non-id keys ("region", which target.go
 //     threads through the map for an Audiobook) are left out.
-//   - Images: the document's own images first, then each ArtworkProvider's
+//   - Images: the document's own images first -- for a Series its TMDB tv
+//     record's logos and posters in the titles' language ahead of them and
+//     the rest of that record's after (withExtraImages) -- then each
+//     ArtworkProvider's
 //     in priority order, skipping a URL already present. An image scoped to
 //     one season is dropped: the CRD's Image has no season field, so a
 //     season-3 poster would otherwise read as the series' poster. The
@@ -102,6 +105,7 @@ func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaK
 			s.Tagline = extras.Tagline
 		}
 		s.Keywords = extras.Keywords
+		s.Images = withExtraImages(s.Images, extras.Images, s.Language)
 	}
 
 	// An artist's or author's biography when its own provider gave none
@@ -402,9 +406,44 @@ func nonIDKeysRemoved(ids pkgmetadata.ExternalIDs) pkgmetadata.ExternalIDs {
 	return out
 }
 
-// seriesExtras asks each extras provider in turn for a series' tagline and
-// keywords (TheTVDB has neither; TMDB's tv record does, spec 2026-09-30
-// §3.4), with the ids the crosswalk settled on. Best effort: a failure, or
+// withExtraImages is a series' images with its TMDB tv record's: TMDB's
+// logos and posters in the titles' language first, so a series' logo is
+// TMDB's as a film's is (owner, 2026-11-17: "we can standardize on TMDB
+// for english logos") and so is the poster it falls back to when none
+// without text can take the logo ("tmdb may also be used for falling back
+// to english language posters"; catalogartwork.Item.Sources), then the
+// series provider's own, so it keeps the background it had, then the rest
+// of TMDB's -- the posters without text (catalogartwork.Titled), the
+// backdrops, a logo in no language. A URL is kept once per type.
+func withExtraImages(own, extra []pkgmetadata.Image, language string) []pkgmetadata.Image {
+	if len(extra) == 0 {
+		return own
+	}
+	titleLogo := func(img pkgmetadata.Image) bool {
+		named := img.Type == pkgmetadata.ImageTypeLogo || img.Type == pkgmetadata.ImageTypePoster
+		return named && img.Language != "" && img.Language == language
+	}
+	out := make([]pkgmetadata.Image, 0, len(own)+len(extra))
+	seen := make(map[imageRole]bool, len(own)+len(extra))
+	add := func(imgs []pkgmetadata.Image, keep func(pkgmetadata.Image) bool) {
+		for _, img := range imgs {
+			if img.URL == "" || seen[roleOf(img)] || !keep(img) {
+				continue
+			}
+			seen[roleOf(img)] = true
+			out = append(out, img)
+		}
+	}
+	add(extra, titleLogo)
+	add(own, func(pkgmetadata.Image) bool { return true })
+	add(extra, func(pkgmetadata.Image) bool { return true })
+	return out
+}
+
+// seriesExtras asks each extras provider in turn for a series' tagline,
+// keywords and images (TheTVDB has no tagline or keywords and few images;
+// TMDB's tv record has them, spec 2026-09-30 §3.4), with the ids the
+// crosswalk settled on. Best effort: a failure, or
 // an empty answer, asks the next.
 func seriesExtras(ctx context.Context, providers []pkgmetadata.SeriesExtrasProvider, ids pkgmetadata.ExternalIDs) pkgmetadata.SeriesExtras {
 	for _, p := range providers {
@@ -414,7 +453,7 @@ func seriesExtras(ctx context.Context, providers []pkgmetadata.SeriesExtrasProvi
 			tracing.RecordError(span, err)
 		}
 		span.End()
-		if err == nil && (x.Tagline != "" || len(x.Keywords) > 0) {
+		if err == nil && (x.Tagline != "" || len(x.Keywords) > 0 || len(x.Images) > 0) {
 			return x
 		}
 	}

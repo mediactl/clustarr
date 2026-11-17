@@ -134,7 +134,9 @@ func (s Source) TitleMark() string {
 
 // Titled is the posters and logo of a titled poster (owner, 2026-11-17: "For
 // anime posters, we should prefer posters with no text - where we will
-// overlay the english logo at the bottom center"): every provider poster
+// overlay the english logo at the bottom center", and the same day for
+// every Movie and Series: "We should always overlay the title image
+// ourselves to standardize the positioning"): every provider poster
 // that names no language, in order and at most MaxTitleCandidates -- which
 // is how TMDB, TheTVDB and fanart.tv list a poster without text, though
 // some carry a title all the same, so the fetcher reads each for text -- and
@@ -142,9 +144,7 @@ func (s Source) TitleMark() string {
 // without its logo names nothing, so an item with no such pair keeps the
 // poster ResolveSources chose.
 func Titled(images []catalogv1alpha1.Image, language string) (posters []catalogv1alpha1.Image, logo catalogv1alpha1.Image, ok bool) {
-	if language == "" {
-		language = DefaultTitleLanguage
-	}
+	language = titleLanguage(language)
 	hasLogo := false
 	for _, img := range images {
 		if !Fetchable(img.URL) {
@@ -160,6 +160,25 @@ func Titled(images []catalogv1alpha1.Image, language string) (posters []catalogv
 	return posters, logo, len(posters) > 0 && hasLogo
 }
 
+// titleLanguage is language, or DefaultTitleLanguage for none.
+func titleLanguage(language string) string {
+	if language == "" {
+		return DefaultTitleLanguage
+	}
+	return language
+}
+
+// posterIn is the first provider poster in language that can be fetched.
+func posterIn(images []catalogv1alpha1.Image, language string) (catalogv1alpha1.Image, bool) {
+	language = titleLanguage(language)
+	for _, img := range images {
+		if img.Type == catalogv1alpha1.ImageTypePoster && Fetchable(img.URL) && sameLanguage(img.Language, language) {
+			return img, true
+		}
+	}
+	return catalogv1alpha1.Image{}, false
+}
+
 // sameLanguage compares two language tags by their primary subtag, so
 // "en-US" is "en".
 func sameLanguage(a, b string) bool {
@@ -173,12 +192,26 @@ func sameLanguage(a, b string) bool {
 // Sources is ResolveSources for it, and for an item that takes a titled
 // poster (Item.TitledPoster) its Titled posters and logo in place of the
 // poster and the logo: the textless posters to try, the logo to draw, the
-// poster ResolveSources chose as the one to fall back to, and that logo as
-// the item's logo. An item whose metadata has no such pair is unchanged.
+// plain poster as the one to fall back to, and that logo as the item's
+// logo. An item whose metadata has no such pair takes its plain poster.
+//
+// The plain poster is the one ResolveSources chose, unless that is a
+// provider's and another provider poster is in the titles' language: then
+// the first of those (owner, 2026-11-17: "tmdb may also be used for falling
+// back to english language posters when no "xx"/no language poster is
+// found for overlay"). The first provider poster is its provider's best,
+// whatever it says -- TheTVDB's best scored was a Japanese one -- and a
+// poster nothing is drawn on has to name the item by itself. An override
+// -- the owner's, or a chosen image set's -- stays.
 func (it Item) Sources() map[catalogv1alpha1.ImageType]Source {
 	out := ResolveSources(it.Overrides, it.Images)
 	if !it.TitledPoster {
 		return out
+	}
+	if cur, has := out[catalogv1alpha1.ImageTypePoster]; has && cur.Kind == catalogv1alpha1.ArtworkSourceProvider {
+		if p, ok := posterIn(it.Images, it.Language); ok && !sameLanguage(cur.Language, titleLanguage(it.Language)) {
+			out[catalogv1alpha1.ImageTypePoster] = Source{URL: p.URL, Kind: catalogv1alpha1.ArtworkSourceProvider, Language: p.Language}
+		}
 	}
 	posters, logo, ok := Titled(it.Images, it.Language)
 	if !ok {

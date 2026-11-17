@@ -301,6 +301,10 @@ type RatingsProvider interface {
 type SeriesExtras struct {
 	Tagline  string
 	Keywords []string
+	// Images are the tv record's logos, posters and backdrops, each with
+	// the language TMDB tags it with ("" for one without text), best first
+	// within a type. They follow the series provider's own.
+	Images []Image
 }
 
 // SeriesExtrasProvider supplies a series' extras from TMDB's tv record,

@@ -349,6 +349,48 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   The detector holds about 180 MiB outside the Go heap, so agent-metadata
   takes `AUTOMEMLIMIT` 0.60 in both installers, as the import and caption
   agents do.
+- **Every Movie and Series takes the titled poster, its logo is TMDB's,
+  and the poster it falls back to is in the titles' language** (owner,
+  2026-11-17: "TMDB seems way more reliable for this", "We should always
+  overlay the title image ourselves to standardize the positioning", "we
+  can standardize on TMDB for english logos, still use mediux for season
+  art, square art, episode art and backdrops (when found, else fallback to
+  others)", "tmdb may also be used for falling back to english language
+  posters when no xx/no language poster is found for overlay";
+  SchemaVersion 9). A Livid Lady's Guide to Getting Even showed a Japanese
+  poster and no logo: TheTVDB lists a Japanese ClearLogo alone (left out,
+  not the titles' language), so the titled pair never formed, and its
+  Japanese poster, one vote above two without text, led. What changed:
+  - `Item.TitledPoster` is every Movie and Series whose owner chose no
+    poster, no longer an anime alone. A pinned set's or a `spec.artwork`
+    poster still wins; a set the mediux provider chose yields its poster to
+    a titled one and keeps its background, season posters and titlecards.
+  - A series asked TMDB for its tagline and keywords only:
+    `tmdb.SeriesExtras` appends `images` to that one request
+    (`include_image_language=<titles'>,null`, as a movie asks), and
+    `enrich` (`withExtraImages`) puts TMDB's logos and posters in the
+    titles' language ahead of the series provider's own and the rest --
+    posters without text, backdrops -- after them (171 of 750 series had
+    no logo; TMDB has an English one for 160 and an untagged one for 4).
+  - Every image says the language of its text: `tvdb.Series` tags its
+    posters, backgrounds and banners (`jpn` -> `ja`, none -> ""), and a
+    film's own poster and backdrop take the tag TMDB's images list gives
+    them (`listedLanguage`). Both were listed without one, so TheTVDB's
+    Japanese poster and every film's English poster read as "no language"
+    and were the first candidates tried for a logo, the text check alone
+    turning them away.
+  - The plain poster (`Item.Sources`) is the first provider poster in the
+    titles' language when the provider's first is not, with no poster
+    without text and as the titled source's `Plain`.
+  **The text check stays**: of the first "no language" TMDB poster of 48
+  anime series sampled that day, three carried a title (Chinese-release
+  posters) and one a credits line. Not built: TMDB's series images are
+  best effort like the keywords, so a refresh in which TMDB fails drops
+  them until the next, and a series whose logo was TMDB's falls back to
+  its plain poster for that long; **square art does not exist** -- the
+  catalog has no image type for it, the mediux client reads posters,
+  backdrops, season posters and titlecards only, and the Plex provider
+  sends no `backgroundSquare` (`ui/plex/images.go`).
 - **Sized originals are stored fitted** (owner, 2026-11-16: "We can greatly
   reduce the image cache by compressing jpegs and resizing images"): the
   fetcher scales a poster into 500x750, a fanart, thumb or screenshot into

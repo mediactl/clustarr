@@ -158,7 +158,12 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 //	   TheTVDB's score instead of leading with the record's own image
 //	   (2026-10-28): Cautious Hero's, a title card TheTVDB never scored,
 //	   was its poster in Plex beside three scored key arts.
-const SchemaVersion int32 = 8
+//	9: a Series' images gain its TMDB tv record's logos, posters and
+//	   backdrops after TheTVDB's, and every TheTVDB image carries its
+//	   language (2026-11-17): 171 of 750 series had no logo in the titles'
+//	   language, so an anime among them no titled poster, and TheTVDB's
+//	   posters, listed without their tags, all read as posters without text.
+const SchemaVersion int32 = 9
 
 // RefreshPurpose is the events.MsgIDForObject purpose of an item's metadata
 // task. The refresh an outdated document asks for has one of its own, per

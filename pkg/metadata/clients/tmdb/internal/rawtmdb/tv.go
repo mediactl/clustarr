@@ -56,6 +56,8 @@ type TVDetails struct {
 	Type                string              `json:"type"`
 	VoteMetrics
 	*TVKeywordsAppend
+	// A tv record's images in append_to_response have a movie's shape.
+	*MovieImagesAppend
 }
 
 // TVKeywordsAppend is keywords in append_to_response.

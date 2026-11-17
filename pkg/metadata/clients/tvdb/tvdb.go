@@ -460,14 +460,17 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 		if !ok || a.Image == "" {
 			continue
 		}
-		img := metadata.Image{Type: t, URL: a.Image}
-		if textArtworkTypes[t] {
+		// Every image says the language of the text on it, "" for none
+		// (TheTVDB's "No Language"): a titled poster takes its candidates
+		// from the posters that name none (catalogartwork.Titled), and a
+		// poster listed without its tag read as one of them -- A Livid
+		// Lady's Guide's Japanese poster, its best scored, was the first
+		// poster tried for a logo (owner, 2026-11-17).
+		img := metadata.Image{Type: t, URL: a.Image, Language: originalLanguage(a.Language)}
+		if textArtworkTypes[t] && a.Language != "" && a.Language != c.titleLang() {
 			// Only in the titles' language or in none, as TMDB's
 			// include_image_language keeps a logo.
-			if a.Language != "" && a.Language != c.titleLang() {
-				continue
-			}
-			img.Language = originalLanguage(a.Language)
+			continue
 		}
 		s.Images = append(s.Images, img)
 	}

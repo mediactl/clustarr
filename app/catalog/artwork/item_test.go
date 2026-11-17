@@ -53,6 +53,8 @@ func TestItemOfReadsEveryArtworkInput(t *testing.T) {
 		Entries:    []catalogv1alpha1.ArtworkEntry{posterEntry},
 		HasOverlay: true,
 		Ratings:    []catalogv1alpha1.Rating{imdb},
+		// The owner chose no poster (the override is a fanart's).
+		TitledPoster: true,
 	}, it)
 
 	b := &catalogv1alpha1.Book{}

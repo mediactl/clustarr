@@ -1,0 +1,1055 @@
+{
+  "status": "success",
+  "data": {
+    "id": 467005,
+    "name": "ブチ切れ令嬢は報復を誓いました。～魔導書の力で祖国を叩き潰します～",
+    "slug": "buchigire-reijou-wa-houfuku-wo-chikaimashita",
+    "image": "https://artworks.thetvdb.com/banners/v4/series/467005/posters/694e6f156a072.jpg",
+    "nameTranslations": [
+      "jpn",
+      "eng",
+      "fra",
+      "spa",
+      "kor",
+      "pt",
+      "ita",
+      "zho",
+      "yue",
+      "rus",
+      "pol",
+      "deu"
+    ],
+    "overviewTranslations": [
+      "jpn",
+      "eng",
+      "fra",
+      "spa",
+      "pt",
+      "ita",
+      "rus",
+      "pol",
+      "deu"
+    ],
+    "aliases": [
+      {
+        "language": "jpn",
+        "name": "ブチ切れ令嬢は報復を誓いました。"
+      },
+      {
+        "language": "jpn",
+        "name": "Buchigire Reijō wa Hōfuku o Chikachimashita: Madōsho no Chikara de Sokoku o Tatakitsubushimasu"
+      },
+      {
+        "language": "jpn",
+        "name": "Buchigire Reijou wa Houfuku o Chikachimashita: Madōsho no Chikara de Sokoku o Tatakitsubushimasu"
+      },
+      {
+        "language": "jpn",
+        "name": "Buchigire Reijō wa Hōfuku wo Chikaimashita"
+      },
+      {
+        "language": "jpn",
+        "name": "Buchigire Reijou wa Houfuku wo Chikaimashita"
+      },
+      {
+        "language": "jpn",
+        "name": "ブチ切れ令嬢"
+      },
+      {
+        "language": "spa",
+        "name": "The Furious Princess Decided to Take Revenge"
+      },
+      {
+        "language": "eng",
+        "name": "The Furious Princess Decided to Take Revenge"
+      },
+      {
+        "language": "ita",
+        "name": "Buchigire Reijou wa Houfuku o Chikachimashita: Madousho no Chikara de Sokoku o Tatakitsubushimasu"
+      },
+      {
+        "language": "ita",
+        "name": "Buchigire Reijou wa Houfuku o Chikachimashita"
+      },
+      {
+        "language": "yue",
+        "name": "暴走千金立誓复仇。 ～用魔导书之力碾碎祖国～ / 暴怒千金發誓復仇。 ～憑藉魔導書之力打垮祖國～ / ブチ切れ令嬢"
+      },
+      {
+        "language": "zho",
+        "name": "暴怒千金发誓复仇 凭借魔导书之力击溃祖国"
+      },
+      {
+        "language": "zho",
+        "name": "暴怒千金发誓复仇 ～凭借魔导书之力击溃祖国～ / Buchigire Reijou wa Houfuku wo Chikaimashita Madousho"
+      },
+      {
+        "language": "pol",
+        "name": "A Livid Lady's Guide to Getting Even: How I Crushed My Homeland with My Mighty Grimoires"
+      }
+    ],
+    "firstAired": "2026-07-06",
+    "lastAired": "2026-09-21",
+    "nextAired": "",
+    "score": 944,
+    "status": {
+      "id": 2,
+      "name": "Ended",
+      "recordType": "series",
+      "keepUpdated": false
+    },
+    "originalCountry": "jpn",
+    "originalLanguage": "jpn",
+    "defaultSeasonType": 1,
+    "isOrderRandomized": false,
+    "lastUpdated": "2026-11-07 00:53:22",
+    "averageRuntime": 24,
+    "episodes": null,
+    "overview": "「私を裏切った祖国の皆さま、\r\n覚悟はよろしくて？」\r\n建国記念パーティーの夜、公爵令嬢エリザベートは、\r\nほかの令嬢に心を移した王太子から突然の婚約破棄を突きつけられ、\r\nそのまま牢へ幽閉されてしまう。 \r\n\r\nすべてを捧げてきた祖国に裏切られたエリザベートは、\r\n強力な神器【七つの魔導書】（グリモア・セブンス）を手に亡命を決意！\r\n隣国の子爵ルーカスの手を借りて、新生活と商会経営を始める。\r\n祖国への凄烈な復讐心を胸に秘めながら―― \r\n\r\n“婚約破棄”×“投獄”された美しき天才令嬢が、最強の魔導書を手に\r\n“人脈・経済・武力”を操って裏切者たちに報復する、\r\n爽快・大逆転の復讐ファンタジー、ここに開幕！",
+    "year": "2026",
+    "artworks": [
+      {
+        "id": 64779350,
+        "image": "https://artworks.thetvdb.com/banners/v4/series/467005/posters/6a4fa1f267be1.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/v4/series/467005/posters/6a4fa1f267be1_t.jpg",
+        "language": "jpn",
+        "type": 2,
+        "score": 100001,
+        "width": 680,
+        "height": 1000,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 64581890,
+        "image": "https://artworks.thetvdb.com/banners/v4/series/467005/posters/694e6f156a072.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/v4/series/467005/posters/694e6f156a072_t.jpg",
+        "language": null,
+        "type": 2,
+        "score": 100000,
+        "width": 680,
+        "height": 1000,
+        "includesText": false,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 64779783,
+        "image": "https://artworks.thetvdb.com/banners/v4/series/467005/posters/6a50319ee4210.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/v4/series/467005/posters/6a50319ee4210_t.jpg",
+        "language": null,
+        "type": 2,
+        "score": 100000,
+        "width": 680,
+        "height": 1000,
+        "includesText": false,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 64781512,
+        "image": "https://artworks.thetvdb.com/banners/v4/series/467005/clearlogo/6a544a8512812.png",
+        "thumbnail": "https://artworks.thetvdb.com/banners/v4/series/467005/clearlogo/6a544a8512812_t.png",
+        "language": "jpn",
+        "type": 23,
+        "score": 100000,
+        "width": 800,
+        "height": 310,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 64777749,
+        "image": "https://artworks.thetvdb.com/banners/v4/series/467005/banners/6a4be87971a11.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/v4/series/467005/banners/6a4be87971a11_t.jpg",
+        "language": "jpn",
+        "type": 1,
+        "score": 100000,
+        "width": 758,
+        "height": 140,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 64777706,
+        "image": "https://artworks.thetvdb.com/banners/v4/series/467005/backgrounds/6a4bcfd8dfa37.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/v4/series/467005/backgrounds/6a4bcfd8dfa37_t.jpg",
+        "language": "eng",
+        "type": 3,
+        "score": 0,
+        "width": 1920,
+        "height": 1080,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 64775524,
+        "image": "https://artworks.thetvdb.com/banners/v4/series/467005/posters/6a4766f89443c.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/v4/series/467005/posters/6a4766f89443c_t.jpg",
+        "language": "eng",
+        "type": 2,
+        "score": 0,
+        "width": 680,
+        "height": 1000,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      }
+    ],
+    "companies": [
+      {
+        "id": 433,
+        "name": "AT-X",
+        "slug": "at-x",
+        "nameTranslations": [
+          "eng",
+          "jpn"
+        ],
+        "overviewTranslations": [],
+        "aliases": [
+          {
+            "language": "jpn",
+            "name": "アニメシアター・エックス"
+          },
+          {
+            "language": "jpn",
+            "name": "エー・ティー・エックス"
+          },
+          {
+            "language": "jpn",
+            "name": "AT-X"
+          },
+          {
+            "language": "jpn",
+            "name": "Anime Theater X"
+          }
+        ],
+        "country": "jpn",
+        "primaryCompanyType": 1,
+        "activeDate": "2000-06-26",
+        "inactiveDate": null,
+        "companyType": {
+          "companyTypeId": 1,
+          "companyTypeName": "Network"
+        },
+        "parentCompany": {
+          "id": 280,
+          "name": "TV Tokyo",
+          "relation": {
+            "id": null,
+            "typeName": null
+          }
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 30939,
+        "name": "Nippon Columbia",
+        "slug": "nippon-columbia",
+        "nameTranslations": [
+          "eng"
+        ],
+        "overviewTranslations": [],
+        "aliases": [],
+        "country": "jpn",
+        "primaryCompanyType": 3,
+        "activeDate": null,
+        "inactiveDate": null,
+        "companyType": {
+          "companyTypeId": 3,
+          "companyTypeName": "Production Company"
+        },
+        "parentCompany": {
+          "id": null,
+          "name": null,
+          "relation": {
+            "id": null,
+            "typeName": null
+          }
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 42492,
+        "name": "THE KLOCKWORX Co.,Ltd.",
+        "slug": "the-klockworx",
+        "nameTranslations": [
+          "eng",
+          "jpn"
+        ],
+        "overviewTranslations": [],
+        "aliases": [
+          {
+            "language": "eng",
+            "name": "Klockworx Company"
+          }
+        ],
+        "country": "jpn",
+        "primaryCompanyType": 3,
+        "activeDate": "1997-01-24",
+        "inactiveDate": null,
+        "companyType": {
+          "companyTypeId": 3,
+          "companyTypeName": "Production Company"
+        },
+        "parentCompany": {
+          "id": null,
+          "name": null,
+          "relation": {
+            "id": null,
+            "typeName": null
+          }
+        },
+        "tagOptions": null
+      }
+    ],
+    "originalNetwork": {
+      "id": 433,
+      "name": "AT-X",
+      "slug": "at-x",
+      "nameTranslations": [
+        "eng",
+        "jpn"
+      ],
+      "overviewTranslations": [],
+      "aliases": [
+        {
+          "language": "jpn",
+          "name": "アニメシアター・エックス"
+        },
+        {
+          "language": "jpn",
+          "name": "エー・ティー・エックス"
+        },
+        {
+          "language": "jpn",
+          "name": "AT-X"
+        },
+        {
+          "language": "jpn",
+          "name": "Anime Theater X"
+        }
+      ],
+      "country": "jpn",
+      "primaryCompanyType": 1,
+      "activeDate": "2000-06-26",
+      "inactiveDate": null,
+      "companyType": {
+        "companyTypeId": 1,
+        "companyTypeName": "Network"
+      },
+      "parentCompany": {
+        "id": 280,
+        "name": "TV Tokyo",
+        "relation": {
+          "id": null,
+          "typeName": null
+        }
+      },
+      "tagOptions": null
+    },
+    "latestNetwork": {
+      "id": 433,
+      "name": "AT-X",
+      "slug": "at-x",
+      "nameTranslations": [
+        "eng",
+        "jpn"
+      ],
+      "overviewTranslations": [],
+      "aliases": [
+        {
+          "language": "jpn",
+          "name": "アニメシアター・エックス"
+        },
+        {
+          "language": "jpn",
+          "name": "エー・ティー・エックス"
+        },
+        {
+          "language": "jpn",
+          "name": "AT-X"
+        },
+        {
+          "language": "jpn",
+          "name": "Anime Theater X"
+        }
+      ],
+      "country": "jpn",
+      "primaryCompanyType": 1,
+      "activeDate": "2000-06-26",
+      "inactiveDate": null,
+      "companyType": {
+        "companyTypeId": 1,
+        "companyTypeName": "Network"
+      },
+      "parentCompany": {
+        "id": 280,
+        "name": "TV Tokyo",
+        "relation": {
+          "id": null,
+          "typeName": null
+        }
+      },
+      "tagOptions": null
+    },
+    "genres": [
+      {
+        "id": 10,
+        "name": "Fantasy",
+        "slug": "fantasy"
+      },
+      {
+        "id": 12,
+        "name": "Drama",
+        "slug": "drama"
+      },
+      {
+        "id": 17,
+        "name": "Animation",
+        "slug": "animation"
+      },
+      {
+        "id": 27,
+        "name": "Anime",
+        "slug": "anime"
+      }
+    ],
+    "trailers": [
+      {
+        "id": 228385,
+        "name": "Trailer",
+        "url": "https://www.youtube.com/watch?v=DIeeesNOthA",
+        "language": "jpn",
+        "runtime": 0
+      },
+      {
+        "id": 235091,
+        "name": "Trailer",
+        "url": "https://www.youtube.com/watch?v=yC4TghEG8q8",
+        "language": "jpn",
+        "runtime": 0
+      }
+    ],
+    "lists": [
+      {
+        "id": 17447,
+        "name": "Animes que eu tô editando",
+        "overview": "Essa lista são de animes que eu tô editando no site!",
+        "url": "17447",
+        "isOfficial": false,
+        "nameTranslations": [
+          "pt"
+        ],
+        "overviewTranslations": [
+          "pt"
+        ],
+        "aliases": [],
+        "score": 36247,
+        "image": "",
+        "imageIsFallback": false,
+        "remoteIds": null,
+        "tags": null
+      }
+    ],
+    "remoteIds": [
+      {
+        "id": "tt39551287",
+        "type": 2,
+        "sourceName": "IMDB"
+      },
+      {
+        "id": "https://buchigire-anime.com",
+        "type": 4,
+        "sourceName": "Official Website"
+      },
+      {
+        "id": "298831",
+        "type": 12,
+        "sourceName": "TheMovieDB.com"
+      },
+      {
+        "id": "Q135900621",
+        "type": 18,
+        "sourceName": "Wikidata"
+      },
+      {
+        "id": "A_Livid_Lady's_Guide_to_Getting_Even#Anime",
+        "type": 24,
+        "sourceName": "Wikipedia"
+      },
+      {
+        "id": "buchigire_anime",
+        "type": 6,
+        "sourceName": "X (Twitter)"
+      }
+    ],
+    "characters": [
+      {
+        "id": 69518378,
+        "name": "Elizabeth Leiston",
+        "peopleId": 463683,
+        "seriesId": 467005,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": "https://artworks.thetvdb.com/banners/v4/actor/463683/photo/6a4ab53e1ed63.jpg",
+        "sort": 1,
+        "isFeatured": true,
+        "url": "https://thetvdb.com/people/463683-saori-oonishi",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Saori Onishi",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/463683/5fb0249716649.jpg"
+      },
+      {
+        "id": 69518379,
+        "name": "Mireille Katarina",
+        "peopleId": 485406,
+        "seriesId": 467005,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": "https://artworks.thetvdb.com/banners/v4/actor/485406/photo/6a4ab54081876.jpg",
+        "sort": 2,
+        "isFeatured": true,
+        "url": "https://thetvdb.com/people/485406-ikumi-hasegawa",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Ikumi Hasegawa",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/485406/61fe2aa3d2a05.jpg"
+      },
+      {
+        "id": 69518380,
+        "name": "Lunoa Carlton",
+        "peopleId": 293440,
+        "seriesId": 467005,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": "https://artworks.thetvdb.com/banners/v4/actor/293440/photo/6a4ab542634ee.jpg",
+        "sort": 3,
+        "isFeatured": true,
+        "url": "https://thetvdb.com/people/293440-yui-ogura",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Yui Ogura",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/293440/primary.jpg"
+      },
+      {
+        "id": 69518382,
+        "name": "Misha Tail",
+        "peopleId": 9156086,
+        "seriesId": 467005,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": "https://artworks.thetvdb.com/banners/v4/actor/9156086/photo/6a4ab9b08abf5.jpg",
+        "sort": 4,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/9156086-ayumi-uehara",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Ayumi Uehara",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/v4/actor/9156086/photo/6a4ab7c98557c.jpg"
+      },
+      {
+        "id": 69518383,
+        "name": "Tida",
+        "peopleId": 7915650,
+        "seriesId": 467005,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": "https://artworks.thetvdb.com/banners/v4/actor/7915650/photo/6a4ab9b288cd3.jpg",
+        "sort": 5,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/7915650-yuu-serizawa",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Yu Serizawa",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/7915650/618f7b2033017.jpg"
+      },
+      {
+        "id": 69518384,
+        "name": "Elsa Archfield",
+        "peopleId": 292640,
+        "seriesId": 467005,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": "https://artworks.thetvdb.com/banners/v4/actor/292640/photo/6a4ab9b43d094.jpg",
+        "sort": 6,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/292640-shizuka-ishigami",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Shizuka Ishigami",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/292640/61e18e969c7ac.jpg"
+      },
+      {
+        "id": 69518385,
+        "name": "Friede Haldoria",
+        "peopleId": 7953882,
+        "seriesId": 467005,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": "https://artworks.thetvdb.com/banners/v4/actor/7953882/photo/6a4abd1dee52b.jpg",
+        "sort": 7,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/7953882-masaaki-mizunaka",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Masaaki Mizunaka",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/7953882/primary.jpg"
+      },
+      {
+        "id": 69518386,
+        "name": "Lucas Lebrick",
+        "peopleId": 8140898,
+        "seriesId": 467005,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": "https://artworks.thetvdb.com/banners/v4/actor/8140898/photo/6a4abd1a505c4.jpg",
+        "sort": 8,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/8140898-youhei-azakami",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Yohei Azakami",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/8140898/primary.jpg"
+      },
+      {
+        "id": 69518387,
+        "name": "Sylvia Lockit",
+        "peopleId": 7910337,
+        "seriesId": 467005,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": "https://artworks.thetvdb.com/banners/v4/actor/7910337/photo/6a4abe1a4f7e8.jpg",
+        "sort": 9,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/7910337-marika-kouno",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Marika Kohno",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/7910337/61a220928f1f5.jpg"
+      },
+      {
+        "id": 69518388,
+        "name": "Rozelia Fadgar",
+        "peopleId": 7881476,
+        "seriesId": 467005,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": "https://artworks.thetvdb.com/banners/v4/actor/7881476/photo/6a4abeb6d4994.jpg",
+        "sort": 10,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/7881476-asami-seto",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Asami Seto",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/7881476/61bda98ad683f.jpg"
+      },
+      {
+        "id": 69518389,
+        "name": "Roberto Arti",
+        "peopleId": 461259,
+        "seriesId": 467005,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": "https://artworks.thetvdb.com/banners/v4/actor/461259/photo/6a4abeb4b1cc6.jpg",
+        "sort": 11,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/461259-kenji-akabane",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Kenji Akabane",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/461259/primary.jpg"
+      }
+    ],
+    "airsDays": {
+      "sunday": false,
+      "monday": true,
+      "tuesday": false,
+      "wednesday": false,
+      "thursday": false,
+      "friday": false,
+      "saturday": false
+    },
+    "airsTime": "22:30",
+    "seasons": [
+      {
+        "id": 2201318,
+        "seriesId": 467005,
+        "type": {
+          "id": 1,
+          "name": "Aired Order",
+          "type": "official",
+          "alternateName": null
+        },
+        "number": 0,
+        "nameTranslations": [],
+        "overviewTranslations": [],
+        "companies": {
+          "studio": null,
+          "network": null,
+          "production": null,
+          "distributor": null,
+          "special_effects": null
+        },
+        "lastUpdated": "2025-08-18 15:10:40"
+      },
+      {
+        "id": 2201319,
+        "seriesId": 467005,
+        "type": {
+          "id": 1,
+          "name": "Aired Order",
+          "type": "official",
+          "alternateName": null
+        },
+        "number": 1,
+        "nameTranslations": [],
+        "overviewTranslations": [],
+        "companies": {
+          "studio": null,
+          "network": null,
+          "production": null,
+          "distributor": null,
+          "special_effects": null
+        },
+        "lastUpdated": "2026-11-07 00:53:21"
+      },
+      {
+        "id": 2201320,
+        "seriesId": 467005,
+        "type": {
+          "id": 3,
+          "name": "Absolute Order",
+          "type": "absolute",
+          "alternateName": null
+        },
+        "number": 1,
+        "nameTranslations": [],
+        "overviewTranslations": [],
+        "companies": {
+          "studio": null,
+          "network": null,
+          "production": null,
+          "distributor": null,
+          "special_effects": null
+        },
+        "lastUpdated": "2026-11-07 00:53:21"
+      }
+    ],
+    "translations": {
+      "nameTranslations": [
+        {
+          "name": "ブチ切れ令嬢は報復を誓いました。～魔導書の力で祖国を叩き潰します～",
+          "language": "jpn",
+          "isPrimary": true
+        },
+        {
+          "name": "A Livid Lady's Guide to Getting Even: How I Crushed My Homeland with My Mighty Grimoires",
+          "language": "eng"
+        },
+        {
+          "name": "A Livid Lady's Guide to Getting Even: How I Crushed My Homeland with My Mighty Grimoires",
+          "language": "fra"
+        },
+        {
+          "name": "A Livid Lady's Guide to Getting Even: How I Crushed My Homeland with My Mighty Grimoires",
+          "language": "spa"
+        },
+        {
+          "name": "열받은 영애는 복수를 다짐했습니다 ~마도서의 힘으로 조국을 부숴버릴게요~",
+          "language": "kor"
+        },
+        {
+          "name": "ブチ切れ令嬢は報復を誓いました。",
+          "isAlias": true,
+          "language": "jpn"
+        },
+        {
+          "name": "Buchigire Reijō wa Hōfuku o Chikachimashita: Madōsho no Chikara de Sokoku o Tatakitsubushimasu",
+          "isAlias": true,
+          "language": "jpn"
+        },
+        {
+          "name": "Buchigire Reijou wa Houfuku o Chikachimashita: Madōsho no Chikara de Sokoku o Tatakitsubushimasu",
+          "isAlias": true,
+          "language": "jpn"
+        },
+        {
+          "name": "Buchigire Reijō wa Hōfuku wo Chikaimashita",
+          "isAlias": true,
+          "language": "jpn"
+        },
+        {
+          "name": "Buchigire Reijou wa Houfuku wo Chikaimashita",
+          "isAlias": true,
+          "language": "jpn"
+        },
+        {
+          "name": "ブチ切れ令嬢",
+          "isAlias": true,
+          "language": "jpn"
+        },
+        {
+          "name": "A Livid Lady's Guide to Getting Even: How I Crushed My Homeland with My Mighty Grimoires",
+          "language": "pt"
+        },
+        {
+          "name": "The Furious Princess Decided to Take Revenge",
+          "isAlias": true,
+          "language": "spa"
+        },
+        {
+          "name": "The Furious Princess Decided to Take Revenge",
+          "isAlias": true,
+          "language": "eng"
+        },
+        {
+          "name": "A Livid Lady's Guide to Getting Even: How I Crushed My Homeland with My Mighty Grimoires",
+          "language": "ita"
+        },
+        {
+          "name": "暴怒千金发誓复仇 ～凭借魔导书之力击溃祖国～",
+          "language": "zho"
+        },
+        {
+          "name": "Buchigire Reijou wa Houfuku o Chikachimashita: Madousho no Chikara de Sokoku o Tatakitsubushimasu",
+          "isAlias": true,
+          "language": "ita"
+        },
+        {
+          "name": "Buchigire Reijou wa Houfuku o Chikachimashita",
+          "isAlias": true,
+          "language": "ita"
+        },
+        {
+          "name": "暴走千金立誓复仇。 ～用魔导书之力碾碎祖国～ / 暴怒千金發誓復仇。 ～憑藉魔導書之力打垮祖國～ / ブチ切れ令嬢",
+          "isAlias": true,
+          "language": "yue"
+        },
+        {
+          "name": "暴怒千金發誓復仇。 ～憑藉魔導書之力打垮祖國～",
+          "language": "yue"
+        },
+        {
+          "name": "暴怒千金发誓复仇 凭借魔导书之力击溃祖国",
+          "isAlias": true,
+          "language": "zho"
+        },
+        {
+          "name": "暴怒千金发誓复仇 ～凭借魔导书之力击溃祖国～ / Buchigire Reijou wa Houfuku wo Chikaimashita Madousho",
+          "isAlias": true,
+          "language": "zho"
+        },
+        {
+          "name": "Разгневанная леди поклялась отомстить: Я разрушу свою страну с помощью силы гримуара!",
+          "language": "rus"
+        },
+        {
+          "name": "A Livid Lady's Guide to Getting Even: How I Crushed My Homeland with My Mighty Grimoires",
+          "isAlias": true,
+          "language": "pol"
+        },
+        {
+          "name": "Buchigire Reijou wa Houfuku wo Chikaimashita. Madousho no Chikara de Sokoku wo Tatakitsubushimasu",
+          "language": "pol"
+        },
+        {
+          "name": "A Livid Lady's Guide to Getting Even: How I Crushed My Homeland with My Mighty Grimoires",
+          "language": "deu"
+        }
+      ],
+      "overviewTranslations": [
+        {
+          "overview": "「私を裏切った祖国の皆さま、\r\n覚悟はよろしくて？」\r\n建国記念パーティーの夜、公爵令嬢エリザベートは、\r\nほかの令嬢に心を移した王太子から突然の婚約破棄を突きつけられ、\r\nそのまま牢へ幽閉されてしまう。 \r\n\r\nすべてを捧げてきた祖国に裏切られたエリザベートは、\r\n強力な神器【七つの魔導書】（グリモア・セブンス）を手に亡命を決意！\r\n隣国の子爵ルーカスの手を借りて、新生活と商会経営を始める。\r\n祖国への凄烈な復讐心を胸に秘めながら―― \r\n\r\n“婚約破棄”×“投獄”された美しき天才令嬢が、最強の魔導書を手に\r\n“人脈・経済・武力”を操って裏切者たちに報復する、\r\n爽快・大逆転の復讐ファンタジー、ここに開幕！",
+          "language": "jpn",
+          "isPrimary": true
+        },
+        {
+          "overview": "After being publicly betrayed by the crown prince and thrown into prison, noblewoman Elizabeth escapes her kingdom with the legendary Seven Grimoires. With help from a viscount from a neighboring nation, she rebuilds her life while plotting revenge against the kingdom that cast her aside.",
+          "language": "eng"
+        },
+        {
+          "overview": "En pleine fête nationale de la fondation du pays, la jeune duchesse Elisabeth voit ses fiançailles rompues par le prince héritier qui a changé d'avis pour une autre fille. Emprisonnée et trahie par sa propre patrie, Elizabeth décide de s'échapper et partir en exil tout en emportant avec elle le trésor sacré de son ancienne nation, l'un des Sept Livres Magiques. Suivez l'histoire d'une prodige qui, irrespectueusement déchue de ses obligations, prépare sa grande vengeance !",
+          "language": "fra"
+        },
+        {
+          "overview": "Elizabeth Leiston, hija del poderoso primer ministro de Haldoria, es la viva imagen de una noble dama refinada y la futura reina perfecta. Pero cuando su prometido la humilla públicamente, cancela su compromiso y empieza a difundir rumores desagradables sobre ella. Elizabeth llega a su límite. ¿Por qué su única amiga debería ser su leal doncella y por qué debería seguir sirviendo a un país que no la respeta? Ella concluye que no lo soportará más y que destruirá el reino, ¡aunque sea lo último que haga! Por ello, usa su ingenio y, aún más importante, sus siete grimorios mágicos para embarcarse en una búsqueda de venganza. ¡Y se jura que desatará un infierno!",
+          "language": "spa"
+        },
+        {
+          "overview": "Elizabeth Leiston, filha do poderoso primeiro-ministro, era a candidata perfeita à futura rainha de Haldoria... Mas tudo isso ruiu quando seu noivo cancelou o noivado deles em público, humilhando ela. Para piorar, ele a prendeu e espalhou calúnias visa respeito dela. O incentivo de Mireille, sua fiel criada, e a fúria que crescia dentro dela bastaram para Elizabeth mudar de rumo. Por que servir um reino que a despreza, se ela pode destruí-lo? Ela vai se vingar de todos que a traíram e derrubar esse maldito reino, custe o que custar! E Elizabeth não é indefesa: ela tem sete grimórios mágicos de poder devastador e está pronta para usá-los. Fiquem de olho: esta mulher impiedosa está com sangue nos olhos!",
+          "language": "pt"
+        },
+        {
+          "overview": "Elizabeth Leiston, figlia del primo ministro, è la perfetta futura regina. Il principe però annulla il fidanzamento umiliandola pubblicamente e diffondendo brutte voci su di lei. Elizabeth non è più intenzionata a servire una nazione che non la rispetta e giura vendetta. Con l'aiuto di un nobile di un paese vicino, inizia una nuova vita in un altro luogo, portando con sé i suoi sette grimori. Il suo unico desiderio? Portare alla rovina la sua patria!",
+          "language": "ita"
+        },
+        {
+          "overview": "Элизабет Лейстон, дочь премьер-министра Халдории и официальная наследница престола, готовится к свадьбе, которая должна закрепить союз элит. Во время публичной церемонии жених объявляет о разрыве помолвки, обвиняя её в заговоре, после чего по его распоряжению Элизабет арестовывают и изолируют в крепости, а через придворные каналы распространяются компрометирующие слухи. В заключении она получает доступ к древнему архиву, где хранятся семь гримуаров — артефактов, каждый из которых связан с отдельной школой магии и требует личной клятвы. Элизабет отрекается от присяги короне и заключает контракты со всеми томами, приобретая разрушительные способности: управление инфраструктурой, переписывание договоров, подчинение механизмов снабжения, искажение коммуникаций, воздействие на погоду, подавление воли и прямое уничтожение укреплений. Она организует побег, разрушает несколько пограничных постов и объявляет войну собственному государству.",
+          "language": "rus"
+        },
+        {
+          "overview": "Elizabeth Leiston, córka wpływowego premiera Haldorii, jest uosobieniem wytwornej arystokratki i idealnej przyszłej królowej. Gdy jednak jej narzeczony publicznie ją upokarza, zrywa zaręczyny i zaczyna rozpuszczać na jej temat złośliwe plotki, Elizabeth osiąga granicę wytrzymałości. Dlaczego jej jedyną przyjaciółką pozostała lojalna pokojówka i dlaczego miałaby dalej służyć krajowi, który jej nie szanuje? Elizabeth dochodzi do wniosku, że nie będzie już tego biernie znosić i postanawia doprowadzić królestwo do upadku, nawet jeśli miałaby to być ostatnia rzecz, jaką miała by zrobić! Wykorzystuje więc swój bystry umysł i, co ważniejsze, siedem magicznych grimuarów, by wyruszyć na ścieżkę zemsty!",
+          "language": "pol"
+        },
+        {
+          "overview": "Die adlige Elizabeth wird vom Kronprinzen in aller Öffentlichkeit gedemütigt und in den Kerker geworfen. Sie entkommt mit den sagenumwobenen Sieben Grimoires. Mithilfe eines Vizegrafen eines Nachbarlandes baut sie sich ein zweites Leben auf und schmiedet einen Plan, um es dem Königreich heimzuzahlen, das sich von ihr abgewandt hat. Rache ist süß und Elizabeth ist auf den Geschmack gekommen.",
+          "language": "deu"
+        }
+      ],
+      "aliases": [
+        "ブチ切れ令嬢は報復を誓いました。",
+        "Buchigire Reijō wa Hōfuku o Chikachimashita: Madōsho no Chikara de Sokoku o Tatakitsubushimasu",
+        "Buchigire Reijou wa Houfuku o Chikachimashita: Madōsho no Chikara de Sokoku o Tatakitsubushimasu",
+        "Buchigire Reijō wa Hōfuku wo Chikaimashita",
+        "Buchigire Reijou wa Houfuku wo Chikaimashita",
+        "ブチ切れ令嬢",
+        "The Furious Princess Decided to Take Revenge",
+        "The Furious Princess Decided to Take Revenge",
+        "Buchigire Reijou wa Houfuku o Chikachimashita: Madousho no Chikara de Sokoku o Tatakitsubushimasu",
+        "Buchigire Reijou wa Houfuku o Chikachimashita",
+        "暴走千金立誓复仇。 ～用魔导书之力碾碎祖国～ / 暴怒千金發誓復仇。 ～憑藉魔導書之力打垮祖國～ / ブチ切れ令嬢",
+        "暴怒千金发誓复仇 凭借魔导书之力击溃祖国",
+        "暴怒千金发誓复仇 ～凭借魔导书之力击溃祖国～ / Buchigire Reijou wa Houfuku wo Chikaimashita Madousho",
+        "A Livid Lady's Guide to Getting Even: How I Crushed My Homeland with My Mighty Grimoires"
+      ]
+    },
+    "tags": [
+      {
+        "id": 500,
+        "tag": 31,
+        "tagName": "Geographic Location",
+        "name": "Another World / Another Planet",
+        "helpText": null
+      }
+    ],
+    "contentRatings": [],
+    "seasonTypes": [
+      {
+        "id": 1,
+        "name": "Aired Order",
+        "type": "official",
+        "alternateName": null
+      },
+      {
+        "id": 3,
+        "name": "Absolute Order",
+        "type": "absolute",
+        "alternateName": null
+      }
+    ]
+  }
+}

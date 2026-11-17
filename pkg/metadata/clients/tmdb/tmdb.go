@@ -469,11 +469,24 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 	// TMDB publishes image paths, not URLs (research note §2.1); the
 	// poster is what the library page shows, the backdrop its fanart. A
 	// null path is no image, never a URL with nothing after the size.
+	// Each carries the language its entry in the images list names: listed
+	// without one, the film's titled poster read as a poster without text
+	// and was the first tried for a logo (catalogartwork.Titled; owner,
+	// 2026-11-17). One the list lacks -- another language's, which
+	// include_image_language left out -- stays as it was.
 	if d.PosterPath != "" {
-		m.Images = append(m.Images, metadata.Image{Type: metadata.ImageTypePoster, URL: posterBaseURL + d.PosterPath})
+		img := metadata.Image{Type: metadata.ImageTypePoster, URL: posterBaseURL + d.PosterPath}
+		if d.MovieImagesAppend != nil && d.Images != nil {
+			img.Language = listedLanguage(d.Images.Posters, d.PosterPath)
+		}
+		m.Images = append(m.Images, img)
 	}
 	if d.BackdropPath != "" {
-		m.Images = append(m.Images, metadata.Image{Type: metadata.ImageTypeFanart, URL: backdropBaseURL + d.BackdropPath})
+		img := metadata.Image{Type: metadata.ImageTypeFanart, URL: backdropBaseURL + d.BackdropPath}
+		if d.MovieImagesAppend != nil && d.Images != nil {
+			img.Language = listedLanguage(d.Images.Backdrops, d.BackdropPath)
+		}
+		m.Images = append(m.Images, img)
 	}
 
 	m.Tagline = d.Tagline
@@ -574,6 +587,17 @@ func mapRecommendations(d *rawtmdb.MovieDetails) []metadata.SimilarRef {
 	return out
 }
 
+// listedLanguage is the language imgs tags path with, "" for none or for a
+// path it does not list.
+func listedLanguage(imgs []rawtmdb.MovieImage, path string) string {
+	for _, img := range imgs {
+		if img.FilePath == path {
+			return img.Iso639_1
+		}
+	}
+	return ""
+}
+
 // mapImages maps TMDB's append_to_response images -- posters, backdrops and
 // logos -- each with the language TMDB tags it with. lang overrides an
 // untagged image's language, for the original-language call. The single
@@ -601,10 +625,16 @@ func mapImages(a *rawtmdb.MovieImagesAppend, lang string) []metadata.Image {
 	return out
 }
 
-// SeriesExtras is a series' tagline and keywords from its TMDB tv record,
-// in the configured language, or nothing when ids carry no TMDB id.
-// TheTVDB, the series provider, has neither (spec 2026-09-30 §3.4; the
-// keywords are the show's Plex Labels through cluster-plex, 2026-10-27).
+// SeriesExtras is a series' tagline, keywords and images from its TMDB tv
+// record, in the configured language, or nothing when ids carry no TMDB id.
+// TheTVDB, the series provider, has no tagline or keywords (spec 2026-09-30
+// §3.4; the keywords are the show's Plex Labels through cluster-plex,
+// 2026-10-27), and its images are fewer and worse tagged: the logos,
+// posters and backdrops come in the configured language or in none, as a
+// movie's do, in the same request (owner, 2026-11-17: A Livid Lady's Guide
+// to Getting Even had TheTVDB's Japanese logo alone, so no logo and no
+// titled poster, where TMDB lists an English logo and two posters without
+// text; 160 of the 171 series without a logo had an English one here).
 func (c *Client) SeriesExtras(ctx context.Context, ids metadata.ExternalIDs) (metadata.SeriesExtras, error) {
 	ctx, span := tracing.Start(ctx, "metadata.tmdb.SeriesExtras")
 	defer span.End()
@@ -620,13 +650,17 @@ func (c *Client) SeriesExtras(ctx context.Context, ids metadata.ExternalIDs) (me
 		tracing.RecordError(span, err)
 		return metadata.SeriesExtras{}, err
 	}
-	d, err := c.raw.GetTVDetails(id, map[string]string{"language": c.languageFor(c.region), "append_to_response": "keywords"})
+	d, err := c.raw.GetTVDetails(id, map[string]string{
+		"language":               c.languageFor(c.region),
+		"append_to_response":     "keywords,images",
+		"include_image_language": c.baseLanguage() + ",null",
+	})
 	if err != nil {
 		mapped := c.mapError(err)
 		tracing.RecordError(span, mapped)
 		return metadata.SeriesExtras{}, mapped
 	}
-	out := metadata.SeriesExtras{Tagline: strings.TrimSpace(d.Tagline)}
+	out := metadata.SeriesExtras{Tagline: strings.TrimSpace(d.Tagline), Images: mapImages(d.MovieImagesAppend, "")}
 	if d.TVKeywordsAppend != nil && d.TVKeywordsAppend.Keywords.TVKeywords != nil && d.TVKeywordsAppend.Keywords.TVKeywords.TVKeywordsResults != nil {
 		for _, k := range d.TVKeywordsAppend.Keywords.TVKeywords.TVKeywordsResults.Results {
 			out.Keywords = appendKeyword(out.Keywords, k.Name)

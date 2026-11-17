@@ -49,11 +49,14 @@ type Item struct {
 	Ratings []catalogv1alpha1.Rating
 
 	// TitledPoster: the item takes a poster without text and its logo
-	// drawn on it (Sources) when its metadata has both -- an anime Movie or
-	// Series whose owner chose no poster: spec.artwork names none and no
-	// image set is pinned (spec.imageSetID). A set the mediux provider
-	// chose by itself does not count: its poster carries the set maker's
-	// title, and yields.
+	// drawn on it (Sources) when its metadata has both -- every Movie and
+	// Series whose owner chose no poster (owner, 2026-11-17: "We should
+	// always overlay the title image ourselves to standardize the
+	// positioning"; an anime alone until then): spec.artwork names none
+	// and no image set is pinned (spec.imageSetID). A set the mediux
+	// provider chose by itself does not count: its poster carries the set
+	// maker's title, and yields, its background, season posters and
+	// titlecards kept.
 	TitledPoster bool
 	// Language is status.metadata.language, the language the item's titles
 	// are in and its logo is taken in; "" is DefaultTitleLanguage.
@@ -70,18 +73,14 @@ func ItemOf(obj client.Object) (Item, error) {
 		if o.Status.Metadata != nil {
 			it.Images, it.Ratings, it.Language = o.Status.Metadata.Images, o.Status.Metadata.Ratings, o.Status.Metadata.Language
 		}
-		// An anime film, as itemread.Anime reads it.
-		anime := o.Status.Classification != nil && o.Status.Classification.Anime
-		it.TitledPoster = anime && !ownPoster(o.Spec.Artwork, o.Spec.ImageSetID)
+		it.TitledPoster = !ownPoster(o.Spec.Artwork, o.Spec.ImageSetID)
 		return it, nil
 	case *catalogv1alpha1.Series:
 		it := Item{Kind: commonv1.MediaKindSeries, Overrides: WithImageSet(o.Spec.Artwork, o.Status.ImageSet), Entries: o.Status.Artwork, HasOverlay: o.Status.Overlay != nil}
 		if o.Status.Metadata != nil {
 			it.Images, it.Ratings, it.Language = o.Status.Metadata.Images, o.Status.Metadata.Ratings, o.Status.Metadata.Language
 		}
-		// An anime series, as itemread.Anime reads it.
-		anime := o.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
-		it.TitledPoster = anime && !ownPoster(o.Spec.Artwork, o.Spec.ImageSetID)
+		it.TitledPoster = !ownPoster(o.Spec.Artwork, o.Spec.ImageSetID)
 		return it, nil
 	case *catalogv1alpha1.Artist:
 		it := Item{Kind: commonv1.MediaKindArtist, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork}

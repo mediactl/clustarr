@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,6 +40,7 @@ func recordedTVDB(t *testing.T) *tvdb.Client {
 	files := map[string]string{
 		"/login":                             "login.json",
 		"/series/78804/extended":             "series-78804-extended.json",
+		"/series/467005/extended":            "series-467005-extended.json",
 		"/series/78804/episodes/default/eng": "episodes-78804.json",
 		"/episodes/295294/extended":          "episode-295294-extended.json",
 	}
@@ -208,4 +210,35 @@ func TestEpisodePeopleFilesGuestsDirectorsAndWriters(t *testing.T) {
 	assert.Equal(t, []string{"Keith Boak"}, byKind[metadata.PersonDirector])
 	assert.Equal(t, []string{"Russell T. Davies"}, byKind[metadata.PersonWriter])
 	assert.Contains(t, byKind[metadata.PersonCast], "Mark Benton")
+}
+
+// Every series image says the language of the text on it, none for
+// TheTVDB's "No Language": a titled poster is drawn on a poster that names
+// none, and a poster listed without its tag read as one. A Livid Lady's
+// Guide to Getting Even (recorded 2026-11-17) has a Japanese poster scored
+// above two without text and an English one never scored, a Japanese banner
+// and logo and an English background; the logo, in another language than
+// the titles', is still left out.
+func TestSeriesImagesCarryTheirLanguage(t *testing.T) {
+	s, err := recordedTVDB(t).WithLocale("en", "US").Series(context.Background(), "467005")
+	require.NoError(t, err)
+
+	type image struct {
+		t         metadata.ImageType
+		lang, url string
+	}
+	var got []image
+	for _, img := range s.Images {
+		if img.Season == nil {
+			got = append(got, image{img.Type, img.Language, strings.TrimPrefix(img.URL, "https://artworks.thetvdb.com/banners/v4/series/467005/")})
+		}
+	}
+	assert.Equal(t, []image{
+		{metadata.ImageTypePoster, "ja", "posters/6a4fa1f267be1.jpg"},
+		{metadata.ImageTypePoster, "", "posters/694e6f156a072.jpg"},
+		{metadata.ImageTypePoster, "", "posters/6a50319ee4210.jpg"},
+		{metadata.ImageTypeBanner, "ja", "banners/6a4be87971a11.jpg"},
+		{metadata.ImageTypeFanart, "en", "backgrounds/6a4bcfd8dfa37.jpg"},
+		{metadata.ImageTypePoster, "en", "posters/6a4766f89443c.jpg"},
+	}, got)
 }

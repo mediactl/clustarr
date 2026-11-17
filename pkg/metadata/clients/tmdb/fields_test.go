@@ -50,6 +50,7 @@ func (rec *recorded) client(t *testing.T) *tmdb.Client {
 		"/movie/372058|en-US": "movie-372058.json",
 		"/movie/372058|ja":    "movie-372058-ja.json",
 		"/tv/57243|en-US":     "tv-57243.json",
+		"/tv/298831|en-US":    "tv-298831.json",
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Path + "|" + r.URL.Query().Get("language")
@@ -188,4 +189,55 @@ func TestSeriesExtrasComeFromTMDBsTVRecord(t *testing.T) {
 	x, err = rec.client(t).SeriesExtras(context.Background(), metadata.ExternalIDs{metadata.KeyTVDB: "78804"})
 	require.NoError(t, err, "no TMDB id: nothing to ask")
 	assert.Equal(t, metadata.SeriesExtras{}, x)
+}
+
+// A series' images come with its extras, in the same request: the logo in
+// the titles' language, and posters and backdrops that each say whether
+// they carry text (owner, 2026-11-17). A Livid Lady's Guide to Getting Even
+// has no English logo on TheTVDB and one here; its two posters without
+// text are the ones TMDB lists under "No Language". Recorded 2026-11-17.
+func TestSeriesExtrasCarryTheTVRecordsImages(t *testing.T) {
+	rec := &recorded{}
+	x, err := rec.client(t).SeriesExtras(context.Background(), metadata.ExternalIDs{metadata.KeyTMDB: "298831"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/tv/298831|en-US"}, rec.Requests(), "one request, the one the keywords came in")
+	assert.Equal(t, []string{"anime", "based on light novel"}, x.Keywords)
+
+	type image struct {
+		t         metadata.ImageType
+		lang, url string
+	}
+	var got []image
+	for _, img := range x.Images {
+		got = append(got, image{img.Type, img.Language, img.URL})
+	}
+	const poster, logo, backdrop = "https://image.tmdb.org/t/p/w500", "https://image.tmdb.org/t/p/original", "https://image.tmdb.org/t/p/original"
+	assert.Equal(t, []image{
+		{metadata.ImageTypeLogo, "en", logo + "/6QtzCX46kZ6TbvxiSA3Qeok53Fz.png"},
+		{metadata.ImageTypePoster, "en", poster + "/qKICBVfmdC1M9A4NdzQrUabUBtW.jpg"},
+		{metadata.ImageTypePoster, "", poster + "/iSunmtMOna6Mj2DNX6mtAt01aRP.jpg"},
+		{metadata.ImageTypePoster, "en", poster + "/dzQ6QOjy390GYxZKjLAhHzDZ18f.jpg"},
+		{metadata.ImageTypePoster, "", poster + "/pB5hzvvNQlZKmOmdQzFFwn3tNBU.jpg"},
+		{metadata.ImageTypeFanart, "en", backdrop + "/iDTvoq80SDBZ4BtzG0NybZ7OLWV.jpg"},
+		{metadata.ImageTypeFanart, "", backdrop + "/pEv1seclJF9zSDbz0uVBkra1m1f.jpg"},
+	}, got)
+}
+
+// A film's own poster and backdrop carry the language TMDB's images list
+// tags them with: listed without one, the titled poster read as a poster
+// without text and was the first a logo was tried on. Your Name's poster is
+// English, its backdrop has no text. Recorded with the film.
+func TestAMoviesOwnPosterCarriesItsListedLanguage(t *testing.T) {
+	m, err := (&recorded{}).client(t).Movie(context.Background(), "372058", "")
+	require.NoError(t, err)
+	first := map[metadata.ImageType]metadata.Image{}
+	for _, img := range m.Images {
+		if _, ok := first[img.Type]; !ok {
+			first[img.Type] = img
+		}
+	}
+	assert.Equal(t, metadata.Image{Type: metadata.ImageTypePoster, URL: "https://image.tmdb.org/t/p/w500/vfJFJPepRKapMd5G2ro7klIRysq.jpg", Language: "en"},
+		first[metadata.ImageTypePoster])
+	assert.Equal(t, metadata.Image{Type: metadata.ImageTypeFanart, URL: "https://image.tmdb.org/t/p/original/mMtUybQ6hL24FXo0F3Z4j2KG7kZ.jpg"},
+		first[metadata.ImageTypeFanart])
 }
