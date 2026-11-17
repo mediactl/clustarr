@@ -12,7 +12,7 @@ metadata:
   name: anime-dubbed
   namespace: clustarr-system
 spec:
-  library: Clustarr TV
+  library: TV Shows
   title: Anime Dubbed
   itemType: show
   filter:

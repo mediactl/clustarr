@@ -354,13 +354,23 @@ cluster-plex:
       # accepts the registration (re-run §7.6's spike against each beta).
       # - uri: 'http://{{ .Release.Name }}-ui.{{ .Release.Namespace }}.svc.cluster.local:8080/plex/music'
       # - uri: 'http://{{ .Release.Name }}-ui.{{ .Release.Namespace }}.svc.cluster.local:8080/plex/audiobooks'
+    # The libraries were titled "Clustarr Movies" and "Clustarr TV" until
+    # 2026-11-16: formerNames has cluster-plex rename the section it made
+    # under the old title instead of making a second one, and lets a
+    # PlexCollection or PlexHubLayout still naming the old title find it.
+    # formerNames needs a cluster-plex chart that reads it: one older than
+    # that (the 0.4.1 Chart.yaml pinned on 2026-11-16) ignores the key and
+    # would make two new, empty sections beside the old ones. Raise the
+    # dependency with this, or keep the old names in your values until then.
     libraries:
-      - name: Clustarr Movies
+      - name: Movies
+        formerNames: [Clustarr Movies]
         type: movie
         provider: tv.plex.agents.custom.clustarr.movies
         language: en-US
         locations: [/media/movies]
-      - name: Clustarr TV
+      - name: TV Shows
+        formerNames: [Clustarr TV]
         type: show
         provider: tv.plex.agents.custom.clustarr.tv
         language: en-US

@@ -1,0 +1,40 @@
+# The Movies library's hubs, as Plex Web's "Manage Recommendations" would
+# set them: the listed hubs first, in this order, each with where it shows.
+# A hub of the library not listed here keeps Plex's order after these, and
+# its visibility. cluster-plex applies it and reports Plex's whole list in
+# status.hubs, which is where a built-in hub's identifier is read from.
+#
+# To reset the library's customization once, as Plex Web's button does:
+#   kubectl annotate plexhublayout movies --overwrite \
+#     catalog.clustarr.io/hubs-reset="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# and clear spec.hubs, or the layout puts back what the reset undid.
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: PlexHubLayout
+metadata:
+  name: movies
+  namespace: clustarr-system
+spec:
+  # The Plex library section, by title (a former title is taken too).
+  library: Movies
+  hubs:
+    # A built-in hub, by Plex's identifier.
+    - identifier: movie.recentlyreleased
+      libraryRecommended: true
+      home: true
+      friendsHome: true
+    # A PlexCollection of this namespace, by name: it gets a hub if it has
+    # none, and takes its visibility from here, not from its own
+    # spec.visibility.
+    - collection: the-up-collection
+      libraryRecommended: true
+      home: false
+      friendsHome: false
+    # A Plex collection no resource manages, by its title.
+    - collectionTitle: A24
+      libraryRecommended: true
+      home: true
+      friendsHome: false
+    - identifier: movie.genre
+      libraryRecommended: true
+      home: false
+      friendsHome: false

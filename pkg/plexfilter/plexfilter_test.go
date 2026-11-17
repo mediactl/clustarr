@@ -110,7 +110,7 @@ func TestSortsMatchRecordedMeta(t *testing.T) {
 
 func animeDubbed() catalogv1.PlexCollectionSpec {
 	return catalogv1.PlexCollectionSpec{
-		Library: "Clustarr TV", Title: "Anime Dubbed", ItemType: catalogv1.PlexItemShow,
+		Library: "TV Shows", Title: "Anime Dubbed", ItemType: catalogv1.PlexItemShow,
 		Filter: &catalogv1.PlexFilter{Match: catalogv1.PlexMatchAll, Rules: []catalogv1.PlexFilterRule{
 			{Field: "episode.audioLanguage", Operator: catalogv1.PlexOpIs, Value: "en"},
 			{Field: "show.genre", Operator: catalogv1.PlexOpIs, Value: "Anime"},
@@ -121,7 +121,7 @@ func animeDubbed() catalogv1.PlexCollectionSpec {
 
 func netflix() catalogv1.PlexCollectionSpec {
 	return catalogv1.PlexCollectionSpec{
-		Library: "Clustarr TV", Title: "Netflix", ItemType: catalogv1.PlexItemShow,
+		Library: "TV Shows", Title: "Netflix", ItemType: catalogv1.PlexItemShow,
 		Filter: &catalogv1.PlexFilter{Match: catalogv1.PlexMatchAll, Rules: []catalogv1.PlexFilterRule{
 			{Field: "show.network", Operator: catalogv1.PlexOpIs, Value: "Netflix"},
 		}},
@@ -130,7 +130,7 @@ func netflix() catalogv1.PlexCollectionSpec {
 
 func up() catalogv1.PlexCollectionSpec {
 	return catalogv1.PlexCollectionSpec{
-		Library: "Clustarr Movies", Title: "UP", ItemType: catalogv1.PlexItemMovie,
+		Library: "Movies", Title: "UP", ItemType: catalogv1.PlexItemMovie,
 		Filter: &catalogv1.PlexFilter{Match: catalogv1.PlexMatchAny, Rules: []catalogv1.PlexFilterRule{
 			{Field: "title", Operator: catalogv1.PlexOpIs, Value: "Seven Up!"},
 			{Match: catalogv1.PlexMatchAll, Rules: []catalogv1.PlexCondition{
@@ -143,7 +143,7 @@ func up() catalogv1.PlexCollectionSpec {
 
 func ghibli() catalogv1.PlexCollectionSpec {
 	return catalogv1.PlexCollectionSpec{
-		Library: "Clustarr Movies", Title: "Studio Ghibli Essentials", ItemType: catalogv1.PlexItemMovie,
+		Library: "Movies", Title: "Studio Ghibli Essentials", ItemType: catalogv1.PlexItemMovie,
 		Members: &catalogv1.PlexMembers{Items: []catalogv1.PlexMember{
 			{Kind: "Movie", Name: "spirited-away-2001"},
 			{Kind: "Movie", Name: "my-neighbor-totoro-1988"},
@@ -156,7 +156,7 @@ func ghibli() catalogv1.PlexCollectionSpec {
 // upCollection is TMDB's "The Up Collection", its title left to TMDB.
 func upCollection() catalogv1.PlexCollectionSpec {
 	return catalogv1.PlexCollectionSpec{
-		Library: "Clustarr Movies", ItemType: catalogv1.PlexItemMovie,
+		Library: "Movies", ItemType: catalogv1.PlexItemMovie,
 		TMDBCollection: &catalogv1.PlexTMDBCollection{ID: 95051},
 		Settings:       &catalogv1.PlexCollectionSettings{Mode: catalogv1.PlexModeHideItems, Order: catalogv1.PlexOrderReleaseDate},
 	}

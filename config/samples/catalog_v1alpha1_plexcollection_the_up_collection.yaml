@@ -11,7 +11,7 @@ metadata:
   name: the-up-collection
   namespace: clustarr-system
 spec:
-  library: Clustarr Movies
+  library: Movies
   itemType: movie
   tmdbCollection:
     id: 95051

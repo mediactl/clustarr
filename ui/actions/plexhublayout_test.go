@@ -19,6 +19,7 @@ package actions_test
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/yaml"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/ui/actions"
@@ -309,4 +311,32 @@ func catalogScheme(t *testing.T) *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	require.NoError(t, catalogv1.AddToScheme(scheme))
 	return scheme
+}
+
+// The sample decodes strictly into the API, names each hub one way and
+// once (the CRD's CEL rules, which no unit test compiles), and edits as
+// any layout does.
+func TestThePlexHubLayoutSampleDecodes(t *testing.T) {
+	raw, err := os.ReadFile("../../config/samples/catalog_v1alpha1_plexhublayout_movies.yaml")
+	require.NoError(t, err)
+	var l catalogv1.PlexHubLayout
+	require.NoError(t, yaml.UnmarshalStrict(raw, &l))
+	assert.Equal(t, "PlexHubLayout", l.Kind)
+	assert.Equal(t, actions.PlexHubLayoutName(l.Spec.Library), l.Name, "named as the ui names a library's layout")
+	require.NotEmpty(t, l.Spec.Hubs)
+	seen := map[string]bool{}
+	for _, h := range l.Spec.Hubs {
+		set := 0
+		for _, v := range []string{h.Identifier, h.Collection, h.CollectionTitle} {
+			if v != "" {
+				set++
+			}
+		}
+		assert.Equal(t, 1, set, "%+v", h)
+		key := actions.HubRefOf(h).Key()
+		assert.False(t, seen[key], key)
+		seen[key] = true
+	}
+	_, err = actions.EditHubs(&l, actions.HubEdit{Op: actions.HubMove, Ref: actions.HubRefOf(l.Spec.Hubs[0]), To: 1})
+	assert.NoError(t, err)
 }

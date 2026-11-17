@@ -6,7 +6,7 @@ metadata:
   name: netflix
   namespace: clustarr-system
 spec:
-  library: Clustarr TV
+  library: TV Shows
   title: Netflix
   itemType: show
   filter:

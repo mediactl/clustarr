@@ -58,3 +58,13 @@ resource, so a `kubectl delete -k config/samples` would delete the owner's
 collections in Plex. Apply each with `kubectl apply --server-side -f`.
 `TestThePlexCollectionSamplesAreTheReferences` (`pkg/plexfilter`) holds them
 to the design.
+
+## PlexHubLayout sample
+
+`catalog_v1alpha1_plexhublayout_movies.yaml` is a library's hub layout
+(`docs/superpowers/specs/2026-11-16-plex-hub-layouts-design.md`): the order
+of the Movies library's hubs and where each shows. It is not in
+`kustomization.yaml` either: applying it reorders a real library's
+Recommended tab and Home. A layout has no finalizer, so deleting one
+changes nothing in Plex. `TestThePlexHubLayoutSampleDecodes` (`ui/actions`)
+holds it to the API.
