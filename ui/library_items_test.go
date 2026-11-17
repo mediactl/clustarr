@@ -79,7 +79,7 @@ func TestDetailHeaderIsRadarrsHeroWithTheActionsInTheToolbar(t *testing.T) {
 	at := strings.Index(body, `data-toolbar`)
 	require.GreaterOrEqual(t, at, 0, "the page has a toolbar")
 	bar := body[at:]
-	bar = bar[:strings.Index(bar, `<dl`)]
+	bar = beforeFacts(t, bar)
 	for _, a := range []string{`data-action="search-now"`, `data-action="refresh-metadata"`} {
 		require.Contains(t, bar, a, "the actions live in the toolbar")
 	}

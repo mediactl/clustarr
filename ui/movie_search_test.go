@@ -39,7 +39,7 @@ func TestMovieToolbarOpensRadarrsInteractiveSearch(t *testing.T) {
 	srv, c := movieFixture(t, true)
 	page := detailPage(t, srv, "/library/default/movie/nerve")
 	bar := section(t, page, `data-toolbar`)
-	bar = bar[:strings.Index(bar, `<dl`)] // the actions sit in the hero, above its facts
+	bar = beforeFacts(t, bar)
 
 	requireTag(t, bar, `data-action="movie-interactive-search"`, `data-slot="button"`, `data-toolbar-button`, `type="submit"`, `form="interactive-search-nerve"`, `title="Interactive Search"`)
 	require.Regexp(t, `>\s*Interactive\s*<`, bar, "the button reads one word; the whole action is its title")

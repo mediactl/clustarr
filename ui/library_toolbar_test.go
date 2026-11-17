@@ -481,3 +481,12 @@ func toolbarOf(t *testing.T, body string) string {
 	require.Greater(t, end, at)
 	return body[at:end]
 }
+
+// beforeFacts is an item page's action bar alone: the actions sit in the
+// hero above its facts, so the bar ends where the facts' list starts.
+func beforeFacts(t *testing.T, bar string) string {
+	t.Helper()
+	facts := strings.Index(bar, `<dl`)
+	require.GreaterOrEqual(t, facts, 0, "the actions sit in the hero, above its facts")
+	return bar[:facts]
+}

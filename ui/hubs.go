@@ -45,8 +45,6 @@ import (
 // edit, and the reset. The Collections page's three switches post the same
 // edit.
 
-const hubsPath = "/library/hubs"
-
 func (s *Server) plexHubLayouts(ctx context.Context) ([]catalogv1.PlexHubLayout, error) {
 	if s.opts.Reader == nil {
 		return nil, nil
