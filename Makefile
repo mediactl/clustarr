@@ -227,15 +227,13 @@ docker-build: ## Build the clustarr (manager, ui) and native (agent, markers, tr
 # The clustarr image (manager, ui) for amd64 and arm64: the control-plane
 # placement design (2026-10-21, §6) runs both on the arm64 control-plane nodes.
 # A two-platform push needs a docker-container buildx builder; for a local
-# check, BUILDX_PLATFORMS=linux/arm64 BUILDX_OUTPUT=--load. UPX_ARM64=0 leaves
-# the arm64 binaries unpacked.
+# check, BUILDX_PLATFORMS=linux/arm64 BUILDX_OUTPUT=--load.
 BUILDX_PLATFORMS ?= linux/amd64,linux/arm64
 BUILDX_OUTPUT ?= --push
-UPX_ARM64 ?= 1
 
 .PHONY: docker-buildx-clustarr
 docker-buildx-clustarr: ## Build (and push) the clustarr image for amd64 and arm64.
-	docker buildx build --platform $(BUILDX_PLATFORMS) --build-arg VERSION=$(IMAGE_VERSION) --build-arg UPX_ARM64=$(UPX_ARM64) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) $(BUILDX_OUTPUT) .
+	docker buildx build --platform $(BUILDX_PLATFORMS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) $(BUILDX_OUTPUT) .
 
 # There is no CUDA image (docs/adr/0015-no-cuda-image.md): nvidia pools run
 # the native image, the NVIDIA container runtime injecting the driver.

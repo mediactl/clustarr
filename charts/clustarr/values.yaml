@@ -830,6 +830,11 @@ ui:
   # (--pipeline-history), newest first: two pages at the default page size.
   # 0 shows in-flight entries only. Nothing in the cluster is deleted.
   pipelineHistory: 100
+  # automemlimit is the share of resources.limits.memory the ui takes as
+  # its Go memory limit (AUTOMEMLIMIT, in place of 0.9). A large library's
+  # ui rests at whatever the share allows; a lower share trades some
+  # collector CPU for a smaller resting size.
+  # automemlimit: "0.6"
   # The dashboard's charts (the ui's home page, 2026-10-22) read clustarr's
   # and cluster-plex's metrics from a Prometheus-compatible API: url is its
   # root without /api/v1, e.g. Mimir's

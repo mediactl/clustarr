@@ -47,11 +47,11 @@ One Go module, five binaries (ADR-0018,
 | `cmd/markers` | `native` | segment detection (`app/segments/worker`) on ffgo and ONNX Runtime |
 | `cmd/transcode` | `native` | transcode pool and graft Jobs (`app/transcode/worker`) on ffgo |
 
-Both images UPX-pack every Go binary but the manager (owner, 2026-11-04: a
-packed ELF is decompressed into anonymous memory at exec, so the whole file
-was resident and unevictable in the manager pod, where the unpacked one is
-demand-paged and file-backed; `images/Dockerfile.clustarr` packs the ui
-alone); `native` is FROM scratch with FFmpeg 9's
+The `native` image UPX-packs its Go binaries; the `clustarr` image packs
+neither of its two (owner, 2026-11-04 for the manager, 2026-11-16 for the
+ui: a packed ELF is decompressed into anonymous memory at exec, so the whole
+file was resident and unevictable in the pod, where the unpacked one is
+demand-paged and file-backed); `native` is FROM scratch with FFmpeg 9's
 shared libraries, the ffgo shim and ONNX Runtime, and neither ships `ffmpeg`,
 `ffprobe` or `par2` (ADR-0017). `make run-dev` runs the manager, one agent per
 domain and the ui as local processes; there is no `clustarr all`.
@@ -3839,7 +3839,16 @@ ships it.
   ONNX Runtime allocates outside the Go heap name a share: agent-import,
   agent-caption and the transcode pool and graft pods 0.60, markers 0.50 (OD42);
   no installer or pod the manager builds sets a `GOMEMLIMIT` byte count, and
-  an explicit one (the chart's `goMemLimit`) wins. GOMAXPROCS is the
+  an explicit one (the chart's `goMemLimit`) wins. The ui may name a share too (chart `ui.automemlimit`, unset by default;
+  owner, 2026-11-16): a ui's resting size is whatever its share allows, and
+  talos's three pods sat at 1.3 GiB of 1.5 GiB over a 480 MiB live heap.
+  Profiled the same day: every component's class merge (`utils.CN`) is
+  remembered (`ui/components/utils/cn_memo.go`; a guide page's 9,000 cells
+  merged one ~1 KB class string each, 230 MB a load), and
+  `filter.Matches` folds nothing for a rule of another group. A compressed
+  row cache was measured and NOT built for the ui: the projection and the
+  Plex index list every Episode and MediaFile zero-copy every 5 s, which a
+  row cache would turn into a decode of each. GOMAXPROCS is the
   runtime's own since Go 1.25 (the cgroup's CPU limit, rounded up, at least
   2, followed when it changes): never add `go.uber.org/automaxprocs`, which
   rounds down to 1 on the 500m and 1-CPU pods and stops that

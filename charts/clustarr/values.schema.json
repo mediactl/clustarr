@@ -552,6 +552,7 @@
             }
           }
         },
+        "automemlimit": {"type": "string", "pattern": "^(0\\.[0-9]+|1(\\.0+)?)$", "description": "AUTOMEMLIMIT: the share of resources.limits.memory the ui takes as its Go memory limit, in place of 0.9."},
         "pipelineHistory": {"type": "integer", "minimum": 0, "description": "Results the pipeline page keeps beside its in-flight entries (--pipeline-history); 0 shows in-flight entries only."},
         "metrics": {
           "type": "object",

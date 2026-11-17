@@ -78,3 +78,14 @@ func TestCandidatesAreTheUnionInPlaylistOrder(t *testing.T) {
 	assert.Equal(t, []string{"a", "c", "d"}, keys, "each entry once, in playlist order")
 	assert.Empty(t, filter.Candidates(entries(), nil), "with no filter nothing is a candidate (xTeVe's rule)")
 }
+
+// The Channels page asks every rule about every playlist entry, so a rule
+// of another group must cost nothing.
+func TestMatchesAllocatesNothingForAnotherGroup(t *testing.T) {
+	r := filter.Rule{Type: filter.TypeGroupTitle, Match: "US| News", Include: []string{"HD"}, Enabled: true}
+	e := m3u.Entry{Name: "TV: COURT TV [1080p]", Group: "US| ENTERTAINMENT"}
+	assert.Zero(t, testing.AllocsPerRun(100, func() { _ = filter.Matches(r, e) }))
+	assert.True(t, filter.Matches(filter.Rule{Type: filter.TypeGroupTitle, Match: "us| entertainment", Enabled: true}, e))
+	assert.True(t, filter.Matches(filter.Rule{Type: filter.TypeGroupTitle, Match: "ÉMISSIONS", Enabled: true},
+		m3u.Entry{Name: "x", Group: "émissions"}), "a non-ASCII group still folds")
+}

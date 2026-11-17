@@ -122,7 +122,13 @@ func twReorder(input, merged string) string {
 // map[string]bool conditionals (false and empty values drop out) - then
 // resolves Tailwind conflicts with the last class winning, in input order.
 func CN(classes ...any) string {
-	flat := flattenClasses(classes)
+	// Remembered (cn_memo.go): a page of like cells asks for one merge
+	// thousands of times.
+	return cnMemo(flattenClasses(classes))
+}
+
+// cnMerge is CN of flattened inputs, computed.
+func cnMerge(flat []string) string {
 	merged := make([]string, len(flat))
 	for i, c := range flat {
 		merged[i] = twMapTokens(twV4Var.ReplaceAllString(c, "-[var($1)]"), twImportantToV3)

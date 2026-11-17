@@ -320,6 +320,15 @@ spec:
               fieldPath: metadata.namespace
         - name: NATS_URL
           value: {{ include "clustarr.natsUrl" $ | quote }}
+        {{- /* ui.automemlimit: the share of resources.limits.memory the ui
+               takes as its Go memory limit, in place of automemlimit's 0.9.
+               Unset by default; a large library's ui rests at whatever the
+               share allows (talos, 2026-11-16: three pods at 1.3 GiB of a
+               1.5 GiB limit over a 480 MiB live heap). */}}
+        {{- with .Values.ui.automemlimit }}
+        - name: AUTOMEMLIMIT
+          value: {{ . | quote }}
+        {{- end }}
         # Signs the /art/search URLs the Plex provider hands Plex, which
         # stores them: the key outlives the pod and is shared by every
         # replica (templates/ui-art-signing-key.yaml).

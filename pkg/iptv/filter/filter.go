@@ -58,14 +58,25 @@ func Matches(r Rule, e m3u.Entry) bool {
 		}
 		return strings.ToLower(s)
 	}
-	name := fold(e.Name)
+	// The name is folded only once a rule gets as far as reading it: the
+	// Channels page asks every rule about every entry of a playlist (28,000
+	// on talos), and folding each name and group for a rule of another
+	// group was 70 MB of garbage a page load (2026-11-16).
+	var name string
+	named := false
+	foldedName := func() string {
+		if !named {
+			name, named = fold(e.Name), true
+		}
+		return name
+	}
 	switch r.Type {
 	case TypeGroupTitle:
-		if fold(e.Group) != fold(r.Match) {
+		if !r.equalFold(e.Group, r.Match) {
 			return false
 		}
 	case TypeCustom:
-		if !strings.Contains(name, fold(r.Match)) {
+		if !strings.Contains(foldedName(), fold(r.Match)) {
 			return false
 		}
 	default:
@@ -74,7 +85,7 @@ func Matches(r Rule, e m3u.Entry) bool {
 	if len(r.Include) > 0 {
 		found := false
 		for _, w := range r.Include {
-			if strings.Contains(name, fold(w)) {
+			if strings.Contains(foldedName(), fold(w)) {
 				found = true
 				break
 			}
@@ -84,7 +95,7 @@ func Matches(r Rule, e m3u.Entry) bool {
 		}
 	}
 	for _, w := range r.Exclude {
-		if strings.Contains(name, fold(w)) {
+		if strings.Contains(foldedName(), fold(w)) {
 			return false
 		}
 	}
@@ -116,4 +127,26 @@ func Preview(entries []m3u.Entry, r Rule) int {
 		}
 	}
 	return n
+}
+
+// equalFold reports whether a and b are equal as r compares text: exactly
+// when CaseSensitive, else with both lower-cased. Two ASCII strings are
+// compared in place, without building either's lower case.
+func (r Rule) equalFold(a, b string) bool {
+	if r.CaseSensitive {
+		return a == b
+	}
+	if isASCII(a) && isASCII(b) {
+		return len(a) == len(b) && strings.EqualFold(a, b)
+	}
+	return strings.ToLower(a) == strings.ToLower(b)
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
