@@ -242,8 +242,8 @@ spec:
                       type: string
                     description: |-
                       Labels are set on the item's metadata.labels. Keys and values follow
-                      Kubernetes' label syntax; a list whose labels do not is not applied
-                      (Synced reads InvalidListed).
+                      Kubernetes' label syntax; a list whose labels do not marks nothing,
+                      and status.lastError says why.
                     maxProperties: 16
                     type: object
                   tags:

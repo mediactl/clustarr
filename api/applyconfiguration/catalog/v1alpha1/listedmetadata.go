@@ -42,8 +42,8 @@ type ListedMetadataApplyConfiguration struct {
 	// in Plex as written ("Criterion Collection").
 	Tags []string `json:"tags,omitempty"`
 	// Labels are set on the item's metadata.labels. Keys and values follow
-	// Kubernetes' label syntax; a list whose labels do not is not applied
-	// (Synced reads InvalidListed).
+	// Kubernetes' label syntax; a list whose labels do not marks nothing,
+	// and status.lastError says why.
 	Labels map[string]string `json:"labels,omitempty"`
 	// Annotations are set on the item's metadata.annotations.
 	Annotations map[string]string `json:"annotations,omitempty"`
