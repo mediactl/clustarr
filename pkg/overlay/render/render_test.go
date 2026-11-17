@@ -349,6 +349,34 @@ func TestRenderGoldenFourBadgesStacked(t *testing.T) {
 	assertGolden(t, "four_badges", got)
 }
 
+// The dub mark (overlay.DubBadge) is a badge of text alone: the box and the
+// score's face at the score's height, so it reads as Plex's episode-count
+// box does. Stacked after a rating badge, as overlayplan.Plan orders them.
+func TestRenderGoldenDubMark(t *testing.T) {
+	base := syntheticPoster(400, 600)
+	tmpl := overlay.DefaultTemplate()
+	tmpl.Corner = overlay.CornerTopLeft
+	got, err := Render(base, []overlay.Badge{testBadge(t, overlay.SourceMetacritic, 7600), overlay.DubBadge()}, tmpl)
+	require.NoError(t, err)
+	assertGolden(t, "dub_mark", got)
+
+	// The text fits its box: nothing of it is drawn outside the mark's box.
+	alone, err := Render(base, []overlay.Badge{overlay.DubBadge()}, tmpl)
+	require.NoError(t, err)
+	box := layoutBoxes(base.Bounds(), 1, tmpl)[0]
+	white := 0
+	for y := 0; y < 600; y++ {
+		for x := 0; x < 400; x++ {
+			c := alone.NRGBAAt(x, y)
+			if c.R > 0xF0 && c.G > 0xF0 && c.B > 0xF0 {
+				require.Truef(t, image.Pt(x, y).In(box.Inset(box.Dx()/20)), "white at (%d,%d) is outside the mark's box %v", x, y, box)
+				white++
+			}
+		}
+	}
+	require.Positive(t, white, "the mark's text is drawn")
+}
+
 func TestRenderGoldenEachCorner(t *testing.T) {
 	corners := []struct {
 		name   string

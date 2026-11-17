@@ -17,7 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package overlayplan decides a Movie's or Series' rating overlay: the
 // winning OverlayProfile ([Winner], [Selects]), the badges it draws
-// ([Badges]), the digest of its inputs ([InputsDigest], [ProfileHash],
+// ([Badges]) and a dubbed anime's mark after them ([Item].Dubbed, from the
+// MAL-Dubs index on the context), the digest of its inputs ([InputsDigest], [ProfileHash],
 // [RenderVersion]), the [Plan] that combines them, and the RenderOverlay task
 // ([Publish]). The OverlayProfile controller (manager) and the renderer
 // (app/catalog/worker/artwork, agent) share it. It decodes no image, reads

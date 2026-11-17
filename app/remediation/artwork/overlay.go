@@ -38,7 +38,7 @@ const RenderDurable = events.ConsumerCatalogArtworkRender
 
 // OverlayStage is the overlay half of the artwork stage (ADR-0019 §7.2,
 // A5.3; remediation.ItemStage), Movie and Series: it plans the item's
-// overlay (overlayplan.Plan over the item's labels and ratings, its
+// overlay (overlayplan.Plan over the item's labels, ratings and dub, its
 // namespace's OverlayProfiles and the poster original's digest in the
 // index), publishes a render task when the overlay object's metadata does
 // not record that plan, and renders status.overlay from that metadata under
@@ -67,7 +67,7 @@ func (s *OverlayStage) Plan(ctx context.Context, env *remediation.Env, v *remedi
 	if s.o.Index == nil || !s.o.Index.Synced() {
 		return remediation.ItemResult{Due: now.Add(indexWait)}, nil
 	}
-	it, err := overlayplan.ItemOf(v.Item)
+	it, err := overlayplan.ItemOf(ctx, v.Item)
 	if err != nil {
 		return remediation.ItemResult{}, nil
 	}
@@ -83,28 +83,10 @@ func (s *OverlayStage) Plan(ctx context.Context, env *remediation.Env, v *remedi
 	want := overlayplan.Plan(it, profiles.Items, poster)
 	recorded, _, present, current := catalogartwork.OverlayOf(s.o.Index, it.Kind, uid)
 
-	// status.overlay is what the overlay object's metadata says while the
-	// item wants an overlay, and none when it wants none (the render task
-	// below removes the object). An object stored under an older metadata
-	// version keeps what status records until the renderer backfills it.
-	status := recorded
-	switch {
-	case want.Profile == nil:
-		status = nil
-	case present && !current:
-		status = it.Overlay
-	}
+	status, render, token := decide(it, want, recorded, present, current)
 	var res remediation.ItemResult
 	res.Sets = []itempass.Set{{Manager: k8s.ManagerCatalogArtwork, Fields: map[string]any{"overlay": overlayValue(status)}}}
 
-	render := false
-	token := overlayplan.RenderNone
-	if want.Profile == nil {
-		render = present
-	} else {
-		token = want.InputsDigest
-		render = !present || !current || recorded.RenderedFrom != want.InputsDigest || recorded.ProfileRef != want.ProfileName()
-	}
 	key := remediation.ItemLedgerKey(v.Key)
 	if !render || v.Item.GetDeletionTimestamp() != nil {
 		res.Effects = append(res.Effects, remediation.DispatchAnswered{Durable: RenderDurable, Ledger: key, Seq: math.MaxInt64})
@@ -128,6 +110,40 @@ func (s *OverlayStage) Plan(ctx context.Context, env *remediation.Env, v *remedi
 		Durable: RenderDurable, Ledger: key, Seq: seq,
 	})
 	return res, nil
+}
+
+// decide is one pass's decision for it: what status.overlay says, and
+// whether a render task is due and under which token.
+//
+// status.overlay is what the overlay object's metadata says (recorded) while
+// the item wants an overlay, and none when it wants none (the render task
+// then removes the object). An object stored under an older metadata version
+// (present, not current) keeps what status records until the renderer
+// backfills it.
+//
+// An anime whose dub is unread has no plan yet (overlayplan.Item.DubUnread):
+// status goes on saying what the object does and no task is due, so a
+// manager that starts ahead of the MAL-Dubs list neither has a marked poster
+// removed nor one redrawn without its mark. The first list read wakes the
+// key (the dubs source).
+func decide(it overlayplan.Item, want overlayplan.Want, recorded *catalogv1alpha1.OverlayEntry, present, current bool) (status *catalogv1alpha1.OverlayEntry, render bool, token string) {
+	status = recorded
+	switch {
+	case want.Profile == nil && !it.DubUnread:
+		status = nil
+	case present && !current:
+		status = it.Overlay
+	}
+	token = overlayplan.RenderNone
+	switch {
+	case it.DubUnread:
+	case want.Profile == nil:
+		render = present
+	default:
+		token = want.InputsDigest
+		render = !present || !current || recorded.RenderedFrom != want.InputsDigest || recorded.ProfileRef != want.ProfileName()
+	}
+	return status, render, token
 }
 
 // overlayValue is status.overlay as a set's field: nil sends it absent,

@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/overlayprofile"
 	"github.com/mediactl/clustarr/app/catalog/overlayplan"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -168,7 +169,9 @@ func collectRenders(t *testing.T, bus events.Bus) *renderCollector {
 	t.Helper()
 	c := &renderCollector{}
 	stop, err := bus.Subscribe(context.Background(), events.Subscription{
-		Stream: events.StreamWorkCatalog, Durable: "test-render-collector",
+		// The render consumer's own durable: a subscription binds a
+		// durable the topology declares and waits on any other.
+		Stream: events.StreamWorkCatalog, Durable: events.ConsumerCatalogArtworkRender,
 		Filters: []string{events.FilterCatalogArtworkRender},
 	}, func(_ context.Context, m events.Message) error {
 		c.mu.Lock()
@@ -282,7 +285,7 @@ func (w *world) item(name string) overlayplan.Item {
 	w.t.Helper()
 	var m catalogv1alpha1.Movie
 	require.NoError(w.t, w.c.Get(context.Background(), types.NamespacedName{Namespace: w.ns, Name: name}, &m))
-	it, err := overlayplan.ItemOf(&m)
+	it, err := overlayplan.ItemOf(context.Background(), &m)
 	require.NoError(w.t, err)
 	return it
 }
@@ -444,6 +447,73 @@ func TestOneRenderTaskPerSelectedItem(t *testing.T) {
 	w.reconcile("critics")
 	envs, _ = got.settled(t, 2)
 	assert.Len(t, envs, 2)
+}
+
+// A dubbed anime with no rating has something to render, its dub mark, and
+// is published; once that is recorded nothing more is. A manager that has
+// not read the MAL-Dubs list yet reads the same anime as not dubbed: it
+// publishes nothing for it, where judging it would ask the renderer to take
+// the mark off.
+func TestAnAnimeIsJudgedOnlyOnceTheDubListIsRead(t *testing.T) {
+	w := newWorld(t, "dub")
+	got := collectRenders(t, w.bus)
+	w.profile("critics", critics)
+	bg := context.Background()
+	s := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "eighty-six", Namespace: w.ns, Labels: critics},
+		Spec:       catalogv1alpha1.SeriesSpec{TvdbID: 1, QualityProfileRef: "q", RootFolderRef: "r", SeriesType: catalogv1alpha1.SeriesTypeAnime},
+	}
+	require.NoError(t, w.c.Create(bg, s))
+	_, err := k8s.PatchStatus(bg, w.c, catalogstatus.GatewayManager, catalogac.Series(s.Name, w.ns).WithStatus(catalogac.SeriesStatus().
+		WithMetadata(catalogac.SeriesMetadata().WithTitle("86").WithExternalIDs(map[string]string{"mal": "41457"})).
+		WithArtwork(catalogstatus.ArtworkEntries([]catalogv1alpha1.ArtworkEntry{{
+			Type: catalogv1alpha1.ImageTypePoster, Source: catalogv1alpha1.ArtworkSourceProvider,
+			SourceURL: "https://img.example/86", Digest: "digest-86", SizeBytes: 1,
+			UpdatedAt: metav1.NewTime(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)),
+		}})...)))
+	require.NoError(t, err)
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: w.ns, Name: "critics"}}
+	reconcileWith := func(ix *dubs.Index) {
+		t.Helper()
+		_, err := w.r.Reconcile(dubs.WithIndex(bg, ix), req)
+		require.NoError(t, err)
+	}
+	read := dubs.NewIndex()
+	read.Set(dubs.Record{Dubbed: []int{41457}})
+
+	reconcileWith(dubs.NewIndex())
+	envs, _ := got.settled(t, 0)
+	require.Empty(t, envs, "unread, the anime has no plan to publish")
+
+	reconcileWith(read)
+	envs, _ = got.settled(t, 1)
+	require.Len(t, envs, 1, "the dub mark is something to render")
+
+	// The overlay stage records the marked poster.
+	var live catalogv1alpha1.Series
+	require.NoError(t, w.c.Get(bg, client.ObjectKeyFromObject(s), &live))
+	it, err := overlayplan.ItemOf(dubs.WithIndex(bg, read), &live)
+	require.NoError(t, err)
+	var list catalogv1alpha1.OverlayProfileList
+	require.NoError(t, w.c.List(bg, &list, client.InNamespace(w.ns)))
+	want := overlayplan.Plan(it, list.Items, it.PosterDigest)
+	require.NotNil(t, want.Profile)
+	require.NoError(t, recordOverlay(bg, w.c, &live, &catalogv1alpha1.OverlayEntry{
+		ProfileRef: want.Profile.Name, Digest: "overlay-86", RenderedFrom: want.InputsDigest,
+		UpdatedAt: metav1.NewTime(time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)),
+	}))
+
+	reconcileWith(read)
+	reconcileWith(dubs.NewIndex())
+	envs, _ = got.settled(t, 1)
+	assert.Len(t, envs, 1, "neither a marked poster nor an unread anime is published")
+	assert.EqualValues(t, 1, w.get("critics").Status.Selected, "selection is the profile's, whatever the list says")
+
+	gone := dubs.NewIndex()
+	gone.Set(dubs.Record{})
+	reconcileWith(gone)
+	envs, _ = got.settled(t, 2)
+	assert.Len(t, envs, 2, "an anime that left the list is published, to lose its mark")
 }
 
 // An item this profile rendered but no longer selects -- relabelled, or the

@@ -120,7 +120,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 			overlapped = true
 		}
 		named := it.Overlay != nil && it.Overlay.ProfileRef == req.Name
-		if !mine && !named {
+		if !mine && !named || it.DubUnread {
+			// An anime whose dub is unread has no plan to compare yet
+			// (overlayplan.Item.DubUnread): its item key asks when the
+			// list is read.
 			continue
 		}
 		want := overlayplan.Plan(it, profiles.Items, it.PosterDigest)
@@ -216,14 +219,14 @@ func (r *Reconciler) items(ctx context.Context, ns string) ([]overlayplan.Item, 
 	}
 	out := make([]overlayplan.Item, 0, len(movies.Items)+len(series.Items))
 	for i := range movies.Items {
-		it, err := overlayplan.ItemOf(&movies.Items[i])
+		it, err := overlayplan.ItemOf(ctx, &movies.Items[i])
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, it)
 	}
 	for i := range series.Items {
-		it, err := overlayplan.ItemOf(&series.Items[i])
+		it, err := overlayplan.ItemOf(ctx, &series.Items[i])
 		if err != nil {
 			return nil, err
 		}

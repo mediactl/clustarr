@@ -25,9 +25,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     ArtworkFetchFailed (recorder metadata-gateway) on each failure the
 //     fetcher records in the item's metadata record;
 //   - the overlay (Movie and Series): the overlay plan
-//     (app/catalog/overlayplan.Plan) against the overlay object's metadata,
-//     a render task on catalog-artwork-render when they differ, and
-//     status.overlay under catalog-artwork from that object's metadata.
+//     (app/catalog/overlayplan.Plan: the profile's rated badges and a
+//     dubbed anime's mark) against the overlay object's metadata, a render
+//     task on catalog-artwork-render when they differ, and status.overlay
+//     under catalog-artwork from that object's metadata. An anime read
+//     before the MAL-Dubs list is left as it is (decide).
 //
 // status.artwork itself is the metadata stage's to apply (one complete
 // catalog-metadata set); it reads the same index. S26 -- the index's

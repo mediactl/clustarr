@@ -49,8 +49,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // overlay from an item that was relabelled out of the profile, or whose
 // profile was deleted (spec §C.4: "an item matched by no non-overlapped
 // profile has its overlay removed on its next render task"). An item with
-// nothing to draw yet (no poster entry, no rated badge) gets no task: the
-// gateway publishes one when the poster lands. The Msg-Id's digest slot is
+// nothing to draw yet (no poster entry; neither a rated badge nor a dubbed
+// anime's mark) gets no task: the gateway publishes one when the poster
+// lands. Nor does an anime while the manager has read no MAL-Dubs list
+// (overlayplan.Item.DubUnread): what it should carry is not known yet. The Msg-Id's digest slot is
 // [Token], which carries the item's resourceVersion so a state that flips
 // back inside the duplicate window is not absorbed.
 //

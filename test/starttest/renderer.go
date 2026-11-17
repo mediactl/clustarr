@@ -137,7 +137,7 @@ func VerifyRenderer(t testing.TB, cfg *rest.Config, natsURL, name string, viaCon
 		if err := c.Get(ctx, client.ObjectKeyFromObject(movie), &got); err != nil {
 			t.Fatalf("get Movie: %v", err)
 		}
-		it, err := overlayplan.ItemOf(&got)
+		it, err := overlayplan.ItemOf(ctx, &got)
 		if err != nil {
 			t.Fatal(err)
 		}

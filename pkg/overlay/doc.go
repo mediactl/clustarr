@@ -16,8 +16,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package overlay is the poster badge model (spec §C.5): Badge, Template
-// (DefaultTemplate, TemplateSpec, TemplateHash), FormatScore and the embedded
-// rating-source logos. pkg/overlay/render draws it. The manager's
+// (DefaultTemplate, TemplateSpec, TemplateHash), FormatScore, the embedded
+// rating-source logos, and the one badge that is not a rating, the dub mark
+// of a dubbed anime (DubBadge). pkg/overlay/render draws it. The manager's
 // OverlayProfile controller links this package to resolve and hash templates,
 // so it links no golang.org/x/image (spec §4.3 step 1.4, §4.5.1).
 package overlay

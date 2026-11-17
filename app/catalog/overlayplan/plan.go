@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package overlayplan
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -33,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -73,22 +75,41 @@ type Item struct {
 
 	// Overlay is status.overlay, the renderer's record.
 	Overlay *catalogv1alpha1.OverlayEntry
+
+	// Dubbed is an anime the MAL-Dubs list names dubbed (dubs.Dubbed, the
+	// state the audio policy wants English for): its poster carries the
+	// dub mark (overlay.DubBadge). A dub still being made (dubs.Incomplete)
+	// is not marked: its English is optional, so its files may carry none.
+	Dubbed bool
+
+	// DubUnread is an anime whose dub is not known yet, the process having
+	// read no MAL-Dubs list (dubs.Index.Unread). Its plan is not known
+	// either: Plan would read it as not dubbed and have a marked poster
+	// cleared, or redrawn without the mark, at every start that loses the
+	// race with the list. Every caller of Plan leaves such an item as it is;
+	// the first list read wakes it (the remediation loop's dubs source).
+	DubUnread bool
 }
 
-// ItemOf reads obj's overlay inputs. Only Movie and Series have any.
-func ItemOf(obj client.Object) (Item, error) {
+// ItemOf reads obj's overlay inputs, its dub from the MAL-Dubs index ctx
+// carries (dubs.From; none, and nothing is dubbed). Only Movie and Series
+// have any.
+func ItemOf(ctx context.Context, obj client.Object) (Item, error) {
+	ix := dubs.From(ctx)
 	switch o := obj.(type) {
 	case *catalogv1alpha1.Movie:
 		it := Item{Kind: commonv1.MediaKindMovie, Object: o, Overlay: o.Status.Overlay, PosterDigest: posterDigest(o.Status.Artwork)}
 		if o.Status.Metadata != nil {
 			it.Ratings = o.Status.Metadata.Ratings
 		}
+		it.Dubbed, it.DubUnread = ix.Movie(o) == dubs.Dubbed, ix.Unread(o)
 		return it, nil
 	case *catalogv1alpha1.Series:
 		it := Item{Kind: commonv1.MediaKindSeries, Object: o, Overlay: o.Status.Overlay, PosterDigest: posterDigest(o.Status.Artwork)}
 		if o.Status.Metadata != nil {
 			it.Ratings = o.Status.Metadata.Ratings
 		}
+		it.Dubbed, it.DubUnread = ix.Series(o) == dubs.Dubbed, ix.Unread(o)
 		return it, nil
 	default:
 		return Item{}, fmt.Errorf("%w: %T", ErrNoOverlay, obj)
@@ -235,12 +256,15 @@ const RenderVersion = 5
 // source -- and [RenderVersion], so a renderer upgrade re-renders. A rating
 // contributes its source and value; its vote count is never drawn, so it
 // stays out -- a count ticking over on every metadata refresh would
-// otherwise re-render every poster for no visible change.
-func InputsDigest(originalDigest, profileHash string, ratings []catalogv1alpha1.Rating) string {
-	return inputsDigest(RenderVersion, originalDigest, profileHash, ratings)
+// otherwise re-render every poster for no visible change. The dub mark
+// contributes a line only when it is drawn, so the digest of every poster
+// without one is what it was before the mark existed and none of those was
+// re-rendered for it.
+func InputsDigest(originalDigest, profileHash string, ratings []catalogv1alpha1.Rating, dubbed bool) string {
+	return inputsDigest(RenderVersion, originalDigest, profileHash, ratings, dubbed)
 }
 
-func inputsDigest(version int, originalDigest, profileHash string, ratings []catalogv1alpha1.Rating) string {
+func inputsDigest(version int, originalDigest, profileHash string, ratings []catalogv1alpha1.Rating, dubbed bool) string {
 	sorted := append([]catalogv1alpha1.Rating(nil), ratings...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Source < sorted[j].Source })
 	var b strings.Builder
@@ -248,13 +272,16 @@ func inputsDigest(version int, originalDigest, profileHash string, ratings []cat
 	for _, r := range sorted {
 		fmt.Fprintf(&b, "rating=%s:%d\n", r.Source, r.ValueCentis)
 	}
+	if dubbed {
+		b.WriteString("dub=" + overlay.DubText + "\n")
+	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(sum[:])
 }
 
 // Want is the overlay an item should carry. A nil Profile means none: no
-// profile selects the item, no badge has a rating, or there is no original
-// poster to draw on.
+// profile selects the item, it has neither a rated badge nor the dub mark,
+// or there is no original poster to draw on.
 type Want struct {
 	Profile      *catalogv1alpha1.OverlayProfile
 	Badges       []overlay.Badge
@@ -265,21 +292,30 @@ type Want struct {
 	OriginalDigest string
 }
 
-// Plan decides it's overlay from its labels and ratings, the profiles in
-// its namespace and the digest of its original poster ("" when there is
-// none).
+// Plan decides it's overlay from its labels, ratings and dub, the profiles
+// in its namespace and the digest of its original poster ("" when there is
+// none): the winning profile's rated badges, then the dub mark on a dubbed
+// anime, which stands alone when no badge has a rating. The mark is every
+// profile's: a profile says which items carry an overlay and where it sits,
+// not whether a dubbed anime says so.
+//
+// The plan of an item whose dub is unread (Item.DubUnread) is not known:
+// the caller checks that first and leaves the item as it is.
 func Plan(it Item, profiles []catalogv1alpha1.OverlayProfile, originalDigest string) Want {
 	p := Winner(profiles, it)
 	if p == nil || originalDigest == "" {
 		return Want{}
 	}
 	badges := Badges(p.Spec, it.Ratings)
+	if it.Dubbed {
+		badges = append(badges, overlay.DubBadge())
+	}
 	if len(badges) == 0 {
 		return Want{}
 	}
 	return Want{
 		Profile: p, Badges: badges, OriginalDigest: originalDigest,
-		InputsDigest: InputsDigest(originalDigest, ProfileHash(p.Spec), it.Ratings),
+		InputsDigest: InputsDigest(originalDigest, ProfileHash(p.Spec), it.Ratings, it.Dubbed),
 	}
 }
 

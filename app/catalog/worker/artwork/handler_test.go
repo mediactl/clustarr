@@ -50,6 +50,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/overlayplan"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
 	"github.com/mediactl/clustarr/app/catalog/worker/artwork"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -161,6 +162,9 @@ type fixture struct {
 	poster  []byte
 	info    events.ObjectInfo
 	ratings []catalogv1alpha1.Rating
+	// externalIDs are status.metadata.externalIDs in the gateway's next
+	// declaration; nil declares none.
+	externalIDs map[string]string
 }
 
 func newFixture(t *testing.T, kind commonv1.MediaKind, ns string, badges ...catalogv1alpha1.RatingSource) *fixture {
@@ -234,13 +238,13 @@ func (f *fixture) gateway(ratings []catalogv1alpha1.Rating, withArtwork bool) {
 	var ac k8s.ApplyConfiguration
 	switch f.kind {
 	case commonv1.MediaKindMovie:
-		st := catalogac.MovieStatus().WithMetadata(catalogac.MovieMetadata().WithTitle("Heat").WithRefreshedAt(refreshed).WithRatings(rs...))
+		st := catalogac.MovieStatus().WithMetadata(catalogac.MovieMetadata().WithTitle("Heat").WithRefreshedAt(refreshed).WithRatings(rs...).WithExternalIDs(f.externalIDs))
 		if withArtwork {
 			st.WithArtwork(entries...)
 		}
 		ac = catalogac.Movie(f.key.Name, f.key.Namespace).WithStatus(st)
 	default:
-		st := catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Lost").WithRefreshedAt(refreshed).WithRatings(rs...))
+		st := catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Lost").WithRefreshedAt(refreshed).WithRatings(rs...).WithExternalIDs(f.externalIDs))
 		if withArtwork {
 			st.WithArtwork(entries...)
 		}
@@ -255,7 +259,7 @@ func (f *fixture) get() overlayplan.Item {
 	obj, err := overlayplan.NewObject(f.kind)
 	require.NoError(f.t, err)
 	require.NoError(f.t, f.c.Get(context.Background(), f.key, obj))
-	it, err := overlayplan.ItemOf(obj)
+	it, err := overlayplan.ItemOf(context.Background(), obj)
 	require.NoError(f.t, err)
 	return it
 }
@@ -281,7 +285,20 @@ func (f *fixture) profile() *catalogv1alpha1.OverlayProfile {
 }
 
 func (f *fixture) wantDigest() string {
-	return overlayplan.InputsDigest(f.info.Digest, overlayplan.ProfileHash(f.profile().Spec), f.ratings)
+	return overlayplan.InputsDigest(f.info.Digest, overlayplan.ProfileHash(f.profile().Spec), f.ratings, false)
+}
+
+// anime makes the fixture's Series an anime with MAL id mal and no rating:
+// the state of nearly every anime on talos, none of which has a Metacritic
+// score.
+func (f *fixture) anime(mal string) {
+	f.t.Helper()
+	var s catalogv1alpha1.Series
+	require.NoError(f.t, f.c.Get(context.Background(), f.key, &s))
+	s.Spec.SeriesType = catalogv1alpha1.SeriesTypeAnime
+	require.NoError(f.t, f.c.Update(context.Background(), &s))
+	f.externalIDs = map[string]string{"mal": mal}
+	f.gateway(nil, true)
 }
 
 func (f *fixture) setLabels(lbls map[string]string) {
@@ -513,6 +530,70 @@ func TestABadgeWithoutARatingIsOmitted(t *testing.T) {
 	assert.Equal(t, one, info.Digest, "imdb has no rating, so only the tmdb badge is drawn, at JPEG quality 90")
 }
 
+// A dubbed anime's poster carries the dub mark and nothing else when it has
+// no rating: the stored overlay is byte-for-byte the render of that one
+// badge, under a digest that says so. The anime leaving the list removes
+// it. The item's dub is read from the MAL-Dubs index the agent's context
+// carries, as every domain's is.
+func TestADubbedAnimeIsMarkedWithoutARating(t *testing.T) {
+	f := newFixture(t, commonv1.MediaKindSeries, "render-dub")
+	f.anime("41457")
+	ix := dubs.NewIndex()
+	ix.Set(dubs.Record{Dubbed: []int{41457}})
+	ctx := dubs.WithIndex(context.Background(), ix)
+	task := renderTask(t, f.kind, f.key.Namespace, f.key.Name)
+
+	require.NoError(t, f.h.Handle(ctx, task))
+	info, ok := f.overlay()
+	require.True(t, ok, "the mark is an overlay of its own")
+	assert.Equal(t, overlayplan.InputsDigest(f.info.Digest, overlayplan.ProfileHash(f.profile().Spec), nil, true),
+		info.Headers["Clustarr-Rendered-From"])
+
+	base, _, err := image.Decode(bytes.NewReader(f.poster))
+	require.NoError(t, err)
+	img, err := overlayrender.Render(base, []overlay.Badge{overlay.DubBadge()}, overlay.TemplateSpec(f.profile().Spec))
+	require.NoError(t, err)
+	var buf bytes.Buffer
+	require.NoError(t, jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}))
+	sum := sha256.Sum256(buf.Bytes())
+	assert.Equal(t, hex.EncodeToString(sum[:]), info.Digest, "the dub mark alone, at JPEG quality 90")
+
+	ix.Set(dubs.Record{})
+	require.NoError(t, f.h.Handle(ctx, task))
+	_, ok = f.overlay()
+	assert.False(t, ok, "an anime the list no longer names carries no mark")
+}
+
+// An agent that has not read the MAL-Dubs list yet cannot plan an anime:
+// judged then it reads as not dubbed, and the marked poster would be
+// removed. The task is retried instead and the overlay stands. Anything
+// that is not an anime is rendered as ever.
+func TestAnAnimeIsNotRenderedBeforeTheDubListIsRead(t *testing.T) {
+	f := newFixture(t, commonv1.MediaKindSeries, "render-dub-unread")
+	f.anime("41457")
+	ix := dubs.NewIndex()
+	ix.Set(dubs.Record{Dubbed: []int{41457}})
+	task := renderTask(t, f.kind, f.key.Namespace, f.key.Name)
+	require.NoError(t, f.h.Handle(dubs.WithIndex(context.Background(), ix), task))
+	marked, ok := f.overlay()
+	require.True(t, ok)
+
+	unread := dubs.WithIndex(context.Background(), dubs.NewIndex())
+	err := f.h.Handle(unread, task)
+	require.ErrorIs(t, err, artwork.ErrDubUnread)
+	var retry *events.RetryError
+	require.ErrorAs(t, err, &retry, "the delivery is retried, not failed")
+	assert.Equal(t, artwork.RetryDubUnread, retry.After)
+	still, ok := f.overlay()
+	require.True(t, ok, "the marked poster stands")
+	assert.Equal(t, marked.Digest, still.Digest)
+
+	other := newFixture(t, commonv1.MediaKindMovie, "render-dub-unread-film", catalogv1alpha1.RatingSourceTMDB)
+	require.NoError(t, other.h.Handle(unread, renderTask(t, other.kind, other.key.Namespace, other.key.Name)))
+	_, ok = other.overlay()
+	assert.True(t, ok, "the list decides nothing for a film that is no anime")
+}
+
 // The original is replaced between the plan's Info and the draw's Get: the
 // render would draw the new poster under the old poster's inputs digest,
 // so it is not drawn at all -- the delivery retries and the retry judges
@@ -539,7 +620,7 @@ func TestAnOriginalReplacedBeforeTheDrawIsNotRenderedUnderItsOldDigest(t *testin
 	info, err := f.store.Info(ctx, f.overlayKey())
 	require.NoError(t, err)
 	sum := sha256.Sum256(replacement)
-	want := overlayplan.InputsDigest(hex.EncodeToString(sum[:]), overlayplan.ProfileHash(f.profile().Spec), f.ratings)
+	want := overlayplan.InputsDigest(hex.EncodeToString(sum[:]), overlayplan.ProfileHash(f.profile().Spec), f.ratings, false)
 	assert.Equal(t, want, info.Headers["Clustarr-Rendered-From"])
 }
 
@@ -677,7 +758,7 @@ func TestProfilesAreReadUncached(t *testing.T) {
 	p.Spec.Corner = catalogv1alpha1.OverlayCornerTopLeft
 	require.NoError(t, f.c.Update(ctx, p))
 	fresh := f.wantDigest()
-	require.NotEqual(t, overlayplan.InputsDigest(f.info.Digest, overlayplan.ProfileHash(before.Items[0].Spec), f.ratings), fresh,
+	require.NotEqual(t, overlayplan.InputsDigest(f.info.Digest, overlayplan.ProfileHash(before.Items[0].Spec), f.ratings, false), fresh,
 		"the edit moves the profile hash, so a stale list is visible")
 
 	require.NoError(t, f.handle())

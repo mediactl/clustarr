@@ -271,7 +271,7 @@ func (ix *Index) Lookup(malID string) State {
 // Series is s's State: Ungoverned unless it is an anime (spec.seriesType),
 // else its MAL id's (status.metadata.externalIDs["mal"]).
 func (ix *Index) Series(s *catalogv1alpha1.Series) State {
-	if s == nil || s.Spec.SeriesType != catalogv1alpha1.SeriesTypeAnime {
+	if !animeSeries(s) {
 		return Ungoverned
 	}
 	var mal string
@@ -284,7 +284,7 @@ func (ix *Index) Series(s *catalogv1alpha1.Series) State {
 // Movie is m's State: Ungoverned unless it was classified anime
 // (status.classification, movie.Classify), else its MAL id's.
 func (ix *Index) Movie(m *catalogv1alpha1.Movie) State {
-	if m == nil || m.Status.Classification == nil || !m.Status.Classification.Anime {
+	if !animeMovie(m) {
 		return Ungoverned
 	}
 	var mal string
@@ -292,6 +292,40 @@ func (ix *Index) Movie(m *catalogv1alpha1.Movie) State {
 		mal = md.ExternalIDs["mal"]
 	}
 	return ix.Lookup(mal)
+}
+
+func animeSeries(s *catalogv1alpha1.Series) bool {
+	return s != nil && s.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
+}
+
+func animeMovie(m *catalogv1alpha1.Movie) bool {
+	return m != nil && m.Status.Classification != nil && m.Status.Classification.Anime
+}
+
+// Unread reports whether item -- a *Series or a *Movie -- is an anime the
+// index cannot decide yet because it has read no list: its Ungoverned is
+// "not known", where every other Ungoverned is "not the list's to decide".
+// A reader that acts on an item NOT being dubbed (the poster's dub mark,
+// app/catalog/overlayplan) waits on it; the first list read wakes every
+// anime (Changes). A nil index, a process that watches no list, has nothing
+// unread.
+func (ix *Index) Unread(item any) bool {
+	if ix == nil {
+		return false
+	}
+	ix.mu.RLock()
+	loaded := ix.loaded
+	ix.mu.RUnlock()
+	if loaded {
+		return false
+	}
+	switch t := item.(type) {
+	case *catalogv1alpha1.Series:
+		return animeSeries(t)
+	case *catalogv1alpha1.Movie:
+		return animeMovie(t)
+	}
+	return false
 }
 
 // apply folds the bucket's entry into the index; a delete or an unreadable

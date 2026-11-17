@@ -42,3 +42,19 @@ type Badge struct {
 	// A nil Logo draws the badge box and score text with no logo.
 	Logo image.Image
 }
+
+// SourceDub is the Source of the dub mark, the one badge that is not a
+// rating: a box that reads DubText and carries no logo, drawn after the
+// rating badges on an anime with an English dub (owner, 2026-11-17: "a
+// simple overlay for all dubbed series denoting that the anime is dubbed").
+// It is no api/catalog/v1alpha1.RatingSource: no Rating carries it and no
+// profile lists it.
+const SourceDub = "dub"
+
+// DubText is what the dub mark reads.
+const DubText = "DUB"
+
+// DubBadge is the dub mark: text in the score's face and at its height, in
+// the box every badge takes -- Plex's episode-count box, which is itself a
+// box holding only text.
+func DubBadge() Badge { return Badge{Source: SourceDub, Score: DubText} }

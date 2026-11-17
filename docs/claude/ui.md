@@ -1098,6 +1098,30 @@ still wanted through `original`, and the K-dramas' dual-audio profile, whose
 series carry no MAL id, is untouched. On talos then: 383 dubbed, 2
 incomplete, 97 not dubbed and 26 without a MAL id of the 508 anime series;
 27 of 28 anime films have one.
+**A dubbed anime's poster says so** (owner, 2026-11-17: "a simple overlay
+for all dubbed series denoting that the anime is dubbed"): an anime the list
+names `Dubbed` -- a Series or a Movie, the same state the audio policy wants
+English for -- carries the dub mark, a box reading `DUB` in the score's face
+(`overlay.DubBadge`; Plex's episode-count box is itself a box of text), drawn
+after the rating badges of the OverlayProfile that selects it and standing
+alone when no badge has a rating (`overlayplan.Plan`), which is how nearly
+every anime carries it: talos' one profile draws Metacritic, and no anime
+there has a Metacritic score, so none had an overlay before. It is no
+profile field and no `RatingSource`: a profile says which items carry an
+overlay and where, and an item no profile selects carries no mark.
+`Incomplete` is not marked (its English is optional, so its files may have
+none), and the mark is the list's word, not a probe of the files. It is an
+input of the render (`overlayplan.InputsDigest`, a `dub=` line only when
+drawn, so no unmarked poster's digest moved and none was re-rendered), and a
+list change re-plans the item through the `dubs` source as it does the audio
+policy. **An anime's overlay is not judged before the process has read the
+list** (`dubs.Index.Unread`, `overlayplan.Item.DubUnread`): read then, the
+anime is `Ungoverned`, which plans as not dubbed, and a manager or agent
+that started ahead of the bucket would have every marked poster removed and
+drawn again -- a poster change Plex refreshes for. The overlay stage keeps
+status.overlay as the object says and publishes nothing, the OverlayProfile
+controller skips the item, and the renderer retries the task
+(`ErrDubUnread`, 30 s); the first list read wakes every anime.
 An Episode carries two conditions, Ready and DeadLettered (owner,
 2026-11-03, cutting the manager's memory): the Aired, HasFile, CutoffMet and
 WrongLanguage conditions every episode carried restated `status.phase`,

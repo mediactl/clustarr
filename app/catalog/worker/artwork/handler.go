@@ -78,6 +78,18 @@ var ErrInputsMoved = errors.New("artwork: the item's overlay inputs changed duri
 // RetryInputsMoved is how long an ErrInputsMoved delivery waits.
 const RetryInputsMoved = 5 * time.Second
 
+// ErrDubUnread is a render task for an anime this process cannot plan yet,
+// having read no MAL-Dubs list (overlayplan.Item.DubUnread): judged now it
+// would read as not dubbed, and a marked poster would be cleared or drawn
+// without its mark. Nothing is read or stored; the delivery is retried after
+// RetryDubUnread, by which time a starting agent has read the bucket. One
+// that never does (no list was ever fetched) runs out of deliveries, and the
+// item key asks again when the list is read.
+var ErrDubUnread = errors.New("artwork: the MAL-Dubs list is not read yet")
+
+// RetryDubUnread is how long an ErrDubUnread delivery waits.
+const RetryDubUnread = 30 * time.Second
+
 // errItemGone is an item deleted before or during the render: nothing is
 // left to draw on, and the reaper takes the objects.
 var errItemGone = errors.New("artwork: item no longer exists")
@@ -276,6 +288,9 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 	case errors.Is(err, ErrInputsMoved):
 		log.Info("artwork: inputs changed during the render; retrying")
 		return events.Retry(RetryInputsMoved, err)
+	case errors.Is(err, ErrDubUnread):
+		log.Debug("artwork: the MAL-Dubs list is not read yet; retrying")
+		return events.Retry(RetryDubUnread, err)
 	case err != nil:
 		tracing.RecordError(span, err)
 		return err
@@ -324,6 +339,9 @@ func (h *Handler) Render(ctx context.Context, key client.ObjectKey, kind commonv
 	it, err := h.read(ctx, kind, key)
 	if err != nil {
 		return "", err
+	}
+	if it.DubUnread {
+		return "", fmt.Errorf("%w: %s %s", ErrDubUnread, kind, key)
 	}
 	want, err := h.plan(ctx, it)
 	if err != nil {
@@ -543,7 +561,7 @@ func (h *Handler) read(ctx context.Context, kind commonv1.MediaKind, key client.
 		}
 		return overlayplan.Item{}, fmt.Errorf("artwork: get %s %s: %w", kind, key, err)
 	}
-	return overlayplan.ItemOf(obj)
+	return overlayplan.ItemOf(ctx, obj)
 }
 
 func objectKey(it overlayplan.Item, variant string) string {

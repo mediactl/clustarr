@@ -99,6 +99,32 @@ func TestOnlyAnAnimeIsGoverned(t *testing.T) {
 	assert.Equal(t, Ungoverned, ix.Movie(&catalogv1alpha1.Movie{}), "never classified")
 }
 
+// Until a list is read an anime's Ungoverned means "not known", and only an
+// anime's: Unread tells the two apart, for a reader that acts on an item
+// not being dubbed.
+func TestAnAnimeIsUnreadUntilAListIs(t *testing.T) {
+	anime := &catalogv1alpha1.Series{}
+	anime.Spec.SeriesType = catalogv1alpha1.SeriesTypeAnime
+	film := &catalogv1alpha1.Movie{}
+	film.Status.Classification = &catalogv1alpha1.MovieClassification{Anime: true}
+	drama := &catalogv1alpha1.Series{}
+	drama.Spec.SeriesType = catalogv1alpha1.SeriesTypeStandard
+
+	ix := NewIndex()
+	assert.True(t, ix.Unread(anime))
+	assert.True(t, ix.Unread(film))
+	assert.False(t, ix.Unread(drama), "the list never decides a K-drama")
+	assert.False(t, ix.Unread(&catalogv1alpha1.Movie{}), "never classified")
+	assert.False(t, ix.Unread(&catalogv1alpha1.Episode{}))
+
+	var none *Index
+	assert.False(t, none.Unread(anime), "a process with no index waits for no list")
+
+	ix.Set(Record{})
+	assert.False(t, ix.Unread(anime), "an empty list is a list read")
+	assert.False(t, ix.Unread(film))
+}
+
 func bucket(t *testing.T) events.KV {
 	t.Helper()
 	bus := membus.New(nil)

@@ -40,11 +40,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 //  1. overlayplan.Plan: the winning profile (overlayplan.Winner, lowest
 //     name among the profiles whose selector and kinds match), its badges
-//     that have a rating (overlayplan.Badges) and the stored original's
-//     digest. No profile, no rated badge or no original means no overlay:
-//     delete poster/overlay.
+//     that have a rating (overlayplan.Badges), the dub mark when the item
+//     is a dubbed anime (overlay.DubBadge, by the MAL-Dubs index on the
+//     agent's context) and the stored original's digest. No profile,
+//     neither a rated badge nor the mark, or no original means no overlay:
+//     delete poster/overlay. An anime is not judged at all before the
+//     agent has read the list ([ErrDubUnread]): the task is retried.
 //  2. overlayplan.InputsDigest over the original's digest,
-//     overlayplan.ProfileHash and the ratings sorted by source.
+//     overlayplan.ProfileHash, the ratings sorted by source and the mark.
 //  3. If the stored overlay's Clustarr-Rendered-From is that digest,
 //     render nothing; backfill its metadata if it is older than the
 //     current set.
