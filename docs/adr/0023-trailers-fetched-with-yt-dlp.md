@@ -72,7 +72,13 @@ Three things were tested before anything was built:
   deprecated; the image holds none, and may need one.
 - The `agent` binary links `pkg/ytdlp` in every image, since it is one binary; the program
   is in the trailers image alone, and the domain does not start without it.
-- A trailer is about 20 MB; the gap on talos is about 230 movies and 350 shows.
+- A trailer averaged 38 MB over the first thirteen on talos (up to 1080p, two to five
+  minutes); the gap there is about 350 movies and 390 shows.
+- As run on talos (rev 268, 2026-11-17): a trailer every 30 seconds or so. Of the first
+  sixteen fetches two pages were held for an age and one was Vimeo's, which serves nothing
+  to a client that is not signed in; an unavailable page now gives way to the item's next
+  best video (`trailers.Rank`, three at most). The first pass ran while the metadata agent
+  was rolling and warned once per item; ten undecided items in a row now end a pass.
 - A status field on Movie and Series, written by the manager from the bucket, would let
   cluster-plex refresh an item the moment its trailer lands. It was not built: it is a CRD
   field and an item stage for a gap the early fetch mostly covers.

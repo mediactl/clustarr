@@ -778,7 +778,8 @@ agents:
   # clustarr runs, in its own image (image.trailers). One replica. Mounts
   # /data read-write and keeps each trailer under its item's root folder at
   # .clustarr/trailers/; the ui's Plex provider answers the file to Plex, so
-  # set ui.plex.pathMappings too. A trailer is about 20 MB.
+  # set ui.plex.pathMappings too. A trailer is tens of megabytes (38 MB on
+  # average over the first on talos, at up to 1080p).
   trailers:
     enabled: false
     resources:
