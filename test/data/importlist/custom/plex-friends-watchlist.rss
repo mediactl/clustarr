@@ -1,0 +1,42 @@
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>Plex Watchlist</title>
+    <link>https://rss.plex.tv/00000000-0000-0000-0000-000000000000</link>
+    <description>Plex watchlist for Owner&apos;s Friends</description>
+    <category>Owner</category>
+    <atom:link href="https://rss.plex.tv/00000000-0000-0000-0000-000000000000" rel="self" type="application/rss+xml"></atom:link>
+    <item>
+      <title>Dune (2021)</title>
+      <pubDate>Mon, 16 Nov 2026 18:02:11 GMT</pubDate>
+      <link>https://watch.plex.tv/movie/dune-2021</link>
+      <guid isPermaLink="false">imdb://tt1160419</guid>
+      <description>Paul Atreides leads nomadic tribes in a battle to control the desert planet Arrakis.</description>
+      <category>movie</category>
+      <media:thumbnail url="https://image.tmdb.org/t/p/original/d5NXSklXo0qyIYkgV94XAgMIckC.jpg"/>
+      <media:keywords>Science Fiction, Adventure</media:keywords>
+    </item>
+    <item>
+      <title>Severance (2022)</title>
+      <pubDate>Sun, 15 Nov 2026 03:40:52 GMT</pubDate>
+      <link>https://watch.plex.tv/show/severance</link>
+      <guid isPermaLink="false">tvdb://371980</guid>
+      <description>Mark leads a team of office workers whose memories have been surgically divided.</description>
+      <category>show</category>
+      <media:keywords>Drama, Mystery</media:keywords>
+    </item>
+    <item>
+      <title>Arrival (2016)</title>
+      <link>https://watch.plex.tv/movie/arrival-2016</link>
+      <guid isPermaLink="false">imdb://tt2543164</guid>
+      <guid isPermaLink="false">tmdb://329865</guid>
+      <category>movie</category>
+    </item>
+    <item>
+      <title>Slow Horses</title>
+      <link>https://watch.plex.tv/show/slow-horses</link>
+      <guid isPermaLink="false">tvdb://371572</guid>
+      <guid isPermaLink="false">imdb://tt5875444</guid>
+      <category>show</category>
+    </item>
+  </channel>
+</rss>

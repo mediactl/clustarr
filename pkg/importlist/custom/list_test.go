@@ -108,6 +108,52 @@ func TestAFeedPastTheCapIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, custom.ErrResponseTooLarge)
 }
 
+// plexFeed is a Plex friends' watchlist feed (https://rss.plex.tv/<uuid>).
+// Its envelope is the owner's feed as Plex served it on 2026-11-17, the
+// uuid and name changed; that feed held no item then, so the items are
+// written to the shape Radarr's and Sonarr's PlexRssImportParser read: a
+// category of movie or show, and one guid per id (imdb://, tmdb://,
+// tvdb://).
+const plexFeed = "../../../test/data/importlist/custom/plex-friends-watchlist.rss"
+
+// A Plex item names its ids in its guids and its kind in its category, so
+// one feed of movies and shows serves a list of each.
+func TestAPlexWatchlistFeedListsEachKindWithItsIDs(t *testing.T) {
+	srv := serveFile(t, plexFeed)
+
+	movies, err := rssList(commonv1.MediaKindMovie, srv.URL).Fetch(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []importlist.Item{
+		{Title: "Dune", Year: 2021, ExternalIDs: importlist.ExternalIDs{IMDb: "tt1160419"}},
+		{Title: "Arrival", Year: 2016, ExternalIDs: importlist.ExternalIDs{IMDb: "tt2543164", TMDB: "329865"}},
+	}, movies)
+
+	series, err := rssList(commonv1.MediaKindSeries, srv.URL).Fetch(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []importlist.Item{
+		{Title: "Severance", Year: 2022, ExternalIDs: importlist.ExternalIDs{TVDB: "371980"}},
+		{Title: "Slow Horses", ExternalIDs: importlist.ExternalIDs{TVDB: "371572", IMDb: "tt5875444"}},
+	}, series)
+}
+
+// A category is a kind only beside a Plex guid: another feed's category is
+// a genre, and an item named "movie" there is still of no known kind.
+func TestACategoryIsAKindOnlyOnAPlexItem(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`<rss version="2.0"><channel><item>
+			<title>Sound! Euphonium (2015)</title>
+			<link>https://www.imdb.com/title/tt4384306/</link>
+			<category>movie</category>
+		</item></channel></rss>`))
+	}))
+	t.Cleanup(srv.Close)
+	items, err := rssList(commonv1.MediaKindSeries, srv.URL).Fetch(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []importlist.Item{
+		{Title: "Sound! Euphonium", Year: 2015, ExternalIDs: importlist.ExternalIDs{IMDb: "tt4384306"}},
+	}, items)
+}
+
 // mdblist's feed URL carries the list's token as ?rss=, and http.Client.Do's
 // *url.Error quotes the URL whole.
 func TestAnUnreachableFeedsErrorCarriesNoToken(t *testing.T) {

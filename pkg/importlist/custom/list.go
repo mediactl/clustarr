@@ -20,7 +20,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //   - An RSS feed: each item's ids come from its guid and from the IMDb and
 //     TMDB links in its link and description, as mdblist.com's list feeds
 //     carry them (guid show:<tmdb id>). A private mdblist list's feed needs
-//     the list's own ?rss= token.
+//     the list's own ?rss= token. A Plex watchlist feed
+//     (https://rss.plex.tv/<uuid>, a user's own or their friends') is read
+//     too: its items carry one guid per id (imdb://tt…, tmdb://…, tvdb://…)
+//     and a category, movie or show.
 //   - A JSON feed (2026-10-28): mdblist.com's list JSON,
 //     https://mdblist.com/lists/<user>/<slug>/json, an array of
 //     {id (TMDB), tvdbid, imdb_id, title, mediatype show|movie,
@@ -190,18 +193,21 @@ type rssFeed struct {
 }
 
 type rssItem struct {
-	Title       string `xml:"title"`
-	Link        string `xml:"link"`
-	GUID        string `xml:"guid"`
-	Description string `xml:"description"`
+	Title       string   `xml:"title"`
+	Link        string   `xml:"link"`
+	GUIDs       []string `xml:"guid"`
+	Description string   `xml:"description"`
+	Categories  []string `xml:"category"`
 }
 
 var (
 	// mdblist's guid: the item's TMDB id and its media type.
 	mdblistGUID = regexp.MustCompile(`^(show|movie):(\d+)$`)
-	imdbLink    = regexp.MustCompile(`imdb\.com/title/(tt\d+)`)
-	tmdbLink    = regexp.MustCompile(`themoviedb\.org/(tv|movie)/(\d+)`)
-	titleYear   = regexp.MustCompile(`^(.*\S)\s+\((\d{4})\)$`)
+	// A Plex watchlist feed's guids, one per id the item has.
+	plexGUID  = regexp.MustCompile(`^(imdb|tmdb|tvdb)://(tt\d+|\d+)$`)
+	imdbLink  = regexp.MustCompile(`imdb\.com/title/(tt\d+)`)
+	tmdbLink  = regexp.MustCompile(`themoviedb\.org/(tv|movie)/(\d+)`)
+	titleYear = regexp.MustCompile(`^(.*\S)\s+\((\d{4})\)$`)
 )
 
 func (l *List) parseRSS(ctx context.Context, body []byte) ([]importlist.Item, error) {
@@ -232,11 +238,39 @@ func parseItem(it rssItem) (importlist.Item, commonv1.MediaKind) {
 		item.Title, item.Year = m[1], int32(year)
 	}
 	var kind commonv1.MediaKind
-	if m := mdblistGUID.FindStringSubmatch(strings.TrimSpace(it.GUID)); m != nil {
-		item.ExternalIDs.TMDB, kind = m[2], mediaKindOf(m[1])
+	plex := false
+	for _, guid := range it.GUIDs {
+		guid = strings.TrimSpace(guid)
+		if m := mdblistGUID.FindStringSubmatch(guid); m != nil {
+			item.ExternalIDs.TMDB, kind = m[2], mediaKindOf(m[1])
+			continue
+		}
+		m := plexGUID.FindStringSubmatch(guid)
+		if m == nil {
+			continue
+		}
+		switch isIMDb := strings.HasPrefix(m[2], "tt"); {
+		case m[1] == "imdb" && isIMDb:
+			item.ExternalIDs.IMDb, plex = m[2], true
+		case m[1] == "tmdb" && !isIMDb:
+			item.ExternalIDs.TMDB, plex = m[2], true
+		case m[1] == "tvdb" && !isIMDb:
+			item.ExternalIDs.TVDB, plex = m[2], true
+		}
+	}
+	// Only a Plex item's category is its kind: another feed's is a genre.
+	if plex && kind == "" {
+		for _, c := range it.Categories {
+			switch strings.TrimSpace(c) {
+			case "movie":
+				kind = commonv1.MediaKindMovie
+			case "show":
+				kind = commonv1.MediaKindSeries
+			}
+		}
 	}
 	text := it.Link + "\n" + it.Description
-	if m := imdbLink.FindStringSubmatch(text); m != nil {
+	if m := imdbLink.FindStringSubmatch(text); m != nil && item.ExternalIDs.IMDb == "" {
 		item.ExternalIDs.IMDb = m[1]
 	}
 	if item.ExternalIDs.TMDB == "" {
