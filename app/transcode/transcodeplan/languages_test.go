@@ -40,7 +40,7 @@ func TestThePlanReadsTheItemsOriginalLanguage(t *testing.T) {
 		{Index: 3, Codec: "aac", Channels: 2, Language: "spa"},
 	}
 	mf := heatFile(st)
-	p, fail := PlanFor(mf.Spec.Path, &tp, jobspec.ProfileHash(tp.Spec), mf, st, nil, Device{}, "ja")
+	p, fail := PlanFor(mf.Spec.Path, &tp, jobspec.ProfileHash(tp.Spec), mf, st, nil, Device{}, "ja", 0)
 	require.Nil(t, fail)
 	var langs []string
 	for _, a := range p.Plan.Audio {

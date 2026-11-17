@@ -84,6 +84,11 @@ func Verify(ctx context.Context, source, output string, exp standard.Expectation
 		if exp.PixelFormat != "" && vids[0].PixelFmt != ffgo.PixelFormatByName(exp.PixelFormat) {
 			problem("pixel format %d, want %s (%d)", vids[0].PixelFmt, exp.PixelFormat, ffgo.PixelFormatByName(exp.PixelFormat))
 		}
+		// A cropped encode's frame is the rectangle the plan cut: an
+		// output of another size is a file of the wrong shape.
+		if exp.Width > 0 && exp.Height > 0 && (vids[0].Width != int(exp.Width) || vids[0].Height != int(exp.Height)) {
+			problem("video frame %dx%d, want %dx%d", vids[0].Width, vids[0].Height, exp.Width, exp.Height)
+		}
 	}
 	if len(vids) > 0 && (exp.Transfer != "" || exp.Primaries != "" || exp.MasteringDisplay || exp.ContentLight) {
 		checkColour(d, vids[0], exp, problem)

@@ -82,3 +82,52 @@ func TestTheItemReadGivesTheOriginalLanguage(t *testing.T) {
 		})
 	}
 }
+
+// The item read gives the shape a file is cropped to in its transcode
+// (transcodeplan.Inputs.CropAspectMilli): an episode's file of the other
+// shape than its series is kept in, when the series crops
+// (spec.aspectRatioFix crop). Nothing for a series that replaces, a file
+// already the shape, one no probe read the shape of, or a movie.
+func TestTheItemReadGivesTheCropTarget(t *testing.T) {
+	crops := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "frasier"},
+		Spec: catalogv1alpha1.SeriesSpec{
+			AspectRatio: catalogv1alpha1.AspectRatioWidescreen, AspectRatioFix: catalogv1alpha1.AspectRatioFixCrop,
+			SeasonAspectRatios: []catalogv1alpha1.SeasonAspectRatio{{Number: 2, AspectRatio: catalogv1alpha1.AspectRatioFullscreen}},
+		}}
+	replaces := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "seinfeld"},
+		Spec: catalogv1alpha1.SeriesSpec{AspectRatio: catalogv1alpha1.AspectRatioWidescreen}}
+	episode := func(name, series string, season int32) *catalogv1alpha1.Episode {
+		return &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name},
+			Spec: catalogv1alpha1.EpisodeSpec{SeriesRef: series, SeasonNumber: season}}
+	}
+	movie := &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "heat"}}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(crops, replaces, movie,
+		episode("frasier-s01e01", "frasier", 1), episode("frasier-s02e01", "frasier", 2), episode("seinfeld-s09e01", "seinfeld", 9)).Build()
+	file := func(kind commonv1.MediaKind, name string, milli int32) *catalogv1alpha1.MediaFile {
+		mf := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "f"},
+			Spec: catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: kind, Name: name}}}
+		if milli >= 0 {
+			mf.Status.MediaInfo = &commonv1.MediaInfo{DisplayAspectMilli: milli}
+		}
+		return mf
+	}
+	for _, tc := range []struct {
+		name string
+		mf   *catalogv1alpha1.MediaFile
+		want int32
+	}{
+		{"a 4:3 file of a widescreen series that crops", file(commonv1.MediaKindEpisode, "frasier-s01e01", 1333), 1778},
+		{"a 16:9 file of its 4:3 season", file(commonv1.MediaKindEpisode, "frasier-s02e01", 1778), 1333},
+		{"a file already the shape", file(commonv1.MediaKindEpisode, "frasier-s01e01", 1778), 0},
+		{"a shape no probe read", file(commonv1.MediaKindEpisode, "frasier-s01e01", 0), 0},
+		{"an unprobed file", file(commonv1.MediaKindEpisode, "frasier-s01e01", -1), 0},
+		{"a series that replaces", file(commonv1.MediaKindEpisode, "seinfeld-s09e01", 1333), 0},
+		{"a movie", file(commonv1.MediaKindMovie, "heat", 1333), 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := readItem(context.Background(), c, tc.mf)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.cropMilli)
+		})
+	}
+}

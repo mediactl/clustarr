@@ -515,6 +515,23 @@ func OriginalLanguage(ctx context.Context, r client.Reader, item client.Object) 
 	return ""
 }
 
+// CropTarget is the display aspect ratio, in thousandths, mf's picture is
+// cropped to in its transcode: its Episode's Series keeps another shape
+// than the file's and crops (Series.CropTarget, spec.aspectRatioFix crop);
+// 0 for a movie, a series that replaces, a file of the wanted shape and
+// one whose shape no probe has read.
+func CropTarget(ctx context.Context, r client.Reader, item client.Object, mf *catalogv1alpha1.MediaFile) int32 {
+	ep, ok := item.(*catalogv1alpha1.Episode)
+	if !ok || mf == nil || mf.Status.MediaInfo == nil {
+		return 0
+	}
+	var s catalogv1alpha1.Series
+	if err := r.Get(ctx, client.ObjectKey{Namespace: ep.Namespace, Name: ep.Spec.SeriesRef}, &s, client.UnsafeDisableDeepCopy); err != nil {
+		return 0
+	}
+	return s.CropTarget(ep.Spec.SeasonNumber, mf.Status.MediaInfo.DisplayAspectMilli)
+}
+
 // TranscodeExcluded reports whether item, or an Episode's Series, carries
 // transcode.clustarr.io/exclude: "true" (catalogv1alpha1.AnnotationTranscodeExclude).
 func TranscodeExcluded(ctx context.Context, r client.Reader, item client.Object) bool {

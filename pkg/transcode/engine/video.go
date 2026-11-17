@@ -265,8 +265,14 @@ func openVideoEncoder(sc *stageContext, v standard.VideoPlan, graph *ffgo.Filter
 			}
 		}
 	}
+	// The encoder's frame is the source's, or the rectangle the filter
+	// cropped it to.
+	width, height := sc.src.Width, sc.src.Height
+	if v.Crop != nil {
+		width, height = int(v.Crop.Width), int(v.Crop.Height)
+	}
 	cfg := ffgo.VideoEncoderConfig{
-		EncoderName: v.Encoder, Width: sc.src.Width, Height: sc.src.Height, FrameRate: frameRate(sc.src),
+		EncoderName: v.Encoder, Width: width, Height: height, FrameRate: frameRate(sc.src),
 		PixelFormat: format, HWFramesCtx: graph.OutputHWFramesCtx(), CodecOptions: opts,
 		// An anamorphic source's pixel aspect (a 16:9 DVD's 32:27) is kept.
 		SampleAspectRatio: sc.src.SampleAspectRatio,

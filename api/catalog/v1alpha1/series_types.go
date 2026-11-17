@@ -408,6 +408,14 @@ type SeriesSpec struct {
 	// +kubebuilder:default=widescreen
 	AspectRatio AspectRatio `json:"aspectRatio,omitempty"`
 
+	// AspectRatioFix is what is done about a file of another shape:
+	// replace (the default) searches for another release; crop keeps the
+	// best release and crops it to the wanted shape in its transcode. A
+	// file already transcoded is searched for anew under either.
+	// +optional
+	// +kubebuilder:default=replace
+	AspectRatioFix AspectRatioFix `json:"aspectRatioFix,omitempty"`
+
 	// SeasonAspectRatios gives a season its own shape, where it is not
 	// the series': the widescreen seasons of a series that began in 4:3.
 	// +optional

@@ -59,6 +59,10 @@ type EditRequest struct {
 	// is kept in (widescreen, fullscreen, any); empty leaves it. Set on
 	// any other kind, the request is refused.
 	AspectRatio string
+	// AspectRatioFix is a series' spec.aspectRatioFix, what is done about
+	// a file of another shape (replace, crop); empty leaves it. Set on any
+	// other kind, the request is refused.
+	AspectRatioFix string
 	// MinimumAvailability is a movie's spec.minimumAvailability (tba,
 	// announced, inCinemas, released); empty leaves it. Set on any other
 	// kind, the request is refused.
@@ -145,6 +149,7 @@ func EditableKinds() []commonv1.MediaKind {
 var (
 	seriesTypes           = []string{"standard", "daily", "anime"}
 	aspectRatios          = []string{"widescreen", "fullscreen", "any"}
+	aspectRatioFixes      = []string{"replace", "crop"}
 	minimumAvailabilities = []string{"tba", "announced", "inCinemas", "released"}
 	artistMonitorNew      = []string{"all", "none", "new"}
 	authorMonitorNew      = []string{"all", "none"}
@@ -262,6 +267,7 @@ func editSpec(kind commonv1.MediaKind, req EditRequest) (map[string]any, error) 
 	for _, f := range []enumField{
 		{"seriesType", req.SeriesType, commonv1.MediaKindSeries, seriesTypes},
 		{"aspectRatio", req.AspectRatio, commonv1.MediaKindSeries, aspectRatios},
+		{"aspectRatioFix", req.AspectRatioFix, commonv1.MediaKindSeries, aspectRatioFixes},
 		{"minimumAvailability", req.MinimumAvailability, commonv1.MediaKindMovie, minimumAvailabilities},
 		{"kind", req.ComicKind, commonv1.MediaKindComic, comicKinds},
 		{"specialVersion", req.SpecialVersion, commonv1.MediaKindComic, comicSpecialVersions},

@@ -73,13 +73,19 @@ type Task struct {
 	// (TMDB's, "ja"), "" when unknown: the standard's "original" in a
 	// profile's language lists, which no probe can read, so the worker plans
 	// as the manager did (transcode.MediaInfo.OriginalLanguage).
-	OriginalLanguage string          `json:"originalLanguage,omitempty"`
-	OutputPath       string          `json:"outputPath"`
-	Root             RootFolder      `json:"root"`
-	OutputRoot       string          `json:"outputRoot,omitempty"`
-	Engine           string          `json:"engine,omitempty"`
-	PlanHash         string          `json:"planHash,omitempty"`
-	Deadline         metav1.Duration `json:"deadline"`
+	OriginalLanguage string `json:"originalLanguage,omitempty"`
+	// CropAspectMilli is the display aspect ratio, in thousandths, the
+	// picture is cropped to in its encode (1778 or 1333), 0 for none: the
+	// file's series keeps another shape than the file's and crops
+	// (transcode.MediaInfo.CropAspectMilli). An item's fact no probe can
+	// read, so the worker plans as the manager did.
+	CropAspectMilli int32           `json:"cropAspectMilli,omitempty"`
+	OutputPath      string          `json:"outputPath"`
+	Root            RootFolder      `json:"root"`
+	OutputRoot      string          `json:"outputRoot,omitempty"`
+	Engine          string          `json:"engine,omitempty"`
+	PlanHash        string          `json:"planHash,omitempty"`
+	Deadline        metav1.Duration `json:"deadline"`
 	// Graft is an audio graft riding along with this transcode (anime
 	// dual-audio, phase 4 addendum; joined again by F7.2).
 	Graft  *grafttask.Task `json:"graft,omitempty"`

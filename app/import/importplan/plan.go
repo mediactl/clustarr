@@ -96,6 +96,10 @@ type Input struct {
 	// (Series.WantedAspect of its season), by ItemKey of every key the
 	// inspection's files name; absent for every other kind.
 	WantedAspect map[string]catalogv1alpha1.AspectRatio
+	// CropsAspect is whether the owner Series crops a file of another
+	// shape in its transcode (spec.aspectRatioFix crop) where it would
+	// otherwise search for another release.
+	CropsAspect bool
 	// Identity is a Movie owner's identity (itemread.MovieIdentity) and
 	// RuntimeMinutes its metadata runtime, for the runtime rule
 	// (movieContentRejection); zero for every other kind.
@@ -934,10 +938,10 @@ func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.Media
 		// The series' shape (aspect.go): a file of the wrong one replaces
 		// none, and one of the wanted shape replaces a file that is not.
 		if want := p.wantedAspect(c); want != "" {
-			if r := aspectRejection(rel, want, c, compared); !r.none() && !manual {
+			if r := aspectRejection(rel, want, c, compared, p.in.CropsAspect); !r.none() && !manual {
 				return r, true
 			}
-			if aspectRefit(prof, want, compared, c, q) {
+			if aspectRefit(prof, want, compared, c, q, p.in.CropsAspect) {
 				return Rejection{}, false
 			}
 		}

@@ -68,6 +68,7 @@ func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediati
 		return in, remediation.Transient(err)
 	}
 	in.ItemExists, in.OriginalLanguage, in.UpgradeDownloading, in.ItemExcluded = item.exists, item.original, item.downloading, item.excluded
+	in.CropAspectMilli = item.cropMilli
 	b := v.Prev.Transcode
 	if in.Ledger.Grant == transcodeplan.GrantDispatch ||
 		b != nil && b.Phase == catalogv1alpha1.TranscodePhaseQueued && b.JoinedGraft != nil {
@@ -156,6 +157,10 @@ type itemFacts struct {
 	// excluded: the item, or an episode's series, carries
 	// transcode.clustarr.io/exclude (itemread.TranscodeExcluded).
 	excluded bool
+	// cropMilli is the display aspect ratio the file is cropped to in its
+	// encode: an episode's series keeps another shape than the file's and
+	// crops (itemread.CropTarget); 0 for none.
+	cropMilli int32
 }
 
 // readItem reads mf's movie or episode (itemFacts).
@@ -178,7 +183,7 @@ func readItem(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaFil
 	}
 	return itemFacts{
 		exists: true, original: itemread.OriginalLanguage(ctx, r, obj), downloading: transcodeplan.UpgradeDownloading(obj),
-		excluded: itemread.TranscodeExcluded(ctx, r, obj),
+		excluded: itemread.TranscodeExcluded(ctx, r, obj), cropMilli: itemread.CropTarget(ctx, r, obj, mf),
 	}, nil
 }
 

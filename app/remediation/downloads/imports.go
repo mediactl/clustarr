@@ -209,6 +209,7 @@ func (s *Stage) importInput(
 							in.WantedAspect = map[string]catalogv1alpha1.AspectRatio{}
 						}
 						in.WantedAspect[key] = sr.WantedAspect(ep.Spec.SeasonNumber)
+						in.CropsAspect = sr.CropsToAspect()
 					} else if client.IgnoreNotFound(err) != nil {
 						return in, fmt.Errorf("downloads: Episode %s: %w", k, err)
 					}

@@ -173,6 +173,17 @@ spec:
                 - fullscreen
                 - any
                 type: string
+              aspectRatioFix:
+                default: replace
+                description: |-
+                  AspectRatioFix is what is done about a file of another shape:
+                  replace (the default) searches for another release; crop keeps the
+                  best release and crops it to the wanted shape in its transcode. A
+                  file already transcoded is searched for anew under either.
+                enum:
+                - replace
+                - crop
+                type: string
               delayProfileRef:
                 description: DelayProfileRef pins a DelayProfile; unset falls back
                   to tag matching.

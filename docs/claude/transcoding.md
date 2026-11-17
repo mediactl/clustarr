@@ -428,3 +428,48 @@ Movies have no such setting. On 2026-11-17 talos held 1,054 4:3 episode
 files across 16 series, 20 seasons mixing the two shapes (Seinfeld S9: 20
 of the cropped 16:9 remaster, 4 in 4:3).
 
+**A series can crop instead of replacing (owner, 2026-11-17: "for some
+shows, we should prefer the high quality and crop ourselves during
+transcode"; asked: fill the wanted shape, and download a wrong-shaped
+transcode again rather than encode it twice).** `Series.spec.aspectRatioFix`
+is `replace` (the default, the rule above) or `crop` (the Edit dialog's "A
+File of Another Shape"). Under `crop` the best release is kept whatever its
+shape and its one transcode cuts it to the wanted shape, centred, as a
+remaster does: a 4:3 picture loses its top and bottom for 16:9
+(1440x1080 becomes 1440x810), a 16:9 one its sides for 4:3
+(`standard.cropRect`, from the display aspect ratio, so a DVD frame is cut
+by its picture; sides and offsets even; the two ratios exact, not by
+thousandths). The pieces:
+
+- the target is no fact of the file: `Series.CropTarget` (0 unless the
+  series crops and the file is the other shape), read by the adapter
+  (`itemread.CropTarget`) into `transcodeplan.Inputs.CropAspectMilli`, and
+  carried in the task (`Task.CropAspectMilli`) so the worker's plan from its
+  live probe is the manager's;
+- a crop makes an encode of what would be skipped or copied (compliant
+  HEVC, kept H.264); the plan's `Video.Crop` is in its hash, the output is
+  held to the rectangle's size (`Expectation.Width/Height`, checked by
+  `engine.Verify`), and a cropped encode has no kept-video form
+  (`KeepVideo`): one that comes out no smaller fails as any other;
+- the crop is cut on **the CPU tier (`crop=` before `format=`) and QSV
+  (`vpp_qsv`'s `cw/ch/cx/cy`, both decode paths)** only. On NVENC and VAAPI
+  the file is skipped, never encoded whole: an uncropped transcode would be
+  a final file of the wrong shape, searched for again and encoded the same
+  way for ever;
+- a transcode is still never encoded twice. A wrong-shaped file that is
+  already a transcode reads `WrongAspectRatio` under `crop` too and is
+  searched for anew; one that is not a transcode yet is not wrong (the
+  Episode reconciler), so nothing is searched while it waits for its
+  encode;
+- import takes a release of either shape in place of a wrong-shaped
+  transcode, refuses only a wrong-shaped file that is a transcode itself,
+  and does not count a held, not-yet-transcoded file as wrong
+  (`aspectRefit`, `Input.CropsAspect`).
+
+Gaps, known: a file that was Skipped or Failed before the series was set
+to crop keeps that verdict (it holds for its profile and probe hash) until
+the retry annotation; a file with no transcode profile is never cropped
+and never searched for; and the QSV crop was run on no hardware before its
+first use on talos (the development machine opens no QSV device; the CPU
+crop is run by the engine's tests).
+

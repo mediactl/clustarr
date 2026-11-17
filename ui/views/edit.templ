@@ -140,6 +140,7 @@ const EditFieldsNone = "__none__"
 var (
 	seriesTypeOptions         = []AddOption{{"standard", "Standard"}, {"daily", "Daily"}, {"anime", "Anime"}}
 	aspectRatioOptions        = []AddOption{{"widescreen", "Widescreen"}, {"fullscreen", "4:3"}, {"any", "Any"}}
+	aspectRatioFixOptions     = []AddOption{{"replace", "Find another release"}, {"crop", "Crop in the transcode"}}
 	availabilityOptions       = []AddOption{{"tba", "TBA"}, {"announced", "Announced"}, {"inCinemas", "In Cinemas"}, {"released", "Released"}}
 	artistMonitorNewOptions   = []AddOption{{"all", "All new albums"}, {"none", "None"}, {"new", "New albums only"}}
 	authorMonitorNewOptions   = []AddOption{{"all", "All new books"}, {"none", "None"}}
@@ -214,6 +215,7 @@ templ editDialog(d Detail) {
 				if d.Item.Kind == commonv1.MediaKindSeries {
 					@editSelect("seriesType", d.Item.Ref.Name, "Series Type", seriesTypeOptions, d.SeriesType)
 					@editSelect("aspectRatio", d.Item.Ref.Name, "Aspect Ratio", aspectRatioOptions, d.AspectRatio)
+					@editSelect("aspectRatioFix", d.Item.Ref.Name, "A File of Another Shape", aspectRatioFixOptions, d.AspectRatioFix)
 				}
 				if d.Item.Kind == commonv1.MediaKindMovie {
 					@editSelect("minimumAvailability", d.Item.Ref.Name, "Minimum Availability", availabilityOptions, d.MinimumAvailability)
@@ -357,13 +359,14 @@ func noneFor(ref string) string {
 }
 
 // editSelect is one of the dialog's selects; an empty current value reads
-// as the first option, as a CRD default would.
+// as the first option, as a CRD default would. The closed select shows the
+// chosen option's label, not its value ("4:3", not "fullscreen").
 templ editSelect(name, item, label string, opts []AddOption, current string) {
 	@field.Field() {
 		@field.Label(field.LabelProps{For: "edit-" + name + "-" + item + "-trigger"}) {
 			{ label }
 		}
-		@selectcomp.Select(selectcomp.Props{ID: "edit-" + name + "-" + item, Name: name, DefaultValue: selectedOf(opts, current), Required: true}) {
+		@selectcomp.Select(selectcomp.Props{ID: "edit-" + name + "-" + item, Name: name, DefaultValue: selectedOf(opts, current), Items: addOptionItems(opts), Required: true}) {
 			@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full"}) {
 				@selectcomp.Value(selectcomp.ValueProps{Placeholder: "—"})
 			}

@@ -20,6 +20,7 @@ package actions_test
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -128,7 +129,8 @@ func TestSetSeasonMonitoredKeepsTheOtherSeasonsAndSurvivesARacingWriter(t *testi
 	always := &interposedGetter{Reader: c, after: func() {
 		var cur catalogv1alpha1.Series
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: "simpsons"}, &cur))
-		cur.Spec.Tags = append(cur.Spec.Tags, "bump")
+		// A new tag each time: spec.tags is a set, and a repeat is refused.
+		cur.Spec.Tags = append(cur.Spec.Tags, "bump-"+strconv.Itoa(len(cur.Spec.Tags)))
 		require.NoError(t, c.Update(ctx, &cur, client.FieldOwner(creatorManager)))
 	}}
 	_, err = actions.SetSeasonMonitored(ctx, always, rec, ns, "simpsons", 2, false)

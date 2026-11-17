@@ -70,6 +70,9 @@ type In struct {
 	ItemExcluded bool
 	// OriginalLanguage is the item's original language (readItem).
 	OriginalLanguage string
+	// CropAspectMilli is the shape the file's series crops it to in its
+	// encode (readItem, itemread.CropTarget); 0 for none.
+	CropAspectMilli int32
 	// UpgradeDownloading is whether the item has a video grab in flight
 	// (readItem, transcodeplan.UpgradeDownloading).
 	UpgradeDownloading bool
@@ -125,7 +128,7 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 		profiles[in.Profiles[i].Name] = &in.Profiles[i]
 	}
 	d := transcodeplan.Plan(transcodeplan.Inputs{
-		File: v.File, OriginalLanguage: in.OriginalLanguage, Prev: v.Prev.Transcode, Draft: v.Draft, ProbeCurrent: f.ProbeCurrent,
+		File: v.File, OriginalLanguage: in.OriginalLanguage, CropAspectMilli: in.CropAspectMilli, Prev: v.Prev.Transcode, Draft: v.Draft, ProbeCurrent: f.ProbeCurrent,
 		Eligibility: e, Ledger: in.Ledger, Now: v.Now,
 		Record: in.Record, RecordRev: in.RecordRev, Folders: in.Folders, Issue: v.Issue,
 		Lease: in.Lease, TaskStored: in.TaskStored, Profiles: profiles,

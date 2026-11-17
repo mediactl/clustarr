@@ -37,6 +37,37 @@ const (
 	AspectRatioAny AspectRatio = "any"
 )
 
+// AspectRatioFix is what is done about a file that is not the shape its
+// series is kept in.
+// +kubebuilder:validation:Enum=replace;crop
+type AspectRatioFix string
+
+const (
+	// AspectRatioFixReplace searches for another release, and the first of
+	// the wanted shape replaces the file.
+	AspectRatioFixReplace AspectRatioFix = "replace"
+	// AspectRatioFixCrop keeps the best release whatever its shape and
+	// crops it to the wanted one in its transcode, as a remaster does
+	// (owner, 2026-11-17: "for some shows, we should prefer the high
+	// quality and crop ourselves during transcode"): a 4:3 picture loses
+	// the top and bottom a 16:9 frame has no room for, a 16:9 one its
+	// sides. A file already transcoded is never encoded again: it is
+	// searched for anew, and the release that comes is cropped.
+	AspectRatioFixCrop AspectRatioFix = "crop"
+)
+
+// Milli is the display aspect ratio, in thousandths, a picture cropped to
+// the shape has: 16:9 for widescreen, 4:3 for fullscreen, 0 for any other.
+func (a AspectRatio) Milli() int32 {
+	switch a {
+	case AspectRatioWidescreen:
+		return 1778
+	case AspectRatioFullscreen:
+		return 1333
+	}
+	return 0
+}
+
 // fullscreenBelowMilli is the display aspect ratio, in thousandths, under
 // which a picture is fullscreen: 3:2. A 4:3 picture is 1333 and Academy
 // 1375; the narrowest widescreen television, 14:9, is 1556.
@@ -105,4 +136,22 @@ func (mf *MediaFile) WrongAspect(want AspectRatio) bool {
 		return false
 	}
 	return WrongAspect(want, mi.DisplayAspectMilli)
+}
+
+// CropsToAspect reports whether the series keeps the best release and
+// crops it to the wanted shape in its transcode (spec.aspectRatioFix crop).
+func (s *Series) CropsToAspect() bool {
+	return s.Spec.AspectRatioFix == AspectRatioFixCrop
+}
+
+// CropTarget is the display aspect ratio, in thousandths, a file of
+// season's whose picture is displayAspectMilli is cropped to in its
+// transcode: the wanted shape's, when the series crops and the picture is
+// the other shape; 0 when nothing is cropped.
+func (s *Series) CropTarget(season, displayAspectMilli int32) int32 {
+	want := s.WantedAspect(season)
+	if !s.CropsToAspect() || !WrongAspect(want, displayAspectMilli) {
+		return 0
+	}
+	return want.Milli()
 }

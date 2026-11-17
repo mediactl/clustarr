@@ -88,7 +88,7 @@ func TestAKeptH264VideoIsNeverPlannedAgain(t *testing.T) {
 	f.MF.Spec.Original = new(false)
 	assert.Equal(t, ReasonTranscoded, Eligible(f, hevcProfiles()).Why, "kept, the remux is final")
 
-	info, err := MediaInfoOf(source, f.MF, st, "hevc@new", "")
+	info, err := MediaInfoOf(source, f.MF, st, "hevc@new", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, standard.VideoKept, info.Tags[standard.VideoTagKey])
 

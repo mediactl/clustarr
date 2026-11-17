@@ -135,12 +135,16 @@ type HDRInfo struct {
 
 // VideoStream is one video stream of a MediaInfo.
 type VideoStream struct {
-	Index                                                 int32
-	Codec, Profile                                        string
-	Level                                                 int32
-	PixFmt                                                string
-	BitDepth                                              int32
-	Width, Height                                         int32
+	Index          int32
+	Codec, Profile string
+	Level          int32
+	PixFmt         string
+	BitDepth       int32
+	Width, Height  int32
+	// DisplayAspectMilli is the picture's display aspect ratio in
+	// thousandths (the probe summary's displayAspectMilli, first video
+	// stream only): frame times sample aspect; 0 when unknown.
+	DisplayAspectMilli                                    int32
 	BitRateKbps                                           int32 // the probe summary's videoBitrateKbps, first video stream only
 	FrameRate                                             Rational
 	FieldOrder                                            string // "progressive"|"tt"|"bb"|"tb"|"bt"
@@ -215,6 +219,12 @@ type MediaInfo struct {
 	// "ja"), "" when unknown: the standard's "original" (Profile.Languages).
 	// Not probed; the planner and the worker set it from the item.
 	OriginalLanguage string
+	// CropAspectMilli is the display aspect ratio, in thousandths, the
+	// file's picture is cropped to in its encode (1778 for 16:9, 1333 for
+	// 4:3): its series keeps another shape than the file's and crops
+	// (catalogv1alpha1.Series.CropTarget). Zero crops nothing. Not probed;
+	// the planner and the worker set it from the item.
+	CropAspectMilli int32
 }
 
 // FromSummary builds Plan's input model from the probe summary alone --
@@ -254,17 +264,18 @@ func FromSummary(path string, mi *commonv1.MediaInfo) (MediaInfo, error) {
 	}
 
 	v := VideoStream{
-		Codec:       mi.VideoCodec,
-		Profile:     mi.VideoProfile,
-		PixFmt:      mi.PixelFormat,
-		BitDepth:    mi.VideoBitDepth,
-		Width:       mi.Width,
-		Height:      mi.Height,
-		BitRateKbps: mi.VideoBitrateKbps,
-		FrameRate:   Rational{Num: int64(mi.FpsMilli), Den: 1000},
-		Duration:    duration,
-		HDR:         HDRInfo{Format: mi.Hdr},
-		Encoder:     mi.VideoEncoder,
+		Codec:              mi.VideoCodec,
+		Profile:            mi.VideoProfile,
+		PixFmt:             mi.PixelFormat,
+		BitDepth:           mi.VideoBitDepth,
+		Width:              mi.Width,
+		Height:             mi.Height,
+		DisplayAspectMilli: mi.DisplayAspectMilli,
+		BitRateKbps:        mi.VideoBitrateKbps,
+		FrameRate:          Rational{Num: int64(mi.FpsMilli), Den: 1000},
+		Duration:           duration,
+		HDR:                HDRInfo{Format: mi.Hdr},
+		Encoder:            mi.VideoEncoder,
 	}
 	colour := hdrColour(mi.Hdr)
 	v.ColorPrimaries, v.ColorTransfer, v.ColorSpace, v.ColorRange = colour.primaries, colour.transfer, colour.space, colour.rng
@@ -377,6 +388,9 @@ func FromProbe(mi *commonv1.MediaInfo, raw *mediainfo.Raw) (MediaInfo, error) {
 				// The summary's, not raw's bit_rate: a Matroska stream has
 				// none, and the NVENC cap must read what FromSummary reads.
 				vs.BitRateKbps = mi.VideoBitrateKbps
+				// And the summary's display aspect ratio, which a crop is
+				// measured from.
+				vs.DisplayAspectMilli = mi.DisplayAspectMilli
 				// The summary's ENCODER tag too, so the worker plans as the
 				// controller did (the standard's transcoded-elsewhere rule).
 				vs.Encoder = mi.VideoEncoder

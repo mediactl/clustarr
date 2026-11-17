@@ -316,7 +316,8 @@ func seriesMonitoredChanged() predicate.Predicate {
 			// So does the shape the series, or a season of it, is kept in.
 			return ptr.Deref(o.Spec.Monitored, true) != ptr.Deref(n.Spec.Monitored, true) ||
 				o.Spec.QualityProfileRef != n.Spec.QualityProfileRef || origOld != origNew ||
-				o.Spec.AspectRatio != n.Spec.AspectRatio || !slices.Equal(o.Spec.SeasonAspectRatios, n.Spec.SeasonAspectRatios)
+				o.Spec.AspectRatio != n.Spec.AspectRatio || !slices.Equal(o.Spec.SeasonAspectRatios, n.Spec.SeasonAspectRatios) ||
+				o.Spec.AspectRatioFix != n.Spec.AspectRatioFix
 		},
 	}
 }
@@ -454,6 +455,14 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	// shape replaces it. Its shape is the probe's (ProbeVersion 5); a file
 	// not probed since is not judged.
 	wrongAspect := hasFile && series != nil && mf.WrongAspect(series.WantedAspect(ep.Spec.SeasonNumber))
+	// A series that crops (spec.aspectRatioFix) keeps the release it has
+	// and cuts it to the wanted shape in its transcode, so a file not yet
+	// transcoded is not searched for again. A transcode of the wrong shape
+	// is: it is never encoded a second time, and the release that comes is
+	// cropped.
+	if wrongAspect && series.CropsToAspect() && !rollup.Transcoded(mf) {
+		wrongAspect = false
+	}
 	if wrongAspect {
 		cutoffMet = false
 		transcoded = false

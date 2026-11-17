@@ -40,6 +40,11 @@ import (
 //     their qualities, a transcode included (aspectRefit), as a file
 //     inside the bitrate range replaces one outside it.
 //
+// A series that crops (spec.aspectRatioFix crop; owner, 2026-11-17: "for
+// some shows, we should prefer the high quality and crop ourselves during
+// transcode") takes a release of either shape in place of a wrong-shaped
+// transcode, since its own transcode cuts it to the wanted one.
+//
 // A file whose shape the probe did not read is judged by none of it, and a
 // person's import is never refused.
 
@@ -57,29 +62,41 @@ func (p *planner) wantedAspect(c candidate) catalogv1alpha1.AspectRatio {
 
 // aspectRejection refuses an incoming file of the wrong shape that would
 // replace a file: releaseFault, since nothing but the release decides its
-// shape.
-func aspectRejection(rel string, want catalogv1alpha1.AspectRatio, c candidate, existing []catalogv1alpha1.MediaFile) Rejection {
+// shape. Under a series that crops, a file of the wrong shape is cut to
+// the wanted one in its transcode, so only one that is a transcode
+// already -- final, never encoded again -- is refused.
+func aspectRejection(rel string, want catalogv1alpha1.AspectRatio, c candidate, existing []catalogv1alpha1.MediaFile, crops bool) Rejection {
 	if len(existing) == 0 || c.f.Probe == nil || !catalogv1alpha1.WrongAspect(want, c.f.Probe.DisplayAspectMilli) {
+		return Rejection{}
+	}
+	if crops && !c.f.Probe.Transcoded {
 		return Rejection{}
 	}
 	return releaseFaultRejection("%s: the file's picture is %s (%s) and the series is kept %s, so it replaces no file",
 		rel, shapeName(catalogv1alpha1.AspectOf(c.f.Probe.DisplayAspectMilli)), ratioText(c.f.Probe.DisplayAspectMilli), shapeName(want))
 }
 
-// aspectRefit reports whether an incoming file of quality q, of the wanted
-// shape, replaces existing because one of them is not, whatever their
-// tiers: p must take q (quality.Profile.Lists), and the incoming file's
-// shape must be known.
-func aspectRefit(p quality.Profile, want catalogv1alpha1.AspectRatio, existing []catalogv1alpha1.MediaFile, c candidate, q commonv1.Quality) bool {
+// aspectRefit reports whether an incoming file of quality q replaces
+// existing because one of them is not the wanted shape, whatever their
+// tiers: p must take q (quality.Profile.Lists), and the incoming file must
+// be the wanted shape -- or, under a series that crops, any shape the
+// probe read in a file that is not yet a transcode, which its transcode
+// cuts to the wanted one.
+func aspectRefit(p quality.Profile, want catalogv1alpha1.AspectRatio, existing []catalogv1alpha1.MediaFile, c candidate, q commonv1.Quality, crops bool) bool {
 	if c.f.Probe == nil || !p.Lists(q) {
 		return false
 	}
 	got := catalogv1alpha1.AspectOf(c.f.Probe.DisplayAspectMilli)
-	if got == "" || catalogv1alpha1.WrongAspect(want, c.f.Probe.DisplayAspectMilli) {
+	if got == "" {
+		return false
+	}
+	if catalogv1alpha1.WrongAspect(want, c.f.Probe.DisplayAspectMilli) && (!crops || c.f.Probe.Transcoded) {
 		return false
 	}
 	for i := range existing {
-		if existing[i].WrongAspect(want) {
+		// Under a series that crops, a held file of the wrong shape that is
+		// not yet a transcode is not wrong: its transcode cuts it.
+		if existing[i].WrongAspect(want) && (!crops || existing[i].Final()) {
 			return true
 		}
 	}

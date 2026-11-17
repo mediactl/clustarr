@@ -52,6 +52,11 @@ type SeriesSpecApplyConfiguration struct {
 	// WrongAspectRatio; at most a few releases are tried, after which the
 	// file stays and stays marked).
 	AspectRatio *catalogv1alpha1.AspectRatio `json:"aspectRatio,omitempty"`
+	// AspectRatioFix is what is done about a file of another shape:
+	// replace (the default) searches for another release; crop keeps the
+	// best release and crops it to the wanted shape in its transcode. A
+	// file already transcoded is searched for anew under either.
+	AspectRatioFix *catalogv1alpha1.AspectRatioFix `json:"aspectRatioFix,omitempty"`
 	// SeasonAspectRatios gives a season its own shape, where it is not
 	// the series': the widescreen seasons of a series that began in 4:3.
 	SeasonAspectRatios []SeasonAspectRatioApplyConfiguration `json:"seasonAspectRatios,omitempty"`
@@ -157,6 +162,14 @@ func (b *SeriesSpecApplyConfiguration) WithSeasons(values ...*SeasonSpecApplyCon
 // If called multiple times, the AspectRatio field is set to the value of the last call.
 func (b *SeriesSpecApplyConfiguration) WithAspectRatio(value catalogv1alpha1.AspectRatio) *SeriesSpecApplyConfiguration {
 	b.AspectRatio = &value
+	return b
+}
+
+// WithAspectRatioFix sets the AspectRatioFix field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AspectRatioFix field is set to the value of the last call.
+func (b *SeriesSpecApplyConfiguration) WithAspectRatioFix(value catalogv1alpha1.AspectRatioFix) *SeriesSpecApplyConfiguration {
+	b.AspectRatioFix = &value
 	return b
 }
 

@@ -587,6 +587,8 @@ var schemaYAML = typed.YAMLObject(`types:
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AspectRatio
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AspectRatioFix
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioDonor
   map:
     fields:
@@ -5852,6 +5854,10 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AspectRatio
       default: widescreen
+    - name: aspectRatioFix
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AspectRatioFix
+      default: replace
     - name: delayProfileRef
       type:
         scalar: string

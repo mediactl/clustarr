@@ -961,6 +961,95 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		read("a widescreen file in a widescreen season is final", func(e catalogv1alpha1.Episode) bool {
 			return e.Status.Phase == catalogv1alpha1.EpisodePhaseTranscoded
 		})
+
+		// A series that crops (owner, 2026-11-17: "prefer the high quality
+		// and crop ourselves during transcode"; a transcoded file of the
+		// wrong shape is downloaded again): the 4:3 transcode still reads
+		// WrongAspectRatio, since a transcode is never encoded twice, and
+		// the setting alone wakes the episode.
+		want(catalogv1alpha1.AspectRatioWidescreen)
+		shape(1333)
+		read("back to a 4:3 transcode in a widescreen series", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.CutoffReason == rollup.ReasonWrongAspectRatio
+		})
+		fix := func(f catalogv1alpha1.AspectRatioFix) {
+			t.Helper()
+			var sr catalogv1alpha1.Series
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "seinfeld"}, &sr))
+			patch := client.MergeFrom(sr.DeepCopy())
+			sr.Spec.AspectRatioFix = f
+			require.NoError(t, c.Patch(ctx, &sr, patch))
+		}
+		fix(catalogv1alpha1.AspectRatioFixCrop)
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "seinfeld"}, &sr) == nil && sr.CropsToAspect()
+		}, 5*time.Second, 20*time.Millisecond, "the cache reads the series set to crop")
+		assert.Never(t, func() bool {
+			var e catalogv1alpha1.Episode
+			return c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "seinfeld-s09e01"}, &e) == nil &&
+				(e.Status.CutoffReason != rollup.ReasonWrongAspectRatio || e.Status.Phase != catalogv1alpha1.EpisodePhaseCutoffUnmet)
+		}, 500*time.Millisecond, 20*time.Millisecond, "a wrong-shaped transcode is searched for anew under crop too")
+	})
+
+	t.Run("a series that crops keeps a wrong-shaped file that is not yet a transcode", func(t *testing.T) {
+		// The file is the best release in the other shape: its transcode
+		// cuts it, so nothing is searched for. The same file under a
+		// series that replaces reads WrongAspectRatio, and the setting
+		// alone moves the episode between the two.
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		sr := testSeries("ep-ns", "frasier", "crop-at-1080p")
+		sr.Spec.AspectRatioFix = catalogv1alpha1.AspectRatioFixCrop
+		require.NoError(t, c.Create(ctx, sr))
+		require.NoError(t, c.Create(ctx, testQualityProfile("ep-ns", "crop-at-1080p", "Bluray-1080p")))
+		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: "frasier-s01e01", Namespace: "ep-ns"},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "frasier", SeasonNumber: 1, EpisodeNumber: 1},
+		}))
+		waitForPhase(t, ctx, c, "ep-ns", "frasier-s01e01")
+		mf := &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: "frasier-s01e01-abc1234567", Namespace: "ep-ns"},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "frasier-s01e01"},
+				Path:     "/data/media/tv/Frasier/Season 1/Frasier - S01E01.mkv",
+				Quality:  bluray,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mf))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
+			catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{Width: 1440, Height: 1080, DisplayAspectMilli: 1333})))
+		require.NoError(t, err)
+		read := func(what string, ok func(e catalogv1alpha1.Episode) bool) catalogv1alpha1.Episode {
+			t.Helper()
+			var got catalogv1alpha1.Episode
+			require.Eventually(t, func() bool {
+				return c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "frasier-s01e01"}, &got) == nil && ok(got)
+			}, 5*time.Second, 20*time.Millisecond, what)
+			return got
+		}
+		fix := func(f catalogv1alpha1.AspectRatioFix) {
+			t.Helper()
+			var sr catalogv1alpha1.Series
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "frasier"}, &sr))
+			patch := client.MergeFrom(sr.DeepCopy())
+			sr.Spec.AspectRatioFix = f
+			require.NoError(t, c.Patch(ctx, &sr, patch))
+		}
+		got := read("the episode holds its file", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.Phase == catalogv1alpha1.EpisodePhaseImported
+		})
+		assert.NotEqual(t, rollup.ReasonWrongAspectRatio, got.Status.CutoffReason, "a 4:3 original of a series that crops waits for its transcode")
+		assert.True(t, got.Status.CutoffMet, "the file is at the cutoff: nothing is searched for")
+
+		fix(catalogv1alpha1.AspectRatioFixReplace)
+		got = read("set to replace, the same file is searched for again", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.CutoffReason == rollup.ReasonWrongAspectRatio
+		})
+		assert.False(t, got.Status.CutoffMet)
+
+		fix(catalogv1alpha1.AspectRatioFixCrop)
+		read("set to crop again, it is kept", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.CutoffMet && e.Status.CutoffReason != rollup.ReasonWrongAspectRatio
+		})
 	})
 
 	t.Run("a dual-audio profile reports status.audio and never blocks the video for a missing dub", func(t *testing.T) {

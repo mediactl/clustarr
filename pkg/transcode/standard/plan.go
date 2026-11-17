@@ -123,6 +123,11 @@ type ColorTags struct {
 	Primaries, Transfer, Matrix, Range string `json:",omitempty"`
 }
 
+// Crop is a rectangle of a frame, in its pixels.
+type Crop struct {
+	Width, Height, X, Y int32
+}
+
 // VideoPlan is what happens to the video stream.
 type VideoPlan struct {
 	SourceIndex int32  // type-relative: the Nth video stream
@@ -137,6 +142,10 @@ type VideoPlan struct {
 	// with no measured decoder plans "cpu", uploading (gpuUndecodable).
 	Decode string `json:",omitempty"`
 	Filter string `json:",omitempty"`
+	// Crop is the rectangle of the source's frame the encode keeps, nil
+	// for the whole frame (cropRect): Filter cuts it, and the encoder and
+	// Expect take its size.
+	Crop *Crop `json:",omitempty"`
 	// HDR is "sdr", "hdr10" or "hlg".
 	HDR   string    `json:",omitempty"`
 	Color ColorTags `json:",omitempty"`
@@ -228,7 +237,10 @@ type SidecarPlan struct {
 type Expectation struct {
 	VideoStreams, AudioStreams, SubtitleStreams int32
 	VideoCodec, PixelFormat                     string
-	DurationMillis                              int64
+	// Width and Height are the output's frame, set for a cropped encode
+	// alone; zero is not checked.
+	Width, Height  int32 `json:",omitempty"`
+	DurationMillis int64
 	// AudioSources are the source audio streams (type-relative) the output's
 	// audio comes from, each once. The source's length Verify holds the
 	// output to is the end of its video and these, never of a dropped track
@@ -396,6 +408,13 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	keptH264 := v.Codec == "h264" && slices.Contains(profile.KeepCodecs, "h264") &&
 		v.PixFmt == "yuv420p" && hdr == "sdr" && !isDolbyVision(v.HDR.Format)
 	compliant = compliant || keptH264
+	// A file to be cropped is encoded whatever its codec: nothing copies
+	// part of a frame. A transcode is final all the same (below), and is
+	// searched for anew by its item.
+	crop := cropRect(v, info.CropAspectMilli)
+	if crop != nil {
+		compliant, keptH264 = false, false
+	}
 	audioAsIs := len(p.Audio) == len(info.Audio)
 	for _, a := range p.Audio {
 		audioAsIs = audioAsIs && a.Action == AudioCopy
@@ -449,9 +468,84 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if why := gpuUndecodable(v, hw); why != "" {
 		return skip(p, why)
 	}
-	p.Video = encodeVideo(v, int32(vi), profile.Quality, hw, hdr, strip, eight)
+	// A crop is cut by the encode's own filter, which only two tiers'
+	// filters do. On another the file is not encoded uncropped: it would
+	// be a transcode of the wrong shape, final, searched for again and
+	// encoded the same way for ever.
+	if crop != nil && (hw.Tier == transcode.TierNVENC || hw.Tier == transcode.TierVAAPI) {
+		return skip(p, fmt.Sprintf("the file is to be cropped to %s, which the %s encode does not do", ratioText(info.CropAspectMilli), hw.Tier))
+	}
+	p.Video = encodeVideo(v, int32(vi), profile.Quality, hw, hdr, strip, eight, crop)
 	p.Tags[VideoTagKey] = VideoEncoded
+	if crop != nil {
+		p.Reason += fmt.Sprintf("; cropped from %dx%d to %dx%d (%s), the shape its series is kept in",
+			v.Width, v.Height, crop.Width, crop.Height, ratioText(info.CropAspectMilli))
+		p.Expect.Width, p.Expect.Height = crop.Width, crop.Height
+	}
 	return p
+}
+
+// cropRect is the rectangle of v's frame whose picture has the display
+// aspect ratio targetMilli, centred: the full width with the top and
+// bottom cut for a narrower picture (4:3 to 16:9), the full height with
+// the sides cut for a wider one (16:9 to 4:3), as a remaster crops. The
+// pixels keep their own aspect, so a DVD's frame is measured by its
+// picture, not its size. Sides and offsets are even, as 4:2:0 needs. nil when nothing
+// is to be cropped: no target, a stream without a size, or a picture
+// already within a hundredth of the target.
+func cropRect(v transcode.VideoStream, targetMilli int32) *Crop {
+	if targetMilli <= 0 || v.Width <= 0 || v.Height <= 0 {
+		return nil
+	}
+	frame := (int64(v.Width)*1000 + int64(v.Height)/2) / int64(v.Height)
+	dar := int64(v.DisplayAspectMilli)
+	if dar <= 0 {
+		dar = frame
+	}
+	target := int64(targetMilli)
+	if diff := dar - target; diff*100 < target && -diff*100 < target {
+		return nil
+	}
+	// The two ratios as fractions, exact where they are known to be: a
+	// thousandth is too coarse for a 4K frame (3840 wide cut to "1.333"
+	// from "1.778" is 2878, not the 2880 of 4:3). Square pixels give the
+	// frame's own ratio; 1778 and 1333 are the two shapes a series is kept
+	// in (catalog's AspectRatio.Milli).
+	pn, pd := dar, int64(1000)
+	if dar-frame <= 1 && frame-dar <= 1 {
+		pn, pd = int64(v.Width), int64(v.Height)
+	}
+	tn, td := target, int64(1000)
+	switch targetMilli {
+	case 1778:
+		tn, td = 16, 9
+	case 1333:
+		tn, td = 4, 3
+	}
+	// side is whole*num/den to the nearest even number; offset is the even
+	// number that centres it.
+	side := func(whole int32, num, den int64) int32 {
+		return min(int32((int64(whole)*num+den)/(2*den))*2, whole&^1)
+	}
+	offset := func(whole, kept int32) int32 { return ((whole - kept) / 2) &^ 1 }
+	c := Crop{Width: v.Width, Height: v.Height}
+	if dar < target {
+		c.Height = side(v.Height, pn*td, pd*tn)
+		c.Y = offset(v.Height, c.Height)
+	} else {
+		c.Width = side(v.Width, tn*pd, td*pn)
+		c.X = offset(v.Width, c.Width)
+	}
+	if c.Width < 16 || c.Height < 16 {
+		return nil
+	}
+	return &c
+}
+
+// ratioText is a display aspect ratio in thousandths as "1.78:1".
+func ratioText(milli int32) string {
+	hundredths := (milli + 5) / 10
+	return fmt.Sprintf("%d.%02d:1", hundredths/100, hundredths%100)
 }
 
 // KeepVideo is the plan that runs in place of p, an encode of info whose
@@ -470,7 +564,9 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 // playability or a bitrate the copy would not meet, and has none (false).
 func KeepVideo(p Result, info transcode.MediaInfo) (Result, bool) {
 	vi := primaryVideo(info.Video)
-	if p.Decision != DecisionEncode || vi < 0 {
+	// A cropped encode has no kept form: the copy would be the whole
+	// frame, a final file of the wrong shape.
+	if p.Decision != DecisionEncode || vi < 0 || p.Video.Crop != nil {
 		return Result{}, false
 	}
 	v := info.Video[vi]
@@ -638,8 +734,8 @@ func colorTags(hdr string) ColorTags {
 // encodeVideo plans the encode on hw's tier: HEVC Main 10, or HEVC Main
 // for the 8-bit target (eight: SDR at 1080p or less), with the surface
 // format each filter names for it.
-func encodeVideo(v transcode.VideoStream, index, quality int32, hw Hardware, hdr string, strip []string, eight bool) VideoPlan {
-	vp := VideoPlan{SourceIndex: index, Action: "encode", HDR: hdr, Color: colorTags(hdr), StripSideData: strip}
+func encodeVideo(v transcode.VideoStream, index, quality int32, hw Hardware, hdr string, strip []string, eight bool, crop *Crop) VideoPlan {
+	vp := VideoPlan{SourceIndex: index, Action: "encode", HDR: hdr, Color: colorTags(hdr), StripSideData: strip, Crop: crop}
 	fmtFor := func(tenBit string) string {
 		if eight {
 			return "nv12"
@@ -685,6 +781,19 @@ func encodeVideo(v transcode.VideoStream, index, quality int32, hw Hardware, hdr
 	}
 	if eight {
 		vp.Options["profile"] = "main"
+	}
+	// The crop, where the tier's filter cuts one (Plan skips the others):
+	// the software crop filter ahead of the format conversion, and the
+	// video processor's own crop rectangle on QSV, whose output takes the
+	// rectangle's size.
+	if crop != nil {
+		switch hw.Tier {
+		case transcode.TierQSV:
+			vp.Filter = strings.Replace(vp.Filter, "vpp_qsv=",
+				fmt.Sprintf("vpp_qsv=cw=%d:ch=%d:cx=%d:cy=%d:", crop.Width, crop.Height, crop.X, crop.Y), 1)
+		default:
+			vp.Filter = fmt.Sprintf("crop=%d:%d:%d:%d,", crop.Width, crop.Height, crop.X, crop.Y) + vp.Filter
+		}
 	}
 	return vp
 }

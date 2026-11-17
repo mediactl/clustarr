@@ -42,12 +42,17 @@ type Inputs struct {
 	// "original" in a profile's language lists, carried to the worker in
 	// the task.
 	OriginalLanguage string
-	Prev             *catalogv1alpha1.TranscodeState  // v.Prev.Transcode
-	Draft            *catalogv1alpha1.MediaFileStatus // v.Draft, after the probe planner
-	ProbeCurrent     bool
-	Eligibility      Eligibility
-	Ledger           Ledger
-	Now              metav1.Time
+	// CropAspectMilli is the display aspect ratio, in thousandths, the
+	// file's picture is cropped to in its encode: its series keeps
+	// another shape and crops (itemread.CropTarget); 0 crops nothing.
+	// Carried to the worker in the task.
+	CropAspectMilli int32
+	Prev            *catalogv1alpha1.TranscodeState  // v.Prev.Transcode
+	Draft           *catalogv1alpha1.MediaFileStatus // v.Draft, after the probe planner
+	ProbeCurrent    bool
+	Eligibility     Eligibility
+	Ledger          Ledger
+	Now             metav1.Time
 
 	// Record is the file's clustarr-transcodes record, read while the block
 	// is in flight, a dispatch grant is held, or a withdrawn dispatch's fact
@@ -289,7 +294,7 @@ func planWindow(in Inputs) Decision {
 		return Decision{Block: pendingBlock(in), Grant: GrantConfirm}
 	}
 	b := windowBlock(in)
-	p, fail := PlanFor(in.File.Spec.Path, e.Profile, e.Hash, in.File, in.Draft, nil, in.Ledger.Device, in.OriginalLanguage)
+	p, fail := PlanFor(in.File.Spec.Path, e.Profile, e.Hash, in.File, in.Draft, nil, in.Ledger.Device, in.OriginalLanguage, in.CropAspectMilli)
 	switch {
 	case fail != nil:
 		b.Phase, b.Reason, b.Message, b.Blocked = catalogv1alpha1.TranscodePhaseFailed, fail.Reason, truncate(fail.Message, maxMessage), true

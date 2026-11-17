@@ -270,8 +270,11 @@ type Detail struct {
 	Profiles            []AddOption
 	SeriesType          string
 	// AspectRatio is a series' spec.aspectRatio: the shape of picture it
-	// is kept in (widescreen, fullscreen, any).
-	AspectRatio string
+	// is kept in (widescreen, fullscreen, any); AspectRatioFix its
+	// spec.aspectRatioFix, what is done about a file of another (replace,
+	// crop).
+	AspectRatio    string
+	AspectRatioFix string
 	MinimumAvailability string
 	// Audio is a movie's status.audio as a note.
 	Audio AudioNote

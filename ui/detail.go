@@ -83,6 +83,7 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 		if s.getObject(ctx, item.Ref, &sr) {
 			d.SeriesType = string(sr.Spec.SeriesType)
 			d.AspectRatio = string(sr.Spec.AspectRatio)
+			d.AspectRatioFix = string(sr.Spec.AspectRatioFix)
 			known = sr.Status.EpisodeFileCount
 			fillSeries(&d, &sr)
 			d.ImageSet = imageSetNote(sr.Spec.Artwork, sr.Spec.SeasonArtwork, sr.Status.ImageSet)
