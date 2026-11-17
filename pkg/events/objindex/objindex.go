@@ -93,6 +93,12 @@ const (
 	defaultCheckEvery = 60 * time.Second
 	minBackoff        = time.Second
 	maxBackoff        = 30 * time.Second
+	// unreplayedBackoff is the least wait after a watch that ended before
+	// its replay did. The server may still be at work on that watch: on
+	// talos a watch of the artwork bucket that timed out at its creation
+	// was asked for again after 1, 2 and 4 s, each a whole read of the
+	// bucket on some server (2026-11-17).
+	unreplayedBackoff = 10 * time.Second
 	// subscriberBuffer is each subscriber's channel size. A full subscriber
 	// loses changes rather than block the index.
 	subscriberBuffer = 256
@@ -176,6 +182,8 @@ func (x *Index) Run(ctx context.Context) error {
 		x.setUnsynced()
 		if replayed {
 			backoff = minBackoff
+		} else {
+			backoff = max(backoff, unreplayedBackoff)
 		}
 		if recreated {
 			log.Info("object store re-created under the watch; reopening")

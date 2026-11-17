@@ -317,7 +317,31 @@ type ObjectStoreSpec struct {
 	// default, 128 KiB. At most MaxObjectChunkSize, which Validate
 	// enforces. ObjectMeta.ChunkSize overrides it per object (ADR-0020 §5).
 	ChunkSize uint32
+	// MetaIndex keeps a copy of the bucket's metadata records in a stream
+	// of their own, ObjectMetaIndexStream, which the server fills from the
+	// bucket's stream (a JetStream source filtered to the metadata
+	// subjects), and which a Watch replays in place of the bucket's stream.
+	// A bucket's metadata records lie between its chunks, so the server
+	// reads the whole bucket to replay them: on talos, 2026-11-17, each
+	// watch of the 1.46 GiB artwork bucket took 1.5 GB of a NATS server's
+	// heap for its 15 MB of metadata, at every ui and manager start. The
+	// index is a derived copy with no writer but the server; a Watch that
+	// finds it missing, older than its bucket or behind it watches the
+	// bucket itself. membus ignores it.
+	MetaIndex bool
 }
+
+// ObjectStoreStream is the JetStream stream an object-store bucket lives in.
+func ObjectStoreStream(bucket string) string { return "OBJ_" + bucket }
+
+// ObjectMetaSubjects is the subject filter of every metadata record of an
+// object-store bucket: one subject per object name.
+func ObjectMetaSubjects(bucket string) string { return "$O." + bucket + ".M.>" }
+
+// ObjectMetaIndexStream is the stream an ObjectStoreSpec.MetaIndex bucket's
+// metadata records are copied into. It does not start with OBJ_, which the
+// nats CLI reads as a bucket.
+func ObjectMetaIndexStream(bucket string) string { return "OBJMETA_" + bucket }
 
 // MaxObjectChunkSize is the largest object-store chunk Validate admits: an
 // eighth of the servers' 8 MiB max_payload, so a chunk never approaches a
@@ -1314,6 +1338,8 @@ func defaultObjectStores() []ObjectStoreSpec {
 			// An image of up to 3 MB is at most 3 chunks (ADR-0020 §5);
 			// fingerprints, about 20 KB each, keep the default.
 			ChunkSize: ArtworkChunkSize,
+			// The manager and every ui replica index the bucket at start.
+			MetaIndex: true,
 			Metadata: map[string]string{
 				BucketMetaKeyKeyScheme: ArtworkKeyScheme,
 				ArtworkMetaKeyVersion:  ArtworkMetaVersion,

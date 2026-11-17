@@ -294,11 +294,16 @@ func leaderStreams(t events.Topology) []string {
 		case events.TopologyBucket:
 			name = "KV_" + o.Name
 		case events.TopologyObjectStore:
-			name = "OBJ_" + o.Name
+			name = events.ObjectStoreStream(o.Name)
 		default:
 			continue
 		}
 		if !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	for _, o := range t.ObjectStores {
+		if name := events.ObjectMetaIndexStream(o.Name); o.MetaIndex && !slices.Contains(out, name) {
 			out = append(out, name)
 		}
 	}

@@ -3821,6 +3821,38 @@ ships it.
   (ADR-0021). `ObjectStore.Watch` ignores `ResumeFromRevision` and `MetaOnly`
   (the bus refuses `WatchFromRevision`), and a bucket re-created under a
   running watch is skipped silently, so `objindex` compares `Status().Created`.
+- **A whole-bucket watch or list of an object store costs the NATS server
+  the bucket's size in memory, so the artwork bucket is watched through a
+  metadata index stream** (owner, 2026-11-17: nats-0 and nats-1 at 1.5 and
+  1.4 GiB of a 2Gi limit). A bucket's metadata records lie between its
+  chunks, and nats-server starts a last-per-subject consumer by loading
+  every block (`fileStore.MultiLastSeqs`), so each replay of
+  `clustarr-artwork`'s 15 MB of records read all 1.46 GiB into the heap of
+  whichever server hosted the consumer, held about two minutes until Go's
+  forced collection. `objindex` replays at every ui and manager start; the
+  ui's HPA flapped between 2 and 3 pods (85 scale-ups in 11 days, a 100m
+  CPU request at 70%), and each start's watch timed out at nats.go's 5 s
+  consumer-creation deadline and was asked for again after 1, 2 and 4 s.
+  `ObjectStoreSpec.MetaIndex` (the artwork bucket) has Ensure keep
+  `OBJMETA_<bucket>`, a stream that sources `$O.<bucket>.M.>` from the
+  bucket's stream with one message per subject, and natsbus's `Watch`
+  replays that (`pkg/events/natsbus/objectindex.go`: 19 MiB against at
+  least 185 MiB of heap for a 400 MiB bucket on the embedded server). The
+  watch first waits until the index holds the bucket's latest record, by
+  the `Nats-Stream-Source` sequence of the index's last message -- a
+  source's reported lag is 0 before its first message, and a replay
+  without the wait is partial -- and reads the bucket itself, as before,
+  when the index is missing (an older manager), older than its bucket (a
+  bucket deleted and created again; the next Ensure rebuilds the index) or
+  still behind after a minute. An index event's `ModTime` is when the
+  record reached the index. `List`, and so the reaper and
+  `PurgeOrphanChunks`, still read the bucket: a purge decided on a copy
+  that had stalled would delete live chunks. nats.go's `ObjectStore.Watch`
+  also unsubscribes when the context it was created under ends, so a
+  longer creation deadline is `openContext`, whose deadline holds only
+  until the watch is open (2 minutes), and `objindex` waits at least 10 s
+  after a watch that ended before its replay. The first Ensure fills the
+  index with one read of the bucket.
 - **ffgo maps FFmpeg at package init, and a stale shim is silently wrong.** Any
   binary or test that links ffgo has dlopened FFmpeg before `main`, through
   `LD_LIBRARY_PATH` and a fixed list of system paths, and ffgo's loader

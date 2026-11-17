@@ -58,8 +58,64 @@ func EnsureTopology(ctx context.Context, js jetstream.JetStream, t Topology) err
 		if _, err := js.CreateOrUpdateObjectStore(ctx, ObjectStoreConfig(o)); err != nil {
 			return fmt.Errorf("events: ensure object store %s: %w", o.Name, err)
 		}
+		if o.MetaIndex {
+			if err := ensureObjectMetaIndex(ctx, js, o); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+// ensureObjectMetaIndex creates or updates o's metadata index stream. An
+// index older than its bucket's stream indexes a bucket that was deleted and
+// created again: its records are the old bucket's and its source's position
+// is past the new stream's sequences, so it is deleted and built again.
+func ensureObjectMetaIndex(ctx context.Context, js jetstream.JetStream, o ObjectStoreSpec) error {
+	cfg := ObjectMetaIndexConfig(o)
+	bucket, err := js.Stream(ctx, ObjectStoreStream(o.Name))
+	if err != nil {
+		return fmt.Errorf("events: look up stream %s: %w", ObjectStoreStream(o.Name), err)
+	}
+	index, err := js.Stream(ctx, cfg.Name)
+	switch {
+	case err == nil:
+		if index.CachedInfo().Created.Before(bucket.CachedInfo().Created) {
+			if err := js.DeleteStream(ctx, cfg.Name); err != nil && !errors.Is(err, jetstream.ErrStreamNotFound) {
+				return fmt.Errorf("events: delete the stale metadata index %s: %w", cfg.Name, err)
+			}
+		}
+	case errors.Is(err, jetstream.ErrStreamNotFound):
+	default:
+		return fmt.Errorf("events: look up stream %s: %w", cfg.Name, err)
+	}
+	if _, err := js.CreateOrUpdateStream(ctx, cfg); err != nil {
+		return fmt.Errorf("events: ensure metadata index %s: %w", cfg.Name, err)
+	}
+	return nil
+}
+
+// ObjectMetaIndexConfig renders the metadata index stream of o
+// (ObjectStoreSpec.MetaIndex): it takes no subject of its own, sources the
+// bucket's metadata records and keeps the latest of each object, as the
+// bucket does.
+func ObjectMetaIndexConfig(o ObjectStoreSpec) jetstream.StreamConfig {
+	return jetstream.StreamConfig{
+		Name:              ObjectMetaIndexStream(o.Name),
+		Description:       "Metadata records of object store " + o.Name,
+		Retention:         jetstream.LimitsPolicy,
+		Storage:           natsStorage(o.Storage),
+		Discard:           jetstream.DiscardOld,
+		MaxAge:            o.MaxAge,
+		MaxBytes:          -1,
+		MaxMsgsPerSubject: 1,
+		Replicas:          max(o.Replicas, 1),
+		AllowDirect:       true,
+		Sources: []*jetstream.StreamSource{{
+			Name:          ObjectStoreStream(o.Name),
+			FilterSubject: ObjectMetaSubjects(o.Name),
+		}},
+	}
 }
 
 func ensureStream(ctx context.Context, js jetstream.JetStream, s StreamSpec) error {

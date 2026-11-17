@@ -365,10 +365,14 @@ func (o *objectHandle) List(ctx context.Context, prefix string) ([]events.Object
 	return out, nil
 }
 
-// Watch wraps nats.go's ObjectStore.Watch, an ordered push consumer on
-// $O.<bucket>.M.> (artwork design §B.1 as amended 2026-10-07): the replay of
-// every object's latest meta, tombstones included, then Synced, then one event
-// per Put, SetMeta or Delete. WatchFromRevision is refused: nats.go accepts
+// Watch replays every object's latest meta, tombstones included, then Synced,
+// then one event per Put, SetMeta or Delete (artwork design §B.1 as amended
+// 2026-10-07). A bucket with a metadata index (ObjectStoreSpec.MetaIndex) is
+// replayed from the index stream (watchIndex); any other, an updates-only
+// watch, and a bucket whose index is missing, older than the bucket or behind
+// it, through nats.go's ObjectStore.Watch, an ordered push consumer on
+// $O.<bucket>.M.> of the bucket's own stream, which costs the server a read
+// of the whole bucket. WatchFromRevision is refused: nats.go accepts
 // ResumeFromRevision on an object store and silently replays from the start
 // (research E6).
 func (o *objectHandle) Watch(ctx context.Context, opts ...events.WatchOption) (<-chan events.ObjectEvent, error) {
@@ -380,14 +384,27 @@ func (o *objectHandle) Watch(ctx context.Context, opts ...events.WatchOption) (<
 	if err != nil {
 		return nil, err
 	}
+	if !wo.UpdatesOnly && o.bus.objectStoreSpec(o.name).MetaIndex {
+		ch, err := o.watchIndex(ctx)
+		if err == nil {
+			return ch, nil
+		}
+		if !errors.Is(err, errObjectIndexUnusable) {
+			return nil, err
+		}
+		logIndexFallback(ctx, o.name, err)
+	}
 	var jo []jetstream.WatchOpt
 	if wo.UpdatesOnly {
 		jo = append(jo, jetstream.UpdatesOnly())
 	}
-	w, err := store.Watch(ctx, jo...)
+	octx := withOpenDeadline(ctx, objectWatchOpenTimeout)
+	w, err := store.Watch(octx, jo...)
 	if err != nil {
+		octx.abandon()
 		return nil, objectError("watch", o.name, "", err)
 	}
+	octx.opened()
 	out := make(chan events.ObjectEvent)
 	q := evqueue.New[events.ObjectEvent]()
 	// The pump drains nats.go's channel at once -- its callback blocks on 32
@@ -406,18 +423,11 @@ func (o *objectHandle) Watch(ctx context.Context, opts ...events.WatchOption) (<
 				if !ok {
 					return
 				}
-				switch {
-				case info == nil:
+				if info == nil {
 					q.Push(events.ObjectEvent{Synced: true})
-				case info.Deleted:
-					q.Push(events.ObjectEvent{Deleted: true, Info: events.ObjectInfo{Name: info.Name}})
-				default:
-					// A malformed digest is skipped, as List would refuse it;
-					// the next change to the name delivers it again.
-					if oi, err := objectInfoOf(o.name, info); err == nil {
-						q.Push(events.ObjectEvent{Info: oi})
-					}
+					continue
 				}
+				pushObjectInfo(q, o.name, info)
 			}
 		}
 	}()
@@ -468,7 +478,7 @@ func (b *Bus) PurgeOrphanChunks(ctx context.Context, bucket string, grace time.D
 	for _, info := range all {
 		live[info.NUID] = true
 	}
-	s, err := b.lookupStream(ctx, "OBJ_"+bucket)
+	s, err := b.lookupStream(ctx, events.ObjectStoreStream(bucket))
 	if err != nil {
 		return 0, 0, err
 	}
