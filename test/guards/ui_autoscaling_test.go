@@ -110,6 +110,26 @@ func TestUIAutoscalingRendersAnHPAThatOwnsTheCount(t *testing.T) {
 	assert.Equal(t, "ui", term.LabelSelector.MatchLabels["app.kubernetes.io/component"])
 }
 
+// TestUIAutoscalingTargetMayPassTheRequest: the CPU target is a percentage of
+// the pods' request, and a target above 100 with a scale-down window renders
+// as given. On talos the schema's cap of 100 left 70 of a 100m request, 70m a
+// pod: 151 replica changes in a day, each new pod listing the library and
+// replaying the artwork index (2026-11-17).
+func TestUIAutoscalingTargetMayPassTheRequest(t *testing.T) {
+	out := installtest.RenderChart(t, "--set", "ui.autoscaling.enabled=true",
+		"--set", "ui.autoscaling.targetCPUUtilizationPercentage=300",
+		"--set", "ui.autoscaling.behavior.scaleDown.stabilizationWindowSeconds=1800")
+	hpa := uiHPA(t, out)
+	require.NotNil(t, hpa, "no HPA clustarr-ui rendered")
+	require.Len(t, hpa.Spec.Metrics, 1)
+	require.NotNil(t, hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
+	assert.Equal(t, int32(300), *hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
+	require.NotNil(t, hpa.Spec.Behavior)
+	require.NotNil(t, hpa.Spec.Behavior.ScaleDown)
+	require.NotNil(t, hpa.Spec.Behavior.ScaleDown.StabilizationWindowSeconds)
+	assert.Equal(t, int32(1800), *hpa.Spec.Behavior.ScaleDown.StabilizationWindowSeconds)
+}
+
 // TestUIReplicasSpreadOnePerNode: a fixed ui.replicas above 1 spreads the
 // same way, HPA or not -- the required hostname anti-affinity and the
 // surge-one, take-one-down rollout -- and a single replica takes neither,

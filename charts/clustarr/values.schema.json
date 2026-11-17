@@ -603,7 +603,7 @@
             "enabled": { "type": "boolean" },
             "minReplicas": { "type": "integer", "minimum": 1 },
             "maxReplicas": { "type": "integer", "minimum": 1, "description": "At most a onePerNode placement profile's replicas." },
-            "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Average utilization of resources.requests.cpu over the pods." },
+            "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "description": "Average utilization of resources.requests.cpu over the pods, in percent of the request: above 100 is more than the request and still under the limit." },
             "behavior": { "type": "object", "description": "autoscaling/v2 HorizontalPodAutoscalerBehavior, verbatim." }
           }
         },

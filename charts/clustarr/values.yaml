@@ -921,9 +921,20 @@ ui:
     enabled: false
     minReplicas: 1
     maxReplicas: 3
+    # A share of resources.requests.cpu, not of a core, and it may pass 100:
+    # the request says what a pod usually takes (the scheduler's number),
+    # the target what it may take before another is worth starting. On
+    # talos 70 of a 100m request was 70m a pod, which a few page loads or
+    # one Plex refresh pass: 151 replica changes in a day, every new pod
+    # listing the library and replaying the artwork index (2026-11-17). Set
+    # it from the pods' measured CPU (kube-state-metrics'
+    # kube_horizontalpodautoscaler_status_target_metric): above their busy
+    # hours' 99th percentile, well under resources.limits.cpu.
     targetCPUUtilizationPercentage: 70
     # autoscaling/v2 HorizontalPodAutoscalerBehavior, verbatim; {} is the
-    # HPA's defaults (scale down after 5 minutes of stability).
+    # HPA's defaults (scale down after 5 minutes of stability). A ui pod
+    # is dear to start and cheap to keep, so a longer
+    # scaleDown.stabilizationWindowSeconds (1800) suits it.
     behavior: {}
   # A Gateway API HTTPRoute to the ui's Service, opt in. The ui has no
   # login (ui.auth above) and the Plex provider under /plex none by

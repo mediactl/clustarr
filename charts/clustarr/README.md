@@ -427,7 +427,8 @@ watch set each, and two on one node buy nothing.
 
 `ui.autoscaling.enabled=true` renders an `autoscaling/v2`
 HorizontalPodAutoscaler on the pods' CPU (`targetCPUUtilizationPercentage` of
-`ui.resources.requests.cpu`, averaged) between `minReplicas` and
+`ui.resources.requests.cpu`, averaged, which may pass 100: with a 100m
+request, 300 adds a pod at 300m each) between `minReplicas` and
 `maxReplicas`. The Deployment then carries no `spec.replicas`, so an upgrade
 never resets the count the HPA chose (`ui.replicas` beside it fails the
 render), its pods take a required anti-affinity on `kubernetes.io/hostname`
@@ -570,7 +571,7 @@ template.
 | `ui.plex.musicProvider` | Also serve the music and audiobook roots, `/plex/music` and `/plex/audiobooks` (`--plex-music-provider`). Keep `false` until a PMS build accepts a provider declaring types 8, 9 and 10; see [Plex provider](#plex-provider). | `false` |
 | `ui.service.type`/`.port` | The web UI's Service. | `ClusterIP`, `8080` |
 | `ui.autoscaling.enabled` | An HPA on the ui's CPU between `minReplicas` and `maxReplicas`, the pods one per node; the Deployment then has no `spec.replicas`. See [Web UI](#web-ui-scaling-and-exposure). | `false` |
-| `ui.autoscaling.minReplicas`/`.maxReplicas`/`.targetCPUUtilizationPercentage`/`.behavior` | The HPA's bounds, CPU target (a share of `ui.resources.requests.cpu`) and `autoscaling/v2` behavior. `maxReplicas` is at most a onePerNode profile's `replicas`. | `1`, `3`, `70`, `{}` |
+| `ui.autoscaling.minReplicas`/`.maxReplicas`/`.targetCPUUtilizationPercentage`/`.behavior` | The HPA's bounds, CPU target (a percentage of `ui.resources.requests.cpu`, above 100 allowed) and `autoscaling/v2` behavior. `maxReplicas` is at most a onePerNode profile's `replicas`. | `1`, `3`, `70`, `{}` |
 | `ui.httpRoute.enabled` | A Gateway API HTTPRoute to the ui's Service, from `parentRefs` (required) and `hostnames`, with `annotations`. Only behind an authenticated or internal listener. | `false` |
 
 `imagePullSecrets`, `nodeSelector`, `tolerations` and `affinity` are plain
