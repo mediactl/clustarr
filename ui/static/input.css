@@ -277,7 +277,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .recharts-tooltip-wrapper > div,
 #library-find-results,
 .glass,
-.glass-bar {
+.glass-bar,
+.glass-pill {
   /* Only the standard property: Tailwind's minifier folds a pair written
      with -webkit-backdrop-filter into the prefixed one alone, which Chrome
      and Firefox ignore, so no surface blurred outside Safari until
@@ -308,6 +309,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .glass-bar {
   background-color: var(--glass-bar);
   border-radius: var(--radius-surface);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 1px var(--glass-rim),
+    var(--shadow-bar);
+}
+
+/* 2b -- a pill: a toolbar's button group, the bar's glass at the group's
+   own radius (the docs' rounded group sets --radius on it). */
+.glass-pill {
+  background-color: var(--glass-bar);
+  border-radius: 9999px;
   box-shadow:
     inset 0 1px 0 var(--glass-highlight),
     0 0 0 1px var(--glass-rim),

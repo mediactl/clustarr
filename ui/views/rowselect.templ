@@ -78,7 +78,7 @@ templ selectionBar(b SelectionBar) {
 		<div class={ selectionBarClass }>
 			<span class="flex min-w-0 items-center gap-2 text-sm whitespace-nowrap text-primary" aria-live="polite">
 				@icon.Icon("check")(icon.Props{Class: "size-4 shrink-0"})
-				<span><span data-rows-count>0</span> <span class="max-sm:hidden">items</span> selected</span>
+				<span><span data-rows-count>0</span> <span class="max-sm:hidden" data-rows-noun>items</span> selected</span>
 			</span>
 			<div class="mx-auto flex items-center gap-1">
 				for _, v := range b.Verbs {

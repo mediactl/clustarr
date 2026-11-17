@@ -292,7 +292,7 @@ func selectionBar(b SelectionBar) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<span><span data-rows-count>0</span> <span class=\"max-sm:hidden\">items</span> selected</span></span><div class=\"mx-auto flex items-center gap-1\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<span><span data-rows-count>0</span> <span class=\"max-sm:hidden\" data-rows-noun>items</span> selected</span></span><div class=\"mx-auto flex items-center gap-1\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -75,6 +75,10 @@
         c.textContent = text;
       }
     });
+    document.querySelectorAll("[data-rows-noun]").forEach(function (n) {
+      var noun = selected.size === 1 ? "item" : "items";
+      if (n.textContent !== noun) n.textContent = noun;
+    });
     document.querySelectorAll("[data-selection-bar]").forEach(function (bar) {
       var hide = selected.size === 0;
       if (bar.hidden !== hide) bar.hidden = hide;

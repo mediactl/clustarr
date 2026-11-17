@@ -199,12 +199,12 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	// of it, every card files under its letter for the scroll tracker, and
 	// the tracker script loads from the static files.
 	bar := tagWith(t, body, `data-jump-bar`)
-	for _, class := range []string{"fixed", "right-0", "top-[8rem]", "bottom-0"} {
+	for _, class := range []string{"fixed", "right-0", "top-[7.5rem]", "bottom-0"} {
 		require.Contains(t, bar, class, "the bar is fixed to the right of the screen")
 	}
 	require.NotContains(t, bar, "sticky")
 	requireTag(t, body, `id="library-rows"`, `data-total="120"`)
-	requireTag(t, body, `id="library-page"`, "lg:pr-10") // the page, its toolbar too, keeps clear of the bar
+	requireTag(t, body, `id="library-page"`, "lg:pr-12") // the page, its toolbar too, keeps clear of the bar
 	// The position thumb (design 2026-09-24, after Radarr's): a thin mark
 	// the tracker script places along the strip in proportion to the item
 	// range on screen over the whole list, not snapped to a letter.
@@ -214,7 +214,12 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	// pointer events on (it is the drag handle), the browser's touch
 	// panning off so a touch drag moves the thumb and not the page.
 	// ui/static/jump.js does the dragging.
-	thumb := requireTag(t, body[barAt:], `data-jump-thumb`, `absolute`, `w-3`, `before:w-1`, `before:rounded-full`, `cursor-grab`, `touch-none`, `select-none`)
+	// The strip is 44px (owner, 2026-11-17: "the current scroll bar is too
+	// close to the letters"), Plex Web's spacing: the thumb down its left
+	// edge, the letters in its right 24px, air between them.
+	require.Contains(t, bar, "w-11")
+	requireTag(t, body[barAt:], `data-jump-letters`, `ml-auto`, `w-6`)
+	thumb := requireTag(t, body[barAt:], `data-jump-thumb`, `absolute`, `left-0`, `w-4`, `before:w-1.5`, `before:rounded-full`, `cursor-grab`, `touch-none`, `select-none`)
 	require.NotContains(t, thumb, "pointer-events-none", "the thumb takes the pointer; it is the drag handle")
 	require.NotContains(t, thumb, "w-0.5", "the grab strip is wider than the line it draws")
 	require.NotContains(t, body, `data-letter=`, "cards carry no letter; the thumb is positional")
@@ -227,7 +232,7 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	letters := tagWith(t, body[barAt:], `data-jump-letters`)
 	require.Contains(t, letters, "flex-col", "the letters stand in a column")
 	require.Contains(t, letters, "h-full")
-	require.Contains(t, letters, "w-full", "the column fills the strip, which runs to the right border")
+	require.Contains(t, letters, "ml-auto", "the column stands at the strip's right, clear of the thumb at its left")
 	require.NotContains(t, body[barAt:strings.Index(body[barAt:], "</nav>")+barAt], `data-slot="button`, "no buttons")
 	// The native scrollbar is hidden on the library (design 2026-09-24): the
 	// A-Z strip is the only thing on the right edge, as in Radarr.

@@ -153,12 +153,30 @@ func TestLibraryToolbarHasRescanSortAndFilter(t *testing.T) {
 	requireTag(t, bar, `data-poster-size="medium"`, `aria-checked="true"`)
 	requireTag(t, bar, `data-library-option="details"`, `data-slot="menubar-checkbox-item"`, `aria-checked="true"`)
 
-	// The mass editor (2026-10-06, after Sonarr's): Select, and Select All
-	// shown only while selecting.
+	// The mass editor (2026-10-06, after Sonarr's): Select turns it on, and
+	// the selection bar, which takes the toolbar's place, has Select All.
 	requireTag(t, bar, `data-action="select-toggle"`, `data-slot="toggle"`, `aria-pressed="false"`)
-	require.Regexp(t, regexp.MustCompile(`(?s)data-action="select-toggle".*?>Select</span>.*?>Stop Selecting</span>`), bar)
+	require.Regexp(t, regexp.MustCompile(`(?s)data-action="select-toggle"[^>]*>.*?<span>Select</span>`), bar)
+	require.NotContains(t, toolbarOf(t, body), `data-action="select-all"`, "Select All is the selection bar's")
 	requireTag(t, bar, `data-action="select-all"`, `data-slot="button"`)
-	require.Regexp(t, regexp.MustCompile(`class="hidden group-data-selecting/library:flex"[^>]*>\s*<button[^>]*data-action="select-all"`), bar, "Select All only while selecting")
+
+	// The row is two rounded button groups with separators (owner,
+	// 2026-11-17), the docs' pill: the page's actions at the left, its
+	// view menus at the right, a separator between each pair of buttons.
+	row := toolbarOf(t, body)
+	require.Equal(t, 2, strings.Count(row, `data-slot="button-group"`), "an actions group and a view group")
+	require.Equal(t, 4, strings.Count(row, `data-slot="button-group-separator"`), "a separator between each pair of buttons")
+	actions := requireTag(t, row, `data-toolbar-group="Library actions"`, `data-slot="button-group"`, `role="group"`, `aria-label="Library actions"`)
+	require.Contains(t, actions, "[--radius:9999rem]", "the docs' rounded group")
+	require.Contains(t, actions, "glass-pill", "the group is the glass; no panel stands behind the row")
+	view := strings.Index(row, `data-toolbar-group="View"`)
+	require.Less(t, strings.Index(row, `data-action="select-toggle"`), view, "the actions come first, at the left")
+	require.Less(t, view, strings.Index(row, `data-toolbar-menu="Options"`), "the menus are the View group's, at the right")
+	require.Contains(t, tagWith(t, body, `data-toolbar`), "justify-between", "the groups are pushed to the row's edges")
+	require.NotContains(t, tagWith(t, body, `data-toolbar`), "glass-bar")
+	// Unfiltered, the line under the row is the tab's count alone.
+	require.Regexp(t, regexp.MustCompile(`data-filter-count[^>]*title="120 titles"[^>]*>120<`), bar)
+	require.NotContains(t, bar, `data-filter-actions`)
 
 	for _, s := range projection.LibrarySorts(projection.TabMovies) {
 		requireTag(t, bar, `data-sort="`+string(s)+`"`, `data-slot="menubar-item"`, `hx-get="`,
@@ -258,7 +276,17 @@ func TestLibraryCustomFilterRidesTheURL(t *testing.T) {
 	body := get("/library/movies?f=year:gte:1990&f=profile:in:uhd%7Chd")
 	require.Equal(t, []string{"arrival", "dune", "heat"}, refsInOrder(body))
 	requireTag(t, body, `data-filter-chips`)
-	require.Contains(t, body, `data-filter-count>3 of 5<`)
+	// The line under the toolbar (owner, 2026-11-17): the filter's actions
+	// as a button group first, then the bare count, then the chips.
+	line := body[strings.Index(body, `data-view-bar`):strings.Index(body, `id="library-rows"`)]
+	group := requireTag(t, line, `data-filter-actions`, `data-slot="button-group"`, `aria-label="Current filter"`)
+	require.Contains(t, group, "[--radius:9999rem]")
+	require.Equal(t, 2, strings.Count(line, `data-slot="button-group-separator"`), "Edit, Save and Clear, a separator between each pair")
+	require.Regexp(t, regexp.MustCompile(`data-filter-count[^>]*title="3 of 5"[^>]*>3<`), line, "just the number, as Plex writes it")
+	groupAt, countAt, chipsAt := strings.Index(line, `data-filter-actions`), strings.Index(line, `data-filter-count`), strings.Index(line, `data-filter-chips`)
+	require.Less(t, groupAt, countAt, "the group is first")
+	require.Less(t, countAt, chipsAt, "the chips follow the count")
+	require.Less(t, strings.Index(line, `data-filter-clear`), countAt, "Clear is in the group")
 	requireTag(t, body, `data-filter-chip="Year greater than or equal 1990"`)
 	requireTag(t, body, `data-filter-chip="Quality Profile is uhd, hd"`)
 	// A chip's x removes that row and keeps the other.
@@ -442,4 +470,14 @@ func TestLibraryPageAndStreamApplyTheView(t *testing.T) {
 	}
 	require.Equal(t, fp(before, "dune"), fp(frame, "dune"))
 	require.NotEqual(t, fp(before, "brazil"), fp(frame, "brazil"))
+}
+
+// toolbarOf is the library's toolbar row alone: from its tag to the
+// selection bar that follows it.
+func toolbarOf(t *testing.T, body string) string {
+	t.Helper()
+	at, end := strings.Index(body, `data-toolbar`), strings.Index(body, `data-bulk-bar`)
+	require.GreaterOrEqual(t, at, 0)
+	require.Greater(t, end, at)
+	return body[at:end]
 }

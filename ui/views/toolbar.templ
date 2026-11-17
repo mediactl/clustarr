@@ -19,33 +19,32 @@ package views
 
 import (
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/buttongroup"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/menubar"
 )
 
-// Sonarr's page toolbar (design 2026-09-24; shadcn's menubar since
-// 2026-10-06): a full-width bar under the top bar holding icon-over-label
-// buttons -- the page's actions on the left, its view menus on the right.
-// The bar is shadcn-templ's menubar, so the view menus (toolbarMenu) are
-// its menus, with its keyboard handling and its portalled popups, which
-// the bar's sideways scroll cannot clip; an action is shadcn-templ's
-// button in its ghost variant, laid out as a column, so the bar composes
-// forms (an action), links and menu triggers alike.
+// The library's toolbar (owner, 2026-11-17: "The top action bar should be
+// converted into left and right justified rounded button groups with
+// separators according to the component docs for shadcn-templ"): two
+// shadcn-templ button groups on the page itself, no panel behind them --
+// the page's actions at the left, its view menus at the right. A group is
+// the docs' pill ([--radius:9999rem] on the group, which its buttons'
+// radius follows) and is itself the glass; its buttons are ghost, so, as
+// the docs say for every variant but outline, a separator stands between
+// each pair. The row is still shadcn-templ's menubar (2026-10-06), bare:
+// the view menus (toolbarMenu) are its menus, with its keyboard handling
+// and its portalled popups.
 //
-// An item page's bar (actionBar, owner 2026-11-04) is the other shape: it
-// has actions and no menus, so it is one shadcn-templ button group in its
-// large size -- outline buttons joined at their borders, each an icon over
-// one short word -- the group itself the glass, centred under the top bar,
-// with no panel around it.
+// An item page's actions (actionBar) are the other shape: icon-only
+// circles inside the hero.
 
-// toolbarButtonClass turns a button into Radarr's toolbar button: the
-// icon above a small label, the whole thing a hover target.
-// Since 2026-11-17: the label is 12px at 85% of the foreground (11px muted
-// text fell to 2-3:1 where the bar is stuck over light posters), and below
-// 576px of bar (its own width, a container query) the labels are
-// screen-reader only and the buttons 44px, so the whole bar fits a phone,
-// where Filter was off the screen with nothing to say so.
-const toolbarButtonClass = "h-auto min-w-16 flex-col gap-1 px-2 py-1.5 text-xs leading-tight font-normal text-foreground/85 hover:text-foreground [&_svg]:size-5 @max-xl/bar:min-h-11 @max-xl/bar:min-w-11 @max-xl/bar:justify-center @max-xl/bar:[&>span]:sr-only"
+// toolbarButtonClass is one button of a toolbar group: the icon beside its
+// word at shadcn's large height, lit by white on the glass rather than the
+// theme's muted fill. Below 576px of bar (its own width, a container
+// query) the word is screen-reader only and the button 44px square, so
+// both groups fit a phone.
+const toolbarButtonClass = "h-10 gap-2 border-0 px-4 text-sm font-medium text-foreground/85 shadow-none hover:bg-white/10 hover:text-foreground aria-expanded:bg-white/15 aria-expanded:text-foreground aria-pressed:bg-white/15 dark:hover:bg-white/10 [&_svg]:size-4 @max-xl/bar:w-11 @max-xl/bar:gap-0 @max-xl/bar:px-0 @max-xl/bar:[&>span]:sr-only"
 
 // Field is one hidden input of a toolbar action's form.
 type Field struct {
@@ -53,15 +52,14 @@ type Field struct {
 	Value string
 }
 
-// toolbar is the bar itself: the menubar as a floating glass panel inside
-// the page's padding (2026-10-22, after the Plex apps: rounded like the
-// sidebar, never a squared-off strip), sticky half a rem beneath the top
-// bar at a fixed height (h-14, which the library's A-Z bar counts on), its
-// groups pushed to the edges.
-// attrs land on the bar, beside data-toolbar.
+// toolbar is the row: the bare menubar, sticky half a rem beneath the top
+// bar at a fixed height (h-12, which the library's A-Z bar and its
+// selection bar count on), its groups pushed to the edges. It hides while
+// the library is selecting, when the selection bar takes its place.
+// attrs land on the row, beside data-toolbar.
 templ toolbar(attrs templ.Attributes) {
 	@menubar.Menubar(menubar.Props{
-		Class:      "glass-bar @container/bar sticky top-(--bar-top) z-20 mb-6 flex h-14 items-stretch justify-between gap-2 overflow-x-auto border-0 px-2 py-1 group-data-selecting/library:hidden",
+		Class:      "@container/bar sticky top-(--bar-top) z-20 mb-3 flex h-12 items-center justify-between gap-2 rounded-none border-0 bg-transparent p-0 shadow-none group-data-selecting/library:hidden",
 		Attributes: toolbarAttrs(attrs),
 	}) {
 		{ children... }
@@ -77,52 +75,38 @@ func toolbarAttrs(attrs templ.Attributes) templ.Attributes {
 	return out
 }
 
-// toolbarGroup is one run of buttons, centred so a button in a form and a
-// menu trigger line up.
-templ toolbarGroup() {
-	<div class="flex items-center gap-0.5">
+// toolbarGroupClass is a glass pill of joined buttons: the docs' rounded
+// group, the glass of a bar.
+const toolbarGroupClass = "glass-pill [--radius:9999rem]"
+
+// toolbarGroup is one button group of the row, named for a screen reader
+// (the docs: "Use aria-label ... to label the button group"). Its children
+// are buttons with a toolbarSeparator between each pair.
+templ toolbarGroup(label string) {
+	@buttongroup.ButtonGroup(buttongroup.Props{Class: toolbarGroupClass, Attributes: templ.Attributes{"aria-label": label, "data-toolbar-group": label}}) {
 		{ children... }
-	</div>
+	}
 }
 
-// toolbarForm is one action: a form posting to action with fields, whose
-// only control is an icon-over-label submit button carrying data-action
-// for the tests. formAttrs land on the form.
-templ toolbarForm(action string, fields []Field, iconName, label, dataAction string, formAttrs templ.Attributes) {
-	<form method="post" action={ templ.URL(action) } { actionFormAttrs(action, formAttrs)... }>
-		for _, f := range fields {
-			<input type="hidden" name={ f.Name } value={ f.Value }/>
-		}
-		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: templ.Attributes{"data-action": dataAction, "data-toolbar-button": true}}) {
-			@icon.Icon(iconName)()
-			<span>{ label }</span>
-		}
-	</form>
+// toolbarSeparator is the hairline between two buttons of a group, short
+// of the pill's edges.
+templ toolbarSeparator() {
+	@buttongroup.Separator(buttongroup.SeparatorProps{Class: "bg-white/15 data-vertical:my-2.5"})
 }
 
-// toolbarMenu is one of the bar's menus -- Options, Sort, Filter -- as a
-// menubar menu: an icon-over-label trigger carrying data-toolbar-menu with
-// its label, and its content, aligned to the trigger's end since the menus
-// sit at the bar's right.
+// toolbarMenu is one of the row's menus -- Options, Sort, Filter -- as a
+// menubar menu: a trigger carrying data-toolbar-menu with its label, and
+// its content, aligned to the trigger's end since the menus sit at the
+// row's right.
 templ toolbarMenu(iconName, label string) {
 	@menubar.Menu() {
-		@menubar.Trigger(menubar.TriggerProps{Class: toolbarButtonClass + " justify-center rounded-md border border-transparent aria-expanded:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50", Attributes: templ.Attributes{"data-toolbar-menu": label}}) {
+		@menubar.Trigger(menubar.TriggerProps{Class: toolbarButtonClass + " justify-center rounded-md py-0 focus-visible:ring-[3px] focus-visible:ring-ring/50", Attributes: templ.Attributes{"data-toolbar-menu": label}}) {
 			@icon.Icon(iconName)()
 			<span>{ label }</span>
 		}
 		@menubar.Content(menubar.ContentProps{Align: menubar.AlignEnd, Class: "min-w-48"}) {
 			{ children... }
 		}
-	}
-}
-
-// toolbarButton is an icon-over-label button that acts on the page itself
-// in the browser, not by posting: attrs carry what ui/static/library.js
-// binds to.
-templ toolbarButton(iconName, label string, attrs templ.Attributes) {
-	@button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: attrs}) {
-		@icon.Icon(iconName)()
-		<span>{ label }</span>
 	}
 }
 

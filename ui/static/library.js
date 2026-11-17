@@ -78,6 +78,9 @@
     document.querySelectorAll("[data-selected-count]").forEach(function (el) {
       el.textContent = String(selected.size);
     });
+    document.querySelectorAll("[data-selected-noun]").forEach(function (el) {
+      el.textContent = selected.size === 1 ? "item" : "items";
+    });
     if (!single) {
       document.querySelectorAll("[data-delete-count]").forEach(function (el) {
         el.textContent = String(selected.size);
@@ -368,7 +371,9 @@
     if (empty) empty.hidden = m.entries.length > 0;
     if (rows) rows.setAttribute("data-total", String(m.entries.length));
     document.querySelectorAll("[data-filter-count]").forEach(function (el) {
-      el.textContent = m.entries.length + " of " + m.total;
+      // The number alone, as Plex writes it; the tab's size is its title.
+      el.textContent = String(m.entries.length);
+      el.title = m.entries.length === m.total ? m.total + " titles" : m.entries.length + " of " + m.total;
     });
     render();
   }
