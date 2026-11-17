@@ -1285,3 +1285,68 @@ The chart's Plex libraries are `Movies` and `TV Shows` since then, with
 cluster-plex chart that reads the key. Built 2026-11-16, not deployed, not
 seen in a browser, and not yet run against cluster-plex's half.
 
+
+**The 2026-11-17 polish** (owner: "polish Clustarr's UI as much as possible
+... a fully polished, production ready, UI design system"; fifteen review
+areas at phone, Galaxy Note, tablet and desktop widths, then the fixes;
+commits `ui: ...` of 2026-11-17 on main). What it left as rules:
+
+- **Tokens and glass.** One `:root, .dark` token block in
+  `ui/static/input.css`; `<html class="dark">`, so `dark:` utilities apply.
+  Three glass levels: resting (cards, panels), bars (`.glass-bar`, and
+  `.glass-pill` for a button group), floating (dialogs, menus, toasts). An
+  unlayered `box-shadow` replaces a component's `ring-*`/`shadow-*`, so each
+  rule states its whole stack. Every dialog is bounded by the theme's guard
+  (`max-height: calc(100dvh - 2rem)`, scrolls); never add a per-dialog one.
+- **Widths follow the container, not the viewport.** Page content keys on
+  `@container/hero`, `/table`, `/bar`, `/modal`: the sidebar (a sheet below
+  768px, an icon rail to 1023px, expanded from 1024px, remembered in the
+  `sidebar_state` and `nav_closed` cookies) changes the room a page has.
+- **One feedback path.** Every write answers through `finish` in
+  `ui/respond.go`: an htmx request is always 200, a refusal a toast in
+  `#action-status`, a success a toast or a redraw (`HX-Trigger:
+  page-changed`); a plain post that fails gets a styled page in the shell
+  (`views.ErrorPage`), never Go's bare text. Forms post with `hx-post` into
+  `#action-status`. Responses are gzipped (`ui/compress.go`).
+- **A question goes through the layout's confirm**: `confirmAttrs(title,
+  text, action)` on the asking element (`hx-confirm` plus
+  `data-confirm-title`/`-action`/`-variant`). Never a dialog inside a polled
+  or streamed region: the next frame tears it down.
+- **Polled and streamed regions morph** (`hx-swap-oob="morph"`,
+  `morph:outerHTML`, `morph:innerHTML`), so focus, hover and motion survive,
+  and poll with `pollTrigger` (paused while the tab is hidden). **A filter
+  form never redraws itself**: it targets its results (`#guide-body`,
+  `#playlist-results`, `#channels-table`); a swap that replaces the search
+  box throws away what was typed while the request was out.
+- **Inner tables select** (seasons' episodes, an artist's albums and
+  tracks, an author's books, a comic's issues): `selectHead`/`selectCell`
+  marks, `ui/static/rowselect.js`, the gold-rimmed `selectionBar` across the
+  top, `POST .../rows/bulk` (`ui/rows_bulk.go`). Live TV's channels use the
+  same head mark over their own bulk form (`ui/static/livetv.js`).
+- **Settings add and edit in a dialog**: an opener carries
+  `views.ModalOpen`; `#modal` in the shell, `ui/static/modal.js` (the hash
+  `#modal=<url>`, a guarded close), `ui/modal.go`; a plain GET of a form URL
+  redirects to its page with the hash.
+- **An item's page is the Plex apps'** (owner's iPad and Plex Web
+  screenshots): the fanart sharp across the top right fading into the
+  blurred page, the title logo (a tablet, and over the banner on a phone)
+  or the title in type beside the poster (from 1024px of hero), the meta
+  line, a marks row (the monitor bookmark and the provider logos, all 20px
+  tall), the actions as icon-only frosted circles with their word as a
+  tooltip, the overview, then the facts as a two-column list.
+- **The library** is Plex's grid: a card is the art alone with its status
+  stripe, its title and a line under it on the page; the toolbar is two
+  shadcn-templ button groups, the docs' pill (`[--radius:9999rem]`), ghost
+  buttons with a `buttongroup.Separator` between each pair -- actions left,
+  view menus right; under it the filter's Edit/Save/Clear group, the count
+  as a bare number, then the chips; selecting swaps the toolbar for the
+  gold-rimmed selection bar of the same height; the A-Z strip is 44px, the
+  thumb at its left and the letters in its right 24px.
+
+Still open from that review (majors, none blocking): the Settings list as
+click-to-open rows with a switch, read-only built-in profiles with Copy,
+and Save disabled on an untouched form; the collection editor, Add New and
+manual assign as dialogs; the guide's own scroller and "jump to now"; the
+dashboard's charts replaying their entrance at every poll and its empty
+states; Activity's rows as one component with toned badges; the Files
+tables' narrow layouts; the nine hero copies folded into one component.
