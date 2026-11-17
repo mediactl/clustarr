@@ -181,3 +181,58 @@ func TestExtrasOfAnUnknownItemAreNotFound(t *testing.T) {
 	rec := getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)+"/extras")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// Plex's metadata service keeps most TV trailers on a season and PMS stores
+// none for a season, so a show answers its own extras and then each
+// season's in season order, specials left out, each clip once (talos,
+// 2026-11-17: Succession has none on the show and five on its fourth
+// season; 390 of 541 shows had no trailer).
+func TestAShowsExtrasAreItsOwnAndItsSeasons(t *testing.T) {
+	const showPlex, s1, s2, special = "5d9c08ed46115600200ade5e", "5d9c08ed46115600200ade61", "5d9c08ed46115600200ade62", "5d9c08ed46115600200ade60"
+	clip := func(guid string) plex.Extra {
+		return plex.Extra(`{"guid":"plex://clip/` + guid + `","type":"clip","subtype":"trailer","extraType":1,"title":"` + guid + `"}`)
+	}
+	held := map[string][]plex.Extra{
+		showPlex: {},
+		s2:       {clip("season-two"), clip("shared")},
+		s1:       {clip("season-one"), clip("shared")},
+		special:  {clip("special")},
+	}
+	var asked []string
+	extras := func(_ context.Context, plexID string) ([]plex.Extra, error) {
+		asked = append(asked, plexID)
+		return held[plexID], nil
+	}
+	s, _ := fixtureSeriesAndEpisodes()
+	s.Status.Metadata.ExternalIDs = map[string]string{"plex": showPlex}
+	s.Status.Metadata.PlexSeasons = []catalogv1.PlexSeasonRef{{Number: 2, ID: s2}, {Number: 0, ID: special}, {Number: 1, ID: s1}}
+	h := extrasHandler(t, extras, s)
+
+	rec := getJSON(t, h, "/plex/tv/library/metadata/"+string(seriesUID)+"/extras")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var out extrasResponse
+	require.NoError(t, decodeJSON(rec.Body.Bytes(), &out))
+	var titles []string
+	for _, m := range out.MediaContainer.Metadata {
+		titles = append(titles, m.Title)
+	}
+	assert.Equal(t, []string{"season-one", "shared", "season-two"}, titles)
+	assert.Equal(t, []string{showPlex, s1, s2}, asked)
+}
+
+// One season the gateway cannot answer for fails the show's whole list: a
+// partial one would have PMS delete that season's trailers.
+func TestAShowsExtrasFailWholeWhenOneSeasonCannotBeAnswered(t *testing.T) {
+	const showPlex, s1 = "5d9c08ed46115600200ade5e", "5d9c08ed46115600200ade61"
+	extras := func(_ context.Context, plexID string) ([]plex.Extra, error) {
+		if plexID == s1 {
+			return nil, errors.New("plex: 503")
+		}
+		return []plex.Extra{plex.Extra(`{"guid":"plex://clip/a","title":"a"}`)}, nil
+	}
+	s, _ := fixtureSeriesAndEpisodes()
+	s.Status.Metadata.ExternalIDs = map[string]string{"plex": showPlex}
+	s.Status.Metadata.PlexSeasons = []catalogv1.PlexSeasonRef{{Number: 1, ID: s1}}
+	rec := getJSON(t, extrasHandler(t, extras, s), "/plex/tv/library/metadata/"+string(seriesUID)+"/extras")
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+}

@@ -862,7 +862,13 @@ by Plex id) and on a miss, or an entry older than 7 days, fetches from
 stores it (`app/catalog/metadata/extras.go`); "none" is stored too, and a
 failed refetch serves the stale entry. The ui holds no Plex token. An item
 without a Plex id answers none, and a gateway that cannot answer is 502/503,
-never an empty list.
+never an empty list. A show answers its own extras and then each season's
+in season order, specials left out, each clip once (2026-11-17,
+`extrasPlexIDs`): Plex's service keeps most TV trailers on a season
+(Succession: none on the show, five on its fourth season) and PMS stores
+none for a season, so 390 of talos's 541 shows had no trailer; one season
+that cannot be answered fails the whole list. Extras reach Plex only at an
+item's refresh.
 Skip segments come from TheIntroDB (2026-09-30,
 `docs/superpowers/specs/2026-09-30-plex-analyze-bypass-design.md`): for a
 probed movie or episode MediaFile whose `status.markers` are due

@@ -18,7 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package plex
 
 import (
+	"cmp"
 	"regexp"
+	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -85,6 +87,27 @@ func seasonPlexID(s *catalogv1.Series, number int32) string {
 		}
 	}
 	return ""
+}
+
+// seasonPlexIDs are the Plex ids of a series' seasons in season order,
+// specials (season 0) left out.
+func seasonPlexIDs(s *catalogv1.Series) []string {
+	md := s.Status.Metadata
+	if md == nil {
+		return nil
+	}
+	seasons := make([]catalogv1.PlexSeasonRef, 0, len(md.PlexSeasons))
+	for _, p := range md.PlexSeasons {
+		if p.Number > 0 && p.ID != "" {
+			seasons = append(seasons, p)
+		}
+	}
+	slices.SortStableFunc(seasons, func(a, b catalogv1.PlexSeasonRef) int { return cmp.Compare(a.Number, b.Number) })
+	ids := make([]string, 0, len(seasons))
+	for _, p := range seasons {
+		ids = append(ids, p.ID)
+	}
+	return ids
 }
 
 func episodePlexID(e *catalogv1.Episode) string { return e.Status.PlexID }

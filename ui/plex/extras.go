@@ -36,9 +36,9 @@ import (
 // their extraType and Media URLs, which PMS plays from Internet Video
 // Archive. The metadata gateway holds them (Options.Extras, bound to
 // rpc.catalog.metadata.extras): it answers from the clustarr-plex-extras
-// bucket and asks Plex on a miss. An item with no Plex id answers none;
-// when the gateway cannot answer, the route answers an error, never an
-// empty list.
+// bucket and asks Plex on a miss. A show answers its seasons' extras after
+// its own ([extrasPlexIDs]). An item with no Plex id answers none; when the
+// gateway cannot answer, the route answers an error, never an empty list.
 
 // Extra is one of an item's extras exactly as Plex's metadata service sent
 // it, so every field PMS reads reaches it unchanged.
@@ -62,14 +62,17 @@ func (h *handler) handleExtras(root rootDef) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		plexID, ok := extrasPlexID(root, idx, r.PathValue("ratingKey"))
+		plexIDs, ok := extrasPlexIDs(root, idx, r.PathValue("ratingKey"))
 		if !ok {
 			http.NotFound(w, r)
 			return
 		}
 
+		// One id that cannot be answered fails the whole list: a show's
+		// list without one season's trailers would have PMS delete them.
 		items := []Extra{}
-		if plexID != "" {
+		seen := map[string]bool{}
+		for _, plexID := range plexIDs {
 			if h.opts.Extras == nil {
 				http.Error(w, "the provider cannot ask the metadata gateway for extras", http.StatusServiceUnavailable)
 				return
@@ -80,7 +83,15 @@ func (h *handler) handleExtras(root rootDef) http.HandlerFunc {
 				http.Error(w, "the metadata gateway did not answer with extras", http.StatusBadGateway)
 				return
 			}
-			items = got
+			for _, e := range got {
+				if id := extraIdentity(e); id != "" {
+					if seen[id] {
+						continue
+					}
+					seen[id] = true
+				}
+				items = append(items, e)
+			}
 		}
 
 		start, size := containerWindow(r, len(items))
@@ -114,37 +125,67 @@ func containerWindow(r *http.Request, total int) (start, size int) {
 	return start, size
 }
 
-// extrasPlexID is the Plex id of the item ratingKey names, "" when it has
-// none; false when the root does not serve it. A music key has no Plex id
-// (design §7.2, Q5), so every one a music root serves answers the empty
-// list (§7.4: "/extras answers an empty list for every music key").
-func extrasPlexID(root rootDef, idx *projection.Index, ratingKey string) (string, bool) {
+// extraIdentity is what makes two extras the same clip: Plex's guid for
+// it, else its ratingKey; "" when it carries neither, and such an extra is
+// never dropped as a repeat.
+func extraIdentity(e Extra) string {
+	var v struct {
+		GUID      string `json:"guid"`
+		RatingKey string `json:"ratingKey"`
+	}
+	if err := json.Unmarshal(e, &v); err != nil {
+		return ""
+	}
+	if v.GUID != "" {
+		return v.GUID
+	}
+	return v.RatingKey
+}
+
+// extrasPlexIDs are the Plex ids whose extras the item ratingKey names is
+// answered with, none when it has no Plex id; false when the root does not
+// serve it. A movie, a season and an episode answer their own. A show
+// answers its own and then each of its seasons', in season order: Plex's
+// metadata service keeps most TV trailers on a season (Succession: none on
+// the show, five on its fourth season) and PMS stores none for a season,
+// so a show that answered only its own had no trailer at all (talos,
+// 2026-11-17: 390 of 541 shows). Specials are left out. A music key has no
+// Plex id (design §7.2, Q5), so every one a music root serves answers the
+// empty list (§7.4: "/extras answers an empty list for every music key").
+func extrasPlexIDs(root rootDef, idx *projection.Index, ratingKey string) ([]string, bool) {
+	one := func(id string) ([]string, bool) {
+		if id == "" {
+			return nil, true
+		}
+		return []string{id}, true
+	}
 	k, ok := resolveKey(idx, ratingKey)
 	if !ok {
-		return "", false
+		return nil, false
 	}
 	if root.music {
 		_, ok := resolveMusicItem(root, idx, k)
-		return "", ok
+		return nil, ok
 	}
 	if k.Track != "" || k.IsPart || k.Synthetic != "" {
-		return "", false
+		return nil, false
 	}
 	if k.IsSeason {
 		s, ok := idx.SeriesByUID(k.UID)
 		if !ok || !root.declares(typeSeason) {
-			return "", false
+			return nil, false
 		}
-		return seasonPlexID(s, k.Season), true
+		return one(seasonPlexID(s, k.Season))
 	}
 	if m, ok := idx.MovieByUID(k.UID); ok && root.declares(typeMovie) {
-		return moviePlexID(m), true
+		return one(moviePlexID(m))
 	}
 	if s, ok := idx.SeriesByUID(k.UID); ok && root.declares(typeShow) {
-		return seriesPlexID(s), true
+		ids, _ := one(seriesPlexID(s))
+		return append(ids, seasonPlexIDs(s)...), true
 	}
 	if e, ok := idx.EpisodeByUID(k.UID); ok && root.declares(typeEpisode) {
-		return episodePlexID(e), true
+		return one(episodePlexID(e))
 	}
-	return "", false
+	return nil, false
 }
