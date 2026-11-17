@@ -235,19 +235,20 @@ func getLayout(t *testing.T, c client.Client, name string) catalogv1.PlexHubLayo
 
 func TestEditPlexHubLayoutCreatesTheLayoutOnFirstWrite(t *testing.T) {
 	c := hubClient(t)
-	err := actions.EditPlexHubLayout(t.Context(), c, c, hubNS, "tv-shows", "TV Shows", actions.HubEdit{Op: actions.HubEnsure})
+	made, err := actions.EditPlexHubLayout(t.Context(), c, c, hubNS, "tv-shows", "TV Shows", actions.HubEdit{Op: actions.HubEnsure})
 	require.NoError(t, err)
+	assert.Equal(t, "TV Shows", made.Spec.Library)
 	got := getLayout(t, c, "tv-shows")
 	assert.Equal(t, catalogv1.PlexHubLayoutSpec{Library: "TV Shows"}, got.Spec)
 	assert.Equal(t, catalogv1.PlexHubLayoutStatus{}, got.Status)
 
 	// A collection's switch before cluster-plex reported anything.
-	err = actions.EditPlexHubLayout(t.Context(), c, c, hubNS, "movies", "Movies",
+	_, err = actions.EditPlexHubLayout(t.Context(), c, c, hubNS, "movies", "Movies",
 		actions.HubEdit{Op: actions.HubSetFlag, Ref: actions.HubRef{Collection: "pixar"}, Flag: actions.HubFlagHome, On: true})
 	require.NoError(t, err)
 	assert.Equal(t, []catalogv1.PlexHubEntry{{Collection: "pixar", Home: true}}, getLayout(t, c, "movies").Spec.Hubs)
 
-	err = actions.EditPlexHubLayout(t.Context(), c, c, hubNS, "music", "", actions.HubEdit{Op: actions.HubEnsure})
+	_, err = actions.EditPlexHubLayout(t.Context(), c, c, hubNS, "music", "", actions.HubEdit{Op: actions.HubEnsure})
 	assert.ErrorIs(t, err, actions.ErrInvalid, "a new layout needs its library")
 }
 
@@ -255,9 +256,11 @@ func TestEditPlexHubLayoutPatchesTheHubsAlone(t *testing.T) {
 	l := hubLayout(nil, plexHubs())
 	l.Annotations = map[string]string{"example.com/kept": "yes"}
 	c := hubClient(t, l)
-	err := actions.EditPlexHubLayout(t.Context(), c, c, hubNS, "movies", "Movies",
+	left, err := actions.EditPlexHubLayout(t.Context(), c, c, hubNS, "movies", "Movies",
 		actions.HubEdit{Op: actions.HubMove, Ref: actions.HubRef{Identifier: "movie.genre"}, To: 0})
 	require.NoError(t, err)
+	assert.Equal(t, []string{"id:movie.genre", "id:movie.recentlyreleased"}, refs(left.Spec.Hubs), "the layout as written comes back")
+	assert.Equal(t, plexHubs(), left.Status.Hubs)
 	got := getLayout(t, c, "movies")
 	assert.Equal(t, []string{"id:movie.genre", "id:movie.recentlyreleased"}, refs(got.Spec.Hubs))
 	assert.Equal(t, "Movies", got.Spec.Library)
@@ -265,7 +268,8 @@ func TestEditPlexHubLayoutPatchesTheHubsAlone(t *testing.T) {
 	assert.Equal(t, "yes", got.Annotations["example.com/kept"])
 
 	// Ensuring a layout that exists writes nothing.
-	require.NoError(t, actions.EditPlexHubLayout(t.Context(), c, c, hubNS, "movies", "Movies", actions.HubEdit{Op: actions.HubEnsure}))
+	_, err = actions.EditPlexHubLayout(t.Context(), c, c, hubNS, "movies", "Movies", actions.HubEdit{Op: actions.HubEnsure})
+	require.NoError(t, err)
 	assert.Equal(t, got.ResourceVersion, getLayout(t, c, "movies").ResourceVersion)
 }
 

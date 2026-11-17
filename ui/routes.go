@@ -77,6 +77,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/collections", s.handleCollectionCreate)
 	mux.HandleFunc("POST /library/collections/{namespace}/{name}", s.handleCollectionUpdate)
 	mux.HandleFunc("POST /library/collections/{namespace}/{name}/delete", s.handleCollectionDelete)
+	// Plex hub layouts (docs/superpowers/specs/2026-11-16-plex-hub-layouts-design.md).
+	mux.HandleFunc("GET /library/hubs", s.handleHubs)
+	mux.HandleFunc("GET /library/hubs/{namespace}/{name}/section", s.handleHubSection)
+	mux.HandleFunc("POST /library/hubs/{namespace}/{name}/edit", s.handleHubEdit)
+	mux.HandleFunc("POST /library/hubs/{namespace}/{name}/reset", s.handleHubReset)
 	mux.HandleFunc("GET /library/find", s.handleFind)
 	mux.HandleFunc("GET /library/{tab}/find", s.handleLibraryFind)
 	mux.HandleFunc("GET /library/{tab}/filter", s.handleLibraryFilter)

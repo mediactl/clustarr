@@ -66,11 +66,17 @@ func (s *Server) collectionsPage(ctx context.Context) views.CollectionsPage {
 	if err != nil {
 		logging.FromContext(ctx).Error("list collections", "err", err)
 	}
+	layouts, err := s.plexHubLayouts(ctx)
+	if err != nil {
+		logging.FromContext(ctx).Error("list hub layouts", "err", err)
+	}
+	hubs := hubLayouts(layouts)
 	byLibrary := map[string][]views.CollectionRow{}
 	for _, pc := range items {
 		row := views.CollectionRow{
 			Namespace: pc.Namespace, Name: pc.Name, Title: collectionTitle(pc.Spec),
 			Reading: plexfilter.Describe(pc.Spec), Items: pc.Status.ItemCount,
+			Hub: collectionHubFlags(pc, hubs[libraryKey{pc.Namespace, pc.Spec.Library}]),
 		}
 		if pc.Spec.Poster != nil {
 			row.Poster = s.searchArt.URL(pc.Spec.Poster.URL)

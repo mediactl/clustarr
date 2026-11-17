@@ -339,45 +339,47 @@ type HubLayoutWriter interface {
 // quick edits build on one another) and patches spec.hubs alone, testing
 // that the spec is still at the generation read. A layout that does not
 // exist yet is created for library with the edit applied to an empty one;
-// library is needed only then.
+// library is needed only then. It returns the layout as the write left
+// it -- the status as read -- for the page to draw without waiting on its
+// cache.
 func EditPlexHubLayout(
 	ctx context.Context, g Getter, w HubLayoutWriter, namespace, name, library string, e HubEdit,
-) error {
+) (*catalogv1alpha1.PlexHubLayout, error) {
 	ctx, span := tracing.Start(ctx, "ui.actions.EditPlexHubLayout")
 	defer span.End()
-	err := editPlexHubLayout(ctx, g, w, namespace, name, library, e)
+	l, err := editPlexHubLayout(ctx, g, w, namespace, name, library, e)
 	if err != nil {
 		tracing.RecordError(span, err)
-		return err
+		return nil, err
 	}
 	logging.FromContext(ctx).Info("ui action: hub layout edited", "namespace", namespace, "name", name, "op", string(e.Op))
-	return nil
+	return l, nil
 }
 
 func editPlexHubLayout(
 	ctx context.Context, g Getter, w HubLayoutWriter, namespace, name, library string, e HubEdit,
-) error {
+) (*catalogv1alpha1.PlexHubLayout, error) {
 	if err := validPlexCollectionTarget(namespace, name); err != nil {
-		return err
+		return nil, err
 	}
 	var l catalogv1alpha1.PlexHubLayout
 	err := g.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &l)
 	if apierrors.IsNotFound(err) {
 		hubs, err := EditHubs(nil, e)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		return createPlexHubLayout(ctx, w, namespace, name, library, hubs, nil)
 	}
 	if err != nil {
-		return fmt.Errorf("actions: read hub layout %s/%s: %w", namespace, name, err)
+		return nil, fmt.Errorf("actions: read hub layout %s/%s: %w", namespace, name, err)
 	}
 	if e.Op == HubEnsure {
-		return nil
+		return &l, nil
 	}
 	hubs, err := EditHubs(&l, e)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if hubs == nil {
 		hubs = []catalogv1alpha1.PlexHubEntry{}
@@ -393,30 +395,31 @@ func editPlexHubLayout(
 	ops = append(ops, map[string]any{"op": "add", "path": "/spec/hubs", "value": hubs})
 	raw, err := json.Marshal(ops)
 	if err != nil {
-		return fmt.Errorf("actions: encode hub layout patch: %w", err)
+		return nil, fmt.Errorf("actions: encode hub layout patch: %w", err)
 	}
 	obj := &catalogv1alpha1.PlexHubLayout{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}}
 	if err := w.Patch(ctx, obj, client.RawPatch(types.JSONPatchType, raw), client.FieldOwner(FieldManager)); err != nil {
-		return fmt.Errorf("actions: edit hub layout %s/%s: %w", namespace, name, err)
+		return nil, fmt.Errorf("actions: edit hub layout %s/%s: %w", namespace, name, err)
 	}
-	return nil
+	l.Spec.Hubs = hubs
+	return &l, nil
 }
 
 func createPlexHubLayout(
 	ctx context.Context, c Creator, namespace, name, library string,
 	hubs []catalogv1alpha1.PlexHubEntry, annotations map[string]string,
-) error {
+) (*catalogv1alpha1.PlexHubLayout, error) {
 	if strings.TrimSpace(library) == "" {
-		return fmt.Errorf("%w: a new hub layout needs its library", ErrInvalid)
+		return nil, fmt.Errorf("%w: a new hub layout needs its library", ErrInvalid)
 	}
 	l := &catalogv1alpha1.PlexHubLayout{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name, Annotations: annotations},
 		Spec:       catalogv1alpha1.PlexHubLayoutSpec{Library: library, Hubs: hubs},
 	}
 	if err := c.Create(ctx, l, client.FieldOwner(FieldManager)); err != nil {
-		return fmt.Errorf("actions: create hub layout %s/%s: %w", namespace, name, err)
+		return nil, fmt.Errorf("actions: create hub layout %s/%s: %w", namespace, name, err)
 	}
-	return nil
+	return l, nil
 }
 
 // ResetPlexHubLayout asks cluster-plex to reset the library's hub
@@ -442,7 +445,7 @@ func ResetPlexHubLayout(ctx context.Context, w HubLayoutWriter, namespace, name,
 	obj := &catalogv1alpha1.PlexHubLayout{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}}
 	err = w.Patch(ctx, obj, client.RawPatch(types.MergePatchType, raw), client.FieldOwner(FieldManager))
 	if apierrors.IsNotFound(err) {
-		err = createPlexHubLayout(ctx, w, namespace, name, library, nil, annotations)
+		_, err = createPlexHubLayout(ctx, w, namespace, name, library, nil, annotations)
 	} else if err != nil {
 		err = fmt.Errorf("actions: reset hub layout %s/%s: %w", namespace, name, err)
 	}
@@ -475,13 +478,15 @@ func DeletePlexHubLayout(ctx context.Context, d Deleter, namespace, name string)
 
 // EditPlexHubLayout is [EditPlexHubLayout] over the Actions' writer, which
 // reads the layout through the apiserver.
-func (a *Actions) EditPlexHubLayout(ctx context.Context, namespace, name, library string, e HubEdit) error {
+func (a *Actions) EditPlexHubLayout(
+	ctx context.Context, namespace, name, library string, e HubEdit,
+) (*catalogv1alpha1.PlexHubLayout, error) {
 	if a == nil || a.w == nil {
-		return ErrNoWriter
+		return nil, ErrNoWriter
 	}
 	g, ok := a.w.(Getter)
 	if !ok {
-		return ErrNoWriter
+		return nil, ErrNoWriter
 	}
 	return EditPlexHubLayout(ctx, g, a.w, namespace, name, library, e)
 }

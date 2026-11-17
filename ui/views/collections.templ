@@ -71,6 +71,9 @@ type CollectionRow struct {
 	// Poster is the spec's poster through /art/search, or "" for none or
 	// a host the ui does not fetch.
 	Poster string
+	// Hub is where Plex shows the collection as a hub: three switches
+	// that write its library's PlexHubLayout.
+	Hub HubFlags
 }
 
 // CollectionEditor is the editor's state.
@@ -413,6 +416,7 @@ templ collectionRow(r CollectionRow) {
 			}
 		}
 		@item.Actions() {
+			@CollectionHubFlags(r.Hub, false)
 			if r.Items > 0 {
 				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
 					{ fmt.Sprintf("%d items", r.Items) }
@@ -815,6 +819,9 @@ templ editorSettings(e CollectionEditor) {
 				}
 			}
 		</div>
+		<p class="text-sm text-muted-foreground" data-editor-visibility-note>
+			Once a library's hub layout lists the collection -- from the Hubs page, or the switches on the Collections list -- those switches decide where it shows, not the setting below.
+		</p>
 		@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
 			@switchcomp.Switch(switchcomp.Props{ID: "collection-visibility-managed", Name: "visibility.managed", Value: "1", DefaultChecked: e.Spec.Visibility != nil})
 			@field.Label(field.LabelProps{For: "collection-visibility-managed"}) {

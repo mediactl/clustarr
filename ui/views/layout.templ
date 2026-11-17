@@ -362,6 +362,16 @@ templ librarySubMenu(current projection.Tab) {
 				<span>Collections</span>
 			}
 		}
+		// Plex hub layouts (docs/superpowers/specs/2026-11-16-plex-hub-layouts-design.md).
+		@sidebar.MenuSubItem() {
+			@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+				Href:       "/library/hubs",
+				IsActive:   current == HubsTab,
+				Attributes: subNavAttrs("/library/hubs"),
+			}) {
+				<span>Hubs</span>
+			}
+		}
 	}
 }
 

@@ -1,0 +1,406 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"strconv"
+
+	"github.com/mediactl/clustarr/ui/components/alert"
+	"github.com/mediactl/clustarr/ui/components/alertdialog"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
+	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// The Hubs page (docs/superpowers/specs/2026-11-16-plex-hub-layouts-design.md):
+// Plex Web's "Manage Recommendations" over the PlexHubLayouts, a section a
+// library. A row's switches and its move and remove buttons post one edit
+// each and are answered with a toast and, out of band, the library's rows
+// drawn again from the layout as written; adding a collection, the reset
+// and a layout's creation are plain form posts back to the page.
+
+// HubsTab marks the Library sub-menu's Hubs entry.
+const HubsTab projection.Tab = "hubs"
+
+// HubsPage is the page, one section per Plex library.
+type HubsPage struct {
+	Libraries []HubLibrary
+}
+
+// HubLibrary is one library's hubs.
+type HubLibrary struct {
+	// Namespace and Name are the layout's: the resource's own when one
+	// holds the library, else the name its first write creates it under.
+	Namespace, Name string
+	// Title is the library's title in Plex.
+	Title string
+	// Exists is true when a PlexHubLayout holds the library, and Reported
+	// once cluster-plex has written its status.
+	Exists, Reported bool
+	// NotReady is the Ready condition's message while it is not True.
+	NotReady string
+	// ResetPending is true while a reset asked for is not yet honoured.
+	ResetPending bool
+	Rows         []HubRow
+	// Addable are the library's PlexCollections no row shows yet.
+	Addable []Choice
+}
+
+// HubRow is one hub: its place among the library's rows, what it is and
+// where it shows.
+type HubRow struct {
+	// Key is the hub's actions.HubRef key.
+	Key, Title string
+	Collection bool
+	// Listed is true for a hub the layout's spec lists, InPlex for one
+	// Plex reports.
+	Listed, InPlex                        bool
+	LibraryRecommended, Home, FriendsHome bool
+}
+
+// HubFlags are a collection's three switches on the Collections page.
+type HubFlags struct {
+	// Namespace and Layout name the library's PlexHubLayout, Library its
+	// title, Collection the PlexCollection.
+	Namespace, Layout, Library, Collection string
+	LibraryRecommended, Home, FriendsHome  bool
+}
+
+func hubEditPath(namespace, name string) string {
+	return "/library/hubs/" + namespace + "/" + name + "/edit"
+}
+
+// HubRowsID is the id of a library's rows, the target an edit's answer
+// redraws out of band.
+func HubRowsID(namespace, name string) string {
+	return "hub-rows-" + namespace + "-" + name
+}
+
+// CollectionFlagsID is the id of a collection's switches on the
+// Collections page.
+func CollectionFlagsID(namespace, collection string) string {
+	return "collection-hub-" + namespace + "-" + collection
+}
+
+// hubPost are the attributes of a control posting one hub edit, answered
+// into #action-status.
+func hubPost(namespace, name, label string, kv ...string) templ.Attributes {
+	return templ.Attributes{
+		"hx-post":    hubEditPath(namespace, name),
+		"hx-vals":    hxVals(kv...),
+		"hx-target":  "#action-status",
+		"hx-swap":    "innerHTML",
+		"aria-label": label,
+		"title":      label,
+	}
+}
+
+func hubFlagSwitch(l HubLibrary, r HubRow, flag, label string, on bool) templ.Attributes {
+	a := hubPost(l.Namespace, l.Name, label+": "+r.Title,
+		"library", l.Title, "op", "flag", "hub", r.Key, "flag", flag, "on", strconv.FormatBool(!on))
+	a["hx-trigger"] = "click"
+	a["data-hub-flag"] = flag
+	return a
+}
+
+func collectionFlagSwitch(f HubFlags, flag, label string, on bool) templ.Attributes {
+	a := hubPost(f.Namespace, f.Layout, label,
+		"library", f.Library, "op", "flag", "hub", "col:"+f.Collection, "flag", flag, "on", strconv.FormatBool(!on), "view", "collection")
+	a["hx-trigger"] = "click"
+	a["data-hub-flag"] = flag
+	return a
+}
+
+func hubMove(l HubLibrary, r HubRow, to int, label string) templ.Attributes {
+	a := hubPost(l.Namespace, l.Name, label+" "+r.Title, "library", l.Title, "op", "move", "hub", r.Key, "to", strconv.Itoa(to))
+	a["data-hub-move"] = strconv.Itoa(to)
+	return a
+}
+
+templ Hubs(p HubsPage) {
+	@Shell(Chrome{
+		Title:  "Hubs",
+		Crumbs: []Crumb{{Label: "Library", Href: "/library"}, {Label: "Hubs"}},
+		Tab:    HubsTab,
+	}) {
+		@ActionStatusRegion()
+		<div class="mb-6">
+			<h1 class="text-2xl font-semibold tracking-tight">Hubs</h1>
+			<p class="mt-1 max-w-4xl text-sm text-muted-foreground">
+				The rows of each Plex library's Recommended tab and of Home, in order, and where each shows. The hubs listed here come first; Plex keeps the rest after them.
+			</p>
+		</div>
+		<div class="space-y-8">
+			if len(p.Libraries) == 0 {
+				@emptyState("layout-list", "No libraries yet", "A library appears here once a PlexHubLayout or a collection names it.", nil)
+			}
+			for _, l := range p.Libraries {
+				@HubLibrarySection(l)
+			}
+		</div>
+	}
+}
+
+// HubLibrarySection is one library: its header, its controls and its rows.
+// While cluster-plex has yet to report the hubs, or to honour a reset, it
+// asks for itself again every few seconds.
+templ HubLibrarySection(l HubLibrary) {
+	<section
+		id={ "hub-library-" + l.Namespace + "-" + l.Name }
+		data-hub-library={ l.Title }
+		if (l.Exists && !l.Reported) || l.ResetPending {
+			hx-get={ "/library/hubs/" + l.Namespace + "/" + l.Name + "/section" }
+			hx-trigger="every 5s"
+			hx-swap="outerHTML"
+		}
+	>
+		<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+			<div class="flex items-center gap-2">
+				<h2 class="text-lg font-medium">{ l.Title }</h2>
+				if l.ResetPending {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Attributes: templ.Attributes{"data-hub-reset": "pending"}}) {
+						Reset pending
+					}
+				}
+			</div>
+			if l.Exists {
+				<div class="flex flex-wrap items-center gap-2">
+					if len(l.Addable) > 0 {
+						<form method="post" action={ templ.URL(hubEditPath(l.Namespace, l.Name)) } class="flex items-center gap-2" data-hub-add>
+							<input type="hidden" name="library" value={ l.Title }/>
+							<input type="hidden" name="op" value="add"/>
+							<input type="hidden" name="return" value="/library/hubs"/>
+							<div class="w-56">
+								@editorSelect("hub-add-"+l.Namespace+"-"+l.Name, "collection", "Collection to add as a hub", l.Addable, l.Addable[0].Key, false)
+							</div>
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline}) {
+								@icon.Icon("plus")()
+								Add collection
+							}
+						</form>
+					}
+					@alertdialog.AlertDialog() {
+						@button.Button(button.Props{Variant: button.VariantOutline, Attributes: alertdialog.Trigger(ctx)}) {
+							@icon.Icon("rotate-ccw")()
+							Reset customization
+						}
+						@alertdialog.Content(alertdialog.ContentProps{Size: alertdialog.SizeSm}) {
+							@alertdialog.Header() {
+								@alertdialog.Title() {
+									Reset { l.Title }'s hubs?
+								}
+								@alertdialog.Description() {
+									Plex puts the library's hubs back in its own order and visibility, and this layout lists none again.
+								}
+							}
+							<form method="post" action={ templ.URL("/library/hubs/" + l.Namespace + "/" + l.Name + "/reset") } data-hub-reset-form>
+								<input type="hidden" name="library" value={ l.Title }/>
+								<input type="hidden" name="return" value="/library/hubs"/>
+								@alertdialog.Footer() {
+									@alertdialog.Cancel() {
+										Cancel
+									}
+									@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+										Reset
+									}
+								}
+							</form>
+						}
+					}
+				</div>
+			}
+		</div>
+		if l.NotReady != "" {
+			@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Class: "mb-3", Attributes: templ.Attributes{"data-hub-not-ready": true}}) {
+				@icon.Icon("circle-alert")()
+				@alert.Title() {
+					Plex does not hold this layout yet
+				}
+				@alert.Description() {
+					{ l.NotReady }
+				}
+			}
+		}
+		if !l.Exists {
+			<div class="panel flex flex-wrap items-center justify-between gap-3 p-4" data-hub-unmanaged>
+				<p class="text-sm text-muted-foreground">
+					Nothing manages this library's hubs yet, so cluster-plex has not reported them. Start managing it to list them here; nothing changes in Plex until a hub is edited.
+				</p>
+				<form method="post" action={ templ.URL(hubEditPath(l.Namespace, l.Name)) }>
+					<input type="hidden" name="library" value={ l.Title }/>
+					<input type="hidden" name="op" value="ensure"/>
+					<input type="hidden" name="return" value="/library/hubs"/>
+					@button.Button(button.Props{Type: button.TypeSubmit}) {
+						Manage hubs
+					}
+				</form>
+			</div>
+		} else {
+			@HubRows(l, false)
+		}
+	</section>
+}
+
+// HubRows are a library's rows, the part an edit's answer redraws.
+templ HubRows(l HubLibrary, oob bool) {
+	<div
+		id={ HubRowsID(l.Namespace, l.Name) }
+		data-hub-rows
+		if oob {
+			hx-swap-oob="outerHTML"
+		}
+	>
+		if len(l.Rows) == 0 {
+			if l.Reported {
+				@emptyNote("Plex reports no hubs for this library.", "", nil)
+			} else {
+				@emptyNote("Waiting for cluster-plex to report this library's hubs.", "", templ.Attributes{"data-hub-waiting": true})
+			}
+		} else {
+			<div class="panel overflow-x-auto">
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head(table.HeadProps{Class: "w-24"}) {
+								Order
+							}
+							@table.Head() {
+								Hub
+							}
+							@table.Head(table.HeadProps{Class: "text-center"}) {
+								Library Recommended
+							}
+							@table.Head(table.HeadProps{Class: "text-center"}) {
+								Home
+							}
+							@table.Head(table.HeadProps{Class: "text-center"}) {
+								Friends' Home
+							}
+							@table.Head(table.HeadProps{Class: "w-12"}) {
+								<span class="sr-only">Remove</span>
+							}
+						}
+					}
+					@table.Body() {
+						for i, r := range l.Rows {
+							@hubRow(l, r, i)
+						}
+					}
+				}
+			</div>
+		}
+	</div>
+}
+
+templ hubRow(l HubLibrary, r HubRow, i int) {
+	@table.Row(table.RowProps{Attributes: templ.Attributes{"data-hub": r.Key, "data-hub-listed": strconv.FormatBool(r.Listed)}}) {
+		@table.Cell() {
+			<div class="flex items-center gap-1">
+				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIconSm, Disabled: i == 0, Attributes: hubMove(l, r, i-1, "Move up")}) {
+					@icon.Icon("arrow-up")()
+				}
+				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIconSm, Disabled: i == len(l.Rows)-1, Attributes: hubMove(l, r, i+1, "Move down")}) {
+					@icon.Icon("arrow-down")()
+				}
+			</div>
+		}
+		@table.Cell() {
+			<div class="flex flex-wrap items-center gap-2">
+				<span class="font-medium">{ r.Title }</span>
+				if r.Collection {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						Collection
+					}
+				} else {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+						Built-in
+					}
+				}
+				if !r.Listed {
+					@badge.Badge(badge.Props{Variant: badge.VariantGhost, Attributes: templ.Attributes{"title": "The layout does not list this hub: Plex keeps its place and visibility until it is edited here."}}) {
+						Plex's own
+					}
+				} else if !r.InPlex && l.Reported {
+					@badge.Badge(badge.Props{Variant: badge.VariantGhost, Attributes: templ.Attributes{"title": "Plex does not show this hub yet."}}) {
+						Not in Plex yet
+					}
+				}
+			</div>
+		}
+		@table.Cell(table.CellProps{Class: "text-center"}) {
+			@switchcomp.Switch(switchcomp.Props{Checked: &r.LibraryRecommended, Size: switchcomp.SizeSm, Attributes: hubFlagSwitch(l, r, "libraryRecommended", "Library Recommended", r.LibraryRecommended)})
+		}
+		@table.Cell(table.CellProps{Class: "text-center"}) {
+			@switchcomp.Switch(switchcomp.Props{Checked: &r.Home, Size: switchcomp.SizeSm, Attributes: hubFlagSwitch(l, r, "home", "Home", r.Home)})
+		}
+		@table.Cell(table.CellProps{Class: "text-center"}) {
+			@switchcomp.Switch(switchcomp.Props{Checked: &r.FriendsHome, Size: switchcomp.SizeSm, Attributes: hubFlagSwitch(l, r, "friendsHome", "Friends' Home", r.FriendsHome)})
+		}
+		@table.Cell() {
+			if r.Listed {
+				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIconSm, Attributes: hubPost(l.Namespace, l.Name, "Stop listing "+r.Title, "library", l.Title, "op", "remove", "hub", r.Key)}) {
+					@icon.Icon("x")()
+				}
+			}
+		}
+	}
+}
+
+// HubEditAnswer is an edit's answer into #action-status: the toast and,
+// out of band, the library's rows as the write left them.
+templ HubEditAnswer(done string, l HubLibrary) {
+	@ActionStatus(done)
+	@HubRows(l, true)
+}
+
+// CollectionHubFlags are a collection's three switches on the Collections
+// page: where Plex shows it as a hub, written to its library's
+// PlexHubLayout.
+templ CollectionHubFlags(f HubFlags, oob bool) {
+	<div
+		id={ CollectionFlagsID(f.Namespace, f.Collection) }
+		class="flex items-center gap-3 text-xs text-muted-foreground"
+		data-collection-hub
+		if oob {
+			hx-swap-oob="outerHTML"
+		}
+	>
+		<span class="flex items-center gap-1" title="Library Recommended">
+			@switchcomp.Switch(switchcomp.Props{Checked: &f.LibraryRecommended, Size: switchcomp.SizeSm, Attributes: collectionFlagSwitch(f, "libraryRecommended", "Library Recommended", f.LibraryRecommended)})
+			Library
+		</span>
+		<span class="flex items-center gap-1" title="Home">
+			@switchcomp.Switch(switchcomp.Props{Checked: &f.Home, Size: switchcomp.SizeSm, Attributes: collectionFlagSwitch(f, "home", "Home", f.Home)})
+			Home
+		</span>
+		<span class="flex items-center gap-1" title="Friends' Home">
+			@switchcomp.Switch(switchcomp.Props{Checked: &f.FriendsHome, Size: switchcomp.SizeSm, Attributes: collectionFlagSwitch(f, "friendsHome", "Friends' Home", f.FriendsHome)})
+			Friends
+		</span>
+	</div>
+}
+
+// CollectionFlagsAnswer is a Collections-page switch's answer: the toast
+// and, out of band, the collection's switches as the write left them.
+templ CollectionFlagsAnswer(done string, f HubFlags) {
+	@ActionStatus(done)
+	@CollectionHubFlags(f, true)
+}
