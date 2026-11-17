@@ -650,7 +650,13 @@ item leaves the list, when the block goes, and when the list is deleted,
 which the finalizer `catalog.clustarr.io/listed-items` holds until its
 marks are off. A disabled list keeps what it put. Each remembered item
 records the block it carries (`StoredItem.Listed`), so a sync writes only
-where the block moved or someone removed a mark. A label or annotation key
+where the block moved or someone removed a mark. A label or annotation key The marks are
+written eight at a time (`listedWriters`), and an item that carries them
+with nothing recorded is taken as marked without a write: on talos a write
+is a quarter of a second and the list's reconcile has five minutes, so the
+first run on `great-films`' 755 films, one write at a time, ended past its
+deadline at 593, saved no record, and every retry wrote the same films
+again (2026-11-17).
 under `clustarr.io/`, `kubernetes.io/` or `k8s.io/` is refused (CEL, and
 again in the controller): those are read as instructions, and
 `catalog.clustarr.io/delete` on a list's 755 films would remove them.
