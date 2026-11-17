@@ -520,29 +520,33 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     transform 160ms ease-out,
     box-shadow 160ms ease-out;
 }
-/* The lift's shadow is composed with the card's ring, not put in its place
-   (2026-11-17: an unlayered box-shadow replaces the ring utilities, so the
-   gold hover ring, the selected ring and the keyboard's focus ring never
-   drew). */
+/* The ring and the deeper shadow are the art's (the card has no surface of
+   its own since 2026-11-17): gold under the pointer, gold and thicker when
+   selected, the focus ring's under the keyboard. They are composed here,
+   not left to ring utilities, which an unlayered box-shadow would replace. */
 @media (hover: hover) {
   [data-library-grid] [data-slot="item"]:hover {
     transform: translateY(-2px) scale(1.03);
+    z-index: 5;
+  }
+  [data-library-grid] [data-slot="item"]:hover [data-card-art] {
     box-shadow:
       0 0 0 1px color-mix(in oklab, var(--primary) 70%, transparent),
       0 16px 32px -12px rgba(0, 0, 0, 0.7);
-    z-index: 5;
   }
 }
-[data-library-grid] [data-slot="item"][data-selected] {
+[data-library-grid] [data-slot="item"][data-selected] [data-card-art] {
   box-shadow:
     0 0 0 2px var(--primary),
     0 16px 32px -12px rgba(0, 0, 0, 0.7);
 }
 [data-library-grid] [data-slot="item"]:has([data-card-link]:focus-visible) {
+  z-index: 5;
+}
+[data-library-grid] [data-slot="item"]:has([data-card-link]:focus-visible) [data-card-art] {
   box-shadow:
     0 0 0 2px var(--ring),
     0 16px 32px -12px rgba(0, 0, 0, 0.7);
-  z-index: 5;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-library-grid] [data-slot="item"],

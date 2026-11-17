@@ -45,7 +45,6 @@ func AudiobookActions() []Action {
 // modal on its Search tab.
 templ AudiobookPage(v AudiobookView) {
 	@Shell(Chrome{Title: v.Item.Title, Crumbs: itemCrumbs(v.Item), Tab: v.Item.Tab}) {
-		@ItemActions(v.Detail, AudiobookActions())
 		@audiobookHero(v)
 		@audiobookPartsSection(v)
 		@audiobookChaptersSection(v)
@@ -120,7 +119,15 @@ templ audiobookHero(v AudiobookView) {
 						}
 						@providerLinks(v.Links)
 					</div>
-					<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					// The item's actions, under the title's lines, then what it is
+					// about, then its facts (the Plex apps' order).
+					<div class="mt-5">
+						@ItemActions(v.Detail, AudiobookActions())
+					</div>
+					if v.Overview != "" {
+						<p data-overview class="mt-5 max-w-3xl text-base leading-relaxed">{ v.Overview }</p>
+					}
+					<dl class="mt-6 grid max-w-3xl grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-8 gap-y-2.5 text-base">
 						if v.Path != "" {
 							@fact("path", "Path") {
 								<span class="break-all">{ v.Path }</span>
@@ -178,9 +185,6 @@ templ audiobookHero(v AudiobookView) {
 							}
 						}
 					</dl>
-					if v.Overview != "" {
-						<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
-					}
 				</div>
 			</div>
 		</div>

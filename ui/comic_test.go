@@ -214,7 +214,9 @@ func TestComicPageIsMylarsIssuesTable(t *testing.T) {
 	}
 
 	// The action bar: the shared slots and the volume search between them.
-	bar := page[strings.Index(page, `data-toolbar`):strings.Index(page, `data-hero`)]
+	// The actions sit in the hero, above its facts.
+	bar := page[strings.Index(page, `data-toolbar`):]
+	bar = bar[:strings.Index(bar, `<dl`)]
 	for _, a := range []string{`data-action="refresh-metadata"`, `data-action="search-now"`, `data-action="comic-volume-search"`,
 		`data-action="rename-dry-run"`, `data-action="rename-apply"`} {
 		require.Contains(t, bar, a, "the actions live in the bar")

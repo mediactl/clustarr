@@ -62,7 +62,7 @@ func AuthorXActions() []Action {
 // AuthorXPage is an author's page.
 templ AuthorXPage(v AuthorXView) {
 	@Shell(Chrome{Title: v.Item.Title, Crumbs: itemCrumbs(v.Item), Tab: v.Item.Tab}) {
-		@ItemActions(v.Detail, AuthorXActions())
+		@selectionBar(SelectionBar{Action: libraryActionURL(v.Item, "rows/bulk"), Verbs: RowVerbs()})
 		@authorXHero(v)
 		@card.Card(card.Props{Class: "mt-6 gap-0 py-0", Attributes: templ.Attributes{"data-author-books": fmt.Sprint(len(v.Books))}}) {
 			@card.Header(card.HeaderProps{Class: "px-4 py-3"}) {
@@ -75,7 +75,6 @@ templ AuthorXPage(v AuthorXView) {
 			}
 		}
 		@bookRegions()
-		@selectionBar(SelectionBar{Action: libraryActionURL(v.Item, "rows/bulk"), Verbs: RowVerbs()})
 	}
 }
 
@@ -129,7 +128,15 @@ templ authorXHero(v AuthorXView) {
 						}
 						@providerLinks(v.Links)
 					</div>
-					<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					// The item's actions, under the title's lines, then what it is
+					// about, then its facts (the Plex apps' order).
+					<div class="mt-5">
+						@ItemActions(v.Detail, AuthorXActions())
+					</div>
+					if v.Overview != "" {
+						<p data-overview class="mt-5 max-w-3xl text-base leading-relaxed">{ v.Overview }</p>
+					}
+					<dl class="mt-6 grid max-w-3xl grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-8 gap-y-2.5 text-base">
 						if v.Path != "" {
 							@fact("path", "Path") {
 								<span class="break-all">{ v.Path }</span>
@@ -165,9 +172,6 @@ templ authorXHero(v AuthorXView) {
 							}
 						}
 					</dl>
-					if v.Overview != "" {
-						<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
-					}
 				</div>
 			</div>
 		</div>

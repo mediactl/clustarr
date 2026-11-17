@@ -64,7 +64,6 @@ type EpisodeView struct {
 // EpisodePage is an episode's page.
 templ EpisodePage(v EpisodeView) {
 	@Shell(Chrome{Title: episodePageTitle(v), Crumbs: episodeCrumbs(v), Tab: v.Item.Tab}) {
-		@episodeToolbar(v)
 		@episodeHero(v)
 		@filesSection(v.Detail)
 		@extrasSection(v.Detail)
@@ -198,7 +197,15 @@ templ episodeHero(v EpisodeView) {
 							</span>
 						}
 					</div>
-					<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					// The item's actions, under the title's lines, then what it is
+					// about, then its facts (the Plex apps' order).
+					<div class="mt-5">
+						@episodeToolbar(v)
+					</div>
+					if v.Overview != "" {
+						<p data-overview class="mt-5 max-w-3xl text-base leading-relaxed">{ v.Overview }</p>
+					}
+					<dl class="mt-6 grid max-w-3xl grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-8 gap-y-2.5 text-base">
 						if v.Path != "" {
 							@fact("path", "Path") {
 								<span class="break-all">{ v.Path }</span>
@@ -243,9 +250,6 @@ templ episodeHero(v EpisodeView) {
 							}
 						}
 					</dl>
-					if v.Overview != "" {
-						<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
-					}
 				</div>
 			</div>
 		</div>

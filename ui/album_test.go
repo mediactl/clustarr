@@ -215,7 +215,7 @@ func TestArtistPageGroupsAlbumsByTypeWithStatusCellsAndSearches(t *testing.T) {
 	require.NotContains(t, body, "wikidata.org", "a Wikidata entity is no page a person reads")
 
 	bar := section(t, body, `data-toolbar`)
-	bar = bar[:strings.Index(bar, `data-hero`)]
+	bar = bar[:strings.Index(bar, `<dl`)] // the actions sit in the hero, above its facts
 	for _, action := range []string{"refresh-metadata", "search-now", "rename-dry-run", "rename-apply", "delete"} {
 		require.Contains(t, bar, `data-action="`+action+`"`, action)
 	}
@@ -328,7 +328,7 @@ func TestAlbumPageShowsTracksFilesAndFacts(t *testing.T) {
 	require.NotContains(t, files, "The Dark Side of the Moon (1973)/02 - Breathe.flac", "the path relative to the album's folder")
 
 	bar := section(t, body, `data-toolbar`)
-	bar = bar[:strings.Index(bar, `data-hero`)]
+	bar = bar[:strings.Index(bar, `<dl`)] // the actions sit in the hero, above its facts
 	requireTag(t, bar, `id="refresh-dsotm"`, `action="/library/default/album/dsotm/refresh"`)
 	require.Regexp(t, `data-action="refresh-metadata"[^>]*title="Refresh Album"`, bar)
 	requireTag(t, bar, `id="search-dsotm"`, `action="/library/default/album/dsotm/search"`)
@@ -572,7 +572,7 @@ func TestAlbumPageDeleteNamesNoFolderForAnAlbumFlatInItsArtistsFolder(t *testing
 		setPaths(albumPath)
 		body := getPath(t, srv, "/library/default/album/dsotm", false).Body.String()
 		bar := section(t, body, `data-toolbar`)
-		bar = bar[:strings.Index(bar, `data-hero`)]
+		bar = bar[:strings.Index(bar, `<dl`)] // the actions sit in the hero, above its facts
 		requireTag(t, bar, `data-action="delete"`)
 		require.NotContains(t, bar, `data-delete-folder`, albumPath)
 		require.Regexp(t, `data-delete-files>[^<]*2 file\(s\)`, bar)

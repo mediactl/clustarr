@@ -67,6 +67,9 @@ templ Library(tab projection.Tab, items []projection.LibraryItem, tb LibraryTool
 	@Shell(Chrome{Title: "Library", Crumbs: []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}, Tab: tab, HideScrollbar: true}) {
 		<div id="library-page" class="group/library lg:pr-10" data-tab={ string(tab) } data-query={ tb.Query }>
 			@libraryToolbar(tab, tb, rootFolders)
+			// While the page is selecting, the selection bar takes the
+			// toolbar's place (Plex Web's selection screen).
+			@bulkBar(tab)
 			@filterChips(tb)
 			<div
 				id="library-rows"
@@ -82,7 +85,6 @@ templ Library(tab projection.Tab, items []projection.LibraryItem, tb LibraryTool
 			@jumpBar(jumpsFor)
 			@cardActionBar()
 			@cardTooltip()
-			@bulkBar(tab)
 			@filterDialog(tb.Builder)
 			@filterSaveDialog(tb)
 			// Where a card's action says how it went.
@@ -205,7 +207,7 @@ templ libraryCard(li projection.LibraryItem) {
 	@item.Item(item.Props{
 		Variant: item.VariantMuted,
 		ID:      CardID(li),
-		Class:   "group/card relative flex-col flex-nowrap items-stretch gap-0 overflow-hidden rounded-xl border-0 bg-card p-0 shadow-lg shadow-black/40 ring-1 ring-white/10 hover:bg-card hover:ring-primary/70 data-selected:ring-2 data-selected:ring-primary",
+		Class:   "group/card relative flex-col flex-nowrap items-stretch gap-0 rounded-lg border-0 bg-transparent p-0 hover:bg-transparent",
 		Attributes: templ.Attributes{
 			"data-ref":       li.Ref.String(),
 			"data-kind":      string(li.Kind),
@@ -228,14 +230,21 @@ templ libraryCard(li projection.LibraryItem) {
 		<span data-select-mark aria-hidden="true" class="absolute top-2 left-2 z-10 hidden size-6 items-center justify-center rounded-full border-2 border-white/80 bg-black/40 text-primary-foreground shadow group-data-selecting/library:flex group-data-selected/card:border-primary group-data-selected/card:bg-primary">
 			@icon.Icon("check")(icon.Props{Class: "hidden size-4 group-data-selected/card:block"})
 		</span>
-		@aspectratio.AspectRatio(aspectratio.Props{Ratio: artRatio(li.Kind), Class: "w-full bg-muted", Attributes: templ.Attributes{"data-card-poster": true}}) {
-			@posterFill(li.Poster, li.Title, li.ArtKey)
-		}
-		<div class={ stripeClass(projection.LibraryStatus(li)) } data-status={ projection.LibraryStatus(li) }></div>
+		// The art is the card (owner, 2026-11-17, after the Plex apps'
+		// grids): the poster, rounded, with the status stripe along its
+		// foot, and the title and a line under it on the page itself, no
+		// surface around them. The ring and the lift are the art's
+		// (input.css).
+		<div data-card-art class="relative overflow-hidden rounded-lg shadow-lg shadow-black/40 ring-1 ring-white/10">
+			@aspectratio.AspectRatio(aspectratio.Props{Ratio: artRatio(li.Kind), Class: "w-full bg-muted", Attributes: templ.Attributes{"data-card-poster": true}}) {
+				@posterFill(li.Poster, li.Title, li.ArtKey)
+			}
+			<div class={ stripeClass(projection.LibraryStatus(li)) } data-status={ projection.LibraryStatus(li) }></div>
+		</div>
 		// The card names its item (2026-11-17: a tab was a wall of unnamed
 		// posters wherever the art carries no title, the Music tab above
 		// all), then its monitored status and quality profile on one line.
-		<div data-card-details class="min-w-0 px-2 py-1.5 text-xs leading-5">
+		<div data-card-details class="min-w-0 px-0.5 pt-1.5 text-xs leading-5">
 			<div data-card-title class="truncate text-[13px] font-medium text-foreground">{ li.Title }</div>
 			<div class="truncate text-muted-foreground">
 				<span>{ monitoredTitle(li.Monitored) }</span>
@@ -767,69 +776,82 @@ templ optionsMenu() {
 // opens the same dialog for that item alone (cardActions). The buttons stay
 // disabled until something is selected.
 templ bulkBar(tab projection.Tab) {
-	<div data-bulk-bar class="glass-bar sticky bottom-2 z-20 mx-auto mt-6 hidden w-fit max-w-full flex-wrap items-center gap-2 px-3 py-2 group-data-selecting/library:flex">
-		<form id="library-bulk" method="post" action={ templ.URL(bulkPath(tab)) } hx-post={ bulkPath(tab) } hx-target="#action-status" hx-swap="innerHTML" data-bulk-form class="flex flex-wrap items-center gap-2">
-			<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
-			@bulkButton("monitor", "bookmark-check", "Monitor", button.VariantSecondary)
-			@bulkButton("unmonitor", "bookmark-x", "Unmonitor", button.VariantSecondary)
-			@bulkButton("search", "search", "Search", button.VariantSecondary)
-			@bulkButton("refresh", "refresh-cw", "Refresh & Scan", button.VariantSecondary)
-		</form>
-		@dialog.Dialog(dialog.Props{ID: "library-bulk-delete"}) {
-			@button.Button(button.Props{Variant: button.VariantDestructive, Disabled: true, Attributes: bulkDeleteTrigger(ctx)}) {
-				@icon.Icon("trash-2")()
-				Delete
+	<div data-bulk-bar class="glass-bar sticky top-(--bar-top) z-20 mb-6 hidden h-14 items-center gap-2 px-4 group-data-selecting/library:flex">
+		<span class="flex min-w-0 items-center gap-2 text-sm whitespace-nowrap text-primary">
+			@icon.Icon("check")(icon.Props{Class: "size-4 shrink-0"})
+			<span><span data-selected-count>0</span> <span class="max-sm:hidden">items</span> selected</span>
+		</span>
+		<div class="mx-auto flex items-center gap-1">
+			<form id="library-bulk" method="post" action={ templ.URL(bulkPath(tab)) } hx-post={ bulkPath(tab) } hx-target="#action-status" hx-swap="innerHTML" data-bulk-form class="contents">
+				<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
+				@bulkButton("monitor", "bookmark-check", "Monitor")
+				@bulkButton("unmonitor", "bookmark-x", "Unmonitor")
+				@bulkButton("search", "search", "Search")
+				@bulkButton("refresh", "refresh-cw", "Refresh & Scan")
+			</form>
+			@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "select-all", "title": "Select all", "aria-label": "Select all"}}) {
+				@icon.Icon("check-check")()
+				<span class="max-lg:sr-only">Select All</span>
 			}
-			@dialog.Content() {
-				@dialog.Header() {
-					@dialog.Title() {
-						Delete <span data-delete-subject data-default={ "the selected " + findNoun(tab) }>{ "the selected " + findNoun(tab) }</span>
-					}
-					@dialog.Description() {
-						<span data-delete-count>0</span> selected
-					}
+			@dialog.Dialog(dialog.Props{ID: "library-bulk-delete"}) {
+				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "text-destructive", Disabled: true, Attributes: bulkDeleteTrigger(ctx)}) {
+					@icon.Icon("trash-2")()
+					<span class="max-lg:sr-only">Delete</span>
 				}
-				<form method="post" action={ templ.URL(bulkPath(tab)) } hx-post={ bulkPath(tab) } hx-target="#action-status" hx-swap="innerHTML" data-bulk-form class="space-y-3">
-					<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
-					<input type="hidden" name="action" value="delete"/>
-					@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
-						@checkbox.Checkbox(checkbox.Props{ID: "bulk-delete-files", Name: "files", Value: "true"})
-						@field.Content() {
-							@field.Label(field.LabelProps{For: "bulk-delete-files"}) {
-								Delete files and folders
+				@dialog.Content() {
+					@dialog.Header() {
+						@dialog.Title() {
+							Delete <span data-delete-subject data-default={ "the selected " + findNoun(tab) }>{ "the selected " + findNoun(tab) }</span>
+						}
+						@dialog.Description() {
+							<span data-delete-count>0</span> selected
+						}
+					}
+					<form method="post" action={ templ.URL(bulkPath(tab)) } hx-post={ bulkPath(tab) } hx-target="#action-status" hx-swap="innerHTML" data-bulk-form class="space-y-3">
+						<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
+						<input type="hidden" name="action" value="delete"/>
+						@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+							@checkbox.Checkbox(checkbox.Props{ID: "bulk-delete-files", Name: "files", Value: "true"})
+							@field.Content() {
+								@field.Label(field.LabelProps{For: "bulk-delete-files"}) {
+									Delete files and folders
+								}
+								@field.Description(field.DescriptionProps{Class: "text-destructive"}) {
+									This permanently deletes every selected folder and cannot be undone.
+								}
 							}
-							@field.Description(field.DescriptionProps{Class: "text-destructive"}) {
-								This permanently deletes every selected folder and cannot be undone.
+						}
+						@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+							@checkbox.Checkbox(checkbox.Props{ID: "bulk-delete-exclude", Name: "exclude", Value: "true"})
+							@field.Label(field.LabelProps{For: "bulk-delete-exclude"}) {
+								Add import list exclusions
 							}
 						}
-					}
-					@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
-						@checkbox.Checkbox(checkbox.Props{ID: "bulk-delete-exclude", Name: "exclude", Value: "true"})
-						@field.Label(field.LabelProps{For: "bulk-delete-exclude"}) {
-							Add import list exclusions
+						@dialog.Footer() {
+							@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) {
+								Cancel 
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-action": "bulk-delete-confirm"}}) {
+								Delete 
+							}
 						}
-					}
-					@dialog.Footer() {
-						@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) {
-							Cancel 
-						}
-						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-action": "bulk-delete-confirm"}}) {
-							Delete 
-						}
-					}
-				</form>
+					</form>
+				}
 			}
+		</div>
+		@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "select-toggle", "aria-label": "Stop selecting", "title": "Stop selecting (Esc)"}}) {
+			@icon.Icon("x")()
+			<span class="max-sm:sr-only">Done</span>
 		}
-		<span class="text-sm whitespace-nowrap text-muted-foreground"><span data-selected-count>0</span> selected</span>
 	</div>
 }
 
 // bulkButton is one of the bulk bar's actions: a submit of #library-bulk
 // naming the action, disabled until something is selected.
-templ bulkButton(action, iconName, label string, variant button.Variant) {
-	@button.Button(button.Props{Type: button.TypeSubmit, Variant: variant, Disabled: true, Attributes: templ.Attributes{"name": "action", "value": action, "data-bulk-action": action}}) {
+templ bulkButton(action, iconName, label string) {
+	@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeSm, Disabled: true, Attributes: templ.Attributes{"name": "action", "value": action, "data-bulk-action": action, "title": label, "aria-label": label}}) {
 		@icon.Icon(iconName)()
-		{ label }
+		<span class="max-lg:sr-only">{ label }</span>
 	}
 }
 

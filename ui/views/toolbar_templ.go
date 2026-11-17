@@ -57,7 +57,6 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import (
 	"github.com/mediactl/clustarr/ui/components/button"
-	"github.com/mediactl/clustarr/ui/components/buttongroup"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/menubar"
 )
@@ -138,7 +137,7 @@ func toolbar(attrs templ.Attributes) templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = menubar.Menubar(menubar.Props{
-			Class:      "glass-bar @container/bar sticky top-(--bar-top) z-20 mb-6 flex h-14 items-stretch justify-between gap-2 overflow-x-auto border-0 px-2 py-1",
+			Class:      "glass-bar @container/bar sticky top-(--bar-top) z-20 mb-6 flex h-14 items-stretch justify-between gap-2 overflow-x-auto border-0 px-2 py-1 group-data-selecting/library:hidden",
 			Attributes: toolbarAttrs(attrs),
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
@@ -227,7 +226,7 @@ func toolbarForm(action string, fields []Field, iconName, label, dataAction stri
 		var templ_7745c5c3_Var5 templ.SafeURL
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(action))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 93, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 92, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -253,7 +252,7 @@ func toolbarForm(action string, fields []Field, iconName, label, dataAction stri
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 95, Col: 37}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 94, Col: 37}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 			if templ_7745c5c3_Err != nil {
@@ -266,7 +265,7 @@ func toolbarForm(action string, fields []Field, iconName, label, dataAction stri
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 95, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 94, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 			if templ_7745c5c3_Err != nil {
@@ -300,7 +299,7 @@ func toolbarForm(action string, fields []Field, iconName, label, dataAction stri
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 99, Col: 16}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 98, Col: 16}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
@@ -384,7 +383,7 @@ func toolbarMenu(iconName, label string) templ.Component {
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 112, Col: 16}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 111, Col: 16}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
@@ -483,7 +482,7 @@ func toolbarButton(iconName, label string, attrs templ.Attributes) templ.Compone
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 126, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 125, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -537,32 +536,11 @@ func actionBar() templ.Component {
 			templ_7745c5c3_Var18 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"pointer-events-none sticky top-14 z-20 mb-6 flex justify-center @container/actions [@media(max-height:32rem)]:static\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div data-toolbar data-action-bar class=\"flex flex-wrap items-center gap-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var19 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templ_7745c5c3_Var18.Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = buttongroup.ButtonGroup(buttongroup.Props{
-			Class:      "glass scroll-fade-x pointer-events-auto max-w-full overflow-x-auto overflow-y-hidden rounded-md bg-background/55 [scrollbar-width:none] shadow-lg shadow-black/30 @max-xl/actions:w-full",
-			Attributes: templ.Attributes{"data-toolbar": true},
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var19), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templ_7745c5c3_Var18.Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -574,27 +552,22 @@ func actionBar() templ.Component {
 	})
 }
 
-// actionButtonClass is a button of the group: shadcn's large outline
-// button, its text and weight, stood up as a column -- the icon above one
-// short word, both centred -- with the glass showing through (the outline
-// variant's opaque fill and its shadow dropped).
-//
-// Since 2026-11-17: the dark: classes pin the settled look now that <html>
-// carries class="dark" (the outline variant would otherwise take its
-// dark:bg-input/30 fill and dark:border-input, and an open dialog's trigger
-// lose its fill); and below 576px of room (the bar's own, a container
-// query) the buttons share the bar's width instead of running off its end
-// -- half a phone's actions were out of sight with nothing to say so --
-// with the word at 11px below 448px. A bar still longer than its room
-// scrolls, its cut edge faded (scroll-fade-x).
-const actionButtonClass = "h-auto min-w-18 flex-col gap-1 bg-transparent px-3.5 py-2 shadow-none hover:bg-muted aria-expanded:bg-muted [&_svg]:size-[18px]! [&.htmx-request]:opacity-60 " +
-	"dark:bg-transparent dark:border-border dark:hover:bg-muted dark:aria-expanded:bg-muted " +
-	"@max-xl/actions:min-w-9 @max-xl/actions:flex-auto @max-xl/actions:px-1.5 @max-md/actions:px-0.5 @max-md/actions:text-[11px] @max-md/actions:leading-tight"
+// actionButtonClass is one action of an item's page, as the Plex apps draw
+// a title's (owner, 2026-11-17: "These buttons should look like the circle
+// buttons in the ipad native app image", then "icon only circle buttons
+// with text on hover"; a joined group of icon-over-word outline buttons,
+// sticky under the top bar, from 2026-11-04 until then): a frosted circle
+// holding the icon, in a row inside the hero beneath the title's lines.
+// Its word is still the button's label (a screen reader's name for it) and
+// is drawn as a tooltip under the circle while the pointer is over it or
+// the keyboard's focus is on it -- by these classes alone, so an action
+// bar costs no tooltip component per button.
+const actionButtonClass = "relative size-11 rounded-full border-0 bg-white/10 p-0 text-foreground shadow-none hover:bg-white/20 aria-expanded:bg-white/25 dark:bg-white/10 dark:hover:bg-white/20 [&_svg]:size-5! [&.htmx-request]:opacity-60 " +
+	"[&>span]:pointer-events-none [&>span]:absolute [&>span]:top-full [&>span]:left-1/2 [&>span]:z-30 [&>span]:mt-2 [&>span]:-translate-x-1/2 [&>span]:rounded-md [&>span]:bg-popover [&>span]:px-2 [&>span]:py-1 [&>span]:text-xs [&>span]:font-normal [&>span]:whitespace-nowrap [&>span]:text-popover-foreground [&>span]:opacity-0 [&>span]:shadow-lg [&>span]:ring-1 [&>span]:ring-white/15 [&>span]:backdrop-blur-xl [&>span]:transition-opacity hover:[&>span]:opacity-100 focus-visible:[&>span]:opacity-100"
 
-// actionButtonProps is the group's button: outline, the variant the group
-// joins at the borders, at the large size, with attrs on it.
+// actionButtonProps is an action's button, with attrs on it.
 func actionButtonProps(attrs templ.Attributes) button.Props {
-	return button.Props{Variant: button.VariantOutline, Size: button.SizeLg, Class: actionButtonClass, Attributes: attrs}
+	return button.Props{Variant: button.VariantGhost, Class: actionButtonClass, Attributes: attrs}
 }
 
 // actionTitle is the hover title of a button whose word does not say the
@@ -630,21 +603,21 @@ func actionForm(id, action string, fields []Field, iconName, label, title, dataA
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var20 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var20 == nil {
-			templ_7745c5c3_Var20 = templ.NopComponent
+		templ_7745c5c3_Var19 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var19 == nil {
+			templ_7745c5c3_Var19 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<form id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var21 string
-		templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.ResolveAttributeValue(id)
+		var templ_7745c5c3_Var20 string
+		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue(id)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 195, Col: 14}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 184, Col: 14}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var21)
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -652,12 +625,12 @@ func actionForm(id, action string, fields []Field, iconName, label, title, dataA
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var22 templ.SafeURL
-		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(action))
+		var templ_7745c5c3_Var21 templ.SafeURL
+		templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(action))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 195, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 184, Col: 57}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -678,12 +651,12 @@ func actionForm(id, action string, fields []Field, iconName, label, title, dataA
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var23 string
-			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Name)
+			var templ_7745c5c3_Var22 string
+			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 197, Col: 37}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 186, Col: 37}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -691,12 +664,12 @@ func actionForm(id, action string, fields []Field, iconName, label, title, dataA
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var24 string
-			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Value)
+			var templ_7745c5c3_Var23 string
+			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 197, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 186, Col: 55}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -711,7 +684,7 @@ func actionForm(id, action string, fields []Field, iconName, label, title, dataA
 		}
 		p := actionButtonProps(actionAttrs(dataAction, actionTitle(label, title)))
 		p.Type, p.Form = button.TypeSubmit, id
-		templ_7745c5c3_Var25 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var24 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -731,12 +704,12 @@ func actionForm(id, action string, fields []Field, iconName, label, title, dataA
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var26 string
-			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(label)
+			var templ_7745c5c3_Var25 string
+			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 204, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 193, Col: 15}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -746,7 +719,7 @@ func actionForm(id, action string, fields []Field, iconName, label, title, dataA
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = button.Button(p).Render(templ.WithChildren(ctx, templ_7745c5c3_Var25), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = button.Button(p).Render(templ.WithChildren(ctx, templ_7745c5c3_Var24), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

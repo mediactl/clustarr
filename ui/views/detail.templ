@@ -98,7 +98,7 @@ templ providerLinks(links []Link) {
 	for _, l := range links {
 		<a href={ templ.URL(l.Href) } target="_blank" rel="noreferrer" title={ l.Label } data-provider-link={ l.Provider } class="inline-flex items-center opacity-90 transition-opacity hover:text-foreground hover:opacity-100 [&_svg]:size-5">
 			if l.Provider != "" {
-				<img src={ "/static/providers/" + l.Provider + ".svg" } alt={ l.Label } class="h-6 w-auto"/>
+				<img src={ "/static/providers/" + l.Provider + ".svg" } alt={ l.Label } class="h-5 w-auto"/>
 			} else {
 				@icon.Icon("external-link")()
 				<span class="sr-only">{ l.Label }</span>
@@ -170,6 +170,23 @@ type ExtraRow struct {
 	Language string
 }
 
+// heroArt is a wide hero's art, as the Plex apps set a title's on a tablet
+// (owner, 2026-11-17: "Here are the native ipad styles for these pages"):
+// the fanart itself, sharp, across the page's top right from under the top
+// bar, fading to the left and down into the page -- whose own blurred copy
+// of the same art (the page backdrop) is the colour it fades into. Drawn
+// from 672px of hero; below it the banner is the head. With art the hero
+// shows no poster, at any width, as the apps' does not: the title logo, the
+// meta line, the facts and the overview keep to the left, where the art has
+// faded.
+templ heroArt(backdrop string) {
+	if backdrop != "" {
+		<div data-hero-art aria-hidden="true" class="pointer-events-none absolute -top-16 right-0 hidden h-[38rem] w-[72%] @2xl/hero:block">
+			<img src={ templ.URL(backdrop) } alt="" class="size-full [mask-image:linear-gradient(to_right,transparent_5%,black_70%),linear-gradient(to_bottom,black_45%,transparent_95%)] object-cover object-[center_20%] [mask-composite:intersect]"/>
+		</div>
+	}
+}
+
 // heroBanner is a narrow hero's head, as the Plex apps draw a title on a
 // phone (owner, 2026-11-17: "Mobile view should mirror plex and use the
 // banner with the logo"; "omit the title since the logo should serve as the
@@ -182,7 +199,7 @@ type ExtraRow struct {
 // banner: the hero keeps its poster and title.
 templ heroBanner(backdrop, logo, title string) {
 	if backdrop != "" {
-		<div data-hero-banner class="relative aspect-[16/10] overflow-hidden max-sm:-mt-[6.5rem] @2xl/hero:hidden">
+		<div data-hero-banner class="relative aspect-[5/4] overflow-hidden max-sm:-mt-16 @2xl/hero:hidden">
 			<img src={ templ.URL(backdrop) } alt="" class="size-full [mask-image:linear-gradient(to_bottom,black_45%,transparent_98%)] object-cover object-[center_20%]"/>
 			<div class="absolute inset-x-0 bottom-0 flex justify-center px-8 pb-3">
 				if logo != "" {
@@ -263,7 +280,6 @@ func DetailPath(li projection.LibraryItem) string { return libraryDetailPath(li)
 // LibraryDetail is a movie's (or any other standalone item's) page.
 templ LibraryDetail(d Detail) {
 	@Shell(Chrome{Title: d.Item.Title, Crumbs: itemCrumbs(d.Item), Tab: d.Item.Tab}) {
-		@itemToolbar(d)
 		@hero(d)
 		if d.ShowFiles {
 			@filesSection(d)
@@ -472,37 +488,66 @@ templ hero(d Detail) {
 		if li.ArtKey != "" {
 			<div hidden hx-ext="sse" sse-connect={ artStreamURL(d) } hx-trigger="sse:art"></div>
 		}
-		<div class="@container/hero">
+		<div class="relative @container/hero">
+			@heroArt(d.Backdrop)
 			@heroBanner(d.Backdrop, d.Logo, li.Title)
-			<div class="relative flex flex-col gap-6 p-4 @2xl/hero:flex-row @2xl/hero:gap-10 @2xl/hero:p-8">
-				<div class={ "w-40 shrink-0 @2xl/hero:w-56", templ.KV("hidden @2xl/hero:block", d.Backdrop != "") }>
+			<div class={ "relative flex flex-col gap-6 p-4 @2xl/hero:flex-row @2xl/hero:gap-10 @2xl/hero:p-8", templ.KV("@2xl/hero:pt-24", d.Backdrop != "") }>
+				<div class={ "w-40 shrink-0 @2xl/hero:w-56", templ.KV("hidden @5xl/hero:block", d.Backdrop != "") }>
 					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
 						@poster(li.Poster, li.Title, li.ArtKey)
 					</div>
 				</div>
-				<div class="min-w-0 flex-1">
+				<div class={ "min-w-0 flex-1", templ.KV("@2xl/hero:max-w-[64%]", d.Backdrop != "") }>
 					<div class="flex items-start justify-between gap-4">
 						<div class="flex min-w-0 items-center gap-3">
-							@monitorBookmark(li)
-							<h1 class={ "line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl", templ.KV("@max-2xl/hero:sr-only", d.Backdrop != "") }>{ li.Title }</h1>
-						</div>
-						@neighbours(d)
-					</div>
-					<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
-						if d.Certification != "" {
-							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base"}) {
-								{ d.Certification }
+							// The title: its logo where the hero has no poster (a
+							// tablet, as the Plex apps), the title in type beside
+							// the poster on the web (as Plex Web) and for an item
+							// with no logo; a phone's is in its banner. The heading
+							// stays for a screen reader throughout.
+							if d.Logo != "" {
+								<img data-hero-logo src={ templ.URL(d.Logo) } alt={ li.Title } class="hidden max-h-28 max-w-[min(28rem,80%)] object-contain object-left drop-shadow-[0_2px_14px_rgba(0,0,0,0.7)] @2xl/hero:block @5xl/hero:hidden"/>
 							}
-						}
+							<h1 class={ "line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl", templ.KV("@max-2xl/hero:sr-only", d.Backdrop != "" && d.Logo == ""), templ.KV("sr-only @5xl/hero:not-sr-only", d.Logo != "") }>{ li.Title }</h1>
+						</div>
+					</div>
+					// The meta line, in the Plex apps' order: year, runtime,
+					// genres, then the certification.
+					<div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-muted-foreground">
 						if li.Year > 0 {
 							<span>{ fmt.Sprint(li.Year) }</span>
 						}
 						if d.Runtime != "" {
 							<span>{ d.Runtime }</span>
 						}
-						@providerLinks(d.Links)
+						if len(d.Genres) > 0 {
+							<span data-fact="genres">{ strings.Join(d.Genres[:min(len(d.Genres), 3)], ", ") }</span>
+						}
+						if d.Certification != "" {
+							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-sm"}) {
+								{ d.Certification }
+							}
+						}
 					</div>
-					<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					// Where the Plex apps put a title's ratings: the monitor
+					// bookmark and the providers' pages.
+					<div data-hero-marks class="mt-3 flex flex-wrap items-center gap-3">
+						@monitorBookmark(li)
+						@providerLinks(d.Links)
+						// The previous and next items: at the row's end on a
+						// phone, at the hero's top right from a tablet up.
+						<div class={ "ml-auto", templ.KV("@2xl/hero:absolute @2xl/hero:top-8 @2xl/hero:right-8", d.Backdrop != "") }>
+							@neighbours(d)
+						</div>
+					</div>
+					// The item's actions, under the title's lines.
+					<div class="mt-5">
+						@itemToolbar(d)
+					</div>
+					if d.Overview != "" {
+						<p data-overview class="mt-5 max-w-3xl text-base leading-relaxed">{ d.Overview }</p>
+					}
+					<dl class="mt-6 grid max-w-3xl grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-8 gap-y-2.5 text-base">
 						if d.Path != "" {
 							@fact("path", "Path") {
 								<span class="break-all">{ d.Path }</span>
@@ -556,15 +601,7 @@ templ hero(d Detail) {
 								{ d.Network }
 							}
 						}
-						if len(d.Genres) > 0 {
-							@fact("genres", "Genres") {
-								{ strings.Join(d.Genres, ", ") }
-							}
-						}
 					</dl>
-					if d.Overview != "" {
-						<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ d.Overview }</p>
-					}
 				</div>
 			</div>
 		</div>
@@ -573,9 +610,11 @@ templ hero(d Detail) {
 
 // fact is one labelled value of the hero's facts row.
 templ fact(key, label string) {
-	<div data-fact={ key }>
-		<dt class="text-xs text-muted-foreground">{ label }</dt>
-		<dd>
+	// One row of the hero's facts, as the Plex apps list a title's details
+	// (2026-11-17): the label in a narrow muted column, the value beside it.
+	<div data-fact={ key } class="contents">
+		<dt class="text-sm text-muted-foreground">{ label }</dt>
+		<dd class="min-w-0">
 			{ children... }
 		</dd>
 	</div>
@@ -583,17 +622,20 @@ templ fact(key, label string) {
 
 // monitorBookmark is Radarr's bookmark beside the title: filled when
 // monitored, hollow when not, and the form that flips it.
+// (The glyph is drawn 20px tall -- a 24px icon whose path and stroke span
+// 20 -- and the providers' logos beside it are 20px, so the row's marks are
+// one height: owner, 2026-11-17.)
 templ monitorBookmark(li projection.LibraryItem) {
 	<form method="post" action={ templ.URL(libraryActionURL(li, "monitor")) } class="contents">
 		<input type="hidden" name="return" value={ libraryDetailPath(li) }/>
 		<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !li.Monitored) }/>
-		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconLg, Attributes: templ.Attributes{"data-action": "set-monitored", "aria-label": bookmarkLabel(li.Monitored), "title": bookmarkLabel(li.Monitored)}}) {
+		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconSm, Class: "-ml-1.5", Attributes: templ.Attributes{"data-action": "set-monitored", "aria-label": bookmarkLabel(li.Monitored), "title": bookmarkLabel(li.Monitored)}}) {
 			if li.Monitored {
-				<span class="[&_svg]:size-8 [&_svg]:fill-current">
+				<span class="[&_svg]:size-6! [&_svg]:fill-current">
 					@icon.Icon("bookmark")()
 				</span>
 			} else {
-				<span class="[&_svg]:size-8">
+				<span class="[&_svg]:size-6!">
 					@icon.Icon("bookmark")()
 				</span>
 			}
@@ -615,12 +657,12 @@ templ neighbours(d Detail) {
 	if d.Prev != "" || d.Next != "" {
 		<div class="flex shrink-0 gap-2">
 			if d.Prev != "" {
-				@button.Button(button.Props{Href: d.Prev, Variant: button.VariantSecondary, Size: button.SizeIcon, Class: "rounded-full", Attributes: templ.Attributes{"data-nav": "prev", "aria-label": "Previous"}}) {
+				@button.Button(button.Props{Href: d.Prev, Variant: button.VariantSecondary, Size: button.SizeIcon, Class: "rounded-full bg-black/40 text-white backdrop-blur-md hover:bg-black/55 dark:bg-black/40 dark:hover:bg-black/55", Attributes: templ.Attributes{"data-nav": "prev", "aria-label": "Previous"}}) {
 					@icon.Icon("arrow-left")()
 				}
 			}
 			if d.Next != "" {
-				@button.Button(button.Props{Href: d.Next, Variant: button.VariantSecondary, Size: button.SizeIcon, Class: "rounded-full", Attributes: templ.Attributes{"data-nav": "next", "aria-label": "Next"}}) {
+				@button.Button(button.Props{Href: d.Next, Variant: button.VariantSecondary, Size: button.SizeIcon, Class: "rounded-full bg-black/40 text-white backdrop-blur-md hover:bg-black/55 dark:bg-black/40 dark:hover:bg-black/55", Attributes: templ.Attributes{"data-nav": "next", "aria-label": "Next"}}) {
 					@icon.Icon("arrow-right")()
 				}
 			}

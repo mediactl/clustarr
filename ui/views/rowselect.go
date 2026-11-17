@@ -48,9 +48,9 @@ type SelectionBar struct {
 	Attrs templ.Attributes
 }
 
-// selectionBarClass is the bar's look, the library's bulk bar's too: a
-// content-width glass bar centred at the page's foot.
-const selectionBarClass = "glass sticky z-20 mx-auto mt-6 flex w-fit max-w-full items-center gap-2 rounded-xl border border-border bg-background/55 p-1.5 pl-3 shadow-lg shadow-black/30"
+// selectionBarClass is the bar's look, the library's bulk bar's too: the
+// page bar's glass, its rim gold (primitives.css), across the content.
+const selectionBarClass = "glass-bar absolute inset-x-0 top-0 flex h-14 items-center gap-2 px-4"
 
 func verbClass(v SelectionVerb) string {
 	if v.Destructive {

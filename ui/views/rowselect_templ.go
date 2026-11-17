@@ -57,7 +57,6 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import (
 	"github.com/mediactl/clustarr/ui/components/button"
-	"github.com/mediactl/clustarr/ui/components/buttongroup"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/table"
 )
@@ -65,7 +64,7 @@ import (
 // Row selection and bulk edit for an inner table (owner, 2026-11-17:
 // "Inner pages like seasons with the episode tables should all be
 // selectable and editable (multi select)"): a leading column of marks, a
-// select-all in the head per table, and one bar at the page's foot that
+// select-all in the head per table, and one bar across the page's top that
 // posts the selection to the container's bulk route
 // (ui/rows_bulk.go). ui/static/rowselect.js keeps the selection.
 //
@@ -225,10 +224,15 @@ func selectMark(hook, label string) templ.Component {
 	})
 }
 
-// selectionBar is the page's one selection bar: how many rows are
-// selected, the verbs, and a clear. Hidden until something is selected
-// (rowselect.js); the last child of the page's content, where it sticks to
-// the window's foot as the library's bar does.
+// selectionBar is the page's one selection bar, as Plex Web draws its
+// own (owner, 2026-11-17: "This is what Plex web's selection screen looks
+// like now"): a gold-rimmed glass bar across the top of the content, in
+// the page bar's place, saying how many items are selected at its left,
+// the verbs as icons at its centre and Deselect All at its right. It is
+// hidden until something is selected (rowselect.js) and takes no room of
+// its own -- a zero-height sticky holder with the bar laid over what is
+// under it -- so showing it moves nothing. The first child of the page's
+// content.
 func selectionBar(b SelectionBar) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -250,12 +254,24 @@ func selectionBar(b SelectionBar) templ.Component {
 			templ_7745c5c3_Var7 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<div data-selection-bar hidden role=\"region\" aria-label=\"Bulk actions\" class=\"sticky top-(--bar-top) z-30 h-0\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, b.Attrs)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, ">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
 		var templ_7745c5c3_Var8 = []any{selectionBarClass}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var8...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<div data-selection-bar hidden role=\"region\" aria-label=\"Bulk actions\" class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -268,15 +284,31 @@ func selectionBar(b SelectionBar) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\"><span class=\"flex min-w-0 items-center gap-2 text-sm whitespace-nowrap text-primary\" aria-live=\"polite\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, b.Attrs)
+		templ_7745c5c3_Err = icon.Icon("check")(icon.Props{Class: "size-4 shrink-0"}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "><span class=\"text-sm tabular-nums whitespace-nowrap\" aria-live=\"polite\"><span data-rows-count>0</span> <span class=\"text-muted-foreground\">selected</span></span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<span><span data-rows-count>0</span> <span class=\"max-sm:hidden\">items</span> selected</span></span><div class=\"mx-auto flex items-center gap-1\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		for _, v := range b.Verbs {
+			templ_7745c5c3_Err = selectionVerb(b, v).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		if b.Extra != nil {
+			templ_7745c5c3_Err = b.Extra.Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -292,37 +324,11 @@ func selectionBar(b SelectionBar) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			for _, v := range b.Verbs {
-				templ_7745c5c3_Err = selectionVerb(b, v).Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = buttongroup.ButtonGroup().Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		if b.Extra != nil {
-			templ_7745c5c3_Err = b.Extra.Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = icon.Icon("x")().Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-		}
-		templ_7745c5c3_Var11 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = icon.Icon("x")().Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, " <span class=\"max-sm:sr-only\">Deselect All</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -330,13 +336,13 @@ func selectionBar(b SelectionBar) templ.Component {
 		})
 		templ_7745c5c3_Err = button.Button(button.Props{
 			Variant:    button.VariantGhost,
-			Size:       button.SizeIconSm,
-			Attributes: templ.Attributes{"data-rows-clear": true, "aria-label": "Clear selection", "title": "Clear selection (Esc)"},
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
+			Size:       button.SizeSm,
+			Attributes: templ.Attributes{"data-rows-clear": true, "aria-label": "Deselect all", "title": "Deselect all (Esc)"},
+		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -360,12 +366,12 @@ func selectionVerb(b SelectionBar, v SelectionVerb) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var12 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var12 == nil {
-			templ_7745c5c3_Var12 = templ.NopComponent
+		templ_7745c5c3_Var11 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var11 == nil {
+			templ_7745c5c3_Var11 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var13 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var12 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -381,31 +387,31 @@ func selectionVerb(b SelectionBar, v SelectionVerb) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, " <span class=\"max-sm:sr-only\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, " <span class=\"max-lg:sr-only\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var14 string
-			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(v.Label)
+			var templ_7745c5c3_Var13 string
+			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(v.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/rowselect.templ`, Line: 101, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/rowselect.templ`, Line: 111, Col: 40}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
 		templ_7745c5c3_Err = button.Button(button.Props{
-			Variant:    button.VariantOutline,
+			Variant:    button.VariantGhost,
 			Size:       button.SizeSm,
 			Class:      verbClass(v),
 			Attributes: b.verbAttrs(v),
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
+		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

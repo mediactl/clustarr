@@ -173,15 +173,15 @@ func TestAudiobookPageIsTheMoviePageForARecording(t *testing.T) {
 	}
 
 	// The facts.
-	require.Regexp(t, `data-fact="status">.*Cutoff Unmet`, oneLine(body))
-	require.Regexp(t, `data-fact="quality">.*>MP3<`, oneLine(body))
-	require.Regexp(t, `data-fact="profile">.*>audiobook<`, oneLine(body))
-	require.Regexp(t, `data-fact="path">.*Ursula K. Le Guin/A Wizard of Earthsea<`, oneLine(body))
-	require.Regexp(t, `data-fact="parts">.*3 of 3`, oneLine(body))
-	require.Regexp(t, `data-fact="publisher">.*Recorded Books`, oneLine(body))
-	require.Regexp(t, `data-fact="language">.*English`, oneLine(body))
-	require.Regexp(t, `data-fact="genres">.*Fantasy`, oneLine(body))
-	require.Contains(t, body, `data-overview class="mt-6 max-w-5xl text-base leading-relaxed">Ged was the greatest sorcerer in Earthsea.</p>`)
+	require.Regexp(t, `data-fact="status"[^>]*>.*Cutoff Unmet`, oneLine(body))
+	require.Regexp(t, `data-fact="quality"[^>]*>.*>MP3<`, oneLine(body))
+	require.Regexp(t, `data-fact="profile"[^>]*>.*>audiobook<`, oneLine(body))
+	require.Regexp(t, `data-fact="path"[^>]*>.*Ursula K. Le Guin/A Wizard of Earthsea<`, oneLine(body))
+	require.Regexp(t, `data-fact="parts"[^>]*>.*3 of 3`, oneLine(body))
+	require.Regexp(t, `data-fact="publisher"[^>]*>.*Recorded Books`, oneLine(body))
+	require.Regexp(t, `data-fact="language"[^>]*>.*English`, oneLine(body))
+	require.Regexp(t, `data-fact="genres"[^>]*>.*Fantasy`, oneLine(body))
+	require.Contains(t, body, `data-overview class="mt-5 max-w-3xl text-base leading-relaxed">Ged was the greatest sorcerer in Earthsea.</p>`)
 	require.NotContains(t, body, `data-audio=`, "an audiobook has no dub state, so no audio note")
 
 	// The action bar: Refresh & Scan, Search, Interactive, Rename, Edit,
@@ -235,7 +235,7 @@ func TestAudiobookPageIsTheMoviePageForARecording(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	bare := rec.Body.String()
 	requireTag(t, bare, `data-audiobook-page="left-hand-ab"`, `data-status="missing"`, `data-hasfile="false"`)
-	require.Regexp(t, `data-fact="status">.*Missing`, oneLine(bare))
+	require.Regexp(t, `data-fact="status"[^>]*>.*Missing`, oneLine(bare))
 	require.NotContains(t, bare, `data-fact="parts"`)
 	require.NotContains(t, bare, `data-fact="quality"`)
 	require.NotContains(t, bare, `data-abridged`)

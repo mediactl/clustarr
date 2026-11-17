@@ -216,23 +216,24 @@ func TestMoviePageHeroReadsTheGatheredMetadata(t *testing.T) {
 
 	requireTag(t, body, `data-nav="prev"`, `href="/library/default/movie/alien"`)
 	requireTag(t, body, `data-nav="next"`, `href="/library/default/movie/zulu"`)
-	require.Less(t, strings.Index(body, `data-toolbar`), heroAt, "the toolbar sits above the hero")
+	require.Greater(t, strings.Index(body, `data-toolbar`), heroAt, "the actions sit in the hero, under the title's lines (2026-11-17)")
 }
 
 func TestMoviePageToolbarHasRadarrsActions(t *testing.T) {
 	srv, _ := movieFixture(t, false)
 	body := detailPage(t, srv, "/library/default/movie/nerve")
 	bar := section(t, body, `data-toolbar`)
-	heroAt := strings.Index(bar, `data-hero`)
-	require.GreaterOrEqual(t, heroAt, 0)
-	bar = bar[:heroAt]
+	factsAt := strings.Index(bar, `<dl`)
+	require.GreaterOrEqual(t, factsAt, 0, "the actions sit in the hero, above its facts")
+	bar = bar[:factsAt]
 
-	// The bar is one button group (owner, 2026-11-04), the group itself
-	// with no panel around it ("Simplify the toolbar ... like the large
-	// variant"), its buttons at the large size: every action is a direct
-	// child of the group, its form hidden and named by the button's form
-	// attribute, and reads one word, the whole action in its title.
-	requireTag(t, body, `data-toolbar`, `data-slot="button-group"`, `role="group"`, `glass`)
+	// The bar is a row of circle buttons in the hero (owner, 2026-11-17,
+	// after the Plex apps; one joined button group under the top bar from
+	// 2026-11-04 until then): every action is a direct child of the row,
+	// its form hidden and named by the button's form attribute, and its one
+	// word, the button's label, is drawn as a tooltip, the whole action in
+	// its title.
+	requireTag(t, body, `data-toolbar`, `data-action-bar`)
 	refresh := requireTag(t, bar, `data-action="refresh-metadata"`, `data-slot="button"`, `type="submit"`, `form="refresh-nerve"`, `title="Refresh &amp; Scan"`)
 	require.Contains(t, refresh, `data-toolbar-button`, "toolbar buttons are icon-over-label")
 	requireTag(t, bar, `id="refresh-nerve"`, `action="/library/default/movie/nerve/refresh"`, `hidden`)

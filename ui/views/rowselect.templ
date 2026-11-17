@@ -20,7 +20,6 @@ package views
 
 import (
 	"github.com/mediactl/clustarr/ui/components/button"
-	"github.com/mediactl/clustarr/ui/components/buttongroup"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/table"
 )
@@ -28,7 +27,7 @@ import (
 // Row selection and bulk edit for an inner table (owner, 2026-11-17:
 // "Inner pages like seasons with the episode tables should all be
 // selectable and editable (multi select)"): a leading column of marks, a
-// select-all in the head per table, and one bar at the page's foot that
+// select-all in the head per table, and one bar across the page's top that
 // posts the selection to the container's bulk route
 // (ui/rows_bulk.go). ui/static/rowselect.js keeps the selection.
 //
@@ -65,39 +64,50 @@ templ selectMark(hook, label string) {
 	}
 }
 
-// selectionBar is the page's one selection bar: how many rows are
-// selected, the verbs, and a clear. Hidden until something is selected
-// (rowselect.js); the last child of the page's content, where it sticks to
-// the window's foot as the library's bar does.
+// selectionBar is the page's one selection bar, as Plex Web draws its
+// own (owner, 2026-11-17: "This is what Plex web's selection screen looks
+// like now"): a gold-rimmed glass bar across the top of the content, in
+// the page bar's place, saying how many items are selected at its left,
+// the verbs as icons at its centre and Deselect All at its right. It is
+// hidden until something is selected (rowselect.js) and takes no room of
+// its own -- a zero-height sticky holder with the bar laid over what is
+// under it -- so showing it moves nothing. The first child of the page's
+// content.
 templ selectionBar(b SelectionBar) {
-	<div data-selection-bar hidden role="region" aria-label="Bulk actions" class={ selectionBarClass } { b.Attrs... }>
-		<span class="text-sm tabular-nums whitespace-nowrap" aria-live="polite"><span data-rows-count>0</span> <span class="text-muted-foreground">selected</span></span>
-		@buttongroup.ButtonGroup() {
-			for _, v := range b.Verbs {
-				@selectionVerb(b, v)
+	<div data-selection-bar hidden role="region" aria-label="Bulk actions" class="sticky top-(--bar-top) z-30 h-0" { b.Attrs... }>
+		<div class={ selectionBarClass }>
+			<span class="flex min-w-0 items-center gap-2 text-sm whitespace-nowrap text-primary" aria-live="polite">
+				@icon.Icon("check")(icon.Props{Class: "size-4 shrink-0"})
+				<span><span data-rows-count>0</span> <span class="max-sm:hidden">items</span> selected</span>
+			</span>
+			<div class="mx-auto flex items-center gap-1">
+				for _, v := range b.Verbs {
+					@selectionVerb(b, v)
+				}
+				if b.Extra != nil {
+					@b.Extra
+				}
+			</div>
+			@button.Button(button.Props{
+				Variant:    button.VariantGhost,
+				Size:       button.SizeSm,
+				Attributes: templ.Attributes{"data-rows-clear": true, "aria-label": "Deselect all", "title": "Deselect all (Esc)"},
+			}) {
+				@icon.Icon("x")()
+				<span class="max-sm:sr-only">Deselect All</span>
 			}
-		}
-		if b.Extra != nil {
-			@b.Extra
-		}
-		@button.Button(button.Props{
-			Variant:    button.VariantGhost,
-			Size:       button.SizeIconSm,
-			Attributes: templ.Attributes{"data-rows-clear": true, "aria-label": "Clear selection", "title": "Clear selection (Esc)"},
-		}) {
-			@icon.Icon("x")()
-		}
+		</div>
 	</div>
 }
 
 templ selectionVerb(b SelectionBar, v SelectionVerb) {
 	@button.Button(button.Props{
-		Variant:    button.VariantOutline,
+		Variant:    button.VariantGhost,
 		Size:       button.SizeSm,
 		Class:      verbClass(v),
 		Attributes: b.verbAttrs(v),
 	}) {
 		@icon.Icon(v.Icon)()
-		<span class="max-sm:sr-only">{ v.Label }</span>
+		<span class="max-lg:sr-only">{ v.Label }</span>
 	}
 }

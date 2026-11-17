@@ -154,8 +154,13 @@ func TestLibraryPageHasTheMassEditor(t *testing.T) {
 	body := rec.Body.String()
 
 	requireTag(t, body, `id="library-page"`, `group/library`, `data-tab="movies"`)
-	bar := requireTag(t, body, `data-bulk-bar`, "sticky", "bottom-2", "hidden", "group-data-selecting/library:flex")
+	// The selection bar takes the toolbar's place while the page is
+	// selecting (Plex Web's selection screen): the toolbar hides, the bar
+	// shows, both sticky at the same top.
+	bar := requireTag(t, body, `data-bulk-bar`, "sticky", "top-(--bar-top)", "hidden", "group-data-selecting/library:flex")
 	require.NotEmpty(t, bar)
+	requireTag(t, body, `data-slot="menubar"`, "group-data-selecting/library:hidden")
+	require.Less(t, strings.Index(body, `data-bulk-bar`), strings.Index(body, `id="library-rows"`), "the bar is above the grid")
 	requireTag(t, body, `id="library-bulk"`, `data-bulk-form`, `action="/library/movies/bulk"`, `method="post"`)
 	for _, action := range []string{"monitor", "unmonitor", "search", "refresh"} {
 		b := requireTag(t, body, `data-bulk-action="`+action+`"`, `name="action"`, `value="`+action+`"`, `type="submit"`)
@@ -170,7 +175,7 @@ func TestLibraryPageHasTheMassEditor(t *testing.T) {
 	require.Contains(t, body, `data-selected-count`)
 
 	// Each card has its selection mark, shown only while selecting.
-	card := requireTag(t, body, `data-ref="media/arrival"`, "group/card", "data-selected:ring-2")
+	card := requireTag(t, body, `data-ref="media/arrival"`, "group/card")
 	require.NotEmpty(t, card)
 	require.Equal(t, 2, strings.Count(body, `data-select-mark`), "one mark per card")
 	require.Contains(t, body, `data-card-details`)

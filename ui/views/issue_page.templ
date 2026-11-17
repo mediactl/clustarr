@@ -39,7 +39,6 @@ import (
 // IssuePage is an issue's page.
 templ IssuePage(v IssueView) {
 	@Shell(Chrome{Title: issuePageTitle(v), Crumbs: issueCrumbs(v), Tab: v.Item.Tab}) {
-		@issueToolbar(v)
 		@issueHero(v)
 		@filesSection(v.Detail)
 		<div id="issue-modal"></div>
@@ -150,7 +149,15 @@ templ issueHero(v IssueView) {
 							</span>
 						}
 					</div>
-					<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					// The item's actions, under the title's lines, then what it is
+					// about, then its facts (the Plex apps' order).
+					<div class="mt-5">
+						@issueToolbar(v)
+					</div>
+					if v.Overview != "" {
+						<p data-overview class="mt-5 max-w-3xl text-base leading-relaxed">{ v.Overview }</p>
+					}
+					<dl class="mt-6 grid max-w-3xl grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-8 gap-y-2.5 text-base">
 						if v.Path != "" {
 							@fact("path", "Path") {
 								<span class="break-all">{ v.Path }</span>
@@ -195,9 +202,6 @@ templ issueHero(v IssueView) {
 							}
 						}
 					</dl>
-					if v.Overview != "" {
-						<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
-					}
 				</div>
 			</div>
 		</div>
