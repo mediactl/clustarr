@@ -61,7 +61,7 @@ func (s *Server) handleEpisodeDetails(w http.ResponseWriter, r *http.Request) {
 	}
 	d, ok := s.episodeDetail(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if r.URL.Query().Get("tab") == "search" {
@@ -80,7 +80,7 @@ func (s *Server) handleInteractiveSearch(w http.ResponseWriter, r *http.Request)
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	d, ok := s.episodeDetail(r.Context(), ns, name)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	panel, ok := s.startInteractiveSearch(w, r, ns, commonv1.MediaKindEpisode, name)
@@ -147,7 +147,7 @@ func (s *Server) handleGrabRelease(w http.ResponseWriter, r *http.Request) {
 	var search catalogv1.Search
 	if !s.getObject(r.Context(), types.NamespacedName{Namespace: ns, Name: name}, &search) {
 		if !isHTMX(r) {
-			http.NotFound(w, r)
+			notFound(w, r)
 			return
 		}
 		s.renderSearchPanel(w, r, views.SearchPanel{Namespace: ns, Name: name, Gone: true}, nil)

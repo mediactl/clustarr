@@ -62,7 +62,7 @@ func (s *Server) handleAudiobookPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAudiobookDetails(w http.ResponseWriter, r *http.Request) {
 	v, ok := s.audiobookView(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if r.URL.Query().Get("tab") == "search" {

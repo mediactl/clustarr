@@ -96,7 +96,7 @@ var validArtTypes = map[catalogv1.ImageType]bool{
 // process with neither still serves its pages, only with placeholder art.
 func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 	if s.opts.Artwork == nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 
@@ -104,7 +104,7 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 	uid := types.UID(r.PathValue("uid"))
 	imgType := catalogv1.ImageType(r.PathValue("type"))
 	if !validArtKinds[kind] || uid == "" || !validArtTypes[imgType] {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 
@@ -154,7 +154,7 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 // otherwise.
 func (s *Server) artError(w http.ResponseWriter, r *http.Request, kind commonv1.MediaKind, t catalogv1.ImageType, err error) {
 	if errors.Is(err, events.ErrObjectNotFound) {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	logging.FromContext(r.Context()).Error("get artwork", "kind", string(kind), "type", string(t), "err", err)

@@ -650,7 +650,7 @@ func (s *Server) handleChannelEPG(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	var ch clustarrv1.IPTVChannel
 	if s.opts.Reader == nil || s.opts.Reader.Get(r.Context(), types.NamespacedName{Namespace: ns, Name: name}, &ch) != nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	pkey := types.NamespacedName{Namespace: ns, Name: ch.Spec.ProviderRef}
@@ -736,7 +736,7 @@ func (s *Server) handleChannelCategory(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	http.NotFound(w, r)
+	notFound(w, r)
 }
 
 // handleChannelPlex answers a channel's Plex station picker: automatic,
@@ -746,7 +746,7 @@ func (s *Server) handleChannelPlex(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	var ch clustarrv1.IPTVChannel
 	if s.opts.Reader == nil || s.opts.Reader.Get(r.Context(), types.NamespacedName{Namespace: ns, Name: name}, &ch) != nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	pkey := types.NamespacedName{Namespace: ns, Name: ch.Spec.ProviderRef}

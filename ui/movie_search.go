@@ -37,7 +37,7 @@ func (s *Server) handleMovieInteractiveSearch(w http.ResponseWriter, r *http.Req
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	movie, ok := findLibraryItem(s.opts.Library(r.Context()), ns, string(commonv1.MediaKindMovie), name)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	panel, ok := s.startInteractiveSearch(w, r, ns, commonv1.MediaKindMovie, name)

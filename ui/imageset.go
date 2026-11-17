@@ -52,7 +52,7 @@ func (s *Server) handleImageSet(w http.ResponseWriter, r *http.Request) {
 	kind := commonv1.MediaKind(r.PathValue("kind"))
 	item, ok := findLibraryItem(s.opts.Library(r.Context()), ns, string(kind), name)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	entries, err := imageset.Parse(r.FormValue("yaml"))
@@ -178,7 +178,7 @@ func (s *Server) handleImageSetPolicy(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	kind := commonv1.MediaKind(r.PathValue("kind"))
 	if _, ok := findLibraryItem(s.opts.Library(r.Context()), ns, string(kind), name); !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	setID, err := ParseSetID(r.FormValue("set"))

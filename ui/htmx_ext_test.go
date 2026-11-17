@@ -117,7 +117,7 @@ func TestLibraryLinksPreload(t *testing.T) {
 
 	rec := get("/library/movies")
 	body := rec.Body.String()
-	require.Contains(t, tagWith(t, body, `<body `), `hx-ext="preload"`)
+	require.Contains(t, tagWith(t, body, `<body `), `hx-ext="preload, morph"`)
 	at := strings.Index(body, `data-ref="default/arrival"`)
 	require.Contains(t, requireTag(t, body[at:], `data-card-link`), `preload="mouseover"`)
 	subnav := body[strings.Index(body, `id="library-subnav"`):]

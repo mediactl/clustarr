@@ -298,7 +298,7 @@ func providerKey(k views.AddKind, source, id string) string {
 func (s *Server) handleAddPage(w http.ResponseWriter, r *http.Request) {
 	k, ok := s.addKind(r)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	// ?q fills the box and searches at once: the library typeahead's
@@ -326,7 +326,7 @@ func (s *Server) renderAddPage(w http.ResponseWriter, r *http.Request, k views.A
 func (s *Server) handleAddSearch(w http.ResponseWriter, r *http.Request) {
 	k, ok := s.addKind(r)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	query := r.URL.Query()
@@ -521,12 +521,12 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 			s.renderAddPage(w, r, k, http.StatusBadRequest, views.AddPageData{ErrorCode: "invalid", Error: "The form could not be read."})
 			return
 		}
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	k, ok := s.addKind(r)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	id, source := r.PostFormValue("id"), r.PostFormValue("source")
@@ -906,7 +906,7 @@ func (s *Server) notFoundUnlessJustAdded(w http.ResponseWriter, r *http.Request,
 		s.renderAddPending(w, r, name)
 		return
 	}
-	http.NotFound(w, r)
+	notFound(w, r)
 }
 
 // renderAddPending is Add New's "being added" page, which reloads itself.

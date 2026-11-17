@@ -51,7 +51,7 @@ func (s *Server) handleEpisodePage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderEpisodePage(w http.ResponseWriter, r *http.Request, preload bool) {
 	v, ok := s.episodePage(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if preload {

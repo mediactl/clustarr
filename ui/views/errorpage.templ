@@ -1,0 +1,106 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+
+package views
+
+import (
+	"fmt"
+
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/empty"
+	"github.com/mediactl/clustarr/ui/components/icon"
+)
+
+// ErrorPageProps is a page that could not be shown, or an action that
+// failed with no script to say so in place.
+type ErrorPageProps struct {
+	// Status is the HTTP status the page is answered with.
+	Status int
+	// Code is the failed action's machine-readable code
+	// (data-action-error, ruling R8); "" for a page.
+	Code   string
+	Title  string
+	Detail string
+	// Nav is the sidebar entry to light ("/library", "/settings"), or
+	// "none".
+	Nav string
+	// BackHref is where the page's one button leads; "" is the Nav entry,
+	// else the dashboard.
+	BackHref string
+}
+
+func (p ErrorPageProps) back() string {
+	switch {
+	case p.BackHref != "":
+		return p.BackHref
+	case p.Nav != "" && p.Nav != "none":
+		return p.Nav
+	}
+	return "/dashboard"
+}
+
+func (p ErrorPageProps) nav() string {
+	if p.Nav == "" {
+		return "none"
+	}
+	return p.Nav
+}
+
+func (p ErrorPageProps) attrs() templ.Attributes {
+	a := templ.Attributes{"data-error-page": fmt.Sprint(p.Status)}
+	if p.Code != "" {
+		a["data-action-error"] = p.Code
+	}
+	return a
+}
+
+// ErrorPage is a failure inside the app's shell (2026-11-17): until then
+// a missing item or route answered Go's bare "404 page not found" and a
+// failed form post a bare unstyled document, with no chrome and no way
+// back.
+templ ErrorPage(p ErrorPageProps) {
+	@Shell(Chrome{Title: p.Title, Nav: p.nav(), Crumbs: []Crumb{{Label: p.Title}}}) {
+		@empty.Empty(empty.Props{Class: "py-24", Attributes: p.attrs()}) {
+			@empty.Header() {
+				@empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}) {
+					@icon.Icon("circle-alert")()
+				}
+				@empty.Title() {
+					{ p.Title }
+				}
+				if p.Detail != "" {
+					@empty.Description(empty.DescriptionProps{Class: "break-words"}) {
+						{ p.Detail }
+					}
+				}
+			}
+			@empty.Content() {
+				@button.Button(button.Props{Variant: button.VariantOutline, Href: p.back()}) {
+					@icon.Icon("arrow-left")()
+					Back
+				}
+			}
+		}
+	}
+}
+
+// ActionFailedPage is a failed action answered to a plain form post (no
+// script): the reason, and a way back to where the form was.
+func ActionFailedPage(status int, code, message, returnTo string) templ.Component {
+	return ErrorPage(ErrorPageProps{Status: status, Code: code, Title: "Action failed", Detail: message, BackHref: returnTo})
+}

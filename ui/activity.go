@@ -56,7 +56,7 @@ func redirectTo(target string) http.HandlerFunc {
 func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	v, ok := s.activityView(r.Context(), r)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if v.Section == "downloads" {
@@ -75,7 +75,7 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleActivityList(w http.ResponseWriter, r *http.Request) {
 	v, ok := s.activityView(r.Context(), r)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

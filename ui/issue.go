@@ -53,7 +53,7 @@ func (s *Server) handleIssueDetails(w http.ResponseWriter, r *http.Request) {
 	}
 	d, ok := s.issueDetail(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if r.URL.Query().Get("tab") == "search" {
@@ -72,7 +72,7 @@ func (s *Server) handleIssueInteractiveSearch(w http.ResponseWriter, r *http.Req
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	d, ok := s.issueDetail(r.Context(), ns, name)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	panel, ok := s.startInteractiveSearch(w, r, ns, commonv1.MediaKindIssue, name)

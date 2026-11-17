@@ -61,12 +61,12 @@ templ episodeRegions() {
 	@ActionStatusRegion()
 }
 
-// ActionStatusRegion is where an htmx action says how it went
-// (ActionStatus, ActionError); ui/static/library.js clears it after a
-// while. It sits above a dialog's overlay, so an action posted from a
-// modal answers where it can be seen.
+// ActionStatusRegion renders nothing since 2026-11-17: the Shell renders
+// the one #action-status every page shares (actionStatusRegion in
+// layout.templ), where an htmx action says how it went (ActionStatus,
+// ActionErrorToast). The pages that still call this keep compiling until
+// their calls are removed.
 templ ActionStatusRegion() {
-	<div id="action-status" aria-live="polite" class="fixed top-16 left-1/2 z-[60] w-max max-w-[90vw] -translate-x-1/2 empty:hidden"></div>
 }
 
 // SeasonComponent is one season, Sonarr's season block: its header, and a

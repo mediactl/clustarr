@@ -197,14 +197,14 @@ func (s *Server) handleHubs(w http.ResponseWriter, r *http.Request) {
 // while it waits on cluster-plex.
 func (s *Server) handleHubSection(w http.ResponseWriter, r *http.Request) {
 	if s.opts.Reader == nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	var l catalogv1.PlexHubLayout
 	key := client.ObjectKey{Namespace: r.PathValue("namespace"), Name: r.PathValue("name")}
 	if err := s.opts.Reader.Get(r.Context(), key, &l); err != nil {
 		if apierrors.IsNotFound(err) {
-			http.NotFound(w, r)
+			notFound(w, r)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)

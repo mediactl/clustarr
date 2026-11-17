@@ -186,7 +186,7 @@ func (s *Server) handleComicVolumeSearch(w http.ResponseWriter, r *http.Request)
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	item, ok := findLibraryItem(s.opts.Library(r.Context()), ns, string(commonv1.MediaKindComic), name)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if r.FormValue("interactive") != "true" {

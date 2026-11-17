@@ -49,7 +49,7 @@ func (s *Server) handleIssuePage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderIssuePage(w http.ResponseWriter, r *http.Request, preload bool) {
 	v, ok := s.issuePage(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if preload {

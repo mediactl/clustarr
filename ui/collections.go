@@ -285,14 +285,14 @@ func (s *Server) handleCollectionNew(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCollectionEdit(w http.ResponseWriter, r *http.Request) {
 	if s.opts.Reader == nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	var pc catalogv1.PlexCollection
 	key := client.ObjectKey{Namespace: r.PathValue("namespace"), Name: r.PathValue("name")}
 	if err := s.opts.Reader.Get(r.Context(), key, &pc); err != nil {
 		if apierrors.IsNotFound(err) {
-			http.NotFound(w, r)
+			notFound(w, r)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)

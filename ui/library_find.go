@@ -37,7 +37,7 @@ const findLimit = 10
 func (s *Server) handleLibraryFind(w http.ResponseWriter, r *http.Request) {
 	tab, ok := projection.ParseTab(r.PathValue("tab"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

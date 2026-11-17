@@ -51,7 +51,7 @@ func (s *Server) handleBookDetails(w http.ResponseWriter, r *http.Request) {
 	}
 	d, ok := s.bookDetail(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if r.URL.Query().Get("tab") == "search" {
@@ -88,7 +88,7 @@ func (s *Server) handleBookInteractiveSearch(w http.ResponseWriter, r *http.Requ
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	d, ok := s.bookDetail(r.Context(), ns, name)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	panel, ok := s.startInteractiveSearch(w, r, ns, commonv1.MediaKindBook, name)

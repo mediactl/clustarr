@@ -115,7 +115,7 @@ const maxLiveTVLogoBytes = 4 << 20
 func (s *Server) handleLiveTVLogo(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	if s.opts.LiveTV == nil || !logoHash.MatchString(hash) {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	name := "logo/" + r.PathValue("namespace") + "/" + r.PathValue("name") + "/" + hash
@@ -123,7 +123,7 @@ func (s *Server) handleLiveTVLogo(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	info, err := s.opts.LiveTV.Info(ctx, name)
 	if err != nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	etag := `"` + info.Digest + `"`
@@ -135,13 +135,13 @@ func (s *Server) handleLiveTVLogo(w http.ResponseWriter, r *http.Request) {
 	}
 	_, rc, err := s.opts.LiveTV.Get(ctx, name)
 	if err != nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	defer func() { _ = rc.Close() }()
 	b, err := io.ReadAll(io.LimitReader(rc, maxLiveTVLogoBytes+1))
 	if err != nil || len(b) > maxLiveTVLogoBytes {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")

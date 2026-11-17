@@ -45,7 +45,7 @@ func (s *Server) handleAlbumInteractiveSearch(w http.ResponseWriter, r *http.Req
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	a, item, ok := s.albumWithArtist(r.Context(), ns, name)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	panel, ok := s.startInteractiveSearch(w, r, ns, commonv1.MediaKindAlbum, name)

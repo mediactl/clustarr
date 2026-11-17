@@ -245,8 +245,11 @@ func TestTheLiveTVSubMenuSwapsThePageBody(t *testing.T) {
 		{"/livetv/channels", "Channels"}, {"/livetv/sources", "M3U/EPG Manager"}, {"/livetv/guide", "TV Guide"},
 	} {
 		entry := requireTag(t, sidebarHTML, `href="`+e.href+`"`, `data-slot="sidebar-menu-sub-button"`,
-			`hx-get="`+e.href+`"`, `preload="mouseover"`, `hx-push-url="true"`, `hx-select="#page-body"`,
+			`hx-get="`+e.href+`"`, `hx-push-url="true"`, `hx-select="#page-body"`,
 			`hx-select-oob="#app-nav,#page-crumbs,#header-find"`, `hx-target="#page-body"`, `hx-swap="outerHTML"`)
+		// A Live TV page takes seconds to render and weighs megabytes: its
+		// entry is not fetched on hover.
+		assert.NotContains(t, entry, `preload=`)
 		if e.href == "/livetv/sources" {
 			assert.Regexp(t, activeAttr, entry, "the current Live TV page is marked")
 		} else {

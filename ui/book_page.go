@@ -63,7 +63,7 @@ func (s *Server) renderBookXPage(w http.ResponseWriter, r *http.Request, preload
 			s.renderAddPending(w, r, name)
 			return
 		}
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if preload {

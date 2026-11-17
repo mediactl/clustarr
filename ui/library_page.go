@@ -45,7 +45,7 @@ import (
 func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	tab, ok := projection.ParseTab(r.PathValue("tab"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	view := parseLibraryView(tab, r.URL.Query())
@@ -100,7 +100,7 @@ func acceptsGzip(r *http.Request) bool {
 func (s *Server) handleLibraryFilter(w http.ResponseWriter, r *http.Request) {
 	tab, ok := projection.ParseTab(r.PathValue("tab"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	view := viewFromBuilder(tab, r.URL.Query())
@@ -120,7 +120,7 @@ var filterRowIndex = regexp.MustCompile(`^[a-z0-9]{1,16}$`)
 func (s *Server) handleLibraryFilterRow(w http.ResponseWriter, r *http.Request) {
 	tab, ok := projection.ParseTab(r.PathValue("tab"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	q := r.URL.Query()
@@ -152,7 +152,7 @@ const maxCardsPerRequest = 20000
 func (s *Server) handleLibraryCards(w http.ResponseWriter, r *http.Request) {
 	tab, ok := projection.ParseTab(r.PathValue("tab"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
@@ -192,7 +192,7 @@ func (s *Server) handleLibraryCards(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLibraryEvents(w http.ResponseWriter, r *http.Request) {
 	tab, ok := projection.ParseTab(r.PathValue("tab"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	flusher, ok := w.(http.Flusher)

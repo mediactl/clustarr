@@ -68,17 +68,17 @@ func (s *Server) handleSeason(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	n, err := strconv.ParseInt(r.PathValue("n"), 10, 32)
 	if err != nil || n < 0 {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	item, ok := findLibraryItem(s.opts.Library(r.Context()), ns, string(commonv1.MediaKindSeries), name)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	series, ok := s.getSeries(r.Context(), item.Ref)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	episodes, err := s.listEpisodes(r.Context(), ns, name)
@@ -117,7 +117,7 @@ func (s *Server) handleSetSeasonMonitored(w http.ResponseWriter, r *http.Request
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	n, perr := strconv.ParseInt(r.PathValue("n"), 10, 32)
 	if perr != nil || n < 0 {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	monitored := r.FormValue("monitored") == "true"

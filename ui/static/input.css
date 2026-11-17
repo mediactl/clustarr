@@ -131,8 +131,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
    corners. The surfaces are rgba on purpose: Tailwind's opacity modifiers
    (bg-muted/50) color-mix them like any other colour, and a panel over the
    page backdrop (below) reads as glass instead of a grey slab. Plex has one
-   look, so .dark repeats :root. */
-:root {
+   look, so the tokens are one block for :root and .dark: the layout sets
+   class="dark" on <html> so the components' dark: variants apply (an outline
+   button or a field is a faint white fill, not the opaque canvas). */
+:root,
+.dark {
+  color-scheme: dark;
   --background: #111417;
   --foreground: #f3f4f6;
   --card: rgba(255, 255, 255, 0.055);
@@ -147,7 +151,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --muted-foreground: #a7adb4;
   --accent: rgba(255, 255, 255, 0.12);
   --accent-foreground: #ffffff;
-  --destructive: #e5484d;
+  /* Only ever text, a border, a ring or a /10-/30 tint: #e5484d measured 2.3:1 as text on the canvas. */
+  --destructive: #ff9592;
   --border: rgba(255, 255, 255, 0.1);
   --input: rgba(255, 255, 255, 0.12);
   --ring: #e5a00d;
@@ -173,53 +178,45 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --ultrablur-top-right: #3b1f4f;
   --ultrablur-bottom-right: #4a2c0c;
   --ultrablur-bottom-left: #1a1f3f;
-  /* The glass: the blur every frosted surface shares, and the shade the
-     page backdrop fades into (the canvas, so a page without art and the
-     foot of one with art meet the same colour). */
+  /* The glass: the blur every frosted surface shares, the lit top edge, the
+     1px rim (stronger on a floating layer), the bars' tint and the two
+     elevations. An unlayered box-shadow replaces a component's ring-* and
+     shadow-* utilities (both are box-shadows), so every glass rule below
+     states the whole stack: lit edge, rim, elevation. */
   --glass-blur: 24px;
   --glass-highlight: rgba(255, 255, 255, 0.06);
-}
+  --glass-rim: rgba(255, 255, 255, 0.1);
+  --glass-rim-strong: rgba(255, 255, 255, 0.14);
+  --glass-bar: rgba(17, 20, 23, 0.55);
+  --shadow-bar: 0 12px 28px -12px rgb(0 0 0 / 0.55);
+  --shadow-float: 0 24px 48px -12px rgb(0 0 0 / 0.6);
+  /* rounded-xl: cards, bars, dialogs, the sidebar */
+  --radius-surface: calc(var(--radius) * 1.4);
 
-.dark {
-  --background: #111417;
-  --foreground: #f3f4f6;
-  --card: rgba(255, 255, 255, 0.055);
-  --card-foreground: #f3f4f6;
-  --popover: rgba(30, 33, 37, 0.82);
-  --popover-foreground: #f3f4f6;
-  --primary: #e5a00d;
-  --primary-foreground: #141414;
-  --secondary: rgba(255, 255, 255, 0.1);
-  --secondary-foreground: #f3f4f6;
-  --muted: rgba(255, 255, 255, 0.08);
-  --muted-foreground: #a7adb4;
-  --accent: rgba(255, 255, 255, 0.12);
-  --accent-foreground: #ffffff;
-  --destructive: #e5484d;
-  --border: rgba(255, 255, 255, 0.1);
-  --input: rgba(255, 255, 255, 0.12);
-  --ring: #e5a00d;
-  --chart-1: #e5a00d;
-  --chart-2: #f2c94c;
-  --chart-3: #cc7b19;
-  --chart-4: #a7adb4;
-  --chart-5: #f3f4f6;
-  --sidebar: rgba(17, 20, 23, 0.62);
-  --sidebar-foreground: #f3f4f6;
-  --sidebar-primary: #e5a00d;
-  --sidebar-primary-foreground: #141414;
-  --sidebar-accent: rgba(255, 255, 255, 0.1);
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-ring: #e5a00d;
-  --destructive-foreground: #ffffff;
-  /* The UltraBlur: the four corner colours of the Plex apps' background
-     (iOS, tvOS), each fading toward the middle over the canvas -- dark
-     enough that text keeps its contrast. */
-  --ultrablur-top-left: #0f3a4f;
-  --ultrablur-top-right: #3b1f4f;
-  --ultrablur-bottom-right: #4a2c0c;
-  --ultrablur-bottom-left: #1a1f3f;
+  /* Layout: the top bar's height, where a sticky page bar sticks under it
+     (top-14), and the page's side gutter (wider from 640px, below). */
+  --topbar-h: 3rem;
+  --bar-top: calc(var(--topbar-h) + 0.5rem);
+  --page-gutter: 1rem;
+
+  /* Status: the five tones a view's badges and stripes write as palette
+     classes (ui/views' Tone), here for CSS and chart series. Gold is never
+     a status: it is action, selection, progress and focus. */
+  --status-ok: var(--color-emerald-500);
+  --status-busy: var(--color-sky-500);
+  --status-warn: var(--color-amber-500);
+  --status-fail: var(--color-red-500);
+  --status-idle: var(--color-slate-500);
+
+  /* Motion: hover and press, panels, and the one easing. */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+@media (width >= 40rem) {
+  :root {
+    --page-gutter: 1.5rem;
+  }
 }
 
 @layer base {
@@ -271,7 +268,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-slot="dropdown-menu-sub-content"],
 [data-slot="menubar-content"],
 [data-slot="menubar-sub-content"],
-[data-slot="navigation-menu-content"],
 [data-slot="select-content"],
 [data-slot="tooltip-content"],
 [data-slot="popover-content"],
@@ -279,29 +275,114 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-slot="card"],
 .panel,
 .recharts-tooltip-wrapper > div,
-.glass {
+#library-find-results,
+.glass,
+.glass-bar {
   /* Only the standard property: Tailwind's minifier folds a pair written
      with -webkit-backdrop-filter into the prefixed one alone, which Chrome
      and Firefox ignore, so no surface blurred outside Safari until
      2026-11-04. It adds the prefix itself where its targets need one. */
   backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
 }
+
+/* Three levels of glass (2026-11-17). An unlayered box-shadow replaces a
+   component's ring-* and shadow-* utilities, which are box-shadows too, so
+   until then the card had lost its ring, the dialogs and menus theirs and
+   the library toolbar its shadow: each rule states the whole stack. */
+
+/* 1 -- resting: cards and panels. A card in a card has nothing of the page
+   behind it, so it does not blur again. */
+[data-slot="card"] {
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 1px var(--glass-rim);
+}
+.panel {
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+[data-slot="card"] [data-slot="card"] {
+  backdrop-filter: none;
+}
+
+/* 2 -- bars: the library's toolbar and its selection bar, and a table's. */
+.glass-bar {
+  background-color: var(--glass-bar);
+  border-radius: var(--radius-surface);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 1px var(--glass-rim),
+    var(--shadow-bar);
+}
+
+/* 3 -- floating: dialogs, menus, selects, popovers, tooltips, toasts, the
+   header search's results and the charts' tooltip. */
 [data-slot="dialog-content"],
 [data-slot="alert-dialog-content"],
 [data-slot="dropdown-menu-content"],
 [data-slot="dropdown-menu-sub-content"],
 [data-slot="menubar-content"],
 [data-slot="menubar-sub-content"],
-[data-slot="navigation-menu-content"],
 [data-slot="select-content"],
 [data-slot="popover-content"],
 [data-slot="toast"],
+[data-slot="tooltip-content"],
+#library-find-results,
 .recharts-tooltip-wrapper > div {
   background-color: var(--popover);
+  color: var(--popover-foreground);
   border-color: var(--border);
   box-shadow:
     inset 0 1px 0 var(--glass-highlight),
-    0 24px 48px -12px rgba(0, 0, 0, 0.6);
+    0 0 0 1px var(--glass-rim-strong),
+    var(--shadow-float);
+}
+/* A glass tooltip has no arrow. */
+[data-slot="tooltip-content"] > div[aria-hidden="true"] {
+  display: none;
+}
+/* The rule above erased the toast's focus ring; and a toast shown while a
+   dialog is open was drawn under its overlay (both z-50, the dialog later
+   in <body>). A long message (a refused write's reason) is three lines. */
+[data-slot="toast"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+[data-slot="toast-viewport"] {
+  z-index: 100;
+}
+[data-slot="toast-description"] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* Every dialog fits the window (2026-11-17): 1rem off every edge at every
+   width -- a view's sm:max-w-* replaces the stock max-width and with it the
+   stock gutter, so the wide dialogs ran edge to edge between 640px and
+   their width -- no taller than the window, and scrolling inside itself: an
+   artist's Edit dialog was 1,087px tall on an 844px phone with its title,
+   close and Save out of reach, and Live TV's Links dialog 2,611px. A grid
+   child may shrink below its longest line. */
+[data-slot="dialog-content"],
+[data-slot="alert-dialog-content"] {
+  width: calc(100% - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+[data-slot="dialog-content"] > *,
+[data-slot="alert-dialog-content"] > * {
+  min-width: 0;
+}
+[data-slot="dialog-title"] {
+  font-size: 1.125rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+}
+[data-slot="alert-dialog-title"] {
+  font-weight: 600;
 }
 /* The sidebar floats (shadcn's floating variant, set in layout.templ):
    a rounded glass panel standing off the window's edge and the top bar,
@@ -321,8 +402,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
    sidebar's fixed container starts under it instead of at the window's
    top edge; 3rem is the bar's h-12. */
 [data-slot="sidebar-container"] {
-  top: 3rem;
-  height: calc(100svh - 3rem);
+  top: var(--topbar-h);
+  height: calc(100svh - var(--topbar-h));
 }
 /* The sidebar's inset (shadcn's <main>) paints bg-background, which would
    cover the page backdrop like the body's background above; an unlayered
@@ -354,10 +435,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-slot="item-description"] {
   overflow-wrap: anywhere;
 }
-[data-slot="card"],
-.panel {
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
-}
 /* A section card's open tab (the dashboard's tabbed cards) is a frosted
    glass tile over the page's own UltraBlur (owner, 2026-11-04: "an
    ultrablur variant based on the page background", then the Apple frosted
@@ -385,6 +462,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     inset 0 1px 0 rgba(255, 255, 255, 0.22),
     0 6px 16px -6px rgba(0, 0, 0, 0.5);
 }
+/* The .dark pin (2026-11-17): with class="dark" on <html> the stock tab
+   recolours an inactive trigger (dark:text-muted-foreground) and gives an
+   active one dark:data-active:border-input; these tabs keep what they
+   computed without the class (measured: the open tab's border-color is
+   var(--border) at width 0, an inactive tab's colour the foreground at 60%),
+   so the settled tab above is unchanged. */
+[data-dashboard-tabs] [role="tab"][data-active] {
+  border-color: var(--border);
+}
+[data-dashboard-tabs] [role="tab"]:not([data-active]):not(:hover) {
+  color: color-mix(in oklab, var(--foreground) 60%, transparent);
+}
 [data-slot="dialog-overlay"],
 [data-slot="alert-dialog-overlay"],
 [data-slot="sheet-overlay"] {
@@ -396,7 +485,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
    art fills the viewport behind everything, fixed so the page scrolls over
    it, blurred and darkened the way the Plex apps set a title's art behind
    its details, and shaded down to the canvas so the foot of the page and
-   the sidebar's edge meet the same colour. It sits below the root's content
+   the sidebar's edge meet the same colour (the shade a little deeper since
+   2026-11-17: muted text over a bright fanart measured 2.9-3.2:1, now
+   5.2-7.0:1, and the art still reads). It sits below the root's content
    (z-index -1 within the root stacking context) and above the canvas. The
    sidebar and the top bar blur it through their glass. */
 .page-backdrop {
@@ -418,8 +509,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   z-index: -1;
   pointer-events: none;
   background:
-    linear-gradient(to bottom, rgba(17, 20, 23, 0.15) 0%, rgba(17, 20, 23, 0.5) 50%, var(--background) 100%),
-    linear-gradient(to right, rgba(17, 20, 23, 0.6) 0%, rgba(17, 20, 23, 0) 40%);
+    linear-gradient(to bottom, rgba(17, 20, 23, 0.35) 0%, rgba(17, 20, 23, 0.55) 50%, var(--background) 100%),
+    linear-gradient(to right, rgba(17, 20, 23, 0.6) 0%, rgba(17, 20, 23, 0.4) 45%, rgba(17, 20, 23, 0) 85%);
 }
 
 /* The poster lift (tvOS's focus): a card rises and takes a gold ring under
@@ -471,3 +562,220 @@ html[data-scrollbar="hidden"]::-webkit-scrollbar {
 html[data-library-details="hidden"] [data-card-details] {
   display: none;
 }
+
+/* --- The shell (2026-11-17) ---------------------------------------------- */
+/* The top bar's blur sits on a pseudo-element, so the bar itself is neither
+   the containing block of the position:fixed search results inside it nor
+   the backdrop root of their own blur: as a .glass element it was both,
+   which is why the results did not frost, widened a phone's page and were
+   cut by a landscape phone's bottom edge. */
+[data-topbar]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+}
+/* A navigation in flight (feedback.js sets html[data-navigating] after
+   150ms, so a fast one shows nothing): a gold line along the top bar's foot. */
+#nav-progress {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: var(--primary);
+  transform: scaleX(0);
+  transform-origin: left;
+  opacity: 0;
+  pointer-events: none;
+}
+html[data-navigating] #nav-progress {
+  opacity: 1;
+  transform: scaleX(0.85);
+  transition:
+    transform 8s cubic-bezier(0.1, 0.7, 0.1, 1),
+    opacity var(--dur-fast);
+}
+/* The entry pressed is lit at the press, before its page arrives. */
+[data-nav-link].htmx-request {
+  background-color: var(--sidebar-accent);
+}
+/* An action in flight: its button dims and cannot be pressed twice. */
+form.htmx-request [type="submit"],
+form.htmx-request + [form],
+[data-slot="button"].htmx-request {
+  opacity: 0.6;
+  pointer-events: none;
+}
+/* The page's query container, only where a container does not trap
+   position:fixed (the layout's boot script sets data-cq): page content keys
+   on the room it has, not on the window, since the sidebar takes 256px of
+   the window. Without it a page keeps its base, narrow layout. */
+html[data-cq] [data-shell-page] {
+  container: page / inline-size;
+}
+/* Sidebar groups open and close by height (the collapsible measures
+   --collapsible-panel-height). */
+[data-nav-group] > [data-slot="collapsible-content"] {
+  height: var(--collapsible-panel-height);
+  overflow: hidden;
+  transition: height var(--dur-base) ease-out;
+}
+[data-nav-group] > [data-slot="collapsible-content"]:is([data-starting-style], [data-ending-style]) {
+  height: 0;
+}
+/* An open group's row gives up its fill to its lit sub-entry: one lit row,
+   not two. */
+[data-nav-group][data-open]:has([data-slot="sidebar-menu-sub-button"][data-active])
+  > a[data-slot="sidebar-menu-button"][data-active]:not(:hover) {
+  background-color: transparent;
+}
+/* The phone's sheet is the same floating panel as the desktop sidebar. */
+[data-mobile="true"][data-slot="sheet-content"] {
+  top: 0.5rem;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  height: auto;
+  border: 0;
+  border-radius: var(--radius-surface);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 1px var(--sidebar-border),
+    0 20px 40px -16px rgb(0 0 0 / 0.6);
+}
+/* The header search: no native clear button; the "/" hint gives way to the
+   result count. */
+[data-slot="input-group-control"]::-webkit-search-cancel-button {
+  appearance: none;
+}
+#library-find-count:not(:empty) + [data-slot="kbd"] {
+  display: none;
+}
+
+/* --- Focus and selection -------------------------------------------------- */
+@layer base {
+  ::selection {
+    background-color: color-mix(in oklab, var(--primary) 35%, transparent);
+  }
+  /* Bare links, summaries and tabindex targets; a component's own
+     outline-none and ring outrank this layer. */
+  :where(a, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  #page-body:focus {
+    outline: none;
+  }
+}
+
+/* --- Touch density -------------------------------------------------------- */
+/* A coarse pointer gets 40px controls (they were 28-32px everywhere). The
+   exclusions are by ancestor: a table's cells, a page toolbar, a card's
+   action bar, input and button groups, tab lists and the sidebar keep
+   their own sizes (five 40px buttons do not fit a phone's poster; the
+   dashboard's settled tabs are a tab list). .h-auto excludes the guide's
+   programme cells. iOS zooms the page into a focused field under 16px. */
+@media (pointer: coarse) {
+  [data-slot="sidebar-menu-button"]:not([data-collapsible="icon"] *) {
+    min-height: 2.5rem;
+  }
+  [data-slot="sidebar-menu-sub-button"] {
+    min-height: 2.25rem;
+  }
+  [data-slot="sidebar-menu-action"] {
+    top: 0.625rem;
+  }
+  [data-slot="sidebar-menu-action"]::after {
+    display: block;
+  }
+  [data-slot="sidebar-trigger"] {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+  }
+  :is(
+      [data-slot="button"],
+      [data-slot="select-trigger"],
+      [data-slot="dropdown-menu-trigger"],
+      [data-slot="dialog-trigger"],
+      [data-slot="alert-dialog-trigger"],
+      [data-slot="collapsible-trigger"],
+      [data-slot="input"],
+      [data-slot="pagination-link"],
+      [data-slot="toggle-group-item"]
+    ):not(
+      .h-auto,
+      :where(
+          td,
+          th,
+          [data-toolbar],
+          [data-card-actions],
+          [data-slot="input-group"],
+          [data-slot="button-group"],
+          [data-slot="tabs-list"],
+          [data-slot="sidebar"]
+        )
+        *
+    ) {
+    min-height: 2.5rem;
+  }
+  :is([data-slot="button"], [data-slot="collapsible-trigger"], [data-slot="dialog-close"]):is(
+      .size-6,
+      .size-7,
+      .size-8,
+      .size-9
+    ):not(
+      :where(
+          td,
+          th,
+          [data-toolbar],
+          [data-card-actions],
+          [data-slot="input-group"],
+          [data-slot="button-group"],
+          [data-slot="sidebar"]
+        )
+        *
+    ) {
+    min-width: 2.5rem;
+  }
+  [data-slot="input"],
+  [data-slot="input-group-control"],
+  [data-slot="textarea"] {
+    font-size: 1rem;
+  }
+}
+
+/* --- Motion, short and narrow windows ------------------------------------- */
+/* 1ms, not 0: the component scripts wait for animationend/transitionend. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  [data-slot="spinner"],
+  .animate-spin {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+/* A landscape phone: page bars scroll away instead of holding a quarter of
+   its height. */
+@media (height < 32rem) {
+  [data-toolbar] {
+    position: static;
+  }
+}
+@media (width < 40rem) {
+  [data-slot="card"] {
+    --card-spacing: calc(var(--spacing) * 4);
+  }
+}
+
+/* --- The shared view primitives' and the modal forms' rules --------------- */
+/* Last, so they follow the theme's in the cascade (Tailwind inlines an
+   @import that follows rules). */
+@import "./primitives.css";
+@import "./modal.css";

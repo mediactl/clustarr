@@ -44,7 +44,7 @@ func (s *Server) handleSeasonSearch(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	n, err := strconv.ParseInt(r.PathValue("n"), 10, 32)
 	if err != nil || n < 0 {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	_, aerr := s.opts.Actions.SearchSeason(r.Context(), ns, name, int32(n))
@@ -69,17 +69,17 @@ func (s *Server) handleSeasonInteractiveSearch(w http.ResponseWriter, r *http.Re
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	n, err := strconv.ParseInt(r.PathValue("n"), 10, 32)
 	if err != nil || n < 0 {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	item, ok := findLibraryItem(s.opts.Library(r.Context()), ns, string(commonv1.MediaKindSeries), name)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	series, ok := s.getSeries(r.Context(), item.Ref)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	search, aerr := s.opts.Actions.InteractiveSeasonSearch(r.Context(), ns, name, int32(n))

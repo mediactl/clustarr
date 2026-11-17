@@ -50,7 +50,7 @@ import (
 func (s *Server) handleEditFields(w http.ResponseWriter, r *http.Request) {
 	f, ok := s.editFields(r.Context(), r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

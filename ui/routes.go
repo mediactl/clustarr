@@ -26,7 +26,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/a-h/templ"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -182,7 +181,13 @@ func (s *Server) routes() http.Handler {
 		}))
 	}
 
-	return mux
+	// Routes registered from their own files (addRoutes), the styled 404
+	// for everything else, and gzip around it all.
+	for _, hook := range routeHooks {
+		hook(s, mux)
+	}
+	mux.HandleFunc("/", notFound)
+	return compress(mux)
 }
 
 // handleHealthz answers the liveness probe, unconditionally. It must not
@@ -272,7 +277,7 @@ func (s *Server) findDownload(ctx context.Context, r *http.Request) (projection.
 func (s *Server) handleDownloadImport(w http.ResponseWriter, r *http.Request) {
 	row, ok := s.findDownload(r.Context(), r)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	var inspect, execute *schema.ImportRecord
@@ -351,7 +356,7 @@ func (s *Server) handleDownloadAction(w http.ResponseWriter, r *http.Request) {
 		err = s.opts.Actions.RetryImport(ctx, ns, kind, owner, entry, target, r.FormValue("override") == "true")
 		done = "Import queued"
 	default:
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	s.finishActionWith(w, r, err, done)
@@ -485,7 +490,7 @@ func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	preloadable(w)
@@ -756,63 +761,27 @@ func rootFoldersFor(folders []catalogv1.RootFolder, tab projection.Tab) []catalo
 	return out
 }
 
-// finishAction is the shared tail of every Library-page write action: on
-// success it redirects (303) back to the form's "return" field (defaulting
-// to /library so a malformed or missing field still goes somewhere useful),
-// and on failure it renders views.ActionError directly in the response
-// (no redirect) with a status that reflects the failure -- 503 for
-// actions.ErrNoWriter, 400 for actions.ErrInvalid, 500 otherwise -- so the
-// error is visible to whatever submitted the form. ErrNoWriter is what a ui
-// process with no cluster configured answers; until Task G3-5 wired
-// Options.Actions in the binary of the time, it was what every production process
-// answered.
+// finishAction is the tail of a write action whose page shows what it
+// changed (an edit, a rename, a delete, a bulk action): finish with
+// redraw, so an htmx form aimed at #action-status has its page redrawn in
+// place, or is sent to its return, and a plain form is redirected there.
+// A failure is said where it can be seen (finish).
 func (s *Server) finishAction(w http.ResponseWriter, r *http.Request, err error) {
-	s.finishActionWith(w, r, err, "Done")
+	s.finish(w, r, err, "Done", true)
 }
 
-// cardAction is whether r is a library card's action (views.cardActions),
-// which htmx posts with #action-status as its target.
+// cardAction is whether r is an action posted with #action-status as its
+// target: a library card's (views.cardActions), an action bar's form, a
+// row's.
 func cardAction(r *http.Request) bool {
 	return isHTMX(r) && r.Header.Get("HX-Target") == "action-status"
 }
 
-// finishActionWith is finishAction for an action a library card can post
-// too: a card's request is answered in place, 200 with ActionStatus's done
-// toast or ActionErrorToast's why not -- htmx swaps no error status and
-// would follow a redirect to fetch a page it does not show -- while a
-// form's is finishAction's redirect or error page.
+// finishActionWith is the tail of a write action that changes nothing the
+// page shows at once, or whose page updates itself (a search, a refresh,
+// a toggle that swaps its own row): the done toast, no redraw.
 func (s *Server) finishActionWith(w http.ResponseWriter, r *http.Request, err error, done string) {
-	if cardAction(r) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		var view templ.Component
-		if err != nil {
-			code, _ := actionErrorCode(err)
-			logging.FromContext(r.Context()).Error("ui action failed", "err", err, "code", code)
-			view = views.ActionErrorToast(code, err.Error())
-		} else {
-			view = views.ActionStatus(done)
-		}
-		if renderErr := view.Render(r.Context(), w); renderErr != nil {
-			logging.FromContext(r.Context()).Error("render action status", "err", renderErr)
-		}
-		return
-	}
-	if err != nil {
-		code, status := actionErrorCode(err)
-		logging.FromContext(r.Context()).Error("ui action failed", "err", err, "code", code)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(status)
-		if renderErr := views.ActionError(code, err.Error()).Render(r.Context(), w); renderErr != nil {
-			logging.FromContext(r.Context()).Error("render action error", "err", renderErr)
-		}
-		return
-	}
-
-	returnTo := r.FormValue("return")
-	if returnTo == "" || returnTo[0] != '/' {
-		returnTo = "/library"
-	}
-	http.Redirect(w, r, returnTo, http.StatusSeeOther)
+	s.finish(w, r, err, done, false)
 }
 
 // actionErrorCode maps an ui/actions error to the stable machine-readable
@@ -912,7 +881,7 @@ func libraryScanDetailPath(namespace, name string) string {
 func (s *Server) handleLibraryScanDetail(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if s.opts.Reader == nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 
@@ -920,7 +889,7 @@ func (s *Server) handleLibraryScanDetail(w http.ResponseWriter, r *http.Request)
 	key := client.ObjectKey{Namespace: r.PathValue("namespace"), Name: r.PathValue("name")}
 	if err := s.opts.Reader.Get(ctx, key, &scan); err != nil {
 		if apierrors.IsNotFound(err) {
-			http.NotFound(w, r)
+			notFound(w, r)
 			return
 		}
 		logging.FromContext(ctx).Error("get library scan", "err", err)
@@ -955,4 +924,7 @@ func monitoredTitle(monitored bool) string {
 func preloadable(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "private, max-age=10")
 	w.Header().Add("Vary", "HX-Request")
+	// The shell is rendered from two cookies (the sidebar's state): a page
+	// preloaded before a toggle must not be reused after it.
+	w.Header().Add("Vary", "Cookie")
 }

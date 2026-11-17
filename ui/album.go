@@ -52,7 +52,7 @@ func (s *Server) handleAlbumPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderAlbumPage(w http.ResponseWriter, r *http.Request, preload bool) {
 	v, ok := s.albumPage(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if preload {
@@ -74,7 +74,7 @@ func (s *Server) handleAlbumDetails(w http.ResponseWriter, r *http.Request) {
 	}
 	d, ok := s.albumDetail(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if r.URL.Query().Get("tab") == "search" {

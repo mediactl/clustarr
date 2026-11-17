@@ -121,7 +121,7 @@ func TestFindSearchesTheWholeLibraryOffATab(t *testing.T) {
 	_, body = findGet(t, findServer(t), "/library/find?q=zardoz")
 	require.Contains(t, body, "No monitored titles match")
 	for _, tab := range projection.Tabs() {
-		require.Regexp(t, regexp.MustCompile(`<a[^>]*data-action="find-add-new"[^>]*href="/library/`+string(tab)+`/add\?q=zardoz"`), body, tab)
+		require.Regexp(t, regexp.MustCompile(`<a[^>]*href="/library/`+string(tab)+`/add\?q=zardoz"[^>]*data-action="find-add-new"`), body, tab)
 	}
 	_, body = findGet(t, findServer(t), "/library/find?q=")
 	require.Empty(t, strings.TrimSpace(body))

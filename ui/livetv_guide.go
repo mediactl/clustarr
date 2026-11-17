@@ -237,7 +237,7 @@ func (s *Server) handleLiveTVProgramme(w http.ResponseWriter, r *http.Request) {
 	g := s.loadGuide(r.Context(), q)
 	start, err := time.Parse(time.RFC3339, q.Get("start"))
 	if g.view == nil || err != nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	channel := q.Get("channel")
@@ -258,5 +258,5 @@ func (s *Server) handleLiveTVProgramme(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	http.NotFound(w, r)
+	notFound(w, r)
 }

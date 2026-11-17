@@ -90,7 +90,7 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	header := body[headerStart:headerEnd]
 	require.NotContains(t, header, `data-slot="tabs-trigger"`, "no tab strip in the top bar")
 	require.NotContains(t, header, `hx-select="#page-body"`, "no tab links in the top bar")
-	require.Contains(t, header, `data-slot="navigation-menu"`, "the top bar is a navigation menu")
+	require.Contains(t, header, `data-topbar`, "the top bar is marked for the theme and the search's phone mode")
 	trigger := strings.Index(header, `data-slot="sidebar-trigger"`)
 	crumbs := strings.Index(header, `id="page-crumbs"`)
 	find := strings.Index(header, `id="header-find"`)
@@ -106,7 +106,7 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	require.Contains(t, group, `lucide-search`)
 	requireTag(t, group, `id="library-find-count"`)
 	for _, tab := range projection.Tabs() {
-		requireTag(t, header, `data-nav-add="`+string(tab)+`"`, `href="/library/`+string(tab)+`/add"`, `data-slot="navigation-menu-link"`)
+		requireTag(t, header, `data-nav-add="`+string(tab)+`"`, `href="/library/`+string(tab)+`/add"`, `data-slot="dropdown-menu-item"`)
 	}
 	inset := strings.Index(body, `data-slot="sidebar-inset"`)
 	require.Greater(t, inset, 0)
@@ -316,7 +316,7 @@ func TestLayoutCarriesTheClustarrMark(t *testing.T) {
 	require.Less(t, strings.Index(body, "<header"), wrapper, "the top bar precedes the sidebar: it spans the window")
 	brand := tagWith(t, bar, `src="/static/logo.svg"`)
 	require.Contains(t, brand, `alt="Clustarr"`)
-	require.Contains(t, bar, `class="hidden sm:inline">Clustarr</span>`, "the wordmark gives way on a narrow screen")
+	require.Contains(t, bar, `class="hidden lg:inline">Clustarr</span>`, "the wordmark gives way on a narrow screen")
 	require.NotContains(t, body[wrapper:], `src="/static/logo.svg"`, "the sidebar carries no brand of its own")
 	requireTag(t, bar, `data-slot="sidebar-trigger"`, `data-templ-sidebar-trigger="app-sidebar"`)
 	requireTag(t, body[wrapper:], `data-templ-sidebar-id="app-sidebar"`)

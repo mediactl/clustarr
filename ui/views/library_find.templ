@@ -20,10 +20,13 @@ package views
 import (
 	"fmt"
 	"net/url"
+	"slices"
 
+	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/inputgroup"
 	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/components/kbd"
 	"github.com/mediactl/clustarr/ui/components/scrollarea"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -40,38 +43,103 @@ import (
 // dropdown with Escape or a click elsewhere; the dropdown is position:
 // fixed, placed under the group by find.js.
 templ headerFind(tab projection.Tab) {
-	<div class="w-full" data-find>
-		@inputgroup.InputGroup(inputgroup.Props{Class: "h-8 bg-muted/40"}) {
+	<div class="flex w-full items-center gap-2" data-find>
+		@inputgroup.InputGroup(inputgroup.Props{Class: "h-8 flex-1 bg-muted/40"}) {
 			@inputgroup.Input(inputgroup.InputProps{
 				Type:        "search",
 				Name:        "q",
 				Placeholder: "Search " + findScope(tab) + "…",
 				Attributes: templ.Attributes{
-					"data-find-input": true,
-					"aria-label":      "Search " + findScope(tab),
-					"autocomplete":    "off",
-					"role":            "combobox",
-					"aria-controls":   "library-find-results",
-					"aria-expanded":   "false",
-					"hx-get":          findPath(tab),
-					"hx-trigger":      "input changed delay:150ms, search",
-					"hx-target":       "#library-find-results",
-					"hx-sync":         "this:replace",
+					"data-find-input":   true,
+					"aria-label":        "Search " + findScope(tab),
+					"autocomplete":      "off",
+					"role":              "combobox",
+					"aria-autocomplete": "list",
+					"aria-controls":     "library-find-results",
+					"aria-expanded":     "false",
+					"hx-get":            findPath(tab),
+					"hx-trigger":        "input changed delay:150ms, search",
+					"hx-target":         "#library-find-results",
+					"hx-sync":           "this:replace",
 				},
 			})
 			@inputgroup.Addon() {
 				@icon.Icon("search")()
 			}
 			@inputgroup.Addon(inputgroup.AddonProps{Align: inputgroup.AlignInlineEnd}) {
-				<span id="library-find-count" class="text-xs tabular-nums empty:hidden" aria-live="polite"></span>
+				<span id="library-find-count" class="sr-only text-xs tabular-nums empty:hidden sm:not-sr-only" aria-live="polite"></span>
+				@kbd.Kbd(kbd.Props{Class: "hidden lg:inline-flex"}) {
+					/
+				}
 			}
 		}
+		// On a phone the search opens over the bar (find.js); this closes it.
+		@button.Button(button.Props{
+			Variant:    button.VariantGhost,
+			Size:       button.SizeSm,
+			Class:      "md:hidden",
+			Attributes: templ.Attributes{"data-find-cancel": true},
+		}) {
+			Cancel
+		}
+		// The theme gives the list its glass (#library-find-results in
+		// input.css): the top bar's blur is a pseudo-element's, so this
+		// fixed list is placed against the window and frosts what is under
+		// it.
 		<div
 			id="library-find-results"
 			role="listbox"
-			class="glass fixed z-50 empty:hidden overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg shadow-black/50"
+			class="fixed z-50 empty:hidden overflow-hidden rounded-xl"
 		></div>
 	</div>
+}
+
+// findTab is the tab the header search asks on: the page's own when it is
+// one of the six media tabs, else the whole library. Collections and Hubs
+// carry a Chrome.Tab of their own for the sidebar, and their "tab" has no
+// find route: the search was dead there (a 404) until 2026-11-17.
+func findTab(tab projection.Tab) projection.Tab {
+	if slices.Contains(projection.Tabs(), tab) {
+		return tab
+	}
+	return ""
+}
+
+// addTarget is one thing Add New can add: its phrase, its page.
+type addTarget struct {
+	Label string
+	Href  string
+	// Kind is "book" for the Books tab's standalone book, else "".
+	Kind string
+}
+
+// addTargets is what tab's Add New adds -- its own kind and, on the Books
+// tab, a standalone Book as well (2026-11-10 design §9.1) -- with the text
+// already typed carried along when there is any. The one list for the top
+// bar's Add New menu and the header search's empty state, so both say the
+// same phrase.
+func addTargets(tab projection.Tab, q string) []addTarget {
+	base := "/library/" + string(tab) + "/add"
+	query := ""
+	if q != "" {
+		query = "q=" + url.QueryEscape(q)
+	}
+	with := func(extra string) string {
+		switch {
+		case extra != "" && query != "":
+			return base + "?" + extra + "&" + query
+		case extra != "":
+			return base + "?" + extra
+		case query != "":
+			return base + "?" + query
+		}
+		return base
+	}
+	out := []addTarget{{Label: "Add " + addLabel(tab), Href: with("")}}
+	if tab == projection.TabBooks {
+		out = append(out, addTarget{Label: "Add book", Href: with("kind=book"), Kind: "book"})
+	}
+	return out
 }
 
 // findPath is where headerFind asks: the tab's find, or the library's.
@@ -109,24 +177,22 @@ templ findCount(n int) {
 templ LibraryFindResults(tab projection.Tab, q string, items []projection.LibraryItem) {
 	@findCount(len(items))
 	if len(items) == 0 {
-		<div class="space-y-2 p-3 text-sm" data-find-empty>
-			<p class="text-muted-foreground">No monitored { findNoun(tab) } match “{ q }”.</p>
+		<div class="py-1" data-find-empty>
+			<p class="px-3 py-2 text-xs text-muted-foreground">No monitored { findNoun(tab) } match “{ q }”.</p>
 			if tab == "" {
-				<p class="flex flex-wrap gap-x-3">
-					for _, t := range projection.Tabs() {
-						@findAddLinks(t, q)
-					}
-				</p>
+				for _, t := range projection.Tabs() {
+					@findAddLinks(t, q)
+				}
 			} else {
-				<p class="flex flex-wrap gap-x-3">
-					@findAddLinks(tab, q)
-				</p>
+				@findAddLinks(tab, q)
 			}
 		</div>
 	} else {
 		// The list scrolls in shadcn's scroll area, its viewport capped at
-		// 24rem, so a long dropdown keeps the theme's thin scrollbar.
-		@scrollarea.ScrollArea(scrollarea.Props{Class: "[&>[data-slot=scroll-area-viewport]]:max-h-96"}) {
+		// 26rem or the room under the bar (find.js sets --find-max-h), so a
+		// long dropdown keeps the theme's thin scrollbar and a landscape
+		// phone's is not cut by the window's foot.
+		@scrollarea.ScrollArea(scrollarea.Props{Class: "[&>[data-slot=scroll-area-viewport]]:max-h-[min(26rem,var(--find-max-h,26rem))]"}) {
 			<ul class="py-1">
 				for _, li := range items {
 					<li>
@@ -159,24 +225,37 @@ templ LibraryFindResults(tab projection.Tab, q string, items []projection.Librar
 	}
 }
 
-// findAddLinks are the empty state's Add New links for tab, the text
-// already typed carried along: the tab's own kind and, on the Books tab, a
-// standalone Book as well (2026-11-10 design §9.1: the Books tab adds an
-// Author or a Book).
+// findAddLinks are the empty state's Add New rows for tab (addTargets), the
+// text already typed carried along. Rows like the results', but no
+// data-find-ref: the arrow keys move through matches only, Tab reaches
+// these.
 templ findAddLinks(tab projection.Tab, q string) {
-	<a
-		class="font-medium underline underline-offset-4"
-		data-action="find-add-new"
-		href={ templ.SafeURL("/library/" + string(tab) + "/add?q=" + url.QueryEscape(q)) }
-	>Add a new { addLabel(tab) }</a>
-	if tab == projection.TabBooks {
-		<a
-			class="font-medium underline underline-offset-4"
-			data-action="find-add-new"
-			data-add-kind="book"
-			href={ templ.SafeURL("/library/" + string(tab) + "/add?kind=book&q=" + url.QueryEscape(q)) }
-		>Add a new book</a>
+	for _, t := range addTargets(tab, q) {
+		@item.Item(item.Props{
+			Href:       t.Href,
+			Size:       item.SizeXs,
+			Class:      "rounded-none px-3 py-1.5 hover:bg-accent hover:text-accent-foreground",
+			Attributes: findAddAttrs(t),
+		}) {
+			@item.Media() {
+				@icon.Icon("plus")(icon.Props{Class: "size-4 text-muted-foreground"})
+			}
+			@item.Content() {
+				@item.Title(item.TitleProps{Class: "text-sm font-normal"}) {
+					{ t.Label }
+				}
+			}
+		}
 	}
+}
+
+// findAddAttrs mark an empty-state Add New row for the tests and scripts.
+func findAddAttrs(t addTarget) templ.Attributes {
+	a := templ.Attributes{"data-action": "find-add-new"}
+	if t.Kind != "" {
+		a["data-add-kind"] = t.Kind
+	}
+	return a
 }
 
 // findNoun is what the tab's items are called in the dropdown's empty

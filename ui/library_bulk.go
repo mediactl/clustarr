@@ -45,7 +45,7 @@ const maxBulkItems = 500
 func (s *Server) handleLibraryBulk(w http.ResponseWriter, r *http.Request) {
 	tab, ok := projection.ParseTab(r.PathValue("tab"))
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if err := r.ParseForm(); err != nil {

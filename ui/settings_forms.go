@@ -268,7 +268,7 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, k forms.Kind
 func (s *Server) handleSettingsNew(w http.ResponseWriter, r *http.Request) {
 	k, root, err := formKind(r.PathValue("kind"))
 	if err != nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	ns := ""
@@ -282,14 +282,14 @@ func (s *Server) handleSettingsNew(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSettingsEdit(w http.ResponseWriter, r *http.Request) {
 	k, root, err := formKind(r.PathValue("kind"))
 	if err != nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	ns, name := pathNamespace(r), r.PathValue("name")
 	spec, err := s.getConfigSpec(r.Context(), k, ns, name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			http.NotFound(w, r)
+			notFound(w, r)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -430,7 +430,7 @@ func withMissingNote(controls []forms.Control, id string, def *cardigann.Definit
 func (s *Server) handleSettingsDefinition(w http.ResponseWriter, r *http.Request) {
 	k, _, err := formKind(indexersSlug)
 	if err != nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	q := r.URL.Query()
@@ -681,7 +681,7 @@ func returnPath(r *http.Request) string {
 func (s *Server) handleSettingsCreate(w http.ResponseWriter, r *http.Request) {
 	k, root, err := formKind(r.PathValue("kind"))
 	if err != nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	sub, err := decodeSubmission(r, k, root, forms.ModeNew, "", "")
@@ -721,14 +721,14 @@ func (s *Server) handleSettingsCreate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	k, root, err := formKind(r.PathValue("kind"))
 	if err != nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	ns, name := pathNamespace(r), r.PathValue("name")
 	old, err := s.getConfigSpec(r.Context(), k, ns, name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			http.NotFound(w, r)
+			notFound(w, r)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -770,7 +770,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSettingsDelete(w http.ResponseWriter, r *http.Request) {
 	k, _, err := formKind(r.PathValue("kind"))
 	if err != nil {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	if err := r.ParseForm(); err != nil {

@@ -48,7 +48,7 @@ func (s *Server) handleAudiobookInteractiveSearch(w http.ResponseWriter, r *http
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
 	v, ok := s.audiobookView(r.Context(), ns, name)
 	if !ok {
-		http.NotFound(w, r)
+		notFound(w, r)
 		return
 	}
 	panel, ok := s.startInteractiveSearch(w, r, ns, commonv1.MediaKindAudiobook, name)
