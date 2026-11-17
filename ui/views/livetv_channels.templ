@@ -603,7 +603,8 @@ templ ChannelRowView(r projection.ChannelRow) {
 				@copyButton(r.StreamURL, "Copy the stream URL")
 				@button.Button(button.Props{
 					Href: "/settings/edit/iptvchannels/" + r.Namespace + "/" + r.Name + "?return=" + channelsReturnPath, Variant: button.VariantGhost, Size: button.SizeIconSm,
-					Attributes: templ.Attributes{"aria-label": "Edit", "title": "Edit"},
+					ID:         "open-iptvchannels-" + r.Namespace + "-" + r.Name,
+					Attributes: ModalOpen(templ.Attributes{"aria-label": "Edit", "title": "Edit"}),
 				}) {
 					@icon.Icon("pencil")()
 				}

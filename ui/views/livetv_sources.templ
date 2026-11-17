@@ -51,7 +51,7 @@ templ LiveTVSources(rows []projection.SourceRow) {
 }
 
 templ sourcesActions() {
-	@button.Button(button.Props{Href: "/settings/new/iptvproviders?return=" + sourcesReturnPath, Size: button.SizeSm, Variant: button.VariantOutline}) {
+	@button.Button(button.Props{Href: "/settings/new/iptvproviders?return=" + sourcesReturnPath, Size: button.SizeSm, Variant: button.VariantOutline, ID: "add-iptvproviders", Attributes: ModalOpen(nil)}) {
 		@icon.Icon("plus")(icon.Props{Class: "mr-1 size-4"})
 		Add playlist
 	}
@@ -248,7 +248,8 @@ templ playlistRow(r projection.SourceRow) {
 				@refreshButton(r)
 				@button.Button(button.Props{
 					Href: "/settings/edit/iptvproviders/" + r.Namespace + "/" + r.Name + "?return=" + sourcesReturnPath, Variant: button.VariantGhost, Size: button.SizeIconSm,
-					Attributes: templ.Attributes{"aria-label": "Edit", "title": "Edit"},
+					ID:         "open-iptvproviders-" + r.Namespace + "-" + r.Name,
+					Attributes: ModalOpen(templ.Attributes{"aria-label": "Edit", "title": "Edit"}),
 				}) {
 					@icon.Icon("pencil")()
 				}

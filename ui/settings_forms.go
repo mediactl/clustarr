@@ -237,7 +237,10 @@ type formSubmission struct {
 	spec            map[string]any
 }
 
-func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, k forms.Kind, root *schema.Field, mode forms.Mode, sub formSubmission, err error) {
+// formPage builds the form's view: the render tree for the kind over
+// sub's values, where it posts, and after a rejected submission what went
+// wrong.
+func (s *Server) formPage(r *http.Request, k forms.Kind, root *schema.Field, mode forms.Mode, sub formSubmission, err error) (views.FormPage, int) {
 	form := forms.Build(k, root, sub.spec, s.choices(r.Context(), k), mode)
 	s.decorateForm(r.Context(), k, form, sub.spec)
 	page := views.FormPage{
@@ -254,13 +257,45 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, k forms.Kind
 	status := http.StatusOK
 	if err != nil {
 		page.ErrorCode, status = actionErrorCode(err)
-		page.Error = err.Error()
+		page.Error = strings.TrimPrefix(err.Error(), "actions: ")
 		logging.FromContext(r.Context()).Error("settings form rejected", "kind", k.Kind, "err", err, "code", page.ErrorCode)
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	if renderErr := views.SettingsForm(page).Render(r.Context(), w); renderErr != nil {
-		logging.FromContext(r.Context()).Error("render settings form", "err", renderErr)
+	return page, status
+}
+
+// renderForm answers a settings form (owner, 2026-11-17: adding or
+// modifying configuration happens within a modal). To htmx it is the
+// dialog for the modal region on a GET, and on a rejected save the form
+// alone, 200, which replaces itself inside the open dialog with the
+// person's values and the reason. A direct navigation to a form's URL is
+// redirected to its host page -- the form's "return", else the Settings
+// page -- with the dialog's address, where modal.js opens it. A plain form
+// post (no script) that is rejected gets the form on a page, with the
+// failure's status.
+func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, k forms.Kind, root *schema.Field, mode forms.Mode, sub formSubmission, err error) {
+	if r.Method == http.MethodGet && !isHTMX(r) {
+		host := returnPath(r)
+		if host == "" {
+			host = "/settings"
+		}
+		redirectToModal(w, r, host)
+		return
+	}
+	page, status := s.formPage(r, k, root, mode, sub, err)
+	switch {
+	case r.Method == http.MethodGet:
+		s.renderModal(w, r, views.SettingsDialog(page))
+	case isHTMX(r):
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if renderErr := views.SettingsDialogForm(page).Render(r.Context(), w); renderErr != nil {
+			logging.FromContext(r.Context()).Error("render settings form", "err", renderErr)
+		}
+	default:
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(status)
+		if renderErr := views.SettingsFormPage(page).Render(r.Context(), w); renderErr != nil {
+			logging.FromContext(r.Context()).Error("render settings form", "err", renderErr)
+		}
 	}
 }
 
@@ -292,7 +327,7 @@ func (s *Server) handleSettingsEdit(w http.ResponseWriter, r *http.Request) {
 			notFound(w, r)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		serverError(w, r, "read the "+k.Singular, err)
 		return
 	}
 	s.renderForm(w, r, k, root, forms.ModeEdit, formSubmission{namespace: ns, name: name, spec: spec}, nil)
@@ -649,12 +684,21 @@ func getPath(spec map[string]any, path string) any {
 	return cur
 }
 
-// finishSettings ends a settings write: an error renders as every other
-// action's does, success goes back to the Settings page (or the form's
-// "return" path).
-func (s *Server) finishSettings(w http.ResponseWriter, r *http.Request, err error) {
+// finishSettings ends a settings write. An error is said as every other
+// action's is. A success from the dialog (htmx) closes it, toasts done and
+// has the host page redraw itself in place (modalSaved, page-changed); a
+// plain form post goes back to the Settings page (or the form's "return"
+// path).
+func (s *Server) finishSettings(w http.ResponseWriter, r *http.Request, err error, done string) {
 	if err != nil {
-		s.finishAction(w, r, err)
+		s.finishActionWith(w, r, err, "")
+		return
+	}
+	if isHTMX(r) {
+		modalSaved(w, "page-changed", "config-saved")
+		if renderErr := views.ActionStatus(done).Render(r.Context(), w); renderErr != nil {
+			logging.FromContext(r.Context()).Error("render action status", "err", renderErr)
+		}
 		return
 	}
 	returnTo := returnPath(r)
@@ -662,6 +706,15 @@ func (s *Server) finishSettings(w http.ResponseWriter, r *http.Request, err erro
 		returnTo = "/settings"
 	}
 	http.Redirect(w, r, returnTo, http.StatusSeeOther)
+}
+
+// savedTitle is a settings write's toast: "Indexer nyaasi saved".
+func savedTitle(k forms.Kind, name, verb string) string {
+	singular := k.Singular
+	if singular != "" {
+		singular = strings.ToUpper(singular[:1]) + singular[1:]
+	}
+	return singular + " " + name + " " + verb
 }
 
 // returnPath is where a form goes when it is done: the "return" it
@@ -712,7 +765,7 @@ func (s *Server) handleSettingsCreate(w http.ResponseWriter, r *http.Request) {
 		s.renderForm(w, r, k, root, forms.ModeNew, sub, err)
 		return
 	}
-	s.finishSettings(w, r, nil)
+	s.finishSettings(w, r, nil, savedTitle(k, sub.name, "created"))
 }
 
 // handleSettingsUpdate patches the object with what the form changed: the
@@ -763,7 +816,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		s.renderForm(w, r, k, root, forms.ModeEdit, sub, err)
 		return
 	}
-	s.finishSettings(w, r, nil)
+	s.finishSettings(w, r, nil, savedTitle(k, name, "saved"))
 }
 
 // handleSettingsDelete deletes the object.
@@ -778,5 +831,5 @@ func (s *Server) handleSettingsDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = s.opts.Actions.DeleteConfig(r.Context(), k.ConfigKind, pathNamespace(r), r.PathValue("name"))
-	s.finishSettings(w, r, err)
+	s.finishSettings(w, r, err, savedTitle(k, r.PathValue("name"), "deleted"))
 }

@@ -205,7 +205,7 @@ templ settingsSection(title, slug string, names []string) {
 					}
 				}
 				@card.Action(card.ActionProps{Class: "flex items-center gap-2 self-center"}) {
-					@button.Button(button.Props{Href: "/settings/new/" + slug, Size: button.SizeSm, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-action": "add"}}) {
+					@button.Button(button.Props{Href: "/settings/new/" + slug, Size: button.SizeSm, Variant: button.VariantOutline, ID: "add-" + slug, Attributes: ModalOpen(templ.Attributes{"data-action": "add"})}) {
 						@icon.Icon("plus")()
 						Add
 					}
@@ -556,6 +556,12 @@ templ enabledPriorityForm(action string, enabled bool, priority int32, idPrefix 
 			}
 			@input.Input(input.Props{ID: "priority-" + idPrefix, Name: "priority", Type: "number", Value: fmt.Sprintf("%d", priority), Class: "h-8 w-24"})
 		}
+		// Save comes first in the markup, last on screen: Enter in the
+		// Priority box presses the form's first submit button, which was
+		// Disable until 2026-11-17.
+		@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Class: "order-last", Attributes: templ.Attributes{"name": "enabled", "value": fmt.Sprintf("%t", enabled), "data-action": "save"}}) {
+			Save
+		}
 		if enabled {
 			@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Variant: button.VariantSecondary, Attributes: templ.Attributes{"name": "enabled", "value": "false", "data-action": "disable"}}) {
 				Disable
@@ -564,9 +570,6 @@ templ enabledPriorityForm(action string, enabled bool, priority int32, idPrefix 
 			@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Variant: button.VariantSecondary, Attributes: templ.Attributes{"name": "enabled", "value": "true", "data-action": "enable"}}) {
 				Enable
 			}
-		}
-		@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Attributes: templ.Attributes{"name": "enabled", "value": fmt.Sprintf("%t", enabled), "data-action": "save"}}) {
-			Save
 		}
 	</form>
 }

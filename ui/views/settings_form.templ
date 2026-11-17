@@ -1,6 +1,7 @@
 package views
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/mediactl/clustarr/ui/components/field"
 	"github.com/mediactl/clustarr/ui/components/input"
 	selectcomp "github.com/mediactl/clustarr/ui/components/select"
-	"github.com/mediactl/clustarr/ui/components/separator"
 	"github.com/mediactl/clustarr/ui/components/textarea"
 	"github.com/mediactl/clustarr/ui/forms"
 )
@@ -45,14 +45,28 @@ func (p FormPage) returnTo() string {
 	return settingsReturnPath
 }
 
+// deleteAttrs post the object's delete from the dialog's footer.
+func (p FormPage) deleteAttrs() templ.Attributes {
+	vals, _ := json.Marshal(map[string]string{"return": p.returnTo()})
+	out := confirmAttrs(fmt.Sprintf("Delete %s %q?", p.Form.Kind.Singular, p.Name), "This cannot be undone.", "Delete")
+	out["hx-post"] = p.DeleteAction
+	out["hx-vals"] = string(vals)
+	out["hx-target"] = "#action-status"
+	out["hx-swap"] = "innerHTML"
+	out["data-action"] = "delete"
+	return out
+}
+
 func (p FormPage) title() string {
 	if p.Form.Mode == forms.ModeNew {
 		return "New " + p.Form.Kind.Singular
 	}
-	return "Edit " + p.Form.Kind.Singular
+	return "Edit " + p.Form.Kind.Singular + " " + p.Name
 }
 
-// SettingsForm renders a kind's form (2026-09-29: shadcn-templ's
+// SettingsDialog is a kind's form in the modal region (owner, 2026-11-17:
+// "Modifying or adding configuration from the settings page should be done
+// within a modal"; until then a page of its own). The form (2026-09-29: shadcn-templ's
 // components on the theme's tokens throughout): the object's name and
 // namespace, then the overlay's sections, each a Card whose content is a
 // FieldGroup of Fields. Since 2026-11-16 (owner: "Consider making each
@@ -65,71 +79,107 @@ func (p FormPage) title() string {
 // adding, removing and confirming, holds a required select component to the
 // browser's own required check, and opens a closed section that holds the
 // input a submit was refused for.
-templ SettingsForm(p FormPage) {
-	@Layout("Settings") {
-		<div class="mb-6 max-w-4xl space-y-1">
-			<h1 class="text-2xl font-semibold tracking-tight">{ p.title() }</h1>
-			if p.Form.Kind.Help != "" {
-				<p class="text-sm text-muted-foreground">{ p.Form.Kind.Help }</p>
-			}
-		</div>
+templ SettingsDialog(p FormPage) {
+	@FormDialog(FormDialogProps{
+		Title:       p.title(),
+		Description: p.Form.Kind.Help,
+		Size:        FormDialogLg,
+		FormID:      "config-form",
+		Guard:       true,
+		SubmitAttrs: templ.Attributes{"data-action": "save"},
+		Extra:       configExtra(p),
+		Attributes:  templ.Attributes{"data-config-dialog": p.Form.Kind.Slug},
+	}) {
+		@SettingsDialogForm(p)
+	}
+}
+
+// SettingsDialogForm is the form itself, and all a rejected save answers:
+// the form replaces itself inside the open dialog, its values the
+// person's, the reason first.
+templ SettingsDialogForm(p FormPage) {
+	<form
+		id="config-form"
+		data-modal-form
+		data-settings-form
+		method="post"
+		action={ templ.URL(p.Action) }
+		hx-post={ p.Action }
+		hx-target="#config-form"
+		hx-swap="outerHTML"
+		hx-disabled-elt="[form='config-form']"
+		class="flex flex-col gap-4"
+	>
+		<input type="hidden" name="return" value={ p.returnTo() }/>
 		if p.Error != "" {
-			<div class="mb-6 max-w-4xl">
-				@ActionError(p.ErrorCode, p.Error)
-			</div>
+			@FormError(p.ErrorCode, p.Error)
 		}
-		<form method="post" action={ templ.URL(p.Action) } data-settings-form class="max-w-4xl space-y-6">
-			<input type="hidden" name="return" value={ p.returnTo() }/>
-			@card.Card(card.Props{Attributes: templ.Attributes{"data-section": "Object"}}) {
-				@card.Header() {
-					@card.Title() {
-						{ strings.ToUpper(p.Form.Kind.Singular[:1]) + p.Form.Kind.Singular[1:] }
-					}
+		@card.Card(card.Props{Attributes: templ.Attributes{"data-section": "Object"}}) {
+			@card.Header() {
+				@card.Title() {
+					{ strings.ToUpper(p.Form.Kind.Singular[:1]) + p.Form.Kind.Singular[1:] }
 				}
-				@card.Content() {
-					@field.Group(field.GroupProps{Class: "grid gap-4 sm:grid-cols-2"}) {
+			}
+			@card.Content() {
+				@field.Group(field.GroupProps{Class: "grid gap-4 @xl/modal:grid-cols-2"}) {
+					@field.Field(field.Props{Attributes: templ.Attributes{"data-field": true}}) {
+						@field.Label(field.LabelProps{For: "__name"}) {
+							Name
+						}
+						@input.Input(input.Props{ID: "__name", Name: "__name", Value: p.Name, Required: true, ReadOnly: p.Form.Mode == forms.ModeEdit, Placeholder: "a-dns-1123-name"})
+						@field.Description() {
+							Lower-case letters, digits, dots and dashes. Cannot change once created.
+						}
+					}
+					if p.Form.Kind.Namespaced {
 						@field.Field(field.Props{Attributes: templ.Attributes{"data-field": true}}) {
-							@field.Label(field.LabelProps{For: "__name"}) {
-								Name
+							@field.Label(field.LabelProps{For: "__namespace"}) {
+								Namespace
 							}
-							@input.Input(input.Props{ID: "__name", Name: "__name", Value: p.Name, Required: true, ReadOnly: p.Form.Mode == forms.ModeEdit, Placeholder: "a-dns-1123-name"})
-							@field.Description() {
-								Lower-case letters, digits, dots and dashes. Cannot change once created.
-							}
-						}
-						if p.Form.Kind.Namespaced {
-							@field.Field(field.Props{Attributes: templ.Attributes{"data-field": true}}) {
-								@field.Label(field.LabelProps{For: "__namespace"}) {
-									Namespace
-								}
-								@input.Input(input.Props{ID: "__namespace", Name: "__namespace", Value: p.Namespace, Required: true, ReadOnly: p.Form.Mode == forms.ModeEdit})
-							}
+							@input.Input(input.Props{ID: "__namespace", Name: "__namespace", Value: p.Namespace, Required: true, ReadOnly: p.Form.Mode == forms.ModeEdit})
 						}
 					}
 				}
 			}
-			for _, s := range p.Form.Sections {
-				@formSection(s)
-			}
+		}
+		for _, s := range p.Form.Sections {
+			@formSection(s)
+		}
+	</form>
+}
+
+// SettingsFormPage is the form on a page of its own: what a plain form
+// post (no script) that was rejected is answered with, the failure's
+// status beside it. With script the form never leaves its dialog.
+templ SettingsFormPage(p FormPage) {
+	@Shell(Chrome{Title: p.title(), Nav: "/settings", Crumbs: []Crumb{{Label: "Settings", Href: "/settings"}, {Label: p.title()}}}) {
+		<div class="mx-auto max-w-4xl space-y-6">
+			<h1 class="text-2xl font-semibold tracking-tight">{ p.title() }</h1>
+			@SettingsDialogForm(p)
 			<div class="flex items-center gap-3">
-				@button.Button(button.Props{Type: "submit"}) {
+				@button.Button(button.Props{Type: button.TypeSubmit, Form: "config-form"}) {
 					Save
 				}
 				@button.Button(button.Props{Variant: button.VariantOutline, Href: p.returnTo()}) {
 					Cancel
 				}
 			</div>
-		</form>
-		if p.DeleteAction != "" {
-			<div class="mt-8 max-w-4xl space-y-6">
-				@separator.Separator()
-				@alertdialog.AlertDialog() {
-					@button.Button(button.Props{Variant: button.VariantDestructive, Attributes: alertdialog.Trigger(ctx)}) {
-						Delete this { p.Form.Kind.Singular }
-					}
-					@deleteConfirm(p.DeleteAction, p.returnTo(), fmt.Sprintf("Delete %s %q?", p.Form.Kind.Singular, p.Name))
-				}
-			</div>
+		</div>
+	}
+}
+
+// configExtra is the dialog footer's leading action on an edit: Delete,
+// asked through the layout's confirm, answered as a save is (the dialog
+// closes, a toast, the host page redrawn).
+templ configExtra(p FormPage) {
+	if p.DeleteAction != "" {
+		@button.Button(button.Props{
+			Type:       button.TypeButton,
+			Variant:    button.VariantGhost,
+			Class:      "text-destructive",
+			Attributes: p.deleteAttrs(),
+		}) {
+			Delete
 		}
 	}
 }
@@ -225,7 +275,7 @@ templ formSection(s forms.Section) {
 			}
 			@collapsible.Content() {
 				@card.Content() {
-					@field.Group(field.GroupProps{Class: "grid gap-4 sm:grid-cols-2", Attributes: dynamicAttrs(s.Dynamic)}) {
+					@field.Group(field.GroupProps{Class: "grid gap-4 @xl/modal:grid-cols-2", Attributes: dynamicAttrs(s.Dynamic)}) {
 						@FormControls(s.Controls)
 					}
 				}
@@ -264,7 +314,7 @@ func optionAttrs(w *forms.When) templ.Attributes {
 // wide spans a control across its section's columns.
 func wide(c forms.Control) string {
 	if c.Wide {
-		return "sm:col-span-2"
+		return "@xl/modal:col-span-2"
 	}
 	return ""
 }
@@ -311,7 +361,7 @@ templ formControl(c forms.Control) {
 		case forms.ControlHidden:
 			<input type="hidden" name={ c.Name } value={ c.Value } { hiddenAttrs(c)... }/>
 		case forms.ControlNote:
-			@field.Field(field.Props{Class: "sm:col-span-2 gap-1", Attributes: fieldAttrs(c.When)}) {
+			@field.Field(field.Props{Class: "@xl/modal:col-span-2 gap-1", Attributes: fieldAttrs(c.When)}) {
 				if c.Label != "" {
 					@field.Title() {
 						{ c.Label }
@@ -322,13 +372,13 @@ templ formControl(c forms.Control) {
 		case forms.ControlChecks:
 			@checksControl(c)
 		case forms.ControlLines:
-			@field.Field(field.Props{Class: "sm:col-span-2", Attributes: fieldAttrs(c.When)}) {
+			@field.Field(field.Props{Class: "@xl/modal:col-span-2", Attributes: fieldAttrs(c.When)}) {
 				@fieldLabel(c, controlID(c.Name))
 				@textarea.Textarea(textarea.Props{ID: controlID(c.Name), Name: c.Name, Value: strings.Join(c.Lines, "\n"), Rows: 3, Placeholder: "one per line"})
 				@fieldHelp(c)
 			}
 		case forms.ControlCheckbox:
-			@field.Field(field.Props{Orientation: field.OrientationHorizontal, Class: "sm:pt-6", Attributes: fieldAttrs(c.When)}) {
+			@field.Field(field.Props{Orientation: field.OrientationHorizontal, Class: "@xl/modal:pt-6", Attributes: fieldAttrs(c.When)}) {
 				<input type="hidden" name={ c.Name } value="false"/>
 				@checkbox.Checkbox(checkbox.Props{ID: controlID(c.Name), Name: c.Name, Value: "true", Checked: &c.Checked, Disabled: c.ReadOnly})
 				@field.Content() {
@@ -423,7 +473,7 @@ func readOnlyTrigger(readOnly bool) templ.Attributes {
 // as the array. An option with a condition is hidden, and posts nothing,
 // while it does not hold.
 templ checksControl(c forms.Control) {
-	@field.Set(field.SetProps{Class: "gap-3 sm:col-span-2", Attributes: rowsAttrs("data-checks", c)}) {
+	@field.Set(field.SetProps{Class: "gap-3 @xl/modal:col-span-2", Attributes: rowsAttrs("data-checks", c)}) {
 		@field.Content() {
 			@field.Title() {
 				{ c.Label }
@@ -467,7 +517,7 @@ templ fieldHelp(c forms.Control) {
 // rowsControl renders an array of objects: a row per element, each with
 // the item's controls and a Remove button, and a template for Add.
 templ rowsControl(c forms.Control) {
-	@field.Set(field.SetProps{Class: "gap-3 sm:col-span-2", Attributes: rowsAttrs("data-rows", c)}) {
+	@field.Set(field.SetProps{Class: "gap-3 @xl/modal:col-span-2", Attributes: rowsAttrs("data-rows", c)}) {
 		<div class="flex items-start justify-between gap-4">
 			@field.Content() {
 				@field.Title() {
@@ -503,7 +553,7 @@ func rowsAttrs(hook string, c forms.Control) templ.Attributes {
 templ formRow(controls []forms.Control) {
 	@card.Card(card.Props{Size: card.SizeSm, Class: "bg-muted/30", Attributes: templ.Attributes{"data-row": true}}) {
 		@card.Content() {
-			@field.Group(field.GroupProps{Class: "grid gap-3 sm:grid-cols-3"}) {
+			@field.Group(field.GroupProps{Class: "grid gap-3 @xl/modal:grid-cols-3"}) {
 				for _, rc := range controls {
 					@formControl(rc)
 				}
@@ -519,7 +569,7 @@ templ formRow(controls []forms.Control) {
 
 // mapControl renders a string map as key/value rows.
 templ mapControl(c forms.Control) {
-	@field.Set(field.SetProps{Class: "gap-2 sm:col-span-2", Attributes: rowsAttrs("data-map", c)}) {
+	@field.Set(field.SetProps{Class: "gap-2 @xl/modal:col-span-2", Attributes: rowsAttrs("data-map", c)}) {
 		<div class="flex items-start justify-between gap-4">
 			@field.Content() {
 				@field.Title() {
@@ -582,7 +632,7 @@ templ configActionsTo(slug, namespace, name, returnTo string) {
 		{{ edit += "?return=" + returnTo }}
 	}
 	@card.Footer(card.FooterProps{Class: "gap-2 border-t"}) {
-		@button.Button(button.Props{Href: edit, Size: button.SizeXs, Variant: button.VariantOutline}) {
+		@button.Button(button.Props{Href: edit, Size: button.SizeXs, Variant: button.VariantOutline, ID: "open-" + slug + "-" + ns + "-" + name, Attributes: ModalOpen(nil)}) {
 			Edit
 		}
 		@alertdialog.AlertDialog() {

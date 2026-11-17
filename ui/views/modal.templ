@@ -1,0 +1,168 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+
+package views
+
+import (
+	"maps"
+
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/dialog"
+)
+
+// The app's one modal region (owner, 2026-11-17: "Modifying or adding
+// configuration from the settings page should be done within a modal").
+// Shell renders <div id="modal">; a link marked ModalOpen has
+// ui/static/modal.js load its href into the region instead of following
+// it, where the handler answers a FormDialog: the stock dialog with a
+// pinned header, a scrolling body and a pinned footer (modal.css: a bottom
+// sheet on a phone, full height on a short landscape screen). The dialog
+// has an address, the host page's #modal=<url>, so Back closes it and a
+// reload reopens it; a changed form asks before it closes.
+const (
+	// ModalID is the region in Shell.
+	ModalID = "modal"
+	// ModalDialogID is the one dialog the region holds.
+	ModalDialogID = "modal-dialog"
+)
+
+// ModalOpen marks a link as a dialog opener. The link keeps its href, so a
+// new tab still works: the server redirects a direct navigation to the
+// host page with the dialog's address.
+func ModalOpen(extra templ.Attributes) templ.Attributes {
+	out := templ.Attributes{"data-modal-open": true}
+	maps.Copy(out, extra)
+	return out
+}
+
+// FormDialogSize is a form dialog's width.
+type FormDialogSize string
+
+const (
+	// FormDialogSm is 32rem, one column: an item's edit, an add form.
+	FormDialogSm FormDialogSize = "sm"
+	// FormDialogMd is 48rem, two columns: most settings kinds.
+	FormDialogMd FormDialogSize = "md"
+	// FormDialogLg is 64rem: settings kinds with row editors.
+	FormDialogLg FormDialogSize = "lg"
+)
+
+// FormDialogProps is one form in the modal region.
+type FormDialogProps struct {
+	// Title is the action: "Edit indexer nyaasi", "New root folder".
+	Title string
+	// Description is clamped to two lines.
+	Description string
+	// Size defaults to FormDialogMd.
+	Size FormDialogSize
+	// FormID is the id of the <form data-modal-form> in the body, which the
+	// footer's submit submits.
+	FormID string
+	// Submit is the submit's word, "Save" by default.
+	Submit      string
+	SubmitAttrs templ.Attributes
+	// HideSubmit is a read-only view: the footer's one button reads Close.
+	HideSubmit bool
+	// Guard has a changed form ask before the dialog closes.
+	Guard bool
+	// Extra are the footer's leading actions (Delete); nil for none.
+	Extra templ.Component
+	// Attributes are data-* hooks on the dialog's content.
+	Attributes templ.Attributes
+}
+
+func (p FormDialogProps) size() string {
+	if p.Size == "" {
+		return string(FormDialogMd)
+	}
+	return string(p.Size)
+}
+
+func (p FormDialogProps) submit() string {
+	if p.Submit == "" {
+		return "Save"
+	}
+	return p.Submit
+}
+
+func (p FormDialogProps) contentAttrs() templ.Attributes {
+	out := templ.Attributes{"data-form-dialog": p.size(), "data-modal-fresh": true}
+	if p.Guard {
+		out["data-modal-guard"] = true
+	}
+	maps.Copy(out, p.Attributes)
+	return out
+}
+
+// FormDialog is the one shell for a form in the modal region; its children
+// are the body, which holds exactly one <form id=FormID data-modal-form>.
+// It is open as it lands. A press outside never closes it (a half-filled
+// form is not lost to a stray click); Escape, the X and Cancel do, after
+// asking when Guard is set and the form changed.
+templ FormDialog(p FormDialogProps) {
+	@dialog.Dialog(dialog.Props{ID: ModalDialogID, DefaultOpen: true, DisablePointerDismissal: true}) {
+		@dialog.Content(dialog.ContentProps{Attributes: p.contentAttrs()}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ p.Title }
+				}
+				if p.Description != "" {
+					@dialog.Description(dialog.DescriptionProps{Class: "line-clamp-2"}) {
+						{ p.Description }
+					}
+				}
+			}
+			<div data-modal-body>
+				{ children... }
+			</div>
+			@dialog.Footer() {
+				if p.Extra != nil {
+					<div data-modal-extra>
+						@p.Extra
+					</div>
+				}
+				@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.CloseFor(ModalDialogID)}) {
+					if p.HideSubmit {
+						Close
+					} else {
+						Cancel
+					}
+				}
+				if !p.HideSubmit {
+					@button.Button(button.Props{Type: button.TypeSubmit, Form: p.FormID, Attributes: p.SubmitAttrs}) {
+						{ p.submit() }
+					}
+				}
+			}
+		}
+	}
+}
+
+// FormError is a rejected save, first in the form; modal.js scrolls to it
+// and focuses it.
+templ FormError(code, message string) {
+	<div data-form-error tabindex="-1" class="mb-5 outline-none">
+		@ActionError(code, message)
+	</div>
+}
+
+// confirmAttrs ask through the layout's confirm before the element's
+// request: the question's title, its consequence and the action's word.
+func confirmAttrs(title, text, action string) templ.Attributes {
+	return templ.Attributes{"hx-confirm": text, "data-confirm-title": title, "data-confirm-action": action}
+}

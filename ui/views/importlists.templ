@@ -52,7 +52,7 @@ templ ImportLists(entries []projection.ImportListEntry) {
 	@Layout("Import Lists") {
 		<div class="mb-6 flex items-center justify-between">
 			<h1 class="text-2xl font-semibold tracking-tight">Import Lists</h1>
-			@button.Button(button.Props{Href: "/settings/new/importlists?return=" + importListsReturnPath, Size: button.SizeSm, Variant: button.VariantOutline}) {
+			@button.Button(button.Props{Href: "/settings/new/importlists?return=" + importListsReturnPath, Size: button.SizeSm, Variant: button.VariantOutline, ID: "add-importlists", Attributes: ModalOpen(nil)}) {
 				Add
 			}
 		</div>

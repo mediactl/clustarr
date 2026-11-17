@@ -16,3 +16,63 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 /* modal.css: imported last by input.css (not served, not embedded). */
+
+/* Modal forms (2026-11-17). The dialog guard (gutter, max-height, own scroll, min-width: 0 on children)
+   and the toast viewport's z-index are input.css's. */
+/* A confirm over an open dialog: one scrim is enough, and what it asks about stays readable. */
+body:has([data-slot="dialog-content"][data-open]) [data-slot="alert-dialog-overlay"] {
+  background-color: rgba(0, 0, 0, 0.3);
+  backdrop-filter: none;
+}
+/* A link whose dialog is on its way. */
+[data-modal-open][aria-busy="true"] { opacity: 0.6; pointer-events: none; }
+
+/* A form dialog: pinned header, scrolling body, pinned footer. */
+[data-slot="dialog-content"][data-form-dialog] {
+  display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden;
+  max-width: 48rem;
+  max-height: min(calc(100dvh - 2rem), 56rem);
+}
+[data-slot="dialog-content"][data-form-dialog="sm"] { max-width: 32rem; }
+[data-slot="dialog-content"][data-form-dialog="lg"] { max-width: 64rem; }
+[data-form-dialog] > [data-slot="dialog-header"] {
+  flex: none; padding: 1rem 3.5rem 1rem 1.5rem; border-bottom: 1px solid var(--border);
+}
+[data-form-dialog] > [data-slot="dialog-close"] { top: 0.75rem; right: 0.75rem; }
+[data-form-dialog] > [data-modal-body] {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none;
+  padding: 1.25rem 1.5rem;
+  container: modal / inline-size;
+}
+[data-form-dialog] > [data-slot="dialog-footer"] {
+  flex: none; flex-direction: row; align-items: center; justify-content: flex-end; gap: 0.5rem;
+  padding: 0.75rem 1.5rem; border-top: 1px solid var(--border);
+}
+[data-form-dialog] [data-modal-extra] { display: flex; gap: 0.5rem; margin-right: auto; }
+/* A phone: a page sheet from the bottom. sm is as tall as its content; md and lg fill the sheet, so a
+   section a choice shows or hides does not move its top edge. */
+@media (max-width: 639.98px) {
+  [data-slot="dialog-content"][data-form-dialog] {
+    top: auto; right: 0; bottom: 0; left: 0; translate: none;
+    width: 100%; max-width: none; max-height: calc(100dvh - 0.75rem);
+    border-radius: calc(var(--radius) * 1.4) calc(var(--radius) * 1.4) 0 0;
+    --tw-enter-scale: 1; --tw-exit-scale: 1; --tw-enter-translate-y: 100%; --tw-exit-translate-y: 100%;
+  }
+  [data-slot="dialog-content"][data-form-dialog="md"],
+  [data-slot="dialog-content"][data-form-dialog="lg"] { height: calc(100dvh - 0.75rem); }
+  [data-form-dialog] > [data-slot="dialog-header"] { padding: 0.875rem 3.5rem 0.875rem 1rem; }
+  [data-form-dialog] > [data-modal-body] { padding: 1rem; }
+  [data-form-dialog] > [data-slot="dialog-footer"] { padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom)); }
+}
+/* A short landscape screen (883x412): full height, the dialog's own width, tighter bars. */
+@media (max-height: 32rem) and (min-width: 640px) {
+  [data-slot="dialog-content"][data-form-dialog] {
+    top: 0; translate: -50% 0; height: 100dvh; max-height: 100dvh; border-radius: 0;
+  }
+  [data-form-dialog] > [data-slot="dialog-header"] { padding-block: 0.625rem; }
+  [data-form-dialog] > [data-slot="dialog-footer"] { padding-block: 0.5rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="dialog-content"][data-form-dialog] { --tw-enter-translate-y: 0; --tw-exit-translate-y: 0; }
+}

@@ -70,7 +70,13 @@ func settingsServer(t *testing.T, objs ...client.Object) (*ui.Server, client.Cli
 func get(t *testing.T, srv *ui.Server, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	// A settings form is a dialog: its URL is fetched by modal.js through
+	// htmx (a direct navigation is redirected to the host page, below).
+	if strings.HasPrefix(path, "/settings/new/") || strings.HasPrefix(path, "/settings/edit/") {
+		req.Header.Set("HX-Request", "true")
+	}
+	srv.Handler().ServeHTTP(rec, req)
 	return rec
 }
 
@@ -144,7 +150,9 @@ func TestNewSettingsFormRendersTheOverlay(t *testing.T) {
 	require.Regexp(t, regexp.MustCompile(`<input[^>]*type="hidden"[^>]*name="enabled"[^>]*value="false"`), body, "a checkbox posts false when unchecked")
 	requireTag(t, body, `type="checkbox"`, `name="enabled"`, `value="true"`, `aria-hidden="true"`)
 	require.NotContains(t, body, `name="resources`, "workload plumbing is not on the form")
-	require.Contains(t, body, `<script src="/static/settings.js"`, "rows, conditions and confirms come from the settings script")
+	requireTag(t, body, `data-form-dialog="lg"`, `data-config-dialog="downloadclients"`, `data-modal-guard`)
+	requireTag(t, body, `type="submit"`, `form="config-form"`, `data-action="save"`)
+	require.NotContains(t, body, `<html`, "the form is a dialog for the modal region, not a page")
 
 	require.Equal(t, http.StatusNotFound, get(t, srv, "/settings/new/widgets").Code)
 	rec = get(t, srv, "/settings/new/qualityprofiles")
@@ -175,7 +183,8 @@ func TestEditSettingsFormIsPrefilledAndNeverShowsASecret(t *testing.T) {
 	pw := tagWith(t, body, `name="__secret.usenet.providers.0.secretRef.password"`)
 	require.NotContains(t, pw, "value=")
 	require.NotContains(t, body, "hunter2", "a Secret's contents never reach a page")
-	requireTag(t, body, `action="/settings/delete/downloadclients/media/eweka"`)
+	// Delete is in the dialog's footer and asks through the layout's confirm.
+	requireTag(t, body, `hx-post="/settings/delete/downloadclients/media/eweka"`, `data-action="delete"`, `hx-confirm="This cannot be undone."`, `data-confirm-action="Delete"`)
 
 	require.Equal(t, http.StatusNotFound, get(t, srv, "/settings/edit/downloadclients/media/nope").Code)
 }
@@ -355,4 +364,48 @@ func TestCreateAndEditAnImportListFromTheForm(t *testing.T) {
 	require.Equal(t, []string{"movie"}, il.Spec.Kinds)
 	require.Equal(t, catalogv1.SyncLevelDisabled, il.Spec.SyncLevel)
 	require.NotNil(t, il.Spec.Plex)
+}
+
+// A settings form's URL is a dialog's (owner, 2026-11-17: configuration is
+// added and edited within a modal): a direct navigation is sent to the host
+// page -- the form's return, else the Settings page -- with the dialog's
+// address, which modal.js opens; a save from the dialog closes it, toasts
+// and has the host page redraw; a rejected one re-renders the form alone,
+// 200, since htmx swaps nothing else.
+func TestSettingsFormIsADialog(t *testing.T) {
+	srv, _ := settingsServer(t, usenetClient())
+
+	for path, want := range map[string]string{
+		"/settings/new/downloadclients":                                    "/settings#modal=/settings/new/downloadclients",
+		"/settings/edit/downloadclients/media/eweka":                       "/settings#modal=/settings/edit/downloadclients/media/eweka",
+		"/settings/edit/downloadclients/media/eweka?return=/import-lists": "/import-lists#modal=/settings/edit/downloadclients/media/eweka?return=/import-lists",
+	} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusSeeOther, rec.Code, path)
+		require.Equal(t, want, rec.Header().Get("Location"), path)
+	}
+
+	htmxPost := func(path string, form url.Values) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := htmxPost("/settings/new/downloadclients", url.Values{"__name": {"Bad Name"}, "__namespace": {"media"}, "protocol": {"torrent"}})
+	require.Equal(t, http.StatusOK, rec.Code, "a rejected save is swapped into the open dialog")
+	body := rec.Body.String()
+	requireTag(t, body, `id="config-form"`, "data-modal-form", `hx-post="/settings/new/downloadclients"`, `hx-target="#config-form"`)
+	require.Contains(t, body, "data-form-error")
+	require.NotContains(t, body, `data-form-dialog`, "the form alone: the dialog around it stays")
+	require.Empty(t, rec.Header().Get("HX-Trigger"))
+
+	rec = htmxPost("/settings/new/downloadclients", url.Values{"__name": {"qbit"}, "__namespace": {"media"}, "protocol": {"torrent"}})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "#action-status", rec.Header().Get("HX-Retarget"))
+	require.JSONEq(t, `{"modal-close":true,"page-changed":true,"config-saved":true}`, rec.Header().Get("HX-Trigger"))
+	require.Contains(t, rec.Body.String(), "Download client qbit created")
 }

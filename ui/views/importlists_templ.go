@@ -141,7 +141,7 @@ func ImportLists(entries []projection.ImportListEntry) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = button.Button(button.Props{Href: "/settings/new/importlists?return=" + importListsReturnPath, Size: button.SizeSm, Variant: button.VariantOutline}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = button.Button(button.Props{Href: "/settings/new/importlists?return=" + importListsReturnPath, Size: button.SizeSm, Variant: button.VariantOutline, ID: "add-importlists", Attributes: ModalOpen(nil)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

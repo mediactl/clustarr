@@ -98,8 +98,16 @@
     });
   }
 
+  // An opened select's popup is portaled out of its form (to <body>, or
+  // into a dialog's portal), so an option finds its form through its
+  // trigger.
   function formOf(el) {
-    return el.closest('form') || document.querySelector('form[data-settings-form]') || document;
+    var form = el.closest('form');
+    if (!form && el.matches && el.matches('[data-slot="select-item"]')) {
+      var trigger = triggerOfOption(el);
+      form = trigger && trigger.closest('form');
+    }
+    return form || document.querySelector('form[data-settings-form]') || document;
   }
 
   // The select component's trigger for one of its options: the trigger
@@ -223,8 +231,9 @@
   }
   document.addEventListener('click', function (e) {
     var submit = e.target.closest ? e.target.closest('[type="submit"]') : null;
-    var form = submit && submit.closest('form[data-settings-form]');
-    if (!form) return;
+    // A dialog's Save sits in its footer, outside the form it names.
+    var form = submit && submit.form;
+    if (!form || !form.hasAttribute('data-settings-form')) return;
     form.querySelectorAll(':invalid').forEach(function (input) {
       if (input.tagName !== 'FIELDSET') openSectionOf(input);
     });
@@ -261,7 +270,12 @@
     });
     openNamedSection();
   }
-  window.addEventListener('hashchange', openNamedSection);
+  // A dialog's address is the page's hash too (#modal=...): opening or
+  // closing one must not scroll to a section.
+  window.addEventListener('hashchange', function (e) {
+    if ((e.oldURL || '').indexOf('#modal=') >= 0 || (e.newURL || '').indexOf('#modal=') >= 0) return;
+    openNamedSection();
+  });
   document.addEventListener('click', function (e) {
     var root = settingsRoot();
     if (!root || !e.target.closest || !e.target.closest(TRIGGER)) return;
@@ -310,7 +324,16 @@
     }
   });
 
-  document.addEventListener('htmx:afterSettle', applyConditions);
+  // A swap is not a change: a form that lands in the modal region, or is
+  // re-rendered after a rejected save, is shown as its object holds it (a
+  // stored choice a condition no longer offers is not cleared). A section
+  // the server fills again is a change.
+  document.addEventListener('htmx:afterSettle', function (e) {
+    var t = e.target;
+    var whole = !!(t && t.closest && (t.closest('#modal') || (t.matches && t.matches('[data-settings-form]'))) && !(t.hasAttribute && t.hasAttribute('data-dynamic')));
+    applyConditions(whole);
+    if (whole) applyFills(true);
+  });
   // This script is deferred and runs ahead of the components' own: a
   // section is reopened by its trigger, which only works once theirs has
   // run, so the restore waits for the document to be done.

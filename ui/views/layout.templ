@@ -250,7 +250,9 @@ templ Layout(title string) {
 // the page's query container (input.css); #action-status, where every
 // action says how it went, is rendered once, here; #modal is where a form
 // dialog is loaded; and #page-refresh redraws the page body in place when
-// an action changed what it shows (feedback.js).
+// an action changed what it shows (feedback.js), a moment after the
+// event: the page is drawn from the ui's cache, which trails a write by a
+// watch event.
 templ Shell(c Chrome) {
 	<!DOCTYPE html>
 	<html
@@ -287,6 +289,7 @@ templ Shell(c Chrome) {
 			<script src="/static/shell.js" defer></script>
 			<script src="/static/feedback.js" defer></script>
 			<script src="/static/rowselect.js" defer></script>
+			<script src="/static/modal.js" defer></script>
 			@components.Scripts()
 		</head>
 		<body class="min-h-svh bg-transparent font-sans text-foreground" hx-ext="preload, morph">
@@ -345,7 +348,7 @@ templ Shell(c Chrome) {
 					</div>
 				}
 			}
-			<div id="page-refresh" hidden hx-get="" hx-trigger="page-changed from:body" hx-target="#page-body" hx-select="#page-body" hx-select-oob="#page-crumbs" hx-swap="outerHTML"></div>
+			<div id="page-refresh" hidden hx-get="" hx-trigger="page-changed from:body delay:350ms" hx-target="#page-body" hx-select="#page-body" hx-select-oob="#page-crumbs" hx-swap="outerHTML"></div>
 			@toast.Toaster()
 			<div id="modal"></div>
 			@confirmDialog()
