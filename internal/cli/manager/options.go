@@ -271,8 +271,11 @@ func (o Options) Validate() error {
 // rowCacheKinds are the kinds the manager's cache holds as compressed rows
 // (pkg/k8s/rowcache; the compressed row cache design, 2026-11-03): the four
 // that were about 230 MB of its live heap as decoded objects on the owner's
-// library. Every other kind keeps its ordinary informer.
+// library, and since 2026-11-17 the Album, whose status carries its tracks
+// and releases (6,876 Albums, 85 MB as JSON, once the music library was
+// scanned in). Every other kind keeps its ordinary informer.
 var rowCacheKinds = []client.Object{
+	&catalogv1alpha1.Album{},
 	&catalogv1alpha1.Episode{},
 	&catalogv1alpha1.MediaFile{},
 	&catalogv1alpha1.Movie{},

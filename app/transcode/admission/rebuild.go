@@ -27,7 +27,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
+	"github.com/mediactl/clustarr/pkg/k8s/rowcache"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
@@ -35,7 +37,7 @@ import (
 // RebuildInputs is what a rebuild reads.
 type RebuildInputs struct {
 	APIReader  client.Reader // quorum reads
-	Cache      client.Reader // the manager cache: the backlog scan
+	Cache      client.Reader // the manager cache (mgr.GetCache(), so its keys are read undecoded): the backlog scan
 	Namespaces []string      // empty: all
 	// Eligible is the backlog scan's test (§5.6 step 3); nil scans nothing.
 	Eligible func(ctx context.Context, mf *catalogv1alpha1.MediaFile) *transcodeplan.Eligibility
@@ -165,33 +167,42 @@ func (l *Ledger) correctUnseen(ctx context.Context, api client.Reader, seen map[
 }
 
 // scanBacklog is §5.6 step 3: every movie and episode file in the cache,
-// through in.Eligible, once -- the backlog the window fills from.
+// through in.Eligible, once -- the backlog the window fills from. The files
+// are found by kind through mfindex.MediaKind and read one at a time, each
+// dropped before the next (owner, 2026-11-17): one List of the kind decoded
+// every MediaFile out of the row cache and held them all for the walk, the
+// music tracks too, only to skip them -- 33,304 files and about 160 MiB of
+// live heap every ledgerResync once the music library was scanned in.
 func (l *Ledger) scanBacklog(ctx context.Context, in RebuildInputs) error {
 	if in.Eligible == nil || in.Cache == nil {
 		return nil
 	}
 	for _, ns := range namespacesOrAll(in.Namespaces) {
-		var list catalogv1alpha1.MediaFileList
-		opts := []client.ListOption{client.UnsafeDisableDeepCopy}
-		if ns != "" {
-			opts = append(opts, client.InNamespace(ns))
-		}
-		if err := in.Cache.List(ctx, &list, opts...); err != nil {
-			return fmt.Errorf("admission: rebuild: list cached MediaFiles: %w", err)
-		}
-		now := l.clock.Now()
-		for i := range list.Items {
-			mf := &list.Items[i]
-			if !transcodeplan.EligibleKind(mf.Spec.MediaRef.Kind) {
-				continue
+		for _, kind := range transcodeplan.EligibleKinds() {
+			opts := []client.ListOption{client.MatchingFields{mfindex.MediaKind: string(kind)}}
+			if ns != "" {
+				opts = append(opts, client.InNamespace(ns))
 			}
-			e := in.Eligible(ctx, mf)
-			if e == nil {
-				continue
+			keys, err := rowcache.Keys(ctx, in.Cache, &catalogv1alpha1.MediaFileList{}, opts...)
+			if err != nil {
+				return fmt.Errorf("admission: rebuild: list cached %s MediaFiles: %w", kind, err)
 			}
-			l.mu.Lock()
-			l.observeLocked(FileViewOf(mf, &mf.Status, e), now)
-			l.mu.Unlock()
+			for _, key := range keys {
+				var mf catalogv1alpha1.MediaFile
+				if err := in.Cache.Get(ctx, key, &mf, client.UnsafeDisableDeepCopy); err != nil {
+					if apierrors.IsNotFound(err) {
+						continue // deleted since the keys were read
+					}
+					return fmt.Errorf("admission: rebuild: read cached MediaFile %s: %w", key, err)
+				}
+				e := in.Eligible(ctx, &mf)
+				if e == nil {
+					continue
+				}
+				l.mu.Lock()
+				l.observeLocked(FileViewOf(&mf, &mf.Status, e), l.clock.Now())
+				l.mu.Unlock()
+			}
 		}
 	}
 	return nil

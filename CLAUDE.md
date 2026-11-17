@@ -3580,6 +3580,24 @@ ships it.
   of one object from the first decode, by the same object (the planners
   read with `UnsafeDisableDeepCopy` already and never mutate what they
   read), counted in `clustarr_remediation_pass_reads_total{kind,result}`.
+  **Album is the fifth row kind, and the music library is why** (owner,
+  2026-11-17, "What's causing clustarr-manager's memory to spike now?",
+  then "Approve all"): the scan of 2026-11-16 took talos from 1,055 to
+  6,876 Albums and from 16,864 to 33,304 MediaFiles, and the manager's live
+  heap from about 290 to 510 MiB. An Album's status carries its tracks and
+  releases (37 MB of compact JSON for the 6,876; 7.7 MB as rows, 81 us a
+  decode), so it joins `rowCacheKinds`, and the Album watches' map
+  functions (`album.albumsOf`) read an Artist's Albums through
+  `artist.AlbumByArtistRefIndex`, where they had listed every Album in the
+  namespace and filtered in Go, per Artist and per profile. The transcode
+  ledger's resync, every 5 minutes, finds the video files by
+  `mfindex.MediaKind` on `mgr.GetCache()` and reads them one at a time
+  (`admission.Ledger.scanBacklog`): one List had decoded every MediaFile,
+  the music tracks too, and held them all for the walk, about 160 MiB.
+  And the Album's track-listing cache (`album.ReleaseCache`) keeps each
+  listing as its JSON in one zstd frame, decoded at each Get, bounded by
+  Albums (16,384) and bytes (48 MiB): decoded, a release group's every
+  release was a map of ids per track, 113 MB for the 4,096 Albums it held.
   **The manager talks to the apiserver in CBOR** (owner, 2026-11-04;
   `pkg/k8s/rowcache/cbor.go`): talos's apiserver serves and accepts it
   (`CBORServingAndStorage`), and client-go's `ClientsAllowCBOR` and

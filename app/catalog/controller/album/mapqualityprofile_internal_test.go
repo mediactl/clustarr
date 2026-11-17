@@ -31,6 +31,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/artist"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -43,6 +44,16 @@ func newIndexedFakeClient(t *testing.T) client.Client {
 				return nil
 			}
 			return []string{*alb.Spec.QualityProfileRef}
+		}).
+		// The artist controller's index, which both map functions read an
+		// Artist's Albums through (the loop registers it beside this
+		// package's own).
+		WithIndex(&catalogv1alpha1.Album{}, artist.AlbumByArtistRefIndex, func(o client.Object) []string {
+			alb, ok := o.(*catalogv1alpha1.Album)
+			if !ok {
+				return nil
+			}
+			return []string{alb.Spec.ArtistRef}
 		}).
 		Build()
 }

@@ -40,6 +40,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/artist"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
@@ -169,13 +170,14 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 // inherited profile changes -- the Artist pointing spec.qualityProfileRef
 // elsewhere -- along with every other Artist spec edit this reconciler reads
 // (its metadata profile's releaseStatuses, which decide the release
-// selection). Neither second hop uses the (Album, spec.artistRef) index:
-// the artist controller registers it (albumByArtistRefIndexKey),
-// and a second IndexField call for the same (type, field) on one manager
-// cache is a hard "indexer conflict" error at startup, so both filter a
-// namespaced List in Go -- a cold path, since profiles and Artists are edited
-// by hand -- and list without copies, since the loop's start waits on every
-// item map function.
+// selection). Both second hops read an Artist's Albums through the (Album,
+// spec.artistRef) index the artist controller registers
+// (artist.AlbumByArtistRefIndex; registering it here too would be a hard
+// "indexer conflict" at startup), without copies, since the loop's start
+// waits on every item map function. Until 2026-11-17 both filtered a
+// namespaced List of every Album in Go: with the Albums held as compressed
+// rows that is a decode of each one per Artist and per profile (talos:
+// 6,876 Albums, 157 Artists).
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Album{}, Map: rollup.Self, Predicates: []predicate.Predicate{albumPredicate()}, SkipInitial: r.idleAtStart},
@@ -258,7 +260,7 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 	}
 	seen := map[types.NamespacedName]bool{}
 	var reqs []reconcile.Request
-	add := func(alb catalogv1alpha1.Album) {
+	add := func(alb *catalogv1alpha1.Album) {
 		key := types.NamespacedName{Namespace: alb.Namespace, Name: alb.Name}
 		if !seen[key] {
 			seen[key] = true
@@ -268,8 +270,8 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 
 	var overriding catalogv1alpha1.AlbumList
 	if err := r.List(ctx, &overriding, client.MatchingFields{albumByQualityProfileIndexKey: qp.Name}, client.UnsafeDisableDeepCopy); err == nil {
-		for _, alb := range overriding.Items {
-			add(alb)
+		for i := range overriding.Items {
+			add(&overriding.Items[i])
 		}
 	}
 
@@ -281,9 +283,10 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 		if a.Spec.QualityProfileRef != qp.Name {
 			continue
 		}
-		for _, alb := range r.albumsOf(ctx, &a) {
-			if ptr.Deref(alb.Spec.QualityProfileRef, "") == "" {
-				add(alb)
+		albums := r.albumsOf(ctx, &a)
+		for i := range albums {
+			if ptr.Deref(albums[i].Spec.QualityProfileRef, "") == "" {
+				add(&albums[i])
 			}
 		}
 	}
@@ -301,26 +304,21 @@ func (r *Reconciler) mapArtist(ctx context.Context, o client.Object) []reconcile
 	}
 	albums := r.albumsOf(ctx, a)
 	reqs := make([]reconcile.Request, 0, len(albums))
-	for _, alb := range albums {
-		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: alb.Namespace, Name: alb.Name}})
+	for i := range albums {
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: albums[i].Namespace, Name: albums[i].Name}})
 	}
 	return reqs
 }
 
-// albumsOf lists a's Albums by filtering a namespaced List on spec.artistRef
-// in Go, without copies -- see Watches for why not through an index.
+// albumsOf lists a's Albums through the artist controller's (Album,
+// spec.artistRef) index, without copies -- see Watches.
 func (r *Reconciler) albumsOf(ctx context.Context, a *catalogv1alpha1.Artist) []catalogv1alpha1.Album {
 	var albums catalogv1alpha1.AlbumList
-	if err := r.List(ctx, &albums, client.InNamespace(a.Namespace), client.UnsafeDisableDeepCopy); err != nil {
+	if err := r.List(ctx, &albums, client.InNamespace(a.Namespace),
+		client.MatchingFields{artist.AlbumByArtistRefIndex: a.Name}, client.UnsafeDisableDeepCopy); err != nil {
 		return nil
 	}
-	var out []catalogv1alpha1.Album
-	for _, alb := range albums.Items {
-		if alb.Spec.ArtistRef == a.Name {
-			out = append(out, alb)
-		}
-	}
-	return out
+	return albums.Items
 }
 
 // ReconcileItem is the Album's item path on the remediation loop (loop spec

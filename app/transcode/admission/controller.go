@@ -79,9 +79,13 @@ var Request = reconcile.Request{NamespacedName: types.NamespacedName{Name: "(adm
 type Reconciler struct {
 	Client    client.Client
 	APIReader client.Reader
-	Ledger    *Ledger
-	Bus       events.Bus         // clustarr-progress: health, limits, tier (§5.7 step 1)
-	Admin     events.StreamAdmin // the task sweep (§5.6)
+	// Cache is the manager's cache itself, which lists a row kind's keys
+	// without decoding it (rowcache.Keys); SetupWithManager sets it, and nil
+	// reads through Client.
+	Cache  client.Reader
+	Ledger *Ledger
+	Bus    events.Bus         // clustarr-progress: health, limits, tier (§5.7 step 1)
+	Admin  events.StreamAdmin // the task sweep (§5.6)
 	// Withdrawal withdraws a deleted file's task (the sweep's WithdrawAll).
 	Withdrawal task.Withdrawal
 	Namespaces []string
@@ -185,7 +189,11 @@ func (r *Reconciler) logSweep(ctx context.Context) {
 
 // rebuildInputs is what the rebuild reads.
 func (r *Reconciler) rebuildInputs() RebuildInputs {
-	return RebuildInputs{APIReader: r.APIReader, Cache: r.Client, Namespaces: r.Namespaces, Eligible: r.eligible}
+	cache := r.Cache
+	if cache == nil {
+		cache = r.Client
+	}
+	return RebuildInputs{APIReader: r.APIReader, Cache: cache, Namespaces: r.Namespaces, Eligible: r.eligible}
 }
 
 // eligible is the backlog scan's test (§5.6 step 3): transcodeplan.Eligible
@@ -456,6 +464,9 @@ func gpuNodeSignal(cfg pool.Config) func(client.Object) string {
 // graft slot freed), all into the one Request.
 // MaxConcurrentReconciles is 1: a pass counts then grants.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.Cache == nil {
+		r.Cache = mgr.GetCache()
+	}
 	if r.IntelWork != nil {
 		// The renewer, leader-only beside the controller.
 		if err := mgr.Add(r.IntelWork); err != nil {

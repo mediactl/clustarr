@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package album_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -162,4 +163,94 @@ func TestAHoldEndsWithAFetchOrFreshMetadata(t *testing.T) {
 	refreshed.Status.Metadata.RefreshedAt = metav1.NewTime(now.Add(time.Second))
 	_, held = c.Held(refreshed, now.Add(2*time.Second))
 	assert.False(t, held, "fresh metadata is not held by the stale document's failure")
+}
+
+// listing is a release group as MusicBrainz lists one: n releases of the
+// same tracks, each release and each track with ids of its own.
+func listing(group string, n, tracks int) []pkgmetadata.AlbumRelease {
+	date := time.Date(2012, 6, 5, 0, 0, 0, 0, time.UTC)
+	out := make([]pkgmetadata.AlbumRelease, n)
+	for i := range out {
+		m := pkgmetadata.Medium{Position: 1, Format: "CD", TrackCount: int32(tracks)}
+		for j := range tracks {
+			m.Tracks = append(m.Tracks, pkgmetadata.Track{
+				IDs:   pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: fmt.Sprintf("%s-rec-%02d-%02d-4f5a-9c1e-0d2b7a6c8e10", group, i, j)},
+				Title: fmt.Sprintf("Track Number %d of the Album", j+1), Position: int32(j + 1), MediumNumber: 1,
+				Duration: time.Duration(180+j) * time.Second, ArtistCredit: "Berner",
+			})
+		}
+		out[i] = pkgmetadata.AlbumRelease{
+			IDs:   pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: fmt.Sprintf("%s-rel-%02d-4f5a-9c1e-0d2b7a6c8e10", group, i)},
+			Title: "Border Wars", Status: "Official", Date: &date, Country: []string{"US"}, Labels: []string{"Bern One"},
+			Media: []pkgmetadata.Medium{m}, TrackCount: int32(tracks),
+		}
+	}
+	return out
+}
+
+// What a Get hands back is what was Put, and each Get's is its own: the
+// cache keeps a listing compressed, not the caller's slice.
+func TestACachedListingReadsBackAsItWasPut(t *testing.T) {
+	c := album.NewReleaseCache(0)
+	alb := lookupAlbum("border-wars", time.Date(2026, 11, 15, 11, 0, 0, 0, time.UTC), nil)
+	_, ok := c.Get(alb)
+	require.False(t, ok, "nothing cached yet")
+
+	put := listing("bw", 12, 14)
+	c.Put(alb, put)
+	got, ok := c.Get(alb)
+	require.True(t, ok)
+	require.Equal(t, put, got)
+
+	got[0].Title = "changed by one reader"
+	again, ok := c.Get(alb)
+	require.True(t, ok)
+	assert.Equal(t, "Border Wars", again[0].Title, "one reader's copy is not another's")
+
+	c.Put(alb, nil)
+	none, ok := c.Get(alb)
+	require.True(t, ok, "a release group without releases is cached too")
+	assert.Empty(t, none)
+	assert.Equal(t, 1, c.Len(), "a second Put of one Album replaces the first")
+}
+
+// A listing is kept at a small part of its decoded size (talos, 2026-11-17:
+// 113 MB of decoded listings for 4,096 Albums), and the bytes the cache
+// counts are the bytes it holds.
+func TestAListingIsKeptCompressed(t *testing.T) {
+	c := album.NewReleaseCache(0)
+	put := listing("bw", 20, 15)
+	raw, err := json.Marshal(put)
+	require.NoError(t, err)
+	c.Put(lookupAlbum("border-wars", time.Date(2026, 11, 15, 11, 0, 0, 0, time.UTC), nil), put)
+	assert.Positive(t, c.Bytes())
+	assert.Less(t, c.Bytes(), int64(len(raw))/4, "20 releases of the same 15 tracks: %d bytes of JSON", len(raw))
+}
+
+// The byte bound evicts the least recently used listings, a listing larger
+// than the bound is not kept, and the count follows every removal.
+func TestTheByteBoundEvictsTheLeastRecentlyUsed(t *testing.T) {
+	refreshed := time.Date(2026, 11, 15, 11, 0, 0, 0, time.UTC)
+	one := album.NewReleaseCache(0)
+	one.Put(lookupAlbum("album-0", refreshed, nil), listing("g0", 8, 12))
+	each := one.Bytes()
+
+	c := album.NewReleaseCacheOfBytes(0, each*3+each/2)
+	albums := make([]*catalogv1alpha1.Album, 6)
+	for i := range albums {
+		albums[i] = lookupAlbum(fmt.Sprintf("album-%d", i), refreshed, nil)
+		c.Put(albums[i], listing(fmt.Sprintf("g%d", i), 8, 12))
+		assert.LessOrEqual(t, c.Bytes(), each*3+each/2, "never over the bound")
+	}
+	assert.Equal(t, 3, c.Len())
+	_, ok := c.Get(albums[0])
+	assert.False(t, ok, "the oldest listing went first")
+	_, ok = c.Get(albums[5])
+	assert.True(t, ok, "the newest stays")
+
+	c.Put(albums[5], listing("g5", 400, 12))
+	_, ok = c.Get(albums[5])
+	assert.False(t, ok, "a listing larger than the bound is not kept, nor is the one it replaced")
+	assert.Equal(t, 2, c.Len())
+	assert.LessOrEqual(t, c.Bytes(), each*2+each/4, "the count dropped with the replaced listing")
 }

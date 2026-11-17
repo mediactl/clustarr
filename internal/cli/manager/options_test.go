@@ -64,7 +64,7 @@ func TestManagerCacheOptions(t *testing.T) {
 	for _, obj := range rowCacheKinds {
 		rowKinds = append(rowKinds, fmt.Sprintf("%T", obj))
 	}
-	assert.ElementsMatch(t, []string{"*v1alpha1.Episode", "*v1alpha1.MediaFile", "*v1alpha1.Movie", "*v1alpha1.Series"}, rowKinds)
+	assert.ElementsMatch(t, []string{"*v1alpha1.Album", "*v1alpha1.Episode", "*v1alpha1.MediaFile", "*v1alpha1.Movie", "*v1alpha1.Series"}, rowKinds)
 	assert.Equal(t, k8s.CacheSyncTimeout, opts.Controller.CacheSyncTimeout)
 	assert.Nil(t, opts.Controller.SkipNameValidation, "production validates controller names")
 
