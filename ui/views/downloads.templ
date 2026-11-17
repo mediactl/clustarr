@@ -85,10 +85,13 @@ templ downloadRow(d DownloadView) {
 				</div>
 			}
 			if imp := d.Row.Entry.Import; imp != nil {
-				@item.Description() {
-					{ fmt.Sprintf("import: %s", downloadImportDetail(imp)) }
-					<a class="ml-1 underline" href={ templ.SafeURL(downloadURL(d.Row, "import")) }>detail</a>
-				}
+				// The link stands outside the clamped description: inside it
+				// the "detail" link was clipped away on the very rows (a long
+				// held-import message) that need it.
+				<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-muted-foreground">
+					<span class="line-clamp-2 min-w-0 wrap-anywhere">{ fmt.Sprintf("import: %s", downloadImportDetail(imp)) }</span>
+					<a class="shrink-0 font-medium text-foreground underline underline-offset-4" href={ templ.SafeURL(downloadURL(d.Row, "import")) }>Import detail</a>
+				</div>
 			}
 			if failed(d.Row.Entry.Phase) {
 				<div class="text-sm text-destructive">{ downloadFailureDetail(d.Row.Entry) }</div>

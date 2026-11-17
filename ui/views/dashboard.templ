@@ -612,13 +612,25 @@ templ DashboardCharts(v DashboardChartsView) {
 	}
 }
 
+// chartsTrigger is the charts poller's trigger: every ChartsRefresh, and
+// once as the page loads, since only a request from the browser names the
+// reader's zone (the page itself is rendered in the server's). The poller
+// an answer carries out of band must not ask at load again, or it would ask
+// for ever.
+func chartsTrigger(oob bool) string {
+	if oob {
+		return "every " + ChartsRefresh
+	}
+	return "load, every " + ChartsRefresh
+}
+
 // chartsPoller asks for the charts over v.Range every ChartsRefresh.
 templ chartsPoller(v DashboardChartsView, oob bool) {
 	<div
 		id="dashboard-charts-poller"
 		hidden
 		hx-get={ "/dashboard/charts?range=" + v.Range }
-		hx-trigger={ "every " + ChartsRefresh }
+		hx-trigger={ chartsTrigger(oob) }
 		hx-swap="none"
 		data-range={ v.Range }
 		if oob {

@@ -1399,7 +1399,7 @@ func addHitCard(d AddResultsData, h AddHit) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = card.Content(card.ContentProps{Class: "flex gap-4"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var34), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = card.Content(card.ContentProps{Class: "flex-row items-start gap-4"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var34), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1505,7 +1505,7 @@ func addForm(d AddResultsData, h AddHit) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "\" class=\"mt-3 grid gap-3\" data-settings-form><input type=\"hidden\" name=\"title\" value=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "\" class=\"mt-3 grid grid-cols-[minmax(0,1fr)] gap-3\" data-settings-form><input type=\"hidden\" name=\"title\" value=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1785,6 +1785,16 @@ func monitorNewLabel(kind commonv1.MediaKind) string {
 	}
 }
 
+// addOptionItems are opts as the select's items: without them its trigger
+// shows the raw value ("unmonitorSpecials") until a choice is made.
+func addOptionItems(opts []AddOption) []selectcomp.ItemData {
+	items := make([]selectcomp.ItemData, 0, len(opts))
+	for _, o := range opts {
+		items = append(items, selectcomp.ItemData{Value: o.Value, Label: o.Label})
+	}
+	return items
+}
+
 func addSelect(name, hitID, label string, opts []AddOption, def string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1833,7 +1843,7 @@ func addSelect(name, hitID, label string, opts []AddOption, def string) templ.Co
 				var templ_7745c5c3_Var69 string
 				templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 607, Col: 10}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 617, Col: 10}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
 				if templ_7745c5c3_Err != nil {
@@ -1927,7 +1937,7 @@ func addSelect(name, hitID, label string, opts []AddOption, def string) templ.Co
 								var templ_7745c5c3_Var75 string
 								templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 617, Col: 16}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 627, Col: 16}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
 								if templ_7745c5c3_Err != nil {
@@ -1954,7 +1964,7 @@ func addSelect(name, hitID, label string, opts []AddOption, def string) templ.Co
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = selectcomp.Select(selectcomp.Props{ID: "add-" + name + "-" + hitID, Name: name, DefaultValue: def, Required: true}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var70), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = selectcomp.Select(selectcomp.Props{ID: "add-" + name + "-" + hitID, Name: name, DefaultValue: def, Required: true, Items: addOptionItems(opts)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var70), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2008,7 +2018,7 @@ func addCheck(name, hitID, label string, on bool) templ.Component {
 			var templ_7745c5c3_Var78 string
 			templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.ResolveAttributeValue(name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 628, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 638, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var78)
 			if templ_7745c5c3_Err != nil {
@@ -2041,7 +2051,7 @@ func addCheck(name, hitID, label string, on bool) templ.Component {
 				var templ_7745c5c3_Var80 string
 				templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 631, Col: 10}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 641, Col: 10}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
 				if templ_7745c5c3_Err != nil {

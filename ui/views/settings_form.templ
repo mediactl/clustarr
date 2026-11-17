@@ -619,6 +619,19 @@ templ configActions(slug, namespace, name string) {
 	@configActionsTo(slug, namespace, name, settingsReturnPath)
 }
 
+// configDeleteAttrs post a card's delete through htmx after the layout's
+// confirm; the answer is a toast and the page redrawn in place.
+func configDeleteAttrs(slug, ns, name, returnTo string) templ.Attributes {
+	vals, _ := json.Marshal(map[string]string{"return": returnTo})
+	out := confirmAttrs(fmt.Sprintf("Delete %q?", name), "This cannot be undone.", "Delete")
+	out["hx-post"] = fmt.Sprintf("/settings/delete/%s/%s/%s", slug, ns, name)
+	out["hx-vals"] = string(vals)
+	out["hx-target"] = "#action-status"
+	out["hx-swap"] = "innerHTML"
+	out["data-action"] = "delete"
+	return out
+}
+
 // configActionsTo is configActions for a card on another page (the Import
 // Lists page, 2026-09-24): the edit form and the delete both return to
 // returnTo instead of the Settings page. It renders as the card's footer.
@@ -635,11 +648,11 @@ templ configActionsTo(slug, namespace, name, returnTo string) {
 		@button.Button(button.Props{Href: edit, Size: button.SizeXs, Variant: button.VariantOutline, ID: "open-" + slug + "-" + ns + "-" + name, Attributes: ModalOpen(nil)}) {
 			Edit
 		}
-		@alertdialog.AlertDialog() {
-			@button.Button(button.Props{Size: button.SizeXs, Variant: button.VariantGhost, Class: "text-destructive", Attributes: alertdialog.Trigger(ctx)}) {
-				Delete
-			}
-			@deleteConfirm(fmt.Sprintf("/settings/delete/%s/%s/%s", slug, ns, name), returnTo, fmt.Sprintf("Delete %q?", name))
+		// Delete asks through the layout's one confirm (2026-11-17): a card's
+		// own alert dialog, on the Import Lists page, sat inside the live
+		// stream and was torn down by the next frame, within seconds.
+		@button.Button(button.Props{Type: button.TypeButton, Size: button.SizeXs, Variant: button.VariantGhost, Class: "text-destructive", Attributes: configDeleteAttrs(slug, ns, name, returnTo)}) {
+			Delete
 		}
 	}
 }

@@ -857,7 +857,7 @@ func (s *Server) handleManualAssign(w http.ResponseWriter, r *http.Request) {
 		s.finishAction(w, r, err)
 		return
 	}
-	http.Redirect(w, r, libraryScanDetailPath(scan.Namespace, scan.Name), http.StatusSeeOther)
+	seeOther(w, r, libraryScanDetailPath(scan.Namespace, scan.Name))
 }
 
 // libraryScanDetailPath builds a LibraryScan's detail page path, matching

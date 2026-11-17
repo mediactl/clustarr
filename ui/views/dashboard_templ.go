@@ -1940,6 +1940,18 @@ func DashboardCharts(v DashboardChartsView) templ.Component {
 	})
 }
 
+// chartsTrigger is the charts poller's trigger: every ChartsRefresh, and
+// once as the page loads, since only a request from the browser names the
+// reader's zone (the page itself is rendered in the server's). The poller
+// an answer carries out of band must not ask at load again, or it would ask
+// for ever.
+func chartsTrigger(oob bool) string {
+	if oob {
+		return "every " + ChartsRefresh
+	}
+	return "load, every " + ChartsRefresh
+}
+
 // chartsPoller asks for the charts over v.Range every ChartsRefresh.
 func chartsPoller(v DashboardChartsView, oob bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -1969,7 +1981,7 @@ func chartsPoller(v DashboardChartsView, oob bool) templ.Component {
 		var templ_7745c5c3_Var76 string
 		templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.ResolveAttributeValue("/dashboard/charts?range=" + v.Range)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 620, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 632, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var76)
 		if templ_7745c5c3_Err != nil {
@@ -1980,9 +1992,9 @@ func chartsPoller(v DashboardChartsView, oob bool) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var77 string
-		templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.ResolveAttributeValue("every " + ChartsRefresh)
+		templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.ResolveAttributeValue(chartsTrigger(oob))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 621, Col: 39}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 633, Col: 33}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var77)
 		if templ_7745c5c3_Err != nil {
@@ -1995,7 +2007,7 @@ func chartsPoller(v DashboardChartsView, oob bool) templ.Component {
 		var templ_7745c5c3_Var78 string
 		templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.ResolveAttributeValue(v.Range)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 623, Col: 22}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 635, Col: 22}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var78)
 		if templ_7745c5c3_Err != nil {
@@ -2072,7 +2084,7 @@ func rangePicker(v DashboardChartsView, oob bool) templ.Component {
 					var templ_7745c5c3_Var82 string
 					templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(r)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 645, Col: 7}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 657, Col: 7}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 					if templ_7745c5c3_Err != nil {
@@ -2142,7 +2154,7 @@ func chartsGroup(key string, v DashboardChartsView, oob bool) templ.Component {
 		var templ_7745c5c3_Var84 string
 		templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.ResolveAttributeValue("dashboard-charts-" + key)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 665, Col: 32}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 677, Col: 32}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var84)
 		if templ_7745c5c3_Err != nil {
@@ -2305,7 +2317,7 @@ func chartPanel(p ChartPanel) templ.Component {
 					var templ_7745c5c3_Var90 string
 					templ_7745c5c3_Var90, templ_7745c5c3_Err = templ.JoinStringErrs(p.Title)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 722, Col: 13}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 734, Col: 13}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var90))
 					if templ_7745c5c3_Err != nil {
@@ -2336,7 +2348,7 @@ func chartPanel(p ChartPanel) templ.Component {
 					var templ_7745c5c3_Var92 string
 					templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.JoinStringErrs(p.Description)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 725, Col: 19}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 737, Col: 19}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
 					if templ_7745c5c3_Err != nil {
@@ -2420,7 +2432,7 @@ func chartView(p ChartPanel, height string) templ.Component {
 			var templ_7745c5c3_Var95 string
 			templ_7745c5c3_Var95, templ_7745c5c3_Err = templ.JoinStringErrs(p.Err)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 737, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/dashboard.templ`, Line: 749, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var95))
 			if templ_7745c5c3_Err != nil {

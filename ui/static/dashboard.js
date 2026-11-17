@@ -20,7 +20,19 @@
 
   document.addEventListener("htmx:configRequest", function (e) {
     var path = (e.detail && e.detail.path) || "";
-    if (path.indexOf("/dashboard/") !== 0 && path.indexOf("/activity/") !== 0) return;
+    // Only the pollers' own requests: a sidebar entry's GET of an Activity
+    // page also starts /activity/, and carried the leaving page's tab and
+    // page into the next page's URL.
+    if (path.indexOf("/dashboard/") !== 0 && !/^\/activity\/[^/]+\/list/.test(path)) return;
+    // The charts' times are the reader's, not the ui pod's (UTC in a
+    // cluster): the server labels them in this zone.
+    if (path.indexOf("/dashboard/charts") === 0) {
+      try {
+        e.detail.parameters.tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      } catch (err) {
+        /* no Intl: the server's zone */
+      }
+    }
     document.querySelectorAll("[data-dashboard-tabs]").forEach(function (root) {
       var tab = root.querySelector('[role="tab"][aria-selected="true"]');
       if (tab) {

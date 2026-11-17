@@ -175,7 +175,9 @@ func TestImportListsPageHasAddEditAndDelete(t *testing.T) {
 	rows := strings.Index(body, `id="import-lists-rows"`)
 	edit := strings.Index(body, `href="/settings/edit/importlists/media/trakt-watchlist?return=/import-lists"`)
 	require.Greater(t, edit, rows, "Edit sits in the swapped rows")
-	form := requireTag(t, body, `action="/settings/delete/importlists/media/trakt-watchlist"`, `method="post"`, `data-delete-form`)
-	_ = form
-	require.Regexp(t, `action="/settings/delete/importlists/media/trakt-watchlist"[^<]*<input[^>]*name="return"[^>]*value="/import-lists"`, body)
+	// Delete asks through the layout's confirm and posts by htmx, its return
+	// the Import Lists page: a card's own alert dialog sat in the live
+	// stream and was torn down by the next frame.
+	del := requireTag(t, body, `hx-post="/settings/delete/importlists/media/trakt-watchlist"`, `data-action="delete"`, `hx-confirm=`, `hx-target="#action-status"`)
+	require.Contains(t, del, `&#34;return&#34;:&#34;/import-lists&#34;`)
 }

@@ -2660,6 +2660,19 @@ func configActions(slug, namespace, name string) templ.Component {
 	})
 }
 
+// configDeleteAttrs post a card's delete through htmx after the layout's
+// confirm; the answer is a toast and the page redrawn in place.
+func configDeleteAttrs(slug, ns, name, returnTo string) templ.Attributes {
+	vals, _ := json.Marshal(map[string]string{"return": returnTo})
+	out := confirmAttrs(fmt.Sprintf("Delete %q?", name), "This cannot be undone.", "Delete")
+	out["hx-post"] = fmt.Sprintf("/settings/delete/%s/%s/%s", slug, ns, name)
+	out["hx-vals"] = string(vals)
+	out["hx-target"] = "#action-status"
+	out["hx-swap"] = "innerHTML"
+	out["data-action"] = "delete"
+	return out
+}
+
 // configActionsTo is configActions for a card on another page (the Import
 // Lists page, 2026-09-24): the edit form and the delete both return to
 // returnTo instead of the Settings page. It renders as the card's footer.
@@ -2726,7 +2739,7 @@ func configActionsTo(slug, namespace, name, returnTo string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "    ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2742,39 +2755,13 @@ func configActionsTo(slug, namespace, name, returnTo string) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Var112 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-					if !templ_7745c5c3_IsBuffer {
-						defer func() {
-							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-							if templ_7745c5c3_Err == nil {
-								templ_7745c5c3_Err = templ_7745c5c3_BufErr
-							}
-						}()
-					}
-					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "Delete")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					return nil
-				})
-				templ_7745c5c3_Err = button.Button(button.Props{Size: button.SizeXs, Variant: button.VariantGhost, Class: "text-destructive", Attributes: alertdialog.Trigger(ctx)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var112), templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, " ")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = deleteConfirm(fmt.Sprintf("/settings/delete/%s/%s/%s", slug, ns, name), returnTo, fmt.Sprintf("Delete %q?", name)).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "Delete")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = alertdialog.AlertDialog().Render(templ.WithChildren(ctx, templ_7745c5c3_Var111), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = button.Button(button.Props{Type: button.TypeButton, Size: button.SizeXs, Variant: button.VariantGhost, Class: "text-destructive", Attributes: configDeleteAttrs(slug, ns, name, returnTo)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var111), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

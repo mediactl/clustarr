@@ -258,6 +258,9 @@ templ manualAssignForm(e projection.UnmatchedEntry) {
 	<form
 		method="post"
 		action="/unmatched/assign"
+		hx-post="/unmatched/assign"
+		hx-target="#action-status"
+		hx-swap="innerHTML"
 		class="flex w-full flex-wrap items-end gap-2 border-t border-border pt-3"
 		data-manual-assign-form={ e.Path }
 	>

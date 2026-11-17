@@ -43,12 +43,22 @@ type dashRange struct {
 	Span   time.Duration
 	Step   time.Duration
 	Layout string
+	// Loc is the zone sample times are labelled in: the reader's when the
+	// request named one, else the process's.
+	Loc *time.Location
+}
+
+func (r dashRange) loc() *time.Location {
+	if r.Loc != nil {
+		return r.Loc
+	}
+	return time.Local
 }
 
 var dashRanges = []dashRange{
-	{"6h", 6 * time.Hour, 5 * time.Minute, "15:04"},
-	{"24h", 24 * time.Hour, 15 * time.Minute, "15:04"},
-	{"7d", 7 * 24 * time.Hour, 2 * time.Hour, "Mon 15h"},
+	{"6h", 6 * time.Hour, 5 * time.Minute, "15:04", nil},
+	{"24h", 24 * time.Hour, 15 * time.Minute, "15:04", nil},
+	{"7d", 7 * 24 * time.Hour, 2 * time.Hour, "Mon 15h", nil},
 }
 
 const defaultDashRange = "24h"
@@ -282,7 +292,13 @@ func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) 
 // (tab-<section>-charts, ui/static/dashboard.js).
 func (s *Server) handleDashboardCharts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	v := s.dashboardCharts(r.Context(), dashRangeNamed(r.URL.Query().Get("range")))
+	rg := dashRangeNamed(r.URL.Query().Get("range"))
+	// The reader's zone (dashboard.js sends it): the ui pod's is UTC in a
+	// cluster, while the TV Guide's times are the browser's.
+	if loc, err := time.LoadLocation(r.URL.Query().Get("tz")); err == nil && r.URL.Query().Get("tz") != "" {
+		rg.Loc = loc
+	}
+	v := s.dashboardCharts(r.Context(), rg)
 	v.Selected = map[string]string{}
 	for section := range dashChartTabs {
 		v.Selected[section] = r.URL.Query().Get("tab-" + section + "-charts")
@@ -419,7 +435,7 @@ func buildPanel(ctx context.Context, q prom.Querier, p panelDef, rg dashRange, s
 	}
 	times := map[int64]chart.Datum{}
 	for t := start; !t.After(end); t = t.Add(rg.Step) {
-		d := chart.Datum{"t": t.Local().Format(rg.Layout)}
+		d := chart.Datum{"t": t.In(rg.loc()).Format(rg.Layout)}
 		times[t.Unix()] = d
 		out.Data = append(out.Data, d)
 	}
