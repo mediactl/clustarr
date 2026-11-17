@@ -304,7 +304,11 @@ const (
 	// ArtworkMetaKeyFit is the fit version an original of a sized image
 	// type was stored under (app/catalog/artwork.FitVersion): scaled into
 	// its type's box and re-encoded. Absent on a type stored as fetched.
-	ArtworkMetaKeyFit      = "clustarr.io/fit"
+	ArtworkMetaKeyFit = "clustarr.io/fit"
+	// ArtworkMetaKeyTitle is the title logo a poster original was stored
+	// with (app/catalog/artwork.TitleMark): the version of the drawing and
+	// the logo's URL. Absent on a poster stored as its source has it.
+	ArtworkMetaKeyTitle    = "clustarr.io/title"
 	BucketMetaKeyKeyScheme = "clustarr.io/key-scheme"
 )
 

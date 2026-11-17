@@ -148,7 +148,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		if !catalogartwork.KnownType(t) {
 			continue
 		}
-		src := catalogartwork.Source{URL: f.URL, Kind: catalogv1alpha1.ArtworkSource(f.Kind), Language: f.Language}
+		src := catalogartwork.Source{URL: f.URL, Kind: catalogv1alpha1.ArtworkSource(f.Kind), Language: f.Language, Logo: f.Logo}
 		if src.Kind != catalogv1alpha1.ArtworkSourceCustom {
 			src.Kind = catalogv1alpha1.ArtworkSourceProvider
 		}

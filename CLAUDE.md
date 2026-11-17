@@ -2607,6 +2607,34 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   03:30Z, after which every artwork Put failed (discard New), the fetch
   durable's 32 slots sat in its 1-6 h backoff (a store fault redelivers)
   and nothing was stored for any kind.
+- **An anime's poster is the textless one with its logo drawn on it**
+  (owner, 2026-11-17: "For anime posters, we should prefer posters with no
+  text - where we will overlay the english logo at the bottom center",
+  after github.com/elfhosted/PostersPlus). For an anime Movie or Series
+  (`itemread.Anime`) whose metadata lists both a poster naming no language
+  -- how TMDB, TheTVDB and fanart.tv list one without text -- and a logo in
+  the titles' language (`status.metadata.language`, else English),
+  `catalogartwork.Item.Sources` (which the artwork stage plans from, where
+  it called `ResolveSources`) takes that poster with `Source.Logo` set, and
+  that logo as the item's logo (`Titled`). Both or neither: without the
+  pair the item keeps the poster it had. The owner's poster wins -- a
+  `spec.artwork` override or a pinned image set (`spec.imageSetID`) -- and
+  a set the mediux provider chose by itself yields its poster, which
+  carries the set maker's title, keeping its other images. The fetcher
+  draws it (`app/catalog/metadata/artwork/title.go`, `Fetcher.titled`):
+  the poster fitted into its box, a shade over the lower half, the logo
+  trimmed of its transparent margins, scaled into 78% of the width and 24%
+  of the height and set 5% above the bottom edge, drawn white when 85% of
+  its opaque pixels are dark; stored as the poster *original*, so the
+  rating overlay, the ui and Plex take it as they take any poster. The
+  object records `clustarr.io/title` (`TitleMark`: `TitleVersion` and the
+  logo's URL) and the plan fetches a poster whose mark is not its source's,
+  so raise `TitleVersion` when the drawing changes. A logo that cannot be
+  fetched or decoded fails the poster's fetch, which keeps the stored
+  poster and rests the source for `FailureRetry`, never a poster that
+  names nothing. Not handled: an untagged poster that does carry a title
+  (TMDB's for Your Name), which gets the logo under its own title; set the
+  item's poster by hand (`spec.artwork`) for those.
 - **Sized originals are stored fitted** (owner, 2026-11-16: "We can greatly
   reduce the image cache by compressing jpegs and resizing images"): the
   fetcher scales a poster into 500x750, a fanart, thumb or screenshot into

@@ -96,6 +96,10 @@ func (p FetchPlan) Hash() string {
 	for _, f := range p.Fetch {
 		// NUL-separated: neither an enum token nor a URL admits one.
 		_, _ = fmt.Fprintf(h, "fetch\x00%s\x00%s\x00%s\x00%s\x00", f.Type, f.Kind, f.URL, f.Language)
+		if f.Logo != "" {
+			// Only when set, so a plan with no titled poster keeps its hash.
+			_, _ = fmt.Fprintf(h, "logo\x00%s\x00%s\x00", TitleVersion, f.Logo)
+		}
 	}
 	for _, t := range p.Drop {
 		_, _ = fmt.Fprintf(h, "drop\x00%s\x00", t)
@@ -110,8 +114,10 @@ func (p FetchPlan) Hash() string {
 //   - a source whose type has no original, or one whose metadata predates
 //     events.ArtworkMetaVersion (the fetcher backfills it), or one fetched
 //     from another URL or kind, or one older than RefetchAge, or one of a
-//     sized type stored before the current fit (Unfit), is fetched --
-//     unless that very URL failed less than FailureRetry ago, which waits;
+//     sized type stored before the current fit (Unfit), or a poster whose
+//     title logo is not its source's (TitleMark: another logo, another
+//     drawing, or a logo where the source wants none), is fetched -- unless
+//     that very URL failed less than FailureRetry ago, which waits;
 //   - an original whose type has no source any more is dropped when its
 //     metadata says it was a custom override (the override was removed); a
 //     provider's is kept, since a provider that did not list a type this
@@ -132,7 +138,7 @@ func PlanFetch(sources map[catalogv1alpha1.ImageType]Source, objects map[catalog
 			continue
 		}
 		need := !obj.Present || !obj.Current || obj.SourceURL != src.URL || obj.Source != src.Kind ||
-			now.Sub(obj.UpdatedAt.Time) > RefetchAge || obj.Unfit
+			now.Sub(obj.UpdatedAt.Time) > RefetchAge || obj.Unfit || obj.Title != TitleMark(src.Logo)
 		if !need {
 			continue
 		}
@@ -143,7 +149,7 @@ func PlanFetch(sources map[catalogv1alpha1.ImageType]Source, objects map[catalog
 			continue
 		}
 		p.Fetch = append(p.Fetch, schema.ArtworkFetch{
-			Type: string(t), URL: src.URL, Kind: string(src.Kind), Language: src.Language,
+			Type: string(t), URL: src.URL, Kind: string(src.Kind), Language: src.Language, Logo: src.Logo,
 		})
 	}
 	return p

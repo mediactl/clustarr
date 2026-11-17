@@ -52,6 +52,10 @@ type ArtworkFetch struct {
 	URL      string `json:"url"`
 	Kind     string `json:"kind,omitempty"`
 	Language string `json:"language,omitempty"`
+	// Logo is the URL of the title logo the fetcher draws onto a poster
+	// whose source carries no title (catalogartwork.Source.Logo); "" stores
+	// the image as its source has it.
+	Logo string `json:"logo,omitempty"`
 }
 
 // Schema implements Payload.

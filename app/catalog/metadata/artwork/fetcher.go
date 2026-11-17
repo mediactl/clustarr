@@ -292,51 +292,35 @@ func (f *Fetcher) backfill(ctx context.Context, key string, ref catalogartwork.O
 }
 
 // fetchAndPut fetches src, validates it (spec §B.4 steps 1-2) and stores it
-// at key with its complete metadata (step 3).
+// at key with its complete metadata (step 3). A poster whose source names a
+// title logo (Source.Logo) is stored with that logo drawn on it (titled),
+// or not at all: a logo that cannot be had fails the fetch, which keeps the
+// poster already stored rather than store one that names nothing.
 func (f *Fetcher) fetchAndPut(ctx context.Context, key string, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType,
 	src catalogartwork.Source,
 ) error {
-	u, err := url.Parse(src.URL)
-	if err != nil || !catalogartwork.Fetchable(src.URL) {
-		return errors.New("not an absolute http(s) URL")
-	}
-	body, contentType, err := f.getCover(ctx, u)
-	if contentType == svgContentType {
-		// Converted by its host: the same image as a PNG, at .png.
-		png, ok := f.pngRendition(u)
-		if !ok {
-			return fmt.Errorf("%w: an SVG, and %s serves no PNG rendition of it", ErrNotAnImage, u.Host)
-		}
-		if body, contentType, err = f.get(ctx, png); contentType == svgContentType {
-			return fmt.Errorf("%w: an SVG whose PNG rendition is an SVG too", ErrNotAnImage)
-		}
-	}
+	body, cfg, stored, err := f.fetchImage(ctx, src.URL)
 	if err != nil {
 		return err
 	}
-	cfg, format, err := image.DecodeConfig(bytes.NewReader(body))
-	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
-		return fmt.Errorf("%w: a %s body that does not decode", ErrNotAnImage, contentType)
-	}
-	// The stored Content-Type is what the bytes ARE, not what the server
-	// said: a PNG labelled image/jpeg is stored, and served, as image/png.
-	// The header only had to be one of the three to get this far; the
-	// decoded format must be one of them too (another decoder registered
-	// in this binary, say GIF, is not an accepted original).
-	stored := "image/" + format
-	if !acceptedContentTypes[stored] {
-		return fmt.Errorf("%w: a %s body served as %s", ErrNotAnImage, format, contentType)
-	}
-	if cfg.Width > MaxImageDimension || cfg.Height > MaxImageDimension {
-		return fmt.Errorf("%w: %s is %dx%d, more than %d pixels on a side",
-			ErrImageTooLarge, format, cfg.Width, cfg.Height, MaxImageDimension)
-	}
-
 	facts := catalogartwork.Facts{
 		ContentType: stored, Source: string(src.Kind), SourceURL: src.URL, Language: src.Language,
 		Width: cfg.Width, Height: cfg.Height, UpdatedAt: f.now(),
 	}
-	if box, sized := catalogartwork.FitBox(t); sized {
+	box, sized := catalogartwork.FitBox(t)
+	switch {
+	case src.Logo != "" && sized:
+		logo, _, _, err := f.fetchImage(ctx, src.Logo)
+		if err != nil {
+			return fmt.Errorf("the title logo: %w", err)
+		}
+		out, err := f.titled(body, logo, box, cfg)
+		if err != nil {
+			return fmt.Errorf("the title logo: %w", err)
+		}
+		facts.Fit, facts.Title = catalogartwork.FitVersion, catalogartwork.TitleMark(src.Logo)
+		body, facts.ContentType, facts.Width, facts.Height = out.body, out.contentType, out.width, out.height
+	case sized:
 		// Marked whether or not the bytes changed: the plan fetches an
 		// unmarked original of a sized type again.
 		facts.Fit = catalogartwork.FitVersion
@@ -352,6 +336,48 @@ func (f *Fetcher) fetchAndPut(ctx context.Context, key string, ref catalogartwor
 		return fmt.Errorf("%w: put %s: %w", ErrStore, key, err)
 	}
 	return nil
+}
+
+// fetchImage fetches the image at raw and validates it (spec §B.4 steps
+// 1-2): its body, its decoded size and the Content-Type it is stored
+// under.
+func (f *Fetcher) fetchImage(ctx context.Context, raw string) ([]byte, image.Config, string, error) {
+	u, err := url.Parse(raw)
+	if err != nil || !catalogartwork.Fetchable(raw) {
+		return nil, image.Config{}, "", errors.New("not an absolute http(s) URL")
+	}
+	body, contentType, err := f.getCover(ctx, u)
+	if contentType == svgContentType {
+		// Converted by its host: the same image as a PNG, at .png.
+		png, ok := f.pngRendition(u)
+		if !ok {
+			return nil, image.Config{}, "", fmt.Errorf("%w: an SVG, and %s serves no PNG rendition of it", ErrNotAnImage, u.Host)
+		}
+		if body, contentType, err = f.get(ctx, png); contentType == svgContentType {
+			return nil, image.Config{}, "", fmt.Errorf("%w: an SVG whose PNG rendition is an SVG too", ErrNotAnImage)
+		}
+	}
+	if err != nil {
+		return nil, image.Config{}, "", err
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(body))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return nil, image.Config{}, "", fmt.Errorf("%w: a %s body that does not decode", ErrNotAnImage, contentType)
+	}
+	// The stored Content-Type is what the bytes ARE, not what the server
+	// said: a PNG labelled image/jpeg is stored, and served, as image/png.
+	// The header only had to be one of the three to get this far; the
+	// decoded format must be one of them too (another decoder registered
+	// in this binary, say GIF, is not an accepted original).
+	stored := "image/" + format
+	if !acceptedContentTypes[stored] {
+		return nil, image.Config{}, "", fmt.Errorf("%w: a %s body served as %s", ErrNotAnImage, format, contentType)
+	}
+	if cfg.Width > MaxImageDimension || cfg.Height > MaxImageDimension {
+		return nil, image.Config{}, "", fmt.Errorf("%w: %s is %dx%d, more than %d pixels on a side",
+			ErrImageTooLarge, format, cfg.Width, cfg.Height, MaxImageDimension)
+	}
+	return body, cfg, stored, nil
 }
 
 // get fetches u under its host's slots and rate limit and returns its body and media

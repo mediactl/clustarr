@@ -131,7 +131,7 @@ func (s *Stage) Plan(ctx context.Context, _ *remediation.Env, v *remediation.Ite
 	}
 
 	plan := catalogartwork.PlanFetch(
-		catalogartwork.ResolveSources(it.Overrides, it.Images),
+		it.Sources(),
 		catalogartwork.ObjectsFromIndex(s.o.Index, it.Kind, uid),
 		catalogartwork.FailuresOf(rec), now)
 	res.Due = plan.Due

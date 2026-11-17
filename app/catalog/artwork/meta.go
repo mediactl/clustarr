@@ -83,7 +83,10 @@ type Facts struct {
 	UpdatedAt time.Time
 	// Fit is the FitVersion an original of a boxed type was stored under
 	// (events.ArtworkMetaKeyFit); "" leaves the key out.
-	Fit     string
+	Fit string
+	// Title is the TitleMark of the logo drawn onto a poster original
+	// (events.ArtworkMetaKeyTitle); "" leaves the key out.
+	Title   string
 	Overlay *OverlayFacts
 }
 
@@ -132,6 +135,9 @@ func ObjectMeta(ref ObjectRef, t catalogv1alpha1.ImageType, variant string, f Fa
 	}
 	if f.Fit != "" {
 		meta[events.ArtworkMetaKeyFit] = f.Fit
+	}
+	if f.Title != "" {
+		meta[events.ArtworkMetaKeyTitle] = f.Title
 	}
 	if o := f.Overlay; o != nil {
 		headers[HeaderRenderedFrom] = o.RenderedFrom

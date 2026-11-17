@@ -47,6 +47,17 @@ type Item struct {
 	// Ratings are status.metadata.ratings (Movie and Series only): an input
 	// of the overlay, so part of the render task's Msg-Id (RenderToken).
 	Ratings []catalogv1alpha1.Rating
+
+	// TitledPoster: the item takes a poster without text and its logo
+	// drawn on it (Sources) when its metadata has both -- an anime Movie or
+	// Series whose owner chose no poster: spec.artwork names none and no
+	// image set is pinned (spec.imageSetID). A set the mediux provider
+	// chose by itself does not count: its poster carries the set maker's
+	// title, and yields.
+	TitledPoster bool
+	// Language is status.metadata.language, the language the item's titles
+	// are in and its logo is taken in; "" is DefaultTitleLanguage.
+	Language string
 }
 
 // ItemOf reads obj's artwork inputs: its kind, spec.artwork,
@@ -57,14 +68,20 @@ func ItemOf(obj client.Object) (Item, error) {
 	case *catalogv1alpha1.Movie:
 		it := Item{Kind: commonv1.MediaKindMovie, Overrides: WithImageSet(o.Spec.Artwork, o.Status.ImageSet), Entries: o.Status.Artwork, HasOverlay: o.Status.Overlay != nil}
 		if o.Status.Metadata != nil {
-			it.Images, it.Ratings = o.Status.Metadata.Images, o.Status.Metadata.Ratings
+			it.Images, it.Ratings, it.Language = o.Status.Metadata.Images, o.Status.Metadata.Ratings, o.Status.Metadata.Language
 		}
+		// An anime film, as itemread.Anime reads it.
+		anime := o.Status.Classification != nil && o.Status.Classification.Anime
+		it.TitledPoster = anime && !ownPoster(o.Spec.Artwork, o.Spec.ImageSetID)
 		return it, nil
 	case *catalogv1alpha1.Series:
 		it := Item{Kind: commonv1.MediaKindSeries, Overrides: WithImageSet(o.Spec.Artwork, o.Status.ImageSet), Entries: o.Status.Artwork, HasOverlay: o.Status.Overlay != nil}
 		if o.Status.Metadata != nil {
-			it.Images, it.Ratings = o.Status.Metadata.Images, o.Status.Metadata.Ratings
+			it.Images, it.Ratings, it.Language = o.Status.Metadata.Images, o.Status.Metadata.Ratings, o.Status.Metadata.Language
 		}
+		// An anime series, as itemread.Anime reads it.
+		anime := o.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
+		it.TitledPoster = anime && !ownPoster(o.Spec.Artwork, o.Spec.ImageSetID)
 		return it, nil
 	case *catalogv1alpha1.Artist:
 		it := Item{Kind: commonv1.MediaKindArtist, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork}
@@ -180,6 +197,14 @@ func gvkFor(kind commonv1.MediaKind) (schema.GroupVersionKind, bool) {
 	default:
 		return schema.GroupVersionKind{}, false
 	}
+}
+
+// ownPoster reports a poster the owner chose: a spec.artwork override of
+// the poster, or a pinned image set, whose poster is the owner's pick as
+// much as a pasted URL is.
+func ownPoster(spec []catalogv1alpha1.ArtworkOverride, pinnedSet string) bool {
+	_, own := overrideOf(spec, catalogv1alpha1.ImageTypePoster)
+	return own || pinnedSet != ""
 }
 
 // WithImageSet is spec.artwork over the chosen image set's own images
