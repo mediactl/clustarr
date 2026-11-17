@@ -52,6 +52,13 @@ const (
 	throttlePause = time.Hour
 	// verifyEvery is how often a ready trailer's file is looked for.
 	verifyEvery = 6 * time.Hour
+	// maxCandidates is how many of an item's videos are tried in one look
+	// when the ones before have no video to fetch.
+	maxCandidates = 3
+	// maxUndecided is how many items in a row may fail to be decided
+	// before the pass is given up: the gateway is not answering, and every
+	// item after would say so again.
+	maxUndecided = 10
 )
 
 // Facts are what a trailer file holds.
@@ -152,12 +159,19 @@ func (s *Sweeper) Pass(ctx context.Context) error {
 		return err
 	}
 	live := map[string]bool{}
+	undecided := 0
 	for _, it := range items {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		live[trailers.Key(it.kind, it.uid)] = true
-		s.look(ctx, it, roots)
+		if err := s.look(ctx, it, roots); err != nil {
+			if undecided++; undecided >= maxUndecided {
+				return fmt.Errorf("%d items in a row could not be decided; the last: %w", undecided, err)
+			}
+			continue
+		}
+		undecided = 0
 	}
 	// An empty catalog is a cache that has nothing yet, never a reason to
 	// remove every trailer.
@@ -227,47 +241,50 @@ func (s *Sweeper) catalog(ctx context.Context) ([]item, map[string]string, error
 	return items, roots, nil
 }
 
-// look brings one item's record up to date. A failure is logged and the
-// item is looked at again on the next pass.
-func (s *Sweeper) look(ctx context.Context, it item, roots map[string]string) {
+// look brings one item's record up to date. What could not be known about
+// the item is returned, and the item is looked at again on the next pass;
+// a pause of the fetching is not an error.
+func (s *Sweeper) look(ctx context.Context, it item, roots map[string]string) error {
 	log := logging.FromContext(ctx).With("kind", it.kind, "item", it.name)
 	root := roots[it.rootFolder]
 	if !it.resolved || !it.wanted || root == "" {
-		return
+		return nil
 	}
 	key := trailers.Key(it.kind, it.uid)
 	now := s.Clock.Now()
 	entry, rev, have, err := s.read(ctx, key)
 	if err != nil {
 		log.WarnContext(ctx, "trailers: read the item's record", "err", err)
-		return
+		return err
 	}
 	if have && entry.State == trailers.StateReady {
 		if s.present(key, entry.Path, now) {
-			return
+			return nil
 		}
 		log.InfoContext(ctx, "trailers: the item's trailer file is gone; it is fetched again", "path", entry.Path)
 	} else if have && !entry.Due(now) {
-		return
+		return nil
 	}
 
 	next, err := s.decide(ctx, log, it, root, entry)
 	if err != nil {
-		if !errors.Is(err, errPaused) && ctx.Err() == nil {
-			log.WarnContext(ctx, "trailers: the item could not be decided; it is looked at again next pass", "err", err)
+		if errors.Is(err, errPaused) || ctx.Err() != nil {
+			return nil
 		}
-		return
+		log.WarnContext(ctx, "trailers: the item could not be decided; it is looked at again next pass", "err", err)
+		return err
 	}
 	next.CheckedAt = s.Clock.Now()
 	if err := s.write(ctx, key, next, rev, have); err != nil {
 		log.WarnContext(ctx, "trailers: write the item's record", "err", err)
-		return
+		return err
 	}
 	if next.State == trailers.StateReady {
 		s.markPresent(key, next.CheckedAt)
 		log.InfoContext(ctx, "trailers: a trailer was fetched", "path", next.Path, "site", next.Video.Site, "provider", next.Video.Provider,
 			"height", next.Height, "seconds", next.DurationMillis/1000, "bytes", next.SizeBytes)
 	}
+	return nil
 }
 
 // errPaused: nothing is fetched while the site is refusing this client.
@@ -290,44 +307,57 @@ func (s *Sweeper) decide(ctx context.Context, log *slog.Logger, it item, root st
 	if err != nil {
 		return trailers.Entry{}, fmt.Errorf("ask which videos are named: %w", err)
 	}
-	video, ok := trailers.Pick(videos, s.Language)
-	if !ok {
+	ranked := trailers.Rank(videos, s.Language)
+	if len(ranked) == 0 {
 		return trailers.Entry{State: trailers.StateNone}, nil
 	}
 	if now := s.Clock.Now(); now.Before(s.pausedUntil) {
 		return trailers.Entry{}, errPaused
 	}
 
+	// The best video first; one whose page has no video to fetch -- removed,
+	// private, held for an age -- gives way to the next.
 	dst := trailers.File(root, it.kind, it.uid)
-	facts, err := s.fetch(ctx, video, dst)
-	select {
-	case <-ctx.Done():
-	case <-s.Clock.After(s.pace()):
-	}
-	switch {
-	case err == nil:
-		e := trailers.Entry{
-			State: trailers.StateReady, Video: &video, Path: dst,
-			SizeBytes: facts.SizeBytes, DurationMillis: facts.DurationMillis, Width: facts.Width, Height: facts.Height,
-			VideoCodec: facts.VideoCodec, AudioCodec: facts.AudioCodec,
+	var video trailers.Video
+	for i, candidate := range ranked {
+		if i == maxCandidates {
+			break
 		}
-		return e, nil
-	case ctx.Err() != nil:
-		return trailers.Entry{}, ctx.Err()
-	case errors.Is(err, ytdlp.ErrThrottled):
-		s.pausedUntil = s.Clock.Now().Add(throttlePause)
-		log.WarnContext(ctx, "trailers: the site is refusing this client; nothing is fetched for a while", "until", s.pausedUntil, "err", err)
-		return trailers.Entry{}, errPaused
+		video = candidate
+		var facts Facts
+		facts, err = s.fetch(ctx, video, dst)
+		select {
+		case <-ctx.Done():
+		case <-s.Clock.After(s.pace()):
+		}
+		if err == nil {
+			return trailers.Entry{
+				State: trailers.StateReady, Video: &video, Path: dst,
+				SizeBytes: facts.SizeBytes, DurationMillis: facts.DurationMillis, Width: facts.Width, Height: facts.Height,
+				VideoCodec: facts.VideoCodec, AudioCodec: facts.AudioCodec,
+			}, nil
+		}
+		if ctx.Err() != nil {
+			return trailers.Entry{}, ctx.Err()
+		}
+		if errors.Is(err, ytdlp.ErrThrottled) {
+			s.pausedUntil = s.Clock.Now().Add(throttlePause)
+			log.WarnContext(ctx, "trailers: the site is refusing this client; nothing is fetched for a while", "until", s.pausedUntil, "err", err)
+			return trailers.Entry{}, errPaused
+		}
+		log.WarnContext(ctx, "trailers: the fetch failed", "site", video.Site, "video", video.Key, "candidate", i+1, "of", len(ranked), "err", err)
+		if !errors.Is(err, ytdlp.ErrUnavailable) {
+			break
+		}
 	}
 	attempts := 1
 	if prev.State == trailers.StateFailed && prev.Video != nil && prev.Video.Key == video.Key {
 		attempts = prev.Attempts + 1
 	}
 	if errors.Is(err, ytdlp.ErrUnavailable) {
-		// The page has no video and will not grow one.
+		// No page tried has a video, and none will grow one.
 		attempts = trailers.MaxAttempts
 	}
-	log.WarnContext(ctx, "trailers: the fetch failed", "site", video.Site, "attempt", attempts, "err", err)
 	return trailers.Entry{
 		State: trailers.StateFailed, Video: &video, Attempts: attempts, Error: err.Error(),
 		RetryAt: s.Clock.Now().Add(trailers.RetryAfter(attempts)),

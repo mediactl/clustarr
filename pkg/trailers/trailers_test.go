@@ -157,3 +157,21 @@ func TestAPathIsMappedToWherePlexMountsIt(t *testing.T) {
 		assert.Error(t, err, bad)
 	}
 }
+
+// Rank lists every video that may be fetched, best first and each page
+// once, so one whose page has no video gives way to the next.
+func TestRankListsEveryFetchableVideoBestFirstAndOnce(t *testing.T) {
+	videos := []trailers.Video{
+		{Site: "YouTube", Key: "teaser00001", Type: "Teaser", Official: true},
+		{Site: "YouTube", Key: "fantrailer1", Type: "Trailer"},
+		{Site: "YouTube", Key: "clip0000001", Type: "Clip", Official: true},
+		{Site: "YouTube", Key: "official001", Type: "Trailer", Official: true},
+		{Site: "YouTube", Key: "official001", Type: "Trailer", Official: true, Provider: "tvdb"},
+	}
+	var keys []string
+	for _, v := range trailers.Rank(videos, "en") {
+		keys = append(keys, v.Key)
+	}
+	assert.Equal(t, []string{"official001", "fantrailer1", "teaser00001"}, keys)
+	assert.Empty(t, trailers.Rank(nil, "en"))
+}

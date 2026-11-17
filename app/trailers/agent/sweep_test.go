@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -377,4 +378,67 @@ func TestAGoneFileIsFetchedAgainAndAGoneItemsTrailerIsRemoved(t *testing.T) {
 // nobody owns.
 func TestTrailersLieUnderTheDirectoryNoLibraryWalkEnters(t *testing.T) {
 	assert.Equal(t, filepath.Join("/data/media/movies", fsops.ClustarrDir, "trailers"), trailers.Dir("/data/media/movies"))
+}
+
+// A page with no video to fetch -- removed, private, held for an age --
+// gives way to the item's next best video; only when none of those tried
+// has one is the item given up until its decision lapses.
+func TestAnUnavailableVideoGivesWayToTheNextBest(t *testing.T) {
+	second := trailers.Video{Site: "YouTube", Key: "secondbest0", Name: "Trailer 2", Type: "Trailer", Language: "en", Height: 1080, Provider: "tmdb"}
+	r := newRig(t, movie("a", "uid-a", true, map[string]string{"tmdb": "1"}))
+	r.videos = []trailers.Video{second, official}
+	held := r.fetch
+	r.fetch = func(dir string) (ytdlp.Fetched, error) {
+		if len(r.fetched) == 1 {
+			return ytdlp.Fetched{}, ytdlp.ErrUnavailable
+		}
+		return held(dir)
+	}
+
+	r.pass()
+
+	assert.Equal(t, []string{official.URL(), second.URL()}, r.fetched)
+	e, ok := r.entry(trailers.KindMovie, "uid-a")
+	require.True(t, ok)
+	assert.Equal(t, trailers.StateReady, e.State)
+	assert.Equal(t, "secondbest0", e.Video.Key)
+
+	// Every page tried unavailable: given up, the best video recorded last.
+	r2 := newRig(t, movie("b", "uid-b", true, map[string]string{"tmdb": "2"}))
+	r2.videos = []trailers.Video{official, second}
+	r2.fetch = func(string) (ytdlp.Fetched, error) { return ytdlp.Fetched{}, ytdlp.ErrUnavailable }
+	r2.pass()
+	assert.Len(t, r2.fetched, 2)
+	e, ok = r2.entry(trailers.KindMovie, "uid-b")
+	require.True(t, ok)
+	assert.Equal(t, trailers.StateFailed, e.State)
+	assert.Equal(t, trailers.MaxAttempts, e.Attempts)
+
+	// Any other failure is the same page's to try again, not the next's.
+	r3 := newRig(t, movie("c", "uid-c", true, map[string]string{"tmdb": "3"}))
+	r3.videos = []trailers.Video{official, second}
+	r3.fetch = func(string) (ytdlp.Fetched, error) { return ytdlp.Fetched{}, errors.New("ytdlp: timed out") }
+	r3.pass()
+	assert.Equal(t, []string{official.URL()}, r3.fetched)
+}
+
+// A pass gives up when item after item cannot be decided: the gateway is
+// not answering, and every item after would only say so again (talos,
+// 2026-11-17: the agent's first pass ran while the metadata agent was
+// rolling and warned once for each of 1,800 items).
+func TestAPassGivesUpWhenTheGatewayIsNotAnswering(t *testing.T) {
+	var objs []client.Object
+	for i := range 3 * maxUndecided {
+		uid := types.UID(fmt.Sprintf("uid-%02d", i))
+		objs = append(objs, movie(fmt.Sprintf("m%02d", i), uid, true, map[string]string{"tmdb": "1", "plex": moviePlex}))
+	}
+	r := newRig(t, objs...)
+	asked := 0
+	r.PlexExtras = func(context.Context, string) ([]json.RawMessage, error) {
+		asked++
+		return nil, errors.New("events: no responders")
+	}
+	err := r.Pass(context.Background())
+	require.ErrorContains(t, err, "no responders")
+	assert.Equal(t, maxUndecided, asked)
 }

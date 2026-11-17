@@ -198,12 +198,22 @@ func (v Video) URL() string {
 	return ""
 }
 
-// Pick is the video an item's trailer is fetched from: among those with a
-// page to fetch, a trailer before a teaser and nothing else; then the
-// rights holder's own; then one in language, then English, then any; then
-// the sharpest; then the newest, and the provider's order after that.
-// False when none qualifies.
+// Pick is the video an item's trailer is fetched from, the first of
+// [Rank]; false when none qualifies.
 func Pick(videos []Video, language string) (Video, bool) {
+	ranked := Rank(videos, language)
+	if len(ranked) == 0 {
+		return Video{}, false
+	}
+	return ranked[0], true
+}
+
+// Rank is the videos an item's trailer may be fetched from, best first:
+// among those with a page to fetch, a trailer before a teaser and nothing
+// else; then the rights holder's own; then one in language, then English,
+// then any; then the sharpest; then the newest, and the provider's order
+// after that. Each page once.
+func Rank(videos []Video, language string) []Video {
 	language = strings.ToLower(language)
 	rank := func(v Video) (typ, official, lang int) {
 		switch strings.ToLower(v.Type) {
@@ -228,13 +238,12 @@ func Pick(videos []Video, language string) (Video, bool) {
 		return typ, official, lang
 	}
 	var pool []Video
+	seen := map[string]bool{}
 	for _, v := range videos {
-		if t, _, _ := rank(v); t < 2 && v.URL() != "" {
+		if t, _, _ := rank(v); t < 2 && v.URL() != "" && !seen[v.URL()] {
+			seen[v.URL()] = true
 			pool = append(pool, v)
 		}
-	}
-	if len(pool) == 0 {
-		return Video{}, false
 	}
 	slices.SortStableFunc(pool, func(a, b Video) int {
 		at, ao, al := rank(a)
@@ -244,7 +253,7 @@ func Pick(videos []Video, language string) (Video, bool) {
 			cmp.Compare(b.Height, a.Height), b.PublishedAt.Compare(a.PublishedAt),
 		)
 	})
-	return pool[0], true
+	return pool
 }
 
 // PlexTrailerType is the extraType Plex gives a trailer.
