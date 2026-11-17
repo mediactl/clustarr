@@ -397,7 +397,7 @@ templ CollectionsList(p CollectionsPage) {
 }
 
 templ collectionRow(r CollectionRow) {
-	@item.Item(item.Props{Variant: item.VariantOutline, Attributes: templ.Attributes{"data-collection": r.Namespace + "/" + r.Name}}) {
+	@item.Item(item.Props{Variant: item.VariantOutline, Class: "flex-wrap", Attributes: templ.Attributes{"data-collection": r.Namespace + "/" + r.Name}}) {
 		if r.Poster != "" {
 			@item.Media(item.MediaProps{Variant: item.MediaVariantImage}) {
 				<img src={ templ.URL(r.Poster) } alt="" loading="lazy" class="aspect-[2/3] w-10 rounded object-cover"/>
@@ -415,7 +415,9 @@ templ collectionRow(r CollectionRow) {
 				{ r.Reading }
 			}
 		}
-		@item.Actions() {
+		// The actions wrap under the title when the row is narrow: on a phone
+		// they ran off the card and Delete was out of reach.
+		@item.Actions(item.ActionsProps{Class: "ml-auto flex-wrap justify-end"}) {
 			@CollectionHubFlags(r.Hub, false)
 			if r.Items > 0 {
 				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
@@ -427,13 +429,18 @@ templ collectionRow(r CollectionRow) {
 					{ r.Reason }
 				}
 			}
-			@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIconSm, Attributes: templ.Attributes{
-				"hx-post":    "/library/collections/" + r.Namespace + "/" + r.Name + "/delete",
-				"hx-target":  "#action-status",
-				"hx-swap":    "innerHTML",
-				"hx-confirm": "Delete the collection " + r.Title + "? Its Plex collection is deleted too.",
-				"aria-label": "Delete " + r.Title,
-				"title":      "Delete",
+			@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIconSm, Href: collectionEditPath(r.Namespace, r.Name), Attributes: templ.Attributes{"aria-label": "Edit " + r.Title, "title": "Edit"}}) {
+				@icon.Icon("pencil")()
+			}
+			@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIconSm, Class: "hover:text-destructive", Attributes: templ.Attributes{
+				"hx-post":             "/library/collections/" + r.Namespace + "/" + r.Name + "/delete",
+				"hx-target":           "#action-status",
+				"hx-swap":             "innerHTML",
+				"hx-confirm":          "Its Plex collection is deleted too.",
+				"data-confirm-title":  "Delete " + strconv.Quote(r.Title) + "?",
+				"data-confirm-action": "Delete",
+				"aria-label":          "Delete " + r.Title,
+				"title":               "Delete",
 			}}) {
 				@icon.Icon("trash-2")()
 			}
@@ -463,56 +470,65 @@ templ CollectionEditorForm(e CollectionEditor) {
 		id="collection-editor"
 		method="post"
 		action={ templ.URL(editorAction(e)) }
-		class="max-w-4xl space-y-8"
-		hx-post="/library/collections/editor?op=refresh"
-		hx-trigger="change[target.name==='itemType'||target.name==='kind'||target.name==='visibility.managed'||target.name.endsWith('.field')||target.name.endsWith('.url')]"
-		hx-target="this"
-		hx-swap="outerHTML"
+		class="max-w-4xl [overflow-anchor:none]"
 	>
-		<input type="hidden" name="namespace" value={ e.Namespace }/>
-		<input type="hidden" name="name" value={ e.Name }/>
-		<input type="hidden" name="generation" value={ strconv.FormatInt(e.Generation, 10) }/>
-		if e.Error != "" {
-			@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Attributes: templ.Attributes{"data-editor-error": true}}) {
-				@icon.Icon("circle-alert")()
-				@alert.Title() {
-					The collection was not saved
-				}
-				@alert.Description() {
-					<p class="whitespace-pre-line">{ e.Error }</p>
+		// The redraw is asked by this inner element, not by the form: htmx
+		// validates a requesting form, so on a new collection Kind, Holds,
+		// a condition's field and the image URLs silently did nothing until
+		// Title and Library were filled. (And the form does not anchor the
+		// scroll: on a phone every redraw threw the page to its foot.)
+		<div
+			class="space-y-8"
+			hx-post="/library/collections/editor?op=refresh"
+			hx-trigger="change[target.name==='itemType'||target.name==='kind'||target.name==='visibility.managed'||target.name.endsWith('.field')||target.name.endsWith('.url')]"
+			hx-target="#collection-editor"
+			hx-swap="outerHTML"
+		>
+			<input type="hidden" name="namespace" value={ e.Namespace }/>
+			<input type="hidden" name="name" value={ e.Name }/>
+			<input type="hidden" name="generation" value={ strconv.FormatInt(e.Generation, 10) }/>
+			if e.Error != "" {
+				@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Attributes: templ.Attributes{"data-editor-error": true}}) {
+					@icon.Icon("circle-alert")()
+					@alert.Title() {
+						The collection was not saved
+					}
+					@alert.Description() {
+						<p class="whitespace-pre-line">{ e.Error }</p>
+					}
 				}
 			}
-		}
-		@editorGeneral(e)
-		switch editorKind(e) {
-			case "smart":
-				@editorFilter(e)
-			case "tmdb":
-				@editorTMDB(e)
-			default:
-				@editorMembers(e)
-		}
-		@editorImages(e)
-		@editorSettings(e)
-		<datalist id="collection-libraries">
-			for _, l := range e.Libraries {
-				<option value={ l }></option>
+			@editorGeneral(e)
+			switch editorKind(e) {
+				case "smart":
+					@editorFilter(e)
+				case "tmdb":
+					@editorTMDB(e)
+				default:
+					@editorMembers(e)
 			}
-		</datalist>
-		for _, k := range sortedSuggestionKeys(e.Suggestions) {
-			<datalist id={ SuggestionListID(k) }>
-				for _, v := range e.Suggestions[k] {
-					<option value={ v }></option>
+			@editorImages(e)
+			@editorSettings(e)
+			<datalist id="collection-libraries">
+				for _, l := range e.Libraries {
+					<option value={ l }></option>
 				}
 			</datalist>
-		}
-		<div class="flex gap-2">
-			@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "save-collection"}}) {
-				Save
+			for _, k := range sortedSuggestionKeys(e.Suggestions) {
+				<datalist id={ SuggestionListID(k) }>
+					for _, v := range e.Suggestions[k] {
+						<option value={ v }></option>
+					}
+				</datalist>
 			}
-			@button.Button(button.Props{Href: "/library/collections", Variant: button.VariantOutline}) {
-				Cancel
-			}
+			<div class="flex gap-2">
+				@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "save-collection"}}) {
+					Save
+				}
+				@button.Button(button.Props{Href: "/library/collections", Variant: button.VariantOutline}) {
+					Cancel
+				}
+			</div>
 		</div>
 	</form>
 }
@@ -661,17 +677,22 @@ templ editorGroup(e CollectionEditor, i int, r catalogv1.PlexFilterRule) {
 }
 
 templ editorCondition(e CollectionEditor, prefix string, c catalogv1.PlexCondition, at string) {
-	<div class="grid grid-cols-1 items-start gap-2 sm:grid-cols-[13rem_11rem_1fr_auto]" data-editor-condition={ at }>
+	// Two rows below xl (field and operator, then the value beside its
+	// remove), one row from it: on one row at every width the value box
+	// was 40px wide on a portrait tablet.
+	<div class="grid grid-cols-2 items-start gap-2 xl:grid-cols-[13rem_11rem_minmax(10rem,1fr)_auto]" data-editor-condition={ at }>
 		@conditionSelect(prefix+"field", "Field", fieldChoices(e.Spec.ItemType), c.Field)
 		@conditionSelect(prefix+"operator", "Operator", operatorChoices(e.Spec.ItemType, c.Field), string(c.Operator))
-		if takesValue(c.Operator) {
-			@input.Input(input.Props{Name: prefix + "value", Value: c.Value, Attributes: valueAttrs(e, c.Field)})
-		} else {
-			<div></div>
-		}
-		@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantGhost, Size: button.SizeIcon, Attributes: editorOpAttrs("remove", at, "Remove the condition")}) {
-			@icon.Icon("x")()
-		}
+		<div class="col-span-2 flex items-start gap-2 xl:contents">
+			if takesValue(c.Operator) {
+				@input.Input(input.Props{Name: prefix + "value", Value: c.Value, Class: "min-w-0 flex-1", Attributes: valueAttrs(e, c.Field)})
+			} else {
+				<div class="flex-1"></div>
+			}
+			@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantGhost, Size: button.SizeIcon, Attributes: editorOpAttrs("remove", at, "Remove the condition")}) {
+				@icon.Icon("x")()
+			}
+		</div>
 	</div>
 }
 
@@ -718,7 +739,11 @@ templ editorMembers(e CollectionEditor) {
 					"hx-get":       memberSearchPath(e.Spec.ItemType),
 					"hx-trigger":   "input changed delay:300ms, search",
 					"hx-target":    "#collection-member-hits",
-					"hx-include":   "this",
+					// Its own swap: inherited from the editor it would be the
+					// form's outerHTML, and the first answer replaced the
+					// search's own target, after which every keystroke failed.
+					"hx-swap":    "innerHTML",
+					"hx-include": "this",
 				},
 			})
 		}

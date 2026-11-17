@@ -184,7 +184,7 @@ templ HubLibrarySection(l HubLibrary) {
 			if l.Exists {
 				<div class="flex flex-wrap items-center gap-2">
 					if len(l.Addable) > 0 {
-						<form method="post" action={ templ.URL(hubEditPath(l.Namespace, l.Name)) } class="flex items-center gap-2" data-hub-add>
+						<form method="post" action={ templ.URL(hubEditPath(l.Namespace, l.Name)) } hx-post={ hubEditPath(l.Namespace, l.Name) } hx-target="#action-status" hx-swap="innerHTML" class="flex items-center gap-2" data-hub-add>
 							<input type="hidden" name="library" value={ l.Title }/>
 							<input type="hidden" name="op" value="add"/>
 							<input type="hidden" name="return" value="/library/hubs"/>
@@ -211,7 +211,7 @@ templ HubLibrarySection(l HubLibrary) {
 									Plex puts the library's hubs back in its own order and visibility, and this layout lists none again.
 								}
 							}
-							<form method="post" action={ templ.URL("/library/hubs/" + l.Namespace + "/" + l.Name + "/reset") } data-hub-reset-form>
+							<form method="post" action={ templ.URL("/library/hubs/" + l.Namespace + "/" + l.Name + "/reset") } hx-post={ "/library/hubs/" + l.Namespace + "/" + l.Name + "/reset" } hx-target="#action-status" hx-swap="innerHTML" data-hub-reset-form>
 								<input type="hidden" name="library" value={ l.Title }/>
 								<input type="hidden" name="return" value="/library/hubs"/>
 								@alertdialog.Footer() {
@@ -244,7 +244,7 @@ templ HubLibrarySection(l HubLibrary) {
 				<p class="text-sm text-muted-foreground">
 					Nothing manages this library's hubs yet, so cluster-plex has not reported them. Start managing it to list them here; nothing changes in Plex until a hub is edited.
 				</p>
-				<form method="post" action={ templ.URL(hubEditPath(l.Namespace, l.Name)) }>
+				<form method="post" action={ templ.URL(hubEditPath(l.Namespace, l.Name)) } hx-post={ hubEditPath(l.Namespace, l.Name) } hx-target="#action-status" hx-swap="innerHTML">
 					<input type="hidden" name="library" value={ l.Title }/>
 					<input type="hidden" name="op" value="ensure"/>
 					<input type="hidden" name="return" value="/library/hubs"/>
@@ -275,24 +275,30 @@ templ HubRows(l HubLibrary, oob bool) {
 				@emptyNote("Waiting for cluster-plex to report this library's hubs.", "", templ.Attributes{"data-hub-waiting": true})
 			}
 		} else {
-			<div class="panel overflow-x-auto">
+			// The three switches stay on a phone's screen (2026-11-17: they
+			// were off it, and scrolled to they had no hub names beside
+			// them): the heads shorten by the table's own width and the hub's
+			// title wraps.
+			<div class="panel overflow-x-auto @container/table">
 				@table.Table() {
 					@table.Header() {
 						@table.Row() {
-							@table.Head(table.HeadProps{Class: "w-24"}) {
-								Order
+							@table.Head(table.HeadProps{Class: "w-px"}) {
+								<span class="@max-xl/table:sr-only">Order</span>
 							}
-							@table.Head() {
+							@table.Head(table.HeadProps{Class: "w-full"}) {
 								Hub
 							}
-							@table.Head(table.HeadProps{Class: "text-center"}) {
-								Library Recommended
+							@table.Head(table.HeadProps{Class: "px-1 text-center @xl/table:px-2"}) {
+								<span class="@max-xl/table:hidden">Library Recommended</span>
+								<span class="@xl/table:hidden">Library</span>
 							}
-							@table.Head(table.HeadProps{Class: "text-center"}) {
+							@table.Head(table.HeadProps{Class: "px-1 text-center @xl/table:px-2"}) {
 								Home
 							}
-							@table.Head(table.HeadProps{Class: "text-center"}) {
-								Friends' Home
+							@table.Head(table.HeadProps{Class: "px-1 text-center @xl/table:px-2"}) {
+								<span class="@max-xl/table:hidden">Friends' Home</span>
+								<span class="@xl/table:hidden">Friends</span>
 							}
 							@table.Head(table.HeadProps{Class: "w-12"}) {
 								<span class="sr-only">Remove</span>
@@ -313,7 +319,7 @@ templ HubRows(l HubLibrary, oob bool) {
 templ hubRow(l HubLibrary, r HubRow, i int) {
 	@table.Row(table.RowProps{Attributes: templ.Attributes{"data-hub": r.Key, "data-hub-listed": strconv.FormatBool(r.Listed)}}) {
 		@table.Cell() {
-			<div class="flex items-center gap-1">
+			<div class="flex items-center @max-xl/table:flex-col">
 				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIconSm, Disabled: i == 0, Attributes: hubMove(l, r, i-1, "Move up")}) {
 					@icon.Icon("arrow-up")()
 				}
@@ -322,9 +328,9 @@ templ hubRow(l HubLibrary, r HubRow, i int) {
 				}
 			</div>
 		}
-		@table.Cell() {
-			<div class="flex flex-wrap items-center gap-2">
-				<span class="font-medium">{ r.Title }</span>
+		@table.Cell(table.CellProps{Class: "w-full min-w-28 whitespace-normal"}) {
+			<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+				<span class="font-medium wrap-anywhere">{ r.Title }</span>
 				if r.Collection {
 					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
 						Collection
@@ -345,13 +351,13 @@ templ hubRow(l HubLibrary, r HubRow, i int) {
 				}
 			</div>
 		}
-		@table.Cell(table.CellProps{Class: "text-center"}) {
+		@table.Cell(table.CellProps{Class: "px-1 text-center @xl/table:px-2"}) {
 			@switchcomp.Switch(switchcomp.Props{Checked: &r.LibraryRecommended, Size: switchcomp.SizeSm, Attributes: hubFlagSwitch(l, r, "libraryRecommended", "Library Recommended", r.LibraryRecommended)})
 		}
-		@table.Cell(table.CellProps{Class: "text-center"}) {
+		@table.Cell(table.CellProps{Class: "px-1 text-center @xl/table:px-2"}) {
 			@switchcomp.Switch(switchcomp.Props{Checked: &r.Home, Size: switchcomp.SizeSm, Attributes: hubFlagSwitch(l, r, "home", "Home", r.Home)})
 		}
-		@table.Cell(table.CellProps{Class: "text-center"}) {
+		@table.Cell(table.CellProps{Class: "px-1 text-center @xl/table:px-2"}) {
 			@switchcomp.Switch(switchcomp.Props{Checked: &r.FriendsHome, Size: switchcomp.SizeSm, Attributes: hubFlagSwitch(l, r, "friendsHome", "Friends' Home", r.FriendsHome)})
 		}
 		@table.Cell() {
