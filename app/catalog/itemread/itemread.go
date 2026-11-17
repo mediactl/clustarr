@@ -669,6 +669,35 @@ func BacklogValues(o client.Object) []string {
 	return []string{string(c.Reason)}
 }
 
+// LastSearchedAt is a searchable item's status.lastSearchedAt: when its
+// last search that asked an indexer or the release index was answered.
+func LastSearchedAt(o client.Object) *metav1.Time {
+	switch t := o.(type) {
+	case *catalogv1alpha1.Movie:
+		return t.Status.LastSearchedAt
+	case *catalogv1alpha1.Episode:
+		return t.Status.LastSearchedAt
+	case *catalogv1alpha1.Album:
+		return t.Status.LastSearchedAt
+	case *catalogv1alpha1.Book:
+		return t.Status.LastSearchedAt
+	case *catalogv1alpha1.Audiobook:
+		return t.Status.LastSearchedAt
+	case *catalogv1alpha1.Issue:
+		return t.Status.LastSearchedAt
+	}
+	return nil
+}
+
+// SearchCounted reports a search dispatch that was answered as a search:
+// closed, and lastSearched not before it. A dispatch every indexer was
+// paced for, one with no indexer to ask and one nobody answered close
+// without moving lastSearchedAt (searchplan.Decide), and are no search of
+// the item: a redownload they were made for is still owed.
+func SearchCounted(d *catalogv1alpha1.Dispatch, lastSearched *metav1.Time) bool {
+	return d != nil && !d.InFlight() && lastSearched != nil && !lastSearched.Time.Before(d.DispatchedAt.Time)
+}
+
 // LastLiveSearchAt is a searchable item's status.lastLiveSearchAt.
 func LastLiveSearchAt(o client.Object) *metav1.Time {
 	switch t := o.(type) {

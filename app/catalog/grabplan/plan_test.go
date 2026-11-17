@@ -276,9 +276,12 @@ func TestAManualPickIsExemptFromTranscodedFinalAndOverrideFromBlocklisted(t *tes
 }
 
 // TestAnOwnerAtItsCapPendsNeverTruncates is §6.6 step 2: an owner holding
-// EntryCap entries refuses a grab with one Normal AtCapacity Event, never
-// dropping an entry it holds; a release the delay profile holds is still
-// pended, since a pending grab is no entry.
+// EntryCap entries makes no entry of a grab and drops none it holds, with
+// one Normal AtCapacity Event. Since 2026-11-17 the release is held as a
+// pending grab until there is room, where it was refused and lost
+// (Succession: 24 entries, eleven of them failed tombstones, and nine
+// episodes never tried again); a release the delay profile holds is pended
+// as ever, since a pending grab is no entry.
 func TestAnOwnerAtItsCapPendsNeverTruncates(t *testing.T) {
 	c := parked(heatRef, "rss-1", movieCandidate(t, "Heat.1995.1080p.BluRay.x264-GRP"), false, false)
 	v := movieView(t, nil, c)
@@ -289,10 +292,31 @@ func TestAnOwnerAtItsCapPendsNeverTruncates(t *testing.T) {
 	}
 	p := grabplan.Decide(v)
 	require.Empty(t, p.NewEntries)
-	require.Equal(t, intake.Refused, p.Settle["rss-1"])
+	require.Equal(t, intake.Pended, p.Settle["rss-1"], "held for room, never dropped")
+	require.Len(t, p.Pending, 1)
+	require.Equal(t, v.Now.Add(grabplan.CapacityRetry), p.Pending[0].GrabAt.Time)
+	require.Equal(t, p.Pending[0].GrabAt.Time, p.Due, "the pass is owed again when the hold is")
+	require.Equal(t, 1, p.Decisions["atCapacity"])
 	require.Len(t, p.Events, 1)
 	require.Equal(t, grabplan.ReasonAtCapacity, p.Events[0].Reason)
 	require.Equal(t, lifecycle.EventNormal, p.Events[0].Type)
+
+	t.Run("the held release is grabbed once there is room", func(t *testing.T) {
+		later := v
+		later.Candidates = nil
+		later.Pending = p.Pending
+		later.Now = v.Now.Add(grabplan.CapacityRetry)
+		still := grabplan.Decide(later)
+		require.Empty(t, still.NewEntries, "the cap still holds")
+		require.Len(t, still.Pending, 1, "and so does the hold")
+		require.Equal(t, later.Now.Add(grabplan.CapacityRetry), still.Pending[0].GrabAt.Time)
+
+		later.Entries = later.Entries[:1]
+		got := grabplan.Decide(later)
+		require.Len(t, got.NewEntries, 1)
+		require.Equal(t, "Heat.1995.1080p.BluRay.x264-GRP", got.NewEntries[0].Release.Title)
+		require.Empty(t, got.Pending)
+	})
 
 	t.Run("a delayed release is pended at the cap", func(t *testing.T) {
 		v := v

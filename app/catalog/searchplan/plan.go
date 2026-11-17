@@ -25,6 +25,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -56,6 +57,15 @@ const (
 	// PostReleaseWindow bounds that search to items released lately: past
 	// it the item is the backlog's, on its cooldown.
 	PostReleaseWindow = 7 * 24 * time.Hour
+	// RedownloadRetry is the least a redownload waits after a dispatch
+	// that asked no indexer -- every one paced, none to ask, or nobody
+	// answered -- before it is dispatched again (owner, 2026-11-17: "The
+	// retry should enqueue a release search ..."; such a dispatch had
+	// counted as the failure's search, so the retry ended there). The wait
+	// grows with the time since the failure, to RedownloadRetryMax, so an
+	// indexer outage does not fill the namespace's live-search pace.
+	RedownloadRetry    = 5 * time.Minute
+	RedownloadRetryMax = time.Hour
 	// DonorSearchesPerSweep caps the first-time live donor searches per
 	// namespace per wantedcron period (P4, §7.3).
 	DonorSearchesPerSweep = 20
@@ -285,10 +295,18 @@ func Decide(v View, admit func(durable string, seq int64) dispatch.Decision, pac
 	if d != nil {
 		d.Delivery = nil
 	}
+	// Due-ness reads the dispatch as this pass leaves it: one closed above
+	// is no longer in flight.
+	v.Dispatch = d
 
 	// 4. Due?
 	purpose := purposeDue(v, now)
 	if purpose == nil {
+		// A redownload whose dispatch asked no indexer is owed again, and
+		// nothing wakes the item for it but this.
+		if at, ok := redownloadRetryAt(v, now); ok && at.After(now) {
+			p.Due = at
+		}
 		// Nothing wakes the item for its post-release search but this.
 		if at, ok := postRelease(v, now); ok {
 			if d != nil {
@@ -299,7 +317,7 @@ func Decide(v View, admit func(durable string, seq int64) dispatch.Decision, pac
 			// Only a moment still ahead: one already past is held by the
 			// item's season, whose answer wakes it, and a Due in the past
 			// would bring the pass straight back.
-			if at.After(now) {
+			if at.After(now) && (p.Due.IsZero() || at.Before(p.Due)) {
 				p.Due = at
 			}
 		}
@@ -462,7 +480,34 @@ func RedownloadDue(v View, now time.Time) bool {
 	if !v.Searchable || !v.Monitored || v.Profile == "" {
 		return false
 	}
-	return v.Dispatch == nil || v.Dispatch.DispatchedAt.Time.Before(*v.Redownload)
+	if v.Dispatch == nil || v.Dispatch.DispatchedAt.Time.Before(*v.Redownload) {
+		return true
+	}
+	// Dispatched since the failure. A dispatch that asked no indexer was no
+	// search (itemread.SearchCounted): the redownload is still owed, once
+	// its retry wait has passed.
+	at, ok := redownloadRetryAt(v, now)
+	return ok && !now.Before(at)
+}
+
+// redownloadRetryAt is when a redownload dispatched since its failure and
+// closed without asking an indexer is dispatched again, and whether one is
+// owed so: RedownloadRetry after that dispatch, or as long after it as it
+// was after the failure, to RedownloadRetryMax.
+func redownloadRetryAt(v View, now time.Time) (time.Time, bool) {
+	d := v.Dispatch
+	if v.Redownload == nil || d == nil || d.InFlight() || d.DispatchedAt.Time.Before(*v.Redownload) ||
+		now.Sub(*v.Redownload) >= lifecycle.RedownloadWindow {
+		return time.Time{}, false
+	}
+	if (v.HasFile && !v.Wanted) || !v.Searchable || !v.Monitored || v.Profile == "" {
+		return time.Time{}, false
+	}
+	if itemread.SearchCounted(d, v.LastSearched) {
+		return time.Time{}, false
+	}
+	wait := min(max(d.DispatchedAt.Time.Sub(*v.Redownload), RedownloadRetry), RedownloadRetryMax)
+	return d.DispatchedAt.Add(wait), true
 }
 
 // searched reports an item searched before (P12): its next search is

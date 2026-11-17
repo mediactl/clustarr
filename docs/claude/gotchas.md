@@ -374,6 +374,41 @@ recorded here.
     `tmdb.mapMovie`). Cure (1997) has a US festival premiere and 21 dated
     releases elsewhere: it read `tba`, never available, and was never
     searched, with fourteen more monitored films on talos.
+- **A failed grab's retry is the whole pipeline again -- a search, a pick,
+  a download, an import and the file's work -- and two things had ended it
+  with approved releases left** (owner, 2026-11-17: "Shouldn't we exhaust
+  all possible release sources before giving up?", then "The retry should
+  enqueue a release search, select, download release, enqueue download,
+  transfer, enqueue transcode, transcode and the other steps in between").
+  The loop was already R25: a failure blocklists its release and owes each
+  covered item one live search, whose best release the grab stage takes.
+  - **An owner at its entry cap holds the release, it does not drop it**
+    (`grabplan` `holdAtCapacity`, `CapacityRetry` 5 min): a Series keeps at
+    most 24 entries (`MaxContainerEntries`), a failed one stays an hour as a
+    tombstone (`BlockQuarantine`) and counts, and a release refused at the
+    cap was gone while its search had counted as the failure's. Succession
+    on talos held exactly 24 at every retry that never came -- thirteen
+    live and eleven failed tombstones -- and nine episodes with 77
+    and 89 approved releases a season sat Wanted with nothing queued; Naked
+    and Afraid and Sex and the City hit the cap the same day. The release is
+    now a pending grab, tried again every five minutes until there is room;
+    a set and a donor are still refused.
+  - **A dispatch that asked no indexer is not the failure's search**
+    (`itemread.SearchCounted`: closed, and `lastSearchedAt` not before it).
+    One every indexer was paced for, one with none to ask and one nobody
+    answered close without moving `lastSearchedAt`; the redownload read
+    only the dispatch's time, so it was spent. It is dispatched again after
+    `searchplan.RedownloadRetry` (5 min, growing with the time since the
+    failure to an hour), and lifecycle keeps the failed entry until a
+    counted search (`View.Searched`).
+  Still open: an answer the owner's grab stage never reads inside
+  `grabplan.CandidateWindow` (a manager down for half an hour) is lost, and
+  telling that from "nothing was left" needs a status field; a local fault
+  (`writeError`: 20 of 22 on 2026-11-17 were followed by no grab, the
+  engine's scratch files gone or altered) and an expired import hold start
+  no retry, by design. After a chain breaks only the release index is
+  asked, which found nothing in 54 episode searches while 5 of 5 live ones
+  found approved releases, until a BacklogSearch's cooldown.
 - **A payload fetch an indexer answers 429 pauses its grabs locally, and a
   429 whose body names one release's cooldown pauses that release alone
   (2026-10-16).** `spec.limits.grabLimit`'s ring is clustarr's count, not

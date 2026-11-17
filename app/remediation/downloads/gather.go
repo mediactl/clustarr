@@ -272,7 +272,7 @@ func (s *Stage) covered(ctx context.Context, ow owner, v *lifecycle.View) error 
 				}
 				ref := schema.ItemRef{Kind: "Episode", Ref: schema.Ref{Namespace: ns, Name: ep.Name, UID: string(ep.UID)}}
 				v.Covered[types.UID(e.UID)] = append(v.Covered[types.UID(e.UID)], ref)
-				if d := ep.Status.SearchDispatch; d != nil {
+				if d := ep.Status.SearchDispatch; itemread.SearchCounted(d, ep.Status.LastSearchedAt) {
 					v.Searched[ref] = d.DispatchedAt.UTC()
 				}
 				if !ptr.Deref(ep.Spec.Monitored, true) {
@@ -297,7 +297,7 @@ func (s *Stage) covered(ctx context.Context, ow owner, v *lifecycle.View) error 
 				}
 				ref := schema.ItemRef{Kind: "Issue", Ref: schema.Ref{Namespace: ns, Name: iss.Name, UID: string(iss.UID)}}
 				v.Covered[types.UID(e.UID)] = append(v.Covered[types.UID(e.UID)], ref)
-				if d := iss.Status.SearchDispatch; d != nil {
+				if d := iss.Status.SearchDispatch; itemread.SearchCounted(d, iss.Status.LastSearchedAt) {
 					v.Searched[ref] = d.DispatchedAt.UTC()
 				}
 				if !ptr.Deref(iss.Spec.Monitored, true) {
@@ -309,7 +309,7 @@ func (s *Stage) covered(ctx context.Context, ow owner, v *lifecycle.View) error 
 			}
 		}
 	default:
-		if ow.searched != nil {
+		if itemread.SearchCounted(ow.searched, itemread.LastSearchedAt(ow.obj)) {
 			v.Searched[ow.ref] = ow.searched.DispatchedAt.UTC()
 		}
 		if satisfied(ow.obj, v.Now) {

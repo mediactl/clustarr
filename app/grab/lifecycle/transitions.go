@@ -591,8 +591,10 @@ func (d *decider) confirmBlock(e *catalogv1alpha1.DownloadEntry) bool {
 // redownload is R25: a Blocklisted entry, or a Failed one that is neither a
 // local fault nor an expired hold, younger than RedownloadWindow since its
 // failure (FailedAt; an entry from before it has only its dispatch time),
-// asks a search of each covered item whose last search dispatch is older
-// than the failure, and stays until each was dispatched. An unmonitored
+// asks a search of each covered item not searched since the failure, and
+// stays until each was: a dispatch that asked no indexer -- every one
+// paced, none to ask, nobody answered -- is no search (View.Searched), and
+// had ended the item's retries with releases left (2026-11-17). An unmonitored
 // item is never searched, so it owes none and holds nothing: a tombstone
 // for an unmonitored episode stood until its window ran out, and every
 // Remove, re-issuing the command, had restarted it (talos, 2026-10-27).

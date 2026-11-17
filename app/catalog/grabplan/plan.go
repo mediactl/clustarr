@@ -42,6 +42,11 @@ import (
 // regrab the release once its tombstone is gone.
 const CandidateWindow = 30 * time.Minute
 
+// CapacityRetry is how long a release held because its owner is at its
+// entry cap waits before it is tried again: the cap frees when an entry is
+// imported or a failed one's tombstone is dropped, which nothing announces.
+const CapacityRetry = 5 * time.Minute
+
 // The grab planner's Event reasons.
 const (
 	// ReasonAtCapacity: the owner holds EntryCap entries; a candidate is
@@ -156,7 +161,7 @@ type Plan struct {
 	Due    time.Time
 	Events []lifecycle.Event
 	// Decisions counts the plan's verdicts for metrics: "grabbed",
-	// "delayed", "grabLimited", "refused", and the release-level refusals
+	// "delayed", "grabLimited", "atCapacity", "refused", and the release-level refusals
 	// "overlapsLive", "seasonNotAired" and "tooManyEpisodes" (Wave S).
 	Decisions map[string]int
 }
@@ -246,7 +251,7 @@ func DecideContext(ctx context.Context, v View) Plan {
 		case len(vd.c.Parts) > 0:
 			d.grab(vd)
 		case d.delays(vd):
-			d.hold(vd, d.now.Add(d.wait(vd)), true)
+			d.hold(vd, d.now.Add(d.wait(vd)), holdDelayed)
 		case d.limitedUntil(vd).After(d.now):
 			limited = append(limited, vd)
 		default:
@@ -266,7 +271,7 @@ func DecideContext(ctx context.Context, v View) Plan {
 			d.settle(vd.c, intake.Refused, "grabLimited", reasonOverlapsPass)
 			continue
 		}
-		d.hold(vd, d.limitedUntil(vd), false)
+		d.hold(vd, d.limitedUntil(vd), holdGrabLimited)
 	}
 
 	d.plan.Pending = d.pending
@@ -647,19 +652,29 @@ func (d *decider) wait(vd verdict) time.Duration {
 	return delayFor(*d.v.Delay, vd.c.Release.Decision.Protocol)
 }
 
-// grab makes the candidate a new Pending entry, or refuses it at the
-// owner's cap.
+// grab makes the candidate a new Pending entry. At the owner's cap it is
+// held as a pending grab until there is room (CapacityRetry), where it was
+// refused: the refusal dropped the release and the search that found it
+// had counted as the failure's, so the item's retries ended while approved
+// releases remained (owner, 2026-11-17: Succession held 24 entries, eleven
+// of them an hour's failed tombstones, and nine episodes were never tried
+// again). A set and a donor are still refused: a set is grabbed now or not
+// at all, and a donor waits for the next donor search.
 func (d *decider) grab(vd verdict) {
 	n := max(1, len(vd.c.Parts))
 	if d.v.EntryCap > 0 && len(d.v.Entries)+len(d.plan.NewEntries)+n > d.v.EntryCap {
-		d.settle(vd.c, intake.Refused, "refused", "the owner holds its maximum of grab entries")
 		if !d.atCapOnce {
 			d.atCapOnce = true
 			d.plan.Events = append(d.plan.Events, lifecycle.Event{
 				Type: lifecycle.EventNormal, Reason: ReasonAtCapacity,
-				Message: "the owner holds its maximum of grab entries; a release was not grabbed",
+				Message: "the owner holds its maximum of grab entries; a release waits for room",
 			})
 		}
+		if len(vd.c.Parts) > 0 || vd.c.Purpose != "" {
+			d.settle(vd.c, intake.Refused, "refused", "the owner holds its maximum of grab entries")
+			return
+		}
+		d.hold(vd, d.now.Add(CapacityRetry), holdAtCapacity)
 		return
 	}
 	if len(vd.c.Parts) > 0 {
@@ -672,11 +687,19 @@ func (d *decider) grab(vd verdict) {
 	d.settle(vd.c, intake.Incorporated, "grabbed", "")
 }
 
+// The reasons a candidate is held, which are its settle's decision label.
+const (
+	holdDelayed     = "delayed"
+	holdGrabLimited = "grabLimited"
+	holdAtCapacity  = "atCapacity"
+)
+
 // hold keeps the candidate as a pending grab until at (P16): it replaces an
 // overlapping pending grab only when it is an upgrade of it, keeping the
-// window's anchor for a delay (keepAnchor), or the later instant for a
-// grab-limit hold.
-func (d *decider) hold(vd verdict, at time.Time, keepAnchor bool) {
+// window's anchor for a delay, or the later instant for a grab-limit or
+// capacity hold.
+func (d *decider) hold(vd verdict, at time.Time, why string) {
+	keepAnchor := why == holdDelayed
 	pg := d.pendingGrab(vd, at)
 	for i := range d.pending {
 		cur := &d.pending[i]
@@ -695,7 +718,7 @@ func (d *decider) hold(vd verdict, at time.Time, keepAnchor bool) {
 		}
 		*cur = pg
 		d.take(vd)
-		d.settle(vd.c, intake.Pended, decisionOf(keepAnchor), "")
+		d.settle(vd.c, intake.Pended, why, "")
 		return
 	}
 	if d.v.PendingCap > 0 && len(d.pending) >= d.v.PendingCap {
@@ -704,14 +727,7 @@ func (d *decider) hold(vd verdict, at time.Time, keepAnchor bool) {
 	}
 	d.pending = append(d.pending, pg)
 	d.take(vd)
-	d.settle(vd.c, intake.Pended, decisionOf(keepAnchor), "")
-}
-
-func decisionOf(delay bool) string {
-	if delay {
-		return "delayed"
-	}
-	return "grabLimited"
+	d.settle(vd.c, intake.Pended, why, "")
 }
 
 // dropPending removes the stored pending grabs a grab now covers: their

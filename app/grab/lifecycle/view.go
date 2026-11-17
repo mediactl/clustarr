@@ -169,7 +169,10 @@ type View struct {
 	Blocks map[types.UID]BlockReply
 	// Unblocked are the book's confirmed unblock nonces.
 	Unblocked map[string]bool
-	// Searched is each covered item's searchDispatch.dispatchedAt (R25).
+	// Searched is each covered item's searchDispatch.dispatchedAt (R25),
+	// for a dispatch answered as a search (itemread.SearchCounted): one in
+	// flight, or closed having asked no indexer, is absent, so the failure
+	// it was made for still owes its search and keeps its entry.
 	Searched map[schema.ItemRef]time.Time
 	// Unmonitored names the covered items whose spec.monitored is false:
 	// a redownload search is never dispatched for one, so none is owed.
