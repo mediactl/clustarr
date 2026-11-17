@@ -35,6 +35,66 @@ func configKind(slug string) actions.ConfigKind {
 	return k
 }
 
+// MetaProtocol is the hidden input an Indexer form's definition section
+// carries: the chosen definition's protocol, "" with none chosen.
+const MetaProtocol = "__meta.protocol"
+
+// when holds while the field at path has one of values.
+func when(path string, values ...string) *When { return &When{Path: path, Values: values} }
+
+// unless holds while the field at path has none of values.
+func unless(path string, values ...string) *When {
+	return &When{Path: path, Values: values, Not: true}
+}
+
+// indexerNot holds while the indexer is not known to be of protocol:
+// neither its generic upstream nor its chosen definition says so. A generic
+// section hidden behind a definition reads as unset.
+func indexerNot(protocol string) *When {
+	return and(unless("generic.protocol", protocol), unless(MetaProtocol, protocol))
+}
+
+// videoKinds are the root folder kinds a video quality profile serves.
+var videoKinds = []string{"movie", "series"}
+
+// profileForRoot offers a quality profile of media kind class to a root
+// folder of the kinds it serves.
+func profileForRoot(class string) *When {
+	switch class {
+	case "":
+		return nil
+	case "video":
+		return when("kind", videoKinds...)
+	}
+	return when("kind", class)
+}
+
+// profileForList offers a quality profile of media kind class to an import
+// list that adds a kind it serves.
+func profileForList(class string) *When {
+	switch class {
+	case "":
+		return nil
+	case "video":
+		return when("kinds", "movie", "series")
+	case "music":
+		return when("kinds", "album")
+	}
+	return when("kinds", class)
+}
+
+// rootForList offers a root folder of kind class to an import list that
+// adds what it holds.
+func rootForList(class string) *When {
+	switch class {
+	case "":
+		return nil
+	case "music":
+		return when("kinds", "album")
+	}
+	return when("kinds", class)
+}
+
 var (
 	whenTorrent = &When{Path: "protocol", Values: []string{"torrent"}}
 	whenUsenet  = &When{Path: "protocol", Values: []string{"usenet"}}
@@ -57,25 +117,64 @@ var kinds = []Kind{
 			{Title: "Defaults for new items", Paths: []string{
 				"defaults.qualityProfileRef", "defaults.transcodeProfileRef", "defaults.subtitleProfileRef", "defaults.delayProfileRef",
 				"defaults.monitored", "defaults.monitorNewItems", "defaults.searchOnAdd", "defaults.minimumAvailability",
-				"defaults.seriesType", "defaults.seasonFolder", "defaults.tags",
+				"defaults.seriesType", "defaults.seasonFolder", "defaults.region", "defaults.tags",
 			}},
+			{Title: "Anime", Help: "What an item is moved to once its metadata shows it is anime; no profile, no detection.", When: when("kind", videoKinds...), Paths: []string{
+				"defaults.anime.qualityProfileRef", "defaults.anime.seriesType",
+			}, Advanced: true},
 			{Title: "Naming", Paths: []string{
 				"naming.dialect", "naming.colonReplacement", "naming.multiEpisodeStyle", "naming.overrides", "naming.renameFiles",
-				"naming.renameTranscoded",
+				"naming.renameTranscoded", "naming.organizeFolders", "naming.writeNFO",
 			}, Advanced: true},
 			{Title: "Recycle bin", Paths: []string{"recycleBin.path", "recycleBin.cleanupDays"}, Advanced: true},
 			{Title: "Permissions", Paths: []string{"permissions.fileMode", "permissions.dirMode", "permissions.group"}, Advanced: true},
 		},
 		Labels: map[string]string{
 			"scanSchedule": "Scan schedule (cron)", "minFreeBytes": "Minimum free bytes", "naming.overrides": "Naming token overrides",
-			"naming.renameFiles":      "Rename files to their canonical names",
-			"naming.renameTranscoded": "Rename transcoded files (in their own folder)",
+			"naming.renameFiles":               "Rename files to their canonical names",
+			"naming.renameTranscoded":          "Rename transcoded files (in their own folder)",
+			"naming.organizeFolders":           "Move renamed files into their canonical folders",
+			"naming.writeNFO":                  "Write NFO files for Plex",
+			"defaults.region":                  "Audible region",
+			"defaults.anime.qualityProfileRef": "Anime quality profile", "defaults.anime.seriesType": "Anime series type",
 		},
 		Refs: map[string]Ref{
 			"defaults.qualityProfileRef": RefQualityProfiles, "defaults.transcodeProfileRef": RefTranscodeProfiles,
 			"defaults.subtitleProfileRef": RefSubtitleProfiles, "defaults.delayProfileRef": RefDelayProfiles,
+			"defaults.anime.qualityProfileRef": RefQualityProfiles,
+		},
+		// What a root folder's kind makes meaningless is not drawn for it.
+		Only: map[string]*When{
+			"defaults.minimumAvailability": when("kind", "movie"),
+			"defaults.seriesType":          when("kind", "series"),
+			"defaults.seasonFolder":        when("kind", "series"),
+			"defaults.anime.seriesType":    when("kind", "series"),
+			"defaults.monitorNewItems":     when("kind", "series", "music", "book", "comic"),
+			"defaults.transcodeProfileRef": when("kind", videoKinds...),
+			"defaults.subtitleProfileRef":  when("kind", videoKinds...),
+			"defaults.region":              when("kind", "audiobook"),
+			"naming.multiEpisodeStyle":     when("kind", "series"),
+			"naming.renameTranscoded":      when("kind", videoKinds...),
+			"naming.organizeFolders":       when("kind", "music", "book", "audiobook", "comic"),
+			"naming.writeNFO":              when("kind", "music", "audiobook"),
+		},
+		RefOptions: map[string]func(string) *When{
+			"defaults.qualityProfileRef":       profileForRoot,
+			"defaults.anime.qualityProfileRef": profileForRoot,
 		},
 		ReadOnlyOnEdit: []string{"path", "kind"},
+		// The anime series type alone is no anime defaults (the CRD wants
+		// its profile): without a profile there is no detection.
+		Ensure: func(spec map[string]any) {
+			d, _ := spec["defaults"].(map[string]any)
+			a, _ := d["anime"].(map[string]any)
+			if a == nil {
+				return
+			}
+			if p, _ := a["qualityProfileRef"].(string); p == "" {
+				delete(d, "anime")
+			}
+		},
 	},
 	{
 		ConfigKind: configKind("qualityprofiles"),
@@ -85,11 +184,19 @@ var kinds = []Kind{
 			{Title: "Profile", Paths: []string{"mediaKind", "cutoff", "upgradeAllowed", "language", "preferredProtocol", "preferSmallest", "properPolicy", "sizeTable", "scoreSet"}},
 			{Title: "Tiers", Help: "Best first. Each tier lists the quality names it accepts, one per line.", Paths: []string{"tiers"}},
 			{Title: "Custom formats", Paths: []string{"minFormatScore", "cutoffFormatScore", "minUpgradeFormatScore", "enabledFormatGroups"}, Advanced: true},
-			{Title: "Size limits", Paths: []string{"sizeLimits"}, Advanced: true},
-			{Title: "Audio", Help: "Video profiles only. Audio languages a file must carry (BCP-47 tags, or original for the item's own language), one per line; when set it replaces Language. The default, if set, must be one of them. Graft completes a file missing one with another release's audio.", Paths: []string{"audio.languages", "audio.graft", "audio.default"}, Advanced: true},
+			{Title: "Size and bitrate limits", Paths: []string{"sizeLimits", "bitrateLimits"}, Advanced: true},
+			{Title: "Audio", When: when("mediaKind", "video"), Help: "Audio languages a file must carry (BCP-47 tags, or original for the item's own language), one per line; when set it replaces Language. The default, if set, must be one of them. Graft completes a file missing one with another release's audio.", Paths: []string{"audio.languages", "audio.graft", "audio.default", "audio.completeFirst"}, Advanced: true},
 		},
+		// The TRaSH tables, score sets and format families are video's.
+		Only: map[string]*When{
+			"sizeTable":           when("mediaKind", "video"),
+			"scoreSet":            when("mediaKind", "video"),
+			"enabledFormatGroups": when("mediaKind", "video"),
+			"bitrateLimits":       when("mediaKind", "video"),
+		},
+		Checks:         []string{"enabledFormatGroups"},
 		Hidden:         []string{"builtIn", "seedHash", "formatScores"},
-		Labels:         map[string]string{"cutoff": "Cutoff tier", "scoreSet": "Score set", "sizeTable": "Size table", "audio.languages": "Audio languages", "audio.graft": "Graft missing audio", "audio.default": "Default audio language"},
+		Labels:         map[string]string{"cutoff": "Cutoff tier", "scoreSet": "Score set", "sizeTable": "Size table", "audio.languages": "Audio languages", "audio.graft": "Graft missing audio", "audio.default": "Default audio language", "audio.completeFirst": "Rank complete audio first", "bitrateLimits": "Bitrate limits (bytes per second)"},
 		ReadOnlyOnEdit: []string{"mediaKind"},
 		// The graft checkbox always posts, so an untouched Audio group decodes
 		// to {graft: false} with no languages, which the CRD refuses: drop it.
@@ -111,16 +218,29 @@ var kinds = []Kind{
 		Help: "A source of titles, artwork and ratings. The type cannot change once created. The metadata gateway reads providers at start, so a new or changed provider is used after the metadata agent restarts.",
 		Groups: []Group{
 			{Title: "Provider", Paths: []string{"type", "enabled", "priority", "baseURL", "language", "region", "contactUserAgent"}},
-			{Title: "Credentials", Paths: []string{"secretRef"}},
+			{Title: "Credentials", When: when("type", "tmdb", "tvdb", "comicvine", "fanart", "mdblist", "omdb", "theintrodb", "hardcover", "metron", "plex", "mediux"), Paths: []string{"secretRef"}},
+			{Title: "MediUX", Help: "How an item's image sets are chosen.", When: when("type", "mediux"), Paths: []string{"mediux.preferredCreators", "mediux.languages", "mediux.quality", "mediux.refresh"}},
 			{Title: "Rate limit", Paths: []string{"rateLimit.requestsPerSecond", "rateLimit.burst", "rateLimit.perDay"}, Advanced: true},
 			{Title: "Cache", Paths: []string{"cacheTTL"}, Advanced: true},
 		},
-		Labels: map[string]string{"contactUserAgent": "Contact user agent (musicbrainz, openlibrary)", "rateLimit.perDay": "Requests per day"},
+		Labels: map[string]string{
+			"contactUserAgent": "Contact user agent (required for musicbrainz, openlibrary)", "rateLimit.perDay": "Requests per day",
+			"mediux.preferredCreators": "Preferred creators (one per line)", "mediux.languages": "Image languages (one per line)",
+			"mediux.quality": "Image quality", "mediux.refresh": "Reconsider every",
+		},
 		Secrets: []Secret{{Path: "secretRef", Keys: []Key{
-			{Key: "apiKey", Label: "API key", When: &When{Path: "type", Values: []string{"tmdb", "tvdb", "comicvine", "fanart", "mdblist", "omdb"}}},
-			{Key: "pin", Label: "PIN", Help: "TVDB subscriber PIN, if any.", When: &When{Path: "type", Values: []string{"tvdb"}}},
-			{Key: "bearer", Label: "Bearer token", When: &When{Path: "type", Values: []string{"hardcover", "metron"}}},
+			{Key: "apiKey", Label: "API key", When: when("type", "tmdb", "tvdb", "comicvine", "fanart", "mdblist", "omdb", "theintrodb")},
+			{Key: "apiKeySecondary", Label: "Second API key", Help: "Spent once the first key's daily quota is out.", When: when("type", "mdblist")},
+			{Key: "pin", Label: "PIN", Help: "TVDB subscriber PIN, if any.", When: when("type", "tvdb")},
+			{Key: "bearer", Label: "Bearer token", When: when("type", "hardcover", "metron")},
+			{Key: "token", Label: "Token", Help: "A Plex account token, or a MediUX bearer token.", When: when("type", "plex", "mediux")},
 		}}},
+		// A region and a language are read only by the providers that
+		// localise their answers.
+		Only: map[string]*When{
+			"region":   when("type", "tmdb", "tvdb", "audible", "audnexus"),
+			"language": unless("type", "coverart", "fanart", "animelists", "theintrodb", "mdblist", "omdb", "plex"),
+		},
 		ReadOnlyOnEdit: []string{"type"},
 	},
 	{
@@ -157,8 +277,31 @@ var kinds = []Kind{
 				"defaults.minimumAvailability", "defaults.seriesType", "defaults.seasonFolder", "defaults.searchOnAdd", "defaults.tags",
 			}},
 		},
+		Checks: []string{"kinds"},
+		// What a provider can yield (the CRD's own rules), and what each
+		// kind of item takes.
+		OptionsWhen: map[string]map[string]*When{"kinds": {
+			"movie":     unless("arr.kind", "sonarr", "lidarr", "readarr"),
+			"series":    and(unless("__choice.provider", "stevenLu"), unless("arr.kind", "radarr", "lidarr", "readarr")),
+			"album":     and(whenProvider("custom", "arr"), unless("arr.kind", "radarr", "sonarr", "readarr")),
+			"book":      and(whenProvider("custom", "arr"), unless("arr.kind", "radarr", "sonarr", "lidarr")),
+			"audiobook": and(whenProvider("custom", "arr"), unless("arr.kind", "radarr", "sonarr", "lidarr")),
+			"comic":     and(whenProvider("custom", "arr"), unless("arr.kind", "radarr", "sonarr", "lidarr", "readarr")),
+		}},
+		Only: map[string]*When{
+			"trakt.username":               when("trakt.listType", "watchlist", "list", "collection"),
+			"trakt.listSlug":               when("trakt.listType", "list"),
+			"defaults.minimumAvailability": when("kinds", "movie"),
+			"defaults.seriesType":          when("kinds", "series"),
+			"defaults.seasonFolder":        when("kinds", "series"),
+			"defaults.monitorNewItems":     when("kinds", "series", "album", "book", "comic"),
+		},
+		RefOptions: map[string]func(string) *When{
+			"defaults.qualityProfileRef": profileForList,
+			"defaults.rootFolderRef":     rootForList,
+		},
 		Labels: map[string]string{
-			"kinds": "Kinds (one per line: movie, series, album, book, audiobook, comic)", "imdbCSV.configMapRef.name": "ConfigMap name",
+			"kinds": "Kinds", "imdbCSV.configMapRef.name": "ConfigMap name",
 			"tmdb.listID": "List ID", "tmdb.discover": "Discover parameters", "mdblist.url": "List URL", "custom.url": "List URL", "arr.baseURL": "Base URL",
 		},
 		Refs: map[string]Ref{"defaults.qualityProfileRef": RefQualityProfiles, "defaults.rootFolderRef": RefRootFolders, "defaults.delayProfileRef": RefDelayProfiles},
@@ -175,13 +318,27 @@ var kinds = []Kind{
 		Help: "A tracker or Newznab/Torznab server. Pick a bundled Cardigann definition, or leave it blank for a generic Newznab/Torznab upstream.",
 		Groups: []Group{
 			{Title: "Indexer", Paths: []string{"definition", "baseURL", "enabled", "priority", "downloadClientRef", "proxyRef", "tags"}},
-			{Title: "Generic Newznab/Torznab", Help: "For an upstream with no definition.", Paths: []string{"generic.protocol", "generic.apiPath"}, When: &When{Path: "definition", Values: []string{""}}},
-			{Title: "Credentials", Help: "Whatever the definition needs; a generic upstream needs its API key.", Paths: []string{"secretRef"}},
+			{Title: "Generic Newznab/Torznab", Help: "For an upstream with no definition.", Paths: []string{"generic.protocol", "generic.apiPath"}, When: when("definition", "")},
+			{Title: "Credentials", Help: "The Secret the indexer's credentials are kept in: a generic upstream's API key here, a definition's own under Definition.", Paths: []string{"secretRef"}},
 			{Title: "Search", Paths: []string{"enableRss", "enableAutomaticSearch", "enableInteractiveSearch", "rssInterval", "categories", "animeCategories", "animeStandardFormatSearch", "minimumSeeders"}},
 			{Title: "Limits", Paths: []string{"limits.queryLimit", "limits.grabLimit", "limits.unit", "requestDelay", "timeout"}, Advanced: true},
-			{Title: "Seeding", Paths: []string{"seedCriteria"}, Advanced: true},
-			{Title: "Definition settings", Help: "Non-secret settings of the chosen definition, by name.", Paths: []string{"settings", "definitionRef"}, Advanced: true},
+			{Title: "Seeding", When: indexerNot("usenet"), Paths: []string{"seedCriteria"}, Advanced: true},
+			{Title: "Definition object", Help: "An IndexerDefinition by its object name, in place of a definition's id.", When: when("definition", ""), Paths: []string{"definitionRef"}, Advanced: true},
 		},
+		// The settings are the definition's: the section it fills draws them.
+		External: []string{"settings"},
+		// Seeders are a torrent's, and a grab goes to a client of the
+		// indexer's own protocol.
+		Only: map[string]*When{"minimumSeeders": indexerNot("usenet")},
+		RefOptions: map[string]func(string) *When{"downloadClientRef": func(protocol string) *When {
+			switch protocol {
+			case "torrent":
+				return indexerNot("usenet")
+			case "usenet":
+				return indexerNot("torrent")
+			}
+			return nil
+		}},
 		Labels: map[string]string{
 			"definition": "Cardigann definition", "definitionRef": "IndexerDefinition object", "enableRss": "Enable RSS",
 			"enableAutomaticSearch": "Enable automatic search", "enableInteractiveSearch": "Enable interactive search",
@@ -189,13 +346,9 @@ var kinds = []Kind{
 			"settings": "Definition settings", "limits.unit": "Limit window",
 		},
 		Refs: map[string]Ref{"definition": RefIndexerDefinitions, "downloadClientRef": RefDownloadClients, "proxyRef": RefIndexerProxies},
-		Secrets: []Secret{{Path: "secretRef", Keys: []Key{
-			{Key: "apikey", Label: "API key"},
-			{Key: "username", Label: "Username"},
-			{Key: "password", Label: "Password"},
-			{Key: "passkey", Label: "Passkey"},
-			{Key: "cookie", Label: "Cookie", Help: "A logged-in session cookie, for a definition whose login needs a captcha."},
-			{Key: "rss_key", Label: "RSS key"},
+		// A definition's credentials are its own settings, drawn with them.
+		Secrets: []Secret{{Path: "secretRef", Help: "The Secret the credentials are written to, each under its setting's name (apikey for a generic upstream); created or updated from them. Blank names it after this indexer.", Keys: []Key{
+			{Key: "apikey", Label: "API key", When: when("definition", "")},
 		}}},
 		Ensure: func(spec map[string]any) {
 			if d, _ := spec["definition"].(string); d != "" {
@@ -214,9 +367,11 @@ var kinds = []Kind{
 		Hidden: []string{"selector"},
 		Labels: map[string]string{"requestTimeout": "Request timeout", "secretRef": "Authentication"},
 		Secrets: []Secret{{Path: "secretRef", Keys: []Key{
-			{Key: "username", Label: "Username"},
-			{Key: "password", Label: "Password"},
+			{Key: "username", Label: "Username", Help: "A SOCKS4 proxy takes it as its user id."},
+			{Key: "password", Label: "Password", When: when("type", "http", "socks5")},
 		}}},
+		// FlareSolverr takes no credentials.
+		Only: map[string]*When{"secretRef": when("type", "http", "socks4", "socks5")},
 	},
 	{
 		ConfigKind: configKind("downloadclients"),
@@ -240,7 +395,7 @@ var kinds = []Kind{
 				"usenet.healthAction", "usenet.downloadTimeout", "usenet.stallTimeout", "usenet.publishDir", "usenet.scratch",
 				"usenet.maxActive", "usenet.maxPostProcess",
 			}},
-			{Title: "Engine", Paths: []string{"replicas"}, Advanced: true},
+			{Title: "Engine", When: whenTorrent, Help: "A usenet client runs one engine.", Paths: []string{"replicas"}, Advanced: true},
 		},
 		Hidden: []string{"resources", "nodeSelector", "tolerations"},
 		Labels: map[string]string{
@@ -299,8 +454,13 @@ var kinds = []Kind{
 		Help: "A subtitle source the caption service searches. The type cannot change once created.",
 		Groups: []Group{
 			{Title: "Provider", Paths: []string{"type", "enabled", "priority", "endpoint", "languages", "requestsPerSecondMilli"}},
-			{Title: "Credentials", Paths: []string{"secretRef"}},
-			{Title: "Options", Help: "aiTranslated (exclude or include), trustedSources (true).", Paths: []string{"options"}, Advanced: true},
+			{Title: "Credentials", When: when("type", "opensubtitlescom", "subdl", "subsource"), Paths: []string{"secretRef"}},
+			{Title: "Options", Help: "aiTranslated (exclude or include), trustedSources (true).", When: unless("type", "embedded", "ocr"), Paths: []string{"options"}, Advanced: true},
+		},
+		// A file's own tracks have no address and are never paced.
+		Only: map[string]*When{
+			"endpoint":               unless("type", "embedded", "ocr"),
+			"requestsPerSecondMilli": unless("type", "embedded", "ocr"),
 		},
 		Labels: map[string]string{"requestsPerSecondMilli": "Requests per second (×1000)", "languages": "Languages (BCP-47, one per line; blank = all)"},
 		Secrets: []Secret{{Path: "secretRef", Keys: []Key{
@@ -330,12 +490,15 @@ var kinds = []Kind{
 		Help: "Which files the transcode controller transcodes to its fixed HEVC standard, and where. Changing the quality, container, audio languages or never-transcode modifiers plans files not yet transcoded under the new settings; a transcoded file is never encoded again.",
 		Groups: []Group{
 			{Title: "Profile", Paths: []string{"default", "priority", "maxConcurrent", "hardware", "container", "quality", "selector.matchLabels"}},
-			{Title: "Audio", Paths: []string{"audio.languages"}},
+			{Title: "Audio and subtitles", Paths: []string{"audio.languages", "subtitles.languages"}},
 			{Title: "Policy", Paths: []string{"policy"}, Advanced: true},
 			{Title: "Resources", Paths: []string{"resources.limits", "resources.requests", "scratch", "activeDeadline", "gpu.count", "gpu.runtimeClassName"}, Advanced: true},
 		},
 		Hidden: []string{"chunking", "ttlSecondsAfterFinished", "gpu.nodeSelector", "gpu.tolerations", "resources.claims", "selector.matchExpressions"},
-		Labels: map[string]string{"default": "Cluster default", "maxConcurrent": "Max concurrent jobs", "selector.matchLabels": "Applies to files labelled", "audio.languages": "Keep audio languages"},
+		Labels: map[string]string{"default": "Cluster default", "maxConcurrent": "Max concurrent jobs", "selector.matchLabels": "Applies to files labelled", "audio.languages": "Keep audio languages", "subtitles.languages": "Keep subtitle languages", "policy.keepCodecs": "Keep codecs (never encoded)"},
+		Checks: []string{"policy.keepCodecs"},
+		// A CPU profile schedules no GPU.
+		Only: map[string]*When{"gpu": unless("hardware", "cpu")},
 	},
 	{
 		ConfigKind: configKind("iptvproviders"),
@@ -348,7 +511,9 @@ var kinds = []Kind{
 			{Title: "Guide", Paths: []string{"guideURL"}},
 			{Title: "Plex guide", Paths: []string{"plexGuide.lineup", "plexGuide.enabled", "plexGuide.credentialsRef.name", "plexGuide.credentialsRef.key"}, Advanced: true},
 			{Title: "Channels", Paths: []string{"filters", "channelNumberStart"}},
-			{Title: "Plex", Paths: []string{"device.friendlyName", "device.id", "dvr.maxChannels"}, Advanced: true},
+			{Title: "Automatic lineup", Help: "Rules that sort the playlist into categories and number them; until enabled the plan is only shown.", Paths: []string{"lineup.enabled", "lineup.trim", "lineup.exclude", "lineup.categories"}, Advanced: true},
+			{Title: "Plex guide grids", Help: "Plex's own grids as a guide source for the channels paired with stations.", Paths: []string{"guideSources.plex.credentialsRef.name", "guideSources.plex.credentialsRef.key", "guideSources.plex.lineups", "guideSources.plex.refresh", "guideSources.plex.rate"}, Advanced: true},
+			{Title: "Plex", Paths: []string{"device.friendlyName", "device.id", "dvr.maxChannels", "dvr.single"}, Advanced: true},
 			{Title: "Stream", Paths: []string{"stream.buffer", "stream.linger", "stream.language"}, Advanced: true},
 		},
 		Labels: map[string]string{
@@ -356,7 +521,14 @@ var kinds = []Kind{
 			"dvr.maxChannels": "Channels per Plex DVR", "credentialsRef": "Account", "playlistURL": "Playlist URL (M3U)",
 			"plexGuide.lineup": "Plex lineup id", "plexGuide.enabled": "Channels on Plex's guide",
 			"plexGuide.credentialsRef.name": "Plex token Secret", "plexGuide.credentialsRef.key": "Plex token key",
+			"lineup.enabled": "Lineup numbers and retires channels", "lineup.trim": "Trim from names (one per line)",
+			"lineup.exclude": "Leave out (group or name, one per line)", "lineup.categories": "Categories",
+			"guideSources.plex.credentialsRef.name": "Plex token Secret", "guideSources.plex.credentialsRef.key": "Plex token key",
+			"guideSources.plex.lineups": "Plex lineup ids (one per line)", "guideSources.plex.refresh": "Fetch every",
+			"guideSources.plex.rate": "Requests per second", "dvr.single": "One Plex DVR for every block",
 		},
+		// The lineup numbers its own channels.
+		Only: map[string]*When{"channelNumberStart": unless("lineup.enabled", "true")},
 		// Not required here: an M3U provider names a Secret only when its
 		// URLs need one, and an Xtream provider without both keys reads
 		// Valid=False, SecretKeyNotFound.
@@ -372,6 +544,20 @@ var kinds = []Kind{
 			if l, _ := g["lineup"].(string); l == "" {
 				delete(spec, "plexGuide")
 			}
+			// Likewise the lineup's switch alone, off, is no lineup; and a
+			// guide source without its token's Secret is none.
+			if l, ok := spec["lineup"].(map[string]any); ok && len(l) == 1 {
+				if on, isBool := l["enabled"].(bool); isBool && !on {
+					delete(spec, "lineup")
+				}
+			}
+			if gs, ok := spec["guideSources"].(map[string]any); ok {
+				p, _ := gs["plex"].(map[string]any)
+				ref, _ := p["credentialsRef"].(map[string]any)
+				if n, _ := ref["name"].(string); n == "" {
+					delete(spec, "guideSources")
+				}
+			}
 		},
 	},
 	{
@@ -381,22 +567,50 @@ var kinds = []Kind{
 		Groups: []Group{
 			{Title: "Channel", Paths: []string{"providerRef", "key", "active", "number", "name", "group", "logo", "language"}},
 			{Title: "Guide", Help: "A guide channel id, or a dummy guide; neither maps it by its tvg-id.", Paths: []string{"epg.channelID", "epg.dummy", "epg.dummyMinutes", "timeshiftMinutes"}},
+			{Title: "Plex station", Help: "Overrides the automatic pairing with the provider's Plex lineup: a station, or off Plex.", Paths: []string{"epg.plex.station", "epg.plex.off"}, Advanced: true},
 		},
-		Labels:         map[string]string{"providerRef": "Provider", "key": "Playlist key", "epg.channelID": "Guide channel id", "epg.dummy": "Dummy guide", "epg.dummyMinutes": "Dummy block minutes"},
+		Labels: map[string]string{
+			"providerRef": "Provider", "key": "Playlist key", "epg.channelID": "Guide channel id", "epg.dummy": "Dummy guide", "epg.dummyMinutes": "Dummy block minutes",
+			"epg.plex.station": "Station (gridKey)", "epg.plex.off": "Keep off Plex",
+		},
+		// A dummy guide has a block length and no channel id; a channel
+		// kept off Plex has no station.
+		Only: map[string]*When{
+			"epg.channelID":    unless("epg.dummy", "true"),
+			"epg.dummyMinutes": when("epg.dummy", "true"),
+			"epg.plex.station": unless("epg.plex.off", "true"),
+		},
 		ReadOnlyOnEdit: []string{"providerRef", "key"},
 		// The dummy checkbox always posts, so an untouched Guide group
 		// decodes to {dummy: false}, which the CRD refuses (exactly one of
 		// channelID and dummy): no channel id and no dummy is no epg.
+		// The Plex switch posts the same way: a station set means on Plex,
+		// neither a station nor off is no override; and an epg left with
+		// nothing is none.
 		Ensure: func(spec map[string]any) {
 			e, ok := spec["epg"].(map[string]any)
 			if !ok {
 				return
 			}
+			if p, ok := e["plex"].(map[string]any); ok {
+				off, _ := p["off"].(bool)
+				station, _ := p["station"].(string)
+				switch {
+				case off:
+					delete(p, "station")
+				case station != "":
+					delete(p, "off")
+				default:
+					delete(e, "plex")
+				}
+			}
 			if id, _ := e["channelID"].(string); id != "" {
 				delete(e, "dummy")
-				return
+			} else if d, _ := e["dummy"].(bool); !d {
+				delete(e, "dummy")
+				delete(e, "dummyMinutes")
 			}
-			if d, _ := e["dummy"].(bool); !d {
+			if len(e) == 0 {
 				delete(spec, "epg")
 			}
 		},

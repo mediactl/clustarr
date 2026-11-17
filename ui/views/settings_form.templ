@@ -8,6 +8,7 @@ import (
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/card"
 	"github.com/mediactl/clustarr/ui/components/checkbox"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
 	"github.com/mediactl/clustarr/ui/components/field"
 	"github.com/mediactl/clustarr/ui/components/input"
 	selectcomp "github.com/mediactl/clustarr/ui/components/select"
@@ -54,11 +55,16 @@ func (p FormPage) title() string {
 // SettingsForm renders a kind's form (2026-09-29: shadcn-templ's
 // components on the theme's tokens throughout): the object's name and
 // namespace, then the overlay's sections, each a Card whose content is a
-// FieldGroup of Fields. A section with a When renders data-show-when, a row
-// list its rows and a template, a Secret entry a password input that is
-// never filled in: ui/static/settings.js does the showing, adding, removing
-// and confirming, and holds a required select component to the browser's
-// own required check.
+// FieldGroup of Fields. Since 2026-11-16 (owner: "Consider making each
+// section an accordion area to simplify the page") each section is a
+// collapsible, any number open at once: an Advanced section starts closed,
+// every other open. A section, a field or one option of a
+// choice with a When renders data-show-when (data-option-when for an
+// option), a row list its rows and a template, a Secret entry a password
+// input that is never filled in: ui/static/settings.js does the showing,
+// adding, removing and confirming, holds a required select component to the
+// browser's own required check, and opens a closed section that holds the
+// input a submit was refused for.
 templ SettingsForm(p FormPage) {
 	@Layout("Settings") {
 		<div class="mb-6 max-w-4xl space-y-1">
@@ -156,12 +162,30 @@ templ deleteConfirm(action, returnTo, title string) {
 	}
 }
 
-// whenAttr renders a When as "path=v1|v2", what settings.js reads.
+// whenAttr renders a When as settings.js reads it ("path=v1|v2", clauses
+// joined by "&").
 func whenAttr(w *forms.When) string {
-	if w == nil {
-		return ""
+	return w.Attr()
+}
+
+// dynamicAttrs make a Dynamic section's content fetch itself again while
+// the field it watches changes: an htmx GET of the section's URL with the
+// fields it includes, swapped in for the content.
+func dynamicAttrs(d *forms.Dynamic) templ.Attributes {
+	if d == nil {
+		return nil
 	}
-	return w.Path + "=" + strings.Join(w.Values, "|")
+	include := make([]string, 0, len(d.Include))
+	for _, n := range d.Include {
+		include = append(include, "[name='"+n+"']")
+	}
+	return templ.Attributes{
+		"data-dynamic": d.Watch,
+		"hx-get":       d.URL,
+		"hx-trigger":   "change from:[name='" + d.Watch + "']",
+		"hx-include":   strings.Join(include, ","),
+		"hx-swap":      "innerHTML",
+	}
 }
 
 // sectionAttrs are a section card's hooks: its title, its condition and
@@ -177,36 +201,89 @@ func sectionAttrs(s forms.Section) templ.Attributes {
 	return a
 }
 
+// formSection is one accordion area: a Card that is a collapsible, its
+// header shadcn's own (the title, the help as its description, the chevron
+// in the action slot) and its content the panel. The title and the chevron
+// both toggle it.
 templ formSection(s forms.Section) {
 	@card.Card(card.Props{Attributes: sectionAttrs(s)}) {
-		@card.Header() {
-			@card.Title() {
-				{ s.Title }
-			}
-			if s.Help != "" {
-				@card.Description() {
-					{ s.Help }
+		@collapsible.Collapsible(collapsible.Props{DefaultOpen: !s.Advanced, Class: "flex flex-col gap-(--card-spacing)"}) {
+			@card.Header() {
+				@card.Title() {
+					@sectionTitleTrigger() {
+						{ s.Title }
+					}
+				}
+				if s.Help != "" {
+					@card.Description() {
+						{ s.Help }
+					}
+				}
+				@card.Action() {
+					@sectionChevron(s.Title)
 				}
 			}
-		}
-		@card.Content() {
-			@field.Group(field.GroupProps{Class: "grid gap-4 sm:grid-cols-2"}) {
-				for _, c := range s.Controls {
-					@formControl(c)
+			@collapsible.Content() {
+				@card.Content() {
+					@field.Group(field.GroupProps{Class: "grid gap-4 sm:grid-cols-2", Attributes: dynamicAttrs(s.Dynamic)}) {
+						@FormControls(s.Controls)
+					}
 				}
 			}
 		}
 	}
 }
 
+// FormControls renders controls in a section's grid: a section's content,
+// and what a Dynamic section's URL answers with.
+templ FormControls(controls []forms.Control) {
+	for _, c := range controls {
+		@formControl(c)
+	}
+}
+
 // fieldAttrs are a Field's hooks: data-field, and its own condition (a
-// Secret entry shown for some provider types).
+// Secret entry shown for some provider types, a field one choice makes
+// meaningless).
 func fieldAttrs(w *forms.When) templ.Attributes {
 	a := templ.Attributes{"data-field": true}
 	if w != nil {
 		a["data-show-when"] = whenAttr(w)
 	}
 	return a
+}
+
+// optionAttrs are an option's condition, nil without one.
+func optionAttrs(w *forms.When) templ.Attributes {
+	if w == nil {
+		return nil
+	}
+	return templ.Attributes{"data-option-when": whenAttr(w)}
+}
+
+// wide spans a control across its section's columns.
+func wide(c forms.Control) string {
+	if c.Wide {
+		return "sm:col-span-2"
+	}
+	return ""
+}
+
+// hiddenAttrs are a hidden control's hooks: the input it fills, if any.
+func hiddenAttrs(c forms.Control) templ.Attributes {
+	if c.Fill == "" {
+		return nil
+	}
+	return templ.Attributes{"data-fill": c.Fill}
+}
+
+func hasValue(values []string, v string) bool {
+	for _, x := range values {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 // numberAttrs are a number input's bounds and step.
@@ -231,6 +308,19 @@ templ formControl(c forms.Control) {
 			@rowsControl(c)
 		case forms.ControlMap:
 			@mapControl(c)
+		case forms.ControlHidden:
+			<input type="hidden" name={ c.Name } value={ c.Value } { hiddenAttrs(c)... }/>
+		case forms.ControlNote:
+			@field.Field(field.Props{Class: "sm:col-span-2 gap-1", Attributes: fieldAttrs(c.When)}) {
+				if c.Label != "" {
+					@field.Title() {
+						{ c.Label }
+					}
+				}
+				@fieldHelp(c)
+			}
+		case forms.ControlChecks:
+			@checksControl(c)
 		case forms.ControlLines:
 			@field.Field(field.Props{Class: "sm:col-span-2", Attributes: fieldAttrs(c.When)}) {
 				@fieldLabel(c, controlID(c.Name))
@@ -249,7 +339,7 @@ templ formControl(c forms.Control) {
 				}
 			}
 		case forms.ControlSelect:
-			@field.Field(field.Props{Attributes: fieldAttrs(c.When)}) {
+			@field.Field(field.Props{Class: wide(c), Attributes: fieldAttrs(c.When)}) {
 				// the label names the trigger, the component's focusable part
 				@fieldLabel(c, controlID(c.Name)+"-trigger")
 				@selectControl(c)
@@ -271,7 +361,7 @@ templ formControl(c forms.Control) {
 				@fieldHelp(c)
 			}
 		default:
-			@field.Field(field.Props{Attributes: fieldAttrs(c.When)}) {
+			@field.Field(field.Props{Class: wide(c), Attributes: fieldAttrs(c.When)}) {
 				@fieldLabel(c, controlID(c.Name))
 				@input.Input(input.Props{ID: controlID(c.Name), Name: c.Name, Value: c.Value, Placeholder: c.Placeholder, Required: c.Required, ReadOnly: c.ReadOnly})
 				@fieldHelp(c)
@@ -289,14 +379,14 @@ templ formControl(c forms.Control) {
 // An option with the empty value is the "unset" choice of an optional
 // field.
 templ selectControl(c forms.Control) {
-	@selectcomp.Select(selectcomp.Props{ID: controlID(c.Name), Name: c.Name, DefaultValue: c.Value, Required: c.Required && !c.ReadOnly, ReadOnly: c.ReadOnly}) {
+	@selectcomp.Select(selectcomp.Props{ID: controlID(c.Name), Name: c.Name, Items: optionItems(c.Options), DefaultValue: c.Value, Required: c.Required && !c.ReadOnly, ReadOnly: c.ReadOnly}) {
 		@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full", Attributes: readOnlyTrigger(c.ReadOnly)}) {
 			@selectcomp.Value(selectcomp.ValueProps{Placeholder: "—"})
 		}
 		@selectcomp.Content() {
 			@selectcomp.Group() {
 				for _, o := range c.Options {
-					@selectcomp.Item(selectcomp.ItemProps{Value: o.Value}) {
+					@selectcomp.Item(selectcomp.ItemProps{Value: o.Value, Attributes: optionAttrs(o.When)}) {
 						{ o.Label }
 					}
 				}
@@ -305,12 +395,56 @@ templ selectControl(c forms.Control) {
 	}
 }
 
+// optionItems are the options as the select component's items: the labels
+// its trigger shows for a value, where it would otherwise show the value
+// itself until a choice is made (a definition's "1_2" for "Anime -
+// English-translated").
+func optionItems(options []forms.Option) []selectcomp.ItemData {
+	items := make([]selectcomp.ItemData, 0, len(options))
+	for _, o := range options {
+		if o.Value == "" {
+			continue // the unset choice shows the placeholder
+		}
+		items = append(items, selectcomp.ItemData{Value: o.Value, Label: o.Label})
+	}
+	return items
+}
+
 // readOnlyTrigger disables a read-only select's trigger, so it cannot open.
 func readOnlyTrigger(readOnly bool) templ.Attributes {
 	if !readOnly {
 		return nil
 	}
 	return templ.Attributes{"disabled": true, "data-disabled": true}
+}
+
+// checksControl renders an array of an enumerated string as a checkbox per
+// value, each posting the control's name: Decode reads the repeated inputs
+// as the array. An option with a condition is hidden, and posts nothing,
+// while it does not hold.
+templ checksControl(c forms.Control) {
+	@field.Set(field.SetProps{Class: "gap-3 sm:col-span-2", Attributes: rowsAttrs("data-checks", c)}) {
+		@field.Content() {
+			@field.Title() {
+				{ c.Label }
+				if c.Required {
+					<span class="text-destructive" aria-hidden="true">*</span>
+				}
+			}
+			@fieldHelp(c)
+		}
+		<div class="flex flex-wrap gap-x-6 gap-y-3">
+			for _, o := range c.Options {
+				{{ checked := hasValue(c.Values, o.Value) }}
+				@field.Field(field.Props{Orientation: field.OrientationHorizontal, Class: "w-auto", Attributes: optionAttrs(o.When)}) {
+					@checkbox.Checkbox(checkbox.Props{ID: controlID(c.Name) + "-" + o.Value, Name: c.Name, Value: o.Value, Checked: &checked, Disabled: c.ReadOnly})
+					@field.Label(field.LabelProps{For: controlID(c.Name) + "-" + o.Value}) {
+						{ o.Label }
+					}
+				}
+			}
+		</div>
+	}
 }
 
 templ fieldLabel(c forms.Control, target string) {

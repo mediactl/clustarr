@@ -128,6 +128,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /import-lists", s.handleImportLists)
 	mux.HandleFunc("GET /events/import-lists", s.handleImportListsEvents)
 	mux.HandleFunc("GET /settings", s.handleSettings)
+	mux.HandleFunc("GET /settings/indexer-definition", s.handleSettingsDefinition)
 	mux.HandleFunc("GET /settings/new/{kind}", s.handleSettingsNew)
 	mux.HandleFunc("POST /settings/new/{kind}", s.handleSettingsCreate)
 	mux.HandleFunc("GET /settings/edit/{kind}/{namespace}/{name}", s.handleSettingsEdit)

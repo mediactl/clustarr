@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,6 +40,7 @@ import (
 	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	crdbases "github.com/mediactl/clustarr/config/crd/bases"
+	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/forms"
@@ -165,10 +167,12 @@ func (s *Server) listChoices(ctx context.Context, ref forms.Ref) []forms.Option 
 			opts = append(opts, forms.Option{Value: n, Label: n})
 		}
 	}
+	// An option's Class is what a kind's RefOptions rule offers it by: a
+	// profile's media kind, a client's protocol, a root folder's kind.
 	switch ref {
 	case forms.RefQualityProfiles:
 		for _, qp := range s.listQualityProfiles(ctx) {
-			names([]string{qp.Name})
+			opts = append(opts, forms.Option{Value: qp.Name, Label: qp.Name, Class: string(qp.Spec.MediaKind)})
 		}
 	case forms.RefTranscodeProfiles:
 		for _, tp := range s.listTranscodeProfiles(ctx) {
@@ -181,13 +185,13 @@ func (s *Server) listChoices(ctx context.Context, ref forms.Ref) []forms.Option 
 	case forms.RefDownloadClients:
 		clients := s.downloadClients(ctx)
 		for _, dc := range clients {
-			names([]string{dc.Name})
+			opts = append(opts, forms.Option{Value: dc.Name, Label: dc.Name + " (" + string(dc.Spec.Protocol) + ")", Class: string(dc.Spec.Protocol)})
 		}
 	case forms.RefRootFolders:
 		var list catalogv1.RootFolderList
 		if err := s.opts.Reader.List(ctx, &list); err == nil {
 			for _, rf := range list.Items {
-				opts = append(opts, forms.Option{Value: rf.Name, Label: rf.Name + " (" + rf.Spec.Path + ")"})
+				opts = append(opts, forms.Option{Value: rf.Name, Label: rf.Name + " (" + rf.Spec.Path + ")", Class: string(rf.Spec.Kind)})
 			}
 		}
 	case forms.RefDelayProfiles:
@@ -234,8 +238,10 @@ type formSubmission struct {
 }
 
 func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, k forms.Kind, root *schema.Field, mode forms.Mode, sub formSubmission, err error) {
+	form := forms.Build(k, root, sub.spec, s.choices(r.Context(), k), mode)
+	s.decorateForm(r.Context(), k, form, sub.spec)
 	page := views.FormPage{
-		Form:      forms.Build(k, root, sub.spec, s.choices(r.Context(), k), mode),
+		Form:      form,
 		Namespace: sub.namespace,
 		Name:      sub.name,
 		ReturnTo:  returnPath(r),
@@ -318,6 +324,146 @@ func decodeSubmission(r *http.Request, k forms.Kind, root *schema.Field, mode fo
 	}
 	sub.spec = spec
 	return sub, nil
+}
+
+// indexersSlug is the one kind whose form has a section the server fills
+// from another object: an Indexer's settings are its definition's.
+const indexersSlug = "indexers"
+
+// definitionOf finds the Cardigann definition an Indexer spec names -- by
+// spec.definition (a definition's id, or an id it replaces) or by
+// spec.definitionRef (an IndexerDefinition's object name) -- and parses its
+// YAML. nil when none is named, none is found or the YAML does not load: the
+// form then draws the settings as a free table.
+func (s *Server) definitionOf(ctx context.Context, id, ref string) (*cardigann.Definition, forms.DefinitionInfo) {
+	if s.opts.Reader == nil || (id == "" && ref == "") {
+		return nil, forms.DefinitionInfo{}
+	}
+	var list indexv1.IndexerDefinitionList
+	if err := s.opts.Reader.List(ctx, &list); err != nil {
+		logging.FromContext(ctx).Error("list indexer definitions", "err", err)
+		return nil, forms.DefinitionInfo{}
+	}
+	// A definition's own id wins over an id another one replaces.
+	var found, replaced *indexv1.IndexerDefinition
+	for i := range list.Items {
+		d := &list.Items[i]
+		if id == "" {
+			if d.Name == ref {
+				found = d
+				break
+			}
+			continue
+		}
+		if d.Status.ID == id || (d.Status.ID == "" && d.Name == id) {
+			found = d
+			break
+		}
+		if replaced == nil && slices.Contains(d.Status.Replaces, id) {
+			replaced = d
+		}
+	}
+	if found == nil {
+		found = replaced
+	}
+	if found == nil {
+		return nil, forms.DefinitionInfo{}
+	}
+	def, err := cardigann.Load([]byte(found.Spec.YAML))
+	if err != nil {
+		logging.FromContext(ctx).Warn("indexer definition does not load", "definition", found.Name, "err", err)
+		return nil, forms.DefinitionInfo{}
+	}
+	info := forms.DefinitionInfo{Protocol: string(found.Status.Protocol), Privacy: string(found.Status.Type)}
+	if info.Protocol == "" {
+		info.Protocol = "torrent" // every Cardigann definition is a torrent site's
+	}
+	return def, info
+}
+
+// specSettings reads a spec map's settings as strings.
+func specSettings(spec map[string]any) map[string]string {
+	m, _ := spec["settings"].(map[string]any)
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = fmt.Sprint(v)
+	}
+	return out
+}
+
+func specString(spec map[string]any, key string) string {
+	v, _ := spec[key].(string)
+	return v
+}
+
+// decorateForm adds what the overlay cannot derive from the schema: the
+// Indexer form's Definition section, after the sections that choose it.
+func (s *Server) decorateForm(ctx context.Context, k forms.Kind, form *forms.Form, spec map[string]any) {
+	if k.Slug != indexersSlug {
+		return
+	}
+	id := specString(spec, "definition")
+	def, info := s.definitionOf(ctx, id, specString(spec, "definitionRef"))
+	section := forms.DefinitionSection(def, info, specSettings(spec))
+	section.Controls = withMissingNote(section.Controls, id, def)
+	at := 0
+	for i, sec := range form.Sections {
+		if sec.Title == "Indexer" || sec.Title == "Generic Newznab/Torznab" {
+			at = i + 1
+		}
+	}
+	form.Sections = slices.Insert(form.Sections, at, section)
+}
+
+// withMissingNote says so when a definition is named and none was found.
+func withMissingNote(controls []forms.Control, id string, def *cardigann.Definition) []forms.Control {
+	if id == "" || def != nil {
+		return controls
+	}
+	return append(controls, forms.MissingDefinitionNote(id))
+}
+
+// handleSettingsDefinition answers the Indexer form's Definition section
+// for the definition its select now names: the section's content alone,
+// which the page swaps in (forms.Dynamic). An existing indexer's stored
+// settings fill the fields the new definition also declares.
+func (s *Server) handleSettingsDefinition(w http.ResponseWriter, r *http.Request) {
+	k, _, err := formKind(indexersSlug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	q := r.URL.Query()
+	settings := map[string]string{}
+	if name := strings.TrimSpace(q.Get("__name")); name != "" {
+		if spec, err := s.getConfigSpec(r.Context(), k, strings.TrimSpace(q.Get("__namespace")), name); err == nil {
+			settings = specSettings(spec)
+		}
+	}
+	id := strings.TrimSpace(q.Get("definition"))
+	def, info := s.definitionOf(r.Context(), id, "")
+	controls := withMissingNote(forms.DefinitionControls(def, info, settings), id, def)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.FormControls(controls).Render(r.Context(), w); err != nil {
+		logging.FromContext(r.Context()).Error("render definition section", "err", err)
+	}
+}
+
+// pruneDefaults drops from a decoded Indexer spec the settings that only
+// restate its definition's defaults (forms.PruneDefinitionDefaults).
+func (s *Server) pruneDefaults(ctx context.Context, k forms.Kind, spec map[string]any) {
+	if k.Slug != indexersSlug {
+		return
+	}
+	settings, _ := spec["settings"].(map[string]any)
+	if len(settings) == 0 {
+		return
+	}
+	def, _ := s.definitionOf(ctx, specString(spec, "definition"), specString(spec, "definitionRef"))
+	forms.PruneDefinitionDefaults(def, settings)
+	if len(settings) == 0 {
+		delete(spec, "settings")
+	}
 }
 
 // secretWrite is one Secret a form fills: its name and the entries typed
@@ -543,6 +689,7 @@ func (s *Server) handleSettingsCreate(w http.ResponseWriter, r *http.Request) {
 		s.renderForm(w, r, k, root, forms.ModeNew, sub, err)
 		return
 	}
+	s.pruneDefaults(r.Context(), k, sub.spec)
 	// Secrets are written before the object, so its controller's first
 	// reconcile finds them (they read a Secret by name, with no watch), but
 	// only once a dry run of the create has passed: a create the apiserver
@@ -597,6 +744,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 			setPath(sub.spec, h, v)
 		}
 	}
+	s.pruneDefaults(r.Context(), k, sub.spec)
 	// As for a create: the update's dry run passes before any Secret is
 	// written, so an edit the apiserver refuses changes no credential.
 	writes := planSecrets(k, r.PostForm, sub.spec, name)

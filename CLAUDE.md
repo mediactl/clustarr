@@ -1637,6 +1637,52 @@ Format a template with the project's templ, `go run
 github.com/a-h/templ/cmd/templ@v0.3.1020 fmt <file>`: the `templ` on PATH
 (v0.3.1100) formats differently, and `templ fmt ui/views` rewrote twenty
 untouched files.
+**The settings forms follow their own choices** (owner, 2026-11-16:
+"selecting an option like music or movies limits which fields are valid ...
+filter which input groups and specific inputs display based on the selected
+options"). A kind's overlay (`ui/forms/kinds.go`) states it three ways
+beside a group's `When`: `Only` (a field, or everything under an object,
+shown only while a condition holds: a movie root's series type is not
+drawn), `OptionsWhen` (one option of an enum or of a checkbox group) and
+`RefOptions` (a live object offered by its `Option.Class`: a root folder
+gets the quality profiles of its media kind, an indexer the download
+clients of its protocol). A `When` is `path=v1|v2`, `path!=…` with `Not`,
+joined by `And`; a field of several values has each, and **a field a
+condition hides reads as unset**, so what depends on it follows
+(`ui/static/settings.js` repeats the pass until nothing moves). Hide only
+what is certainly meaningless for the choice, and state it against the
+CRD's own rules: `TestEveryConditionWatchesARealFieldAndItsRealValues`
+holds every condition to a field the form carries and to values it can
+take. A hidden input still posts (the choices that hide are immutable or
+shaped by the kind's `Ensure`); only a hidden option of a checkbox group
+(`Checks`, an array of an enumerated string whose order means nothing)
+posts nothing. **An Indexer's settings are its definition's**
+(`ui/forms/definition.go`): the Definition section is built from the
+chosen IndexerDefinition's YAML (`cardigann.Load`), each declared setting
+an input of its type posting into `spec.settings` at map index 1000+i, a
+password or a credential by name (`SecretSetting`: username, cookie,
+passkey...) into the Indexer's Secret under the setting's name, which the
+engine reads over `spec.settings`; undeclared settings, and a credential
+an indexer keeps in `spec.settings`, stay in the free "Other settings"
+table so an edit never loses one. The section is a `forms.Dynamic`: htmx
+fetches `GET /settings/indexer-definition` again when the select changes,
+it carries `__meta.protocol` (every Cardigann definition is a torrent
+site's) for the torrent-only fields and clients, and offers the
+definition's first address to Base URL. A save drops settings that only
+restate the definition's defaults (`PruneDefinitionDefaults`). **Sections
+are accordion areas** on the Settings page and in every form: a Card that
+is a `collapsible`, its header shadcn's own (title, description, and Add
+and the chevron in `card.Action`), the Settings page's closed until
+opened and remembered in localStorage (`clustarr.settings.open`,
+`/settings#<slug>` opens one), a form's Advanced ones closed; a submit
+first opens a closed section holding an input the browser will refuse.
+The registry's `accordion` is not used: under the pinned CLI
+(v2.0.0-beta.10) `shadcn-templ bundle` concatenates scripts
+alphabetically, so `accordion.js` runs ahead of `baseui/` and its
+uncaught error stops every component on every page; check the bundle's
+order before adding any component that sorts before `baseui`. A map's
+rows decode by index, not position (`schema.decodeMap`: until then
+removing a middle row dropped every row after it on save).
 An import list likewise finds an item by provider id
 (`importlist.libraryByID`) and writes only the items it added itself:
 one added by hand, by a rescan or by another list is recorded as listed

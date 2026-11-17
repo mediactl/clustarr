@@ -217,3 +217,22 @@ func TestDiffClearsDroppedFieldsAndLeavesUnchangedOnesOut(t *testing.T) {
 	require.Equal(t, map[string]any{"torrent": map[string]any{"listenPort": int64(2)}}, schema.Diff(
 		map[string]any{}, map[string]any{"torrent": map[string]any{"listenPort": int64(2)}}), "a new object is sent whole")
 }
+
+// A map's rows are read by their index, not their position: the rows left
+// after a middle one is removed are numbered with a gap, and an Indexer's
+// definition settings post from 1000. Read by position, every row past the
+// first gap was dropped on save (2026-11-16).
+func TestDecodeReadsAMapsRowsByIndex(t *testing.T) {
+	r := root(t, "download.clustarr.io", "DownloadClient")
+	got, err := schema.Decode(r, url.Values{
+		"protocol":            {"usenet"},
+		"categories.__k.0":    {"movie"},
+		"categories.__v.0":    {"films"},
+		"categories.__k.2":    {"series"},
+		"categories.__v.2":    {"tv"},
+		"categories.__k.1000": {"music"},
+		"categories.__v.1000": {"albums"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"movie": "films", "series": "tv", "music": "albums"}, got["categories"])
+}

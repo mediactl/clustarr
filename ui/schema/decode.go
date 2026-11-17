@@ -140,7 +140,9 @@ func scalar(f *Field, name, raw string) (any, error) {
 
 func decodeMap(f *Field, name string, values url.Values) (any, error) {
 	out := map[string]any{}
-	for i := range indices(values, name+".__k.") {
+	// by index, not by position: the rows left after one is removed are not
+	// numbered from 0 without gaps, nor are an Indexer's definition settings
+	for _, i := range indices(values, name+".__k.") {
 		key, ok := last(values, fmt.Sprintf("%s.__k.%d", name, i))
 		if !ok {
 			continue

@@ -27,6 +27,7 @@ package forms
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -56,6 +57,25 @@ type Kind struct {
 	Refs map[string]Ref
 	// ReadOnlyOnEdit are the immutable paths, editable only on a new form.
 	ReadOnlyOnEdit []string
+	// Only shows a field (its path and everything under it) only while its
+	// condition holds: a field another field's choice makes meaningless (a
+	// movie root's series type) is not drawn for that choice. An entry on
+	// an object holds for every field under it, beside their own.
+	Only map[string]*When
+	// OptionsWhen offers one option of a field's choice only while its
+	// condition holds: path, then the option's value.
+	OptionsWhen map[string]map[string]*When
+	// RefOptions offers a reference field's live object only while the
+	// condition its class gives holds (a root folder is offered the quality
+	// profiles of its own media kind): path, then a function of
+	// Option.Class; nil offers it always.
+	RefOptions map[string]func(class string) *When
+	// Checks are the paths of arrays of an enumerated string drawn as one
+	// checkbox per value, where the order of the values means nothing.
+	Checks []string
+	// External are paths the page draws itself (the Indexer's settings, in
+	// the section its definition fills): placed, never emitted here.
+	External []string
 	// Ensure completes a decoded spec with what a form cannot express
 	// (an empty object a CRD rule requires). Optional.
 	Ensure func(spec map[string]any)
@@ -79,10 +99,70 @@ type Group struct {
 	Advanced bool
 }
 
-// When is a condition on another field's value.
+// When is a condition on another field's value: it holds while the field at
+// Path has one of Values ("" for unset), or with Not none of them. A field
+// of several values (a checkbox group, a list) has each of them; a field
+// that is itself hidden by a condition reads as unset. And is a further
+// condition that must hold too.
 type When struct {
 	Path   string
 	Values []string
+	Not    bool
+	And    *When
+}
+
+// Attr renders the condition as settings.js reads it: clauses joined by
+// "&", each "path=v1|v2" or "path!=v1|v2".
+func (w *When) Attr() string {
+	if w == nil {
+		return ""
+	}
+	op := "="
+	if w.Not {
+		op = "!="
+	}
+	out := w.Path + op + strings.Join(w.Values, "|")
+	if w.And != nil {
+		out += "&" + w.And.Attr()
+	}
+	return out
+}
+
+// Holds evaluates the condition against values, a reader of a field's
+// current values; the server's twin of settings.js, used to shape a
+// submission.
+func (w *When) Holds(values func(path string) []string) bool {
+	if w == nil {
+		return true
+	}
+	cur := values(w.Path)
+	if len(cur) == 0 {
+		cur = []string{""}
+	}
+	hit := false
+	for _, v := range cur {
+		if slices.Contains(w.Values, v) {
+			hit = true
+			break
+		}
+	}
+	if hit == w.Not {
+		return false
+	}
+	return w.And.Holds(values)
+}
+
+// and joins two conditions; either may be nil.
+func and(a, b *When) *When {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	out := *a
+	out.And = and(a.And, b)
+	return &out
 }
 
 // Secret describes the credentials behind a secretRef field: the Secret
@@ -92,6 +172,9 @@ type Secret struct {
 	// "usenet.providers[].secretRef").
 	Path string
 	Keys []Key
+	// Help replaces the Secret name input's help, for a kind whose entries
+	// are not all listed here (an Indexer's are its definition's).
+	Help string
 }
 
 // Key is one Secret data entry a form collects.
@@ -148,6 +231,12 @@ type Choices map[Ref][]Option
 type Option struct {
 	Value string
 	Label string
+	// Class is what a live object is to a RefOptions rule: a quality
+	// profile's media kind, a download client's protocol, a root folder's
+	// kind.
+	Class string
+	// When offers the option only while it holds.
+	When *When
 }
 
 // Mode is what the form is for.
@@ -170,6 +259,9 @@ const (
 	ControlMap      ControlType = "map"      // key/value pairs
 	ControlRows     ControlType = "rows"     // an array of objects
 	ControlPassword ControlType = "password" // a Secret entry, never read back
+	ControlChecks   ControlType = "checks"   // an array of an enumerated string, a checkbox per value
+	ControlHidden   ControlType = "hidden"   // a value the form carries and conditions read
+	ControlNote     ControlType = "note"     // text only: Label and Help
 )
 
 // Form is the render tree of one kind's form.
@@ -188,6 +280,19 @@ type Section struct {
 	When     *When
 	Advanced bool
 	Controls []Control
+	// Dynamic has the page fetch the section's content again when a field
+	// changes.
+	Dynamic *Dynamic
+}
+
+// Dynamic is a section whose content depends on another field's value in a
+// way no condition expresses (an Indexer's settings are its definition's):
+// while the field named Watch changes, the page GETs URL with the form's
+// Include fields and swaps the answer in for the section's content.
+type Dynamic struct {
+	URL     string
+	Watch   string
+	Include []string
 }
 
 // Control is one rendered input.
@@ -211,6 +316,13 @@ type Control struct {
 	// Add button.
 	Template []Control
 	When     *When
+	// Checked values of a ControlChecks.
+	Values []string
+	// Wide spans the control across the section's columns.
+	Wide bool
+	// Fill, on a ControlHidden, names an input the page fills with Value
+	// when it is empty or still holds what an earlier fill put there.
+	Fill string
 }
 
 // Pair is one map entry.
@@ -254,6 +366,7 @@ type builder struct {
 // Build renders kind's form for spec (nil for a new object).
 func Build(kind Kind, root *schema.Field, spec map[string]any, choices Choices, mode Mode) *Form {
 	b := &builder{kind: kind, spec: spec, choices: choices, mode: mode}
+	b.placed = append(b.placed, kind.External...)
 	f := &Form{Kind: kind, Mode: mode}
 	if c := kind.Choice; c != nil {
 		ctl := Control{Type: ControlSelect, Name: c.ControlName(), Label: c.Label, Help: c.Help, Required: true, Options: c.Options, ReadOnly: mode == ModeEdit && c.ReadOnlyOnEdit}
@@ -331,9 +444,28 @@ func (b *builder) hidden(path string) bool {
 // with indices filled in; f.Path keeps the "[]" form for the overlay's
 // lookups).
 func (b *builder) emit(f *schema.Field, name string) []Control {
-	if b.hidden(f.Path) {
+	if b.hidden(f.Path) || b.external(f.Path) {
 		return nil
 	}
+	out := b.emitField(f, name)
+	if w, ok := b.kind.Only[f.Path]; ok {
+		for i := range out {
+			out[i].When = and(w, out[i].When)
+		}
+	}
+	return out
+}
+
+func (b *builder) external(path string) bool {
+	for _, e := range b.kind.External {
+		if path == e || strings.HasPrefix(path, e+".") {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *builder) emitField(f *schema.Field, name string) []Control {
 	switch f.Type {
 	case schema.TypeObject:
 		if s := b.secretFor(f.Path); s != nil {
@@ -347,6 +479,16 @@ func (b *builder) emit(f *schema.Field, name string) []Control {
 	case schema.TypeArray:
 		if f.Items.Type == schema.TypeObject {
 			return []Control{b.rows(f, name)}
+		}
+		if len(f.Items.Enum) > 0 && slices.Contains(b.kind.Checks, f.Path) {
+			c := b.control(f, name, ControlChecks)
+			for _, e := range f.Items.Enum {
+				c.Options = append(c.Options, Option{Value: e, Label: e, When: b.kind.OptionsWhen[f.Path][e]})
+			}
+			for _, v := range asSlice(b.value(name)) {
+				c.Values = append(c.Values, format(v))
+			}
+			return []Control{c}
 		}
 		c := b.control(f, name, ControlLines)
 		for _, v := range asSlice(b.value(name)) {
@@ -390,7 +532,14 @@ func (b *builder) emit(f *schema.Field, name string) []Control {
 		if ref, ok := b.kind.Refs[f.Path]; ok {
 			if opts := b.choices[ref]; len(opts) > 0 {
 				c.Type = ControlSelect
-				c.Options = append([]Option{{Value: "", Label: "—"}}, opts...)
+				c.Options = []Option{{Value: "", Label: "—"}}
+				rule := b.kind.RefOptions[f.Path]
+				for _, o := range opts {
+					if rule != nil {
+						o.When = rule(o.Class)
+					}
+					c.Options = append(c.Options, o)
+				}
 			}
 		} else if len(f.Enum) > 0 {
 			c.Type = ControlSelect
@@ -450,6 +599,9 @@ func (b *builder) secret(f *schema.Field, name string, s *Secret) []Control {
 	c := Control{
 		Type: ControlText, Name: name + ".name", Label: b.label(f),
 		Help: "The Secret holding the entries below, under the keys " + strings.Join(keys, ", ") + "; created or updated from them. Blank names it after this object. An existing Secret must use those key names.",
+	}
+	if s.Help != "" {
+		c.Help = s.Help
 	}
 	if nameField != nil {
 		c.Value = format(b.value(name + ".name"))

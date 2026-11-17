@@ -19,6 +19,7 @@ package views
 
 import (
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -32,8 +33,10 @@ import (
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
 	"github.com/mediactl/clustarr/ui/components/empty"
 	"github.com/mediactl/clustarr/ui/components/field"
+	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/input"
 )
 
@@ -70,101 +73,195 @@ templ Settings(
 ) {
 	@Layout("Settings") {
 		<h1 class="mb-6 text-2xl font-semibold tracking-tight">Settings</h1>
-		@settingsSection("Root Folders", "rootfolders") {
-			if len(rootFolders) == 0 {
-				@settingsEmpty("No root folders configured.")
+		<div class="space-y-3" data-settings-sections>
+			@settingsSection("Root Folders", "rootfolders", objectNames(rootFolders)) {
+				if len(rootFolders) == 0 {
+					@settingsEmpty("No root folders configured.")
+				}
+				for _, rf := range rootFolders {
+					@rootFolderCard(rf)
+				}
 			}
-			for _, rf := range rootFolders {
-				@rootFolderCard(rf)
+			@settingsSection("Quality Profiles", "qualityprofiles", objectNames(qualityProfiles)) {
+				if len(qualityProfiles) == 0 {
+					@settingsEmpty("No quality profiles configured.")
+				}
+				for _, qp := range qualityProfiles {
+					@qualityProfileCard(qp)
+				}
 			}
-		}
-		@settingsSection("Quality Profiles", "qualityprofiles") {
-			if len(qualityProfiles) == 0 {
-				@settingsEmpty("No quality profiles configured.")
+			@settingsSection("Indexers", "indexers", objectNames(indexers)) {
+				if len(indexers) == 0 {
+					@settingsEmpty("No indexers configured.")
+				}
+				for _, idx := range indexers {
+					@indexerCard(idx)
+				}
 			}
-			for _, qp := range qualityProfiles {
-				@qualityProfileCard(qp)
+			@settingsSection("Indexer Proxies", "indexerproxies", objectNames(indexerProxies)) {
+				if len(indexerProxies) == 0 {
+					@settingsEmpty("No indexer proxies configured.")
+				}
+				for _, p := range indexerProxies {
+					@indexerProxyCard(p)
+				}
 			}
-		}
-		@settingsSection("Indexers", "indexers") {
-			if len(indexers) == 0 {
-				@settingsEmpty("No indexers configured.")
+			@settingsSection("Download Clients", "downloadclients", objectNames(downloadClients)) {
+				if len(downloadClients) == 0 {
+					@settingsEmpty("No download clients configured.")
+				}
+				for _, dc := range downloadClients {
+					@downloadClientSettingsCard(dc)
+				}
 			}
-			for _, idx := range indexers {
-				@indexerCard(idx)
+			@settingsSection("Metadata Providers", "metadataproviders", objectNames(metadataProviders)) {
+				if len(metadataProviders) == 0 {
+					@settingsEmpty("No metadata providers configured.")
+				}
+				for _, mp := range metadataProviders {
+					@metadataProviderCard(mp)
+				}
 			}
-		}
-		@settingsSection("Indexer Proxies", "indexerproxies") {
-			if len(indexerProxies) == 0 {
-				@settingsEmpty("No indexer proxies configured.")
+			@settingsSection("Subtitle Providers", "subtitleproviders", objectNames(subtitleProviders)) {
+				if len(subtitleProviders) == 0 {
+					@settingsEmpty("No subtitle providers configured.")
+				}
+				for _, sp := range subtitleProviders {
+					@subtitleProviderCard(sp)
+				}
 			}
-			for _, p := range indexerProxies {
-				@indexerProxyCard(p)
+			@settingsSection("Subtitle Profiles", "subtitleprofiles", objectNames(subtitleProfiles)) {
+				if len(subtitleProfiles) == 0 {
+					@settingsEmpty("No subtitle profiles configured.")
+				}
+				for _, sp := range subtitleProfiles {
+					@subtitleProfileCard(sp)
+				}
 			}
-		}
-		@settingsSection("Download Clients", "downloadclients") {
-			if len(downloadClients) == 0 {
-				@settingsEmpty("No download clients configured.")
+			@settingsSection("Transcode Profiles", "transcodeprofiles", objectNames(transcodeProfiles)) {
+				if len(transcodeProfiles) == 0 {
+					@settingsEmpty("No transcode profiles configured.")
+				}
+				for _, tp := range transcodeProfiles {
+					@transcodeProfileCard(tp)
+				}
 			}
-			for _, dc := range downloadClients {
-				@downloadClientSettingsCard(dc)
+		</div>
+	}
+}
+
+// objectNames lists items' names, for a section's count and summary.
+func objectNames[T any, P interface {
+	*T
+	GetName() string
+}](items []T) []string {
+	out := make([]string, 0, len(items))
+	for i := range items {
+		out = append(out, P(&items[i]).GetName())
+	}
+	return out
+}
+
+// namesSummary is a closed section's line of what it holds: the first
+// names, then how many more.
+func namesSummary(names []string) string {
+	const show = 6
+	if len(names) <= show {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(names[:show], ", "), len(names)-show)
+}
+
+// settingsSection is one kind's objects as an accordion area (owner,
+// 2026-11-16: "Consider making each section an accordion area to simplify
+// the page"; "The Add button ... should be right aligned and follow
+// standard shadcn styling patterns"): a Card that is a collapsible. Its
+// header is shadcn's own -- the title (the kind and a count), the
+// description (the first objects' names) and, in the action slot at the
+// header's end, Add and the chevron -- and its content is the cards, three
+// or four to a row on a wide screen ("condense the cards into 3 or 4
+// columns instead of the existing two"). The title and the chevron both
+// toggle it. Every section starts closed; settings.js reopens the ones the
+// reader left open, and the one the address names (/settings#indexers).
+// (shadcn-templ's own accordion was tried first: under the pinned CLI its
+// script is bundled ahead of the runtime it needs and stops every
+// component's.)
+templ settingsSection(title, slug string, names []string) {
+	// scroll-mt: an address naming the section leaves room for the top bar
+	@card.Card(card.Props{ID: slug, Class: "scroll-mt-16", Attributes: templ.Attributes{"data-settings-kind": slug, "data-settings-count": fmt.Sprint(len(names))}}) {
+		@collapsible.Collapsible(collapsible.Props{Class: "flex flex-col gap-(--card-spacing)"}) {
+			@card.Header() {
+				@card.Title() {
+					@sectionTitleTrigger() {
+						{ title }
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+							{ fmt.Sprint(len(names)) }
+						}
+					}
+				}
+				if len(names) > 0 {
+					@card.Description(card.DescriptionProps{Class: "min-w-0 truncate", Attributes: templ.Attributes{"data-settings-summary": true}}) {
+						{ namesSummary(names) }
+					}
+				}
+				@card.Action(card.ActionProps{Class: "flex items-center gap-2 self-center"}) {
+					@button.Button(button.Props{Href: "/settings/new/" + slug, Size: button.SizeSm, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-action": "add"}}) {
+						@icon.Icon("plus")()
+						Add
+					}
+					@sectionChevron(title)
+				}
 			}
-		}
-		@settingsSection("Metadata Providers", "metadataproviders") {
-			if len(metadataProviders) == 0 {
-				@settingsEmpty("No metadata providers configured.")
-			}
-			for _, mp := range metadataProviders {
-				@metadataProviderCard(mp)
-			}
-		}
-		@settingsSection("Subtitle Providers", "subtitleproviders") {
-			if len(subtitleProviders) == 0 {
-				@settingsEmpty("No subtitle providers configured.")
-			}
-			for _, sp := range subtitleProviders {
-				@subtitleProviderCard(sp)
-			}
-		}
-		@settingsSection("Subtitle Profiles", "subtitleprofiles") {
-			if len(subtitleProfiles) == 0 {
-				@settingsEmpty("No subtitle profiles configured.")
-			}
-			for _, sp := range subtitleProfiles {
-				@subtitleProfileCard(sp)
-			}
-		}
-		@settingsSection("Transcode Profiles", "transcodeprofiles") {
-			if len(transcodeProfiles) == 0 {
-				@settingsEmpty("No transcode profiles configured.")
-			}
-			for _, tp := range transcodeProfiles {
-				@transcodeProfileCard(tp)
+			@collapsible.Content() {
+				@card.Content() {
+					<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+						{ children... }
+					</div>
+				}
 			}
 		}
 	}
 }
 
-// settingsSection wraps one kind's cards under a heading, mirroring
-// downloads.templ's downloadClientsSection.
-templ settingsSection(title, slug string) {
-	<section class="mb-10" data-settings-kind={ slug }>
-		<div class="mb-3 flex items-center justify-between">
-			<h2 class="text-lg font-semibold tracking-tight">{ title }</h2>
-			@button.Button(button.Props{Href: "/settings/new/" + slug, Size: button.SizeSm, Variant: button.VariantOutline}) {
-				Add
-			}
-		</div>
-		<div class="grid gap-4 sm:grid-cols-2">
-			{ children... }
-		</div>
-	</section>
+// sectionTitleTrigger is an accordion area's title as its collapsible's
+// trigger: the caller's heading as a plain button, so a click on the title
+// opens the section as the chevron does. Used by the Settings page's
+// sections and the settings forms'.
+templ sectionTitleTrigger() {
+	@button.Button(button.Props{
+		Variant:    button.VariantGhost,
+		Class:      "h-auto gap-2 p-0 text-left text-base font-medium whitespace-normal hover:bg-transparent aria-expanded:bg-transparent dark:hover:bg-transparent",
+		Attributes: collapsible.Trigger(ctx),
+	}) {
+		{ children... }
+	}
+}
+
+// sectionChevron is the section's other trigger, for the header's action
+// slot: a ghost icon button whose chevron turns while the section is open.
+templ sectionChevron(title string) {
+	@button.Button(button.Props{
+		Variant:    button.VariantGhost,
+		Size:       button.SizeIconSm,
+		Class:      "group/trigger aria-expanded:bg-transparent",
+		Attributes: withLabel(collapsible.Trigger(ctx), "Show or hide "+title),
+	}) {
+		<span class="transition-transform group-data-[panel-open]/trigger:rotate-180 [&_svg]:size-4">
+			@icon.Icon("chevron-down")()
+		</span>
+	}
+}
+
+// withLabel names an icon-only control for a screen reader.
+func withLabel(attrs templ.Attributes, label string) templ.Attributes {
+	attrs["aria-label"] = label
+	return attrs
 }
 
 // settingsEmpty is a section with nothing in it: the empty component
 // across the grid.
 templ settingsEmpty(message string) {
-	@empty.Empty(empty.Props{Class: "border border-dashed py-8 sm:col-span-2"}) {
+	@empty.Empty(empty.Props{Class: "col-span-full border border-dashed py-8"}) {
 		@empty.Header() {
 			@empty.Description() {
 				{ message }
