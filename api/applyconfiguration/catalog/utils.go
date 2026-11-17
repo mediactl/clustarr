@@ -299,6 +299,16 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.PlexFilterApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlexFilterRule"):
 		return &catalogv1alpha1.PlexFilterRuleApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexHubEntry"):
+		return &catalogv1alpha1.PlexHubEntryApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexHubLayout"):
+		return &catalogv1alpha1.PlexHubLayoutApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexHubLayoutSpec"):
+		return &catalogv1alpha1.PlexHubLayoutSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexHubLayoutStatus"):
+		return &catalogv1alpha1.PlexHubLayoutStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexHubStatus"):
+		return &catalogv1alpha1.PlexHubStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlexImage"):
 		return &catalogv1alpha1.PlexImageApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlexImageStatus"):

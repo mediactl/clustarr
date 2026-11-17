@@ -4550,6 +4550,130 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: value
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubEntry
+  map:
+    fields:
+    - name: collection
+      type:
+        scalar: string
+    - name: collectionTitle
+      type:
+        scalar: string
+    - name: friendsHome
+      type:
+        scalar: boolean
+    - name: home
+      type:
+        scalar: boolean
+    - name: identifier
+      type:
+        scalar: string
+    - name: libraryRecommended
+      type:
+        scalar: boolean
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubKind
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubLayout
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubLayoutSpec
+    - name: status
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubLayoutStatus
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubLayoutList
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: items
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubLayout
+          elementRelationship: atomic
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubLayoutSpec
+  map:
+    fields:
+    - name: hubs
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubEntry
+          elementRelationship: atomic
+    - name: library
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubLayoutStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: hubs
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubStatus
+          elementRelationship: atomic
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: resetHandled
+      type:
+        scalar: string
+    - name: sectionKey
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubStatus
+  map:
+    fields:
+    - name: collection
+      type:
+        scalar: string
+    - name: friendsHome
+      type:
+        scalar: boolean
+    - name: home
+      type:
+        scalar: boolean
+    - name: identifier
+      type:
+        scalar: string
+    - name: kind
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexHubKind
+    - name: libraryRecommended
+      type:
+        scalar: boolean
+    - name: ratingKey
+      type:
+        scalar: string
+    - name: title
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexImage
   map:
     fields:
