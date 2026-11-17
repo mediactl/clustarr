@@ -368,10 +368,19 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	statusAC = statusAC.WithAddOptionsApplied(s.Status.AddOptionsApplied)
 
 	stale := s.Status.Metadata == nil
+	// refreshIn is when this pass is owed again for the document's sake:
+	// once its ttl has run out, or, while a refresh is asked for, once a
+	// second ask is no longer a duplicate. Nothing else wakes a series at
+	// either moment.
+	refreshIn := metadata.RefreshRetry
 	if !stale {
 		state := seriesRefreshState(s, now)
-		ttl := metadata.RefreshTTL(commonv1.MediaKindSeries, state, s.Status.Metadata.RefreshedAt.Time)
-		stale = now.Sub(s.Status.Metadata.RefreshedAt.Time) >= ttl
+		refreshed := s.Status.Metadata.RefreshedAt.Time
+		ttl := metadata.RefreshTTL(commonv1.MediaKindSeries, state, refreshed)
+		stale = now.Sub(refreshed) >= ttl
+		if !stale {
+			refreshIn = metadata.RefreshWake(ttl, refreshed, now, string(s.UID))
+		}
 	}
 	metaReady := !stale
 	// A recent document the gateway wrote before it learned a field is
@@ -599,9 +608,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	// controller then (the Owns() watch fires on HasFile only), so come back
 	// just after it.
 	if roll.NextAiring != nil {
-		return ctrl.Result{RequeueAfter: soonest(roll.NextAiring.Sub(now)+time.Second, folderScan.Retry)}, nil
+		return ctrl.Result{RequeueAfter: soonest(soonest(roll.NextAiring.Sub(now)+time.Second, folderScan.Retry), refreshIn)}, nil
 	}
-	return ctrl.Result{RequeueAfter: folderScan.Retry}, nil
+	return ctrl.Result{RequeueAfter: soonest(folderScan.Retry, refreshIn)}, nil
 }
 
 // soonest is the earlier of two requeue delays, zero meaning none.

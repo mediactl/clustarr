@@ -366,10 +366,20 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	classification := m.Status.Classification
 
 	stale := m.Status.Metadata == nil
+	// refreshIn is when this pass is owed again for the document's sake:
+	// once its ttl has run out, or, while a refresh is asked for, once a
+	// second ask is no longer a duplicate. Nothing else wakes a movie at
+	// either moment, so one whose release dates were not yet known learned
+	// them only at a manager start.
+	refreshIn := metadata.RefreshRetry
 	if !stale {
 		state := movieRefreshState(m.Status.Metadata, now)
-		ttl := metadata.RefreshTTL(commonv1.MediaKindMovie, state, m.Status.Metadata.RefreshedAt.Time)
-		stale = now.Sub(m.Status.Metadata.RefreshedAt.Time) >= ttl
+		refreshed := m.Status.Metadata.RefreshedAt.Time
+		ttl := metadata.RefreshTTL(commonv1.MediaKindMovie, state, refreshed)
+		stale = now.Sub(refreshed) >= ttl
+		if !stale {
+			refreshIn = metadata.RefreshWake(ttl, refreshed, now, string(m.UID))
+		}
 	}
 	metaReady := !stale
 	// A recent document the gateway wrote before it learned a field is
@@ -687,13 +697,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		r.normal(m, string(phase), "phase %s -> %s", m.Status.Phase, phase)
 	}
 
-	result := ctrl.Result{}
+	result := ctrl.Result{RequeueAfter: refreshIn}
 	if m.Status.Metadata != nil && !available && !availableAt.IsZero() {
-		d := availableAt.Sub(now)
-		if d < 0 {
-			d = 0
+		if d := availableAt.Sub(now); d > 0 && d < refreshIn {
+			result.RequeueAfter = d
 		}
-		result.RequeueAfter = d
 	}
 	return result, nil
 }

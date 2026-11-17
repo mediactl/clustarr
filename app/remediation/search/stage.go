@@ -249,6 +249,7 @@ func (s *Stage) gather(ctx context.Context, item client.Object, v *remediation.I
 	sv.Attempts, sv.DonorAttempts = cand.Attempts, cand.DonorAttempts
 	sv.LastSearched = lastSearched(item)
 	sv.LastLiveSearch = itemread.LastLiveSearchAt(item)
+	sv.ReleasedAt = releasedAt(item)
 	_, sv.Backlog = s.o.Backlog.Granted(ref.UID, now)
 
 	monitored, err := itemread.Monitored(ctx, r, item)
@@ -425,6 +426,23 @@ func (s *Stage) donorWant(ctx context.Context, item client.Object, entries []cat
 		}
 	}
 	return want, nil
+}
+
+// releasedAt is the day an item came out (searchplan.View.ReleasedAt): an
+// Episode's air date, a Movie's availability date; nil for the rest.
+func releasedAt(o client.Object) *time.Time {
+	var at *metav1.Time
+	switch t := o.(type) {
+	case *catalogv1alpha1.Movie:
+		at = t.Status.AvailableAt
+	case *catalogv1alpha1.Episode:
+		at = t.Status.AirDate
+	}
+	if at == nil || at.IsZero() {
+		return nil
+	}
+	u := at.UTC()
+	return &u
 }
 
 // lastSearched is an item's status.lastSearchedAt.

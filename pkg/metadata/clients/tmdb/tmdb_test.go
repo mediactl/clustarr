@@ -552,3 +552,26 @@ func TestMovieMapsPosterAndBackdropIntoImages(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, m.Images, "null paths are no images")
 }
+
+// A film TMDB lists no theatrical, digital or physical release for, in any
+// country, came out on its own release date: without it the film read as
+// never released and was never searched.
+func TestMovieWithNoTypedReleaseTakesItsReleaseDate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id": 36095, "title": "Cure", "release_date": "1997-12-27",
+			"release_dates": {"results": [{"iso_3166_1": "US", "release_dates": [
+				{"release_date": "1998-04-25T00:00:00.000Z", "type": 1}]}]}}`))
+	}))
+	defer srv.Close()
+
+	c, err := tmdb.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	m, err := c.Movie(context.Background(), "36095", "US")
+	require.NoError(t, err)
+
+	require.NotNil(t, m.InCinemas)
+	require.True(t, m.InCinemas.Equal(time.Date(1997, 12, 27, 0, 0, 0, 0, time.UTC)), "got %s", m.InCinemas)
+	require.Equal(t, metadata.MovieStatusReleased, m.Status)
+}

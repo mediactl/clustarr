@@ -25,6 +25,12 @@ import "time"
 // region, then "US", then whichever country appears first in dates.
 // InCinemas is the earliest ReleaseTypeTheatricalLimited or
 // ReleaseTypeTheatrical date in the chosen country.
+//
+// A chosen country that lists none of the three -- a festival premiere and
+// nothing else -- says nothing about when the film came out, so the dates
+// are then each type's earliest in any country (owner, 2026-11-17: Cure,
+// 1997, has a US premiere and 21 dated releases elsewhere, read as never
+// released and was never searched; fifteen monitored films on talos).
 func DeriveRegionalReleases(dates []ReleaseDate, region string) (inCinemas, digital, physical *time.Time) {
 	country := region
 	if !hasCountry(dates, country) {
@@ -33,22 +39,33 @@ func DeriveRegionalReleases(dates []ReleaseDate, region string) (inCinemas, digi
 	if !hasCountry(dates, country) && len(dates) > 0 {
 		country = dates[0].Country
 	}
+	inCinemas, digital, physical = releasesIn(dates, country)
+	if inCinemas == nil && digital == nil && physical == nil {
+		return releasesIn(dates, "")
+	}
+	return inCinemas, digital, physical
+}
+
+// releasesIn is the earliest date of each release type among country's
+// entries; an empty country takes every entry.
+func releasesIn(dates []ReleaseDate, country string) (inCinemas, digital, physical *time.Time) {
+	earliest := func(cur *time.Time, d time.Time) *time.Time {
+		if cur == nil || d.Before(*cur) {
+			return &d
+		}
+		return cur
+	}
 	for _, d := range dates {
-		if d.Country != country {
+		if country != "" && d.Country != country {
 			continue
 		}
 		switch d.Type {
 		case ReleaseTypeTheatricalLimited, ReleaseTypeTheatrical:
-			if inCinemas == nil || d.Date.Before(*inCinemas) {
-				t := d.Date
-				inCinemas = &t
-			}
+			inCinemas = earliest(inCinemas, d.Date)
 		case ReleaseTypeDigital:
-			t := d.Date
-			digital = &t
+			digital = earliest(digital, d.Date)
 		case ReleaseTypePhysical:
-			t := d.Date
-			physical = &t
+			physical = earliest(physical, d.Date)
 		}
 	}
 	return inCinemas, digital, physical

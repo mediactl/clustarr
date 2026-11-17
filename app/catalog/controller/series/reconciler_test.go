@@ -1352,7 +1352,9 @@ func TestSeriesRollupIsPostFanOut(t *testing.T) {
 
 	day := 24 * time.Hour
 	now := time.Now()
-	e1, e2, e3 := now.Add(-10*day), now.Add(-2*day), now.Add(5*day)
+	// The next episode airs inside the six hours a continuing series'
+	// document stands, so the airing is the sooner of the pass's two wakes.
+	e1, e2, e3 := now.Add(-10*day), now.Add(-2*day), now.Add(3*time.Hour)
 	requester := &countingEpisodeRPC{fakeEpisodeRPC: fakeEpisodeRPC{episodes: []metadata.Episode{
 		{SeasonNumber: 1, EpisodeNumber: 1, Title: "Good News About Hell", AirDate: &e1},
 		{SeasonNumber: 1, EpisodeNumber: 2, Title: "Half Loop", AirDate: &e2},
@@ -1365,7 +1367,7 @@ func TestSeriesRollupIsPostFanOut(t *testing.T) {
 
 	res, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
-	assert.InDelta(t, (5 * day).Seconds(), res.RequeueAfter.Seconds(), 60,
+	assert.InDelta(t, (3 * time.Hour).Seconds(), res.RequeueAfter.Seconds(), 60,
 		"the reconcile must come back when the next episode airs, since nothing else wakes it then")
 
 	var got catalogv1alpha1.Series
@@ -1531,4 +1533,43 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 		return c.Get(ctx, epKey, &got) == nil && got.Status.RuntimeMinutes == 44
 	}, 5*time.Second, 10*time.Millisecond, "the third list never landed")
 	require.Empty(t, got.Status.PlexID, "a list Plex answered without an id for the episode releases the stored one")
+}
+
+// TestSeriesComesBackWhenItsDocumentIsDue: a continuing series with no next
+// airing listed -- between seasons -- was woken by nothing, so its episode
+// list was read again only at a manager start and a new season was found
+// then (owner, 2026-11-17). Its pass is owed again when its document's six
+// hours run out, up to a sixteenth of that late.
+func TestSeriesComesBackWhenItsDocumentIsDue(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	const ns = "refreshwake-ns"
+	require.NoError(t, c.Create(ctx, testNamespace(ns)))
+	require.NoError(t, c.Create(ctx, testRootFolder(ns, "tv-root", "/data/media/tv")))
+
+	s := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "between-seasons", Namespace: ns},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 371981, QualityProfileRef: "none", RootFolderRef: "tv-root",
+			AddOptions: catalogv1alpha1.SeriesAddOptions{Monitor: catalogv1alpha1.SeriesMonitorAll},
+		},
+	}
+	require.NoError(t, c.Create(ctx, s))
+	cacheMetadata(t, ctx, c, ns, s.Name, "Between Seasons", time.Now().Add(-2*time.Hour))
+
+	aired := time.Now().Add(-90 * 24 * time.Hour)
+	requester := &countingEpisodeRPC{fakeEpisodeRPC: fakeEpisodeRPC{episodes: []metadata.Episode{
+		{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot", AirDate: &aired},
+	}}}
+	r := &series.Reconciler{
+		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(32),
+		Bus: combinedBus{Publisher: &subjectRecorder{}, requester: requester},
+	}
+
+	res, err := r.ReconcileItem(ctx, client.ObjectKeyFromObject(s))
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, res.RequeueAfter, 4*time.Hour-time.Minute, "never before the document is due")
+	assert.Less(t, res.RequeueAfter, 4*time.Hour+6*time.Hour/16)
 }

@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package metadata
 
 import (
+	"hash/fnv"
 	"strconv"
 	"time"
 
@@ -47,6 +48,31 @@ const (
 // (a caller bug, a provider that stopped sending updates) still eventually
 // refreshes rather than going stale forever.
 const hardRefreshAfter = 180 * 24 * time.Hour
+
+// RefreshRetry is how long an item whose refresh is asked for and not yet
+// answered waits before it asks again: past the work stream's one-hour
+// duplicate window, inside which a second task under the item's Msg-Id is
+// absorbed.
+const RefreshRetry = 65 * time.Minute
+
+// RefreshWake is how long from now an item whose document was refreshed at
+// lastRefreshed should be looked at again, so that a document is refreshed
+// when its ttl runs out and not at the item's next unrelated wake (owner,
+// 2026-11-17: a continuing series was refreshed only at a manager start or
+// its own next airing, so a new season of one with no airing listed was
+// found at the next restart). The wake lands up to a sixteenth of the ttl
+// after the document is due, by key, so items refreshed together -- a
+// manager start's -- drift apart instead of coming due together for good.
+// It is never less than a second.
+func RefreshWake(ttl time.Duration, lastRefreshed, now time.Time, key string) time.Duration {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	spread := time.Duration(0)
+	if span := ttl / 16; span > 0 {
+		spread = time.Duration(h.Sum32()) % span
+	}
+	return max(lastRefreshed.Add(ttl+spread).Sub(now), time.Second)
+}
 
 // RefreshTTL ports Radarr/Sonarr's ShouldRefresh heuristics: callers derive
 // state from the entity's own fields (release status, air status,

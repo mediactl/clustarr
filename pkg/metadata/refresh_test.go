@@ -63,3 +63,30 @@ func TestRefreshTTLForcesAnImmediateRefreshPastTheHardCap(t *testing.T) {
 
 	require.Zero(t, got, "a record untouched for 200 days must refresh immediately regardless of its bucket")
 }
+
+// A document is looked at again once its ttl has run out, no more than a
+// sixteenth of the ttl late, and two items refreshed together are not due
+// together.
+func TestRefreshWakeLandsJustAfterTheDocumentIsDue(t *testing.T) {
+	refreshed := time.Date(2026, 11, 17, 5, 47, 0, 0, time.UTC)
+	now := refreshed.Add(2 * time.Hour)
+	ttl := 6 * time.Hour
+
+	a := metadata.RefreshWake(ttl, refreshed, now, "uid-a")
+	b := metadata.RefreshWake(ttl, refreshed, now, "uid-b")
+
+	for _, d := range []time.Duration{a, b} {
+		require.GreaterOrEqual(t, d, 4*time.Hour, "never before the document is due")
+		require.Less(t, d, 4*time.Hour+ttl/16)
+	}
+	require.NotEqual(t, a, b, "two items refreshed together drift apart")
+	require.Equal(t, a, metadata.RefreshWake(ttl, refreshed, now, "uid-a"), "the same item wakes at the same time")
+}
+
+// An overdue document is looked at at once, never at a negative delay,
+// which a requeue would read as "never".
+func TestRefreshWakeIsNeverLessThanASecond(t *testing.T) {
+	refreshed := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	require.Equal(t, time.Second, metadata.RefreshWake(6*time.Hour, refreshed, refreshed.Add(48*time.Hour), "uid"))
+	require.Equal(t, time.Second, metadata.RefreshWake(0, refreshed, refreshed, "uid"))
+}

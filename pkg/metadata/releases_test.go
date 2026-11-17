@@ -52,6 +52,43 @@ func TestDeriveRegionalReleasesFallsBackToUSThenFirstCountry(t *testing.T) {
 	require.NotNil(t, inCinemas, "no DE or US entry exists, so the first country present (FR) must be used")
 }
 
+// Cure (1997) on TMDB: the US lists a festival premiere alone, which is no
+// release, so the dates are each type's earliest elsewhere.
+func TestDeriveRegionalReleasesTakesAnyCountryWhenTheChosenOneListsNoRelease(t *testing.T) {
+	dates := []metadata.ReleaseDate{
+		{Country: "BR", Type: metadata.ReleaseTypePhysical, Date: time.Date(2004, 1, 6, 0, 0, 0, 0, time.UTC)},
+		{Country: "DE", Type: metadata.ReleaseTypeTheatricalLimited, Date: time.Date(1998, 8, 23, 0, 0, 0, 0, time.UTC)},
+		{Country: "ES", Type: metadata.ReleaseTypePhysical, Date: time.Date(2012, 12, 5, 0, 0, 0, 0, time.UTC)},
+		{Country: "JP", Type: metadata.ReleaseTypePremiere, Date: time.Date(1997, 11, 6, 0, 0, 0, 0, time.UTC)},
+		{Country: "JP", Type: metadata.ReleaseTypeTheatrical, Date: time.Date(1997, 12, 27, 0, 0, 0, 0, time.UTC)},
+		{Country: "US", Type: metadata.ReleaseTypePremiere, Date: time.Date(1998, 4, 25, 0, 0, 0, 0, time.UTC)},
+	}
+
+	inCinemas, digital, physical := metadata.DeriveRegionalReleases(dates, "US")
+
+	require.NotNil(t, inCinemas)
+	require.True(t, inCinemas.Equal(time.Date(1997, 12, 27, 0, 0, 0, 0, time.UTC)), "the earliest theatrical date in any country, got %s", inCinemas)
+	require.Nil(t, digital)
+	require.NotNil(t, physical)
+	require.True(t, physical.Equal(time.Date(2004, 1, 6, 0, 0, 0, 0, time.UTC)), "the earliest physical date in any country, got %s", physical)
+}
+
+// A chosen country with a release of its own keeps its dates: another
+// country's earlier ones are not taken.
+func TestDeriveRegionalReleasesKeepsTheChosenCountrysOwnDates(t *testing.T) {
+	dates := []metadata.ReleaseDate{
+		{Country: "JP", Type: metadata.ReleaseTypeTheatrical, Date: time.Date(2001, 7, 20, 0, 0, 0, 0, time.UTC)},
+		{Country: "JP", Type: metadata.ReleaseTypePhysical, Date: time.Date(2002, 7, 19, 0, 0, 0, 0, time.UTC)},
+		{Country: "US", Type: metadata.ReleaseTypeTheatrical, Date: time.Date(2002, 9, 20, 0, 0, 0, 0, time.UTC)},
+	}
+
+	inCinemas, digital, physical := metadata.DeriveRegionalReleases(dates, "US")
+
+	require.True(t, inCinemas.Equal(time.Date(2002, 9, 20, 0, 0, 0, 0, time.UTC)))
+	require.Nil(t, digital)
+	require.Nil(t, physical)
+}
+
 func TestDeriveMovieStatus(t *testing.T) {
 	now := time.Date(2010, 8, 1, 0, 0, 0, 0, time.UTC)
 	inCinemas := time.Date(2010, 7, 16, 0, 0, 0, 0, time.UTC) // 16 days before now

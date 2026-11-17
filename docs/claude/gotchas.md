@@ -344,6 +344,36 @@ recorded here.
   season search asks for the season (`SeasonFacts.BacklogDue`) and they wait
   for it (`View.SeasonBacklog`). A grant is spent at dispatch (an all-paced
   backlog search loses its turn) and lapses after `max(2 x interval, 3h)`.
+  **A release date is a day, and three things followed from it** (owner,
+  2026-11-17: "Do we check for new episodes or follow release dates ...
+  Upon release, we should search", then "Implement the fixes"):
+  - **A Series' and a Movie's pass is owed again when its document is due**
+    (`metadata.RefreshWake`: the ttl plus up to a sixteenth of it, by UID,
+    so items refreshed together at a manager start drift apart; while a
+    refresh is asked for and unanswered, `metadata.RefreshRetry`, 65 min,
+    past the work stream's duplicate window). Staleness was only ever read
+    when something else woke the item -- a manager start or the series'
+    next airing -- so in an 11-hour stretch without a restart talos ran 1-2
+    refreshes a half hour and the restart after it 1,170, and a new season
+    of a continuing series with no airing listed (121 of 149) was found at
+    the next restart. A stale item still reads Pending until answered. The
+    other kinds' passes are not owed that way yet.
+  - **A wanted Episode or Movie gets one more live search
+    `searchplan.PostReleaseDelay` (36 h) after its date**
+    (`View.ReleasedAt`: the air date, a Movie's `status.availableAt`).
+    TheTVDB's and TMDB's dates are days, read as 00:00 UTC, so the one live
+    search the date makes runs up to a day before the episode airs; after
+    it only the RSS feeds and the release index were asked, and a release
+    they missed waited for a BacklogSearch's cooldown. Only within
+    `PostReleaseWindow` (7 days) of the date, never for an item added with
+    searchForMissing false, behind the pace, the ledger and its season; the
+    plan's `Due` is the only thing that wakes the item for it.
+  - **A film whose chosen country lists no theatrical, digital or physical
+    release takes each type's earliest date in any country, else TMDB's own
+    release date as its cinema date** (`metadata.DeriveRegionalReleases`,
+    `tmdb.mapMovie`). Cure (1997) has a US festival premiere and 21 dated
+    releases elsewhere: it read `tba`, never available, and was never
+    searched, with fourteen more monitored films on talos.
 - **A payload fetch an indexer answers 429 pauses its grabs locally, and a
   429 whose body names one release's cooldown pauses that release alone
   (2026-10-16).** `spec.limits.grabLimit`'s ring is clustarr's count, not

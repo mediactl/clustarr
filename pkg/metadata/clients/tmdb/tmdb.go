@@ -422,6 +422,14 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 
 	releaseDates := mapReleaseDates(d)
 	inCinemas, digital, physical := metadata.DeriveRegionalReleases(releaseDates, region)
+	if inCinemas == nil && digital == nil && physical == nil {
+		// No country lists a theatrical, digital or physical release: the
+		// film's own release date is when it came out, so it is not read
+		// as never released.
+		if t, err := time.Parse("2006-01-02", d.ReleaseDate); err == nil {
+			inCinemas = &t
+		}
+	}
 
 	m := &metadata.Movie{
 		IDs:              ids,

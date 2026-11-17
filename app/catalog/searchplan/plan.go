@@ -44,6 +44,18 @@ const (
 	// under its Msg-Id (inside the work stream's one-hour duplicate
 	// window, so a task already published is absorbed).
 	RepublishEvery = 2 * time.Minute
+	// PostReleaseDelay is how long after its release date an item still
+	// wanted gets one more live search (owner, 2026-11-17). A provider
+	// gives an air or release date as a day, read as 00:00 UTC, so the
+	// item's one live search runs up to a day before the episode airs and
+	// finds nothing; after it only the RSS feeds and the release index were
+	// asked, and a release they missed waited for a BacklogSearch's cooldown.
+	// 36 hours is noon UTC of the next day: past a US late-night broadcast
+	// of the date.
+	PostReleaseDelay = 36 * time.Hour
+	// PostReleaseWindow bounds that search to items released lately: past
+	// it the item is the backlog's, on its cooldown.
+	PostReleaseWindow = 7 * 24 * time.Hour
 	// DonorSearchesPerSweep caps the first-time live donor searches per
 	// namespace per wantedcron period (P4, §7.3).
 	DonorSearchesPerSweep = 20
@@ -128,6 +140,10 @@ type View struct {
 	SeasonBacklog bool
 	// LastLiveSearch is status.lastLiveSearchAt.
 	LastLiveSearch *metav1.Time
+	// ReleasedAt is the day the item came out, as its provider dates it: an
+	// Episode's air date, a Movie's availability date. Nil for an item with
+	// none, which gets no post-release search (PostReleaseDelay).
+	ReleasedAt *time.Time
 	// NoSearchOnAdd: the item was added with searchForMissing false (a
 	// Movie's searchForMovie; a Series', Comic's, Artist's or Author's for a
 	// child that was already out when the container was added; 2026-11-10
@@ -273,6 +289,20 @@ func Decide(v View, admit func(durable string, seq int64) dispatch.Decision, pac
 	// 4. Due?
 	purpose := purposeDue(v, now)
 	if purpose == nil {
+		// Nothing wakes the item for its post-release search but this.
+		if at, ok := postRelease(v, now); ok {
+			if d != nil {
+				if floor := d.DispatchedAt.Add(wantedcron.MinimumGap); floor.After(at) {
+					at = floor
+				}
+			}
+			// Only a moment still ahead: one already past is held by the
+			// item's season, whose answer wakes it, and a Due in the past
+			// would bring the pass straight back.
+			if at.After(now) {
+				p.Due = at
+			}
+		}
 		return p
 	}
 	t := task(v, records(v, d, now), purpose, now)
@@ -360,6 +390,15 @@ func purposeDue(v View, now time.Time) *purpose {
 	if d := v.Dispatch; d != nil && now.Sub(d.DispatchedAt.Time) < wantedcron.MinimumGap {
 		return nil
 	}
+	// The post-release search (PostReleaseDelay): live, once, whatever the
+	// backoff, behind the pace and the ledger as every live search is.
+	if at, ok := postRelease(v, now); ok && !waits && !now.Before(at) {
+		reason := v.Reason
+		if reason == "" {
+			reason = schema.SearchReasonMissing
+		}
+		return &purpose{reason: reason, live: true}
+	}
 	if v.Wanted && !waits && wantedcron.Eligible(v.Attempts, now) {
 		reason := v.Reason
 		if reason == "" {
@@ -383,6 +422,27 @@ func purposeDue(v View, now time.Time) *purpose {
 type purpose struct {
 	reason               schema.SearchReason
 	donor, live, backlog bool
+}
+
+// postRelease is when the item's post-release live search is owed
+// (PostReleaseDelay after its release date), and whether one is: only a
+// wanted item released within PostReleaseWindow whose last live search was
+// before that moment, and never one added with searchForMissing false.
+func postRelease(v View, now time.Time) (time.Time, bool) {
+	if v.ReleasedAt == nil || v.ReleasedAt.IsZero() || !v.Wanted || v.NoSearchOnAdd {
+		return time.Time{}, false
+	}
+	if !v.Searchable || !v.Monitored || v.Profile == "" {
+		return time.Time{}, false
+	}
+	at := v.ReleasedAt.Add(PostReleaseDelay)
+	if !now.Before(v.ReleasedAt.Add(PostReleaseWindow)) {
+		return time.Time{}, false
+	}
+	if v.LastLiveSearch != nil && !v.LastLiveSearch.Time.Before(at) {
+		return time.Time{}, false
+	}
+	return at, true
 }
 
 // RedownloadDue: a covering failure newer than the last search dispatch and

@@ -1770,10 +1770,43 @@ func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
 
 		got := waitForPhase(t, ctx, c, "avail-ns", "dune-part-three")
 		assert.Equal(t, catalogv1alpha1.MoviePhaseUnavailable, got.Status.Phase)
-		assert.InDelta(t, 72*time.Hour.Seconds(), res.RequeueAfter.Seconds(), 10)
+		// The pass is owed at the sooner of its availability and its
+		// document's refresh (a film with a release ahead refreshes daily,
+		// up to a sixteenth of that late), which is the refresh here.
+		assert.GreaterOrEqual(t, res.RequeueAfter, 24*time.Hour-10*time.Second)
+		assert.Less(t, res.RequeueAfter, 24*time.Hour+24*time.Hour/16)
 	})
 
-	t.Run("never available leaves RequeueAfter zero", func(t *testing.T) {
+	t.Run("available before its document is due requeues near availableAt", func(t *testing.T) {
+		soon := metav1.NewTime(time.Now().Add(3 * time.Hour))
+		m := &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: "out-tonight", Namespace: "avail-ns"},
+			Spec: catalogv1alpha1.MovieSpec{
+				TmdbID: 224, QualityProfileRef: "none", RootFolderRef: "movies-root",
+				MinimumAvailability: catalogv1alpha1.MinimumAvailabilityReleased,
+			},
+		}
+		require.NoError(t, c.Create(ctx, m))
+
+		metaAC := catalogac.Movie(m.Name, m.Namespace).WithStatus(
+			catalogac.MovieStatus().WithMetadata(
+				catalogac.MovieMetadata().
+					WithTitle("Out Tonight").WithYear(2026).
+					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).
+					WithDigitalRelease(soon).
+					WithRefreshedAt(metav1.Now()),
+			),
+		)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
+		require.NoError(t, err)
+		waitForCachedMetadata(t, ctx, c, "avail-ns", "out-tonight")
+
+		res, err := r.ReconcileItem(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "out-tonight"})
+		require.NoError(t, err)
+		assert.InDelta(t, 3*time.Hour.Seconds(), res.RequeueAfter.Seconds(), 10)
+	})
+
+	t.Run("never available requeues only for its document's refresh", func(t *testing.T) {
 		m := &catalogv1alpha1.Movie{
 			ObjectMeta: metav1.ObjectMeta{Name: "unknown-release", Namespace: "avail-ns"},
 			Spec: catalogv1alpha1.MovieSpec{
@@ -1798,7 +1831,10 @@ func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "avail-ns", Name: "unknown-release"}}
 		res, err := r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
-		assert.Zero(t, res.RequeueAfter, "a zero availableAt must never feed RequeueAfter")
+		// A zero availableAt must never feed RequeueAfter: the pass is owed
+		// when the document is due (a released film's week), which is how a
+		// film with no dates learns them.
+		assert.GreaterOrEqual(t, res.RequeueAfter, 7*24*time.Hour-10*time.Second)
 
 		got := waitForPhase(t, ctx, c, "avail-ns", "unknown-release")
 		assert.False(t, got.Status.Available)
