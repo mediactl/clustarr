@@ -314,7 +314,7 @@ RUN set -eux; \
       cp -L "/usr/lib/${m}/${l}" "/out/usr/lib/${m}/${l}"; \
     done; \
     curl -fsSL -o /out/usr/share/licenses/yt-dlp/LICENSE "https://raw.githubusercontent.com/yt-dlp/yt-dlp/${YTDLP_VERSION}/LICENSE"; \
-    printf 'yt-dlp %s, the project\'s own release build: %s\nSource: https://github.com/yt-dlp/yt-dlp/tree/%s\nThe build carries CPython and the libraries yt-dlp lists under "Dependencies" in its README, each under its own licence; see THIRD_PARTY_LICENSES.txt in the source tree.\n' \
+    printf 'yt-dlp %s, the release build of the yt-dlp project: %s\nSource: https://github.com/yt-dlp/yt-dlp/tree/%s\nThe build carries CPython and the libraries yt-dlp lists under "Dependencies" in its README, each under its own licence; see THIRD_PARTY_LICENSES.txt in the source tree.\n' \
       "${YTDLP_VERSION}" "${url}" "${YTDLP_VERSION}" > /out/usr/share/licenses/yt-dlp/SOURCE
 
 FROM native AS trailers
