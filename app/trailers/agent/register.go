@@ -126,22 +126,9 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 			}
 			return resp.Videos, nil
 		},
-		Fetch: fetcher.Fetch,
-		Mux:   engine.MuxPair,
-		Probe: func(ctx context.Context, path string) (Facts, error) {
-			mi, _, err := prober.Probe(ctx, path)
-			if err != nil {
-				return Facts{}, err
-			}
-			f := Facts{DurationMillis: mi.RuntimeMillis, Width: int(mi.Width), Height: int(mi.Height), VideoCodec: mi.VideoCodec}
-			if len(mi.Audio) > 0 {
-				f.AudioCodec = mi.Audio[0].Codec
-			}
-			if fi, err := os.Stat(path); err == nil {
-				f.SizeBytes = fi.Size()
-			}
-			return f, nil
-		},
+		Fetch:      fetcher.Fetch,
+		Mux:        engine.MuxPair,
+		Probe:      probeWith(prober),
 		Place:      fsops.MoveAtomic,
 		ScratchDir: os.TempDir(),
 		Language:   language,
@@ -151,4 +138,24 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 		return catalogagent.Registration{}, fmt.Errorf("trailers domain: %w", err)
 	}
 	return catalogagent.Registration{Ready: &ready, Live: &live}, nil
+}
+
+// probeWith reads a fetched trailer with the in-process prober: how long
+// it runs, its picture's size and codec, its first sound's codec, and the
+// file's size.
+func probeWith(prober *native.Prober) func(ctx context.Context, path string) (Facts, error) {
+	return func(ctx context.Context, path string) (Facts, error) {
+		mi, _, err := prober.Probe(ctx, path)
+		if err != nil {
+			return Facts{}, err
+		}
+		f := Facts{DurationMillis: mi.RuntimeMillis, Width: int(mi.Width), Height: int(mi.Height), VideoCodec: mi.VideoCodec}
+		if len(mi.Audio) > 0 {
+			f.AudioCodec = mi.Audio[0].Codec
+		}
+		if fi, err := os.Stat(path); err == nil {
+			f.SizeBytes = fi.Size()
+		}
+		return f, nil
+	}
 }

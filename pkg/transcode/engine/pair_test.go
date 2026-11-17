@@ -21,29 +21,29 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/internal/testmedia"
 )
 
 // dashPair writes what a trailer's source hands out: one fragmented MP4
 // with the video alone and one with the audio alone, seconds long.
 func dashPair(t *testing.T, seconds int) (video, audio string) {
 	t.Helper()
-	realProber(t)
-	dir := t.TempDir()
-	video, audio = filepath.Join(dir, "clip.137.mp4"), filepath.Join(dir, "clip.140.m4a")
-	d := strconv.Itoa(seconds)
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration="+d,
-		"-c:v", "libx264", "-preset", "ultrafast", "-bf", "2", "-an",
-		"-movflags", "+frag_keyframe+empty_moov+default_base_moof", video)
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "sine=frequency=440:duration="+d,
-		"-c:a", "aac", "-b:a", "96k", "-vn",
-		"-movflags", "+frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", audio)
+	fragmented := map[string]string{"movflags": "+frag_keyframe+empty_moov+default_base_moof"}
+	d := time.Duration(seconds) * time.Second
+	video = testmedia.Make(t, "clip.137.mp4", testmedia.Spec{
+		Format: "mp4", MuxerOptions: fragmented, Duration: d,
+		Video: []testmedia.Video{{Source: "testsrc2=size=320x180:rate=24", Options: map[string]string{"preset": "ultrafast", "bf": "2"}}},
+	})
+	audio = testmedia.Make(t, "clip.140.m4a", testmedia.Spec{
+		Format: "mp4", MuxerOptions: fragmented, Duration: d,
+		Audio: []testmedia.Audio{{Source: "sine=frequency=440", BitrateKbps: 96}},
+	})
 	return video, audio
 }
 
@@ -54,14 +54,13 @@ func TestMuxPairCopiesBothStreamsIntoOneFastStartMP4(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "trailer.mp4")
 	require.NoError(t, MuxPair(context.Background(), video, audio, out))
 
-	p := ffprobeJSON(t, out)
-	require.Len(t, p.Streams, 2)
-	assert.Equal(t, "video", p.Streams[0].CodecType)
-	assert.Equal(t, "h264", p.Streams[0].CodecName, "copied, not re-encoded")
-	assert.Equal(t, "audio", p.Streams[1].CodecType)
-	assert.Equal(t, "aac", p.Streams[1].CodecName, "copied, not re-encoded")
-	info := probeInfo(t, out)
-	assert.InDelta(t, 4.0, info.Format.Duration.Seconds(), 0.2)
+	info := testmedia.Inspect(t, out)
+	require.Len(t, info.Streams, 2)
+	assert.Equal(t, "video", info.Streams[0].Type)
+	assert.Equal(t, "h264", info.Streams[0].Codec, "copied, not re-encoded")
+	assert.Equal(t, "audio", info.Streams[1].Type)
+	assert.Equal(t, "aac", info.Streams[1].Codec, "copied, not re-encoded")
+	assert.InDelta(t, 4.0, info.Duration.Seconds(), 0.2)
 
 	body, err := os.ReadFile(out)
 	require.NoError(t, err)
