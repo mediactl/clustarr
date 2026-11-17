@@ -42,6 +42,7 @@ ENVTEST_ENV = KUBE_FEATURE_ClientsAllowCBOR=false \
 IMG ?= ghcr.io/mediactl/clustarr:dev
 NATIVE_IMG ?= ghcr.io/mediactl/clustarr/native:dev
 NATIVE_DEBUG_IMG ?= ghcr.io/mediactl/clustarr/native-debug:dev
+TRAILERS_IMG ?= ghcr.io/mediactl/clustarr/trailers:dev
 IMAGE_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 FIXTURES_IMG ?= ghcr.io/mediactl/clustarr/e2e-fixtures:dev
 # The ffgo fork (github.com/mediactl/ffgo, a go.mod replace of the upstream
@@ -80,7 +81,7 @@ CRD_DIR := config/crd/bases
 # TestNoAgentRoleGrantsAWriteVerb when an agent role grants a write, and
 # TestChartRBACMatchesTheGeneratedRoles holds the chart's copies to these
 # files byte for byte.
-RBAC_ROLES := manager agent-catalog agent-events agent-metadata agent-import agent-index agent-caption grab-engine
+RBAC_ROLES := manager agent-catalog agent-events agent-metadata agent-import agent-index agent-caption agent-trailers grab-engine
 RBAC_PATHS_manager := ./app/catalog/controller/... ./app/catalog/history/replay ./app/catalog/worker/history ./app/catalog/segmentplan ./app/catalog/artwork ./app/remediation/... ./app/intake/... ./app/dispatch/... ./app/import/controller/... ./app/import/manager/... ./app/indexer/controller/... ./app/indexer/manager ./app/indexer/bundle/... ./app/indexer/clients ./app/indexer/proxy ./app/indexer/status/... ./app/grab/controller/... ./app/transcode/controller/... ./app/transcode/status ./app/transcode/admission ./app/caption/controller/... ./app/caption/providerset ./app/autoscale/... ./app/livetv/...
 RBAC_PATHS_agent-catalog := ./app/catalog/worker/search ./app/catalog/worker/artwork
 RBAC_PATHS_agent-events := ./app/catalog/worker/rssmatcher
@@ -88,6 +89,7 @@ RBAC_PATHS_agent-metadata := ./app/catalog/metadata/... ./app/catalog/worker/mar
 RBAC_PATHS_agent-import := ./app/import/worker/...
 RBAC_PATHS_agent-index := ./app/indexer/agent ./app/indexer/clients ./app/indexer/clientcache ./app/indexer/proxy ./app/indexer/search ./app/indexer/query ./app/indexer/download ./app/indexer/facade ./app/indexer/worker/...
 RBAC_PATHS_agent-caption := ./app/caption/worker/... ./app/caption/providerset/...
+RBAC_PATHS_agent-trailers := ./app/trailers/...
 RBAC_PATHS_grab-engine := ./app/grab/engine/... ./app/grab/agent/...
 
 .PHONY: all
@@ -238,9 +240,10 @@ docker-buildx-clustarr: ## Build (and push) the clustarr image for amd64 and arm
 # There is no CUDA image (docs/adr/0015-no-cuda-image.md): nvidia pools run
 # the native image, the NVIDIA container runtime injecting the driver.
 .PHONY: docker-build-native
-docker-build-native: ## Build the native image and its -debug twin.
+docker-build-native: ## Build the native image, its -debug twin and the trailers image.
 	docker build --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
 	docker build --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target native-debug -t $(NATIVE_DEBUG_IMG) .
+	docker build --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target trailers -t $(TRAILERS_IMG) .
 
 # The classes the native image is self-checked for: it serves every pool,
 # cpu, nvidia and intel (ADR 0015). NATIVE_CHECKS is the native image's list
@@ -259,6 +262,7 @@ docker-selfcheck: ## Check the built images as CI and the release do (hack/image
 	hack/image-checks.sh $(IMG) version:manager version:ui no-shell
 	hack/image-checks.sh $(NATIVE_IMG) $(NATIVE_CHECKS)
 	hack/image-checks.sh $(NATIVE_DEBUG_IMG) notices no-media-executables ffmpeg-libraries
+	hack/image-checks.sh $(TRAILERS_IMG) self-check:agent version:agent yt-dlp no-shell
 
 ##@ Test
 

@@ -171,6 +171,8 @@ func (s *Server) routes() http.Handler {
 			MusicProvider: s.opts.Plex.MusicProvider,
 			Index:         s.plexIndex.Get,
 			Extras:        s.opts.PlexExtras,
+			Trailer:       s.opts.PlexTrailer,
+			PathMappings:  s.opts.Plex.PathMappings,
 			Extended:      s.opts.PlexExtended,
 			// Provider-hosted images (person photos, season posters,
 			// episode stills) are their own public URLs: PMS fetches a URL

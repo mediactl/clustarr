@@ -152,6 +152,7 @@ func topologyNames(t *testing.T) []string {
 		events.MsgIDForObject(uid, 1, "search"),
 		events.RPCIndexSearch, events.RPCIndexDownload, events.RPCIndexQuery, events.RPCIndexBlocklist,
 		events.RPCMetadataLookup, events.RPCMetadataSearch, events.RPCMetadataResolve, events.RPCMetadataExtras,
+		events.RPCMetadataTrailers,
 		events.QueueGroupIndex, events.QueueGroupCatalog,
 		events.SlotsEnv,
 	)

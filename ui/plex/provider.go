@@ -29,6 +29,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/trailers"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -77,6 +78,16 @@ type Options struct {
 	// the extras route answers PMS with. Nil answers 503 for an item that
 	// has a Plex id, never an empty list, which PMS would read as "none".
 	Extras func(ctx context.Context, plexID string) ([]Extra, error)
+
+	// Trailer reads a Movie's or Series' own trailer record
+	// (pkg/trailers, the clustarr-trailers bucket the trailers agent
+	// writes), false when it has none; PathMappings say where Plex mounts
+	// what clustarr mounts, so the record's file can be named to Plex. The
+	// extras route answers a ready trailer for an item Plex's own extras
+	// hold no trailer for. Nil, or no mapping that holds the file, answers
+	// Plex's extras alone.
+	Trailer      func(ctx context.Context, kind, uid string) (trailers.Entry, bool, error)
+	PathMappings []trailers.PathMapping
 
 	// ArtContentType is the content type of the artwork object /art serves
 	// for an item's image of type t, "" when unknown. The URL of a WebP asks

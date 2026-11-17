@@ -8,6 +8,8 @@
 #   self-check:agent              agent --self-check
 #   self-check:markers            markers --self-check
 #   self-check:par2-child         agent par2-repair --self-check
+#   yt-dlp                        (trailers image) yt-dlp --version, as the trailers agent's pod
+#                                 runs it: read-only but for /tmp, no capabilities, uid 1000
 #   no-shell                      the image has no /bin/sh
 #   notices                       (debug image) every licence notice exists and is non-empty
 #   no-media-executables          (debug image) no ffmpeg, ffprobe or par2 file anywhere
@@ -42,6 +44,8 @@ for check in "$@"; do
       locked --entrypoint "/usr/bin/${check#self-check:}" "${img}" --self-check ;;
     self-check:par2-child)
       locked --entrypoint /usr/bin/agent "${img}" par2-repair --self-check ;;
+    yt-dlp)
+      locked --tmpfs /tmp:exec --entrypoint /usr/local/bin/yt-dlp "${img}" --version ;;
     no-shell)
       if docker run --rm --entrypoint /bin/sh "${img}" -c true >/dev/null 2>&1; then
         echo "${img} has a shell" >&2; exit 1

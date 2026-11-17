@@ -868,7 +868,17 @@ in season order, specials left out, each clip once (2026-11-17,
 (Succession: none on the show, five on its fourth season) and PMS stores
 none for a season, so 390 of talos's 541 shows had no trailer; one season
 that cannot be answered fails the whole list. Extras reach Plex only at an
-item's refresh.
+item's refresh. A movie or a show whose Plex extras hold no trailer answers
+its own after them, when the trailers agent has fetched one (ADR-0023,
+`ui/plex/trailer.go`): a clip whose part is the file under the root folder
+at `.clustarr/trailers/`, named where Plex mounts it (`--plex-path-map`,
+`ui.plex.pathMappings`; no mapping, no clip). PMS takes a part's `file`
+from a provider, reads the file itself and plays it as a local part
+(checked on PMS 1.43.5.11079); a part naming an outside address was stored
+and did not play, and a provider path answered 404. The clip's guid is the
+video's site and id, so a refresh that finds the same video changes
+nothing. The record is a read of the `clustarr-trailers` bucket; one that
+cannot be read fails the list.
 Skip segments come from TheIntroDB (2026-09-30,
 `docs/superpowers/specs/2026-09-30-plex-analyze-bypass-design.md`): for a
 probed movie or episode MediaFile whose `status.markers` are due

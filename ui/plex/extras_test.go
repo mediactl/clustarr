@@ -25,6 +25,7 @@ import (
 	"os"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/trailers"
 	"github.com/mediactl/clustarr/ui/plex"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -234,5 +236,131 @@ func TestAShowsExtrasFailWholeWhenOneSeasonCannotBeAnswered(t *testing.T) {
 	s.Status.Metadata.ExternalIDs = map[string]string{"plex": showPlex}
 	s.Status.Metadata.PlexSeasons = []catalogv1.PlexSeasonRef{{Number: 1, ID: s1}}
 	rec := getJSON(t, extrasHandler(t, extras, s), "/plex/tv/library/metadata/"+string(seriesUID)+"/extras")
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+}
+
+// readyTrailer is the record the trailers agent leaves for an item whose
+// trailer it fetched.
+func readyTrailer() trailers.Entry {
+	return trailers.Entry{
+		State: trailers.StateReady, CheckedAt: time.Date(2026, 11, 17, 20, 0, 0, 0, time.UTC),
+		Video: &trailers.Video{
+			Site: "YouTube", Key: "hnEwJKVWjFM", Name: "Official Trailer", Type: "Trailer", Official: true,
+			PublishedAt: time.Date(2021, 7, 27, 16, 0, 0, 0, time.UTC), Provider: "tmdb",
+		},
+		Path:      "/data/media/movies/.clustarr/trailers/movie-" + string(movieUID) + ".mp4",
+		SizeBytes: 19739662, DurationMillis: 127198, Width: 1920, Height: 1080, VideoCodec: "h264", AudioCodec: "aac",
+	}
+}
+
+func trailerHandler(t *testing.T, extras []plex.Extra, entry *trailers.Entry, readErr error, mappings []trailers.PathMapping, objs ...client.Object) (http.Handler, *[]string) {
+	t.Helper()
+	var asked []string
+	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()
+	return plex.Handler(plex.Options{
+		ExternalURL: "https://clustarr.example",
+		Extras:      func(context.Context, string) ([]plex.Extra, error) { return extras, nil },
+		Trailer: func(_ context.Context, kind, uid string) (trailers.Entry, bool, error) {
+			asked = append(asked, kind+"/"+uid)
+			if readErr != nil || entry == nil {
+				return trailers.Entry{}, false, readErr
+			}
+			return *entry, true, nil
+		},
+		PathMappings: mappings,
+		Index:        func(ctx context.Context) (*projection.Index, error) { return projection.BuildIndex(ctx, c) },
+	}), &asked
+}
+
+var moviesMapping = []trailers.PathMapping{{Clustarr: "/data/media/movies", Plex: "/media/movies"}}
+
+// A movie Plex has no trailer for answers its own, after Plex's other
+// extras: a clip whose part is the file where Plex mounts it, which PMS
+// reads and plays as a local part (talos, 2026-11-17).
+func TestAMovieWithoutAPlexTrailerAnswersItsOwnByItsFile(t *testing.T) {
+	entry := readyTrailer()
+	other := plex.Extra(`{"guid":"plex://clip/bts","type":"clip","subtype":"behindTheScenes","extraType":5,"title":"Making of"}`)
+	h, asked := trailerHandler(t, []plex.Extra{other}, &entry, nil, moviesMapping, movieWithPlexID(moviePlex))
+
+	rec := getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)+"/extras")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var out struct {
+		MediaContainer struct {
+			TotalSize int               `json:"totalSize"`
+			Metadata  []json.RawMessage `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	require.NoError(t, decodeJSON(rec.Body.Bytes(), &out))
+	require.Equal(t, 2, out.MediaContainer.TotalSize)
+	assert.JSONEq(t, string(other), string(out.MediaContainer.Metadata[0]))
+	assert.JSONEq(t, `{
+		"guid": "clustarr://trailer/youtube/hnEwJKVWjFM",
+		"key": "/library/metadata/`+string(movieUID)+`/extras/youtube-hnEwJKVWjFM",
+		"ratingKey": "youtube-hnEwJKVWjFM",
+		"type": "clip", "subtype": "trailer", "extraType": 1,
+		"title": "Official Trailer", "parentTitle": "Trailer",
+		"duration": 127198, "addedAt": 1794945600,
+		"originallyAvailableAt": "2021-07-27", "year": 2021,
+		"thumb": "https://i.ytimg.com/vi/hnEwJKVWjFM/hqdefault.jpg",
+		"Media": [{
+			"container": "mp4", "duration": 127198, "width": 1920, "height": 1080,
+			"videoCodec": "h264", "audioCodec": "aac", "videoResolution": "1080", "optimizedForStreaming": true,
+			"Part": [{
+				"file": "/media/movies/.clustarr/trailers/movie-`+string(movieUID)+`.mp4",
+				"container": "mp4", "duration": 127198, "size": 19739662,
+				"Stream": [
+					{"id": "youtube-hnEwJKVWjFM-video", "streamType": 1, "codec": "h264", "width": 1920, "height": 1080, "selected": true},
+					{"id": "youtube-hnEwJKVWjFM-audio", "streamType": 2, "codec": "aac", "selected": true}
+				]
+			}]
+		}]
+	}`, string(out.MediaContainer.Metadata[1]))
+	assert.Equal(t, []string{"movie/" + string(movieUID)}, *asked)
+}
+
+// The item's own trailer is answered only when it is wanted and can be:
+// not beside a trailer of Plex's, not while it is not fetched, not for a
+// file Plex is not told the place of, and never for a season. A movie
+// with no Plex id at all still answers its own.
+func TestAnItemsOwnTrailerIsAnsweredOnlyWhenPlexHasNoneAndTheFileCanBeNamed(t *testing.T) {
+	plexTrailer := plex.Extra(`{"guid":"plex://clip/t","type":"clip","subtype":"trailer","extraType":1,"title":"Trailer"}`)
+	ready := readyTrailer()
+	failed := trailers.Entry{State: trailers.StateFailed, Video: ready.Video}
+	count := func(h http.Handler, path string) int {
+		rec := getJSON(t, h, path)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var out extrasResponse
+		require.NoError(t, decodeJSON(rec.Body.Bytes(), &out))
+		return out.MediaContainer.TotalSize
+	}
+	moviePath := "/plex/movies/library/metadata/" + string(movieUID) + "/extras"
+
+	h, asked := trailerHandler(t, []plex.Extra{plexTrailer}, &ready, nil, moviesMapping, movieWithPlexID(moviePlex))
+	assert.Equal(t, 1, count(h, moviePath), "Plex's trailer stands alone")
+	assert.Empty(t, *asked, "the record is not read for an item Plex has a trailer for")
+
+	h, _ = trailerHandler(t, nil, &failed, nil, moviesMapping, movieWithPlexID(moviePlex))
+	assert.Equal(t, 0, count(h, moviePath), "a trailer that was not fetched")
+	h, _ = trailerHandler(t, nil, nil, nil, moviesMapping, movieWithPlexID(moviePlex))
+	assert.Equal(t, 0, count(h, moviePath), "no record")
+	h, _ = trailerHandler(t, nil, &ready, nil, nil, movieWithPlexID(moviePlex))
+	assert.Equal(t, 0, count(h, moviePath), "no mapping tells Plex where the file is")
+	h, _ = trailerHandler(t, nil, &ready, nil, []trailers.PathMapping{{Clustarr: "/data/media/tv", Plex: "/media/tv"}}, movieWithPlexID(moviePlex))
+	assert.Equal(t, 0, count(h, moviePath), "the mapping holds another directory")
+
+	h, _ = trailerHandler(t, nil, &ready, nil, moviesMapping, fixtureMovie())
+	assert.Equal(t, 1, count(h, moviePath), "a movie Plex does not know answers its own")
+
+	s, _ := fixtureSeriesAndEpisodes()
+	h, asked = trailerHandler(t, nil, &ready, nil, moviesMapping, s)
+	assert.Equal(t, 1, count(h, "/plex/tv/library/metadata/"+string(seriesUID)+"/extras"), "a show answers its own")
+	assert.Equal(t, []string{"series/" + string(seriesUID)}, *asked)
+}
+
+// A record that cannot be read fails the list: answered without it, PMS
+// would delete the trailer it holds from it.
+func TestAnUnreadableTrailerRecordFailsTheList(t *testing.T) {
+	h, _ := trailerHandler(t, nil, nil, errors.New("nats: timeout"), moviesMapping, movieWithPlexID(moviePlex))
+	rec := getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)+"/extras")
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
 }

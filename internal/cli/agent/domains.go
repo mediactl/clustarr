@@ -34,13 +34,14 @@ import (
 	usenetagent "github.com/mediactl/clustarr/app/grab/agent/usenet"
 	importagent "github.com/mediactl/clustarr/app/import/agent"
 	indexeragent "github.com/mediactl/clustarr/app/indexer/agent"
+	trailersagent "github.com/mediactl/clustarr/app/trailers/agent"
 	"github.com/mediactl/clustarr/pkg/events"
 )
 
 // registerFunc is one domain's registration (§4.2.1).
 type registerFunc func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error)
 
-var domainNames = []string{"catalog", "events", "metadata", "import", "index", "caption", "torrent-engine", "usenet-engine"}
+var domainNames = []string{"catalog", "events", "metadata", "import", "index", "caption", "torrent-engine", "usenet-engine", "trailers"}
 
 // Domains is every --domain value, in §3.5.1's order.
 func Domains() []string { return slices.Clone(domainNames) }
@@ -67,6 +68,9 @@ var domains = map[string]registerFunc{
 	"caption": func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 		return captionagent.Register(ctx, mgr, bus, captionagent.Options{Options: o.Options, DataDir: o.DataDir})
 	},
+	"trailers": func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
+		return trailersagent.Register(ctx, mgr, bus, trailersagent.Options{Options: o.Options, DataDir: o.DataDir, YtDlpPath: o.YtDlpPath})
+	},
 	"torrent-engine": func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 		client, err := engineClient(o.Engine)
 		if err != nil {
@@ -88,7 +92,8 @@ var domains = map[string]registerFunc{
 // domainFlags names the domains each domain flag belongs to (§3.5.1).
 var domainFlags = map[string][]string{
 	"live-searches":         {"catalog"},
-	"data-dir":              {"import", "caption", "torrent-engine", "usenet-engine"},
+	"data-dir":              {"import", "caption", "torrent-engine", "usenet-engine", "trailers"},
+	"ytdlp-path":            {"trailers"},
 	"sample-max-bytes":      {"import"},
 	"trakt-base-url":        {"import"},
 	"plex-base-url":         {"import"},

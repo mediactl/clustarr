@@ -54,6 +54,7 @@ const (
 	Caption       = "caption"
 	TorrentEngine = "torrent-engine"
 	UsenetEngine  = "usenet-engine"
+	Trailers      = "trailers"
 	Markers       = "markers"
 )
 
@@ -134,7 +135,7 @@ func Domains() []Domain {
 			events.ConsumerCatalogMarkers, events.ConsumerCatalogImageSet,
 		}, Serves: []string{
 			events.RPCMetadataLookup, events.RPCMetadataSearch, events.RPCMetadataResolve,
-			events.RPCMetadataExtras,
+			events.RPCMetadataExtras, events.RPCMetadataTrailers,
 		}},
 		// The R3 probe queue's two lanes ride with the import consumers: a
 		// ProbeVersion raise's backlog scales the import domain out.
@@ -154,6 +155,9 @@ func Domains() []Domain {
 		// Rendered per DownloadClient by the manager; no durables.
 		{Name: TorrentEngine},
 		{Name: UsenetEngine},
+		// One replica, optional, in its own image (ADR-0023): the sweeper
+		// is the clustarr-trailers bucket's only writer. No durables.
+		{Name: Trailers},
 		// A pod per node: an analysis is bound by its node's CPUs and its
 		// reads from /data, so two pods on a node only split them.
 		{Name: Markers, Autoscaled: true, PerNode: true, Consumers: []string{events.ConsumerMarkersAnalyze}},

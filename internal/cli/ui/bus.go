@@ -34,6 +34,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/trailers"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -123,6 +124,22 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		}
 		return resp.Extras, nil
 	}
+	// An item's own trailer record: a read of clustarr-trailers, which the
+	// trailers agent writes, a closure over Get alone.
+	trailersKV := bus.KV(events.BucketTrailers)
+	trailer := func(ctx context.Context, kind, uid string) (trailers.Entry, bool, error) {
+		ctx, cancel := context.WithTimeout(ctx, busReadTimeout)
+		defer cancel()
+		e, err := trailersKV.Get(ctx, trailers.Key(kind, uid))
+		if errors.Is(err, events.ErrKeyNotFound) {
+			return trailers.Entry{}, false, nil
+		}
+		if err != nil {
+			return trailers.Entry{}, false, err
+		}
+		entry, err := trailers.Decode(e.Value)
+		return entry, err == nil, err
+	}
 	// A grab's 1 Hz transfer telemetry and its import records: reads of
 	// clustarr-progress and clustarr-imports, each under a short deadline,
 	// closures over Get alone (ui/guard_test.go).
@@ -186,6 +203,7 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		lookup:    lookup,
 		extended:  extendedRead,
 		extras:    extras,
+		trailer:   trailer,
 		progress:  progress,
 		transcode: transcode,
 		imports:   importDetail,
@@ -252,6 +270,8 @@ type uiBus struct {
 	// extras asks the metadata gateway for a Plex id's extras
 	// (rpc.catalog.metadata.extras); an answer carrying an error is one.
 	extras func(ctx context.Context, plexID string) ([]json.RawMessage, error)
+	// trailer reads an item's own trailer record (clustarr-trailers).
+	trailer func(ctx context.Context, kind, uid string) (trailers.Entry, bool, error)
 	// progress reads an entry's transfer telemetry; imports one of its
 	// import records.
 	progress func(ctx context.Context, entryUID string) (schema.DownloadProgress, bool, error)

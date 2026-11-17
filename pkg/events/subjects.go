@@ -178,6 +178,10 @@ const (
 	// Plex id, which the metadata gateway fetches on a miss and the ui's
 	// extras route answers PMS with (pkg/metadata/plexextras).
 	BucketPlexExtras = "clustarr-plex-extras"
+	// BucketTrailers holds each Movie's and Series' own trailer record
+	// (pkg/trailers), keyed by kind and uid. The trailers agent is its only
+	// writer; the ui's Plex provider reads it.
+	BucketTrailers = "clustarr-trailers"
 	// BucketMediux caches MediUX's answers -- a show's or film's sets, the
 	// id mappings and the daily content list -- so a library is matched
 	// with one request per item a week at most
@@ -413,8 +417,11 @@ const (
 	RPCMetadataSearch  = "clustarr.rpc.catalog.metadata.search"
 	RPCMetadataResolve = "clustarr.rpc.catalog.metadata.resolve"
 	RPCMetadataExtras  = "clustarr.rpc.catalog.metadata.extras"
-	QueueGroupIndex    = "index"
-	QueueGroupCatalog  = "catalog"
+	// RPCMetadataTrailers lists the videos the trailer providers name for a
+	// Movie or Series; the trailers agent asks, the metadata gateway answers.
+	RPCMetadataTrailers = "clustarr.rpc.catalog.metadata.trailers"
+	QueueGroupIndex     = "index"
+	QueueGroupCatalog   = "catalog"
 )
 
 // CatalogItemSubject builds clustarr.evt.catalog.<kind>.<action>.<uid>.

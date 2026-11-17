@@ -19,7 +19,8 @@ package guards
 
 // The repo-wide exec guard (spec 2026-10-06 §4.5.6, W5.14, W10.1): no
 // production code runs an external program (ADR-0017), except the usenet
-// engine's par2 repair child, which execs only this binary.
+// engine's par2 repair child, which execs only this binary, and the
+// trailers agent's yt-dlp (ADR-0023).
 
 import (
 	"fmt"
@@ -40,12 +41,20 @@ import (
 	"github.com/mediactl/clustarr/test/installtest"
 )
 
-// execAllowed is the one production file that starts a process: the usenet
-// engine's par2 repair child, whose only target is os.Executable() (spec
-// §4.5.6; pkg/par2child's TestTheOnlyExecIsTheRepairChild holds that).
-// Every other file under app/, pkg/, cmd/, internal/, ui/ and api/ runs no
-// program (ADR-0017).
-const execAllowed = "pkg/par2child/exec.go"
+// execAllowed are the production files that start a process, each holding
+// one start. The usenet engine's par2 repair child, whose only target is
+// os.Executable() (spec §4.5.6; pkg/par2child's
+// TestTheOnlyExecIsTheRepairChild holds that). And the trailers agent's
+// yt-dlp (owner, 2026-11-17; ADR-0023): TMDB and TheTVDB name a trailer
+// only by its YouTube page, nothing in Go reads one reliably, and the
+// program is in the optional trailers image alone; only app/trailers
+// links the package (TestOnlyTheTrailersAgentLinksYtDlp). Every other file
+// under app/, pkg/, cmd/, internal/, ui/ and api/ runs no program
+// (ADR-0017).
+var execAllowed = map[string]bool{
+	"pkg/par2child/exec.go": true,
+	"pkg/ytdlp/exec.go":     true,
+}
 
 // execScanDirs are the production trees the exec guard reads; hack/ and
 // test/ are out of scope (§4.5.6), and internal/ is in, since §4.5.6
@@ -76,7 +85,7 @@ func scanForExec(root string) (found []string, checked int) {
 			}
 			rel, _ := filepath.Rel(root, p)
 			rel = filepath.ToSlash(rel)
-			if rel == execAllowed {
+			if execAllowed[rel] {
 				return nil
 			}
 			f, err := parser.ParseFile(token.NewFileSet(), p, nil, parser.SkipObjectResolution)
@@ -136,7 +145,7 @@ func execFindings(rel string, f *ast.File) []string {
 
 // No production code starts a process: no os/exec, no syscall or os
 // process start, no go-ffprobe run (spec §4.5.6, R2, ADR-0017), except the
-// repair child (execAllowed). It replaced the transcode worker's
+// repair child and the trailers agent's yt-dlp (execAllowed). It replaced the transcode worker's
 // TestTheWorkerNeverExecsFFmpeg and pkg/mediainfo's half of it.
 func TestNoProductionCodeStartsAProcess(t *testing.T) {
 	found, checked := scanForExec(installtest.RepoRoot(t))
@@ -144,8 +153,48 @@ func TestNoProductionCodeStartsAProcess(t *testing.T) {
 		t.Error(f)
 	}
 	require.Greater(t, checked, 500, "the walk found too few files; it is not looking where it thinks it is")
-	_, err := os.Stat(filepath.Join(installtest.RepoRoot(t), execAllowed))
-	require.NoError(t, err, "the one allowed exec moved: the allow-list names a file that is gone")
+	for rel := range execAllowed {
+		_, err := os.Stat(filepath.Join(installtest.RepoRoot(t), rel))
+		require.NoError(t, err, "an allowed exec moved: the allow-list names a file that is gone")
+	}
+}
+
+// ytdlpImport is the package that runs yt-dlp, and ytdlpLinkers the one
+// tree that may link it: the trailers agent, which runs in the trailers
+// image, the only one holding the program.
+const (
+	ytdlpImport  = "github.com/mediactl/clustarr/pkg/ytdlp"
+	ytdlpLinkers = "app/trailers/"
+)
+
+// Only the trailers agent links the package that starts yt-dlp (ADR-0023):
+// no other domain, the manager, the ui, markers or transcode can come to
+// run it by an import.
+func TestOnlyTheTrailersAgentLinksYtDlp(t *testing.T) {
+	root := installtest.RepoRoot(t)
+	var linked int
+	for _, dir := range execScanDirs {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+				return err
+			}
+			f, err := parser.ParseFile(token.NewFileSet(), p, nil, parser.ImportsOnly)
+			if err != nil {
+				return err
+			}
+			rel, _ := filepath.Rel(root, p)
+			rel = filepath.ToSlash(rel)
+			for _, imp := range f.Imports {
+				if ip, _ := strconv.Unquote(imp.Path.Value); ip == ytdlpImport {
+					linked++
+					assert.True(t, strings.HasPrefix(rel, ytdlpLinkers), "%s imports %s: only %s may", rel, ytdlpImport, ytdlpLinkers)
+				}
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	}
+	assert.Positive(t, linked, "nothing links %s: the guard is looking for a package that moved", ytdlpImport)
 }
 
 // execGuardWrite writes body at root/rel, for the guards' synthetic trees.
@@ -156,14 +205,17 @@ func execGuardWrite(t *testing.T, root, rel, body string) {
 	require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 }
 
-// The guard catches what it claims to, and its one exception is exactly
-// the repair child (spec §4.5.6, W10.1): falsified on a synthetic tree, a
-// sibling of the allowed file and every call shape included.
+// The guard catches what it claims to, and its exceptions are exactly the
+// repair child and the yt-dlp runner (spec §4.5.6, W10.1): falsified on a
+// synthetic tree, a sibling of each allowed file and every call shape
+// included.
 func TestTheExecGuardAllowsOnlyTheRepairChild(t *testing.T) {
 	root := t.TempDir()
 	execs := "package x\nimport \"os/exec\"\nfunc f() { _ = exec.Command(\"x\") }\n"
 	execGuardWrite(t, root, "pkg/par2child/exec.go", execs)
 	execGuardWrite(t, root, "pkg/par2child/other.go", execs)
+	execGuardWrite(t, root, "pkg/ytdlp/exec.go", execs)
+	execGuardWrite(t, root, "pkg/ytdlp/ytdlp.go", execs)
 	execGuardWrite(t, root, "pkg/download/usenet/repair.go", execs)
 	execGuardWrite(t, root, "app/a/a.go", "package a\nimport \"syscall\"\nfunc f() { _ = syscall.Exec(\"\", nil, nil) }\n")
 	execGuardWrite(t, root, "cmd/c/c.go", "package main\nimport \"os\"\nfunc main() { _, _ = os.StartProcess(\"\", nil, nil) }\n")
@@ -178,13 +230,14 @@ func TestTheExecGuardAllowsOnlyTheRepairChild(t *testing.T) {
 	got := strings.Join(found, "\n")
 	for _, want := range []string{
 		"pkg/par2child/other.go imports os/exec", "pkg/download/usenet/repair.go imports os/exec",
+		"pkg/ytdlp/ytdlp.go imports os/exec",
 		"app/a/a.go calls syscall.Exec", "cmd/c/c.go calls os.StartProcess",
 		"internal/i/i.go calls ffprobe.SetFFProbeBinPath", "ui/u/u.go calls sc.ForkExec", "api/v/v.go calls probe.ProbeURL",
 	} {
 		assert.Contains(t, got, want)
 	}
-	for _, not := range []string{"pkg/par2child/exec.go", "test/t/t.go", "hack/h/main.go", "x_test.go", "pkg/m/types.go"} {
+	for _, not := range []string{"pkg/par2child/exec.go", "pkg/ytdlp/exec.go", "test/t/t.go", "hack/h/main.go", "x_test.go", "pkg/m/types.go"} {
 		assert.NotContains(t, got, not)
 	}
-	assert.Equal(t, 8, checked, "every production file but the allowed one is read")
+	assert.Equal(t, 9, checked, "every production file but the allowed ones is read")
 }

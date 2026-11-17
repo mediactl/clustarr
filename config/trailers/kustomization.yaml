@@ -1,0 +1,20 @@
+# The optional trailers agent (ADR-0023). Not part of config/default: apply
+# it beside the default install to turn it on,
+#
+#   kubectl apply -k config/trailers
+#
+# and give the ui a --plex-path-map for each root folder, so the Plex
+# provider can name the trailer files to Plex. Its ClusterRole,
+# clustarr-agent-trailers-role, is generated with the others in config/rbac.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: clustarr-system
+
+labels:
+- includeSelectors: false
+  pairs:
+    app.kubernetes.io/managed-by: kustomize
+
+resources:
+- agent-trailers.yaml

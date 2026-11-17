@@ -77,6 +77,9 @@ type Registry struct {
 	Plex []PlexProvider
 	// ImageSets choose an item's image set (MediUX), first answer wins.
 	ImageSets []ImageSetProvider
+	// Trailers list the videos named for a movie or series (TMDB, then
+	// TheTVDB for a series): the first that lists any answers.
+	Trailers []TrailerProvider
 }
 
 // Lookup fetches a single entity of kind, identified by ids, from the first

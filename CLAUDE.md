@@ -57,7 +57,7 @@ One Go module, five binaries (ADR-0018):
 | Binary | Image | Runs |
 | --- | --- | --- |
 | `cmd/manager` | `clustarr` (static, distroless) | the control plane (ADR-0019): every reconciler under one lease and one cache (`app/<svc>/manager`), the MediaFile remediation loop (`app/remediation`, ADR-0016), task admission and routing (`app/dispatch`), intake (`app/intake`), the NATS topology, the agents' HPAs (`app/autoscale`), object-store maintenance, the Live TV tuner |
-| `cmd/agent --domain <d>` | `native` (cgo) | one domain per process, never leader-elected, read-only to Kubernetes: `catalog`, `events`, `metadata`, `import`, `index`, `caption`, `torrent-engine`, `usenet-engine` (`app/<svc>/agent`) |
+| `cmd/agent --domain <d>` | `native` (cgo) | one domain per process, never leader-elected, read-only to Kubernetes: `catalog`, `events`, `metadata`, `import`, `index`, `caption`, `torrent-engine`, `usenet-engine`, and the optional `trailers` in its own image (ADR-0023) (`app/<svc>/agent`) |
 | `cmd/ui` | `clustarr` | the web UI and the Plex provider |
 | `cmd/markers` | `native` | segment detection on ffgo and ONNX Runtime |
 | `cmd/transcode` | `native` | transcode pool and graft Jobs on ffgo |
@@ -107,7 +107,8 @@ Full text and guard tests: `docs/claude/invariants.md`.
   Only the manager ensures the NATS topology; subscriptions bind, never create.
 - **One domain per agent process**; every container names its binary; no image
   ships `ffmpeg`, `ffprobe` or `par2`; no production code starts a process
-  (except the usenet engine's `par2` until par2go lands).
+  (except the usenet engine's `par2` until par2go lands, and the optional
+  trailers agent's `yt-dlp`, ADR-0023).
 - **The scanner never guesses.** Unattributable files go to `status.unmatched`.
 - **The UI never writes status** and owns no CRD; every write is a spec patch or
   create in `ui/actions` (`TestUINeverWrites`); it holds a bus connection for reads

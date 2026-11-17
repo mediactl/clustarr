@@ -53,12 +53,13 @@
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["registry", "pullPolicy", "clustarr", "native"],
+      "required": ["registry", "pullPolicy", "clustarr", "native", "trailers"],
       "properties": {
         "registry": { "type": "string" },
         "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
         "clustarr": { "$ref": "#/$defs/imageRef", "description": "The static image: manager and ui." },
         "native": { "$ref": "#/$defs/imageRef", "description": "The FROM-scratch image: agent, markers and transcode on FFmpeg 9 and ONNX Runtime; every agent, markers, the download engines and the transcode pools run it." },
+        "trailers": { "$ref": "#/$defs/imageRef", "description": "The native image and yt-dlp, for agents.trailers alone (ADR-0023)." },
         "controller": { "const": "retired in chart 0.5.0: use image.clustarr (README, Upgrading from 0.4.x)" },
         "media": { "const": "retired in chart 0.5.0: everything that used it runs image.native (README, Upgrading from 0.4.x)" },
         "transcoder": { "const": "retired in chart 0.5.0: use image.native (README, Upgrading from 0.4.x)" },
@@ -430,7 +431,7 @@
     "agents": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["catalog", "events", "metadata", "import", "index", "caption"],
+      "required": ["catalog", "events", "metadata", "import", "index", "caption", "trailers"],
       "properties": {
         "catalog": {
           "allOf": [
@@ -500,6 +501,20 @@
             { "$ref": "#/$defs/agentBlock" },
             { "properties": { "consumerSlots": { "propertyNames": { "enum": ["caption-fetch-high", "caption-fetch-normal"] } } } }
           ]
+        },
+        "trailers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "resources", "nodeSelector", "tolerations", "affinity"],
+          "description": "Trailers for the items Plex has none for, fetched with yt-dlp in image.trailers (ADR-0023). Off by default. Always one replica, Recreate: the sweeper is the clustarr-trailers bucket's only writer.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "resources": { "$ref": "#/$defs/resources" },
+            "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
+            "nodeSelector": { "type": "object" },
+            "tolerations": { "type": "array" },
+            "affinity": { "type": "object" }
+          }
         }
       }
     },
@@ -582,6 +597,19 @@
             "externalURL": {
               "type": "string",
               "description": "--external-url / $CLUSTARR_EXTERNAL_URL: the absolute base every thumb, art and Image[].url is built on. Empty means the provider roots answer 503 naming the flag."
+            },
+            "pathMappings": {
+              "type": "array",
+              "description": "--plex-path-map, one each: where Plex mounts each directory of the media volume clustarr mounts, so the extras route can name an item's own trailer file (agents.trailers) to Plex.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["clustarr", "plex"],
+                "properties": {
+                  "clustarr": { "type": "string", "pattern": "^/" },
+                  "plex": { "type": "string", "pattern": "^/" }
+                }
+              }
             }
           }
         },

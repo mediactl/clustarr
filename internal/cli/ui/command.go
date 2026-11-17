@@ -22,11 +22,13 @@ package uicli
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/spf13/cobra"
 
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/pkg/busconn"
+	"github.com/mediactl/clustarr/pkg/trailers"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/prom"
@@ -49,11 +51,11 @@ func NewCommand() *cobra.Command { return NewCommandWith(ui.Run) }
 // ui.NewServer, not this func, is what logs the "no --external-url" warning
 // once at startup. musicProvider also serves the music and audiobook roots
 // (2026-11-10 design §7.1), off by default.
-func buildPlexOptions(enabled bool, externalURL string, plexGUIDs, musicProvider bool) *ui.PlexOptions {
+func buildPlexOptions(enabled bool, externalURL string, plexGUIDs, musicProvider bool, pathMappings []trailers.PathMapping) *ui.PlexOptions {
 	if !enabled {
 		return nil
 	}
-	return &ui.PlexOptions{ExternalURL: externalURL, PlexGUIDs: plexGUIDs, MusicProvider: musicProvider}
+	return &ui.PlexOptions{ExternalURL: externalURL, PlexGUIDs: plexGUIDs, MusicProvider: musicProvider, PathMappings: pathMappings}
 }
 
 // NewCommandWith is `ui` with run in place of ui.Run.
@@ -76,6 +78,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	var plexProvider bool
 	var plexGUIDs bool
 	var plexMusicProvider bool
+	var plexPathMaps []string
 	var externalURL string
 	var pipelineHistory int
 	var artCacheBytes int64
@@ -101,6 +104,10 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		"Answer the movies, shows, seasons and episodes Plex knows with their plex:// GUIDs instead of "+
 			"clustarr's own, so Plex Web offers Watchlist; ids come from a plex MetadataProvider. False "+
 			"goes back to clustarr's GUIDs for new matches.")
+	fs.StringArrayVar(&plexPathMaps, "plex-path-map", nil,
+		"Where Plex mounts a directory of the media volume, as \"<clustarr path>=<plex path>\" "+
+			"(for example /data/media/movies=/media/movies); repeat for each. With it the Plex provider "+
+			"answers an item's own trailer, which the trailers agent fetched, by its file.")
 	fs.BoolVar(&plexMusicProvider, "plex-music-provider", false,
 		"Also serve the Plex provider's music and audiobook roots, /plex/music and /plex/audiobooks "+
 			"(types 8, 9 and 10; 2026-11-10 design §7). Off by default: PMS through 1.43.5.11079 refuses "+
@@ -128,6 +135,14 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		pathMappings := make([]trailers.PathMapping, 0, len(plexPathMaps))
+		for _, s := range plexPathMaps {
+			m, err := trailers.ParsePathMapping(s)
+			if err != nil {
+				return fmt.Errorf("--plex-path-map: %w", err)
+			}
+			pathMappings = append(pathMappings, m)
+		}
 		reader, waitForSync, acts := buildCluster(ctx)
 		b := buildBus(ctx, natsURL)
 		defer b.close()
@@ -152,8 +167,9 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			MetadataLookup:       b.lookup,
 			PlexExtended:         b.extended,
 			PlexExtras:           b.extras,
+			PlexTrailer:          b.trailer,
 			ArtSigningKey:        signingKey,
-			Plex:                 buildPlexOptions(plexProvider, externalURL, plexGUIDs, plexMusicProvider),
+			Plex:                 buildPlexOptions(plexProvider, externalURL, plexGUIDs, plexMusicProvider, pathMappings),
 			Dashboard:            proj.Dashboard,
 			Metrics:              prom.New(metricsURL),
 			TransferProgress:     b.progress,

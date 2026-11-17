@@ -217,14 +217,17 @@ func addProvider(ctx context.Context, c client.Client, reg *pkgmetadata.Registry
 			reg.Movies = append(reg.Movies, cl)
 			reg.Ratings = append(reg.Ratings, cl) // spec §C.2: tmdb declares its own source from the fetch it already performs.
 			reg.Extras = append(reg.Extras, cl)   // full-metadata spec §3.4: a series' tagline and keywords, which TVDB lacks.
+			reg.Trailers = append(reg.Trailers, cl)
 		case catalogv1alpha1.MetadataProviderTVDB:
 			key, err := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyAPIKey)
 			if err != nil {
 				return err
 			}
 			pin, _ := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyPin)
-			reg.Series = append(reg.Series, tvdb.New(key, pin, httpClient, baseURL(p, "https://api4.thetvdb.com/v4"), limiter).
-				WithLocale(p.Spec.Language, p.Spec.Region))
+			tv := tvdb.New(key, pin, httpClient, baseURL(p, "https://api4.thetvdb.com/v4"), limiter).
+				WithLocale(p.Spec.Language, p.Spec.Region)
+			reg.Series = append(reg.Series, tv)
+			reg.Trailers = append(reg.Trailers, tv)
 		case catalogv1alpha1.MetadataProviderMusicBrainz:
 			cl, err := musicbrainz.New(p.Spec.ContactUserAgent, httpClient, baseURL(p, "https://musicbrainz.org/ws/2"), limiter)
 			if err != nil {

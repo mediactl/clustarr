@@ -1294,6 +1294,7 @@ func defaultBuckets() []BucketSpec {
 		// memory bucket would send a whole library refresh back to plex.tv
 		// after every NATS restart.
 		durable(b(BucketPlexExtras, 0, "Plex's extras per Plex id, for the Plex provider's extras route.")),
+		durable(b(BucketTrailers, 0, "Each Movie's and Series' own trailer record, written by the trailers agent.")),
 		// Durable: MediUX is asked once per item a week; a memory bucket
 		// would ask the whole library again after every NATS restart.
 		durable(b(BucketMediux, 0, "MediUX's sets per TMDB id, id mappings and the content list, read through by the metadata agent.")),

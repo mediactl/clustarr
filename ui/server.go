@@ -42,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/trailers"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/prom"
@@ -91,6 +92,12 @@ type PlexOptions struct {
 	// PlexGUIDs answers items Plex knows with their plex:// GUIDs
 	// (`--plex-guids`, plex.Options.PlexGUIDs).
 	PlexGUIDs bool
+
+	// PathMappings say where Plex mounts each directory of the media
+	// volume clustarr mounts (`--plex-path-map`), so the extras route can
+	// name an item's own trailer file to Plex (plex.Options.PathMappings).
+	// None answers Plex's own extras alone.
+	PathMappings []trailers.PathMapping
 
 	// MusicProvider also serves the provider's music and audiobook roots,
 	// /plex/music and /plex/audiobooks (`--plex-music-provider`,
@@ -213,6 +220,12 @@ type Options struct {
 	// holds neither a requester nor a Plex token (ui/guard_test.go). nil
 	// answers the Plex provider's extras route 503 for an item Plex knows.
 	PlexExtras func(ctx context.Context, plexID string) ([]json.RawMessage, error)
+
+	// PlexTrailer reads a Movie's or Series' own trailer record from the
+	// clustarr-trailers bucket the trailers agent writes (pkg/trailers),
+	// false when it has none. cmd/ui builds it as a closure over the
+	// bucket's Get alone (ui/guard_test.go). nil answers no own trailer.
+	PlexTrailer func(ctx context.Context, kind, uid string) (trailers.Entry, bool, error)
 
 	// ArtSigningKey signs the /art/search URLs the ui hands out. Plex
 	// stores the provider photo URLs it is given and loads them later, so

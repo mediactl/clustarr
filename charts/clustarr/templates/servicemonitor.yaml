@@ -18,7 +18,7 @@ rules:
 - nonResourceURLs: ["/metrics"]
   verbs: ["get"]
 {{- $components := list "manager" }}
-{{- range $d := list "catalog" "events" "metadata" "import" "index" "caption" }}
+{{- range $d := list "catalog" "events" "metadata" "import" "index" "caption" "trailers" }}
 {{- if (index $.Values.agents $d).enabled }}{{ $components = append $components (printf "agent-%s" $d) }}{{ end }}
 {{- end }}
 {{/* ui has no metrics port -- no controller-runtime manager standing one

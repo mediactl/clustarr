@@ -69,6 +69,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb/internal/rawtmdb"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/trailers"
 )
 
 // Client is a metadata.MovieProvider backed by TMDB.
@@ -889,3 +890,54 @@ func parseRetryAfter(v string) time.Duration {
 	}
 	return time.Duration(seconds) * time.Second
 }
+
+// Trailers lists the videos TMDB holds for a movie or a tv show, found by
+// the TMDB id ids carries: those in the configured language, in English
+// and in none. TMDB names each by its site and its id there -- YouTube's,
+// nearly always.
+func (c *Client) Trailers(ctx context.Context, kind commonv1.MediaKind, ids metadata.ExternalIDs) ([]trailers.Video, error) {
+	ctx, span := tracing.Start(ctx, "metadata.tmdb.Trailers")
+	defer span.End()
+	raw := ids[metadata.KeyTMDB]
+	if raw == "" || (kind != commonv1.MediaKindMovie && kind != commonv1.MediaKindSeries) {
+		return nil, nil
+	}
+	id, err := strconv.Atoi(raw)
+	if err != nil {
+		return nil, fmt.Errorf("tmdb: invalid id %q: %w", raw, err)
+	}
+	if err := c.limiter.Wait(ctx); err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	langs := c.baseLanguage()
+	if langs != "en" {
+		langs += ",en"
+	}
+	opts := map[string]string{"language": c.languageFor(c.region), "include_video_language": langs + ",null"}
+	var v *rawtmdb.Videos
+	if kind == commonv1.MediaKindMovie {
+		v, err = c.raw.GetMovieVideos(id, opts)
+	} else {
+		v, err = c.raw.GetTVVideos(id, opts)
+	}
+	if err != nil {
+		mapped := c.mapError(err)
+		if errors.Is(mapped, metadata.ErrNotFound) {
+			return nil, nil
+		}
+		tracing.RecordError(span, mapped)
+		return nil, mapped
+	}
+	out := make([]trailers.Video, 0, len(v.Results))
+	for _, r := range v.Results {
+		published, _ := time.Parse(time.RFC3339, r.PublishedAt)
+		out = append(out, trailers.Video{
+			Site: r.Site, Key: r.Key, Name: strings.TrimSpace(r.Name), Type: r.Type, Official: r.Official,
+			Language: r.Iso639_1, Height: r.Size, PublishedAt: published, Provider: c.Name(),
+		})
+	}
+	return out, nil
+}
+
+var _ metadata.TrailerProvider = (*Client)(nil)

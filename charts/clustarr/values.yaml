@@ -86,6 +86,10 @@ image:
   native:
     repository: mediactl/clustarr/native
     tag: ""
+  # The native image and yt-dlp, for agents.trailers alone (ADR-0023).
+  trailers:
+    repository: mediactl/clustarr/trailers
+    tag: ""
 imagePullSecrets: []
 
 # --------------------------------------------------------------------------
@@ -768,6 +772,26 @@ agents:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+  # Trailers for the Movies and Series Plex's metadata service has none for
+  # (ADR-0023). Off by default: it fetches each from the page TMDB or TheTVDB
+  # names -- YouTube's, nearly always -- with yt-dlp, the one outside program
+  # clustarr runs, in its own image (image.trailers). One replica. Mounts
+  # /data read-write and keeps each trailer under its item's root folder at
+  # .clustarr/trailers/; the ui's Plex provider answers the file to Plex, so
+  # set ui.plex.pathMappings too. A trailer is about 20 MB.
+  trailers:
+    enabled: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 192Mi
+      limits:
+        cpu: "1"
+        memory: 768Mi
+    placement: workers
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
 
 # Skip-segment detection (cmd/markers): FFmpeg decodes in-process, Go
 # analyzes, with PaddleOCR's text detector on ONNX Runtime when cheaper
@@ -894,11 +918,19 @@ ui:
   # (§7.6's as-run note), so the roots are built to the inferred shapes and
   # their uris sit commented out under cluster-plex.plex.metadataProviders
   # above until a PMS build accepts them.
+  #
+  # pathMappings map to --plex-path-map, one each: where Plex mounts each
+  # directory of the media volume clustarr mounts at /data, e.g.
+  #   - {clustarr: /data/media/movies, plex: /media/movies}
+  # With them the extras route answers an item's own trailer, which
+  # agents.trailers fetched, as a file Plex plays; none answers Plex's own
+  # extras alone.
   plex:
     enabled: true
     externalURL: ""
     plexGuids: true
     musicProvider: false
+    pathMappings: []
   service:
     type: ClusterIP
     port: 8080

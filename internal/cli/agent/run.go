@@ -239,13 +239,13 @@ func presenceWriter(o Options, bus events.Bus, overrides map[string]int) (*prese
 func capabilities(o Options) map[string]string {
 	out := map[string]string{}
 	switch o.Domain {
-	case agentdomain.Import, agentdomain.Caption:
+	case agentdomain.Import, agentdomain.Caption, agentdomain.Trailers:
 		if rep, err := ffruntime.Load(); err == nil {
 			out["ffmpeg"] = strconv.Itoa(rep.FFmpegMajor)
 		}
 	}
 	switch o.Domain {
-	case agentdomain.Import, agentdomain.Caption, agentdomain.TorrentEngine, agentdomain.UsenetEngine:
+	case agentdomain.Import, agentdomain.Caption, agentdomain.TorrentEngine, agentdomain.UsenetEngine, agentdomain.Trailers:
 		if fi, err := os.Stat(o.DataDir); err == nil && fi.IsDir() {
 			out["data"] = "mounted"
 		}

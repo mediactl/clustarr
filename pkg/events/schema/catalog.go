@@ -22,6 +22,7 @@ import (
 	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/trailers"
 )
 
 // SearchReason says why a search was enqueued. It drives both the priority
@@ -463,6 +464,32 @@ type PlexExtrasResponse struct {
 
 // Schema implements Payload.
 func (PlexExtrasResponse) Schema() string { return "catalog.PlexExtrasResponse.v1" }
+
+// TrailersRequest asks the metadata gateway which videos the trailer
+// providers name for a Movie or Series.
+// Subject: clustarr.rpc.catalog.metadata.trailers.
+type TrailersRequest struct {
+	// Kind is movie or series.
+	Kind commonv1.MediaKind `json:"kind"`
+	// IDs are the item's external ids (tmdb, tvdb, ...).
+	IDs map[string]string `json:"ids"`
+}
+
+// Schema implements Payload.
+func (TrailersRequest) Schema() string { return "catalog.TrailersRequest.v1" }
+
+// TrailersResponse is the gateway's answer: every provider's videos, in
+// the providers' order, or Error. Videos is empty for an item no provider
+// names a video for; when none was named and a provider could not be
+// asked the answer is Error, never an empty list, so "none" is recorded
+// only when it is known.
+type TrailersResponse struct {
+	Videos []trailers.Video `json:"videos"`
+	Error  string           `json:"error,omitempty"`
+}
+
+// Schema implements Payload.
+func (TrailersResponse) Schema() string { return "catalog.TrailersResponse.v1" }
 
 // ImageSetTask asks the metadata domain's image-set worker for one Movie's
 // or Series' set (docs/superpowers/specs/2026-10-22-mediux-image-sets-automation-design.md).

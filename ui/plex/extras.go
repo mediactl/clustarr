@@ -20,9 +20,11 @@ package plex
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/trailers"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -39,6 +41,8 @@ import (
 // bucket and asks Plex on a miss. A show answers its seasons' extras after
 // its own ([extrasPlexIDs]). An item with no Plex id answers none; when the
 // gateway cannot answer, the route answers an error, never an empty list.
+// A movie or a show Plex has no trailer for answers its own, when the
+// trailers agent has fetched one ([trailerClip]).
 
 // Extra is one of an item's extras exactly as Plex's metadata service sent
 // it, so every field PMS reads reaches it unchanged.
@@ -62,7 +66,7 @@ func (h *handler) handleExtras(root rootDef) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		plexIDs, ok := extrasPlexIDs(root, idx, r.PathValue("ratingKey"))
+		plexIDs, own, ok := extrasPlexIDs(root, idx, r.PathValue("ratingKey"))
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -91,6 +95,23 @@ func (h *handler) handleExtras(root rootDef) http.HandlerFunc {
 					seen[id] = true
 				}
 				items = append(items, e)
+			}
+		}
+		// The item's own trailer, where Plex has none: fetched by the
+		// trailers agent and named to Plex by its file. An unreadable
+		// record fails the list, since the trailer PMS holds from it would
+		// be deleted by a list without it.
+		if own.kind != "" && h.opts.Trailer != nil && !slices.ContainsFunc(items, trailers.IsPlexTrailer) {
+			entry, have, err := h.opts.Trailer(r.Context(), own.kind, own.uid)
+			if err != nil {
+				logging.FromContext(r.Context()).Error("plex: read the item's trailer record", "kind", own.kind, "uid", own.uid, "err", err)
+				http.Error(w, "the item's trailer record could not be read", http.StatusBadGateway)
+				return
+			}
+			if have {
+				if clip, ok := trailerClip(entry, h.opts.PathMappings, r.PathValue("ratingKey")); ok {
+					items = append(items, clip)
+				}
 			}
 		}
 
@@ -152,40 +173,44 @@ func extraIdentity(e Extra) string {
 // 2026-11-17: 390 of 541 shows). Specials are left out. A music key has no
 // Plex id (design §7.2, Q5), so every one a music root serves answers the
 // empty list (§7.4: "/extras answers an empty list for every music key").
-func extrasPlexIDs(root rootDef, idx *projection.Index, ratingKey string) ([]string, bool) {
-	one := func(id string) ([]string, bool) {
+// own names the movie or the show itself, whose own trailer the list may
+// end with; it is empty for a season, an episode and a music key.
+func extrasPlexIDs(root rootDef, idx *projection.Index, ratingKey string) (ids []string, own trailerOwner, ok bool) {
+	one := func(id string) []string {
 		if id == "" {
-			return nil, true
+			return nil
 		}
-		return []string{id}, true
+		return []string{id}
 	}
 	k, ok := resolveKey(idx, ratingKey)
 	if !ok {
-		return nil, false
+		return nil, own, false
 	}
 	if root.music {
 		_, ok := resolveMusicItem(root, idx, k)
-		return nil, ok
+		return nil, own, ok
 	}
 	if k.Track != "" || k.IsPart || k.Synthetic != "" {
-		return nil, false
+		return nil, own, false
 	}
 	if k.IsSeason {
 		s, ok := idx.SeriesByUID(k.UID)
 		if !ok || !root.declares(typeSeason) {
-			return nil, false
+			return nil, own, false
 		}
-		return one(seasonPlexID(s, k.Season))
+		return one(seasonPlexID(s, k.Season)), own, true
 	}
 	if m, ok := idx.MovieByUID(k.UID); ok && root.declares(typeMovie) {
-		return one(moviePlexID(m))
+		return one(moviePlexID(m)), trailerOwner{kind: trailers.KindMovie, uid: string(m.UID)}, true
 	}
 	if s, ok := idx.SeriesByUID(k.UID); ok && root.declares(typeShow) {
-		ids, _ := one(seriesPlexID(s))
-		return append(ids, seasonPlexIDs(s)...), true
+		return append(one(seriesPlexID(s)), seasonPlexIDs(s)...), trailerOwner{kind: trailers.KindSeries, uid: string(s.UID)}, true
 	}
 	if e, ok := idx.EpisodeByUID(k.UID); ok && root.declares(typeEpisode) {
-		return one(episodePlexID(e))
+		return one(episodePlexID(e)), own, true
 	}
-	return nil, false
+	return nil, own, false
 }
+
+// trailerOwner is the Movie or Series a trailer record is kept for.
+type trailerOwner struct{ kind, uid string }

@@ -102,7 +102,11 @@ Until the guard lands, review holds the invariant; drop the mark when it does.
 - **No production code starts a process** but the usenet engine's `par2`
   (`pkg/download/usenet/repair.go`, `usenet.Par2Runner`) until par2go lands as a
   library; then only `pkg/par2child/exec.go`, whose only target is
-  `os.Executable()` (ADR-0017; `TestNoProductionCodeStartsAProcess`†). Oracles
+  `os.Executable()` (ADR-0017; `TestNoProductionCodeStartsAProcess`†). The
+  one other start is the trailers agent's yt-dlp (`pkg/ytdlp/exec.go`,
+  ADR-0023, owner 2026-11-17): only `app/trailers` links the package
+  (`TestOnlyTheTrailersAgentLinksYtDlp`), and only the optional `trailers`
+  image holds the program. Oracles
   that run ffprobe, ffmpeg or par2 belong under `test/`; several package tests
   still run the ffmpeg CLI until the test batch moves them onto
   `internal/testmedia` and recorded goldens (`TestNoGoFileRunsFFmpeg`†).

@@ -167,7 +167,16 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 		stopImageSets()
 		return nil, err
 	}
+	stopTrailers, err := ServeTrailers(o.Bus, reg)
+	if err != nil {
+		stopExtras()
+		stopRPC()
+		stopSub()
+		stopMarkers()
+		stopImageSets()
+		return nil, err
+	}
 	// The responders drain with the consumers (ADR-0020 §1): a request
 	// already buffered when the agent stops is still answered.
-	return func() { stopConcurrently(stopRPC, stopExtras, stopSub, stopMarkers, stopImageSets) }, nil
+	return func() { stopConcurrently(stopRPC, stopExtras, stopTrailers, stopSub, stopMarkers, stopImageSets) }, nil
 }

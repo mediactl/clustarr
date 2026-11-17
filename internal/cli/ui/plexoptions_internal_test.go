@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/pkg/trailers"
 )
 
 // TestBuildPlexOptionsRoutesTheMusicProviderFlag: --plex-music-provider
@@ -28,13 +30,14 @@ import (
 // leftover W4a closes), so the roots and the music index follow it; the
 // provider stays off as a whole only under --plex-provider=false.
 func TestBuildPlexOptionsRoutesTheMusicProviderFlag(t *testing.T) {
-	require.Nil(t, buildPlexOptions(false, "https://c.example", true, true), "no provider, whatever the music flag says")
-	on := buildPlexOptions(true, "https://c.example", true, true)
+	require.Nil(t, buildPlexOptions(false, "https://c.example", true, true, nil), "no provider, whatever the music flag says")
+	on := buildPlexOptions(true, "https://c.example", true, true, []trailers.PathMapping{{Clustarr: "/data/media/movies", Plex: "/media/movies"}})
 	require.NotNil(t, on)
 	require.True(t, on.MusicProvider)
 	require.True(t, on.PlexGUIDs)
 	require.Equal(t, "https://c.example", on.ExternalURL)
-	off := buildPlexOptions(true, "", false, false)
+	require.Equal(t, []trailers.PathMapping{{Clustarr: "/data/media/movies", Plex: "/media/movies"}}, on.PathMappings, "--plex-path-map reaches the provider")
+	off := buildPlexOptions(true, "", false, false, nil)
 	require.NotNil(t, off, "an empty external URL is a legal, if unusable, value (spec §D.1)")
 	require.False(t, off.MusicProvider)
 }

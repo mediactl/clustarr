@@ -4,6 +4,7 @@
 #   ghcr.io/<owner>/<repo>                    clustarr: manager and ui   (images/Dockerfile.clustarr)
 #   ghcr.io/<owner>/<repo>/native             agent, markers, transcode  (images/Dockerfile.native, target native; every pool, nvidia's included)
 #   ghcr.io/<owner>/<repo>/native-debug       the same plus a busybox    (target native-debug)
+#   ghcr.io/<owner>/<repo>/trailers           the same plus yt-dlp       (target trailers; agent --domain=trailers alone, ADR-0023)
 #   ghcr.io/<owner>/<repo>/e2e-fixtures       e2e fixture services       (images/Dockerfile.e2e-fixtures)
 #   oci://ghcr.io/<owner>/<repo>/charts       the clustarr Helm chart
 #
@@ -64,6 +65,8 @@ jobs:
           - { image: native, suffix: /native, dockerfile: images/Dockerfile.native, target: native, arch: arm64, runner: ubuntu-24.04-arm, checks: "self-check:transcode:cpu self-check:agent self-check:markers self-check:par2-child version:agent version:markers version:transcode no-shell" }
           - { image: native-debug, suffix: /native-debug, dockerfile: images/Dockerfile.native, target: native-debug, arch: amd64, runner: ubuntu-24.04, checks: "notices no-media-executables ffmpeg-libraries" }
           - { image: native-debug, suffix: /native-debug, dockerfile: images/Dockerfile.native, target: native-debug, arch: arm64, runner: ubuntu-24.04-arm, checks: "notices no-media-executables ffmpeg-libraries" }
+          - { image: trailers, suffix: /trailers, dockerfile: images/Dockerfile.native, target: trailers, arch: amd64, runner: ubuntu-24.04, checks: "self-check:agent version:agent yt-dlp no-shell" }
+          - { image: trailers, suffix: /trailers, dockerfile: images/Dockerfile.native, target: trailers, arch: arm64, runner: ubuntu-24.04-arm, checks: "self-check:agent version:agent yt-dlp no-shell" }
           - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: amd64, runner: ubuntu-24.04, checks: "" }
           - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: arm64, runner: ubuntu-24.04-arm, checks: "" }
     env:
@@ -182,6 +185,7 @@ jobs:
           - { image: clustarr, suffix: "" }
           - { image: native, suffix: /native }
           - { image: native-debug, suffix: /native-debug }
+          - { image: trailers, suffix: /trailers }
           - { image: e2e-fixtures, suffix: /e2e-fixtures }
     steps:
       - name: Download digests

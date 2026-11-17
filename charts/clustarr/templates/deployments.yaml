@@ -185,6 +185,16 @@ creates those at runtime, owned by the object that asked for them.
       "replicas" .replicas "autoscaled" true "domain" "caption" "nodeName" true
       "data" true "index" false "strategy" "" "grace" 115 "automemlimit" "0.60") }}
 {{- end }}{{ end }}
+{{- with .Values.agents.trailers }}{{ if .enabled }}
+{{- /* Exactly one, Recreate: the sweeper is the clustarr-trailers bucket's
+       only writer (ADR-0023). The trailers image is the native image and
+       yt-dlp; a fetch is assembled in /tmp. */}}
+{{- include "clustarr.workload" (dict
+      "root" $ "component" "agent-trailers" "values" .
+      "image" "trailers" "command" "/usr/bin/agent" "args" (list "--domain=trailers")
+      "replicas" 1 "nodeName" true
+      "data" true "index" false "strategy" (dict "type" "Recreate") "grace" 85) }}
+{{- end }}{{ end }}
 {{- if .Values.ui.enabled }}
 {{/* ui does not fit clustarr.workload: it runs no controller-runtime
      manager, so it has no --leader-elect/--nats-single-node and no
@@ -307,6 +317,9 @@ spec:
         {{- end }}
         {{- with .Values.ui.plex.externalURL }}
         {{- $uiArgs = append $uiArgs (printf "--external-url=%s" .) }}
+        {{- end }}
+        {{- range .Values.ui.plex.pathMappings }}
+        {{- $uiArgs = append $uiArgs (printf "--plex-path-map=%s=%s" .clustarr .plex) }}
         {{- end }}
         {{- with .Values.ui.metrics.url }}
         {{- $uiArgs = append $uiArgs (printf "--metrics-url=%s" .) }}

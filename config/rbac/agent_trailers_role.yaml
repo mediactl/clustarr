@@ -1,0 +1,16 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-agent-trailers-role
+rules:
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - movies
+  - rootfolders
+  - series
+  verbs:
+  - get
+  - list
+  - watch

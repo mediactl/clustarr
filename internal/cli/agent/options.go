@@ -29,6 +29,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
+	trailersagent "github.com/mediactl/clustarr/app/trailers/agent"
 	"github.com/mediactl/clustarr/pkg/agentdomain"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
@@ -76,6 +77,7 @@ type Options struct {
 	DownloadClient            string // torrent-engine
 	Engine                    string // engines
 	ScratchDir, PublishDir    string // engines
+	YtDlpPath                 string // trailers
 
 	// Test seams; production leaves them zero. RESTConfig nil reads the
 	// kubeconfig; WrapBus wraps the domain's bus (a recording bus);
@@ -92,6 +94,7 @@ func DefaultOptions() Options {
 		LiveSearches: search.DefaultLiveSearches,
 		DataDir:      "/data", SampleMaxBytes: fsops.DefaultSampleMaxBytes, ScratchDir: "/scratch",
 		IndexPath: DefaultIndexPath, FacadeBindAddress: DefaultFacadeBindAddress, FacadeAPIKeySecret: DefaultFacadeAPIKeySecret,
+		YtDlpPath: trailersagent.DefaultYtDlpPath,
 	}
 }
 
@@ -107,7 +110,7 @@ func (o Options) Validate() error {
 		errs = append(errs, errors.New("--nats-url is required"))
 	}
 	switch o.Domain {
-	case "import", "caption", "torrent-engine", "usenet-engine":
+	case "import", "caption", "torrent-engine", "usenet-engine", "trailers":
 		if o.DataDir == "" {
 			errs = append(errs, fmt.Errorf("--domain %s needs --data-dir", o.Domain))
 		}

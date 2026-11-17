@@ -25,8 +25,10 @@ package tvdb
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -36,10 +38,12 @@ import (
 	"golang.org/x/text/language/display"
 	"golang.org/x/time/rate"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/trailers"
 )
 
 const defaultBaseURL = "https://api4.thetvdb.com/v4"
@@ -946,3 +950,91 @@ func originalLanguage(code string) string {
 	}
 	return code
 }
+
+// seriesTrailersResponse is the slice of /series/{id}/extended that names
+// a series' trailers: each a page, by its address.
+type seriesTrailersResponse struct {
+	Data struct {
+		Trailers []struct {
+			Name     string `json:"name"`
+			URL      string `json:"url"`
+			Language string `json:"language"`
+		} `json:"trailers"`
+	} `json:"data"`
+}
+
+// Trailers lists the trailers TheTVDB holds for a series, found by the
+// TVDB id ids carries; none for any other kind. TheTVDB names a trailer by
+// its page's address, which is read for the site and the video's id there,
+// and by a three-letter language.
+func (c *Client) Trailers(ctx context.Context, kind commonv1.MediaKind, ids metadata.ExternalIDs) ([]trailers.Video, error) {
+	ctx, span := tracing.Start(ctx, "metadata.tvdb.Trailers")
+	defer span.End()
+	tvdbID := ids[metadata.KeyTVDB]
+	if tvdbID == "" || kind != commonv1.MediaKindSeries {
+		return nil, nil
+	}
+	if _, err := strconv.Atoi(tvdbID); err != nil {
+		return nil, fmt.Errorf("tvdb: invalid series id %q: %w", tvdbID, err)
+	}
+	var raw seriesTrailersResponse
+	if err := c.doRequest(ctx, http.MethodGet, "/series/"+tvdbID+"/extended", &raw); err != nil {
+		if errors.Is(err, metadata.ErrNotFound) {
+			return nil, nil
+		}
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	out := make([]trailers.Video, 0, len(raw.Data.Trailers))
+	for _, t := range raw.Data.Trailers {
+		site, key := videoPage(t.URL)
+		if site == "" {
+			continue
+		}
+		out = append(out, trailers.Video{
+			Site: site, Key: key, Name: strings.TrimSpace(t.Name), Type: "Trailer",
+			Language: twoLetter(t.Language), Provider: c.Name(),
+		})
+	}
+	return out, nil
+}
+
+// videoPage reads a trailer page's address for its site and the video's id
+// there: YouTube's watch and short addresses and Vimeo's; "" for any other.
+func videoPage(raw string) (site, key string) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", ""
+	}
+	host := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
+	switch host {
+	case "youtube.com", "m.youtube.com":
+		if key = u.Query().Get("v"); key == "" {
+			if rest, ok := strings.CutPrefix(u.Path, "/embed/"); ok {
+				key = rest
+			}
+		}
+		site = "YouTube"
+	case "youtu.be":
+		site, key = "YouTube", strings.Trim(u.Path, "/")
+	case "vimeo.com":
+		site, key = "Vimeo", strings.Trim(u.Path, "/")
+	}
+	if key == "" || strings.Contains(key, "/") {
+		return "", ""
+	}
+	return site, key
+}
+
+// twoLetter is the canonical tag of the three-letter code TheTVDB tags a
+// trailer with: the two-letter code where the language has one. A code
+// that names no language is returned as it is, and matches nothing.
+func twoLetter(code string) string {
+	if tag, ok := lang.Normalize(code); ok {
+		base, _, _ := strings.Cut(string(tag), "-")
+		return base
+	}
+	return strings.ToLower(code)
+}
+
+var _ metadata.TrailerProvider = (*Client)(nil)

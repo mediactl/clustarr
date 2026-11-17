@@ -92,3 +92,43 @@ func (c *Client) GetTVDetails(id int, urlOptions map[string]string) (*TVDetails,
 	}
 	return &tvDetails, nil
 }
+
+// Videos is the videos TMDB lists for a movie or a TV show.
+type Videos struct {
+	ID      int64 `json:"id"`
+	Results []struct {
+		Iso639_1    string `json:"iso_639_1"`
+		Iso3166_1   string `json:"iso_3166_1"`
+		Name        string `json:"name"`
+		Key         string `json:"key"`
+		Site        string `json:"site"`
+		Size        int    `json:"size"`
+		Type        string `json:"type"`
+		Official    bool   `json:"official"`
+		PublishedAt string `json:"published_at"`
+		ID          string `json:"id"`
+	} `json:"results"`
+}
+
+// GetMovieVideos gets the videos of a movie.
+//
+// https://developer.themoviedb.org/reference/movie-videos
+func (c *Client) GetMovieVideos(id int, urlOptions map[string]string) (*Videos, error) {
+	return c.getVideos(movieURL, id, urlOptions)
+}
+
+// GetTVVideos gets the videos of a TV show.
+//
+// https://developer.themoviedb.org/reference/tv-series-videos
+func (c *Client) GetTVVideos(id int, urlOptions map[string]string) (*Videos, error) {
+	return c.getVideos(tvURL, id, urlOptions)
+}
+
+func (c *Client) getVideos(kindURL string, id int, urlOptions map[string]string) (*Videos, error) {
+	tmdbURL := fmt.Sprintf("%s%s%d/videos?api_key=%s%s", baseURL, kindURL, id, c.apiKey, c.fmtOptions(urlOptions))
+	videos := Videos{}
+	if err := c.get(tmdbURL, &videos); err != nil {
+		return nil, err
+	}
+	return &videos, nil
+}

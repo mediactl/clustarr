@@ -115,6 +115,7 @@ var Subsystems = []string{
 	"remediation.subtitles",
 	"remediation.transcode",
 	"stdlog",
+	"trailers.agent",
 	"transcode",
 	"transcode.admission",
 	"transcode.admission.intelwork",

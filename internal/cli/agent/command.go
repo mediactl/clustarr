@@ -115,6 +115,8 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.StringVar(&d.ScratchDir, "scratch-dir", d.ScratchDir,
 		"Engine working area: the usenet engine's yEnc assembly, PAR2 repair and extraction, or a torrent "+
 			"engine's downloads before publish. Domains torrent-engine and usenet-engine.")
+	fs.StringVar(&d.YtDlpPath, "ytdlp-path", d.YtDlpPath,
+		"The yt-dlp program that fetches a trailer's page; only the trailers image holds one. Domain trailers.")
 	fs.StringVar(&d.PublishDir, "publish-dir", d.PublishDir,
 		"Where the usenet engine publishes finished content, as <dir>/<category>/<name>; "+
 			"empty means --data-dir. Under --data-dir, on the same filesystem as --scratch-dir. Domain usenet-engine.")

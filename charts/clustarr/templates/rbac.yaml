@@ -17,7 +17,7 @@ hand-edit them.
 */}}
 {{- $fullname := include "clustarr.fullname" . }}
 {{- $components := list "manager" }}
-{{- range $d := list "catalog" "events" "metadata" "import" "index" "caption" }}
+{{- range $d := list "catalog" "events" "metadata" "import" "index" "caption" "trailers" }}
 {{- if (index $.Values.agents $d).enabled }}{{ $components = append $components (printf "agent-%s" $d) }}{{ end }}
 {{- end }}
 {{/* Each component is its own identity: ServiceAccount, ClusterRole and
@@ -621,6 +621,29 @@ rules:
   - list
   - watch
 # END generated from config/rbac/agent_caption_role.yaml.
+{{- end }}
+{{- if has "agent-trailers" $components }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}-agent-trailers
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-trailers
+rules:
+# BEGIN generated from config/rbac/agent_trailers_role.yaml -- do not edit by hand.
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - movies
+  - rootfolders
+  - series
+  verbs:
+  - get
+  - list
+  - watch
+# END generated from config/rbac/agent_trailers_role.yaml.
 {{- end }}
 ---
 {{/* The engine pods' identity. Every StatefulSet/Deployment the manager's

@@ -267,6 +267,8 @@ var neverDeadLettered = map[string]string{
 	schema.MetadataResponse{}.Schema():    "RPC reply, clustarr.rpc.catalog.metadata.*",
 	schema.PlexExtrasRequest{}.Schema():   "RPC request, clustarr.rpc.catalog.metadata.extras",
 	schema.PlexExtrasResponse{}.Schema():  "RPC reply, clustarr.rpc.catalog.metadata.extras",
+	schema.TrailersRequest{}.Schema():     "RPC request, clustarr.rpc.catalog.metadata.trailers",
+	schema.TrailersResponse{}.Schema():    "RPC reply, clustarr.rpc.catalog.metadata.trailers",
 	schema.SearchRequest{}.Schema():       "RPC request, clustarr.rpc.index.search",
 	schema.SearchResponse{}.Schema():      "RPC reply, clustarr.rpc.index.search",
 	schema.DownloadRequest{}.Schema():     "RPC request, clustarr.rpc.index.download",

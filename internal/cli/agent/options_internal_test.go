@@ -59,12 +59,12 @@ func TestAgentCacheNeverHoldsSecretsOrConfigMaps(t *testing.T) {
 // TestDrainDefaultsToTheLongestAckWait: a domain's drain is the longest
 // declared AckWait among its durables (§3.5.6), so a handler mid-message at
 // shutdown keeps its context as long as the server would wait for its ack.
-// The engines own no durable.
+// The engines and trailers own no durable.
 func TestDrainDefaultsToTheLongestAckWait(t *testing.T) {
 	for domain, want := range map[string]time.Duration{
 		"catalog": 120 * time.Second, "caption": 90 * time.Second, "metadata": 60 * time.Second,
 		"import": 60 * time.Second, "index": 60 * time.Second, "events": 30 * time.Second,
-		"torrent-engine": 0, "usenet-engine": 0,
+		"torrent-engine": 0, "usenet-engine": 0, "trailers": 0,
 	} {
 		assert.Equal(t, want, drainFor(domain), domain)
 	}

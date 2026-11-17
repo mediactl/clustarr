@@ -19,6 +19,8 @@ resources:
 - agent_import_role.yaml
 - agent_index_role.yaml
 - agent_caption_role.yaml
+# Bound only by config/trailers, the optional trailers agent (ADR-0023).
+- agent_trailers_role.yaml
 - grab_engine_role.yaml
 - role_binding.yaml
 - leader_election_role.yaml
