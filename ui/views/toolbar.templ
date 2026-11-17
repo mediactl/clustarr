@@ -136,19 +136,32 @@ templ toolbarButton(iconName, label string, attrs templ.Attributes) {
 // themselves (a dialog root renders no element of its own, and its portal
 // is hidden until the script moves it to <body>).
 templ actionBar() {
-	@buttongroup.ButtonGroup(buttongroup.Props{
-		Class:      "glass sticky top-14 z-20 mx-auto mb-6 max-w-full overflow-x-auto overflow-y-hidden rounded-md bg-background/55 [scrollbar-width:none] shadow-lg shadow-black/30",
-		Attributes: templ.Attributes{"data-toolbar": true},
-	}) {
-		{ children... }
-	}
+	<div class="pointer-events-none sticky top-14 z-20 mb-6 flex justify-center @container/actions [@media(max-height:32rem)]:static">
+		@buttongroup.ButtonGroup(buttongroup.Props{
+			Class:      "glass scroll-fade-x pointer-events-auto max-w-full overflow-x-auto overflow-y-hidden rounded-md bg-background/55 [scrollbar-width:none] shadow-lg shadow-black/30 @max-xl/actions:w-full",
+			Attributes: templ.Attributes{"data-toolbar": true},
+		}) {
+			{ children... }
+		}
+	</div>
 }
 
 // actionButtonClass is a button of the group: shadcn's large outline
 // button, its text and weight, stood up as a column -- the icon above one
 // short word, both centred -- with the glass showing through (the outline
 // variant's opaque fill and its shadow dropped).
-const actionButtonClass = "h-auto min-w-18 flex-col gap-1 bg-transparent px-3.5 py-2 shadow-none hover:bg-muted aria-expanded:bg-muted [&_svg]:size-[18px]!"
+//
+// Since 2026-11-17: the dark: classes pin the settled look now that <html>
+// carries class="dark" (the outline variant would otherwise take its
+// dark:bg-input/30 fill and dark:border-input, and an open dialog's trigger
+// lose its fill); and below 576px of room (the bar's own, a container
+// query) the buttons share the bar's width instead of running off its end
+// -- half a phone's actions were out of sight with nothing to say so --
+// with the word at 11px below 448px. A bar still longer than its room
+// scrolls, its cut edge faded (scroll-fade-x).
+const actionButtonClass = "h-auto min-w-18 flex-col gap-1 bg-transparent px-3.5 py-2 shadow-none hover:bg-muted aria-expanded:bg-muted [&_svg]:size-[18px]! [&.htmx-request]:opacity-60 " +
+	"dark:bg-transparent dark:border-border dark:hover:bg-muted dark:aria-expanded:bg-muted " +
+	"@max-xl/actions:min-w-9 @max-xl/actions:flex-auto @max-xl/actions:px-1.5 @max-md/actions:px-0.5 @max-md/actions:text-[11px] @max-md/actions:leading-tight"
 
 // actionButtonProps is the group's button: outline, the variant the group
 // joins at the borders, at the large size, with attrs on it.
@@ -174,7 +187,7 @@ func actionTitle(label, title string) templ.Attributes {
 // catch the submit. label is the button's word, title the whole action
 // (actionTitle), dataAction what the tests key on.
 templ actionForm(id, action string, fields []Field, iconName, label, title, dataAction string, formAttrs templ.Attributes) {
-	<form id={ id } method="post" action={ templ.URL(action) } hidden { formAttrs... }>
+	<form id={ id } method="post" action={ templ.URL(action) } hidden { actionFormAttrs(action, formAttrs)... }>
 		for _, f := range fields {
 			<input type="hidden" name={ f.Name } value={ f.Value }/>
 		}
@@ -185,6 +198,20 @@ templ actionForm(id, action string, fields []Field, iconName, label, title, data
 		@icon.Icon(iconName)()
 		<span>{ label }</span>
 	}
+}
+
+// actionFormAttrs post an action's form through htmx into #action-status
+// (2026-11-17: one feedback path), so the action answers with a toast and,
+// where its page shows the change, has it redrawn in place -- a plain post
+// reloaded the page without a word on success and, on failure, replaced
+// the app with a bare document. A caller's own hx-* (an interactive
+// search's modal target) wins; method and action stay for no script.
+func actionFormAttrs(action string, formAttrs templ.Attributes) templ.Attributes {
+	out := templ.Attributes{"hx-post": action, "hx-target": "#action-status", "hx-swap": "innerHTML"}
+	for k, v := range formAttrs {
+		out[k] = v
+	}
+	return out
 }
 
 // actionAttrs is a group button's data-action and data-toolbar-button,

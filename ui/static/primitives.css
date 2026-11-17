@@ -86,3 +86,46 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 body:has([data-selection-bar]:not([hidden]), #library-page[data-selecting]) [data-slot="toast-viewport"] {
   bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
 }
+
+/* --- a sideways scroller says which edge is cut -------------------------------- */
+@property --fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes scroll-fade-x {
+  0% {
+    --fade-start: 0px;
+    --fade-end: 2rem;
+  }
+  8%,
+  92% {
+    --fade-start: 2rem;
+    --fade-end: 2rem;
+  }
+  100% {
+    --fade-start: 2rem;
+    --fade-end: 0px;
+  }
+}
+@supports (animation-timeline: scroll()) {
+  .scroll-fade-x {
+    animation: scroll-fade-x linear both;
+    animation-timeline: scroll(self inline);
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 var(--fade-start),
+      #000 calc(100% - var(--fade-end)),
+      transparent 100%
+    );
+    /* The mask is applied while nothing overflows too (both stops at 0, a
+       solid mask); without no-clip it would cut the box-shadow off. */
+    mask-clip: no-clip;
+  }
+}

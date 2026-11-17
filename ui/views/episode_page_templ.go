@@ -388,7 +388,7 @@ func episodeHero(v EpisodeView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\" class=\"relative -mx-6 mb-8\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\" class=\"relative -mx-(--page-gutter) mb-8\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -443,7 +443,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<div class=\"relative flex flex-col gap-6 p-8 md:flex-row md:gap-10\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<div class=\"@container/hero\"><div class=\"relative flex flex-col gap-6 p-4 @2xl/hero:flex-row @2xl/hero:gap-10 @2xl/hero:p-8\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -471,7 +471,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.URL(v.Still))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 147, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 148, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 				if templ_7745c5c3_Err != nil {
@@ -484,7 +484,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				var templ_7745c5c3_Var17 string
 				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(episodeTitle(ep))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 147, Col: 71}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 148, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 				if templ_7745c5c3_Err != nil {
@@ -505,7 +505,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<div class=\"w-40 shrink-0 md:w-56\"><div class=\"overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<div class=\"w-40 shrink-0 @2xl/hero:w-56\"><div class=\"overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -526,14 +526,14 @@ func episodeHero(v EpisodeView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<h1 class=\"min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<h1 class=\"line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(episodeTitle(ep))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 161, Col: 99}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 162, Col: 176}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
@@ -554,7 +554,7 @@ func episodeHero(v EpisodeView) templ.Component {
 		var templ_7745c5c3_Var19 templ.SafeURL
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(libraryDetailPath(li)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 166, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 167, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 		if templ_7745c5c3_Err != nil {
@@ -567,7 +567,7 @@ func episodeHero(v EpisodeView) templ.Component {
 		var templ_7745c5c3_Var20 string
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(li.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 166, Col: 113}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 167, Col: 114}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 		if templ_7745c5c3_Err != nil {
@@ -580,7 +580,7 @@ func episodeHero(v EpisodeView) templ.Component {
 		var templ_7745c5c3_Var21 templ.SafeURL
 		templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(ep.ReturnURL()))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 168, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 169, Col: 41}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 		if templ_7745c5c3_Err != nil {
@@ -593,7 +593,7 @@ func episodeHero(v EpisodeView) templ.Component {
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(v.SeasonLabel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 168, Col: 99}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 169, Col: 100}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 		if templ_7745c5c3_Err != nil {
@@ -606,7 +606,7 @@ func episodeHero(v EpisodeView) templ.Component {
 		var templ_7745c5c3_Var23 string
 		templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(ep.SeasonEpisode())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 170, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 171, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 		if templ_7745c5c3_Err != nil {
@@ -624,7 +624,7 @@ func episodeHero(v EpisodeView) templ.Component {
 			var templ_7745c5c3_Var24 string
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("(%d)", v.Absolute))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 172, Col: 89}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 173, Col: 90}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 			if templ_7745c5c3_Err != nil {
@@ -655,7 +655,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				var templ_7745c5c3_Var26 string
 				templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(v.Certification)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 178, Col: 24}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 179, Col: 25}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 				if templ_7745c5c3_Err != nil {
@@ -676,7 +676,7 @@ func episodeHero(v EpisodeView) templ.Component {
 			var templ_7745c5c3_Var27 string
 			templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.ResolveAttributeValue(ep.AirDate)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 182, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 183, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
 			if templ_7745c5c3_Err != nil {
@@ -689,7 +689,7 @@ func episodeHero(v EpisodeView) templ.Component {
 			var templ_7745c5c3_Var28 string
 			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(ep.AirDate)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 182, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 183, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 			if templ_7745c5c3_Err != nil {
@@ -702,7 +702,7 @@ func episodeHero(v EpisodeView) templ.Component {
 			var templ_7745c5c3_Var29 string
 			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(airedLabel(ep))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 182, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 183, Col: 87}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
@@ -721,7 +721,7 @@ func episodeHero(v EpisodeView) templ.Component {
 			var templ_7745c5c3_Var30 string
 			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(v.Runtime)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 185, Col: 23}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 186, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 			if templ_7745c5c3_Err != nil {
@@ -748,7 +748,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				var templ_7745c5c3_Var32 string
 				templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(ep.FinaleLabel())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 189, Col: 25}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 190, Col: 26}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 				if templ_7745c5c3_Err != nil {
@@ -803,7 +803,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				var templ_7745c5c3_Var34 string
 				templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(v.Path)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 203, Col: 39}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 204, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 				if templ_7745c5c3_Err != nil {
@@ -848,7 +848,7 @@ func episodeHero(v EpisodeView) templ.Component {
 			var templ_7745c5c3_Var37 string
 			templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue(episodeStripe(ep.Status))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 208, Col: 51}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 209, Col: 52}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 			if templ_7745c5c3_Err != nil {
@@ -874,7 +874,7 @@ func episodeHero(v EpisodeView) templ.Component {
 			var templ_7745c5c3_Var39 string
 			templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(episodeStatusLabel(v))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 209, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 210, Col: 31}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 			if templ_7745c5c3_Err != nil {
@@ -918,7 +918,7 @@ func episodeHero(v EpisodeView) templ.Component {
 					var templ_7745c5c3_Var42 string
 					templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(li.QualityProfileRef)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 215, Col: 30}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 216, Col: 31}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 					if templ_7745c5c3_Err != nil {
@@ -953,7 +953,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				var templ_7745c5c3_Var44 string
 				templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(size))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 221, Col: 26}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 222, Col: 27}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 				if templ_7745c5c3_Err != nil {
@@ -982,7 +982,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				var templ_7745c5c3_Var46 string
 				templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(v.Language)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 226, Col: 19}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 227, Col: 20}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 				if templ_7745c5c3_Err != nil {
@@ -1035,7 +1035,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				var templ_7745c5c3_Var49 string
 				templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(v.Network)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 236, Col: 18}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 237, Col: 19}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 				if templ_7745c5c3_Err != nil {
@@ -1064,7 +1064,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				var templ_7745c5c3_Var51 string
 				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(strings.Join(v.Genres, ", "))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 241, Col: 37}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 242, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 				if templ_7745c5c3_Err != nil {
@@ -1089,7 +1089,7 @@ func episodeHero(v EpisodeView) templ.Component {
 			var templ_7745c5c3_Var52 string
 			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(v.Overview)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 246, Col: 83}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 247, Col: 84}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 			if templ_7745c5c3_Err != nil {
@@ -1100,7 +1100,7 @@ func episodeHero(v EpisodeView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "</div></div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "</div></div></div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1138,7 +1138,7 @@ func episodeBookmark(ep EpisodeRow) templ.Component {
 		var templ_7745c5c3_Var54 templ.SafeURL
 		templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(ep.MonitorURL()))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 256, Col: 56}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 258, Col: 56}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 		if templ_7745c5c3_Err != nil {
@@ -1151,7 +1151,7 @@ func episodeBookmark(ep EpisodeRow) templ.Component {
 		var templ_7745c5c3_Var55 string
 		templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.ResolveAttributeValue(ep.URL())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 257, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 259, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var55)
 		if templ_7745c5c3_Err != nil {
@@ -1164,7 +1164,7 @@ func episodeBookmark(ep EpisodeRow) templ.Component {
 		var templ_7745c5c3_Var56 string
 		templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%t", !ep.Monitored))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 258, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode_page.templ`, Line: 260, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var56)
 		if templ_7745c5c3_Err != nil {

@@ -57,7 +57,7 @@ type ActivityView struct {
 // reader has open (ui/static/dashboard.js).
 templ Activity(v ActivityView) {
 	@Shell(Chrome{Title: v.Title, Crumbs: []Crumb{{Label: "Activity", Href: "/activity"}, {Label: v.Title}}, Activity: "/activity/" + v.Section}) {
-		<h1 class="mb-6 text-2xl font-bold sm:mb-8">{ v.Title }</h1>
+		<h1 class="mb-6 text-2xl font-semibold tracking-tight">{ v.Title }</h1>
 		if v.Section == "downloads" {
 			@ActionStatusRegion()
 			if len(v.Clients) > 0 {

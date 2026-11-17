@@ -566,7 +566,7 @@ func comicHero(v ComicView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "\" class=\"relative -mx-6 mb-8\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "\" class=\"relative -mx-(--page-gutter) mb-8\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -621,7 +621,7 @@ func comicHero(v ComicView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<div class=\"relative flex flex-col gap-6 p-8 md:flex-row md:gap-10\"><div class=\"w-40 shrink-0 md:w-56\"><div class=\"overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<div class=\"@container/hero\"><div class=\"relative flex flex-col gap-6 p-4 @2xl/hero:flex-row @2xl/hero:gap-10 @2xl/hero:p-8\"><div class=\"w-40 shrink-0 @2xl/hero:w-56\"><div class=\"overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -637,14 +637,14 @@ func comicHero(v ComicView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<h1 class=\"min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<h1 class=\"line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var24 string
 		templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(li.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 145, Col: 91}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 146, Col: 168}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 		if templ_7745c5c3_Err != nil {
@@ -678,7 +678,7 @@ func comicHero(v ComicView) templ.Component {
 				var templ_7745c5c3_Var26 string
 				templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(v.AgeRating)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 152, Col: 20}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 153, Col: 21}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 				if templ_7745c5c3_Err != nil {
@@ -699,7 +699,7 @@ func comicHero(v ComicView) templ.Component {
 			var templ_7745c5c3_Var27 string
 			templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(years)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 156, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 157, Col: 31}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 			if templ_7745c5c3_Err != nil {
@@ -718,7 +718,7 @@ func comicHero(v ComicView) templ.Component {
 			var templ_7745c5c3_Var28 string
 			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("Vol. %d", v.VolumeNumber))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 159, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 160, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 			if templ_7745c5c3_Err != nil {
@@ -737,7 +737,7 @@ func comicHero(v ComicView) templ.Component {
 			var templ_7745c5c3_Var29 string
 			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(issuesWord(v.IssueCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 162, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 163, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
@@ -763,7 +763,7 @@ func comicHero(v ComicView) templ.Component {
 			var templ_7745c5c3_Var31 string
 			templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(v.KindLabel())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 165, Col: 21}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 166, Col: 22}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 			if templ_7745c5c3_Err != nil {
@@ -803,7 +803,7 @@ func comicHero(v ComicView) templ.Component {
 				var templ_7745c5c3_Var33 string
 				templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(v.Path)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 172, Col: 39}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 173, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 				if templ_7745c5c3_Err != nil {
@@ -848,7 +848,7 @@ func comicHero(v ComicView) templ.Component {
 			var templ_7745c5c3_Var36 string
 			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue(projection.LibraryStatus(li))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 177, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 178, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
 			if templ_7745c5c3_Err != nil {
@@ -874,7 +874,7 @@ func comicHero(v ComicView) templ.Component {
 			var templ_7745c5c3_Var38 string
 			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(statusLabel(li))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 178, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 179, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 			if templ_7745c5c3_Err != nil {
@@ -934,7 +934,7 @@ func comicHero(v ComicView) templ.Component {
 					var templ_7745c5c3_Var41 string
 					templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(li.QualityProfileRef)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 190, Col: 30}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 191, Col: 31}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 					if templ_7745c5c3_Err != nil {
@@ -969,7 +969,7 @@ func comicHero(v ComicView) templ.Component {
 				var templ_7745c5c3_Var43 string
 				templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(v.Publisher)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 196, Col: 20}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 197, Col: 21}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 				if templ_7745c5c3_Err != nil {
@@ -998,7 +998,7 @@ func comicHero(v ComicView) templ.Component {
 				var templ_7745c5c3_Var45 string
 				templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(v.RunStatusLabel())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 201, Col: 27}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 202, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 				if templ_7745c5c3_Err != nil {
@@ -1030,7 +1030,7 @@ func comicHero(v ComicView) templ.Component {
 			var templ_7745c5c3_Var47 string
 			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.ResolveAttributeValue(v.IssuesLabel())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 205, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 206, Col: 42}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var47)
 			if templ_7745c5c3_Err != nil {
@@ -1043,7 +1043,7 @@ func comicHero(v ComicView) templ.Component {
 			var templ_7745c5c3_Var48 string
 			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(v.IssuesLabel())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 205, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 206, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 			if templ_7745c5c3_Err != nil {
@@ -1079,7 +1079,7 @@ func comicHero(v ComicView) templ.Component {
 				var templ_7745c5c3_Var50 string
 				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.ResolveAttributeValue(v.NextPull)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 209, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 210, Col: 35}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var50)
 				if templ_7745c5c3_Err != nil {
@@ -1092,7 +1092,7 @@ func comicHero(v ComicView) templ.Component {
 				var templ_7745c5c3_Var51 string
 				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(v.NextPull)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 209, Col: 49}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 210, Col: 50}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 				if templ_7745c5c3_Err != nil {
@@ -1125,7 +1125,7 @@ func comicHero(v ComicView) templ.Component {
 				var templ_7745c5c3_Var53 string
 				templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(v.Language)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 214, Col: 19}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 215, Col: 20}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 				if templ_7745c5c3_Err != nil {
@@ -1154,7 +1154,7 @@ func comicHero(v ComicView) templ.Component {
 				var templ_7745c5c3_Var55 string
 				templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(strings.Join(v.Genres, ", "))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 219, Col: 37}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 220, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 				if templ_7745c5c3_Err != nil {
@@ -1179,7 +1179,7 @@ func comicHero(v ComicView) templ.Component {
 			var templ_7745c5c3_Var56 string
 			templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(v.Overview)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 224, Col: 83}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 225, Col: 84}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 			if templ_7745c5c3_Err != nil {
@@ -1190,7 +1190,7 @@ func comicHero(v ComicView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "</div></div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "</div></div></div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1295,7 +1295,7 @@ func comicIssuesSection(v ComicView) templ.Component {
 					var templ_7745c5c3_Var62 string
 					templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(v.IssuesLabel())
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 249, Col: 21}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 251, Col: 21}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 					if templ_7745c5c3_Err != nil {
@@ -1327,7 +1327,7 @@ func comicIssuesSection(v ComicView) templ.Component {
 						var templ_7745c5c3_Var64 string
 						templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(v.Volume.Label)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 255, Col: 21}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 257, Col: 21}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
 						if templ_7745c5c3_Err != nil {
@@ -1768,7 +1768,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 				var templ_7745c5c3_Var82 string
 				templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.ResolveAttributeValue(iss.MonitorURL())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 328, Col: 35}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 330, Col: 35}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var82)
 				if templ_7745c5c3_Err != nil {
@@ -1781,7 +1781,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 				var templ_7745c5c3_Var83 templ.SafeURL
 				templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(iss.MonitorURL()))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 328, Col: 131}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 330, Col: 131}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 				if templ_7745c5c3_Err != nil {
@@ -1794,7 +1794,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 				var templ_7745c5c3_Var84 string
 				templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.ResolveAttributeValue(iss.ReturnURL())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 329, Col: 62}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 331, Col: 62}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var84)
 				if templ_7745c5c3_Err != nil {
@@ -1807,7 +1807,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 				var templ_7745c5c3_Var85 string
 				templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%t", !iss.Monitored))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 330, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 332, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var85)
 				if templ_7745c5c3_Err != nil {
@@ -1850,7 +1850,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 				var templ_7745c5c3_Var87 string
 				templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.JoinStringErrs(iss.Label())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 335, Col: 16}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 337, Col: 16}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var87))
 				if templ_7745c5c3_Err != nil {
@@ -1885,7 +1885,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 				var templ_7745c5c3_Var89 templ.SafeURL
 				templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(iss.URL()))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 339, Col: 31}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 341, Col: 31}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 				if templ_7745c5c3_Err != nil {
@@ -1898,7 +1898,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 				var templ_7745c5c3_Var90 string
 				templ_7745c5c3_Var90, templ_7745c5c3_Err = templ.JoinStringErrs(iss.DisplayTitle())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 344, Col: 24}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 346, Col: 24}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var90))
 				if templ_7745c5c3_Err != nil {
@@ -1942,7 +1942,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 					var templ_7745c5c3_Var92 string
 					templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.ResolveAttributeValue(iss.CoverDate)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 350, Col: 34}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 352, Col: 34}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var92)
 					if templ_7745c5c3_Err != nil {
@@ -1955,7 +1955,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 					var templ_7745c5c3_Var93 string
 					templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.ResolveAttributeValue(iss.CoverDate)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 350, Col: 58}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 352, Col: 58}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var93)
 					if templ_7745c5c3_Err != nil {
@@ -1968,7 +1968,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 					var templ_7745c5c3_Var94 string
 					templ_7745c5c3_Var94, templ_7745c5c3_Err = templ.JoinStringErrs(iss.CoverDateLabel)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 350, Col: 97}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 352, Col: 97}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var94))
 					if templ_7745c5c3_Err != nil {
@@ -2009,7 +2009,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 					var templ_7745c5c3_Var96 string
 					templ_7745c5c3_Var96, templ_7745c5c3_Err = templ.ResolveAttributeValue(iss.StoreDate)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 355, Col: 34}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 357, Col: 34}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var96)
 					if templ_7745c5c3_Err != nil {
@@ -2022,7 +2022,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 					var templ_7745c5c3_Var97 string
 					templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.ResolveAttributeValue(iss.StoreDate)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 355, Col: 58}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 357, Col: 58}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var97)
 					if templ_7745c5c3_Err != nil {
@@ -2035,7 +2035,7 @@ func IssueRowView(iss IssueRow) templ.Component {
 					var templ_7745c5c3_Var98 string
 					templ_7745c5c3_Var98, templ_7745c5c3_Err = templ.JoinStringErrs(iss.StoreDateLabel)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 355, Col: 97}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/comic.templ`, Line: 357, Col: 97}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var98))
 					if templ_7745c5c3_Err != nil {

@@ -218,7 +218,7 @@ func Dashboard(v DashboardView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "     <div class=\"mb-6 flex items-center justify-between gap-4 sm:mb-8\"><h1 class=\"text-2xl font-bold\">Dashboard</h1>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "     <div class=\"mb-6 flex items-center justify-between gap-4 sm:mb-8\"><h1 class=\"text-2xl font-semibold tracking-tight\">Dashboard</h1>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

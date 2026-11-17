@@ -123,7 +123,7 @@ func Unmatched(p paging.Page, entries []projection.UnmatchedEntry) templ.Compone
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1 class=\"mb-4 text-2xl font-bold\">Unmatched</h1><div id=\"unmatched-rows\" hx-ext=\"sse, morph\" sse-connect=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1 class=\"mb-4 text-2xl font-semibold tracking-tight\">Unmatched</h1><div id=\"unmatched-rows\" hx-ext=\"sse, morph\" sse-connect=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

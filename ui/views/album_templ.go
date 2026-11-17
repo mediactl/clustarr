@@ -375,7 +375,7 @@ func albumHero(v AlbumView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" class=\"relative -mx-6 mb-8\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" class=\"relative -mx-(--page-gutter) mb-8\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -430,12 +430,12 @@ func albumHero(v AlbumView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<div class=\"relative flex flex-col gap-6 p-8 md:flex-row md:gap-10\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<div class=\"@container/hero\"><div class=\"relative flex flex-col gap-6 p-4 @2xl/hero:flex-row @2xl/hero:gap-10 @2xl/hero:p-8\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if v.Cover != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<div class=\"w-40 shrink-0 md:w-56\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<div class=\"w-40 shrink-0 @2xl/hero:w-56\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -458,7 +458,7 @@ func albumHero(v AlbumView) templ.Component {
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.URL(v.Cover))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 112, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 113, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 				if templ_7745c5c3_Err != nil {
@@ -471,7 +471,7 @@ func albumHero(v AlbumView) templ.Component {
 				var templ_7745c5c3_Var17 string
 				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(v.CoverKey)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 112, Col: 70}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 113, Col: 71}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 				if templ_7745c5c3_Err != nil {
@@ -484,7 +484,7 @@ func albumHero(v AlbumView) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.DisplayTitle())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 112, Col: 95}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 113, Col: 96}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var18)
 				if templ_7745c5c3_Err != nil {
@@ -505,7 +505,7 @@ func albumHero(v AlbumView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<div class=\"w-40 shrink-0 md:w-56\"><div class=\"overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<div class=\"w-40 shrink-0 @2xl/hero:w-56\"><div class=\"overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -526,14 +526,14 @@ func albumHero(v AlbumView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<h1 class=\"min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<h1 class=\"line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var19 string
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(a.DisplayTitle())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 126, Col: 99}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 127, Col: 176}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 		if templ_7745c5c3_Err != nil {
@@ -554,7 +554,7 @@ func albumHero(v AlbumView) templ.Component {
 		var templ_7745c5c3_Var20 templ.SafeURL
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(libraryDetailPath(ar)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 131, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 132, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 		if templ_7745c5c3_Err != nil {
@@ -567,7 +567,7 @@ func albumHero(v AlbumView) templ.Component {
 		var templ_7745c5c3_Var21 string
 		templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(ar.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 131, Col: 113}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 132, Col: 114}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 		if templ_7745c5c3_Err != nil {
@@ -585,7 +585,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs("(" + v.ArtistCredit + ")")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 133, Col: 89}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 134, Col: 90}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {
@@ -604,7 +604,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(a.Disambiguation)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 137, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 138, Col: 87}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
@@ -635,7 +635,7 @@ func albumHero(v AlbumView) templ.Component {
 				var templ_7745c5c3_Var25 string
 				templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(a.TypeLabel())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 143, Col: 22}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 144, Col: 23}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 				if templ_7745c5c3_Err != nil {
@@ -664,7 +664,7 @@ func albumHero(v AlbumView) templ.Component {
 				var templ_7745c5c3_Var27 string
 				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(st)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 148, Col: 11}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 149, Col: 12}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 				if templ_7745c5c3_Err != nil {
@@ -685,7 +685,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var28 string
 			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.ReleaseDate)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 152, Col: 36}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 153, Col: 37}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 			if templ_7745c5c3_Err != nil {
@@ -698,7 +698,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var29 string
 			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.ReleaseDate)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 152, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 153, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 			if templ_7745c5c3_Err != nil {
@@ -711,7 +711,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var30 string
 			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(releasedLabel(a))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 152, Col: 99}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 153, Col: 100}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 			if templ_7745c5c3_Err != nil {
@@ -730,7 +730,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var31 string
 			templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(v.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 155, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 156, Col: 39}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 			if templ_7745c5c3_Err != nil {
@@ -749,7 +749,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var32 string
 			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(v.Duration)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 158, Col: 44}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 159, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 			if templ_7745c5c3_Err != nil {
@@ -768,7 +768,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var33 string
 			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d of %d tracks", v.TrackFileCount, v.TrackCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 161, Col: 95}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 162, Col: 96}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 			if templ_7745c5c3_Err != nil {
@@ -807,7 +807,7 @@ func albumHero(v AlbumView) templ.Component {
 				var templ_7745c5c3_Var35 string
 				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(v.Path)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 168, Col: 39}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 169, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 				if templ_7745c5c3_Err != nil {
@@ -852,7 +852,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var38 string
 			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue(episodeStripe(a.Status))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 173, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 174, Col: 51}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
 			if templ_7745c5c3_Err != nil {
@@ -878,7 +878,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var40 string
 			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(albumPageStatusLabel(v))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 174, Col: 32}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 175, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 			if templ_7745c5c3_Err != nil {
@@ -938,7 +938,7 @@ func albumHero(v AlbumView) templ.Component {
 					var templ_7745c5c3_Var43 string
 					templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(a.Quality)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 186, Col: 19}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 187, Col: 20}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 					if templ_7745c5c3_Err != nil {
@@ -985,7 +985,7 @@ func albumHero(v AlbumView) templ.Component {
 					var templ_7745c5c3_Var46 string
 					templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(li.QualityProfileRef)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 193, Col: 30}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 194, Col: 31}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 					if templ_7745c5c3_Err != nil {
@@ -1023,7 +1023,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var48 string
 			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%t", a.Monitored))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 198, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 199, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
 			if templ_7745c5c3_Err != nil {
@@ -1036,7 +1036,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var49 string
 			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(monitoredFact(a.Monitored))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 198, Col: 95}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 199, Col: 96}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 			if templ_7745c5c3_Err != nil {
@@ -1068,7 +1068,7 @@ func albumHero(v AlbumView) templ.Component {
 				var templ_7745c5c3_Var51 string
 				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(size))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 202, Col: 26}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 203, Col: 27}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 				if templ_7745c5c3_Err != nil {
@@ -1097,7 +1097,7 @@ func albumHero(v AlbumView) templ.Component {
 				var templ_7745c5c3_Var53 string
 				templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(strings.Join(v.Genres, ", "))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 207, Col: 37}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 208, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 				if templ_7745c5c3_Err != nil {
@@ -1122,7 +1122,7 @@ func albumHero(v AlbumView) templ.Component {
 			var templ_7745c5c3_Var54 string
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(v.Overview)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 212, Col: 83}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 213, Col: 84}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 			if templ_7745c5c3_Err != nil {
@@ -1133,7 +1133,7 @@ func albumHero(v AlbumView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "</div></div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "</div></div></div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1181,7 +1181,7 @@ func albumBookmark(a AlbumRow) templ.Component {
 		var templ_7745c5c3_Var56 templ.SafeURL
 		templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(a.MonitorURL()))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 232, Col: 55}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 234, Col: 55}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 		if templ_7745c5c3_Err != nil {
@@ -1194,7 +1194,7 @@ func albumBookmark(a AlbumRow) templ.Component {
 		var templ_7745c5c3_Var57 string
 		templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.URL())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 233, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 235, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var57)
 		if templ_7745c5c3_Err != nil {
@@ -1207,7 +1207,7 @@ func albumBookmark(a AlbumRow) templ.Component {
 		var templ_7745c5c3_Var58 string
 		templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%t", !a.Monitored))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 234, Col: 79}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 236, Col: 79}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var58)
 		if templ_7745c5c3_Err != nil {
@@ -1349,7 +1349,7 @@ func tracksSection(v AlbumView) templ.Component {
 		var templ_7745c5c3_Var61 string
 		templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(len(v.Tracks)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 301, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 303, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var61)
 		if templ_7745c5c3_Err != nil {
@@ -1745,7 +1745,7 @@ func trackRowView(t TrackRow, discs bool) templ.Component {
 				var templ_7745c5c3_Var79 string
 				templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.ResolveAttributeValue(trackTitle(t))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 356, Col: 90}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 358, Col: 90}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var79)
 				if templ_7745c5c3_Err != nil {
@@ -1758,7 +1758,7 @@ func trackRowView(t TrackRow, discs bool) templ.Component {
 				var templ_7745c5c3_Var80 string
 				templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.ResolveAttributeValue(trackTitle(t))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 356, Col: 119}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 358, Col: 119}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var80)
 				if templ_7745c5c3_Err != nil {
@@ -1793,7 +1793,7 @@ func trackRowView(t TrackRow, discs bool) templ.Component {
 				var templ_7745c5c3_Var82 string
 				templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(t.Position(discs))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 359, Col: 22}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 361, Col: 22}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 				if templ_7745c5c3_Err != nil {
@@ -1828,7 +1828,7 @@ func trackRowView(t TrackRow, discs bool) templ.Component {
 				var templ_7745c5c3_Var84 string
 				templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(t.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 363, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 365, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 				if templ_7745c5c3_Err != nil {
@@ -1891,7 +1891,7 @@ func trackRowView(t TrackRow, discs bool) templ.Component {
 				var templ_7745c5c3_Var87 string
 				templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.JoinStringErrs(t.Duration)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 372, Col: 15}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 374, Col: 15}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var87))
 				if templ_7745c5c3_Err != nil {
@@ -2080,7 +2080,7 @@ func AlbumModal(d AlbumDetail) templ.Component {
 						var templ_7745c5c3_Var93 string
 						templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.JoinStringErrs(albumHeading(d))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 425, Col: 22}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 427, Col: 22}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var93))
 						if templ_7745c5c3_Err != nil {
@@ -2111,7 +2111,7 @@ func AlbumModal(d AlbumDetail) templ.Component {
 						var templ_7745c5c3_Var95 string
 						templ_7745c5c3_Var95, templ_7745c5c3_Err = templ.JoinStringErrs(albumFacts(d))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 428, Col: 20}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 430, Col: 20}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var95))
 						if templ_7745c5c3_Err != nil {
@@ -2377,7 +2377,7 @@ func albumSummary(d AlbumDetail) templ.Component {
 			var templ_7745c5c3_Var104 string
 			templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.JoinStringErrs(d.Overview)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 489, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 491, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var104))
 			if templ_7745c5c3_Err != nil {
@@ -2414,7 +2414,7 @@ func albumSummary(d AlbumDetail) templ.Component {
 					var templ_7745c5c3_Var106 string
 					templ_7745c5c3_Var106, templ_7745c5c3_Err = templ.JoinStringErrs(g)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 498, Col: 8}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 500, Col: 8}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var106))
 					if templ_7745c5c3_Err != nil {
@@ -2477,7 +2477,7 @@ func albumFilesTable(files []FileRow) templ.Component {
 			var templ_7745c5c3_Var108 string
 			templ_7745c5c3_Var108, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(len(files)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 513, Col: 88}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 515, Col: 88}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var108)
 			if templ_7745c5c3_Err != nil {
@@ -2711,7 +2711,7 @@ func AlbumSearchModal(p AlbumSearchPanel) templ.Component {
 						var templ_7745c5c3_Var120 string
 						templ_7745c5c3_Var120, templ_7745c5c3_Err = templ.JoinStringErrs(p.Heading())
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 554, Col: 18}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 556, Col: 18}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var120))
 						if templ_7745c5c3_Err != nil {
@@ -2736,7 +2736,7 @@ func AlbumSearchModal(p AlbumSearchPanel) templ.Component {
 				var templ_7745c5c3_Var121 string
 				templ_7745c5c3_Var121, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.Album.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 557, Col: 63}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/album.templ`, Line: 559, Col: 63}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var121)
 				if templ_7745c5c3_Err != nil {

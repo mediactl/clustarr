@@ -96,7 +96,7 @@ templ albumHero(v AlbumView) {
 		data-hasfile={ fmt.Sprintf("%t", a.HasFile) }
 		data-status={ a.Status.Kind }
 		data-profile={ li.QualityProfileRef }
-		class="relative -mx-6 mb-8"
+		class="relative -mx-(--page-gutter) mb-8"
 	>
 		if v.Backdrop != "" {
 			<img data-backdrop src={ templ.URL(v.Backdrop) } data-art={ artKeyAs(ar, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
@@ -105,112 +105,114 @@ templ albumHero(v AlbumView) {
 		if ar.ArtKey != "" {
 			<div hidden hx-ext="sse" sse-connect={ albumArtStreamURL(v) } hx-trigger="sse:art"></div>
 		}
-		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
-			if v.Cover != "" {
-				<div class="w-40 shrink-0 md:w-56">
-					@aspectratio.AspectRatio(aspectratio.Props{Ratio: "1/1", Class: "overflow-hidden rounded-xl bg-muted shadow-2xl shadow-black/60 ring-1 ring-white/10"}) {
-						<img data-cover src={ templ.URL(v.Cover) } data-art={ v.CoverKey } alt={ a.DisplayTitle() } loading="lazy" class="size-full object-cover"/>
-					}
-				</div>
-			} else {
-				<div class="w-40 shrink-0 md:w-56">
-					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
-						@squarePoster(ar.Poster, ar.Title, ar.ArtKey)
+		<div class="@container/hero">
+			<div class="relative flex flex-col gap-6 p-4 @2xl/hero:flex-row @2xl/hero:gap-10 @2xl/hero:p-8">
+				if v.Cover != "" {
+					<div class="w-40 shrink-0 @2xl/hero:w-56">
+						@aspectratio.AspectRatio(aspectratio.Props{Ratio: "1/1", Class: "overflow-hidden rounded-xl bg-muted shadow-2xl shadow-black/60 ring-1 ring-white/10"}) {
+							<img data-cover src={ templ.URL(v.Cover) } data-art={ v.CoverKey } alt={ a.DisplayTitle() } loading="lazy" class="size-full object-cover"/>
+						}
 					</div>
-				</div>
-			}
-			<div class="min-w-0 flex-1">
-				<div class="flex items-start justify-between gap-4">
-					<div class="flex min-w-0 items-center gap-3">
-						@albumBookmark(a)
-						<h1 class="min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl">{ a.DisplayTitle() }</h1>
+				} else {
+					<div class="w-40 shrink-0 @2xl/hero:w-56">
+						<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
+							@squarePoster(ar.Poster, ar.Title, ar.ArtKey)
+						</div>
 					</div>
-					@neighbours(v.Detail)
-				</div>
-				<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
-					<a href={ templ.URL(libraryDetailPath(ar)) } data-artist-link class="font-medium hover:underline">{ ar.Title }</a>
-					if v.ArtistCredit != "" {
-						<span class="text-muted-foreground" data-artist-credit>{ "(" + v.ArtistCredit + ")" }</span>
-					}
-					if a.Disambiguation != "" {
-						<span class="text-muted-foreground" aria-hidden="true">·</span>
-						<span class="text-muted-foreground" data-album-disambiguation>{ a.Disambiguation }</span>
-					}
-				</div>
-				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
-					if a.TypeLabel() != "" {
-						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base", Attributes: templ.Attributes{"data-album-type": a.Type}}) {
-							{ a.TypeLabel() }
-						}
-					}
-					for _, st := range a.SecondaryTypes {
-						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-base text-sky-300", Attributes: templ.Attributes{"data-secondary-type": st}}) {
-							{ st }
-						}
-					}
-					if a.ReleaseDate != "" {
-						<time datetime={ a.ReleaseDate } title={ a.ReleaseDate } data-release-date>{ releasedLabel(a) }</time>
-					}
-					if v.Label != "" {
-						<span data-album-label>{ v.Label }</span>
-					}
-					if v.Duration != "" {
-						<span data-album-duration>{ v.Duration }</span>
-					}
-					if v.TrackCount > 0 {
-						<span data-track-summary>{ fmt.Sprintf("%d of %d tracks", v.TrackFileCount, v.TrackCount) }</span>
-					}
-					@providerLinks(v.Links)
-				</div>
-				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
-					if v.Path != "" {
-						@fact("path", "Path") {
-							<span class="break-all">{ v.Path }</span>
-						}
-					}
-					@fact("status", "Status") {
-						<span class="flex items-center gap-2">
-							<span data-status={ episodeStripe(a.Status) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(episodeStripe(a.Status)) }></span>
-							{ albumPageStatusLabel(v) }
-						</span>
-						if li.DeleteError != "" {
-							@deleteRetry(v.Detail)
-						}
-						if li.DeleteMode != "" {
-							@deleteCancel(v.Detail)
-						}
-					}
-					if a.Quality != "" {
-						@fact("quality", "Quality") {
-							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(a.Status.Warn) + " text-sm"}) {
-								{ a.Quality }
-							}
-						}
-					}
-					if li.QualityProfileRef != "" {
-						@fact("profile", "Quality Profile") {
-							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
-								{ li.QualityProfileRef }
-							}
-						}
-					}
-					@fact("monitored", "Monitored") {
-						<span data-monitored-fact={ fmt.Sprintf("%t", a.Monitored) }>{ monitoredFact(a.Monitored) }</span>
-					}
-					if size := totalSize(v.Files); size > 0 {
-						@fact("size", "Size") {
-							{ formatBytes(size) }
-						}
-					}
-					if len(v.Genres) > 0 {
-						@fact("genres", "Genres") {
-							{ strings.Join(v.Genres, ", ") }
-						}
-					}
-				</dl>
-				if v.Overview != "" {
-					<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
 				}
+				<div class="min-w-0 flex-1">
+					<div class="flex items-start justify-between gap-4">
+						<div class="flex min-w-0 items-center gap-3">
+							@albumBookmark(a)
+							<h1 class="line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl">{ a.DisplayTitle() }</h1>
+						</div>
+						@neighbours(v.Detail)
+					</div>
+					<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
+						<a href={ templ.URL(libraryDetailPath(ar)) } data-artist-link class="font-medium hover:underline">{ ar.Title }</a>
+						if v.ArtistCredit != "" {
+							<span class="text-muted-foreground" data-artist-credit>{ "(" + v.ArtistCredit + ")" }</span>
+						}
+						if a.Disambiguation != "" {
+							<span class="text-muted-foreground" aria-hidden="true">·</span>
+							<span class="text-muted-foreground" data-album-disambiguation>{ a.Disambiguation }</span>
+						}
+					</div>
+					<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+						if a.TypeLabel() != "" {
+							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base", Attributes: templ.Attributes{"data-album-type": a.Type}}) {
+								{ a.TypeLabel() }
+							}
+						}
+						for _, st := range a.SecondaryTypes {
+							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-base text-sky-300", Attributes: templ.Attributes{"data-secondary-type": st}}) {
+								{ st }
+							}
+						}
+						if a.ReleaseDate != "" {
+							<time datetime={ a.ReleaseDate } title={ a.ReleaseDate } data-release-date>{ releasedLabel(a) }</time>
+						}
+						if v.Label != "" {
+							<span data-album-label>{ v.Label }</span>
+						}
+						if v.Duration != "" {
+							<span data-album-duration>{ v.Duration }</span>
+						}
+						if v.TrackCount > 0 {
+							<span data-track-summary>{ fmt.Sprintf("%d of %d tracks", v.TrackFileCount, v.TrackCount) }</span>
+						}
+						@providerLinks(v.Links)
+					</div>
+					<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+						if v.Path != "" {
+							@fact("path", "Path") {
+								<span class="break-all">{ v.Path }</span>
+							}
+						}
+						@fact("status", "Status") {
+							<span class="flex items-center gap-2">
+								<span data-status={ episodeStripe(a.Status) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(episodeStripe(a.Status)) }></span>
+								{ albumPageStatusLabel(v) }
+							</span>
+							if li.DeleteError != "" {
+								@deleteRetry(v.Detail)
+							}
+							if li.DeleteMode != "" {
+								@deleteCancel(v.Detail)
+							}
+						}
+						if a.Quality != "" {
+							@fact("quality", "Quality") {
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(a.Status.Warn) + " text-sm"}) {
+									{ a.Quality }
+								}
+							}
+						}
+						if li.QualityProfileRef != "" {
+							@fact("profile", "Quality Profile") {
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
+									{ li.QualityProfileRef }
+								}
+							}
+						}
+						@fact("monitored", "Monitored") {
+							<span data-monitored-fact={ fmt.Sprintf("%t", a.Monitored) }>{ monitoredFact(a.Monitored) }</span>
+						}
+						if size := totalSize(v.Files); size > 0 {
+							@fact("size", "Size") {
+								{ formatBytes(size) }
+							}
+						}
+						if len(v.Genres) > 0 {
+							@fact("genres", "Genres") {
+								{ strings.Join(v.Genres, ", ") }
+							}
+						}
+					</dl>
+					if v.Overview != "" {
+						<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
+					}
+				</div>
 			</div>
 		</div>
 	</section>

@@ -152,7 +152,7 @@ templ progressBar(percent int32) {
 // each a card holding a table (shadcn-templ's, since 2026-11-04).
 templ DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRecord) {
 	@Layout("Import") {
-		<h1 class="mb-2 text-2xl font-bold">{ downloadTitle(r) }</h1>
+		<h1 class="mb-2 text-2xl font-semibold tracking-tight wrap-anywhere">{ downloadTitle(r) }</h1>
 		<p class="mb-4 text-sm text-muted-foreground">
 			<a class="underline" href={ templ.SafeURL(ownerURL(r)) }>{ string(r.OwnerKind) + " " + r.Owner.Name }</a>
 			if imp := r.Entry.Import; imp != nil {

@@ -532,6 +532,10 @@ func actionBar() templ.Component {
 			templ_7745c5c3_Var18 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"pointer-events-none sticky top-14 z-20 mb-6 flex justify-center @container/actions [@media(max-height:32rem)]:static\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
 		templ_7745c5c3_Var19 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -551,9 +555,13 @@ func actionBar() templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = buttongroup.ButtonGroup(buttongroup.Props{
-			Class:      "glass sticky top-14 z-20 mx-auto mb-6 max-w-full overflow-x-auto overflow-y-hidden rounded-md bg-background/55 [scrollbar-width:none] shadow-lg shadow-black/30",
+			Class:      "glass scroll-fade-x pointer-events-auto max-w-full overflow-x-auto overflow-y-hidden rounded-md bg-background/55 [scrollbar-width:none] shadow-lg shadow-black/30 @max-xl/actions:w-full",
 			Attributes: templ.Attributes{"data-toolbar": true},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var19), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -565,7 +573,18 @@ func actionBar() templ.Component {
 // button, its text and weight, stood up as a column -- the icon above one
 // short word, both centred -- with the glass showing through (the outline
 // variant's opaque fill and its shadow dropped).
-const actionButtonClass = "h-auto min-w-18 flex-col gap-1 bg-transparent px-3.5 py-2 shadow-none hover:bg-muted aria-expanded:bg-muted [&_svg]:size-[18px]!"
+//
+// Since 2026-11-17: the dark: classes pin the settled look now that <html>
+// carries class="dark" (the outline variant would otherwise take its
+// dark:bg-input/30 fill and dark:border-input, and an open dialog's trigger
+// lose its fill); and below 576px of room (the bar's own, a container
+// query) the buttons share the bar's width instead of running off its end
+// -- half a phone's actions were out of sight with nothing to say so --
+// with the word at 11px below 448px. A bar still longer than its room
+// scrolls, its cut edge faded (scroll-fade-x).
+const actionButtonClass = "h-auto min-w-18 flex-col gap-1 bg-transparent px-3.5 py-2 shadow-none hover:bg-muted aria-expanded:bg-muted [&_svg]:size-[18px]! [&.htmx-request]:opacity-60 " +
+	"dark:bg-transparent dark:border-border dark:hover:bg-muted dark:aria-expanded:bg-muted " +
+	"@max-xl/actions:min-w-9 @max-xl/actions:flex-auto @max-xl/actions:px-1.5 @max-md/actions:px-0.5 @max-md/actions:text-[11px] @max-md/actions:leading-tight"
 
 // actionButtonProps is the group's button: outline, the variant the group
 // joins at the borders, at the large size, with attrs on it.
@@ -611,77 +630,77 @@ func actionForm(id, action string, fields []Field, iconName, label, title, dataA
 			templ_7745c5c3_Var20 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<form id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<form id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var21 string
 		templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.ResolveAttributeValue(id)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 177, Col: 14}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 190, Col: 14}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var21)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\" method=\"post\" action=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\" method=\"post\" action=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var22 templ.SafeURL
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(action))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 177, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 190, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\" hidden")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\" hidden")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, formAttrs)
+		templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, actionFormAttrs(action, formAttrs))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, ">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, ">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		for _, f := range fields {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<input type=\"hidden\" name=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<input type=\"hidden\" name=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 179, Col: 37}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 192, Col: 37}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var24 string
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 179, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 192, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</form>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</form>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -703,20 +722,20 @@ func actionForm(id, action string, fields []Field, iconName, label, title, dataA
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, " <span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, " <span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 186, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 199, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -728,6 +747,20 @@ func actionForm(id, action string, fields []Field, iconName, label, title, dataA
 		}
 		return nil
 	})
+}
+
+// actionFormAttrs post an action's form through htmx into #action-status
+// (2026-11-17: one feedback path), so the action answers with a toast and,
+// where its page shows the change, has it redrawn in place -- a plain post
+// reloaded the page without a word on success and, on failure, replaced
+// the app with a bare document. A caller's own hx-* (an interactive
+// search's modal target) wins; method and action stay for no script.
+func actionFormAttrs(action string, formAttrs templ.Attributes) templ.Attributes {
+	out := templ.Attributes{"hx-post": action, "hx-target": "#action-status", "hx-swap": "innerHTML"}
+	for k, v := range formAttrs {
+		out[k] = v
+	}
+	return out
 }
 
 // actionAttrs is a group button's data-action and data-toolbar-button,

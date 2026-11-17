@@ -167,7 +167,7 @@ templ bookXHero(v BookXView) {
 		data-profile={ li.QualityProfileRef }
 		data-neighbours={ v.NeighbourOrder }
 		data-poster={ posterState(li.Poster) }
-		class="relative -mx-6 mb-8"
+		class="relative -mx-(--page-gutter) mb-8"
 	>
 		if v.Backdrop != "" {
 			<img data-backdrop src={ templ.URL(v.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
@@ -176,109 +176,111 @@ templ bookXHero(v BookXView) {
 		if li.ArtKey != "" {
 			<div hidden hx-ext="sse" sse-connect={ artStreamURL(v.Detail) } hx-trigger="sse:art"></div>
 		}
-		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
-			<div class="w-40 shrink-0 md:w-56">
-				<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
-					@poster(li.Poster, b.DisplayTitle(), li.ArtKey)
-				</div>
-			</div>
-			<div class="min-w-0 flex-1">
-				<div class="flex items-start justify-between gap-4">
-					<div class="flex min-w-0 items-center gap-3">
-						@monitorBookmark(li)
-						<h1 class="min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl">{ b.DisplayTitle() }</h1>
+		<div class="@container/hero">
+			<div class="relative flex flex-col gap-6 p-4 @2xl/hero:flex-row @2xl/hero:gap-10 @2xl/hero:p-8">
+				<div class="w-40 shrink-0 @2xl/hero:w-56">
+					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
+						@poster(li.Poster, b.DisplayTitle(), li.ArtKey)
 					</div>
-					@neighbours(v.Detail)
 				</div>
-				if b.Subtitle != "" {
-					<p data-subtitle class="mt-1 text-2xl text-muted-foreground">{ b.Subtitle }</p>
-				}
-				if v.AuthorTitle != "" || b.Series != "" {
-					<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
-						if v.AuthorTitle != "" {
-							<a href={ templ.URL(v.AuthorURL) } data-author-link class="font-medium hover:underline">{ v.AuthorTitle }</a>
-						}
-						if v.AuthorTitle != "" && b.Series != "" {
-							<span class="text-muted-foreground" aria-hidden="true">·</span>
-						}
-						if b.Series != "" {
-							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-base text-sky-300", Attributes: templ.Attributes{"data-book-series": b.Series}}) {
-								{ b.Series }
-							}
-						}
+				<div class="min-w-0 flex-1">
+					<div class="flex items-start justify-between gap-4">
+						<div class="flex min-w-0 items-center gap-3">
+							@monitorBookmark(li)
+							<h1 class="line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl">{ b.DisplayTitle() }</h1>
+						</div>
+						@neighbours(v.Detail)
 					</div>
-				}
-				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
-					if b.ReleaseDate != "" {
-						<time datetime={ b.ReleaseDate } title={ b.ReleaseDate } data-released>{ bookXReleasedLabel(b) }</time>
+					if b.Subtitle != "" {
+						<p data-subtitle class="mt-1 text-2xl text-muted-foreground">{ b.Subtitle }</p>
 					}
-					if v.Pages > 0 {
-						<span data-pages={ fmt.Sprint(v.Pages) }>{ fmt.Sprintf("%d pages", v.Pages) }</span>
+					if v.AuthorTitle != "" || b.Series != "" {
+						<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
+							if v.AuthorTitle != "" {
+								<a href={ templ.URL(v.AuthorURL) } data-author-link class="font-medium hover:underline">{ v.AuthorTitle }</a>
+							}
+							if v.AuthorTitle != "" && b.Series != "" {
+								<span class="text-muted-foreground" aria-hidden="true">·</span>
+							}
+							if b.Series != "" {
+								@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-base text-sky-300", Attributes: templ.Attributes{"data-book-series": b.Series}}) {
+									{ b.Series }
+								}
+							}
+						</div>
 					}
-					if v.Publisher != "" {
-						<span data-publisher>{ v.Publisher }</span>
+					<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+						if b.ReleaseDate != "" {
+							<time datetime={ b.ReleaseDate } title={ b.ReleaseDate } data-released>{ bookXReleasedLabel(b) }</time>
+						}
+						if v.Pages > 0 {
+							<span data-pages={ fmt.Sprint(v.Pages) }>{ fmt.Sprintf("%d pages", v.Pages) }</span>
+						}
+						if v.Publisher != "" {
+							<span data-publisher>{ v.Publisher }</span>
+						}
+						@providerLinks(v.Links)
+					</div>
+					<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+						if v.Path != "" {
+							@fact("path", "Path") {
+								<span class="break-all">{ v.Path }</span>
+							}
+						}
+						@fact("status", "Status") {
+							<span class="flex items-center gap-2">
+								<span data-status={ episodeStripe(b.Status) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(episodeStripe(b.Status)) }></span>
+								{ bookXStatusLabel(v) }
+							</span>
+							if v.Item.DeleteError != "" {
+								@deleteRetry(v.Detail)
+							}
+							if v.Item.DeleteMode != "" {
+								@deleteCancel(v.Detail)
+							}
+						}
+						if v.Quality != "" {
+							@fact("quality", "Quality") {
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(b.Status.Warn) + " text-sm"}) {
+									{ v.Quality }
+								}
+							}
+						}
+						if li.QualityProfileRef != "" {
+							@fact("profile", "Quality Profile") {
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
+									{ li.QualityProfileRef }
+								}
+							}
+						}
+						@fact("monitored", "Monitored") {
+							{ monitoredTitle(b.Monitored) }
+						}
+						if size := totalSize(v.Files); size > 0 {
+							@fact("size", "Size") {
+								{ formatBytes(size) }
+							}
+						}
+						if v.ISBN != "" {
+							@fact("isbn", "ISBN") {
+								<span class="tabular-nums">{ v.ISBN }</span>
+							}
+						}
+						if len(v.Languages) > 0 {
+							@fact("languages", "Languages") {
+								{ strings.Join(v.Languages, ", ") }
+							}
+						}
+						if len(v.Genres) > 0 {
+							@fact("genres", "Genres") {
+								{ strings.Join(v.Genres, ", ") }
+							}
+						}
+					</dl>
+					if v.Overview != "" {
+						<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
 					}
-					@providerLinks(v.Links)
 				</div>
-				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
-					if v.Path != "" {
-						@fact("path", "Path") {
-							<span class="break-all">{ v.Path }</span>
-						}
-					}
-					@fact("status", "Status") {
-						<span class="flex items-center gap-2">
-							<span data-status={ episodeStripe(b.Status) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(episodeStripe(b.Status)) }></span>
-							{ bookXStatusLabel(v) }
-						</span>
-						if v.Item.DeleteError != "" {
-							@deleteRetry(v.Detail)
-						}
-						if v.Item.DeleteMode != "" {
-							@deleteCancel(v.Detail)
-						}
-					}
-					if v.Quality != "" {
-						@fact("quality", "Quality") {
-							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(b.Status.Warn) + " text-sm"}) {
-								{ v.Quality }
-							}
-						}
-					}
-					if li.QualityProfileRef != "" {
-						@fact("profile", "Quality Profile") {
-							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
-								{ li.QualityProfileRef }
-							}
-						}
-					}
-					@fact("monitored", "Monitored") {
-						{ monitoredTitle(b.Monitored) }
-					}
-					if size := totalSize(v.Files); size > 0 {
-						@fact("size", "Size") {
-							{ formatBytes(size) }
-						}
-					}
-					if v.ISBN != "" {
-						@fact("isbn", "ISBN") {
-							<span class="tabular-nums">{ v.ISBN }</span>
-						}
-					}
-					if len(v.Languages) > 0 {
-						@fact("languages", "Languages") {
-							{ strings.Join(v.Languages, ", ") }
-						}
-					}
-					if len(v.Genres) > 0 {
-						@fact("genres", "Genres") {
-							{ strings.Join(v.Genres, ", ") }
-						}
-					}
-				</dl>
-				if v.Overview != "" {
-					<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
-				}
 			</div>
 		</div>
 	</section>

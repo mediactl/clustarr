@@ -54,7 +54,7 @@ import (
 // exactly what UnmatchedRows renders.
 templ Unmatched(p paging.Page, entries []projection.UnmatchedEntry) {
 	@Layout("Unmatched") {
-		<h1 class="mb-4 text-2xl font-bold">Unmatched</h1>
+		<h1 class="mb-4 text-2xl font-semibold tracking-tight">Unmatched</h1>
 		<div
 			id="unmatched-rows"
 			hx-ext="sse, morph"

@@ -430,7 +430,7 @@ templ hero(d Detail) {
 		data-year={ fmt.Sprint(li.Year) }
 		data-profile={ li.QualityProfileRef }
 		data-poster={ posterState(li.Poster) }
-		class="relative -mx-6 mb-8"
+		class="relative -mx-(--page-gutter) mb-8"
 	>
 		if d.Backdrop != "" {
 			<img data-backdrop src={ templ.URL(d.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
@@ -443,97 +443,99 @@ templ hero(d Detail) {
 		if li.ArtKey != "" {
 			<div hidden hx-ext="sse" sse-connect={ artStreamURL(d) } hx-trigger="sse:art"></div>
 		}
-		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
-			<div class="w-40 shrink-0 md:w-56">
-				<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
-					@poster(li.Poster, li.Title, li.ArtKey)
-				</div>
-			</div>
-			<div class="min-w-0 flex-1">
-				<div class="flex items-start justify-between gap-4">
-					<div class="flex min-w-0 items-center gap-3">
-						@monitorBookmark(li)
-						<h1 class="min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl">{ li.Title }</h1>
+		<div class="@container/hero">
+			<div class="relative flex flex-col gap-6 p-4 @2xl/hero:flex-row @2xl/hero:gap-10 @2xl/hero:p-8">
+				<div class="w-40 shrink-0 @2xl/hero:w-56">
+					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
+						@poster(li.Poster, li.Title, li.ArtKey)
 					</div>
-					@neighbours(d)
 				</div>
-				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
-					if d.Certification != "" {
-						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base"}) {
-							{ d.Certification }
-						}
-					}
-					if li.Year > 0 {
-						<span>{ fmt.Sprint(li.Year) }</span>
-					}
-					if d.Runtime != "" {
-						<span>{ d.Runtime }</span>
-					}
-					@providerLinks(d.Links)
-				</div>
-				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
-					if d.Path != "" {
-						@fact("path", "Path") {
-							<span class="break-all">{ d.Path }</span>
-						}
-					}
-					if d.ImageSet != nil {
-						@fact("imageset", "Images") {
-							if d.ImageSet.Href != "" {
-								<a href={ templ.URL(d.ImageSet.Href) } target="_blank" rel="noreferrer" class="hover:text-foreground" data-imageset-source={ imageSetSource(d.ImageSet) }>{ d.ImageSet.Label }</a>
-							} else {
-								<span data-imageset-source={ imageSetSource(d.ImageSet) }>{ d.ImageSet.Label }</span>
+				<div class="min-w-0 flex-1">
+					<div class="flex items-start justify-between gap-4">
+						<div class="flex min-w-0 items-center gap-3">
+							@monitorBookmark(li)
+							<h1 class="line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl">{ li.Title }</h1>
+						</div>
+						@neighbours(d)
+					</div>
+					<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+						if d.Certification != "" {
+							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base"}) {
+								{ d.Certification }
 							}
 						}
-					}
-					@fact("status", "Status") {
-						<span class="flex items-center gap-2">
-							<span data-status={ projection.LibraryStatus(li) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(projection.LibraryStatus(li)) }></span>
-							{ statusLabel(li) }
-						</span>
-						if li.DeleteError != "" {
-							@deleteRetry(d)
+						if li.Year > 0 {
+							<span>{ fmt.Sprint(li.Year) }</span>
 						}
-						if li.DeleteMode != "" {
-							@deleteCancel(d)
+						if d.Runtime != "" {
+							<span>{ d.Runtime }</span>
 						}
-					}
-					if li.QualityProfileRef != "" {
-						@fact("profile", "Quality Profile") {
-							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
-								{ li.QualityProfileRef }
+						@providerLinks(d.Links)
+					</div>
+					<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+						if d.Path != "" {
+							@fact("path", "Path") {
+								<span class="break-all">{ d.Path }</span>
 							}
 						}
-					}
-					if size := heroSize(d); size > 0 {
-						@fact("size", "Size") {
-							{ formatBytes(size) }
+						if d.ImageSet != nil {
+							@fact("imageset", "Images") {
+								if d.ImageSet.Href != "" {
+									<a href={ templ.URL(d.ImageSet.Href) } target="_blank" rel="noreferrer" class="hover:text-foreground" data-imageset-source={ imageSetSource(d.ImageSet) }>{ d.ImageSet.Label }</a>
+								} else {
+									<span data-imageset-source={ imageSetSource(d.ImageSet) }>{ d.ImageSet.Label }</span>
+								}
+							}
 						}
-					}
-					if d.Language != "" {
-						@fact("language", "Original Language") {
-							{ d.Language }
+						@fact("status", "Status") {
+							<span class="flex items-center gap-2">
+								<span data-status={ projection.LibraryStatus(li) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(projection.LibraryStatus(li)) }></span>
+								{ statusLabel(li) }
+							</span>
+							if li.DeleteError != "" {
+								@deleteRetry(d)
+							}
+							if li.DeleteMode != "" {
+								@deleteCancel(d)
+							}
 						}
-					}
-					if d.Audio.Text != "" {
-						@fact("audio", "Audio") {
-							@audioBadge(d.Audio)
+						if li.QualityProfileRef != "" {
+							@fact("profile", "Quality Profile") {
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
+									{ li.QualityProfileRef }
+								}
+							}
 						}
-					}
-					if d.Network != "" {
-						@fact("network", "Network") {
-							{ d.Network }
+						if size := heroSize(d); size > 0 {
+							@fact("size", "Size") {
+								{ formatBytes(size) }
+							}
 						}
-					}
-					if len(d.Genres) > 0 {
-						@fact("genres", "Genres") {
-							{ strings.Join(d.Genres, ", ") }
+						if d.Language != "" {
+							@fact("language", "Original Language") {
+								{ d.Language }
+							}
 						}
+						if d.Audio.Text != "" {
+							@fact("audio", "Audio") {
+								@audioBadge(d.Audio)
+							}
+						}
+						if d.Network != "" {
+							@fact("network", "Network") {
+								{ d.Network }
+							}
+						}
+						if len(d.Genres) > 0 {
+							@fact("genres", "Genres") {
+								{ strings.Join(d.Genres, ", ") }
+							}
+						}
+					</dl>
+					if d.Overview != "" {
+						<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ d.Overview }</p>
 					}
-				</dl>
-				if d.Overview != "" {
-					<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ d.Overview }</p>
-				}
+				</div>
 			</div>
 		</div>
 	</section>
