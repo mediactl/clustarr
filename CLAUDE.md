@@ -2225,6 +2225,45 @@ metadata (GUID not `collection://`) is never adopted. cluster-plex
 reconciles them on its lease holder and writes their status and finalizer
 (below); the UI's Collections page (Library sub-menu) edits their spec.
 
+**A library's hubs are a resource too** (owner, 2026-11-16: "Add a mechanism
+for managing \"Hubs\" within the libraries - including collections, sorting,
+and everything available from the provided Plex Web UI image", Plex Web's
+"Manage Recommendations"; `docs/superpowers/specs/2026-11-16-plex-hub-layouts-design.md`).
+A `PlexHubLayout` (catalog.clustarr.io, `phub`, one per Plex library,
+`spec.library` its title, immutable) lists the library's hubs in the order
+wanted: each `spec.hubs` entry (100 at most) is exactly one of `identifier`
+(a built-in hub: `movie.recentlyreleased`), `collection` (a PlexCollection
+of the namespace) and `collectionTitle` (a Plex collection no resource
+manages), with `libraryRecommended`, `home` and `friendsHome` always
+stated. The listed hubs come first in that order; a hub not listed keeps
+Plex's relative order after them, and its visibility; a listed collection
+without a hub gets one, and takes its visibility from the layout, not from
+PlexCollection `spec.visibility`. The annotation
+`catalog.clustarr.io/hubs-reset` (an RFC 3339 time, a nonce;
+`catalogv1alpha1.AnnotationPlexHubsReset`) asks for Plex's Reset
+Customization once, recorded in `status.resetHandled`. cluster-plex applies
+it and is the only writer of its status (`status.hubs`: Plex's whole list in
+Plex's order, 200 at most; condition `Ready`); it has no finalizer, and
+clustarr's manager never touches it. The UI's **Hubs** page (`/library/hubs`,
+Library sub-menu; `ui/hubs.go`, `ui/views/hubs.templ`) is a section a
+library, each row a hub with three switches, up and down and, for a listed
+entry, a remove, with "Add collection" and "Reset customization" (an alert
+dialog) above; the Collections list carries the same three switches per
+collection, which write the library's layout. Every write is
+`ui/actions/plexhublayout.go`: `HubRows` is the order shown (the spec's
+entries, then the hubs Plex reports that it does not list), and `EditHubs`
+first materialises a hub the spec does not list, with every row ahead of
+it and Plex's flags, so an edit never reorders the rest or drops their
+visibility; `EditPlexHubLayout` reads the layout through the apiserver and
+patches `spec.hubs` under the generation it read, creating the layout
+(`PlexHubLayoutName`) at a library's first write, and the reset sets the
+annotation and clears `spec.hubs` in one merge patch. An edit's answer
+draws the rows from the layout the write returned, never from the cache.
+The chart's Plex libraries are `Movies` and `TV Shows` since then, with
+`formerNames` the old `Clustarr Movies` and `Clustarr TV`, which needs a
+cluster-plex chart that reads the key. Built 2026-11-16, not deployed, not
+seen in a browser, and not yet run against cluster-plex's half.
+
 ## Music, books, comics and audiobooks
 
 The four non-video libraries reached the movies' and TV's parity on
@@ -2585,6 +2624,8 @@ Until the guard lands, review holds the invariant; drop the mark when it does.
   written under field manager `cluster-plex` (owner, 2026-11-10, the
   collections design's option A); its spec is the UI's, kubectl's or
   Terraform's, and clustarr's manager never writes it.
+  A `PlexHubLayout`'s status is cluster-plex's the same way (2026-11-16,
+  the hub layouts design); it has no finalizer.
 - **One controller-writer per resource.** The sole exception is `MediaFile`, and
   the split is **spec versus status**, not status versus status, with both
   writers in the manager: `import-worker` creates the resource and owns
@@ -2680,7 +2721,11 @@ Until the guard lands, review holds the invariant; drop the mark when it does.
   Collections page (`docs/superpowers/specs/2026-11-10-plex-collections-design.md`),
   create, replace the spec of (a JSON patch testing `metadata.generation`)
   and delete a PlexCollection, whose status and finalizer are
-  cluster-plex's. So anything the UI does, `kubectl` can do.
+  cluster-plex's -- and, since the Hubs page
+  (`docs/superpowers/specs/2026-11-16-plex-hub-layouts-design.md`), create,
+  patch `spec.hubs` and the `catalog.clustarr.io/hubs-reset` annotation of,
+  and delete a PlexHubLayout, whose status is cluster-plex's. So anything
+  the UI does, `kubectl` can do.
 - **The UI may hold a bus connection for reads plus three requests.** `cmd/ui`
   (`internal/cli/ui/bus.go`) calls `busconn.Connect` and passes
   `Bus.ObjectStore(...)` into `ui.Options.Artwork` to serve `/art` (indexed by a
