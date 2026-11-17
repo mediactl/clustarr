@@ -156,6 +156,15 @@ func TestChannelsPageListsChannelsByNumberWithTheirResolvedFields(t *testing.T) 
 	assert.Contains(t, gone, "Missing")
 	requireTag(t, body, `href="/settings/edit/iptvchannels/media/argon-tv-espn?return=/livetv/channels"`)
 	assert.Equal(t, "private, max-age=10", rec.Header().Get("Cache-Control"))
+	// Bulk editing (2026-11-17): the head's mark selects every row on the
+	// page and the bulk form says how many are; ui/static/livetv.js drives
+	// both.
+	requireTag(t, body, `data-channel-select-all`, `role="checkbox"`, `aria-checked="false"`, `aria-label="Select every channel on this page"`)
+	requireTag(t, body, `data-channels-selected`, `aria-live="polite"`)
+	js := get(t, srv, "/static/livetv.js").Body.String()
+	for _, hook := range []string{"data-channel-select-all", "data-channels-selected", "data-channel-select]"} {
+		assert.Contains(t, js, hook)
+	}
 }
 
 func TestChannelsFiltersNarrowTheTable(t *testing.T) {
@@ -344,6 +353,10 @@ func TestThePlaylistPanePagesAndSearchesServerSide(t *testing.T) {
 	requireTag(t, body, `hx-get="/livetv/channels/playlist?all=1&amp;page=2&amp;provider=media%2Fargon-tv"`)
 	assert.NotContains(t, body, "{username}")
 	assert.NotContains(t, body, "provider.example", "no stream URL")
+	// The search redraws the entries alone, never its own box (2026-11-17).
+	form := requireTag(t, body, `hx-get="/livetv/channels/playlist"`, `hx-target="#playlist-results"`, `hx-select="#playlist-results"`)
+	require.Greater(t, strings.Index(body, `id="playlist-results"`), strings.Index(body, form), "the form stands outside what it redraws")
+	requireTag(t, body, `id="playlist-q"`, `name="q"`)
 
 	body = get(t, srv, "/livetv/channels/playlist?provider=media%2Fargon-tv&all=1&q=espn").Body.String()
 	assert.Equal(t, 1, strings.Count(body, "data-playlist-entry="))

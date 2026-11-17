@@ -80,6 +80,43 @@
       }
     });
   };
+  // Channels: the head's mark selects every row on the page, and the bulk
+  // form says how many are selected (it had neither, 2026-11-17).
+  function channelBoxes() {
+    return Array.prototype.slice.call(document.querySelectorAll("#channels-table [data-channel-select]"));
+  }
+  function isOn(box) {
+    return box.getAttribute("aria-checked") === "true";
+  }
+  function tallyChannels() {
+    var boxes = channelBoxes();
+    var n = boxes.filter(isOn).length;
+    document.querySelectorAll("[data-channels-selected]").forEach(function (el) {
+      var text = n + " selected";
+      if (el.textContent !== text) el.textContent = text;
+      el.toggleAttribute("data-some", n > 0);
+    });
+    var head = document.querySelector("[data-channel-select-all]");
+    if (head) head.setAttribute("aria-checked", n === 0 ? "false" : n === boxes.length ? "true" : "mixed");
+  }
+  document.addEventListener("click", function (ev) {
+    if (!ev.target.closest) return;
+    var head = ev.target.closest("[data-channel-select-all]");
+    if (head) {
+      var boxes = channelBoxes();
+      var turnOn = !boxes.every(isOn);
+      boxes.forEach(function (box) {
+        if (isOn(box) !== turnOn) box.click();
+      });
+    }
+    // After the checkbox's own handler has run.
+    if (head || ev.target.closest("#channels-table")) setTimeout(tallyChannels, 0);
+  });
+  document.addEventListener("keyup", function (ev) {
+    if (ev.target.closest && ev.target.closest("#channels-table")) setTimeout(tallyChannels, 0);
+  });
+  document.addEventListener("htmx:afterSettle", tallyChannels);
+
   document.addEventListener("DOMContentLoaded", function () {
     localise(document);
     sweep(document);

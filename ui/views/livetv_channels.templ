@@ -402,7 +402,7 @@ templ channelsBulkForm() {
 		hx-target="#action-status"
 		hx-swap="innerHTML"
 	>
-		<span class="text-muted-foreground">Selected:</span>
+		<span class="font-medium whitespace-nowrap text-muted-foreground tabular-nums data-[some]:text-primary" data-channels-selected aria-live="polite">0 selected</span>
 		@filterSelect("op", "Bulk action", "", []ProviderOption{{Value: "enable", Label: "Enable"}, {Value: "disable", Label: "Disable"}, {Value: "group", Label: "Assign group"}, {Value: "renumber", Label: "Renumber from"}, {Value: "delete", Label: "Delete"}}, "enable")
 		@input.Input(input.Props{Name: "value", Placeholder: "Group", Class: "h-8 w-36", Attributes: templ.Attributes{"aria-label": "Group"}})
 		@input.Input(input.Props{Name: "start", Placeholder: "Start number", Class: "h-8 w-28", Attributes: templ.Attributes{"aria-label": "Start number", "inputmode": "numeric"}})
@@ -425,8 +425,10 @@ templ ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) {
 		@table.Table() {
 			@table.Header() {
 				@table.Row() {
+					// The page's rows at once (2026-11-17): the shared
+					// tables' mark, which ui/static/livetv.js drives.
 					@table.Head(table.HeadProps{Class: "w-8"}) {
-						<span class="sr-only">Select</span>
+						@selectMark("data-channel-select-all", "Select every channel on this page")
 					}
 					@table.Head(table.HeadProps{Class: "w-12"}) {
 						Active 
