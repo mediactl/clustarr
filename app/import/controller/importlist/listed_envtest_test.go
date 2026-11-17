@@ -19,6 +19,7 @@ package importlist_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -126,6 +127,15 @@ func TestAListMarksEveryItemItNamesAndOnlyItsOwnMarks(t *testing.T) {
 	a, marked, cleared, err = importlist.MarkListed(ctx, r, criterion, commonv1.MediaKindMovie, a, named())
 	require.NoError(t, err)
 	require.Zero(t, marked+cleared)
+	require.Equal(t, rv, get().ResourceVersion)
+
+	// The record of what the film carries is lost (a pass that ended past
+	// its deadline saves none): the film is taken as marked, not written
+	// again, so the next pass goes on from where that one stopped.
+	lost, marked, cleared, err := importlist.MarkListed(ctx, r, criterion, commonv1.MediaKindMovie, nil, named())
+	require.NoError(t, err)
+	require.Zero(t, marked+cleared)
+	require.Equal(t, a[0].Listed, lost[0].Listed)
 	require.Equal(t, rv, get().ResourceVersion)
 
 	// Someone takes the tag off: the next pass puts it back.
@@ -251,4 +261,55 @@ func TestAMarkingListIsHeldUntilItsMarksAreOff(t *testing.T) {
 	var m catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movie.Name}, &m))
 	require.Empty(t, m.Spec.Tags)
+}
+
+// TestAListsMarksAreWrittenTogether holds the pass to a list's size: on
+// talos a write is a quarter of a second and a reconcile has five minutes,
+// so 755 films written one at a time never finished (2026-11-17). Every
+// film of a list larger than the writers' count is marked in one pass, and
+// cleared in one.
+func TestAListsMarksAreWrittenTogether(t *testing.T) {
+	c := requireEnvtest(t)
+	ctx := context.Background()
+	ns := createNamespace(t, ctx, c, "il-listed-many")
+	r := &importlist.Reconciler{Client: c, APIReader: c, Bus: newBus(t, ctx)}
+
+	const films = 40
+	var named []importliststate.StoredItem
+	for i := range films {
+		name := fmt.Sprintf("film-%02d", i)
+		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+			Spec:       catalogv1alpha1.MovieSpec{TmdbID: int64(1000 + i), QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
+		}))
+		named = append(named, importliststate.StoredItem{ObjectKind: "movie", ObjectName: name, ResolvedID: int64(1000 + i), ListedOnly: true})
+	}
+	il := &catalogv1alpha1.ImportList{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "criterion"},
+		Spec:       catalogv1alpha1.ImportListSpec{Listed: &catalogv1alpha1.ListedMetadata{Tags: []string{"Criterion Collection"}}},
+	}
+	tagged := func() int {
+		var l catalogv1alpha1.MovieList
+		require.NoError(t, c.List(ctx, &l, client.InNamespace(ns)))
+		n := 0
+		for i := range l.Items {
+			if len(l.Items[i].Spec.Tags) == 1 && l.Items[i].Spec.Tags[0] == "Criterion Collection" {
+				n++
+			}
+		}
+		return n
+	}
+
+	out, marked, _, err := importlist.MarkListed(ctx, r, il, commonv1.MediaKindMovie, nil, named)
+	require.NoError(t, err)
+	require.Equal(t, films, marked)
+	require.Equal(t, films, tagged())
+	for _, si := range out {
+		require.NotEmpty(t, si.Listed, si.ObjectName)
+	}
+
+	_, _, cleared, err := importlist.MarkListed(ctx, r, il, commonv1.MediaKindMovie, out, nil)
+	require.NoError(t, err)
+	require.Equal(t, films, cleared)
+	require.Zero(t, tagged())
 }

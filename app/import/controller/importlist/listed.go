@@ -27,6 +27,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -221,11 +222,58 @@ type listedResult struct {
 	errs            []error
 }
 
+// listedWriters is how many items' marks are written at once. A write is
+// an apiserver round trip, a quarter of a second on talos, and a list
+// names hundreds of items inside one reconcile's deadline: one at a time,
+// 755 films took longer than the five minutes a reconcile has
+// (2026-11-17), the pass lost what it had done and the next began again.
+const listedWriters = 8
+
+// listedWrite is one item whose marks are to be made m.
+type listedWrite struct {
+	it libraryItem
+	m  listedMarks
+}
+
+// applyListedAll makes each write, listedWriters at a time, and answers
+// each one's error in order. Once ctx is done nothing more is sent.
+func (r *Reconciler) applyListedAll(
+	ctx context.Context, il *catalogv1alpha1.ImportList, kind commonv1.MediaKind, writes []listedWrite,
+) []error {
+	errs := make([]error, len(writes))
+	var wg sync.WaitGroup
+	next := make(chan int)
+	for range min(listedWriters, len(writes)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				if err := ctx.Err(); err != nil {
+					errs[i] = err
+					continue
+				}
+				errs[i] = r.applyListed(ctx, il, kind, writes[i].it, writes[i].m)
+			}
+		}()
+	}
+	for i := range writes {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	return errs
+}
+
 // markListed brings the list's marks to the items this diff remembers and
 // takes them off the ones it no longer does. remembered is updated in
 // place with what each item now carries; existing is what the last diff
 // remembered. An item not in the library (an entry the list only names, an
 // id that did not resolve) carries nothing.
+//
+// An item that carries every mark while nothing is recorded for it is
+// taken as marked, without a write: the record is lost when a pass ends
+// past its deadline, and the next must go on from where that one stopped,
+// not begin again.
 func (r *Reconciler) markListed(
 	ctx context.Context, il *catalogv1alpha1.ImportList, kind commonv1.MediaKind, m listedMarks,
 	existing, remembered []importliststate.StoredItem, lib library,
@@ -238,13 +286,17 @@ func (r *Reconciler) markListed(
 			carried[si.ObjectName] = si.Listed
 		}
 	}
-	done := map[string]string{}
+
+	// Decide first, write together, then record what each item carries.
+	var writes []listedWrite
+	writeOf := map[string]int{} // object name -> its index in writes
+	named := map[string]bool{}
 	for i := range remembered {
 		e := &remembered[i]
-		if h, ok := done[e.ObjectName]; ok {
-			e.Listed = h
+		if named[e.ObjectName] {
 			continue
 		}
+		named[e.ObjectName] = true
 		e.Listed = carried[e.ObjectName]
 		it, held := lib.byName[e.ObjectName]
 		if !held && !e.ListedOnly {
@@ -256,10 +308,35 @@ func (r *Reconciler) markListed(
 		case !held:
 			e.Listed = ""
 		case hash == "" && e.Listed == "":
-		case hash != "" && e.Listed == hash && m.on(it):
+		case hash != "" && (e.Listed == hash || e.Listed == "") && m.on(it):
+			e.Listed = hash
 		default:
-			err := r.applyListed(ctx, il, kind, it, m)
-			switch {
+			writeOf[e.ObjectName] = len(writes)
+			writes = append(writes, listedWrite{it: it, m: m})
+		}
+	}
+	marks := len(writes)
+	var dropped []string
+	for name := range carried {
+		if named[name] {
+			continue
+		}
+		if it, held := lib.byName[name]; held {
+			dropped = append(dropped, name)
+			writes = append(writes, listedWrite{it: it})
+		}
+	}
+
+	errs := r.applyListedAll(ctx, il, kind, writes)
+	now := map[string]string{}
+	for i := range remembered {
+		e := &remembered[i]
+		if h, ok := now[e.ObjectName]; ok {
+			e.Listed = h
+			continue
+		}
+		if w, ok := writeOf[e.ObjectName]; ok {
+			switch err := errs[w]; {
 			case err == nil && hash == "":
 				res.cleared++
 				e.Listed = ""
@@ -274,17 +351,10 @@ func (r *Reconciler) markListed(
 				res.errs = append(res.errs, fmt.Errorf("mark %s: %w", e.ObjectName, err))
 			}
 		}
-		done[e.ObjectName] = e.Listed
+		now[e.ObjectName] = e.Listed
 	}
-	for name := range carried {
-		if _, still := done[name]; still {
-			continue
-		}
-		it, held := lib.byName[name]
-		if !held {
-			continue
-		}
-		switch err := r.applyListed(ctx, il, kind, it, listedMarks{}); {
+	for i, name := range dropped {
+		switch err := errs[marks+i]; {
 		case err == nil:
 			res.cleared++
 		case errors.Is(err, errListedGone):
@@ -331,9 +401,12 @@ func anyListed(items []importliststate.StoredItem) bool {
 // has a catalog writer for.
 var listedKinds = []commonv1.MediaKind{commonv1.MediaKindMovie, commonv1.MediaKindSeries}
 
-// clearListed takes the list's marks off every item it remembers marking,
-// for a list being deleted, and forgets them. It fails on the first item
-// that could not be cleared, so the finalizer stays until all are.
+// clearListed takes the list's marks off every item it remembers, for a
+// list being deleted, and forgets them. Every remembered item in the
+// library is cleared, recorded as marked or not: the record is lost when a
+// pass ends past its deadline, and an empty apply by a manager that owns
+// nothing changes nothing. It fails when an item could not be cleared, so
+// the finalizer stays until all are.
 func (r *Reconciler) clearListed(ctx context.Context, il *catalogv1alpha1.ImportList) error {
 	log := logging.FromContext(ctx)
 	kv := r.snapshots()
@@ -342,32 +415,33 @@ func (r *Reconciler) clearListed(ctx context.Context, il *catalogv1alpha1.Import
 		if err != nil {
 			return fmt.Errorf("load remembered items: %w", err)
 		}
-		if !anyListed(items) {
+		if len(items) == 0 {
 			continue
 		}
 		lib, err := loadLibrary(ctx, r.Client, il.Namespace, il.Name, kind)
 		if err != nil {
 			return err
 		}
-		cleared := 0
+		var writes []listedWrite
+		seen := map[string]bool{}
 		for i := range items {
-			if items[i].Listed == "" {
-				continue
-			}
-			if it, held := lib.byName[items[i].ObjectName]; held {
-				err := r.applyListed(ctx, il, kind, it, listedMarks{})
-				if err != nil && !errors.Is(err, errListedGone) {
-					return fmt.Errorf("clear %s: %w", items[i].ObjectName, err)
-				}
-				cleared++
+			it, held := lib.byName[items[i].ObjectName]
+			if held && !seen[it.name] {
+				seen[it.name] = true
+				writes = append(writes, listedWrite{it: it})
 			}
 			items[i].Listed = ""
+		}
+		for i, err := range r.applyListedAll(ctx, il, kind, writes) {
+			if err != nil && !errors.Is(err, errListedGone) {
+				return fmt.Errorf("clear %s: %w", writes[i].it.name, err)
+			}
 		}
 		if err := importliststate.SaveItems(ctx, kv, il.Namespace, il.Name, string(kind), rev, items); err != nil &&
 			!errors.Is(err, importliststate.ErrItemsChangedConcurrently) {
 			log.Warn("importlist: could not save remembered items after clearing the list's marks", "kind", kind, "err", err)
 		}
-		log.Info("importlist: the deleted list's marks were taken off its items", "kind", kind, "cleared", cleared)
+		log.Info("importlist: the deleted list's marks were taken off its items", "kind", kind, "items", len(writes))
 	}
 	return nil
 }

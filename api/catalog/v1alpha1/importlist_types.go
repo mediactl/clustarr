@@ -258,8 +258,8 @@ type ListedMetadata struct {
 	Tags []string `json:"tags,omitempty"`
 
 	// Labels are set on the item's metadata.labels. Keys and values follow
-	// Kubernetes' label syntax; a list whose labels do not is not applied
-	// (Synced reads InvalidListed).
+	// Kubernetes' label syntax; a list whose labels do not marks nothing,
+	// and status.lastError says why.
 	// +optional
 	// +kubebuilder:validation:MaxProperties=16
 	Labels map[string]string `json:"labels,omitempty"`
