@@ -157,6 +157,14 @@ func DeletePlexCollection(ctx context.Context, d Deleter, namespace, name string
 // named collection-<the first 10 hex of its SHA-256>, the same name for
 // the same title.
 func PlexCollectionName(title string) string {
+	return titleName(title, "collection-")
+}
+
+// titleName is a resource name from a title: lower case, accents dropped,
+// every other run of characters one dash, at most 63 characters; a title
+// with no Latin letter or digit is prefix and the first 10 hex of its
+// SHA-256.
+func titleName(title, prefix string) string {
 	folded, _, err := transform.String(transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC), title)
 	if err != nil {
 		folded = title
@@ -177,7 +185,7 @@ func PlexCollectionName(title string) string {
 	name := b.String()
 	if name == "" {
 		sum := sha256.Sum256([]byte(title))
-		return "collection-" + hex.EncodeToString(sum[:5])
+		return prefix + hex.EncodeToString(sum[:5])
 	}
 	if len(name) > 63 {
 		name = strings.TrimRight(name[:63], "-")

@@ -719,6 +719,7 @@ rules:
   - metadataproviders
   - movies
   - plexcollections
+  - plexhublayouts
   - qualityprofiles
   - rootfolders
   - searches
@@ -807,6 +808,7 @@ rules:
   - importlists
   - metadataproviders
   - plexcollections
+  - plexhublayouts
   - qualityprofiles
   - rootfolders
   verbs:

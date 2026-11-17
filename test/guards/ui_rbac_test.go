@@ -147,6 +147,13 @@ var uiActionGrants = map[uiGrant]bool{
 	{"catalog.clustarr.io", "plexcollections", "create"}: true,
 	{"catalog.clustarr.io", "plexcollections", "patch"}:  true,
 	{"catalog.clustarr.io", "plexcollections", "delete"}: true,
+
+	// The Hubs page (docs/superpowers/specs/2026-11-16-plex-hub-layouts-design.md):
+	// PlexHubLayout spec and its reset annotation through ui/actions'
+	// typed writes; status is cluster-plex's alone.
+	{"catalog.clustarr.io", "plexhublayouts", "create"}: true,
+	{"catalog.clustarr.io", "plexhublayouts", "patch"}:  true,
+	{"catalog.clustarr.io", "plexhublayouts", "delete"}: true,
 }
 
 // uiRoleRule mirrors a ClusterRole rules entry, including the fields no rule

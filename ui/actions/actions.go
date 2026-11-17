@@ -163,6 +163,7 @@ func Grants() []Grant {
 	grants = append(grants, settingsGrants()...)
 	grants = append(grants, configGrants()...)
 	grants = append(grants, plexCollectionGrants()...)
+	grants = append(grants, plexHubLayoutGrants()...)
 	return grants
 }
 
