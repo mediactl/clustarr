@@ -19,6 +19,7 @@ package artwork
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"image"
@@ -31,11 +32,20 @@ import (
 	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 )
 
-// The title drawing (catalogartwork.TitleVersion 1; owner, 2026-11-17, after
-// github.com/elfhosted/PostersPlus): a poster without text takes its item's
-// logo at the bottom centre, over a shade that keeps a pale logo legible on
-// pale art. Raise TitleVersion when any of these changes.
+// The titled poster (catalogartwork.TitleVersion 1; owner, 2026-11-17, after
+// github.com/elfhosted/PostersPlus): a poster the text detector finds no
+// text in takes its item's logo at the bottom centre, over a shade that
+// keeps a pale logo legible on pale art. Raise TitleVersion when any of
+// these changes.
 const (
+	// titleTextPermille is the least share of a fitted poster's pixels, in
+	// thousandths, the detector must call text for the poster to count as
+	// carrying a title. Calibrated on 44 posters of three items
+	// (2026-11-17): the fourteen that are textless read 0 or 1, the
+	// untagged ones that carry a title 11, 20 and 30, and tagged ones 3 to
+	// 54 -- but a title drawn as artwork (Akira's) reads as little as 0,
+	// which no threshold catches.
+	titleTextPermille = 3
 	// titleMaxWidthPct and titleMaxHeightPct bound the logo, as percentages
 	// of the poster's width and height; it is scaled to fit both, never up.
 	titleMaxWidthPct  = 78
@@ -61,27 +71,28 @@ const (
 // errNoTitle is a logo with nothing to draw.
 var errNoTitle = errors.New("the logo has no opaque pixel")
 
-// titled is poster, an image of cfg's size, fitted into box as fit stores a
-// poster and with logo drawn at its bottom centre, encoded as a JPEG at
-// FitJPEGQuality. The logo's transparent margins are trimmed first, so its
-// own padding moves neither its size nor its place, and a logo that is all
-// dark is drawn white.
-func (f *Fetcher) titled(poster, logo []byte, box catalogartwork.Box, cfg image.Config) (fitted, error) {
+// decodeTitle decodes a logo for drawing.
+func decodeTitle(logo []byte) (image.Image, error) {
+	mark, _, err := image.Decode(bytes.NewReader(logo))
+	if err != nil {
+		return nil, fmt.Errorf("%w: it does not decode: %w", ErrNotAnImage, err)
+	}
+	return mark, nil
+}
+
+// canvas is poster, an image of cfg's size, decoded and scaled into box as
+// fit scales a poster: what the detector reads and the logo is drawn on.
+func (f *Fetcher) canvas(poster []byte, box catalogartwork.Box, cfg image.Config) (*image.RGBA, error) {
 	if cfg.Width*cfg.Height > MaxFitPixels {
-		return fitted{}, fmt.Errorf("%w: a %dx%d poster is too large to draw on", ErrImageTooLarge, cfg.Width, cfg.Height)
+		return nil, fmt.Errorf("%w: a %dx%d poster is too large to draw on", ErrImageTooLarge, cfg.Width, cfg.Height)
 	}
 	f.fitMu.Lock()
 	defer f.fitMu.Unlock()
 
 	base, _, err := image.Decode(bytes.NewReader(poster))
 	if err != nil {
-		return fitted{}, fmt.Errorf("%w: the poster does not decode: %w", ErrNotAnImage, err)
+		return nil, fmt.Errorf("%w: the poster does not decode: %w", ErrNotAnImage, err)
 	}
-	mark, _, err := image.Decode(bytes.NewReader(logo))
-	if err != nil {
-		return fitted{}, fmt.Errorf("%w: the logo does not decode: %w", ErrNotAnImage, err)
-	}
-
 	w, h := box.Size(cfg.Width, cfg.Height)
 	canvas := image.NewRGBA(image.Rect(0, 0, w, h))
 	if w == cfg.Width && h == cfg.Height {
@@ -89,16 +100,45 @@ func (f *Fetcher) titled(poster, logo []byte, box catalogartwork.Box, cfg image.
 	} else {
 		xdraw.CatmullRom.Scale(canvas, canvas.Bounds(), base, base.Bounds(), xdraw.Src, nil)
 	}
+	return canvas, nil
+}
+
+// hasText reports whether the detector finds a title's worth of text in
+// canvas (titleTextPermille).
+func (f *Fetcher) hasText(ctx context.Context, canvas *image.RGBA) (bool, error) {
+	b := canvas.Bounds()
+	rgb := make([]byte, b.Dx()*b.Dy()*3)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		row := canvas.Pix[canvas.PixOffset(b.Min.X, y) : canvas.PixOffset(b.Max.X-1, y)+4]
+		out := rgb[(y-b.Min.Y)*b.Dx()*3:]
+		for i, j := 0, 0; i < len(row); i, j = i+4, j+3 {
+			out[j], out[j+1], out[j+2] = row[i], row[i+1], row[i+2]
+		}
+	}
+	permille, err := f.Text(ctx, rgb, b.Dx(), b.Dy())
+	if err != nil {
+		return false, err
+	}
+	return permille >= titleTextPermille, nil
+}
+
+// titled is canvas with mark drawn at its bottom centre over the shade,
+// encoded as a JPEG at FitJPEGQuality. The logo's transparent margins are
+// trimmed first, so its own padding moves neither its size nor its place,
+// and a logo that is all dark is drawn white. canvas is drawn on.
+func (f *Fetcher) titled(canvas *image.RGBA, mark image.Image) (fitted, error) {
+	f.fitMu.Lock()
+	defer f.fitMu.Unlock()
 	shade(canvas)
 	if err := drawTitle(canvas, mark); err != nil {
 		return fitted{}, err
 	}
-
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, canvas, &jpeg.Options{Quality: FitJPEGQuality}); err != nil {
 		return fitted{}, err
 	}
-	return fitted{body: buf.Bytes(), contentType: "image/jpeg", width: w, height: h}, nil
+	b := canvas.Bounds()
+	return fitted{body: buf.Bytes(), contentType: "image/jpeg", width: b.Dx(), height: b.Dy()}, nil
 }
 
 // shade darkens canvas from titleShadeFromPct down, deepening with the

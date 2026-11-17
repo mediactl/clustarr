@@ -56,6 +56,20 @@ type ArtworkFetch struct {
 	// whose source carries no title (catalogartwork.Source.Logo); "" stores
 	// the image as its source has it.
 	Logo string `json:"logo,omitempty"`
+	// Candidates are the posters to try after URL, in order, when URL's
+	// image turns out to carry text (catalogartwork.Source.Candidates).
+	Candidates []string `json:"candidates,omitempty"`
+	// Plain is the poster stored as it is when every candidate carries
+	// text (catalogartwork.Source.Plain).
+	Plain *ArtworkPlain `json:"plain,omitempty"`
+}
+
+// ArtworkPlain is the source a titled poster falls back to: the poster the
+// item would take with no title drawn.
+type ArtworkPlain struct {
+	URL      string `json:"url"`
+	Kind     string `json:"kind,omitempty"`
+	Language string `json:"language,omitempty"`
 }
 
 // Schema implements Payload.

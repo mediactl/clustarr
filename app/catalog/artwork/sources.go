@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package artwork
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -59,8 +62,17 @@ type Source struct {
 	Language string
 	// Logo is the URL of the title logo the fetcher draws at the bottom
 	// centre of a poster whose own image carries no title (Titled); "" for
-	// every other source.
+	// every other source. A source with a logo is a titled one: the fetcher
+	// stores the first of URL and Candidates in which it finds no text,
+	// with the logo drawn on it, else Plain as it is.
 	Logo string
+	// Candidates are the posters to try after URL, in order: a provider
+	// lists a poster under no language when it says the poster has no
+	// text, and some of those carry a title all the same.
+	Candidates []string
+	// Plain is the poster the item takes when every candidate carries
+	// text: the one ResolveSources chose. Nil when it chose none.
+	Plain *Source
 }
 
 // ResolveSources picks one source per image type (spec §B.4): the
@@ -84,51 +96,68 @@ func ResolveSources(overrides []catalogv1alpha1.ArtworkOverride, images []catalo
 	return out
 }
 
-// TitleVersion is the version of the title drawing (the fetcher's titled):
-// where the logo sits, how large it is and what lies behind it. Raising it
-// has every titled poster fetched and drawn again, as FitVersion does a
-// fitted one.
+// TitleVersion is the version of the titled poster: how a poster is judged
+// to carry text and how the logo is drawn on it (the fetcher's titled).
+// Raising it has every titled poster fetched, judged and drawn again, as
+// FitVersion does a fitted one.
 const TitleVersion = "1"
 
 // DefaultTitleLanguage is the language of the logo a titled poster takes
 // when its item's metadata names none.
 const DefaultTitleLanguage = "en"
 
-// TitleMark is what a poster original records of its title logo
-// (events.ArtworkMetaKeyTitle): the drawing's version and the logo's URL,
-// "" for a poster with none. The plan fetches a poster whose mark is not its
-// source's.
-func TitleMark(logoURL string) string {
-	if logoURL == "" {
+// MaxTitleCandidates bounds how many posters a titled source names: each is
+// a fetch and a read for text.
+const MaxTitleCandidates = 6
+
+// TitleMark is what a poster original records of the titled source it was
+// stored for (events.ArtworkMetaKeyTitle): TitleVersion and a hash of the
+// source's inputs -- the logo, every candidate and the plain poster -- and
+// "" for a source with no logo. It names the question, not the answer: the
+// fetcher stores whichever poster the answer is under the same mark, so the
+// plan, which cannot know which candidate carries text, fetches again only
+// when the question changed.
+func (s Source) TitleMark() string {
+	if s.Logo == "" {
 		return ""
 	}
-	return TitleVersion + " " + logoURL
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "logo\x00%s\x00poster\x00%s\x00", s.Logo, s.URL)
+	for _, c := range s.Candidates {
+		_, _ = fmt.Fprintf(h, "poster\x00%s\x00", c)
+	}
+	if s.Plain != nil {
+		_, _ = fmt.Fprintf(h, "plain\x00%s\x00%s\x00", s.Plain.URL, s.Plain.Kind)
+	}
+	return TitleVersion + " " + hex.EncodeToString(h.Sum(nil))[:32]
 }
 
-// Titled is the poster and logo of a titled poster (owner, 2026-11-17: "For
+// Titled is the posters and logo of a titled poster (owner, 2026-11-17: "For
 // anime posters, we should prefer posters with no text - where we will
-// overlay the english logo at the bottom center"): the first provider poster
-// that names no language, which is how TMDB, TheTVDB and fanart.tv list a
-// poster without text, and the first provider logo in language. Both or
-// neither: a textless poster without its logo names nothing, so an item
-// with no such pair keeps the poster ResolveSources chose.
-func Titled(images []catalogv1alpha1.Image, language string) (poster, logo catalogv1alpha1.Image, ok bool) {
+// overlay the english logo at the bottom center"): every provider poster
+// that names no language, in order and at most MaxTitleCandidates -- which
+// is how TMDB, TheTVDB and fanart.tv list a poster without text, though
+// some carry a title all the same, so the fetcher reads each for text -- and
+// the first provider logo in language. Both or neither: a textless poster
+// without its logo names nothing, so an item with no such pair keeps the
+// poster ResolveSources chose.
+func Titled(images []catalogv1alpha1.Image, language string) (posters []catalogv1alpha1.Image, logo catalogv1alpha1.Image, ok bool) {
 	if language == "" {
 		language = DefaultTitleLanguage
 	}
-	var hasPoster, hasLogo bool
+	hasLogo := false
 	for _, img := range images {
 		if !Fetchable(img.URL) {
 			continue
 		}
 		switch {
-		case img.Type == catalogv1alpha1.ImageTypePoster && img.Language == "" && !hasPoster:
-			poster, hasPoster = img, true
+		case img.Type == catalogv1alpha1.ImageTypePoster && img.Language == "" && len(posters) < MaxTitleCandidates:
+			posters = append(posters, img)
 		case img.Type == catalogv1alpha1.ImageTypeLogo && sameLanguage(img.Language, language) && !hasLogo:
 			logo, hasLogo = img, true
 		}
 	}
-	return poster, logo, hasPoster && hasLogo
+	return posters, logo, len(posters) > 0 && hasLogo
 }
 
 // sameLanguage compares two language tags by their primary subtag, so
@@ -142,21 +171,27 @@ func sameLanguage(a, b string) bool {
 }
 
 // Sources is ResolveSources for it, and for an item that takes a titled
-// poster (Item.TitledPoster) its Titled pair in place of the poster and the
-// logo: the textless poster with the logo to draw on it, and that logo as
+// poster (Item.TitledPoster) its Titled posters and logo in place of the
+// poster and the logo: the textless posters to try, the logo to draw, the
+// poster ResolveSources chose as the one to fall back to, and that logo as
 // the item's logo. An item whose metadata has no such pair is unchanged.
 func (it Item) Sources() map[catalogv1alpha1.ImageType]Source {
 	out := ResolveSources(it.Overrides, it.Images)
 	if !it.TitledPoster {
 		return out
 	}
-	poster, logo, ok := Titled(it.Images, it.Language)
+	posters, logo, ok := Titled(it.Images, it.Language)
 	if !ok {
 		return out
 	}
-	out[catalogv1alpha1.ImageTypePoster] = Source{
-		URL: poster.URL, Kind: catalogv1alpha1.ArtworkSourceProvider, Logo: logo.URL,
+	titled := Source{URL: posters[0].URL, Kind: catalogv1alpha1.ArtworkSourceProvider, Logo: logo.URL}
+	for _, p := range posters[1:] {
+		titled.Candidates = append(titled.Candidates, p.URL)
 	}
+	if plain, has := out[catalogv1alpha1.ImageTypePoster]; has {
+		titled.Plain = &plain
+	}
+	out[catalogv1alpha1.ImageTypePoster] = titled
 	if _, own := overrideOf(it.Overrides, catalogv1alpha1.ImageTypeLogo); !own {
 		out[catalogv1alpha1.ImageTypeLogo] = Source{
 			URL: logo.URL, Kind: catalogv1alpha1.ArtworkSourceProvider, Language: logo.Language,

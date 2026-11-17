@@ -305,10 +305,12 @@ const (
 	// type was stored under (app/catalog/artwork.FitVersion): scaled into
 	// its type's box and re-encoded. Absent on a type stored as fetched.
 	ArtworkMetaKeyFit = "clustarr.io/fit"
-	// ArtworkMetaKeyTitle is the title logo a poster original was stored
-	// with (app/catalog/artwork.TitleMark): the version of the drawing and
-	// the logo's URL. Absent on a poster stored as its source has it.
+	// ArtworkMetaKeyTitle is the titled source a poster original was stored
+	// for (app/catalog/artwork.Source.TitleMark): the version and a hash of
+	// its posters and logo. Absent on a poster no title was planned for.
+	// ArtworkMetaKeyTitled says "true" on one stored with the logo drawn.
 	ArtworkMetaKeyTitle    = "clustarr.io/title"
+	ArtworkMetaKeyTitled   = "clustarr.io/titled"
 	BucketMetaKeyKeyScheme = "clustarr.io/key-scheme"
 )
 

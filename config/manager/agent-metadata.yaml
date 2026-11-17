@@ -74,6 +74,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # AUTOMEMLIMIT: the binary takes 60% of its memory limit, read from
+            # its cgroup, as its Go memory limit (automemlimit; 90% where
+            # unset): ONNX Runtime, which reads posters for text, allocates
+            # about 180 MiB outside the Go heap (OD42).
+            - name: AUTOMEMLIMIT
+              value: "0.60"
           ports:
             - name: metrics
               containerPort: 8443

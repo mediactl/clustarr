@@ -148,9 +148,11 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		if !catalogartwork.KnownType(t) {
 			continue
 		}
-		src := catalogartwork.Source{URL: f.URL, Kind: catalogv1alpha1.ArtworkSource(f.Kind), Language: f.Language, Logo: f.Logo}
-		if src.Kind != catalogv1alpha1.ArtworkSourceCustom {
-			src.Kind = catalogv1alpha1.ArtworkSourceProvider
+		src := catalogartwork.Source{
+			URL: f.URL, Kind: sourceKind(f.Kind), Language: f.Language, Logo: f.Logo, Candidates: f.Candidates,
+		}
+		if f.Plain != nil {
+			src.Plain = &catalogartwork.Source{URL: f.Plain.URL, Kind: sourceKind(f.Plain.Kind), Language: f.Plain.Language}
 		}
 		err := h.Fetcher.FetchOne(ctx, ref, t, src)
 		switch {
@@ -245,4 +247,12 @@ func (h *Handler) recordFailures(ctx context.Context, item schema.ItemRef, succe
 		return fmt.Errorf("record the artwork failures: %w", err)
 	}
 	return nil
+}
+
+// sourceKind reads a task's source kind: custom, else provider.
+func sourceKind(kind string) catalogv1alpha1.ArtworkSource {
+	if catalogv1alpha1.ArtworkSource(kind) == catalogv1alpha1.ArtworkSourceCustom {
+		return catalogv1alpha1.ArtworkSourceCustom
+	}
+	return catalogv1alpha1.ArtworkSourceProvider
 }

@@ -90,8 +90,9 @@ func TestEveryContainerNamesItsBinary(t *testing.T) {
 // its Go memory limit (github.com/KimMachineGun/automemlimit), so every
 // workload sets a memory limit and no GOMEMLIMIT byte count, and only a
 // process whose FFmpeg, par2 or ONNX Runtime allocates outside the Go heap
-// names its share in AUTOMEMLIMIT -- 0.60 for agent-import and
-// agent-caption, 0.50 for markers -- the rest taking automemlimit's 0.9;
+// names its share in AUTOMEMLIMIT -- 0.60 for agent-import, agent-caption
+// and agent-metadata (which reads posters for text on ONNX Runtime since
+// 2026-11-17), 0.50 for markers -- the rest taking automemlimit's 0.9;
 // in both installers, and their defaults agree.
 func TestTheGoMemoryLimitIsItsShareOfTheLimit(t *testing.T) {
 	values := map[string]map[string]string{}

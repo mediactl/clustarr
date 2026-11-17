@@ -2615,26 +2615,46 @@ with the plan's per-task "Done" notes naming every leftover). The shape:
   -- how TMDB, TheTVDB and fanart.tv list one without text -- and a logo in
   the titles' language (`status.metadata.language`, else English),
   `catalogartwork.Item.Sources` (which the artwork stage plans from, where
-  it called `ResolveSources`) takes that poster with `Source.Logo` set, and
-  that logo as the item's logo (`Titled`). Both or neither: without the
-  pair the item keeps the poster it had. The owner's poster wins -- a
-  `spec.artwork` override or a pinned image set (`spec.imageSetID`) -- and
-  a set the mediux provider chose by itself yields its poster, which
-  carries the set maker's title, keeping its other images. The fetcher
-  draws it (`app/catalog/metadata/artwork/title.go`, `Fetcher.titled`):
-  the poster fitted into its box, a shade over the lower half, the logo
-  trimmed of its transparent margins, scaled into 78% of the width and 24%
-  of the height and set 5% above the bottom edge, drawn white when 85% of
-  its opaque pixels are dark; stored as the poster *original*, so the
-  rating overlay, the ui and Plex take it as they take any poster. The
-  object records `clustarr.io/title` (`TitleMark`: `TitleVersion` and the
-  logo's URL) and the plan fetches a poster whose mark is not its source's,
-  so raise `TitleVersion` when the drawing changes. A logo that cannot be
-  fetched or decoded fails the poster's fetch, which keeps the stored
-  poster and rests the source for `FailureRetry`, never a poster that
-  names nothing. Not handled: an untagged poster that does carry a title
-  (TMDB's for Your Name), which gets the logo under its own title; set the
-  item's poster by hand (`spec.artwork`) for those.
+  it called `ResolveSources`) makes the poster a *titled* source: the
+  untagged posters in order, at most six (`Titled`, `Source.Candidates`),
+  the logo (`Source.Logo`, also the item's logo), and the poster
+  `ResolveSources` chose as the one to fall back to (`Source.Plain`). Both
+  or neither: without the pair the item keeps the poster it had. The
+  owner's poster wins -- a `spec.artwork` override or a pinned image set
+  (`spec.imageSetID`) -- and a set the mediux provider chose by itself
+  yields its poster, which carries the set maker's title, keeping its other
+  images. **"No language" is a provider's word, so the fetcher reads each
+  candidate for text** (owner, same day: "follow the OCR pattern for
+  finding posters with no text"; TMDB's first untagged poster for Your Name
+  carries its handwritten title): `Fetcher.fetchTitled`
+  (`app/catalog/metadata/artwork`) fits each candidate into the poster box
+  and asks `Fetcher.Text` how much of it is text -- PaddleOCR's
+  text-detection model on ONNX Runtime, `pkg/segments/textdet`, the one
+  markers finds credits with, wired in the metadata agent as the caption
+  agent wires its recognizer (`app/catalog/agent/metadata/postertext.go`:
+  built at the first titled poster from `$ORT_LIB_PATH`, proven by `agent
+  --self-check`). 3 thousandths of the pixels or more is a title
+  (`titleTextPermille`; of 44 posters of three items the fourteen textless
+  ones read 0-1, the untagged ones with a title 11-30, tagged ones 3-54,
+  though a title drawn as artwork can read 0). The first candidate without
+  text is drawn (`title.go`): a shade over the lower half, the logo trimmed
+  of its transparent margins, fitted to 78% of the width and 24% of the
+  height, 5% above the bottom edge, white when 85% of its opaque pixels are
+  dark; when every candidate carries text the plain poster is stored as it
+  is. Either is the poster *original*, so the rating overlay, the ui and
+  Plex take it as any poster. The object records `clustarr.io/title`, the
+  source's `TitleMark` -- `TitleVersion` and a hash of the logo, the
+  candidates and the plain poster, the question rather than the answer --
+  and `clustarr.io/titled` when the logo was drawn; `PlanFetch` judges a
+  titled source by that mark alone, never by the URL and kind the object
+  came from, since it cannot know which candidate carried text. Raise
+  `TitleVersion` when the threshold or the drawing changes. What cannot be
+  judged is not guessed: a logo that cannot be had, no detector
+  (`ErrNoTextDetector`) or one that fails all fail the poster's fetch,
+  which keeps the stored poster and rests the source for `FailureRetry`.
+  The detector holds about 180 MiB outside the Go heap, so agent-metadata
+  takes `AUTOMEMLIMIT` 0.60 in both installers, as the import and caption
+  agents do.
 - **Sized originals are stored fitted** (owner, 2026-11-16: "We can greatly
   reduce the image cache by compressing jpegs and resizing images"): the
   fetcher scales a poster into 500x750, a fanart, thumb or screenshot into

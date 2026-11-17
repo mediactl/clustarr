@@ -115,8 +115,8 @@ type Object struct {
 	// Unfit reports an original of a sized type stored before the current
 	// FitVersion (Unfit): the plan fetches it again, to be fitted.
 	Unfit bool
-	// Title is the TitleMark the original was stored with, "" for none: the
-	// plan fetches a poster whose mark is not its source's.
+	// Title is the Source.TitleMark the original was stored under, "" for
+	// none: the plan fetches a poster whose mark is not its source's.
 	Title string
 }
 

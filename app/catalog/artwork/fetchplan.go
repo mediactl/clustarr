@@ -99,6 +99,12 @@ func (p FetchPlan) Hash() string {
 		if f.Logo != "" {
 			// Only when set, so a plan with no titled poster keeps its hash.
 			_, _ = fmt.Fprintf(h, "logo\x00%s\x00%s\x00", TitleVersion, f.Logo)
+			for _, c := range f.Candidates {
+				_, _ = fmt.Fprintf(h, "candidate\x00%s\x00", c)
+			}
+			if f.Plain != nil {
+				_, _ = fmt.Fprintf(h, "plain\x00%s\x00%s\x00", f.Plain.URL, f.Plain.Kind)
+			}
 		}
 	}
 	for _, t := range p.Drop {
@@ -114,10 +120,15 @@ func (p FetchPlan) Hash() string {
 //   - a source whose type has no original, or one whose metadata predates
 //     events.ArtworkMetaVersion (the fetcher backfills it), or one fetched
 //     from another URL or kind, or one older than RefetchAge, or one of a
-//     sized type stored before the current fit (Unfit), or a poster whose
-//     title logo is not its source's (TitleMark: another logo, another
-//     drawing, or a logo where the source wants none), is fetched -- unless
-//     that very URL failed less than FailureRetry ago, which waits;
+//     sized type stored before the current fit (Unfit), is fetched --
+//     unless that very URL failed less than FailureRetry ago, which waits;
+//   - a titled source (Source.Logo) is judged by its mark alone, not by the
+//     URL and kind the object was stored from: the fetcher stores whichever
+//     of the source's posters carries no text, or its plain one, and the
+//     plan cannot know which. It is fetched when the stored mark is not the
+//     source's (Source.TitleMark: other posters, another logo, another
+//     TitleVersion), and a poster that carries a mark its source no longer
+//     has is fetched as any other;
 //   - an original whose type has no source any more is dropped when its
 //     metadata says it was a custom override (the override was removed); a
 //     provider's is kept, since a provider that did not list a type this
@@ -137,8 +148,13 @@ func PlanFetch(sources map[catalogv1alpha1.ImageType]Source, objects map[catalog
 			}
 			continue
 		}
-		need := !obj.Present || !obj.Current || obj.SourceURL != src.URL || obj.Source != src.Kind ||
-			now.Sub(obj.UpdatedAt.Time) > RefetchAge || obj.Unfit || obj.Title != TitleMark(src.Logo)
+		mark := src.TitleMark()
+		moved := obj.SourceURL != src.URL || obj.Source != src.Kind
+		if mark != "" {
+			moved = false
+		}
+		need := !obj.Present || !obj.Current || moved ||
+			now.Sub(obj.UpdatedAt.Time) > RefetchAge || obj.Unfit || obj.Title != mark
 		if !need {
 			continue
 		}
@@ -148,9 +164,14 @@ func PlanFetch(sources map[catalogv1alpha1.ImageType]Source, objects map[catalog
 			}
 			continue
 		}
-		p.Fetch = append(p.Fetch, schema.ArtworkFetch{
-			Type: string(t), URL: src.URL, Kind: string(src.Kind), Language: src.Language, Logo: src.Logo,
-		})
+		fetch := schema.ArtworkFetch{
+			Type: string(t), URL: src.URL, Kind: string(src.Kind), Language: src.Language,
+			Logo: src.Logo, Candidates: src.Candidates,
+		}
+		if src.Plain != nil {
+			fetch.Plain = &schema.ArtworkPlain{URL: src.Plain.URL, Kind: string(src.Plain.Kind), Language: src.Plain.Language}
+		}
+		p.Fetch = append(p.Fetch, fetch)
 	}
 	return p
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	mediainfonative "github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/par2child"
+	"github.com/mediactl/clustarr/pkg/segments/textdet"
 	"github.com/mediactl/clustarr/pkg/subtitles/ocr"
 	embeddednative "github.com/mediactl/clustarr/pkg/subtitles/providers/embedded/native"
 )
@@ -48,7 +49,8 @@ type selfCheckReport struct {
 // runSelfCheck is `agent --self-check` (§10.1.1): the cgo piece completion
 // (R13), FFmpeg 9 with what the import and caption domains need, par2go
 // (the usenet engine's repair child loads the same library) and ONNX
-// Runtime from $ORT_LIB_PATH with the caption domain's OCR model, with no
+// Runtime from $ORT_LIB_PATH with the caption domain's OCR model and the
+// metadata domain's text-detection model, with no
 // domain, cluster or NATS. A bolt piece completion means a cgo-free build, under
 // which every seeding torrent would rehash.
 func runSelfCheck(w io.Writer) error {
@@ -82,6 +84,11 @@ func SelfCheckWith(w io.Writer, needs ...ffruntime.Needs) error {
 	} else {
 		rec.Close()
 		r.ONNXRuntime = ort
+	}
+	// The metadata domain's poster text detector: the same runtime, the
+	// text-detection model.
+	if _, err := textdet.NewONNX(context.Background(), ort); err != nil {
+		r.Failures = append(r.Failures, fmt.Sprintf("the text-detection model on ONNX Runtime (%s=%q): %v", captionagent.ORTLibEnv, ort, err))
 	}
 	r.OK = len(r.Failures) == 0
 	enc := json.NewEncoder(w)

@@ -78,6 +78,10 @@ var (
 	// most often a login or error page served with 200 (Review Focus 1).
 	ErrNotAnImage = errors.New("not an image")
 
+	// ErrNoTextDetector is a titled poster asked of a fetcher with no text
+	// detector: a poster that may carry a title is not given a second one.
+	ErrNoTextDetector = errors.New("no text detector to read the poster with")
+
 	// ErrImageTooLarge is an image wider or taller than MaxImageDimension.
 	ErrImageTooLarge = errors.New("too large")
 
@@ -151,6 +155,13 @@ type Fetcher struct {
 	// CoverArtHosts are the hosts whose original covers are fetched as their
 	// 1200-pixel rendition (coverRendition); nil is DefaultCoverArtHosts.
 	CoverArtHosts []string
+
+	// Text measures how much of an image is text, in thousandths of its
+	// pixels (rgb is w*h*3 bytes, rows top to bottom): the metadata agent
+	// passes PaddleOCR's text-detection model on ONNX Runtime
+	// (pkg/segments/textdet), which markers finds credits with. A titled
+	// poster is fetched only with it; nil fails one with ErrNoTextDetector.
+	Text func(ctx context.Context, rgb []byte, w, h int) (permille int32, err error)
 
 	mu    sync.Mutex
 	locks map[string]*itemLock
@@ -293,11 +304,22 @@ func (f *Fetcher) backfill(ctx context.Context, key string, ref catalogartwork.O
 
 // fetchAndPut fetches src, validates it (spec §B.4 steps 1-2) and stores it
 // at key with its complete metadata (step 3). A poster whose source names a
-// title logo (Source.Logo) is stored with that logo drawn on it (titled),
-// or not at all: a logo that cannot be had fails the fetch, which keeps the
-// poster already stored rather than store one that names nothing.
+// title logo (Source.Logo) goes through fetchTitled.
 func (f *Fetcher) fetchAndPut(ctx context.Context, key string, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType,
 	src catalogartwork.Source,
+) error {
+	box, sized := catalogartwork.FitBox(t)
+	if src.Logo != "" && sized {
+		return f.fetchTitled(ctx, key, ref, t, src, box)
+	}
+	return f.fetchPlain(ctx, key, ref, t, src, "")
+}
+
+// fetchPlain stores src as its source has it, fitted when its type is
+// sized, under title, the mark of the titled source it stands in for ("" for
+// none).
+func (f *Fetcher) fetchPlain(ctx context.Context, key string, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType,
+	src catalogartwork.Source, title string,
 ) error {
 	body, cfg, stored, err := f.fetchImage(ctx, src.URL)
 	if err != nil {
@@ -305,22 +327,9 @@ func (f *Fetcher) fetchAndPut(ctx context.Context, key string, ref catalogartwor
 	}
 	facts := catalogartwork.Facts{
 		ContentType: stored, Source: string(src.Kind), SourceURL: src.URL, Language: src.Language,
-		Width: cfg.Width, Height: cfg.Height, UpdatedAt: f.now(),
+		Width: cfg.Width, Height: cfg.Height, UpdatedAt: f.now(), Title: title,
 	}
-	box, sized := catalogartwork.FitBox(t)
-	switch {
-	case src.Logo != "" && sized:
-		logo, _, _, err := f.fetchImage(ctx, src.Logo)
-		if err != nil {
-			return fmt.Errorf("the title logo: %w", err)
-		}
-		out, err := f.titled(body, logo, box, cfg)
-		if err != nil {
-			return fmt.Errorf("the title logo: %w", err)
-		}
-		facts.Fit, facts.Title = catalogartwork.FitVersion, catalogartwork.TitleMark(src.Logo)
-		body, facts.ContentType, facts.Width, facts.Height = out.body, out.contentType, out.width, out.height
-	case sized:
+	if box, sized := catalogartwork.FitBox(t); sized {
 		// Marked whether or not the bytes changed: the plan fetches an
 		// unmarked original of a sized type again.
 		facts.Fit = catalogartwork.FitVersion
@@ -328,14 +337,86 @@ func (f *Fetcher) fetchAndPut(ctx context.Context, key string, ref catalogartwor
 			body, facts.ContentType, facts.Width, facts.Height = out.body, out.contentType, out.width, out.height
 		}
 	}
+	return f.put(ctx, key, ref, t, body, facts)
+}
 
-	// The complete set (artwork design §B.2 as amended): a Put that omits a
-	// key releases it.
-	_, err = f.Store.Put(ctx, key, bytes.NewReader(body), catalogartwork.ObjectMeta(ref, t, events.ArtworkVariantOriginal, facts))
+// put stores body at key with its complete set (artwork design §B.2 as
+// amended): a Put that omits a key releases it.
+func (f *Fetcher) put(ctx context.Context, key string, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType,
+	body []byte, facts catalogartwork.Facts,
+) error {
+	_, err := f.Store.Put(ctx, key, bytes.NewReader(body), catalogartwork.ObjectMeta(ref, t, events.ArtworkVariantOriginal, facts))
 	if err != nil {
 		return fmt.Errorf("%w: put %s: %w", ErrStore, key, err)
 	}
 	return nil
+}
+
+// fetchTitled stores a titled poster (owner, 2026-11-17): the first of
+// src.URL and src.Candidates in which the text detector finds no text, with
+// src.Logo drawn at its bottom centre; else src.Plain as it is, since a
+// provider lists some posters under no language that carry a title all the
+// same (TMDB's first for Your Name), and the logo under a title would name
+// the item twice. Either is stored under src.TitleMark, so the plan asks
+// again only when the source's posters or logo change.
+//
+// What cannot be judged is not guessed: a logo that cannot be fetched or
+// decoded, and a detector that cannot run (ErrNoTextDetector, or its own
+// error), fail the fetch, which keeps the poster already stored. A
+// candidate that cannot be fetched or decoded is passed over.
+func (f *Fetcher) fetchTitled(ctx context.Context, key string, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType,
+	src catalogartwork.Source, box catalogartwork.Box,
+) error {
+	if f.Text == nil {
+		return ErrNoTextDetector
+	}
+	logo, _, _, err := f.fetchImage(ctx, src.Logo)
+	if err != nil {
+		return fmt.Errorf("the title logo: %w", err)
+	}
+	mark, err := decodeTitle(logo)
+	if err != nil {
+		return fmt.Errorf("the title logo: %w", err)
+	}
+	var passed error
+	for _, candidate := range append([]string{src.URL}, src.Candidates...) {
+		body, cfg, _, err := f.fetchImage(ctx, candidate)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			passed = err
+			continue
+		}
+		canvas, err := f.canvas(body, box, cfg)
+		if err != nil {
+			passed = err
+			continue
+		}
+		text, err := f.hasText(ctx, canvas)
+		if err != nil {
+			return fmt.Errorf("reading %s for text: %w", catalogartwork.RedactURL(candidate), err)
+		}
+		if text {
+			continue
+		}
+		out, err := f.titled(canvas, mark)
+		if err != nil {
+			return fmt.Errorf("the title logo: %w", err)
+		}
+		return f.put(ctx, key, ref, t, out.body, catalogartwork.Facts{
+			ContentType: out.contentType, Source: string(catalogv1alpha1.ArtworkSourceProvider), SourceURL: candidate,
+			Width: out.width, Height: out.height, UpdatedAt: f.now(),
+			Fit: catalogartwork.FitVersion, Title: src.TitleMark(), Titled: true,
+		})
+	}
+	if src.Plain != nil {
+		return f.fetchPlain(ctx, key, ref, t, *src.Plain, src.TitleMark())
+	}
+	if passed != nil {
+		return passed
+	}
+	return errors.New("every poster listed without a language carries text, and the item has no other")
 }
 
 // fetchImage fetches the image at raw and validates it (spec §B.4 steps

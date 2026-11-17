@@ -103,6 +103,7 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 		HTTP:    artworkHTTPClient,
 		Limiter: artwork.NewHostLimiters(artworkHostRate, artworkHostBurst),
 		Slots:   artwork.NewHostSlots(wikimediaMediaSlots, wikimediaMediaHosts...),
+		Text:    (&posterText{lib: os.Getenv(ORTLibEnv)}).Density,
 	}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		start := func(ctx context.Context) (func(), error) {

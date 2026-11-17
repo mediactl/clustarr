@@ -509,9 +509,9 @@ securityContext:
 # strategy, grace period -- live in the templates, because getting them wrong
 # is a correctness bug rather than a preference. Each binary's Go memory
 # limit is a share of resources.limits.memory, which it reads from its cgroup
-# (github.com/KimMachineGun/automemlimit): 90%, except agent-import and
-# agent-caption (AUTOMEMLIMIT 0.60) and markers (0.50), whose FFmpeg, par2 and
-# ONNX Runtime allocations live outside the Go heap.
+# (github.com/KimMachineGun/automemlimit): 90%, except agent-import,
+# agent-caption and agent-metadata (AUTOMEMLIMIT 0.60) and markers (0.50),
+# whose FFmpeg, par2 and ONNX Runtime allocations live outside the Go heap.
 
 # Every controller in one process, one replica under the lease
 # manager.clustarr.io (no replica knob). It renders the download engines, the
