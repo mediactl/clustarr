@@ -182,6 +182,12 @@ templ LiveTVGuide(p GuidePage) {
 			</div>
 			@filterSelect("group", "Group", "Every group", groupOptions(p.Groups), p.Group)
 			@input.Input(input.Props{ID: "guide-q", Type: "search", Name: "q", Value: p.Q, Placeholder: "Channel or number", Class: "h-8 w-48", Attributes: templ.Attributes{"aria-label": "Search"}})
+			// Back to what is on now, wherever the guide was scrolled
+			// (ui/static/guide.js).
+			@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantOutline, Size: button.SizeSm, Class: "ml-auto", Attributes: templ.Attributes{"data-guide-jump-now": true, "title": "Scroll the guide to now"}}) {
+				@icon.Icon("clock")()
+				Now
+			}
 		</form>
 		// No history snapshot: the guide is megabytes of markup, past what
 		// the browser's storage holds, and going back fetches it again.

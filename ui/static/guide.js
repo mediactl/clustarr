@@ -87,24 +87,34 @@
     cells();
   };
 
-  var place = function () {
+  // place opens the guide on now: the now line a fifth of the way into what
+  // is on screen, and never more than half an hour of the past before it
+  // (a fixed half hour put the line at or past a phone's right edge, the
+  // guide opening on what was over). force is the Now button's.
+  var place = function (force) {
     var g = guide();
     var scroller = document.getElementById("guide-scroll");
-    if (!g || !scroller || scroller.hasAttribute("data-placed")) return;
-    scroller.scrollLeft = Math.max(0, pxAt(g, Date.now() - 30 * 60000));
+    if (!g || !scroller || (!force && scroller.hasAttribute("data-placed"))) return;
+    var lead = Math.min(pxAt(g, Date.now()) - pxAt(g, Date.now() - 30 * 60000), scroller.clientWidth * 0.2);
+    var left = Math.max(0, pxAt(g, Date.now()) - lead);
+    if (force && scroller.scrollTo) scroller.scrollTo({ left: left, behavior: "smooth" });
+    else scroller.scrollLeft = left;
     scroller.setAttribute("data-placed", "");
   };
+  document.addEventListener("click", function (e) {
+    if (e.target.closest && e.target.closest("[data-guide-jump-now]")) place(true);
+  });
 
   document.addEventListener("DOMContentLoaded", function () {
     label(document);
-    place();
+    place(false);
     tick();
   });
   // The whole document: a programme's dialog is moved to <body> before
   // htmx settles it (ui/static/portals.js).
   document.addEventListener("htmx:afterSettle", function (e) {
     label(document);
-    place();
+    place(false);
     var t = e.target;
     if (t && t.closest && t.closest("[data-guide]")) tick();
   });
