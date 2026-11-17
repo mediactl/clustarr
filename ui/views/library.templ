@@ -160,7 +160,7 @@ templ LibraryRows(items []projection.LibraryItem, filtered bool) {
 	}
 	// The column width is the Options menu's poster size
 	// (--library-poster-width, set on <html> by ui/static/library.js).
-	@item.Group(item.GroupProps{Class: "grid grid-cols-[repeat(auto-fill,minmax(var(--library-poster-width,160px),1fr))] gap-4", Attributes: templ.Attributes{"data-library-grid": true}}) {
+	@item.Group(item.GroupProps{Class: "grid grid-cols-3 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(var(--library-poster-width,160px),1fr))] sm:gap-4", Attributes: templ.Attributes{"data-library-grid": true}}) {
 		@LibraryCards(items)
 	}
 }
@@ -205,7 +205,7 @@ templ libraryCard(li projection.LibraryItem) {
 	@item.Item(item.Props{
 		Variant: item.VariantMuted,
 		ID:      CardID(li),
-		Class:   "group/card relative flex-col items-stretch gap-0 overflow-hidden rounded-xl border-0 bg-card p-0 shadow-lg shadow-black/40 ring-1 ring-white/10 hover:bg-card hover:ring-primary/70 data-selected:ring-2 data-selected:ring-primary",
+		Class:   "group/card relative flex-col flex-nowrap items-stretch gap-0 overflow-hidden rounded-xl border-0 bg-card p-0 shadow-lg shadow-black/40 ring-1 ring-white/10 hover:bg-card hover:ring-primary/70 data-selected:ring-2 data-selected:ring-primary",
 		Attributes: templ.Attributes{
 			"data-ref":       li.Ref.String(),
 			"data-kind":      string(li.Kind),
@@ -223,7 +223,7 @@ templ libraryCard(li projection.LibraryItem) {
 			preload="mouseover"
 			href={ templ.SafeURL(libraryDetailPath(li)) }
 			aria-label={ cardLabel(li) }
-			class="absolute inset-0 z-[1] rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+			class="absolute inset-0 z-[1] rounded-[inherit] outline-none"
 		></a>
 		<span data-select-mark aria-hidden="true" class="absolute top-2 left-2 z-10 hidden size-6 items-center justify-center rounded-full border-2 border-white/80 bg-black/40 text-primary-foreground shadow group-data-selecting/library:flex group-data-selected/card:border-primary group-data-selected/card:bg-primary">
 			@icon.Icon("check")(icon.Props{Class: "hidden size-4 group-data-selected/card:block"})
@@ -232,9 +232,18 @@ templ libraryCard(li projection.LibraryItem) {
 			@posterFill(li.Poster, li.Title, li.ArtKey)
 		}
 		<div class={ stripeClass(projection.LibraryStatus(li)) } data-status={ projection.LibraryStatus(li) }></div>
-		<div data-card-details class="px-2 py-1.5 text-center text-xs leading-5">
-			<div>{ monitoredTitle(li.Monitored) }</div>
-			<div class="truncate text-muted-foreground">{ li.QualityProfileRef }</div>
+		// The card names its item (2026-11-17: a tab was a wall of unnamed
+		// posters wherever the art carries no title, the Music tab above
+		// all), then its monitored status and quality profile on one line.
+		<div data-card-details class="min-w-0 px-2 py-1.5 text-xs leading-5">
+			<div data-card-title class="truncate text-[13px] font-medium text-foreground">{ li.Title }</div>
+			<div class="truncate text-muted-foreground">
+				<span>{ monitoredTitle(li.Monitored) }</span>
+				if li.QualityProfileRef != "" {
+					<span aria-hidden="true">·</span>
+					<span>{ li.QualityProfileRef }</span>
+				}
+			</div>
 		</div>
 	}
 }
@@ -286,7 +295,7 @@ templ cardActionBar() {
 	<div data-card-actions-home hidden>
 		<div
 			data-card-actions
-			class="absolute right-0 bottom-0 left-0 z-20 flex justify-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-1 pt-6 pb-1.5 opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100 group-data-selecting/library:hidden"
+			class="pointer-events-none absolute right-0 bottom-0 left-0 z-20 flex justify-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-1 pt-6 pb-1.5 opacity-0 transition-opacity group-hover/card:opacity-100 group-has-[:focus-visible]/card:opacity-100 group-data-selecting/library:hidden"
 		>
 			@cardAction("refresh", "refresh-cw", "Refresh & Scan", `{"scan":"true"}`, "")
 			@cardAction("search", "search", "Search", "", "")
@@ -306,7 +315,13 @@ templ cardActionBar() {
 
 // cardActionClass is a card action's look: a light icon on the poster's
 // shade.
-const cardActionClass = "size-8 rounded-full text-white/90 hover:bg-white/20 hover:text-white focus-visible:bg-white/20"
+//
+// The bar itself takes no pointer events and its buttons take them only
+// while the card is hovered or holds keyboard focus (2026-11-17): on touch
+// a tap on a poster's foot did not open the item and the next tap fired
+// Monitor, Search, Refresh or Delete, and on a desktop the lower quarter of
+// a hovered poster outside the four buttons was dead.
+const cardActionClass = "pointer-events-none size-8 rounded-full text-white/90 group-hover/card:pointer-events-auto group-has-[:focus-visible]/card:pointer-events-auto hover:bg-white/20 hover:text-white focus-visible:bg-white/20"
 
 // cardActionPath is the placeholder a card action posts to until
 // ui/static/library.js names the card's own route.
@@ -589,7 +604,7 @@ func addLabel(tab projection.Tab) string {
 // this tab. With no RootFolder of those kinds the button is disabled and
 // its title says so, rather than posting a request that can only fail.
 templ rescanForm(tab projection.Tab, enabled bool) {
-	<form method="post" action="/library/rescan" data-tab={ string(tab) }>
+	<form method="post" action="/library/rescan" hx-post="/library/rescan" hx-target="#action-status" hx-swap="innerHTML" data-tab={ string(tab) }>
 		<input type="hidden" name="tab" value={ string(tab) }/>
 		<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
 		@button.Button(button.Props{
@@ -752,8 +767,8 @@ templ optionsMenu() {
 // opens the same dialog for that item alone (cardActions). The buttons stay
 // disabled until something is selected.
 templ bulkBar(tab projection.Tab) {
-	<div data-bulk-bar class="glass panel sticky bottom-2 z-20 mt-6 hidden flex-wrap items-center gap-2 rounded-xl border border-border bg-background/55 px-4 py-3 shadow-lg shadow-black/30 group-data-selecting/library:flex lg:pr-12">
-		<form id="library-bulk" method="post" action={ templ.URL(bulkPath(tab)) } data-bulk-form class="flex flex-wrap items-center gap-2">
+	<div data-bulk-bar class="glass-bar sticky bottom-2 z-20 mx-auto mt-6 hidden w-fit max-w-full flex-wrap items-center gap-2 px-3 py-2 group-data-selecting/library:flex">
+		<form id="library-bulk" method="post" action={ templ.URL(bulkPath(tab)) } hx-post={ bulkPath(tab) } hx-target="#action-status" hx-swap="innerHTML" data-bulk-form class="flex flex-wrap items-center gap-2">
 			<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
 			@bulkButton("monitor", "bookmark-check", "Monitor", button.VariantSecondary)
 			@bulkButton("unmonitor", "bookmark-x", "Unmonitor", button.VariantSecondary)
@@ -774,7 +789,7 @@ templ bulkBar(tab projection.Tab) {
 						<span data-delete-count>0</span> selected
 					}
 				}
-				<form method="post" action={ templ.URL(bulkPath(tab)) } data-bulk-form class="space-y-3">
+				<form method="post" action={ templ.URL(bulkPath(tab)) } hx-post={ bulkPath(tab) } hx-target="#action-status" hx-swap="innerHTML" data-bulk-form class="space-y-3">
 					<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
 					<input type="hidden" name="action" value="delete"/>
 					@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
@@ -805,7 +820,7 @@ templ bulkBar(tab projection.Tab) {
 				</form>
 			}
 		}
-		<span class="ml-auto text-sm text-muted-foreground"><span data-selected-count>0</span> selected</span>
+		<span class="text-sm whitespace-nowrap text-muted-foreground"><span data-selected-count>0</span> selected</span>
 	</div>
 }
 

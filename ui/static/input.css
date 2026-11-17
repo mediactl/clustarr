@@ -520,14 +520,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     transform 160ms ease-out,
     box-shadow 160ms ease-out;
 }
+/* The lift's shadow is composed with the card's ring, not put in its place
+   (2026-11-17: an unlayered box-shadow replaces the ring utilities, so the
+   gold hover ring, the selected ring and the keyboard's focus ring never
+   drew). */
 @media (hover: hover) {
   [data-library-grid] [data-slot="item"]:hover {
     transform: translateY(-2px) scale(1.03);
-    box-shadow: 0 16px 32px -12px rgba(0, 0, 0, 0.7);
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--primary) 70%, transparent),
+      0 16px 32px -12px rgba(0, 0, 0, 0.7);
     z-index: 5;
   }
 }
-[data-library-grid] [data-slot="item"]:focus-within {
+[data-library-grid] [data-slot="item"][data-selected] {
+  box-shadow:
+    0 0 0 2px var(--primary),
+    0 16px 32px -12px rgba(0, 0, 0, 0.7);
+}
+[data-library-grid] [data-slot="item"]:has([data-card-link]:focus-visible) {
+  box-shadow:
+    0 0 0 2px var(--ring),
+    0 16px 32px -12px rgba(0, 0, 0, 0.7);
   z-index: 5;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -544,17 +558,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
    real size once it has been drawn). */
 [data-library-grid] > [data-ref] {
   content-visibility: auto;
-  contain-intrinsic-block-size: auto calc(var(--library-poster-width, 160px) * 1.5 + 3.75rem);
+  contain-intrinsic-block-size: auto calc(var(--library-poster-width, 160px) * 1.5 + 3.5rem);
 }
 
 /* The library hides the document's native scrollbar (views.Chrome.HideScrollbar,
    kept in step by ui/static/jump.js): the A-Z strip is the only thing on the
    right edge, as in Radarr. Scrolling itself is untouched. */
-html[data-scrollbar="hidden"] {
-  scrollbar-width: none;
-}
-html[data-scrollbar="hidden"]::-webkit-scrollbar {
-  display: none;
+/* Only from 1024px, where the strip is drawn: below it the library had
+   neither a scrollbar nor the strip on a page 200,000px tall. */
+@media (width >= 64rem) {
+  html[data-scrollbar="hidden"] {
+    scrollbar-width: none;
+  }
+  html[data-scrollbar="hidden"]::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* The library's Options menu (ui/static/library.js): "Show details" off

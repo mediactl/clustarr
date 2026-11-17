@@ -41,7 +41,12 @@ import (
 
 // toolbarButtonClass turns a button into Radarr's toolbar button: the
 // icon above a small label, the whole thing a hover target.
-const toolbarButtonClass = "h-auto min-w-16 flex-col gap-1 px-2 py-1.5 text-[11px] leading-tight font-normal text-muted-foreground hover:text-foreground [&_svg]:size-5"
+// Since 2026-11-17: the label is 12px at 85% of the foreground (11px muted
+// text fell to 2-3:1 where the bar is stuck over light posters), and below
+// 576px of bar (its own width, a container query) the labels are
+// screen-reader only and the buttons 44px, so the whole bar fits a phone,
+// where Filter was off the screen with nothing to say so.
+const toolbarButtonClass = "h-auto min-w-16 flex-col gap-1 px-2 py-1.5 text-xs leading-tight font-normal text-foreground/85 hover:text-foreground [&_svg]:size-5 @max-xl/bar:min-h-11 @max-xl/bar:min-w-11 @max-xl/bar:justify-center @max-xl/bar:[&>span]:sr-only"
 
 // Field is one hidden input of a toolbar action's form.
 type Field struct {
@@ -57,7 +62,7 @@ type Field struct {
 // attrs land on the bar, beside data-toolbar.
 templ toolbar(attrs templ.Attributes) {
 	@menubar.Menubar(menubar.Props{
-		Class:      "glass panel sticky top-14 z-20 mb-6 flex h-14 items-stretch justify-between gap-2 overflow-x-auto rounded-xl border border-border bg-background/55 px-2 py-1 shadow-lg shadow-black/30",
+		Class:      "glass-bar @container/bar sticky top-(--bar-top) z-20 mb-6 flex h-14 items-stretch justify-between gap-2 overflow-x-auto border-0 px-2 py-1",
 		Attributes: toolbarAttrs(attrs),
 	}) {
 		{ children... }
@@ -85,7 +90,7 @@ templ toolbarGroup() {
 // only control is an icon-over-label submit button carrying data-action
 // for the tests. formAttrs land on the form.
 templ toolbarForm(action string, fields []Field, iconName, label, dataAction string, formAttrs templ.Attributes) {
-	<form method="post" action={ templ.URL(action) } { formAttrs... }>
+	<form method="post" action={ templ.URL(action) } { actionFormAttrs(action, formAttrs)... }>
 		for _, f := range fields {
 			<input type="hidden" name={ f.Name } value={ f.Value }/>
 		}
@@ -102,7 +107,7 @@ templ toolbarForm(action string, fields []Field, iconName, label, dataAction str
 // sit at the bar's right.
 templ toolbarMenu(iconName, label string) {
 	@menubar.Menu() {
-		@menubar.Trigger(menubar.TriggerProps{Class: toolbarButtonClass + " justify-center rounded-md aria-expanded:text-foreground", Attributes: templ.Attributes{"data-toolbar-menu": label}}) {
+		@menubar.Trigger(menubar.TriggerProps{Class: toolbarButtonClass + " justify-center rounded-md border border-transparent aria-expanded:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50", Attributes: templ.Attributes{"data-toolbar-menu": label}}) {
 			@icon.Icon(iconName)()
 			<span>{ label }</span>
 		}

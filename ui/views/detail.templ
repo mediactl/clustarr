@@ -170,10 +170,39 @@ type ExtraRow struct {
 	Language string
 }
 
+// heroBanner is a narrow hero's head, as the Plex apps draw a title on a
+// phone (owner, 2026-11-17: "Mobile view should mirror plex and use the
+// banner with the logo"; "omit the title since the logo should serve as the
+// title in mobile"): the item's fanart across the screen, fading into the
+// page below it, with the title logo over its foot in the title's place --
+// the title itself, in type, only when the item has no logo. It stands in
+// for the poster and the title line while the hero is narrower than 672px
+// (a phone; a tablet's hero is wider) and is not drawn from there up, where
+// the poster, the title and the facts sit side by side. No fanart, no
+// banner: the hero keeps its poster and title.
+templ heroBanner(backdrop, logo, title string) {
+	if backdrop != "" {
+		<div data-hero-banner class="relative aspect-[16/10] overflow-hidden max-sm:-mt-[6.5rem] @2xl/hero:hidden">
+			<img src={ templ.URL(backdrop) } alt="" class="size-full [mask-image:linear-gradient(to_bottom,black_45%,transparent_98%)] object-cover object-[center_20%]"/>
+			<div class="absolute inset-x-0 bottom-0 flex justify-center px-8 pb-3">
+				if logo != "" {
+					<img data-hero-logo src={ templ.URL(logo) } alt={ title } class="max-h-24 max-w-[72%] object-contain drop-shadow-[0_2px_14px_rgba(0,0,0,0.75)]"/>
+				} else {
+					<span data-hero-banner-title class="line-clamp-2 text-center text-3xl leading-tight font-bold tracking-tight text-balance drop-shadow-[0_2px_14px_rgba(0,0,0,0.75)]">{ title }</span>
+				}
+			</div>
+		</div>
+	}
+}
+
 // Detail is everything an item's page shows beyond its library card.
 type Detail struct {
-	Item          projection.LibraryItem
-	Backdrop      string
+	Item     projection.LibraryItem
+	Backdrop string
+	// Logo is the item's title logo (status.artwork's logo), which a
+	// phone's hero shows over its banner in the title's place; "" when the
+	// item has none.
+	Logo          string
 	Certification string
 	Runtime       string
 	Overview      string
@@ -444,8 +473,9 @@ templ hero(d Detail) {
 			<div hidden hx-ext="sse" sse-connect={ artStreamURL(d) } hx-trigger="sse:art"></div>
 		}
 		<div class="@container/hero">
+			@heroBanner(d.Backdrop, d.Logo, li.Title)
 			<div class="relative flex flex-col gap-6 p-4 @2xl/hero:flex-row @2xl/hero:gap-10 @2xl/hero:p-8">
-				<div class="w-40 shrink-0 @2xl/hero:w-56">
+				<div class={ "w-40 shrink-0 @2xl/hero:w-56", templ.KV("hidden @2xl/hero:block", d.Backdrop != "") }>
 					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
 						@poster(li.Poster, li.Title, li.ArtKey)
 					</div>
@@ -454,7 +484,7 @@ templ hero(d Detail) {
 					<div class="flex items-start justify-between gap-4">
 						<div class="flex min-w-0 items-center gap-3">
 							@monitorBookmark(li)
-							<h1 class="line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl">{ li.Title }</h1>
+							<h1 class={ "line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl", templ.KV("@max-2xl/hero:sr-only", d.Backdrop != "") }>{ li.Title }</h1>
 						</div>
 						@neighbours(d)
 					</div>

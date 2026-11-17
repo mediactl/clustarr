@@ -197,6 +197,7 @@ func fillMovie(d *views.Detail, m *catalogv1.Movie) {
 	d.Certification, d.Runtime, d.Overview, d.Genres = md.Certification, runtimeLabel(md.RuntimeMinutes), md.Overview, md.Genres
 	d.Language = languageName(md.OriginalLanguage)
 	d.Backdrop = backdropArt(commonv1.MediaKindMovie, m.GetUID(), m.Status.Artwork)
+	d.Logo = logoArt(commonv1.MediaKindMovie, m.GetUID(), m.Status.Artwork)
 	d.AltTitles = md.AlternateTitles
 	if id := md.ExternalIDs[commonv1.IDKeyIMDB]; id != "" {
 		d.Links = append(d.Links, views.Link{Label: "IMDb", Href: "https://www.imdb.com/title/" + id + "/", Provider: views.ProviderIMDb})
@@ -215,6 +216,7 @@ func fillSeries(d *views.Detail, sr *catalogv1.Series) {
 	d.Certification, d.Runtime, d.Overview, d.Genres = md.Certification, runtimeLabel(md.RuntimeMinutes), md.Overview, md.Genres
 	d.Language, d.Network = languageName(md.OriginalLanguage), md.Network
 	d.Backdrop = backdropArt(commonv1.MediaKindSeries, sr.GetUID(), sr.Status.Artwork)
+	d.Logo = logoArt(commonv1.MediaKindSeries, sr.GetUID(), sr.Status.Artwork)
 	for _, t := range md.AlternateTitles {
 		d.AltTitles = append(d.AltTitles, t.Title)
 	}
@@ -273,6 +275,17 @@ func backdropArt(kind commonv1.MediaKind, uid types.UID, artwork []catalogv1.Art
 	for _, a := range artwork {
 		if a.Type == catalogv1.ImageTypeFanart {
 			return projection.ArtURL(kind, uid, catalogv1.ImageTypeFanart, a.Digest)
+		}
+	}
+	return ""
+}
+
+// logoArt is a detail page's Logo: the [projection.ArtURL] of the logo
+// entry in status.artwork, or "" when the item has none.
+func logoArt(kind commonv1.MediaKind, uid types.UID, artwork []catalogv1.ArtworkEntry) string {
+	for _, a := range artwork {
+		if a.Type == catalogv1.ImageTypeLogo {
+			return projection.ArtURL(kind, uid, catalogv1.ImageTypeLogo, a.Digest)
 		}
 	}
 	return ""

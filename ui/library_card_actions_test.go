@@ -65,7 +65,7 @@ func TestTheCardsShareOneActionBar(t *testing.T) {
 	homeAt := strings.Index(body, `data-card-actions-home`)
 	home := body[strings.LastIndex(body[:homeAt], "<"):]
 	requireTag(t, home, `data-card-actions-home`, `hidden`)
-	requireTag(t, home, `data-card-actions class=`, "opacity-0", "group-hover/card:opacity-100", "group-focus-within/card:opacity-100", "group-data-selecting/library:hidden")
+	requireTag(t, home, `data-card-actions class=`, "opacity-0", "group-hover/card:opacity-100", "group-has-[:focus-visible]/card:opacity-100", "pointer-events-none", "group-data-selecting/library:hidden")
 	for _, attrs := range [][]string{
 		{`data-card-action="refresh"`, `hx-vals="{&#34;scan&#34;:&#34;true&#34;}"`, `aria-label="Refresh &amp; Scan"`},
 		{`data-card-action="search"`, `aria-label="Search"`},

@@ -182,6 +182,23 @@
     });
   });
 
+  // Through htmx the form's values are collected before the submit
+  // listener above could add the selection, so it is added to the request
+  // here (and the listener's inputs, when both ran, are not sent twice).
+  document.addEventListener("htmx:configRequest", function (e) {
+    var form = e.detail && e.detail.elt;
+    if (!form || !form.hasAttribute || !form.hasAttribute("data-bulk-form")) return;
+    var items = single && form.querySelector('input[name="action"][value="delete"]') ? new Set([single]) : selected;
+    if (items.size === 0) {
+      e.preventDefault();
+      return;
+    }
+    e.detail.formData.delete("item");
+    items.forEach(function (it) {
+      e.detail.formData.append("item", it);
+    });
+  });
+
   // The stream replaces the cards' markup on every frame, the infinite
   // scroll the whole grid, and a view change the whole page, which drops
   // selecting with it.

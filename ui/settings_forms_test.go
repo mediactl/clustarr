@@ -376,8 +376,8 @@ func TestSettingsFormIsADialog(t *testing.T) {
 	srv, _ := settingsServer(t, usenetClient())
 
 	for path, want := range map[string]string{
-		"/settings/new/downloadclients":                                    "/settings#modal=/settings/new/downloadclients",
-		"/settings/edit/downloadclients/media/eweka":                       "/settings#modal=/settings/edit/downloadclients/media/eweka",
+		"/settings/new/downloadclients":                                   "/settings#modal=/settings/new/downloadclients",
+		"/settings/edit/downloadclients/media/eweka":                      "/settings#modal=/settings/edit/downloadclients/media/eweka",
 		"/settings/edit/downloadclients/media/eweka?return=/import-lists": "/import-lists#modal=/settings/edit/downloadclients/media/eweka?return=/import-lists",
 	} {
 		rec := httptest.NewRecorder()

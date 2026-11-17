@@ -726,7 +726,7 @@ func (s *Server) handleRescan(w http.ResponseWriter, r *http.Request) {
 
 	if name := r.FormValue("rootFolder"); name != "" {
 		_, err := s.opts.Actions.Rescan(r.Context(), r.FormValue("namespace"), name)
-		s.finishAction(w, r, err)
+		s.finishActionWith(w, r, err, "Scan requested")
 		return
 	}
 	tab, ok := projection.ParseTab(r.FormValue("tab"))
@@ -745,7 +745,7 @@ func (s *Server) handleRescan(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.finishAction(w, r, nil)
+	s.finishActionWith(w, r, nil, "Scan requested")
 }
 
 // rootFoldersFor keeps the RootFolders whose kind belongs to tab

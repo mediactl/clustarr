@@ -448,7 +448,7 @@ func episodeHero(v EpisodeView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if v.Still != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<div class=\"w-full shrink-0 sm:w-80 md:w-96\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<div class=\"w-full shrink-0 @2xl/hero:w-80 @4xl/hero:w-96\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -120,6 +120,18 @@ func currentPath(r *http.Request) string {
 	return u.RequestURI()
 }
 
+// samePage reports whether to is the page at current: the same path and
+// query, or the same path when to names no query (a library tab's bulk
+// form returns to the bare tab; redrawing in place keeps the filter, the
+// sort and the scroll position, which a redirect to the bare tab lost).
+func samePage(to, current string) bool {
+	if to == current {
+		return true
+	}
+	path, _, _ := strings.Cut(current, "?")
+	return !strings.Contains(to, "?") && to == path
+}
+
 // finish is the one tail of every write action (2026-11-17: one feedback
 // path). An htmx action is always answered 200, since htmx swaps nothing
 // else:
@@ -152,7 +164,7 @@ func (s *Server) finish(w http.ResponseWriter, r *http.Request, err error, done 
 	}
 	if cardAction(r) {
 		if redraw {
-			if to := returnPath(r); to != "" && to != currentPath(r) {
+			if to := returnPath(r); to != "" && !samePage(to, currentPath(r)) {
 				w.Header().Set("HX-Redirect", to)
 				w.WriteHeader(http.StatusOK)
 				return

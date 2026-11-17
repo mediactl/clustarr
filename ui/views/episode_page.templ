@@ -143,7 +143,7 @@ templ episodeHero(v EpisodeView) {
 		<div class="@container/hero">
 			<div class="relative flex flex-col gap-6 p-4 @2xl/hero:flex-row @2xl/hero:gap-10 @2xl/hero:p-8">
 				if v.Still != "" {
-					<div class="w-full shrink-0 sm:w-80 md:w-96">
+					<div class="w-full shrink-0 @2xl/hero:w-80 @4xl/hero:w-96">
 						@aspectratio.AspectRatio(aspectratio.Props{Ratio: "16/9", Class: "overflow-hidden rounded-xl bg-muted shadow-2xl shadow-black/60 ring-1 ring-white/10"}) {
 							<img data-still src={ templ.URL(v.Still) } alt={ episodeTitle(ep) } loading="lazy" class="size-full object-cover"/>
 						}
