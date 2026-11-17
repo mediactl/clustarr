@@ -50,6 +50,7 @@ templ ArtistPage(v ArtistView) {
 		@artistHero(v)
 		@albumGroupsSection(v)
 		@albumRegions()
+		@selectionBar(SelectionBar{Action: libraryActionURL(v.Item, "rows/bulk"), Verbs: RowVerbs()})
 	}
 }
 
@@ -229,32 +230,35 @@ templ AlbumRows(albums []AlbumRow) {
 	if len(albums) == 0 {
 		@emptyNote("Nothing here yet.", "py-3", nil)
 	} else {
-		@table.Table(table.Props{Attributes: templ.Attributes{"data-album-table": ""}}) {
-			@table.Header() {
-				@table.Row() {
-					@table.Head(table.HeadProps{Class: "w-10"}) {
-						<span class="sr-only">Monitored</span>
-					}
-					@table.Head() {
-						Title
-					}
-					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) {
-						Release Date
-					}
-					@table.Head(table.HeadProps{Class: "hidden w-24 md:table-cell"}) {
-						Type
-					}
-					@table.Head(table.HeadProps{Class: "w-40"}) {
-						Status
-					}
-					@table.Head(table.HeadProps{Class: "w-20"}) {
-						<span class="sr-only">Actions</span>
+		@dataTable(nil) {
+			@table.Table(table.Props{Attributes: templ.Attributes{"data-album-table": ""}}) {
+				@table.Header() {
+					@table.Row() {
+						@selectHead("Select every album of this group")
+						@table.Head(table.HeadProps{Class: "w-10"}) {
+							<span class="sr-only">Monitored</span>
+						}
+						@table.Head() {
+							Title
+						}
+						@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) {
+							Release Date
+						}
+						@table.Head(table.HeadProps{Class: "hidden w-24 md:table-cell"}) {
+							Type
+						}
+						@table.Head(table.HeadProps{Class: "w-40"}) {
+							Status
+						}
+						@table.Head(table.HeadProps{Class: "w-20"}) {
+							<span class="sr-only">Actions</span>
+						}
 					}
 				}
-			}
-			@table.Body() {
-				for _, a := range albums {
-					@AlbumRowView(a)
+				@table.Body() {
+					for _, a := range albums {
+						@AlbumRowView(a)
+					}
 				}
 			}
 		}
@@ -269,7 +273,7 @@ templ AlbumRows(albums []AlbumRow) {
 templ AlbumRowView(a AlbumRow) {
 	@table.Row(table.RowProps{
 		Class: rowTone(a.Monitored),
-		Attributes: templ.Attributes{
+		Attributes: RowAttrs(ctx, a.Ref(), templ.Attributes{
 			"data-album":     a.Name,
 			"data-type":      a.Type,
 			"data-monitored": fmt.Sprintf("%t", a.Monitored),
@@ -277,8 +281,9 @@ templ AlbumRowView(a AlbumRow) {
 			"data-quality":   a.Quality,
 			"data-phase":     a.Phase,
 			"data-status":    a.Status.Kind,
-		},
+		}),
 	}) {
+		@selectCell("Select " + a.DisplayTitle())
 		@table.Cell(table.CellProps{Class: "py-1"}) {
 			<form hx-post={ a.MonitorURL() } hx-target="closest tr" hx-swap="outerHTML" method="post" action={ templ.URL(a.MonitorURL()) } class="contents">
 				<input type="hidden" name="return" value={ a.ReturnURL() }/>

@@ -202,16 +202,14 @@ func TestReplyAlbumRow(t *testing.T) {
 	assert.Contains(t, body, `data-status="unmonitored"`)
 	assert.NotContains(t, body, `data-action-error`)
 
+	// A failure is a toast into #action-status; the row stays as it was
+	// (2026-11-17).
 	rec = httptest.NewRecorder()
 	srv.replyAlbumRow(rec, httptest.NewRequest(http.MethodPost, "/library/default/album/dsotm/monitor", nil), "default", "dsotm", nil, errors.New("boom"))
 	body = rec.Body.String()
-	assert.Contains(t, body, `data-monitored="true"`, "a failure renders the Album as it still stands")
+	assert.Equal(t, "#action-status", rec.Header().Get("HX-Retarget"))
 	assert.Contains(t, body, `data-action-error="failed"`)
-	assert.Contains(t, body, "The Dark Side of the Moon")
-
-	rec = httptest.NewRecorder()
-	srv.replyAlbumRow(rec, httptest.NewRequest(http.MethodPost, "/library/default/album/gone/monitor", nil), "default", "gone", nil, errors.New("boom"))
-	assert.Contains(t, rec.Body.String(), `data-album="gone"`, "a bare row when there is nothing to read")
+	assert.NotContains(t, body, `data-album=`)
 }
 
 // durationLabel sums the tracks and rounds to the minute, as the hero says

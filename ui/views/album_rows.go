@@ -80,6 +80,10 @@ func (r AlbumRow) DisplayTitle() string {
 	return r.Name
 }
 
+// Ref names the row for the page's selection (namespace/kind/name, the
+// form the bulk routes take).
+func (r AlbumRow) Ref() string { return r.Namespace + "/album/" + r.Name }
+
 // URL is the album's page, and the base of its actions' routes.
 func (r AlbumRow) URL() string { return fmt.Sprintf("/library/%s/album/%s", r.Namespace, r.Name) }
 

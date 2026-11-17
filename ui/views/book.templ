@@ -48,29 +48,32 @@ templ BookRows(books []BookRow) {
 	if len(books) == 0 {
 		@emptyNote("Nothing here yet.", "py-3", nil)
 	} else {
-		@table.Table(table.Props{Attributes: templ.Attributes{"data-book-table": ""}}) {
-			@table.Header() {
-				@table.Row() {
-					@table.Head(table.HeadProps{Class: "w-10"}) {
-						<span class="sr-only">Monitored</span>
-					}
-					@table.Head() {
-						Title 
-					}
-					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) {
-						Release Date 
-					}
-					@table.Head(table.HeadProps{Class: "w-36"}) {
-						Status 
-					}
-					@table.Head(table.HeadProps{Class: "w-20"}) {
-						<span class="sr-only">Actions</span>
+		@dataTable(nil) {
+			@table.Table(table.Props{Attributes: templ.Attributes{"data-book-table": ""}}) {
+				@table.Header() {
+					@table.Row() {
+						@selectHead("Select every book of this author")
+						@table.Head(table.HeadProps{Class: "w-10"}) {
+							<span class="sr-only">Monitored</span>
+						}
+						@table.Head() {
+							Title 
+						}
+						@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) {
+							Release Date 
+						}
+						@table.Head(table.HeadProps{Class: "w-36"}) {
+							Status 
+						}
+						@table.Head(table.HeadProps{Class: "w-20"}) {
+							<span class="sr-only">Actions</span>
+						}
 					}
 				}
-			}
-			@table.Body() {
-				for _, b := range books {
-					@BookRowView(b)
+				@table.Body() {
+					for _, b := range books {
+						@BookRowView(b)
+					}
 				}
 			}
 		}
@@ -84,15 +87,16 @@ templ BookRows(books []BookRow) {
 templ BookRowView(b BookRow) {
 	@table.Row(table.RowProps{
 		Class: rowTone(b.Monitored),
-		Attributes: templ.Attributes{
+		Attributes: RowAttrs(ctx, b.Ref(), templ.Attributes{
 			"data-book":      b.Name,
 			"data-monitored": fmt.Sprintf("%t", b.Monitored),
 			"data-hasfile":   fmt.Sprintf("%t", b.HasFile),
 			"data-quality":   b.Format,
 			"data-phase":     b.Phase,
 			"data-status":    b.Status.Kind,
-		},
+		}),
 	}) {
+		@selectCell("Select " + b.Title)
 		@table.Cell(table.CellProps{Class: "py-1"}) {
 			<form hx-post={ b.MonitorURL() } hx-target="closest tr" hx-swap="outerHTML" method="post" action={ templ.URL(b.MonitorURL()) } class="contents">
 				<input type="hidden" name="return" value={ b.ReturnURL() }/>

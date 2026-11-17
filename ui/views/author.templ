@@ -75,6 +75,7 @@ templ AuthorXPage(v AuthorXView) {
 			}
 		}
 		@bookRegions()
+		@selectionBar(SelectionBar{Action: libraryActionURL(v.Item, "rows/bulk"), Verbs: RowVerbs()})
 	}
 }
 

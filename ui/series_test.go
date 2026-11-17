@@ -363,22 +363,23 @@ func TestEpisodeMonitorToggleRepliesWithTheRowToHTMX(t *testing.T) {
 // A toggle that fails from htmx gets its component back with the error in
 // it -- swapped in, so the page stays usable and the failure is visible
 // where it happened -- rather than the bare error page a form post gets.
-func TestFailedToggleFromHTMXRepliesWithTheComponentAndAnInlineError(t *testing.T) {
+func TestFailedToggleFromHTMXRepliesWithAToastAndLeavesTheRow(t *testing.T) {
 	srv, _ := seriesActionFixture(t, false) // no writer: every action is ErrNoWriter
-	rec := postForm(t, srv, "/library/default/series/andor/seasons/2/monitor", url.Values{"monitored": {"true"}}, true)
-	require.Equal(t, http.StatusOK, rec.Code)
-	body := rec.Body.String()
-	// The component shows the value that still stands.
-	requireTag(t, body, `data-season="2"`, `data-monitored="false"`)
-	require.Contains(t, body, `data-action-error="no-writer"`)
+	// A failed toggle is answered 200 into #action-status as a toast: the
+	// row and the season header stay as they are (2026-11-17; an alert drawn
+	// inside the cell broke the row and the header).
+	for _, path := range []string{"/library/default/series/andor/seasons/2/monitor", "/library/default/episode/andor-s01e01/monitor"} {
+		rec := postForm(t, srv, path, url.Values{"monitored": {"true"}}, true)
+		require.Equal(t, http.StatusOK, rec.Code, path)
+		require.Equal(t, "#action-status", rec.Header().Get("HX-Retarget"), path)
+		require.Equal(t, "innerHTML", rec.Header().Get("HX-Reswap"), path)
+		body := rec.Body.String()
+		require.Contains(t, body, `data-action-error="no-writer"`, path)
+		require.NotContains(t, body, `data-season=`, path)
+		require.NotContains(t, body, `data-episode=`, path)
+	}
 
-	rec = postForm(t, srv, "/library/default/episode/andor-s01e01/monitor", url.Values{"monitored": {"false"}}, true)
-	require.Equal(t, http.StatusOK, rec.Code)
-	body = rec.Body.String()
-	requireTag(t, body, `data-episode="1"`, `data-monitored="true"`)
-	require.Contains(t, body, `data-action-error="no-writer"`)
-
-	rec = postForm(t, srv, "/library/default/series/andor/seasons/2/monitor", url.Values{"monitored": {"true"}}, false)
+	rec := postForm(t, srv, "/library/default/series/andor/seasons/2/monitor", url.Values{"monitored": {"true"}}, false)
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code, "a form post keeps the error page")
 }
 

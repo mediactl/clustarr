@@ -418,6 +418,11 @@ func durationLabel(tracks []catalogv1.Track) string {
 // failure inside it. handleSetMonitored's album case is to call it (W4c);
 // until then an album toggle answers the children component's row.
 func (s *Server) replyAlbumRow(w http.ResponseWriter, r *http.Request, ns, name string, patched client.Object, err error) {
+	// A failed toggle is a toast; the row stays as it was.
+	if err != nil {
+		s.answerInPlace(w, r, err)
+		return
+	}
 	var a *catalogv1.Album
 	if got, ok := patched.(*catalogv1.Album); ok && err == nil {
 		a = got

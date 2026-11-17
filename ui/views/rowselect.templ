@@ -1,0 +1,103 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+
+package views
+
+import (
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/buttongroup"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/table"
+)
+
+// Row selection and bulk edit for an inner table (owner, 2026-11-17:
+// "Inner pages like seasons with the episode tables should all be
+// selectable and editable (multi select)"): a leading column of marks, a
+// select-all in the head per table, and one bar at the page's foot that
+// posts the selection to the container's bulk route
+// (ui/rows_bulk.go). ui/static/rowselect.js keeps the selection.
+//
+// The mark is a plain button with role="checkbox" drawn by the theme
+// (primitives.css), not the vendored checkbox: that component registers
+// every root with the component lifecycle, whose observer rescans on each
+// DOM mutation, which a 194-row season or a 749-row channel table cannot
+// afford (measured on Live TV: 27-62 ms a mutation for 1,500 roots).
+
+// selectHead is the table's first head cell: select every row of the
+// table (its [data-select-scope]).
+templ selectHead(label string) {
+	@table.Head() {
+		@selectMark("data-select-all", label)
+	}
+}
+
+// selectCell is a row's first cell: select the row.
+templ selectCell(label string) {
+	@table.Cell() {
+		@selectMark("data-select-row", label)
+	}
+}
+
+templ selectMark(hook, label string) {
+	@button.Button(button.Props{
+		Type:       button.TypeButton,
+		Variant:    button.VariantGhost,
+		Size:       button.SizeIconSm,
+		Class:      "hover:bg-transparent " + rowButton,
+		Attributes: templ.Attributes{hook: true, "role": "checkbox", "aria-checked": "false", "aria-label": label},
+	}) {
+		<span data-select-box></span>
+	}
+}
+
+// selectionBar is the page's one selection bar: how many rows are
+// selected, the verbs, and a clear. Hidden until something is selected
+// (rowselect.js); the last child of the page's content, where it sticks to
+// the window's foot as the library's bar does.
+templ selectionBar(b SelectionBar) {
+	<div data-selection-bar hidden role="region" aria-label="Bulk actions" class={ selectionBarClass } { b.Attrs... }>
+		<span class="text-sm tabular-nums whitespace-nowrap" aria-live="polite"><span data-rows-count>0</span> <span class="text-muted-foreground">selected</span></span>
+		@buttongroup.ButtonGroup() {
+			for _, v := range b.Verbs {
+				@selectionVerb(b, v)
+			}
+		}
+		if b.Extra != nil {
+			@b.Extra
+		}
+		@button.Button(button.Props{
+			Variant:    button.VariantGhost,
+			Size:       button.SizeIconSm,
+			Attributes: templ.Attributes{"data-rows-clear": true, "aria-label": "Clear selection", "title": "Clear selection (Esc)"},
+		}) {
+			@icon.Icon("x")()
+		}
+	</div>
+}
+
+templ selectionVerb(b SelectionBar, v SelectionVerb) {
+	@button.Button(button.Props{
+		Variant:    button.VariantOutline,
+		Size:       button.SizeSm,
+		Class:      verbClass(v),
+		Attributes: b.verbAttrs(v),
+	}) {
+		@icon.Icon(v.Icon)()
+		<span class="max-sm:sr-only">{ v.Label }</span>
+	}
+}

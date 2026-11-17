@@ -43,6 +43,7 @@ templ ComicPage(v ComicView) {
 		@comicHero(v)
 		@comicIssuesSection(v)
 		@issueRegions()
+		@selectionBar(SelectionBar{Action: libraryActionURL(v.Item, "rows/bulk"), Verbs: RowVerbs()})
 	}
 }
 
@@ -267,35 +268,38 @@ templ ComicIssueRows(issues []IssueRow) {
 	if len(issues) == 0 {
 		@emptyNote("No issues yet: they arrive with the comic's metadata.", "py-3", nil)
 	} else {
-		@table.Table(table.Props{Attributes: templ.Attributes{"data-issue-table": ""}}) {
-			@table.Header() {
-				@table.Row() {
-					@table.Head(table.HeadProps{Class: "w-10"}) {
-						<span class="sr-only">Monitored</span>
-					}
-					@table.Head(table.HeadProps{Class: "w-16"}) {
-						#
-					}
-					@table.Head() {
-						Title
-					}
-					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) {
-						Cover Date
-					}
-					@table.Head(table.HeadProps{Class: "hidden w-32 md:table-cell"}) {
-						In Shops
-					}
-					@table.Head(table.HeadProps{Class: "w-36"}) {
-						Status
-					}
-					@table.Head(table.HeadProps{Class: "w-20"}) {
-						<span class="sr-only">Actions</span>
+		@dataTable(nil) {
+			@table.Table(table.Props{Attributes: templ.Attributes{"data-issue-table": ""}}) {
+				@table.Header() {
+					@table.Row() {
+						@selectHead("Select every issue of this comic")
+						@table.Head(table.HeadProps{Class: "w-10"}) {
+							<span class="sr-only">Monitored</span>
+						}
+						@table.Head(table.HeadProps{Class: "w-16"}) {
+							#
+						}
+						@table.Head() {
+							Title
+						}
+						@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) {
+							Cover Date
+						}
+						@table.Head(table.HeadProps{Class: "hidden w-32 md:table-cell"}) {
+							In Shops
+						}
+						@table.Head(table.HeadProps{Class: "w-36"}) {
+							Status
+						}
+						@table.Head(table.HeadProps{Class: "w-20"}) {
+							<span class="sr-only">Actions</span>
+						}
 					}
 				}
-			}
-			@table.Body() {
-				for _, iss := range issues {
-					@IssueRowView(iss)
+				@table.Body() {
+					for _, iss := range issues {
+						@IssueRowView(iss)
+					}
 				}
 			}
 		}
@@ -309,7 +313,7 @@ templ ComicIssueRows(issues []IssueRow) {
 templ IssueRowView(iss IssueRow) {
 	@table.Row(table.RowProps{
 		Class: rowTone(iss.Monitored),
-		Attributes: templ.Attributes{
+		Attributes: RowAttrs(ctx, iss.Ref(), templ.Attributes{
 			"data-issue":     iss.Name,
 			"data-number":    iss.Number,
 			"data-monitored": fmt.Sprintf("%t", iss.Monitored),
@@ -317,8 +321,9 @@ templ IssueRowView(iss IssueRow) {
 			"data-quality":   iss.Format,
 			"data-phase":     iss.Phase,
 			"data-status":    iss.Status.Kind,
-		},
+		}),
 	}) {
+		@selectCell("Select issue " + iss.Number)
 		@table.Cell(table.CellProps{Class: "py-1"}) {
 			<form hx-post={ iss.MonitorURL() } hx-target="closest tr" hx-swap="outerHTML" method="post" action={ templ.URL(iss.MonitorURL()) } class="contents">
 				<input type="hidden" name="return" value={ iss.ReturnURL() }/>

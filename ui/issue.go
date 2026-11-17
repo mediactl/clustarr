@@ -287,6 +287,11 @@ func issueCredits(credits []catalogv1.Credit) []views.IssueCredit {
 // routes.go's): from the Issue the patch returned on success, or from the
 // Issue as it still stands with the failure inside it.
 func (s *Server) replyIssueRow(w http.ResponseWriter, r *http.Request, ns, name string, patched client.Object, err error) {
+	// A failed toggle is a toast; the row stays as it was.
+	if err != nil {
+		s.answerInPlace(w, r, err)
+		return
+	}
 	var iss *catalogv1.Issue
 	if got, ok := patched.(*catalogv1.Issue); ok && err == nil {
 		iss = got

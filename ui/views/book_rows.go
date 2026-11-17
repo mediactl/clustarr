@@ -57,6 +57,10 @@ func (r BookRow) DisplayTitle() string {
 	return r.Name
 }
 
+// Ref names the row for the page's selection (namespace/kind/name, the
+// form the bulk routes take).
+func (r BookRow) Ref() string { return r.Namespace + "/book/" + r.Name }
+
 // URL is the book's base route.
 func (r BookRow) URL() string { return fmt.Sprintf("/library/%s/book/%s", r.Namespace, r.Name) }
 

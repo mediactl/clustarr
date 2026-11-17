@@ -71,6 +71,10 @@ func (r IssueRow) DisplayTitle() string {
 	return r.Label()
 }
 
+// Ref names the row for the page's selection (namespace/kind/name, the
+// form the bulk routes take).
+func (r IssueRow) Ref() string { return r.Namespace + "/issue/" + r.Name }
+
 // URL is the issue's page, and the base of its actions' routes.
 func (r IssueRow) URL() string { return fmt.Sprintf("/library/%s/issue/%s", r.Namespace, r.Name) }
 

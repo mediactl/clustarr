@@ -51,6 +51,7 @@ templ SeriesDetail(d Detail, seasons []SeasonRow) {
 			}
 		</div>
 		@episodeRegions()
+		@selectionBar(SelectionBar{Action: libraryActionURL(d.Item, "rows/bulk"), Verbs: RowVerbs()})
 	}
 }
 
@@ -295,6 +296,7 @@ templ SeasonPage(d Detail, season SeasonRow, episodes []EpisodeRow) {
 			</div>
 		</div>
 		@episodeRegions()
+		@selectionBar(SelectionBar{Action: libraryActionURL(d.Item, "rows/bulk"), Verbs: RowVerbs()})
 	}
 }
 
@@ -307,76 +309,86 @@ templ EpisodeRows(episodes []EpisodeRow) {
 	if len(episodes) == 0 {
 		@emptyNote("No episodes in this season yet.", "py-3", nil)
 	} else {
-		@table.Table(table.Props{Attributes: templ.Attributes{"data-episode-table": ""}}) {
-			@table.Header() {
-				@table.Row() {
-					@table.Head(table.HeadProps{Class: "w-10"}) {
-						<span class="sr-only">Monitored</span>
-					}
-					@table.Head(table.HeadProps{Class: "w-10"}) {
-						# 
-					}
-					@table.Head() {
-						Title 
-					}
-					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) {
-						Air Date 
-					}
-					@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) {
-						Languages 
-					}
-					@table.Head(table.HeadProps{Class: "hidden w-16 text-right lg:table-cell"}) {
-						Score 
-					}
-					@table.Head(table.HeadProps{Class: "hidden xl:table-cell"}) {
-						Video 
-					}
-					@table.Head(table.HeadProps{Class: "hidden xl:table-cell"}) {
-						Audio 
-					}
-					@table.Head(table.HeadProps{Class: "hidden xl:table-cell"}) {
-						Transcode 
-					}
-					@table.Head(table.HeadProps{Class: "hidden xl:table-cell"}) {
-						Subtitles 
-					}
-					@table.Head(table.HeadProps{Class: "hidden xl:table-cell"}) {
-						Markers 
-					}
-					@table.Head(table.HeadProps{Class: "w-36"}) {
-						Status 
-					}
-					@table.Head(table.HeadProps{Class: "w-20"}) {
-						<span class="sr-only">Actions</span>
+		@dataTable(nil) {
+			@table.Table(table.Props{Attributes: templ.Attributes{"data-episode-table": ""}}) {
+				@table.Header() {
+					@table.Row() {
+						@selectHead("Select every episode of this season")
+						@table.Head(table.HeadProps{Class: "w-px"}) {
+							<span class="sr-only">Monitored</span>
+						}
+						@table.Head(table.HeadProps{Class: colP2 + " w-px " + colNum}) {
+							# 
+						}
+						@table.Head(table.HeadProps{Class: colTitleHead}) {
+							Title 
+						}
+						@table.Head(table.HeadProps{Class: colP3}) {
+							Air Date 
+						}
+						@table.Head(table.HeadProps{Class: colP4}) {
+							Languages 
+						}
+						@table.Head(table.HeadProps{Class: colP4 + " " + colNum}) {
+							Score 
+						}
+						@table.Head(table.HeadProps{Class: colP5}) {
+							Video 
+						}
+						@table.Head(table.HeadProps{Class: colP5}) {
+							Audio 
+						}
+						@table.Head(table.HeadProps{Class: colP6}) {
+							Transcode 
+						}
+						@table.Head(table.HeadProps{Class: colP6}) {
+							Subtitles 
+						}
+						@table.Head(table.HeadProps{Class: colP6}) {
+							Markers 
+						}
+						@table.Head(table.HeadProps{Class: colP2}) {
+							Status 
+						}
+						@table.Head(table.HeadProps{Class: "w-px"}) {
+							<span class="sr-only">Actions</span>
+						}
 					}
 				}
-			}
-			@table.Body() {
-				for _, ep := range episodes {
-					@EpisodeRowView(ep)
+				@table.Body() {
+					for _, ep := range episodes {
+						@EpisodeRowView(ep)
+					}
 				}
 			}
 		}
 	}
 }
 
-// EpisodeRowView is one episode, Sonarr's episode row, and what its monitor
-// toggle swaps in place: the bookmark, the number, the title (the
-// episode's page) with its finale and audio badges, the air date, the
-// file's columns (empty without a file), the status cell, and the
-// automatic and interactive searches. An unmonitored episode reads dimmed.
+// EpisodeRowView is one episode's row, Sonarr's: the select mark
+// (2026-11-17: the season's rows are selectable and bulk-editable,
+// rowselect.templ), the monitor bookmark, the number, the title (its
+// page), the air date, the file's columns and the status cell, and the
+// two searches. Its columns fold by the table's own width (datatable.templ:
+// the table overflowed its card at 1280 and, with an audio note, at 1440,
+// when they folded by the window's), and what a folded column held -- the
+// number, the date, the status -- moves to a line under the title, so a
+// phone's row is the mark, the bookmark, the title and the searches. A
+// toggle swaps the row from the object its write returned; a failed one is
+// a toast (answerInPlace), not an alert inside the cell.
 templ EpisodeRowView(ep EpisodeRow) {
 	@table.Row(table.RowProps{
 		Class: rowTone(ep.Monitored),
-		Attributes: templ.Attributes{
+		Attributes: RowAttrs(ctx, ep.Ref(), templ.Attributes{
 			"data-episode":   fmt.Sprint(ep.Number),
 			"data-monitored": fmt.Sprintf("%t", ep.Monitored),
 			"data-hasfile":   fmt.Sprintf("%t", ep.HasFile),
 			"data-quality":   ep.Quality,
 			"data-phase":     ep.Phase,
 			"data-status":    ep.Status.Kind,
-		},
+		}),
 	}) {
+		@selectCell("Select episode " + fmt.Sprint(ep.Number))
 		@table.Cell(table.CellProps{Class: "py-1"}) {
 			<form hx-post={ ep.MonitorURL() } hx-target="closest tr" hx-swap="outerHTML" method="post" action={ templ.URL(ep.MonitorURL()) } class="contents">
 				<input type="hidden" name="return" value={ ep.ReturnURL() }/>
@@ -384,10 +396,10 @@ templ EpisodeRowView(ep EpisodeRow) {
 				@bookmarkToggle(ep.Monitored, "set-monitored", false)
 			</form>
 		}
-		@table.Cell(table.CellProps{Class: "tabular-nums text-muted-foreground"}) {
+		@table.Cell(table.CellProps{Class: colP2 + " text-muted-foreground " + colNum}) {
 			{ fmt.Sprint(ep.Number) }
 		}
-		@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+		@table.Cell(table.CellProps{Class: colTitle}) {
 			<span class="flex flex-wrap items-center gap-2">
 				<a
 					href={ templ.URL(ep.URL()) }
@@ -410,52 +422,60 @@ templ EpisodeRowView(ep EpisodeRow) {
 					@audioBadge(ep.Audio)
 				}
 			</span>
-			@actionFailure(ep.Error)
+			@rowMeta() {
+				<span class={ belowP2, "tabular-nums" }>E{ fmt.Sprint(ep.Number) }</span>
+				if ep.AirDate != "" {
+					<time class={ belowP3 } datetime={ ep.AirDate }>{ ep.AirDateLabel }</time>
+				}
+				<span class={ belowP2 }>
+					@statusCell(ep.Status)
+				</span>
+			}
 		}
-		@table.Cell(table.CellProps{Class: "hidden text-muted-foreground sm:table-cell"}) {
+		@table.Cell(table.CellProps{Class: colP3 + " text-muted-foreground"}) {
 			if ep.AirDate != "" {
 				<time datetime={ ep.AirDate } title={ ep.AirDate }>{ ep.AirDateLabel }</time>
 			}
 		}
-		@table.Cell(table.CellProps{Class: "hidden lg:table-cell"}) {
+		@table.Cell(table.CellProps{Class: colP4}) {
 			if ep.File != nil {
 				@languagesCell(ep.File)
 			}
 		}
-		@table.Cell(table.CellProps{Class: "hidden text-right tabular-nums lg:table-cell"}) {
+		@table.Cell(table.CellProps{Class: colP4 + " " + colNum}) {
 			if ep.File != nil {
 				<span data-score={ signed(ep.File.Score) }>{ signed(ep.File.Score) }</span>
 			}
 		}
-		@table.Cell(table.CellProps{Class: "hidden xl:table-cell"}) {
+		@table.Cell(table.CellProps{Class: colP5}) {
 			if ep.File != nil {
 				@fileCell(ep.File.VideoCodec, "data-video")
 			}
 		}
-		@table.Cell(table.CellProps{Class: "hidden xl:table-cell"}) {
+		@table.Cell(table.CellProps{Class: colP5}) {
 			if ep.File != nil {
 				@fileCell(ep.File.AudioCodec, "data-audio-codec")
 			}
 		}
-		@table.Cell(table.CellProps{Class: "hidden xl:table-cell"}) {
+		@table.Cell(table.CellProps{Class: colP6}) {
 			if ep.File != nil {
 				@fileCell(ep.File.Transcode, "data-transcode")
 			}
 		}
-		@table.Cell(table.CellProps{Class: "hidden xl:table-cell"}) {
+		@table.Cell(table.CellProps{Class: colP6}) {
 			if ep.File != nil {
 				@fileCell(ep.File.Subtitles, "data-subtitles")
 			}
 		}
-		@table.Cell(table.CellProps{Class: "hidden xl:table-cell"}) {
+		@table.Cell(table.CellProps{Class: colP6}) {
 			if ep.File != nil {
 				@fileCell(ep.File.Markers, "data-markers")
 			}
 		}
-		@table.Cell() {
+		@table.Cell(table.CellProps{Class: colP2}) {
 			@statusCell(ep.Status)
 		}
-		@table.Cell(table.CellProps{Class: "py-1"}) {
+		@table.Cell(table.CellProps{Class: "w-px py-1"}) {
 			<span class="flex justify-end">
 				@episodeSearchButtons(ep)
 			</span>

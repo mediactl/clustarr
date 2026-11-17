@@ -233,6 +233,10 @@ func (r EpisodeRow) FinaleLabel() string {
 // URL is the episode's page, and the base of its actions' routes.
 func (r EpisodeRow) URL() string { return fmt.Sprintf("/library/%s/episode/%s", r.Namespace, r.Name) }
 
+// Ref names the episode's row for the page's selection (namespace/kind/name,
+// the form the bulk routes take).
+func (r EpisodeRow) Ref() string { return r.Namespace + "/episode/" + r.Name }
+
 // MonitorURL is the episode's monitor action, the existing per-item route.
 func (r EpisodeRow) MonitorURL() string { return r.URL() + "/monitor" }
 

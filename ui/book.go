@@ -216,6 +216,11 @@ func bookSeries(links []catalogv1.SeriesLink) string {
 // replyEpisodeRow's counterpart: from the Book the patch returned on
 // success, or from the Book as it still stands with the failure inside it.
 func (s *Server) replyBookRow(w http.ResponseWriter, r *http.Request, ns, name string, patched client.Object, err error) {
+	// A failed toggle is a toast; the row stays as it was.
+	if err != nil {
+		s.answerInPlace(w, r, err)
+		return
+	}
 	var b *catalogv1.Book
 	if got, ok := patched.(*catalogv1.Book); ok && err == nil {
 		b = got

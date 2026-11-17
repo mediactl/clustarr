@@ -1,0 +1,59 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+
+package views
+
+// dataTable wraps one table.Table: the query container its columns fold by
+// (the room the table has, not the window: the sidebar takes 256px of the
+// window, which is why the episode table overflowed its card at 1280 and,
+// with an audio note, at 1440) and the scope of its select-all.
+templ dataTable(attrs templ.Attributes) {
+	<div data-table data-select-scope class="@container/table" { attrs... }>
+		{ children... }
+	</div>
+}
+
+// rowMeta is the second line of a title cell: what the folded columns
+// held, each piece hidden again from the width its column shows at.
+templ rowMeta() {
+	<div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+		{ children... }
+	</div>
+}
+
+// Column priority: the same constant on a column's Head and Cell. The
+// width is the table's own (its container).
+const (
+	colP2 = "hidden @md/table:table-cell"  // from 448px: status, number
+	colP3 = "hidden @xl/table:table-cell"  // from 576px: dates
+	colP4 = "hidden @3xl/table:table-cell" // from 768px: languages, score
+	colP5 = "hidden @5xl/table:table-cell" // from 1024px: codecs
+	colP6 = "hidden @6xl/table:table-cell" // from 1152px: transcode, subtitles, markers
+	// The meta-line twin of a folded column: shown until the column is.
+	belowP2 = "@md/table:hidden"
+	belowP3 = "@xl/table:hidden"
+
+	// colTitle is the one flexible column; every other cell is the stock
+	// nowrap.
+	colTitleHead = "w-full"
+	colTitle     = "w-full min-w-40 whitespace-normal wrap-anywhere"
+	// colNum is a number's head and cell.
+	colNum = "text-right tabular-nums"
+	// rowButton is every ghost icon button in a row.
+	rowButton = "pointer-coarse:size-9"
+)

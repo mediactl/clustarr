@@ -127,18 +127,13 @@ func (s *Server) handleSetSeasonMonitored(w http.ResponseWriter, r *http.Request
 		s.finishAction(w, r, err)
 		return
 	}
-	var row views.SeasonRow
-	if err == nil {
-		row = seasonRow(series, int32(n))
-	} else {
-		current, ok := s.getSeries(r.Context(), types.NamespacedName{Namespace: ns, Name: name})
-		if !ok {
-			current = &catalogv1.Series{}
-			current.Namespace, current.Name = ns, name
-		}
-		row = seasonRow(current, int32(n))
-		row.Error = failureOf(r, err)
+	// A failed toggle is a toast; the header stays as it was (an alert
+	// drawn inside it broke the season's row).
+	if err != nil {
+		s.answerInPlace(w, r, err)
+		return
 	}
+	row := seasonRow(series, int32(n))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if rerr := views.SeasonHeader(row).Render(r.Context(), w); rerr != nil {
 		logging.FromContext(r.Context()).Error("render season header", "err", rerr)
@@ -149,6 +144,12 @@ func (s *Server) handleSetSeasonMonitored(w http.ResponseWriter, r *http.Request
 // from the Episode the patch returned on success, or from the Episode as it
 // still stands with the failure inside it.
 func (s *Server) replyEpisodeRow(w http.ResponseWriter, r *http.Request, ns, name string, patched client.Object, err error) {
+	// A failed toggle is a toast; the row stays as it was (an alert drawn
+	// inside the title cell broke the row and the season's header).
+	if err != nil {
+		s.answerInPlace(w, r, err)
+		return
+	}
 	var ep *catalogv1.Episode
 	if got, ok := patched.(*catalogv1.Episode); ok && err == nil {
 		ep = got
