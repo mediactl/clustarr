@@ -58,6 +58,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/grouplang"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/lastrun"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -466,7 +467,10 @@ func register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options, 
 // store's is the item keys' (ADR-0019 D13), the fingerprint store's is this
 // loop's.
 func objectStoreMaintenance(bus events.Bus, o Options) *maintenance.ObjectStores {
-	m := &maintenance.ObjectStores{Topology: o.BusTopology()}
+	m := &maintenance.ObjectStores{
+		Topology: o.BusTopology(),
+		LastRun:  &lastrun.Mark{KV: bus.KV(events.BucketMaintenance), Key: "object-stores"},
+	}
 	if admin, ok := bus.(events.ObjectStoreAdmin); ok {
 		m.Admin = admin
 	}

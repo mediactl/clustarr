@@ -39,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/lastrun"
 )
 
 const grace = 30 * time.Minute
@@ -197,4 +198,44 @@ func TestReaperIsLeaderElectedAndStopsWithItsContext(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Start did not return after its context was cancelled")
 	}
+}
+
+// TestReaperStartedWithinItsIntervalWaitsOutTheRest: a reaper that recorded
+// a whole sweep does not sweep again at the next start, which listed the
+// whole bucket at every manager restart (2026-11-17); it sweeps once the
+// interval since that sweep has passed, and records that one.
+func TestReaperStartedWithinItsIntervalWaitsOutTheRest(t *testing.T) {
+	fx := newReapFixture(t)
+	bus := membus.New(fx.clock)
+	t.Cleanup(func() { _ = bus.Close() })
+	require.NoError(t, bus.Ensure(fx.ctx, events.Default()))
+	mark := &lastrun.Mark{KV: bus.KV(events.BucketMaintenance), Key: "artwork-reaper"}
+	require.NoError(t, mark.Done(fx.ctx, fx.clock.Now()))
+
+	r := fx.reaper(fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build())
+	r.LastRun = mark
+	orphan := fx.put(t, commonv1.MediaKindMovie, "gone", "poster", events.ArtworkVariantOriginal)
+	fx.clock.Advance(grace + time.Minute) // past the grace, inside the hour's interval
+
+	ctx, cancel := context.WithCancel(fx.ctx)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- r.Start(ctx) }()
+	require.NoError(t, fx.clock.BlockUntilContext(ctx, 1), "Start waits on the clock")
+	gone := func() bool {
+		for _, n := range fx.names(t) {
+			if n == orphan {
+				return false
+			}
+		}
+		return true
+	}
+	require.Never(t, gone, 200*time.Millisecond, 10*time.Millisecond, "swept at start, inside the interval")
+
+	fx.clock.Advance(time.Hour)
+	require.Eventually(t, gone, 2*time.Second, 5*time.Millisecond, "the sweep runs once the interval has passed")
+	require.Eventually(t, func() bool { return mark.Wait(fx.ctx, fx.clock.Now(), time.Hour) > 0 },
+		2*time.Second, 5*time.Millisecond, "the sweep was recorded")
+	cancel()
+	require.NoError(t, <-done)
 }

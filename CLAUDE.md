@@ -3879,7 +3879,7 @@ ships it.
   ui's HPA flapped between 2 and 3 pods (85 scale-ups in 11 days, a 100m
   CPU request at 70%), and each start's watch timed out at nats.go's 5 s
   consumer-creation deadline and was asked for again after 1, 2 and 4 s.
-  `ObjectStoreSpec.MetaIndex` (the artwork bucket) has Ensure keep
+  `ObjectStoreSpec.MetaIndex` (every bucket) has Ensure keep
   `OBJMETA_<bucket>`, a stream that sources `$O.<bucket>.M.>` from the
   bucket's stream with one message per subject, and natsbus's `Watch`
   replays that (`pkg/events/natsbus/objectindex.go`: 19 MiB against at
@@ -3891,14 +3891,30 @@ ships it.
   when the index is missing (an older manager), older than its bucket (a
   bucket deleted and created again; the next Ensure rebuilds the index) or
   still behind after a minute. An index event's `ModTime` is when the
-  record reached the index. `List`, and so the reaper and
-  `PurgeOrphanChunks`, still read the bucket: a purge decided on a copy
-  that had stalled would delete live chunks. nats.go's `ObjectStore.Watch`
+  record reached the index. `List` and `PurgeOrphanChunks` read the index
+  the same way, behind the same wait (owner, 2026-11-17: "Go with the
+  recommended solution"), and all three buckets carry one: the maintenance
+  sweep's purges, the fingerprint audit and the artwork reaper were five
+  whole-bucket reads a sweep, about 5 GB across the servers, at every
+  manager start and every 6 h. A purge deletes on the list's word, so one
+  the index would have orphan at least 100 chunk subjects and more than a
+  quarter of the bucket's is decided again from the bucket itself
+  (`orphanGuardTrips`): a damaged index that still named the bucket's
+  latest record had a test's purge take 159 of 160 live objects' chunks
+  without it. A listed object's `ModTime` is its record's arrival, never
+  earlier than its write, so both graces only spare more; and in the
+  fingerprint bucket, which expires objects after 90 days, a record
+  outlives its object by as long as it was copied after it, so for 90 days
+  after the first fill a list may name expired fingerprints (reading one is
+  `ErrObjectNotFound`, which the audit passes over). Both sweeps also
+  record their last whole run in `clustarr-maintenance` (`pkg/lastrun`) and
+  a manager that starts inside the interval waits out the rest: fourteen
+  restarts on 2026-11-16 had been fourteen sweeps. nats.go's `ObjectStore.Watch`
   also unsubscribes when the context it was created under ends, so a
   longer creation deadline is `openContext`, whose deadline holds only
   until the watch is open (2 minutes), and `objindex` waits at least 10 s
-  after a watch that ended before its replay. The first Ensure fills the
-  index with one read of the bucket.
+  after a watch that ended before its replay. The first Ensure fills each
+  index with one read of its bucket.
 - **ffgo maps FFmpeg at package init, and a stale shim is silently wrong.** Any
   binary or test that links ffgo has dlopened FFmpeg before `main`, through
   `LD_LIBRARY_PATH` and a fixed list of system paths, and ffgo's loader

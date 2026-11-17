@@ -350,3 +350,141 @@ func TestObjectWatchReplaysTheMetadataIndexOnACluster(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, info.State.Consumers, "no watch read the bucket's own stream")
 }
+
+// List reads the metadata index: the live objects, the latest of a name
+// written twice, no deleted one, filtered by prefix and sorted -- and no
+// consumer on the bucket's own stream.
+func TestObjectListReadsTheMetadataIndex(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	r := newIndexRig(ctx, t)
+
+	got, err := r.store.List(ctx, "")
+	require.NoError(t, err)
+	assert.Empty(t, got, "an empty bucket")
+
+	const n = 30
+	for i := range n {
+		r.put(ctx, t, fmt.Sprintf("movie/uid-%02d/poster/original", i), 64*1024)
+	}
+	for i := range 4 {
+		r.put(ctx, t, fmt.Sprintf("series/uid-%02d/fanart/original", i), 4096)
+	}
+	rewritten := r.put(ctx, t, "movie/uid-03/poster/original", 2048)
+	require.NoError(t, r.store.Delete(ctx, "movie/uid-07/poster/original"))
+
+	got, err = r.store.List(ctx, "movie/")
+	require.NoError(t, err)
+	require.Len(t, got, n-1)
+	for i, o := range got {
+		if i > 0 {
+			assert.Less(t, got[i-1].Name, o.Name, "sorted by name")
+		}
+		assert.NotEqual(t, "movie/uid-07/poster/original", o.Name, "the deleted object")
+		want, err := r.store.Info(ctx, o.Name)
+		require.NoError(t, err, o.Name)
+		assert.Equal(t, want.Digest, o.Digest, o.Name)
+		assert.Equal(t, want.Size, o.Size, o.Name)
+		assert.Equal(t, want.Metadata, o.Metadata, o.Name)
+		assert.False(t, o.ModTime.Before(want.ModTime), "%s: a record reaches the index no earlier than it was written", o.Name)
+		if o.Name == "movie/uid-03/poster/original" {
+			assert.Equal(t, rewritten.Digest, o.Digest)
+		}
+	}
+	all, err := r.store.List(ctx, "")
+	require.NoError(t, err)
+	assert.Len(t, all, n-1+4)
+	assert.Zero(t, r.consumers(ctx, t, events.ObjectStoreStream(events.BucketArtwork)),
+		"the list must not read the bucket's own stream")
+
+	// Without the index the bucket itself answers the same.
+	require.NoError(t, r.js.DeleteStream(ctx, events.ObjectMetaIndexStream(events.BucketArtwork)))
+	direct, err := r.store.List(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, direct, len(all))
+	for i := range all {
+		assert.Equal(t, direct[i].Name, all[i].Name)
+		assert.Equal(t, direct[i].Digest, all[i].Digest)
+	}
+}
+
+// chunkSubjectCount is how many chunk subjects the artwork bucket holds: one
+// per object whose chunks are stored, live or orphaned.
+func (r indexRig) chunkSubjectCount(ctx context.Context, t *testing.T) int {
+	t.Helper()
+	s, err := r.bus.Subjects(ctx, events.ObjectStoreStream(events.BucketArtwork), "$O."+events.BucketArtwork+".C.>")
+	require.NoError(t, err)
+	return len(s)
+}
+
+// The orphan purge decides from the index: it removes the chunks no object
+// names and no live object's.
+func TestOrphanPurgeReadsTheMetadataIndex(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	r := newIndexRig(ctx, t)
+	const n = 20
+	for i := range n {
+		r.put(ctx, t, fmt.Sprintf("movie/uid-%02d/poster/original", i), 8192)
+	}
+	for i := range 3 { // writers that died after their chunks and before their meta
+		_, err := r.js.Publish(ctx, fmt.Sprintf("$O.%s.C.deadWriter%d", events.BucketArtwork, i), []byte("orphan"))
+		require.NoError(t, err)
+	}
+	require.Equal(t, n+3, r.chunkSubjectCount(ctx, t))
+	time.Sleep(20 * time.Millisecond)
+
+	purged, _, err := r.bus.PurgeOrphanChunks(ctx, events.BucketArtwork, 10*time.Millisecond)
+	require.NoError(t, err)
+	assert.Equal(t, 3, purged)
+	assert.Equal(t, n, r.chunkSubjectCount(ctx, t))
+	assert.Zero(t, r.consumers(ctx, t, events.ObjectStoreStream(events.BucketArtwork)),
+		"the purge must not list the bucket's own stream")
+	for i := range n {
+		_, rc, err := r.store.Get(ctx, fmt.Sprintf("movie/uid-%02d/poster/original", i))
+		require.NoError(t, err)
+		require.NoError(t, rc.Close())
+	}
+}
+
+// An index that names few of the bucket's objects would have the purge take
+// their chunks for orphans. Past the guard's bounds the purge reads the
+// bucket itself, and removes nothing that is live.
+func TestOrphanPurgeDoesNotTrustAnIndexThatOrphansTheBucket(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	r := newIndexRig(ctx, t)
+	const n = 160
+	for i := range n {
+		r.put(ctx, t, fmt.Sprintf("movie/uid-%03d/poster/original", i), 512)
+	}
+	// Wait for the index to hold them all, then lose all its records but
+	// the last: it still names the bucket's latest record, so it passes for
+	// caught up, and it lists one object of 160.
+	listed, err := r.store.List(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, listed, n)
+	index, err := r.js.Stream(ctx, events.ObjectMetaIndexStream(events.BucketArtwork))
+	require.NoError(t, err)
+	info, err := index.Info(ctx)
+	require.NoError(t, err)
+	for seq := info.State.FirstSeq; seq < info.State.LastSeq; seq++ {
+		if err := index.DeleteMsg(ctx, seq); err != nil {
+			require.ErrorIs(t, err, jetstream.ErrMsgNotFound)
+		}
+	}
+	listed, err = r.store.List(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, listed, 1, "the damaged index")
+	time.Sleep(20 * time.Millisecond)
+
+	purged, _, err := r.bus.PurgeOrphanChunks(ctx, events.BucketArtwork, 10*time.Millisecond)
+	require.NoError(t, err)
+	assert.Zero(t, purged)
+	assert.Equal(t, n, r.chunkSubjectCount(ctx, t))
+	for i := range n {
+		_, rc, err := r.store.Get(ctx, fmt.Sprintf("movie/uid-%03d/poster/original", i))
+		require.NoError(t, err, "object %d lost its chunks", i)
+		require.NoError(t, rc.Close())
+	}
+}

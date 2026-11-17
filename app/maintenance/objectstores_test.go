@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,7 +35,9 @@ import (
 
 	"github.com/mediactl/clustarr/app/maintenance"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
+	"github.com/mediactl/clustarr/pkg/lastrun"
 	"github.com/mediactl/clustarr/pkg/segments"
 	"github.com/mediactl/clustarr/pkg/segments/chromaprint"
 	"github.com/mediactl/clustarr/pkg/segments/fingerprintmeta"
@@ -198,4 +201,54 @@ func TestBackfillFingerprintMetaSetsTheCompleteMap(t *testing.T) {
 	n, err := fingerprintmeta.BackfillStore(ctx, store, writtenBy)
 	require.NoError(t, err)
 	assert.Zero(t, n, "a backfilled object carries its meta-version: nothing is left to backfill")
+}
+
+// countingAdmin counts purges.
+type countingAdmin struct{ purges atomic.Int32 }
+
+func (a *countingAdmin) PurgeOrphanChunks(context.Context, string, time.Duration) (int, uint64, error) {
+	a.purges.Add(1)
+	return 0, 0, nil
+}
+
+// TestASweepWithinTheIntervalIsNotRunAgainAtStart: the loop records each
+// whole sweep, and a manager that starts within the interval of the last one
+// waits out the rest before it sweeps. Until 2026-11-17 it swept at every
+// start, and each sweep cost the NATS servers a read of every object store:
+// fourteen manager restarts in a day were fourteen sweeps.
+func TestASweepWithinTheIntervalIsNotRunAgainAtStart(t *testing.T) {
+	bus := membus.New(nil)
+	t.Cleanup(func() { _ = bus.Close() })
+	top := events.Default().ForSingleNode()
+	require.NoError(t, bus.Ensure(t.Context(), top))
+	mark := &lastrun.Mark{KV: bus.KV(events.BucketMaintenance), Key: "object-stores"}
+	stores := int32(len(top.ObjectStoreNames()))
+	const interval = 400 * time.Millisecond
+
+	run := func(admin *countingAdmin) (stop func()) {
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		m := &maintenance.ObjectStores{Admin: admin, Topology: top, Interval: interval, LastRun: mark}
+		go func() { defer close(done); _ = m.Start(ctx) }()
+		return func() { cancel(); <-done }
+	}
+
+	// Nothing recorded: the first start sweeps at once, and records it.
+	first := &countingAdmin{}
+	stop := run(first)
+	require.Eventually(t, func() bool { return first.purges.Load() == stores }, 5*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return mark.Wait(t.Context(), time.Now(), interval) > 0 },
+		5*time.Second, 5*time.Millisecond, "the sweep was recorded")
+	stop()
+
+	// A restart inside the interval does not sweep until the rest of it
+	// has passed.
+	second := &countingAdmin{}
+	started := time.Now()
+	stop = run(second)
+	defer stop()
+	time.Sleep(interval / 4)
+	assert.Zero(t, second.purges.Load(), "swept again at start")
+	require.Eventually(t, func() bool { return second.purges.Load() >= stores }, 5*time.Second, 5*time.Millisecond)
+	assert.GreaterOrEqual(t, time.Since(started), interval/2, "the sweep waited for the interval")
 }

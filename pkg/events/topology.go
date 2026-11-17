@@ -320,13 +320,14 @@ type ObjectStoreSpec struct {
 	// MetaIndex keeps a copy of the bucket's metadata records in a stream
 	// of their own, ObjectMetaIndexStream, which the server fills from the
 	// bucket's stream (a JetStream source filtered to the metadata
-	// subjects), and which a Watch replays in place of the bucket's stream.
+	// subjects), and which a Watch replays, and a List and the orphan purge
+	// read, in place of the bucket's stream.
 	// A bucket's metadata records lie between its chunks, so the server
 	// reads the whole bucket to replay them: on talos, 2026-11-17, each
 	// watch of the 1.46 GiB artwork bucket took 1.5 GB of a NATS server's
 	// heap for its 15 MB of metadata, at every ui and manager start. The
-	// index is a derived copy with no writer but the server; a Watch that
-	// finds it missing, older than its bucket or behind it watches the
+	// index is a derived copy with no writer but the server; a reader that
+	// finds it missing, older than its bucket or behind it reads the
 	// bucket itself. membus ignores it.
 	MetaIndex bool
 }
@@ -1306,6 +1307,7 @@ func defaultBuckets() []BucketSpec {
 			"Usenet connection grants per provider account; each grant carries its own expiry and every write is a compare-and-swap."),
 		b(BucketImportList, 7*24*time.Hour, "Import list items, kept out of status."),
 		b(BucketDedup, 24*time.Hour, "Import fingerprints for re-import no-ops."),
+		b(BucketMaintenance, 0, "When the manager's periodic sweeps last ran, so a restart does not run them again."),
 	}
 }
 
@@ -1324,6 +1326,9 @@ func defaultObjectStores() []ObjectStoreSpec {
 			MaxBytes:    FingerprintsMaxBytes,
 			MaxAge:      90 * 24 * time.Hour,
 			Replicas:    3,
+			// The maintenance sweep lists it for the orphan purge and the
+			// metadata audit.
+			MetaIndex: true,
 			Metadata: map[string]string{
 				BucketMetaKeyKeyScheme: FingerprintKeyScheme,
 				ObjectMetaKeyVersion:   FingerprintMetaVersion,
@@ -1338,7 +1343,8 @@ func defaultObjectStores() []ObjectStoreSpec {
 			// An image of up to 3 MB is at most 3 chunks (ADR-0020 §5);
 			// fingerprints, about 20 KB each, keep the default.
 			ChunkSize: ArtworkChunkSize,
-			// The manager and every ui replica index the bucket at start.
+			// The manager and every ui replica index the bucket at start,
+			// and the reaper and the orphan purge list it.
 			MetaIndex: true,
 			Metadata: map[string]string{
 				BucketMetaKeyKeyScheme: ArtworkKeyScheme,
@@ -1353,6 +1359,7 @@ func defaultObjectStores() []ObjectStoreSpec {
 			Storage:     StorageFile,
 			MaxBytes:    LiveTVMaxBytes,
 			Replicas:    3,
+			MetaIndex:   true, // the orphan purge lists it
 			Metadata: map[string]string{
 				BucketMetaKeyKeyScheme: LiveTVKeyScheme,
 				ObjectMetaKeyVersion:   LiveTVMetaVersion,

@@ -32,6 +32,7 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/lastrun"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -95,6 +96,11 @@ type Reaper struct {
 	// Clock is the sweep's "now". Nil is the real clock.
 	Clock clockwork.Clock
 
+	// LastRun remembers when a sweep last finished whole, so a manager
+	// that restarts waits out the rest of the Interval before its first
+	// sweep; nil sweeps at every start.
+	LastRun *lastrun.Mark
+
 	// Admin purges orphaned chunks through the shared events.PurgeOrphans;
 	// nil purges none. The manager passes none: its maintenance loop
 	// (app/maintenance.ObjectStores) purges every object store of the
@@ -119,21 +125,40 @@ func (r *Reaper) clock() clockwork.Clock {
 	return clockwork.NewRealClock()
 }
 
-// Start sweeps at once and then every Interval until ctx is done. A failed
-// sweep is logged and retried on the next tick; it never stops the loop.
+// Start sweeps once the Interval since the last whole sweep has passed (at
+// once without LastRun, or when none is recorded) and then every Interval
+// until ctx is done. A failed sweep is logged and retried on the next tick,
+// and is not recorded, so the next start sweeps at once; it never stops the
+// loop.
 func (r *Reaper) Start(ctx context.Context) error {
 	ctx = logging.Subsystem(ctx, "catalog.artwork.reaper")
 	interval := r.Interval
 	if interval <= 0 {
 		interval = DefaultReapInterval
 	}
+	if wait := r.LastRun.Wait(ctx, r.clock().Now(), interval); wait > 0 {
+		logging.FromContext(ctx).Info("artwork: the bucket was reaped within the interval; waiting",
+			"next", wait.Round(time.Second).String())
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-r.clock().After(wait):
+		}
+	}
 	sweep := r.clock().NewTicker(interval)
 	defer sweep.Stop()
 	for {
-		if n, err := r.Sweep(ctx); err != nil {
+		n, err := r.Sweep(ctx)
+		switch {
+		case err != nil:
 			logging.FromContext(ctx).Warn("artwork: reap sweep incomplete", "deleted", n, "err", err)
-		} else if n > 0 {
-			logging.FromContext(ctx).Info("artwork: reaped orphaned objects", "deleted", n)
+		default:
+			if n > 0 {
+				logging.FromContext(ctx).Info("artwork: reaped orphaned objects", "deleted", n)
+			}
+			if err := r.LastRun.Done(ctx, r.clock().Now()); err != nil && ctx.Err() == nil {
+				logging.FromContext(ctx).Warn("artwork: the reap sweep's time was not recorded", "err", err)
+			}
 		}
 		select {
 		case <-ctx.Done():

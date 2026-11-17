@@ -191,6 +191,10 @@ const (
 	// entry per provider account (UsenetAccountKey) listing every engine
 	// pod's grants, each with its own expiry (spec 2026-10-16 §3).
 	BucketUsenetConnections = "clustarr-usenet-connections"
+	// BucketMaintenance holds when each of the manager's periodic sweeps
+	// last finished (pkg/lastrun), one key a sweep. The manager's leader
+	// writes it and reads it at its start.
+	BucketMaintenance = "clustarr-maintenance"
 )
 
 // BucketArtwork is the object-store bucket holding artwork originals and

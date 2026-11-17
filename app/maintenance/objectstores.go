@@ -28,6 +28,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/lastrun"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -58,24 +59,45 @@ type ObjectStores struct {
 	// artwork.DefaultReapGrace: a Put's chunks precede its meta, and the
 	// grace covers one in progress.
 	Interval, Grace time.Duration
+	// LastRun remembers when a sweep last finished whole, so a manager
+	// that restarts waits out the rest of the Interval before its first
+	// sweep; nil sweeps at every start.
+	LastRun *lastrun.Mark
 }
 
 // NeedLeaderElection makes the loop a cluster singleton: the stores are
 // shared, and two sweepers would only race each other's purges.
 func (m *ObjectStores) NeedLeaderElection() bool { return true }
 
-// Start sweeps at once and then every Interval until ctx ends. A failed
-// sweep is logged and retried on the next tick.
+// Start sweeps once the Interval since the last whole sweep has passed (at
+// once without LastRun, or when none is recorded) and then every Interval
+// until ctx ends. A failed sweep is logged and retried on the next tick, and
+// is not recorded, so the next start sweeps at once.
 func (m *ObjectStores) Start(ctx context.Context) error {
 	ctx = logging.Subsystem(ctx, "maintenance.objectstores")
 	interval := m.Interval
 	if interval <= 0 {
 		interval = artwork.DefaultReapInterval
 	}
+	if wait := m.LastRun.Wait(ctx, time.Now(), interval); wait > 0 {
+		logging.FromContext(ctx).Info("maintenance: the object stores were swept within the interval; waiting",
+			"next", wait.Round(time.Second).String())
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(wait):
+		}
+	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
-		if err := m.Sweep(ctx); err != nil && ctx.Err() == nil {
+		err := m.Sweep(ctx)
+		switch {
+		case err == nil:
+			if err := m.LastRun.Done(ctx, time.Now()); err != nil && ctx.Err() == nil {
+				logging.FromContext(ctx).Warn("maintenance: the sweep's time was not recorded", "err", err)
+			}
+		case ctx.Err() == nil:
 			logging.FromContext(ctx).Warn("maintenance: object-store sweep incomplete", "err", err)
 		}
 		select {

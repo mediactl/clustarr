@@ -57,6 +57,9 @@ const (
 	// same: on talos each ui start asked two to four times, every one a
 	// whole read of the 1.46 GiB artwork bucket (2026-11-17).
 	objectWatchOpenTimeout = 2 * time.Minute
+	// objectIndexIdle is how long a replay of the index for List waits for
+	// its next record before it gives the index up and reads the bucket.
+	objectIndexIdle = 30 * time.Second
 	// streamSourceHeader is the header nats-server adds to a sourced
 	// message: "<stream> <sequence> <filter> <transform> <subject>".
 	streamSourceHeader = "Nats-Stream-Source"
@@ -73,24 +76,9 @@ var errObjectIndexUnusable = errors.New("the object metadata index is unusable")
 // for a record older than the index is when the index was filled.
 func (o *objectHandle) watchIndex(ctx context.Context) (<-chan events.ObjectEvent, error) {
 	name := events.ObjectMetaIndexStream(o.name)
-	index, err := o.bus.js.Stream(ctx, name)
-	if err != nil {
-		if errors.Is(err, jetstream.ErrStreamNotFound) {
-			return nil, fmt.Errorf("%w: stream %s does not exist", errObjectIndexUnusable, name)
-		}
-		return nil, fmt.Errorf("natsbus: stream %s: %w", name, err)
-	}
-	created, err := o.awaitIndex(ctx, index)
+	cons, created, err := o.openIndex(ctx)
 	if err != nil {
 		return nil, err
-	}
-	cons, err := index.OrderedConsumer(ctx, jetstream.OrderedConsumerConfig{
-		// The index keeps one record per object, so everything it holds is
-		// the latest of each: no last-per-subject scan.
-		DeliverPolicy: jetstream.DeliverAllPolicy,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("natsbus: watch %s: %w", name, err)
 	}
 
 	out := make(chan events.ObjectEvent)
@@ -150,6 +138,129 @@ func (o *objectHandle) watchIndex(ctx context.Context) (<-chan events.ObjectEven
 	}()
 	go q.Relay(ctx, out)
 	return out, nil
+}
+
+// openIndex returns a consumer of everything the bucket's index holds, made
+// once the index holds the bucket's latest record (awaitIndex), and the
+// index's creation time. The index keeps one record per object, so
+// everything in it is the latest of each: no last-per-subject scan.
+func (o *objectHandle) openIndex(ctx context.Context) (jetstream.Consumer, time.Time, error) {
+	name := events.ObjectMetaIndexStream(o.name)
+	index, err := o.bus.js.Stream(ctx, name)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrStreamNotFound) {
+			return nil, time.Time{}, fmt.Errorf("%w: stream %s does not exist", errObjectIndexUnusable, name)
+		}
+		return nil, time.Time{}, fmt.Errorf("natsbus: stream %s: %w", name, err)
+	}
+	created, err := o.awaitIndex(ctx, index)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	cons, err := index.OrderedConsumer(ctx, jetstream.OrderedConsumerConfig{
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+	})
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("natsbus: read %s: %w", name, err)
+	}
+	return cons, created, nil
+}
+
+// listIndex is the bucket's live objects as its metadata index holds them,
+// which is as the bucket held them when the index was found caught up: the
+// latest record of every object, tombstones left out. It returns
+// errObjectIndexUnusable, wrapped, when the bucket itself must be listed --
+// an index that is missing, stale or behind, or one that stops delivering
+// mid-replay.
+//
+// Two things differ from a list of the bucket. An object's ModTime is when
+// its record reached the index, never earlier than its write, so a caller
+// that spares young objects spares a few more. And in a bucket that expires
+// its objects (ObjectStoreSpec.MaxAge) a record outlives its object by as
+// long as it was copied after it, so for up to MaxAge after the index is
+// first filled the list may name objects that have expired: reading one is
+// ErrObjectNotFound, as for an object deleted meanwhile.
+func (o *objectHandle) listIndex(ctx context.Context) ([]*jetstream.ObjectInfo, error) {
+	name := events.ObjectMetaIndexStream(o.name)
+	cons, _, err := o.openIndex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if info := cons.CachedInfo(); info != nil && info.NumPending == 0 {
+		return nil, nil
+	}
+	var (
+		out  []*jetstream.ObjectInfo
+		done = make(chan struct{})
+		beat = make(chan struct{}, 1)
+		over bool
+	)
+	cc, err := cons.Consume(func(m jetstream.Msg) {
+		if over {
+			return
+		}
+		md, err := m.Metadata()
+		if err != nil {
+			return
+		}
+		var info jetstream.ObjectInfo
+		if err := json.Unmarshal(m.Data(), &info); err == nil && !info.Deleted {
+			info.ModTime = md.Timestamp
+			out = append(out, &info)
+		}
+		select {
+		case beat <- struct{}{}:
+		default:
+		}
+		if md.NumPending == 0 {
+			over = true
+			close(done)
+		}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("natsbus: read %s: %w", name, err)
+	}
+	idle := time.NewTimer(objectIndexIdle)
+	defer idle.Stop()
+	for {
+		select {
+		case <-done:
+			// The handler appends nothing once it has closed done.
+			cc.Stop()
+			return out, nil
+		case <-beat:
+			idle.Reset(objectIndexIdle)
+		case <-idle.C:
+			cc.Stop()
+			return nil, fmt.Errorf("%w: %s delivered nothing for %s", errObjectIndexUnusable, name, objectIndexIdle)
+		case <-cc.Closed():
+			return nil, fmt.Errorf("%w: the read of %s ended early", errObjectIndexUnusable, name)
+		case <-ctx.Done():
+			cc.Stop()
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// listObjects is the bucket's live objects, and whether they were read from
+// its metadata index (listIndex) or, for a bucket without a usable one, from
+// the bucket's own stream, which costs the server a read of every chunk.
+func (o *objectHandle) listObjects(ctx context.Context, store jetstream.ObjectStore) (infos []*jetstream.ObjectInfo, fromIndex bool, err error) {
+	if o.bus.objectStoreSpec(o.name).MetaIndex {
+		infos, err := o.listIndex(ctx)
+		if err == nil {
+			return infos, true, nil
+		}
+		if !errors.Is(err, errObjectIndexUnusable) {
+			return nil, false, err
+		}
+		logIndexFallback(ctx, o.name, err)
+	}
+	infos, err = store.List(ctx)
+	if err != nil && !errors.Is(err, jetstream.ErrNoObjectsFound) {
+		return nil, false, err
+	}
+	return infos, false, nil
 }
 
 // indexUnchanged reports whether the index stream still is the one created
@@ -347,6 +458,6 @@ func pushObjectInfo(q *evqueue.Queue[events.ObjectEvent], bucket string, info *j
 
 // logIndexFallback says why a watch reads the bucket's own stream.
 func logIndexFallback(ctx context.Context, bucket string, err error) {
-	logging.FromContext(ctx).Warn("bus: watching the object store's own stream; its metadata index is unusable",
+	logging.FromContext(ctx).Warn("bus: reading the object store's own stream; its metadata index is unusable",
 		"bucket", bucket, "err", err)
 }

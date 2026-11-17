@@ -36,6 +36,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/internal/evqueue"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
@@ -335,19 +336,17 @@ func (o *objectHandle) Info(ctx context.Context, name string) (events.ObjectInfo
 
 // List returns the info of every object whose name starts with prefix,
 // sorted by name. JetStream's object store has no server-side prefix
-// listing, so this lists the whole bucket and filters client-side; the
-// artwork bucket is capped at 5 GiB (spec §B.2) so one bucket lists in one
-// call, and the reaper (spec §B.5) is the only caller that lists at all.
+// listing, so this lists the whole bucket and filters client-side. A bucket
+// with a metadata index is listed from the index (listIndex, which says how
+// its ModTime and an expiring bucket's names differ); any other from the
+// bucket's own stream, which costs the server a read of every chunk.
 func (o *objectHandle) List(ctx context.Context, prefix string) ([]events.ObjectInfo, error) {
 	store, err := o.resolve(ctx)
 	if err != nil {
 		return nil, err
 	}
-	all, err := store.List(ctx)
+	all, _, err := o.listObjects(ctx, store)
 	if err != nil {
-		if errors.Is(err, jetstream.ErrNoObjectsFound) {
-			return nil, nil
-		}
 		return nil, objectError("list", o.name, prefix, err)
 	}
 	out := make([]events.ObjectInfo, 0, len(all))
@@ -458,25 +457,45 @@ func (o *objectHandle) Status(ctx context.Context) (events.ObjectStoreStatus, er
 
 var _ events.ObjectStoreAdmin = (*Bus)(nil)
 
+// Purge guard: a list read from the metadata index is trusted for a purge
+// only while it leaves few chunks orphaned. Orphans are what two racing Puts
+// of one name leak, a handful at most; an index that named few of the
+// bucket's objects would call most of its chunks orphans. Past both bounds
+// the pass is decided again from the bucket's own stream.
+const (
+	// orphanGuardMin is the fewest orphaned chunk subjects that trip it.
+	orphanGuardMin = 100
+	// orphanGuardShare trips it at more than one in orphanGuardShare of the
+	// bucket's chunk subjects.
+	orphanGuardShare = 4
+)
+
+// orphanGuardTrips reports whether orphans of subjects chunk subjects are
+// too many to purge on the index's word.
+func orphanGuardTrips(orphans, subjects int) bool {
+	return orphans >= orphanGuardMin && orphans*orphanGuardShare > subjects
+}
+
 // PurgeOrphanChunks implements events.ObjectStoreAdmin (artwork design §B.5 as
 // amended 2026-10-07). It needs the object store's stream layout ($O.<bucket>.C.
 // <nuid> chunks, the OBJ_<bucket> stream; ADR-20), which is why it lives only
 // here. The meta-level List cannot see an orphan, since no meta names it.
 //
+// The live objects are read from the bucket's metadata index when it has a
+// usable one, and from the bucket itself when the index would orphan too
+// many chunks (orphanGuardTrips).
+//
 // A List read before a racing Put replaced X with Y lists X; Y's chunks are
 // then not live here but younger than the grace, so they stay.
 func (b *Bus) PurgeOrphanChunks(ctx context.Context, bucket string, grace time.Duration) (int, uint64, error) {
-	store, err := (&objectHandle{bus: b, name: bucket}).resolve(ctx)
+	o := &objectHandle{bus: b, name: bucket}
+	store, err := o.resolve(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
-	live := map[string]bool{}
-	all, err := store.List(ctx)
-	if err != nil && !errors.Is(err, jetstream.ErrNoObjectsFound) {
+	all, fromIndex, err := o.listObjects(ctx, store)
+	if err != nil {
 		return 0, 0, objectError("list", bucket, "", err)
-	}
-	for _, info := range all {
-		live[info.NUID] = true
 	}
 	s, err := b.lookupStream(ctx, events.ObjectStoreStream(bucket))
 	if err != nil {
@@ -487,13 +506,20 @@ func (b *Bus) PurgeOrphanChunks(ctx context.Context, bucket string, grace time.D
 	if err != nil {
 		return 0, 0, fmt.Errorf("natsbus: chunk subjects of %s: %w", bucket, err)
 	}
+	orphans := orphanSubjects(info.State.Subjects, prefix, all)
+	if fromIndex && orphanGuardTrips(len(orphans), len(info.State.Subjects)) {
+		logging.FromContext(ctx).Warn("bus: the metadata index leaves too many chunks orphaned to purge on its word; reading the object store's own stream",
+			"bucket", bucket, "orphans", len(orphans), "chunkSubjects", len(info.State.Subjects), "objects", len(all))
+		all, err = store.List(ctx)
+		if err != nil && !errors.Is(err, jetstream.ErrNoObjectsFound) {
+			return 0, 0, objectError("list", bucket, "", err)
+		}
+		orphans = orphanSubjects(info.State.Subjects, prefix, all)
+	}
 	var purged int
 	var freed uint64
 	var errs []error
-	for subject, msgs := range info.State.Subjects {
-		if live[strings.TrimPrefix(subject, prefix)] {
-			continue
-		}
+	for _, subject := range orphans {
 		last, err := s.GetLastMsgForSubject(ctx, subject)
 		if err != nil {
 			if errors.Is(err, jetstream.ErrMsgNotFound) {
@@ -510,9 +536,26 @@ func (b *Bus) PurgeOrphanChunks(ctx context.Context, bucket string, grace time.D
 			continue
 		}
 		purged++
-		freed += msgs * uint64(len(last.Data)) // the chunk size; the last chunk may be shorter
+		freed += info.State.Subjects[subject] * uint64(len(last.Data)) // the chunk size; the last chunk may be shorter
 	}
 	metrics.ObjectOrphanChunksPurgedTotal.WithLabelValues(bucket).Add(float64(purged))
 	metrics.ObjectOrphanBytesPurgedTotal.WithLabelValues(bucket).Add(float64(freed))
 	return purged, freed, errors.Join(errs...)
+}
+
+// orphanSubjects is the chunk subjects, sorted, that no object of live
+// names.
+func orphanSubjects(subjects map[string]uint64, prefix string, live []*jetstream.ObjectInfo) []string {
+	nuids := make(map[string]bool, len(live))
+	for _, info := range live {
+		nuids[info.NUID] = true
+	}
+	var out []string
+	for subject := range subjects {
+		if !nuids[strings.TrimPrefix(subject, prefix)] {
+			out = append(out, subject)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

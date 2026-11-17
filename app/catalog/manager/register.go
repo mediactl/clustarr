@@ -52,6 +52,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/lastrun"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
@@ -318,8 +319,9 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// status.overlay from the bucket and repair what is missing on every
 	// pass.
 	reaper := &artwork.Reaper{
-		Store:  bus.ObjectStore(events.BucketArtwork),
-		Client: mgr.GetAPIReader(),
+		Store:   bus.ObjectStore(events.BucketArtwork),
+		Client:  mgr.GetAPIReader(),
+		LastRun: &lastrun.Mark{KV: bus.KV(events.BucketMaintenance), Key: "artwork-reaper"},
 	}
 	if err := mgr.Add(reaper); err != nil {
 		return fmt.Errorf("catalog: add the artwork reaper: %w", err)
