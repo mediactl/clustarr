@@ -345,7 +345,13 @@ func Current(ctx context.Context, r client.Reader, item client.Object) (*decisio
 		}
 		return nil, fmt.Errorf("itemread: get MediaFile %s: %w", *ref, err)
 	}
-	return CurrentOf(&mf), nil
+	cur := CurrentOf(&mf)
+	// An episode's file of the wrong shape is its reconciler's verdict
+	// (status.cutoffReason), which read the series' setting.
+	if ep, ok := item.(*catalogv1alpha1.Episode); ok && cur != nil && ep.Status.CutoffReason == rollup.ReasonWrongAspectRatio {
+		cur.WrongAspect = true
+	}
+	return cur, nil
 }
 
 // Owner is item's grab owner (ADR-0019 §6.1): an Episode's Series, an

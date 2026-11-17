@@ -288,7 +288,8 @@ func (r *Reconciler) mapSeries(ctx context.Context, o client.Object) []reconcile
 }
 
 // seriesMonitoredChanged passes a Series update that turns its monitoring
-// on or off, and nothing else: not the initial sync's creates (the Episode
+// on or off or moves another input of its episodes' cutoff, and nothing
+// else: not the initial sync's creates (the Episode
 // source enqueues every Episode already), and no other edit, which changes
 // no Episode's phase.
 func seriesMonitoredChanged() predicate.Predicate {
@@ -312,8 +313,10 @@ func seriesMonitoredChanged() predicate.Predicate {
 			if n.Status.Metadata != nil {
 				origNew = n.Status.Metadata.OriginalLanguage
 			}
+			// So does the shape the series, or a season of it, is kept in.
 			return ptr.Deref(o.Spec.Monitored, true) != ptr.Deref(n.Spec.Monitored, true) ||
-				o.Spec.QualityProfileRef != n.Spec.QualityProfileRef || origOld != origNew
+				o.Spec.QualityProfileRef != n.Spec.QualityProfileRef || origOld != origNew ||
+				o.Spec.AspectRatio != n.Spec.AspectRatio || !slices.Equal(o.Spec.SeasonAspectRatios, n.Spec.SeasonAspectRatios)
 		},
 	}
 }
@@ -444,6 +447,17 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		cutoffMet = false
 		transcoded = false
 	}
+	// A file that is not the shape its series is kept in -- 4:3 where the
+	// series is widescreen, or the reverse -- does not meet the cutoff
+	// whatever its quality (Series.WantedAspect, owner 2026-11-17): the
+	// wanted sweep looks for another release, and the first of the wanted
+	// shape replaces it. Its shape is the probe's (ProbeVersion 5); a file
+	// not probed since is not judged.
+	wrongAspect := hasFile && series != nil && mf.WrongAspect(series.WantedAspect(ep.Spec.SeasonNumber))
+	if wrongAspect {
+		cutoffMet = false
+		transcoded = false
+	}
 	if action, file := rollup.FileTransition(ep.Status.FileRef, mf); action != "" {
 		r.publishFile(ctx, ep, action, file, mf, now)
 	}
@@ -488,6 +502,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		cutoffReason = rollup.ReasonBitrateOutOfRange
 	case undecodable != "":
 		cutoffReason = rollup.ReasonUndecodableVideo
+	case wrongAspect:
+		cutoffReason = rollup.ReasonWrongAspectRatio
 	case cutoffMet:
 		cutoffReason = CutoffReasonMet
 	default:

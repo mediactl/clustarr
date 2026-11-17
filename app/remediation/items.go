@@ -545,8 +545,9 @@ func itemWakeKeys(old, cur *catalogv1alpha1.MediaFile) []Key {
 // FileSignature is what of a MediaFile's status the item rollups read
 // (§3.3 S1'): the Transcoded verdict, the probed audio languages, whether it
 // is probed at all, its Ready status, the transcode and graft phases, the
-// graft block's tag and the file's flat status.graftTag (status.audio.graft
-// reads done from it, §2.14). A status write that moves none of them --
+// graft block's tag, the file's flat status.graftTag (status.audio.graft
+// reads done from it, §2.14) and the shape of its picture. A status write
+// that moves none of them --
 // a graft message alone, say -- wakes no item.
 type FileSignature struct {
 	Transcoded     bool
@@ -557,6 +558,11 @@ type FileSignature struct {
 	GraftPhase     catalogv1alpha1.GraftPhase
 	GraftBlockTag  string
 	GraftTag       string
+	// Aspect is the shape of the probed picture (AspectOf), "" until a
+	// probe reads it: a file probed before ProbeVersion 5 gains it with no
+	// other field moving, and its Episode is then held against its
+	// series' shape.
+	Aspect catalogv1alpha1.AspectRatio
 }
 
 // SignatureOf is mf's FileSignature.
@@ -576,6 +582,9 @@ func SignatureOf(mf *catalogv1alpha1.MediaFile) FileSignature {
 		s.GraftPhase, s.GraftBlockTag = g.Phase, g.Tag
 	}
 	s.GraftTag = mf.Status.GraftTag
+	if mi := mf.Status.MediaInfo; mi != nil {
+		s.Aspect = catalogv1alpha1.AspectOf(mi.DisplayAspectMilli)
+	}
 	return s
 }
 

@@ -72,6 +72,15 @@ type Current struct {
 	// The release itself is neither: the h264-10bit and mpeg4-part2
 	// formats refuse them.
 	Undecodable bool
+	// WrongAspect is an episode's file that is not the shape its series is
+	// kept in (Series.WantedAspect; the Episode's cutoffReason
+	// WrongAspectRatio, owner 2026-11-17): it does not meet the cutoff, and
+	// a release of any quality the profile takes replaces it, whatever the
+	// transcoded, baseline and upgrade rules say. A release's own shape is
+	// known only once its file is probed, so import holds the file that
+	// arrives to it (importplan's aspect rules), and the grab plan stops
+	// trying after a few releases that were not it.
+	WrongAspect bool
 }
 
 // Queued is a release already downloading for a Target: the

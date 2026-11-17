@@ -201,6 +201,18 @@ func (s *Stage) importInput(
 					return in, fmt.Errorf("downloads: MediaFiles of %s: %w", key, err)
 				}
 				in.Existing[key] = list.Items
+				// The shape the episode's series keeps its season in.
+				if sr, ok := ow.obj.(*catalogv1alpha1.Series); ok && kind == commonv1.MediaKindEpisode {
+					var ep catalogv1alpha1.Episode
+					if err := s.o.Reader.Get(ctx, client.ObjectKey{Namespace: ns, Name: k}, &ep); err == nil {
+						if in.WantedAspect == nil {
+							in.WantedAspect = map[string]catalogv1alpha1.AspectRatio{}
+						}
+						in.WantedAspect[key] = sr.WantedAspect(ep.Spec.SeasonNumber)
+					} else if client.IgnoreNotFound(err) != nil {
+						return in, fmt.Errorf("downloads: Episode %s: %w", k, err)
+					}
+				}
 			}
 		}
 	}

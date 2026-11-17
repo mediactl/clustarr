@@ -442,6 +442,44 @@ func (d *decider) check(c Candidate) verdict {
 	return vd
 }
 
+// MaxAspectTries is how many releases are tried for an item whose file is
+// not the shape its series is kept in (decision.Current.WrongAspect): a
+// release's shape is known only once its file is probed, so each try is a
+// download, and for some series no release of the wanted shape exists. A
+// try that was not it is refused by import and blocklisted for the owner;
+// once this many of the releases covering the item carry such a block, the
+// file is judged as any other (a transcode is final again), until the
+// blocks lapse.
+const MaxAspectTries = 3
+
+// current is it's current file as the item-state rules read it: with
+// WrongAspect cleared once MaxAspectTries releases covering the item were
+// refused by import.
+func (d *decider) current(it Covered) *decision.Current {
+	if it.Current == nil || !it.Current.WrongAspect {
+		return it.Current
+	}
+	tried := 0
+	for i := range d.v.Candidates {
+		c := d.v.Candidates[i]
+		if b := c.Release.Blocked; b == nil || b.Reason != string(commonv1.DownloadFailureImportRejected) {
+			continue
+		}
+		for _, cov := range d.coverage(c) {
+			if cov.Ref.Name == it.Ref.Name {
+				tried++
+				break
+			}
+		}
+	}
+	if tried < MaxAspectTries {
+		return it.Current
+	}
+	cur := *it.Current
+	cur.WrongAspect = false
+	return &cur
+}
+
 // itemStateRejections are pkg/decision's item-state rejections of the
 // candidate for one covered item: the queue preference over the live
 // entries, the current file, its cutoff and TranscodedFinal, the release
@@ -451,7 +489,7 @@ func (d *decider) itemStateRejections(c Candidate, it Covered) []commonv1.Reject
 	t := decision.Target{
 		Kind:                coveredKind(it),
 		OriginalLanguageTag: d.v.OriginalLanguageTag,
-		Current:             it.Current,
+		Current:             d.current(it),
 		Queue:               d.queue(it, c.Purpose),
 	}
 	blocked := c.Release.Blocked != nil || d.tombstoned(it, rel)

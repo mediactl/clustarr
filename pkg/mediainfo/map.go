@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mediainfo
 
 import (
+	"math"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -83,6 +85,7 @@ func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 		mi.VideoBitDepth = bitDepthFromPixFmt(v.PixFmt)
 		mi.Width = int32(v.Width)
 		mi.Height = int32(v.Height)
+		mi.DisplayAspectMilli = displayAspectMilli(v)
 		mi.FpsMilli = frameRateMilli(v.RFrameRate)
 		mi.VideoBitrateKbps = videoBitrateKbps(raw, v)
 		mi.VideoEncoder = videoEncoder(v)
@@ -185,8 +188,33 @@ func FormatTag(raw *Raw, key string) string {
 // music or audiobook file's format tags (tags: title, artist, album, track
 // and disc numbers, date, the MusicBrainz ids) and each audio stream's
 // sample rate and bit depth (2026-11-10 design D9), which attribute a track
-// to its album and fill the music pages and the Plex music provider.
-const ProbeVersion int32 = 4
+// to its album and fill the music pages and the Plex music provider; 5
+// records the picture's display aspect ratio (displayAspectMilli,
+// 2026-11-17), which a series' wanted aspect ratio is held against.
+const ProbeVersion int32 = 5
+
+// displayAspectMilli is a video stream's display aspect ratio in
+// thousandths: its frame's width over its height, times its pixels' own
+// aspect where the stream names one (a sample aspect of 0:1 or none is
+// square). Zero for a stream without a frame size.
+func displayAspectMilli(v *ffprobe.Stream) int32 {
+	if v.Width <= 0 || v.Height <= 0 {
+		return 0
+	}
+	num, den := int64(v.Width), int64(v.Height)
+	if n, d, ok := strings.Cut(v.SampleAspectRatio, ":"); ok {
+		sn, errN := strconv.ParseInt(n, 10, 64)
+		sd, errD := strconv.ParseInt(d, 10, 64)
+		if errN == nil && errD == nil && sn > 0 && sd > 0 {
+			num, den = num*sn, den*sd
+		}
+	}
+	milli := (num*1000 + den/2) / den
+	if milli > math.MaxInt32 {
+		return 0
+	}
+	return int32(milli)
+}
 
 // MaxChapters and MaxChapterTitle are MediaInfo.ChapterList's MaxItems and
 // Chapter.Title's MaxLength.

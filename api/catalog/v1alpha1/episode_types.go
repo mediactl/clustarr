@@ -200,7 +200,8 @@ type EpisodeStatus struct {
 
 	// CutoffReason says why CutoffMet reads as it does: Pending (no file),
 	// Transcoded, ProfileUnresolved, WrongLanguage, MissingAudio,
-	// BitrateOutOfRange, UndecodableVideo, CutoffMet or CutoffUnmet. It was
+	// BitrateOutOfRange, UndecodableVideo, WrongAspectRatio, CutoffMet or
+	// CutoffUnmet. It was
 	// the CutoffMet condition's reason until 2026-11-03, when the Aired,
 	// HasFile, CutoffMet and WrongLanguage conditions were retired: every
 	// episode carried the five, restating phase, hasFile and cutoffMet, and

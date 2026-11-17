@@ -92,6 +92,10 @@ type Input struct {
 	ProfileError string
 	// OriginalLanguage is the owner's original language tag.
 	OriginalLanguage string
+	// WantedAspect is the shape each covered Episode is kept in
+	// (Series.WantedAspect of its season), by ItemKey of every key the
+	// inspection's files name; absent for every other kind.
+	WantedAspect map[string]catalogv1alpha1.AspectRatio
 	// Identity is a Movie owner's identity (itemread.MovieIdentity) and
 	// RuntimeMinutes its metadata runtime, for the runtime rule
 	// (movieContentRejection); zero for every other kind.
@@ -926,6 +930,16 @@ func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.Media
 		}
 		if undecodableRefit(prof, compared, q) {
 			return Rejection{}, false
+		}
+		// The series' shape (aspect.go): a file of the wrong one replaces
+		// none, and one of the wanted shape replaces a file that is not.
+		if want := p.wantedAspect(c); want != "" {
+			if r := aspectRejection(rel, want, c, compared); !r.none() && !manual {
+				return r, true
+			}
+			if aspectRefit(prof, want, compared, c, q) {
+				return Rejection{}, false
+			}
 		}
 		if packRefit(prof, p.in.OriginalLanguage, e, compared, c) {
 			return Rejection{}, false

@@ -28,6 +28,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -156,4 +157,37 @@ func TestTheCurrentFileCarriesItsBitrate(t *testing.T) {
 		Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{RuntimeMillis: 2_580_000}},
 	}
 	assert.Equal(t, int64(400_000), itemread.CurrentOf(mf).BytesPerSecond)
+}
+
+// An episode's current file is the wrong shape when its reconciler said so
+// (status.cutoffReason WrongAspectRatio), which read its series' setting;
+// under any other reason, and for a movie, it is not.
+func TestAnEpisodesCurrentFileCarriesItsShapeVerdict(t *testing.T) {
+	ctx := context.Background()
+	const ns = "tv"
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(&catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: "file", Namespace: ns},
+		Spec:       catalogv1alpha1.MediaFileSpec{Path: "/data/media/tv/x.mkv"},
+	}).Build()
+	episode := func(reason string) *catalogv1alpha1.Episode {
+		return &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: "e", Namespace: ns},
+			Status:     catalogv1alpha1.EpisodeStatus{HasFile: true, FileRef: new("file"), CutoffReason: reason},
+		}
+	}
+	cur, err := itemread.Current(ctx, c, episode(rollup.ReasonWrongAspectRatio))
+	require.NoError(t, err)
+	require.NotNil(t, cur)
+	assert.True(t, cur.WrongAspect)
+
+	cur, err = itemread.Current(ctx, c, episode(rollup.ReasonTranscoded))
+	require.NoError(t, err)
+	assert.False(t, cur.WrongAspect)
+
+	cur, err = itemread.Current(ctx, c, &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "m", Namespace: ns},
+		Status:     catalogv1alpha1.MovieStatus{HasFile: true, FileRef: new("file")},
+	})
+	require.NoError(t, err)
+	assert.False(t, cur.WrongAspect)
 }

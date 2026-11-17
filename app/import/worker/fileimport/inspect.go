@@ -417,11 +417,12 @@ func summaryOf(mi *commonv1.MediaInfo) *schema.ProbeSummary {
 	}
 	return &schema.ProbeSummary{
 		VideoCodec: mi.VideoCodec, Width: mi.Width, Height: mi.Height, HDR: string(mi.Hdr),
-		VideoBitDepth:   bitDepth(mi),
-		AudioLanguages:  decision.AudioLanguages(mi),
-		DurationSeconds: mi.RuntimeMillis / 1000,
-		Transcoded:      mi.TranscodeProfile != "" || mi.TranscodedElsewhere(),
-		ProfileTag:      mi.TranscodeProfile,
+		DisplayAspectMilli: mi.DisplayAspectMilli,
+		VideoBitDepth:      bitDepth(mi),
+		AudioLanguages:     decision.AudioLanguages(mi),
+		DurationSeconds:    mi.RuntimeMillis / 1000,
+		Transcoded:         mi.TranscodeProfile != "" || mi.TranscodedElsewhere(),
+		ProfileTag:         mi.TranscodeProfile,
 	}
 }
 

@@ -120,6 +120,11 @@ func stream(s *ffgo.StreamInfo) *ffprobe.Stream {
 	switch s.Type {
 	case ffgo.MediaTypeVideo:
 		ps.Width, ps.Height, ps.Level = s.Width, s.Height, s.Level
+		// A picture's shape is its frame times its pixels' own: a DVD's
+		// 720x480 frame is 4:3 or 16:9 by its sample aspect alone.
+		if sar := s.SampleAspectRatio; sar.Num > 0 && sar.Den > 0 {
+			ps.SampleAspectRatio = fmt.Sprintf("%d:%d", sar.Num, sar.Den)
+		}
 		if s.PixelFmt >= 0 {
 			ps.PixFmt = ffgo.PixelFormatName(s.PixelFmt)
 		}

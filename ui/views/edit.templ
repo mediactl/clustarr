@@ -139,6 +139,7 @@ const EditFieldsNone = "__none__"
 // TestAddAndEditOptionsAreTheActionsChoices holds the two equal.
 var (
 	seriesTypeOptions         = []AddOption{{"standard", "Standard"}, {"daily", "Daily"}, {"anime", "Anime"}}
+	aspectRatioOptions        = []AddOption{{"widescreen", "Widescreen"}, {"fullscreen", "4:3"}, {"any", "Any"}}
 	availabilityOptions       = []AddOption{{"tba", "TBA"}, {"announced", "Announced"}, {"inCinemas", "In Cinemas"}, {"released", "Released"}}
 	artistMonitorNewOptions   = []AddOption{{"all", "All new albums"}, {"none", "None"}, {"new", "New albums only"}}
 	authorMonitorNewOptions   = []AddOption{{"all", "All new books"}, {"none", "None"}}
@@ -212,6 +213,7 @@ templ editDialog(d Detail) {
 				}
 				if d.Item.Kind == commonv1.MediaKindSeries {
 					@editSelect("seriesType", d.Item.Ref.Name, "Series Type", seriesTypeOptions, d.SeriesType)
+					@editSelect("aspectRatio", d.Item.Ref.Name, "Aspect Ratio", aspectRatioOptions, d.AspectRatio)
 				}
 				if d.Item.Kind == commonv1.MediaKindMovie {
 					@editSelect("minimumAvailability", d.Item.Ref.Name, "Minimum Availability", availabilityOptions, d.MinimumAvailability)

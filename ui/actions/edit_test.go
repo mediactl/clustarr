@@ -57,6 +57,14 @@ func TestEditItemSendsOneMergePatchOfTheFieldsGiven(t *testing.T) {
 	require.IsType(t, &catalogv1alpha1.Series{}, w.patches[0].obj)
 	require.JSONEq(t, `{"spec":{"qualityProfileRef":"anime-web-1080p","seriesType":"anime"}}`, string(w.patches[0].data),
 		"monitored was not given, so it is not sent")
+
+	// The shape a series is kept in (owner, 2026-11-17): 4:3 is the CRD's
+	// "fullscreen".
+	w = &fakeWriter{}
+	_, err = actions.EditItem(t.Context(), w, "media", commonv1.MediaKindSeries, "seinfeld",
+		actions.EditRequest{QualityProfileRef: "hd-bluray-web", AspectRatio: "fullscreen"})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"spec":{"qualityProfileRef":"hd-bluray-web","aspectRatio":"fullscreen"}}`, string(w.patches[0].data))
 }
 
 // A kind without a profile of its own, a missing profile, or a video
@@ -72,6 +80,8 @@ func TestEditItemRefusesWhatTheDialogCannotMean(t *testing.T) {
 		"no profile":                         {commonv1.MediaKindMovie, actions.EditRequest{}},
 		"a series type on a movie":           {commonv1.MediaKindMovie, actions.EditRequest{QualityProfileRef: "any", SeriesType: "anime"}},
 		"an unknown series type":             {commonv1.MediaKindSeries, actions.EditRequest{QualityProfileRef: "any", SeriesType: "cartoon"}},
+		"an aspect ratio on a movie":         {commonv1.MediaKindMovie, actions.EditRequest{QualityProfileRef: "any", AspectRatio: "fullscreen"}},
+		"an unknown aspect ratio":            {commonv1.MediaKindSeries, actions.EditRequest{QualityProfileRef: "any", AspectRatio: "4:3"}},
 		"a minimum availability on a series": {commonv1.MediaKindSeries, actions.EditRequest{QualityProfileRef: "any", MinimumAvailability: "released"}},
 		"an unknown minimum availability":    {commonv1.MediaKindMovie, actions.EditRequest{QualityProfileRef: "any", MinimumAvailability: "soon"}},
 	}

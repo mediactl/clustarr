@@ -367,6 +367,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.SearchStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonArtworkOverride"):
 		return &catalogv1alpha1.SeasonArtworkOverrideApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SeasonAspectRatio"):
+		return &catalogv1alpha1.SeasonAspectRatioApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonImage"):
 		return &catalogv1alpha1.SeasonImageApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonSearchRequest"):

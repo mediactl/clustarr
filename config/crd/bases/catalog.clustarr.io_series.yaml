@@ -157,6 +157,22 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              aspectRatio:
+                default: widescreen
+                description: |-
+                  AspectRatio is the shape of picture the series is kept in:
+                  widescreen (the default), fullscreen (4:3, for a series made in it)
+                  or any. An episode whose file is another shape does not meet its
+                  cutoff, whatever its quality: a release is searched for and the
+                  file replaced by the first of the wanted shape, since a release's
+                  shape is known only once its file is probed (status.cutoffReason
+                  WrongAspectRatio; at most a few releases are tried, after which the
+                  file stays and stays marked).
+                enum:
+                - widescreen
+                - fullscreen
+                - any
+                type: string
               delayProfileRef:
                 description: DelayProfileRef pins a DelayProfile; unset falls back
                   to tag matching.
@@ -270,6 +286,37 @@ spec:
                   type: object
                 maxItems: 1000
                 type: array
+              seasonAspectRatios:
+                description: |-
+                  SeasonAspectRatios gives a season its own shape, where it is not
+                  the series': the widescreen seasons of a series that began in 4:3.
+                items:
+                  description: |-
+                    SeasonAspectRatio is one season's own shape, where it is not the
+                    series': the widescreen seasons of a series that began in 4:3.
+                  properties:
+                    aspectRatio:
+                      description: AspectRatio is the shape the season is kept in.
+                      enum:
+                      - widescreen
+                      - fullscreen
+                      - any
+                      type: string
+                    number:
+                      description: Number is the season number; 0 is the specials
+                        season.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - aspectRatio
+                  - number
+                  type: object
+                maxItems: 200
+                type: array
+                x-kubernetes-list-map-keys:
+                - number
+                x-kubernetes-list-type: map
               seasonFolder:
                 default: true
                 description: SeasonFolder stores each season in its own folder.

@@ -349,6 +349,7 @@ func openVideo(m *ffgo.Muxer, v Video, d time.Duration) (*source, error) {
 		VideoEncoderConfig: ffgo.VideoEncoderConfig{
 			EncoderName: enc, Width: vs.Width, Height: vs.Height, FrameRate: rate,
 			PixelFormat: pf, CodecOptions: copts,
+			SampleAspectRatio: ffgo.NewRational(int32(v.SampleAspect[0]), int32(v.SampleAspect[1])),
 		},
 		TimeBase:     src.tb,
 		SideData:     frameSide,

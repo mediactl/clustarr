@@ -462,3 +462,24 @@ func TestALedgerWakeMapsToItsItemKey(t *testing.T) {
 	_, ok = ledgerKey(dispatch.Key{Kind: "MediaFile", Namespace: "media", Name: "heat-1080p"})
 	assert.False(t, ok)
 }
+
+// The item key wakes when a probe first reads its file's shape, or the
+// shape changes class: a file probed before ProbeVersion 5 gains its
+// display aspect ratio with nothing else moving, and its Episode is then
+// held against the shape its series is kept in (owner, 2026-11-17). A
+// ratio moving within one shape wakes no item.
+func TestFileSignatureMovesWithThePicturesShape(t *testing.T) {
+	mf := &catalogv1alpha1.MediaFile{Status: catalogv1alpha1.MediaFileStatus{
+		ProbeHash: "h1", MediaInfo: &commonv1.MediaInfo{Width: 720, Height: 480},
+	}}
+	base := SignatureOf(mf)
+	wide := mf.DeepCopy()
+	wide.Status.MediaInfo.DisplayAspectMilli = 1778
+	assert.NotEqual(t, base, SignatureOf(wide), "the shape is read")
+	full := mf.DeepCopy()
+	full.Status.MediaInfo.DisplayAspectMilli = 1333
+	assert.NotEqual(t, SignatureOf(wide), SignatureOf(full), "the other shape")
+	scope := mf.DeepCopy()
+	scope.Status.MediaInfo.DisplayAspectMilli = 2400
+	assert.Equal(t, SignatureOf(wide), SignatureOf(scope), "a wider widescreen is the same shape")
+}

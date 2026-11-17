@@ -43,6 +43,18 @@ type SeriesSpecApplyConfiguration struct {
 	// toggle), and a new episode of the season takes the override rather
 	// than monitorNewItems.
 	Seasons []SeasonSpecApplyConfiguration `json:"seasons,omitempty"`
+	// AspectRatio is the shape of picture the series is kept in:
+	// widescreen (the default), fullscreen (4:3, for a series made in it)
+	// or any. An episode whose file is another shape does not meet its
+	// cutoff, whatever its quality: a release is searched for and the
+	// file replaced by the first of the wanted shape, since a release's
+	// shape is known only once its file is probed (status.cutoffReason
+	// WrongAspectRatio; at most a few releases are tried, after which the
+	// file stays and stays marked).
+	AspectRatio *catalogv1alpha1.AspectRatio `json:"aspectRatio,omitempty"`
+	// SeasonAspectRatios gives a season its own shape, where it is not
+	// the series': the widescreen seasons of a series that began in 4:3.
+	SeasonAspectRatios []SeasonAspectRatioApplyConfiguration `json:"seasonAspectRatios,omitempty"`
 	// SeasonFolder stores each season in its own folder.
 	SeasonFolder *bool `json:"seasonFolder,omitempty"`
 	// EpisodeOrder is the numbering scheme releases are matched against.
@@ -136,6 +148,27 @@ func (b *SeriesSpecApplyConfiguration) WithSeasons(values ...*SeasonSpecApplyCon
 			panic("nil value passed to WithSeasons")
 		}
 		b.Seasons = append(b.Seasons, *values[i])
+	}
+	return b
+}
+
+// WithAspectRatio sets the AspectRatio field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AspectRatio field is set to the value of the last call.
+func (b *SeriesSpecApplyConfiguration) WithAspectRatio(value catalogv1alpha1.AspectRatio) *SeriesSpecApplyConfiguration {
+	b.AspectRatio = &value
+	return b
+}
+
+// WithSeasonAspectRatios adds the given value to the SeasonAspectRatios field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the SeasonAspectRatios field.
+func (b *SeriesSpecApplyConfiguration) WithSeasonAspectRatios(values ...*SeasonAspectRatioApplyConfiguration) *SeriesSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithSeasonAspectRatios")
+		}
+		b.SeasonAspectRatios = append(b.SeasonAspectRatios, *values[i])
 	}
 	return b
 }

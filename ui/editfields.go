@@ -306,6 +306,7 @@ func editRequest(r *http.Request, kind commonv1.MediaKind) (actions.EditRequest,
 		QualityProfileRef:   r.FormValue("qualityProfile"),
 		Monitored:           &monitored,
 		SeriesType:          r.FormValue("seriesType"),
+		AspectRatio:         r.FormValue("aspectRatio"),
 		MinimumAvailability: r.FormValue("minimumAvailability"),
 	}
 	if kind == commonv1.MediaKindAlbum && req.QualityProfileRef == views.EditFieldsNone {

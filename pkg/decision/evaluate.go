@@ -353,6 +353,11 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 	if t.Current != nil && t.Current.Undecodable && p.Lists(rel.Quality) {
 		return out
 	}
+	// And a file that is not the shape its series is kept in
+	// (Current.WrongAspect): the release may be, which only its file says.
+	if t.Current != nil && t.Current.WrongAspect && p.Lists(rel.Quality) {
+		return out
+	}
 	add(transcodedRejection(t, Options{}))
 	out = append(out, baselineRejections(p, t, parsed, rel)...)
 	add(upgradeRejection(p, t, candidate, namesWantedLanguages(an, p, parsed)))

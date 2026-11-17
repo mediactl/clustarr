@@ -46,6 +46,13 @@ const ReasonBitrateOutOfRange = "BitrateOutOfRange"
 // file.
 const ReasonUndecodableVideo = "UndecodableVideo"
 
+// ReasonWrongAspectRatio is the cutoff's reason for an episode whose file
+// is not the shape its series is kept in (Series.WantedAspect, owner
+// 2026-11-17): it does not meet the cutoff whatever its quality, a
+// transcode included, and the first release of the wanted shape replaces
+// it.
+const ReasonWrongAspectRatio = "WrongAspectRatio"
+
 // UndecodableVideo names mf's video when no GPU here decodes its codec --
 // H.264 10-bit, MPEG-4 Part 2 (XviD, DivX) -- else "": catalog's name for
 // catalogv1alpha1.(*MediaFile).UndecodableVideo, where the rule lives beside

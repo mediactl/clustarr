@@ -392,3 +392,39 @@ name in the folder it is already in (the remediation loop's rename actuator,
 a season is never split between "Season 3" and "Season 03"; `renameFiles`
 renames every file its own way and wins when both are on.
 
+**A series is kept in one shape of picture (owner, 2026-11-17: "we should
+ensure a season has a consistent aspect ratio ... attempt to always
+download widescreen unless the original aspect ratio was 4:3").**
+`Series.spec.aspectRatio` is `widescreen` (the default), `fullscreen` (4:3)
+or `any`, and `spec.seasonAspectRatios` gives a season its own
+(`Series.WantedAspect`); neither TMDB nor TheTVDB says what a series was
+made in, so it is a setting (the Edit dialog's Aspect Ratio; seasons by the
+spec). A picture is fullscreen under 3:2 by its display aspect ratio --
+frame times sample aspect, `MediaInfo.displayAspectMilli`, which the probe
+records since `ProbeVersion` 5 (a DVD's 720x480 is 4:3 or 16:9 by its
+pixels alone; 775 files on talos are that frame). It reads the frame: bars
+drawn into a wider frame are the picture, so a 4:3 scene pillarboxed into
+16:9 is widescreen. A release's shape is in no name, so nothing is refused
+before it is downloaded:
+
+- an Episode whose file is the wrong shape does not meet the cutoff, a
+  transcode included (`cutoffReason` `WrongAspectRatio`, phase
+  `CutoffUnmet`), so the wanted sweep searches it; the item wakes when a
+  probe first reads the shape (`FileSignature.Aspect`) and when the
+  series' setting moves;
+- search and grab let any release the profile takes replace it
+  (`decision.Current.WrongAspect`, `grabplan.StillWants`), for at most
+  `grabplan.MaxAspectTries` (3) releases: each try is a download, and once
+  that many of the releases covering the episode carry an import block the
+  file is judged as any other until the blocks lapse (90 days);
+- import (`importplan/aspect.go`) takes whatever came for an episode with
+  no file, refuses a file of the wrong shape that would replace one as a
+  releaseFault (blocklisted, the next searched), and lets a file of the
+  wanted shape replace one that is not past the transcoded rule and the
+  upgrade table (`aspectRefit`); a person's pick is exempt, and a file of
+  unknown shape is judged by none of it.
+
+Movies have no such setting. On 2026-11-17 talos held 1,054 4:3 episode
+files across 16 series, 20 seasons mixing the two shapes (Seinfeld S9: 20
+of the cropped 16:9 remaster, 4 in 4:3).
+

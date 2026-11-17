@@ -216,6 +216,15 @@ type MediaInfo struct {
 	// +optional
 	Height int32 `json:"height,omitempty"`
 
+	// DisplayAspectMilli is the picture's display aspect ratio in
+	// thousandths: the frame's width over its height, times its pixels'
+	// own aspect, so 16:9 is 1778 and 4:3 is 1333 whatever the frame
+	// size (a DVD's 720x480 is either). Zero when unknown: no video, or a
+	// probe older than ProbeVersion 5.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	DisplayAspectMilli int32 `json:"displayAspectMilli,omitempty"`
+
 	// FpsMilli is the video frame rate in thousandths of a frame per second,
 	// so 23.976 fps is 23976. Scaled integers are used instead of floats because
 	// CRD schemas discourage floating-point values.

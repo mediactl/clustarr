@@ -178,7 +178,12 @@ type ProbeSummary struct {
 	VideoCodec string `json:"videoCodec,omitempty"`
 	Width      int32  `json:"width,omitempty"`
 	Height     int32  `json:"height,omitempty"`
-	HDR        string `json:"hdr,omitempty"`
+	// DisplayAspectMilli is the picture's display aspect ratio in
+	// thousandths (MediaInfo.DisplayAspectMilli), 0 when unknown: a file of
+	// another shape than its series wants does not replace one of the
+	// wanted shape (importplan's aspect rules).
+	DisplayAspectMilli int32  `json:"displayAspectMilli,omitempty"`
+	HDR                string `json:"hdr,omitempty"`
 	// VideoBitDepth is the video's bit depth (8, 10), 0 when unknown: an
 	// H.264 10-bit file is refused (importplan.undecodableRejection).
 	VideoBitDepth   int32    `json:"videoBitDepth,omitempty"`

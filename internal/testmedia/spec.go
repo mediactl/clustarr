@@ -63,7 +63,11 @@ type Video struct {
 	HDR10 *HDR10
 	// Frames stops the stream after that many frames (`-frames:v`).
 	Frames int
-	Stream Stream
+	// SampleAspect is the pixels' own aspect (`-aspect`, as a sample
+	// aspect: {32, 27} makes a 720x480 frame a 16:9 picture); square
+	// when zero.
+	SampleAspect [2]int
+	Stream       Stream
 }
 
 // Audio is one audio stream: a lavfi source graph, or samples computed in

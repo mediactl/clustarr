@@ -396,6 +396,26 @@ type SeriesSpec struct {
 	// +kubebuilder:validation:MaxItems=200
 	Seasons []SeasonSpec `json:"seasons,omitempty"`
 
+	// AspectRatio is the shape of picture the series is kept in:
+	// widescreen (the default), fullscreen (4:3, for a series made in it)
+	// or any. An episode whose file is another shape does not meet its
+	// cutoff, whatever its quality: a release is searched for and the
+	// file replaced by the first of the wanted shape, since a release's
+	// shape is known only once its file is probed (status.cutoffReason
+	// WrongAspectRatio; at most a few releases are tried, after which the
+	// file stays and stays marked).
+	// +optional
+	// +kubebuilder:default=widescreen
+	AspectRatio AspectRatio `json:"aspectRatio,omitempty"`
+
+	// SeasonAspectRatios gives a season its own shape, where it is not
+	// the series': the widescreen seasons of a series that began in 4:3.
+	// +optional
+	// +listType=map
+	// +listMapKey=number
+	// +kubebuilder:validation:MaxItems=200
+	SeasonAspectRatios []SeasonAspectRatio `json:"seasonAspectRatios,omitempty"`
+
 	// SeasonFolder stores each season in its own folder.
 	// +optional
 	// +kubebuilder:default=true

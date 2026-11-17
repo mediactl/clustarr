@@ -933,6 +933,16 @@ spec:
                       flac, epub.
                     maxLength: 64
                     type: string
+                  displayAspectMilli:
+                    description: |-
+                      DisplayAspectMilli is the picture's display aspect ratio in
+                      thousandths: the frame's width over its height, times its pixels'
+                      own aspect, so 16:9 is 1778 and 4:3 is 1333 whatever the frame
+                      size (a DVD's 720x480 is either). Zero when unknown: no video, or a
+                      probe older than ProbeVersion 5.
+                    format: int32
+                    minimum: 0
+                    type: integer
                   doviBLCompatID:
                     description: DoviBLCompatID is the Dolby Vision base-layer compatibility
                       ID, when present.

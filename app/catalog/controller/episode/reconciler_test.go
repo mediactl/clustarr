@@ -885,6 +885,84 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		assert.True(t, got.Status.WrongLanguage, "the field still reports it")
 	})
 
+	t.Run("a file that is not the shape its series is kept in reads WrongAspectRatio and CutoffUnmet", func(t *testing.T) {
+		// Owner, 2026-11-17: a series is widescreen unless it is set 4:3,
+		// and a season one shape. Seinfeld S09 held 20 episodes of the
+		// cropped 16:9 remaster and four in the original 4:3.
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "seinfeld", "shape-at-1080p")))
+		require.NoError(t, c.Create(ctx, testQualityProfile("ep-ns", "shape-at-1080p", "Bluray-1080p")))
+		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: "seinfeld-s09e01", Namespace: "ep-ns"},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "seinfeld", SeasonNumber: 9, EpisodeNumber: 1},
+		}))
+		waitForPhase(t, ctx, c, "ep-ns", "seinfeld-s09e01")
+		mf := &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: "seinfeld-s09e01-abc1234567", Namespace: "ep-ns"},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "seinfeld-s09e01"},
+				Path:     "/data/media/tv/Seinfeld/Season 9/Seinfeld - S09E01.mkv",
+				Quality:  bluray,
+				// A transcode, which is final under every other rule.
+				Original: new(false),
+			},
+		}
+		require.NoError(t, c.Create(ctx, mf))
+		shape := func(milli int32) {
+			t.Helper()
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
+				catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{Width: 1440, Height: 1080, DisplayAspectMilli: milli})))
+			require.NoError(t, err)
+		}
+		want := func(a catalogv1alpha1.AspectRatio, seasons ...catalogv1alpha1.SeasonAspectRatio) {
+			t.Helper()
+			var sr catalogv1alpha1.Series
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "seinfeld"}, &sr))
+			patch := client.MergeFrom(sr.DeepCopy())
+			sr.Spec.AspectRatio, sr.Spec.SeasonAspectRatios = a, seasons
+			require.NoError(t, c.Patch(ctx, &sr, patch))
+		}
+		read := func(what string, ok func(e catalogv1alpha1.Episode) bool) catalogv1alpha1.Episode {
+			t.Helper()
+			var got catalogv1alpha1.Episode
+			require.Eventually(t, func() bool {
+				return c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "seinfeld-s09e01"}, &got) == nil && ok(got)
+			}, 5*time.Second, 20*time.Millisecond, what)
+			return got
+		}
+		var sr catalogv1alpha1.Series
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "seinfeld"}, &sr))
+		assert.Equal(t, catalogv1alpha1.AspectRatioWidescreen, sr.Spec.AspectRatio, "a series is widescreen unless it is set otherwise")
+
+		// Not probed for its shape yet: a transcode, final.
+		read("a file whose shape is unknown is judged as ever", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.Phase == catalogv1alpha1.EpisodePhaseTranscoded
+		})
+
+		shape(1333)
+		got := read("a 4:3 file of a widescreen series must read WrongAspectRatio", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.CutoffReason == rollup.ReasonWrongAspectRatio
+		})
+		assert.False(t, got.Status.CutoffMet)
+		assert.Equal(t, catalogv1alpha1.EpisodePhaseCutoffUnmet, got.Status.Phase, "a transcode is not final in the wrong shape: the wanted sweep must look for another")
+
+		want(catalogv1alpha1.AspectRatioFullscreen)
+		got = read("the series set 4:3, the 4:3 file is final again", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.Phase == catalogv1alpha1.EpisodePhaseTranscoded
+		})
+		assert.Equal(t, rollup.ReasonTranscoded, got.Status.CutoffReason)
+
+		want(catalogv1alpha1.AspectRatioFullscreen, catalogv1alpha1.SeasonAspectRatio{Number: 9, AspectRatio: catalogv1alpha1.AspectRatioWidescreen})
+		read("the season's own shape is held before the series'", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.CutoffReason == rollup.ReasonWrongAspectRatio
+		})
+
+		shape(1778)
+		read("a widescreen file in a widescreen season is final", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.Phase == catalogv1alpha1.EpisodePhaseTranscoded
+		})
+	})
+
 	t.Run("a dual-audio profile reports status.audio and never blocks the video for a missing dub", func(t *testing.T) {
 		// Anime dual-audio spec §5.3: a Japanese-only file under [en, original]
 		// with grafting on is missing English, and that is the graft's job.

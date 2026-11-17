@@ -269,6 +269,9 @@ type Detail struct {
 	// current spec values for the dialog's other field.
 	Profiles            []AddOption
 	SeriesType          string
+	// AspectRatio is a series' spec.aspectRatio: the shape of picture it
+	// is kept in (widescreen, fullscreen, any).
+	AspectRatio string
 	MinimumAvailability string
 	// Audio is a movie's status.audio as a note.
 	Audio AudioNote

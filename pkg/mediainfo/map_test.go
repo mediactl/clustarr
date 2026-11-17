@@ -179,3 +179,33 @@ func TestVideoBitrateFromAMatroskaFile(t *testing.T) {
 	raw.Format.BitRate = ""
 	assert.Zero(t, toMediaInfo(raw).VideoBitrateKbps, "nothing to derive it from")
 }
+
+// A picture's shape is its frame times its pixels' own: frame size alone
+// reads a DVD's 720x480 as 3:2 whether it is a 4:3 or a 16:9 picture, and
+// an HDV 1440x1080 as 4:3.
+func TestToMediaInfoRecordsTheDisplayAspectRatio(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		width, height int
+		sar           string
+		want          int32
+	}{
+		{"square pixels, 16:9", 1920, 1080, "1:1", 1778},
+		{"no sample aspect named", 1920, 1080, "", 1778},
+		{"a sample aspect of 0:1 is square", 960, 720, "0:1", 1333},
+		{"a 4:3 DVD", 720, 480, "8:9", 1333},
+		{"a 16:9 DVD", 720, 480, "32:27", 1778},
+		{"HDV, anamorphic 16:9", 1440, 1080, "4:3", 1778},
+		{"a 4:3 picture in square pixels", 1440, 1080, "1:1", 1333},
+		{"scope, cropped", 1920, 800, "1:1", 2400},
+		{"no frame size", 0, 0, "1:1", 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			raw := &Raw{
+				Format:  &ffprobe.Format{Filename: "/data/x.mkv"},
+				Streams: []*ffprobe.Stream{{Index: 0, CodecType: "video", CodecName: "h264", Width: c.width, Height: c.height, SampleAspectRatio: c.sar}},
+			}
+			assert.Equal(t, c.want, FromRaw(raw).DisplayAspectMilli)
+		})
+	}
+}

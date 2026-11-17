@@ -585,6 +585,8 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkSource
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AspectRatio
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioDonor
   map:
     fields:
@@ -5427,6 +5429,15 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: url
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonAspectRatio
+  map:
+    fields:
+    - name: aspectRatio
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AspectRatio
+    - name: number
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonImage
   map:
     fields:
@@ -5837,6 +5848,10 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: aspectRatio
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AspectRatio
+      default: widescreen
     - name: delayProfileRef
       type:
         scalar: string
@@ -5873,6 +5888,14 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonArtworkOverride
           elementRelationship: atomic
+    - name: seasonAspectRatios
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonAspectRatio
+          elementRelationship: associative
+          keys:
+          - number
     - name: seasonFolder
       type:
         scalar: boolean
@@ -6500,6 +6523,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: container
       type:
         scalar: string
+    - name: displayAspectMilli
+      type:
+        scalar: numeric
     - name: doviBLCompatID
       type:
         scalar: numeric

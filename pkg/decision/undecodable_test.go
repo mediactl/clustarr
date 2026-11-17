@@ -94,3 +94,26 @@ func TestAnXviDReleaseIsRefused(t *testing.T) {
 	d := decide(t, p, cat, rushmoreTarget(nil), "Rushmore.1998.1080p.BluRay.DD5.1.x264-GRP")
 	assert.True(t, d.Approved, "an 8-bit x264 Blu-ray is taken: %v", reasons(d))
 }
+
+// A file that is not the shape its series is kept in does not meet the
+// cutoff (owner, 2026-11-17): a release the profile takes replaces it, the
+// same or a lower tier and a transcoded file included, since only the
+// release's own file says what shape it is.
+func TestAFileOfTheWrongShapeIsReplacedByAnyReleaseTheProfileTakes(t *testing.T) {
+	p, cat := builtin(t, "hd-bluray-web")
+	const bluray = "Rushmore.1998.1080p.BluRay.DD5.1.x264-GRP"
+	const web = "Rushmore.1998.1080p.AMZN.WEB-DL.DDP5.1.H.264-GRP"
+	cur := imported(t, p, cat, bluray, "h264", common.HdrFormatNone)
+	cur.Transcoded = true
+
+	same := decide(t, p, cat, rushmoreTarget(cur), bluray)
+	assert.False(t, same.Approved, "a transcoded file of the wanted shape is final: %v", reasons(same))
+
+	cur.WrongAspect = true
+	same = decide(t, p, cat, rushmoreTarget(cur), bluray)
+	assert.True(t, same.Approved, "%v", reasons(same))
+	lower := decide(t, p, cat, rushmoreTarget(cur), web)
+	assert.True(t, lower.Approved, "a lower tier the profile takes may be the wanted shape: %v", reasons(lower))
+	sd := decide(t, p, cat, rushmoreTarget(cur), "Rushmore.1998.DVDRip.x264-GRP")
+	assert.False(t, sd.Approved, "never by a quality the profile does not take")
+}
