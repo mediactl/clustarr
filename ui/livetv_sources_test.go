@@ -190,7 +190,7 @@ func TestTheSourcesPageShowsTheGuideSourcesAndCategories(t *testing.T) {
 func TestSourcesTablesRefreshThemselves(t *testing.T) {
 	srv, _ := tvServer(t, tvProvider())
 	body := get(t, srv, "/livetv/sources").Body.String()
-	requireTag(t, body, `id="livetv-sources"`, `hx-get="/livetv/sources/tables"`, `hx-trigger="every 10s"`, `hx-swap="outerHTML"`)
+	requireTag(t, body, `id="livetv-sources"`, `hx-get="/livetv/sources/tables"`, `hx-trigger="every 10s [!document.hidden], shell:visible from:body"`, `hx-swap="morph:outerHTML"`)
 	rec := get(t, srv, "/livetv/sources/tables")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.True(t, strings.HasPrefix(strings.TrimSpace(rec.Body.String()), "<div"), "the fragment alone")

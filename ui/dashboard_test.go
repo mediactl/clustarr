@@ -154,7 +154,7 @@ func TestTheSummaryRefreshesAlone(t *testing.T) {
 	body := rec.Body.String()
 	assert.True(t, strings.HasPrefix(strings.TrimSpace(body), `<div id="dashboard-live-downloads"`), "a fragment, not a page")
 	for _, group := range []string{"downloads", "transcodes"} {
-		assert.Regexp(t, `<div id="dashboard-live-`+group+`" class="contents" hx-swap-oob="true">`, body, "each section's live cards, out of band")
+		assert.Regexp(t, `<div id="dashboard-live-`+group+`" class="contents" hx-swap-oob="morph">`, body, "each section's live cards, out of band and morphed, so focus, hover and a bar's motion survive the poll")
 	}
 	assert.Contains(t, body, `data-transcode="tenma"`)
 	assert.NotContains(t, body, "<html")

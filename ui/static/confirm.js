@@ -21,7 +21,10 @@
     var text = document.querySelector("[data-confirm-text]");
     if (!open || !text) return false;
     text.textContent = o.text || "";
-    var title = document.querySelector("[data-confirm-title]");
+    // The dialog's own heading: an asking element carries
+    // data-confirm-title too, and the first of those in the document was
+    // what a bare attribute selector found -- its label became the question.
+    var title = document.querySelector('[data-slot="alert-dialog-title"] [data-confirm-title]');
     if (title) title.textContent = o.title || "Are you sure?";
     var variant = o.variant === "default" ? "default" : "destructive";
     document.querySelectorAll("[data-confirm-ok]").forEach(function (b) {

@@ -330,6 +330,25 @@ func downloadActionAttrs(r projection.DownloadRow, action, label, vals string) t
 	if vals != "" {
 		attrs["hx-vals"] = vals
 	}
+	// What cannot be taken back asks first, through the layout's confirm
+	// (2026-11-17): Remove and "Remove and blocklist" acted at once under
+	// a list that moves, and "Import again" overrides what held the
+	// import for a person.
+	switch {
+	case action == "remove" && vals != "":
+		for k, v := range confirmAttrs("Remove and blocklist this download?", "The transfer and its data are removed, and this release is not grabbed for this item again.", "Remove") {
+			attrs[k] = v
+		}
+	case action == "remove":
+		for k, v := range confirmAttrs("Remove this download?", "The transfer is removed from its client; its data is kept.", "Remove") {
+			attrs[k] = v
+		}
+	case action == "retry-import":
+		for k, v := range confirmAttrs("Import again?", "The import runs again as your own, past whatever held it back.", "Import again") {
+			attrs[k] = v
+		}
+		attrs["data-confirm-variant"] = "default"
+	}
 	return attrs
 }
 

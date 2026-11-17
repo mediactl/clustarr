@@ -160,7 +160,7 @@ templ Dashboard(v DashboardView) {
 				@rangePicker(v.Charts, false)
 			}
 		</div>
-		<div id="dashboard-summary-poller" data-list-poller hidden hx-get="/dashboard/summary" hx-trigger={ "every " + SummaryRefresh + ", dashboard:page" } hx-swap="none"></div>
+		<div id="dashboard-summary-poller" data-list-poller hidden hx-get="/dashboard/summary" hx-trigger={ pollTrigger(SummaryRefresh) + ", dashboard:page" } hx-swap="none"></div>
 		if v.Charts.Configured {
 			@chartsPoller(v.Charts, false)
 		}
@@ -215,7 +215,7 @@ templ liveGroup(key string, v DashboardSummaryView, oob bool) {
 		id={ "dashboard-live-" + key }
 		class="contents"
 		if oob {
-			hx-swap-oob="true"
+			hx-swap-oob="morph"
 		}
 	>
 		switch key {

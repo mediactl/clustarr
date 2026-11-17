@@ -152,52 +152,79 @@ func rfc3339(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 // LiveTVGuide is the TV Guide page.
 templ LiveTVGuide(p GuidePage) {
 	@liveTVPage("TV Guide", "/livetv/guide", nil) {
+		// The filter redraws the guide alone (#guide-body), never itself
+		// (2026-11-17): a swap that replaced the form took the search box
+		// with it, so what was typed while a request was out was thrown
+		// away and the request queued behind it was dropped with the old
+		// form. Another provider has other groups, so that one choice
+		// redraws the page, the group cleared.
 		<form
 			class="mb-3 flex flex-wrap items-center gap-2"
 			hx-get="/livetv/guide"
-			hx-select="#page-body"
-			hx-target="#page-body"
+			hx-select="#guide-body"
+			hx-target="#guide-body"
 			hx-swap="outerHTML"
 			hx-push-url="true"
-			hx-trigger="input changed delay:300ms, change"
+			hx-trigger="input changed delay:300ms, change[target.name!='provider']"
 		>
-			@filterSelect("provider", "Provider", "", p.Providers, p.Provider)
+			<div
+				class="contents"
+				hx-get="/livetv/guide"
+				hx-include="closest form"
+				hx-vals='{"group": ""}'
+				hx-select="#page-body"
+				hx-target="#page-body"
+				hx-swap="outerHTML"
+				hx-push-url="true"
+				hx-trigger="change"
+			>
+				@filterSelect("provider", "Provider", "", p.Providers, p.Provider)
+			</div>
 			@filterSelect("group", "Group", "Every group", groupOptions(p.Groups), p.Group)
-			@input.Input(input.Props{Type: "search", Name: "q", Value: p.Q, Placeholder: "Channel or number", Class: "h-8 w-48", Attributes: templ.Attributes{"aria-label": "Search"}})
+			@input.Input(input.Props{ID: "guide-q", Type: "search", Name: "q", Value: p.Q, Placeholder: "Channel or number", Class: "h-8 w-48", Attributes: templ.Attributes{"aria-label": "Search"}})
 		</form>
-		if !p.Built {
-			@emptyNote("The guide is not built yet: the tuner writes it after the provider's first guide fetch.", "", nil)
-		} else {
-			<div class="panel flex overflow-hidden rounded-xl border border-border bg-card" data-guide data-from={ rfc3339(p.From) }>
-				<div class="sticky left-0 z-10 shrink-0 border-r border-border bg-card" style={ "width:" + px(GuideChannelPx) }>
-					<div style={ "height:" + px(GuideHeaderPx) } class="border-b border-border"></div>
-					for _, c := range p.Rows {
-						<div data-guide-channel={ c.Number } class="flex items-center gap-2 border-b border-border px-2" style={ "height:" + px(GuideRowPx) }>
-							@channelLogo(c.LogoPath, c.Number)
-							<div class="min-w-0">
-								<div class="text-xs tabular-nums text-muted-foreground">{ c.Number }</div>
-								<div class="truncate text-sm font-medium" title={ c.Name }>{ c.Name }</div>
-							</div>
+		// No history snapshot: the guide is megabytes of markup, past what
+		// the browser's storage holds, and going back fetches it again.
+		<div id="guide-body" hx-history="false">
+			@guideBody(p)
+		</div>
+		<div id="guide-dialog"></div>
+	}
+}
+
+// guideBody is the guide itself, what the filter redraws.
+templ guideBody(p GuidePage) {
+	if !p.Built {
+		@emptyNote("The guide is not built yet: the tuner writes it after the provider's first guide fetch.", "", nil)
+	} else {
+		<div class="panel flex overflow-hidden rounded-xl border border-border bg-card" data-guide data-from={ rfc3339(p.From) }>
+			<div class="sticky left-0 z-10 shrink-0 border-r border-border bg-card" style={ "width:" + px(GuideChannelPx) }>
+				<div style={ "height:" + px(GuideHeaderPx) } class="border-b border-border"></div>
+				for _, c := range p.Rows {
+					<div data-guide-channel={ c.Number } class="flex items-center gap-2 border-b border-border px-2" style={ "height:" + px(GuideRowPx) }>
+						@channelLogo(c.LogoPath, c.Number)
+						<div class="min-w-0">
+							<div class="text-xs tabular-nums text-muted-foreground">{ c.Number }</div>
+							<div class="truncate text-sm font-medium" title={ c.Name }>{ c.Name }</div>
 						</div>
+					</div>
+				}
+			</div>
+			<div id="guide-scroll" class="min-w-0 flex-1 overflow-x-auto">
+				<div id="guide-canvas" class="relative" style={ fmt.Sprintf("width:%s;height:%s", px(GuideWindows*windowPx), canvasHeight(len(p.Rows))) }>
+					<div id="guide-now" class="pointer-events-none absolute top-0 z-20 w-0.5 bg-primary" style={ "height:" + canvasHeight(len(p.Rows)) }></div>
+					if p.Before != nil {
+						@guideSentinel(*p.Before)
+					}
+					for _, w := range p.Windows {
+						@guideWindow(w)
+					}
+					if p.After != nil {
+						@guideSentinel(*p.After)
 					}
 				</div>
-				<div id="guide-scroll" class="min-w-0 flex-1 overflow-x-auto">
-					<div id="guide-canvas" class="relative" style={ fmt.Sprintf("width:%s;height:%s", px(GuideWindows*windowPx), canvasHeight(len(p.Rows))) }>
-						<div id="guide-now" class="pointer-events-none absolute top-0 z-20 w-0.5 bg-primary" style={ "height:" + canvasHeight(len(p.Rows)) }></div>
-						if p.Before != nil {
-							@guideSentinel(*p.Before)
-						}
-						for _, w := range p.Windows {
-							@guideWindow(w)
-						}
-						if p.After != nil {
-							@guideSentinel(*p.After)
-						}
-					</div>
-				</div>
 			</div>
-		}
-		<div id="guide-dialog"></div>
+		</div>
 	}
 }
 

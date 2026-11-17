@@ -60,7 +60,7 @@ templ sourcesActions() {
 // LiveTVSourcesTables is the page's live part, which replaces itself every
 // SourcesRefresh (GET /livetv/sources/tables).
 templ LiveTVSourcesTables(rows []projection.SourceRow) {
-	<div id="livetv-sources" hx-get="/livetv/sources/tables" hx-trigger={ "every " + SourcesRefresh } hx-swap="outerHTML" class="space-y-8">
+	<div id="livetv-sources" hx-get="/livetv/sources/tables" hx-trigger={ pollTrigger(SourcesRefresh) } hx-swap="morph:outerHTML" class="space-y-8">
 		if len(rows) == 0 {
 			@settingsEmpty("No IPTV providers configured.")
 		} else {

@@ -115,6 +115,18 @@ func TestGuidePageRendersTheWindowAroundNow(t *testing.T) {
 	assert.Equal(t, []string{"1001", "1002"}, []string{rows[0][1], rows[1][1]})
 	requireTag(t, body, `src="`+projection.LogoPath(tvKey, "https://epg.example/espn.png")+`"`)
 	requireTag(t, body, `id="guide-now"`)
+
+	// The filter redraws the guide alone, never its own form (2026-11-17):
+	// what was typed while a request was out is kept. Another provider has
+	// other groups, so that choice redraws the page.
+	form := requireTag(t, body, `hx-target="#guide-body"`, `hx-get="/livetv/guide"`, `hx-select="#guide-body"`, `hx-push-url="true"`)
+	assert.Contains(t, form, `change[target.name!='provider']`)
+	requireTag(t, body, `hx-include="closest form"`, `hx-target="#page-body"`, `hx-trigger="change"`)
+	requireTag(t, body, `id="guide-q"`, `name="q"`)
+	guideAt, formAt := strings.Index(body, `id="guide-body"`), strings.Index(body, `hx-target="#guide-body"`)
+	require.Greater(t, guideAt, formAt, "the form stands outside what it redraws")
+	require.Greater(t, strings.Index(body, `data-guide `), guideAt)
+	requireTag(t, body, `id="guide-body"`, `hx-history="false"`)
 }
 
 func TestTheGuideOpensWithWhatIsAiringThoughItStartedBeforeTheWindow(t *testing.T) {

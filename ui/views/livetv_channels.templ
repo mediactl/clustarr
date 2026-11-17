@@ -918,42 +918,48 @@ templ PlaylistPaneView(p PlaylistPane) {
 					}
 				</div>
 			}
+			// The search redraws the entries alone (#playlist-results),
+			// never itself (2026-11-17): replacing the pane took the box
+			// and what was typed into it while a request was out.
 			<form
 				class="flex flex-wrap items-center gap-2"
 				hx-get="/livetv/channels/playlist"
-				hx-target="#playlist-pane"
+				hx-target="#playlist-results"
+				hx-select="#playlist-results"
 				hx-swap="outerHTML"
 				hx-trigger="input changed delay:300ms, change"
 			>
 				<input type="hidden" name="provider" value={ p.Provider }/>
-				@input.Input(input.Props{Type: "search", Name: "q", Value: p.Q, Placeholder: "Name, tvg-id or group", Class: "h-8 min-w-0 flex-1", Attributes: templ.Attributes{"aria-label": "Search the playlist"}})
+				@input.Input(input.Props{ID: "playlist-q", Type: "search", Name: "q", Value: p.Q, Placeholder: "Name, tvg-id or group", Class: "h-8 min-w-0 flex-1", Attributes: templ.Attributes{"aria-label": "Search the playlist"}})
 				@filterSelect("group", "Group", "Every group", groupOptions(p.Groups), p.Group)
 				@filterCheck("all", "Every entry", p.All)
 			</form>
-			if !p.Loaded {
-				@emptyNote("The playlist has not been fetched yet.", "py-3", nil)
-			} else {
-				@item.Group(item.GroupProps{Class: "gap-0 divide-y divide-border"}) {
-					for _, e := range p.Entries {
-						@PlaylistEntryRow(e)
+			<div id="playlist-results" class="contents">
+				if !p.Loaded {
+					@emptyNote("The playlist has not been fetched yet.", "py-3", nil)
+				} else {
+					@item.Group(item.GroupProps{Class: "gap-0 divide-y divide-border"}) {
+						for _, e := range p.Entries {
+							@PlaylistEntryRow(e)
+						}
 					}
-				}
-				if p.Pages > 1 {
-					@pagination.Pagination(pagination.Props{Attributes: templ.Attributes{"data-playlist-pager": true}}) {
-						@pagination.Content() {
-							@pagination.Item() {
-								@pagination.Previous(pagination.PreviousProps{Href: p.PageURL(max(p.Page-1, 1)), Disabled: p.Page <= 1, Text: "Previous", Attributes: playlistPageAttrs(p, p.Page-1)})
-							}
-							@pagination.Item() {
-								<span class="px-2 text-sm text-muted-foreground">{ fmt.Sprintf("Page %d of %d", p.Page, p.Pages) }</span>
-							}
-							@pagination.Item() {
-								@pagination.Next(pagination.NextProps{Href: p.PageURL(min(p.Page+1, p.Pages)), Disabled: p.Page >= p.Pages, Text: "Next", Attributes: playlistPageAttrs(p, p.Page+1)})
+					if p.Pages > 1 {
+						@pagination.Pagination(pagination.Props{Attributes: templ.Attributes{"data-playlist-pager": true}}) {
+							@pagination.Content() {
+								@pagination.Item() {
+									@pagination.Previous(pagination.PreviousProps{Href: p.PageURL(max(p.Page-1, 1)), Disabled: p.Page <= 1, Text: "Previous", Attributes: playlistPageAttrs(p, p.Page-1)})
+								}
+								@pagination.Item() {
+									<span class="px-2 text-sm text-muted-foreground">{ fmt.Sprintf("Page %d of %d", p.Page, p.Pages) }</span>
+								}
+								@pagination.Item() {
+									@pagination.Next(pagination.NextProps{Href: p.PageURL(min(p.Page+1, p.Pages)), Disabled: p.Page >= p.Pages, Text: "Next", Attributes: playlistPageAttrs(p, p.Page+1)})
+								}
 							}
 						}
 					}
 				}
-			}
+			</div>
 		}
 	}
 }

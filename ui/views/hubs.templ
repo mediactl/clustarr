@@ -168,8 +168,8 @@ templ HubLibrarySection(l HubLibrary) {
 		data-hub-library={ l.Title }
 		if (l.Exists && !l.Reported) || l.ResetPending {
 			hx-get={ "/library/hubs/" + l.Namespace + "/" + l.Name + "/section" }
-			hx-trigger="every 5s"
-			hx-swap="outerHTML"
+			hx-trigger={ pollTrigger("5s") }
+			hx-swap="morph:outerHTML"
 		}
 	>
 		<div class="mb-3 flex flex-wrap items-center justify-between gap-3">

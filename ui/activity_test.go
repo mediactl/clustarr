@@ -112,7 +112,7 @@ func TestActivityListIsTheCardOutOfBandOnItsPage(t *testing.T) {
 
 	body := getPage(t, srv, "/activity/markers/list?tab-markers=pending&page-markers-pending=2")
 	require.NotContains(t, body, "<html", "the card alone")
-	requireTag(t, body, `id="activity-card"`, `hx-swap-oob="true"`)
+	requireTag(t, body, `id="activity-card"`, `hx-swap-oob="morph"`)
 	pending := body[strings.Index(body, `data-list="markers-pending"`):strings.Index(body, `data-list="markers-found"`)]
 	require.Equal(t, 5, strings.Count(pending, `data-file="p-`), "page 2 of 30 at 25 a page")
 	require.Contains(t, pending, `data-file="p-29"`)

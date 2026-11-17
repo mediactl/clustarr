@@ -233,6 +233,17 @@ func TestDownloadsPageListsTheProjectionsRows(t *testing.T) {
 	failedAt := strings.Index(body, `data-list="downloads-failed"`)
 	require.GreaterOrEqual(t, failedAt, 0)
 	require.Contains(t, body[failedAt:], `data-download="heat"`)
+
+	// What cannot be taken back asks first, through the layout's confirm
+	// (2026-11-17); pausing does not.
+	requireTag(t, running, `data-download-action="remove"`, `hx-confirm="The transfer is removed from its client; its data is kept."`, `data-confirm-title="Remove this download?"`, `data-confirm-action="Remove"`)
+	requireTag(t, running, `aria-label="Remove and blocklist"`, `hx-confirm="`, `data-confirm-title="Remove and blocklist this download?"`)
+	require.NotContains(t, tagWith(t, running, `data-download-action="pause"`), `hx-confirm`)
+	// The dialog's heading is found inside the dialog: every asking button
+	// carries data-confirm-title too.
+	js := get(t, srv, "/static/confirm.js")
+	require.Equal(t, http.StatusOK, js.Code)
+	require.Contains(t, js.Body.String(), `[data-slot="alert-dialog-title"] [data-confirm-title]`)
 }
 
 // erroringReader is a client.Reader whose Get and List always fail, standing

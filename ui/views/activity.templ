@@ -66,7 +66,7 @@ templ Activity(v ActivityView) {
 				</div>
 			}
 		}
-		<div id="activity-poller" data-list-poller hidden hx-get={ "/activity/" + v.Section + "/list" } hx-trigger={ "every " + ActivityRefresh + ", dashboard:page" } hx-swap="none"></div>
+		<div id="activity-poller" data-list-poller hidden hx-get={ "/activity/" + v.Section + "/list" } hx-trigger={ pollTrigger(ActivityRefresh) + ", dashboard:page" } hx-swap="none"></div>
 		@activityCard(v, false)
 	}
 }
@@ -83,7 +83,7 @@ templ activityCard(v ActivityView, oob bool) {
 		id="activity-card"
 		data-activity={ v.Section }
 		if oob {
-			hx-swap-oob="true"
+			hx-swap-oob="morph"
 		}
 	>
 		{{ tabList := activityTabs(v) }}
