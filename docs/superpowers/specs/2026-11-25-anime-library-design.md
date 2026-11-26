@@ -514,3 +514,30 @@ What the pilot did not show, each found in the bulk:
   the way back. Two moves of one series within half a minute left its rows
   live in the library it left last (cluster-plex applies a queued seed
   after the later departure); the section's reconcile removes them.
+
+**The FileMissing records, repaired the same day (owner: "Do the fix for
+all 34"), 06:14-06:23Z.** 29 records of 12 anime named a path no file held;
+28 had exactly one unrecorded file of the same episode in the same folder.
+`spec.path` was patched to it by hand (the 2026-11-04 recipe): the 22
+whose bytes were the recorded ones went Ready, were probed and followed
+their Series within seconds; the 6 a transcode had replaced needed a
+LibraryScan of the old folder for their size first. Not retried: the 21
+`Failed/InvalidSource` verdicts those records carry, which name a source
+that now exists.
+
+- **A move that was made and never recorded is not rolled forward.** Magic
+  Kaito 1412 S01E06 was moved to the anime folder at 05:30:37Z and its
+  record was not written; the record read FileMissing from then on, and
+  `relocate` asks for a Ready file before it reaches the step that would
+  record the move (`moveRecorded`'s "only the proposed path exists").
+  One file of about 7,800; why the apply and the move back both failed is
+  not known (that manager's log is gone). Patched by hand.
+- Left in old folders under `tv`, unrecorded: five originals whose
+  episodes hold a transcoded file under `anime` (Akiba Maid War S01E03, A
+  Terrified Teacher at Ghoul School! S01E13 and E16, Panty & Stocking
+  S01E11, Somali and the Forest Spirit S01E03). Plex's TV Shows lists the
+  first three. Not deleted: the owner's to say.
+- Maria the Virgin Witch S01E04 and E09 wait behind graft Jobs whose pods
+  ask for 8 CPUs and have been unschedulable since 04:51Z.
+- 45 FileMissing records of eight series that are not anime (Deadwood, In
+  Treatment and others, all 2026-11-05) are as they were.
