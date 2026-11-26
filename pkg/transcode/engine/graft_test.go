@@ -19,24 +19,23 @@ package engine
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"math/rand/v2"
-	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/internal/testmedia"
 )
 
-// burstsWAV writes seconds of random decaying tone bursts (a soundtrack
-// with onsets, unlike a sine) as 48 kHz mono 16-bit WAV, from seed.
-func burstsWAV(t *testing.T, seed uint64, seconds float64) string {
-	t.Helper()
+// bursts is seconds of random decaying tone bursts (a soundtrack with
+// onsets, unlike a sine) as 48 kHz mono samples, from seed, after lead
+// seconds of silence (`adelay`) and cut to seconds in all.
+func bursts(seed uint64, seconds, lead float64) *testmedia.Samples {
 	const rate = 48000
 	r := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
 	x := make([]float64, int(seconds*rate))
@@ -48,36 +47,21 @@ func burstsWAV(t *testing.T, seed uint64, seconds float64) string {
 			x[start+i] += amp * math.Exp(-float64(i)/(rate/20)) * math.Sin(2*math.Pi*f*float64(i)/rate)
 		}
 	}
-	b := make([]byte, 44+2*len(x))
-	copy(b, "RIFF")
-	binary.LittleEndian.PutUint32(b[4:], uint32(36+2*len(x)))
-	copy(b[8:], "WAVEfmt ")
-	binary.LittleEndian.PutUint32(b[16:], 16)
-	binary.LittleEndian.PutUint16(b[20:], 1)
-	binary.LittleEndian.PutUint16(b[22:], 1)
-	binary.LittleEndian.PutUint32(b[24:], rate)
-	binary.LittleEndian.PutUint32(b[28:], rate*2)
-	binary.LittleEndian.PutUint16(b[32:], 2)
-	binary.LittleEndian.PutUint16(b[34:], 16)
-	copy(b[36:], "data")
-	binary.LittleEndian.PutUint32(b[40:], uint32(2*len(x)))
 	for i, v := range x {
-		binary.LittleEndian.PutUint16(b[44+2*i:], uint16(int16(max(-1, min(1, v))*32000)))
+		x[i] = max(-1, min(1, v)) * 32000 / 32768 // the 16-bit WAV the tests wrote
 	}
-	p := filepath.Join(t.TempDir(), "bursts-"+strconv.FormatUint(seed, 10)+".wav")
-	require.NoError(t, os.WriteFile(p, b, 0o644))
-	return p
+	delayed := append(make([]float64, int(lead*rate)), x...)
+	return &testmedia.Samples{Rate: rate, Mono: delayed[:len(x)]}
 }
 
-// burstsRef is burstsWAV as FLAC with a mono layout, for decoding as a
-// reference: a WAV's layout is unspecified, which the resampler (as the
-// transcoder's audio stage) refuses.
+// burstsRef is bursts as FLAC with a mono layout, for decoding as a
+// reference.
 func burstsRef(t *testing.T, seed uint64, seconds float64) string {
 	t.Helper()
-	out := filepath.Join(t.TempDir(), "ref.flac")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", burstsWAV(t, seed, seconds),
-		"-af", "aformat=channel_layouts=mono", out)
-	return out
+	return testmedia.Make(t, "ref.flac", testmedia.Spec{
+		Format: "flac",
+		Audio:  []testmedia.Audio{{Samples: bursts(seed, seconds, 0), Encoder: "flac", Layout: "mono"}},
+	})
 }
 
 // graftTarget is a seconds-long Matroska file: H.264 video and one AAC
@@ -86,19 +70,20 @@ func burstsRef(t *testing.T, seed uint64, seconds float64) string {
 func graftTarget(t *testing.T, seconds int) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	dir := t.TempDir()
-	srt := filepath.Join(dir, "sub.srt")
-	require.NoError(t, os.WriteFile(srt, []byte("1\n00:00:01,000 --> 00:00:02,000\nHello\n"), 0o644))
-	out := filepath.Join(dir, "target.mkv")
-	d := strconv.Itoa(seconds)
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration="+d,
-		"-i", burstsWAV(t, 1, float64(seconds)), "-i", srt,
-		"-map", "0", "-map", "1", "-map", "2", "-t", d,
-		"-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-c:s", "srt",
-		"-metadata:s:a:0", "language=jpn", "-disposition:a:0", "default",
-		"-metadata:s:s:0", "language=eng", "-metadata", "title=Target", "-metadata", "CLUSTARR_PROFILE=p@h", out)
-	return out
+	return testmedia.Make(t, "target.mkv", testmedia.Spec{
+		Duration: time.Duration(seconds) * time.Second,
+		Tags:     map[string]string{"title": "Target", "CLUSTARR_PROFILE": "p@h"},
+		Video:    []testmedia.Video{{Source: "testsrc2=size=160x90:rate=24", Options: map[string]string{"preset": "ultrafast"}}},
+		Audio: []testmedia.Audio{{
+			Samples: bursts(1, float64(seconds), 0),
+			Stream:  testmedia.Stream{Language: "jpn", Disposition: []string{"default"}},
+		}},
+		Subtitles: []testmedia.Subtitle{{
+			Codec:  "subrip",
+			Events: []testmedia.Event{{Start: time.Second, End: 2 * time.Second, Text: "Hello"}},
+			Stream: testmedia.Stream{Language: "eng"},
+		}},
+	})
 }
 
 // graftDonor is an audio-only donor: Japanese (bursts 1) and English
@@ -106,14 +91,16 @@ func graftTarget(t *testing.T, seconds int) string {
 func graftDonor(t *testing.T, seconds, lead float64) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	out := filepath.Join(t.TempDir(), "donor.mkv")
-	ms := strconv.Itoa(int(lead * 1000))
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-i", burstsWAV(t, 1, seconds), "-i", burstsWAV(t, 2, seconds),
-		"-filter_complex", "[0:a]adelay="+ms+"[j];[1:a]adelay="+ms+"[e]",
-		"-map", "[j]", "-map", "[e]", "-t", strconv.FormatFloat(seconds, 'f', 3, 64),
-		"-c:a", "ac3", "-ac", "2", "-metadata:s:a:0", "language=jpn", "-metadata:s:a:1", "language=eng", out)
-	return out
+	return testmedia.Make(t, "donor.mkv", testmedia.Spec{Audio: donorTracks(seconds, lead, "stereo")})
+}
+
+// donorTracks are a donor's two AC-3 tracks: Japanese (bursts 1) in stereo
+// and English (bursts 2) in layout, both delayed by lead seconds.
+func donorTracks(seconds, lead float64, layout string) []testmedia.Audio {
+	return []testmedia.Audio{
+		{Samples: bursts(1, seconds, lead), Encoder: "ac3", Layout: "stereo", Stream: testmedia.Stream{Language: "jpn"}},
+		{Samples: bursts(2, seconds, lead), Encoder: "ac3", Layout: layout, Stream: testmedia.Stream{Language: "eng"}},
+	}
 }
 
 // lagOf is the lag, in samples at 8 kHz within ±max, at which got best
@@ -147,11 +134,10 @@ func rms(x []float32) float64 {
 
 func TestDecodePCMStartsAtTheContainersStart(t *testing.T) {
 	ffmpeg9OrSkip(t)
-	src := filepath.Join(t.TempDir(), "late.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=6",
-		"-itsoffset", "0.5", "-i", burstsWAV(t, 1, 5),
-		"-map", "0", "-map", "1", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", src)
+	src := testmedia.Make(t, "late.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{Source: "testsrc2=size=160x90:rate=24:duration=6", Options: map[string]string{"preset": "ultrafast"}}},
+		Audio: []testmedia.Audio{{Samples: bursts(1, 5, 0), Offset: 500 * time.Millisecond}},
+	})
 	pcm, err := DecodePCM(context.Background(), src, 0, 8000)
 	require.NoError(t, err)
 	assert.InDelta(t, 5.5*8000, float64(len(pcm)), 0.1*8000, "the late start is silence, then the audio")
@@ -164,11 +150,13 @@ func TestDecodePCMStartsAtTheContainersStart(t *testing.T) {
 }
 
 func TestExtractAudioKeepsTheNamedTracks(t *testing.T) {
-	donor := graftDonor(t, 4, 0)
-	withVideo := filepath.Join(t.TempDir(), "donor-video.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=4", "-i", donor,
-		"-map", "0", "-map", "1", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "copy", "-shortest", withVideo)
+	ffmpeg9OrSkip(t)
+	// The donor's two tracks behind a picture.
+	withVideo := testmedia.Make(t, "donor-video.mkv", testmedia.Spec{
+		Shortest: true,
+		Video:    []testmedia.Video{{Source: "testsrc2=size=160x90:rate=24:duration=4", Options: map[string]string{"preset": "ultrafast"}}},
+		Audio:    donorTracks(4, 0, "stereo"),
+	})
 	out := filepath.Join(t.TempDir(), "donor.mka")
 	require.NoError(t, ExtractAudio(context.Background(), withVideo, out, []int{1}))
 	p := ffprobeJSON(t, out)
@@ -263,11 +251,13 @@ func TestAShortDonorIsPaddedToTheTarget(t *testing.T) {
 func TestAGraftedTrackIsInterleavedWithTheVideo(t *testing.T) {
 	ffmpeg9OrSkip(t)
 	dir := t.TempDir()
-	target := filepath.Join(dir, "target.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24:duration=120,noise=alls=20:allf=t",
-		"-i", burstsWAV(t, 1, 120), "-map", "0", "-map", "1", "-t", "120",
-		"-c:v", "libx264", "-preset", "ultrafast", "-b:v", "2M", "-c:a", "aac", "-metadata:s:a:0", "language=jpn", target)
+	target := testmedia.Make(t, "target.mkv", testmedia.Spec{
+		Duration: 120 * time.Second,
+		Video: []testmedia.Video{{
+			Source: "testsrc2=size=640x360:rate=24,noise=alls=20:allf=t", Options: map[string]string{"preset": "ultrafast", "b": "2M"},
+		}},
+		Audio: []testmedia.Audio{{Samples: bursts(1, 120, 0), Stream: testmedia.Stream{Language: "jpn"}}},
+	})
 	donor := graftDonor(t, 120, 0)
 	plan, err := CopyPlan(target)
 	require.NoError(t, err)
@@ -277,27 +267,17 @@ func TestAGraftedTrackIsInterleavedWithTheVideo(t *testing.T) {
 	}})
 	require.NoError(t, err)
 
-	raw := run(t, "ffprobe", "-v", "error", "-show_entries", "packet=stream_index,pts_time,pos", "-of", "csv=p=0", out)
 	type pkt struct {
 		at  float64
 		pos int64
 	}
 	var video, dub []pkt
-	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
-		f := strings.Split(line, ",")
-		if len(f) < 3 {
-			continue
-		}
-		at, err1 := strconv.ParseFloat(f[1], 64)
-		pos, err2 := strconv.ParseInt(f[2], 10, 64)
-		if err1 != nil || err2 != nil {
-			continue
-		}
-		switch f[0] {
-		case "0":
-			video = append(video, pkt{at, pos})
-		case "2":
-			dub = append(dub, pkt{at, pos})
+	for _, p := range testmedia.Packets(t, out) {
+		switch p.Stream {
+		case 0:
+			video = append(video, pkt{p.PTS.Seconds(), p.Pos})
+		case 2:
+			dub = append(dub, pkt{p.PTS.Seconds(), p.Pos})
 		}
 	}
 	require.NotEmpty(t, video)
@@ -344,13 +324,7 @@ func TestACopyPlanKeepsTheTracksFlags(t *testing.T) {
 func graftDonorSurround(t *testing.T, seconds float64) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	out := filepath.Join(t.TempDir(), "donor51.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-i", burstsWAV(t, 1, seconds), "-i", burstsWAV(t, 2, seconds),
-		"-map", "0:a", "-map", "1:a", "-t", strconv.FormatFloat(seconds, 'f', 3, 64),
-		"-c:a", "ac3", "-ac:a:0", "2", "-ac:a:1", "6",
-		"-metadata:s:a:0", "language=jpn", "-metadata:s:a:1", "language=eng", out)
-	return out
+	return testmedia.Make(t, "donor51.mkv", testmedia.Spec{Audio: donorTracks(seconds, 0, "5.1")})
 }
 
 // A surround dub is grafted as an AAC 2.0 companion and AC-3 5.1, AAC

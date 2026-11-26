@@ -19,9 +19,9 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -37,13 +38,24 @@ import (
 // fastX265 keeps the tests quick; the plan's own options are the standard's.
 var fastX265 = map[string]string{"crf": "28", "preset": "ultrafast", "profile": "main10", "x265-params": "log-level=error"}
 
-func videoClip(t *testing.T, name string, args ...string) string {
+// videoClip is a 2 s clip of a test picture, encoded as v says.
+func videoClip(t *testing.T, name string, v testmedia.Video) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	out := filepath.Join(t.TempDir(), name)
-	base := []string{"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2"}
-	run(t, "ffmpeg", append(append(base, args...), out)...)
-	return out
+	v.Source = "testsrc2=size=320x180:rate=24:duration=2"
+	return testmedia.Make(t, name, testmedia.Spec{Video: []testmedia.Video{v}})
+}
+
+// The encodes videoClip's callers name.
+var (
+	h264Video  = testmedia.Video{Options: map[string]string{"preset": "veryfast"}}
+	hi10pVideo = testmedia.Video{PixFmt: "yuv420p10le", Options: map[string]string{"preset": "veryfast"}}
+)
+
+// x265Video is 10-bit HEVC encoded with params (x265's own, which carry an
+// HDR10 clip's colour and mastering display into its bitstream).
+func x265Video(params string) testmedia.Video {
+	return testmedia.Video{Encoder: "libx265", PixFmt: "yuv420p10le", Options: map[string]string{"x265-params": params}}
 }
 
 func encodePlan(v standard.VideoPlan) standard.Result {
@@ -55,27 +67,54 @@ func cpuVideo(hdr string, color standard.ColorTags) standard.VideoPlan {
 	return standard.VideoPlan{Encoder: "libx265", Options: fastX265, Decode: "cpu", Filter: "format=yuv420p10le", HDR: hdr, Color: color}
 }
 
+// frames is how many frames path's video decodes to (ffprobe -count_frames).
 func frames(t *testing.T, path string) int {
 	t.Helper()
-	n, err := strconv.Atoi(strings.TrimSpace(run(t, "ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
-		"-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", path)))
-	require.NoError(t, err)
-	return n
+	return len(testmedia.Frames(t, path, 0))
 }
 
-func entries(t *testing.T, path string, args ...string) string {
+// videoProps is path's video stream as ffprobe -show_entries stream=... and
+// stream_side_data=side_data_type printed it, one key=value a line.
+func videoProps(t *testing.T, path string) string {
 	t.Helper()
-	return run(t, "ffprobe", append(append([]string{"-v", "error", "-select_streams", "v:0"}, args...), "-of", "default=nw=1", path)...)
+	for _, s := range testmedia.Inspect(t, path).Streams {
+		if s.Type != "video" {
+			continue
+		}
+		sar := s.SampleAspectRatio
+		if sar == "" {
+			sar = "1:1"
+		}
+		out := fmt.Sprintf("codec_name=%s\ncodec_tag_string=%s\nprofile=%s\npix_fmt=%s\ncolor_primaries=%s\ncolor_transfer=%s\nsample_aspect_ratio=%s\n",
+			s.Codec, s.CodecTag, s.Profile, s.PixFmt, s.Color.Primaries, s.Color.Transfer, sar)
+		for _, sd := range s.SideData {
+			out += "side_data_type=" + sd + "\n"
+		}
+		return out
+	}
+	t.Fatalf("%s has no video stream", path)
+	return ""
+}
+
+// firstFrameSideData is the side data of path's first video frame
+// (ffprobe -read_intervals %+#1 -show_entries frame_side_data=side_data_type).
+func firstFrameSideData(t *testing.T, path string) string {
+	t.Helper()
+	fr := testmedia.Frames(t, path, 0)
+	require.NotEmpty(t, fr)
+	return strings.Join(fr[0].SideData, "\n")
 }
 
 func TestSDRH264BecomesHEVCMain10(t *testing.T) {
 	// FFmpeg 9's encoders take colour from the frames, so the clip is tagged
 	// with setparams, not the -color_* output options.
-	src := videoClip(t, "sdr.mkv", "-vf", "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709", "-c:v", "libx264", "-preset", "veryfast")
+	src := videoClip(t, "sdr.mkv", testmedia.Video{
+		Options: map[string]string{"preset": "veryfast"}, Color: testmedia.Color{Primaries: "bt709", Transfer: "bt709", Matrix: "bt709"},
+	})
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	_, err := Run(context.Background(), encodePlan(cpuVideo("sdr", standard.ColorTags{})), src, out, Options{})
 	require.NoError(t, err)
-	props := entries(t, out, "-show_entries", "stream=codec_name,profile,pix_fmt,color_primaries")
+	props := videoProps(t, out)
 	for _, want := range []string{"codec_name=hevc", "profile=Main 10", "pix_fmt=yuv420p10le", "color_primaries=bt709"} {
 		assert.Contains(t, props, want)
 	}
@@ -83,29 +122,30 @@ func TestSDRH264BecomesHEVCMain10(t *testing.T) {
 }
 
 func TestHDR10KeepsItsMetadata(t *testing.T) {
-	src := videoClip(t, "hdr10.mkv", "-pix_fmt", "yuv420p10le", "-c:v", "libx265",
-		"-color_primaries", "bt2020", "-color_trc", "smpte2084", "-colorspace", "bt2020nc",
-		"-x265-params", "log-level=error:hdr10=1:repeat-headers=1:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400")
+	clip := x265Video("log-level=error:hdr10=1:repeat-headers=1:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400")
+	clip.Color = testmedia.Color{Primaries: "bt2020", Transfer: "smpte2084", Matrix: "bt2020nc"}
+	src := videoClip(t, "hdr10.mkv", clip)
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	color := standard.ColorTags{Primaries: "bt2020", Transfer: "smpte2084", Matrix: "bt2020nc", Range: "tv"}
 	v := cpuVideo("hdr10", color)
 	v.StripSideData = []string{"hdr10plus"}
 	_, err := Run(context.Background(), encodePlan(v), src, out, Options{})
 	require.NoError(t, err)
-	stream := entries(t, out, "-show_entries", "stream_side_data=side_data_type")
+	stream := videoProps(t, out)
 	assert.Contains(t, stream, "Mastering display metadata")
 	assert.Contains(t, stream, "Content light level metadata")
-	assert.Contains(t, entries(t, out, "-read_intervals", "%+#1", "-show_entries", "frame_side_data=side_data_type"), "Mastering display metadata")
-	assert.Contains(t, entries(t, out, "-show_entries", "stream=color_transfer"), "color_transfer=smpte2084")
+	assert.Contains(t, firstFrameSideData(t, out), "Mastering display metadata")
+	assert.Contains(t, videoProps(t, out), "color_transfer=smpte2084")
 }
 
 func TestHLGKeepsItsTransfer(t *testing.T) {
-	src := videoClip(t, "hlg.mkv", "-pix_fmt", "yuv420p10le", "-c:v", "libx264", "-preset", "veryfast",
-		"-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc")
+	clip := hi10pVideo
+	clip.Color = testmedia.Color{Primaries: "bt2020", Transfer: "arib-std-b67", Matrix: "bt2020nc"}
+	src := videoClip(t, "hlg.mkv", clip)
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	_, err := Run(context.Background(), encodePlan(cpuVideo("hlg", standard.ColorTags{Primaries: "bt2020", Transfer: "arib-std-b67", Matrix: "bt2020nc", Range: "tv"})), src, out, Options{})
 	require.NoError(t, err)
-	assert.Contains(t, entries(t, out, "-show_entries", "stream=color_transfer"), "color_transfer=arib-std-b67")
+	assert.Contains(t, videoProps(t, out), "color_transfer=arib-std-b67")
 }
 
 func TestNVDECAndUploadPathsOnNVENC(t *testing.T) {
@@ -115,8 +155,8 @@ func TestNVDECAndUploadPathsOnNVENC(t *testing.T) {
 		t.Skipf("no CUDA device: %v", err)
 	}
 	defer func() { _ = dev.Close() }()
-	src := videoClip(t, "h264.mkv", "-c:v", "libx264", "-preset", "veryfast")
-	hi10p := videoClip(t, "hi10p.mkv", "-pix_fmt", "yuv420p10le", "-c:v", "libx264", "-preset", "veryfast")
+	src := videoClip(t, "h264.mkv", h264Video)
+	hi10p := videoClip(t, "hi10p.mkv", hi10pVideo)
 	nv := map[string]string{"preset": "p7", "rc": "constqp", "qp": "23", "spatial-aq": "1", "temporal-aq": "1", "profile": "main10"}
 	for name, c := range map[string]struct {
 		src            string
@@ -130,7 +170,7 @@ func TestNVDECAndUploadPathsOnNVENC(t *testing.T) {
 			_, err := Run(context.Background(), encodePlan(standard.VideoPlan{Encoder: "hevc_nvenc", Options: nv, Decode: c.decode, Filter: c.filter, HDR: "sdr"}),
 				c.src, out, Options{HWDevice: dev})
 			require.NoError(t, err)
-			assert.Contains(t, entries(t, out, "-show_entries", "stream=profile"), "profile=Main 10")
+			assert.Contains(t, videoProps(t, out), "profile=Main 10")
 			assert.Equal(t, frames(t, c.src), frames(t, out))
 		})
 	}
@@ -146,7 +186,7 @@ func TestAGPUDecodeTheGPURefusesFailsRatherThanDecodeOnTheCPU(t *testing.T) {
 		t.Skipf("no CUDA device: %v", err)
 	}
 	defer func() { _ = dev.Close() }()
-	hi10p := videoClip(t, "hi10p.mkv", "-pix_fmt", "yuv420p10le", "-c:v", "libx264", "-preset", "veryfast")
+	hi10p := videoClip(t, "hi10p.mkv", hi10pVideo)
 	nv := map[string]string{"preset": "p7", "rc": "constqp", "qp": "23", "profile": "main10"}
 	_, err = Run(context.Background(), encodePlan(standard.VideoPlan{Encoder: "hevc_nvenc", Options: nv, Decode: "nvdec", Filter: "scale_cuda=format=p010le", HDR: "sdr"}),
 		hi10p, filepath.Join(t.TempDir(), "o.mkv"), Options{HWDevice: dev})
@@ -155,7 +195,7 @@ func TestAGPUDecodeTheGPURefusesFailsRatherThanDecodeOnTheCPU(t *testing.T) {
 }
 
 func TestAGPUPlanWithoutADeviceIsAnError(t *testing.T) {
-	src := videoClip(t, "h264.mkv", "-c:v", "libx264", "-preset", "veryfast")
+	src := videoClip(t, "h264.mkv", h264Video)
 	_, err := Run(context.Background(), encodePlan(standard.VideoPlan{Encoder: "hevc_nvenc", Decode: "nvdec", Filter: "scale_cuda=format=p010le"}),
 		src, filepath.Join(t.TempDir(), "o.mkv"), Options{})
 	require.Error(t, err)
@@ -169,8 +209,7 @@ func TestHDR10KeepsItsMetadataOnNVENC(t *testing.T) {
 		t.Skipf("no CUDA device: %v", err)
 	}
 	defer func() { _ = dev.Close() }()
-	src := videoClip(t, "hdr10.mkv", "-pix_fmt", "yuv420p10le", "-c:v", "libx265",
-		"-x265-params", "log-level=error:hdr10=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400")
+	src := videoClip(t, "hdr10.mkv", x265Video("log-level=error:hdr10=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400"))
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	v := standard.VideoPlan{
 		Encoder: "hevc_nvenc", Decode: "nvdec", Filter: "scale_cuda=format=p010le", HDR: "hdr10",
@@ -179,29 +218,29 @@ func TestHDR10KeepsItsMetadataOnNVENC(t *testing.T) {
 	}
 	_, err = Run(context.Background(), encodePlan(v), src, out, Options{HWDevice: dev})
 	require.NoError(t, err)
-	stream := entries(t, out, "-show_entries", "stream_side_data=side_data_type")
+	stream := videoProps(t, out)
 	assert.Contains(t, stream, "Mastering display metadata")
 	assert.Contains(t, stream, "Content light level metadata")
-	assert.Contains(t, entries(t, out, "-show_entries", "stream=color_transfer"), "color_transfer=smpte2084")
+	assert.Contains(t, videoProps(t, out), "color_transfer=smpte2084")
 }
 
 // An anamorphic source (a 16:9 DVD: 720x480 at 32:27) keeps its pixel
 // aspect, or it would play squeezed to 3:2.
 func TestAnAnamorphicSourceKeepsItsAspect(t *testing.T) {
 	ffmpeg9OrSkip(t)
-	src := filepath.Join(t.TempDir(), "dvd.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=720x480:rate=25:duration=1,setsar=32/27", "-c:v", "mpeg2video", src)
+	src := testmedia.Make(t, "dvd.mkv", testmedia.Spec{Video: []testmedia.Video{{
+		Source: "testsrc2=size=720x480:rate=25:duration=1", Encoder: "mpeg2video", SampleAspect: [2]int{32, 27},
+	}}})
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	_, err := Run(context.Background(), encodePlan(cpuVideo("sdr", standard.ColorTags{})), src, out, Options{})
 	require.NoError(t, err)
-	assert.Contains(t, entries(t, out, "-show_entries", "stream=sample_aspect_ratio"), "sample_aspect_ratio=32:27")
+	assert.Contains(t, videoProps(t, out), "sample_aspect_ratio=32:27")
 }
 
 // The 8-bit target (SDR at 1080p or less) as the standard plans it: HEVC
 // Main in yuv420p, from libx265 and from NVENC's NV12 surfaces.
 func TestTheEightBitTargetEncodesHEVCMain(t *testing.T) {
-	src := videoClip(t, "h264.mkv", "-c:v", "libx264", "-preset", "veryfast")
+	src := videoClip(t, "h264.mkv", h264Video)
 	in := transcode.MediaInfo{
 		Format: transcode.FormatInfo{Name: "matroska,webm", Duration: 2 * time.Second},
 		Video: []transcode.VideoStream{{
@@ -224,7 +263,7 @@ func TestTheEightBitTargetEncodesHEVCMain(t *testing.T) {
 			out := filepath.Join(t.TempDir(), "o.mkv")
 			res, err := Run(context.Background(), plan, src, out, Options{HWDevice: dev})
 			require.NoError(t, err, res.LogTail)
-			got := entries(t, out, "-show_entries", "stream=profile,pix_fmt")
+			got := videoProps(t, out)
 			assert.Contains(t, got, "profile=Main\n")
 			assert.Contains(t, got, "pix_fmt=yuv420p\n")
 			_, err = Verify(context.Background(), src, out, plan.Expect)
@@ -245,8 +284,9 @@ func TestASourceWhoseTimestampsGoBackwardsStillEncodes(t *testing.T) {
 	dir := t.TempDir()
 	clip := func(name, src string) string {
 		p := filepath.Join(dir, name)
-		run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", src,
-			"-c:v", "libx264", "-preset", "veryfast", "-bf", "2", "-f", "mpegts", p)
+		require.NoError(t, testmedia.Write(p, testmedia.Spec{Format: "mpegts", Video: []testmedia.Video{{
+			Source: src, Options: map[string]string{"preset": "veryfast", "bf": "2"},
+		}}}))
 		return p
 	}
 	a := clip("a.ts", "testsrc2=size=320x180:rate=24:duration=2")
@@ -261,15 +301,12 @@ func TestASourceWhoseTimestampsGoBackwardsStillEncodes(t *testing.T) {
 	out := filepath.Join(dir, "o.mkv")
 	_, err = Run(context.Background(), encodePlan(cpuVideo("sdr", standard.ColorTags{})), joined, out, Options{})
 	require.NoError(t, err)
-	pts := strings.Fields(run(t, "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts",
-		"-of", "default=nw=1:nk=1", out))
-	require.NotEmpty(t, pts)
+	decoded := testmedia.Frames(t, out, 0)
+	require.NotEmpty(t, decoded)
 	last := int64(-1 << 62)
-	for _, p := range pts {
-		v, err := strconv.ParseInt(p, 10, 64)
-		require.NoError(t, err)
-		require.Greater(t, v, last, "output timestamps move forward")
-		last = v
+	for _, f := range decoded {
+		require.Greater(t, f.PTS, last, "output timestamps move forward")
+		last = f.PTS
 	}
 }
 
@@ -286,10 +323,10 @@ func TestTheStandardsNVENCPlanHoldsALeanSourceUnderItsBitRate(t *testing.T) {
 		t.Skipf("no CUDA device: %v", err)
 	}
 	defer func() { _ = dev.Close() }()
-	src := filepath.Join(t.TempDir(), "lean.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
-		"-i", "testsrc2=size=1280x720:rate=24:duration=30,noise=alls=24:allf=t",
-		"-c:v", "libx264", "-preset", "veryfast", "-crf", "32", src)
+	src := testmedia.Make(t, "lean.mkv", testmedia.Spec{Video: []testmedia.Video{{
+		Source:  "testsrc2=size=1280x720:rate=24:duration=30,noise=alls=24:allf=t",
+		Options: map[string]string{"preset": "veryfast", "crf": "32"},
+	}}})
 	st, err := os.Stat(src)
 	require.NoError(t, err)
 	srcKbps := int32(st.Size() * 8 / 30 / 1000)
@@ -327,9 +364,12 @@ func TestTheStandardsNVENCPlanHoldsALeanSourceUnderItsBitRate(t *testing.T) {
 // (talos, 2026-10-20).
 func TestTheEncoderTakesTheNominalFrameRate(t *testing.T) {
 	ffmpeg9OrSkip(t)
-	src := filepath.Join(t.TempDir(), "ntsc.mp4")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24000/1001",
-		"-frames:v", "48", "-c:v", "libx264", "-preset", "veryfast", "-video_track_timescale", "90000", src)
+	src := testmedia.Make(t, "ntsc.mp4", testmedia.Spec{
+		MuxerOptions: map[string]string{"video_track_timescale": "90000"},
+		Video: []testmedia.Video{{
+			Source: "testsrc2=size=320x180:rate=24000/1001", Frames: 48, Options: map[string]string{"preset": "veryfast"},
+		}},
+	})
 	d, err := ffgo.NewDecoder(src)
 	require.NoError(t, err)
 	defer func() { _ = d.Close() }()

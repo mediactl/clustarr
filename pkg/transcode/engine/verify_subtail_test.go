@@ -19,13 +19,14 @@ package engine
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -36,21 +37,25 @@ import (
 func subtitleTailClip(t *testing.T, ext string) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	dir := t.TempDir()
-	srt := filepath.Join(dir, "s.srt")
-	require.NoError(t, os.WriteFile(srt, []byte("1\n00:00:01,000 --> 00:00:02,000\nHello\n\n2\n00:00:06,000 --> 00:00:08,000\nThe end\n"), 0o644))
-	sub := "srt"
+	sub := testmedia.Subtitle{Codec: "subrip", Events: []testmedia.Event{
+		{Start: time.Second, End: 2 * time.Second, Text: "Hello"},
+		{Start: 6 * time.Second, End: 8 * time.Second, Text: "The end"},
+	}}
 	if ext == "mp4" {
-		sub = "mov_text"
+		// mov_text: a sample is its text behind a two-byte length.
+		sub.Codec = "mov_text"
+		for i, ev := range sub.Events {
+			sub.Events[i].Text = string([]byte{byte(len(ev.Text) >> 8), byte(len(ev.Text))}) + ev.Text
+		}
 	}
-	out := filepath.Join(dir, "src."+ext)
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3",
-		"-i", srt, "-map", "0", "-map", "1", "-map", "2",
-		"-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error",
-		"-c:a", "aac", "-c:s", sub, out)
-	return out
+	return testmedia.Make(t, "src."+ext, testmedia.Spec{
+		Video: []testmedia.Video{{
+			Source: "testsrc2=size=320x180:rate=24:duration=3", Encoder: "libx265",
+			Options: map[string]string{"preset": "ultrafast", "x265-params": "log-level=error"},
+		}},
+		Audio:     []testmedia.Audio{{Source: "sine=frequency=440:sample_rate=48000:duration=3"}},
+		Subtitles: []testmedia.Subtitle{sub},
+	})
 }
 
 // A source whose subtitle outlasts its picture -- Ad Astra's last cue ends
@@ -83,8 +88,14 @@ func TestAnOutputEndsWhereTheSourcesVideoAndAudioEnd(t *testing.T) {
 // of it fails.
 func TestAnOutputShortOfTheSourcesVideoAndAudioStillFails(t *testing.T) {
 	src := subtitleTailClip(t, "mkv")
-	out := filepath.Join(t.TempDir(), "short.mp4")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src, "-map", "0:v", "-map", "0:a", "-c", "copy", "-t", "1.5", out)
+	// The source's video and audio, a second and a half of them (-map 0:v -map 0:a -c copy -t 1.5).
+	out := testmedia.Make(t, "short.mp4", testmedia.Spec{
+		Video: []testmedia.Video{{
+			Source: "testsrc2=size=320x180:rate=24:duration=1.5", Encoder: "libx265",
+			Options: map[string]string{"preset": "ultrafast", "x265-params": "log-level=error"},
+		}},
+		Audio: []testmedia.Audio{{Source: "sine=frequency=440:sample_rate=48000:duration=1.5"}},
+	})
 	r, err := Verify(context.Background(), src, out, standard.Expectation{
 		VideoStreams: 1, AudioStreams: 1, VideoCodec: "hevc", DurationMillis: probeInfo(t, src).Format.Duration.Milliseconds(),
 	})

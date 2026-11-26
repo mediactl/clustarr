@@ -34,7 +34,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -48,6 +47,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/app/transcode/worker/inprocess"
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -239,15 +239,17 @@ func checkStandard(t *testing.T, src *commonv1.MediaInfo, srcRaw *mediainfo.Raw,
 func synthesizeHLG(t *testing.T, dir string) string {
 	t.Helper()
 	path := filepath.Join(dir, "hlg-synthetic.mkv")
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=24:duration=70",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=70,aformat=channel_layouts=stereo",
-		"-map", "0", "-map", "1",
-		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le",
-		"-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc", "-color_range", "tv",
-		"-c:a", "flac", "-metadata:s:a:0", "language=jpn", path)
-	b, err := cmd.CombinedOutput()
-	require.NoError(t, err, string(b))
+	require.NoError(t, testmedia.Write(path, testmedia.Spec{
+		Video: []testmedia.Video{{
+			Source: "testsrc2=size=1920x1080:rate=24:duration=70", PixFmt: "yuv420p10le",
+			Options: map[string]string{"preset": "ultrafast"},
+			Color:   testmedia.Color{Primaries: "bt2020", Transfer: "arib-std-b67", Matrix: "bt2020nc", Range: "tv"},
+		}},
+		Audio: []testmedia.Audio{{
+			Source: "sine=frequency=440:sample_rate=48000:duration=70", Encoder: "flac", Layout: "stereo",
+			Stream: testmedia.Stream{Language: "jpn"},
+		}},
+	}))
 	return path
 }
 

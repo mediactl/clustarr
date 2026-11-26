@@ -25,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -34,17 +35,13 @@ import (
 func manyAudioClip(t *testing.T, n int) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	out := filepath.Join(t.TempDir(), "many.mkv")
-	args := []string{"-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
-		"-map", "0"}
+	spec := testmedia.Spec{Video: []testmedia.Video{{
+		Source: "testsrc2=size=320x180:rate=24:duration=2", Options: map[string]string{"preset": "ultrafast"},
+	}}}
 	for range n {
-		args = append(args, "-map", "1")
+		spec.Audio = append(spec.Audio, testmedia.Audio{Source: "sine=frequency=440:sample_rate=48000:duration=2", Encoder: "ac3"})
 	}
-	args = append(args, "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "ac3", out)
-	run(t, "ffmpeg", args...)
-	return out
+	return testmedia.Make(t, "many.mkv", spec)
 }
 
 // The header waits for every encoder, and an encoder holds its lock while

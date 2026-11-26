@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
@@ -40,16 +41,17 @@ func layoutChangeClip(t *testing.T) string {
 	var list string
 	for _, l := range []string{"stereo", "5.1"} {
 		seg := filepath.Join(dir, "seg-"+l+".mkv")
-		run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-			"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=1.5",
-			"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1.5,aformat=channel_layouts="+l,
-			"-c:v", "libx264", "-preset", "ultrafast", "-bf", "0", "-c:a", "ac3", seg)
+		require.NoError(t, testmedia.Write(seg, testmedia.Spec{
+			Video: []testmedia.Video{{Source: "testsrc2=size=320x180:rate=24:duration=1.5", Options: map[string]string{"preset": "ultrafast", "bf": "0"}}},
+			Audio: []testmedia.Audio{{Source: "sine=frequency=440:sample_rate=48000:duration=1.5", Encoder: "ac3", Layout: l}},
+		}))
 		list += "file '" + seg + "'\n"
 	}
 	listFile := filepath.Join(dir, "list.txt")
 	require.NoError(t, os.WriteFile(listFile, []byte(list), 0o644))
 	out := filepath.Join(dir, "joined.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", listFile, "-c", "copy", out)
+	// -f concat -safe 0 -i list.txt -c copy
+	require.NoError(t, testmedia.RemuxFile(listFile, out, testmedia.Retag{InputFormat: "concat", InputOptions: map[string]string{"safe": "0"}}))
 	return out
 }
 

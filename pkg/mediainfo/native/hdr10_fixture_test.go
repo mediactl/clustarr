@@ -24,42 +24,37 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
-// hdr10FixtureArgs is the EXACT ffmpeg recipe
-// images/Dockerfile.e2e-fixtures's clipgen-hdr10 stage bakes into the e2e
-// fixture image (Task E-5). Duplicated here rather than shelling out to
-// docker: this is a unit test, and the point is to prove the RECIPE itself
-// -- generate a short lavfi source, encode it HEVC 10-bit with BT.2020/PQ
-// colour tags and SMPTE ST 2086 mastering-display / content-light metadata
-// via -x265-params -- produces a file pkg/mediainfo actually reads back as
-// HDR10, independent of the Docker build. If this recipe ever changes, the
-// Dockerfile stage's own copy must change identically; both carry a comment
-// pointing at the other.
+// hdr10FixtureSpec is the recipe of the e2e fixture image's HDR10 clip
+// (test/fixtures/mkclips' "hdr10.mkv", which images/Dockerfile.e2e-fixtures
+// bakes in), as an internal/testmedia Spec: a short lavfi source encoded
+// HEVC 10-bit with BT.2020/PQ colour tags and SMPTE ST 2086 mastering
+// display and content light level metadata. Duplicated here because mkclips
+// is a program; if the recipe changes there it changes here, and each names
+// the other. The test below proves the recipe makes a file pkg/mediainfo
+// reads back as HDR10 -- not PQ10 (the colour tags without the mastering
+// display) and not SDR (colour tags that never reached the bitstream) --
+// independent of the image build.
 //
-// colorprim/transfer/colormatrix and master-display/max-cll are ALL set
-// through -x265-params, not ffmpeg's generic -color_primaries/-color_trc/
-// -colorspace output options: verified empirically that the generic options
-// reach libx265's VUI for colorspace alone (colour_space alone would ffprobe
-// back), not for primaries or transfer -- a clip built with those instead
-// would decode with color_transfer entirely absent from the frame, and
-// ClassifyHDR would call it PQ10 (color_transfer==""; falls to
-// HdrFormatNone) rather than HDR10. That is exactly the "ffmpeg writes it,
-// ClassifyHDR reads SDR" trap this task's brief warns against, and this test
-// exists to catch it if it ever regresses.
-//
-// The chromaticity/luminance/max-CLL values are
+// The chromaticity, luminance and max-CLL values are
 // docs/research/transcode.md §2.2's own worked example.
-var hdr10FixtureArgs = []string{
-	"-f", "lavfi", "-i", "testsrc2=duration=3:size=640x480:rate=25",
-	"-c:v", "libx265", "-pix_fmt", "yuv420p10le",
-	"-x265-params", "colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:" +
-		"master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400",
+var hdr10FixtureSpec = testmedia.Spec{
+	Video: []testmedia.Video{{
+		Source: "testsrc2=duration=3:size=640x480:rate=25", Encoder: "libx265", PixFmt: "yuv420p10le",
+		Options: map[string]string{"x265-params": "log-level=error"},
+		Color:   testmedia.Color{Primaries: "bt2020", Transfer: "smpte2084", Matrix: "bt2020nc"},
+		HDR10: &testmedia.HDR10{
+			MasteringDisplay: [10]uint32{13250, 34500, 7500, 3000, 34000, 16000, 15635, 16450, 10000000, 1},
+			MaxCLL:           1000, MaxFALL: 400,
+		},
+	}},
 }
 
-// TestHDR10FixtureClassifiesAsHDR10 generates images/Dockerfile.e2e-fixtures's
-// HDR10 clip with a real ffmpeg and proves the full, real
+// TestHDR10FixtureClassifiesAsHDR10 makes images/Dockerfile.e2e-fixtures's
+// HDR10 clip as the image does and proves the full, real
 // pkg/mediainfo/native Probe -> ClassifyHDR path reads it back as HDR10
 // -- not PQ10 (which is what a clip with the colour transfer but no
 // mastering-display metadata would classify as), not SDR (what a clip whose

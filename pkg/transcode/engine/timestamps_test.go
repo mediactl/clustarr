@@ -21,14 +21,15 @@ import (
 	"context"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/obinnaokechukwu/ffgo"
 	"github.com/obinnaokechukwu/ffgo/avutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -40,9 +41,7 @@ import (
 // before the guard every attempt failed in the muxer ("non monotonically
 // increasing dts").
 func TestACopiedStreamThatRepeatsATimestampStillMuxes(t *testing.T) {
-	src := hevcClip(t, "mkv",
-		"-x265-params", "log-level=error:bframes=3",
-		"-bsf:v", `setts=pts=if(between(N\,20\,23)\,0.75/TB\,PTS)`)
+	src := repeatedTimestampClip(t)
 	dts := packetDTS(t, src)
 	require.False(t, increasing(dts), "the clip must repeat a decode timestamp, as the damaged sources do: %v", dts)
 
@@ -77,8 +76,33 @@ func increasing(dts []string) bool {
 // "N/A" for one the container leaves unset.
 func packetDTS(t *testing.T, path string) []string {
 	t.Helper()
-	return strings.Fields(run(t, "ffprobe", "-v", "error", "-select_streams", "v:0",
-		"-show_entries", "packet=dts", "-of", "csv=p=0", path))
+	var out []string
+	for _, p := range testmedia.Packets(t, path) {
+		switch {
+		case p.Stream != 0:
+		case p.NoDTS:
+			out = append(out, "N/A")
+		default:
+			out = append(out, strconv.FormatInt(p.DTS, 10))
+		}
+	}
+	return out
+}
+
+// repeatedTimestampClip is hevcClip with B-frames, the presentation time of
+// its video packets 20 to 23 all set to 0.75 s
+// (`-bsf:v setts=pts=if(between(N,20,23),0.75/TB,PTS)`): Matroska keeps one
+// timestamp a packet, so its demuxer reads decode timestamps that repeat.
+func repeatedTimestampClip(t *testing.T) string {
+	t.Helper()
+	return testmedia.Remux(t, hevcClip(t, "log-level=error:bframes=3"), "repeated.mkv", testmedia.Retag{
+		PTS: func(stream, n int, pts time.Duration) time.Duration {
+			if stream == 0 && n >= 20 && n <= 23 {
+				return 750 * time.Millisecond
+			}
+			return pts
+		},
+	})
 }
 
 func TestTheDTSGuardHoldsDecodeTimestampsStrictlyIncreasing(t *testing.T) {
@@ -150,9 +174,7 @@ func TestTheDTSGuardHoldsDecodeTimestampsStrictlyIncreasing(t *testing.T) {
 // increasing: the DTS guard holds every stream, as FFmpeg's own
 // mux_fixup_ts does, not only a copied one.
 func TestAnEncodedStreamThatRepeatsATimestampStillMuxes(t *testing.T) {
-	src := hevcClip(t, "mkv",
-		"-x265-params", "log-level=error:bframes=3",
-		"-bsf:v", `setts=pts=if(between(N\,20\,23)\,0.75/TB\,PTS)`)
+	src := repeatedTimestampClip(t)
 	require.False(t, increasing(packetDTS(t, src)), "the clip must repeat a timestamp, as the damaged sources do")
 
 	// An encoder that, as QSV's does, carries a repeated presentation
@@ -169,7 +191,7 @@ func TestAnEncodedStreamThatRepeatsATimestampStillMuxes(t *testing.T) {
 // Every stream the muxer writes gets a DTS guard -- an encoded one's as a
 // copied one's -- and a sidecar, written by its own muxer, none.
 func TestEveryMuxedStreamHasADTSGuard(t *testing.T) {
-	src := hevcClip(t, "mkv")
+	src := hevcClip(t)
 	d, err := ffgo.NewDecoder(src)
 	require.NoError(t, err)
 	defer func() { _ = d.Close() }()

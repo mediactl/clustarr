@@ -19,13 +19,14 @@ package engine
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -45,20 +46,18 @@ import (
 func outlastedClip(t *testing.T) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	dir := t.TempDir()
-	srt := filepath.Join(dir, "late.srt")
-	require.NoError(t, os.WriteFile(srt, []byte("1\n00:00:08,000 --> 00:00:09,000\nLate\n"), 0o644))
-	out := filepath.Join(dir, "outlasted.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=3",
-		"-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=3",
-		"-f", "lavfi", "-i", "sine=frequency=500:sample_rate=48000:duration=6",
-		"-i", srt,
-		"-map", "0", "-map", "1", "-map", "2", "-map", "3",
-		"-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-c:s", "srt",
-		"-metadata:s:a:0", "language=eng", "-metadata:s:a:1", "language=tur", "-metadata:s:s:0", "language=eng",
-		out)
-	return out
+	return testmedia.Make(t, "outlasted.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{Source: "testsrc2=size=160x90:rate=24:duration=3", Options: map[string]string{"preset": "veryfast"}}},
+		Audio: []testmedia.Audio{
+			{Source: "sine=frequency=1000:sample_rate=48000:duration=3", Stream: testmedia.Stream{Language: "eng"}},
+			{Source: "sine=frequency=500:sample_rate=48000:duration=6", Stream: testmedia.Stream{Language: "tur"}},
+		},
+		Subtitles: []testmedia.Subtitle{{
+			Codec:  "subrip",
+			Events: []testmedia.Event{{Start: 8 * time.Second, End: 9 * time.Second, Text: "Late"}},
+			Stream: testmedia.Stream{Language: "eng"},
+		}},
+	})
 }
 
 func TestTheRunMeasuresWhereTheKeptStreamsEnd(t *testing.T) {
@@ -94,10 +93,10 @@ func TestVerifyMeasuresTheSourceOverTheKeptAudioAlone(t *testing.T) {
 	src := outlastedClip(t)
 	// A Matroska statistics tag per stream, as mkvmerge writes them and as
 	// RoboCop's source carried: the fallback reads these.
-	tagged := filepath.Join(t.TempDir(), "tagged.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src, "-map", "0", "-c", "copy",
-		"-metadata:s:v:0", "DURATION=00:00:03.000000000", "-metadata:s:a:0", "DURATION=00:00:03.000000000",
-		"-metadata:s:a:1", "DURATION=00:00:06.000000000", "-metadata:s:s:0", "DURATION=00:00:09.000000000", tagged)
+	tagged := testmedia.Remux(t, src, "tagged.mkv", testmedia.Retag{StreamMetadata: map[int]map[string]string{
+		0: {"DURATION": "00:00:03.000000000"}, 1: {"DURATION": "00:00:03.000000000"},
+		2: {"DURATION": "00:00:06.000000000"}, 3: {"DURATION": "00:00:09.000000000"},
+	}})
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	plan := standard.Result{
 		Decision: standard.DecisionCopyVideo, Container: transcode.ContainerMKV,

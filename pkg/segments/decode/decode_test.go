@@ -19,19 +19,21 @@ package decode_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/segments/decode"
+	"github.com/mediactl/clustarr/test/goldens"
 )
 
 // ready skips without FFmpeg 9 and the ffgo shim (NATIVE_ENV), and fails
@@ -48,21 +50,25 @@ func ready(t *testing.T) {
 }
 
 // clip makes a 10 s Matroska file with a test picture and a tone, a
-// keyframe every second as real releases have one every few. ffmpeg(1)
-// only makes the fixture (NATIVE_ENV puts the test-only CLI on PATH); T2
-// makes it through testmedia.Make.
+// keyframe every second as real releases have one every few, on
+// internal/testmedia.
 func clip(t *testing.T) string {
 	t.Helper()
-	return makeClip(t, "-f", "lavfi", "-i", "testsrc=d=10:s=320x240:r=25",
-		"-f", "lavfi", "-i", "sine=d=10:f=440", "-c:v", "libx264", "-g", "25", "-c:a", "aac", "-shortest")
+	return testmedia.Make(t, "clip.mkv", testmedia.Spec{
+		Shortest: true,
+		Video:    []testmedia.Video{{Source: "testsrc=d=10:s=320x240:r=25", Options: map[string]string{"g": "25"}}},
+		Audio:    []testmedia.Audio{{Source: "sine=d=10:f=440"}},
+	})
 }
 
 // lateAudioClip is clip with its audio starting half a second after the
 // picture, as in WEB-DLs whose first audio frame is at 21 ms (2026-10-15).
 func lateAudioClip(t *testing.T) string {
 	t.Helper()
-	return makeClip(t, "-f", "lavfi", "-i", "testsrc=d=10:s=320x240:r=25",
-		"-itsoffset", "0.5", "-f", "lavfi", "-i", "sine=d=9.5:f=440", "-c:v", "libx264", "-g", "25", "-c:a", "aac")
+	return testmedia.Make(t, "clip.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{Source: "testsrc=d=10:s=320x240:r=25", Options: map[string]string{"g": "25"}}},
+		Audio: []testmedia.Audio{{Source: "sine=d=9.5:f=440", Offset: 500 * time.Millisecond}},
+	})
 }
 
 // damagedClip is five minutes of small picture and tone with its last MiB
@@ -70,8 +76,10 @@ func lateAudioClip(t *testing.T) string {
 // films on talos carry (2026-10-15).
 func damagedClip(t *testing.T) string {
 	t.Helper()
-	p := makeClip(t, "-f", "lavfi", "-i", "testsrc=d=300:s=64x64:r=25",
-		"-f", "lavfi", "-i", "sine=d=300:f=440", "-c:v", "libx264", "-preset", "ultrafast", "-g", "25", "-c:a", "aac")
+	p := testmedia.Make(t, "clip.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{Source: "testsrc=d=300:s=64x64:r=25", Options: map[string]string{"preset": "ultrafast", "g": "25"}}},
+		Audio: []testmedia.Audio{{Source: "sine=d=300:f=440"}},
+	})
 	f, err := os.OpenFile(p, os.O_WRONLY, 0)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, f.Close()) }()
@@ -80,37 +88,6 @@ func damagedClip(t *testing.T) string {
 	_, err = f.WriteAt(make([]byte, 1<<20), st.Size()-1<<20)
 	require.NoError(t, err)
 	return p
-}
-
-func makeClip(t *testing.T, args ...string) string {
-	t.Helper()
-	out := filepath.Join(t.TempDir(), "clip.mkv")
-	cmd := exec.Command(ffmpeg(t), append(append([]string{"-v", "error"}, args...), out)...)
-	require.NoError(t, cmd.Run())
-	return out
-}
-
-// ffmpegAudio is the window as ffmpeg(1) decodes it, which Audio ports
-// (manager-agent split design, the analysis audio command).
-func ffmpegAudio(t *testing.T, path string, fromS, durS float64) []byte {
-	t.Helper()
-	out, err := exec.Command(ffmpeg(t), "-v", "error", "-ss", strconv.FormatFloat(fromS, 'f', -1, 64),
-		"-t", strconv.FormatFloat(durS, 'f', -1, 64), "-i", path,
-		"-map", "0:a:0", "-vn", "-sn", "-dn", "-ac", "1", "-ar", "11025", "-f", "s16le", "-").Output()
-	require.NoError(t, err)
-	return out
-}
-
-func ffmpeg(t *testing.T) string {
-	t.Helper()
-	bin, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		if os.Getenv("CLUSTARR_REQUIRE_TOOLS") == "1" {
-			t.Fatal("ffmpeg is not on PATH")
-		}
-		t.Skip("ffmpeg is not on PATH")
-	}
-	return bin
 }
 
 func pcmBytes(pcm []int16) []byte {
@@ -132,12 +109,26 @@ func TestAudioDecodesTheWindow(t *testing.T) {
 // first sample it passes: a file whose audio starts after its picture
 // ended atrim before Audio stopped pushing, and the next push failed with
 // AVERROR_EOF -- every start window of 136 files on talos (2026-10-15).
+//
+// What ffmpeg(1) decodes of such a window is the recorded golden of
+// late.mkv (test/goldens: the exec decoder's samples, hashed, before it was
+// deleted), and a clip made here must decode too.
 func TestAudioWindowOfLateStartingAudioIsFFmpegs(t *testing.T) {
 	ready(t)
-	p := lateAudioClip(t)
-	pcm, err := decode.Decoder{}.Audio(context.Background(), p, 0, 0, 5)
+	pcm, err := decode.Decoder{}.Audio(context.Background(), lateAudioClip(t), 0, 0, 5)
 	require.NoError(t, err)
-	assert.Equal(t, ffmpegAudio(t, p, 0, 5), pcmBytes(pcm))
+	assert.InDelta(t, 4.5*11025, len(pcm), 11025/10, "the window's last four and a half seconds hold the audio")
+
+	const name = "late.mkv"
+	windows := goldens.Decode(t, name).Audio
+	require.NotEmpty(t, windows)
+	for _, w := range windows {
+		require.Empty(t, w.Error, "the golden's window decoded")
+		pcm, err := decode.Decoder{}.Audio(context.Background(), goldens.ClipPath(name), w.Stream, w.From, w.Dur)
+		require.NoError(t, err)
+		assert.Equal(t, w.Samples, len(pcm), "from %v for %v", w.From, w.Dur)
+		assert.Equal(t, w.SHA256, fmt.Sprintf("%x", sha256.Sum256(pcmBytes(pcm))), "from %v for %v", w.From, w.Dur)
+	}
 }
 
 // Without its index FFmpeg seeks a file by reading it from the start: 85 s

@@ -23,11 +23,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/obinnaokechukwu/ffgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
@@ -90,20 +92,32 @@ func TestSRTSidecarFormatsCues(t *testing.T) {
 func TestTheEngineWritesTheSidecarsBesideItsOutput(t *testing.T) {
 	ffmpeg9OrSkip(t)
 	dir := t.TempDir()
-	ass := filepath.Join(dir, "in.ass")
-	require.NoError(t, os.WriteFile(ass, []byte(assFixture), 0o644))
-	srt := filepath.Join(dir, "forced.srt")
-	require.NoError(t, os.WriteFile(srt, []byte("1\n00:00:00,500 --> 00:00:01,500\n<i>Sign</i>\n"), 0o644))
+	// assFixture's header and its one Dialogue line, as the file's own
+	// packets (-c:s copy), and a SubRip cue; the WebVTT track is a .vtt
+	// file's, copied in beside them.
+	header, _, _ := strings.Cut(assFixture, "Dialogue:")
 	vtt := filepath.Join(dir, "es.vtt")
 	require.NoError(t, os.WriteFile(vtt, []byte("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<c.yellow>Hola</c>\n"), 0o644))
-	in := filepath.Join(dir, "in.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3", "-i", ass, "-i", srt, "-i", vtt,
-		"-map", "0", "-map", "1", "-map", "2", "-map", "3",
-		"-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=error",
-		"-c:s:0", "copy", "-c:s:1", "srt", "-c:s:2", "webvtt",
-		"-metadata:s:s:0", "language=eng", "-metadata:s:s:1", "language=ger", "-metadata:s:s:2", "language=spa",
-		"-disposition:s:1", "forced", in)
+	base := testmedia.Make(t, "base.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{
+			Source: "testsrc2=size=320x180:rate=24:duration=3", Encoder: "libx265", PixFmt: "yuv420p10le",
+			Options: map[string]string{"preset": "ultrafast", "x265-params": "log-level=error"},
+			Stream:  testmedia.Stream{Metadata: map[string]string{"ENCODER": "Lavc63.11.100 libx265"}},
+		}},
+		Subtitles: []testmedia.Subtitle{
+			{
+				Codec: "ass", Header: header,
+				Events: []testmedia.Event{{Start: 500 * time.Millisecond, End: 1500 * time.Millisecond, Text: "Hello"}},
+				Stream: testmedia.Stream{Language: "eng"},
+			},
+			{
+				Codec:  "subrip",
+				Events: []testmedia.Event{{Start: 500 * time.Millisecond, End: 1500 * time.Millisecond, Text: "<i>Sign</i>"}},
+				Stream: testmedia.Stream{Language: "ger", Disposition: []string{"forced"}},
+			},
+		},
+	})
+	in := testmedia.Mux(t, "in.mkv", testmedia.Retag{StreamMetadata: map[int]map[string]string{3: {"language": "spa"}}}, base, vtt)
 	plan := standard.Plan(probeInfo(t, in), standard.Profile{Name: "p", Hash: "h"}, standard.Hardware{Tier: transcode.TierCPUx265})
 	require.Len(t, plan.Sidecars, 3, "%+v", plan.Sidecars)
 	out := filepath.Join(dir, "Film.part-ab12cd34-1.mp4")
@@ -141,14 +155,18 @@ func TestTheEngineWritesTheSidecarsBesideItsOutput(t *testing.T) {
 func TestASidecarThatCannotBeOpenedFailsTheRunWithoutAPanic(t *testing.T) {
 	ffmpeg9OrSkip(t)
 	dir := t.TempDir()
-	srt := filepath.Join(dir, "cc.srt")
-	require.NoError(t, os.WriteFile(srt, []byte("1\n00:00:00,500 --> 00:00:01,500\nHello\n"), 0o644))
-	in := filepath.Join(dir, "in.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2", "-i", srt,
-		"-map", "0", "-map", "1",
-		"-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=error",
-		"-c:s:0", "srt", "-metadata:s:s:0", "language=eng", in)
+	in := testmedia.Make(t, "in.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{
+			Source: "testsrc2=size=320x180:rate=24:duration=2", Encoder: "libx265", PixFmt: "yuv420p10le",
+			Options: map[string]string{"preset": "ultrafast", "x265-params": "log-level=error"},
+			Stream:  testmedia.Stream{Metadata: map[string]string{"ENCODER": "Lavc63.11.100 libx265"}},
+		}},
+		Subtitles: []testmedia.Subtitle{{
+			Codec:  "subrip",
+			Events: []testmedia.Event{{Start: 500 * time.Millisecond, End: 1500 * time.Millisecond, Text: "Hello"}},
+			Stream: testmedia.Stream{Language: "eng"},
+		}},
+	})
 	plan := standard.Plan(probeInfo(t, in), standard.Profile{Name: "p", Hash: "h"}, standard.Hardware{Tier: transcode.TierCPUx265})
 	require.Len(t, plan.Sidecars, 1, "%+v", plan.Sidecars)
 

@@ -147,6 +147,7 @@ jobs:
       - name: make test
         env:
           CLUSTARR_REQUIRE_TOOLS: "1"
+          CLUSTARR_FFGO_REQUIRE: "1"
         run: make test
 
   images:

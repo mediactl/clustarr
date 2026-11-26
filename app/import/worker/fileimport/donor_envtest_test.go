@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -37,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/app/import/importplan"
 	"github.com/mediactl/clustarr/app/import/worker/probe/probetest"
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
@@ -94,35 +94,23 @@ func (r *importRun) cycle() lifecycle.ImportDecision {
 }
 
 // donorClip makes a two-second Matroska file with one H.264 video stream
-// and one AAC track per language, tagged in that order, with the ffmpeg
-// CLI; it skips without FFmpeg 9's libraries, which the probe and the
-// reduction load in-process.
+// and one AAC track per language, tagged in that order, on
+// internal/testmedia; it skips without FFmpeg 9's libraries, which the
+// probe and the reduction load in-process too.
 func donorClip(t *testing.T, dir string, langs ...string) string {
 	t.Helper()
-	if _, err := native.New(); err != nil {
-		t.Skipf("no FFmpeg 9 with its shim for the probe and the reduction: %v", err)
-	}
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("no ffmpeg to make the donor clip")
+	testmedia.Require(t)
+	spec := testmedia.Spec{Video: []testmedia.Video{{
+		Source: "testsrc2=size=160x90:rate=24:duration=2", Options: map[string]string{"preset": "ultrafast"},
+	}}}
+	for i, l := range langs {
+		spec.Audio = append(spec.Audio, testmedia.Audio{
+			Source: fmt.Sprintf("sine=frequency=%d:sample_rate=48000:duration=2", 440+110*i),
+			Stream: testmedia.Stream{Language: l},
+		})
 	}
 	out := filepath.Join(dir, donorTitle+".mkv")
-	args := []string{
-		"-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=2",
-	}
-	for i := range langs {
-		args = append(args, "-f", "lavfi", "-i", fmt.Sprintf("sine=frequency=%d:sample_rate=48000:duration=2", 440+110*i))
-	}
-	args = append(args, "-map", "0:v")
-	for i := range langs {
-		args = append(args, "-map", fmt.Sprintf("%d:a", i+1))
-	}
-	args = append(args, "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac")
-	for i, l := range langs {
-		args = append(args, fmt.Sprintf("-metadata:s:a:%d", i), "language="+l)
-	}
-	b, err := exec.Command("ffmpeg", append(args, out)...).CombinedOutput()
-	require.NoError(t, err, "ffmpeg: %s", b)
+	require.NoError(t, testmedia.Write(out, spec))
 	return out
 }
 

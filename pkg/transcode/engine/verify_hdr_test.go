@@ -33,9 +33,7 @@ var hdr10Color = standard.ColorTags{Primaries: "bt2020", Transfer: "smpte2084", 
 // hdr10Source is an HDR10 clip: PQ, BT.2020, and SMPTE ST 2086 mastering
 // display and MaxCLL/MaxFALL in its first frame.
 func hdr10Source(t *testing.T) string {
-	return videoClip(t, "hdr10.mkv", "-pix_fmt", "yuv420p10le", "-c:v", "libx265",
-		"-x265-params", "log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:"+
-			"master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400")
+	return videoClip(t, "hdr10.mkv", x265Video("log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400"))
 }
 
 func hdr10Expectation() standard.Expectation {

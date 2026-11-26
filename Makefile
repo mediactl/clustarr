@@ -14,8 +14,8 @@ ENVTEST_K8S_VERSION ?= 1.37.0
 PG_ASSETS ?= $(GOBIN)/pg-assets
 # NATIVE_ASSETS holds what the native tests load and compare against
 # (hack/native-assets.sh, spec §10.1.6): FFmpeg 9's libraries and libffshim,
-# ONNX Runtime, libpar2shim, and the test-only ffmpeg, ffprobe and par2
-# CLIs. ffgo finds libavutil, libavcodec and libavformat only through
+# ONNX Runtime, libpar2shim, and the test-only par2 CLI (no ffmpeg or
+# ffprobe program: tests make their media on ffgo). ffgo finds libavutil, libavcodec and libavformat only through
 # LD_LIBRARY_PATH and fixed system directories, at package init, so the
 # variable must be in the test process's environment from the start;
 # FFGO_SHIM_DIR locates only the shim. CLUSTARR_REQUIRE_TOOLS=1 turns a
@@ -29,7 +29,8 @@ NATIVE_ENV = LD_LIBRARY_PATH="$(NATIVE_ASSETS)/lib" \
 	PAR2GO_LIB="$(NATIVE_ASSETS)/lib/libpar2shim.so" \
 	PAR2GO_REQUIRE=1 \
 	PATH="$(NATIVE_ASSETS)/bin:$$PATH" \
-	CLUSTARR_REQUIRE_TOOLS=1
+	CLUSTARR_REQUIRE_TOOLS=1 \
+	CLUSTARR_FFGO_REQUIRE=1
 
 IMG ?= ghcr.io/mediactl/clustarr:dev
 NATIVE_IMG ?= ghcr.io/mediactl/clustarr/native:dev

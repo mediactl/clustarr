@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
@@ -34,12 +35,10 @@ import (
 func pcmClip(t *testing.T, l string) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	out := filepath.Join(t.TempDir(), "pcm.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2,aformat=channel_layouts="+l,
-		"-c:v", "libx264", "-preset", "ultrafast", "-bf", "0", "-c:a", "pcm_s24le", out)
-	return out
+	return testmedia.Make(t, "pcm.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{Source: "testsrc2=size=320x180:rate=24:duration=2", Options: map[string]string{"preset": "ultrafast", "bf": "0"}}},
+		Audio: []testmedia.Audio{{Source: "sine=frequency=440:sample_rate=48000:duration=2", Encoder: "pcm_s24le", Layout: l}},
+	})
 }
 
 // A Blu-ray's PCM track in Matroska encodes. Its frames' unspecified layout

@@ -154,10 +154,20 @@ Until the guard lands, review holds the invariant; drop the mark when it does.
   one other start is the trailers agent's yt-dlp (`pkg/ytdlp/exec.go`,
   ADR-0023, owner 2026-11-17): only `app/trailers` links the package
   (`TestOnlyTheTrailersAgentLinksYtDlp`), and only the optional `trailers`
-  image holds the program. Oracles
-  that run ffprobe, ffmpeg or par2 belong under `test/`; several package tests
-  still run the ffmpeg CLI until the test batch moves them onto
-  `internal/testmedia` and recorded goldens (`TestNoGoFileRunsFFmpeg`†).
+  image holds the program. **No test, test helper, script or `hack/` program
+  runs the ffmpeg or ffprobe CLI either, and the test environment installs
+  neither** (2026-11-26, owner: migrate *from* the command line):
+  a test makes its media with `internal/testmedia` (a Spec is an ffmpeg
+  command line on ffgo; `Remux`/`Mux` are `-c copy`, with a codec tag, an
+  input format, a packet's bytes or its timestamp changed) and reads it back
+  with `Inspect`, `Frames`, `Packets` and `ChannelRMS`, and an oracle is a
+  recorded golden under `test/data/media-goldens` (`TestNoGoFileRunsFFmpeg`,
+  `TestNoScriptRunsFFmpeg`, `TestTheTestEnvironmentHasNoFFmpegProgram`). The
+  par2 CLI stays for `test/par2test.CreateSet`. What ffmpeg(1) did silently
+  and a Spec must say: the layout an encoder takes (TrueHD and DTS want
+  `5.1(side)`, DTS a bit rate), the `ENCODER` stream tag it wrote on what it
+  encoded (which is what reads as another tool's transcode), and a muxer
+  whose name the file's extension does not give ffgo (`Format: "flac"`).
 - **Cap every status list** with `+kubebuilder:validation:MaxItems`. Unbounded
   lists in status are how operators melt etcd.
 - **The scanner never guesses.** Unattributable files go to

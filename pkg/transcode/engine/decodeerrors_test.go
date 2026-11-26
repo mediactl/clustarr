@@ -19,24 +19,34 @@ package engine
 
 import (
 	"context"
+	"math/rand/v2"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // corruptFLAC is withAudio's 3 s clip with FLAC audio in 4096-sample
-// frames, the packets noise selects (an expression of n) damaged.
-func corruptFLAC(t *testing.T, which string) string {
+// frames, the audio packets damaged names (by their number from 0) having
+// every fourth byte replaced, as the noise bitstream filter's amount=4 did.
+func corruptFLAC(t *testing.T, damaged func(n int) bool) string {
 	t.Helper()
-	return withAudio(t, "aformat=channel_layouts=stereo", []string{
-		"-c:a", "flac", "-frame_size", "4096", "-bsf:a", "noise=amount=" + which,
-	}, "0")
+	a := flacAudio
+	a.Options = map[string]string{"frame_size": "4096"}
+	clean := withAudio(t, "aformat=channel_layouts=stereo", a, 0)
+	noise := rand.New(rand.NewPCG(1, 2))
+	return testmedia.Remux(t, clean, "damaged.mkv", testmedia.Retag{Packet: func(stream, n int, data []byte) {
+		if stream != 1 || !damaged(n) {
+			return
+		}
+		for i := 0; i < len(data); i += 4 {
+			data[i] = byte(noise.Uint32())
+		}
+	}})
 }
 
 // decodedSamples is how many audio samples FFmpeg decodes from path's
@@ -44,11 +54,8 @@ func corruptFLAC(t *testing.T, which string) string {
 func decodedSamples(t *testing.T, path string) int {
 	t.Helper()
 	n := 0
-	for _, l := range strings.Fields(run(t, "ffprobe", "-v", "error", "-select_streams", "a:0",
-		"-show_entries", "frame=nb_samples", "-of", "csv=p=0", path)) {
-		v, err := strconv.Atoi(l)
-		require.NoError(t, err)
-		n += v
+	for _, f := range testmedia.Frames(t, path, 1) {
+		n += f.Samples
 	}
 	return n
 }
@@ -58,7 +65,7 @@ func decodedSamples(t *testing.T, path string) int {
 // encoder fills its samples with silence, so the audio keeps its length
 // and stays in sync. Before, the first such packet failed the whole run.
 func TestAnAudioPacketThatWillNotDecodeIsSkipped(t *testing.T) {
-	src := corruptFLAC(t, `if(eq(n\,10)\,4\,0)`)
+	src := corruptFLAC(t, func(n int) bool { return n == 10 })
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	_, err := Run(context.Background(), audioPlan(standard.AudioPlan{
 		SourceIndex: 0, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 128000,
@@ -71,7 +78,7 @@ func TestAnAudioPacketThatWillNotDecodeIsSkipped(t *testing.T) {
 // A stream that will hardly decode at all still fails, as FFmpeg's does
 // past its max_error_rate of 2/3.
 func TestAStreamThatWillNotDecodeStillFails(t *testing.T) {
-	src := corruptFLAC(t, "4")
+	src := corruptFLAC(t, func(int) bool { return true })
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	_, err := Run(context.Background(), audioPlan(standard.AudioPlan{
 		SourceIndex: 0, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 128000,

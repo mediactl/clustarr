@@ -20,38 +20,40 @@ package engine
 import (
 	"context"
 	"fmt"
-	"math"
 	"path/filepath"
-	"regexp"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // withAudio makes a 3 s H.264 clip with one audio track made by the lavfi
-// filter spec af (a 1 kHz tone panned by it), encoded with codec, the audio
-// input delayed by offset seconds.
-func withAudio(t *testing.T, af string, codec []string, offset string) string {
+// filter spec af (a 1 kHz tone panned by it), encoded as a says, the audio
+// delayed by offset.
+func withAudio(t *testing.T, af string, a testmedia.Audio, offset time.Duration) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	out := filepath.Join(t.TempDir(), "a.mkv")
-	args := []string{
-		"-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=3",
-		"-itsoffset", offset, "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=3",
-	}
-	args = append(args, "-map", "0", "-map", "1", "-af", af, "-c:v", "libx264", "-preset", "veryfast")
-	args = append(args, codec...)
-	run(t, "ffmpeg", append(args, out)...)
-	return out
+	a.Source, a.Offset = "sine=frequency=1000:sample_rate=48000:duration=3,"+af, offset
+	return testmedia.Make(t, "a.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{Source: "testsrc2=size=160x90:rate=24:duration=3", Options: map[string]string{"preset": "veryfast"}}},
+		Audio: []testmedia.Audio{a},
+	})
 }
+
+// The encoders withAudio's callers name.
+var (
+	flacAudio = testmedia.Audio{Encoder: "flac"}
+	// 5.1(side) is the layout ffmpeg(1) negotiated for both encoders, whatever
+	// the filter before them made: neither takes 7.1 or 5.1 with back surrounds.
+	truehdAudio = testmedia.Audio{Encoder: "truehd", Layout: "5.1(side)", Options: map[string]string{"strict": "-2"}}
+	dcaAudio    = testmedia.Audio{Encoder: "dca", Layout: "5.1(side)", BitrateKbps: 1411, Options: map[string]string{"strict": "-2"}}
+)
 
 func audioPlan(a standard.AudioPlan) standard.Result {
 	return standard.Result{
@@ -60,34 +62,21 @@ func audioPlan(a standard.AudioPlan) standard.Result {
 	}
 }
 
-var (
-	astatsChannelRE = regexp.MustCompile(`Channel: (\d+)`)
-	astatsRMSRE     = regexp.MustCompile(`RMS level dB: (\S+)`)
-)
-
 // rmsByChannel is each 5.1 channel's RMS level, by position name.
 func rmsByChannel(t *testing.T, path string) map[string]float64 {
 	t.Helper()
 	names := []string{"FL", "FR", "FC", "LFE", "BL", "BR"}
-	out := run(t, "ffmpeg", "-hide_banner", "-nostats", "-i", path, "-map", "0:a:0", "-af", "astats=measure_overall=none", "-f", "null", "-")
-	levels, ch := map[string]float64{}, 0
-	for _, line := range strings.Split(out, "\n") {
-		if m := astatsChannelRE.FindStringSubmatch(line); m != nil {
-			ch, _ = strconv.Atoi(m[1])
-		}
-		if m := astatsRMSRE.FindStringSubmatch(line); m != nil && ch >= 1 && ch <= len(names) {
-			v := math.Inf(-1)
-			if m[1] != "-inf" {
-				v, _ = strconv.ParseFloat(m[1], 64)
-			}
-			levels[names[ch-1]] = v
+	levels := map[string]float64{}
+	for ch, v := range testmedia.ChannelRMS(t, path, 1) {
+		if ch < len(names) {
+			levels[names[ch]] = v
 		}
 	}
 	return levels
 }
 
 func TestTrueHD71BecomesAAC51(t *testing.T) {
-	src := withAudio(t, "pan=7.1|SL=c0", []string{"-c:a", "truehd", "-strict", "-2"}, "0")
+	src := withAudio(t, "pan=7.1|SL=c0", truehdAudio, 0)
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	_, err := Run(context.Background(), audioPlan(standard.AudioPlan{SourceIndex: 0, Action: "aac", Channels: 6, Layout: "5.1", BitRate: 384000}), src, out, Options{})
 	require.NoError(t, err)
@@ -103,7 +92,7 @@ func TestTrueHD71BecomesAAC51(t *testing.T) {
 }
 
 func TestFLACStereoBecomesAAC(t *testing.T) {
-	src := withAudio(t, "aformat=channel_layouts=stereo", []string{"-c:a", "flac"}, "0")
+	src := withAudio(t, "aformat=channel_layouts=stereo", flacAudio, 0)
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	_, err := Run(context.Background(), audioPlan(standard.AudioPlan{SourceIndex: 0, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 128000}), src, out, Options{})
 	require.NoError(t, err)
@@ -113,7 +102,7 @@ func TestFLACStereoBecomesAAC(t *testing.T) {
 }
 
 func TestSideSurroundsLandInTheBackSurrounds(t *testing.T) {
-	src := withAudio(t, "pan=5.1(side)|SR=c0", []string{"-c:a", "flac"}, "0")
+	src := withAudio(t, "pan=5.1(side)|SR=c0", flacAudio, 0)
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	_, err := Run(context.Background(), audioPlan(standard.AudioPlan{SourceIndex: 0, Action: "aac", Channels: 6, Layout: "5.1", BitRate: 384000}), src, out, Options{})
 	require.NoError(t, err)
@@ -123,7 +112,7 @@ func TestSideSurroundsLandInTheBackSurrounds(t *testing.T) {
 }
 
 func TestAudioThatStartsLateKeepsItsStart(t *testing.T) {
-	src := withAudio(t, "aformat=channel_layouts=stereo", []string{"-c:a", "flac"}, "0.5")
+	src := withAudio(t, "aformat=channel_layouts=stereo", flacAudio, 500*time.Millisecond)
 	out := filepath.Join(t.TempDir(), "o.mkv")
 	_, err := Run(context.Background(), audioPlan(standard.AudioPlan{SourceIndex: 0, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 128000}), src, out, Options{})
 	require.NoError(t, err)
@@ -139,16 +128,24 @@ func TestAudioThatStartsLateKeepsItsStart(t *testing.T) {
 func TestTheEngineWritesTheMP4AudioLayout(t *testing.T) {
 	ffmpeg9OrSkip(t)
 	dir := t.TempDir()
-	src := filepath.Join(dir, "src.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3,aformat=channel_layouts=5.1",
-		"-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000:duration=3,aformat=channel_layouts=5.1",
-		"-map", "0", "-map", "1", "-map", "2",
-		"-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=error",
-		"-c:a:0", "flac", "-c:a:1", "eac3",
-		"-metadata:s:a:0", "language=jpn", "-metadata:s:a:0", "title=FLAC 5.1",
-		"-metadata:s:a:1", "language=eng", "-disposition:a:0", "default", "-disposition:a:1", "0", src)
+	src := testmedia.Make(t, "src.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{
+			Source: "testsrc2=size=320x180:rate=24:duration=3", Encoder: "libx265", PixFmt: "yuv420p10le",
+			Options: map[string]string{"preset": "ultrafast", "x265-params": "log-level=error"},
+			// ffmpeg(1)'s tag on a stream it encodes: another tool's transcode, remuxed, not a release's 10-bit HEVC.
+			Stream: testmedia.Stream{Metadata: map[string]string{"ENCODER": "Lavc63.11.100 libx265"}},
+		}},
+		Audio: []testmedia.Audio{
+			{
+				Source: "sine=frequency=440:sample_rate=48000:duration=3", Encoder: "flac", Layout: "5.1",
+				Stream: testmedia.Stream{Language: "jpn", Title: "FLAC 5.1", Disposition: []string{"default"}},
+			},
+			{
+				Source: "sine=frequency=660:sample_rate=48000:duration=3", Encoder: "eac3", Layout: "5.1",
+				Stream: testmedia.Stream{Language: "eng"},
+			},
+		},
+	})
 	plan := standard.Plan(probeInfo(t, src), standard.Profile{Name: "p", Hash: "h"}, standard.Hardware{Tier: transcode.TierCPUx265})
 	require.Equal(t, standard.DecisionCopyVideo, plan.Decision, plan.Reason)
 	out := filepath.Join(dir, "out.mp4")
@@ -175,12 +172,13 @@ func TestTheEngineWritesTheMP4AudioLayout(t *testing.T) {
 func TestAKeptH264IsCopiedIntoTheMP4Standard(t *testing.T) {
 	ffmpeg9OrSkip(t)
 	dir := t.TempDir()
-	src := filepath.Join(dir, "src.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3,aformat=channel_layouts=5.1",
-		"-map", "0", "-map", "1", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-		"-c:a", "eac3", "-metadata:s:a:0", "language=eng", src)
+	src := testmedia.Make(t, "src.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{Source: "testsrc2=size=320x180:rate=24:duration=3", Options: map[string]string{"preset": "ultrafast"}}},
+		Audio: []testmedia.Audio{{
+			Source: "sine=frequency=440:sample_rate=48000:duration=3", Encoder: "eac3", Layout: "5.1",
+			Stream: testmedia.Stream{Language: "eng"},
+		}},
+	})
 	plan := standard.Plan(probeInfo(t, src),
 		standard.Profile{Name: "p", Hash: "h", KeepCodecs: []string{"h264"}}, standard.Hardware{Tier: transcode.TierCPUx265})
 	require.Equal(t, standard.DecisionCopyVideo, plan.Decision, plan.Reason)
@@ -203,11 +201,17 @@ func TestAKeptH264IsCopiedIntoTheMP4Standard(t *testing.T) {
 func TestALateVideoStartDoesNotStallAnEncodedAudioTrack(t *testing.T) {
 	ffmpeg9OrSkip(t)
 	dir := t.TempDir()
-	src := filepath.Join(dir, "late.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-itsoffset", "2", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=4",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=6,aformat=channel_layouts=5.1",
-		"-map", "0", "-map", "1", "-c:v", "libx264", "-preset", "veryfast", "-c:a", "eac3", src)
+	// The video starts two seconds after the audio (`-itsoffset 2` on its
+	// input): every timestamp shifted by two, the audio's shifted back.
+	src := testmedia.Make(t, "late.mkv", testmedia.Spec{
+		StartOffset: 2 * time.Second,
+		Video:       []testmedia.Video{{Source: "testsrc2=size=320x180:rate=24:duration=4", Options: map[string]string{"preset": "veryfast"}}},
+		Audio: []testmedia.Audio{{
+			Source: "sine=frequency=440:sample_rate=48000:duration=6", Encoder: "eac3", Layout: "5.1", Offset: -2 * time.Second,
+		}},
+	})
+	require.InDelta(t, 2.0, testmedia.Inspect(t, src).Streams[0].StartTime.Seconds(), 0.1, "the video starts late")
+	require.InDelta(t, 0.0, testmedia.Inspect(t, src).Streams[1].StartTime.Seconds(), 0.1, "the audio starts the file")
 	plan := standard.Plan(probeInfo(t, src), standard.Profile{Name: "p", Hash: "h"}, standard.Hardware{Tier: transcode.TierCPUx265})
 	require.Len(t, plan.Audio, 2, "E-AC-3 copied, AAC companion encoded")
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

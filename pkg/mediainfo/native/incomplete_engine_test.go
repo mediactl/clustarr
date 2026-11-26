@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -45,10 +46,15 @@ import (
 // stream-level evidence the probe has without the frame.
 func hdr10WithStreamSideData(t *testing.T) string {
 	t.Helper()
-	src := native.ClipForTest(t, "hdr10.mkv", "-f", "lavfi", "-i", "testsrc2=duration=1:size=320x240:rate=25",
-		"-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le", "-x265-params",
-		"log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:"+
-			"master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400")
+	src := testmedia.Make(t, "hdr10.mkv", testmedia.Spec{Video: []testmedia.Video{{
+		Source: "testsrc2=duration=1:size=320x240:rate=25", Encoder: "libx265", PixFmt: "yuv420p10le",
+		Options: map[string]string{"preset": "ultrafast", "x265-params": "log-level=error"},
+		Color:   testmedia.Color{Primaries: "bt2020", Transfer: "smpte2084", Matrix: "bt2020nc"},
+		HDR10: &testmedia.HDR10{
+			MasteringDisplay: [10]uint32{13250, 34500, 7500, 3000, 34000, 16000, 15635, 16450, 10000000, 1},
+			MaxCLL:           1000, MaxFALL: 400,
+		},
+	}}})
 	out := filepath.Join(t.TempDir(), "out.mkv")
 	plan := standard.Result{
 		Decision: standard.DecisionEncode, Container: transcode.ContainerMKV,

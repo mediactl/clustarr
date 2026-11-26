@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -36,6 +35,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -51,26 +51,12 @@ const hevcFixture = "../../../../test/data/mediainfo/sample_hevc_10bit.mkv"
 // pkg/release cannot parse as a movie.
 const junkName = "2ef6f194995e4a11b055d0f2354ef0ba.mkv"
 
-// requireFFmpeg skips unless ffmpeg and ffprobe are both on PATH:
-// app/import/worker/fileimport's helper of the same name, copied rather
-// than imported from a test package.
+// requireFFmpeg skips unless FFmpeg 9's libraries load, which the scan's
+// probe reads a file with and internal/testmedia makes a clip with; where
+// they are required it fails instead (testmedia.Require).
 func requireFFmpeg(t *testing.T) {
 	t.Helper()
-	for _, tool := range []string{"ffmpeg", "ffprobe"} {
-		if _, err := exec.LookPath(tool); err != nil {
-			t.Skipf("%s not on PATH", tool)
-		}
-	}
-}
-
-// encodeClip runs ffmpeg with args and the output file name, in a fresh
-// temp directory, and returns the clip's path.
-func encodeClip(t *testing.T, name string, args ...string) string {
-	t.Helper()
-	clip := filepath.Join(t.TempDir(), name)
-	out, err := exec.Command("ffmpeg", append(args, clip)...).CombinedOutput() //nolint:gosec // test-built args
-	require.NoError(t, err, "ffmpeg: %s", out)
-	return clip
+	testmedia.Require(t)
 }
 
 // plantCopy writes clip's bytes to path.
@@ -84,7 +70,7 @@ func plantCopy(t *testing.T, clip, path string) {
 
 // nativeProber is the import domain's one prober, in-process
 // (pkg/mediainfo/native, W8): a named skip when FFmpeg 9's libraries cannot
-// be loaded, a missing prerequisite like ffmpeg on PATH.
+// be loaded, a missing prerequisite like FFmpeg's libraries.
 func nativeProber(t *testing.T) *native.Prober {
 	t.Helper()
 	p, err := native.New()
@@ -302,8 +288,9 @@ func TestHandleCorrectsANamedQualityFromTheProbe(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-probe-quality", catalogv1alpha1.RootFolderKindMovie,
 		"hd-bluray-web", catalogv1alpha1.ScanModeFull)
-	clip := encodeClip(t, "clip.mkv", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=duration=0.2:size=1920x1080:rate=25", "-c:v", "mpeg4")
+	clip := testmedia.Make(t, "clip.mkv", testmedia.Spec{Video: []testmedia.Video{{
+		Source: "testsrc2=duration=0.2:size=1920x1080:rate=25", Encoder: "mpeg4",
+	}}})
 	res := probedResolution(t, ctx, clip)
 	plantCopy(t, clip, filepath.Join(f.root, "The Matrix (1999) {tmdb-603}", "The.Matrix.1999.2160p.BluRay.x265-GRP.mkv"))
 

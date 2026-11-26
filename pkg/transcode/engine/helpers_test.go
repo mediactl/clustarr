@@ -19,40 +19,27 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"maps"
 	"strconv"
-	"strings"
 	"testing"
+	"time"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/test/nativetest"
 )
 
-// ffmpeg9OrSkip skips unless FFmpeg 9's libraries and the ffmpeg/ffprobe
-// executables (which make and inspect the clips) are here -- and fails where
-// they are required (test/nativetest: CLUSTARR_REQUIRE_TOOLS, which make test
-// sets, and CLUSTARR_FFGO_REQUIRE), so a missing library is never a silent
-// pass.
+// ffmpeg9OrSkip skips unless FFmpeg 9's libraries are here, which the engine
+// runs on and internal/testmedia makes and inspects the clips with -- and
+// fails where they are required (test/nativetest: CLUSTARR_REQUIRE_TOOLS,
+// which make test sets, and CLUSTARR_FFGO_REQUIRE), so a missing library is
+// never a silent pass.
 func ffmpeg9OrSkip(t *testing.T) {
 	t.Helper()
-	for _, bin := range []string{"ffmpeg", "ffprobe"} {
-		nativetest.Tool(t, bin)
-	}
 	nativetest.FFmpeg(t, ffruntime.Needs{})
-}
-
-func run(t *testing.T, name string, args ...string) string {
-	t.Helper()
-	out, err := exec.Command(name, args...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("%s %s: %v\n%s", name, strings.Join(args, " "), err, out)
-	}
-	return string(out)
+	testmedia.Require(t)
 }
 
 // everythingClip: H.264 video; English AC-3 5.1 (default); French AAC
@@ -61,65 +48,94 @@ func run(t *testing.T, name string, args ...string) string {
 func everythingClip(t *testing.T, seconds int) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	dir := t.TempDir()
-	srt := filepath.Join(dir, "sub.srt")
-	font := filepath.Join(dir, "font.ttf")
-	meta := filepath.Join(dir, "chapters.ffmeta")
-	half := seconds * 500
-	for path, body := range map[string]string{
-		srt:  "1\n00:00:00,500 --> 00:00:01,500\nHello\n",
-		font: "not really a font",
-		meta: ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=" + strconv.Itoa(half) + "\ntitle=One\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=" + strconv.Itoa(half) + "\nEND=" + strconv.Itoa(2*half) + "\ntitle=Two\n",
-	} {
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	out := filepath.Join(dir, "everything.mkv")
 	d := strconv.Itoa(seconds)
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration="+d,
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration="+d+",aformat=channel_layouts=5.1",
-		"-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration="+d,
-		"-i", srt, "-i", meta,
-		"-map", "0", "-map", "1", "-map", "2", "-map", "3", "-map_chapters", "4",
-		"-c:v", "libx264", "-preset", "veryfast", "-bf", "2", "-c:a:0", "ac3", "-c:a:1", "aac", "-c:s", "srt",
-		"-attach", font, "-metadata:s:t", "mimetype=application/x-truetype-font",
-		"-metadata:s:a:0", "language=eng", "-metadata:s:a:1", "language=fre", "-metadata:s:a:1", "title=Commentary",
-		"-metadata:s:s:0", "language=eng",
-		"-disposition:a:0", "default", "-disposition:a:1", "comment", "-disposition:s:0", "forced",
-		"-metadata", "title=Clip", out)
-	return out
+	half := int64(seconds) * 500
+	return testmedia.Make(t, "everything.mkv", testmedia.Spec{
+		Tags: map[string]string{"title": "Clip"},
+		Video: []testmedia.Video{{
+			Source: "testsrc2=size=320x180:rate=24:duration=" + d, Options: map[string]string{"preset": "veryfast", "bf": "2"},
+		}},
+		Audio: []testmedia.Audio{
+			{
+				Source: "sine=frequency=440:sample_rate=48000:duration=" + d, Encoder: "ac3", Layout: "5.1",
+				Stream: testmedia.Stream{Language: "eng", Disposition: []string{"default"}},
+			},
+			{
+				Source: "sine=frequency=880:sample_rate=48000:duration=" + d,
+				Stream: testmedia.Stream{Language: "fre", Title: "Commentary", Disposition: []string{"comment"}},
+			},
+		},
+		Subtitles: []testmedia.Subtitle{{
+			Codec:  "subrip",
+			Events: []testmedia.Event{{Start: 500 * time.Millisecond, End: 1500 * time.Millisecond, Text: "Hello"}},
+			Stream: testmedia.Stream{Language: "eng", Disposition: []string{"forced"}},
+		}},
+		Attachments: []testmedia.Attachment{{Name: "font.ttf", MIMEType: "application/x-truetype-font", Data: []byte("not really a font")}},
+		Chapters: []testmedia.Chapter{
+			{Start: 0, End: half, TimeBase: [2]int{1, 1000}, Title: "One"},
+			{Start: half, End: 2 * half, TimeBase: [2]int{1, 1000}, Title: "Two"},
+		},
+	})
+}
+
+type probedStream struct {
+	CodecName   string
+	CodecType   string
+	Profile     string
+	PixFmt      string
+	Channels    int
+	Layout      string
+	StartTime   string
+	ColorTrc    string
+	Tags        map[string]string
+	Disposition map[string]int
+}
+
+type probedChapter struct {
+	Tags map[string]string
 }
 
 type probed struct {
-	Streams []struct {
-		CodecName   string            `json:"codec_name"`
-		CodecType   string            `json:"codec_type"`
-		Profile     string            `json:"profile"`
-		PixFmt      string            `json:"pix_fmt"`
-		Channels    int               `json:"channels"`
-		Layout      string            `json:"channel_layout"`
-		StartTime   string            `json:"start_time"`
-		ColorTrc    string            `json:"color_transfer"`
-		Tags        map[string]string `json:"tags"`
-		Disposition map[string]int    `json:"disposition"`
-	} `json:"streams"`
-	Chapters []struct {
-		Tags map[string]string `json:"tags"`
-	} `json:"chapters"`
-	Format struct {
-		Duration string            `json:"duration"`
-		Tags     map[string]string `json:"tags"`
-	} `json:"format"`
+	Streams  []probedStream
+	Chapters []probedChapter
+	Format   struct {
+		Duration string
+		Tags     map[string]string
+	}
 }
 
+// ffprobeJSON is path as ffprobe -show_streams -show_chapters -show_format
+// printed it, read through internal/testmedia.Inspect: the tests were
+// written against ffprobe's JSON and keep its field names.
 func ffprobeJSON(t *testing.T, path string) probed {
 	t.Helper()
+	info := testmedia.Inspect(t, path)
 	var p probed
-	out := run(t, "ffprobe", "-v", "error", "-show_streams", "-show_chapters", "-show_format", "-of", "json", path)
-	if err := json.Unmarshal([]byte(out), &p); err != nil {
-		t.Fatalf("ffprobe json: %v\n%s", err, out)
+	p.Format.Duration = strconv.FormatFloat(info.Duration.Seconds(), 'f', 6, 64)
+	p.Format.Tags = info.Tags
+	for _, s := range info.Streams {
+		tags := maps.Clone(s.Tags)
+		if tags == nil {
+			tags = map[string]string{}
+		}
+		if s.Language != "" {
+			tags["language"] = s.Language
+		}
+		if s.Title != "" {
+			tags["title"] = s.Title
+		}
+		disposition := map[string]int{}
+		for _, d := range s.Disposition {
+			disposition[d] = 1
+		}
+		p.Streams = append(p.Streams, probedStream{
+			CodecName: s.Codec, CodecType: s.Type, Profile: s.Profile, PixFmt: s.PixFmt, Channels: s.Channels, Layout: s.Layout,
+			StartTime: strconv.FormatFloat(s.StartTime.Seconds(), 'f', 6, 64), ColorTrc: s.Color.Transfer,
+			Tags: tags, Disposition: disposition,
+		})
+	}
+	for _, c := range info.Chapters {
+		p.Chapters = append(p.Chapters, probedChapter{Tags: map[string]string{"title": c.Title}})
 	}
 	return p
 }

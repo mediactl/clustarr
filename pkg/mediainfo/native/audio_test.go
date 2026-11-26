@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
@@ -132,10 +133,14 @@ func TestTagsAreBounded(t *testing.T) {
 	long := strings.Repeat("é", 600)
 	date := strings.Repeat("2", 100)
 	id := strings.Repeat("a", 100)
-	clip := ffmpegClip(t, "long-tags.flac",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=8000:duration=0.2", "-c:a", "flac",
-		"-metadata", "TITLE="+long, "-metadata", "ARTIST="+strings.Repeat("x", 600), "-metadata", "DATE="+date,
-		"-metadata", "MUSICBRAINZ_TRACKID="+id, "-metadata", "MUSICBRAINZ_ARTISTID="+id)
+	clip := testmedia.Make(t, "long-tags.flac", testmedia.Spec{
+		Format: "flac",
+		Audio:  []testmedia.Audio{{Source: "sine=frequency=440:sample_rate=8000:duration=0.2", Encoder: "flac"}},
+		Tags: map[string]string{
+			"TITLE": long, "ARTIST": strings.Repeat("x", 600), "DATE": date,
+			"MUSICBRAINZ_TRACKID": id, "MUSICBRAINZ_ARTISTID": id,
+		},
+	})
 
 	mi, _, err := p.Probe(context.Background(), clip)
 	require.NoError(t, err)
@@ -162,9 +167,11 @@ func TestTagsAreBounded(t *testing.T) {
 // carried; the tags beside them are.
 func TestATagOverFourKiBProbes(t *testing.T) {
 	p := testProber(t)
-	clip := ffmpegClip(t, "lyrics.flac",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=8000:duration=0.2", "-c:a", "flac",
-		"-metadata", "TITLE=Rebel Yell", "-metadata", "LYRICS="+strings.Repeat("la ", 2000))
+	clip := testmedia.Make(t, "lyrics.flac", testmedia.Spec{
+		Format: "flac",
+		Audio:  []testmedia.Audio{{Source: "sine=frequency=440:sample_rate=8000:duration=0.2", Encoder: "flac"}},
+		Tags:   map[string]string{"TITLE": "Rebel Yell", "LYRICS": strings.Repeat("la ", 2000)},
+	})
 
 	ap, err := p.ProbeAudio(context.Background(), clip)
 	require.NoError(t, err)

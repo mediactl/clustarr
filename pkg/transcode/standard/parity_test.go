@@ -19,14 +19,13 @@ package standard
 
 import (
 	"context"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
@@ -43,26 +42,29 @@ func realProber(t *testing.T) *native.Prober {
 	return p
 }
 
-// clip makes a 2 s file with ffmpeg, skipping without ffmpeg or libx265.
-func clip(t *testing.T, name string, args ...string) string {
+// clip makes a 2 s file on internal/testmedia: a test picture as video
+// encodes it, a tone in AAC and two chapters.
+func clip(t *testing.T, name string, video testmedia.Video) string {
 	t.Helper()
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("no ffmpeg")
-	}
-	dir := t.TempDir()
-	meta := filepath.Join(dir, "chapters.ffmeta")
-	require.NoError(t, os.WriteFile(meta, []byte(";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1000\ntitle=One\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=1000\nEND=2000\ntitle=Two\n"), 0o644))
-	out := filepath.Join(dir, name)
-	a := append([]string{
-		"-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
-		"-i", meta, "-map", "0", "-map", "1", "-map_chapters", "2", "-c:a", "aac",
-	}, args...)
-	if b, err := exec.Command("ffmpeg", append(a, out)...).CombinedOutput(); err != nil {
-		t.Skipf("ffmpeg cannot make the clip: %v\n%s", err, b)
-	}
-	return out
+	video.Source = "testsrc2=size=320x180:rate=24:duration=2"
+	return testmedia.Make(t, name, testmedia.Spec{
+		Video: []testmedia.Video{video},
+		Audio: []testmedia.Audio{{Source: "sine=frequency=440:sample_rate=48000:duration=2"}},
+		Chapters: []testmedia.Chapter{
+			{Start: 0, End: 1000, TimeBase: [2]int{1, 1000}, Title: "One"},
+			{Start: 1000, End: 2000, TimeBase: [2]int{1, 1000}, Title: "Two"},
+		},
+	})
+}
+
+// hevc10Video is the standard's own video as a clip: HEVC, 10-bit, with the
+// ENCODER tag ffmpeg(1) writes on a stream it encodes, which is what tells
+// another tool's transcode (final, remuxed) from a release's 10-bit HEVC
+// (encoded: commonv1.MediaInfo.TranscodedElsewhere).
+var hevc10Video = testmedia.Video{
+	Encoder: "libx265", PixFmt: "yuv420p10le",
+	Options: map[string]string{"preset": "ultrafast", "x265-params": "log-level=error"},
+	Stream:  testmedia.Stream{Metadata: map[string]string{"ENCODER": "Lavc63.11.100 libx265"}},
 }
 
 // The controller plans from the stored probe summary and the worker from a
@@ -73,12 +75,13 @@ func TestTheSummaryAndTheProbePlanTheSameStandard(t *testing.T) {
 		src  func() string
 		want Decision
 	}{
-		"compliant mkv": {func() string {
-			return clip(t, "c.mkv", "-pix_fmt", "yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error")
-		}, DecisionCopyVideo}, // remuxed into MP4
-		"h264 mkv": {func() string { return clip(t, "h.mkv", "-c:v", "libx264", "-preset", "ultrafast") }, DecisionEncode},
+		"compliant mkv": {func() string { return clip(t, "c.mkv", hevc10Video) }, DecisionCopyVideo}, // remuxed into MP4
+		"h264 mkv": {func() string {
+			return clip(t, "h.mkv", testmedia.Video{Options: map[string]string{"preset": "ultrafast"}})
+		}, DecisionEncode},
 		"compliant mp4": {func() string {
-			return clip(t, "c.mp4", "-pix_fmt", "yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error", "-tag:v", "hvc1")
+			// The muxer's own tag for HEVC is hev1; the standard's is hvc1 (`-tag:v hvc1`).
+			return testmedia.Remux(t, clip(t, "src.mkv", hevc10Video), "c.mp4", testmedia.Retag{CodecTags: map[int]string{0: "hvc1"}})
 		}, DecisionSkip}, // already the MP4 layout
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -113,32 +116,21 @@ func TestContainerNamesFromTheSummaryAndTheDemuxer(t *testing.T) {
 // both plan a "Signs" ASS track, a forced SRT, an SDH SRT and a plain one
 // alike (Review Focus 5 of the MP4 standard's phase 1 plan).
 func TestTheSummaryAndTheProbePlanSubtitlesAlike(t *testing.T) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("no ffmpeg")
-	}
-	dir := t.TempDir()
-	ass := filepath.Join(dir, "s.ass")
-	require.NoError(t, os.WriteFile(ass, []byte("[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\n"+
-		"Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"+
-		"Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n\n"+
-		"[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"+
-		"Dialogue: 0,0:00:00.50,0:00:01.50,Default,,0,0,0,,Sign\n"), 0o644))
-	srt := filepath.Join(dir, "s.srt")
-	require.NoError(t, os.WriteFile(srt, []byte("1\n00:00:00,500 --> 00:00:01,500\nHello\n"), 0o644))
-	out := filepath.Join(dir, "subs.mkv")
-	b, err := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
-		"-i", ass, "-i", srt, "-i", srt, "-i", srt,
-		"-map", "0", "-map", "1", "-map", "2", "-map", "3", "-map", "4", "-map", "5",
-		"-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-c:s:0", "copy", "-c:s:1", "srt", "-c:s:2", "srt", "-c:s:3", "srt",
-		"-metadata:s:s:0", "language=eng", "-metadata:s:s:0", "title=Signs",
-		"-metadata:s:s:1", "language=ger", "-disposition:s:1", "forced",
-		"-metadata:s:s:2", "language=eng", "-disposition:s:2", "hearing_impaired",
-		"-metadata:s:s:3", "language=spa", out).CombinedOutput()
-	if err != nil {
-		t.Skipf("ffmpeg cannot make the clip: %v\n%s", err, b)
-	}
+	cue := []testmedia.Event{{Start: 500 * time.Millisecond, End: 1500 * time.Millisecond, Text: "Hello"}}
+	out := testmedia.Make(t, "subs.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{Source: "testsrc2=size=320x180:rate=24:duration=2", Options: map[string]string{"preset": "ultrafast"}}},
+		Audio: []testmedia.Audio{{Source: "sine=frequency=440:sample_rate=48000:duration=2"}},
+		Subtitles: []testmedia.Subtitle{
+			{
+				Codec:  "ass",
+				Events: []testmedia.Event{{Start: 500 * time.Millisecond, End: 1500 * time.Millisecond, Text: "Sign"}},
+				Stream: testmedia.Stream{Language: "eng", Title: "Signs"},
+			},
+			{Codec: "subrip", Events: cue, Stream: testmedia.Stream{Language: "ger", Disposition: []string{"forced"}}},
+			{Codec: "subrip", Events: cue, Stream: testmedia.Stream{Language: "eng", Disposition: []string{"hearing_impaired"}}},
+			{Codec: "subrip", Events: cue, Stream: testmedia.Stream{Language: "spa"}},
+		},
+	})
 	mi, raw, err := realProber(t).Probe(context.Background(), out)
 	require.NoError(t, err)
 	live, err := transcode.FromProbe(mi, raw)

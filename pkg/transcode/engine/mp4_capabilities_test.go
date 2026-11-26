@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -46,12 +47,13 @@ func TestTheAC3EncoderOpensAtFivePointOne(t *testing.T) {
 func TestEAC3IsCopiedIntoMP4(t *testing.T) {
 	ffmpeg9OrSkip(t)
 	dir := t.TempDir()
-	src := filepath.Join(dir, "eac3.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2,aformat=channel_layouts=5.1",
-		"-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=error",
-		"-c:a", "eac3", src)
+	src := testmedia.Make(t, "eac3.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{
+			Source: "testsrc2=size=320x180:rate=24:duration=2", Encoder: "libx265", PixFmt: "yuv420p10le",
+			Options: map[string]string{"preset": "ultrafast", "x265-params": "log-level=error"},
+		}},
+		Audio: []testmedia.Audio{{Source: "sine=frequency=440:sample_rate=48000:duration=2", Encoder: "eac3", Layout: "5.1"}},
+	})
 	out := filepath.Join(dir, "out.mp4")
 	plan := standard.Result{
 		Decision: standard.DecisionCopyVideo, Container: transcode.ContainerMP4,

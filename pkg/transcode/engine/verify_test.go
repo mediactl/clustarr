@@ -30,7 +30,7 @@ import (
 
 func hevcOutput(t *testing.T) (src, out string) {
 	t.Helper()
-	src = videoClip(t, "src.mkv", "-c:v", "libx264", "-preset", "veryfast")
+	src = videoClip(t, "src.mkv", h264Video)
 	out = filepath.Join(t.TempDir(), "o.mkv")
 	_, err := Run(context.Background(), encodePlan(cpuVideo("sdr", standard.ColorTags{})), src, out, Options{})
 	require.NoError(t, err)

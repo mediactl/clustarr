@@ -28,26 +28,35 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
-// hevcClip is a 2 s HEVC Main 10 clip with an AAC track, in a container
-// named by ext, made with extra ffmpeg args (a tag, a format).
-func hevcClip(t *testing.T, ext string, args ...string) string {
+// hevcClip is a 2 s HEVC Main 10 clip with an AAC track, in Matroska, its
+// video encoded with x265's own params (log-level=error when none).
+func hevcClip(t *testing.T, params ...string) string {
+	t.Helper()
+	return hevcClipAs(t, "src.mkv", "", params...)
+}
+
+// hevcClipAs is hevcClip under name, in the container format names (the
+// name's own when empty).
+func hevcClipAs(t *testing.T, name, format string, params ...string) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	out := filepath.Join(t.TempDir(), "src."+ext)
-	a := []string{
-		"-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
-		"-pix_fmt", "yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error",
-		"-c:a", "aac",
+	x265 := "log-level=error"
+	if len(params) > 0 {
+		x265 = params[0]
 	}
-	a = append(a, args...)
-	run(t, "ffmpeg", append(a, out)...)
-	return out
+	return testmedia.Make(t, name, testmedia.Spec{
+		Format: format,
+		Video: []testmedia.Video{{
+			Source: "testsrc2=size=320x180:rate=24:duration=2", Encoder: "libx265", PixFmt: "yuv420p10le",
+			Options: map[string]string{"preset": "ultrafast", "x265-params": x265},
+		}},
+		Audio: []testmedia.Audio{{Source: "sine=frequency=440:sample_rate=48000:duration=2"}},
+	})
 }
 
 func copyPlan(c transcode.Container) standard.Result {
@@ -61,13 +70,15 @@ func copyPlan(c transcode.Container) standard.Result {
 // codecTags is ffprobe's codec name and tag of the output's video.
 func codecTags(t *testing.T, path string) string {
 	t.Helper()
-	return entries(t, path, "-show_entries", "stream=codec_name,codec_tag_string")
+	return videoProps(t, path)
 }
 
 func TestCopiedStreamsLeaveTheSourceContainersTagsBehind(t *testing.T) {
 	for name, src := range map[string]func() string{
-		"mp4 to mkv": func() string { return hevcClip(t, "mp4", "-tag:v", "hvc1") },
-		"ts to mkv":  func() string { return hevcClip(t, "ts") },
+		"mp4 to mkv": func() string { // `-tag:v hvc1`
+			return testmedia.Remux(t, hevcClip(t), "src.mp4", testmedia.Retag{CodecTags: map[int]string{0: "hvc1"}})
+		},
+		"ts to mkv": func() string { return hevcClipAs(t, "src.ts", "mpegts") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			out := filepath.Join(t.TempDir(), "out.part.mkv")
@@ -85,7 +96,7 @@ func TestCopiedStreamsLeaveTheSourceContainersTagsBehind(t *testing.T) {
 func TestHEVCInMP4IsTaggedForApplePlayers(t *testing.T) {
 	t.Run("copied", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "out.part.mp4")
-		_, err := Run(context.Background(), copyPlan(transcode.ContainerMP4), hevcClip(t, "mkv"), out, Options{})
+		_, err := Run(context.Background(), copyPlan(transcode.ContainerMP4), hevcClip(t), out, Options{})
 		require.NoError(t, err)
 		assert.Contains(t, codecTags(t, out), "codec_tag_string=hvc1")
 	})
@@ -104,7 +115,7 @@ func TestMP4KeepsTheProfileTagAndStartsWithItsIndex(t *testing.T) {
 	plan := copyPlan(transcode.ContainerMP4)
 	plan.Tags = map[string]string{"CLUSTARR_PROFILE": "p@h"}
 	out := filepath.Join(t.TempDir(), "out.part.mp4")
-	_, err := Run(context.Background(), plan, hevcClip(t, "mkv"), out, Options{})
+	_, err := Run(context.Background(), plan, hevcClip(t), out, Options{})
 	require.NoError(t, err)
 	assert.Equal(t, "p@h", ffprobeJSON(t, out).Format.Tags["CLUSTARR_PROFILE"])
 	assert.Less(t, atomOffset(t, out, "moov"), atomOffset(t, out, "mdat"), "faststart puts the index first")

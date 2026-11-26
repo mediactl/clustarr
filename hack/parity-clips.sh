@@ -7,7 +7,10 @@
 # (the median-sized Matroska file of each class; a file the transcode controller or
 # another tool already transcoded is never chosen). It also writes the
 # hevc-mkv TranscodeProfile's spec as profile.json, which the argv engine
-# runs with. Stream copy only: no encode, little CPU.
+# runs with. Stream copy only: no encode, little CPU. The copy is
+# hack/parity-clips/cut on ffgo, not the ffmpeg CLI, so it needs FFmpeg 9's
+# libraries as the tests do (`make native-assets`; the paths below default to
+# the Makefile's).
 #
 #   CLUSTARR_PARITY_DIR=~/parity KUBE_CONTEXT=kind-cluster-plex hack/parity-clips.sh
 #
@@ -19,6 +22,11 @@ ctx=${KUBE_CONTEXT:-kind-cluster-plex}
 node=${KIND_NODE:-cluster-plex-control-plane}
 profile=${PROFILE:-hevc-mkv}
 mkdir -p "$dir"
+
+assets=${NATIVE_ASSETS:-$(go env GOPATH)/bin/native-assets}
+export LD_LIBRARY_PATH="$assets/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" FFGO_SHIM_DIR="${FFGO_SHIM_DIR:-$assets/lib}"
+cut=$(mktemp -d)/cut
+(cd "$(dirname "$0")/.." && go build -o "$cut" ./hack/parity-clips/cut)
 
 kubectl --context "$ctx" get transcodeprofile "$profile" -o jsonpath='{.spec}' > "$dir/profile.json"
 mount=$(docker exec "$node" sh -c "grep ' nfs4\? ' /proc/mounts | grep -m1 '/volume2/data ' | cut -d' ' -f2")
@@ -55,11 +63,11 @@ for c, files in sorted(classes.items()):
   out="$dir/$class.mkv"
   if [ -s "$out" ]; then echo "$class: kept $out"; continue; fi
   echo "$class: $path"
-  # Matroska streams from a pipe; -t 60 stops ffmpeg after a minute, but
+  # Matroska streams from a pipe; -t 1m stops the copy after a minute, but
   # docker exec does not hand the closed pipe back to the container, so the
   # read is bounded too: a minute of a 2160p remux is about 600 MB.
   docker exec "$node" head -c "${CLIP_MAX_BYTES:-750000000}" "$mount${path#/data}" 2>/dev/null |
-    ffmpeg -hide_banner -loglevel error -nostdin -y -i pipe:0 -map 0 -c copy -t 60 "$out" || true
+    "$cut" -t 1m "$out" || true
   [ -s "$out" ] || { echo "$class: no clip" >&2; rm -f "$out"; }
 done
 ls -la "$dir"

@@ -18,11 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package native
 
 import (
-	"os/exec"
-	"path/filepath"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 // testProber is a Prober for a test, which skips without FFmpeg 9 and the
@@ -37,25 +33,10 @@ func testProber(t *testing.T) *Prober {
 	return p
 }
 
-// ffmpegClip makes a clip with the ffmpeg CLI. W6.19 converts every caller
-// to internal/testmedia, which makes clips on ffgo.
-func ffmpegClip(t *testing.T, name string, args ...string) string {
-	t.Helper()
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("no ffmpeg to make the clip")
-	}
-	out := filepath.Join(t.TempDir(), name)
-	a := append([]string{"-hide_banner", "-loglevel", "error", "-y"}, args...)
-	b, err := exec.Command("ffmpeg", append(a, out)...).CombinedOutput()
-	require.NoError(t, err, "ffmpeg: %s", b)
-	return out
-}
-
 // The seams above, for the package's external tests (package native_test):
 // a test that runs pkg/transcode/engine cannot be in package native, which
 // the engine imports.
 var (
 	ProberForTest         = testProber
-	ClipForTest           = ffmpegClip
 	FailFirstFrameForTest = failFirstFrame
 )

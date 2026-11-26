@@ -3,11 +3,11 @@
 #
 # The native test assets, the analogue of `make pg-assets` (spec 2026-10-06
 # §10.1.6). DIR/lib: FFmpeg 9's shared libraries and libffshim, ONNX Runtime
-# and libpar2shim. DIR/bin: the test-only ffmpeg, ffprobe and par2
-# executables the parity tests compare against and test/par2test.CreateSet
-# runs. No image ships those executables. (The ffmpeg and ffprobe CLIs stay
-# until the goldens recorder and the last exec implementation are gone,
-# upgrade guide U2; the par2 CLI stays for creating test sets.)
+# and libpar2shim. DIR/bin: the test-only par2 executable
+# test/par2test.CreateSet runs, which no image ships. No ffmpeg or ffprobe
+# program is installed (since 2026-11-26): every test makes and reads its
+# media on ffgo through internal/testmedia, and
+# TestTheTestEnvironmentHasNoFFmpegProgram holds that.
 #
 # Pins: FFmpeg and ONNX Runtime from images/Dockerfile.native's ARG defaults,
 # so the tests load what the image ships; libffshim from the ffgo module
@@ -89,7 +89,6 @@ echo "${FFMPEG_SHA256}  ${work}/ff.tar.xz" | sha256sum -c - >/dev/null
 mkdir -p "${work}/ff"
 tar -xJf "${work}/ff.tar.xz" --strip-components=1 -C "${work}/ff"
 cp -a "${work}"/ff/lib/lib*.so* "${out}/lib/"
-install -m 0755 "${work}/ff/bin/ffmpeg" "${work}/ff/bin/ffprobe" "${out}/bin/"
 
 echo "native-assets: libffshim from ${ffgo_dir}/shim" >&2
 gcc -shared -fPIC -O2 -Wall -DFFSHIM_HAVE_AVDEVICE=1 -DFFSHIM_HAVE_AVFILTER=1 \

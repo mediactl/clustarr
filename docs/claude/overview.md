@@ -97,7 +97,7 @@ name and stays.
 make generate      # deepcopy + apply configurations (flattened to api/applyconfiguration/<group>/<version>)
 make manifests     # CRDs + one RBAC ClusterRole per identity (RBAC_ROLES) into config/
 make build         # bin/manager, bin/ui, bin/agent (cgo), bin/markers, bin/transcode (never bare `go build`)
-make native-assets # FFmpeg 9 libs + libffshim, ONNX Runtime, and the test-only ffmpeg, ffprobe and par2 CLIs
+make native-assets # FFmpeg 9 libs + libffshim, ONNX Runtime, and the test-only par2 CLI (no ffmpeg or ffprobe program)
 make chart-deps    # vendor the chart's nats and cloudnative-pg tarballs into charts/clustarr/charts
 make test          # unit + envtest + native suites; sets KUBEBUILDER_ASSETS, CLUSTARR_PG_ASSETS, LD_LIBRARY_PATH, FFGO_SHIM_DIR and CLUSTARR_REQUIRE_TOOLS=1
 make lint          # golangci-lint v2

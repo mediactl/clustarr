@@ -28,6 +28,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/obinnaokechukwu/ffgo"
 	"github.com/obinnaokechukwu/ffgo/avcodec"
@@ -127,6 +128,9 @@ type FrameInfo struct {
 	PTS int64
 	// SideData are the frame side data names ffprobe prints.
 	SideData []string
+	// Samples is an audio frame's sample count (frame=nb_samples); 0 for a
+	// video frame.
+	Samples int
 }
 
 // Frames decodes every frame of stream (ffprobe -count_frames,
@@ -135,7 +139,7 @@ func Frames(t testing.TB, path string, stream int) []FrameInfo {
 	t.Helper()
 	var out []FrameInfo
 	decodeStream(t, path, stream, func(f ffgo.Frame) {
-		fi := FrameInfo{PTS: f.BestEffortTimestamp()}
+		fi := FrameInfo{PTS: f.BestEffortTimestamp(), Samples: ffgo.WrapFrame(f, ffgo.MediaTypeAudio).NumSamples()}
 		if fi.PTS == noPTS {
 			fi.PTS = f.PTS()
 		}
@@ -163,6 +167,10 @@ type PacketInfo struct {
 	Stream int
 	PTS    time.Duration
 	Pos    int64
+	// DTS is the decode timestamp in the stream's time base, as ffprobe's
+	// packet=dts prints it; NoDTS when the container leaves it unset ("N/A").
+	DTS   int64
+	NoDTS bool
 }
 
 // Packets reads every packet of path in demux order (ffprobe -show_entries
@@ -184,7 +192,7 @@ func Packets(t testing.TB, path string) []PacketInfo {
 		if err != nil {
 			t.Fatalf("testmedia: read %s: %v", path, err)
 		}
-		pi := PacketInfo{Stream: p.StreamIndex(), Pos: p.Pos()}
+		pi := PacketInfo{Stream: p.StreamIndex(), Pos: p.Pos(), DTS: p.DTS(), NoDTS: p.DTS() == noPTS}
 		if pts := p.PTS(); pts != noPTS {
 			pi.PTS = time.Duration(ffgo.RescaleQ(pts, tbs[pi.Stream], ffgo.NewRational(1, 1_000_000_000)))
 		}
@@ -267,11 +275,27 @@ func ChannelRMS(t testing.TB, path string, stream int) []float64 {
 }
 
 // Retag is what a `-c copy` remux changes: format tags and each stream's
-// metadata merged in, and packets past Until dropped.
+// metadata merged in, a stream's codec tag set (`-tag:v hvc1`), and packets
+// past Until dropped.
 type Retag struct {
 	Tags           map[string]string
 	StreamMetadata map[int]map[string]string
-	Until          time.Duration
+	// CodecTags is a stream's fourcc by its index ("hvc1").
+	CodecTags map[int]string
+	Until     time.Duration
+	// InputFormat and InputOptions open src as that demuxer with those
+	// options (`-f concat -safe 0 -i list.txt`).
+	InputFormat  string
+	InputOptions map[string]string
+	// PTS, when set, answers the presentation time a copied packet is
+	// written with, given its own (`-bsf setts=pts=...`: a repeated
+	// timestamp); a packet it moves is decoded at that time too. stream and
+	// n are as Packet's.
+	PTS func(stream, n int, pts time.Duration) time.Duration
+	// Packet, when set, sees every copied packet before it is written --
+	// stream is its source stream, n its number within that stream from 0 --
+	// and may change its bytes in place (`-bsf noise`: a damaged packet).
+	Packet func(stream, n int, data []byte)
 }
 
 // Remux stream-copies src into t.TempDir()/name with r applied
@@ -286,18 +310,54 @@ func Remux(t testing.TB, src, name string, r Retag) string {
 	return dst
 }
 
+// Mux stream-copies every stream of every source, in order, into
+// t.TempDir()/name with r applied (ffmpeg -i a -i b -map 0 -map 1 -c copy)
+// and returns the path. r's stream numbers are the output's.
+func Mux(t testing.TB, name string, r Retag, srcs ...string) string {
+	t.Helper()
+	Require(t)
+	dst := filepath.Join(t.TempDir(), name)
+	if err := MuxFiles(srcs, dst, r); err != nil {
+		t.Fatalf("testmedia: mux %s: %v", name, err)
+	}
+	return dst
+}
+
 // RemuxFile stream-copies every stream of src into dst, its format tags
 // and each stream's metadata merged with r's, packets past a non-zero
 // Until dropped, bit-exact like Write. src may be pipe:0.
-func RemuxFile(src, dst string, r Retag) (err error) {
+func RemuxFile(src, dst string, r Retag) error {
+	return MuxFiles([]string{src}, dst, r)
+}
+
+// MuxFiles is RemuxFile over several sources: every stream of each, in
+// order, the format tags and chapters of the first. The muxer interleaves
+// what the sources' packets, read one source after another, give it.
+func MuxFiles(srcs []string, dst string, r Retag) (err error) {
 	if err := ffgo.Init(); err != nil {
 		return err
 	}
-	d, err := ffgo.NewDecoder(src)
-	if err != nil {
-		return fmt.Errorf("testmedia: open %s: %w", src, err)
+	if len(srcs) == 0 {
+		return errors.New("testmedia: nothing to mux")
 	}
-	defer d.Close()
+	var ds []*ffgo.Decoder
+	defer func() {
+		for _, d := range ds {
+			d.Close()
+		}
+	}()
+	for _, src := range srcs {
+		var d *ffgo.Decoder
+		if r.InputFormat != "" || len(r.InputOptions) > 0 {
+			d, err = ffgo.NewDecoderWithOptions(src, &ffgo.DecoderOptions{Format: r.InputFormat, AVOptions: r.InputOptions})
+		} else {
+			d, err = ffgo.NewDecoder(src)
+		}
+		if err != nil {
+			return fmt.Errorf("testmedia: open %s: %w", src, err)
+		}
+		ds = append(ds, d)
+	}
 	m, err := ffgo.NewMuxer(dst, "")
 	if err != nil {
 		return fmt.Errorf("testmedia: %w", err)
@@ -307,29 +367,47 @@ func RemuxFile(src, dst string, r Retag) (err error) {
 			err = cerr
 		}
 	}()
-	out := map[int]*ffgo.MuxerStream{}
-	tbs := map[int]ffgo.Rational{}
-	for _, s := range d.Streams() {
-		md := maps.Clone(map[string]string(s.Metadata))
-		if md == nil {
-			md = map[string]string{}
-		}
-		maps.Copy(md, r.StreamMetadata[s.Index])
-		ms, err := m.AddCopyStream(&ffgo.CopyStreamConfig{
-			CodecParameters: s.CodecParameters(), TimeBase: s.TimeBase,
-			Options: ffgo.StreamOptions{Metadata: ffgo.Metadata(md), Disposition: s.Disposition},
-		})
-		if err != nil {
-			return fmt.Errorf("testmedia: copy stream %d: %w", s.Index, err)
-		}
-		out[s.Index], tbs[s.Index] = ms, s.TimeBase
+	type copied struct {
+		ms    *ffgo.MuxerStream
+		tb    ffgo.Rational
+		index int
 	}
-	if ch := d.GetChapters(); len(ch) > 0 {
+	out := make([]map[int]copied, len(ds))
+	seen := map[int]int{}
+	n := 0
+	for i, d := range ds {
+		out[i] = map[int]copied{}
+		for _, s := range d.Streams() {
+			md := maps.Clone(map[string]string(s.Metadata))
+			if md == nil {
+				md = map[string]string{}
+			}
+			maps.Copy(md, r.StreamMetadata[n])
+			par := s.CodecParameters()
+			if tag, ok := r.CodecTags[n]; ok {
+				if len(tag) != 4 || par == nil {
+					return fmt.Errorf("testmedia: stream %d: a codec tag is four characters, got %q", n, tag)
+				}
+				// d's own parameters, which nothing reads after this mux.
+				avcodec.SetCodecParTag(par, uint32(tag[0])|uint32(tag[1])<<8|uint32(tag[2])<<16|uint32(tag[3])<<24)
+			}
+			ms, err := m.AddCopyStream(&ffgo.CopyStreamConfig{
+				CodecParameters: par, TimeBase: s.TimeBase,
+				Options: ffgo.StreamOptions{Metadata: ffgo.Metadata(md), Disposition: s.Disposition},
+			})
+			if err != nil {
+				return fmt.Errorf("testmedia: copy stream %d: %w", n, err)
+			}
+			out[i][s.Index] = copied{ms: ms, tb: s.TimeBase, index: n}
+			n++
+		}
+	}
+	if ch := ds[0].GetChapters(); len(ch) > 0 {
 		if err := m.SetChapters(ch); err != nil {
 			return err
 		}
 	}
-	tags := maps.Clone(map[string]string(d.GetMetadata()))
+	tags := maps.Clone(map[string]string(ds[0].GetMetadata()))
 	if tags == nil {
 		tags = map[string]string{}
 	}
@@ -342,25 +420,47 @@ func RemuxFile(src, dst string, r Retag) (err error) {
 	if err := m.WriteHeaderWithOptions(map[string]string{"fflags": "+bitexact"}); err != nil {
 		return err
 	}
-	for {
-		p, err := d.ReadPacket()
-		if errors.Is(err, io.EOF) || (err == nil && p == nil) {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		ms, ok := out[p.StreamIndex()]
-		if !ok {
-			continue
-		}
-		if r.Until > 0 {
-			if pts := p.PTS(); pts != noPTS && time.Duration(ffgo.RescaleQ(pts, tbs[p.StreamIndex()], ffgo.NewRational(1, 1_000_000_000))) >= r.Until {
+	ns := ffgo.NewRational(1, 1_000_000_000)
+	for i, d := range ds {
+		for {
+			p, err := d.ReadPacket()
+			if errors.Is(err, io.EOF) || (err == nil && p == nil) {
+				break
+			}
+			if err != nil {
+				return err
+			}
+			c, ok := out[i][p.StreamIndex()]
+			if !ok {
 				continue
 			}
-		}
-		if err := m.WritePacket(ms, p); err != nil {
-			return err
+			pts := p.PTS()
+			if r.Until > 0 && pts != noPTS && time.Duration(ffgo.RescaleQ(pts, c.tb, ns)) >= r.Until {
+				continue
+			}
+			if r.PTS != nil && pts != noPTS {
+				was := time.Duration(ffgo.RescaleQ(pts, c.tb, ns))
+				if at := r.PTS(c.index, seen[c.index], was); at != was {
+					// The decode time moves with it: a muxer refuses a
+					// packet presented before it is decoded.
+					ts := ffgo.RescaleQ(int64(at), ns, c.tb)
+					avcodec.SetPacketPTS(p.Raw(), ts)
+					avcodec.SetPacketDTS(p.Raw(), ts)
+				}
+			}
+			if r.Packet != nil {
+				// The packet's own bytes (Packet.Data is a copy): the
+				// demuxer handed them to this loop alone.
+				var data []byte
+				if raw := p.Raw(); raw != nil && avcodec.GetPacketSize(raw) > 0 && avcodec.GetPacketData(raw) != nil {
+					data = unsafe.Slice((*byte)(avcodec.GetPacketData(raw)), avcodec.GetPacketSize(raw))
+				}
+				r.Packet(c.index, seen[c.index], data)
+			}
+			seen[c.index]++
+			if err := m.WritePacket(c.ms, p); err != nil {
+				return err
+			}
 		}
 	}
 	return m.WriteTrailer()

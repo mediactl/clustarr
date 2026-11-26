@@ -41,7 +41,7 @@ var dtsSync = []byte{0x7f, 0xfe, 0x80, 0x01}
 // would not decode, and one failed the whole transcode.
 func damagedDTS(t *testing.T, nth int) string {
 	t.Helper()
-	path := withAudio(t, "aformat=channel_layouts=5.1", []string{"-c:a", "dca", "-strict", "-2"}, "0")
+	path := withAudio(t, "aformat=channel_layouts=5.1", dcaAudio, 0)
 	b, err := os.ReadFile(path)
 	require.NoError(t, err)
 	off, seen := 0, 0

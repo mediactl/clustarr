@@ -21,12 +21,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/internal/testmedia"
 )
 
 // A movie released in parts -- 28 Up as Part 1 and Part 2 of one Blu-ray
@@ -37,7 +37,7 @@ func TestThePartsOfOneEncodeJoinIntoOneFile(t *testing.T) {
 	dir := t.TempDir()
 	parts := []string{filepath.Join(dir, "Film.Part1.mkv"), filepath.Join(dir, "Film's Part2.mkv")}
 	for _, p := range parts {
-		src := hevcClip(t, "mkv")
+		src := hevcClip(t)
 		b, err := os.ReadFile(src)
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(p, b, 0o644))
@@ -47,11 +47,11 @@ func TestThePartsOfOneEncodeJoinIntoOneFile(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 2*frames(t, parts[0]), frames(t, out), "both parts' frames")
-	d, err := strconv.ParseFloat(strings.TrimSpace(run(t, "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out)), 64)
-	require.NoError(t, err)
-	assert.InDelta(t, 4.0, d, 0.2, "the parts' length end to end")
+	joined := testmedia.Inspect(t, out)
+	assert.InDelta(t, 4.0, joined.Duration.Seconds(), 0.2, "the parts' length end to end")
 	assert.True(t, increasing(packetDTS(t, out)), "decode times move forward across the seam")
-	assert.Equal(t, "hevc\naac", strings.TrimSpace(run(t, "ffprobe", "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", out)), "every stream copied")
+	require.Len(t, joined.Streams, 2)
+	assert.Equal(t, []string{"hevc", "aac"}, []string{joined.Streams[0].Codec, joined.Streams[1].Codec}, "every stream copied")
 }
 
 func TestJoinWantsTwoParts(t *testing.T) {
@@ -67,7 +67,7 @@ func TestAJoinThatStopsShortOfAPartFails(t *testing.T) {
 	dir := t.TempDir()
 	parts := []string{filepath.Join(dir, "Film.Part1.mkv"), filepath.Join(dir, "Film.Part2.mkv")}
 	for _, p := range parts {
-		b, err := os.ReadFile(hevcClip(t, "mkv"))
+		b, err := os.ReadFile(hevcClip(t))
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(p, b, 0o644))
 	}

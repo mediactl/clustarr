@@ -29,13 +29,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
 // hdr10Clip is images/Dockerfile.e2e-fixtures's HDR10 clip.
 func hdr10Clip(t *testing.T) string {
 	t.Helper()
-	return ffmpegClip(t, "hdr10.mkv", hdr10FixtureArgs...)
+	return testmedia.Make(t, "hdr10.mkv", hdr10FixtureSpec)
 }
 
 // failFirstFrame makes v:0's first frame unreadable: the native probe's
@@ -95,7 +96,9 @@ func TestProbeOfAReadableHDR10FileIsComplete(t *testing.T) {
 // probe.
 func TestTheInProcessProbeRecordsAFirstFrameItCannotRead(t *testing.T) {
 	p := testProber(t)
-	path := ffmpegClip(t, "sdr.mkv", "-f", "lavfi", "-i", "testsrc2=duration=1:size=320x180:rate=24", "-c:v", "libx264", "-preset", "ultrafast")
+	path := testmedia.Make(t, "sdr.mkv", testmedia.Spec{Video: []testmedia.Video{{
+		Source: "testsrc2=duration=1:size=320x180:rate=24", Options: map[string]string{"preset": "ultrafast"},
+	}}})
 	cause := errors.New("decoder: invalid data")
 	failFirstFrame(t, cause)
 	mi, raw, err := p.Probe(context.Background(), path)

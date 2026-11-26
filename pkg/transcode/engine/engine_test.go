@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -102,10 +103,10 @@ func TestASlowMuxerHoldsTheDemuxerBack(t *testing.T) {
 	// channels would read most of it into FFmpeg's (C) heap, which Go's
 	// HeapInuse cannot see -- so the process's RSS is measured.
 	ffmpeg9OrSkip(t)
-	src := filepath.Join(t.TempDir(), "big.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=24:duration=6,noise=alls=60:allf=t",
-		"-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", src)
+	src := testmedia.Make(t, "big.mkv", testmedia.Spec{Video: []testmedia.Video{{
+		Source:  "testsrc2=size=1280x720:rate=24:duration=6,noise=alls=60:allf=t",
+		Options: map[string]string{"preset": "ultrafast", "qp": "0"},
+	}}})
 	plan := standard.Result{
 		Decision: standard.DecisionCopyVideo, Container: transcode.ContainerMKV,
 		Video: standard.VideoPlan{SourceIndex: 0, Action: "copy"},
@@ -168,9 +169,7 @@ func TestProgressReportsTheOutputsSizeAndBitRate(t *testing.T) {
 // died with SIGSEGV (seen under load, in the worker's measurement trials).
 func TestATinyInputNeverRacesTheMuxer(t *testing.T) {
 	ffmpeg9OrSkip(t)
-	src := filepath.Join(t.TempDir(), "tiny.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=64x64:rate=25", "-frames:v", "5", "-c:v", "libx264", src)
+	src := testmedia.Make(t, "tiny.mkv", testmedia.Spec{Video: []testmedia.Video{{Source: "testsrc2=size=64x64:rate=25", Frames: 5}}})
 	plan := encodePlan(standard.VideoPlan{Encoder: "libx265", Options: fastX265, Decode: "cpu", Filter: "format=yuv420p10le", HDR: "sdr"})
 	dir := t.TempDir()
 	var wg sync.WaitGroup

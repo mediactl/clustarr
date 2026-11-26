@@ -22,12 +22,12 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -90,17 +90,14 @@ func pgsSup() []byte {
 func pgsClip(t *testing.T) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
-	dir := t.TempDir()
-	sup := filepath.Join(dir, "en.sup")
+	sup := filepath.Join(t.TempDir(), "en.sup")
 	require.NoError(t, os.WriteFile(sup, pgsSup(), 0o644))
-	out := filepath.Join(dir, "pgs.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3",
-		"-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=3",
-		"-i", sup,
-		"-map", "0", "-map", "1", "-map", "2", "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-c:s", "copy",
-		"-metadata:s:s:0", "language=eng", out)
-	return out
+	av := testmedia.Make(t, "av.mkv", testmedia.Spec{
+		Video: []testmedia.Video{{Source: "testsrc2=size=320x180:rate=24:duration=3", Options: map[string]string{"preset": "veryfast"}}},
+		Audio: []testmedia.Audio{{Source: "sine=frequency=1000:sample_rate=48000:duration=3"}},
+	})
+	// The .sup's one stream copied in beside them (-i en.sup -c:s copy).
+	return testmedia.Mux(t, "pgs.mkv", testmedia.Retag{StreamMetadata: map[int]map[string]string{2: {"language": "eng"}}}, av, sup)
 }
 
 // An image subtitle no text track covers goes beside the MP4 as a .sup
@@ -133,8 +130,7 @@ func TestAnUncoveredPGSTrackGoesBesideTheMP4AsASupSidecar(t *testing.T) {
 	p := ffprobeJSON(t, sup)
 	require.Len(t, p.Streams, 1)
 	assert.Equal(t, "hdmv_pgs_subtitle", p.Streams[0].CodecName, "the PGS track as it was, in a stream of its own")
-	packets := strings.Fields(run(t, "ffprobe", "-v", "error", "-show_entries", "packet=pts_time", "-of", "csv=p=0", sup))
-	assert.NotEmpty(t, packets, "the sidecar carries the track's packets")
+	assert.NotEmpty(t, testmedia.Packets(t, sup), "the sidecar carries the track's packets")
 	for _, s := range ffprobeJSON(t, out).Streams {
 		assert.NotEqual(t, "subtitle", s.CodecType, "the MP4 carries no subtitle stream")
 	}
