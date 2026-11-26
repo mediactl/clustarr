@@ -1438,3 +1438,20 @@ recorded here.
   it as wrong; only a release titled as another TVDB episode is. Not
   tested: the snapshot's setting of the two fields, and a search on a
   cluster.
+
+- **A scan creates an item only when no item carries its provider id,
+  whatever the item is named (2026-11-26).** `scanapply.ensureItem` looked
+  for the proposal's name alone (`names.Series(title, tvdbID)` and its
+  kin), and a name is the title the item had when it was added: Panty &
+  Stocking with Garterbelt, added as "New Panty & Stocking with Garterbelt"
+  and moved to the anime root, was proposed by a scan of the folder it left
+  under today's title, and a second Series was created, classified into the
+  first one's folder, searched, and re-downloaded 24 episodes; Plex held two
+  shows it could not refresh. Now a proposal whose id another Movie, Series,
+  Artist, Author or Audiobook carries (`sameItem`, the manager's cache, once
+  per proposed create) creates nothing and lists the file against that
+  item: `other_root_folder` when it is stored under another root folder,
+  `item_exists` when under the scan's own. The walk's own match
+  (`rescan.MatchSeries`) still reads only the scanned root's Series, so the
+  folder is proposed and refused at every scan until its files are gone. An
+  Album, its Artist's, is not looked for.

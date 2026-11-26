@@ -52,6 +52,9 @@ const (
 	// CodeNameCollision: the item the attribution names exists with
 	// another provider id; it is never overwritten (ADR-0019 §7.6).
 	CodeNameCollision = "name_collision"
+	// CodeItemExists: the item a scan would create exists already under
+	// another name, with the same provider id; it is not created twice.
+	CodeItemExists = "item_exists"
 	// CodeNoItem: the attributed item no longer exists.
 	CodeNoItem = "no_item"
 	// CodeManualTarget: a person's manual target no longer fits (P45).

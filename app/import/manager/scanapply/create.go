@@ -24,6 +24,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -206,6 +207,30 @@ func (a *Applier) ensureItem(
 		return false, false, fmt.Errorf("scanapply: get %s %s: %w", c.Kind, name, err)
 	}
 
+	// No object has the proposal's name; the item may still exist under
+	// another. A name is the item's title when it was added and its
+	// provider id, and a title changes: Panty & Stocking with Garterbelt was
+	// added as "New Panty & Stocking with Garterbelt", moved to another root
+	// folder, and a scan of the folder it left proposed TheTVDB id 188551
+	// under today's title -- no object by that name, so a second Series was
+	// created, which re-downloaded what the first held and left Plex two
+	// shows it could not refresh (talos, 2026-11-26). The id is the
+	// identity: an item that carries it is the item, wherever it is stored
+	// and whatever it is named, and the file is listed against it.
+	if other, otherRoot, found, err := a.sameItem(ctx, ns, commonv1.MediaKind(c.Kind), id, name); err != nil {
+		return false, false, err
+	} else if found {
+		ref := commonv1.MediaRef{Kind: commonv1.MediaKind(c.Kind), Name: other}
+		if otherRoot != root.Name {
+			refuse.list(CodeOtherRootFolder, otherRootReason(refuse.subject, root, ref, otherRoot), []string{other})
+			return false, false, nil
+		}
+		refuse.list(CodeItemExists, fmt.Sprintf(
+			"the %s names %s id %s, which %s %s already is, under the name it was added by; it is not created a second time",
+			refuse.subject, provider, id, c.Kind, other), []string{other})
+		return false, false, nil
+	}
+
 	if ex, excluded, err := a.excluded(ctx, provider, id); err != nil {
 		return false, false, err
 	} else if excluded {
@@ -342,6 +367,77 @@ func createFolder(c *schema.ItemCreate, rel string) (string, error) {
 		return folder, fmt.Errorf("%w: a %s proposal's folder %q, path %q", errFolderElsewhere, c.Kind, c.Folder, rel)
 	}
 	return folder, nil
+}
+
+// sameItem finds the item of kind that carries the provider id under a
+// name other than name: its name and the root folder it is stored under.
+// It reads the manager's cache -- every item of the kind, once per proposed
+// create, which is rare -- so an item created a moment ago under another
+// name is the one case it can miss. An Album is its Artist's and is not
+// looked for.
+func (a *Applier) sameItem(ctx context.Context, ns string, kind commonv1.MediaKind, id, name string) (other, root string, found bool, err error) {
+	in := client.InNamespace(ns)
+	var hits [][2]string
+	add := func(n, r string) {
+		if n != name {
+			hits = append(hits, [2]string{n, r})
+		}
+	}
+	switch kind {
+	case commonv1.MediaKindMovie:
+		var l catalogv1alpha1.MovieList
+		if err = a.reader().List(ctx, &l, in); err == nil {
+			for i := range l.Items {
+				if strconv.FormatInt(l.Items[i].Spec.TmdbID, 10) == id {
+					add(l.Items[i].Name, l.Items[i].Spec.RootFolderRef)
+				}
+			}
+		}
+	case commonv1.MediaKindSeries:
+		var l catalogv1alpha1.SeriesList
+		if err = a.reader().List(ctx, &l, in); err == nil {
+			for i := range l.Items {
+				if strconv.FormatInt(l.Items[i].Spec.TvdbID, 10) == id {
+					add(l.Items[i].Name, l.Items[i].Spec.RootFolderRef)
+				}
+			}
+		}
+	case commonv1.MediaKindArtist:
+		var l catalogv1alpha1.ArtistList
+		if err = a.reader().List(ctx, &l, in); err == nil {
+			for i := range l.Items {
+				if l.Items[i].Spec.MusicBrainzID == id {
+					add(l.Items[i].Name, l.Items[i].Spec.RootFolderRef)
+				}
+			}
+		}
+	case commonv1.MediaKindAuthor:
+		var l catalogv1alpha1.AuthorList
+		if err = a.reader().List(ctx, &l, in); err == nil {
+			for i := range l.Items {
+				if l.Items[i].Spec.OpenLibraryID == id {
+					add(l.Items[i].Name, l.Items[i].Spec.RootFolderRef)
+				}
+			}
+		}
+	case commonv1.MediaKindAudiobook:
+		var l catalogv1alpha1.AudiobookList
+		if err = a.reader().List(ctx, &l, in); err == nil {
+			for i := range l.Items {
+				if l.Items[i].Spec.ASIN == id {
+					add(l.Items[i].Name, l.Items[i].Spec.RootFolderRef)
+				}
+			}
+		}
+	}
+	if err != nil {
+		return "", "", false, fmt.Errorf("scanapply: list every %s for one carrying id %s: %w", kind, id, err)
+	}
+	if len(hits) == 0 {
+		return "", "", false, nil
+	}
+	slices.SortFunc(hits, func(x, y [2]string) int { return strings.Compare(x[0], y[0]) })
+	return hits[0][0], hits[0][1], true, nil
 }
 
 // monitoredByDefault is the root's defaults.monitored, true when unset (the
