@@ -71,6 +71,7 @@ import (
 	selectcomp "github.com/mediactl/clustarr/ui/components/select"
 	"github.com/mediactl/clustarr/ui/components/spinner"
 	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // editableKinds are the kinds whose page has the Edit dialog: the ones
@@ -176,7 +177,10 @@ const EditFieldsNone = "__none__"
 // (api/catalog/v1alpha1) and ui/actions.Choices admits them --
 // TestAddAndEditOptionsAreTheActionsChoices holds the two equal.
 var (
-	seriesTypeOptions         = []AddOption{{"standard", "Standard"}, {"daily", "Daily"}, {"anime", "Anime"}}
+	// seriesTypeOptions are the types a TV series has. Anime is not one a
+	// person picks: a series is anime by the root folder it is stored
+	// under, and gets there by Move (seriesTypeChoices).
+	seriesTypeOptions         = []AddOption{{"standard", "Standard"}, {"daily", "Daily"}}
 	aspectRatioOptions        = []AddOption{{"widescreen", "Widescreen"}, {"fullscreen", "4:3"}, {"any", "Any"}}
 	aspectRatioFixOptions     = []AddOption{{"replace", "Find another release"}, {"crop", "Crop in the transcode"}}
 	availabilityOptions       = []AddOption{{"tba", "TBA"}, {"announced", "Announced"}, {"inCinemas", "In Cinemas"}, {"released", "Released"}}
@@ -328,7 +332,7 @@ func editDialog(d Detail) templ.Component {
 						var templ_7745c5c3_Var7 string
 						templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs("Edit - " + d.Item.Title)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 200, Col: 31}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 204, Col: 31}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 						if templ_7745c5c3_Err != nil {
@@ -353,7 +357,7 @@ func editDialog(d Detail) templ.Component {
 				var templ_7745c5c3_Var8 templ.SafeURL
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(libraryActionURL(d.Item, "edit")))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 203, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 207, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -366,7 +370,7 @@ func editDialog(d Detail) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(libraryDetailPath(d.Item))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 204, Col: 72}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 208, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 				if templ_7745c5c3_Err != nil {
@@ -431,9 +435,11 @@ func editDialog(d Detail) templ.Component {
 					}
 				}
 				if d.Item.Kind == commonv1.MediaKindSeries {
-					templ_7745c5c3_Err = editSelect("seriesType", d.Item.Ref.Name, "Series Type", seriesTypeOptions, d.SeriesType).Render(ctx, templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
+					if types := seriesTypeChoices(d); len(types) > 0 {
+						templ_7745c5c3_Err = editSelect("seriesType", d.Item.Ref.Name, "Series Type", types, d.SeriesType).Render(ctx, templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
 					}
 					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, " ")
 					if templ_7745c5c3_Err != nil {
@@ -582,7 +588,7 @@ func editFieldsPlaceholder(d Detail) templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(string(d.Item.Kind))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 245, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 251, Col: 40}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 		if templ_7745c5c3_Err != nil {
@@ -595,7 +601,7 @@ func editFieldsPlaceholder(d Detail) templ.Component {
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(libraryActionURL(d.Item, "edit/fields"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 246, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 252, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 		if templ_7745c5c3_Err != nil {
@@ -648,7 +654,7 @@ func EditKindFields(f EditFields) templ.Component {
 		var templ_7745c5c3_Var19 string
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue(string(f.Kind))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 260, Col: 39}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 266, Col: 39}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
 		if templ_7745c5c3_Err != nil {
@@ -661,7 +667,7 @@ func EditKindFields(f EditFields) templ.Component {
 		var templ_7745c5c3_Var20 string
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue(string(f.Kind))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 261, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 267, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 		if templ_7745c5c3_Err != nil {
@@ -1063,7 +1069,7 @@ func EditKindFields(f EditFields) templ.Component {
 									var templ_7745c5c3_Var33 string
 									templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 319, Col: 19}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 325, Col: 19}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 									if templ_7745c5c3_Err != nil {
@@ -1214,7 +1220,7 @@ func editSelect(name, item, label string, opts []AddOption, current string) temp
 				var templ_7745c5c3_Var38 string
 				templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 367, Col: 10}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 373, Col: 10}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 				if templ_7745c5c3_Err != nil {
@@ -1308,7 +1314,7 @@ func editSelect(name, item, label string, opts []AddOption, current string) temp
 								var templ_7745c5c3_Var44 string
 								templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 377, Col: 16}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 383, Col: 16}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 								if templ_7745c5c3_Err != nil {
@@ -1379,7 +1385,7 @@ func editSwitch(name, item, label string, on bool) templ.Component {
 		var templ_7745c5c3_Var46 string
 		templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 389, Col: 33}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 395, Col: 33}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
 		if templ_7745c5c3_Err != nil {
@@ -1424,7 +1430,7 @@ func editSwitch(name, item, label string, on bool) templ.Component {
 				var templ_7745c5c3_Var49 string
 				templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 393, Col: 10}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 399, Col: 10}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 				if templ_7745c5c3_Err != nil {
@@ -1498,7 +1504,7 @@ func editCheckGroup(name, item, legend string, opts []AddOption, current []strin
 				var templ_7745c5c3_Var53 string
 				templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(legend)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 405, Col: 11}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 411, Col: 11}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 				if templ_7745c5c3_Err != nil {
@@ -1550,7 +1556,7 @@ func editCheckGroup(name, item, legend string, opts []AddOption, current []strin
 						var templ_7745c5c3_Var56 string
 						templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 412, Col: 15}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/edit.templ`, Line: 418, Col: 15}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 						if templ_7745c5c3_Err != nil {
@@ -1601,6 +1607,21 @@ func editTriggerAttrs(ctx context.Context) templ.Attributes {
 	attrs["data-action"] = "edit-item"
 	attrs["data-toolbar-button"] = true
 	return attrs
+}
+
+// seriesTypeChoices are the series types the Edit dialog offers (anime
+// library design, 2026-11-25, §5): none on the Anime tab, where the root
+// folder makes the series anime; standard and daily on TV -- and, for an
+// anime not moved to the Anime library yet, the type it has, so saving
+// another field does not change it.
+func seriesTypeChoices(d Detail) []AddOption {
+	if d.Item.Tab == projection.TabAnime {
+		return nil
+	}
+	if d.SeriesType == "anime" {
+		return append(slices.Clone(seriesTypeOptions), AddOption{Value: "anime", Label: "Anime (not moved to Anime yet)"})
+	}
+	return seriesTypeOptions
 }
 
 var _ = templruntime.GeneratedTemplate

@@ -196,3 +196,194 @@ func TestLibraryPageHasTheMassEditor(t *testing.T) {
 		require.Contains(t, rec.Body.String(), hook)
 	}
 }
+
+// Move stores the selected series under a root folder of the other library
+// (anime library design, 2026-11-25, §5): the root folder decides whether a
+// series is TV or Anime, so the move is one spec patch of the root folder,
+// the series type the folder makes it, and the folder's default profile --
+// nothing on disk, which the file loop does after it. Under an anime root a
+// series is anime; back under a TV root an anime becomes the folder's
+// default type, and a daily series keeps its own.
+func TestBulkMoveStoresASeriesUnderTheOtherLibrarysRootFolder(t *testing.T) {
+	root := func(name string, typ catalogv1.SeriesType, profile string) *catalogv1.RootFolder {
+		rf := &catalogv1.RootFolder{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"},
+			Spec:       catalogv1.RootFolderSpec{Path: "/data/media/" + name, Kind: catalogv1.RootFolderKindSeries},
+		}
+		rf.Spec.Defaults.SeriesType, rf.Spec.Defaults.QualityProfileRef = typ, profile
+		return rf
+	}
+	series := func(name, rootFolder string, typ catalogv1.SeriesType) *catalogv1.Series {
+		return &catalogv1.Series{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"},
+			Spec:       catalogv1.SeriesSpec{TvdbID: 1, QualityProfileRef: "hd", RootFolderRef: rootFolder, SeriesType: typ},
+		}
+	}
+	item := func(name, rootFolder string, typ catalogv1.SeriesType, tab projection.Tab) projection.LibraryItem {
+		return projection.LibraryItem{
+			Ref: types.NamespacedName{Namespace: "media", Name: name}, Kind: commonv1.MediaKindSeries, Tab: tab, Title: name,
+			RootFolder: rootFolder, SeriesType: string(typ), QualityProfileRef: "hd",
+		}
+	}
+	movies := &catalogv1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: "movies", Namespace: "media"},
+		Spec:       catalogv1.RootFolderSpec{Path: "/data/media/movies", Kind: catalogv1.RootFolderKindMovie},
+	}
+	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(
+		root("tv", catalogv1.SeriesTypeStandard, "hd"), root("anime", catalogv1.SeriesTypeAnime, "anime-hd"), root("tv-archive", "", ""), movies,
+		series("frieren", "tv", catalogv1.SeriesTypeAnime), series("andor", "tv", catalogv1.SeriesTypeStandard),
+		series("the-daily", "tv", catalogv1.SeriesTypeDaily), series("bleach", "anime", catalogv1.SeriesTypeAnime),
+		bulkMovie("heat", true),
+	).Build()
+	library := []projection.LibraryItem{
+		item("frieren", "tv", catalogv1.SeriesTypeAnime, projection.TabTV), item("andor", "tv", catalogv1.SeriesTypeStandard, projection.TabTV),
+		item("the-daily", "tv", catalogv1.SeriesTypeDaily, projection.TabTV), item("bleach", "anime", catalogv1.SeriesTypeAnime, projection.TabAnime),
+		{Ref: types.NamespacedName{Namespace: "media", Name: "heat"}, Kind: commonv1.MediaKindMovie, Tab: projection.TabMovies, Title: "heat"},
+	}
+	h := ui.NewServer(t.Context(), ui.Options{
+		Reader: c, Actions: actions.New(c), Library: func(context.Context) []projection.LibraryItem { return library },
+	}).Handler()
+	spec := func(name string) catalogv1.SeriesSpec {
+		var s catalogv1.Series
+		require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "media", Name: name}, &s))
+		return s.Spec
+	}
+	move := func(tab, target string, items ...string) *httptest.ResponseRecorder {
+		return bulkPost(t, h, "/library/"+tab+"/bulk", url.Values{"action": {"move"}, "rootFolder": {target}, "item": items, "return": {"/library/" + tab}})
+	}
+
+	// TV to Anime: an anime not moved yet, and a series the classifier
+	// called standard that is one.
+	rec := move("tv", "media/anime", "media/series/frieren", "media/series/andor")
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	for _, name := range []string{"frieren", "andor"} {
+		got := spec(name)
+		require.Equal(t, "anime", got.RootFolderRef, name)
+		require.Equal(t, catalogv1.SeriesTypeAnime, got.SeriesType, "%s: under an anime root a series is anime", name)
+		require.Equal(t, "anime-hd", got.QualityProfileRef, "%s: the folder's default profile", name)
+	}
+
+	// Anime to TV: the folder's default type; a folder naming no profile
+	// leaves the series' own.
+	rec = move("anime", "media/tv", "media/series/bleach")
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	got := spec("bleach")
+	require.Equal(t, "tv", got.RootFolderRef)
+	require.Equal(t, catalogv1.SeriesTypeStandard, got.SeriesType)
+	require.Equal(t, "hd", got.QualityProfileRef)
+
+	// Between two TV roots a daily series stays daily, and keeps its
+	// profile where the folder has none.
+	rec = move("tv", "media/tv-archive", "media/series/the-daily")
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	got = spec("the-daily")
+	require.Equal(t, "tv-archive", got.RootFolderRef)
+	require.Equal(t, catalogv1.SeriesTypeDaily, got.SeriesType)
+	require.Equal(t, "hd", got.QualityProfileRef)
+
+	// Refused, nothing written: a root folder that is no series folder, one
+	// that does not exist, and a film.
+	for _, target := range []string{"media/movies", "media/nowhere", "elsewhere/anime", "anime", ""} {
+		rec = move("tv", target, "media/series/the-daily")
+		require.Equal(t, http.StatusBadRequest, rec.Code, "target %q", target)
+	}
+	require.Equal(t, "tv-archive", spec("the-daily").RootFolderRef)
+	rec = move("movies", "media/anime", "media/movie/heat")
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// The bulk bar offers Move on TV and on Anime, to the other library's root
+// folders, and nowhere else: a film, an album or a book has one library.
+func TestTheBulkBarOffersMoveBetweenTVAndAnime(t *testing.T) {
+	root := func(name string, kind catalogv1.RootFolderKind, typ catalogv1.SeriesType) *catalogv1.RootFolder {
+		rf := &catalogv1.RootFolder{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"},
+			Spec:       catalogv1.RootFolderSpec{Path: "/data/media/" + name, Kind: kind},
+		}
+		rf.Spec.Defaults.SeriesType = typ
+		return rf
+	}
+	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(
+		root("tv", catalogv1.RootFolderKindSeries, catalogv1.SeriesTypeStandard),
+		root("anime", catalogv1.RootFolderKindSeries, catalogv1.SeriesTypeAnime),
+		root("movies", catalogv1.RootFolderKindMovie, ""),
+	).Build()
+	h := ui.NewServer(t.Context(), ui.Options{
+		Reader: c, Actions: actions.New(c), Library: func(context.Context) []projection.LibraryItem { return nil },
+	}).Handler()
+	page := func(tab string) string {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/"+tab, nil))
+		require.Equal(t, http.StatusOK, rec.Code)
+		return rec.Body.String()
+	}
+
+	tv := page("tv")
+	trigger := requireTag(t, tv, `data-bulk-action="move"`, `data-slot="dialog-trigger"`)
+	require.Regexp(t, regexp.MustCompile(`\sdisabled(\s|>)`), trigger, "Move waits for a selection")
+	require.Contains(t, tv, `name="action" value="move"`)
+	require.Contains(t, tv, `data-templ-value="media/anime"`)
+	require.Contains(t, tv, "Anime · anime (/data/media/anime)")
+	require.NotContains(t, tv, `data-templ-value="media/tv"`, "TV's own root folder is no move")
+
+	anime := page("anime")
+	require.Contains(t, anime, `data-bulk-action="move"`)
+	require.Contains(t, anime, `data-templ-value="media/tv"`)
+	require.Contains(t, anime, "TV · tv (/data/media/tv)")
+
+	require.NotContains(t, page("movies"), `data-bulk-action="move"`)
+}
+
+// The Edit dialog cannot make a series anime, nor an anime something else
+// (anime library design, 2026-11-25, §5): a series is anime by the root
+// folder it is stored under, and Move changes both together. On the Anime
+// tab a posted type is dropped; on TV "anime" is refused -- unless the
+// series is an anime not moved yet, whose other fields must stay editable.
+func TestTheEditDialogLeavesBeingAnimeToTheRootFolder(t *testing.T) {
+	series := func(name, rootFolder string, typ catalogv1.SeriesType) *catalogv1.Series {
+		return &catalogv1.Series{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"},
+			Spec:       catalogv1.SeriesSpec{TvdbID: 1, QualityProfileRef: "hd", RootFolderRef: rootFolder, SeriesType: typ},
+		}
+	}
+	item := func(name string, typ catalogv1.SeriesType, tab projection.Tab) projection.LibraryItem {
+		return projection.LibraryItem{
+			Ref: types.NamespacedName{Namespace: "media", Name: name}, Kind: commonv1.MediaKindSeries, Tab: tab, Title: name, SeriesType: string(typ),
+		}
+	}
+	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(
+		series("bleach", "anime", catalogv1.SeriesTypeAnime), series("andor", "tv", catalogv1.SeriesTypeStandard),
+		series("frieren", "tv", catalogv1.SeriesTypeAnime),
+	).Build()
+	library := []projection.LibraryItem{
+		item("bleach", catalogv1.SeriesTypeAnime, projection.TabAnime), item("andor", catalogv1.SeriesTypeStandard, projection.TabTV),
+		item("frieren", catalogv1.SeriesTypeAnime, projection.TabTV),
+	}
+	h := ui.NewServer(t.Context(), ui.Options{
+		Reader: c, Actions: actions.New(c), Library: func(context.Context) []projection.LibraryItem { return library },
+	}).Handler()
+	edit := func(name, typ string) *httptest.ResponseRecorder {
+		return bulkPost(t, h, "/library/media/series/"+name+"/edit", url.Values{
+			"qualityProfile": {"uhd"}, "monitored": {"false", "true"}, "seriesType": {typ}, "return": {"/library/tv"},
+		})
+	}
+	spec := func(name string) catalogv1.SeriesSpec {
+		var s catalogv1.Series
+		require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "media", Name: name}, &s))
+		return s.Spec
+	}
+
+	require.Equal(t, http.StatusSeeOther, edit("bleach", "daily").Code)
+	require.Equal(t, catalogv1.SeriesTypeAnime, spec("bleach").SeriesType, "under an anime root a series stays anime")
+	require.Equal(t, "uhd", spec("bleach").QualityProfileRef, "its other fields are saved")
+
+	require.Equal(t, http.StatusBadRequest, edit("andor", "anime").Code)
+	require.Equal(t, catalogv1.SeriesTypeStandard, spec("andor").SeriesType)
+	require.Equal(t, "hd", spec("andor").QualityProfileRef, "a refused edit writes nothing")
+	require.Equal(t, http.StatusSeeOther, edit("andor", "daily").Code)
+	require.Equal(t, catalogv1.SeriesTypeDaily, spec("andor").SeriesType)
+
+	require.Equal(t, http.StatusSeeOther, edit("frieren", "anime").Code, "an anime not moved yet keeps its type through an edit")
+	require.Equal(t, catalogv1.SeriesTypeAnime, spec("frieren").SeriesType)
+	require.Equal(t, "uhd", spec("frieren").QualityProfileRef)
+}

@@ -56,13 +56,14 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	if view.Sort == projection.SortTitle && !view.Desc {
 		bar = jumps(items)
 	}
-	rootFolders := rootFoldersFor(s.listRootFolders(r.Context()), tab)
+	every := s.listRootFolders(r.Context())
+	rootFolders := rootFoldersFor(every, tab)
 	preloadable(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	out, done := compressed(w, r)
 	defer done()
 	base := "/library/" + string(tab)
-	if err := views.Library(tab, items, view.toolbar(base, all, len(items)), rootFolders, bar).Render(r.Context(), out); err != nil {
+	if err := views.Library(tab, items, view.toolbar(base, all, len(items)), rootFolders, bar, moveTargets(every, tab)).Render(r.Context(), out); err != nil {
 		logging.FromContext(r.Context()).Error("render library page", "err", err)
 	}
 }

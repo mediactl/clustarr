@@ -33,6 +33,7 @@ import (
 	selectcomp "github.com/mediactl/clustarr/ui/components/select"
 	"github.com/mediactl/clustarr/ui/components/spinner"
 	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // editableKinds are the kinds whose page has the Edit dialog: the ones
@@ -138,7 +139,10 @@ const EditFieldsNone = "__none__"
 // (api/catalog/v1alpha1) and ui/actions.Choices admits them --
 // TestAddAndEditOptionsAreTheActionsChoices holds the two equal.
 var (
-	seriesTypeOptions         = []AddOption{{"standard", "Standard"}, {"daily", "Daily"}, {"anime", "Anime"}}
+	// seriesTypeOptions are the types a TV series has. Anime is not one a
+	// person picks: a series is anime by the root folder it is stored
+	// under, and gets there by Move (seriesTypeChoices).
+	seriesTypeOptions         = []AddOption{{"standard", "Standard"}, {"daily", "Daily"}}
 	aspectRatioOptions        = []AddOption{{"widescreen", "Widescreen"}, {"fullscreen", "4:3"}, {"any", "Any"}}
 	aspectRatioFixOptions     = []AddOption{{"replace", "Find another release"}, {"crop", "Crop in the transcode"}}
 	availabilityOptions       = []AddOption{{"tba", "TBA"}, {"announced", "Announced"}, {"inCinemas", "In Cinemas"}, {"released", "Released"}}
@@ -213,7 +217,9 @@ templ editDialog(d Detail) {
 					@editSelect("qualityProfile", d.Item.Ref.Name, "Quality Profile", d.Profiles, d.Item.QualityProfileRef)
 				}
 				if d.Item.Kind == commonv1.MediaKindSeries {
-					@editSelect("seriesType", d.Item.Ref.Name, "Series Type", seriesTypeOptions, d.SeriesType)
+					if types := seriesTypeChoices(d); len(types) > 0 {
+						@editSelect("seriesType", d.Item.Ref.Name, "Series Type", types, d.SeriesType)
+					}
 					@editSelect("aspectRatio", d.Item.Ref.Name, "Aspect Ratio", aspectRatioOptions, d.AspectRatio)
 					@editSelect("aspectRatioFix", d.Item.Ref.Name, "A File of Another Shape", aspectRatioFixOptions, d.AspectRatioFix)
 				}
@@ -436,3 +442,19 @@ func editTriggerAttrs(ctx context.Context) templ.Attributes {
 	attrs["data-toolbar-button"] = true
 	return attrs
 }
+
+// seriesTypeChoices are the series types the Edit dialog offers (anime
+// library design, 2026-11-25, §5): none on the Anime tab, where the root
+// folder makes the series anime; standard and daily on TV -- and, for an
+// anime not moved to the Anime library yet, the type it has, so saving
+// another field does not change it.
+func seriesTypeChoices(d Detail) []AddOption {
+	if d.Item.Tab == projection.TabAnime {
+		return nil
+	}
+	if d.SeriesType == "anime" {
+		return append(slices.Clone(seriesTypeOptions), AddOption{Value: "anime", Label: "Anime (not moved to Anime yet)"})
+	}
+	return seriesTypeOptions
+}
+

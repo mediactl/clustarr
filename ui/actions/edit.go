@@ -97,7 +97,10 @@ type EditRequest struct {
 	BookRef   *string
 	// RootFolderRef is a standalone book's spec.rootFolderRef, sent with
 	// its QualityProfileRef (design §9.3: a standalone Book is editable --
-	// profile, root, monitored); empty leaves it.
+	// profile, root, monitored), or a Series', which moves it to another
+	// library: the root folder a Series is stored under decides whether it
+	// is in TV or Anime, and its files follow it there (anime library
+	// design, 2026-11-25, §3, §5). Empty leaves it.
 	RootFolderRef string
 	// AnyReleaseOk and ReleaseID are an album's release choice (design
 	// §9.2: the album bar's Edit): spec.anyReleaseOk, whether a release of
@@ -361,8 +364,8 @@ func editSpec(kind commonv1.MediaKind, req EditRequest) (map[string]any, error) 
 		}
 	}
 	if req.RootFolderRef != "" {
-		if kind != commonv1.MediaKindBook {
-			return nil, fmt.Errorf("%w: a root folder on a %s; only a standalone book's is edited", ErrInvalid, kind)
+		if kind != commonv1.MediaKindBook && kind != commonv1.MediaKindSeries {
+			return nil, fmt.Errorf("%w: a root folder on a %s; only a standalone book's and a series' are edited", ErrInvalid, kind)
 		}
 		spec["rootFolderRef"] = req.RootFolderRef
 	}

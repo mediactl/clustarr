@@ -1207,7 +1207,15 @@ current root at once, so new imports land in the new folder while the old
 files drain; a scan of the old root refuses them (`other_root_folder`).
 The Series is read only for a file whose path and proposed name are not
 under one root folder, so a library at rest pays the cached RootFolder list.
-Still not built: the ui's Move action and the Plex library.
+**Move is how a series changes library** (not deployed): a bulk action on
+TV and Anime (`Server.moveSeries`, `moveTargets`, the bulk bar's Move
+dialog) that patches `rootFolderRef`, the series type the folder makes it
+and the folder's default profile in one `EditItem`, after which the files
+follow by the relocation above. The Edit dialog no longer offers `anime`
+(`views.seriesTypeChoices`): none on Anime, `standard` and `daily` on TV,
+and an anime not moved yet keeps its type as a third choice; the handler
+drops a type posted for a series on Anime and refuses `anime` elsewhere.
+Still not built: the Plex library.
 An Episode carries two conditions, Ready and DeadLettered (owner,
 2026-11-03, cutting the manager's memory): the Aired, HasFile, CutoffMet and
 WrongLanguage conditions every episode carried restated `status.phase`,

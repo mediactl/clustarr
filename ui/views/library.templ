@@ -62,13 +62,16 @@ import (
 // a thousand cards' markup every few seconds was the alternative. The
 // toolbar, the filter's chips and dialogs, the shared card action bar
 // (cardActionBar) and the bulk bar render outside it.
-templ Library(tab projection.Tab, items []projection.LibraryItem, tb LibraryToolbar, rootFolders []catalogv1.RootFolder, jumpsFor []Jump) {
+//
+// moves are the root folders the bulk bar's Move offers: the other
+// library's, on TV and Anime; none draws no Move.
+templ Library(tab projection.Tab, items []projection.LibraryItem, tb LibraryToolbar, rootFolders []catalogv1.RootFolder, jumpsFor []Jump, moves []AddOption) {
 	@Shell(Chrome{Title: "Library", Crumbs: []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}, Tab: tab, HideScrollbar: true}) {
 		<div id="library-page" class="group/library lg:pr-12" data-tab={ string(tab) } data-query={ tb.Query }>
 			@libraryToolbar(tab, tb, rootFolders)
 			// While the page is selecting, the selection bar takes the
 			// toolbar's place (Plex Web's selection screen).
-			@bulkBar(tab)
+			@bulkBar(tab, moves)
 			@viewBar(tb)
 			<div
 				id="library-rows"
@@ -777,7 +780,12 @@ templ optionsMenu() {
 // dialog moves its content to <body> when it opens. A card's own Delete
 // opens the same dialog for that item alone (cardActions). The buttons stay
 // disabled until something is selected.
-templ bulkBar(tab projection.Tab) {
+//
+// Move, on TV and Anime, stores the selected series under a root folder of
+// the other library (moves; the first is the default), in a dialog of its
+// own form as Delete's is: the root folder decides the library, and the
+// files follow one at a time (anime library design, 2026-11-25, §5).
+templ bulkBar(tab projection.Tab, moves []AddOption) {
 	<div data-bulk-bar class="glass-bar sticky top-(--bar-top) z-20 mb-3 hidden h-12 items-center gap-2 px-4 group-data-selecting/library:flex">
 		<span class="flex min-w-0 items-center gap-2 text-sm whitespace-nowrap text-primary">
 			@icon.Icon("check")(icon.Props{Class: "size-4 shrink-0"})
@@ -794,6 +802,37 @@ templ bulkBar(tab projection.Tab) {
 			@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "select-all", "title": "Select all", "aria-label": "Select all"}}) {
 				@icon.Icon("check-check")()
 				<span class="max-lg:sr-only">Select All</span>
+			}
+			if len(moves) > 0 {
+				@dialog.Dialog(dialog.Props{ID: "library-bulk-move"}) {
+					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Disabled: true, Attributes: bulkMoveTrigger(ctx)}) {
+						@icon.Icon("folder-input")()
+						<span class="max-lg:sr-only">Move</span>
+					}
+					@dialog.Content() {
+						@dialog.Header() {
+							@dialog.Title() {
+								Move the selected series
+							}
+							@dialog.Description() {
+								The root folder a series is stored under decides its library. Its files follow, one at a time, keeping their names.
+							}
+						}
+						<form method="post" action={ templ.URL(bulkPath(tab)) } hx-post={ bulkPath(tab) } hx-target="#action-status" hx-swap="innerHTML" data-bulk-form class="space-y-3">
+							<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
+							<input type="hidden" name="action" value="move"/>
+							@addSelect("rootFolder", "bulk-move", "Move to", moves, moves[0].Value)
+							@dialog.Footer() {
+								@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) {
+									Cancel 
+								}
+								@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "bulk-move-confirm"}}) {
+									Move 
+								}
+							}
+						</form>
+					}
+				}
 			}
 			@dialog.Dialog(dialog.Props{ID: "library-bulk-delete"}) {
 				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "text-destructive", Disabled: true, Attributes: bulkDeleteTrigger(ctx)}) {
@@ -864,6 +903,18 @@ func bulkDeleteTrigger(ctx context.Context) templ.Attributes {
 	attrs["data-bulk-action"] = "delete"
 	return attrs
 }
+
+// bulkMoveTrigger is the bulk Move's dialog trigger, a bulk action like
+// Delete's: disabled until something is selected.
+func bulkMoveTrigger(ctx context.Context) templ.Attributes {
+	attrs := dialog.Trigger(ctx)
+	attrs["data-bulk-action"] = "move"
+	attrs["title"] = "Move to another library"
+	return attrs
+}
+
+// TabLabel is the tab's name as the page shows it.
+func TabLabel(tab projection.Tab) string { return tabLabel(tab) }
 
 // bulkPath is the tab's bulk action route.
 func bulkPath(tab projection.Tab) string { return "/library/" + string(tab) + "/bulk" }

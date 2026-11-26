@@ -430,3 +430,21 @@ old folder alive. `TestRelocateFileMovesAFileAfterItsItemToAnotherRootFolder`,
 `TestAFileFollowsItsSeriesToAnotherRootFolder` and its neighbours in
 `app/remediation/rename`.
 
+**Move and the type control, 2026-11-26** (clustarr ui; not deployed; the
+rest of section 5's step 3). Move is a bulk action on TV and Anime, in a
+dialog of its own form as Delete's is, offering the other library's root
+folders (`moveTargets`); for each selected series `Server.moveSeries` makes
+one `EditItem` patch of `rootFolderRef`, the type the folder makes it
+(anime under an anime root; from anime, the folder's default type; a daily
+or standard series otherwise keeps its own) and the folder's default
+profile, the series' own where the folder names none. `EditRequest` takes a
+root folder for a Series as it did for a standalone Book. The Edit dialog
+offers `standard` and `daily` on TV, no type on Anime, and an anime not
+moved yet keeps its own type as a third choice; the handler drops a type
+posted for a series on Anime and refuses `anime` for one that is not. Seen
+in a browser against the preview harness, where a Move of two series took
+TV from four cards to two and Anime from three to five. Not built: Move on
+the item's own page (one series is moved by selecting it), the root folder
+form's "Anime root folder", and Collections and Hubs for the third
+library.
+

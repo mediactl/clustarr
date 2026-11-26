@@ -622,6 +622,22 @@ func (s *Server) handleEditItem(w http.ResponseWriter, r *http.Request) {
 	if ser := s.unmonitoredSeries(r.Context(), r.PathValue("namespace"), kind, r.PathValue("name"), *req.Monitored); ser != nil {
 		req.Seasons, req.ResourceVersion = actions.AllSeasonsMonitored(ser), ser.ResourceVersion
 	}
+	if kind == commonv1.MediaKindSeries && req.SeriesType != "" {
+		// A series is anime by the root folder it is stored under (anime
+		// library design, 2026-11-25, §1): the dialog cannot make one
+		// anime, nor an anime something else. Move does both, with the
+		// root folder.
+		item, found := findLibraryItem(s.opts.Library(r.Context()), r.PathValue("namespace"), string(kind), r.PathValue("name"))
+		anime := string(catalogv1.SeriesTypeAnime)
+		switch {
+		case !found:
+		case item.Tab == projection.TabAnime:
+			req.SeriesType = ""
+		case req.SeriesType == anime && item.SeriesType != anime:
+			s.finishAction(w, r, fmt.Errorf("%w: a series becomes anime by moving it to the Anime library", actions.ErrInvalid))
+			return
+		}
+	}
 	_, err = s.opts.Actions.EditItem(r.Context(), r.PathValue("namespace"), kind, r.PathValue("name"), req)
 	s.finishAction(w, r, err)
 }
