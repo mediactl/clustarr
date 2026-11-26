@@ -336,6 +336,25 @@ Settled, and no obstacle:
 - A MediaFile's name hashes the path it was created at and never changes;
   scans find it by `spec.path`, as they do after a rename.
 
+Read in cluster-plex's code on 2026-11-26 (not run):
+
+- Provisioning finds a library by its title and renames in place only a
+  section of the same type still under one of the entry's `formerNames`
+  (`provision.ensureLibrary`); the Anime entry has none, so it is created
+  beside TV Shows, on the same agent group. Nothing assumes one library a
+  type.
+- A moved file is applied to the library its new path falls under, but
+  **nothing takes its row off the library it left at that moment**:
+  `plexproject.findMedia` looks a file's row up within the target section
+  alone, and the MediaFile update handler only re-seeds
+  (`clustarrwatch`, the MediaFile informer's `UpdateFunc`). The old row
+  goes at the next whole-section reconcile ("a row whose UID names no
+  MediaFile there is deleted", `Projector.Reconcile`); until then the
+  series shows in both libraries, its TV Shows episodes unavailable. To
+  build in cluster-plex before the bulk move: the update handler queues a
+  removal from the section the old path was in when the new path is in
+  another.
+
 Before section 4 is deployed, on the cluster-plex rig:
 
 - a file whose path leaves one library for another: old rows removed
