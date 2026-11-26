@@ -151,7 +151,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		}
 		snap.Target.Identity = EpisodeIdentity(&s, &e)
 		snap.Owner = ownerRef(string(commonv1.MediaKindSeries), &s)
-		snap.Target.Identity.SceneMappings = scene
+		snap.Target.Identity.SceneMappings, snap.Target.Identity.SceneSeasonNames = SceneReadings(ctx, w.Client, w.SceneMaps, &s, scene)
 		// This is a search for exactly one episode, so a whole-season pack
 		// is not what was asked for (ruling R-3, Sonarr's
 		// SingleEpisodeSearchMatchSpecification). It is set here, at the

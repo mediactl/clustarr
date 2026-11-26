@@ -158,6 +158,22 @@ func targetOf(task *schema.ImportInspectTask) importtarget.ImportTarget {
 	return t
 }
 
+// grantedEpisodes are the series' episodes a task's targets name: the
+// Episodes its download was grabbed for. A target that is the owner itself
+// (an entry re-created from its transfer's claim) names none.
+func grantedEpisodes(task *schema.ImportInspectTask, episodes []EpisodeCandidate) []EpisodeCandidate {
+	var out []EpisodeCandidate
+	for _, t := range task.Targets {
+		if !strings.EqualFold(t.Kind, string(commonv1.MediaKindEpisode)) {
+			continue
+		}
+		if i := slices.IndexFunc(episodes, func(c EpisodeCandidate) bool { return c.Name == t.Name }); i >= 0 {
+			out = append(out, episodes[i])
+		}
+	}
+	return out
+}
+
 // objectKind is a MediaKind as an object Kind.
 func objectKind(k commonv1.MediaKind) string {
 	s := string(k)
@@ -601,6 +617,9 @@ func (w *Worker) inspectEpisodes(
 		if p, perr := release.Parse(task.Release.Title, release.Options{Kind: commonv1.MediaKindEpisode}); perr == nil && !p.FullSeason {
 			plan.sceneName, plan.sceneParsed = task.Release.Title, p
 		}
+		if !manual {
+			plan.granted = grantedEpisodes(task, plan.episodes)
+		}
 	}
 	series := plan.series
 	language := catalogctx.ConfiguredLanguage(&plan.profile)
@@ -649,7 +668,7 @@ func (w *Worker) inspectEpisodes(
 			return nil
 		}
 		fillFromRelease(parsed, task.Release.Title, commonv1.MediaKindEpisode)
-		eps, reason := MatchEpisodes(parsed, series.Spec.SeriesType, plan.episodes)
+		eps, reason := MatchDownloaded(parsed, series.Spec.SeriesType, plan.episodes, plan.numbering)
 		if reason != "" && plan.sceneParsed != nil {
 			// The download's one video file names no episode of the series,
 			// and its release title names one: the file is the release's,
@@ -657,12 +676,17 @@ func (w *Worker) inspectEpisodes(
 			// client's title. GUACAMOLE's "gua-drifters.2016.e08-1080p.mkv"
 			// read as absolute episode 1080 (talos, 2026-11-02), and an
 			// engine-renamed file as its entry id's hash (2026-10-27).
-			if reps, rreason := MatchEpisodes(plan.sceneParsed, series.Spec.SeriesType, plan.episodes); rreason == "" {
+			if reps, rreason := MatchDownloaded(plan.sceneParsed, series.Spec.SeriesType, plan.episodes, plan.numbering); rreason == "" {
 				logging.FromContext(ctx).Info("fileimport: the release title names the episode the file's name does not",
 					"source", rel, "file", reason, "episodes", names(reps))
 				takeNumbering(parsed, plan.sceneParsed)
 				eps, reason = reps, ""
 			}
+		}
+		if kept := narrowToGranted(eps, plan.granted); reason == "" && len(kept) < len(eps) {
+			logging.FromContext(ctx).Info("fileimport: the file is taken for the episodes its download was grabbed for",
+				"source", rel, "names", names(eps), "episodes", names(kept))
+			eps = kept
 		}
 		f.Parsed = factsOf(parsed)
 		if reason != "" {

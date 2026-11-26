@@ -123,18 +123,28 @@ type ParsedRelease struct {
 	Edition       string
 	Seasons       []int
 	Episodes      []int
-	Absolute      []int
-	AirDate       *time.Time
-	FullSeason    bool
-	Partial       bool
-	MultiSeason   bool
-	Special       bool
-	ReleaseType   commonv1.ReleaseType
-	Music         *MusicInfo
-	Book          *BookInfo
-	Comic         *ComicInfo
-	Hints         Hints
-	IDs           map[string]string
+	// ListedEpisodes are the bare numbers a title lists after its one
+	// SxxEyy token, before its quality: "S02E07.14.15.1080p" lists 14 and
+	// 15. A series whose broadcasts each hold several short episodes is
+	// released that way, the token numbering the broadcast and the list the
+	// episodes in it; what the two mean together is the reader's to decide
+	// against the series (pkg/decision's releaseCoverage). EpisodeTitle is
+	// the episode's own title, when the name carries one between its
+	// numbering and its quality ("S02E07.Daten.City.President.1080p").
+	ListedEpisodes []int
+	EpisodeTitle   string
+	Absolute       []int
+	AirDate        *time.Time
+	FullSeason     bool
+	Partial        bool
+	MultiSeason    bool
+	Special        bool
+	ReleaseType    commonv1.ReleaseType
+	Music          *MusicInfo
+	Book           *BookInfo
+	Comic          *ComicInfo
+	Hints          Hints
+	IDs            map[string]string
 	// FromFolder is true when ParsePath's basename parse failed and this
 	// result came from an ancestor folder instead (spec D4, movies only):
 	// Title, Year and IDs are the folder's, while Quality, Revision, Group

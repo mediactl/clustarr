@@ -19,11 +19,15 @@ package search
 
 import (
 	"context"
+	"slices"
 	"strconv"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/itemread"
+	"github.com/mediactl/clustarr/app/catalog/worker/titleindex"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
@@ -139,6 +143,57 @@ func SceneMappings(ctx context.Context, src scenemap.Source, tvdbID int64) []dec
 		})
 	}
 	return out
+}
+
+// SceneReadings completes a series' scene table for the identity check
+// with what tells one numbering from another (decision's releaseCoverage):
+// each row's TVDB episode titled from the series' own Episodes, and the
+// scene season each of TheXEM's scene titles for the series names. rows is
+// SceneMappings' answer; it is returned as it is, with no titles, when the
+// Episodes cannot be listed, and the names are nil when TheXEM cannot be
+// asked -- either way the numbers are read as before, never refused.
+func SceneReadings(
+	ctx context.Context, c client.Reader, src scenemap.Source, s *catalogv1alpha1.Series, rows []decision.SceneMapping,
+) ([]decision.SceneMapping, []decision.SceneSeasonName) {
+	if src == nil || s == nil || s.Spec.TvdbID == 0 {
+		return rows, nil
+	}
+	var names []decision.SceneSeasonName
+	if m, err := src.SceneMap(ctx, s.Spec.TvdbID); err == nil && m != nil {
+		for _, n := range m.Names {
+			if n.Season != nil && *n.Season > 0 && n.Title != "" {
+				names = append(names, decision.SceneSeasonName{Title: n.Title, Season: *n.Season})
+			}
+		}
+	}
+	if len(rows) == 0 || c == nil {
+		return rows, names
+	}
+	type place struct{ season, episode int }
+	titles := map[place]string{}
+	listed := map[int]bool{}
+	for _, r := range rows {
+		if listed[r.TVDB.Season] {
+			continue
+		}
+		listed[r.TVDB.Season] = true
+		var list catalogv1alpha1.EpisodeList
+		if err := c.List(ctx, &list, client.InNamespace(s.Namespace),
+			client.MatchingFields{titleindex.IndexEpisodeSeriesSeason: titleindex.SeasonKey(s.Name, int32(r.TVDB.Season))}); err != nil {
+			logging.FromContext(ctx).Warn("search: the series' episode titles are unavailable; a release is not told from a scene-numbered one by its episode's title",
+				"series", s.Name, "season", r.TVDB.Season, "err", err)
+			return rows, names
+		}
+		for i := range list.Items {
+			ep := &list.Items[i]
+			titles[place{int(ep.Spec.SeasonNumber), int(ep.Spec.EpisodeNumber)}] = ep.Status.Title
+		}
+	}
+	out := slices.Clone(rows)
+	for i := range out {
+		out[i].Title = titles[place{out[i].TVDB.Season, out[i].TVDB.Episode}]
+	}
+	return out, names
 }
 
 // searchNumbering is the season, episode and absolute number a search for e

@@ -18,6 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package agent
 
 import (
+	"net/http"
+	"time"
+
+	"github.com/jonboulle/clockwork"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
@@ -25,6 +29,8 @@ import (
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
 )
 
 // newScanWorker builds the work.import.scan handler with o's sample size
@@ -59,5 +65,32 @@ func newImportWorker(c client.Client, api client.Reader, bus events.Bus, prober 
 	w := fileimport.NewWorker(c, bus, prober)
 	w.APIReader = api
 	w.SampleMaxBytes = o.SampleMaxBytes
+	w.SceneMaps = newSceneMaps()
 	return w
+}
+
+// sceneMapCacheSize bounds the import agent's TheXEM cache, as the catalog
+// agent's does; sceneMapTimeout one request to it.
+const (
+	sceneMapCacheSize = 4096
+	sceneMapTimeout   = 30 * time.Second
+)
+
+// newSceneMaps builds the import domain's TheXEM source: a download's
+// files are attributed through the scene numbering its release was grabbed
+// by (fileimport.Worker.SceneMaps). Like the catalog agent's
+// (app/catalog/agent.NewSceneMaps) it is this process's own client and
+// in-process cache -- the havemap and names every three hours, a mapped
+// series' rows every twelve -- under this caller's limiter. A cache that
+// cannot be built leaves the worker reading numbers literally.
+func newSceneMaps() scenemap.Source {
+	cache, err := pkgmetadata.NewLRUCache(sceneMapCacheSize, clockwork.NewRealClock())
+	if err != nil {
+		return nil
+	}
+	xem := scenemap.NewXEM(scenemap.XEMConfig{
+		HTTPClient: &http.Client{Timeout: sceneMapTimeout},
+		Limiter:    pkgmetadata.NewLimiter(scenemap.DefaultRate, scenemap.DefaultBurst),
+	})
+	return scenemap.NewCached(xem, cache, scenemap.Options{})
 }

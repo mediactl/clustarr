@@ -120,7 +120,7 @@ func (w *Worker) snapshotSeason(ctx context.Context, ns string, ref commonv1.Med
 
 	snap.Target.Identity = EpisodeIdentity(&s, eps...)
 	snap.Target.Identity.Season = int(season)
-	snap.Target.Identity.SceneMappings = scene
+	snap.Target.Identity.SceneMappings, snap.Target.Identity.SceneSeasonNames = SceneReadings(ctx, w.Client, w.SceneMaps, &s, scene)
 	// A season search takes any release of the season: singles,
 	// multi-episode releases and packs (decision.Identity.SeasonSearch).
 	// Set here, at the season search's own call site, never in

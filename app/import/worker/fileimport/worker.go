@@ -32,6 +32,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -97,6 +98,11 @@ type Worker struct {
 	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample);
 	// zero disables it.
 	SampleMaxBytes int64
+
+	// SceneMaps is TheXEM's scene numbering, which a download's files are
+	// attributed through as its release was at the grab (seriesNumbering).
+	// Nil reads every number literally.
+	SceneMaps scenemap.Source
 
 	// Pod names the writer on every record; empty is the host name.
 	Pod string

@@ -28,6 +28,8 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/importtarget"
+	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/release"
@@ -47,6 +49,15 @@ type episodePlan struct {
 
 	// episodes are every Episode of the series.
 	episodes []EpisodeCandidate
+
+	// numbering is what a release's numbers are read through beside the
+	// episodes themselves: the series' scene table, each row titled, and
+	// its scene season names (seriesNumbering).
+	numbering decision.Identity
+	// granted are the Episodes the download was grabbed for, when it holds
+	// one video file and no person runs the import: that file is theirs
+	// and no other episode's (narrowToGranted). Nil otherwise.
+	granted []EpisodeCandidate
 
 	// named is the one episode the target names (an episode target, or a
 	// series target keyed to one episode); nil for a pack.
@@ -117,6 +128,7 @@ func (w *Worker) resolveSeries(ctx context.Context, ns string, target importtarg
 			plan.episodes = append(plan.episodes, EpisodeCandidateFor(ep))
 		}
 	}
+	plan.numbering = w.seriesNumbering(ctx, &series, plan.episodes)
 	if namedEpisode != "" {
 		for i := range plan.episodes {
 			if plan.episodes[i].Name == namedEpisode {
@@ -128,6 +140,50 @@ func (w *Worker) resolveSeries(ctx context.Context, ns string, target importtarg
 		}
 	}
 	return plan, nil
+}
+
+// seriesNumbering reads what a release of the series is numbered through,
+// as the search agent reads it for the grab (search.SceneMappings and
+// SceneReadings): TheXEM's table for the series, each row under its TVDB
+// episode's title, and the scene season each of its scene titles names. A
+// download is attributed at import as it was judged at the grab; read
+// literally here, a broadcast grabbed for the two episodes it holds was
+// filed under the one its number names (talos, 2026-11-26: Panty &
+// Stocking with Garterbelt, where import held four such downloads against
+// the episode already there). TheXEM unavailable is logged and reads every
+// number literally, as the search does.
+func (w *Worker) seriesNumbering(ctx context.Context, s *catalogv1alpha1.Series, episodes []EpisodeCandidate) decision.Identity {
+	var id decision.Identity
+	if w.SceneMaps == nil || s.Spec.TvdbID == 0 {
+		return id
+	}
+	m, err := w.SceneMaps.SceneMap(ctx, s.Spec.TvdbID)
+	if err != nil {
+		logging.FromContext(ctx).Warn("fileimport: TheXEM scene numbering unavailable; reading file numbers literally",
+			"series", s.Name, "tvdbID", s.Spec.TvdbID, "err", err)
+		return id
+	}
+	if m == nil {
+		return id
+	}
+	type place struct{ season, number int }
+	titles := make(map[place]string, len(episodes))
+	for _, e := range episodes {
+		titles[place{e.Season, e.Number}] = e.Title
+	}
+	for _, row := range m.Mappings {
+		id.SceneMappings = append(id.SceneMappings, decision.SceneMapping{
+			Scene: decision.EpisodeNumbering(row.Scene),
+			TVDB:  decision.EpisodeNumbering(row.TVDB),
+			Title: titles[place{row.TVDB.Season, row.TVDB.Episode}],
+		})
+	}
+	for _, n := range m.Names {
+		if n.Season != nil && *n.Season > 0 && n.Title != "" {
+			id.SceneSeasonNames = append(id.SceneSeasonNames, decision.SceneSeasonName{Title: n.Title, Season: *n.Season})
+		}
+	}
+	return id
 }
 
 // episodesFor rebuilds the catalogv1alpha1.Episode objects

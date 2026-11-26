@@ -19,7 +19,9 @@ package release
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/dlclark/regexp2"
 
@@ -361,6 +363,9 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 			Seasons:  []int{season},
 			Episodes: episodes,
 		}
+		if len(episodes) == 1 {
+			p.ListedEpisodes, p.EpisodeTitle = afterEpisode(runesAfter(title, m.Index+m.Length), episodes[0])
+		}
 		p.ReleaseType = releaseTypeForEpisodes(episodes)
 		p.Special = specialFromMatch(title, m, p.Seasons)
 		return finishSeries(title, p), nil
@@ -429,4 +434,49 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 	}
 
 	return nil, fmt.Errorf("release: %q does not match any standard series title pattern", title)
+}
+
+// afterEpisodeSplit splits what follows a title's SxxEyy token into its
+// dot-, space- or underscore-separated words.
+var afterEpisodeSplit = regexp.MustCompile(`[.\s_]+`)
+
+// qualityWordRegex is a word that ends an episode's title in a release
+// name: its resolution, source, codec or a release flag. It is only asked
+// where the title stops, never what the quality is (quality.go reads that).
+var qualityWordRegex = regexp.MustCompile(`(?i)^(?:\d{3,4}[pi]|[48]k|uhd|web|web-?dl|web-?rip|amzn|nf|cr|dsnp|hmax|atvp|hulu|blu-?ray|b[dr]-?rip|bdremux|remux|hdtv|pdtv|sdtv|dvd|dvd-?rip|repack\d?|proper|rerip|internal|multi|dual|dubbed|subbed|[xh]\.?26[45]|hevc|avc|av1|xvid|10bit|hdr|hdr10|dv)$`)
+
+// afterEpisode reads what follows a title's one SxxEyy token (rest, the
+// separator after it consumed): the bare numbers it lists and the episode's
+// title. The listed numbers are one to three digits each, above the token's
+// own number and ascending, and stand directly before the quality -- "14.15"
+// in "S02E07.14.15.1080p" -- so a title that opens with a number
+// ("S01E03.24.Hours.Later.1080p") and an audio layout ("5.1") list
+// nothing. The title is the words before the first quality word, and is
+// read only when the name has one: with no quality to end it, the rest is
+// not known to be a title.
+func afterEpisode(rest string, episode int) (listed []int, title string) {
+	words := afterEpisodeSplit.Split(strings.TrimLeft(rest, "-. _"), -1)
+	end := -1
+	for i, w := range words {
+		if qualityWordRegex.MatchString(w) {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return nil, ""
+	}
+	prev := episode
+	for _, w := range words[:end] {
+		n, err := strconv.Atoi(w)
+		if err != nil || len(w) > 3 || n <= prev {
+			listed = nil
+			break
+		}
+		listed, prev = append(listed, n), n
+	}
+	if len(listed) > 0 {
+		return listed, ""
+	}
+	return nil, strings.TrimSpace(strings.Trim(strings.Join(words[:end], " "), "- "))
 }

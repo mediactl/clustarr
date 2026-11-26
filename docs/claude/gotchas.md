@@ -1390,3 +1390,38 @@ recorded here.
   stays a 404, which the v3 aggregator reads as a legacy APIService and
   converts the v2 document. The test reads the document into kube-openapi's
   `spec.Swagger`, as the downloader does.
+
+- **A series whose broadcasts each hold several of TVDB's episodes is
+  released under three numberings, and a download is attributed at import
+  as it was judged at the grab (2026-11-26).** TVDB lists Panty & Stocking
+  with Garterbelt's short episodes one by one (30 in season 2); TheXEM maps
+  the thirteen broadcasts onto them (scene S02E07 is TVDB S02E14 and
+  S02E15). On talos a release numbered by TVDB under its episode's title
+  (`S02E07.Daten.City.President`, six minutes) was grabbed for S02E14 and
+  S02E15; `New ... S01E07.14.15` (TheXEM's scene title for season 2) for the
+  2010 season's S01E14; and import, which read every file literally, held
+  each against the episode its number names. Before that a season pack of
+  the thirteen broadcasts was imported as S02E01 to S02E13, so the library
+  showed 23 episodes missing that were on disk. Now `release.Parse` keeps
+  the numbers a title lists after its one SxxEyy (`ListedEpisodes`) and the
+  episode's title (`EpisodeTitle`), and `decision.releaseCoverage` reads,
+  beyond Sonarr: the scene season a release's title names
+  (`Identity.SceneSeasonNames`, TheXEM's names), a listed broadcast as its
+  scene row when the row maps onto exactly the list and as every number
+  written otherwise, and a release titled as the TVDB episode its number
+  names as that episode (`SceneMapping.Title`, set by
+  `search.SceneReadings`). The import agent reads TheXEM itself
+  (`fileimport.Worker.SceneMaps`, its own client and cache as the catalog
+  agent's) and attributes a download's files through the same function
+  (`MatchDownloaded`); a download's one file is narrowed to the episodes it
+  was grabbed for (`narrowToGranted`), so the others keep their files. Not
+  done: the RSS matcher still matches by its own copy of the scene readings
+  (a release it matches the old way is refused by the identity check, never
+  grabbed wrong); a size check to tell the numberings apart where a name
+  carries no episode title; `Episode.status.sceneNumbering`, still written
+  by nothing; the library scan, which reads names literally as clustarr
+  wrote them; and the records already filed wrong. Tests: the parser's
+  table, the decision's readings over TheXEM's rows for the series, the
+  search worker's `SceneReadings`, and the import's matcher and narrowing,
+  each failing with its rule off; the import's walk itself and a grab on a
+  cluster are not exercised.

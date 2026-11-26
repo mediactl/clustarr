@@ -65,7 +65,7 @@ func newIdentityIndex(kind common.MediaKind, id Identity) identityIndex {
 	idx := identityIndex{
 		titles:   targetTitleKeys(kind, id),
 		creators: creatorKeySet(id.Creators),
-		scene:    newSceneIndex(id.SceneMappings),
+		scene:    newIdentitySceneIndex(id),
 	}
 	for _, n := range id.Namesakes {
 		if k := titleKey(n); k != "" {

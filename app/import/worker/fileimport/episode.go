@@ -24,8 +24,69 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/release"
 )
+
+// MatchDownloaded attributes a downloaded file's (or its release's)
+// numbering to the series' episodes as the grab read it: through the
+// series' numbering (decision.CoverageFor over id -- its scene table, its
+// scene season names, the numbers a broadcast's release lists, an
+// episode's own title) when the name carries one season's episode numbers
+// and id or the name has anything to read them through, and as
+// MatchEpisodes does otherwise -- an anime's absolute number, an air date,
+// and any name whose covered episodes the series does not all have.
+func MatchDownloaded(
+	p *release.ParsedRelease, seriesType catalogv1alpha1.SeriesType, cands []EpisodeCandidate, id decision.Identity,
+) (eps []EpisodeCandidate, reason string) {
+	absolute := len(p.Absolute) > 0 && seriesType == catalogv1alpha1.SeriesTypeAnime
+	read := len(id.SceneMappings) > 0 || len(id.SceneSeasonNames) > 0 || len(p.ListedEpisodes) > 0
+	if len(p.Episodes) > 0 && len(p.Seasons) == 1 && !p.FullSeason && !absolute && read {
+		if eps, ok := candidatesAt(decision.CoverageFor(p, id).Episodes, cands); ok {
+			return eps, ""
+		}
+	}
+	return MatchEpisodes(p, seriesType, cands)
+}
+
+// candidatesAt are the episodes at the given places, in order; ok is false
+// when there are none or the series lacks one of them.
+func candidatesAt(places []decision.SeasonEpisode, cands []EpisodeCandidate) ([]EpisodeCandidate, bool) {
+	if len(places) == 0 {
+		return nil, false
+	}
+	out := make([]EpisodeCandidate, 0, len(places))
+	for _, pl := range places {
+		i := slices.IndexFunc(cands, func(c EpisodeCandidate) bool { return c.Season == pl.Season && c.Number == pl.Episode })
+		if i < 0 {
+			return nil, false
+		}
+		out = append(out, cands[i])
+	}
+	return out, true
+}
+
+// narrowToGranted keeps, of the episodes a download's one file was
+// attributed to, those the download was grabbed for: a broadcast's file
+// holds every episode of the broadcast, and the grab took it for the ones
+// still wanted, so the others keep the files they have. A file attributed
+// to none of the granted episodes is left as its name reads -- the name,
+// not the grab, says what a file is -- and so is one with nothing granted.
+func narrowToGranted(eps, granted []EpisodeCandidate) []EpisodeCandidate {
+	if len(granted) == 0 || len(eps) < 2 {
+		return eps
+	}
+	var kept []EpisodeCandidate
+	for _, e := range eps {
+		if slices.ContainsFunc(granted, func(g EpisodeCandidate) bool { return g.Name == e.Name }) {
+			kept = append(kept, e)
+		}
+	}
+	if len(kept) == 0 {
+		return eps
+	}
+	return kept
+}
 
 // What this file knows about episode files, shared with
 // app/import/worker/rescan so the importer and the scanner attribute an

@@ -241,6 +241,11 @@ type Identity struct {
 	// the number would fall back to its literal reading and could match the
 	// target by coincidence.
 	SceneMappings []SceneMapping
+	// SceneSeasonNames are the titles scene releases use for single seasons
+	// of the series (TheXEM's names table): a release under one numbers its
+	// seasons from the season it names (sceneIndex.sceneSeason). Nil reads
+	// every season number as written.
+	SceneSeasonNames []SceneSeasonName
 	// IDQueryIndexers names (by ReleaseInfo.IndexerRef) the indexers whose
 	// query for THIS search was keyed by one of the item's ids
 	// (schema.SearchQueryModeID), i.e. the indexer matched the id server-side.

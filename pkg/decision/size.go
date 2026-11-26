@@ -55,7 +55,7 @@ func targetRuntimeMinutes(t Target, parsed *release.ParsedRelease) (minutes int,
 
 	case common.MediaKindEpisode, common.MediaKindSeries:
 		if t.Identity.SeasonSearch && t.RuntimeByEpisode != nil {
-			return seasonRuntimeMinutes(t, releaseCoverage(parsed, newSceneIndex(t.Identity.SceneMappings))), true
+			return seasonRuntimeMinutes(t, releaseCoverage(parsed, newIdentitySceneIndex(t.Identity))), true
 		}
 		multi := parsed.FullSeason || len(parsed.Episodes) > 1
 		if !multi {
