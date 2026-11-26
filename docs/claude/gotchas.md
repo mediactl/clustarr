@@ -1324,3 +1324,19 @@ recorded here.
   `make brand-gate` and `helm lint --strict charts/clustarr` are the gates that
   hold meanwhile; a guard marked † above is one the batch writes.
 
+- **An aggregated API that answers 404 for `/openapi/v2` is logged by
+  every kube-apiserver, four times every five minutes (2026-11-26).** The
+  External Metrics API (`app/autoscale/extmetrics`) was built to answer 404
+  there, since the aggregator's downloader skips one (split design §9.4).
+  The cache above the downloader does not: kube-aggregator v0.36's
+  `cacheableDownloader.get` makes the 404 "resource not found" and `Get`
+  wraps it, so the controller's test for that error misses it, logs
+  `loading OpenAPI spec for "v1beta1.external.metrics.k8s.io" failed with:
+  failed to download ...: resource not found` and retries on a backoff that
+  starts over every five minutes (talos, v1.37.0: 60 lines in 75 minutes on
+  one apiserver; the APIService stayed Available throughout). The handler
+  now serves a Swagger 2.0 document with no paths and an entity tag, which
+  the aggregator caches and re-checks each minute for a 304; `/openapi/v3`
+  stays a 404, which the v3 aggregator reads as a legacy APIService and
+  converts the v2 document. The test reads the document into kube-openapi's
+  `spec.Swagger`, as the downloader does.

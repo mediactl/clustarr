@@ -29,6 +29,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/kube-openapi/pkg/validation/spec"
 
 	"github.com/mediactl/clustarr/app/autoscale/extmetrics"
 	"github.com/mediactl/clustarr/pkg/agentdomain"
@@ -129,6 +130,46 @@ func TestSelection(t *testing.T) {
 	}
 }
 
+// The aggregator asks every APIService for /openapi/v2 as its downloader
+// does here (kube-aggregator openapi/aggregator/downloader.go: a GET
+// accepting JSON, the body read into kube-openapi's spec.Swagger), and
+// asks again each minute with the tag it was given. A 404 there is logged
+// by every kube-apiserver as "failed to download ...: resource not found"
+// (talos, 2026-11-26), so the document is served, empty of paths.
+func TestTheOpenAPIDocumentIsOneTheAggregatorTakes(t *testing.T) {
+	now := observed
+	h := newHandler(t, &fakeStates{}, &now)
+	get := func(etag string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, extmetrics.OpenAPIPath, nil)
+		req.Header.Add("Accept", "application/json")
+		if etag != "" {
+			req.Header.Add("If-None-Match", etag)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	first := get("")
+	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+	assert.Equal(t, "application/json", first.Header().Get("Content-Type"))
+	var doc spec.Swagger
+	require.NoError(t, doc.UnmarshalJSON(first.Body.Bytes()))
+	assert.Equal(t, "2.0", doc.Swagger)
+	require.NotNil(t, doc.Info)
+	assert.NotEmpty(t, doc.Info.Title)
+	assert.NotEmpty(t, doc.Info.Version)
+	require.NotNil(t, doc.Paths, "a document the aggregator filters by path has a paths object")
+	assert.Empty(t, doc.Paths.Paths, "the API publishes no schema")
+	assert.NotContains(t, first.Body.String(), "clustarr_consumer_lag", "nor its metric")
+
+	tag := first.Header().Get("Etag")
+	require.NotEmpty(t, tag)
+	again := get(tag)
+	assert.Equal(t, http.StatusNotModified, again.Code, "the minute's re-check costs no body")
+	assert.Empty(t, again.Body.String())
+	assert.Equal(t, http.StatusOK, get(`"another"`).Code, "a tag that is not this document's gets the document")
+}
+
 func TestErrors(t *testing.T) {
 	failing := &fakeStates{def: 1, at: observed, err: map[string]error{events.ConsumerImportScan: errors.New("nats: timeout")}}
 	for _, tc := range []struct {
@@ -142,7 +183,6 @@ func TestErrors(t *testing.T) {
 		{"POST", http.MethodPost, listPath, &fakeStates{}, 405},
 		{"/apis", http.MethodGet, "/apis", &fakeStates{}, 404},
 		{"the group without a version", http.MethodGet, "/apis/external.metrics.k8s.io", &fakeStates{}, 404},
-		{"/openapi/v2", http.MethodGet, "/openapi/v2", &fakeStates{}, 404},
 		{"/openapi/v3", http.MethodGet, "/openapi/v3", &fakeStates{}, 404},
 		{"a ConsumerState error holds the HPA", http.MethodGet, listPath, failing, 503},
 	} {

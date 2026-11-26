@@ -19,6 +19,8 @@ package extmetrics
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"net/http"
@@ -39,6 +41,32 @@ const (
 	GroupVersion = "external.metrics.k8s.io/v1beta1"
 	APIPrefix    = "/apis/" + GroupVersion
 )
+
+// OpenAPIPath is where the aggregator asks an APIService for its OpenAPI
+// v2 document.
+const OpenAPIPath = "/openapi/v2"
+
+// openAPI is the document served at OpenAPIPath, a Swagger 2.0 document
+// with no paths, and openAPIETag its entity tag. The API has no schema
+// worth publishing; the document is there because the aggregator asks.
+// Its downloader skips a 404, but the cache above it (kube-aggregator
+// v0.36, openapi/aggregator/downloader.go, cacheableDownloader.get) makes
+// one "resource not found", wrapped so that the controller's own test for
+// that error misses it: every kube-apiserver logged
+//
+//	loading OpenAPI spec for "v1beta1.external.metrics.k8s.io" failed with:
+//	failed to download v1beta1.external.metrics.k8s.io: resource not found
+//
+// four times every five minutes (talos, v1.37.0, 2026-11-26). A 200 is
+// cached and asked for again each minute with If-None-Match, which the tag
+// answers 304. /openapi/v3 stays a 404: the v3 aggregator then reads the
+// APIService as a legacy one and converts this document.
+const openAPI = `{"swagger":"2.0","info":{"title":"clustarr external metrics","version":"v1beta1"},"paths":{}}`
+
+var openAPIETag = func() string {
+	sum := sha256.Sum256([]byte(openAPI))
+	return `"` + hex.EncodeToString(sum[:]) + `"`
+}()
 
 const (
 	defaultTTL     = 5 * time.Second
@@ -91,8 +119,9 @@ type Handler struct {
 	built *StateCache
 }
 
-// ServeHTTP routes GET only; everything outside the two routes is a 404,
-// which the aggregator reads as "no aggregated discovery, no OpenAPI".
+// ServeHTTP routes GET only; everything outside the two routes and the
+// OpenAPI document is a 404, which the aggregator reads as "no aggregated
+// discovery".
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeStatus(w, http.StatusMethodNotAllowed, metav1.StatusReasonMethodNotAllowed, "only GET is served")
@@ -101,6 +130,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSuffix(r.URL.Path, "/")
 	if path == APIPrefix {
 		writeJSON(w, http.StatusOK, discovery)
+		return
+	}
+	if path == OpenAPIPath {
+		w.Header().Set("Etag", openAPIETag)
+		if r.Header.Get("If-None-Match") == openAPIETag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(openAPI))
 		return
 	}
 	rest, ok := strings.CutPrefix(path, APIPrefix+"/namespaces/")
