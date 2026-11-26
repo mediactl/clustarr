@@ -115,7 +115,12 @@ func TestReleaseIndexReplicationSettings(t *testing.T) {
 	assert.Equal(t, "unsupervised", nested(t, c, "spec", "primaryUpdateStrategy"))
 	assert.Equal(t, "switchover", nested(t, c, "spec", "primaryUpdateMethod"))
 	assert.Equal(t, "2GB", nested(t, c, "spec", "postgresql", "parameters", "max_slot_wal_keep_size"))
-	assert.Nil(t, nested(t, c, "spec", "postgresql", "synchronous"), "asynchronous unless asked")
+	// The Cluster holds the library store too (ADR-0024), which cannot lose
+	// a commit the manager has seen: with standbys, one is synchronous
+	// unless the values say otherwise.
+	assert.Equal(t, "any", nested(t, c, "spec", "postgresql", "synchronous", "method"), "a synchronous standby by default")
+	assert.EqualValues(t, 1, nested(t, c, "spec", "postgresql", "synchronous", "number"))
+	assert.Equal(t, "preferred", nested(t, c, "spec", "postgresql", "synchronous", "dataDurability"))
 
 	out = installtest.RenderChart(t, placementOn("--set", "postgres.enabled=true", "--set", "postgres.cluster.placement=controlPlane",
 		"--set", "postgres.cluster.instances=2",

@@ -36,6 +36,7 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // TestPreviewHarness is not a test but a preview rig (2026-11-10): it
@@ -75,7 +76,7 @@ func TestPreviewHarness(t *testing.T) {
 	kcPath := os.Getenv("PREVIEW_KUBECONFIG")
 	require.NoError(t, clientcmd.WriteToFile(*kc, kcPath))
 
-	c, err := client.New(cfg, client.Options{Scheme: libraryTestScheme(t)})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: libraryTestScheme(t)})
 	require.NoError(t, err)
 	ctx := context.Background()
 	date := func(y int, m time.Month, d int) *metav1.Time {

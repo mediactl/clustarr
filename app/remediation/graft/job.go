@@ -60,8 +60,12 @@ func Job(cfg pool.Config, mf *catalogv1alpha1.MediaFile, t grafttask.Task, name 
 	tmpl.Labels[grafttask.LabelGraftOf] = string(mf.UID)
 	tmpl.Labels["app.kubernetes.io/component"] = ComponentGraft
 	ref := metav1.NewControllerRef(mf, catalogv1alpha1.GroupVersion.WithKind("MediaFile"))
-	// The garbage collector removes the Job with its file; nothing waits
-	// on the Job's deletion, so it needs no grant on mediafiles/finalizers.
+	// The reference is how a Job's event finds its file's key
+	// (remediation.GraftJobKeys). It no longer has the Job collected with
+	// its file: a MediaFile is a row in the library store (ADR-0024), the
+	// apiserver's garbage collector cannot resolve the owner and leaves the
+	// Job be, and the loop deletes it at the pass the file's delete wakes
+	// (Reconciler.forgetGraftJobs). Nothing blocks on the owner either way.
 	ref.BlockOwnerDeletion = nil
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{

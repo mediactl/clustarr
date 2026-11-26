@@ -59,6 +59,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func init() {
@@ -114,7 +115,7 @@ func (c *reconcileCounter) count() int64 { return c.n.Load() }
 // this exactly once.
 func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus events.Publisher) (client.Client, *movie.Reconciler, *reconcileCounter) {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
@@ -150,7 +151,7 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus event
 // every item kind's indexes).
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
@@ -1443,7 +1444,7 @@ func hasEvent(ctx context.Context, c client.Client, ns, name, reason string) boo
 func newBareTestClient(t *testing.T) client.Client {
 	t.Helper()
 	cfg := newTestConfig(t)
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return c
 }

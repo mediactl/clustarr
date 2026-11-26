@@ -96,6 +96,13 @@ spec:
           env:
             - name: NATS_URL
               value: nats://nats.clustarr-system.svc:4222
+            # The library store (ADR-0024): the kinds a controller creates are rows
+            # in Postgres, in config/library's Cluster.
+            - name: CLUSTARR_LIBRARY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: clustarr-postgres-app
+                  key: uri
             - name: POD_NAME
               valueFrom:
                 fieldRef:

@@ -68,7 +68,7 @@ func (n everyNHoursOnTheHour) Next(t time.Time) time.Time {
 	return next
 }
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;albums;books;audiobooks;issues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch
 
 // DonorBudget is the search planner's per-namespace budget of first-time
 // live donor searches (searchplan.DonorBudget), which each sweep refills.

@@ -60,6 +60,8 @@ import (
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/library"
+	"github.com/mediactl/clustarr/pkg/library/readwrite"
 	"github.com/mediactl/clustarr/test/fixtures/seed"
 )
 
@@ -139,7 +141,21 @@ func gate() int {
 		fmt.Fprintf(os.Stderr, "e2e: build client: %v\n", err)
 		return 1
 	}
-	k8sClient = c
+	// The library kinds (ADR-0024) are rows in the cluster's library store,
+	// not resources of its apiserver: the suite reads and writes them where
+	// the manager does. hack/e2e.sh forwards the store's primary and exports
+	// its address.
+	dsn := os.Getenv(library.EnvDSN)
+	if dsn == "" {
+		fmt.Fprintf(os.Stderr, "e2e: $%s is unset: hack/e2e.sh forwards the library store and exports its address before `make e2e` runs\n", library.EnvDSN)
+		return 1
+	}
+	store, err := library.Open(ctx, dsn, library.Options{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "e2e: open the library store: %v\n", err)
+		return 1
+	}
+	k8sClient = readwrite.NewClient(c, store, false, "")
 
 	if err := checkDataDir(); err != nil {
 		fmt.Fprintf(os.Stderr, "e2e: %v\n", err)

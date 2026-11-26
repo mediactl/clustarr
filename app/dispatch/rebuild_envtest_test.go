@@ -36,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/remediation/search"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // TestTheLedgerIsRebuiltFromStatusNeverTrusted (§5.4, §8.4): a leader that
@@ -54,7 +55,7 @@ func TestTheLedgerIsRebuiltFromStatusNeverTrusted(t *testing.T) {
 	cfg, err := env.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, env.Stop()) })
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 
 	ctx := t.Context()

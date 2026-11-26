@@ -40,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // itemRecorder is a Publisher that keeps every catalog item event it is
@@ -81,7 +82,7 @@ func (p *itemRecorder) at(t *testing.T, i int) (string, *events.Envelope, schema
 // them), and no controller.
 func startIssueCache(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",

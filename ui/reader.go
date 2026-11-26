@@ -119,13 +119,23 @@ func MustNewReaderScheme() *runtime.Scheme {
 // case where Start never errors; a genuine failure is also visible through
 // controller-runtime's own process-wide logr, which every service's Bootstrap
 // bridges to the same structured stream once it runs.
+//
+// Each configure may change the cache's options before it is built: the
+// library store's wiring does (internal/cli/ui), so the kinds the store
+// holds are listed and watched there (ADR-0024) with nothing here knowing.
 func NewClusterReader(
-	ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme,
+	ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, configure ...func(*cache.Options) error,
 ) (client.Reader, func(context.Context) bool, error) {
 	// managedFields are stripped from every cached object: the ui reads
 	// none of them, and on a real library they are a third of the bytes of
 	// a 57 MB Episode list held whole in this cache.
-	c, err := cache.New(cfg, cache.Options{Scheme: scheme, DefaultTransform: cache.TransformStripManagedFields()})
+	opts := cache.Options{Scheme: scheme, DefaultTransform: cache.TransformStripManagedFields()}
+	for _, f := range configure {
+		if err := f(&opts); err != nil {
+			return nil, nil, fmt.Errorf("ui: configure the cluster cache: %w", err)
+		}
+	}
+	c, err := cache.New(cfg, opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("ui: build cluster cache: %w", err)
 	}

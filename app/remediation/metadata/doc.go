@@ -35,5 +35,5 @@ package metadata
 // The stage's applies: status.metadata and status.artwork under
 // catalog-metadata on the six loop kinds.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;albums;books;audiobooks;comics,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status;albums/status;books/status;audiobooks/status;comics/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;comics,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status;comics/status,verbs=get;update;patch

@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/actions"
 )
@@ -53,7 +54,7 @@ func TestSettingsFormsNeverWriteASecretTheyMustNot(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, env.Stop()) })
 
-	c, err := client.New(cfg, client.Options{Scheme: ui.MustNewReaderScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: ui.MustNewReaderScheme()})
 	require.NoError(t, err)
 	ctx := t.Context()
 	require.NoError(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "media"}}))

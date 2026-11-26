@@ -35,7 +35,7 @@ Wave U (2026-10-07) renamed the internal *arr names to domain names, cold turkey
 | [0021](0021-object-stores-self-describing-no-links.md) | Object stores hold self-describing objects under deterministic names, never links: one metadata builder per store, the complete map on every `Put` and `SetMeta`, readers decide from metadata and `Get` only for bytes; fingerprints gain metadata (built in Wave N, 2026-10-07) | Accepted, 2026-10-07 |
 | [0022](0022-plex-music-metadata-through-nfo-files.md) | Plex reads clustarr's music and audiobook metadata from Kodi-shape `artist.nfo`/`album.nfo` the manager renders (`pkg/nfo`, the item key's `nfo` stage under `catalog-nfo`) and the import agent writes (`import-nfo`, answering in `clustarr-nfo`), never over a file it did not write; the custom-provider music roots stay behind `--plex-music-provider` until a PMS build accepts types 8, 9 and 10 (every build through 1.43.5.11079 refuses them) | Accepted, 2026-11-10 |
 | [0023](0023-trailers-fetched-with-yt-dlp.md) | An item Plex has no trailer for gets one from the page TMDB or TheTVDB names: an optional `agent --domain=trailers` fetches it with yt-dlp (the one outside program clustarr runs, in the `trailers` image alone), joins it in process and keeps it under the root folder at `.clustarr/trailers/`; the provider's extras route answers the file to Plex | Accepted |
-| [0024](0024-library-kinds-are-rows-in-postgres.md) | A kind a controller creates (MediaFile, Episode, Album, Book, Audiobook, Issue) is a row in a required Postgres library store, read and written through the seams the manager already has; a kind a person declares stays a custom resource | Accepted, 2026-11-26 (not built) |
+| [0024](0024-library-kinds-are-rows-in-postgres.md) | A kind a controller creates (MediaFile, Episode, Album, Book, Audiobook, Issue) is a row in a required Postgres library store, read and written through the seams the manager already has; a kind a person declares stays a custom resource | Accepted, 2026-11-26 |
 
 Refinements that did not change a decision are recorded in the spec, not here:
 
@@ -72,6 +72,12 @@ Refinements that did not change a decision are recorded in the spec, not here:
   apiserver accepts on 1.37, so no label fallback is built; user intent is nonce annotations for
   one-shot actions and value annotations for standing preferences; planner failures are
   per-planner conditions present only while failing, with conditions MaxItems 12.
+- **0016, 0019:** under ADR-0024 (2026-11-26) "MediaFile status" and "every CR" read as the
+  library store's row for MediaFile, Episode, Album, Book, Audiobook and Issue: the one
+  remediation loop still writes per-file work, the manager is still the only writer of status,
+  and an agent still writes nothing, now in either store (`pkg/library/readwrite` is linked by
+  no agent). The ownership records are kept, in the row, where ADR-0024's Decision said they
+  would go: the store runs the apiserver's own field-ownership code (design §9).
 - **0016:** its "These stay resources: Download" is reversed by ADR-0019 (2026-10-07); the
   rest of 0016 stands. A grab now lives in its owning item's status, not on the MediaFile,
   for the reasons 0016 gave for not folding Download into per-file work.

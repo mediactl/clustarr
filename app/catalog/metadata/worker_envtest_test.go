@@ -44,6 +44,7 @@ import (
 	plexclient "github.com/mediactl/clustarr/pkg/metadata/clients/plex"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // newTestClient mirrors pkg/k8s/patch_envtest_test.go's helper: an
@@ -57,7 +58,7 @@ func newTestClient(t *testing.T) client.Client {
 	cfg, err := env.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, env.Stop()) })
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return c
 }

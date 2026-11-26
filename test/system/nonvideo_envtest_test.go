@@ -36,6 +36,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -191,7 +192,7 @@ func (f *fakeMetadataProviders) saw(typ catalogv1alpha1.MetadataProviderType, pa
 func prepareNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataProviders) {
 	t.Helper()
 	ctx := context.Background()
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	if err != nil {
 		t.Fatalf("build client: %v", err)
 	}
@@ -247,7 +248,7 @@ func prepareNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPr
 func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataProviders) {
 	t.Helper()
 	ctx := context.Background()
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	if err != nil {
 		t.Fatalf("build client: %v", err)
 	}

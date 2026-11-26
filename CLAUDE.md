@@ -4,9 +4,13 @@ A distributed, event-driven media stack for Kubernetes: controllers and CRDs tha
 manage a media collection end to end, from wanting something through finding,
 downloading, importing, transcoding and subtitling it.
 
-Custom resources are the interface. `kubectl get movies,series,mediafiles` is
-the UI -- an item's grabs are its `status.downloads[]`, a file's transcode and
-subtitles its MediaFile's status -- and the web UI is a view over the same resources.
+Custom resources are the interface for what a person declares: `kubectl get
+movies,series,artists` and every settings kind. What a controller creates --
+MediaFile, Episode, Album, Book, Audiobook, Issue -- is a row in Postgres, the
+**library store** (ADR-0024, `pkg/library`), with the same Go types, spec and
+status; `kubectl` does not reach those. An item's grabs are its
+`status.downloads[]`, a file's transcode and subtitles its MediaFile's status,
+and the web UI is a view over both stores.
 
 **This file is the short core.** It is loaded into every session and every
 subagent, so it holds only what most tasks need. The detailed records live in
@@ -28,6 +32,8 @@ file in `docs/claude/` (they were this file's sections until 2026-11-17).
   `2026-10-06-mediafile-remediation-loop-design.md` (ADR-0016),
   `2026-10-07-agents-report-over-nats-design.md` (ADR-0019) and
   `2026-10-07-unbranded-names-design.md` (Wave U; its §6 maps every old name).
+- `2026-11-26-library-store-design.md` (ADR-0024): the library kinds as rows in
+  Postgres; its §9 is what was built.
 - `docs/adr/` — why NATS, why GPL-3.0, why one manager, and so on.
   `docs/adr/README.md` is the index and the supersede lifecycle.
 - `docs/research/*.md` — nine verified research notes with verified API shapes.
@@ -89,6 +95,14 @@ is the product name and stays.
 
 Full text and guard tests: `docs/claude/invariants.md`.
 
+- **A library kind is a row, read and written through the seams a custom
+  resource is** (ADR-0024): the manager's cache and client and
+  `pkg/k8s.PatchStatus`, wired to the store (`pkg/library/ctrlwire`,
+  `readwrite`). Never a hand `INSERT`/`UPDATE`, never a client-go or dynamic
+  client for one, never a new CRD for a kind a controller creates. Its schema
+  is its CRD file under `pkg/library/schemas/` (`make manifests` puts it there);
+  a validation rule on one is also written in `pkg/library/validate.go`. No
+  agent links `pkg/library/readwrite`. The tables are a contract with cluster-plex.
 - **The manager is the only writer of every CR and Secret** (ADR-0019). Agents,
   markers and transcode pods write no Kubernetes object; a worker answers in a
   record (`pkg/records`, compare-and-swap) or on the intake streams. Exceptions:
@@ -120,7 +134,7 @@ Full text and guard tests: `docs/claude/invariants.md`.
 
 ```bash
 make generate      # deepcopy + apply configurations
-make manifests     # CRDs + one RBAC ClusterRole per identity into config/
+make manifests     # CRDs + one RBAC ClusterRole per identity into config/; a library kind's CRD goes to pkg/library/schemas/
 make build         # bin/manager, bin/ui, bin/agent (cgo), bin/markers, bin/transcode (never bare `go build` for a release)
 make native-assets # FFmpeg 9 libs + libffshim, ONNX Runtime, test-only CLIs
 make chart-deps    # vendor the chart's nats and cloudnative-pg tarballs
@@ -147,11 +161,17 @@ with the fix, else a `mediactl/` fork rebased on the upstream tag with the PR op
 - **Never run `go get` or `go mod tidy` from parallel agents.**
 - **`go test ./...` passing does not mean the CRDs are valid**: envtest suites
   skip silently without `KUBEBUILDER_ASSETS`. `make test` is the gate; a hand-run
-  envtest also needs `KUBE_FEATURE_ClientsAllowCBOR=false KUBE_FEATURE_ClientsPreferCBOR=false`
-  and `helm dependency build charts/clustarr` in a fresh clone.
-- **Never list every Episode or MediaFile with kubectl on talos** (each page past
-  the first is read from etcd). Read by name, or filter on the server with
-  `--field-selector`/`-l` and `--chunk-size=0`.
+  envtest also needs `KUBE_FEATURE_ClientsAllowCBOR=false KUBE_FEATURE_ClientsPreferCBOR=false`,
+  `CLUSTARR_PG_ASSETS=$(go env GOPATH)/bin/pg-assets` (the library kinds are rows
+  in an embedded Postgres, `test/librarytest`), and `helm dependency build
+  charts/clustarr` in a fresh clone. A test's own manager or client on an envtest
+  config is `librarytest.NewManager` / `librarytest.NewClient`, never
+  `ctrl.NewManager` / `client.New`: those cannot see a library kind.
+- **Episodes and MediaFiles are read with SQL** once talos is cut over
+  (`docs/runbooks/library-store-cutover.md`; `select ... from library.mediafile`
+  with the read-only role). Until then: never list every Episode or MediaFile
+  with kubectl on talos (each page past the first is read from etcd); read by
+  name, or filter on the server with `--field-selector`/`-l` and `--chunk-size=0`.
 - **Generated files** (`ui/static/app.css`, `*_templ.go`, `config/`, apply
   configurations) are built from the whole tree: regenerate from a clean state
   and commit them with their sources.

@@ -22,4 +22,4 @@ package naming
 // controller, F3.4; every kind with a preset since 2026-11-10 design D7).
 // The blank line keeps the markers package-level.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;albums;artists;books;authors;audiobooks;comics;issues;rootfolders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors;comics;rootfolders,verbs=get;list;watch

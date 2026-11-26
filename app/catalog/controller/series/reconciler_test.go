@@ -57,6 +57,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func init() {
@@ -83,7 +84,7 @@ func newTestConfig(t *testing.T) *rest.Config {
 func newBareTestClient(t *testing.T) client.Client {
 	t.Helper()
 	cfg := newTestConfig(t)
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return c
 }
@@ -158,7 +159,7 @@ func (c *reconcileCounter) count() int64 { return c.n.Load() }
 // function that calls this exactly once.
 func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combinedBus) (client.Client, *reconcileCounter) {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
@@ -189,7 +190,7 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combi
 // remediation loop makes.
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
@@ -1512,7 +1513,7 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 	require.Equal(t, "5d9c127e4eefaa001f6449c2", got.Status.PlexID, "a list without a Plex id must not release the stored one")
 
 	// managedFields through a direct (uncached) client: caches strip them.
-	direct, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	direct, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	require.NoError(t, direct.Get(ctx, epKey, &got))
 	owned := false

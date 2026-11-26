@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 var testClient client.Client
@@ -62,7 +63,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	code := func() int {
-		testClient, err = client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+		testClient, err = librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "build client: %v\n", err)
 			return 1

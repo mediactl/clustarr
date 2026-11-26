@@ -45,9 +45,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors;audiobooks;comics;albums;books,verbs=get;list;watch;patch;delete
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes;issues,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;delete
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors;comics,verbs=get;list;watch;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=importexclusions,verbs=get;create
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch

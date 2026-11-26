@@ -48,6 +48,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func init() {
@@ -156,7 +157,7 @@ func reconcileUntil(t *testing.T, ctx context.Context, c client.Client, r *episo
 // too, for the legs that reconcile an Episode themselves.
 func startManager(t *testing.T, ctx context.Context, cfg *rest.Config) (client.Client, *episode.Reconciler) {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",

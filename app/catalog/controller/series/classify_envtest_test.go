@@ -36,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // TestSeriesClassifiesAnimeOnce is anime dual-audio spec §4: an anime series
@@ -48,7 +49,7 @@ func TestSeriesClassifiesAnimeOnce(t *testing.T) {
 	defer cancel()
 	cfg := newTestConfig(t)
 	c := startCacheOnly(t, ctx, cfg)
-	direct, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	direct, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	const ns = "classify-ns"
 	require.NoError(t, c.Create(ctx, testNamespace(ns)))

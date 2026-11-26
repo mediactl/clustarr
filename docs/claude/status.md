@@ -615,6 +615,15 @@ manager and its agents, and owns the open items left under "Carried defects" in
 `docs/superpowers/plans/2026-09-18-remaining-work.md`. Milestone detail is in
 the spec's §16 and amendment §A4.
 
+**The library store (ADR-0024), 2026-11-26: built on main, not deployed, not
+yet proven on kind.** MediaFile, Episode, Album, Book, Audiobook and Issue are
+rows in Postgres (`pkg/library`; design
+`docs/superpowers/specs/2026-11-26-library-store-design.md`, §9 for what was
+built and what was not). talos still runs the release before it, with those
+kinds as custom resources; the cutover is `docs/runbooks/library-store-cutover.md`
+and needs cluster-plex's commit that reads the store (`pkg/clustarrlib`) and a
+chart that carries it.
+
 **Nothing is finished until it is proven end to end on a kind cluster.** Every
 phase from C onward lands its milestone's scenarios in `test/e2e` (real CRs,
 real controllers, real NATS, real files under `/data`, in-cluster fixture

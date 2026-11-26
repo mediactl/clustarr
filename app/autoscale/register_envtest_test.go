@@ -39,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/agentdomain"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // stubAdmin is a StreamAdmin whose every consumer has no backlog. The
@@ -60,7 +61,7 @@ func TestRegisterWithAutoscaleOffDeletesTheManagedHPAs(t *testing.T) {
 	cfg, err := env.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = env.Stop() })
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	ctx := context.Background()
 	const ns = "autoscale-off"
@@ -77,7 +78,7 @@ func TestRegisterWithAutoscaleOffDeletesTheManagedHPAs(t *testing.T) {
 	require.NoError(t, c.Create(ctx, hpa("agent-catalog", map[string]string{agentdomain.LabelDomain: agentdomain.Catalog})))
 	require.NoError(t, c.Create(ctx, hpa("unrelated", nil)))
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme: k8s.MustNewScheme(), Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0",
 		Controller: config.Controller{SkipNameValidation: new(true)},
 	})

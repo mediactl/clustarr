@@ -1,0 +1,17 @@
+# The library store's database (ADR-0024; design 2026-11-26): the
+# CloudNativePG Cluster the kinds a controller creates -- MediaFile, Episode,
+# Album, Book, Audiobook, Issue -- are rows in. Every install has it, so
+# config/default includes it; config/postgres puts the release index on the
+# same Cluster.
+#
+# Install the CloudNativePG operator FIRST and wait for it to be Ready: its
+# admission webhook fails closed until then, and the Cluster is rejected if
+# it is applied in the same pass as the operator.
+#
+#   kubectl wait --for=condition=Available deployment/cnpg-controller-manager \
+#     -n cnpg-system --timeout=120s
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- cluster.yaml

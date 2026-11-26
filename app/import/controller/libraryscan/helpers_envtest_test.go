@@ -42,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // sampleFloor is fsops.IsSample's threshold: a media-extension file under
@@ -80,7 +81,7 @@ func TestMain(m *testing.M) {
 	ctx, cancel := context.WithCancel(context.Background())
 	code := func() int {
 		defer cancel()
-		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 			Scheme:                 k8s.MustNewScheme(),
 			Metrics:                metricsserver.Options{BindAddress: "0"},
 			HealthProbeBindAddress: "0",
@@ -102,7 +103,7 @@ func TestMain(m *testing.M) {
 		}
 		cachedClient = mgr.GetClient()
 
-		testClient, err = client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+		testClient, err = librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "build direct client: %v\n", err)
 			return 1

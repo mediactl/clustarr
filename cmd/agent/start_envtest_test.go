@@ -47,6 +47,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/facadekey"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/presence"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -222,7 +223,7 @@ func TestEveryDomainStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	srv := embeddedNATS(t)
 	natsURL := srv.ClientURL()
 	ensureTopology(t, natsURL)
-	admin, err := client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
+	admin, err := librarytest.NewClient(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	identity := map[string]string{
 		"catalog": "agent-catalog", "events": "agent-events", "metadata": "agent-metadata",

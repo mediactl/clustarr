@@ -38,6 +38,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/agentdomain"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // neverSynced is a cache whose sync never completes, as a 15,630-Episode
@@ -62,12 +63,12 @@ func TestTheServerAnswersBeforeTheCachesSync(t *testing.T) {
 	proxy := newTestCA(t, time.Now())
 	require.NoError(t, c.Create(ctx, authConfigMap(namespace, "front-proxy", proxy.certPEM, `[]`)))
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
 		NewCache: func(cfg *rest.Config, o cache.Options) (cache.Cache, error) {
-			inner, err := cache.New(cfg, o)
+			inner, err := librarytest.NewCache(cfg, o)
 			return neverSynced{Cache: inner}, err
 		},
 	})

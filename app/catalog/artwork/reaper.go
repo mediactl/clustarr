@@ -57,7 +57,7 @@ const (
 // The reaper lists each kind's metadata, uncached, to learn which UIDs
 // are live; it reads nothing else.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;albums;authors;books;audiobooks;comics,verbs=list
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors;comics,verbs=list
 
 // Reaper deletes the artwork of items that no longer exist (spec §B.5):
 // every object in events.BucketArtwork whose "<kind>/<uid>" prefix names no

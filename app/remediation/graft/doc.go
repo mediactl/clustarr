@@ -32,5 +32,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // package-level.
 //
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;delete
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;series;rootfolders;qualityprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;rootfolders;qualityprofiles,verbs=get;list;watch
 package graft

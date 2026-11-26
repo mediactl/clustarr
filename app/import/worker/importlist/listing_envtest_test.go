@@ -42,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func TestHandleWithAutomaticAddOffListsTheEntriesButAddsNothing(t *testing.T) {
@@ -138,7 +139,7 @@ func TestRemoveAndKeepSurvivesALibraryRescan(t *testing.T) {
 	serveTmdbResolve(t, bus, "tmdb", "603")
 
 	// The rescan reads through a manager's cache, with its path index.
-	mgr, err := ctrl.NewManager(testConfig, ctrl.Options{
+	mgr, err := librarytest.NewManager(testConfig, ctrl.Options{
 		Scheme:                 c.Scheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",

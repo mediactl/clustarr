@@ -20,10 +20,13 @@ package uicli
 import (
 	"context"
 
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/mediactl/clustarr/pkg/library"
+	"github.com/mediactl/clustarr/pkg/library/readwrite"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -52,34 +55,58 @@ import (
 //
 // It uses controller-runtime's pkg/log rather than pkg/obs/logging: it runs
 // before ui.Run's own obs.Bootstrap has installed a logger on ctx.
-func buildCluster(ctx context.Context) (client.Reader, func(context.Context) bool, *actions.Actions) {
+//
+// The library store (ADR-0024) is the cluster's other half: the kinds a
+// controller creates are read and written there. libraryDSN unset or
+// unreachable is treated as no cluster at all -- half a library would render
+// every series without its episodes. The returned close releases the
+// store's connections.
+func buildCluster(ctx context.Context, libraryDSN string) (client.Reader, func(context.Context) bool, *actions.Actions, func()) {
 	logger := log.FromContext(ctx).WithName("ui")
+	none := func() {}
 
 	cfg, err := config.GetConfig()
 	if err != nil {
 		logger.Info("no cluster reachable; ui will serve empty pages and refuse every action",
 			"err", err.Error())
-		return nil, nil, nil
+		return nil, nil, nil, none
 	}
 
 	scheme, err := ui.NewReaderScheme()
 	if err != nil {
 		logger.Error(err, "build ui reader scheme")
-		return nil, nil, nil
+		return nil, nil, nil, none
 	}
 
-	reader, waitForSync, err := ui.NewClusterReader(ctx, cfg, scheme)
+	if libraryDSN == "" {
+		logger.Info("no library store address ($" + library.EnvDSN + "); ui will serve empty pages and refuse every action")
+		return nil, nil, nil, none
+	}
+	store, err := library.Open(ctx, libraryDSN, library.Options{})
+	if err != nil {
+		logger.Error(err, "open the library store; ui will serve empty pages and refuse every action")
+		return nil, nil, nil, none
+	}
+	closeStore := func() { _ = store.Close() }
+	wiring := &library.Wiring{Store: store, Scheme: scheme, OmitManagedFields: true}
+
+	reader, waitForSync, err := ui.NewClusterReader(ctx, cfg, scheme, func(o *cache.Options) error {
+		return wiring.CacheOptions(cfg, o)
+	})
 	if err != nil {
 		logger.Error(err, "build ui cluster reader")
-		return nil, nil, nil
+		closeStore()
+		return nil, nil, nil, none
 	}
 
 	writer, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
 		logger.Error(err, "build ui action writer; ui will serve its pages and refuse every action")
-		return reader, waitForSync, nil
+		return reader, waitForSync, nil, closeStore
 	}
-	return reader, waitForSync, actions.New(writer)
+	// A create or a patch of a library kind goes to the store, as the ui's
+	// role there allows; every other kind goes to the apiserver.
+	return reader, waitForSync, actions.New(readwrite.NewClient(writer, store, false, actions.FieldManager)), closeStore
 }
 
 // buildProjection builds and starts Task D3-1's shared pipeline projection

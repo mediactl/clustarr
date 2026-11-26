@@ -21,6 +21,7 @@ upstream `nats` chart (clustered R3, config reloader,
 | Kubernetes | >= 1.31 (CEL validation rules in the CRDs, `podFailurePolicy` on transcode Jobs); 1.37 for scale-to-zero (see [Autoscaling](#autoscaling)) |
 | Helm | 3.x or 4.x (this chart ships `values.schema.json`, validated by every release) |
 | Storage | One `ReadWriteMany`-capable `StorageClass` (CephFS preferred; NFS or Longhorn RWX acceptable) for `/data`, or a claim you already run. See [Storage](#storage). |
+| Postgres | [CloudNativePG](https://cloudnative-pg.io/) running in the cluster before this chart is installed, or a Postgres of your own. See [The library store](#the-library-store). |
 
 The chart declares two conditional dependencies (`nats`, `cloudnative-pg`);
 `helm dependency build charts/clustarr` must run before
@@ -145,6 +146,52 @@ neither bind an RWO volume nor safely share the SQLite database. Like
 `/data`, it carries `helm.sh/resource-policy: keep`, so `helm uninstall`
 leaves it, and every release the RSS feeds collected, behind. See
 [Postgres release index](#postgres-release-index) for the alternative.
+
+## The library store
+
+The kinds a controller creates -- MediaFile, Episode, Album, Book, Audiobook
+and Issue -- are rows in Postgres, not custom resources (ADR-0024): on a
+large library, as custom resources, they were most of what each kube-apiserver
+held in memory. Every install has the store; `kubectl get` does not reach
+those kinds, and the UI and SQL with a read-only role do.
+
+By default (`library.cluster=true`) the chart renders a CloudNativePG
+`Cluster`, `<release>-postgres`, the one `postgres.cluster` describes, and
+every process connects to its `clustarr` database with the Cluster's app
+Secret. The manager creates the `library` schema there when it starts.
+
+**CloudNativePG must be running first.** Its admission webhook fails closed
+until its own Deployment is Ready, so a first `helm install` that would
+install the operator (`cloudnative-pg.enabled=true`) and the Cluster in one
+pass is refused at render time. Either install the operator on its own
+beforehand, or in two steps:
+
+```sh
+helm install clustarr charts/clustarr -n clustarr-system --create-namespace \
+  --set cloudnative-pg.enabled=true --set library.cluster=false --wait
+helm upgrade clustarr charts/clustarr -n clustarr-system \
+  --set cloudnative-pg.enabled=true
+```
+
+Until the second step the manager, the ui and four agents wait for a Secret
+that does not exist yet.
+
+- **More than one instance** (`postgres.cluster.instances`) gets a synchronous
+  standby (`{method: any, number: 1, dataDurability: preferred}`) unless
+  `postgres.cluster.synchronous` says otherwise: a failover that dropped
+  commits the manager had seen would leave its cache ahead of the database.
+- **Back it up.** An etcd snapshot no longer holds the library. The chart
+  configures no backup; CloudNativePG's `ScheduledBackup` is yours to add.
+- **Separate roles** hold the ui and the readers to their share in the
+  database itself. Declare them in `postgres.cluster.managedRoles`, each with
+  a password Secret, and name each in `library.ui` and `library.readOnly` with
+  a Secret holding its address: the manager grants the ui's role an object's
+  row, body and ownership records, never its status, and the read-only role
+  (the agents', cluster-plex's, a person's) reads alone. Left unset, every
+  process shares the app role and only the code keeps the ui off status.
+- **An outside Postgres**: `library.cluster=false` and
+  `library.existingSecret` naming a Secret with its address under
+  `library.secretKey`. The role needs to create a schema.
 
 ## Postgres release index
 

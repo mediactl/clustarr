@@ -32,6 +32,7 @@ import (
 	"github.com/mediactl/clustarr/app/livetv/leaderendpoint"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -41,7 +42,7 @@ import (
 func TestLiveTVServiceRoutesToTheLeader(t *testing.T) {
 	env := starttest.StartEnv(t)
 	start := func(ip string) context.CancelFunc {
-		mgr, err := ctrl.NewManager(env.Config, ctrl.Options{
+		mgr, err := librarytest.NewManager(env.Config, ctrl.Options{
 			Scheme: k8s.MustNewScheme(), LeaderElection: true, LeaderElectionID: "livetv-endpoint-test",
 			LeaderElectionNamespace: "default", LeaderElectionReleaseOnCancel: true,
 			Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0",
@@ -65,7 +66,7 @@ func TestLiveTVServiceRoutesToTheLeader(t *testing.T) {
 		go func() { defer close(done); _ = mgr.Start(ctx) }()
 		return func() { cancel(); <-done }
 	}
-	c, err := client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -109,6 +109,13 @@ spec:
         # container to carrying this.
         - name: NATS_URL
           value: nats://nats.clustarr-system.svc:4222
+        # The library store (ADR-0024): the kinds a controller creates are rows
+        # in Postgres, in config/library's Cluster.
+        - name: CLUSTARR_LIBRARY_DSN
+          valueFrom:
+            secretKeyRef:
+              name: clustarr-postgres-app
+              key: uri
         # Signs the /art/search URLs the Plex provider hands Plex, which
         # stores them, so the key must outlive the pod. Kustomize cannot
         # generate a random one: create it once with

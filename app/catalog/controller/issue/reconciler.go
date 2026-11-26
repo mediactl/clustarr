@@ -49,10 +49,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=issues,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=issues/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=issues/finalizers,verbs=update
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=comics,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by

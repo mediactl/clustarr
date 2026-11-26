@@ -50,6 +50,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // gatedGateway is the metadata gateway's lookup RPC as a scanned artist
@@ -146,7 +147,7 @@ func limiterRefusal(t *testing.T) string {
 // writes its track list, and the Artist's watch on its Albums wakes it.
 func startArtistAndAlbums(t *testing.T, ctx context.Context, cfg *rest.Config, b combinedBus, folders folderscan.Folders) client.Client {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",

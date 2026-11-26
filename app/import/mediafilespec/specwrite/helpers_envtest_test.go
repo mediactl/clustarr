@@ -34,6 +34,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // testClient talks straight to the apiserver: RenameFile takes a writer
@@ -54,7 +55,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	code := func() int {
-		c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+		c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "build client: %v\n", err)
 			return 1

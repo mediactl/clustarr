@@ -59,10 +59,9 @@ const HeartbeatInterval = 10 * time.Second
 // the MediaFiles; a donor is the item's status.audio.donor, which the
 // manager's item key derives from the entry and the execute record.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series;episodes,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;authors;comics,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 

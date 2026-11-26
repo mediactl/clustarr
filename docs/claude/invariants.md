@@ -11,6 +11,54 @@ to write: the unify branch's waves were built implementation-first (owner,
 2026-10-07), and `.superpowers/unify/progress.md` lists every deferred test.
 Until the guard lands, review holds the invariant; drop the mark when it does.
 
+- **A library kind is a row in Postgres, held to what the apiserver held it to**
+  (ADR-0024; design `docs/superpowers/specs/2026-11-26-library-store-design.md`,
+  §9 for what was built). MediaFile, Episode, Album, Book, Audiobook and Issue
+  are no custom resources: the apiserver serves none of them. Everything below
+  that says "CR", "status" or "resource" holds for them in the library store.
+  - **Read and write one through the seams a custom resource uses**: the
+    manager's cache (`mgr.GetCache()`, fed by `library.ListerWatcher`), its
+    client (`pkg/library/readwrite`) and `pkg/k8s.PatchStatus`. A client-go
+    or dynamic client, a `ctrl.NewManager` or `client.New` that was not wired
+    (`pkg/library/ctrlwire`, `test/librarytest` in a test), and a statement of
+    the caller's own cannot see one, or write one without its rules.
+    `TestAManagerServesAKindThatHasNoCRD`.
+  - **A write follows the apiserver's rules by running its code**: defaults,
+    pruning and value checks from the kind's schema, field ownership by
+    `k8s.io/apimachinery/pkg/util/managedfields`, the status subresource's
+    split, generation, finalizers, and a Conflict on a stale
+    `resourceVersion`. The differential tests hold every kind to a real
+    apiserver, write for write (`TestIssueWritesMatchTheAPIServer`,
+    `TestEveryKindsWritesMatchTheAPIServer`); a change to the write path that
+    they do not cover is not proven.
+  - **A kind's schema is its CRD file under `pkg/library/schemas/`**, moved
+    there by `make manifests` (`LIBRARY_RESOURCES`) and installed nowhere. A
+    validation rule (`XValidation`) on a library kind is also written in Go in
+    `pkg/library/validate.go`: the manager links no CEL, and a schema naming a
+    rule that table lacks does not load.
+  - **The change feed is in commit order by construction**: a write takes its
+    version from its kind's row in `library.head`, in the table's trigger, and
+    holds that row until it commits. Never give a write a version any other
+    way (a sequence, the clock). `TestTheFeedIsInCommitOrder` fails with the
+    lock gone.
+  - **The manager is the only writer of status, in the database too**: the
+    ui's role is granted an object's row, body and ownership records and not
+    its status column (`TestTheDatabaseHoldsEachRoleToItsShare`); agents and
+    cluster-plex read with a role that writes nothing, and no agent links
+    `pkg/library/readwrite` or calls a `library.Store` writer
+    (`TestAgentLinksNoManagerRegistration`, `TestAgentsCallNoKubernetesWriter`).
+    The chart grants neither role unless `library.ui.role` and
+    `library.readOnly.role` name one; by default every process shares the
+    Cluster's app role and only the code holds the rule.
+  - **An owner in Kubernetes cannot collect a row.** `readwrite.Collector`
+    (the leader's) deletes the objects all of whose owners are gone; a kind
+    that needs its children gone sooner than its sweep deletes them itself.
+    `TestTheCollectorDeletesWhatItsOwnerLeftBehind`.
+  - **The tables are a contract with cluster-plex**, which reads
+    `library.mediafile`, `library.episode`, `library.head` and
+    `library.change` with its own statements
+    (`TestTheTablesAreTheContractClusterPlexReads` runs them). Change both
+    repositories together.
 - **The manager is the only writer of every CR and Secret** (ADR-0019). Agents,
   markers and transcode pods write no Kubernetes object: an agent's client is
   read-only (`k8s.ReadOnly`, which counts a refused write in

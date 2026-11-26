@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/test/installtest"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -52,7 +53,7 @@ const (
 func createEngineClients(t *testing.T, cfg *rest.Config) {
 	t.Helper()
 	ctx := context.Background()
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	_, portStr, err := net.SplitHostPort(starttest.FreeAddress(t))
 	require.NoError(t, err)

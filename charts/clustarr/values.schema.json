@@ -87,6 +87,18 @@
         "container": { "type": "object" }
       }
     },
+    "library": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The library store (ADR-0024): the kinds a controller creates, as rows in Postgres.",
+      "properties": {
+        "cluster": { "type": "boolean", "description": "Render the CloudNativePG Cluster the library lives in (the one postgres.cluster describes). False when existingSecret names a Postgres this chart does not run." },
+        "existingSecret": { "type": "string", "description": "Secret holding the manager's connection address; empty is the rendered Cluster's app Secret." },
+        "secretKey": { "type": "string", "description": "Key of that Secret holding the address; empty is uri." },
+        "ui": { "$ref": "#/$defs/libraryRole" },
+        "readOnly": { "$ref": "#/$defs/libraryRole" }
+      }
+    },
     "postgres": {
       "type": "object",
       "required": ["enabled"],
@@ -100,6 +112,7 @@
             "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this Cluster takes with placement.enabled (placement.profiles)." },
             "primaryUpdateMethod": { "type": "string", "enum": ["restart", "switchover"], "description": "CNPG primaryUpdateMethod; unset is restart with one instance and switchover with more (switchover moves the release index off a node, control-plane placement design §5.5)." },
             "resources": { "$ref": "#/$defs/resources", "description": "CNPG Cluster.spec.resources, every instance's: requests and a memory limit keep an instance out of BestEffort." },
+            "managedRoles": { "type": "array", "items": { "type": "object" }, "description": "CNPG Cluster.spec.managed.roles, verbatim: the library store's ui and read-only roles, when the install separates them." },
             "synchronous": {
               "type": "object",
               "additionalProperties": false,
@@ -672,6 +685,15 @@
   },
 
   "$defs": {
+    "libraryRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": { "type": "string", "description": "Secret holding the role's connection address; empty is the manager's." },
+        "secretKey": { "type": "string", "description": "Key of that Secret holding the address; empty is the manager's key." },
+        "role": { "type": "string", "description": "The database role the address connects as; the manager grants it its share of the library when it migrates. Empty grants nothing." }
+      }
+    },
     "imageRef": {
       "type": "object",
       "additionalProperties": false,

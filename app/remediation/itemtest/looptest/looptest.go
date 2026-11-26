@@ -69,6 +69,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // Clock is the loop's fake clock: the pass clock, the Pacer's and the
@@ -235,7 +236,7 @@ func Start(t *testing.T, cfg *rest.Config, o Options) *Loop {
 		start = time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	}
 	clock := &Clock{now: start}
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
@@ -259,7 +260,7 @@ func Start(t *testing.T, cfg *rest.Config, o Options) *Loop {
 		Budget: searchplan.NewDonorBudget(),
 		Ledger: dispatch.New(dispatch.Options{Topology: events.Default(), Reader: mgr.GetClient(), Now: clock.Now}),
 	}
-	l.API, err = client.New(cfg, client.Options{Scheme: mgr.GetScheme()})
+	l.API, err = librarytest.NewClient(cfg, client.Options{Scheme: mgr.GetScheme()})
 	require.NoError(t, err)
 	l.Ledger.Register(searchstage.LedgerSource{})
 	l.Ledger.Register(searchstage.SeasonLedgerSource{})

@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/ui"
 )
 
@@ -144,7 +145,7 @@ func TestNewClusterReaderSeesRealObjects(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	reader, waitForSync, err := ui.NewClusterReader(ctx, cfg, scheme)
+	reader, waitForSync, err := ui.NewClusterReader(ctx, cfg, scheme, librarytest.CacheOptions(cfg))
 	require.NoError(t, err)
 	require.NotNil(t, reader)
 	require.NotNil(t, waitForSync)
@@ -152,7 +153,7 @@ func TestNewClusterReaderSeesRealObjects(t *testing.T) {
 	// A plain client.Client, standing in for whatever writes a Movie in
 	// production (import, or a person with kubectl) -- never
 	// ui.NewClusterReader's own reader, which cannot write at all.
-	writer, err := client.New(cfg, client.Options{Scheme: scheme})
+	writer, err := librarytest.NewClient(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 
 	movie := &catalogv1alpha1.Movie{
@@ -205,7 +206,7 @@ func TestNewClusterReaderSelectsEpisodesBySeries(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	writer, err := client.New(cfg, client.Options{Scheme: scheme})
+	writer, err := librarytest.NewClient(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 	for _, ep := range []struct {
 		name, series string
@@ -217,7 +218,7 @@ func TestNewClusterReaderSelectsEpisodesBySeries(t *testing.T) {
 		}))
 	}
 
-	reader, _, err := ui.NewClusterReader(ctx, cfg, scheme)
+	reader, _, err := ui.NewClusterReader(ctx, cfg, scheme, librarytest.CacheOptions(cfg))
 	require.NoError(t, err)
 
 	names := func(c client.Reader) ([]string, error) {

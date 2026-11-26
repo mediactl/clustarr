@@ -180,6 +180,53 @@ nats:
           memory: 2Gi
 
 # --------------------------------------------------------------------------
+# The library store (ADR-0024; design 2026-11-26)
+# --------------------------------------------------------------------------
+# The kinds a controller creates -- MediaFile, Episode, Album, Book,
+# Audiobook, Issue -- are rows in Postgres, not custom resources. Every
+# install has the store: the manager creates its schema ("library", in the
+# database the address names) and is its one writer of status; the ui
+# writes an object's spec and metadata there; four agent domains and
+# cluster-plex read it.
+#
+# By default it lives in the CloudNativePG Cluster this chart renders (the
+# one postgres.cluster below describes, shared with the release index when
+# postgres.enabled puts that there too), in its "clustarr" database, and
+# every process connects with that Cluster's app Secret. CloudNativePG must
+# be running before the Cluster is applied: see the first-install note in
+# README.md.
+#
+# With more than one instance the Cluster needs a synchronous standby
+# (postgres.cluster.synchronous): a failover that drops commits the manager
+# has seen leaves its cache ahead of the database. The chart sets
+# {method: any, number: 1, dataDurability: preferred} when that is unset.
+#
+# To hold the ui and the readers to their share in the database itself,
+# declare two roles (postgres.cluster.managedRoles, or by hand on an
+# outside Postgres) and name each with its Secret here: the manager grants
+# the ui's role an object's row, body and ownership records -- never its
+# status column -- and the read-only role reads alone.
+library:
+  # Render the Cluster. False with existingSecret naming a Postgres this
+  # chart does not run.
+  cluster: true
+  # The manager's connection address: Secret and key. Empty is the rendered
+  # Cluster's app Secret ("<release>-postgres-app", key "uri").
+  existingSecret: ""
+  secretKey: ""
+  # The ui's and the readers' (agents catalog, events, import and metadata):
+  # each a Secret and key (empty is the manager's) and the database role it
+  # connects as (empty grants nothing: the address is then the manager's
+  # own, or a role granted by hand).
+  ui:
+    existingSecret: ""
+    secretKey: ""
+    role: ""
+  readOnly:
+    existingSecret: ""
+    secretKey: ""
+    role: ""
+
 # Release index on Postgres (optional, design spec 2026-09-24 §A; ADR-0010)
 # --------------------------------------------------------------------------
 # The index agent's release index is SQLite FTS5 on the RWO storage.index PVC
@@ -217,6 +264,16 @@ postgres:
     #   method: any
     #   number: 1
     #   dataDurability: preferred
+    # CNPG Cluster.spec.managed.roles, verbatim: the library store's ui and
+    # read-only roles, each with its passwordSecret, when library.ui.role
+    # and library.readOnly.role name them.
+    # managedRoles:
+    # - name: clustarr_ui
+    #   login: true
+    #   passwordSecret: {name: clustarr-library-ui}
+    # - name: clustarr_ro
+    #   login: true
+    #   passwordSecret: {name: clustarr-library-ro}
     # max_slot_wal_keep_size with more than one instance: the WAL a
     # standby's slot may hold. local-path enforces no claim size, so
     # unbounded slot WAL would fill the node's filesystem.
@@ -385,6 +442,15 @@ cluster-plex:
       # The server's plex.tv account, kept by cluster-plex; clustarr's Plex
       # watchlist ImportList reads its token.
       tokenSecret: plex-token
+      # clustarr's library store (ADR-0024), where cluster-plex reads the
+      # MediaFiles and Episodes it projects into Plex: the Cluster's app
+      # Secret by default (name a read-only role's Secret here when
+      # library.readOnly separates one). It needs a cluster-plex chart that
+      # knows the setting; an older one reads those kinds from the
+      # apiserver, which no longer serves them.
+      library:
+        secretName: '{{ .Release.Name }}-postgres-app'
+        key: uri
       pathMappings:
         - {clustarr: /data/media, plex: /media}
     # Live TV (cluster-plex 0.4.0): the lease holder adds this release's

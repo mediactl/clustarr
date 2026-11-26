@@ -32,6 +32,7 @@ import (
 
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/library"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
@@ -90,6 +91,10 @@ func bind(fs *pflag.FlagSet, manager bool) *k8s.Options {
 		fs.BoolVar(&o.BusSingleNode, "nats-single-node", o.BusSingleNode,
 			"Collapse the JetStream topology to one replica, for kind and single-node NATS.")
 	}
+
+	fs.StringVar(&o.LibraryDSN, "library-dsn", o.LibraryDSN,
+		"Postgres address of the library store, which holds the kinds a controller creates. "+
+			"It carries a password: prefer $"+library.EnvDSN+", which is read when this is empty.")
 
 	fs.DurationVar(&o.GracefulShutdownTimeout, "graceful-shutdown-timeout", o.GracefulShutdownTimeout,
 		"How long to let runnables drain on SIGTERM before the manager returns.")

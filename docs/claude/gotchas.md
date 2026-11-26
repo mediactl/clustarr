@@ -6,6 +6,56 @@ recorded here.
 
 ## Gotchas found the hard way
 
+- **The library store (ADR-0024, 2026-11-26): six kinds are rows in Postgres
+  and the apiserver serves none of them.** MediaFile, Episode, Album, Book,
+  Audiobook and Issue. What goes wrong, and why:
+  - **"no matches for kind Episode" / "the server could not find the
+    requested resource"** means something read a library kind from the
+    apiserver: a `ctrl.NewManager` or `client.New` that was not wired
+    (`pkg/library/ctrlwire`; `test/librarytest.NewManager`/`NewClient` in a
+    test), `mgr.GetAPIReader()` taken before `k8s.LibraryManager` wrapped the
+    manager, a client-go or dynamic client, or `kubectl`. A cache constructor
+    that builds its own informers needs the wiring's `Source`
+    (`rowcache.Options.Source`): `internal/cli/manager.libraryOptions` is the
+    one place that knows.
+  - **The differential tests are the authority on what a write does**
+    (`pkg/library/differential*_test.go`: the same writes to a real apiserver
+    and to the store). They found five things no reading of the code had:
+    the status endpoint ignores `metadata` as well as `spec` (a status update
+    that drops a label releases no ownership); a null where the schema takes
+    none is dropped from an update or merge patch (a typed object's zero
+    `metav1.Time` encodes as `null`: `spec.modTime`) and is refused in an
+    applied configuration; metadata passes through ObjectMeta, so the last
+    annotation removed by a JSON patch leaves no `annotations` at all; an
+    applied configuration is read as YAML, which refuses a raw C1 control
+    character that a patch (JSON) takes -- the reason
+    `mediafilestatus.Render` scrubs them; and a read of the store itself
+    must answer `managedFields`, which tests of field ownership read.
+  - **A JSON patch (RFC 6902) is served** beside a merge patch and an apply:
+    the metadata refresher and the history replay consume an annotation with
+    a `test` and a `remove`, on a `PartialObjectMetadata`. Without it each
+    pass failed and retried (41 passes in three seconds in
+    `TestOwnStatusWritesNeverEnqueueTheFile`). A strategic merge patch is not.
+  - **An envtest of a library kind needs `CLUSTARR_PG_ASSETS`** beside
+    `KUBEBUILDER_ASSETS`. One embedded Postgres per test binary, lazily
+    (`test/librarytest`), stopped by a watchdog process when the binary
+    exits; a `postgres` left running after a crashed run is that watchdog
+    not yet woken, not a leak to chase.
+  - **A test on a fake HTTP server or an unreachable config keeps
+    `client.New` / `ctrl.NewManager`** (`pkg/k8s/rowcache/cbor_test.go`,
+    `internal/cli/manager/probes_internal_test.go`): `librarytest`'s would
+    start a database for a test that has no library.
+  - **A deleted parent's children go at the collector's next sweep** (30 s),
+    not at once, and only once every owner is gone; envtest never collected
+    at all (it runs no controller manager), so no test had leaned on it.
+  - **`make manifests` moves the six CRD files to `pkg/library/schemas/`.** A
+    session that regenerates and sees them "deleted" from `config/crd/bases`
+    must not restore them. The ui's ClusterRole and the chart's `rbac.yaml`
+    are hand-written and carry no rule for them either.
+  - **The store's default grants nothing to anyone but the app role**: the
+    column grant that keeps the ui off status exists only when
+    `library.ui.role` names a role the operator made.
+
 - **`make test` cannot pass in a fresh clone or a new git worktree until
   `helm dependency build` has run.** `charts/clustarr/charts/` holds two
   vendored dependency tarballs (`nats`, `cloudnative-pg`) and is gitignored by

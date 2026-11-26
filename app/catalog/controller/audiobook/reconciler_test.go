@@ -65,6 +65,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func init() {
@@ -93,7 +94,7 @@ func newTestConfig(t *testing.T) *rest.Config {
 func newBareTestClient(t *testing.T) client.Client {
 	t.Helper()
 	cfg := newTestConfig(t)
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return c
 }
@@ -108,7 +109,7 @@ func newBareTestClient(t *testing.T) client.Client {
 // them.
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
@@ -133,7 +134,7 @@ func (c *reconcileCounter) inc() { c.n.Add(1) }
 // returned so a scenario can drive a pass no watch wakes (a grab entry).
 func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus events.Publisher) (client.Client, *audiobook.Reconciler, *reconcileCounter) {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
@@ -1080,7 +1081,7 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 // reads through.
 func uncachedReader(t *testing.T, cfg *rest.Config) client.Reader {
 	t.Helper()
-	r, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	r, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return r
 }

@@ -43,6 +43,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // testClient is the manager-cached client every envtest in this package
@@ -71,7 +72,7 @@ func TestMain(m *testing.M) {
 	ctx, cancel := context.WithCancel(context.Background())
 	code := func() int {
 		defer cancel()
-		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 			Scheme:                 k8s.MustNewScheme(),
 			Metrics:                metricsserver.Options{BindAddress: "0"},
 			HealthProbeBindAddress: "0",

@@ -34,7 +34,11 @@ DSN under key "uri" -- what templates/deployments.yaml's agent-index env reads
 by default (postgres.existingSecret overrides the Secret name for a Postgres
 CNPG did not create).
 */}}
-{{- if .Values.postgres.enabled }}
+{{- /* The Cluster is rendered for the library store (ADR-0024), which every
+       install has, and holds the release index too when postgres.enabled
+       puts it there. library.cluster=false leaves it out for an install
+       whose library is an outside Postgres and whose index is SQLite. */}}
+{{- if or .Values.postgres.enabled .Values.library.cluster }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -55,6 +59,13 @@ metadata:
        update, the slot WAL capped, and synchronous commit only when
        postgres.cluster.synchronous asks for it. */}}
 {{- $replicated := gt $instances 1 }}
+{{- /* The library store cannot lose a commit the manager has seen: with
+       standbys, one is synchronous unless the operator said otherwise.
+       preferred keeps writes going while no standby is there. */}}
+{{- $synchronous := .Values.postgres.cluster.synchronous }}
+{{- if and $replicated .Values.library.cluster (not $synchronous) }}
+{{- $synchronous = dict "method" "any" "number" 1 "dataDurability" "preferred" }}
+{{- end }}
 {{- $parameters := deepCopy (.Values.postgres.cluster.parameters | default dict) }}
 {{- if and $replicated .Values.postgres.cluster.maxSlotWalKeepSize (not (hasKey $parameters "max_slot_wal_keep_size")) }}
 {{- $_ := set $parameters "max_slot_wal_keep_size" .Values.postgres.cluster.maxSlotWalKeepSize }}
@@ -68,11 +79,11 @@ spec:
   {{- with (include "clustarr.cnpgAffinity" (dict "root" $ "values" .Values.postgres.cluster) | trim) }}
   {{- . | nindent 2 }}
   {{- end }}
-  {{- if or $parameters (and $replicated .Values.postgres.cluster.synchronous) }}
+  {{- if or $parameters (and $replicated $synchronous) }}
   postgresql:
-    {{- if and $replicated .Values.postgres.cluster.synchronous }}
+    {{- if and $replicated $synchronous }}
     synchronous:
-      {{- toYaml .Values.postgres.cluster.synchronous | nindent 6 }}
+      {{- toYaml $synchronous | nindent 6 }}
     {{- end }}
     {{- with $parameters }}
     parameters:
@@ -90,6 +101,11 @@ spec:
     {{- with .Values.postgres.cluster.storage.storageClass }}
     storageClass: {{ . }}
     {{- end }}
+  {{- with .Values.postgres.cluster.managedRoles }}
+  managed:
+    roles:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
   bootstrap:
     initdb:
       database: clustarr

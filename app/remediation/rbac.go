@@ -22,6 +22,4 @@ package remediation
 // API mgr.GetEventRecorder's recorder writes. The blank line below keeps the
 // markers package-level, where controller-gen collects them.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles/status,verbs=get;patch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch

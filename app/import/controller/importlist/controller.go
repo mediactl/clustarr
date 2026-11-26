@@ -523,8 +523,7 @@ func (r *Reconciler) applyStatusFull(
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=importlists,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=importlists/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;delete
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes;rootfolders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update;patch
 
 // SetupWithManager registers the ImportList controller. Its For()

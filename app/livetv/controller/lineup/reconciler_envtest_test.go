@@ -47,6 +47,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/names"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 var cfg *rest.Config
@@ -126,10 +127,10 @@ func TestTheLineupManagerOwnsOnlyItsFields(t *testing.T) {
 	const ns, name = "lineup-owns", "argon"
 	ctx, cancel := context.WithCancel(context.Background())
 	scheme := k8s.MustNewScheme()
-	direct, err := client.New(cfg, client.Options{Scheme: scheme})
+	direct, err := librarytest.NewClient(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 	require.NoError(t, direct.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0", Controller: config.Controller{SkipNameValidation: ptr.To(true)},
 	})

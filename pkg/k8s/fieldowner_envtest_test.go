@@ -25,10 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // A write through a manager built from ManagerOptions that names no owner
@@ -39,7 +39,7 @@ func TestAnUntaggedWriteRecordsTheDefaultFieldOwner(t *testing.T) {
 	cfg := startEnvtest(t)
 	opts := k8s.DefaultOptions().ManagerOptions("fieldowner.clustarr.io", false)
 	opts.Metrics.BindAddress, opts.HealthProbeBindAddress = "0", "0"
-	mgr, err := ctrl.NewManager(cfg, opts)
+	mgr, err := librarytest.NewManager(cfg, opts)
 	require.NoError(t, err)
 	ctx := context.Background()
 	c := mgr.GetClient()

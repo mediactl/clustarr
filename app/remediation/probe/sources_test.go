@@ -27,6 +27,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/remediation/remediationtest"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // TestTheProbeAdaptersSources: the probe planner wakes the loop from
@@ -37,7 +38,7 @@ import (
 func TestTheProbeAdaptersSources(t *testing.T) {
 	h := newProbeHarness(t)
 	e := remediationtest.Start(t)
-	mgr, err := ctrl.NewManager(e.Config, ctrl.Options{
+	mgr, err := librarytest.NewManager(e.Config, ctrl.Options{
 		Scheme: k8s.MustNewScheme(), Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0",
 	})
 	require.NoError(t, err)

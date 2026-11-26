@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // HoldLease pre-creates a coordination.k8s.io Lease owned by someone else, so
@@ -38,7 +39,7 @@ import (
 // and the new pod's readiness has to pass on its own merits.
 func HoldLease(t testing.TB, cfg *rest.Config, namespace, id string) {
 	t.Helper()
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	if err != nil {
 		t.Fatalf("build client: %v", err)
 	}
@@ -62,7 +63,7 @@ func HoldLease(t testing.TB, cfg *rest.Config, namespace, id string) {
 // an error.
 func ReleaseLease(t testing.TB, cfg *rest.Config, namespace, id string) {
 	t.Helper()
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	if err != nil {
 		t.Fatalf("build client: %v", err)
 	}

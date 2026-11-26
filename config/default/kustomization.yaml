@@ -27,6 +27,7 @@ resources:
 - ../crd
 - ../rbac
 - ../manager
+- ../library
 - ../livetv
 - ../autoscaling
 - ../nats

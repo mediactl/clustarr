@@ -122,6 +122,10 @@ type Options struct {
 	// only valid for a role that does no queue work.
 	NATSURL string
 
+	// LibraryDSN is the library store's Postgres address (ADR-0024); empty
+	// reads $CLUSTARR_LIBRARY_DSN (LibraryAddress).
+	LibraryDSN string
+
 	// BusSingleNode collapses the topology to one replica. §12 runs NATS R3
 	// in a cluster and R1 on kind; a stream asking for three replicas on a
 	// one-node server is rejected outright, so `clustarr all` and the kind

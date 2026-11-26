@@ -20,4 +20,4 @@ package markers
 // The query reads the file's item through the manager's cache. The blank line
 // keeps the marker package-level.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series,verbs=get;list;watch

@@ -45,6 +45,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -88,7 +89,7 @@ func TestSweepWithdrawsADeletedFilesTaskAfterRestart(t *testing.T) {
 	require.Len(t, subjects, 3, "the three tasks are stored before the manager starts")
 
 	ledger := admission.NewLedger(admission.Options{Slots: map[string]int32{"cpu": 1}, Window: 32})
-	mgr, err := ctrl.NewManager(testCfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(testCfg, ctrl.Options{
 		Scheme: k8s.MustNewScheme(), Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0",
 		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
 	})

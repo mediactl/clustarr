@@ -50,6 +50,7 @@ import (
 	remediationmanager "github.com/mediactl/clustarr/app/remediation/manager"
 	"github.com/mediactl/clustarr/app/transcode/admission"
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
+	"github.com/mediactl/clustarr/internal/cli/librarycli"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -59,6 +60,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/grouplang"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/lastrun"
+	"github.com/mediactl/clustarr/pkg/library"
+	"github.com/mediactl/clustarr/pkg/library/ctrlwire"
+	"github.com/mediactl/clustarr/pkg/library/readwrite"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -111,10 +115,33 @@ func Run(ctx context.Context, o Options) error {
 			return fmt.Errorf("manager: kubeconfig: %w", err)
 		}
 	}
-	opts := managerOptions(o)
-	mgr, err := ctrl.NewManager(cfg, k8s.WithBaseContext(opts, ctx))
+	// The library store (ADR-0024): the manager alone creates its schema,
+	// and its mapper, cache and client are pointed at it before it is built.
+	store, err := librarycli.Open(ctx, o.Options, library.Options{Migrate: true, UIRole: o.LibraryUIRole, ReadRole: o.LibraryReadRole})
 	if err != nil {
 		return fmt.Errorf("manager: %w", err)
+	}
+	defer func() { _ = store.Close() }()
+	opts, err := libraryOptions(o, store)
+	if err != nil {
+		return fmt.Errorf("manager: %w", err)
+	}
+	built, err := ctrl.NewManager(cfg, k8s.WithBaseContext(opts, ctx))
+	if err != nil {
+		return fmt.Errorf("manager: %w", err)
+	}
+	mgr := ctrlwire.Manager(built, store)
+	if err := mgr.Add(k8s.LeaderOnly(func(ctx context.Context) error {
+		return readwrite.TrimFeed(ctx, store)
+	})); err != nil {
+		return fmt.Errorf("manager: add the library feed's trimmer: %w", err)
+	}
+	// A library object's owner is a custom resource the apiserver's garbage
+	// collector cannot follow into the store: the leader collects in its
+	// place (design §3.4).
+	collector := &readwrite.Collector{Store: store, Owners: built.GetAPIReader()}
+	if err := mgr.Add(k8s.LeaderOnly(collector.Run)); err != nil {
+		return fmt.Errorf("manager: add the library's collector: %w", err)
 	}
 
 	// 5. The bus.

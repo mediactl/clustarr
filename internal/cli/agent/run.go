@@ -27,6 +27,7 @@ import (
 
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	torrentagent "github.com/mediactl/clustarr/app/grab/agent/torrent"
+	"github.com/mediactl/clustarr/internal/cli/librarycli"
 	"github.com/mediactl/clustarr/pkg/agentdomain"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/dubs"
@@ -34,6 +35,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/grouplang"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/library"
+	"github.com/mediactl/clustarr/pkg/library/ctrlwire"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/presence"
@@ -89,9 +92,25 @@ func Run(ctx context.Context, o Options) error {
 			return fmt.Errorf("agent: kubeconfig: %w", err)
 		}
 	}
-	built, err := ctrl.NewManager(cfg, k8s.WithBaseContext(managerOptions(o), ctx))
+	opts := managerOptions(o)
+	// A domain that reads the library kinds reads them from the store
+	// (ADR-0024), with a role that may only read.
+	var store *library.Store
+	if readsLibrary(o.Domain) {
+		if store, err = librarycli.Open(ctx, o.Options, library.Options{}); err != nil {
+			return fmt.Errorf("agent: %w", err)
+		}
+		defer func() { _ = store.Close() }()
+		if _, err := librarycli.WireReadOnly(&opts, store); err != nil {
+			return fmt.Errorf("agent: %w", err)
+		}
+	}
+	built, err := ctrl.NewManager(cfg, k8s.WithBaseContext(opts, ctx))
 	if err != nil {
 		return fmt.Errorf("agent: %w", err)
+	}
+	if store != nil {
+		built = ctrlwire.Manager(built, store)
 	}
 	mgr := k8s.AgentManager(built)
 

@@ -46,6 +46,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/agentdomain"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func startEnv(t *testing.T) (*rest.Config, client.Client) {
@@ -57,14 +58,14 @@ func startEnv(t *testing.T) (*rest.Config, client.Client) {
 	cfg, err := env.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = env.Stop() })
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return cfg, c
 }
 
 func startReconciler(t *testing.T, cfg *rest.Config, r *controller.Reconciler) {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",

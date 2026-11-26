@@ -107,6 +107,15 @@ var domainFlags = map[string][]string{
 	"publish-dir":           {"usenet-engine"},
 }
 
+// libraryDomains are the domains that read a library kind (ADR-0024): the
+// ones whose ClusterRole named one while the kinds were custom resources.
+// Each opens the library store, read-only; a domain outside this set never
+// connects to it. test/guards holds the set against what each domain's code
+// reads.
+var libraryDomains = []string{"catalog", "events", "import", "metadata"}
+
+func readsLibrary(domain string) bool { return slices.Contains(libraryDomains, domain) }
+
 // engineClient is the DownloadClient an engine identity "<client>-<ordinal>"
 // names: everything before the last hyphen, since a client's own name may
 // hold hyphens. Both engines' Register need it. It is app/grab's

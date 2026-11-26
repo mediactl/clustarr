@@ -112,6 +112,10 @@ creates those at runtime, owned by the object that asked for them.
 {{- end }}
 {{- end }}
 {{- end }}
+{{- /* The library store (ADR-0024): the manager's address, and the roles it
+       grants. */}}
+{{- $managerEnv = concat $managerEnv (include "clustarr.libraryEnv" (dict "root" $ "who" "manager") | fromYamlArray) }}
+{{- $readerEnv := include "clustarr.libraryEnv" (dict "root" $ "who" "readOnly") | fromYamlArray }}
 {{- include "clustarr.workload" (dict
       "root" $ "component" "manager" "values" .Values.manager
       "image" "clustarr" "command" "/usr/bin/manager" "args" $managerArgs
@@ -129,14 +133,14 @@ creates those at runtime, owned by the object that asked for them.
       "root" $ "component" "agent-catalog" "values" .
       "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=catalog")
       "replicas" .replicas "autoscaled" true "domain" "catalog" "nodeName" true
-      "data" false "index" false "strategy" "" "grace" 145) }}
+      "data" false "index" false "strategy" "" "grace" 145 "extraEnv" $readerEnv) }}
 {{- end }}{{ end }}
 {{- with .Values.agents.events }}{{ if .enabled }}
 {{- include "clustarr.workload" (dict
       "root" $ "component" "agent-events" "values" .
       "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=events")
       "replicas" .replicas "autoscaled" true "domain" "events" "nodeName" true
-      "data" false "index" false "strategy" "" "grace" 55) }}
+      "data" false "index" false "strategy" "" "grace" 55 "extraEnv" $readerEnv) }}
 {{- end }}{{ end }}
 {{- with .Values.agents.metadata }}{{ if .enabled }}
 {{- /* Exactly one, Recreate: in-process provider limiters (ADR-0007). */}}
@@ -144,14 +148,14 @@ creates those at runtime, owned by the object that asked for them.
       "root" $ "component" "agent-metadata" "values" .
       "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=metadata")
       "replicas" 1 "nodeName" true "data" false "index" false
-      "strategy" (dict "type" "Recreate") "grace" 85 "automemlimit" "0.60") }}
+      "strategy" (dict "type" "Recreate") "grace" 85 "automemlimit" "0.60" "extraEnv" $readerEnv) }}
 {{- end }}{{ end }}
 {{- with .Values.agents.import }}{{ if .enabled }}
 {{- include "clustarr.workload" (dict
       "root" $ "component" "agent-import" "values" .
       "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=import")
       "replicas" .replicas "autoscaled" true "domain" "import" "nodeName" true
-      "data" true "index" false "strategy" "" "grace" 85 "automemlimit" "0.60") }}
+      "data" true "index" false "strategy" "" "grace" 85 "automemlimit" "0.60" "extraEnv" $readerEnv) }}
 {{- end }}{{ end }}
 {{- with .Values.agents.index }}{{ if .enabled }}
 {{- $indexEnv := list
@@ -339,6 +343,8 @@ spec:
               fieldPath: metadata.namespace
         - name: NATS_URL
           value: {{ include "clustarr.natsUrl" $ | quote }}
+        {{- /* The library store (ADR-0024), as the ui's role. */}}
+        {{- include "clustarr.libraryEnv" (dict "root" $ "who" "ui") | nindent 8 }}
         {{- /* ui.automemlimit: the share of resources.limits.memory the ui
                takes as its Go memory limit, in place of automemlimit's 0.9.
                Unset by default; a large library's ui rests at whatever the

@@ -30,6 +30,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 
+	"github.com/mediactl/clustarr/pkg/library"
 	"github.com/mediactl/clustarr/test/installtest"
 	"github.com/mediactl/clustarr/ui/actions"
 )
@@ -69,14 +70,9 @@ var uiActionGrants = map[uiGrant]bool{
 	{"catalog.clustarr.io", "searches", "create"}:     true,
 	{"catalog.clustarr.io", "searches", "patch"}:      true,
 	{"catalog.clustarr.io", "libraryscans", "create"}: true,
-	{"catalog.clustarr.io", "albums", "patch"}:        true,
 	{"catalog.clustarr.io", "artists", "patch"}:       true,
-	{"catalog.clustarr.io", "audiobooks", "patch"}:    true,
 	{"catalog.clustarr.io", "authors", "patch"}:       true,
-	{"catalog.clustarr.io", "books", "patch"}:         true,
 	{"catalog.clustarr.io", "comics", "patch"}:        true,
-	{"catalog.clustarr.io", "episodes", "patch"}:      true,
-	{"catalog.clustarr.io", "issues", "patch"}:        true,
 	{"catalog.clustarr.io", "movies", "patch"}:        true,
 	{"catalog.clustarr.io", "series", "patch"}:        true,
 
@@ -84,13 +80,11 @@ var uiActionGrants = map[uiGrant]bool{
 	// library pages create the four addable kinds -- and, since the
 	// 2026-11-10 non-video libraries design (§9.1), a Comic, an Audiobook
 	// and a standalone Book.
-	{"catalog.clustarr.io", "movies", "create"}:     true,
-	{"catalog.clustarr.io", "series", "create"}:     true,
-	{"catalog.clustarr.io", "artists", "create"}:    true,
-	{"catalog.clustarr.io", "authors", "create"}:    true,
-	{"catalog.clustarr.io", "comics", "create"}:     true,
-	{"catalog.clustarr.io", "audiobooks", "create"}: true,
-	{"catalog.clustarr.io", "books", "create"}:      true,
+	{"catalog.clustarr.io", "movies", "create"}:  true,
+	{"catalog.clustarr.io", "series", "create"}:  true,
+	{"catalog.clustarr.io", "artists", "create"}: true,
+	{"catalog.clustarr.io", "authors", "create"}: true,
+	{"catalog.clustarr.io", "comics", "create"}:  true,
 
 	// Task G3-4: the Settings page's edit forms, one patch grant per kind.
 	{"catalog.clustarr.io", "rootfolders", "patch"}:         true,
@@ -258,13 +252,24 @@ func TestUIRoleGrantsOnlyReadsAndActionWrites(t *testing.T) {
 			g.Verb, g.Group, g.Resource)
 	}
 
+	// A library kind (ADR-0024) is a row in the library store and no
+	// resource of the apiserver's: the role holds no rule for one, and what
+	// the ui may write there is its database role's to say.
 	declared := map[uiGrant]bool{}
 	for _, g := range actions.Grants() {
-		declared[uiGrant{Group: g.Group, Resource: g.Resource, Verb: g.Verb}] = true
+		if !library.IsResource(g.Group, g.Resource) {
+			declared[uiGrant{Group: g.Group, Resource: g.Resource, Verb: g.Verb}] = true
+		}
 	}
 	require.Equal(t, uiActionGrants, declared,
-		"ui/actions.Grants() and this test's uiActionGrants disagree: the actions' declared needs, this "+
-			"reviewed list and config/rbac/ui_role.yaml must be one set")
+		"ui/actions.Grants(), less the library kinds, and this test's uiActionGrants disagree: the actions' declared needs "+
+			"of the apiserver, this reviewed list and config/rbac/ui_role.yaml must be one set")
+	for _, g := range actions.Grants() {
+		if library.IsResource(g.Group, g.Resource) {
+			require.NotContainsf(t, string(raw), "- "+g.Resource+"\n",
+				"config/rbac/ui_role.yaml names %s, a library kind: it has no rule in any role", g.Resource)
+		}
+	}
 }
 
 // The anchors that bracket ui's ClusterRole rules inside the Helm chart.

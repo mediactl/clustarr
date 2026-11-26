@@ -140,14 +140,10 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
   - libraryscans
-  - mediafiles
   - movies
   - searches
   - series
@@ -162,15 +158,10 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums/finalizers
   - artists/finalizers
-  - audiobooks/finalizers
   - authors/finalizers
-  - books/finalizers
   - comics/finalizers
-  - episodes/finalizers
   - importexclusions/finalizers
-  - issues/finalizers
   - movies/finalizers
   - series/finalizers
   verbs:
@@ -178,18 +169,13 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums/status
   - artists/status
-  - audiobooks/status
   - authors/status
   - backlogsearches/status
-  - books/status
   - comics/status
   - delayprofiles/status
-  - episodes/status
   - importexclusions/status
   - importlists/status
-  - issues/status
   - libraryscans/status
   - metadataproviders/status
   - movies/status
@@ -215,9 +201,7 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - episodes
   - importexclusions
-  - issues
   verbs:
   - create
   - get
@@ -234,13 +218,6 @@ rules:
   - list
   - patch
   - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - mediafiles/status
-  verbs:
-  - get
-  - patch
 - apiGroups:
   - catalog.clustarr.io
   resources:
@@ -437,14 +414,9 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
-  - episodes
-  - issues
   - movies
   - overlayprofiles
   - qualityprofiles
@@ -470,14 +442,9 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
-  - episodes
-  - issues
   - movies
   - qualityprofiles
   - series
@@ -507,13 +474,9 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
-  - episodes
   - metadataproviders
   - movies
   - series
@@ -544,17 +507,11 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
-  - episodes
   - importlists
-  - issues
   - libraryscans
-  - mediafiles
   - movies
   - qualityprofiles
   - rootfolders
@@ -726,19 +683,13 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
   - delayprofiles
-  - episodes
   - importexclusions
   - importlists
-  - issues
   - libraryscans
-  - mediafiles
   - metadataproviders
   - movies
   - plexcollections
@@ -799,9 +750,7 @@ rules:
   - catalog.clustarr.io
   resources:
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
   - libraryscans
   - movies
@@ -812,14 +761,9 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
-  - episodes
-  - issues
   - movies
   - searches
   - series

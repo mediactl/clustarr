@@ -40,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func stevenLuList(ns, name string) *catalogv1alpha1.ImportList {
@@ -246,7 +247,7 @@ func TestAFinishedSyncReachesStatusWithoutWaitingForNextSyncAt(t *testing.T) {
 	ns := createNamespace(t, ctx, c, "il-projection")
 	bus := newBus(t, ctx)
 
-	mgr, err := ctrl.NewManager(testConfig, ctrl.Options{
+	mgr, err := librarytest.NewManager(testConfig, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",

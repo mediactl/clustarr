@@ -89,6 +89,22 @@ if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
   make install || die "make install failed"
 fi
 
+# The library store (ADR-0024) is a CloudNativePG Cluster config/default
+# renders, and CNPG's webhook must be up before that Cluster is applied.
+# The operator comes from the tarball the chart vendors (`make chart-deps`),
+# so the rig runs the version the chart pins.
+log "installing the CloudNativePG operator"
+need helm
+cnpg_chart="$(ls charts/clustarr/charts/cloudnative-pg-*.tgz 2>/dev/null | head -n1)"
+[[ -n "${cnpg_chart}" ]] || die "no vendored cloudnative-pg chart; run make chart-deps"
+kubectl --context "${CONTEXT}" create namespace cnpg-system --dry-run=client -o yaml \
+  | kubectl --context "${CONTEXT}" apply -f - || die "creating cnpg-system failed"
+helm template cnpg "${cnpg_chart}" --namespace cnpg-system --include-crds \
+  | kubectl --context "${CONTEXT}" apply --server-side --force-conflicts -f - \
+  || die "installing the CloudNativePG operator failed"
+kubectl --context "${CONTEXT}" -n cnpg-system rollout status deployment/cnpg-cloudnative-pg --timeout=300s \
+  || die "the CloudNativePG operator never became ready"
+
 log "applying config/e2e"
 "${KUSTOMIZE}" build config/e2e | kubectl --context "${CONTEXT}" apply --server-side --force-conflicts -f - \
   || die "config/e2e apply failed"
@@ -101,6 +117,10 @@ docker run --rm --user "$(id -u):$(id -g)" \
   -v "${CLUSTARR_DATA_DIR}:/data" \
   "${FIXTURES_IMG}" seed --dir=/data/.e2e-fixtures \
   || die "seeding the fixture clip failed"
+
+log "waiting for the library store's database"
+kubectl --context "${CONTEXT}" -n "${NAMESPACE}" wait --for=condition=Ready cluster.postgresql.cnpg.io/clustarr-postgres --timeout=600s \
+  || die "the library store's Postgres never became ready"
 
 log "waiting for every workload in ${NAMESPACE}"
 for workload in "${WORKLOADS[@]}"; do
@@ -122,6 +142,17 @@ go clean -testcache || die "go clean -testcache failed"
 # Always go through the Makefile target: it is the one definition of the e2e
 # `go test` line, and E2E_ARGS is forwarded as a make command-line variable so
 # this script never has to restate (and eventually drift from) that command.
+# The suite reads and writes the library kinds where the manager does: in
+# the store, through a port-forward to its primary, as the app role.
+log "forwarding the library store to 127.0.0.1:15432"
+kubectl --context "${CONTEXT}" -n "${NAMESPACE}" port-forward svc/clustarr-postgres-rw 15432:5432 >/dev/null 2>&1 &
+library_pf=$!
+trap 'kill "${library_pf}" 2>/dev/null || true' EXIT
+sleep 2
+library_uri="$(kubectl --context "${CONTEXT}" -n "${NAMESPACE}" get secret clustarr-postgres-app -o jsonpath='{.data.uri}' | base64 -d)"
+[[ -n "${library_uri}" ]] || die "the library store's app Secret has no uri"
+export CLUSTARR_LIBRARY_DSN="$(printf '%s' "${library_uri}" | sed -E 's#@[^/]+/#@127.0.0.1:15432/#')"
+
 log "running make e2e"
 make e2e E2E_ARGS="${E2E_ARGS:-}"
 status=$?

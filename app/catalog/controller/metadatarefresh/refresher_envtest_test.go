@@ -41,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 type published struct {
@@ -113,7 +114,7 @@ func TestRefresherPublishesAForcedTaskAndConsumesTheAnnotation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
@@ -124,7 +125,7 @@ func TestRefresherPublishesAForcedTaskAndConsumesTheAnnotation(t *testing.T) {
 	require.NoError(t, metadatarefresh.NewRefresher(metadatarefresh.RefreshDeps{Client: mgr.GetClient(), Bus: bus, Recorder: rec}).SetupWithManager(mgr))
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 
 	const ns = "refresh"

@@ -23,4 +23,4 @@ package transcode
 // cache. The blank line keeps the markers package-level.
 //
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;rootfolders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;rootfolders,verbs=get;list;watch

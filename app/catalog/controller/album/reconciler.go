@@ -93,12 +93,8 @@ type bus interface {
 	Request(ctx context.Context, subject string, in, out any) error
 }
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=albums,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=albums/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=albums/finalizers,verbs=update
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is

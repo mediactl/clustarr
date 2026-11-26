@@ -20,4 +20,3 @@ package advisory
 // CacheResolver reads MediaFiles through the manager's cache to resolve a
 // terminated task's UID.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch

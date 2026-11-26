@@ -91,7 +91,6 @@ type bus interface {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists/finalizers,verbs=update
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=albums,verbs=get;list;watch;create
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
 // the group to grant and the core group is not; see series/reconciler.go's

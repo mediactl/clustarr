@@ -43,7 +43,8 @@ import (
 // the renderer's path syntax, conditions excepted.
 func crdBounds(t *testing.T) map[string]int {
 	t.Helper()
-	raw, err := os.ReadFile("../../../config/crd/bases/catalog.clustarr.io_mediafiles.yaml")
+	// A library kind's CRD is its schema, under pkg/library/schemas (ADR-0024).
+	raw, err := os.ReadFile("../../../pkg/library/schemas/catalog.clustarr.io_mediafiles.yaml")
 	require.NoError(t, err)
 	var crd apiextensionsv1.CustomResourceDefinition
 	require.NoError(t, yaml.Unmarshal(raw, &crd))

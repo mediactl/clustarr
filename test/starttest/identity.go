@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/mediactl/clustarr/test/installtest"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // uiRoleFile is ui's hand-written ClusterRole, the one role `make manifests`
@@ -93,7 +94,7 @@ func IdentityKubeconfigs(t testing.TB, env *envtest.Environment, identities []st
 	if err := rbacv1.AddToScheme(scheme); err != nil {
 		t.Fatalf("rbac scheme: %v", err)
 	}
-	admin, err := client.New(env.Config, client.Options{Scheme: scheme})
+	admin, err := librarytest.NewClient(env.Config, client.Options{Scheme: scheme})
 	if err != nil {
 		t.Fatalf("build admin client: %v", err)
 	}

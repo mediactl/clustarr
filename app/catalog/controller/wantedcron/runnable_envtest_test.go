@@ -34,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // newTestClient mirrors pkg/k8s/patch_envtest_test.go: a real apiserver with
@@ -52,7 +53,7 @@ func newTestClient(t *testing.T) client.Client {
 	cfg, err := env.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = env.Stop() })
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return c
 }

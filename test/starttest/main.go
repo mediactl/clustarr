@@ -34,6 +34,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // Main runs m against one envtest control plane built from the repository's
@@ -112,7 +113,9 @@ func NewManager(t testing.TB, cfg *rest.Config, mutate ...func(*ctrl.Options)) c
 	for _, f := range mutate {
 		f(&opts)
 	}
-	mgr, err := ctrl.NewManager(cfg, opts)
+	// The library kinds have no CRD in the control plane: the manager reads
+	// and writes them in the test binary's library database (ADR-0024).
+	mgr, err := librarytest.NewManager(cfg, opts)
 	require.NoError(t, err)
 	return mgr
 }
@@ -140,10 +143,12 @@ func Start(t testing.TB, mgr ctrl.Manager) <-chan error {
 	return failed
 }
 
-// Client is an uncached client on cfg, for a test's own reads and writes.
+// Client is an uncached client on cfg, for a test's own reads and writes:
+// the apiserver's for every kind but the library kinds, which it reads and
+// writes in the test binary's library database.
 func Client(t testing.TB, cfg *rest.Config) client.Client {
 	t.Helper()
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return c
 }

@@ -1,8 +1,10 @@
 # The library store: episodes, files and albums as rows in Postgres
 
 **Date:** 2026-11-26
-**Status:** designed, not built. ADR-0024 (Accepted) records the decision; the
-owner's rulings on its open points are in §6.
+**Status:** built on main, 2026-11-26, all six kinds; not deployed and not yet
+proven on kind (owner: "do all waves and then e2e test all at once"). §9 is
+the record of what was built and where it differs from §3. ADR-0024
+(Accepted) records the decision; the owner's rulings are in §6.
 **Owner's ask:** "Could we re-design clustarr to use significantly less memory
 in the api server? ... Do we really need these all as CRDs or is there a
 cleaner way to do this without hammering the API server?" Then "Yes" to both
@@ -305,3 +307,92 @@ changes is the cache and client wiring, the ui's reader, cluster-plex's
 reader, the agents' readers, the tests' harness (an embedded Postgres beside
 envtest, as `pkg/relindex` uses), the chart and the records. Without them it
 is every one of those files, which is why wave 0 proves them first.
+
+## 9. As built (2026-11-26)
+
+All six kinds moved in one change, at the owner's word ("Do all waves in
+native mode"), in place of §5's wave-by-wave cutovers. What follows is where
+the build differs from §3, and what it found.
+
+**The store runs the apiserver's own code, and keeps the ownership records.**
+§3.3 planned a document per writer in place of server-side apply's records.
+The build calls the apiserver's field-ownership library instead
+(`k8s.io/apimachinery/pkg/util/managedfields`, already linked), with a type
+converter built from each kind's schema, so an apply merges, releases and
+conflicts by the same code. The records (`managedFields`) are therefore
+kept, in the row's `managed` column: read by a write, by a reader of the
+store itself, and by no cache. What left the apiservers is their copy of
+them, three times over.
+
+**A kind's schema is its CRD file.** `make manifests` still renders it and
+moves it to `pkg/library/schemas/` (`LIBRARY_RESOURCES` in the Makefile),
+which `pkg/library` embeds. Defaults, pruning and the value checks come from
+it through the apiserver's own libraries; the five validation rules the six
+schemas carry are written in Go (`pkg/library/validate.go`), because the
+manager links no CEL runtime, and a schema naming a rule that table lacks
+does not load.
+
+**One table per kind, three columns.** `body` (the object without status,
+`resourceVersion` and ownership records), `status`, `managed`; no generated
+columns yet. `status` is its own column so that the ui's database role can
+be granted the others and not it. A trigger stamps the version, appends to
+`library.change` and notifies; it takes the version from the kind's row in
+`library.head` and so holds that row until the write commits: writes to one
+kind commit in the order of their versions, which is what makes a cursor
+over the feed safe (§4, item 1).
+
+**Packages.** `pkg/library` (the store, the schemas, the list-watcher, a
+client that only reads, the wiring for a cache); `pkg/library/readwrite`
+(the client that writes, and the collector), which no agent links;
+`pkg/library/ctrlwire` (the wiring for a manager's options), which the ui
+does not link; `test/librarytest` (an embedded Postgres per test binary).
+The reconcilers, the remediation loop, the planners and `pkg/k8s.PatchStatus`
+are unchanged.
+
+**What the differential tests found** (§4, item 2: the same writes to a real
+apiserver and to the store must agree):
+
+- The status endpoint's reset fields are `metadata` and `spec`, not `spec`
+  alone: a status update that drops a label releases no ownership of it.
+- A null where the schema takes none is dropped from an update or a merge
+  patch (a typed object's zero time encodes as one) and is refused in an
+  applied configuration.
+- Metadata passes through ObjectMeta: the last annotation removed by a JSON
+  patch leaves no `annotations` field, not an empty one.
+- An applied configuration is read as YAML, which refuses a raw C1 control
+  character in a string; a patch is JSON and takes it.
+- A read of the store itself answers the ownership records, as a read of
+  the apiserver does; only a cache's feed leaves them out, when the cache
+  would strip them.
+
+**Owners.** `readwrite.Collector` (the manager's leader, every 30 s) deletes
+the objects all of whose owners are gone, by the apiserver collector's rule
+(§3.4). No parent's finalizer deletes rows.
+
+**Roles.** The manager grants `library.ui.role` and `library.readOnly.role`
+their shares when they exist; the chart creates neither and by default every
+process connects as the Cluster's app role, which holds none of them to
+anything. The database lives in the app database (`clustarr`), schema
+`library`, beside the release index's tables.
+
+**The proofs of §4.** 1 (the feed never skips), 2 (every kind, against
+envtest) and 3 (a manager with no CRD, by an ordinary and by a row informer)
+have tests that failed with the mechanism broken. 4 is half proven: a stale
+version is a conflict, and a feed that has gone backwards makes a reader
+list again; a CNPG switchover in the middle of a write has not been run. 5
+(the manager's start on talos's 33,839 MediaFiles) has not been measured.
+
+**Not built:**
+
+- The `library` subcommand of the manager binary (§3.8). People have the UI
+  and `psql`.
+- The `clustarr_library_*` metrics (§3.9).
+- Paged queries in the ui (§3.5): its reader still holds every kind in an
+  informer cache, now fed from the store.
+- Generated, indexed columns for readers that filter (§3.1).
+- The index role's `synchronous_commit = local` (§3.9): the index and the
+  library share the app role by default, so there is no role to set it on.
+
+**cluster-plex** reads MediaFiles and Episodes through its own
+`pkg/clustarrlib` (the tables are the contract; this module's
+`TestTheTablesAreTheContractClusterPlexReads` runs its statements).

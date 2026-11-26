@@ -28,8 +28,7 @@ package scanapply
 // file may belong to (a part file's MediaFile among them), and creates the
 // LibraryScan that re-observes a folder whose basis moved.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors;audiobooks;albums,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes;books;comics;issues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=comics,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch;create

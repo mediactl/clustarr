@@ -5,8 +5,8 @@ less memory in the api server?", then "Yes" to losing `kubectl` for the kinds th
 to Postgres as a required dependency, then the three rulings in the design's §6: copy at
 each cutover, share the existing `clustarr-postgres` Cluster apart from `plex-db`, and move
 Book, Audiobook and Issue too). Design:
-`docs/superpowers/specs/2026-11-26-library-store-design.md`. Nothing is built, and every
-invariant in `docs/claude/invariants.md` stands as written until a wave lands.
+`docs/superpowers/specs/2026-11-26-library-store-design.md`. Built on main the same day for
+all six kinds (the design's §9 is the record); not deployed, and not yet proven on kind.
 
 ## Context
 

@@ -183,8 +183,8 @@ Call with (dict "affinity" <affinity map> "exprs" <list of expressions>).
 {{- end -}}
 
 {{- define "clustarr.validate" -}}
-{{- if and (or .Values.postgres.enabled (index .Values "cluster-plex" "enabled")) (index .Values "cloudnative-pg" "enabled") .Release.IsInstall -}}
-{{- fail "postgres.enabled or cluster-plex.enabled (whose database is a CloudNativePG Cluster too) cannot be set with cloudnative-pg.enabled on a first `helm install`: CNPG's admission webhook fails closed until the operator this chart would install is Ready. Install the operator first (cloudnative-pg.enabled=true alone, --wait), then upgrade with postgres.enabled or cluster-plex.enabled." -}}
+{{- if and (or .Values.postgres.enabled .Values.library.cluster (index .Values "cluster-plex" "enabled")) (index .Values "cloudnative-pg" "enabled") .Release.IsInstall -}}
+{{- fail "library.cluster (the library store's CloudNativePG Cluster, on by default), postgres.enabled or cluster-plex.enabled cannot be set with cloudnative-pg.enabled on a first `helm install`: CNPG's admission webhook fails closed until the operator this chart would install is Ready. Install the operator first (cloudnative-pg.enabled=true with library.cluster=false, --wait), then upgrade with library.cluster=true. With CloudNativePG already running in the cluster, leave cloudnative-pg.enabled=false and there is nothing to order." -}}
 {{- end -}}
 {{- if and .Values.postgres.enabled (index .Values "cloudnative-pg" "enabled") .Release.IsInstall -}}
 {{- fail "postgres.enabled and cloudnative-pg.enabled cannot both be true on a first `helm install`: CNPG's admission webhook fails closed until the operator this chart would install is actually Ready, and a first install submits every rendered object -- including the Cluster -- in one pass, before that operator can possibly be running yet. Install in two steps instead: `helm install ... --set cloudnative-pg.enabled=true --set postgres.enabled=false --wait` (waits for the bundled operator's own resources to be Ready), then `helm upgrade ... --set cloudnative-pg.enabled=true --set postgres.enabled=true` to add the Cluster once its webhook is up. If CloudNativePG is already running elsewhere in the cluster, leave cloudnative-pg.enabled=false and set only postgres.enabled=true -- there is no ordering problem to guard against then, just `kubectl wait --for=condition=Available deployment/cnpg-controller-manager -n cnpg-system` first." -}}
@@ -657,3 +657,33 @@ spec:
       {{- toYaml . | nindent 6 }}
       {{- end }}
 {{- end }}
+
+
+{{/*
+clustarr.libraryEnv is the library store's connection for one workload
+(ADR-0024): CLUSTARR_LIBRARY_DSN from the Secret its identity names -- "who"
+is manager, ui or readOnly -- falling back to the manager's, which falls
+back to the rendered Cluster's app Secret. The manager also gets the two
+role names it grants when it migrates.
+*/}}
+{{- define "clustarr.libraryEnv" -}}
+{{- $root := .root -}}
+{{- $lib := $root.Values.library -}}
+{{- $name := default (printf "%s-postgres-app" (include "clustarr.fullname" $root)) $lib.existingSecret -}}
+{{- $key := default "uri" $lib.secretKey -}}
+{{- if ne .who "manager" -}}
+{{- $own := index $lib .who | default dict -}}
+{{- $name = default $name $own.existingSecret -}}
+{{- $key = default $key $own.secretKey -}}
+{{- end -}}
+{{- $env := list (dict "name" "CLUSTARR_LIBRARY_DSN" "valueFrom" (dict "secretKeyRef" (dict "name" $name "key" $key))) -}}
+{{- if eq .who "manager" -}}
+{{- with ($lib.ui | default dict).role -}}
+{{- $env = append $env (dict "name" "CLUSTARR_LIBRARY_UI_ROLE" "value" .) -}}
+{{- end -}}
+{{- with ($lib.readOnly | default dict).role -}}
+{{- $env = append $env (dict "name" "CLUSTARR_LIBRARY_READ_ROLE" "value" .) -}}
+{{- end -}}
+{{- end -}}
+{{- toYaml $env -}}
+{{- end -}}

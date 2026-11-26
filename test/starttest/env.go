@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	"github.com/mediactl/clustarr/test/installtest"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // StartEnv starts an envtest control plane with every CRD under
@@ -41,9 +42,14 @@ func StartEnv(t testing.TB) *envtest.Environment {
 		CRDDirectoryPaths:     []string{filepath.Join(installtest.RepoRoot(t), "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
 	}
-	if _, err := env.Start(); err != nil {
+	cfg, err := env.Start()
+	if err != nil {
 		t.Fatalf("start envtest: %v", err)
 	}
+	// The library kinds are rows in this control plane's library database
+	// (ADR-0024). A binary run in this process reads its address from the
+	// environment, as it does in a pod.
+	librarytest.Use(t, cfg)
 	t.Cleanup(func() {
 		if err := env.Stop(); err != nil {
 			t.Errorf("stop envtest: %v", err)

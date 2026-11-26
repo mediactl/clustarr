@@ -44,6 +44,9 @@ import (
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/k8s/rowcache"
+	"github.com/mediactl/clustarr/pkg/library"
+	"github.com/mediactl/clustarr/pkg/library/ctrlwire"
+	"github.com/mediactl/clustarr/pkg/library/readwrite"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/placement"
@@ -78,6 +81,12 @@ type Options struct {
 	NativeImage string
 	// DataClaim is the RWX claim the engines and the pools mount at DataDir.
 	DataClaim string
+	// LibraryUIRole and LibraryReadRole name the library store's database
+	// roles the manager grants their share to when it migrates (ADR-0024):
+	// the ui's, which may write an object's spec and metadata and never its
+	// status, and the read-only one the agents and cluster-plex connect as.
+	// Empty grants nothing: every process then shares the manager's role.
+	LibraryUIRole, LibraryReadRole string
 	// EngineServiceAccount is the ServiceAccount the engine pods run as.
 	EngineServiceAccount string
 	// EngineMemoryLimitTorrent and EngineMemoryLimitUsenet are the memory
@@ -287,7 +296,9 @@ var rowCacheKinds = []client.Object{
 // read is a by-name Get; Wave 4e's Trakt token compare-and-swap reads the
 // Secret live), the pool Jobs selected by transcode's managed-by label, no
 // MediaFile status.mediaInfo strip (the manager reads it), and the large
-// kinds held as compressed rows.
+// kinds held as compressed rows. libraryOptions rebuilds the cache
+// constructor once the library store is wired, so a row kind the store holds
+// is fed from it.
 func managerOptions(o Options) ctrl.Options {
 	opts := o.ManagerOptions(LeaderElectionID, o.LeaderElect)
 	opts.Client.FieldOwner = string(k8s.DefaultFieldOwner)
@@ -298,6 +309,24 @@ func managerOptions(o Options) ctrl.Options {
 		opts.Controller.SkipNameValidation = new(true)
 	}
 	return opts
+}
+
+// libraryOptions is managerOptions pointed at the library store (ADR-0024):
+// the mapper, the client and every informer of a library kind, the row
+// informers included -- the cache constructor is rebuilt with the wiring's
+// source, since it builds those itself. Run and the package's envtests
+// build their manager from this, so a test runs the cache production runs.
+func libraryOptions(o Options, store *library.Store) (ctrl.Options, error) {
+	opts := managerOptions(o)
+	// No cache here holds managedFields (ManagerOptions' CacheTransform), so
+	// the store never reads them for one.
+	wiring := readwrite.Wiring(store, opts.Scheme)
+	wiring.OmitManagedFields = true
+	if err := ctrlwire.Apply(wiring, &opts); err != nil {
+		return opts, err
+	}
+	opts.NewCache = rowcache.New(rowcache.Options{Kinds: rowCacheKinds, Source: wiring.Source})
+	return opts, nil
 }
 
 // validateLiveTV checks the Live TV flags unless Live TV is disabled.

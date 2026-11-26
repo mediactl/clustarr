@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -89,9 +90,9 @@ func Start(t testing.TB) *Env {
 func newEnv(t testing.TB, cfg *rest.Config) *Env {
 	t.Helper()
 	scheme := k8s.MustNewScheme()
-	admin, err := client.New(cfg, client.Options{Scheme: scheme})
+	admin, err := librarytest.NewClient(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
-	loopClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	loopClient, err := librarytest.NewClient(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 	bus := membus.New(nil)
 	require.NoError(t, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
@@ -288,7 +289,7 @@ func StartManager(t testing.TB, setup func(ctrl.Manager, events.Bus) error) *Env
 		Cache:                  cache.Options{DefaultTransform: cache.TransformStripManagedFields()},
 	}
 	opts.Client.FieldOwner = k8s.DefaultFieldOwner
-	mgr, err := ctrl.NewManager(env.Config, opts)
+	mgr, err := librarytest.NewManager(env.Config, opts)
 	require.NoError(t, err)
 	require.NoError(t, setup(mgr, e.Bus))
 	ctx, cancel := context.WithCancel(context.Background())

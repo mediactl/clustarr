@@ -24,6 +24,5 @@ package rename
 // EventRecorder (mgr.GetEventRecorder). The blank line keeps the markers
 // package-level.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;albums;artists;books;authors;audiobooks;comics;issues;rootfolders;libraryscans,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors;comics;rootfolders;libraryscans,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch

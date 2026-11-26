@@ -29,6 +29,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -58,7 +59,7 @@ func TestAgentsRegisterNoLeaderOnlyRunnable(t *testing.T) {
 				requireFFmpeg(t)
 			}
 			o := domainOptions(t, d)
-			mgr, err := ctrl.NewManager(env.Config, managerOptions(o))
+			mgr, err := librarytest.NewManager(env.Config, managerOptions(o))
 			require.NoError(t, err)
 			rec := &recordingManager{Manager: mgr}
 			reg, err := domains[d](context.Background(), rec, bus, o)

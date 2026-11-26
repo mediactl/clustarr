@@ -35,7 +35,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	batchac "k8s.io/client-go/applyconfigurations/batch/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
@@ -53,6 +52,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -95,7 +95,7 @@ func startGraftFixture(t *testing.T, name string) *graftFixture {
 		return &commonv1.MediaInfo{Container: "matroska", VideoCodec: codec, Width: 1920, Height: 1080, Audio: audio}, &mediainfo.Raw{}, nil
 	}))
 
-	mgr, err := ctrl.NewManager(env.Config, managerOptions(o))
+	mgr, err := newManager(t, env.Config, o)
 	require.NoError(t, err)
 	_, err = register(t.Context(), mgr, bus, o, nil)
 	require.NoError(t, err)
@@ -111,7 +111,7 @@ func startGraftFixture(t *testing.T, name string) *graftFixture {
 			t.Error("the manager did not stop within 30s")
 		}
 	})
-	f.c, err = client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
+	f.c, err = librarytest.NewClient(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 
 	root := mediaTempDir(t)

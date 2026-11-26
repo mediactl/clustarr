@@ -52,7 +52,7 @@ import (
 // projector (app/catalog/worker/history) holds the patch verb too; this
 // package states its own, and the watch needs get, list and watch.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;artists;albums;authors;books;audiobooks;comics;issues;importlists;libraryscans,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors;comics;importlists;libraryscans,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch;patch
 
 // ReplayKinds is every kind a dead letter can be replayed from: exactly the

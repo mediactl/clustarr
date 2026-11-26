@@ -32,6 +32,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/autoscale/extmetrics"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func startEnv(t *testing.T) (*rest.Config, client.Client) {
@@ -43,7 +44,7 @@ func startEnv(t *testing.T) (*rest.Config, client.Client) {
 	cfg, err := env.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = env.Stop() })
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return cfg, c
 }

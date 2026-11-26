@@ -59,6 +59,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/probestore"
 	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // ns is the namespace every harness object lives in.
@@ -138,7 +139,7 @@ func newHarness(t *testing.T, o harnessOptions) *harness {
 	h.cfg = remediationtest.StartManager(t, func(mgr ctrl.Manager, bus events.Bus) error {
 		h.raw = bus.(*membus.Bus)
 		h.bus = &harnessBus{Bus: bus, StreamAdmin: h.raw, h: h}
-		c, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme()})
+		c, err := librarytest.NewClient(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme()})
 		if err != nil {
 			return err
 		}
@@ -184,7 +185,7 @@ func (h *harness) local(logical string) string {
 	return p
 }
 
-func (h *harness) stat(path string) (fs.FileInfo, error)       { return os.Stat(h.local(path)) }
+func (h *harness) stat(path string) (fs.FileInfo, error)      { return os.Stat(h.local(path)) }
 func (h *harness) readDir(path string) ([]fs.DirEntry, error) { return os.ReadDir(h.local(path)) }
 
 // fixtures creates the movies RootFolder, the QualityProfile hd and the
@@ -448,10 +449,14 @@ func waitFile(t *testing.T, c client.Client, mf *catalogv1alpha1.MediaFile, what
 
 // phase reports a file whose block is in p.
 func phase(p catalogv1alpha1.TranscodePhase) func(*catalogv1alpha1.MediaFile) bool {
-	return func(m *catalogv1alpha1.MediaFile) bool { return m.Status.Transcode != nil && m.Status.Transcode.Phase == p }
+	return func(m *catalogv1alpha1.MediaFile) bool {
+		return m.Status.Transcode != nil && m.Status.Transcode.Phase == p
+	}
 }
 
 // requested reports a record requested at seq.
 func requested(seq int64) func(*task.Record, bool) bool {
-	return func(rec *task.Record, ok bool) bool { return ok && rec.Seq == seq && rec.State == records.StateRequested }
+	return func(rec *task.Record, ok bool) bool {
+		return ok && rec.Seq == seq && rec.State == records.StateRequested
+	}
 }

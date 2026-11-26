@@ -46,6 +46,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/itemtest"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func init() {
@@ -84,7 +85,7 @@ func (c *reconcileCounter) count() int64 { return c.n.Load() }
 // a scenario can drive a pass no watch wakes (its Comic's grab entries).
 func startManager(t *testing.T, ctx context.Context, cfg *rest.Config) (client.Client, *issue.Reconciler, *reconcileCounter) {
 	t.Helper()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",

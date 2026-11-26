@@ -55,6 +55,13 @@ PAR2GO_VERSION := $(shell go list -m -f '{{.Version}}' github.com/mediactl/par2g
 
 API_PATHS := ./api/...
 CRD_DIR := config/crd/bases
+# The library kinds (ADR-0024), by the file controller-gen names their CRD.
+# `make manifests` moves each out of CRD_DIR into LIBRARY_SCHEMA_DIR, so none
+# reaches kustomize, the chart or envtest as a CRD. A kind joins this list in
+# the wave that moves it.
+LIBRARY_SCHEMA_DIR := pkg/library/schemas
+LIBRARY_RESOURCES := catalog.clustarr.io_albums catalog.clustarr.io_audiobooks catalog.clustarr.io_books \
+	catalog.clustarr.io_episodes catalog.clustarr.io_issues catalog.clustarr.io_mediafiles
 
 # The RBAC ClusterRoles `make manifests` generates, one per identity that runs
 # under its own ServiceAccount (spec 2026-10-06 §4.6, §10.2.4): the manager,
@@ -178,6 +185,9 @@ css: ## Build ui/static/app.css with the standalone Tailwind CLI (downloads it i
 .PHONY: manifests
 manifests: ## Generate CRDs and one RBAC ClusterRole per identity (RBAC_ROLES).
 	$(CONTROLLER_GEN) crd paths="$(API_PATHS)" output:crd:artifacts:config=$(CRD_DIR)
+	@# A library kind (ADR-0024) is a row in Postgres, not a custom resource:
+	@# its CRD is its schema, embedded by pkg/library and installed nowhere.
+	$(foreach r,$(LIBRARY_RESOURCES),mv $(CRD_DIR)/$(r).yaml $(LIBRARY_SCHEMA_DIR)/$(r).yaml;)
 	@mkdir -p config/rbac
 	$(foreach role,$(RBAC_ROLES),$(CONTROLLER_GEN) rbac:roleName=clustarr-$(role)-role $(foreach p,$(RBAC_PATHS_$(role)),paths=$(p)) output:rbac:stdout > config/rbac/$(subst -,_,$(role))_role.yaml.tmp && mv config/rbac/$(subst -,_,$(role))_role.yaml.tmp config/rbac/$(subst -,_,$(role))_role.yaml &&) true
 

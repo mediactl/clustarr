@@ -36,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // testClient is the envtest apiserver client every test in this package
@@ -63,7 +64,7 @@ func TestMain(m *testing.M) {
 	}
 
 	code := func() int {
-		c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+		c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "build client: %v\n", err)
 			return 1

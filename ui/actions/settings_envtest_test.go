@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/ui/actions"
 )
 
@@ -85,7 +86,7 @@ func TestSetSubtitleProviderSettingsReallyDisablesAgainstARealAPIServer(t *testi
 
 	scheme := runtime.NewScheme()
 	require.NoError(t, subtitlev1alpha1.AddToScheme(scheme))
-	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 
 	ctx := t.Context()

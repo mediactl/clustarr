@@ -36,6 +36,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func startEnv(t *testing.T, gates bool) client.Client {
@@ -52,7 +53,7 @@ func startEnv(t *testing.T, gates bool) client.Client {
 	restCfg, err := env.Start() // not `cfg`: that is the package's pool.Config
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = env.Stop() })
-	c, err := client.New(restCfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(restCfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	require.NoError(t, c.Create(context.Background(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: cfg.Namespace}}))
 	return c

@@ -47,6 +47,7 @@ import (
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 var cfg *rest.Config
@@ -144,10 +145,10 @@ func setup(t *testing.T) *harness {
 	}
 	h := &harness{snaps: &snapshots{snaps: map[types.NamespacedName]tuner.Snapshot{}}, events: make(chan event.GenericEvent, 16), ns: fmt.Sprintf("media-%d", nsSeq.Add(1))}
 	scheme := k8s.MustNewScheme()
-	direct, err := client.New(cfg, client.Options{Scheme: scheme})
+	direct, err := librarytest.NewClient(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 	require.NoError(t, direct.Create(context.Background(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: h.ns}}))
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0", Controller: config.Controller{SkipNameValidation: ptr.To(true)},
 	})

@@ -38,6 +38,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // TestUnclaimedDispatchIsWithdrawnAfterTheWindow (§5.17, fake clock): no
@@ -221,7 +222,7 @@ func TestAClearedBlockFreesItsSlot(t *testing.T) {
 // before a poll could read it.
 func firstStored(t *testing.T, h *harness, mf *catalogv1alpha1.MediaFile, cond func(*catalogv1alpha1.MediaFile) bool) <-chan *catalogv1alpha1.MediaFile {
 	t.Helper()
-	w, err := client.NewWithWatch(h.cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	w, err := librarytest.NewWithWatch(h.cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	watch, err := w.Watch(context.Background(), &catalogv1alpha1.MediaFileList{}, client.InNamespace(mf.Namespace),
 		client.MatchingFields{"metadata.name": mf.Name})

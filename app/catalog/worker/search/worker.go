@@ -98,8 +98,8 @@ type EvaluateFunc func(
 ) []decision.Decision
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=searches,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;series,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;authors;comics,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 
 // Worker consumes catalog.SearchTask.v2.

@@ -77,6 +77,12 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.StringVar(&d.LoggingConfigMap, "logging-configmap", d.LoggingConfigMap,
 		"ConfigMap holding logging.yaml, which every engine, transcode pool and graft pod the manager "+
 			"builds mounts optionally at /etc/clustarr, so a level set there reaches them. Empty mounts nothing.")
+	fs.StringVar(&d.LibraryUIRole, "library-ui-role", cli.EnvOr("CLUSTARR_LIBRARY_UI_ROLE", d.LibraryUIRole),
+		"Database role the ui connects to the library store as: granted an object's spec and metadata, "+
+			"never its status. Empty grants nothing. Defaults to $CLUSTARR_LIBRARY_UI_ROLE.")
+	fs.StringVar(&d.LibraryReadRole, "library-read-role", cli.EnvOr("CLUSTARR_LIBRARY_READ_ROLE", d.LibraryReadRole),
+		"Database role the agents and cluster-plex connect to the library store as: granted reads alone. "+
+			"Empty grants nothing. Defaults to $CLUSTARR_LIBRARY_READ_ROLE.")
 	fs.StringVar(&d.DataClaim, "data-claim", cli.EnvOr(cli.EnvDataClaim, d.DataClaim),
 		"RWX PersistentVolumeClaim the engines and the transcode pools mount at --data-dir. "+
 			"Defaults to $"+cli.EnvDataClaim+".")

@@ -30,7 +30,7 @@ import (
 
 // The Planner lists a season's episodes and their files through the cache.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles;episodes;series,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch
 
 // Options configures Setup.
 type Options struct {

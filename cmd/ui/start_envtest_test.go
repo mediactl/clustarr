@@ -40,6 +40,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	uicli "github.com/mediactl/clustarr/internal/cli/ui"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 	"github.com/mediactl/clustarr/ui/actions"
 )
@@ -124,7 +125,7 @@ func TestUIStartsAndServes(t *testing.T) {
 func verifyUI(t *testing.T, cfg *rest.Config, addr, suffix string) {
 	t.Helper()
 	ctx := context.Background()
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	if err != nil {
 		t.Fatalf("build client: %v", err)
 	}

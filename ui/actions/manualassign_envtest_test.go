@@ -30,6 +30,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/ui/actions"
 )
 
@@ -61,7 +62,7 @@ func TestManualAssignManagerNeverOwnsStatus(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	require.NoError(t, catalogv1alpha1.AddToScheme(scheme))
-	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 
 	ctx := t.Context()

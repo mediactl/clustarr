@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // sampleFloor clears fsops.DefaultSampleMaxBytes: a video file under 50 MiB
@@ -85,7 +86,7 @@ func TestMain(m *testing.M) {
 	ctx, cancel := context.WithCancel(context.Background())
 	code := func() int {
 		defer cancel()
-		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 			Scheme:                 k8s.MustNewScheme(),
 			Metrics:                metricsserver.Options{BindAddress: "0"},
 			HealthProbeBindAddress: "0",

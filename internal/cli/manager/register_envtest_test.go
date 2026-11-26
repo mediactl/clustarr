@@ -101,7 +101,7 @@ func TestManagerFieldIndexes(t *testing.T) {
 	env := starttest.StartEnv(t)
 	o := testOptions()
 	o.Autoscale = false
-	mgr, err := ctrl.NewManager(env.Config, managerOptions(o))
+	mgr, err := newManager(t, env.Config, o)
 	require.NoError(t, err)
 	rec := newRecordingManager(mgr)
 	_, err = register(t.Context(), rec, membus.New(clockwork.NewRealClock()), o, nil)
@@ -154,7 +154,7 @@ func TestRegisterWiresAutoscaleByTheFlag(t *testing.T) {
 	run := func(enabled bool) *recordingManager {
 		o := testOptions()
 		o.Autoscale = enabled
-		mgr, err := ctrl.NewManager(env.Config, managerOptions(o))
+		mgr, err := newManager(t, env.Config, o)
 		require.NoError(t, err)
 		rec := newRecordingManager(mgr)
 		names, err := register(t.Context(), rec, membus.New(clockwork.NewRealClock()), o, nil)
@@ -204,7 +204,7 @@ func TestIntakeConsumersRunOnlyOnTheLeader(t *testing.T) {
 	env := starttest.StartEnv(t)
 	o := testOptions()
 	o.Autoscale = false
-	mgr, err := ctrl.NewManager(env.Config, managerOptions(o))
+	mgr, err := newManager(t, env.Config, o)
 	require.NoError(t, err)
 	rec := newRecordingManager(mgr)
 	_, err = register(t.Context(), rec, membus.New(clockwork.NewRealClock()), o, nil)

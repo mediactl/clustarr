@@ -90,7 +90,7 @@ type RefreshDeps struct {
 // The refresher's RBAC: the annotated kinds' metadata, and the patch that
 // consumes the annotation. Nothing here touches a status subresource.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;albums;authors;books;audiobooks;comics,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;authors;comics,verbs=get;list;watch;patch
 
 // Refresher is the clustarr.io/refresh-metadata handler: a metadata-only
 // controller per kind in refreshKinds, woken by the annotation, that

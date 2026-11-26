@@ -43,6 +43,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func newTestClient(t *testing.T) client.Client {
@@ -55,7 +56,7 @@ func newTestClient(t *testing.T) client.Client {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = env.Stop() })
 
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return c
 }

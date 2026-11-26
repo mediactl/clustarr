@@ -57,19 +57,13 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
   - delayprofiles
-  - episodes
   - importexclusions
   - importlists
-  - issues
   - libraryscans
-  - mediafiles
   - metadataproviders
   - movies
   - plexcollections
@@ -130,9 +124,7 @@ rules:
   - catalog.clustarr.io
   resources:
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
   - libraryscans
   - movies
@@ -143,14 +135,9 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
-  - episodes
-  - issues
   - movies
   - searches
   - series

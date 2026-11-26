@@ -316,8 +316,8 @@ func TestGeneratedRolesCoverEveryStatusWriter(t *testing.T) {
 	for _, want := range []string{
 		"catalog.clustarr.io/movies/status",
 		"catalog.clustarr.io/series/status",
-		"catalog.clustarr.io/episodes/status",
-		"catalog.clustarr.io/mediafiles/status",
+		// Not episodes or mediafiles: a library kind (ADR-0024) is a row in
+		// Postgres, and no role names one.
 		"catalog.clustarr.io/rootfolders/status",
 		"catalog.clustarr.io/qualityprofiles/status",
 		"catalog.clustarr.io/delayprofiles/status",

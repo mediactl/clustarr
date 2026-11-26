@@ -37,6 +37,7 @@ import (
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // startIndexerController runs the Indexer controller through its OWN
@@ -44,7 +45,7 @@ import (
 // a test exercises -- reconcileOnce would bypass both.
 func startIndexerController(t *testing.T) {
 	t.Helper()
-	mgr, err := ctrl.NewManager(testCfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(testCfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: k8s.DisabledBindAddress},
 		HealthProbeBindAddress: k8s.DisabledBindAddress,

@@ -1,5 +1,6 @@
-# OPTIONAL kustomize Component: adds a CloudNativePG Cluster, re-points the
-# index agent at Postgres instead of its local SQLite volume, and drops the RWO
+# OPTIONAL kustomize Component: re-points the index agent at Postgres (the
+# Cluster config/library renders) instead of its local SQLite volume, and
+# drops the RWO
 # index PVC config/default/pvc.yaml otherwise renders unconditionally
 # (design spec 2026-09-24 §A; ADR-0010). It is a Component rather than a
 # plain Kustomization because it only makes sense composed INTO an overlay
@@ -20,9 +21,9 @@
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 
-resources:
-- cluster.yaml
-
+# The Cluster itself is config/library's: every install has it, for the
+# library store (ADR-0024). This component only moves the release index
+# onto it.
 patches:
 - path: agent-index-patch.yaml
 - path: delete-index-pvc.yaml

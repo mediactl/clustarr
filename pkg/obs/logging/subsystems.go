@@ -86,6 +86,8 @@ var Subsystems = []string{
 	"intake.advisory",
 	"intake.candidates",
 	"intake.scans",
+	"library.collect",
+	"library.feed",
 	"livetv.iptvchannel",
 	"livetv.iptvprovider",
 	"livetv.leaderendpoint",

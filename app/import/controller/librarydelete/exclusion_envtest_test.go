@@ -35,6 +35,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // envtestClient is a client against a real apiserver with the CRDs
@@ -59,7 +60,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	code := func() int {
-		envtestClient, err = client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+		envtestClient, err = librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "build client: %v\n", err)
 			return 1

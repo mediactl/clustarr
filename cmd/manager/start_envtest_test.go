@@ -53,6 +53,7 @@ import (
 	"github.com/mediactl/clustarr/internal/cli/manager"
 	"github.com/mediactl/clustarr/pkg/binpath"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -114,7 +115,7 @@ func TestManagerStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	natsURL := starttest.EmbeddedNATS(t)
 	kcs := starttest.IdentityKubeconfigs(t, env, []string{"manager"})
 	cfg := starttest.RESTConfig(t, kcs["manager"])
-	admin, err := client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
+	admin, err := librarytest.NewClient(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	createInstallerAPIService(t, admin)
 

@@ -41,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // testCfg is the shared envtest control plane. It is nil when
@@ -84,7 +85,7 @@ func newTestManager(t *testing.T) ctrl.Manager {
 	t.Helper()
 	requireEnvtest(t)
 
-	mgr, err := ctrl.NewManager(testCfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(testCfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: k8s.DisabledBindAddress},
 		HealthProbeBindAddress: k8s.DisabledBindAddress,

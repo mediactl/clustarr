@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/ui/actions"
 )
 
@@ -200,7 +201,7 @@ func TestConfigActionsAgainstARealAPIServer(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
-	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 
 	ctx := t.Context()

@@ -7,14 +7,9 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
-  - episodes
-  - issues
   - movies
   - qualityprofiles
   - series

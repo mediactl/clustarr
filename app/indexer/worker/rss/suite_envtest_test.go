@@ -36,6 +36,7 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // testCfg is the shared envtest control plane. It is nil when
@@ -101,7 +102,7 @@ func setup(t *testing.T) (context.Context, client.Client, string) {
 	t.Helper()
 	requireEnvtest(t)
 
-	c, err := client.New(testCfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(testCfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 
 	ctx := t.Context()

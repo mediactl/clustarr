@@ -57,6 +57,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/overlay"
 	overlayrender "github.com/mediactl/clustarr/pkg/overlay/render"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 var (
@@ -79,7 +80,7 @@ func envtestClient(t *testing.T) client.Client {
 			envErr = err
 			return
 		}
-		envClient, envErr = client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+		envClient, envErr = librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	})
 	require.NoError(t, envErr)
 	return envClient

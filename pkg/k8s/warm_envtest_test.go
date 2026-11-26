@@ -27,10 +27,13 @@ import (
 
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -71,7 +74,7 @@ func TestStandbyWarmsTheFailoverKinds(t *testing.T) {
 	rec := &watchRecorder{resources: map[string]bool{}}
 	cfg := rest.CopyConfig(env.Config)
 	cfg.Wrap(func(rt http.RoundTripper) http.RoundTripper { rec.next = rt; return rec })
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme: k8s.MustNewScheme(), LeaderElection: true, LeaderElectionID: "standby-warm-test",
 		LeaderElectionNamespace: "default", Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0",
 	})
@@ -87,14 +90,27 @@ func TestStandbyWarmsTheFailoverKinds(t *testing.T) {
 	go func() { defer close(done); _ = mgr.Start(ctx) }()
 	defer func() { cancel(); <-done }()
 
+	// Movie and Series are watched at the apiserver. MediaFile and Episode
+	// are rows in the library store (ADR-0024): their informers follow its
+	// feed, so the standby is warm for them when those have synced, and the
+	// apiserver sees no watch of either.
 	starttest.WaitFor(t, "the four failover kinds watched", func() bool {
 		w := rec.watched()
-		return w["mediafiles"] && w["episodes"] && w["movies"] && w["series"]
+		if !w["movies"] || !w["series"] {
+			return false
+		}
+		for _, obj := range []client.Object{&catalogv1alpha1.MediaFile{}, &catalogv1alpha1.Episode{}} {
+			inf, err := mgr.GetCache().GetInformer(ctx, obj, cache.BlockUntilSynced(false))
+			if err != nil || !inf.HasSynced() {
+				return false
+			}
+		}
+		return true
 	})
 	time.Sleep(2 * time.Second)
 	for res := range rec.watched() {
 		switch res {
-		case "mediafiles", "episodes", "movies", "series", "leases":
+		case "movies", "series", "leases":
 		default:
 			t.Errorf("a standby watches %s, which no warmer asked for", res)
 		}

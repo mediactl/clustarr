@@ -40,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // fakeDLQ is a DLQReader over a fixed set of dead letters.
@@ -146,7 +147,7 @@ func TestReplayer(t *testing.T) {
 		lastOn: map[string]uint64{heatDLQ: 7},
 	}
 
-	mgr, err := ctrl.NewManager(testCfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(testCfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",

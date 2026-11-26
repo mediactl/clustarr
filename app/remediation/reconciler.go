@@ -24,6 +24,8 @@ import (
 	"slices"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	corev1 "k8s.io/api/core/v1"
@@ -43,6 +45,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation/mediafilestatus"
 	"github.com/mediactl/clustarr/app/transcode/admission"
+	"github.com/mediactl/clustarr/app/transcode/grafttask"
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -215,6 +218,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 		if apierrors.IsNotFound(err) {
 			r.keys.forget(nn)
 			r.forgetTranscode(ctx, nn)
+			r.forgetGraftJobs(ctx, nn)
 			return reconcile.Result{}, nil
 		}
 		return r.count(passError, reconcile.Result{RequeueAfter: ks.transientBackoff(), Priority: new(0)}), nil
@@ -642,6 +646,32 @@ func (r *Reconciler) observeTranscode(mf *catalogv1alpha1.MediaFile, st *catalog
 // math.MaxInt64 through the transcode planner (§5.10's withdrawAll; no
 // MediaFile finalizer, D11). A failure is logged and left to admission's
 // sweep.
+// forgetGraftJobs deletes the graft Jobs of a MediaFile that is gone. Each
+// names the file as its controlling owner, and while a MediaFile was a
+// custom resource the apiserver's garbage collector deleted the Job with it.
+// A MediaFile is a row now (ADR-0024): that collector cannot resolve the
+// owner and leaves the Job alone, so the loop removes it here, at the pass
+// the file's delete wakes. A Job this misses (the manager down at that
+// moment) ends at its own deadline and goes at its TTL.
+func (r *Reconciler) forgetGraftJobs(ctx context.Context, nn types.NamespacedName) {
+	var jobs batchv1.JobList
+	if err := r.env.Reader.List(ctx, &jobs, client.InNamespace(nn.Namespace), client.HasLabels{grafttask.LabelGraftOf}); err != nil {
+		logging.FromContext(ctx).Warn("listing the graft Jobs of a deleted file failed; they end at their deadline", "err", err)
+		return
+	}
+	for i := range jobs.Items {
+		keys := GraftJobKeys(ctx, &jobs.Items[i])
+		if len(keys) != 1 || keys[0].Name != nn.Name {
+			continue
+		}
+		err := r.c.Delete(ctx, &jobs.Items[i], client.PropagationPolicy(metav1.DeletePropagationBackground))
+		if client.IgnoreNotFound(err) != nil {
+			logging.FromContext(ctx).Warn("deleting a deleted file's graft Job failed; it ends at its deadline",
+				"job", jobs.Items[i].Name, "err", err)
+		}
+	}
+}
+
 func (r *Reconciler) forgetTranscode(ctx context.Context, nn types.NamespacedName) {
 	if r.Ledger == nil {
 		return

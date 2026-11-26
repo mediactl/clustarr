@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // testCfg is the shared envtest control plane. It is nil when
@@ -100,7 +101,7 @@ func itoa(n int) string {
 func requireTestClient(t *testing.T) client.Client {
 	t.Helper()
 	requireEnvtest(t)
-	c, err := client.New(testCfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(testCfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return c
 }

@@ -495,7 +495,7 @@ func queueAC(q *catalogv1alpha1.BacklogQueueStatus) *catalogac.BacklogQueueStatu
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=backlogsearches,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=backlogsearches/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;albums;books;audiobooks;issues;series;comics;artists;authors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;comics;artists;authors,verbs=get;list;watch
 
 // SetupWithManager registers the controller. A status write changes no
 // generation, so it does not wake the controller; its RequeueAfter is the

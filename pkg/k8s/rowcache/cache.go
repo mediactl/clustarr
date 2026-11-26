@@ -64,6 +64,12 @@ type Options struct {
 	// Kinds are the namespaced kinds held as rows, one pointer to each
 	// kind's struct.
 	Kinds []client.Object
+	// Source, when set, answers the list-watcher an informer of obj's kind
+	// runs on, given the apiserver's: the library store's for a kind it
+	// holds (pkg/library, Wiring.Source), lw itself for any other. A row
+	// informer is built here and not by the cache's own constructor, so it
+	// is here that a row kind's source is swapped.
+	Source func(obj runtime.Object, lw toolscache.ListerWatcher) toolscache.ListerWatcher
 }
 
 // kind is one of Options.Kinds resolved against the scheme.
@@ -105,6 +111,9 @@ func New(o Options) cache.NewCacheFunc {
 		next := opts.NewInformer
 		opts.NewInformer = func(lw toolscache.ListerWatcher, obj runtime.Object, resync time.Duration, indexers toolscache.Indexers) toolscache.SharedIndexInformer {
 			if k, ok := kinds[reflect.TypeOf(obj)]; ok {
+				if o.Source != nil {
+					lw = o.Source(obj, lw)
+				}
 				return newInformer(lw, obj, k, resync, indexers)
 			}
 			if next != nil {

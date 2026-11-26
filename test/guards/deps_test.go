@@ -75,9 +75,12 @@ var depsDynamicAndNative = depsRules("static distroless image (R1); the manager 
 	mod+"pkg/subtitles/providers/embedded/execextract", mod+"pkg/segments/decode", mod+"pkg/segments/textdet",
 	mod+"pkg/segments/chromaprint", mod+"pkg/segments/frames", mod+"pkg/segments/align")
 
-// depsStorage is the release index's storage: the index agent's alone (R6, R8).
+// depsStorage is the release index's storage: the index agent's alone (R6,
+// R8). The Postgres driver left this list with ADR-0024: the manager and the
+// ui link it for the library store. The index's own code and its SQLite
+// stay the index agent's.
 var depsStorage = depsRules("the release index is the index agent's (R6, R8)",
-	"modernc.org/sqlite", "modernc.org/libc", "github.com/jackc/pgx", "github.com/go-llsqlite",
+	"modernc.org/sqlite", "modernc.org/libc", "github.com/go-llsqlite",
 	"zombiezen.com/go/sqlite", mod+"pkg/relindex")
 
 // depsEngines is the download engines: the torrent and usenet agents' alone (R6).
@@ -229,6 +232,8 @@ func TestAgentLinksNoManagerRegistration(t *testing.T) {
 	g := depsGraph(t, mod+"cmd/agent", linuxCgo...)
 	g.Deny(t, slices.Concat(
 		[]depguard.Rule{{Regexp: regexp.MustCompile(`^github\.com/mediactl/clustarr/app/[a-z]+/manager$`), Why: "R6: manager registration"}},
+		depsRules("an agent only reads the library store (ADR-0024, ADR-0019): the client that writes it is the manager's and the ui's",
+			mod+"pkg/library/readwrite"),
 		depsRules("R6", mod+"app/autoscale", mod+"app/transcode/controller", mod+"app/transcode/worker", mod+"app/segments",
 			mod+"pkg/segments/decode", mod+"pkg/segments/textdet", mod+"pkg/segments/chromaprint",
 			mod+"pkg/segments/frames", mod+"pkg/segments/align",

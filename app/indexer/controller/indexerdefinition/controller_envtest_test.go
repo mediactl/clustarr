@@ -38,6 +38,7 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexerdefinition"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // testCfg is the shared control plane. It is nil when KUBEBUILDER_ASSETS is
@@ -70,7 +71,7 @@ func newTestClient(t *testing.T) client.Client {
 	if testCfg == nil {
 		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test`")
 	}
-	c, err := client.New(testCfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(testCfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	return c
 }
@@ -252,7 +253,7 @@ func TestSetupWithManagerRegisters(t *testing.T) {
 	if testCfg == nil {
 		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test`")
 	}
-	mgr, err := ctrl.NewManager(testCfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(testCfg, ctrl.Options{
 		Scheme:  k8s.MustNewScheme(),
 		Metrics: server.Options{BindAddress: "0"},
 	})

@@ -42,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/presence"
+	"github.com/mediactl/clustarr/test/librarytest"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -247,7 +248,7 @@ func TestEveryAgentDomainWritesPresence(t *testing.T) {
 // records Events nowhere.
 func TestAgentClientIsReadOnly(t *testing.T) {
 	e := newRunEnv(t)
-	admin, err := client.New(e.cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	admin, err := librarytest.NewClient(e.cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	ctx := context.Background()
 	target := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "agent-readonly-target", Namespace: "default"}}

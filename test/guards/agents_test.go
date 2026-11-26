@@ -41,6 +41,10 @@ var clientWriteMethods = []string{"Create", "Update", "Patch", "Apply", "Delete"
 // dynamic clients.
 var clientGoWriteMethods = []string{"Create", "Update", "UpdateStatus", "Patch", "Apply", "ApplyStatus", "Delete", "DeleteCollection"}
 
+// libraryStoreWriters are the methods of pkg/library's Store that write it
+// (ADR-0024). An agent links the store to read it; none of these.
+var libraryStoreWriters = []string{"Create", "Update", "Patch", "Apply", "Delete", "Trim"}
+
 // agentModulePackages type-checks the module packages cmd/agent links (it
 // links every agent domain root), minus pkg/k8s, the writers' declaring
 // home, and its readonly wrapper.
@@ -62,7 +66,10 @@ func agentModulePackages(t *testing.T) []typedPackage {
 // client.SubResourceWriter, a client-go typed or dynamic client's writers,
 // and an event recorder (GetEventRecorderFor, or Event/Eventf/
 // AnnotatedEventf on client-go's record or events recorder). Agents report
-// over NATS records buckets; the manager is the one Kubernetes writer.
+// over NATS records buckets; the manager is the one Kubernetes writer. The
+// library store's writers (library.Store's Create, Update, Patch, Apply,
+// Delete and Trim) are held to the same rule: a library kind is a row there
+// and the manager is its one writer too (ADR-0024).
 // pkg/k8s.ReadOnly is the runtime half (an agent's write fails with
 // ErrAgentWrite and counts); this is the static half, so a write is found
 // before it ships rather than refused in production.
@@ -100,6 +107,9 @@ func TestAgentsCallNoKubernetesWriter(t *testing.T) {
 				switch {
 				case pkgPath == mod+"pkg/k8s" && slices.Contains(k8sWriters, name):
 					t.Errorf("%s calls k8s.%s: an agent never writes the Kubernetes API (ADR-0019 §9.2)", where, name)
+				case pkgPath == mod+"pkg/library" && sig != nil && sig.Recv() != nil && slices.Contains(libraryStoreWriters, name) &&
+					strings.HasSuffix(sig.Recv().Type().String(), "pkg/library.Store"):
+					t.Errorf("%s calls library.Store.%s: an agent reads the library store and never writes it (ADR-0024, ADR-0019 §9.2)", where, name)
 				case sig != nil && sig.Recv() != nil && slices.Contains(clientWriteMethods, name) && implements(sig.Recv().Type()):
 					t.Errorf("%s calls %s on a %s: an agent never writes the Kubernetes API (ADR-0019 §9.2)", where, name, sig.Recv().Type())
 				case slices.Contains(clientGoWriteMethods, name) &&

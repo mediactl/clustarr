@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 func newTestClient(t *testing.T) client.Client {
@@ -42,7 +43,7 @@ func newTestClient(t *testing.T) client.Client {
 			t.Errorf("stop envtest: %v", err)
 		}
 	})
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	if err != nil {
 		t.Fatalf("build client: %v", err)
 	}

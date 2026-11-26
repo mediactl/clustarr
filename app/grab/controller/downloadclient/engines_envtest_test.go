@@ -54,6 +54,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 const testNS = "default"
@@ -93,14 +94,14 @@ func newDCEnv(t *testing.T) *dcEnv {
 		_ = env.Stop()
 	})
 	scheme := k8s.MustNewScheme()
-	ca, err := cache.New(cfg, cache.Options{Scheme: scheme})
+	ca, err := librarytest.NewCache(cfg, cache.Options{Scheme: scheme})
 	require.NoError(t, err)
 	require.NoError(t, dlindex.Register(ctx, ca))
 	go func() { _ = ca.Start(ctx) }()
 	require.True(t, ca.WaitForCacheSync(ctx))
-	c, err := client.New(cfg, client.Options{Scheme: scheme, Cache: &client.CacheOptions{Reader: ca}})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: scheme, Cache: &client.CacheOptions{Reader: ca}})
 	require.NoError(t, err)
-	api, err := client.New(cfg, client.Options{Scheme: scheme})
+	api, err := librarytest.NewClient(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 
 	bus := membus.New(clockwork.NewRealClock())

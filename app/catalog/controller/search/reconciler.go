@@ -85,10 +85,9 @@ const queueFullRequeue = time.Minute
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=searches,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=searches/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles;mediafiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;authors;comics,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by

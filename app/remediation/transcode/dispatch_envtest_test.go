@@ -45,6 +45,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // TestDispatchPublishesOneTaskPerSeq is §5.17: the window grant plans the
@@ -96,7 +97,7 @@ func TestDispatchPublishesOneTaskPerSeq(t *testing.T) {
 // Running file at every resourceVersion it sees.
 func TestTwoFilesNeverShareTheLastSlot(t *testing.T) {
 	h := newHarness(t, harnessOptions{slots: map[string]int32{"cpu": 1}})
-	w, err := client.NewWithWatch(h.cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	w, err := librarytest.NewWithWatch(h.cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	watch, err := w.Watch(context.Background(), &catalogv1alpha1.MediaFileList{}, client.InNamespace(ns))
 	require.NoError(t, err)

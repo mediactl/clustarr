@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // testCfg is the shared envtest control plane. One apiserver is started for
@@ -68,7 +69,7 @@ func newTestClient(t *testing.T) client.Client {
 	if testCfg == nil {
 		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test`")
 	}
-	c, err := client.New(testCfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(testCfg, client.Options{Scheme: k8s.MustNewScheme()})
 	if err != nil {
 		t.Fatalf("build client: %v", err)
 	}

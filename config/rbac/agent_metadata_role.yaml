@@ -13,13 +13,9 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - albums
   - artists
-  - audiobooks
   - authors
-  - books
   - comics
-  - episodes
   - metadataproviders
   - movies
   - series

@@ -35,6 +35,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // startEnvtest brings up a control plane for one test.
@@ -90,7 +91,7 @@ func TestCacheSyncCheckerBecomesReadyOnANonLeaderReplica(t *testing.T) {
 
 	// Hold the lease under someone else's name, with a renew time far enough
 	// ahead that this manager can never take it over.
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
 	renew := metav1.NewMicroTime(time.Now().Add(24 * time.Hour))
 	require.NoError(t, c.Create(context.Background(), &coordinationv1.Lease{
@@ -103,7 +104,7 @@ func TestCacheSyncCheckerBecomesReadyOnANonLeaderReplica(t *testing.T) {
 		},
 	}))
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
 		Scheme:                  k8s.MustNewScheme(),
 		Metrics:                 metricsserver.Options{BindAddress: k8s.DisabledBindAddress},
 		HealthProbeBindAddress:  k8s.DisabledBindAddress,

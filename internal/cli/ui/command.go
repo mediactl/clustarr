@@ -23,11 +23,13 @@ package uicli
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/pkg/busconn"
+	"github.com/mediactl/clustarr/pkg/library"
 	"github.com/mediactl/clustarr/pkg/trailers"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -74,7 +76,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	var bindAddress string
 	var namespace string
 	var authMode string
-	var natsURL string
+	var natsURL, libraryDSN string
 	var plexProvider bool
 	var plexGUIDs bool
 	var plexMusicProvider bool
@@ -101,6 +103,10 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			"Defaults to $"+cli.EnvNATSURL+". ui never "+
 			"writes to it, so an unreachable endpoint degrades every page to placeholder art rather "+
 			"than failing the process.")
+	fs.StringVar(&libraryDSN, "library-dsn", "",
+		"Postgres address of the library store, which holds the kinds a controller creates (ADR-0024). "+
+			"It carries a password: prefer $"+library.EnvDSN+", which is read when this is empty. "+
+			"Unset or unreachable, ui serves empty pages and refuses every action, as with no cluster.")
 	fs.BoolVar(&plexProvider, "plex-provider", true,
 		"Serve the Plex Custom Metadata Provider at /plex/movies and /plex/tv (design spec §D). "+
 			"Unauthenticated by protocol: it must not sit behind a public ingress.")
@@ -147,7 +153,11 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			}
 			pathMappings = append(pathMappings, m)
 		}
-		reader, waitForSync, acts := buildCluster(ctx)
+		if libraryDSN == "" {
+			libraryDSN = os.Getenv(library.EnvDSN)
+		}
+		reader, waitForSync, acts, closeCluster := buildCluster(ctx, libraryDSN)
+		defer closeCluster()
 		b := buildBus(ctx, natsURL)
 		defer b.close()
 		proj := buildProjection(ctx, reader, pipelineHistory, projection.WithTranscodeProgress(b.transcode))

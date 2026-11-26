@@ -47,8 +47,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;albums;books;audiobooks;comics;issues;artists;authors,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status;episodes/status;albums/status;books/status;audiobooks/status;issues/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;comics;artists;authors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=searches,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch

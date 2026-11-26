@@ -67,11 +67,7 @@ const (
 // of the cache: the graft planner wakes a profile's files through it.
 const SeriesByQualityProfileIndex = seriesByQualityProfileIndexKey
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes/finalizers,verbs=update
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is

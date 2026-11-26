@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/test/librarytest"
 )
 
 // testCfg is the envtest apiserver every envtest in this package shares;
@@ -133,7 +134,7 @@ func TestRegisterWiresTheImportDomain(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
-	inner, err := ctrl.NewManager(testCfg, ctrl.Options{
+	inner, err := librarytest.NewManager(testCfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",

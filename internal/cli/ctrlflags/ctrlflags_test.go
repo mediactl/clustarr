@@ -35,16 +35,17 @@ func names(fs *pflag.FlagSet) map[string]bool {
 }
 
 // The eleven flags every controller manifest wrote, with --leader-elect on by
-// default (spec §3.4.1).
+// default (spec §3.4.1), and the library store's address (ADR-0024), which
+// the manifests leave to the environment.
 func TestBindManagerBindsElevenFlagsAndElectsByDefault(t *testing.T) {
 	fs := pflag.NewFlagSet("manager", pflag.ContinueOnError)
 	o := ctrlflags.BindManager(fs)
 	require.NoError(t, fs.Parse(nil))
 	got := names(fs)
-	assert.Len(t, got, 11)
+	assert.Len(t, got, 12)
 	for _, name := range []string{"metrics-bind-address", "metrics-secure", "health-probe-bind-address",
 		"pprof-bind-address", "leader-elect", "leader-election-namespace", "namespace", "watch-namespace",
-		"nats-url", "nats-single-node", "graceful-shutdown-timeout"} {
+		"nats-url", "nats-single-node", "graceful-shutdown-timeout", "library-dsn"} {
 		assert.True(t, got[name], name)
 	}
 	assert.True(t, o.LeaderElect, "every controller manifest passed --leader-elect; the manager defaults it on")
@@ -63,7 +64,7 @@ func TestBindAgentHasNoElectionOrTopologyFlags(t *testing.T) {
 	fs := pflag.NewFlagSet("agent", pflag.ContinueOnError)
 	o := ctrlflags.BindAgent(fs)
 	got := names(fs)
-	assert.Len(t, got, 8)
+	assert.Len(t, got, 9) // and --library-dsn (ADR-0024)
 	for _, retired := range []string{"leader-elect", "leader-election-namespace", "nats-single-node"} {
 		assert.False(t, got[retired], retired)
 		assert.Error(t, fs.Parse([]string{"--" + retired}), "%s is refused by an agent", retired)
