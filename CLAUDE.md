@@ -166,11 +166,12 @@ with the fix, else a `mediactl/` fork rebased on the upstream tag with the PR op
   charts/clustarr` in a fresh clone. A test's own manager or client on an envtest
   config is `librarytest.NewManager` / `librarytest.NewClient`, never
   `ctrl.NewManager` / `client.New`: those cannot see a library kind.
-- **Episodes and MediaFiles are read with SQL** once talos is cut over
-  (`docs/runbooks/library-store-cutover.md`; `select ... from library.mediafile`
-  with the read-only role). Until then: never list every Episode or MediaFile
-  with kubectl on talos (each page past the first is read from etcd); read by
-  name, or filter on the server with `--field-selector`/`-l` and `--chunk-size=0`.
+- **Episodes and MediaFiles are read with SQL**: talos was cut over on
+  2026-11-26 (`docs/runbooks/library-store-cutover.md`) and `kubectl` no
+  longer knows the six library kinds. `kubectl -n clustarr-system exec
+  clustarr-postgres-2 -c postgres -- psql -U postgres -d clustarr`, then
+  `select name, body->'spec', status from library.mediafile where ...`. Never
+  a hand `UPDATE`: a repair is a spec patch through the ui or the manager's client.
 - **Generated files** (`ui/static/app.css`, `*_templ.go`, `config/`, apply
   configurations) are built from the whole tree: regenerate from a clean state
   and commit them with their sources.

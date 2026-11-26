@@ -615,14 +615,20 @@ manager and its agents, and owns the open items left under "Carried defects" in
 `docs/superpowers/plans/2026-09-18-remaining-work.md`. Milestone detail is in
 the spec's §16 and amendment §A4.
 
-**The library store (ADR-0024), 2026-11-26: built on main, not deployed, not
-yet proven on kind.** MediaFile, Episode, Album, Book, Audiobook and Issue are
+**The library store (ADR-0024), live on talos since 2026-11-26 11:06Z; not
+proven on kind.** MediaFile, Episode, Album, Book, Audiobook and Issue are
 rows in Postgres (`pkg/library`; design
 `docs/superpowers/specs/2026-11-26-library-store-design.md`, §9 for what was
-built and what was not). talos still runs the release before it, with those
-kinds as custom resources; the cutover is `docs/runbooks/library-store-cutover.md`
-and needs cluster-plex's commit that reads the store (`pkg/clustarrlib`) and a
-chart that carries it.
+built and what was not). talos was cut over on the owner's word ("deploy to
+the talos cluster ... Ensure the migations are properly run", then "Do it" for
+the delete): 33,814 MediaFiles, 27,693 Episodes, 6,890 Albums and 148 Books
+copied, chart 0.6.18 with clustarr and native `sha-710ef86` and cluster-plex
+`7148cac` (chart 0.6.12), Helm rev 273, and the six CRDs deleted at 12:01Z.
+What was done and what differed from the plan is the last section of
+`docs/runbooks/library-store-cutover.md`. The kind run before it was stopped
+at 31 of 41 scenarios on the owner's word (13 passed; commit b7625e55 lists
+the failures and which of them were read); no scenario has run since with
+the fixes, so the suite is still owed.
 
 **Nothing is finished until it is proven end to end on a kind cluster.** Every
 phase from C onward lands its milestone's scenarios in `test/e2e` (real CRs,

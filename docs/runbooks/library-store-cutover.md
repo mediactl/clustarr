@@ -1,7 +1,8 @@
 # Cold cutover: the library kinds from custom resources to the library store
 
-**Status:** written 2026-11-26; nothing here has run. Every step that writes to a cluster needs
-the owner's explicit OK, given for this cutover. Nothing in this document is automated.
+**Status:** written 2026-11-26 and run on talos the same day (the last section says how it went
+and where it left this text). Every step that writes to a cluster needs the owner's explicit OK,
+given for this cutover. Nothing in this document is automated.
 
 **Why this exists.** ADR-0024: MediaFile, Episode, Album, Book, Audiobook and Issue are rows in
 Postgres, not custom resources. The release that carries it has no migration (owner, 2026-10-07:
@@ -81,3 +82,67 @@ Terraform's: values change in the cluster workspace, not with `helm` by hand.
   A hand repair is a spec patch or an annotation through the UI; a hand `UPDATE` moves the
   feed correctly (the trigger stamps it) but skips the store's validation and ownership
   records, so it is the last resort and never touches `managed`.
+
+
+## As run on talos, 2026-11-26
+
+Owner: "Commit and push the changes and deploy to the talos cluster when the CI completes the
+build. Ensure the migations are properly run to move all existing (removed) CRs to the postgresql
+DB", then "Do it" for the delete. clustarr 710ef869 (images `sha-710ef86`), cluster-plex 7148cac,
+charts clustarr 0.6.18 and cluster-plex 0.6.12. Times are UTC.
+
+| When | What |
+| --- | --- |
+| 10:57 | manager and ui scaled to 0 (the agents and Plex left running: they write none of the six kinds) |
+| 10:58-11:03 | the copy, from a pod in the cluster: 33,814 MediaFiles, 27,693 Episodes, 6,890 Albums, 148 Books, no Audiobook or Issue; each count the apiserver's `apiserver_resource_objects` |
+| 11:03 | `librarycopy --verify`: every row decodes into its Go type and none would be refused a write; six objects compared with the apiserver's, identical with their ownership records |
+| 11:04 | `pg_dump -n library -Fc` to the primary's volume (`/var/lib/postgresql/data/library-cutover-20261126.dump` on clustarr-postgres-2) |
+| 11:05 | HelmChartProxy patched (version and valuesTemplate); Helm rev 273 deployed 11:06; the manager took the lease 11:05:42 |
+| 11:06 | cluster-plex's watch synced; its first projection applied 0 and deleted 0 |
+| 11:10 | the manager's first writes through the store (status applies by `catalog-grab`) |
+| 11:19 | etcd snapshot (`talosctl etcd snapshot`, 728 MB, revision 90336663) |
+| 11:24-11:52 | finalizers stripped from the 34,731 stale Books, Albums and Episodes in the apiserver |
+| 11:52-12:01 | the six CRDs deleted, and their objects with them |
+
+**Where it left the steps above.**
+
+- **The order: copy, install, check, and only then delete.** The custom resources stayed in the
+  apiserver, stale, for an hour beside the running new release, so the old release could still
+  have been started again. Nothing in the new binaries minds the CRDs being there.
+- **The copy ran in the cluster, not through a port-forward.** `kubectl port-forward` to Postgres
+  exits ("lost connection to pod") when a client closes a connection, which a copy of 68,000 rows
+  does many times. A pod (`natsio/nats-box`, the manager's ServiceAccount, the app Secret's `uri`
+  as `CLUSTARR_LIBRARY_DSN`, an amd64 node) with a static build of `hack/librarycopy` copied in
+  by `kubectl cp` took under five minutes. The manager's role must still hold the six kinds when
+  it runs, so it runs before the new chart.
+- **Counting**: `apiserver_resource_objects{group="catalog.clustarr.io"}` from `/metrics`, not a
+  list of each kind.
+- **A second run of the copy moves a kind's sequence** by the rows it finds already there (the
+  trigger runs before the insert that is then skipped): Book's head read 296 for 148 rows. The
+  feed ignores an entry that names no row version, so nothing follows from it, but step 4's
+  "sequence at its count" holds only for a kind copied once.
+- **The ui stays at 0 through the Helm run** when its autoscaler is on (the manifest names no
+  replica count): `kubectl scale deploy/clustarr-ui --replicas=1` after it.
+- **Jobs owned by a MediaFile.** A running graft Job names its MediaFile as its owner, and the
+  apiserver's garbage collector deletes a Job whose owner it can still look up and finds gone,
+  which is what the CRD's deletion makes of it for some minutes. The two running Jobs had their
+  `ownerReferences` taken off before the CRDs were deleted and put back after; both ran on. Once
+  the kind has no CRD the collector cannot resolve the owner and leaves such a Job alone (checked
+  on a kind cluster of the same version before relying on it).
+- **Finalizers by name from the store**: `select name from library.episode` and `kubectl patch`
+  by name, a hundred to a call and four calls at a time, so nothing was listed from etcd. It
+  took 28 minutes at about 20 objects a second with the apiservers near their 6Gi limit.
+- **The kubeconfig's current context was a kind cluster** by then (the e2e rig's): every command
+  named `--context admin@talos`, and the copy pod never read a kubeconfig.
+
+**Measured after.** Row counts unchanged an hour on and nothing marked for deletion; no manager
+or agent restart; the manager's start-up pass over the library took about 25 minutes at its
+750m CPU limit with no reconcile error. Each apiserver's `go_memstats_next_gc_bytes` two minutes
+after the delete: 2.26, 1.64 and 2.02 GiB (4.94 GiB on the one read just before it, during the
+strip). Not measured: where they settle; a Live TV channel tuning; a Movie's RSS candidate
+settling under b12001fe.
+
+**Still to do.** cluster-bootstrap's `clustarr/talos-values.yaml` (the live valuesTemplate byte
+for byte) and `chart_version = "0.6.18"` are uncommitted in its working tree, and
+`~/src/tfc/cluster` holds the same two, uncommitted too (cluster-bootstrap-31, 12:05Z). `hack/librarycopy` and `Store.CopyIn` go once no install is
+left to cut over. No backup is configured for `clustarr-postgres`, which now holds the library.
