@@ -467,3 +467,50 @@ the item's own page (one series is moved by selecting it), the root folder
 form's "Anime root folder", and Collections and Hubs for the third
 library.
 
+
+**Rolled out on talos, 2026-11-26 (section 6's runbook), 04:27-05:57Z.**
+kube-apiserver memory 4 to 6 GiB first (owner; one node at a time by
+`talosctl patch mc`, the Terraform trees after), then the ui roll it had
+been waiting for. `/data/media/anime`; RootFolder `anime`; `tv` routes
+anime there; both anime lists re-pointed, and both synced afterwards with
+the 505 anime still under `tv`: a list did not move one. cluster-plex
+`53b6d6b` and the Anime library (section 36) beside TV Shows. Pilot of four
+through the ui's Move (one transcoded, one airing, one with sidecars and 85
+subtitle attempts on record, one with 7 of 12 episodes watched): files and
+sidecars moved, old folders pruned, per file only the path, the hashes
+that name it and `probedAt` changed, watch state followed the guid. Then
+all 509, about 7,800 files at some 12 a second. No Series of type `anime`
+is under `tv`; Plex: Anime 368 shows, TV Shows 543 to 190.
+
+What the pilot did not show, each found in the bulk:
+
+- **A file moved to another library is trashed in the one it left, not
+  removed**, and is gone at Plex's Empty Trash (daily, 01:30Z). An Empty
+  Trash run while cluster-plex is still trashing misses rows: run it again
+  after, and a scan of the section first (its whole-section reconcile
+  removes rows whose file is under it no more).
+- **A read-only file cannot be moved, and nothing said so.** `fsops.
+  MoveNoReplace` is link-then-unlink; the kernel refuses a hard link to a
+  file its caller neither owns nor can write (`protected_hardlinks`; on the
+  NAS every file is uid 1024's). The torrent engine writes its payload
+  0444 and the import copies the mode, so an untranscoded torrent import is
+  such a file: 20 on talos, in five series, none of them seeding. The
+  error reached no log: `remediation.IsTransient` takes any `syscall.Errno`
+  for a `net.Error`, so EPERM was retried in silence. Cleared by hand
+  (`chmod u+w`); **neither defect is fixed in code**, and a rename meets
+  the same refusal.
+- **A file whose record holds its pre-transcode size is refused**
+  (`Changed`, the class of 2026-11-10: Gundam Build Fighters, Maria the
+  Virgin Witch, Blood Blockade Battlefront). A rescan of the series'
+  folder re-observes it (the ui's Refresh; for a series already moved, a
+  LibraryScan of its old folder), and it then moves.
+- **A record that names a path no file holds stays where it is**
+  (`FileMissing`, the class of 2026-11-04, grown since): 34 episodes of 11
+  anime are still listed in TV Shows, unavailable as they were before. Not
+  repaired. A scan of the old folder no longer attributes their files, the
+  series being under another root.
+- A Move back to TV is not the inverse: it sets the folder's default type
+  and profile, so transcoded files are renamed on the way and again on
+  the way back. Two moves of one series within half a minute left its rows
+  live in the library it left last (cluster-plex applies a queued seed
+  after the later departure); the section's reconcile removes them.
