@@ -65,13 +65,26 @@ const RefreshRetry = 65 * time.Minute
 // manager start's -- drift apart instead of coming due together for good.
 // It is never less than a second.
 func RefreshWake(ttl time.Duration, lastRefreshed, now time.Time, key string) time.Duration {
+	return max(lastRefreshed.Add(ttl+RefreshSpread(ttl, key)).Sub(now), time.Second)
+}
+
+// RefreshSpread is how long past its ttl the document under key is left
+// before its refresh is due: up to a sixteenth of the ttl, the same for a
+// key every time. RefreshWake wakes an item then; a kind whose items share
+// one ttl by the thousand (Album) also reads its document as stale only
+// then, so that a manager's start inside the spread does not ask for all of
+// them at once.
+func RefreshSpread(ttl time.Duration, key string) time.Duration {
+	span := ttl / 16
+	if span <= 0 {
+		return 0
+	}
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(key))
-	spread := time.Duration(0)
-	if span := ttl / 16; span > 0 {
-		spread = time.Duration(h.Sum32()) % span
-	}
-	return max(lastRefreshed.Add(ttl+spread).Sub(now), time.Second)
+	// The hash's upper 16 bits as a fraction of the span. Taken as
+	// nanoseconds, as it was until 2026-11-26, a 32-bit hash is never more
+	// than 4.3 s, so nothing was spread at all.
+	return (span >> 16) * time.Duration(h.Sum32()>>16)
 }
 
 // RefreshTTL ports Radarr/Sonarr's ShouldRefresh heuristics: callers derive

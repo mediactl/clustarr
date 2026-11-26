@@ -389,6 +389,45 @@ func TestTheInitialListLeavesOutWhatAWatchCallsIdle(t *testing.T) {
 	assert.Equal(t, map[Key]int{key("show-s01e01"): handler.LowPriority}, q.added, "a watch without SkipInitial prunes nothing")
 }
 
+// timedQueue records a handler's delayed adds.
+type timedQueue struct {
+	priorityqueue.PriorityQueue[Key]
+	after map[Key]priorityqueue.AddOpts
+}
+
+func (q *timedQueue) AddWithOpts(o priorityqueue.AddOpts, ks ...Key) {
+	for _, k := range ks {
+		q.after[k] = o
+	}
+}
+
+// An item its watch's SkipInitial leaves out of a manager's start is still
+// woken when the watch's IdleWake says it is owed a pass, as its own pass's
+// timed requeue would have woken it: on talos (2026-11-26) an idle Album's
+// document was refreshed only at a manager start after it came due, so all
+// 6,884 came due at one start. One IdleWake owes nothing is left alone, and
+// an item that is not idle is enqueued as before.
+func TestAnItemLeftOutOfTheInitialListIsWokenWhenItsWatchSaysSo(t *testing.T) {
+	owed := map[string]time.Duration{"show-s01e01": 3 * time.Hour}
+	h := watchHandler(KindEpisode, rollup.Watch{
+		Map:         rollup.Self,
+		SkipInitial: func(_ context.Context, o client.Object) bool { return o.GetName() != "show-s01e03" },
+		IdleWake:    func(_ context.Context, o client.Object) time.Duration { return owed[o.GetName()] },
+	})
+	key := func(name string) Key { return Key{Kind: KindEpisode, Namespace: "media", Name: name} }
+	q := &timedQueue{after: map[Key]priorityqueue.AddOpts{}}
+	for _, name := range []string{"show-s01e01", "show-s01e02", "show-s01e03"} {
+		h.Create(context.Background(), event.TypedCreateEvent[client.Object]{Object: episodeOf(name, "show", 1, 1), IsInInitialList: true}, q)
+	}
+	require.Contains(t, q.after, key("show-s01e01"), "the idle item owed a pass is enqueued for then")
+	assert.Equal(t, 3*time.Hour, q.after[key("show-s01e01")].After)
+	require.NotNil(t, q.after[key("show-s01e01")].Priority)
+	assert.Equal(t, PriorityTimed, *q.after[key("show-s01e01")].Priority)
+	assert.NotContains(t, q.after, key("show-s01e02"), "an idle item owed nothing is left out")
+	require.Contains(t, q.after, key("show-s01e03"), "an item that is not idle is enqueued as before")
+	assert.Zero(t, q.after[key("show-s01e03")].After)
+}
+
 // A file's initial-list create wakes none of its items: every item's own
 // watch lists it at the same start, and that one decides whether it is idle.
 func TestFileWakesLeaveTheInitialListToTheItems(t *testing.T) {

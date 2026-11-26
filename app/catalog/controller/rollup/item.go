@@ -19,6 +19,7 @@ package rollup
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,6 +51,12 @@ type Watch struct {
 	// would change nothing, its later events still waking it (owner,
 	// 2026-10-28: a start queued every Episode, 74% of 39,296 keys).
 	SkipInitial func(context.Context, client.Object) bool
+	// IdleWake is how long from now an item SkipInitial left out is owed a
+	// pass all the same, zero for never: its document's refresh, which
+	// nothing else wakes it for (Album; on talos, 2026-11-26, Albums were
+	// refreshed only at a manager start after they came due, all of them in
+	// one wave). Nil wakes none.
+	IdleWake func(context.Context, client.Object) time.Duration
 }
 
 // InitialList is a SkipInitial leaving the whole initial list out: a watch

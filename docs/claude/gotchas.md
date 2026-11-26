@@ -137,6 +137,40 @@ recorded here.
   fields zeroed within one tick of the probe that set them. The envtest that
   should have caught it asserted only that `status.caps` was non-nil, which a
   modes-only renderer satisfies. Assert every leaf, not the parent.
+- **A server-side apply that changes nothing still costs the apiserver a
+  whole apply, and a pass that only waits still sends one** (talos,
+  2026-11-26). An Album refused a `catalog-metadata` slot asked again every
+  `dispatch.TickInterval` (10 s) with a whole item pass, each ending in its
+  status apply: ~580 Albums, ~40 `patch albums/status` a second for four
+  hours, 80% of the requests on one apiserver and 3.8 of its node's 4 cores,
+  while the object's managedFields time stood still. The wave itself came
+  from the Albums' refresh: skipped as idle at a manager start they had no
+  wake when their document came due, so all 6,884 read stale at the first
+  start after it. Three fixes, each with its test:
+  - `itemstatus.Apply` keeps an apply back when the pass remembers
+    (`itempass.Applies`, `remediation.ApplyMemo`) that the same declaration
+    left the item at the resourceVersion it is read at. That is the one case
+    an item apply is known a no-op without managedFields; a comparison with
+    the cached item is still never one. Kept applies count as `unchanged` in
+    `clustarr_remediation_passes_total`.
+    `TestAnItemApplyThatWouldChangeNothingIsNotSent` (envtest),
+    `TestApplyMemoKnowsAnItemOnlyAsItsOwnApplyLeftIt`.
+  - A Budget refusal on a durable that never wakes its waiters (no Source)
+    answers `dispatch.UnwokenRetry`, about a minute spread by key
+    (`TestABudgetRefusalOnASearchLaneWaitsForAWake`).
+  - An Album is stale only `metadata.RefreshSpread` past its ttl, its pass
+    requeues for then (`album.RefreshIn`), and one its watch leaves out of a
+    start is enqueued for then too (`rollup.Watch.IdleWake`):
+    `TestAlbumsRefreshedTogetherComeDueApart`,
+    `TestAnItemLeftOutOfTheInitialListIsWokenWhenItsWatchSaysSo`. The spread
+    itself had never been more than 4.3 s: a 32-bit hash taken as
+    nanoseconds (`TestRefreshSpreadFillsASixteenthOfTheTTL`), so Movie's and
+    Series' wakes since 2026-11-17 were not spread either.
+  Not done: Book and Audiobook are skipped at a start the same way and have
+  no refresh wake (hundreds of items, no wave; their documents wait for a
+  start after they are due); Artist, Author and Comic read stale on the bare
+  ttl.
+
 - **`metav1.Time` comes back from the apiserver in the replica's local
   timezone, so `.Year()` on it is wrong by a year near New Year.**
   `metav1.Time.UnmarshalJSON` converts to `time.Local` on every round-trip, so

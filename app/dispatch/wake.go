@@ -35,6 +35,15 @@ const (
 	// durable's budget asks again unwoken, spread by its key over
 	// 0.75-1.25 times this so the waiters do not ask in step.
 	BudgetRetry = 2 * time.Minute
+	// UnwokenRetry is how soon a key refused for the budget of a durable
+	// that does not wake (one without a Source: catalog-metadata, -artwork,
+	// -imageset) asks again, spread by its key over 0.75-1.25 times this.
+	// It was TickInterval: on talos (2026-11-26) the weekly Album refresh
+	// left ~580 Albums waiting for a catalog-metadata slot, each asking
+	// every 10 s with a whole item pass, ~40 passes a second for four hours.
+	// Nothing wakes these waiters, so this is also how long a freed slot can
+	// stand empty when only one item waits for it.
+	UnwokenRetry = time.Minute
 	// FirstRetry is how soon a key refused by AdmitFirst asks again
 	// unwoken; it must ask within FirstTTL to keep its claim.
 	FirstRetry = time.Minute
@@ -90,20 +99,24 @@ func (l *Ledger) markFirstLocked(durable string, k Key, now time.Time) {
 	m[k] = fw
 }
 
-// budgetRetryLocked is a Budget refusal's RetryAfter: TickInterval on a
-// durable that does not wake, else FirstRetry for AdmitFirst and BudgetRetry
-// spread by k.
+// budgetRetryLocked is a Budget refusal's RetryAfter, spread by k so the
+// waiters do not ask in step: about UnwokenRetry on a durable that does not
+// wake, else FirstRetry for AdmitFirst and about BudgetRetry.
 func (l *Ledger) budgetRetryLocked(durable string, k Key, first bool) time.Duration {
 	if _, rebuildable := l.sources[durable]; !rebuildable {
-		return TickInterval
+		return spreadRetry(UnwokenRetry, k)
 	}
 	if first {
 		return FirstRetry
 	}
+	return spreadRetry(BudgetRetry, k)
+}
+
+// spreadRetry is 0.75 to 1.25 times d, by k.
+func spreadRetry(d time.Duration, k Key) time.Duration {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(k.String()))
-	spread := time.Duration(h.Sum32()%1000) * BudgetRetry / 2000 // 0 to BudgetRetry/2
-	return BudgetRetry*3/4 + spread
+	return d*3/4 + time.Duration(h.Sum32()%1000)*d/2000
 }
 
 // freedLocked wakes waiters of durable, which freed n slots (Wakes).

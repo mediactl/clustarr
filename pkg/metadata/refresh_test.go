@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package metadata_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -81,6 +82,25 @@ func TestRefreshWakeLandsJustAfterTheDocumentIsDue(t *testing.T) {
 	}
 	require.NotEqual(t, a, b, "two items refreshed together drift apart")
 	require.Equal(t, a, metadata.RefreshWake(ttl, refreshed, now, "uid-a"), "the same item wakes at the same time")
+}
+
+// The spread fills its sixteenth of the ttl: a library's items, refreshed
+// together, come due across the whole of it. Until 2026-11-26 the 32-bit
+// hash was taken as nanoseconds, so no two items were ever more than 4.3 s
+// apart and a library came due at once (TestRefreshWake above passed: its
+// two wakes differed, by nanoseconds).
+func TestRefreshSpreadFillsASixteenthOfTheTTL(t *testing.T) {
+	ttl := 7 * 24 * time.Hour
+	lo, hi := ttl, time.Duration(0)
+	for i := range 1000 {
+		d := metadata.RefreshSpread(ttl, fmt.Sprintf("3f0c1a52-9f6e-4c9b-8a57-%012d", i))
+		require.GreaterOrEqual(t, d, time.Duration(0))
+		require.Less(t, d, ttl/16)
+		lo, hi = min(lo, d), max(hi, d)
+	}
+	require.Less(t, lo, ttl/160, "some come due at the start of the spread")
+	require.Greater(t, hi, ttl/16-ttl/160, "and some at its end")
+	require.Zero(t, metadata.RefreshSpread(0, "uid"), "no ttl, no spread")
 }
 
 // An overdue document is looked at at once, never at a negative delay,

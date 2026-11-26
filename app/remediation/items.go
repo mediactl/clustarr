@@ -36,6 +36,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -89,6 +90,10 @@ type ItemReconciler struct {
 	// Dubs is the process's MAL-Dubs index: its changes wake the anime they
 	// move (dubSource). Nil wakes none.
 	Dubs *dubs.Index
+	// Applies remembers each item's last catalog apply, so a pass that
+	// would apply the same declaration to an item nothing has written since
+	// sends none (itemstatus.Apply). Nil sends every apply.
+	Applies *ApplyMemo
 	// Client writes the item's finalizer, the other managers' sets and the
 	// effects' objects.
 	Client client.Client
@@ -123,15 +128,21 @@ func (ir *ItemReconciler) Reconcile(ctx context.Context, k Key) (reconcile.Resul
 	var (
 		res reconcile.Result
 		err error
+		// unchanged: the kind's catalog apply was kept back as a no-op
+		// (ApplyMemo).
+		unchanged bool
 	)
 	if len(ir.Stages) == 0 || ir.Env == nil {
 		res, err = it.ReconcileItem(ctx, types.NamespacedName{Namespace: k.Namespace, Name: k.Name})
 	} else {
-		res, err = ir.staged(ctx, it, k)
+		res, err = ir.staged(ctx, it, k, &unchanged)
 	}
 	outcome := passApplied
-	if err != nil {
+	switch {
+	case err != nil:
 		outcome = passError
+	case unchanged:
+		outcome = passUnchanged
 	}
 	metrics.RemediationPassesTotal.WithLabelValues(string(k.Kind), outcome).Inc()
 	if res.RequeueAfter > 0 && res.Priority == nil {
@@ -141,7 +152,7 @@ func (ir *ItemReconciler) Reconcile(ctx context.Context, k Key) (reconcile.Resul
 }
 
 // staged is one item pass with its stages (A3.3 step 3).
-func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (reconcile.Result, error) {
+func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key, unchanged *bool) (reconcile.Result, error) {
 	nn := types.NamespacedName{Namespace: k.Namespace, Name: k.Name}
 	clock := ir.Clock
 	if clock == nil {
@@ -226,8 +237,12 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 	// applying) stops here: no set, no effect.
 	phaseStart = time.Now()
 	pass := &itempass.Pass{Contribution: merged, Admitter: ir.admitterFor(k)}
+	if ir.Applies != nil {
+		pass.Applies = ir.Applies
+	}
 	res, err := it.ReconcileItem(itempass.With(ctx, pass), nn)
 	observePhase(k.Kind, PassPhaseItem, phaseStart)
+	*unchanged = pass.Unchanged()
 	rv, landed := pass.LandedRV()
 	if err != nil || !landed {
 		return res, err
@@ -459,7 +474,8 @@ func (ir *ItemReconciler) Watch(mgr ctrl.Manager, b *builder.TypedBuilder[Key], 
 }
 
 // watchHandler is w's handler: its map to kind's keys, leaving out of the
-// cache's initial list what w.SkipInitial reports idle.
+// cache's initial list what w.SkipInitial reports idle, but for the wake
+// w.IdleWake owes it.
 func watchHandler(kind KeyKind, w rollup.Watch) handler.TypedEventHandler[client.Object, Key] {
 	h := itemHandler(kind, w.Map)
 	if w.SkipInitial == nil {
@@ -468,6 +484,7 @@ func watchHandler(kind KeyKind, w rollup.Watch) handler.TypedEventHandler[client
 	return handler.TypedFuncs[client.Object, Key]{
 		CreateFunc: func(ctx context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {
 			if e.IsInInitialList && w.SkipInitial(ctx, e.Object) {
+				idleWake(ctx, kind, w, e.Object, q)
 				return
 			}
 			h.Create(ctx, e, q)
@@ -475,6 +492,28 @@ func watchHandler(kind KeyKind, w rollup.Watch) handler.TypedEventHandler[client
 		UpdateFunc:  h.Update,
 		DeleteFunc:  h.Delete,
 		GenericFunc: h.Generic,
+	}
+}
+
+// idleWake enqueues the keys of an item w.SkipInitial left out for when
+// w.IdleWake says it is owed a pass.
+func idleWake(ctx context.Context, kind KeyKind, w rollup.Watch, o client.Object, q workqueue.TypedRateLimitingInterface[Key]) {
+	if w.IdleWake == nil {
+		return
+	}
+	d := w.IdleWake(ctx, o)
+	if d <= 0 {
+		return
+	}
+	pq, prioritised := q.(priorityqueue.PriorityQueue[Key])
+	for _, r := range w.Map(ctx, o) {
+		k := Key{Kind: kind, Namespace: r.Namespace, Name: r.Name}
+		if prioritised {
+			// As the pass's own timed requeue would be (PriorityTimed).
+			pq.AddWithOpts(priorityqueue.AddOpts{After: d, Priority: new(PriorityTimed)}, k)
+			continue
+		}
+		q.AddAfter(k, d)
 	}
 }
 

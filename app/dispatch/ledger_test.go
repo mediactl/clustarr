@@ -101,10 +101,12 @@ func TestAdmitHoldsTheBudgetAndReportsTheReason(t *testing.T) {
 	assert.Equal(t, 16, l.Outstanding(searchNormal))
 
 	d := l.Admit(searchNormal, movieKey("m16"), 1)
+	assert.GreaterOrEqual(t, d.RetryAfter, dispatch.UnwokenRetry*3/4, "no Source registered: nothing wakes the key")
+	assert.LessOrEqual(t, d.RetryAfter, dispatch.UnwokenRetry*5/4)
 	assert.Equal(t, dispatch.Decision{
 		Reason:     catalogv1alpha1.DeliveryReasonBudget,
 		Message:    "waiting for catalog-search-normal: 16 in flight",
-		RetryAfter: dispatch.TickInterval,
+		RetryAfter: d.RetryAfter,
 	}, d)
 	l.Waiting(searchNormal, movieKey("m16"), d.Reason)
 	assert.Equal(t, 1, l.WaitingCount(searchNormal), "the planner's waiting key is counted")
@@ -356,9 +358,10 @@ func TestAdmitFirstTakesTheNextSlotAheadOfRoutineSearches(t *testing.T) {
 // routine key refused for budget asks again on its own only after about
 // BudgetRetry, spread by key, and is woken when a slot frees -- AdmitFirst's
 // waiters first, then the longest-waiting -- two keys per slot. A durable
-// without a Source keeps TickInterval and never wakes. On talos
-// (2026-11-02) ~2,263 refused searches asked every 10 s, ~226 passes a
-// second.
+// without a Source never wakes: its keys ask again about UnwokenRetry on,
+// spread the same way (on talos, 2026-11-26, ~580 Albums refused a
+// catalog-metadata slot asked every 10 s). On talos (2026-11-02) ~2,263
+// refused searches asked every 10 s, ~226 passes a second.
 func TestABudgetRefusalOnASearchLaneWaitsForAWake(t *testing.T) {
 	ctx := t.Context()
 	clk := clockwork.NewFakeClockAt(t0)
@@ -401,7 +404,10 @@ func TestABudgetRefusalOnASearchLaneWaitsForAWake(t *testing.T) {
 	}
 	dec := l.Admit(meta.Name, dispatch.Key{Kind: "Movie", Namespace: "media", Name: "late"}, 1)
 	require.False(t, dec.Admitted)
-	assert.Equal(t, dispatch.TickInterval, dec.RetryAfter, "a durable without a Source keeps its 10 s retry")
+	assert.GreaterOrEqual(t, dec.RetryAfter, dispatch.UnwokenRetry*3/4, "a durable without a Source asks again about a minute on, by key")
+	assert.LessOrEqual(t, dec.RetryAfter, dispatch.UnwokenRetry*5/4)
+	other := l.Admit(meta.Name, dispatch.Key{Kind: "Movie", Namespace: "media", Name: "later"}, 1)
+	assert.NotEqual(t, dec.RetryAfter, other.RetryAfter, "and not in step with another")
 	l.Answered(meta.Name, dispatch.Key{Kind: "Movie", Namespace: "media", Name: "meta-0"}, 1)
 	assert.Empty(t, l.Wakes(), "and never wakes")
 }

@@ -205,6 +205,8 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Dubs:         o.Dubs,
 		Client:       mgr.GetClient(),
 		Recorder:     recorder,
+		// An item apply that would change nothing is not sent.
+		Applies: remediation.NewApplyMemo(),
 		// The import materialisation's MediaFile spec writer (A3.8): the
 		// manager-only specwrite, under import-worker.
 		SpecWriter: specWriter,

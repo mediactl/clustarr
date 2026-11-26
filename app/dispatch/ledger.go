@@ -47,9 +47,9 @@ const (
 	// and the waiting metrics.
 	TickInterval = 10 * time.Second
 	// WaitingTTL forgets a key the planner stopped reporting as waiting:
-	// planners re-report on every pass of a waiting key (it requeues at
-	// TickInterval), so a key not re-reported for this long is no longer
-	// due.
+	// planners re-report on every pass of a waiting key (it requeues within
+	// 1.25 times BudgetRetry at most), so a key not re-reported for this
+	// long is no longer due.
 	WaitingTTL = 5 * time.Minute
 	// rebuildRetry spaces the rebuild's attempts at leader start.
 	rebuildRetry = 10 * time.Second

@@ -89,19 +89,39 @@ func TrackSummary(tracks []*catalogac.TrackApplyConfiguration) string {
 }
 
 // MetadataStale is the Album's metadata staleness as the reconcile decides
-// it: stale when the document is missing or past its RefreshTTL (the Album
-// then reads Pending and a refresh is asked for), outdated when a recent
-// document was written before the gateway learned a field
+// it: stale when the document is missing or past its RefreshTTL and its
+// spread (the Album then reads Pending and a refresh is asked for), outdated
+// when a recent document was written before the gateway learned a field
 // (metadata.SchemaVersion; refreshed once, at once, the Album staying ready
 // meanwhile -- design D8, Movie's rule).
+//
+// The spread (metadata.RefreshSpread, by uid) is part of the staleness and
+// not only of the wake (RefreshIn): a library's Albums share one ttl, and on
+// talos (2026-11-26) all 6,884, last refreshed in the same hours, read stale
+// at one manager start and queued for the metadata gateway together.
 func MetadataStale(alb *catalogv1alpha1.Album, now time.Time) (stale, outdated bool) {
 	md := alb.Status.Metadata
 	if md == nil {
 		return true, false
 	}
 	ttl := pkgmetadata.RefreshTTL(commonv1.MediaKindAlbum, pkgmetadata.RefreshStateActive, md.RefreshedAt.Time)
-	stale = now.Sub(md.RefreshedAt.Time) >= ttl
+	stale = now.Sub(md.RefreshedAt.Time) >= ttl+pkgmetadata.RefreshSpread(ttl, string(alb.UID))
 	return stale, !stale && md.SchemaVersion < pkgmetadata.SchemaVersion
+}
+
+// RefreshIn is how long from now the Album's pass is owed again for its
+// document's sake (Movie's refreshIn): when the document comes due
+// (MetadataStale), or, while a refresh is asked for, once a second ask is no
+// longer a duplicate. Nothing else wakes an Album at either moment: before
+// it an Album's document was refreshed only at a manager start, every due
+// one at once.
+func RefreshIn(alb *catalogv1alpha1.Album, now time.Time) time.Duration {
+	if stale, _ := MetadataStale(alb, now); stale {
+		return pkgmetadata.RefreshRetry
+	}
+	refreshed := alb.Status.Metadata.RefreshedAt.Time
+	ttl := pkgmetadata.RefreshTTL(commonv1.MediaKindAlbum, pkgmetadata.RefreshStateActive, refreshed)
+	return pkgmetadata.RefreshWake(ttl, refreshed, now, string(alb.UID))
 }
 
 // IdleInputs is the Album's view for rollup.LeafIdleAtStart, the Album

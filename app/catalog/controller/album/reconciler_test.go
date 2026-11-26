@@ -507,7 +507,9 @@ func TestAFailedTrackListingHoldsTheAlbumsNextLookup(t *testing.T) {
 	res, err = r.ReconcileItem(ctx, key)
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, rpc.calls.Load(), "fresh metadata is not held")
-	assert.Zero(t, res.RequeueAfter)
+	ttl := pkgmetadata.RefreshTTL(commonv1.MediaKindAlbum, pkgmetadata.RefreshStateActive, time.Now())
+	assert.Greater(t, res.RequeueAfter, ttl-time.Minute, "owed again only when its document comes due")
+	assert.Less(t, res.RequeueAfter, ttl+ttl/16)
 	require.Eventually(t, func() bool {
 		cond := tracksSynced()
 		return cond != nil && cond.Status == metav1.ConditionTrue

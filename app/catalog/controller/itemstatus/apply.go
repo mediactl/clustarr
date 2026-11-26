@@ -26,6 +26,7 @@ package itemstatus
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -53,14 +54,27 @@ const ConflictRequeue = time.Second
 // apiserver holds a newer object (catalog-grab, catalog-metadata or
 // catalog-series wrote since the cache read), so the caller requeues in
 // ConflictRequeue and plans again from the newer cache instead of rolling
-// that write back with an apply seeded from a stale read. An item apply is
-// never skipped: the loop does not own the whole item status, and the cache
-// strips managedFields.
+// that write back with an apply seeded from a stale read.
+//
+// An item apply is never skipped on a comparison with the cached item: the
+// loop does not own the whole item status, and the cache strips
+// managedFields. It is kept back in the one case that needs neither -- the
+// pass remembers (itempass.Applies) that this same declaration is what left
+// the item at the resourceVersion it is read at, so nothing has written
+// since and the apply would change nothing.
 //
 // When it lands inside a staged pass (itempass.From(ctx) non-nil) it reports
 // the applied object's resourceVersion to the pass, which chains the other
-// managers' sets on it (ADR-0019 §7.0).
+// managers' sets on it (ADR-0019 §7.0); a kept apply reports item's own.
 func Apply[A k8s.CASApplyConfiguration[A]](ctx context.Context, c client.Client, item client.Object, ac A) (conflicted bool, err error) {
+	p := itempass.From(ctx)
+	// Digested before the precondition is set and before the apiserver's
+	// answer is decoded into ac: the declaration alone.
+	digest, remembered := declaration(p, item, ac)
+	if remembered && p.Applies.Unchanged(item.GetUID(), item.GetResourceVersion(), digest) {
+		p.Kept(item.GetResourceVersion())
+		return false, nil
+	}
 	applied, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, ac.WithResourceVersion(item.GetResourceVersion()))
 	if err != nil {
 		if apierrors.IsConflict(err) {
@@ -68,10 +82,29 @@ func Apply[A k8s.CASApplyConfiguration[A]](ctx context.Context, c client.Client,
 		}
 		return false, err
 	}
-	if p := itempass.From(ctx); p != nil {
-		p.Landed(resourceVersionOf(applied))
+	rv := resourceVersionOf(applied)
+	if remembered && rv != "" {
+		p.Applies.Applied(item.GetUID(), rv, digest)
+	}
+	if p != nil {
+		p.Landed(rv)
 	}
 	return false, nil
+}
+
+// declaration is the digest of ac as it will be sent, less its precondition,
+// and whether the pass remembers applies at all: not outside a staged pass,
+// without a memory, or for an item with no uid or resourceVersion to know it
+// by.
+func declaration(p *itempass.Pass, item client.Object, ac any) (digest [sha256.Size]byte, remembered bool) {
+	if p == nil || p.Applies == nil || item.GetUID() == "" || item.GetResourceVersion() == "" {
+		return digest, false
+	}
+	b, err := json.Marshal(ac)
+	if err != nil {
+		return digest, false
+	}
+	return sha256.Sum256(b), true
 }
 
 // resourceVersionOf reads metadata.resourceVersion off an apply

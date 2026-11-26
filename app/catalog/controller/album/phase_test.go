@@ -18,11 +18,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package album_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -117,7 +120,8 @@ func TestMetadataStaleIsTheAlbumsRefreshRule(t *testing.T) {
 	}{
 		{"no document", nil, true, false},
 		{"fresh", md(time.Hour, pkgmetadata.SchemaVersion), false, false},
-		{"past its TTL", md(ttl+time.Minute, pkgmetadata.SchemaVersion), true, false},
+		{"past its TTL, not yet its spread", md(ttl+time.Minute, pkgmetadata.SchemaVersion), false, false},
+		{"past its TTL and its spread", md(ttl+ttl/16, pkgmetadata.SchemaVersion), true, false},
 		{"recent but written before the gateway learned a field", md(time.Hour, pkgmetadata.SchemaVersion-1), false, true},
 	}
 	for _, c := range cases {
@@ -127,6 +131,36 @@ func TestMetadataStaleIsTheAlbumsRefreshRule(t *testing.T) {
 			assert.Equal(t, c.outdated, outdated, "outdated")
 		})
 	}
+}
+
+// Albums refreshed together do not come due together: each is stale only
+// its own spread past the ttl (metadata.RefreshSpread, by uid), and RefreshIn
+// is exactly how long until then, so the pass's requeue and the start-time
+// wake land on the moment it turns stale. On talos (2026-11-26) all 6,884
+// Albums read stale at one manager start. A stale Album asks again once a
+// second ask is no longer a duplicate.
+func TestAlbumsRefreshedTogetherComeDueApart(t *testing.T) {
+	refreshed := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	ttl := pkgmetadata.RefreshTTL(commonv1.MediaKindAlbum, pkgmetadata.RefreshStateActive, refreshed)
+	first, last := time.Duration(1<<62), time.Duration(0)
+	for i := range 500 {
+		alb := &catalogv1alpha1.Album{
+			ObjectMeta: metav1.ObjectMeta{UID: types.UID(fmt.Sprintf("0b6f2a4e-0000-4000-8000-%012d", i))},
+			Status: catalogv1alpha1.AlbumStatus{Metadata: &catalogv1alpha1.AlbumMetadata{
+				RefreshedAt: metav1.NewTime(refreshed), SchemaVersion: pkgmetadata.SchemaVersion,
+			}},
+		}
+		due := album.RefreshIn(alb, refreshed)
+		require.GreaterOrEqual(t, due, ttl, "never before its ttl")
+		require.Less(t, due, ttl+ttl/16, "and within a sixteenth of it after")
+		stale, _ := album.MetadataStale(alb, refreshed.Add(due-time.Second))
+		require.False(t, stale, "fresh a second before its wake")
+		stale, _ = album.MetadataStale(alb, refreshed.Add(due))
+		require.True(t, stale, "stale at its wake")
+		assert.Equal(t, pkgmetadata.RefreshRetry, album.RefreshIn(alb, refreshed.Add(due)), "asked for: owed again when a second ask is no duplicate")
+		first, last = min(first, due), max(last, due)
+	}
+	assert.Greater(t, last-first, ttl/32, "500 Albums of one refresh come due over hours, not at once")
 }
 
 // The Album watch's SkipInitial reads the Album as the cache lists it, a

@@ -180,7 +180,7 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 // 6,876 Albums, 157 Artists).
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
-		{Object: &catalogv1alpha1.Album{}, Map: rollup.Self, Predicates: []predicate.Predicate{albumPredicate()}, SkipInitial: r.idleAtStart},
+		{Object: &catalogv1alpha1.Album{}, Map: rollup.Self, Predicates: []predicate.Predicate{albumPredicate()}, SkipInitial: r.idleAtStart, IdleWake: r.idleWake},
 		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 		{Object: &catalogv1alpha1.Artist{}, Map: r.mapArtist, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 	}
@@ -202,6 +202,16 @@ func (r *Reconciler) idleAtStart(ctx context.Context, o client.Object) bool {
 		return false
 	}
 	return rollup.LeafIdleAtStart(IdleInputs(alb, monitored, time.Now().UTC()))
+}
+
+// idleWake is the Album watch's IdleWake: an Album left out of a manager's
+// start is still woken when its document comes due (RefreshIn).
+func (r *Reconciler) idleWake(_ context.Context, o client.Object) time.Duration {
+	alb, ok := o.(*catalogv1alpha1.Album)
+	if !ok {
+		return 0
+	}
+	return RefreshIn(alb, time.Now().UTC())
 }
 
 func (r *Reconciler) reporter() rollup.Reporter { return rollup.Reporter{Recorder: r.Recorder} }
@@ -633,10 +643,13 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	// After the apply, so a phase that never landed is never announced.
 	r.reporter().PhaseEdge(alb, string(alb.Status.Phase), string(phase))
 
+	// Owed again when the document comes due (RefreshIn), and sooner for a
+	// track listing that failed.
+	res := ctrl.Result{RequeueAfter: RefreshIn(alb, now)}
 	if ts.err != nil {
-		return ctrl.Result{RequeueAfter: max(time.Until(ts.retryAt), time.Second)}, nil
+		res.RequeueAfter = min(res.RequeueAfter, max(time.Until(ts.retryAt), time.Second))
 	}
-	return ctrl.Result{}, nil
+	return res, nil
 }
 
 // reassertKnownStatus re-adds every field this manager owns besides

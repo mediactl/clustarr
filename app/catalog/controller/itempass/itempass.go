@@ -19,9 +19,12 @@ package itempass
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"sync"
 	"time"
+
+	"k8s.io/apimachinery/pkg/types"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -67,11 +70,33 @@ type Pass struct {
 	// Admitter admits a task the kind publishes itself (ADR-0019 R23; nil
 	// admits everything: tests, F4's harness). See Admit.
 	Admitter Admitter
+	// Applies remembers what the catalog apply last left on each item, so
+	// itemstatus.Apply sends none that would change nothing (nil: every
+	// apply is sent).
+	Applies Applies
 
-	mu       sync.Mutex
-	retry    time.Duration
-	landedRV string
-	landed   bool
+	mu        sync.Mutex
+	retry     time.Duration
+	landedRV  string
+	landed    bool
+	unchanged bool
+}
+
+// Applies is the item path's memory of its own catalog applies: for each
+// item, the declaration last applied and the resourceVersion that apply
+// left. An item still at that resourceVersion is exactly what that
+// declaration made it, so applying the same declaration again changes
+// nothing, whoever owns which field -- the one case an item apply can be
+// known a no-op without the managedFields the cache strips. Before it, a
+// pass that only waited (an Album refused a metadata slot asked again every
+// ten seconds) cost the apiserver a full server-side apply each time: about
+// 40 a second on talos, 2026-11-26.
+type Applies interface {
+	// Unchanged reports that the item uid, read at rv, is what the
+	// declaration with this digest last left.
+	Unchanged(uid types.UID, rv string, digest [sha256.Size]byte) bool
+	// Applied records that applying the declaration left uid at rv.
+	Applied(uid types.UID, rv string, digest [sha256.Size]byte)
 }
 
 type passKey struct{}
@@ -97,6 +122,29 @@ func (p *Pass) Landed(rv string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.landedRV, p.landed = rv, true
+}
+
+// Kept records that the catalog apply was not sent because the item, at rv,
+// already is what it declares (Applies): the pass goes on as if it had
+// landed there. itemstatus.Apply calls it; a nil Pass ignores it.
+func (p *Pass) Kept(rv string) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.landedRV, p.landed, p.unchanged = rv, true, true
+}
+
+// Unchanged reports that this pass's catalog apply was kept back as a
+// no-op (Kept).
+func (p *Pass) Unchanged() bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.unchanged
 }
 
 // LandedRV is the resourceVersion the catalog apply returned, and whether
