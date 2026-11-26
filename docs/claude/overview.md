@@ -133,3 +133,26 @@ controller-runtime (below). **A third-party gap is never patched in this tree** 
 commit and the PR opened upstream, and drop the replace when upstream
 ships it.
 
+**ONNX Runtime's library comes from Microsoft's NuGet package** (2026-11-26;
+owner: "this should be investigated and fixed", then "swap the downloads to
+use https://github.com/syntax-syndicate/onnxruntime for now").
+`github.com/microsoft/onnxruntime` and its release files have answered 404
+since about 2026-11-17 (Microsoft, to The Register: "We have made some
+repositories private while we investigate malicious content"), and every
+`native`, `native-debug` and `trailers` image build failed at the release
+tarball's download once the layer cache had lapsed; the release workflow
+then publishes nothing, the `clustarr` image included. The fork was no
+download: a fork carries the tags, not the release files, and
+`github.com/onnxruntime` holds execution providers and demos only.
+`images/Dockerfile.native`'s `ort` stage and `hack/native-assets.sh` now
+fetch `microsoft.ml.onnxruntime.<version>.nupkg` from api.nuget.org and
+take `runtimes/linux-{x64,arm64}/native/libonnxruntime.so` and the
+package's licence files. It is the same build: the x64 library is byte for
+byte the one from the release tarball, and both libraries, stripped as the
+staging stage strips them, are byte for byte those in
+`native:sha-d08a9f9`. The pins are the package's SHA-256
+(`ORT_NUPKG_SHA256`) and each library's own (`ORT_SHA256_AMD64`,
+`ORT_SHA256_ARM64`, which were the tarballs' sums before). Nothing is known
+about what the malicious content was; a version bump waits for Microsoft's
+account of it.
+

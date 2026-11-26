@@ -127,24 +127,43 @@ RUN set -eux; \
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim AS ort
 ARG TARGETARCH
+# The library comes from Microsoft's NuGet package, not from a GitHub
+# release: github.com/microsoft/onnxruntime and its release files have
+# answered 404 since about 2026-11-17 (Microsoft: "We have made some
+# repositories private while we investigate malicious content"), which
+# failed every native, native-debug and trailers image build from the first
+# one after the layer cache lapsed (2026-11-26). No fork carries the release
+# files (a fork has the tags, not the assets), so a fork is no download.
+# The package is the same build: its linux-x64 library is byte for byte the
+# one in the release tarball this stage used to fetch (sha256 1fa4dcae...,
+# the tarball's), and both architectures' libraries, stripped as the
+# staging stage strips them, are byte for byte the ones in the images
+# published before (native:sha-d08a9f9). The pins are the package's
+# SHA-256 and each library's own, so the same library from anywhere else
+# checks against the same sums; go back to the release tarball when the
+# repository returns only if its library still matches them.
 ARG ORT_VERSION=1.23.2
-ARG ORT_SHA256_AMD64=1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b
-ARG ORT_SHA256_ARM64=7c63c73560ed76b1fac6cff8204ffe34fe180e70d6582b5332ec094810241e5c
+ARG ORT_NUPKG_SHA256=25fe172f7fcdf34f2b5b02c8b997f6b88abc282956849d4af4335af23d0c4e4a
+ARG ORT_SHA256_AMD64=13ab8084954fa4a47c777880180b90810d6020f021441395712b48a75b74c68b
+ARG ORT_SHA256_ARM64=648ffa64fbe027ae27139109410900cf776a030dec2dbbac51053318cc44c286
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl \
+ && apt-get install -y --no-install-recommends ca-certificates curl unzip \
  && rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
     case "${TARGETARCH}" in \
       amd64) a=x64; sum="${ORT_SHA256_AMD64}" ;; \
-      arm64) a=aarch64; sum="${ORT_SHA256_ARM64}" ;; \
+      arm64) a=arm64; sum="${ORT_SHA256_ARM64}" ;; \
       *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /tmp/ort.tgz "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-${a}-${ORT_VERSION}.tgz"; \
-    echo "${sum}  /tmp/ort.tgz" | sha256sum -c -; \
-    mkdir -p /tmp/ort /out/usr/lib /out/usr/share/licenses/onnxruntime; \
-    tar -xzf /tmp/ort.tgz --strip-components=1 -C /tmp/ort; \
-    install -m 0644 "/tmp/ort/lib/libonnxruntime.so.${ORT_VERSION}" /out/usr/lib/libonnxruntime.so; \
-    install -m 0644 /tmp/ort/LICENSE /tmp/ort/ThirdPartyNotices.txt /out/usr/share/licenses/onnxruntime/
+    curl -fsSL -o /tmp/ort.nupkg "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${ORT_VERSION}/microsoft.ml.onnxruntime.${ORT_VERSION}.nupkg"; \
+    echo "${ORT_NUPKG_SHA256}  /tmp/ort.nupkg" | sha256sum -c -; \
+    mkdir -p /out/usr/lib /out/usr/share/licenses/onnxruntime; \
+    unzip -p /tmp/ort.nupkg "runtimes/linux-${a}/native/libonnxruntime.so" > /out/usr/lib/libonnxruntime.so; \
+    echo "${sum}  /out/usr/lib/libonnxruntime.so" | sha256sum -c -; \
+    unzip -p /tmp/ort.nupkg LICENSE > /out/usr/share/licenses/onnxruntime/LICENSE; \
+    unzip -p /tmp/ort.nupkg ThirdPartyNotices.txt > /out/usr/share/licenses/onnxruntime/ThirdPartyNotices.txt; \
+    chmod 0644 /out/usr/lib/libonnxruntime.so /out/usr/share/licenses/onnxruntime/*; \
+    rm /tmp/ort.nupkg
 
 # ---------------------------------------------------------------------------
 # par2: par2go's published libpar2shim.so (upgrade guide U1) -- par2cmdline-

@@ -35,7 +35,7 @@ arg() {
 }
 case "$(uname -m)" in
   x86_64) arch=AMD64 ff=linux64 ort=x64 p2=amd64 ;;
-  aarch64) arch=ARM64 ff=linuxarm64 ort=aarch64 p2=arm64 ;;
+  aarch64) arch=ARM64 ff=linuxarm64 ort=arm64 p2=arm64 ;;
   *) echo "native-assets: unsupported machine $(uname -m)" >&2; exit 1 ;;
 esac
 FFMPEG_RELEASE=$(arg FFMPEG_RELEASE)
@@ -43,6 +43,7 @@ FFMPEG_VERSION=$(arg FFMPEG_VERSION)
 FFMPEG_BRANCH=$(arg FFMPEG_BRANCH)
 FFMPEG_SHA256=$(arg "FFMPEG_SHA256_${arch}")
 ORT_VERSION=$(arg ORT_VERSION)
+ORT_NUPKG_SHA256=$(arg ORT_NUPKG_SHA256)
 ORT_SHA256=$(arg "ORT_SHA256_${arch}")
 par2_sha="PAR2_CLI_SHA256_${arch}"
 PAR2_CLI_SHA256=${!par2_sha}
@@ -53,7 +54,7 @@ PAR2GO_VERSION=$(cd "${repo}" && go list -m -f '{{.Version}}' github.com/mediact
   exit 1
 }
 PAR2GO_SUMS="${repo}/hack/par2go/SHA256SUMS"
-pins=(FFMPEG_RELEASE FFMPEG_VERSION FFMPEG_BRANCH FFMPEG_SHA256 ORT_VERSION ORT_SHA256 PAR2_CLI_VERSION PAR2_CLI_SHA256 PAR2GO_VERSION)
+pins=(FFMPEG_RELEASE FFMPEG_VERSION FFMPEG_BRANCH FFMPEG_SHA256 ORT_VERSION ORT_NUPKG_SHA256 ORT_SHA256 PAR2_CLI_VERSION PAR2_CLI_SHA256 PAR2GO_VERSION)
 
 if [[ "${1:-}" == --print-pins ]]; then
   for k in "${pins[@]}"; do printf '%s=%s\n' "${k}" "${!k}"; done
@@ -96,12 +97,14 @@ gcc -shared -fPIC -O2 -Wall -DFFSHIM_HAVE_AVDEVICE=1 -DFFSHIM_HAVE_AVFILTER=1 \
   -L"${out}/lib" -lavutil -lavcodec -lavformat -lavdevice -lavfilter -Wl,-rpath,"${dir}/lib"
 
 echo "native-assets: ONNX Runtime ${ORT_VERSION}" >&2
-curl -fsSL -o "${work}/ort.tgz" \
-  "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-${ort}-${ORT_VERSION}.tgz"
-echo "${ORT_SHA256}  ${work}/ort.tgz" | sha256sum -c - >/dev/null
-mkdir -p "${work}/ort"
-tar -xzf "${work}/ort.tgz" --strip-components=1 -C "${work}/ort"
-install -m 0644 "${work}/ort/lib/libonnxruntime.so.${ORT_VERSION}" "${out}/lib/libonnxruntime.so"
+# From the NuGet package, as images/Dockerfile.native's ort stage and for
+# its reason: the GitHub repository and its release files are gone.
+curl -fsSL -o "${work}/ort.nupkg" \
+  "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${ORT_VERSION}/microsoft.ml.onnxruntime.${ORT_VERSION}.nupkg"
+echo "${ORT_NUPKG_SHA256}  ${work}/ort.nupkg" | sha256sum -c - >/dev/null
+unzip -p "${work}/ort.nupkg" "runtimes/linux-${ort}/native/libonnxruntime.so" > "${out}/lib/libonnxruntime.so"
+echo "${ORT_SHA256}  ${out}/lib/libonnxruntime.so" | sha256sum -c - >/dev/null
+chmod 0644 "${out}/lib/libonnxruntime.so"
 
 echo "native-assets: par2cmdline-turbo ${PAR2_CLI_VERSION} (a test-only CLI)" >&2
 curl -fsSL -o "${work}/par2.zip" \
