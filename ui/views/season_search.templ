@@ -33,8 +33,12 @@ templ SeasonSearchModal(series Detail, season SeasonRow, p SearchPanel) {
 			Attributes: templ.Attributes{"data-season-search-modal": fmt.Sprint(season.Number)},
 		}) {
 			@dialog.Header() {
-				@dialog.Title() { { fmt.Sprintf("%s - %s", series.Item.Title, season.Label()) } }
-				@dialog.Description() { Interactive search }
+				@dialog.Title() {
+					{ fmt.Sprintf("%s - %s", series.Item.Title, season.Label()) }
+				}
+				@dialog.Description() {
+					Interactive search 
+				}
 			}
 			@SearchPanelView(p)
 		}

@@ -117,16 +117,38 @@ fork's published tag (`github.com/mediactl/ffgo v0.0.0-clustarr.N`, since
 2026-10-27; before that a `../ffgo-unify` directory, which `make contexts`
 exported as a build context), so `go mod download` fetches it in the images
 too; bump the tag in go.mod and go.sum to take a new fork release. The
-same shape carries anacrolix/torrent (`github.com/mediactl/torrent
-v1.62.0-clustarr.N`, branch `clustarr`: the upstream tag plus upstream's
-open PR 1081, which resets a dropped torrent's announce state at its re-add
--- anacrolix/torrent#1048, under which a published or re-grabbed torrent
-never got the tracker's answer; until 2026-11-10 `announce.go` tagged a
-re-add's tracker URLs with a fragment instead), the ONNX Runtime binding
+same shape carries the ONNX Runtime binding
 (`github.com/mediactl/onnxruntime-purego v0.0.0-clustarr.N`, branch
 `clustarr`: upstream plus `NewEnvWithLogger` and `Env.SetLogLevel`, ORT's
 custom logger, offered upstream as shota3506/onnxruntime-purego#18;
 `pkg/ortlog` routes ORT's lines under the `onnx` subsystem through it).
+anacrolix/torrent is upstream's again since 2026-11-26, at a commit of its
+master and not a release (`v1.63.1-0.20261126050437-7ed5d797828d`; owner,
+2026-11-26: "Pin upstream master by pseudo-version", over a fork rebased on
+v1.63.0). The fork it replaces (`github.com/mediactl/torrent
+v1.62.0-clustarr.1`) was v1.62.0 plus upstream's then open PR 1081, which
+resets a dropped torrent's announce state at its re-add --
+anacrolix/torrent#1048, under which a published or re-grabbed torrent never
+got the tracker's answer; until 2026-11-10 `announce.go` tagged a re-add's
+tracker URLs with a fragment instead. Upstream merged it on 2026-11-24, after
+v1.63.0, and the same day fixed a panic it introduced (`f601c604`, an input
+update queued for a dropped torrent), which the fork never had. The pin pulls
+anacrolix/generics and multiless at unreleased commits too. **Move to the
+first release after v1.63.0** and nothing else changes. The fork's tag must
+stay fetchable: every commit before this one names it in go.mod.
+**A tree-wide `go get -u` does not build here** (2026-11-26; owner chose the
+ceilings: "Take Exactly what 0.37.3 declares and the latest templ release with
+a rebuild"). Three things it takes too far: `k8s.io/kube-openapi` (after
+2026-08-21 it uses structured-merge-diff v7, and every `k8s.io/*` v0.37 module
+and controller-runtime v0.25 use v6: apimachinery stops compiling), so
+kube-openapi, `k8s.io/utils` and `sigs.k8s.io/json` -- unversioned modules
+Kubernetes pins by commit -- stay at the commits `k8s.io/apimachinery`'s own
+go.mod declares, and move only with a Kubernetes minor (0.38 also needs the
+apply configurations regenerated and a controller-runtime built for it);
+`github.com/anacrolix/stm` (v0.6.0 dropped the method dht v2.24.0 calls: hold
+v0.5.0 until a dht release without stm, which its master already is); and
+`github.com/a-h/templ`, whose runtime and generator move together
+(`ui.md`, "Format a template").
 controller-runtime is upstream's again since 2026-11-26 (`gotchas.md`, "The
 manager talked to the apiserver in CBOR"). **A third-party gap is never patched in this tree** (owner,
 2026-11-10): take the upstream release that has the fix, else a

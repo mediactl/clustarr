@@ -582,9 +582,21 @@ filter menus (menubar radio items carry no `href`), the Live TV copy
 button (`copy-button` is a docs-site part, not a registry item) and the
 monitor bookmarks (`toggle` is `type="button"`, and theirs are submits).
 Format a template with the project's templ, `go run
-github.com/a-h/templ/cmd/templ@v0.3.1020 fmt <file>`: the `templ` on PATH
-(v0.3.1100) formats differently, and `templ fmt ui/views` rewrote twenty
-untouched files.
+github.com/a-h/templ/cmd/templ@v0.3.1118 fmt <file>` (the pin moved from
+v0.3.1020 on 2026-11-26, owner: "the latest templ release with a rebuild";
+v0.3.1100 removed the runtime functions v0.3.1020's generated files called,
+so the runtime in go.mod and the generator in the Makefile move together and
+every `*_templ.go` is regenerated with them). Every source was formatted by
+v0.3.1118 the same day (it laid fifteen out differently from v0.3.1020: ten
+vendored components and the add, detail, edit, movie search and season
+search views), so `fmt -fail ui` reports nothing on a clean tree and a
+formatter that rewrites a file nobody touched is the wrong version. **From v0.3.1100 the generator writes no whitespace between
+neighbouring elements** (`</svg> <span>` became `</svg><span>`) and ends a
+computed `style` attribute with `;`: two inline elements side by side keep a
+gap only from their parent (`flex` or `grid` with a `gap`, which is what every
+page had on 2026-11-26: 410 pages and 249 fragments from the ui tests were
+laid out in Chromium old against new and no element moved), never from the
+space between them in the template.
 **The settings forms follow their own choices** (owner, 2026-11-16:
 "selecting an option like music or movies limits which fields are valid ...
 filter which input groups and specific inputs display based on the selected

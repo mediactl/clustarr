@@ -57,8 +57,9 @@ import (
 // github.com/anacrolix/torrent module version rather than being computed at
 // runtime, because [download.Info.Version] is documented as "for logs and
 // status messages only; nothing branches on it" -- not worth a
-// debug.ReadBuildInfo lookup on every DownloadClient reconcile.
-const engineVersion = "v1.61.0"
+// debug.ReadBuildInfo lookup on every DownloadClient reconcile. Since
+// 2026-11-26 the pin is a commit of upstream's master, not a release.
+const engineVersion = "v1.63.1-0.20261126050437-7ed5d797828d"
 
 // Config configures [New]. It is this package's own type, not a Kubernetes
 // API type, so unlike a CRD-derived client its zero values are deliberate
@@ -364,10 +365,11 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 	if spec.DisplayName == "" {
 		spec.DisplayName = req.Name
 	}
-	// NOT spec.DisallowDataDownload/DisallowDataUpload: those AddTorrentOpts
-	// fields are declared in this version of anacrolix but never read by
-	// newTorrentOpt -- verified by grep, not assumed. Pause is applied
-	// explicitly below instead, the same way [Client.Pause] does it.
+	// NOT spec.DisallowDataDownload/DisallowDataUpload: anacrolix declared
+	// those AddTorrentOpts fields without reading them through v1.63.0 and
+	// honours them from anacrolix/torrent#1250 on. Pause is applied
+	// explicitly below, the same way [Client.Pause] does it, which holds
+	// under either behaviour.
 
 	t, isNew, err := c.cl.AddTorrentSpec(spec)
 	if err != nil {
@@ -958,9 +960,10 @@ func (c *Client) publish(id string) {
 	// dispatcher keeps a dropped Torrent's (tracker, info hash) state for the
 	// client's life and bound to that Torrent, so a re-added one never got the
 	// tracker's answer (anacrolix/torrent#1048; the smoke test's "no peers
-	// connected" of 2026-10-08): the fork go.mod replaces the module with
-	// carries upstream's open fix, PR 1081, which resets the state at the
-	// re-add and sends Started at once. reannounce_test.go holds it.
+	// connected" of 2026-10-08). Upstream's fix, PR 1081, resets the state
+	// at the re-add and sends Started at once; the commit of upstream's
+	// master that go.mod pins has it (a mediactl fork carried it until
+	// 2026-11-26). reannounce_test.go holds it.
 	t.Drop()
 	nt, _, err := c.cl.AddTorrentSpec(spec)
 	c.pubMu.Unlock()

@@ -130,11 +130,11 @@ type InsetProps struct {
 }
 
 type InputProps struct {
-	ID         string
-	Class      string
-	Attributes templ.Attributes
-	Name       string
-	Value      string
+	ID          string
+	Class       string
+	Attributes  templ.Attributes
+	Name        string
+	Value       string
 	Placeholder string
 }
 
@@ -328,7 +328,7 @@ templ Sidebar(props ...Props) {
 			ID: p.ID + "-mobile",
 		}) {
 			@sheet.Content(sheet.ContentProps{
-				Side:            sheetSide,
+				Side:  sheetSide,
 				Class: "w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden md:hidden",
 				Attributes: templ.Attributes{
 					"data-sidebar": "sidebar",

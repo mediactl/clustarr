@@ -162,8 +162,8 @@ func waitCompletedWithin(t *testing.T, c *Client, id string, within time.Duratio
 // keeps a dropped torrent's (tracker, info hash) announce state for the
 // life of the client and binds it to the first Torrent that registered it,
 // so a re-added Torrent of the same info hash never got a tracker's peers
-// (anacrolix/torrent#1048, open upstream as PR 1081, which the fork go.mod
-// names carries: the state is reset at the re-add and Started sent at once;
+// (anacrolix/torrent#1048, fixed upstream by PR 1081, which the commit
+// go.mod pins has: the state is reset at the re-add and Started sent at once;
 // until 2026-11-10 clustarr tagged a re-add's tracker URLs with a fragment
 // instead, a fresh key per drop). Here the leecher finds the seeder only
 // through the tracker, completes, is removed with its data, and is added

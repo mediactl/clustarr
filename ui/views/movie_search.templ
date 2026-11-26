@@ -34,7 +34,9 @@ templ MovieSearchModal(movie projection.LibraryItem, p SearchPanel) {
 			Attributes: templ.Attributes{"data-movie-search-modal": movie.Ref.Name},
 		}) {
 			@dialog.Header() {
-				@dialog.Title() { { "Interactive Search - " + movie.Title } }
+				@dialog.Title() {
+					{ "Interactive Search - " + movie.Title }
+				}
 			}
 			@SearchPanelView(p)
 		}

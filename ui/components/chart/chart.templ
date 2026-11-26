@@ -109,14 +109,14 @@ templ Container(props ...ContainerProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	id := p.ID
-	if id == "" {
-		id = utils.RandomID()
-	}
-	chartID := "chart-" + id
-	// The config travels to the chart root and its children through ctx,
-	// the pendant of shadcn's ChartContext.
-	ctx = context.WithValue(ctx, configCtxKey, p.Config)
+		id := p.ID
+		if id == "" {
+			id = utils.RandomID()
+		}
+		chartID := "chart-" + id
+		// The config travels to the chart root and its children through ctx,
+		// the pendant of shadcn's ChartContext.
+		ctx = context.WithValue(ctx, configCtxKey, p.Config)
 	}}
 	<div
 		data-slot="chart"
@@ -258,7 +258,7 @@ type TooltipContentProps struct {
 	HideIndicator  bool
 	NameKey        string
 	Class          string // extra content class, e.g. "w-[150px]"
-	LabelClassName     string // extra label class, ChartTooltipContent's labelClassName
+	LabelClassName string // extra label class, ChartTooltipContent's labelClassName
 	// Color overrides the indicator color for every row, the color prop of
 	// ChartTooltipContent.
 	Color          string
@@ -725,8 +725,8 @@ templ AreaChart(props ...AreaChartProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	st := &chartState{kind: "area", data: p.Data, margin: p.Margin, stackOffset: p.StackOffset, accessibilityLayer: p.AccessibilityLayer}
-	ctx = context.WithValue(ctx, stateCtxKey, st)
+		st := &chartState{kind: "area", data: p.Data, margin: p.Margin, stackOffset: p.StackOffset, accessibilityLayer: p.AccessibilityLayer}
+		ctx = context.WithValue(ctx, stateCtxKey, st)
 	}}
 	@responsiveContainer() {
 		{ children... }
@@ -741,8 +741,8 @@ templ BarChart(props ...BarChartProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	st := &chartState{kind: "bar", data: p.Data, margin: p.Margin, layout: p.Layout, accessibilityLayer: p.AccessibilityLayer}
-	ctx = context.WithValue(ctx, stateCtxKey, st)
+		st := &chartState{kind: "bar", data: p.Data, margin: p.Margin, layout: p.Layout, accessibilityLayer: p.AccessibilityLayer}
+		ctx = context.WithValue(ctx, stateCtxKey, st)
 	}}
 	@responsiveContainer() {
 		{ children... }
@@ -757,8 +757,8 @@ templ LineChart(props ...LineChartProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	st := &chartState{kind: "line", data: p.Data, margin: p.Margin, accessibilityLayer: p.AccessibilityLayer}
-	ctx = context.WithValue(ctx, stateCtxKey, st)
+		st := &chartState{kind: "line", data: p.Data, margin: p.Margin, accessibilityLayer: p.AccessibilityLayer}
+		ctx = context.WithValue(ctx, stateCtxKey, st)
 	}}
 	@responsiveContainer() {
 		{ children... }
@@ -773,8 +773,8 @@ templ RadarChart(props ...RadarChartProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	st := &chartState{kind: "radar", data: p.Data, margin: p.Margin}
-	ctx = context.WithValue(ctx, stateCtxKey, st)
+		st := &chartState{kind: "radar", data: p.Data, margin: p.Margin}
+		ctx = context.WithValue(ctx, stateCtxKey, st)
 	}}
 	@responsiveContainer() {
 		{ children... }
@@ -789,9 +789,9 @@ templ PolarGrid(props ...PolarGridProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.polarGrid = &p
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.polarGrid = &p
+		}
 	}}
 }
 
@@ -802,9 +802,9 @@ templ PolarAngleAxis(props ...PolarAngleAxisProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.angleAxis = &p
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.angleAxis = &p
+		}
 	}}
 }
 
@@ -815,9 +815,9 @@ templ Radar(props ...RadarProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.radars = append(st.radars, p)
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.radars = append(st.radars, p)
+		}
 	}}
 }
 
@@ -828,12 +828,12 @@ templ RadialBarChart(props ...RadialBarChartProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	st := &chartState{
-		kind: "radial", data: p.Data, margin: p.Margin,
-		startAngle: p.StartAngle, endAngle: p.EndAngle,
-		innerRadius: p.InnerRadius, outerRadius: p.OuterRadius,
-	}
-	ctx = context.WithValue(ctx, stateCtxKey, st)
+		st := &chartState{
+			kind: "radial", data: p.Data, margin: p.Margin,
+			startAngle: p.StartAngle, endAngle: p.EndAngle,
+			innerRadius: p.InnerRadius, outerRadius: p.OuterRadius,
+		}
+		ctx = context.WithValue(ctx, stateCtxKey, st)
 	}}
 	@responsiveContainer() {
 		{ children... }
@@ -848,9 +848,9 @@ templ RadialBar(props ...RadialBarProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.radialBars = append(st.radialBars, &radialBarState{props: p})
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.radialBars = append(st.radialBars, &radialBarState{props: p})
+		}
 	}}
 	{ children... }
 }
@@ -863,9 +863,9 @@ templ PolarRadiusAxis(props ...PolarRadiusAxisProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.radiusAxis = &p
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.radiusAxis = &p
+		}
 	}}
 	{ children... }
 }
@@ -910,9 +910,9 @@ templ CartesianGrid(props ...CartesianGridProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.grid = &p
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.grid = &p
+		}
 	}}
 }
 
@@ -923,9 +923,9 @@ templ XAxis(props ...XAxisProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.x = &p
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.x = &p
+		}
 	}}
 }
 
@@ -936,9 +936,9 @@ templ YAxis(props ...YAxisProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.y = &p
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.y = &p
+		}
 	}}
 }
 
@@ -949,9 +949,9 @@ templ Tooltip(props ...TooltipProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.tooltip = &p
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.tooltip = &p
+		}
 	}}
 }
 
@@ -962,9 +962,9 @@ templ Legend(props ...LegendProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.legend = &p
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.legend = &p
+		}
 	}}
 }
 
@@ -1006,9 +1006,9 @@ templ Area(props ...AreaProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.areas = append(st.areas, p)
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.areas = append(st.areas, p)
+		}
 	}}
 }
 
@@ -1019,9 +1019,9 @@ templ Bar(props ...BarProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.bars = append(st.bars, &barState{props: p})
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.bars = append(st.bars, &barState{props: p})
+		}
 	}}
 	{ children... }
 }
@@ -1034,10 +1034,10 @@ templ Cell(props ...CellProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil && len(st.bars) > 0 {
-		b := st.bars[len(st.bars)-1]
-		b.cells = append(b.cells, p)
-	}
+		if st := stateFrom(ctx); st != nil && len(st.bars) > 0 {
+			b := st.bars[len(st.bars)-1]
+			b.cells = append(b.cells, p)
+		}
 	}}
 }
 
@@ -1048,9 +1048,9 @@ templ Line(props ...LineProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.lines = append(st.lines, &lineState{props: p})
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.lines = append(st.lines, &lineState{props: p})
+		}
 	}}
 	{ children... }
 }
@@ -1062,18 +1062,18 @@ templ LabelList(props ...LabelListProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		if len(st.radialBars) > 0 {
-			st.radialBars[len(st.radialBars)-1].labelList = &p
-		} else if len(st.pies) > 0 {
-			st.pies[len(st.pies)-1].labelList = &p
-		} else if len(st.bars) > 0 {
-			b := st.bars[len(st.bars)-1]
-			b.labelLists = append(b.labelLists, p)
-		} else if len(st.lines) > 0 {
-			st.lines[len(st.lines)-1].labelList = &p
+		if st := stateFrom(ctx); st != nil {
+			if len(st.radialBars) > 0 {
+				st.radialBars[len(st.radialBars)-1].labelList = &p
+			} else if len(st.pies) > 0 {
+				st.pies[len(st.pies)-1].labelList = &p
+			} else if len(st.bars) > 0 {
+				b := st.bars[len(st.bars)-1]
+				b.labelLists = append(b.labelLists, p)
+			} else if len(st.lines) > 0 {
+				st.lines[len(st.lines)-1].labelList = &p
+			}
 		}
-	}
 	}}
 }
 
@@ -1084,9 +1084,9 @@ templ Pie(props ...PieProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		st.pies = append(st.pies, &pieState{props: p})
-	}
+		if st := stateFrom(ctx); st != nil {
+			st.pies = append(st.pies, &pieState{props: p})
+		}
 	}}
 	{ children... }
 }
@@ -1099,13 +1099,13 @@ templ Label(props ...LabelProps) {
 		{{ p = props[0] }}
 	}
 	{{
-	if st := stateFrom(ctx); st != nil {
-		if len(st.pies) > 0 {
-			st.pies[len(st.pies)-1].label = &p
-		} else {
-			st.center = &p
+		if st := stateFrom(ctx); st != nil {
+			if len(st.pies) > 0 {
+				st.pies[len(st.pies)-1].label = &p
+			} else {
+				st.center = &p
+			}
 		}
-	}
 	}}
 }
 
@@ -1230,7 +1230,7 @@ func buildModel(ctx context.Context, st *chartState) Model {
 
 	// The category axis carries the labels: XAxis in the default layout,
 	// YAxis when the layout is vertical.
-	dataKey, formatter := "", func(any) string(nil)
+	dataKey, formatter := "", (func(any) string)(nil)
 	if st.layout == "vertical" {
 		if y := st.y; y != nil {
 			dataKey, formatter = y.DataKey, y.TickFormatter
@@ -1674,7 +1674,7 @@ templ legendContent(items []LegendItem, p *LegendProps) {
 			style="position:absolute;left:0;right:0;bottom:5px"
 		}
 	>
-		<div class={ utils.CN("flex items-center justify-center gap-4 " + legendPad(p.VerticalAlign), p.Class) }>
+		<div class={ utils.CN("flex items-center justify-center gap-4 "+legendPad(p.VerticalAlign), p.Class) }>
 			for _, it := range items {
 				<div class="flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground">
 					if it.Icon != "" && !p.HideIcon {
@@ -1796,37 +1796,37 @@ type TickSpanModel struct {
 
 // PolarModel is the grid and axis setup of a polar chart.
 type PolarModel struct {
-	GridType    string    `json:"gridType,omitempty"`
-	RadialLines bool      `json:"radialLines"`
-	PolarRadius []float64 `json:"polarRadius,omitempty"`
-	Stroke      string    `json:"stroke,omitempty"`
-	StrokeWidth float64   `json:"strokeWidth,omitempty"`
-	GridClass   string    `json:"gridClass,omitempty"`
-	Ticks       []TickContentModel `json:"ticks,omitempty"`
-	HasGrid     bool      `json:"hasGrid,omitempty"`
-	HasAngleAxis bool     `json:"hasAngleAxis,omitempty"`
+	GridType     string             `json:"gridType,omitempty"`
+	RadialLines  bool               `json:"radialLines"`
+	PolarRadius  []float64          `json:"polarRadius,omitempty"`
+	Stroke       string             `json:"stroke,omitempty"`
+	StrokeWidth  float64            `json:"strokeWidth,omitempty"`
+	GridClass    string             `json:"gridClass,omitempty"`
+	Ticks        []TickContentModel `json:"ticks,omitempty"`
+	HasGrid      bool               `json:"hasGrid,omitempty"`
+	HasAngleAxis bool               `json:"hasAngleAxis,omitempty"`
 }
 
 // PieModel is one rendered Pie with its sectors.
 type PieModel struct {
-	Key         string           `json:"key"`
-	SeriesLabel string           `json:"seriesLabel,omitempty"`
-	Values      []float64        `json:"values"`
+	Key          string          `json:"key"`
+	SeriesLabel  string          `json:"seriesLabel,omitempty"`
+	Values       []float64       `json:"values"`
 	Labels       []string        `json:"labels"`
 	TooltipNames []string        `json:"tooltipNames,omitempty"`
-	NameKey     string           `json:"nameKey,omitempty"`
-	NameValues  []string         `json:"nameValues,omitempty"`
-	Colors      []string         `json:"colors"`
-	InnerRadius float64          `json:"innerRadius,omitempty"`
-	OuterRadius float64          `json:"outerRadius,omitempty"`
-	StrokeWidth float64          `json:"strokeWidth,omitempty"`
-	Stroke      string           `json:"stroke,omitempty"`
-	Label       *PieLabelModel   `json:"label,omitempty"`
-	LabelLine   bool             `json:"labelLine,omitempty"`
-	LabelList   *LabelListModel  `json:"labelList,omitempty"`
-	ActiveIndex *int             `json:"activeIndex,omitempty"`
-	ActiveShape []SectorProps    `json:"activeShape,omitempty"`
-	Center      *LabelModel      `json:"center,omitempty"`
+	NameKey      string          `json:"nameKey,omitempty"`
+	NameValues   []string        `json:"nameValues,omitempty"`
+	Colors       []string        `json:"colors"`
+	InnerRadius  float64         `json:"innerRadius,omitempty"`
+	OuterRadius  float64         `json:"outerRadius,omitempty"`
+	StrokeWidth  float64         `json:"strokeWidth,omitempty"`
+	Stroke       string          `json:"stroke,omitempty"`
+	Label        *PieLabelModel  `json:"label,omitempty"`
+	LabelLine    bool            `json:"labelLine,omitempty"`
+	LabelList    *LabelListModel `json:"labelList,omitempty"`
+	ActiveIndex  *int            `json:"activeIndex,omitempty"`
+	ActiveShape  []SectorProps   `json:"activeShape,omitempty"`
+	Center       *LabelModel     `json:"center,omitempty"`
 }
 
 // PieLabelModel is the resolved label prop of a Pie.
@@ -1890,13 +1890,13 @@ type LabelListModel struct {
 
 // TooltipModel mirrors ChartTooltipContent's props.
 type TooltipModel struct {
-	Indicator     string `json:"indicator,omitempty"` // "dot" (default) | "line" | "dashed"
-	Label         string `json:"label,omitempty"`     // labelKey resolved through the config
-	HideLabel     bool   `json:"hideLabel,omitempty"`
-	HideIndicator bool   `json:"hideIndicator,omitempty"`
-	Width         string `json:"width,omitempty"`      // extra class, e.g. "w-[150px]"
-	LabelClassName    string `json:"labelClass,omitempty"` // extra label class, labelClassName
-	Color         string `json:"color,omitempty"`      // indicator color override
+	Indicator      string `json:"indicator,omitempty"` // "dot" (default) | "line" | "dashed"
+	Label          string `json:"label,omitempty"`     // labelKey resolved through the config
+	HideLabel      bool   `json:"hideLabel,omitempty"`
+	HideIndicator  bool   `json:"hideIndicator,omitempty"`
+	Width          string `json:"width,omitempty"`      // extra class, e.g. "w-[150px]"
+	LabelClassName string `json:"labelClass,omitempty"` // extra label class, labelClassName
+	Color          string `json:"color,omitempty"`      // indicator color override
 	// DefaultIndex shows the tooltip on mount at that category.
 	DefaultIndex *int `json:"defaultIndex,omitempty"`
 	// Rows is the formatter markup per series and data row.

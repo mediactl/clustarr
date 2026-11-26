@@ -267,14 +267,14 @@ type Detail struct {
 	// Profiles are the cluster's QualityProfiles, the Edit dialog's choices
 	// (editDialog); SeriesType and MinimumAvailability are the item's
 	// current spec values for the dialog's other field.
-	Profiles            []AddOption
-	SeriesType          string
+	Profiles   []AddOption
+	SeriesType string
 	// AspectRatio is a series' spec.aspectRatio: the shape of picture it
 	// is kept in (widescreen, fullscreen, any); AspectRatioFix its
 	// spec.aspectRatioFix, what is done about a file of another (replace,
 	// crop).
-	AspectRatio    string
-	AspectRatioFix string
+	AspectRatio         string
+	AspectRatioFix      string
 	MinimumAvailability string
 	// Audio is a movie's status.audio as a note.
 	Audio AudioNote

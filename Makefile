@@ -113,7 +113,7 @@ generate: ## Generate DeepCopy and apply-configuration code.
 	hack/flatten-applyconfiguration.sh
 
 # No templ binary is installed; `go run` against the version go.mod already
-# pins (v0.3.1020) generates the same *_templ.go it would, without adding a
+# pins (v0.3.1118) generates the same *_templ.go it would, without adding a
 # tool dependency. The generated files are committed, so a generator change
 # can never break a build unattended -- this target is for regenerating them
 # after editing a .templ file, not a build-time step.
@@ -123,7 +123,7 @@ brand-gate: ## Fail if a retired *arr brand name appears outside the records.
 
 .PHONY: templ
 templ: ## Regenerate ui/views/*_templ.go and ui/components/*/*_templ.go from their .templ sources.
-	go run github.com/a-h/templ/cmd/templ@v0.3.1020 generate
+	go run github.com/a-h/templ/cmd/templ@v0.3.1118 generate
 
 # Tailwind's standalone CLI is a platform binary, not a Go module -- Phase G
 # ruling R4 (docs/superpowers/plans/2026-09-23-phase-g-parity.md) is no Node

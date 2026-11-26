@@ -298,58 +298,58 @@ templ Content(props ...ContentProps) {
 	// content never participates in layout or sibling CSS.
 	<div data-templ-portal hidden>
 		<div data-base-ui-portal hidden>
-		<div
-			if !alignItem {
-				data-templ-align-item-with-trigger="false"
-			}
-			data-templ-align={ string(p.Align) }
-			if s.open != nil {
-				data-templ-open={ strconv.FormatBool(*s.open) }
-			}
-			data-templ-default-open?={ s.open == nil && s.defaultOpen }
-			data-closed
-			hidden
-			role="presentation"
-			class="isolate z-50"
-			{ utils.DirectionAttributes(ctx)... }
-		>
 			<div
-				id={ s.id }
-				data-slot="select-content"
-				tabindex="-1"
-				data-base-ui-focusable
 				if !alignItem {
-					data-align-trigger="false"
-				} else {
-					data-align-trigger="true"
+					data-templ-align-item-with-trigger="false"
 				}
+				data-templ-align={ string(p.Align) }
+				if s.open != nil {
+					data-templ-open={ strconv.FormatBool(*s.open) }
+				}
+				data-templ-default-open?={ s.open == nil && s.defaultOpen }
 				data-closed
+				hidden
 				role="presentation"
-				class={
-					utils.CN(
-						// 1:1 base/ui/select.tsx SelectContent, the look comes from
-						// and Base UI's standard positioner variables.
-						"bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 ring-foreground/10 min-w-36 rounded-md shadow-md ring-1 duration-100 data-[side=inline-start]:slide-in-from-right-2 data-[side=inline-end]:slide-in-from-left-2 relative isolate z-50 max-h-(--available-height) w-(--anchor-width) origin-(--transform-origin) overflow-x-hidden overflow-y-auto data-[align-trigger=true]:animate-none",
-						// The popup stays mounted after animate-out until it unmounts.
-						"data-closed:fill-mode-forwards",
-						p.Class,
-					),
-				}
-				{ p.Attributes... }
+				class="isolate z-50"
+				{ utils.DirectionAttributes(ctx)... }
 			>
-				// SelectScrollUpArrow, mounted while the list can scroll up.
-				<div data-slot="select-scroll-up-button" data-direction="up" aria-hidden="true" hidden style="position:absolute" class="bg-popover z-10 flex cursor-default items-center justify-center py-1 [&_svg:not([class*='size-'])]:size-4 top-0 w-full">
-					@icon.ChevronUp()
-				</div>
-				// SelectList.
-				<div id={ s.id + "-list" } role="listbox">
-					{ children... }
-				</div>
-				<div data-slot="select-scroll-down-button" data-direction="down" aria-hidden="true" hidden style="position:absolute" class="bg-popover z-10 flex cursor-default items-center justify-center py-1 [&_svg:not([class*='size-'])]:size-4 bottom-0 w-full">
-					@icon.ChevronDown()
+				<div
+					id={ s.id }
+					data-slot="select-content"
+					tabindex="-1"
+					data-base-ui-focusable
+					if !alignItem {
+						data-align-trigger="false"
+					} else {
+						data-align-trigger="true"
+					}
+					data-closed
+					role="presentation"
+					class={
+						utils.CN(
+							// 1:1 base/ui/select.tsx SelectContent, the look comes from
+							// and Base UI's standard positioner variables.
+							"bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 ring-foreground/10 min-w-36 rounded-md shadow-md ring-1 duration-100 data-[side=inline-start]:slide-in-from-right-2 data-[side=inline-end]:slide-in-from-left-2 relative isolate z-50 max-h-(--available-height) w-(--anchor-width) origin-(--transform-origin) overflow-x-hidden overflow-y-auto data-[align-trigger=true]:animate-none",
+							// The popup stays mounted after animate-out until it unmounts.
+							"data-closed:fill-mode-forwards",
+							p.Class,
+						),
+					}
+					{ p.Attributes... }
+				>
+					// SelectScrollUpArrow, mounted while the list can scroll up.
+					<div data-slot="select-scroll-up-button" data-direction="up" aria-hidden="true" hidden style="position:absolute" class="bg-popover z-10 flex cursor-default items-center justify-center py-1 [&_svg:not([class*='size-'])]:size-4 top-0 w-full">
+						@icon.ChevronUp()
+					</div>
+					// SelectList.
+					<div id={ s.id + "-list" } role="listbox">
+						{ children... }
+					</div>
+					<div data-slot="select-scroll-down-button" data-direction="down" aria-hidden="true" hidden style="position:absolute" class="bg-popover z-10 flex cursor-default items-center justify-center py-1 [&_svg:not([class*='size-'])]:size-4 bottom-0 w-full">
+						@icon.ChevronDown()
+					</div>
 				</div>
 			</div>
-		</div>
 		</div>
 	</div>
 }

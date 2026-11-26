@@ -142,13 +142,13 @@ make test          # unit + envtest + native suites (sets KUBEBUILDER_ASSETS and
 make lint          # golangci-lint v2
 make brand-gate    # no *arr brand outside the dated records
 make css           # ui/static/app.css from input.css (pinned Tailwind CLI)
-make templ         # regenerate *_templ.go (pinned templ v0.3.1020; never the templ on PATH)
+make templ         # regenerate *_templ.go (pinned templ v0.3.1118; never the templ on PATH)
 make run-dev       # manager, ui and one agent per domain against your kubeconfig
 make e2e           # end-to-end suite against the kind cluster
 ```
 
-Tools live in `$(go env GOPATH)/bin`. `go.mod` replaces ffgo, anacrolix/torrent
-and onnxruntime-purego with `mediactl/` forks at published tags.
+Tools live in `$(go env GOPATH)/bin`. `go.mod` replaces ffgo and
+onnxruntime-purego with `mediactl/` forks at published tags.
 **A third-party gap is never patched in this tree**: take the upstream release
 with the fix, else a `mediactl/` fork rebased on the upstream tag with the PR opened.
 
