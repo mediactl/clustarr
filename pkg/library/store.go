@@ -69,6 +69,13 @@ type Options struct {
 	// Migrate creates the schema, the tables and the triggers. Only the
 	// manager's role may: every other process opens what the manager made.
 	Migrate bool
+	// Lazy opens without connecting: the first read connects, and a watcher
+	// retries until the database answers. The ui opens so, because it
+	// starts whether or not the database is up yet and must fill its pages
+	// when it comes, not serve empty ones for the rest of its life. A
+	// process that would rather exit and be started again leaves it false.
+	// It cannot be set with Migrate.
+	Lazy bool
 	// UIRole and ReadRole name database roles a migration grants their
 	// share of the library to, when they exist: ReadRole may read every
 	// table and write none (the agents', cluster-plex's, a person's);
@@ -82,6 +89,9 @@ type Options struct {
 
 // Open connects to the library database.
 func Open(ctx context.Context, dsn string, o Options) (*Store, error) {
+	if o.Lazy && o.Migrate {
+		return nil, errors.New("library: open: a migration needs the connection, so it cannot be lazy")
+	}
 	schemas := o.Schemas
 	if schemas == nil {
 		var err error
@@ -96,6 +106,9 @@ func Open(ctx context.Context, dsn string, o Options) (*Store, error) {
 	s := &Store{db: db, dsn: dsn, schemas: schemas, now: time.Now}
 	// The store outlives the context it was opened under; Close ends it.
 	s.closing, s.close = context.WithCancel(context.WithoutCancel(ctx))
+	if o.Lazy {
+		return s, nil
+	}
 	if err := db.PingContext(ctx); err != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("library: connect: %w", err)

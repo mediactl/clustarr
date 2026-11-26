@@ -938,8 +938,36 @@ func newMovie(
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, m))
-	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), m) })
+	cleanupUnlessFailed(t, func() { deleteMovieAndWait(t, m) })
 	return m
+}
+
+// movieGoneTimeout bounds deleteMovieAndWait: an engine removes a transfer
+// and its data in seconds.
+const movieGoneTimeout = 2 * time.Minute
+
+// deleteMovieAndWait deletes a Movie and waits for it to be gone. A Movie
+// with a live transfer keeps its finalizer until the engine has removed the
+// transfer, and waits ten minutes for an engine that no longer exists
+// (lifecycle.EngineTeardownTimeout). A scenario that deleted its
+// DownloadClient first therefore left its Movie, and the fixture's TMDB id,
+// behind for the scenarios after it: TestFileImportUpgradeAttempt's scan
+// then attributed its file to no item (kind, 2026-11-26). So a scenario
+// creates its DownloadClient before its Movie -- cleanups run last in,
+// first out -- and its Movie is gone before the client is deleted.
+func deleteMovieAndWait(t *testing.T, m *catalogv1alpha1.Movie) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), movieGoneTimeout)
+	defer cancel()
+	if err := k8sClient.Delete(ctx, m); err != nil {
+		return
+	}
+	err := wait.PollUntilContextTimeout(ctx, pollInterval, movieGoneTimeout, true, func(ctx context.Context) (bool, error) {
+		return apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(m), &catalogv1alpha1.Movie{})), nil
+	})
+	if err != nil {
+		t.Logf("Movie %s was not gone %s after its delete: a later scenario may find it", m.Name, movieGoneTimeout)
+	}
 }
 
 // patchMovieDelayProfile pins a DelayProfile onto a Movie. It is a spec write,

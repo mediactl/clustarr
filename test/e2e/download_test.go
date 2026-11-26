@@ -83,10 +83,11 @@ func TestDownloadTorrentGrabToImportAttempt(t *testing.T) {
 	requireFixtureService(ctx, t, fixtureTorznabService)
 
 	rf := newRootFolder(ctx, t, "e2e-dl1-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	movie := newMovie(ctx, t, "e2e-dl1-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
-	waitForMovieSettled(ctx, t, movie, "Inception")
+	// The client before the Movie: see deleteMovieAndWait.
 	dc := newTorrentDownloadClientE2E(ctx, t, "e2e-dl1-dc")
 	idx := newDownloadIndexer(ctx, t, "e2e-dl1-idx", commonv1.ProtocolTorrent)
+	movie := newMovie(ctx, t, "e2e-dl1-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
+	waitForMovieSettled(ctx, t, movie, "Inception")
 
 	s := searchAndGrab(ctx, t, movie, idx, false, torznabstub.GUIDSeeder)
 	res := resultFor(t, &s, torznabstub.GUIDSeeder)
@@ -139,10 +140,11 @@ func TestDownloadUsenetNoInfoHashWithCrossServerFailover(t *testing.T) {
 	requireFixtureService(ctx, t, fixtureTorznabService)
 
 	rf := newRootFolder(ctx, t, "e2e-dl6-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	movie := newMovie(ctx, t, "e2e-dl6-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
-	waitForMovieSettled(ctx, t, movie, "Inception")
+	// The client before the Movie: see deleteMovieAndWait.
 	dc := newUsenetDownloadClientE2E(ctx, t, "e2e-dl6-dc")
 	idx := newDownloadIndexer(ctx, t, "e2e-dl6-idx", commonv1.ProtocolUsenet)
+	movie := newMovie(ctx, t, "e2e-dl6-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
+	waitForMovieSettled(ctx, t, movie, "Inception")
 
 	t0 := time.Now().Add(-time.Minute)
 	s := searchAndGrab(ctx, t, movie, idx, false, torznabstub.GUIDNZB)
@@ -197,10 +199,11 @@ func TestDownloadBlocklistThenRedownload(t *testing.T) {
 	requireFixtureService(ctx, t, fixtureTorznabService)
 
 	rf := newRootFolder(ctx, t, "e2e-dlbl-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	movie := newMovie(ctx, t, "e2e-dlbl-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
-	waitForMovieSettled(ctx, t, movie, "Inception")
+	// The client before the Movie: see deleteMovieAndWait.
 	dc := newTorrentDownloadClientE2E(ctx, t, "e2e-dlbl-dc")
 	idx := newDownloadIndexer(ctx, t, "e2e-dlbl-idx", commonv1.ProtocolTorrent)
+	movie := newMovie(ctx, t, "e2e-dlbl-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
+	waitForMovieSettled(ctx, t, movie, "Inception")
 	key := client.ObjectKeyFromObject(movie)
 
 	first := searchAndGrab(ctx, t, movie, idx, false, torznabstub.GUIDGone)
@@ -254,10 +257,11 @@ func TestDownloadEnginePinSurvivesControllerRestart(t *testing.T) {
 	requireFixtureService(ctx, t, fixtureTorznabService)
 
 	rf := newRootFolder(ctx, t, "e2e-restart-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	movie := newMovie(ctx, t, "e2e-restart-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
-	waitForMovieSettled(ctx, t, movie, "Inception")
+	// The client before the Movie: see deleteMovieAndWait.
 	newTorrentDownloadClientE2E(ctx, t, "e2e-restart-dc")
 	idx := newDownloadIndexer(ctx, t, "e2e-restart-idx", commonv1.ProtocolTorrent)
+	movie := newMovie(ctx, t, "e2e-restart-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
+	waitForMovieSettled(ctx, t, movie, "Inception")
 	key := client.ObjectKeyFromObject(movie)
 
 	s := searchAndGrab(ctx, t, movie, idx, false, torznabstub.GUIDSeeder)

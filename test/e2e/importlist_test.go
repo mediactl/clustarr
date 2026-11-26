@@ -177,6 +177,7 @@ func TestImportListMDBListExclusionCreationAndRerun(t *testing.T) {
 	defer cancel()
 	requireFixtureService(ctx, t, fixtureImportListStubService)
 	rf := newRootFolder(ctx, t, "e2e9-movies-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
+	scenario := t
 
 	t.Run("ImportExclusion respected", func(t *testing.T) {
 		excl := &catalogv1alpha1.ImportExclusion{
@@ -213,7 +214,9 @@ func TestImportListMDBListExclusionCreationAndRerun(t *testing.T) {
 
 		created = findMovieByTmdbID(ctx, t, theMatrixTMDBID)
 		require.NotNil(t, created, "ImportList %s reported AddedCount=1 but no Movie for tmdb %d exists", il.Name, theMatrixTMDBID)
-		cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), created) })
+		// On the scenario, not this subtest: the next subtest needs the
+		// Movie to exist, and a subtest's cleanups run when it returns.
+		cleanupUnlessFailed(scenario, func() { _ = k8sClient.Delete(context.Background(), created) })
 
 		require.Equal(t, rf.Name, created.Spec.RootFolderRef)
 		require.Equal(t, QualityProfileName, created.Spec.QualityProfileRef)

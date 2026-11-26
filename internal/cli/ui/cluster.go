@@ -57,9 +57,12 @@ import (
 // before ui.Run's own obs.Bootstrap has installed a logger on ctx.
 //
 // The library store (ADR-0024) is the cluster's other half: the kinds a
-// controller creates are read and written there. libraryDSN unset or
-// unreachable is treated as no cluster at all -- half a library would render
-// every series without its episodes. The returned close releases the
+// controller creates are read and written there. libraryDSN unset is
+// treated as no cluster at all -- half a library would render every series
+// without its episodes. The store is opened without connecting, as the
+// cache is built without dialling the apiserver: a database that is not up
+// when the ui starts (a fresh install, where the ui is ready a minute
+// before Postgres) is read when it comes. The returned close releases the
 // store's connections.
 func buildCluster(ctx context.Context, libraryDSN string) (client.Reader, func(context.Context) bool, *actions.Actions, func()) {
 	logger := log.FromContext(ctx).WithName("ui")
@@ -82,7 +85,7 @@ func buildCluster(ctx context.Context, libraryDSN string) (client.Reader, func(c
 		logger.Info("no library store address ($" + library.EnvDSN + "); ui will serve empty pages and refuse every action")
 		return nil, nil, nil, none
 	}
-	store, err := library.Open(ctx, libraryDSN, library.Options{})
+	store, err := library.Open(ctx, libraryDSN, library.Options{Lazy: true})
 	if err != nil {
 		logger.Error(err, "open the library store; ui will serve empty pages and refuse every action")
 		return nil, nil, nil, none

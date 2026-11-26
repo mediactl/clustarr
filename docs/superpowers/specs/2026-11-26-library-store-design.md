@@ -382,6 +382,23 @@ version is a conflict, and a feed that has gone backwards makes a reader
 list again; a CNPG switchover in the middle of a write has not been run. 5
 (the manager's start on talos's 33,839 MediaFiles) has not been measured.
 
+**Found by the first end-to-end run (kind, 2026-11-26).** The ui opened the
+store with one connect at start, as the manager and the agents do. Those
+exit when it fails and are started again; the ui was written to serve empty
+pages over a cluster it cannot reach, so on a fresh install, where it is
+ready a minute before Postgres, it served a library with no root folder and
+no item until it was restarted, and logged nothing (its cluster wiring runs
+before the logger is installed). The ui opens lazily now (`Options.Lazy`):
+no connect at open, and its informers ask until the tables answer
+(`TestALazyStoreReadsALibraryThatComesLater`).
+
+**The apiserver is spoken to in JSON again** (owner, 2026-11-26). CBOR was
+adopted on 2026-11-04 for the decode cost of the large kinds; with those in
+Postgres about 3,500 objects are listed from the apiserver, so the
+controller-runtime fork, the client gates and the envtest override it needed
+are gone (`docs/claude/gotchas.md`, "The manager talked to the apiserver in
+CBOR").
+
 **Not built:**
 
 - The `library` subcommand of the manager binary (§3.8). People have the UI

@@ -69,6 +69,8 @@ func TestFileImportUpgradeAttempt(t *testing.T) {
 	// TestMediaFileTwoWriter uses, so the import has a file to compare
 	// against: without it this would be the first-import path
 	// TestDownloadTorrentGrabToImportAttempt already covers.
+	// The client before the Movie: see deleteMovieAndWait.
+	newTorrentDownloadClientE2E(ctx, t, "e2e-imp2-dc")
 	rf := newRootFolder(ctx, t, "e2e-imp2-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
 	filePath := path.Join(rf.Spec.Path, fixtureMovieFolder, fixtureMovieFile)
 	plantMedia(t, hostPath(filePath))
@@ -79,10 +81,9 @@ func TestFileImportUpgradeAttempt(t *testing.T) {
 	require.Equal(t, "Bluray-1080p", existing.Spec.Quality.Name)
 	require.EqualValues(t, 1, max(existing.Spec.Revision.Version, 1), "the planted file is the original release")
 	movie := requireMovie(ctx, t, existing.Spec.MediaRef.Name)
-	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), &movie) })
+	cleanupUnlessFailed(t, func() { deleteMovieAndWait(t, &movie) })
 	waitForMovieSettled(ctx, t, &movie, "Inception")
 
-	newTorrentDownloadClientE2E(ctx, t, "e2e-imp2-dc")
 	idx := newDownloadIndexer(ctx, t, "e2e-imp2-idx", commonv1.ProtocolTorrent)
 	recycledBefore := countRecycled(t, fixtureMovieFile)
 

@@ -84,10 +84,10 @@ const (
 	// installs and every scenario's Movie/Series references.
 	QualityProfileName = "e2e-any"
 
-	// expectedCRDCount is config/crd/kustomization.yaml's 30 entries (the
-	// smoke test of 2026-10-07 counted 27 installed; IPTVProvider and
-	// IPTVChannel make 29, BacklogSearch 30).
-	expectedCRDCount = 30
+	// expectedCRDCount is config/crd/kustomization.yaml's 26 entries: the
+	// 32 it had on 2026-11-25 less the six library kinds, which are rows in
+	// the library store and have no CRD (ADR-0024).
+	expectedCRDCount = 26
 
 	// gateTimeout bounds each individual readiness poll.
 	gateTimeout = 5 * time.Minute
