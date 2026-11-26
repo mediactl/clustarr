@@ -205,19 +205,32 @@ func mapEpisodeToSeries(_ context.Context, o client.Object) []reconcile.Request 
 }
 
 // mapRootFolder enqueues the RootFolder's series that are not classified
-// yet (series.Classify). It lists the namespace's series per event, which
-// stays cheap because RootFolders are few and change rarely: at startup it
-// runs once per RootFolder, not per series (CLAUDE.md's map-function gotcha).
+// yet (series.Classify), and those of every root folder whose anime
+// defaults route an anime to it: one of them may be waiting for it to
+// exist, or to become an anime root (AnimeRoute). It lists the namespace's
+// series per event, which stays cheap because RootFolders are few and
+// change rarely: at startup it runs once per RootFolder, not per series
+// (CLAUDE.md's map-function gotcha).
 func (r *Reconciler) mapRootFolder(ctx context.Context, o client.Object) []reconcile.Request {
 	var list catalogv1alpha1.SeriesList
 	if err := r.List(ctx, &list, client.InNamespace(o.GetNamespace())); err != nil {
 		logging.FromContext(ctx).Warn("series: list for a RootFolder change failed", "rootFolder", o.GetName(), "err", err)
 		return nil
 	}
+	roots := map[string]bool{o.GetName(): true}
+	var folders catalogv1alpha1.RootFolderList
+	if err := r.List(ctx, &folders, client.InNamespace(o.GetNamespace())); err != nil {
+		logging.FromContext(ctx).Warn("series: list of RootFolders for a RootFolder change failed", "rootFolder", o.GetName(), "err", err)
+	}
+	for i := range folders.Items {
+		if a := folders.Items[i].Spec.Defaults.Anime; a != nil && a.RootFolderRef == o.GetName() {
+			roots[folders.Items[i].Name] = true
+		}
+	}
 	var reqs []reconcile.Request
 	for i := range list.Items {
 		s := &list.Items[i]
-		if s.Spec.RootFolderRef == o.GetName() && s.Status.Classification == nil {
+		if roots[s.Spec.RootFolderRef] && s.Status.Classification == nil {
 			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: s.Namespace, Name: s.Name}})
 		}
 	}
@@ -456,12 +469,43 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		// The one-time anime classification (anime dual-audio spec §4):
 		// spec.seriesType and spec.qualityProfileRef by merge patch under a
 		// manager of their own, then status.classification below, which
-		// keeps Classify from ever running for this Series again.
+		// keeps Classify from ever running for this Series again. An anime
+		// under a root folder whose anime defaults name an anime root takes
+		// spec.rootFolderRef in the same patch (anime library design,
+		// 2026-11-25, §2): it runs before the episode fan-out below, so the
+		// series has no Episode and nothing was searched or imported under
+		// the folder it leaves.
 		if c, patch := Classify(s, &rf); c != nil {
 			if patch {
-				body, err := json.Marshal(map[string]any{"spec": map[string]any{
-					"qualityProfileRef": c.QualityProfileRef, "seriesType": c.SeriesType,
-				}})
+				fields := map[string]any{"qualityProfileRef": c.QualityProfileRef, "seriesType": c.SeriesType}
+				dest, err := r.animeDestination(ctx, s.Namespace, &rf)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				route, rerr := AnimeRoute(&rf, dest)
+				if rerr != nil {
+					// Not classified, and held: recorded without the move it
+					// would stay in TV Shows for good, and let through
+					// unclassified it would be searched under this folder
+					// and the wrong profile. Reported as a missing
+					// RootFolder is; mapRootFolder wakes it when either
+					// folder changes.
+					ref := rf.Spec.Defaults.Anime.RootFolderRef
+					if rollup.Transitioned(s.Status.Conditions, k8s.ConditionReady, metav1.ConditionFalse, ReasonAnimeRootFolderNotFound) {
+						r.warn(s, ReasonAnimeRootFolderNotFound, "an anime under rootFolder %q is moved to rootFolder %q, which is missing or is no anime root", s.Spec.RootFolderRef, ref)
+					}
+					k8s.MarkFalse(s, &conditions, k8s.ConditionReady, ReasonAnimeRootFolderNotFound, "an anime under rootFolder %q is moved to rootFolder %q, which is missing or is no anime root", s.Spec.RootFolderRef, ref)
+					statusAC = reassertKnownStatus(statusAC, s)
+					statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+					if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, catalogac.Series(s.Name, s.Namespace).WithStatus(withEntries(ctx, statusAC, s))); perr != nil {
+						return ctrl.Result{}, perr
+					}
+					return ctrl.Result{RequeueAfter: time.Minute}, nil
+				}
+				if route != "" {
+					fields["rootFolderRef"] = route
+				}
+				body, err := json.Marshal(map[string]any{"spec": fields})
 				if err != nil {
 					return ctrl.Result{}, err
 				}
@@ -469,7 +513,16 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 					client.FieldOwner(k8s.ManagerCatalogClassify)); err != nil {
 					return ctrl.Result{}, err
 				}
-				r.normal(s, "Classified", "anime: quality profile %s, series type %s", c.QualityProfileRef, c.SeriesType)
+				if route != "" {
+					r.normal(s, "Classified", "anime: quality profile %s, series type %s, root folder %s", c.QualityProfileRef, c.SeriesType, route)
+					// The rest of this pass renders the folder it now has,
+					// and records what every later pass under that folder
+					// would (Classify): anime, by the folder it is under.
+					rf = *dest
+					c = &catalogv1alpha1.SeriesClassification{Anime: true}
+				} else {
+					r.normal(s, "Classified", "anime: quality profile %s, series type %s", c.QualityProfileRef, c.SeriesType)
+				}
 			}
 			c.AppliedAt = metav1.NewTime(now)
 			classification = c
@@ -655,6 +708,27 @@ func classificationAC(c *catalogv1alpha1.SeriesClassification) *catalogac.Series
 		ac = ac.WithSeriesType(c.SeriesType)
 	}
 	return ac
+}
+
+// ReasonAnimeRootFolderNotFound is Ready's reason while an anime waits for
+// the anime root its root folder's anime defaults name (AnimeRoute).
+const ReasonAnimeRootFolderNotFound = "AnimeRootFolderNotFound"
+
+// animeDestination reads the root folder rf's anime defaults route an anime
+// to: nil with no error when they name none, or one that does not exist.
+func (r *Reconciler) animeDestination(ctx context.Context, namespace string, rf *catalogv1alpha1.RootFolder) (*catalogv1alpha1.RootFolder, error) {
+	if rf.Spec.Defaults.Anime == nil || rf.Spec.Defaults.Anime.RootFolderRef == "" {
+		return nil, nil
+	}
+	var dest catalogv1alpha1.RootFolder
+	err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: rf.Spec.Defaults.Anime.RootFolderRef}, &dest)
+	switch {
+	case apierrors.IsNotFound(err):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	return &dest, nil
 }
 
 // reassertKnownStatus re-adds every field this manager owns besides

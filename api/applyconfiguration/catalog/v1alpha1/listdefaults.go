@@ -30,7 +30,11 @@ import (
 type ListDefaultsApplyConfiguration struct {
 	// QualityProfileRef is the QualityProfile added items are ranked against.
 	QualityProfileRef *string `json:"qualityProfileRef,omitempty"`
-	// RootFolderRef is the RootFolder added items are stored under.
+	// RootFolderRef is the RootFolder an item this list adds is created
+	// under. It places an item once: a sync keeps the root folder an item
+	// already has, so a series its classification routed to the anime root,
+	// or one moved by hand, is not taken back, and changing this moves
+	// nothing the list added before.
 	RootFolderRef *string `json:"rootFolderRef,omitempty"`
 	// DelayProfileRef pins a DelayProfile on added items.
 	DelayProfileRef *string `json:"delayProfileRef,omitempty"`

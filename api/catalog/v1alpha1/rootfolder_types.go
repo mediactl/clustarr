@@ -191,6 +191,29 @@ type AnimeDefaults struct {
 	// +optional
 	// +kubebuilder:default=anime
 	SeriesType SeriesType `json:"seriesType,omitempty"`
+
+	// RootFolderRef is the RootFolder an anime series is moved to on
+	// classification, with the profile and the type (anime library design,
+	// 2026-11-25, §2): an anime root (RootFolderSpec.AnimeRoot), which is
+	// what puts the series in the Anime library rather than TV Shows. It is
+	// applied before the series has an episode, so nothing is searched or
+	// imported under this folder first. A series is not classified while
+	// the folder it names is missing or is no anime root. Unset moves an
+	// anime nowhere; a movie root sets none, anime films staying with the
+	// other films.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	RootFolderRef string `json:"rootFolderRef,omitempty"`
+}
+
+// AnimeRoot reports whether s is an anime root: a series folder whose
+// default series type is anime. The root folder a Series is stored under
+// decides its library -- Anime under an anime root, TV Shows under any
+// other -- in Plex, whose libraries are folders, and in the ui alike
+// (anime library design, 2026-11-25, §1).
+func (s RootFolderSpec) AnimeRoot() bool {
+	return s.Kind == RootFolderKindSeries && s.Defaults.SeriesType == SeriesTypeAnime
 }
 
 // NamingSpec controls how catalog lays files out under the root folder.
@@ -302,6 +325,7 @@ type Perms struct {
 }
 
 // RootFolderSpec defines the desired state of RootFolder.
+// +kubebuilder:validation:XValidation:rule="!has(self.defaults) || !has(self.defaults.anime) || !has(self.defaults.anime.rootFolderRef) || self.kind == 'series'",message="defaults.anime.rootFolderRef is a series root folder's: an anime film stays under its movie root"
 type RootFolderSpec struct {
 	// Path is the absolute path of the root folder; it is immutable and must
 	// live under /data/media/. It is a clean path: no "." or ".." segment
@@ -401,6 +425,7 @@ type RootFolderStatus struct {
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // RootFolder is a library location on disk that catalog items are stored under.
+// +kubebuilder:validation:XValidation:rule="!has(self.spec.defaults) || !has(self.spec.defaults.anime) || !has(self.spec.defaults.anime.rootFolderRef) || self.spec.defaults.anime.rootFolderRef != self.metadata.name",message="defaults.anime.rootFolderRef names another root folder, not this one"
 type RootFolder struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

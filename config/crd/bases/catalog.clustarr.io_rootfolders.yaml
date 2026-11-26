@@ -80,6 +80,20 @@ spec:
                           or movie is moved to.
                         minLength: 1
                         type: string
+                      rootFolderRef:
+                        description: |-
+                          RootFolderRef is the RootFolder an anime series is moved to on
+                          classification, with the profile and the type (anime library design,
+                          2026-11-25, §2): an anime root (RootFolderSpec.AnimeRoot), which is
+                          what puts the series in the Anime library rather than TV Shows. It is
+                          applied before the series has an episode, so nothing is searched or
+                          imported under this folder first. A series is not classified while
+                          the folder it names is missing or is no anime root. Unset moves an
+                          anime nowhere; a movie root sets none, anime films staying with the
+                          other films.
+                        maxLength: 253
+                        minLength: 1
+                        type: string
                       seriesType:
                         default: anime
                         description: |-
@@ -352,6 +366,11 @@ spec:
             - kind
             - path
             type: object
+            x-kubernetes-validations:
+            - message: 'defaults.anime.rootFolderRef is a series root folder''s: an
+                anime film stays under its movie root'
+              rule: '!has(self.defaults) || !has(self.defaults.anime) || !has(self.defaults.anime.rootFolderRef)
+                || self.kind == ''series'''
           status:
             description: RootFolderStatus describes the observed state of RootFolder.
             properties:
@@ -453,6 +472,11 @@ spec:
                 type: array
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: defaults.anime.rootFolderRef names another root folder, not this
+            one
+          rule: '!has(self.spec.defaults) || !has(self.spec.defaults.anime) || !has(self.spec.defaults.anime.rootFolderRef)
+            || self.spec.defaults.anime.rootFolderRef != self.metadata.name'
     served: true
     storage: true
     subresources:

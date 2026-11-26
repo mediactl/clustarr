@@ -1141,6 +1141,26 @@ is no render field and moves no profile hash. A Movie's and a Series'
 is cut by source name, so at seven an anime film with every score would have
 lost trakt. The CRDs go on before the images, as ever: an eighth rating is
 refused by the old schema.
+**Anime is becoming a library of its own, by root folder** (owner,
+2026-11-25; design of record
+`docs/superpowers/specs/2026-11-25-anime-library-design.md`, its §10 says
+what is built). The rule: an anime root is a series RootFolder whose
+`defaults.seriesType` is `anime` (`RootFolderSpec.AnimeRoot`), and a Series
+is anime when it is stored under one; anime films stay in Movies. Built so
+far (step 1, not deployed): `defaults.anime.rootFolderRef` on a series root
+moves a newly classified anime to the anime root in the classification's one
+spec patch, before the episode fan-out, so nothing is searched or imported
+under the TV root first (`series.AnimeRoute`); a Series under an anime root
+is recorded anime with no detection (`series.Classify`), which is what keeps
+`status.classification` derivable between the classification's two writes;
+an anime whose destination is missing or is no anime root is held
+(Ready=False `AnimeRootFolderNotFound`, no Episodes) rather than classified
+without the move. **A list places an item once and never moves it**
+(`importlist.applySeries`, `applyMovie` send the root folder the item has):
+until this, every sync forced the list's `defaults.rootFolderRef` onto
+everything it had added, so re-pointing a list would have re-rooted all of
+it with nothing moving the files. Not built: relocating an existing series'
+folder when its root changes, the ui's Anime tab, the Plex library.
 An Episode carries two conditions, Ready and DeadLettered (owner,
 2026-11-03, cutting the manager's memory): the Aired, HasFile, CutoffMet and
 WrongLanguage conditions every episode carried restated `status.phase`,

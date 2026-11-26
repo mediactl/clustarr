@@ -299,6 +299,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: qualityProfileRef
       type:
         scalar: string
+    - name: rootFolderRef
+      type:
+        scalar: string
     - name: seriesType
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesType

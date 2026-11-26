@@ -214,6 +214,8 @@ func applyMovie(
 			if movieClassified(&existing) {
 				spec = spec.WithQualityProfileRef(existing.Spec.QualityProfileRef)
 			}
+			// A list never moves an item (applySeries).
+			spec = spec.WithRootFolderRef(existing.Spec.RootFolderRef)
 			ac = ac.WithResourceVersion(existing.ResourceVersion)
 		case !apierrors.IsNotFound(err):
 			return fmt.Errorf("importlist: get movie %s: %w", name, err)
@@ -269,6 +271,14 @@ func movieSpecFor(
 // catalog-classify owns spec.qualityProfileRef -- the classifier's spec
 // patch lands before its status write, and a sync reading between the two
 // would otherwise see no classification and force its defaults back.
+//
+// A list never moves an item (anime library design, 2026-11-25, §2): the
+// root folder it sends for a Series that exists is the one the Series has,
+// classified or not, and defaults.rootFolderRef decides only where a new
+// one is created. Forced back on every sync, a series its classification
+// routed to the anime root, or one moved by hand, would return to the
+// list's folder -- and a list re-pointed at another root folder would put
+// that folder on everything it ever added, with nothing moving the files.
 func applySeries(
 	ctx context.Context, c client.Client, r client.Reader, namespace, listName, name string,
 	item importlist.Item, defaults catalogv1alpha1.ListDefaults, tvdbID int64,
@@ -285,6 +295,7 @@ func applySeries(
 			if classified(&existing) {
 				spec = spec.WithQualityProfileRef(existing.Spec.QualityProfileRef).WithSeriesType(existing.Spec.SeriesType)
 			}
+			spec = spec.WithRootFolderRef(existing.Spec.RootFolderRef)
 			ac = ac.WithResourceVersion(existing.ResourceVersion)
 		case !apierrors.IsNotFound(err):
 			return fmt.Errorf("importlist: get series %s: %w", name, err)

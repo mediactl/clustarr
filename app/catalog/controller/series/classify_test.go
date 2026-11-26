@@ -72,8 +72,67 @@ func TestClassify(t *testing.T) {
 		require.Nil(t, c)
 		require.False(t, patch)
 	})
+	t.Run("under an anime root everything is anime, and nothing is patched", func(t *testing.T) {
+		root := rf(nil)
+		root.Spec.Kind = catalogv1alpha1.RootFolderKindSeries
+		root.Spec.Defaults.SeriesType = catalogv1alpha1.SeriesTypeAnime
+		for _, s := range []*catalogv1alpha1.Series{ser("Animation", "Anime"), ser("Drama")} {
+			c, patch := series.Classify(s, root)
+			require.False(t, patch)
+			require.Equal(t, &catalogv1alpha1.SeriesClassification{Anime: true}, c)
+		}
+		c, _ := series.Classify(&catalogv1alpha1.Series{}, root)
+		require.Nil(t, c, "not before its metadata")
+	})
 	t.Run("an empty seriesType defaults to anime", func(t *testing.T) {
 		c, _ := series.Classify(ser("Anime"), rf(&catalogv1alpha1.AnimeDefaults{QualityProfileRef: "p"}))
 		require.Equal(t, catalogv1alpha1.SeriesTypeAnime, c.SeriesType)
 	})
+}
+
+// AnimeRoute is where an anime goes on classification (anime library
+// design, 2026-11-25, §2): nowhere when the root folder's anime defaults
+// name no folder, the folder they name when it is an anime root, and an
+// error -- the series is then not classified at all -- when that folder is
+// missing or is a TV root, since a classification recorded without the move
+// could never be made again.
+func TestAnimeRoute(t *testing.T) {
+	root := func(name string, typ catalogv1alpha1.SeriesType, kind catalogv1alpha1.RootFolderKind, route string) *catalogv1alpha1.RootFolder {
+		rf := &catalogv1alpha1.RootFolder{Spec: catalogv1alpha1.RootFolderSpec{Kind: kind}}
+		rf.Name = name
+		rf.Spec.Defaults.SeriesType = typ
+		if route != "-" {
+			rf.Spec.Defaults.Anime = &catalogv1alpha1.AnimeDefaults{QualityProfileRef: "p", RootFolderRef: route}
+		}
+		return rf
+	}
+	kind := catalogv1alpha1.RootFolderKindSeries
+	tv := root("tv", catalogv1alpha1.SeriesTypeStandard, kind, "anime")
+	anime := root("anime", catalogv1alpha1.SeriesTypeAnime, kind, "-")
+
+	got, err := series.AnimeRoute(tv, anime)
+	require.NoError(t, err)
+	require.Equal(t, "anime", got)
+
+	for name, rf := range map[string]*catalogv1alpha1.RootFolder{
+		"no anime defaults":           root("tv", catalogv1alpha1.SeriesTypeStandard, kind, "-"),
+		"anime defaults name no root": root("tv", catalogv1alpha1.SeriesTypeStandard, kind, ""),
+	} {
+		got, err := series.AnimeRoute(rf, nil)
+		require.NoError(t, err, name)
+		require.Empty(t, got, name)
+	}
+
+	for name, dest := range map[string]*catalogv1alpha1.RootFolder{
+		"the folder is missing":      nil,
+		"a TV root":                  root("tv2", catalogv1alpha1.SeriesTypeStandard, kind, "-"),
+		"a daily root":               root("news", catalogv1alpha1.SeriesTypeDaily, kind, "-"),
+		"a movie root, whatever its": root("films", catalogv1alpha1.SeriesTypeAnime, catalogv1alpha1.RootFolderKindMovie, "-"),
+	} {
+		_, err := series.AnimeRoute(tv, dest)
+		require.ErrorIs(t, err, series.ErrAnimeRoot, name)
+	}
+
+	require.True(t, anime.Spec.AnimeRoot())
+	require.False(t, tv.Spec.AnimeRoot())
 }

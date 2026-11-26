@@ -185,7 +185,11 @@ type ListDefaults struct {
 	// +required
 	QualityProfileRef string `json:"qualityProfileRef"`
 
-	// RootFolderRef is the RootFolder added items are stored under.
+	// RootFolderRef is the RootFolder an item this list adds is created
+	// under. It places an item once: a sync keeps the root folder an item
+	// already has, so a series its classification routed to the anime root,
+	// or one moved by hand, is not taken back, and changing this moves
+	// nothing the list added before.
 	// +required
 	RootFolderRef string `json:"rootFolderRef"`
 

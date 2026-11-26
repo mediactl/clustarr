@@ -58,3 +58,6 @@ func MarksOf(l *catalogv1alpha1.ListedMetadata) error {
 	_, err := marksOf(l)
 	return err
 }
+
+// ApplyMovie exposes applyMovie to the envtest suite in importlist_test.
+var ApplyMovie = applyMovie

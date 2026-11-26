@@ -34,6 +34,16 @@ type AnimeDefaultsApplyConfiguration struct {
 	// SeriesType is the series type an anime series is moved to; a movie
 	// has none, so a movie folder's value is unused.
 	SeriesType *catalogv1alpha1.SeriesType `json:"seriesType,omitempty"`
+	// RootFolderRef is the RootFolder an anime series is moved to on
+	// classification, with the profile and the type (anime library design,
+	// 2026-11-25, §2): an anime root (RootFolderSpec.AnimeRoot), which is
+	// what puts the series in the Anime library rather than TV Shows. It is
+	// applied before the series has an episode, so nothing is searched or
+	// imported under this folder first. A series is not classified while
+	// the folder it names is missing or is no anime root. Unset moves an
+	// anime nowhere; a movie root sets none, anime films staying with the
+	// other films.
+	RootFolderRef *string `json:"rootFolderRef,omitempty"`
 }
 
 // AnimeDefaultsApplyConfiguration constructs a declarative configuration of the AnimeDefaults type for use with
@@ -55,5 +65,13 @@ func (b *AnimeDefaultsApplyConfiguration) WithQualityProfileRef(value string) *A
 // If called multiple times, the SeriesType field is set to the value of the last call.
 func (b *AnimeDefaultsApplyConfiguration) WithSeriesType(value catalogv1alpha1.SeriesType) *AnimeDefaultsApplyConfiguration {
 	b.SeriesType = &value
+	return b
+}
+
+// WithRootFolderRef sets the RootFolderRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RootFolderRef field is set to the value of the last call.
+func (b *AnimeDefaultsApplyConfiguration) WithRootFolderRef(value string) *AnimeDefaultsApplyConfiguration {
+	b.RootFolderRef = &value
 	return b
 }
