@@ -33,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
 	"github.com/mediactl/clustarr/app/indexer/worker/rss"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/contracttest"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -93,6 +94,23 @@ func newJetStreamBusAndConn(t *testing.T) (events.Bus, *nats.Conn) {
 	return bus, nc
 }
 
+// testReleasesDurable declares a durable of the tests' own on the releases
+// stream (contracttest.Bind) and answers the subscription that binds it.
+// Subscribe binds a durable and never creates one (ADR-0019, 91bafa52 of
+// 2026-10-07): it waits while the durable is missing, so a test that names a
+// durable nothing declares is never delivered to and times out, which these
+// two did from that day until 2026-11-26. bus must hold
+// events.Default().ForSingleNode() already.
+func testReleasesDurable(t *testing.T, bus events.Bus) events.Subscription {
+	t.Helper()
+	sub := events.Subscription{
+		Stream: events.StreamReleases, Durable: "test", Filters: []string{events.FilterAllReleases},
+		MaxDeliver: 1,
+	}
+	contracttest.Bind(t.Context(), t, bus, events.Default().ForSingleNode(), sub)
+	return sub
+}
+
 func TestPublishReleasesEnvelopeKeyIsNamespaceSlashIndexerName(t *testing.T) {
 	bus := membus.New(nil)
 	require.NoError(t, bus.Ensure(t.Context(), events.Default().ForSingleNode()))
@@ -100,9 +118,7 @@ func TestPublishReleasesEnvelopeKeyIsNamespaceSlashIndexerName(t *testing.T) {
 
 	var mu sync.Mutex
 	var got []*events.Envelope
-	stop, err := bus.Subscribe(t.Context(), events.Subscription{
-		Stream: events.StreamReleases, Durable: "test", Filters: []string{events.FilterAllReleases},
-	}, func(_ context.Context, m events.Message) error {
+	stop, err := bus.Subscribe(t.Context(), testReleasesDurable(t, bus), func(_ context.Context, m events.Message) error {
 		mu.Lock()
 		defer mu.Unlock()
 		got = append(got, m.Envelope().Clone())
@@ -180,9 +196,7 @@ func TestSubjectUsesTheAlignedParentCategory(t *testing.T) {
 
 			var mu sync.Mutex
 			var subjects []string
-			stop, err := bus.Subscribe(t.Context(), events.Subscription{
-				Stream: events.StreamReleases, Durable: "test", Filters: []string{events.FilterAllReleases},
-			}, func(_ context.Context, m events.Message) error {
+			stop, err := bus.Subscribe(t.Context(), testReleasesDurable(t, bus), func(_ context.Context, m events.Message) error {
 				mu.Lock()
 				defer mu.Unlock()
 				subjects = append(subjects, m.Subject())
