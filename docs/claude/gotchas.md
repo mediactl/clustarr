@@ -1419,3 +1419,22 @@ recorded here.
   search worker's `SceneReadings`, and the import's matcher and narrowing,
   each failing with its rule off; the import's walk itself and a grab on a
   cluster are not exercised.
+
+- **A person's search for an episode whose scene numbering differs from
+  TVDB's asks for both (2026-11-26).** The search asked the indexers for
+  the scene number alone (`searchNumbering`): Panty & Stocking with
+  Garterbelt S02E14 went out as scene S02E07, the broadcast that holds it,
+  and nzb-life's "S02E14 Independence Dick", a release of TVDB's episode
+  itself, was never returned. The snapshot keeps the episode's own
+  numbering beside the scene's (`TargetIDs.TVDBSeason`, `TVDBEpisode`), a
+  user-invoked live search sends a second request under it in the same
+  slot (`tvdbNumbered`), and the two replies are folded by indexer and GUID
+  (`mergeResponses`); the identity check reads each release by its own
+  numbering. An automatic search still asks once, for the broadcast: asking
+  twice would spend two of an indexer's queries for every such episode. A
+  broadcast's release in a search for one of its episodes is right -- scene
+  S02E07 holds TVDB's S02E14 and S02E15 (TheXEM, the aired order, and the
+  file's 24 minutes against TVDB's 12 and 12) -- and the owner first read
+  it as wrong; only a release titled as another TVDB episode is. Not
+  tested: the snapshot's setting of the two fields, and a search on a
+  cluster.

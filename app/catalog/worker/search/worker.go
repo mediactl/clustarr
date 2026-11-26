@@ -50,6 +50,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -330,7 +331,7 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		}
 		resp, err = w.searchIndex(ctx, req)
 	} else {
-		resp, err = w.searchLive(ctx, m, task, req)
+		resp, err = w.searchLive(ctx, m, task, req, tvdbNumbered(req, snap.IDs, task)...)
 	}
 	if err != nil {
 		tracing.RecordError(span, err)
@@ -358,7 +359,14 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 // search may take (SearchDeadline) and the wait for the gate, and a
 // delivery that outlives it is delivered again beside it, whose copy asks
 // every indexer a second time.
-func (w *Worker) searchLive(ctx context.Context, m events.Message, task schema.SearchTask, req schema.SearchRequest) (schema.SearchResponse, error) {
+//
+// more are further requests of the same search (tvdbNumbered), asked one
+// after another in the same slot and folded into the first's reply
+// (mergeResponses). One that fails is logged and left out: the first
+// request's answer is the search's.
+func (w *Worker) searchLive(
+	ctx context.Context, m events.Message, task schema.SearchTask, req schema.SearchRequest, more ...schema.SearchRequest,
+) (schema.SearchResponse, error) {
 	stop := gateway.KeepAlive(ctx, m, gateway.HeartbeatInterval)
 	defer stop()
 	waited := w.now()
@@ -370,7 +378,74 @@ func (w *Worker) searchLive(ctx context.Context, m events.Message, task schema.S
 	if d := w.now().Sub(waited); d >= time.Second {
 		w.log(ctx).Debug("search: waited for a live search slot", "waited", d.Round(time.Millisecond))
 	}
-	return w.RPC.Search(ctx, req)
+	resp, err := w.RPC.Search(ctx, req)
+	if err != nil {
+		return resp, err
+	}
+	for _, r := range more {
+		next, err := w.RPC.Search(ctx, r)
+		if err != nil {
+			w.log(ctx).Warn("search: the episode's TVDB numbering could not be asked for; the scene numbering's answer stands", "err", err)
+			continue
+		}
+		resp = mergeResponses(resp, next)
+	}
+	return resp, nil
+}
+
+// tvdbNumbered is the second request of a person's search for an episode
+// whose scene numbering differs from TVDB's: the same search under the
+// episode's own TVDB season and episode. A series whose broadcasts each
+// hold several of TVDB's episodes is released both ways -- by broadcast,
+// which the scene numbering asks for, and by TVDB's episode -- and asked
+// for by scene number alone, an indexer never returned the second kind:
+// nzb-life's "S02E14 Independence Dick" was not in a search for Panty &
+// Stocking with Garterbelt S02E14, which asked for scene S02E07 (talos,
+// 2026-11-26). The identity check reads each answer by its own numbering
+// (decision's releaseCoverage). Only a person's search asks twice: an
+// automatic one takes the broadcast, and every such search would
+// otherwise spend two of an indexer's queries.
+func tvdbNumbered(req schema.SearchRequest, ids TargetIDs, task schema.SearchTask) []schema.SearchRequest {
+	if !task.UserInvoked || task.IndexOnly || req.Kind != commonv1.MediaKindEpisode || ids.TVDBSeason == nil || ids.TVDBEpisode == nil {
+		return nil
+	}
+	req.Season, req.Episode = ids.TVDBSeason, ids.TVDBEpisode
+	return []schema.SearchRequest{req}
+}
+
+// mergeResponses folds a further request's reply into a search's: the
+// releases the first did not return, by indexer and GUID, and for each
+// indexer the better of its two outcomes -- one that answered over one
+// that did not -- counting what it returned in all.
+func mergeResponses(a, b schema.SearchResponse) schema.SearchResponse {
+	type key struct{ indexer, guid string }
+	seen := make(map[key]bool, len(a.Releases))
+	for _, r := range a.Releases {
+		seen[key{r.Info.IndexerRef, r.Info.GUID}] = true
+	}
+	added := map[string]int32{}
+	for _, r := range b.Releases {
+		k := key{r.Info.IndexerRef, r.Info.GUID}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		a.Releases = append(a.Releases, r)
+		added[r.Info.IndexerRef]++
+	}
+	a.Truncated = a.Truncated || b.Truncated
+	for _, o := range b.Outcomes {
+		i := slices.IndexFunc(a.Outcomes, func(x schema.SearchOutcome) bool { return x.IndexerRef == o.IndexerRef })
+		switch {
+		case i < 0:
+			a.Outcomes = append(a.Outcomes, o)
+		case a.Outcomes[i].Status != schema.SearchOutcomeOK && o.Status == schema.SearchOutcomeOK:
+			a.Outcomes[i] = o
+		default:
+			a.Outcomes[i].Releases += added[o.IndexerRef.Name]
+		}
+	}
+	return a
 }
 
 // write answers the task: the ranked candidates (at most
