@@ -25,6 +25,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -41,6 +42,41 @@ const ComponentGraft = "transcode-graft"
 // planner deletes an answered one at once.
 const jobTTL = 24 * time.Hour
 
+// Resources is what a graft Job's pod asks the scheduler for and may use
+// (owner, 2026-11-26: "It definitely should not be 8. And memory - does it
+// need to be 4Gi?"). A graft decodes two audio tracks to 8 kHz mono, aligns
+// them (pkg/audioalign) and muxes with every stream copied: no picture is
+// encoded. It took the cpu pool's template whole, and with that the
+// resources of a profile that states none -- limits of 8 CPUs and 4Gi,
+// sized for x265, and no requests, which the apiserver then sets to the
+// limits. Each graft asked for 8 whole CPUs, and on talos no node had 8
+// unrequested: two grafts stood Pending from 13:19Z until their two-hour
+// deadline, and their successors after them.
+//
+// Measured on the alignment alone (2026-11-26, synthetic programme, this
+// package's record in docs/claude/transcoding.md): a 24-minute episode is
+// 30 s of CPU and 0.41 GiB at its peak; a 150-minute film is 24 minutes of
+// CPU and 2.0 GiB.
+// Two threads finish the episode in 17 s; eight take 16 s and three times
+// the CPU, because every window's transform spans the whole programme and
+// the threads contend for memory, not for cores.
+//
+// So the request is what an episode's graft uses, the CPU limit is the two
+// threads past which there is nothing to gain, and the memory limit stays
+// where a film needs it: a limit reserves nothing on a node.
+func Resources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("2"),
+			corev1.ResourceMemory: resource.MustParse("4Gi"),
+		},
+	}
+}
+
 // Job renders the standalone graft Job of a dispatch (loop spec §4.12
 // "Vehicle"): the cpu pool's pod running `transcode --graft-task <t>`,
 // keeping NATS_URL and POD_NAME (it answers in clustarr-grafts, D9) and
@@ -55,6 +91,9 @@ func Job(cfg pool.Config, mf *catalogv1alpha1.MediaFile, t grafttask.Task, name 
 	}
 	tmpl := pool.Template(&transcodev1alpha1.TranscodeProfile{}, transcodev1alpha1.HardwareCPU, cfg)
 	c := &tmpl.Spec.Containers[0]
+	// The template's CLUSTARR_CPU_LIMIT reads limits.cpu through the
+	// Downward API, so it follows these.
+	c.Resources = Resources()
 	c.Args = append([]string{"--data-dir", cmp.Or(cfg.DataDir, pool.DefaultDataDir), "--graft-task", string(b)}, cfg.ExtraArgs...)
 	c.Env = slices.DeleteFunc(c.Env, func(e corev1.EnvVar) bool { return e.Name == pool.EnvProfileUID || e.Name == pool.EnvClass })
 	tmpl.Labels[grafttask.LabelGraftOf] = string(mf.UID)

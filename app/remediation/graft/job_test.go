@@ -27,10 +27,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation/graft"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 	"github.com/mediactl/clustarr/app/transcode/graftplan"
 	"github.com/mediactl/clustarr/app/transcode/grafttask"
+	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/pkg/binpath"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/placement"
@@ -93,6 +95,43 @@ func TestTheGraftJobRunsTheTranscodeBinary(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"--data-dir", pool.DefaultDataDir, "--graft-task"}, other.Spec.Template.Spec.Containers[0].Args[:3],
 		"an unset data dir is the pool's default")
+}
+
+// TestAGraftJobAsksForWhatAGraftUses is talos on 2026-11-26: a graft Job
+// took the cpu pool's resources, limits of 8 CPUs and 4Gi with no requests,
+// so the apiserver made the requests 8 CPUs and 4Gi and no node could place
+// one. A graft encodes no picture: it states its own requests, far below
+// its limits, and its thread count follows its own CPU limit.
+func TestAGraftJobAsksForWhatAGraftUses(t *testing.T) {
+	mf := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "perfect-blue-1997", UID: "mf-uid"}}
+	tk := grafttask.Task{Schema: grafttask.TaskSchema, File: schema.Ref{Namespace: "media", Name: mf.Name, UID: "mf-uid"}, Seq: 100,
+		Target: "/data/media/movies/pb.mkv", Language: "en"}
+	job, err := graft.Job(pool.Config{Image: "native:test"}, mf, tk, graftplan.JobName(mf.Name, 100))
+	require.NoError(t, err)
+	c := job.Spec.Template.Spec.Containers[0]
+
+	require.Contains(t, c.Resources.Requests, corev1.ResourceCPU, "a pod with limits and no requests asks for its limits")
+	require.Contains(t, c.Resources.Requests, corev1.ResourceMemory)
+	assert.Equal(t, "500m", c.Resources.Requests.Cpu().String())
+	assert.Equal(t, "1Gi", c.Resources.Requests.Memory().String())
+	assert.Equal(t, "2", c.Resources.Limits.Cpu().String(), "two threads: more buys no time (pkg/audioalign)")
+	assert.Equal(t, "4Gi", c.Resources.Limits.Memory().String(), "a film's two tracks and their alignment")
+
+	// What an x265 pod of a profile with no resources gets is not what a
+	// graft gets.
+	pooled := pool.Template(&transcodev1alpha1.TranscodeProfile{}, transcodev1alpha1.HardwareCPU, pool.Config{Image: "native:test"}).Spec.Containers[0].Resources
+	assert.NotEqual(t, pooled.Limits.Cpu().String(), c.Resources.Limits.Cpu().String())
+
+	var threads *corev1.EnvVar
+	for i := range c.Env {
+		if c.Env[i].Name == jobspec.CPULimitEnv {
+			threads = &c.Env[i]
+		}
+	}
+	require.NotNil(t, threads)
+	require.NotNil(t, threads.ValueFrom, "the thread count is read from the pod's own limit, not carried over from the pool's")
+	require.NotNil(t, threads.ValueFrom.ResourceFieldRef)
+	assert.Equal(t, "limits.cpu", threads.ValueFrom.ResourceFieldRef.Resource)
 }
 
 // TestGraftJobCarriesTheWorkerPlacement: a graft pod is a cpu pool pod's

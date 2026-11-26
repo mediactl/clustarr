@@ -473,3 +473,35 @@ and never searched for; and the QSV crop was run on no hardware before its
 first use on talos (the development machine opens no QSV device; the CPU
 crop is run by the engine's tests).
 
+
+**A graft Job asks for what a graft uses (owner, 2026-11-26: "Determine
+what's causing the transcode jobs to request so much CPU. Can we reduce
+this? It definitely should not be 8. And memory - does it need to be
+4Gi?").** A standalone audio graft (`app/remediation/graft.Job`) is the cpu
+pool's pod template run with `--graft-task`, and it took that template's
+resources whole: an empty profile's, which are `defaultResources`' limits
+of 8 CPUs and 4Gi, sized for x265, with no requests. A container with
+limits and no requests is given its limits as requests by the apiserver, so
+every graft asked the scheduler for 8 whole CPUs and 4Gi. On talos the
+largest worker has 16 CPUs with about 10 requested; two grafts stood
+Pending from 13:19Z until their two-hour deadline and the two that replaced
+them stood Pending after them (0/6 nodes: "Insufficient cpu"). A graft
+encodes no picture: it decodes two audio tracks to 8 kHz mono, aligns them
+(`pkg/audioalign`), muxes with every stream copied and verifies.
+`graft.Resources` now states them: requests 500m and 1Gi, limits 2 CPUs and
+4Gi; `CLUSTARR_CPU_LIMIT` follows the pod's own limit through the Downward
+API. Measured on the alignment alone, a synthetic programme on the
+development machine: a 24-minute episode is 30 s of CPU and 0.41 GiB at its
+peak (17 s on two threads; 16 s on eight for three times the CPU, since
+every window's transform spans the whole programme and the threads contend
+for memory); a 150-minute film holds 2.0 GiB (two tracks of 275 MiB, the
+transforms' garbage under GOGC 100) and takes 24 minutes of CPU on one
+thread, the cost growing with the square of the length. So the memory
+limit stays 4Gi (a limit reserves nothing on a node, and `AUTOMEMLIMIT`
+0.60 of it is the 2.4 GiB a film's heap wants) and only the requests and
+the CPU limit came down. Not measured: a real graft's pod on talos (the
+decode and the mux add FFmpeg's own memory; neither the graft nor the pool
+pods are scraped). The x265 pods of a profile that states no resources
+still get limits-only 8 CPUs and 4Gi, which for them is the encode's real
+appetite; talos's one profile (`hevc-mkv`, intel) runs its pool at the GPU
+classes' 500m and 512Mi requests (`GPUPoolRequests`).
