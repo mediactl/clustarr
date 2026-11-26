@@ -30,14 +30,6 @@ NATIVE_ENV = LD_LIBRARY_PATH="$(NATIVE_ASSETS)/lib" \
 	PAR2GO_REQUIRE=1 \
 	PATH="$(NATIVE_ASSETS)/bin:$$PATH" \
 	CLUSTARR_REQUIRE_TOOLS=1
-# ENVTEST_ENV keeps client-go's CBOR gates off under envtest: pkg/k8s/rowcache
-# turns ClientsAllowCBOR and ClientsPreferCBOR on at init in every process that
-# links it (every test binary does), and envtest's kube-apiserver does not
-# serve CBOR (CBORServingAndStorage is off in 1.37), so without these every
-# envtest fails at its CRD install with "the body of the request was in an
-# unknown format" (2026-11-10). A value in the environment outranks the init.
-ENVTEST_ENV = KUBE_FEATURE_ClientsAllowCBOR=false \
-	KUBE_FEATURE_ClientsPreferCBOR=false
 
 IMG ?= ghcr.io/mediactl/clustarr:dev
 NATIVE_IMG ?= ghcr.io/mediactl/clustarr/native:dev
@@ -297,7 +289,7 @@ test-race: envtest pg-assets native-assets chart-deps ## Run the suites under th
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || true
 	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	CLUSTARR_PG_ASSETS="$(PG_ASSETS)" \
-	$(NATIVE_ENV) $(ENVTEST_ENV) \
+	$(NATIVE_ENV) \
 	go test ./... -race -p $(TEST_PARALLEL) -timeout 60m
 
 # -timeout 20m: the transcode envtests took some 460 s alone and passed
@@ -306,7 +298,7 @@ test: envtest pg-assets native-assets chart-deps ## Run unit and envtest suites;
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || echo "warning: could not create $${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}; the import scan suites will skip"
 	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	CLUSTARR_PG_ASSETS="$(PG_ASSETS)" \
-	$(NATIVE_ENV) $(ENVTEST_ENV) \
+	$(NATIVE_ENV) \
 	go test ./... -p $(TEST_PARALLEL) -timeout 20m -coverprofile cover.out
 
 .PHONY: test-unit

@@ -126,8 +126,9 @@ re-add's tracker URLs with a fragment instead), the ONNX Runtime binding
 (`github.com/mediactl/onnxruntime-purego v0.0.0-clustarr.N`, branch
 `clustarr`: upstream plus `NewEnvWithLogger` and `Env.SetLogLevel`, ORT's
 custom logger, offered upstream as shota3506/onnxruntime-purego#18;
-`pkg/ortlog` routes ORT's lines under the `onnx` subsystem through it) and
-controller-runtime (below). **A third-party gap is never patched in this tree** (owner,
+`pkg/ortlog` routes ORT's lines under the `onnx` subsystem through it).
+controller-runtime is upstream's again since 2026-11-26 (`gotchas.md`, "The
+manager talked to the apiserver in CBOR"). **A third-party gap is never patched in this tree** (owner,
 2026-11-10): take the upstream release that has the fix, else a
 `mediactl/` fork rebased on the upstream tag with the fix as its own
 commit and the PR opened upstream, and drop the replace when upstream

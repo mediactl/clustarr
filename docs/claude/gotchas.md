@@ -42,8 +42,8 @@ recorded here.
     exits; a `postgres` left running after a crashed run is that watchdog
     not yet woken, not a leak to chase.
   - **A test on a fake HTTP server or an unreachable config keeps
-    `client.New` / `ctrl.NewManager`** (`pkg/k8s/rowcache/cbor_test.go`,
-    `internal/cli/manager/probes_internal_test.go`): `librarytest`'s would
+    `client.New` / `ctrl.NewManager`**
+    (`internal/cli/manager/probes_internal_test.go`): `librarytest`'s would
     start a database for a test that has no library.
   - **A deleted parent's children go at the collector's next sweep** (30 s),
     not at once, and only once every owner is gone; envtest never collected
@@ -1016,28 +1016,30 @@ recorded here.
   listing as its JSON in one zstd frame, decoded at each Get, bounded by
   Albums (16,384) and bytes (48 MiB): decoded, a release group's every
   release was a map of ids per track, 113 MB for the 4,096 Albums it held.
-  **The manager talks to the apiserver in CBOR** (owner, 2026-11-04;
-  `pkg/k8s/rowcache/cbor.go`): talos's apiserver serves and accepts it
-  (`CBORServingAndStorage`), and client-go's `ClientsAllowCBOR` and
-  `ClientsPreferCBOR` gates are turned on at process start unless
-  `KUBE_FEATURE_<gate>` names one in the environment. controller-runtime
-  0.25 itself built the codec factories of its client and its cache without
-  the CBOR serializer, so under PreferCBOR every list it made asked for CBOR
-  and could not decode the answer ("serializer for application/cbor doesn't
-  exist"; the pods started with the two variables on 2026-11-04 never became
-  ready): `go.mod` replaces it with the clustarr fork
-  (`github.com/mediactl/controller-runtime v0.25.1-clustarr.N`, branch
-  `clustarr`, three commits on the upstream tag) whose two factories go
-  through `rest.CodecFactoryForGeneratedClient`, identical to upstream with
-  the gate off, and whose typed client decodes an apply's answer by its
-  content type, a CBOR answer transcoded through a generic map and the JSON
-  path so that fields the apply configurations do not declare
-  (`metadata.managedFields`) are dropped as upstream's JSON decode dropped
-  them (upstream read the answer as JSON only, so the manager exited at its
-  first server-side apply at 04:5xZ; apimachinery's direct CBOR decoder is
-  strict, so every apply failed "found unknown field" at 05:18Z). Bump the
-  fork by rebasing those commits onto the next upstream tag and tagging
-  `v<upstream>-clustarr.1`, as ffgo's fork is bumped.
+  **The manager talked to the apiserver in CBOR from 2026-11-04 to
+  2026-11-26, and no longer does** (owner, 2026-11-26: "We should also
+  consider ditching the cbor encoding/decoding for the api server and use
+  the upstream controller-runtime go dep"). It cost a controller-runtime
+  fork (`github.com/mediactl/controller-runtime v0.25.1-clustarr.3`, three
+  commits: its client's and cache's codec factories through
+  `rest.CodecFactoryForGeneratedClient`, and an apply's answer decoded by
+  content type), client-go's `ClientsAllowCBOR` and `ClientsPreferCBOR`
+  gates turned on at init (`pkg/k8s/rowcache/cbor.go`), the apiserver's
+  alpha `CBORServingAndStorage` gate on every cluster, and two environment
+  variables to turn the client gates off under every envtest. The kind rig
+  never got the apiserver gate, so its manager crash-looped on "415
+  Unsupported Media Type" and the end-to-end suite did not run from
+  2026-11-04 until 2026-11-26. What it bought (caches synced in 30 s
+  against 56 s, a lower heap while they did) was the decode of the large
+  kinds, and those are rows in Postgres now (ADR-0024): about 3,500 objects
+  are left to list from the apiserver. `go.mod` has no replace for
+  controller-runtime, `cbor.go` and `ENVTEST_ENV` are gone, and the tree
+  built against upstream v0.25.1 with no other change. **talos's apiserver
+  still has `CBORServingAndStorage` on, and it stays on**: the gate is also
+  what makes CBOR the storage encoding for custom resources, so objects
+  written since 2026-11-04 may sit in etcd as CBOR; nobody has checked what
+  an apiserver with the gate off reads of them. A JSON client is served by
+  either.
 - **A watch's map function runs for every object at startup, and the
   source is not synced until it has.** controller-runtime's `Kind` source
   waits on `handlerRegistration.HasSynced`, and a cache's initial sync
@@ -1353,14 +1355,6 @@ recorded here.
   binaries are UPX-packed: a packed executable hides the `DT_NEEDED` entries
   `lddtree` reads, so `images/distroless/stage.sh` traces the binaries before
   they are packed.
-- **Every envtest fails under the CBOR client gates unless the environment
-  turns them off.** `pkg/k8s/rowcache/cbor.go` sets client-go's
-  `ClientsAllowCBOR` and `ClientsPreferCBOR` at init in every process that
-  links it, every test binary included, and envtest's kube-apiserver (1.37.0)
-  serves no CBOR, so each suite died at its CRD install with "the body of
-  the request was in an unknown format" (2026-11-10). `make test` exports
-  `KUBE_FEATURE_ClientsAllowCBOR=false KUBE_FEATURE_ClientsPreferCBOR=false`
-  (`ENVTEST_ENV`); a hand-run envtest needs both beside `KUBEBUILDER_ASSETS`.
 - **`controller-gen ... > config/rbac/<role>.yaml` truncated a role to zero
   bytes when a listed package did not compile** (2026-11-10, mid-wave,
   another agent's broken package): the shell opens the output before the

@@ -46,6 +46,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.46.0
 	go.uploadedlobster.com/mbtypes v0.4.0
 	go.uploadedlobster.com/musicbrainzws2 v0.19.0
+	go.yaml.in/yaml/v2 v2.4.4
 	golang.org/x/image v0.46.0
 	golang.org/x/net v0.60.0
 	golang.org/x/sync v0.23.0
@@ -59,9 +60,10 @@ require (
 	k8s.io/client-go v0.37.0
 	k8s.io/component-helpers v0.37.0
 	k8s.io/klog/v2 v2.140.0
+	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad
 	k8s.io/utils v0.0.0-20260626114624-be93311217bd
 	modernc.org/sqlite v1.59.0
-	sigs.k8s.io/controller-runtime v0.25.1
+	sigs.k8s.io/controller-runtime v0.25.3
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2
 	sigs.k8s.io/yaml v1.6.0
 )
@@ -195,7 +197,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
-	go.yaml.in/yaml/v2 v2.4.4
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go4.org v0.0.0-20260112195520-a5071408f32f // indirect
 	golang.org/x/crypto v0.57.0 // indirect
@@ -209,7 +210,6 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad
 	lukechampine.com/blake3 v1.1.6 // indirect
 	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
@@ -220,15 +220,6 @@ require (
 )
 
 replace github.com/obinnaokechukwu/ffgo => github.com/mediactl/ffgo v0.0.0-clustarr.17
-
-// controller-runtime builds its client's and its cache's codec factories
-// without the CBOR serializer, so client-go's ClientsAllowCBOR and
-// ClientsPreferCBOR gates never reach them (and PreferCBOR fails every
-// request); the fork routes both through rest.CodecFactoryForGeneratedClient
-// and its typed client decodes an apply's answer by its content type, CBOR
-// included, dropping unknown fields as the JSON path does (three commits on
-// v0.25.1; pkg/k8s/rowcache/cbor.go turns the gates on).
-replace sigs.k8s.io/controller-runtime => github.com/mediactl/controller-runtime v0.25.1-clustarr.3
 
 // anacrolix/torrent's announce dispatcher keeps a dropped torrent's announce
 // state bound to it for the client's life, so a torrent re-added for the same

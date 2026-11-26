@@ -50,7 +50,6 @@ import (
 // holds no non-video item yet). Run it from the repo root:
 //
 //	KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" \
-//	KUBE_FEATURE_ClientsAllowCBOR=false KUBE_FEATURE_ClientsPreferCBOR=false \
 //	PREVIEW_KUBECONFIG=/tmp/preview.kubeconfig PREVIEW_STOP=/tmp/preview.stop \
 //	go test -tags preview -count=1 -v -timeout 4h -run TestPreviewHarness ./ui/
 //

@@ -147,8 +147,8 @@ make run-dev       # manager, ui and one agent per domain against your kubeconfi
 make e2e           # end-to-end suite against the kind cluster
 ```
 
-Tools live in `$(go env GOPATH)/bin`. `go.mod` replaces ffgo, anacrolix/torrent,
-onnxruntime-purego and controller-runtime with `mediactl/` forks at published tags.
+Tools live in `$(go env GOPATH)/bin`. `go.mod` replaces ffgo, anacrolix/torrent
+and onnxruntime-purego with `mediactl/` forks at published tags.
 **A third-party gap is never patched in this tree**: take the upstream release
 with the fix, else a `mediactl/` fork rebased on the upstream tag with the PR opened.
 
@@ -161,9 +161,8 @@ with the fix, else a `mediactl/` fork rebased on the upstream tag with the PR op
 - **Never run `go get` or `go mod tidy` from parallel agents.**
 - **`go test ./...` passing does not mean the CRDs are valid**: envtest suites
   skip silently without `KUBEBUILDER_ASSETS`. `make test` is the gate; a hand-run
-  envtest also needs `KUBE_FEATURE_ClientsAllowCBOR=false KUBE_FEATURE_ClientsPreferCBOR=false`,
-  `CLUSTARR_PG_ASSETS=$(go env GOPATH)/bin/pg-assets` (the library kinds are rows
-  in an embedded Postgres, `test/librarytest`), and `helm dependency build
+  envtest also needs `CLUSTARR_PG_ASSETS=$(go env GOPATH)/bin/pg-assets` (the
+  library kinds are rows in an embedded Postgres, `test/librarytest`), and `helm dependency build
   charts/clustarr` in a fresh clone. A test's own manager or client on an envtest
   config is `librarytest.NewManager` / `librarytest.NewClient`, never
   `ctrl.NewManager` / `client.New`: those cannot see a library kind.
