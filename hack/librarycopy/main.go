@@ -46,10 +46,11 @@ import (
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/dynamic"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/library"
 )
 
@@ -65,6 +66,7 @@ func run(ctx context.Context) error {
 	only := flag.String("kind", "", "copy this kind alone (MediaFile, Episode, Album, Book, Audiobook, Issue); empty copies all")
 	page := flag.Int64("page", 500, "objects per list page")
 	dryRun := flag.Bool("dry-run", false, "read and count; write nothing")
+	verify := flag.Bool("verify", false, "read the store alone: decode every row as the manager will and report what a write of it would be refused for")
 	flag.Parse()
 
 	dsn := os.Getenv(library.EnvDSN)
@@ -72,11 +74,14 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("set $%s to the library store's address (the manager's role)", library.EnvDSN)
 	}
 	// Migrate: the copy may run before any manager of the new build has.
-	store, err := library.Open(ctx, dsn, library.Options{Migrate: !*dryRun})
+	store, err := library.Open(ctx, dsn, library.Options{Migrate: !*dryRun && !*verify})
 	if err != nil {
 		return err
 	}
 	defer func() { _ = store.Close() }()
+	if *verify {
+		return verifyRows(ctx, store, *namespace, *only)
+	}
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		return fmt.Errorf("kubeconfig: %w", err)
@@ -112,7 +117,7 @@ func copyKind(ctx context.Context, dyn dynamic.Interface, store *library.Store, 
 			if dryRun {
 				continue
 			}
-			ok, err := insert(ctx, store, sch, &list.Items[i])
+			ok, err := store.CopyIn(ctx, sch, &list.Items[i])
 			if err != nil {
 				return read, wrote, fmt.Errorf("%s/%s: %w", list.Items[i].GetNamespace(), list.Items[i].GetName(), err)
 			}
@@ -127,42 +132,58 @@ func copyKind(ctx context.Context, dyn dynamic.Interface, store *library.Store, 
 	}
 }
 
-// insert writes one object as the row the store would hold for it: the body
-// without its status, its resourceVersion and its ownership records, and
-// those two in their own columns.
-func insert(ctx context.Context, store *library.Store, sch *library.Schema, u *unstructured.Unstructured) (bool, error) {
-	content := u.DeepCopy().Object
-	managed, _, _ := unstructured.NestedSlice(content, "metadata", "managedFields")
-	unstructured.RemoveNestedField(content, "metadata", "managedFields")
-	unstructured.RemoveNestedField(content, "metadata", "resourceVersion")
-	status, hasStatus := content["status"]
-	delete(content, "status")
-	body, err := json.Marshal(content)
-	if err != nil {
-		return false, err
+// verifyRows reads every row of the store and answers for each kind how
+// many decode into the kind's Go type, as the manager's informers decode
+// them (one that does not fails the whole list), and how many a write would
+// be refused for, with the first few of each.
+func verifyRows(ctx context.Context, store *library.Store, namespace, only string) error {
+	scheme := runtime.NewScheme()
+	if err := catalogv1.AddToScheme(scheme); err != nil {
+		return err
 	}
-	var statusArg any
-	if hasStatus && status != nil {
-		raw, err := json.Marshal(status)
-		if err != nil {
-			return false, err
+	bad := 0
+	for _, sch := range store.Schemas().Sorted() {
+		if only != "" && !strings.EqualFold(only, sch.GVK.Kind) {
+			continue
 		}
-		statusArg = string(raw)
+		rows, version, err := store.ListRaw(ctx, sch, namespace)
+		if err != nil {
+			return fmt.Errorf("%s: %w", sch.GVK.Kind, err)
+		}
+		undecodable, refused := 0, 0
+		reasons := map[string]int{}
+		for _, r := range rows {
+			typed, err := scheme.New(sch.GVK)
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(r.Body, typed); err != nil {
+				if undecodable++; undecodable <= 5 {
+					fmt.Printf("  %s %s/%s does not decode: %v\n", sch.GVK.Kind, r.Namespace, r.Name, err)
+				}
+				continue
+			}
+			var obj map[string]any
+			if err := json.Unmarshal(r.Body, &obj); err != nil {
+				return err
+			}
+			if errs := sch.Check(obj); len(errs) > 0 {
+				if refused++; refused <= 5 {
+					fmt.Printf("  %s %s/%s would be refused: %v\n", sch.GVK.Kind, r.Namespace, r.Name, errs.ToAggregate())
+				}
+				for _, e := range errs {
+					reasons[e.Field+": "+string(e.Type)]++
+				}
+			}
+		}
+		fmt.Printf("%-10s rows %6d  at version %6d  undecodable %d  refused %d\n", sch.GVK.Kind, len(rows), version, undecodable, refused)
+		for reason, n := range reasons {
+			fmt.Printf("  %6d  %s\n", n, reason)
+		}
+		bad += undecodable + refused
 	}
-	if managed == nil {
-		managed = []any{}
+	if bad > 0 {
+		return fmt.Errorf("%d rows need attention", bad)
 	}
-	owned, err := json.Marshal(managed)
-	if err != nil {
-		return false, err
-	}
-	res, err := store.DB().ExecContext(ctx,
-		`INSERT INTO library.`+sch.Table+` (namespace, name, body, status, managed)
-		 VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb) ON CONFLICT (namespace, name) DO NOTHING`,
-		u.GetNamespace(), u.GetName(), string(body), statusArg, string(owned))
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n == 1, err
+	return nil
 }

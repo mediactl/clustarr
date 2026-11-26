@@ -117,7 +117,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	// The library store (ADR-0024): the manager alone creates its schema,
 	// and its mapper, cache and client are pointed at it before it is built.
-	store, err := librarycli.Open(ctx, o.Options, library.Options{Migrate: true, UIRole: o.LibraryUIRole, ReadRole: o.LibraryReadRole})
+	store, err := librarycli.Open(ctx, o.Options, library.Options{Migrate: true, MaxConns: library.ManagerMaxConns, UIRole: o.LibraryUIRole, ReadRole: o.LibraryReadRole})
 	if err != nil {
 		return fmt.Errorf("manager: %w", err)
 	}

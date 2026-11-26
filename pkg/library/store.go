@@ -62,6 +62,16 @@ const EnvDSN = "CLUSTARR_LIBRARY_DSN"
 // a change's delay when its notification is lost.
 const DefaultPollInterval = 15 * time.Second
 
+// DefaultMaxConns is the connections a store opens at most: a reader's six
+// lists at start, with room. No operation of the store holds one connection
+// while it waits for another, so a caller past the bound waits and cannot
+// deadlock. The feed's listener is one more, outside the pool.
+const DefaultMaxConns = 8
+
+// ManagerMaxConns is the manager's bound: its remediation workers each
+// write under a transaction of their own.
+const ManagerMaxConns = 24
+
 // Options configures [Open].
 type Options struct {
 	// Schemas are the library kinds; nil is [Embedded].
@@ -76,6 +86,13 @@ type Options struct {
 	// process that would rather exit and be started again leaves it false.
 	// It cannot be set with Migrate.
 	Lazy bool
+	// MaxConns bounds the store's connections; zero is DefaultMaxConns. The
+	// database's own limit (a CNPG Cluster's max_connections, 100 by
+	// default) is shared by every process of the install and by the release
+	// index, and an unbounded pool opens a connection for every caller that
+	// finds none free: a start that lists six kinds at once in every
+	// process must not be able to spend it.
+	MaxConns int
 	// UIRole and ReadRole name database roles a migration grants their
 	// share of the library to, when they exist: ReadRole may read every
 	// table and write none (the agents', cluster-plex's, a person's);
@@ -103,6 +120,13 @@ func Open(ctx context.Context, dsn string, o Options) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("library: open: %w", err)
 	}
+	maxConns := o.MaxConns
+	if maxConns <= 0 {
+		maxConns = DefaultMaxConns
+	}
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(min(maxConns, 4))
+	db.SetConnMaxIdleTime(5 * time.Minute)
 	s := &Store{db: db, dsn: dsn, schemas: schemas, now: time.Now}
 	// The store outlives the context it was opened under; Close ends it.
 	s.closing, s.close = context.WithCancel(context.WithoutCancel(ctx))
