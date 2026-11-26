@@ -20,10 +20,14 @@ package downloads
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
+	"time"
 
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
+	crsource "sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/remediation/dlindex"
@@ -92,6 +96,7 @@ func (s *Stage) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 		{Name: "S27/" + events.BucketTransfers, Raw: transfers},
 		{Name: "S28/" + events.BucketImports, Raw: imports},
 		{Name: "engines/" + events.BucketEngines, Raw: engines},
+		{Name: "seed/" + events.BucketTransfers, Raw: seedSource{s: s}},
 	}, nil
 }
 
@@ -127,20 +132,48 @@ func containsKey(keys []remediation.Key, k remediation.Key) bool {
 	return false
 }
 
+// seedTimeout bounds the seed's read of clustarr-transfers.
+const seedTimeout = time.Minute
+
 // seedUnclaimed fills the Unclaimed index from clustarr-transfers once per
 // leader: the source opens with UpdatesOnly, and a transfer that went
 // unclaimed before this leader started is rewritten only daily.
+//
+// It reads the bucket in one pass. It asked for the keys and then for each
+// record in turn, and every item pass waits for it (seedOnce): 2,866
+// requests from a manager at its CPU limit held the loop's sixteen workers
+// for 165 s after a start on talos, and every candidate parked meanwhile
+// lapsed its 60 s budget (2026-11-26).
 func (s *Stage) seedUnclaimed(ctx context.Context) {
-	keys, err := s.transfers.Keys(ctx, "")
+	ctx, cancel := context.WithTimeout(ctx, seedTimeout)
+	defer cancel()
+	all, err := s.transfers.All(ctx)
+	if errors.Is(err, events.ErrBucketNotFound) {
+		// A bucket the topology has not made yet holds no transfer.
+		return
+	}
 	if err != nil {
 		logging.FromContext(ctx).Warn("downloads: seed the unclaimed index", "err", err)
 		return
 	}
-	for _, k := range keys {
-		rec, rev, ok, err := s.transfers.Get(ctx, k)
-		if err != nil || !ok {
-			continue
-		}
-		s.unclaimed.observe(rec, rev)
+	for _, t := range all {
+		s.unclaimed.observe(t.Record, t.Revision)
 	}
 }
+
+// seedSource starts the seed when the loop's sources start, which is when
+// this manager takes the lease and before a worker runs: the first passes
+// find it done, or wait for the rest of it (seedOnce).
+type seedSource struct{ s *Stage }
+
+var _ crsource.TypedSource[remediation.Key] = seedSource{}
+
+// Start implements source.TypedSource. It adds no key.
+func (ss seedSource) Start(ctx context.Context, _ workqueue.TypedRateLimitingInterface[remediation.Key]) error {
+	ctx = logging.Subsystem(ctx, "remediation.downloads")
+	go ss.s.seedOnce.Do(func() { ss.s.seedUnclaimed(ctx) })
+	return nil
+}
+
+// String implements fmt.Stringer for the controller's logs.
+func (seedSource) String() string { return "downloads unclaimed-index seed" }

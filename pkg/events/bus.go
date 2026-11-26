@@ -536,6 +536,13 @@ type KV interface {
 	// error.
 	Keys(ctx context.Context) ([]string, error)
 
+	// Entries reads every live key's current entry in one pass, in revision
+	// order; a deleted or expired key is not among them, and an empty bucket
+	// is no entries and no error. It is the read of a whole bucket: Keys
+	// followed by a Get per key is a request to the broker for every key,
+	// one after another.
+	Entries(ctx context.Context) ([]Entry, error)
+
 	// Status reads the bucket's last revision and creation time. A missing
 	// bucket is ErrBucketNotFound.
 	Status(ctx context.Context) (KVStatus, error)

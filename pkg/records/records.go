@@ -201,22 +201,30 @@ func (s store[R]) get(ctx context.Context, key string) (R, uint64, bool, error) 
 		s.count("get")
 		return zero, 0, false, fmt.Errorf("records: get %s/%s: %w", s.spec.Bucket, key, err)
 	}
+	rec, ok := s.decode(e)
+	return rec, e.Revision, ok, nil
+}
+
+// decode is the record e holds, false for a delete, an undecodable value,
+// another Schema, or a header naming another UID or sub-key than e's key.
+func (s store[R]) decode(e events.Entry) (R, bool) {
+	var zero R
 	if e.Operation != events.KVPut || len(e.Value) == 0 {
-		return zero, e.Revision, false, nil
+		return zero, false
 	}
 	rec := s.spec.New()
 	if err := json.Unmarshal(e.Value, rec); err != nil {
 		s.count("decode")
-		return zero, e.Revision, false, nil
+		return zero, false
 	}
 	h := rec.Header()
-	uid, sub, err := keyParts(key)
+	uid, sub, err := keyParts(e.Key)
 	ruid, rsub := s.keyOf(rec)
 	if err != nil || h.Schema != s.spec.Schema || ruid != uid || rsub != sub {
 		s.count("decode")
-		return zero, e.Revision, false, nil
+		return zero, false
 	}
-	return rec, e.Revision, true, nil
+	return rec, true
 }
 
 // at reads key and fails with ErrRaced unless it is still at rev.

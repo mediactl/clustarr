@@ -1486,3 +1486,21 @@ recorded here.
   (`rescan.MatchSeries`) still reads only the scanned root's Series, so the
   folder is proposed and refused at every scan until its files are gone. An
   Album, its Artist's, is not looked for.
+
+- **A whole bucket is read with `KV.Entries` (`records.Reader.All`), never
+  `Keys` and a `Get` per key, when anything waits on it (2026-11-26).** The
+  downloads stage seeds its unclaimed index from clustarr-transfers once per
+  leader, and every item pass waits for that seed (`seedOnce`). It asked for
+  the keys and then for each record in turn: 2,866 requests from a manager at
+  its 750m CPU limit took 165 s after the 13:36Z start on talos (24-55 s
+  before the library store, when the start did less beside it), the loop's
+  sixteen workers finished no pass meanwhile, and every candidate parked in
+  the inbox lapsed its 60 s budget ("intake: no decision on the candidate
+  within the handler budget", 26 times; all were settled once the seed
+  ended). Read it off `clustarr_remediation_planner_seconds_sum{planner=
+  "item.downloads"}` against the other stages, and
+  `workqueue_longest_running_processor_seconds{name="mediafile"}` at a
+  start. `Entries` is one watch stopped at JetStream's end-of-initial-values
+  marker; the seed now starts with the loop's sources (`seedSource`), before
+  a worker runs. The trailers and segments sweepers still read key by key:
+  nothing waits on them.

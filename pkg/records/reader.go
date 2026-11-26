@@ -61,3 +61,27 @@ func (r *Reader[R]) Keys(ctx context.Context, prefix string) ([]string, error) {
 	}
 	return out, nil
 }
+
+// Stored is one record of a bucket with the revision it was read at.
+type Stored[R Record] struct {
+	Record   R
+	Revision uint64
+}
+
+// All reads every record of the bucket in one pass (events.KV.Entries), in
+// revision order: what Keys and a Get of each key answer, without a request
+// to the broker per key. A value Get reads as absent is left out.
+func (r *Reader[R]) All(ctx context.Context) ([]Stored[R], error) {
+	entries, err := r.s.kv.Entries(ctx)
+	if err != nil {
+		r.s.count("get")
+		return nil, fmt.Errorf("records: read %s: %w", r.s.spec.Bucket, err)
+	}
+	out := make([]Stored[R], 0, len(entries))
+	for _, e := range entries {
+		if rec, ok := r.s.decode(e); ok {
+			out = append(out, Stored[R]{Record: rec, Revision: e.Revision})
+		}
+	}
+	return out, nil
+}

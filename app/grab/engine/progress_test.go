@@ -91,6 +91,10 @@ func (k *countingKV) Keys(context.Context) ([]string, error) {
 	panic("the progress publisher only puts")
 }
 
+func (k *countingKV) Entries(context.Context) ([]events.Entry, error) {
+	panic("the progress publisher only puts")
+}
+
 func (k *countingKV) Status(context.Context) (events.KVStatus, error) {
 	panic("the progress publisher only puts")
 }

@@ -356,6 +356,10 @@ func (k *conflictKV) Watch(ctx context.Context, p string, opts ...events.WatchOp
 
 func (k *conflictKV) Keys(ctx context.Context) ([]string, error) { return k.inner.Keys(ctx) }
 
+func (k *conflictKV) Entries(ctx context.Context) ([]events.Entry, error) {
+	return k.inner.Entries(ctx)
+}
+
 func (k *conflictKV) Status(ctx context.Context) (events.KVStatus, error) {
 	return k.inner.Status(ctx)
 }

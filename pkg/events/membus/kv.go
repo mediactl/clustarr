@@ -378,6 +378,37 @@ func (k *kvHandle) Keys(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
+// Entries reads every live key's current entry, in revision order.
+func (k *kvHandle) Entries(ctx context.Context) ([]events.Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	b, err := k.resolve()
+	if err != nil {
+		return nil, err
+	}
+	now := k.bus.clock.Now()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []events.Entry
+	for key := range b.vals {
+		v, ok := b.liveLocked(key, now)
+		if !ok {
+			continue
+		}
+		out = append(out, events.Entry{
+			Bucket:    b.spec.Name,
+			Key:       key,
+			Value:     append([]byte(nil), v.value...),
+			Revision:  v.rev,
+			Created:   v.created,
+			Operation: events.KVPut,
+		})
+	}
+	slices.SortFunc(out, func(x, y events.Entry) int { return cmp.Compare(x.Revision, y.Revision) })
+	return out, nil
+}
+
 // Status reads the bucket's last revision and creation time.
 func (k *kvHandle) Status(ctx context.Context) (events.KVStatus, error) {
 	if err := ctx.Err(); err != nil {

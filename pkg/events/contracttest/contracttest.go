@@ -96,6 +96,7 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("KVWatchUpdatesOnly", func(t *testing.T) { testKVWatchUpdatesOnly(t, newBus) })
 	t.Run("KVWatchFromRevision", func(t *testing.T) { testKVWatchFromRevision(t, newBus) })
 	t.Run("KVKeys", func(t *testing.T) { testKVKeys(t, newBus) })
+	t.Run("KVEntries", func(t *testing.T) { testKVEntries(t, newBus) })
 	t.Run("KVStatus", func(t *testing.T) { testKVStatus(t, newBus) })
 	t.Run("ObjectStorePutGetRoundTrip", func(t *testing.T) { testObjectStorePutGet(t, newBus) })
 	t.Run("ObjectStoreOverwriteChangesDigestAndModTime", func(t *testing.T) {

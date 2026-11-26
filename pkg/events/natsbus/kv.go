@@ -268,6 +268,36 @@ func (k *kvHandle) Keys(ctx context.Context) ([]string, error) {
 	return keys, nil
 }
 
+// Entries reads every live key's current entry through one watch, which it
+// stops at JetStream's end-of-initial-values marker: one ordered consumer
+// delivers the bucket, where Keys and a Get per key is a request per key.
+func (k *kvHandle) Entries(ctx context.Context) ([]events.Entry, error) {
+	kv, err := k.resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	w, err := kv.WatchAll(ctx, jetstream.IgnoreDeletes())
+	if err != nil {
+		return nil, kvError("entries", k.name, ">", err)
+	}
+	defer func() { _ = w.Stop() }()
+	var out []events.Entry
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("natsbus: entries %s: %w", k.name, ctx.Err())
+		case e, ok := <-w.Updates():
+			if !ok {
+				return nil, fmt.Errorf("natsbus: entries %s: the watch closed before the bucket was read", k.name)
+			}
+			if e == nil {
+				return out, nil
+			}
+			out = append(out, entryOf(k.name, e))
+		}
+	}
+}
+
 // Status reads the bucket's backing stream: its last sequence (the last
 // revision) and creation time.
 func (k *kvHandle) Status(ctx context.Context) (events.KVStatus, error) {

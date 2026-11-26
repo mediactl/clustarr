@@ -213,6 +213,57 @@ func testKVKeys(t *testing.T, newBus func() events.Bus) {
 	}
 }
 
+// testKVEntries: a whole bucket read in one pass is each live key's current
+// entry, in revision order, as a Get of each key answers it.
+func testKVEntries(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	kv := bus.KV(events.BucketTranscodes)
+	got, err := kv.Entries(ctx)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("Entries of an empty bucket = %v, %v; want none and no error", got, err)
+	}
+	for _, k := range []string{"x-2", "x-1", "x-3", "x-4"} {
+		if _, err := kv.Put(ctx, k, []byte("first "+k)); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+	}
+	if err := kv.Delete(ctx, "x-3"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := kv.Put(ctx, "x-2", []byte("second x-2")); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	got, err = kv.Entries(ctx)
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+	var keys []string
+	for _, e := range got {
+		keys = append(keys, e.Key)
+		want, err := kv.Get(ctx, e.Key)
+		if err != nil {
+			t.Fatalf("Get %s: %v", e.Key, err)
+		}
+		if e.Revision != want.Revision || string(e.Value) != string(want.Value) || e.Operation != events.KVPut || e.Bucket != events.BucketTranscodes {
+			t.Fatalf("entry %s = revision %d, %q, %s in %q; Get reads revision %d, %q", e.Key, e.Revision, e.Value, e.Operation, e.Bucket, want.Revision, want.Value)
+		}
+	}
+	// x-2 was written last, so it reads last; the deleted x-3 is gone.
+	if !slices.Equal(keys, []string{"x-1", "x-4", "x-2"}) {
+		t.Fatalf("Entries = %v; want [x-1 x-4 x-2], the live keys in revision order", keys)
+	}
+	// Past the client's buffer of pending watch updates, every key is still read.
+	const many = 700
+	for i := range many {
+		if _, err := kv.Put(ctx, fmt.Sprintf("y-%d", i), []byte("v")); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+	}
+	if got, err = kv.Entries(ctx); err != nil || len(got) != many+3 {
+		t.Fatalf("Entries = %d entries, %v; want %d", len(got), err, many+3)
+	}
+}
+
 // testKVStatus: a bucket's last revision and creation time, which the records
 // waker seeds from and checks for a recreated bucket (loop spec §4.9).
 func testKVStatus(t *testing.T, newBus func() events.Bus) {
