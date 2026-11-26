@@ -77,4 +77,29 @@ spec:
     scheme: http
     interval: {{ .Values.metrics.serviceMonitor.interval }}
 {{- end }}
+{{- if .Values.ui.enabled }}
+---
+{{/* ui serves /metrics over plain http on 8081, apart from its pages'
+     address (no controller-runtime manager, no authn filter): its request
+     series, clustarr_ui_http_*. */}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "clustarr.fullname" . }}-ui
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "clustarr.selectorLabels" (dict "root" $ "component" "ui") | nindent 6 }}
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: http
+    interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}
 {{- end }}

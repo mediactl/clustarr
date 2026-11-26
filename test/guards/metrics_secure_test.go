@@ -76,7 +76,9 @@ func TestMetricsSecureReachesEveryControllerRuntimeProcess(t *testing.T) {
 // TestServiceMonitorsFollowMetricsSecure: a ServiceMonitor scrapes the scheme
 // the pods serve. Plain HTTP carries no service-account token -- nothing on
 // that endpoint reads one, and it would cross the network in the clear -- and
-// no tlsConfig. markers serves plain HTTP either way and keeps its own.
+// no tlsConfig. markers and the ui serve plain HTTP either way (neither runs
+// a controller-runtime manager, so neither has its authn filter) and are
+// scraped that way whatever metrics.secure says.
 func TestServiceMonitorsFollowMetricsSecure(t *testing.T) {
 	for name, tc := range map[string]struct {
 		args   []string
@@ -87,10 +89,18 @@ func TestServiceMonitorsFollowMetricsSecure(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			args := append([]string{"--set", "metrics.serviceMonitor.enabled=true"}, tc.args...)
-			seen := 0
+			seen, plain := 0, 0
 			for _, o := range installtest.Objects(t, installtest.RenderChart(t, args...)) {
-				if o.GetKind() != "ServiceMonitor" || o.GetLabels()["app.kubernetes.io/component"] == "markers" {
+				if o.GetKind() != "ServiceMonitor" {
 					continue
+				}
+				want := tc.scheme
+				switch o.GetLabels()["app.kubernetes.io/component"] {
+				case "markers", "ui":
+					want = "http"
+					plain++
+				default:
+					seen++
 				}
 				eps, found, err := unstructured.NestedSlice(o.Object, "spec", "endpoints")
 				require.NoError(t, err, o.GetName())
@@ -98,14 +108,14 @@ func TestServiceMonitorsFollowMetricsSecure(t *testing.T) {
 				require.Len(t, eps, 1, o.GetName())
 				ep, ok := eps[0].(map[string]any)
 				require.True(t, ok, o.GetName())
-				require.Equal(t, tc.scheme, ep["scheme"], "%s scrapes the wrong scheme", o.GetName())
+				require.Equal(t, want, ep["scheme"], "%s scrapes the wrong scheme", o.GetName())
 				_, tls := ep["tlsConfig"]
-				require.Equal(t, tc.scheme == "https", tls, "%s: tlsConfig belongs to an https scrape only", o.GetName())
+				require.Equal(t, want == "https", tls, "%s: tlsConfig belongs to an https scrape only", o.GetName())
 				_, token := ep["bearerTokenFile"]
-				require.Equal(t, tc.scheme == "https", token, "%s: a bearer token belongs to an https scrape only", o.GetName())
-				seen++
+				require.Equal(t, want == "https", token, "%s: a bearer token belongs to an https scrape only", o.GetName())
 			}
 			require.Equal(t, 1+len(metricsAgents), seen, "one ServiceMonitor for the manager and each agent")
+			require.Equal(t, 2, plain, "and one each for markers and the ui, plain HTTP either way")
 		})
 	}
 }

@@ -94,6 +94,14 @@ func Run(ctx context.Context, o Options) error {
 	var silent silentConns
 	httpSrv.ConnState = silent.track
 
+	// /metrics on its own address, ending with ctx as the server below
+	// does. An address it cannot bind ends Run: a ui nothing can scrape
+	// is the state this listener exists to end.
+	var metricsFailed <-chan error
+	if o.MetricsBindAddress != "" {
+		metricsFailed = serveMetrics(ctx, o.MetricsBindAddress)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -105,6 +113,8 @@ func Run(ctx context.Context, o Options) error {
 
 	select {
 	case err := <-errCh:
+		return err
+	case err := <-metricsFailed:
 		return err
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownGrace)

@@ -22,11 +22,11 @@ per process that has one:
 | `agent --domain <d>` (`cmd/agent`), one Deployment per domain and the download engines | `agent-<domain>` (`agent-catalog`, ..., `agent-caption`); an engine `engine-<client>`, the DownloadClient it runs (`internal/cli/agent.agentServiceName`) | `:8443`, as the manager | `:8081` |
 | `markers` (`cmd/markers`) | `markers` | `:8080`, plain http (`--metrics-bind-address`), with its probes on the same port | `:8080` |
 | transcode pool and graft pods (`cmd/transcode`) | `transcode` | none: the manager records the transcode series from the records it incorporates | none (Jobs) |
-| `ui` (`cmd/ui`) | `ui` | none: it registers no collectors | on its one HTTP address |
+| `ui` (`cmd/ui`) | `ui` | `:8081`, plain http (`--metrics-bind-address`), apart from its pages' address | on its pages' address, `:8080` |
 
 The chart's (`metrics.serviceMonitor.enabled`) and `config/prometheus`'s ServiceMonitors
-scrape the manager, the six agent Deployments and markers; nothing scrapes the download
-engines' pods yet, and the ui serves no metrics. A scrape of `:8443` needs a bearer token whose
+scrape the manager, the six agent Deployments, markers and the ui; nothing scrapes the download
+engines' pods yet. A scrape of `:8443` needs a bearer token whose
 subject may `get /metrics` (`clustarr-metrics-reader`, see `config/prometheus/README.md`).
 
 ## Status: what is wired today
@@ -43,7 +43,7 @@ subject may `get /metrics` (`clustarr-metrics-reader`, see `config/prometheus/RE
 
 ## Metric catalogue
 
-Every series below except the six marked otherwise is registered by
+Every series below except the eleven marked otherwise is registered by
 `pkg/obs/metrics.Register`, called once per process against controller-runtime's registry --
 one place the catalogue is defined, one place a cardinality regression is caught
 (`pkg/obs/metrics/metrics_test.go` fails the build if a label named `title`, `path`, `file`,
@@ -191,6 +191,25 @@ The tuner's Plex grid fetch loop (`app/livetv/tuner/grids.go`,
 |---|---|---|---|---|---|
 | `clustarr_livetv_grid_calls_total` | counter | `provider`, `result` (`ok`, `held`, `error`, `empty`) | manager (the Live TV tuner, leader only) | Grid requests to Plex's guide service by outcome: `ok` stored a grid, `empty` (or a 404) left the channel on its next source, `held` was a 429 that held the provider's grids, `error` a failed request or store. About one `ok` per paired station a day; a steady `error` or `held` rate means channels are falling back to XMLTV. | `sum by (provider, result) (increase(clustarr_livetv_grid_calls_total[1d]))` |
 | `clustarr_livetv_grid_hold_seconds` | gauge | `provider` | manager (the Live TV tuner, leader only) | Seconds left of the hold the guide service's last 429 set (max of its Retry-After and a minute); 0 when none holds. | `max by (provider) (clustarr_livetv_grid_hold_seconds) > 0` |
+
+### The ui's requests (2026-11-26)
+
+The ui's request series (`ui/httpmetrics.go`), on the ui's own default registry beside the Go
+runtime's and the process's (`go_*`, `process_*`), served on `--metrics-bind-address` and
+never on the pages' address, which sits behind a Gateway. They are registered by the ui itself
+(not by `pkg/obs/metrics.Register`), so only a ui pod's `/metrics` carries them. `route` is the
+pattern a request matched, never its path: `/library/{tab}`,
+`/plex/tv/library/metadata/{ratingKey}` (the Plex provider's mux names its own routes), `/`
+for the styled 404, `unmatched` for a method no pattern takes. Until this the ui exposed
+nothing and logs no request, so a pod holding 250m beside two idle ones could not be asked
+what it served (talos, 2026-11-26, the night its autoscaler went from one pod to three).
+
+| Metric | Type | Labels | Recorded by | What it signals | Example query |
+|---|---|---|---|---|---|
+| `clustarr_ui_http_requests_total` | counter | `route`, `method`, `code` | ui | Requests answered, by matched route pattern, method (`other` for one no route is written for) and status code. Which routes a busy pod is serving, and whose. | `topk(10, sum by (route) (rate(clustarr_ui_http_requests_total[5m])))` |
+| `clustarr_ui_http_request_duration_seconds` | histogram | `route`, `method` | ui | Time from a request's arrival to its handler's return. A stream (`/events/...`) is one long request and lands in `+Inf`; `_sum` over a route is the handler time it cost. | `topk(10, sum by (route) (rate(clustarr_ui_http_request_duration_seconds_sum[5m])))` |
+| `clustarr_ui_http_response_bytes_total` | counter | `route` | ui | Response body bytes sent, after compression. A provider route sending megabytes a second is a Plex refresh pass. | `topk(10, sum by (route) (rate(clustarr_ui_http_response_bytes_total[5m])))` |
+| `clustarr_ui_http_requests_in_flight` | gauge | `route` | ui | Requests being served now, by the ui's own mux's pattern (every provider route reads `/plex/`). An open stream counts while it is open: the browsers a pod holds. | `sum by (pod, route) (clustarr_ui_http_requests_in_flight)` |
 
 ### Adding a metric
 

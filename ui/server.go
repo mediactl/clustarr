@@ -52,6 +52,10 @@ import (
 // empty.
 const DefaultBindAddress = ":8080"
 
+// DefaultMetricsBindAddress is `--metrics-bind-address`'s default, the
+// port the installers name "metrics" on the ui's container.
+const DefaultMetricsBindAddress = ":8081"
+
 // AuthMode is how the ui authenticates a request (design amendment
 // §A3.5). It is chosen explicitly: Options.Validate refuses an empty one,
 // so a process started without `--auth-mode` serves nothing, and the
@@ -129,6 +133,13 @@ type Options struct {
 	// BindAddress is the address the HTTP server listens on, e.g. ":8080".
 	// [Run] defaults it to [DefaultBindAddress] when empty.
 	BindAddress string
+
+	// MetricsBindAddress is the address /metrics is served on, apart from
+	// BindAddress (`--metrics-bind-address`, ":8081" from the command): the
+	// request series of httpmetrics.go with the Go runtime's and the
+	// process's. Empty serves none, which is what a test building Options
+	// by hand gets.
+	MetricsBindAddress string
 
 	// AuthMode is the authentication mode the operator chose (`--auth-mode`
 	// on `ui` (cmd/ui), the chart's

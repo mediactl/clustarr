@@ -83,11 +83,15 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	var pipelineHistory int
 	var artCacheBytes int64
 	var metricsURL string
+	var metricsBindAddress string
 
 	fs := root.Flags()
 	fs.StringVar(&bindAddress, "bind-address", ui.DefaultBindAddress,
-		"Address the HTTP server listens on. Serves /healthz, /readyz, the Pipeline page and "+
-			"its SSE stream on this one address -- ui runs no separate metrics or health port.")
+		"Address the HTTP server listens on. Serves /healthz, /readyz, the pages and their "+
+			"SSE streams on this one address.")
+	fs.StringVar(&metricsBindAddress, "metrics-bind-address", ui.DefaultMetricsBindAddress,
+		"Address /metrics is served on, plain HTTP, apart from --bind-address: the ui's request "+
+			"series (clustarr_ui_http_*) with the Go runtime's and the process's. Empty serves none.")
 	fs.StringVar(&authMode, "auth-mode", "",
 		"Authentication mode, chosen explicitly: ui refuses to serve without one. The only mode is "+
 			"anonymous, which serves every request without a login and must sit behind ingress "+
@@ -154,6 +158,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		// ui.Options left nil.
 		return run(ctx, ui.Options{
 			BindAddress:          bindAddress,
+			MetricsBindAddress:   metricsBindAddress,
 			AuthMode:             ui.AuthMode(authMode),
 			Reader:               reader,
 			WaitForSync:          waitForSync,

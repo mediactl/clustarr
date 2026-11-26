@@ -41,6 +41,12 @@ spec:
     port: 8080
     targetPort: http
     protocol: TCP
+  # /metrics, plain http, on its own port (--metrics-bind-address): the
+  # ui's request series. No route points at it.
+  - name: metrics
+    port: 8081
+    targetPort: metrics
+    protocol: TCP
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -119,6 +125,9 @@ spec:
         ports:
         - name: http
           containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8081
           protocol: TCP
         livenessProbe:
           httpGet:

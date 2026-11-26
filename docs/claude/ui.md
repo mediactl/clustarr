@@ -1122,6 +1122,25 @@ drawn again -- a poster change Plex refreshes for. The overlay stage keeps
 status.overlay as the object says and publishes nothing, the OverlayProfile
 controller skips the item, and the renderer retries the task
 (`ErrDubUnread`, 30 s); the first list read wakes every anime.
+**An anime's score is MyAnimeList's, not Metacritic's** (owner, 2026-11-25:
+"pivot from metascores for anime overlays to mal scores"). The score is
+rating source `myanimelist`, from the response MDBList already gives
+(`pkg/metadata/clients/mdblist`: out of 10 to one decimal for an anime, null
+for anything else; 86 read 8.3 with 533,936 votes and no Metacritic), so no
+provider and no request was added; it draws as the other 0-10 scores do,
+"8.3", under Kometa's MAL mark. A profile takes it for anime alone through
+`OverlayProfile.spec.anime` (`only`, `exclude`, unset for both;
+`overlayplan.Selects`, by `itemread.Anime`: a Series by its type, a Movie by
+its classification), because nothing on a Series or Movie says anime to a
+label selector: one profile `anime: only` drawing `myanimelist`, the other
+`anime: exclude` drawing `metacritic`
+(`config/samples/catalog_v1alpha1_overlayprofile_anime.yaml`). An anime film
+with both scores, as 31 of talos' 34 had, shows MyAnimeList's. The selection
+is no render field and moves no profile hash. A Movie's and a Series'
+`status.metadata.ratings` went from seven entries to eight with it: the list
+is cut by source name, so at seven an anime film with every score would have
+lost trakt. The CRDs go on before the images, as ever: an eighth rating is
+refused by the old schema.
 An Episode carries two conditions, Ready and DeadLettered (owner,
 2026-11-03, cutting the manager's memory): the Aired, HasFile, CutoffMet and
 WrongLanguage conditions every episode carried restated `status.phase`,
@@ -1390,3 +1409,42 @@ manual assign as dialogs; the guide's own scroller and "jump to now"; the
 dashboard's charts replaying their entrance at every poll and its empty
 states; Activity's rows as one component with toned badges; the Files
 tables' narrow layouts; the nine hero copies folded into one component.
+
+**The ui counts its requests, and its autoscaler waits five minutes**
+(owner, 2026-11-26: "Add request metrics", "Keep the autoscaler but make it
+harder to trigger", after asking why the ui pods "scale up (HPA) but not
+down"). What was found on talos that night: the HPA went 1 -> 2 -> 3 in five
+minutes on a minute over its target and held three for the 30-minute
+scale-down window it has had since 2026-11-17, twice; one pod held a steady
+210-265m while the other two idled at 2-6m, because the ui's load arrives on
+long-lived connections (Plex's to the provider, a browser's streams) that
+stay on the pod they opened on. So a new pod takes none of the load that
+started it, one busy pod at X asks for ceil(X / target) pods however many
+there are, and every new pod costs about 900 MiB, a whole-library LIST
+through a kube-apiserver that sat at its 4 Gi limit, and a read of the
+artwork store. What the busy pod was serving could not be read: the ui
+logged no request and served no metrics.
+
+- **Request series** (`ui/httpmetrics.go`): `clustarr_ui_http_requests_total`
+  (`route`, `method`, `code`), `_request_duration_seconds` (`route`,
+  `method`), `_response_bytes_total` (`route`) and `_requests_in_flight`
+  (`route`), on the ui's default registry with `go_*` and `process_*`,
+  served on `--metrics-bind-address` (`:8081`, container port `metrics` in
+  both installers, a ServiceMonitor each) and never on the pages' address.
+  `route` is the mux pattern the request matched, read from `r.Pattern`
+  after the handler returns: the wrapper sits directly around
+  `compress(mux)`, and nothing between it and the mux may copy the request
+  (`r.WithContext`), or every request reads `unmatched`
+  (`TestARequestIsCountedByTheRouteItMatched` fails that way). The Plex
+  provider's mux is mounted on the request path unchanged and names its own
+  routes; the in-flight gauge, set before the handler runs, reads `/plex/`
+  for all of them. The counting writer passes `Flush` through, which the
+  streams assert (`TestAnOpenStreamIsInFlightAndStillFlushes`).
+  `TestUINeverWrites` refuses any `.Serve(` call in `ui/`, so the listener
+  is `ListenAndServe`.
+- **The autoscaler on talos**: target 600 (% of the 100m request), scale-up
+  after five straight minutes above it, one pod per five minutes, scale-down
+  window 1800 s as before; set on the live HPA by kubectl and in
+  `talos-values.yaml` (`ui.autoscaling`). The chart's values comment carries
+  the reasoning. Raise or lower the target from the pods' own series, not
+  from a guess.

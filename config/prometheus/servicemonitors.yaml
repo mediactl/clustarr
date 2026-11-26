@@ -1,6 +1,5 @@
-# ServiceMonitors for the manager, the six agents and markers: one per Service
-# in config/manager that serves metrics. ui is the one Deployment without
-# one: it runs no manager, so it serves no metrics port.
+# ServiceMonitors for the manager, the six agents, markers and the ui: one per
+# Service in config/manager that serves metrics.
 #
 # This list is kept in step with charts/clustarr/templates/servicemonitor.yaml
 # by TestChartAndKustomizeAgreePerComponent in test/guards.
@@ -10,7 +9,7 @@
 # AUTHN/AUTHZ FILTER, so the endpoint is https and the scrape must present a
 # bearer token. Prometheus's ServiceAccount therefore needs the
 # `clustarr-metrics-reader` ClusterRole in metrics_reader_role.yaml bound to
-# it -- see README.md. markers serves plain http on 8080.
+# it -- see README.md. markers serves plain http on 8080, the ui on 8081.
 #
 # The certificate is self-signed by each process at startup, hence
 # insecureSkipVerify. Swap in cert-manager and a real serverName if your
@@ -205,6 +204,28 @@ spec:
       app.kubernetes.io/name: clustarr
       app.kubernetes.io/part-of: clustarr
       app.kubernetes.io/component: markers
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: http
+    interval: 30s
+    scrapeTimeout: 10s
+---
+# ui: its request series (clustarr_ui_http_*); plain http on 8081, no authn filter.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ui
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: ui
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clustarr
+      app.kubernetes.io/part-of: clustarr
+      app.kubernetes.io/component: ui
   endpoints:
   - port: metrics
     path: /metrics

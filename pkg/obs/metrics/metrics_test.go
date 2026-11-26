@@ -148,6 +148,11 @@ var registeredElsewhere = map[string]string{
 	"clustarr_segments_dnn_available":   "app/segments/worker, markers' own registry",
 	"clustarr_livetv_grid_calls_total":  "app/livetv/tuner, on controller-runtime's registry in the manager",
 	"clustarr_livetv_grid_hold_seconds": "app/livetv/tuner, on controller-runtime's registry in the manager",
+
+	"clustarr_ui_http_requests_total":           "ui, the ui's own default registry",
+	"clustarr_ui_http_request_duration_seconds": "ui, the ui's own default registry",
+	"clustarr_ui_http_response_bytes_total":     "ui, the ui's own default registry",
+	"clustarr_ui_http_requests_in_flight":       "ui, the ui's own default registry",
 }
 
 var (

@@ -435,7 +435,7 @@ metrics:
   # discovery.kubelet does -- and the ServiceMonitors below follow it. Anyone
   # who can reach a pod can then read its metrics, so restrict that with a
   # NetworkPolicy where it matters. markers serves plain HTTP on :8080 either
-  # way; ui serves no metrics.
+  # way, and the ui on :8081 (its request series, clustarr_ui_http_*).
   secure: true
   serviceMonitor:
     enabled: false
@@ -965,9 +965,21 @@ ui:
     # hours' 99th percentile, well under resources.limits.cpu.
     targetCPUUtilizationPercentage: 70
     # autoscaling/v2 HorizontalPodAutoscalerBehavior, verbatim; {} is the
-    # HPA's defaults (scale down after 5 minutes of stability). A ui pod
-    # is dear to start and cheap to keep, so a longer
-    # scaleDown.stabilizationWindowSeconds (1800) suits it.
+    # HPA's defaults (scale up at once, scale down after 5 minutes of
+    # stability). A ui pod is dear to start and cheap to keep, so a longer
+    # scaleDown.stabilizationWindowSeconds (1800) suits it, and so does a
+    # scaleUp window: the ui's load arrives on long-lived connections
+    # (Plex's to the provider, a browser's streams), which stay on the pod
+    # they opened on, so a new pod takes none of the load that started it,
+    # and one busy pod asks for the same count however many there are. On
+    # talos a minute over the target took the ui from one pod to three in
+    # five minutes, each new pod listing the library through the apiserver
+    # (2026-11-26); there the target is 600 with
+    #   scaleUp: {stabilizationWindowSeconds: 300, selectPolicy: Max,
+    #             policies: [{type: Pods, value: 1, periodSeconds: 300}]}
+    # so a pod is added only after five straight minutes above the target,
+    # one at a time. What a busy pod is serving is in its /metrics
+    # (clustarr_ui_http_*, docs/observability.md).
     behavior: {}
   # A Gateway API HTTPRoute to the ui's Service, opt in. The ui has no
   # login (ui.auth above) and the Plex provider under /plex none by

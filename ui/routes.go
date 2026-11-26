@@ -189,7 +189,10 @@ func (s *Server) routes() http.Handler {
 		hook(s, mux)
 	}
 	mux.HandleFunc("/", notFound)
-	return compress(mux)
+	// Every request is counted by the route it matched (httpmetrics.go);
+	// compress hands the mux the request it was given, so the pattern the
+	// mux leaves on it is read out here.
+	return requestMetrics(mux, compress(mux))
 }
 
 // handleHealthz answers the liveness probe, unconditionally. It must not
