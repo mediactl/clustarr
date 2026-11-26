@@ -19,6 +19,7 @@ package guards
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -71,9 +72,13 @@ func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 		out    []byte
 		prefix string
 	}{
-		"helm template clustarr":   {installtest.Run(t, root, helm, "template", "clustarr", "charts/clustarr"), "clustarr-"},
-		"helm template media":      {installtest.Run(t, root, helm, "template", "media", "charts/clustarr"), "media-clustarr-"},
-		"kustomize config/default": {installtest.Run(t, root, kustomize, "build", "config/default"), ""},
+		// The trailers agent is optional (ADR-0023) and has a generated role
+		// like every identity, so each installer is rendered with it on:
+		// the chart's switch, and config/trailers beside the default.
+		"helm template clustarr": {installtest.Run(t, root, helm, "template", "clustarr", "charts/clustarr", "--set", "agents.trailers.enabled=true"), "clustarr-"},
+		"helm template media":    {installtest.Run(t, root, helm, "template", "media", "charts/clustarr", "--set", "agents.trailers.enabled=true"), "media-clustarr-"},
+		"kustomize config/default": {slices.Concat(installtest.Run(t, root, kustomize, "build", "config/default"),
+			[]byte("\n---\n"), installtest.Run(t, root, kustomize, "build", "config/trailers")), ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := installtest.DecodeRendered(t, tc.out)

@@ -148,7 +148,7 @@ creates those at runtime, owned by the object that asked for them.
       "root" $ "component" "agent-metadata" "values" .
       "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=metadata")
       "replicas" 1 "nodeName" true "data" false "index" false
-      "strategy" (dict "type" "Recreate") "grace" 85 "automemlimit" "0.60" "extraEnv" $readerEnv) }}
+      "strategy" (dict "type" "Recreate") "grace" 145 "automemlimit" "0.60" "extraEnv" $readerEnv) }}
 {{- end }}{{ end }}
 {{- with .Values.agents.import }}{{ if .enabled }}
 {{- include "clustarr.workload" (dict

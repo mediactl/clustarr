@@ -295,6 +295,9 @@ func TestCrossServerFailoverThroughTheRealClient(t *testing.T) {
 		},
 		ScratchDir: filepath.Join(root, "scratch"),
 		DataDir:    filepath.Join(root, "data"),
+		// The job's one retry pass over a missing article, without its
+		// ten-second wait.
+		ArticleRetryDelay: -1,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
@@ -323,8 +326,10 @@ func TestCrossServerFailoverThroughTheRealClient(t *testing.T) {
 	require.Equal(t, want, got, "the assembled file must be byte-identical to what the fixture posted")
 
 	// The proof, on the wire: the primary refused the article and never
-	// served it; the backup is the one that did.
-	require.Equal(t, 1, primary.Denied(deniedByPrimary))
+	// served it; the backup is the one that did. The primary is asked twice:
+	// the first time, and in the job's one retry pass over what is missing
+	// (usenet.Config.ArticleRetryDelay).
+	require.Equal(t, 2, primary.Denied(deniedByPrimary))
 	require.Equal(t, 0, primary.Served(deniedByPrimary))
 	require.GreaterOrEqual(t, backup.Served(deniedByPrimary), 1,
 		"the refused article must have been fetched from the backup -- that is the failover")

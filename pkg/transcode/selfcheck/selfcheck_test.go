@@ -24,20 +24,18 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/obinnaokechukwu/ffgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/pkg/ffruntime"
+	"github.com/mediactl/clustarr/test/nativetest"
 )
 
-// ffmpeg9OrSkip skips unless this host has FFmpeg 9's libraries.
+// ffmpeg9OrSkip skips unless this host has FFmpeg 9's libraries, and fails
+// where they are required (test/nativetest).
 func ffmpeg9OrSkip(t *testing.T) {
 	t.Helper()
-	if err := ffgo.Init(); err != nil {
-		t.Skipf("no FFmpeg libraries: %v", err)
-	}
-	if _, avcodec, _ := ffgo.Version(); avcodec>>16 != 63 {
-		t.Skipf("FFmpeg's libavcodec is %d, not FFmpeg 9's 63", avcodec>>16)
-	}
+	nativetest.FFmpeg(t, ffruntime.Needs{})
 }
 
 func TestCheckPassesOnThisHostsFFmpeg9ForCPU(t *testing.T) {

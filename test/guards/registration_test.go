@@ -823,6 +823,23 @@ var nonManagerBinaries = []binaryBuild{
 	{"cmd/agent", linuxCgo}, {"cmd/markers", linuxStatic}, {"cmd/transcode", linuxStatic}, {"cmd/ui", linuxStatic},
 }
 
+// binaryDirs is every module directory some binary links: what can run in a
+// deployed process. A package no binary links is not production code,
+// whatever tree it sits in -- the harnesses other packages' tests import
+// (app/remediation/remediationtest, app/remediation/itemtest/looptest) are
+// in non-test files only because a _test.go file cannot be imported, and
+// they stand a bus and a manager's runnables up as a test's own manager.
+func binaryDirs(t *testing.T) map[string]bool {
+	t.Helper()
+	out := moduleDirs(depguard.Load(t, mod+"cmd/manager", linuxStatic...))
+	for _, bin := range nonManagerBinaries {
+		for dir := range moduleDirs(depguard.Load(t, mod+bin.pkg, bin.env...)) {
+			out[dir] = true
+		}
+	}
+	return out
+}
+
 // TestOnlyTheManagerRegistersControllers: no module package another binary
 // links builds a controller (split design §10.3.2). The split let the two
 // grab engines keep an engine-local Download watch; the Download kind is
@@ -908,11 +925,15 @@ func TestLeaderOnlyRunnablesLiveInTheManager(t *testing.T) {
 	}
 	files := productionFiles(t)
 	leaders := leaderTypes(files)
+	linked := binaryDirs(t)
 	var sites int
 	for p, f := range files {
 		dir := filepath.ToSlash(filepath.Dir(p))
 		if dir == "pkg/k8s" {
 			continue // declares LeaderOnly
+		}
+		if !linked[dir] {
+			continue // a test harness: no binary links it (binaryDirs)
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			sel, ok := n.(*ast.SelectorExpr)

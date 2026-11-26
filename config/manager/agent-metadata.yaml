@@ -44,8 +44,9 @@ spec:
         app.kubernetes.io/component: agent-metadata
     spec:
       serviceAccountName: agent-metadata
-      # The longest AckWait it drains (60 s) plus 25 s (spec §3.5.6).
-      terminationGracePeriodSeconds: 85
+      # The longest AckWait it drains (120 s, the image-set worker's) plus
+      # 25 s (spec §3.5.6).
+      terminationGracePeriodSeconds: 145
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

@@ -62,7 +62,7 @@ func TestAgentCacheNeverHoldsSecretsOrConfigMaps(t *testing.T) {
 // The engines and trailers own no durable.
 func TestDrainDefaultsToTheLongestAckWait(t *testing.T) {
 	for domain, want := range map[string]time.Duration{
-		"catalog": 120 * time.Second, "caption": 90 * time.Second, "metadata": 60 * time.Second,
+		"catalog": 120 * time.Second, "caption": 90 * time.Second, "metadata": 120 * time.Second,
 		"import": 60 * time.Second, "index": 60 * time.Second, "events": 30 * time.Second,
 		"torrent-engine": 0, "usenet-engine": 0, "trailers": 0,
 	} {

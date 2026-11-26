@@ -19,6 +19,7 @@ package guards
 
 import (
 	"go/ast"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,8 +43,12 @@ import (
 // and binds.
 func TestOnlyTheManagerEnsuresTopology(t *testing.T) {
 	var managerCalls, scanned int
+	linked := binaryDirs(t)
 	for p, f := range productionFiles(t) {
 		scanned++
+		if !linked[filepath.ToSlash(filepath.Dir(p))] {
+			continue // a test harness: no binary links it (binaryDirs)
+		}
 		busconnAlias := importAlias(f, mod+"pkg/busconn", "busconn")
 		eventsAlias := importAlias(f, mod+"pkg/events", "events")
 		inBusLayer := strings.HasPrefix(p, "pkg/busconn/") || strings.HasPrefix(p, "pkg/events/")

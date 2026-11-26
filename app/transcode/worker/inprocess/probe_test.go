@@ -38,6 +38,28 @@ import (
 // from must agree: the summary, the first frame's HDR leaves, and the
 // standard's plan, so a worker never plans a file differently from the
 // catalog probe the manager planned it from.
+// withLaterFields is the golden's summary with the fields MediaInfo gained
+// after the goldens were recorded (2026-10-07): an audio stream's
+// SampleRateHz and BitDepth and the file's Tags (2026-11-10), and
+// DisplayAspectMilli (2026-11-17). ffprobeexec is gone, so nothing can record them again; they
+// are read from the golden's own ffprobe output by today's mapping, which
+// keeps ffprobe the oracle for them too.
+func withLaterFields(g goldens.ProbeGolden) *commonv1.MediaInfo {
+	if g.MediaInfo == nil || g.Raw == nil {
+		return g.MediaInfo
+	}
+	want, later := g.MediaInfo.DeepCopy(), mediainfo.FromRaw(g.Raw)
+	want.DisplayAspectMilli = later.DisplayAspectMilli
+	want.Tags = later.Tags
+	for i := range want.Audio {
+		if i < len(later.Audio) {
+			want.Audio[i].SampleRateHz = later.Audio[i].SampleRateHz
+			want.Audio[i].BitDepth = later.Audio[i].BitDepth
+		}
+	}
+	return want
+}
+
 func TestTheInProcessProbeAgreesWithFFprobe(t *testing.T) {
 	e := newEngine(t, transcode.HardwareCPU)
 	clips := goldens.Clips(t, goldens.KindProbe)
@@ -51,7 +73,7 @@ func TestTheInProcessProbeAgreesWithFFprobe(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, want.MediaInfo, got)
+			assert.Equal(t, withLaterFields(want), got)
 			require.NotNil(t, gotRaw)
 			assert.Equal(t, want.Raw.MasteringDisplay, gotRaw.MasteringDisplay)
 			assert.Equal(t, want.Raw.ContentLight, gotRaw.ContentLight)

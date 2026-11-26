@@ -51,7 +51,7 @@ func parse(t *testing.T, args ...string) (agent.Options, error) {
 }
 
 // oneDomain is the refusal of anything but exactly one known --domain.
-const oneDomain = "--domain takes exactly one of catalog, events, metadata, import, index, caption, torrent-engine, usenet-engine"
+const oneDomain = "--domain takes exactly one of catalog, events, metadata, import, index, caption, torrent-engine, usenet-engine, trailers"
 
 // TestUnknownDomainIsRejected: one process runs exactly one domain (§3.5.1);
 // there is no "all" and no list.
@@ -87,7 +87,7 @@ func TestDomainFlagsNeedTheirDomain(t *testing.T) {
 	}{
 		{[]string{"--domain=catalog", "--engine=x-0"}, "--engine is only meaningful with --domain torrent-engine or usenet-engine"},
 		{[]string{"--domain=import", "--index-path=/x"}, "--index-path is only meaningful with --domain index"},
-		{[]string{"--domain=catalog", "--data-dir=/data"}, "--data-dir is only meaningful with --domain import, caption, torrent-engine or usenet-engine"},
+		{[]string{"--domain=catalog", "--data-dir=/data"}, "--data-dir is only meaningful with --domain import, caption, torrent-engine, usenet-engine or trailers"},
 		{[]string{"--domain=torrent-engine", "--engine=sab-0", "--publish-dir=/data/x"}, "--publish-dir is only meaningful with --domain usenet-engine"},
 		{[]string{"--domain=caption", "--sample-max-bytes=0"}, "--sample-max-bytes is only meaningful with --domain import"},
 		{[]string{"--domain=index", "--download-client=sab"}, "--download-client is only meaningful with --domain torrent-engine"},

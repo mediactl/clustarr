@@ -32,9 +32,11 @@ import (
 const (
 	// AVCodecMajor is FFmpeg 9's libavcodec major.
 	AVCodecMajor = 63
-	// MinShimAPI is FFSHIM_API_VERSION of ffgo v0.0.0-clustarr.13: an older
-	// shim reads FFmpeg 9's structs at FFmpeg 4-7's offsets (spec §7.1 fact 8).
-	MinShimAPI = 1
+	// MinShimAPI is FFSHIM_API_VERSION of the ffgo this module builds
+	// against: 2 since v0.0.0-clustarr.14 (frame_set_pict_type, a forced
+	// keyframe). A shim before 1 (v0.0.0-clustarr.13) reads FFmpeg 9's
+	// structs at FFmpeg 4-7's offsets (spec §7.1 fact 8).
+	MinShimAPI = 2
 	// Grace is how long Do waits for a call after its context ends: the old
 	// subprocess WaitDelay.
 	Grace = 5 * time.Second

@@ -53,8 +53,14 @@ func TestGenerateAllReproducesTheEmbeddedCatalogueByteForByte(t *testing.T) {
 	wantEntries, err := os.ReadDir(realDataDir)
 	require.NoError(t, err)
 
+	// clustarr.json is written by hand: clustarr's own formats, which carry no
+	// trash_id and so have no corpus file to be generated from
+	// (pkg/quality/catalogue/load.go).
 	wantNames := make(map[string]bool, len(wantEntries))
 	for _, e := range wantEntries {
+		if e.Name() == "clustarr.json" {
+			continue
+		}
 		wantNames[e.Name()] = true
 	}
 	gotNames := make(map[string]bool, len(families))

@@ -18,9 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package crdcheck
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"sort"
 	"strconv"
@@ -36,14 +38,20 @@ import (
 )
 
 // This file holds the guards for Go values that mirror a CRD marker, so the
-// two cannot drift: each reads the marker's effect from the generated CRD in
-// config/crd/bases rather than restating it.
+// two cannot drift: each reads the marker's effect from the generated CRD
+// rather than restating it. `make manifests` writes a custom resource's CRD
+// into config/crd/bases and a library kind's (ADR-0024: MediaFile, Episode
+// and the rest are rows, and the file is their schema) into
+// pkg/library/schemas.
 
-// crdSchemaAt loads a generated CRD and walks its first version's schema
-// down the named properties.
+// crdSchemaAt loads a generated CRD, from whichever of the two directories
+// holds it, and walks its first version's schema down the named properties.
 func crdSchemaAt(t *testing.T, file string, path ...string) *apiextensionsv1.JSONSchemaProps {
 	t.Helper()
 	raw, err := os.ReadFile("../../config/crd/bases/" + file)
+	if errors.Is(err, fs.ErrNotExist) {
+		raw, err = os.ReadFile("../../pkg/library/schemas/" + file)
+	}
 	require.NoError(t, err)
 	var crd apiextensionsv1.CustomResourceDefinition
 	require.NoError(t, yaml.Unmarshal(raw, &crd))

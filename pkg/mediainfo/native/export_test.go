@@ -50,3 +50,12 @@ func ffmpegClip(t *testing.T, name string, args ...string) string {
 	require.NoError(t, err, "ffmpeg: %s", b)
 	return out
 }
+
+// The seams above, for the package's external tests (package native_test):
+// a test that runs pkg/transcode/engine cannot be in package native, which
+// the engine imports.
+var (
+	ProberForTest         = testProber
+	ClipForTest           = ffmpegClip
+	FailFirstFrameForTest = failFirstFrame
+)

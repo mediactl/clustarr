@@ -27,27 +27,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/obinnaokechukwu/ffgo"
-
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/test/nativetest"
 )
 
 // ffmpeg9OrSkip skips unless FFmpeg 9's libraries and the ffmpeg/ffprobe
-// executables (which make and inspect the clips) are here.
+// executables (which make and inspect the clips) are here -- and fails where
+// they are required (test/nativetest: CLUSTARR_REQUIRE_TOOLS, which make test
+// sets, and CLUSTARR_FFGO_REQUIRE), so a missing library is never a silent
+// pass.
 func ffmpeg9OrSkip(t *testing.T) {
 	t.Helper()
 	for _, bin := range []string{"ffmpeg", "ffprobe"} {
-		if _, err := exec.LookPath(bin); err != nil {
-			t.Skipf("no %s to make or inspect test clips", bin)
-		}
+		nativetest.Tool(t, bin)
 	}
-	if err := ffgo.Init(); err != nil {
-		t.Skipf("no FFmpeg libraries: %v", err)
-	}
-	if _, avc, _ := ffgo.Version(); avc>>16 != 63 {
-		t.Skip("not FFmpeg 9")
-	}
+	nativetest.FFmpeg(t, ffruntime.Needs{})
 }
 
 func run(t *testing.T, name string, args ...string) string {

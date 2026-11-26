@@ -116,8 +116,8 @@ func run(ctx context.Context, class transcode.Hardware, presets []string, out st
 			r.Preset = preset
 			r.Output = filepath.Join(out, strings.TrimSuffix(filepath.Base(s), filepath.Ext(s))+"."+preset+".mp4")
 			start := time.Now()
-			if tail, err := eng.Encode(ctx, p, m.Tier, s, r.Output, nil); err != nil {
-				r.Error = fmt.Sprintf("%v: %s", err, tail)
+			if res, err := eng.Encode(ctx, p, m.Tier, s, r.Output, nil); err != nil {
+				r.Error = fmt.Sprintf("%v: %s", err, res.LogTail)
 			} else if st, err := os.Stat(r.Output); err == nil {
 				r.Bytes = st.Size()
 			}

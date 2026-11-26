@@ -73,7 +73,7 @@ var workloadTable = map[string]workloadRow{
 	"manager":        {image: clustarrRepo, command: binpath.Manager, replicas: 1, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 85, leaderElect: true},
 	"agent-catalog":  {image: nativeRepo, command: binpath.Agent, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 145, domain: "catalog", autoscaled: true},
 	"agent-events":   {image: nativeRepo, command: binpath.Agent, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 55, domain: "events", autoscaled: true},
-	"agent-metadata": {image: nativeRepo, command: binpath.Agent, replicas: 1, strategy: appsv1.RecreateDeploymentStrategyType, grace: 85, domain: "metadata", automemlimit: "0.60"},
+	"agent-metadata": {image: nativeRepo, command: binpath.Agent, replicas: 1, strategy: appsv1.RecreateDeploymentStrategyType, grace: 145, domain: "metadata", automemlimit: "0.60"},
 	"agent-import":   {image: nativeRepo, command: binpath.Agent, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 85, domain: "import", autoscaled: true, automemlimit: "0.60"},
 	"agent-index":    {image: nativeRepo, command: binpath.Agent, replicas: 1, strategy: appsv1.RecreateDeploymentStrategyType, grace: 85, domain: "index"},
 	"agent-caption":  {image: nativeRepo, command: binpath.Agent, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 115, domain: "caption", autoscaled: true, automemlimit: "0.60"},

@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package native
+package native_test
 
 import (
 	"context"
@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
@@ -44,7 +45,7 @@ import (
 // transcode would read back as an untouched original and stay upgradeable
 // forever.
 func TestProbeReadsTheTagTranscodeWrites(t *testing.T) {
-	p := testProber(t)
+	p := native.ProberForTest(t)
 
 	const tag = "hevc-main10@0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	src := "../../../test/data/mediainfo/sample_hevc_10bit.mkv"

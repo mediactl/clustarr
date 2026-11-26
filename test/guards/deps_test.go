@@ -123,7 +123,19 @@ func TestUINeverLinksADynamicLoader(t *testing.T) {
 func TestManagerLinksNoAgentCode(t *testing.T) {
 	g := depsGraph(t, mod+"cmd/manager", linuxStatic...)
 	g.Deny(t, slices.Concat(depsStorage, depsEngines, depsServers,
-		depsRules("rendering and subtitle post-processing are agent work", "golang.org/x/image", "github.com/asticode",
+		// The WebP decoder and what it stands on are the one part of
+		// golang.org/x/image the manager links: the Live TV tuner runs in
+		// the manager and serves each channel's logo itself, read from
+		// whatever the provider sends (owner, 2026-10-27;
+		// app/livetv/tuner/logo.go). Drawing, fonts and vectors stay the
+		// agents'.
+		[]depguard.Rule{{
+			Path: "golang.org/x/image", Why: "rendering and subtitle post-processing are agent work",
+			Except: []string{
+				"golang.org/x/image/webp", "golang.org/x/image/riff", "golang.org/x/image/vp8", "golang.org/x/image/vp8l",
+			},
+		}},
+		depsRules("rendering and subtitle post-processing are agent work", "github.com/asticode",
 			mod+"pkg/overlay/render", mod+"pkg/subtitles/postprocess"),
 		depsRules("R6: clients the manager never calls",
 			mod+"pkg/subtitles/providers/opensubtitlescom", mod+"pkg/subtitles/providers/gestdown",
@@ -163,8 +175,10 @@ func TestManagerLinksNoAgentCode(t *testing.T) {
 		// its one renderer, seriessearch the Series key's index of planned
 		// Searches (Wave S); worker/history is the history sink (§4.4);
 		// backlog is the BacklogSearch's choice and the leader's grant book
-		// the search stage reads (backlog search design).
-		regexp.MustCompile(`^app/catalog/(artwork|overlayplan|grabsource|markers|segmentplan|history|history/replay|delay|searchoutcome|episodeorder|grabplan|searchplan|backlog|itemread|metadatainputs|metadataset|seriessearch|worker/history)$`),
+		// the search stage reads (backlog search design); imagesets is the
+		// image-set stage's plan and the record it shares with the metadata
+		// agent's worker (spec 2026-10-22), which is app/catalog/worker/imagesets.
+		regexp.MustCompile(`^app/catalog/(imagesets|artwork|overlayplan|grabsource|markers|segmentplan|history|history/replay|delay|searchoutcome|episodeorder|grabplan|searchplan|backlog|itemread|metadatainputs|metadataset|seriessearch|worker/history)$`),
 		regexp.MustCompile(`^app/import/(scanprogress|mediafilespec|mediafilespec/specwrite|importliststate|importtarget|importplan|manager/scanapply)$`),
 		regexp.MustCompile(`^app/indexer/(clients|proxy|limits|rssschedule|bundle|bundle/embedded|status/statuspatch)$`),
 		regexp.MustCompile(`^app/grab/lifecycle$`),
@@ -227,7 +241,11 @@ func TestAgentKeepsTheCgoPieceCompletion(t *testing.T) {
 }
 
 // The agent registers no manager, runs no transcode or segment analysis and
-// carries none of the ui or the test servers (R6, spec §4.5.3, W5.14).
+// carries none of the ui or the test servers (R6, spec §4.5.3, W5.14). One
+// piece of markers' analysis it does link: the text-detection model on ONNX
+// Runtime (pkg/segments/textdet), with which the metadata agent tells a
+// titled poster from a textless one (docs/claude/music-books.md, "An anime's
+// poster is the textless one"; `agent selfcheck` proves it loads).
 func TestAgentLinksNoManagerRegistration(t *testing.T) {
 	g := depsGraph(t, mod+"cmd/agent", linuxCgo...)
 	g.Deny(t, slices.Concat(
@@ -235,9 +253,9 @@ func TestAgentLinksNoManagerRegistration(t *testing.T) {
 		depsRules("an agent only reads the library store (ADR-0024, ADR-0019): the client that writes it is the manager's and the ui's",
 			mod+"pkg/library/readwrite"),
 		depsRules("R6", mod+"app/autoscale", mod+"app/transcode/controller", mod+"app/transcode/worker", mod+"app/segments",
-			mod+"pkg/segments/decode", mod+"pkg/segments/textdet", mod+"pkg/segments/chromaprint",
+			mod+"pkg/segments/decode", mod+"pkg/segments/chromaprint",
 			mod+"pkg/segments/frames", mod+"pkg/segments/align",
-			"github.com/shota3506/onnxruntime-purego", mod+"ui", mod+"test", "github.com/a-h/templ",
+			mod+"ui", mod+"test", "github.com/a-h/templ",
 			"github.com/Oudwins/tailwind-merge-go", "github.com/nats-io/nats-server",
 			"github.com/fergusstrange/embedded-postgres", "k8s.io/apiserver", "sigs.k8s.io/custom-metrics-apiserver"),
 	))

@@ -64,6 +64,7 @@ var ManagersOf = map[string][]string{
 	"agent-import":   {},
 	"agent-index":    {},
 	"agent-caption":  {},
+	"agent-trailers": {},
 	"grab-engine":    {},
 	"markers":        {},
 	"transcode":      {},

@@ -33,6 +33,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/internal/cli"
 	uicli "github.com/mediactl/clustarr/internal/cli/ui"
+	"github.com/mediactl/clustarr/pkg/library"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -54,12 +55,19 @@ users:
   user: {token: x}
 `
 
-// useUnreachableKubeconfig points KUBECONFIG at unreachableKubeconfig.
+// useUnreachableKubeconfig points KUBECONFIG at unreachableKubeconfig, and
+// the library store's address at a server nothing listens on: since ADR-0024
+// the ui wires its reader and its actions only with both, and it opens the
+// store without connecting, as it parses the kubeconfig without dialling.
+// Without the address this test passed only when the package's envtests ran
+// before it, which leave one in the process's environment
+// (librarytest.Use), and failed run alone or with the envtests skipped.
 func useUnreachableKubeconfig(t *testing.T) {
 	t.Helper()
 	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
 	require.NoError(t, os.WriteFile(kubeconfig, []byte(unreachableKubeconfig), 0o600))
 	t.Setenv("KUBECONFIG", kubeconfig)
+	t.Setenv(library.EnvDSN, "postgres://clustarr:x@127.0.0.1:1/clustarr")
 }
 
 // TestUIWiresEveryUIOption (the loop spec's TestBothUICommandsWireEveryUIOption,
