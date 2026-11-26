@@ -23,6 +23,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -31,9 +32,12 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	utiljson "k8s.io/apimachinery/pkg/util/json"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
 // Store is the library database.
@@ -259,6 +263,16 @@ func (s *Store) migrate(ctx context.Context, uiRole, readRole string) error {
 	for _, sch := range s.schemas.Sorted() {
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf(kindDDL, sch.Table, sch.GVK.Kind)); err != nil {
 			return fmt.Errorf("library: migrate %s: %w", sch.GVK.Kind, err)
+		}
+		// One index per selectable field, so a list by one reads the rows
+		// it answers with (selectableIndexes). The first migration of a
+		// full table builds them, a few seconds for the largest; after
+		// that the statement finds them there.
+		for _, ix := range sch.selectableIndexes() {
+			stmt := `CREATE INDEX IF NOT EXISTS ` + pgx.Identifier{ix.name}.Sanitize() + ` ON library.` + sch.Table + ` ((` + ix.expr + `))`
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("library: migrate %s: index %s: %w", sch.GVK.Kind, ix.name, err)
+			}
 		}
 	}
 	for _, g := range []struct {
@@ -493,43 +507,111 @@ func (s *Store) GetRaw(ctx context.Context, sch *Schema, namespace, name string)
 // in one snapshot, with the kind's sequence at that snapshot: the list's
 // resourceVersion, from which a watch continues with nothing lost.
 func (s *Store) ListRaw(ctx context.Context, sch *Schema, namespace string) (items []Raw, version int64, err error) {
-	return s.listRaw(ctx, sch, namespace, false)
+	version, err = s.scan(ctx, sch, namespace, selection{}, false, func(r Raw) error {
+		items = append(items, r)
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	sort.Slice(items, func(i, j int) bool { return listKey(items[i]) < listKey(items[j]) })
+	return items, version, nil
 }
 
-// listRaw is ListRaw, with each object's ownership records when asked.
-func (s *Store) listRaw(ctx context.Context, sch *Schema, namespace string, withManaged bool) (items []Raw, version int64, err error) {
+// listKey orders a list as the apiserver orders one: by the object's key in
+// its storage, "<namespace>/<name>", byte by byte. The database is not
+// asked to order (its collation is not that order, and ordering a kind's
+// rows there sorts their documents on disk: 159 MB for the MediaFiles of
+// talos, 2026-11-26); the reader sorts what it kept.
+func listKey(r Raw) string { return r.Namespace + "/" + r.Name }
+
+// scan reads, in one snapshot, the rows of a kind that sel can pick, and
+// hands each to visit as it arrives: no row is held here, so what a reader
+// keeps is what it chose to. It answers the kind's sequence at the
+// snapshot, the list's resourceVersion.
+//
+// The database applies what it can of sel (Schema.narrow), so visit may see
+// a row sel does not match and must ask sel.matches; it sees every row sel
+// does match. A list that named a selectable field once read every row of
+// the table to keep a handful: the transcode ledger's seven lists by phase
+// read all 33,822 MediaFiles of talos each, 205 MB a list, every five
+// minutes (2026-11-26).
+func (s *Store) scan(ctx context.Context, sch *Schema, namespace string, sel selection, withManaged bool, visit func(Raw) error) (version int64, err error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
-		return nil, 0, fmt.Errorf("library: list %s: %w", sch.GVK.Kind, err)
+		return 0, fmt.Errorf("library: list %s: %w", sch.GVK.Kind, err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	if err := tx.QueryRowContext(ctx, `SELECT seq FROM library.head WHERE kind = $1`, sch.GVK.Kind).Scan(&version); err != nil {
-		return nil, 0, fmt.Errorf("library: list %s: %w", sch.GVK.Kind, err)
+		return 0, fmt.Errorf("library: list %s: %w", sch.GVK.Kind, err)
 	}
 	managed := `NULL::jsonb`
 	if withManaged {
 		managed = `managed`
 	}
 	query := `SELECT namespace, name, version, ` + objectSQL("") + `, ` + managed + ` FROM library.` + sch.Table
-	var args []any
+	var a sqlArgs
+	var conds []string
 	if namespace != "" {
-		query += ` WHERE namespace = $1`
-		args = append(args, namespace)
+		conds = append(conds, `namespace = `+a.add(namespace))
 	}
-	rows, err := tx.QueryContext(ctx, query+` ORDER BY namespace, name`, args...)
+	conds = append(conds, sch.narrow(sel, &a)...)
+	if len(conds) > 0 {
+		query += ` WHERE ` + strings.Join(conds, ` AND `)
+	}
+	rows, err := tx.QueryContext(ctx, query, a.args...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("library: list %s: %w", sch.GVK.Kind, err)
+		return 0, fmt.Errorf("library: list %s: %w", sch.GVK.Kind, err)
 	}
 	defer func() { _ = rows.Close() }()
+	read := 0
+	defer func() { metrics.LibraryListRows.WithLabelValues(sch.GVK.Kind).Add(float64(read)) }()
 	for rows.Next() {
 		var r Raw
 		if err := rows.Scan(&r.Namespace, &r.Name, &r.Version, &r.Body, &r.Managed); err != nil {
-			return nil, 0, fmt.Errorf("library: list %s: %w", sch.GVK.Kind, err)
+			return 0, fmt.Errorf("library: list %s: %w", sch.GVK.Kind, err)
 		}
-		items = append(items, r)
+		read++
+		if err := visit(r); err != nil {
+			return 0, err
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("library: list %s: %w", sch.GVK.Kind, err)
+		return 0, fmt.Errorf("library: list %s: %w", sch.GVK.Kind, err)
+	}
+	return version, nil
+}
+
+// listObjects is the objects of a kind that sel matches, decoded one row at
+// a time and in the apiserver's order, with the kind's sequence at their
+// snapshot.
+func (s *Store) listObjects(ctx context.Context, sch *Schema, namespace string, sel selection, withManaged bool, decode func(Raw) (client.Object, error)) ([]runtime.Object, int64, error) {
+	type keyed struct {
+		key string
+		obj runtime.Object
+	}
+	var kept []keyed
+	version, err := s.scan(ctx, sch, namespace, sel, withManaged, func(raw Raw) error {
+		obj, err := decode(raw)
+		if err != nil {
+			return err
+		}
+		ok, err := sel.matches(sch, raw, obj)
+		if err != nil {
+			return err
+		}
+		if ok {
+			kept = append(kept, keyed{key: listKey(raw), obj: obj})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	sort.Slice(kept, func(i, j int) bool { return kept[i].key < kept[j].key })
+	items := make([]runtime.Object, len(kept))
+	for i := range kept {
+		items[i] = kept[i].obj
 	}
 	return items, version, nil
 }

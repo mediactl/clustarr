@@ -56,6 +56,9 @@ type Schema struct {
 	// SelectableFields are the JSON paths a field selector may name, beside
 	// metadata.name and metadata.namespace (the CRD's selectableFields).
 	SelectableFields []string
+	// fieldSQL is, for each selectable field the database can filter by,
+	// the expression that reads it from a row (fieldExpr).
+	fieldSQL map[string]string
 
 	structural      *structuralschema.Structural
 	validator       *validate.SchemaValidator
@@ -164,8 +167,13 @@ func NewSchema(crdYAML []byte) (*Schema, error) {
 		Table:      strings.ToLower(gvk.Kind),
 		structural: structural,
 	}
+	s.fieldSQL = map[string]string{}
 	for _, f := range v.SelectableFields {
-		s.SelectableFields = append(s.SelectableFields, strings.TrimPrefix(f.JSONPath, "."))
+		path := strings.TrimPrefix(f.JSONPath, ".")
+		s.SelectableFields = append(s.SelectableFields, path)
+		if expr, ok := fieldExpr(structural, path); ok {
+			s.fieldSQL[path] = expr
+		}
 	}
 	if err := checkRules(structural, gvk.Kind); err != nil {
 		return nil, err

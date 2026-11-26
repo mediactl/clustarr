@@ -38,6 +38,8 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	toolscache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
 // ListerWatcher feeds an informer of one library kind from the store: a list
@@ -193,25 +195,11 @@ func (lw *ListerWatcher) ListWithContext(ctx context.Context, opts metav1.ListOp
 	if err != nil {
 		return nil, err
 	}
-	raws, version, err := lw.store.listRaw(ctx, lw.sch, lw.namespace, !lw.omitManaged)
+	items, version, err := lw.store.listObjects(ctx, lw.sch, lw.namespace, sel, !lw.omitManaged, lw.object)
 	if err != nil {
 		return nil, err
 	}
 	list := lw.newList()
-	items := make([]runtime.Object, 0, len(raws))
-	for _, raw := range raws {
-		obj, err := lw.object(raw)
-		if err != nil {
-			return nil, err
-		}
-		ok, err := sel.matches(lw.sch, raw, obj)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			items = append(items, obj)
-		}
-	}
 	if err := meta.SetList(list, items); err != nil {
 		return nil, fmt.Errorf("library: %w", err)
 	}
@@ -363,12 +351,15 @@ func (w *watcher) sendInitial(ctx context.Context) (int64, bool) {
 		return 0, false
 	}
 	defer func() { _ = rows.Close() }()
+	read := 0
+	defer func() { metrics.LibraryListRows.WithLabelValues(sch.GVK.Kind).Add(float64(read)) }()
 	for rows.Next() {
 		var raw Raw
 		if err := rows.Scan(&raw.Namespace, &raw.Name, &raw.Version, &raw.Body, &raw.Managed); err != nil {
 			w.fail(ctx, fmt.Errorf("library: list %s: %w", sch.GVK.Kind, err))
 			return 0, false
 		}
+		read++
 		if !w.emit(ctx, watch.Added, raw) {
 			return 0, false
 		}

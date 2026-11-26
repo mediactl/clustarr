@@ -399,14 +399,28 @@ controller-runtime fork, the client gates and the envtest override it needed
 are gone (`docs/claude/gotchas.md`, "The manager talked to the apiserver in
 CBOR").
 
+**A list by selector is answered by the database** (owner, 2026-11-26, "Can
+we design a fix for this?", then "Build it"; the day talos was cut over).
+As first built, the store read a whole kind for any list and filtered in
+Go, so the transcode ledger's seven lists by phase read 205 MB each, every
+five minutes, and lifted the manager's live heap by 240 MiB each time. The
+selection now goes into the WHERE (`Schema.narrow`), each selectable field
+has an expression index the migration makes from the schema file -- an
+index, not §3.1's generated column: no column joins the tables cluster-plex
+reads -- rows are decoded as they arrive, and lists are ordered by the
+reader. The first of §3.9's metrics exists for it:
+`clustarr_library_list_rows_total`. The record is in
+`docs/claude/gotchas.md`, "A list by selector read the whole table".
+
 **Not built:**
 
 - The `library` subcommand of the manager binary (§3.8). People have the UI
   and `psql`.
-- The `clustarr_library_*` metrics (§3.9).
+- The other `clustarr_library_*` metrics (§3.9).
 - Paged queries in the ui (§3.5): its reader still holds every kind in an
   informer cache, now fed from the store.
-- Generated, indexed columns for readers that filter (§3.1).
+- Generated columns for readers that filter (§3.1); the selectable fields
+  have expression indexes instead (above).
 - The index role's `synchronous_commit = local` (§3.9): the index and the
   library share the app role by default, so there is no role to set it on.
 

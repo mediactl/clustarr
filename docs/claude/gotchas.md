@@ -55,6 +55,37 @@ recorded here.
   - **The store's default grants nothing to anyone but the app role**: the
     column grant that keeps the ui off status exists only when
     `library.ui.role` names a role the operator made.
+  - **A list by selector read the whole table until 2026-11-26.** The store
+    answered `client.MatchingFields` and a label selector by reading every
+    row with its ownership records, decoding all of them and filtering in
+    Go, where the apiserver filtered a selectable field itself. The
+    transcode ledger's rebuild is seven such lists of the MediaFiles
+    (`app/transcode/admission/rebuild.go`), every five minutes: each read
+    all 33,822 rows of talos, 205 MB, sorted on disk by Postgres (159 MB of
+    temp files, 1.03 s), to keep one or two, and the manager's live heap
+    rose from about 400 to 645 MiB each time (owner: "Can we design a fix
+    for this?", then "Build it"). Now `Schema.narrow` (`selector.go`) puts
+    the selection in the WHERE: a selectable field that is a string, a
+    boolean or an integer as `COALESCE(<column> #>> '{path}', '')` (the
+    apiserver's absent field is the empty string), `metadata.name` and
+    `.namespace` as the key columns, a label's `=`, `in` and exists as a
+    read of `body->'metadata'->'labels'`. It only narrows: every row that
+    comes back still passes `selection.matches`, so a requirement with no
+    SQL (a negated label) costs decodes and is never wrong. The migration
+    makes one expression index per selectable field from the schema file
+    (`<table>_sel_<path>`), and the list's condition must be that
+    expression to the letter or the planner reads every row's status
+    instead (458 ms for those MediaFiles):
+    `TestEverySelectableFieldHasTheIndexItsListUses` explains each. Rows
+    are decoded as they arrive and never held raw (`Store.scan`), and no
+    list asks Postgres to order: the reader sorts what it kept by
+    `<namespace>/<name>`, bytes, which is the apiserver's order where the
+    database's collation is not. `clustarr_library_list_rows_total{kind}`
+    counts what the database returned; a kind's rate at a multiple of its
+    row count is the next caller that lists a whole kind on a timer.
+    Found while writing the test: the apiserver refuses a name that is not
+    a lowercase RFC 1123 subdomain and the store takes it (nothing here
+    makes one; not fixed).
 
 - **`make test` cannot pass in a fresh clone or a new git worktree until
   `helm dependency build` has run.** `charts/clustarr/charts/` holds two

@@ -188,14 +188,9 @@ func (s *Store) ListInto(ctx context.Context, sch *Schema, scheme *runtime.Schem
 			return err
 		}
 	}
-	raws, version, err := s.listRaw(ctx, sch, lo.Namespace, true)
-	if err != nil {
-		return err
-	}
 	_, isUnstructured := list.(*unstructured.UnstructuredList)
 	_, isMetadata := list.(*metav1.PartialObjectMetadataList)
-	items := make([]runtime.Object, 0, len(raws))
-	for _, raw := range raws {
+	items, version, err := s.listObjects(ctx, sch, lo.Namespace, sel, true, func(raw Raw) (client.Object, error) {
 		var obj client.Object
 		switch {
 		case isUnstructured:
@@ -209,20 +204,17 @@ func (s *Store) ListInto(ctx context.Context, sch *Schema, scheme *runtime.Schem
 		default:
 			o, err := scheme.New(sch.GVK)
 			if err != nil {
-				return fmt.Errorf("library: %w", err)
+				return nil, fmt.Errorf("library: %w", err)
 			}
 			obj = o.(client.Object)
 		}
 		if err := fill(raw, obj); err != nil {
-			return err
+			return nil, err
 		}
-		ok, err := sel.matches(sch, raw, obj)
-		if err != nil {
-			return err
-		}
-		if ok {
-			items = append(items, obj)
-		}
+		return obj, nil
+	})
+	if err != nil {
+		return err
 	}
 	if err := meta.SetList(list, items); err != nil {
 		return fmt.Errorf("library: %w", err)

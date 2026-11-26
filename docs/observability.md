@@ -173,6 +173,7 @@ notification.
 
 | Metric | Type | Labels | Recorded by | What it signals | Example query |
 |---|---|---|---|---|---|
+| `clustarr_library_list_rows_total` | counter | `kind` | manager, ui, agents | Rows the library database (ADR-0024) returned to lists of a kind and to a watch's initial events: what a reader of the store pulled, whatever it kept. At a start each process reads each kind once; after that a kind's rate should be a handful of rows per list. A rate that is a multiple of the kind's row count means a caller lists the whole kind on a timer (the transcode ledger did until 2026-11-26: seven whole reads of the MediaFiles every five minutes). | `sum by (kind) (increase(clustarr_library_list_rows_total[10m]))` |
 | `clustarr_rowcache_rows` | gauge | `kind` | manager | Objects a kind's informer holds as rows: the library's size as the manager sees it. | `sum by (kind) (clustarr_rowcache_rows)` |
 | `clustarr_rowcache_bytes` | gauge | `kind` | manager | The compressed bytes a kind's rows take, the cache's share of the heap. | `sum by (kind) (clustarr_rowcache_bytes)` |
 | `clustarr_rowcache_object_bytes` | gauge | `kind` | manager | The same objects' serialized size before compression, so `bytes / object_bytes` is the compression ratio (4.9-8.3x with a dictionary on the owner's library). | `clustarr_rowcache_bytes / clustarr_rowcache_object_bytes` |

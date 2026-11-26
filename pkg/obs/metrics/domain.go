@@ -275,6 +275,17 @@ var (
 		"Admission ledger entries a resync's quorum read corrected.",
 	)
 
+	// LibraryListRows counts the rows the library database returned to a
+	// list of a kind or to a watch's initial events (ADR-0024): what a
+	// reader of the store pulled, whatever it then kept. A kind's rate far
+	// above its row count over the same time is a caller listing the whole
+	// kind on a timer, as the transcode ledger did (2026-11-26).
+	LibraryListRows = newCounterVec(
+		"clustarr_library_list_rows_total",
+		"Rows the library database returned to lists and initial watch events, by kind.",
+		"kind",
+	)
+
 	// TranscodeDispatches counts transcode dispatches by class and outcome
 	// (published, republished, unclaimed, withdrawn, lost).
 	TranscodeDispatches = newCounterVec(
