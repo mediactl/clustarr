@@ -63,6 +63,7 @@ func TestASeasonOfReplaceableFilesHoldsItsEpisodesForAPack(t *testing.T) {
 
 	require.True(t, replacesAsPack(e1, now))
 	require.True(t, replacesAsPack(e2, now))
+	require.True(t, replacesAsPack(ep(3, 1, rollup.ReasonTruncated, week), now), "a file cut short is a whole release's to replace")
 	require.False(t, replacesAsPack(notDue, now), "not due on its backoff")
 	require.False(t, replacesAsPack(quality, now), "a quality cutoff is no pack's to answer")
 

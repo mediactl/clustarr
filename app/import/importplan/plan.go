@@ -935,6 +935,9 @@ func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.Media
 		if undecodableRefit(prof, compared, q) {
 			return Rejection{}, false
 		}
+		if truncatedRefit(prof, compared, c, q) {
+			return Rejection{}, false
+		}
 		// The series' shape (aspect.go): a file of the wrong one replaces
 		// none, and one of the wanted shape replaces a file that is not.
 		if want := p.wantedAspect(c); want != "" {

@@ -374,6 +374,11 @@ func TestStillWantsKeepsAnUpgradeAndAnUnmetSeedObligation(t *testing.T) {
 	require.False(t, limited(&decision.Current{Quality: q(t, "Bluray-1080p"), Transcoded: true, BytesPerSecond: 400_000}),
 		"a transcode inside the range is final")
 
+	// A file that ends before its own chapters do is still replaced, a
+	// transcode included (2026-11-25): the release in flight is kept.
+	require.True(t, wants(&decision.Current{Quality: q(t, "Bluray-1080p"), Transcoded: true, Truncated: true}),
+		"a transcode cut short is no final file")
+
 	v := movieView(t, nil)
 	v.Monitored = false
 	ok, _ = grabplan.StillWants(v, claim)

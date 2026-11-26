@@ -619,7 +619,8 @@ func holdsSeason(prof *quality.Profile, originalTag string, e *catalogv1alpha1.D
 
 // replacesAsPack reports an Episode holding a file a whole release replaces
 // -- below the cutoff because no GPU here decodes its video or it lacks a
-// wanted audio language (rollup.ReasonUndecodableVideo, ReasonMissingAudio)
+// wanted audio language, or it ends before its own chapters do
+// (rollup.ReasonUndecodableVideo, ReasonMissingAudio, ReasonTruncated)
 // -- whose own search is due on the wanted backoff (owner, 2026-11-03: the
 // undecodable files and the dubbed anime missing dual audio "should be
 // under the cutoff - forced to search for a new release", and the automatic
@@ -628,7 +629,8 @@ func holdsSeason(prof *quality.Profile, originalTag string, e *catalogv1alpha1.D
 // for (automaticSeasons, SeasonFacts.ReplaceDue), and they wait for it
 // (seasonReplaces).
 func replacesAsPack(ep *catalogv1alpha1.Episode, now time.Time) bool {
-	if ep.Status.CutoffMet || (ep.Status.CutoffReason != rollup.ReasonUndecodableVideo && ep.Status.CutoffReason != rollup.ReasonMissingAudio) {
+	if ep.Status.CutoffMet || (ep.Status.CutoffReason != rollup.ReasonUndecodableVideo && ep.Status.CutoffReason != rollup.ReasonMissingAudio &&
+		ep.Status.CutoffReason != rollup.ReasonTruncated) {
 		return false
 	}
 	cand, _ := wantedcron.CandidateOf(ep, now)

@@ -300,6 +300,48 @@ func TestAnImportRefusesUndecodableVideoAndReplacesIt(t *testing.T) {
 	assert.True(t, refused, "an 8-bit Blu-ray file stays")
 }
 
+// A file whose download was cut short (owner, 2026-11-25) is replaced by a
+// file of any quality the profile takes, though it is a transcode of a tier
+// above: part of the film is not in it. Here the film's length is the
+// incoming file's own. The same file whole stays, and so does a whole file
+// under a chapter list that outruns it, which the incoming file is no
+// longer than.
+func TestAnImportReplacesATruncatedTranscode(t *testing.T) {
+	web, ok := quality.Lookup("video", "WEBDL-1080p")
+	assert.True(t, ok)
+	bluray, ok := quality.Lookup("video", "Bluray-1080p")
+	assert.True(t, ok)
+	prof := quality.Profile{
+		Tiers: [][]quality.Definition{{web}, {bluray}}, CutoffIndex: 1, UpgradeAllowed: true, CutoffFormatScore: 10000,
+		ProperPolicy: "preferAndUpgrade", LanguageName: "any",
+	}
+	existing := func(runtimeMillis, chaptersEnd int64) catalogv1alpha1.MediaFile {
+		return catalogv1alpha1.MediaFile{
+			Spec: catalogv1alpha1.MediaFileSpec{
+				Quality: bluray.Quality, SizeBytes: 443_418_135, Original: new(false),
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-drama"},
+			},
+			Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{
+				VideoCodec: "hevc", VideoBitDepth: 8, RuntimeMillis: runtimeMillis,
+				ChapterList: []commonv1.Chapter{{EndMillis: 699_693}, {StartMillis: 699_693, EndMillis: chaptersEnd}},
+			}},
+		}
+	}
+	q := web.Quality
+	incoming := candidate{kind: commonv1.MediaKindMovie, keys: []string{"the-drama"}, f: schema.InspectedFile{
+		SizeBytes: 9_341_000_000,
+		Frozen:    schema.FrozenFields{Quality: &q},
+		Probe:     &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 8, DurationSeconds: 6339},
+	}}
+	p := &planner{in: Input{Profile: &prof}}
+	_, refused := p.gate("f.mkv", incoming, []catalogv1alpha1.MediaFile{existing(6_339_760, 6_339_760)}, false)
+	assert.True(t, refused, "a whole transcode stays")
+	_, refused = p.gate("f.mkv", incoming, []catalogv1alpha1.MediaFile{existing(1_689_392, 6_339_760)}, false)
+	assert.False(t, refused, "a lower-tier release replaces a transcode holding 28 of its 106 minutes")
+	_, refused = p.gate("f.mkv", incoming, []catalogv1alpha1.MediaFile{existing(6_339_000, 6_700_000)}, false)
+	assert.True(t, refused, "a transcode as long as the incoming file stays, whatever its chapters say")
+}
+
 // A season pack's file replaces an episode's file that a single-episode
 // release brought, transcoded or not, past the upgrade table (owner,
 // 2026-11-03: "Episodes within the season pack should *replace* single

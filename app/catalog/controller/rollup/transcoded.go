@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package rollup
 
 import (
+	"time"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -52,6 +54,20 @@ const ReasonUndecodableVideo = "UndecodableVideo"
 // transcode included, and the first release of the wanted shape replaces
 // it.
 const ReasonWrongAspectRatio = "WrongAspectRatio"
+
+// ReasonTruncated is the cutoff's reason for an item whose file's download
+// was cut short (MediaFile.CutShort, owner 2026-11-25: "Make this
+// self-healing"): it ends before its own chapters do and runs under the
+// item's listed runtime, so it does not meet the cutoff whatever its
+// quality, a transcode included, until a release replaces it.
+const ReasonTruncated = "Truncated"
+
+// CutShort is how much of mf is missing when its download was cut short,
+// else zero, for an item listed at listedMinutes: catalog's name for
+// catalogv1alpha1.(*MediaFile).CutShort, as UndecodableVideo is.
+func CutShort(mf *catalogv1alpha1.MediaFile, listedMinutes int32) time.Duration {
+	return mf.CutShort(time.Duration(listedMinutes) * time.Minute)
+}
 
 // UndecodableVideo names mf's video when no GPU here decodes its codec --
 // H.264 10-bit, MPEG-4 Part 2 (XviD, DivX) -- else "": catalog's name for

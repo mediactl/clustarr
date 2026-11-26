@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package importplan
 
 import (
+	"time"
+
 	"cmp"
 	"path/filepath"
 	"slices"
@@ -290,6 +292,28 @@ func undecodableRefit(p quality.Profile, existing []catalogv1alpha1.MediaFile, q
 	}
 	for i := range existing {
 		if existing[i].UndecodableVideo() == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// truncatedRefit reports whether c's file, of quality q, replaces existing
+// because every existing file's download was cut short and p takes q,
+// whatever the existing files' tiers and though they are transcodes: part
+// of the film is not in them (owner, 2026-11-25). Here the film's length is
+// the incoming file's own: an existing file that ends before its chapters
+// do (MediaFile.TruncatedBy) and before c's file does, by the same measure
+// (CutShort's against a listed runtime), is one. The incoming file is
+// whole: one that is not was refused when it was read (probeVideo's
+// health).
+func truncatedRefit(p quality.Profile, existing []catalogv1alpha1.MediaFile, c candidate, q commonv1.Quality) bool {
+	if len(existing) == 0 || !p.Lists(q) || c.f.Probe == nil || c.f.Probe.DurationSeconds <= 0 {
+		return false
+	}
+	length := time.Duration(c.f.Probe.DurationSeconds) * time.Second
+	for i := range existing {
+		if existing[i].CutShort(length) == 0 {
 			return false
 		}
 	}

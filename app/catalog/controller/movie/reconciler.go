@@ -578,6 +578,19 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		cutoffMet = false
 		transcoded = false
 	}
+	// A file that ends before its own chapters do and runs under the
+	// movie's listed runtime was cut short in its download
+	// (rollup.CutShort, owner 2026-11-25): it does not meet the cutoff
+	// whatever its quality, a transcode included, and the wanted sweep
+	// looks for a release to replace it.
+	var truncated time.Duration
+	if hasFile && m.Status.Metadata != nil {
+		truncated = rollup.CutShort(mf, m.Status.Metadata.RuntimeMinutes)
+	}
+	if truncated > 0 {
+		cutoffMet = false
+		transcoded = false
+	}
 	if action, file := rollup.FileTransition(m.Status.FileRef, mf); action != "" {
 		r.publishFile(ctx, m, action, file, mf, now)
 	}
@@ -672,6 +685,10 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, rollup.ReasonBitrateOutOfRange, "the file's %s", offBitrate)
 	case undecodable != "":
 		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, rollup.ReasonUndecodableVideo, "the file's video is %s, which no GPU here decodes", undecodable)
+	case truncated > 0:
+		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, rollup.ReasonTruncated,
+			"the file ends %s before its chapters do and runs under the listed %d minutes: its download was cut short",
+			truncated.Round(time.Second), m.Status.Metadata.RuntimeMinutes)
 	case cutoffMet:
 		k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
 	default:

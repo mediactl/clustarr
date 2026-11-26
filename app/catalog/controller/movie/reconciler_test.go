@@ -907,6 +907,91 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		stays(t, "dune-part-two")
 	})
 
+	t.Run("a transcode that ends before its chapters do reads Truncated and is searched for again", func(t *testing.T) {
+		// Owner, 2026-11-25 ("Make this self-healing"): The Drama on talos
+		// was a finished transcode of a release cut short, 28 of its
+		// chapters' 106 minutes, and a transcode is final under every other
+		// rule.
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		require.NoError(t, c.Create(ctx, testQualityProfile("avail-ns", "whole-at-1080p", "Bluray-1080p")))
+		m := &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: "the-drama", Namespace: "avail-ns"},
+			Spec: catalogv1alpha1.MovieSpec{
+				TmdbID: 1325734, QualityProfileRef: "whole-at-1080p", RootFolderRef: "movies-root",
+				MinimumAvailability: catalogv1alpha1.MinimumAvailabilityTBA,
+			},
+		}
+		require.NoError(t, c.Create(ctx, m))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata,
+			catalogac.Movie(m.Name, m.Namespace).WithStatus(catalogac.MovieStatus().WithMetadata(
+				catalogac.MovieMetadata().WithTitle("The Drama").WithYear(2026).WithRuntimeMinutes(105).
+					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
+		require.NoError(t, err)
+		waitForPhase(t, ctx, c, "avail-ns", m.Name)
+		require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: "the-drama-abc1234567", Namespace: "avail-ns"},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: m.Name},
+				Path:     "/data/media/movies/The Drama (2026)/The Drama (2026).mp4",
+				Quality:  bluray, Original: new(false),
+			},
+		}))
+		probed := func(runtimeMillis, chaptersEnd int64) {
+			t.Helper()
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
+				catalogac.MediaFile("the-drama-abc1234567", "avail-ns").WithStatus(catalogac.MediaFileStatus().
+					WithMediaInfo(commonv1.MediaInfo{
+						Container: "mp4", VideoCodec: "hevc", RuntimeMillis: runtimeMillis,
+						ChapterList: []commonv1.Chapter{{EndMillis: 699_693}, {StartMillis: 699_693, EndMillis: chaptersEnd}},
+					})))
+			require.NoError(t, err)
+		}
+		read := func(what string, ok func(catalogv1alpha1.Movie) bool) catalogv1alpha1.Movie {
+			t.Helper()
+			var got catalogv1alpha1.Movie
+			require.Eventually(t, func() bool {
+				return c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: m.Name}, &got) == nil && ok(got)
+			}, 5*time.Second, 20*time.Millisecond, what)
+			return got
+		}
+		wanted := func() schema.SearchReason {
+			t.Helper()
+			cands, err := wantedcron.ListCandidates(ctx, c, func(k commonv1.MediaKind) bool { return k == commonv1.MediaKindMovie },
+				time.Now(), client.InNamespace("avail-ns"))
+			require.NoError(t, err)
+			for _, cand := range cands {
+				if cand.Ref.Name == m.Name {
+					return cand.Reason
+				}
+			}
+			return ""
+		}
+
+		probed(6_339_760, 6_339_760)
+		read("a whole transcode is final", func(got catalogv1alpha1.Movie) bool { return got.Status.Phase == catalogv1alpha1.MoviePhaseTranscoded })
+		assert.Empty(t, wanted(), "the wanted sweep never picks a whole transcode")
+
+		probed(1_689_392, 6_339_760)
+		got := read("a transcode cut short must read Truncated", func(got catalogv1alpha1.Movie) bool {
+			cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MovieConditionCutoffMet)
+			return cond != nil && cond.Reason == rollup.ReasonTruncated
+		})
+		assert.False(t, got.Status.CutoffMet)
+		assert.Equal(t, catalogv1alpha1.MoviePhaseCutoffUnmet, got.Status.Phase, "a transcode is not final when part of the film is missing")
+		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MovieConditionCutoffMet)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.Contains(t, cond.Message, "1h17m30s before its chapters do and runs under the listed 105 minutes")
+		assert.Equal(t, schema.SearchReasonCutoffUnmet, wanted(), "the wanted sweep looks for a release to replace it")
+
+		// Toy Story 2 on talos: a whole file at its listed runtime under a
+		// chapter list six minutes too long is no download cut short.
+		probed(6_300_000, 6_700_000)
+		read("a whole file under chapters that outrun it is final", func(got catalogv1alpha1.Movie) bool {
+			return got.Status.Phase == catalogv1alpha1.MoviePhaseTranscoded && got.Status.CutoffMet
+		})
+		assert.Empty(t, wanted())
+	})
+
 	// Ruling R-5 under ADR-0019: this reconciler is the only writer of
 	// status.activeDownloadRef, deriving it from the Movie's own non-terminal
 	// grab entry (rollup.ActiveEntry). The entry lands the way the grab

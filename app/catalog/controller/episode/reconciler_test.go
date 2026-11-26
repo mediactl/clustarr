@@ -991,6 +991,70 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		}, 500*time.Millisecond, 20*time.Millisecond, "a wrong-shaped transcode is searched for anew under crop too")
 	})
 
+	t.Run("a transcode that ends before its chapters do reads Truncated and CutoffUnmet", func(t *testing.T) {
+		// Owner, 2026-11-25 ("Make this self-healing"): a file cut short in
+		// its download keeps its source's chapters through the transcode,
+		// which is final under every other rule.
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "fena", "whole-at-1080p")))
+		require.NoError(t, c.Create(ctx, testQualityProfile("ep-ns", "whole-at-1080p", "Bluray-1080p")))
+		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: "fena-s01e01", Namespace: "ep-ns"},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "fena", SeasonNumber: 1, EpisodeNumber: 1},
+		}))
+		waitForPhase(t, ctx, c, "ep-ns", "fena-s01e01")
+		// The episode's listed runtime is the Series reconciler's to write.
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogSeries,
+			catalogac.Episode("fena-s01e01", "ep-ns").WithStatus(catalogac.EpisodeStatus().WithRuntimeMinutes(24)))
+		require.NoError(t, err)
+		mf := &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: "fena-s01e01-abc1234567", Namespace: "ep-ns"},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "fena-s01e01"},
+				Path:     "/data/media/tv/Fena/Season 1/Fena - S01E01.mp4",
+				Quality:  bluray, Original: new(false),
+			},
+		}
+		require.NoError(t, c.Create(ctx, mf))
+		probed := func(runtimeMillis, chaptersEnd int64) {
+			t.Helper()
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
+				catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{
+					VideoCodec: "hevc", Width: 1920, Height: 1080, DisplayAspectMilli: 1778, RuntimeMillis: runtimeMillis,
+					ChapterList: []commonv1.Chapter{{EndMillis: 90_000}, {StartMillis: 90_000, EndMillis: chaptersEnd}},
+				})))
+			require.NoError(t, err)
+		}
+		read := func(what string, ok func(e catalogv1alpha1.Episode) bool) catalogv1alpha1.Episode {
+			t.Helper()
+			var got catalogv1alpha1.Episode
+			require.Eventually(t, func() bool {
+				return c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "fena-s01e01"}, &got) == nil && ok(got)
+			}, 5*time.Second, 20*time.Millisecond, what)
+			return got
+		}
+
+		probed(1_435_000, 1_435_000)
+		got := read("a whole transcode is final", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.Phase == catalogv1alpha1.EpisodePhaseTranscoded
+		})
+		assert.Equal(t, rollup.ReasonTranscoded, got.Status.CutoffReason)
+
+		probed(1_005_000, 1_435_000)
+		got = read("a transcode seven minutes short of its chapters must read Truncated", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.CutoffReason == rollup.ReasonTruncated
+		})
+		assert.False(t, got.Status.CutoffMet)
+		assert.Equal(t, catalogv1alpha1.EpisodePhaseCutoffUnmet, got.Status.Phase, "the wanted sweep must look for a release to replace it")
+
+		// A whole file at the listed runtime under a chapter list that
+		// outruns it is no download cut short.
+		probed(1_435_000, 1_800_000)
+		read("a whole file under chapters that outrun it is final", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.Phase == catalogv1alpha1.EpisodePhaseTranscoded && e.Status.CutoffMet
+		})
+	})
+
 	t.Run("a series that crops keeps a wrong-shaped file that is not yet a transcode", func(t *testing.T) {
 		// The file is the best release in the other shape: its transcode
 		// cuts it, so nothing is searched for. The same file under a

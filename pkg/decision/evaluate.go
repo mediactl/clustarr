@@ -358,6 +358,11 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 	if t.Current != nil && t.Current.WrongAspect && p.Lists(rel.Quality) {
 		return out
 	}
+	// And a file whose download was cut short (Current.Truncated): part of
+	// the film is not in it.
+	if t.Current != nil && t.Current.Truncated && p.Lists(rel.Quality) {
+		return out
+	}
 	add(transcodedRejection(t, Options{}))
 	out = append(out, baselineRejections(p, t, parsed, rel)...)
 	add(upgradeRejection(p, t, candidate, namesWantedLanguages(an, p, parsed)))

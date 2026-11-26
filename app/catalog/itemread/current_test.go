@@ -159,6 +159,49 @@ func TestTheCurrentFileCarriesItsBitrate(t *testing.T) {
 	assert.Equal(t, int64(400_000), itemread.CurrentOf(mf).BytesPerSecond)
 }
 
+// An item's current file is truncated when its download was cut short
+// (MediaFile.CutShort): it ends before its own chapters do and runs under
+// the runtime its item is listed with, a movie's and an episode's alike.
+// The same file under an item listed at its length is whole.
+func TestAnItemsCurrentFileCarriesWhetherItWasCutShort(t *testing.T) {
+	ctx := context.Background()
+	const ns = "media"
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(&catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: "file", Namespace: ns},
+		Spec:       catalogv1alpha1.MediaFileSpec{Path: "/data/media/movies/x.mp4"},
+		Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{
+			VideoCodec: "hevc", RuntimeMillis: 1_689_392, ChapterList: []commonv1.Chapter{{EndMillis: 6_339_760}},
+		}},
+	}).Build()
+	movie := func(listed int32) *catalogv1alpha1.Movie {
+		return &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: "m", Namespace: ns},
+			Status: catalogv1alpha1.MovieStatus{HasFile: true, FileRef: new("file"),
+				Metadata: &catalogv1alpha1.MovieMetadata{RuntimeMinutes: listed}},
+		}
+	}
+	cur, err := itemread.Current(ctx, c, movie(105))
+	require.NoError(t, err)
+	require.NotNil(t, cur)
+	assert.True(t, cur.Truncated, "28 minutes of a movie listed at 105")
+	cur, err = itemread.Current(ctx, c, movie(28))
+	require.NoError(t, err)
+	assert.False(t, cur.Truncated, "a movie listed at the file's length")
+
+	episode := func(listed int32) *catalogv1alpha1.Episode {
+		return &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: "e", Namespace: ns},
+			Status:     catalogv1alpha1.EpisodeStatus{HasFile: true, FileRef: new("file"), RuntimeMinutes: listed},
+		}
+	}
+	cur, err = itemread.Current(ctx, c, episode(105))
+	require.NoError(t, err)
+	assert.True(t, cur.Truncated)
+	cur, err = itemread.Current(ctx, c, episode(0))
+	require.NoError(t, err)
+	assert.False(t, cur.Truncated, "an episode nobody listed a runtime for is not judged")
+}
+
 // An episode's current file is the wrong shape when its reconciler said so
 // (status.cutoffReason WrongAspectRatio), which read its series' setting;
 // under any other reason, and for a movie, it is not.

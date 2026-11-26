@@ -546,7 +546,8 @@ func itemWakeKeys(old, cur *catalogv1alpha1.MediaFile) []Key {
 // (§3.3 S1'): the Transcoded verdict, the probed audio languages, whether it
 // is probed at all, its Ready status, the transcode and graft phases, the
 // graft block's tag, the file's flat status.graftTag (status.audio.graft
-// reads done from it, §2.14) and the shape of its picture. A status write
+// reads done from it, §2.14), the shape of its picture and whether it ends
+// before its chapters do. A status write
 // that moves none of them --
 // a graft message alone, say -- wakes no item.
 type FileSignature struct {
@@ -563,6 +564,12 @@ type FileSignature struct {
 	// other field moving, and its Episode is then held against its
 	// series' shape.
 	Aspect catalogv1alpha1.AspectRatio
+	// ShortOfChapters is the probed length, in milliseconds, of a file
+	// that ends before its own chapters do (MediaFile.TruncatedBy), zero
+	// for one that does not: the file's half of a download cut short
+	// (CutShort). A probe alone can move it, and its item then judges the
+	// length against its listed runtime; a whole file's length wakes none.
+	ShortOfChapters int64
 }
 
 // SignatureOf is mf's FileSignature.
@@ -584,6 +591,9 @@ func SignatureOf(mf *catalogv1alpha1.MediaFile) FileSignature {
 	s.GraftTag = mf.Status.GraftTag
 	if mi := mf.Status.MediaInfo; mi != nil {
 		s.Aspect = catalogv1alpha1.AspectOf(mi.DisplayAspectMilli)
+	}
+	if mf.TruncatedBy() > 0 {
+		s.ShortOfChapters = mf.Status.MediaInfo.RuntimeMillis
 	}
 	return s
 }

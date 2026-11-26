@@ -801,6 +801,38 @@ recorded here.
   blocklist matches -- and nothing re-judges the library's existing
   transcodes, whose damage is in their own timestamps (found by reading
   each MP4's frame count through Plex, 2026-11-17).
+- **A post can be a cut-off copy of its release, whole and repairable,
+  and a file cut short that way is replaced (2026-11-25).** nzb-life's
+  `The.Drama.2026.1080p.AMZN.WEB-DL...-BYNDR.gz` was 2.3 GB where the BYNDR
+  release is 9.3 GB: the NZB listed all 2,854 of its articles and its par2
+  was made from the cut-off MKV, whose header still said 106 minutes and
+  carried every chapter. Imported and transcoded on 2026-11-17 before
+  a013ac4b's gates were live, it was a finished transcode of 28 minutes,
+  final under every rule. The import's health read refuses such a file now
+  (its streams end before the container says). For one already in the
+  library, `MediaFile.CutShort` reads two signs, since a transcode writes
+  what it was given under its source's chapters: the video ends more than a
+  minute, and more than a fiftieth, before its last chapter does
+  (`TruncatedBy`), and it runs more than a twentieth under the runtime its
+  item is listed with. **Neither sign alone is the rule.** Of talos' 1,279
+  movie files the chapters outran five: The Drama, Finding Nemo (67 of 101
+  minutes) and Eighth Grade (76 of 94), and Toy Story 2 and Pastoral, whole
+  files at their listed runtime under chapter lists six and ten minutes too
+  long. And of the eight files well under their listed runtime, four ended
+  with their chapters: another cut. Both signs together name the three. The
+  item reads cutoff unmet, reason `Truncated`, a transcode included (movie
+  and episode reconcilers); a probe that moves the length of a file short
+  of its chapters wakes the item (`FileSignature.ShortOfChapters`); search
+  and grab let a release of any quality the profile takes replace it
+  (`decision.Current.Truncated`, set in `itemread.Current` from the item's
+  runtime); import does too, measuring the existing file against the
+  incoming file's own length (`importplan` `truncatedRefit`); and a season
+  of such episodes is asked for as a pack. **Not covered:** a file with no
+  chapters (400 of the 1,279); an item with no listed runtime; a file with
+  holes whose length is whole (the Fena kind; the import and the transcode
+  refuse new ones); and the wait for the replacement's search is the wanted
+  sweep's, whose scheduled searches ask the release index alone until a
+  BacklogSearch grants a live one.
 - **A usenet engine ran every job at once, and OOM-looped seventy times
   in six days (2026-10-14).** `Add` and re-attach started each job
   immediately, each with a worker per connection of every provider, and

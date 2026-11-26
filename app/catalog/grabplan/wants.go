@@ -74,6 +74,9 @@ func StillWants(v View, claim schema.TransferClaim) (bool, string) {
 		if ok && v.Profile != nil && it.Current.WrongAspect && v.Profile.Lists(cand.Quality) {
 			return true, "the current file is not the shape its series is kept in"
 		}
+		if ok && v.Profile != nil && it.Current.Truncated && v.Profile.Lists(cand.Quality) {
+			return true, "the current file's download was cut short"
+		}
 		if ok && v.Profile != nil && !it.Current.Transcoded {
 			cur := quality.Candidate{Quality: it.Current.Quality, Revision: it.Current.Revision, FormatScore: it.Current.FormatScore}
 			if v.Profile.UpgradeDecision(cur, cand) == quality.Upgrade {

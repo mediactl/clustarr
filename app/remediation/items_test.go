@@ -149,6 +149,24 @@ func TestFileSignatureMovesWithTheGraftBlock(t *testing.T) {
 	assert.Equal(t, SignatureOf(waiting), SignatureOf(message), "a graft message alone wakes no item")
 }
 
+// A probe that reads a file as ending before its own chapters do, or as
+// whole again, wakes the file's items, which hold it against the cutoff
+// (MediaFile.TruncatedBy, owner 2026-11-25); a length that moves within a
+// whole file wakes none.
+func TestAProbeThatReadsAFileCutShortWakesItsItems(t *testing.T) {
+	probed := func(runtimeMillis int64) *catalogv1alpha1.MediaFile {
+		return heatFile(1, nil, catalogv1alpha1.MediaFileStatus{ProbeHash: "h1", MediaInfo: &commonv1.MediaInfo{
+			VideoCodec: "hevc", RuntimeMillis: runtimeMillis, ChapterList: []commonv1.Chapter{{EndMillis: 6_339_760}},
+		}})
+	}
+	whole, short := probed(6_339_760), probed(1_689_392)
+	heat := []Key{{Kind: KindMovie, Namespace: "media", Name: "heat"}}
+	assert.Equal(t, heat, itemWakeKeys(whole, short))
+	assert.Equal(t, heat, itemWakeKeys(short, whole))
+	assert.Equal(t, heat, itemWakeKeys(short, probed(4_000_000)), "its length is what its item judges")
+	assert.Empty(t, itemWakeKeys(whole, probed(6_339_000)), "a whole file's length alone wakes no item")
+}
+
 type recordingItem struct {
 	res  reconcile.Result
 	seen []types.NamespacedName

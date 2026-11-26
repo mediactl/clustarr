@@ -81,6 +81,13 @@ type Current struct {
 	// arrives to it (importplan's aspect rules), and the grab plan stops
 	// trying after a few releases that were not it.
 	WrongAspect bool
+	// Truncated is a file whose download was cut short: it ends before its
+	// own chapters do and runs under its item's listed runtime
+	// (MediaFile.CutShort, owner 2026-11-25). It does not meet the cutoff,
+	// and a release of any quality the profile takes replaces it, whatever
+	// the transcoded, baseline and upgrade rules say. A release that is cut
+	// short itself is refused when its file is read at import.
+	Truncated bool
 }
 
 // Queued is a release already downloading for a Target: the

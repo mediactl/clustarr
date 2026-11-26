@@ -467,6 +467,19 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		cutoffMet = false
 		transcoded = false
 	}
+	// A file that ends before its own chapters do and runs under the
+	// episode's listed runtime was cut short in its download
+	// (rollup.CutShort, owner 2026-11-25): it does not meet the cutoff
+	// whatever its quality, a transcode included, and the wanted sweep
+	// looks for a release to replace it.
+	var truncated time.Duration
+	if hasFile {
+		truncated = rollup.CutShort(mf, ep.Status.RuntimeMinutes)
+	}
+	if truncated > 0 {
+		cutoffMet = false
+		transcoded = false
+	}
 	if action, file := rollup.FileTransition(ep.Status.FileRef, mf); action != "" {
 		r.publishFile(ctx, ep, action, file, mf, now)
 	}
@@ -511,6 +524,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		cutoffReason = rollup.ReasonBitrateOutOfRange
 	case undecodable != "":
 		cutoffReason = rollup.ReasonUndecodableVideo
+	case truncated > 0:
+		cutoffReason = rollup.ReasonTruncated
 	case wrongAspect:
 		cutoffReason = rollup.ReasonWrongAspectRatio
 	case cutoffMet:

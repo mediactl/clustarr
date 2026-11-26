@@ -346,6 +346,18 @@ func Current(ctx context.Context, r client.Reader, item client.Object) (*decisio
 		return nil, fmt.Errorf("itemread: get MediaFile %s: %w", *ref, err)
 	}
 	cur := CurrentOf(&mf)
+	// A file cut short in its download is judged against its item's
+	// listed runtime (MediaFile.CutShort), which the file does not carry.
+	if cur != nil {
+		switch t := item.(type) {
+		case *catalogv1alpha1.Movie:
+			if t.Status.Metadata != nil {
+				cur.Truncated = rollup.CutShort(&mf, t.Status.Metadata.RuntimeMinutes) > 0
+			}
+		case *catalogv1alpha1.Episode:
+			cur.Truncated = rollup.CutShort(&mf, t.Status.RuntimeMinutes) > 0
+		}
+	}
 	// An episode's file of the wrong shape is its reconciler's verdict
 	// (status.cutoffReason), which read the series' setting.
 	if ep, ok := item.(*catalogv1alpha1.Episode); ok && cur != nil && ep.Status.CutoffReason == rollup.ReasonWrongAspectRatio {
