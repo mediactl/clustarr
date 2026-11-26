@@ -242,6 +242,8 @@ func DecideContext(ctx context.Context, v View) Plan {
 		// The delay first: the grab limit matters when the grab is made,
 		// which for a delayed release is when its delay has passed.
 		switch {
+		case d.outranked(vd, approved):
+			d.settle(vd.c, intake.Refused, decisionRefused, reasonLastResortOutranked)
 		case d.overlaps(vd):
 			d.settle(vd.c, intake.Refused, "refused", reasonOverlapsPass)
 		case len(vd.c.Parts) > 0 && d.limitedUntil(vd).After(d.now):
@@ -337,6 +339,52 @@ func (d *decider) parsed(kind commonv1.MediaKind, originalTag string, rel common
 // hold of the same pass already covers (overlaps).
 const reasonOverlapsPass = "a grab or a hold of this pass already covers an item it covers"
 
+// The refusals of a release of a last-resort tier (quality.Profile.LastResort;
+// owner, 2026-11-26: "The only time a 720p release should be allowed is if
+// there are literally no other releases that exist").
+const (
+	// reasonLastResortAlone: an RSS match or a pushed release is one
+	// release, which says nothing of what else exists; the item's own
+	// search, or its season's, answers that.
+	reasonLastResortAlone = "its quality is a last resort, taken only from a search that finds nothing better"
+	// reasonLastResortOutranked: a release of a better tier approved in the
+	// same pass covers an item it covers, a pack included, whether that one
+	// is grabbed now, delayed or waiting on its indexer's grab limit.
+	reasonLastResortOutranked = "its quality is a last resort, and a release of a better quality covers an item it covers"
+)
+
+// lastResort reports an automatic video candidate of a last-resort tier. A
+// person's pick and a donor are not held to the rule.
+func (d *decider) lastResort(c Candidate) bool {
+	return !c.Manual && !c.Override && c.Purpose == "" && d.v.Profile != nil &&
+		d.v.Profile.LastResort(c.Release.Decision.Quality)
+}
+
+// outranked reports a last-resort candidate one of approved outranks: a
+// release of a better tier that would be taken for an item vd's payload
+// brings.
+func (d *decider) outranked(vd verdict, approved []verdict) bool {
+	if !d.lastResort(vd.c) {
+		return false
+	}
+	q := vd.c.Release.Decision.Quality
+	brings := map[string]bool{}
+	for _, it := range payload(vd) {
+		brings[it.Ref.Name] = true
+	}
+	for _, o := range approved {
+		if o.c.Purpose != "" || !d.v.Profile.Outranks(o.c.Release.Decision.Quality, q) {
+			continue
+		}
+		for _, it := range o.items {
+			if brings[it.Ref.Name] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // settle records a candidate's outcome -- the decision label the plan
 // counts and, for an intake candidate, the outcome its Msg-Id is answered
 // with -- and says so at Debug, with the reason when the candidate was
@@ -395,6 +443,10 @@ func (d *decider) check(c Candidate) verdict {
 	}
 	if ok, why := releaseOK(c); !ok {
 		vd.reason = why
+		return vd
+	}
+	if d.lastResort(c) && (c.GrabbedBy == commonv1.GrabSourceRSS || c.GrabbedBy == commonv1.GrabSourcePush) {
+		vd.reason = reasonLastResortAlone
 		return vd
 	}
 	if d.v.Profile.AudioCompleteFirst {

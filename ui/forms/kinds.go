@@ -182,7 +182,7 @@ var kinds = []Kind{
 		Help: "Tiers of qualities, best first, and the cutoff tier that stops upgrades. Built-in TRaSH profiles cannot be edited; copy one to change it. Custom-format scoring is TRaSH's and not editable here.",
 		Groups: []Group{
 			{Title: "Profile", Paths: []string{"mediaKind", "cutoff", "upgradeAllowed", "language", "preferredProtocol", "preferSmallest", "properPolicy", "sizeTable", "scoreSet"}},
-			{Title: "Tiers", Help: "Best first. Each tier lists the quality names it accepts, one per line.", Paths: []string{"tiers"}},
+			{Title: "Tiers", Help: "Best first. Each tier lists the quality names it accepts, one per line. A last-resort tier, below the cutoff, is taken only when a search finds no release of a better tier; a file of it is replaced by one, even after a transcode.", Paths: []string{"tiers"}},
 			{Title: "Custom formats", Paths: []string{"minFormatScore", "cutoffFormatScore", "minUpgradeFormatScore", "enabledFormatGroups"}, Advanced: true},
 			{Title: "Size and bitrate limits", Paths: []string{"sizeLimits", "bitrateLimits"}, Advanced: true},
 			{Title: "Audio", When: when("mediaKind", "video"), Help: "Audio languages a file must carry (BCP-47 tags, or original for the item's own language), one per line; when set it replaces Language. The default, if set, must be one of them. Graft completes a file missing one with another release's audio.", Paths: []string{"audio.languages", "audio.graft", "audio.default", "audio.completeFirst"}, Advanced: true},

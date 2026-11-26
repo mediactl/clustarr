@@ -77,7 +77,11 @@ func StillWants(v View, claim schema.TransferClaim) (bool, string) {
 		if ok && v.Profile != nil && it.Current.Truncated && v.Profile.Lists(cand.Quality) {
 			return true, "the current file's download was cut short"
 		}
-		if ok && v.Profile != nil && !it.Current.Transcoded {
+		// A transcoded file is final, but never one of a last-resort tier
+		// against a release of a better one (quality.Profile.LastResort).
+		overLastResort := ok && v.Profile != nil && v.Profile.LastResort(it.Current.Quality) &&
+			v.Profile.Outranks(cand.Quality, it.Current.Quality)
+		if ok && v.Profile != nil && (!it.Current.Transcoded || overLastResort) {
 			cur := quality.Candidate{Quality: it.Current.Quality, Revision: it.Current.Revision, FormatScore: it.Current.FormatScore}
 			if v.Profile.UpgradeDecision(cur, cand) == quality.Upgrade {
 				return true, "still an upgrade over the current file"

@@ -29,6 +29,17 @@ type TierApplyConfiguration struct {
 	Name *string `json:"name,omitempty"`
 	// Qualities lists the canonical quality names or aliases in this tier.
 	Qualities []string `json:"qualities,omitempty"`
+	// LastResort marks a tier taken only when nothing better exists (owner,
+	// 2026-11-26: "The only time a 720p release should be allowed is if
+	// there are literally no other releases that exist"). A release of it is
+	// grabbed only from a search's answer, never from an RSS match alone,
+	// and not while a release of a better tier covers the same item, a
+	// season or episode pack included; its audio earns it nothing in the
+	// ranking, so a dual-audio release of it never passes a release of a
+	// better tier. A file of it never meets the cutoff and is never final, a
+	// transcode included: a release of a better tier replaces it. Such a
+	// tier is below the cutoff, and every tier below it is one too.
+	LastResort *bool `json:"lastResort,omitempty"`
 }
 
 // TierApplyConfiguration constructs a declarative configuration of the Tier type for use with
@@ -52,5 +63,13 @@ func (b *TierApplyConfiguration) WithQualities(values ...string) *TierApplyConfi
 	for i := range values {
 		b.Qualities = append(b.Qualities, values[i])
 	}
+	return b
+}
+
+// WithLastResort sets the LastResort field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LastResort field is set to the value of the last call.
+func (b *TierApplyConfiguration) WithLastResort(value bool) *TierApplyConfiguration {
+	b.LastResort = &value
 	return b
 }

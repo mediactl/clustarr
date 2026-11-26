@@ -36,8 +36,13 @@ import (
 // resolved against a Catalogue into Definitions, and every custom-format
 // score flattened into one map.
 type Profile struct {
-	Tiers                 [][]Definition // best first; members of one tier compare equal
-	CutoffIndex           int            // index into Tiers
+	Tiers       [][]Definition // best first; members of one tier compare equal
+	CutoffIndex int            // index into Tiers
+	// LastResortFrom is the index of the first tier taken only as a last
+	// resort (Tier.LastResort), every tier from it on being one; 0 when the
+	// profile has none, since such a tier is always below the cutoff
+	// (LastResort).
+	LastResortFrom        int
 	UpgradeAllowed        bool
 	MinFormatScore        int
 	CutoffFormatScore     int
@@ -196,6 +201,27 @@ func (p Profile) CutoffMet(q common.Quality) bool {
 	return ok && idx <= p.CutoffIndex
 }
 
+// LastResort reports whether q's tier is one taken only as a last resort
+// (Tier.LastResort; owner, 2026-11-26): a release of it is grabbed only
+// when no release of a better tier covers the item, its audio earns it
+// nothing in the ranking, and a file of it is never final. False for a
+// quality p does not hold.
+func (p Profile) LastResort(q common.Quality) bool {
+	idx, ok := p.Index(q)
+	return ok && p.LastResortFrom > 0 && idx >= p.LastResortFrom
+}
+
+// Outranks reports whether a's tier is better than b's in p; a quality p
+// does not hold is worse than every tier.
+func (p Profile) Outranks(a, b common.Quality) bool {
+	ai, aok := p.Index(a)
+	bi, bok := p.Index(b)
+	if !aok {
+		return false
+	}
+	return !bok || ai < bi
+}
+
 // FromCRD resolves p against cat: looks up every Tiers[].Qualities[] entry
 // with Lookup, resolves the cutoff tier index, and flattens cat.Formats into
 // Profile.Scores honoring p.Spec.EnabledFormatGroups (a format whose Group is
@@ -235,6 +261,20 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 	cutoffIdx, ok := tierIndexByName[p.Spec.Cutoff]
 	if !ok {
 		errs = append(errs, fmt.Errorf("cutoff %q does not name a tier", p.Spec.Cutoff))
+	}
+	// A last-resort tier is below the cutoff, and so is every tier under
+	// it: a file of one never meets the cutoff, and a tier ranked below one
+	// that is not a last resort would be taken ahead of what outranks it.
+	lastResortFrom := 0
+	for i, t := range p.Spec.Tiers {
+		switch {
+		case t.LastResort && ok && i <= cutoffIdx:
+			errs = append(errs, fmt.Errorf("tier %q: a last-resort tier is below the cutoff %q", t.Name, p.Spec.Cutoff))
+		case t.LastResort && lastResortFrom == 0:
+			lastResortFrom = i
+		case !t.LastResort && lastResortFrom > 0:
+			errs = append(errs, fmt.Errorf("tier %q: every tier below a last-resort tier is a last resort too", t.Name))
+		}
 	}
 
 	upgradeAllowed := true
@@ -361,7 +401,7 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 	}
 
 	prof := Profile{
-		Tiers: tiers, CutoffIndex: cutoffIdx, UpgradeAllowed: upgradeAllowed,
+		Tiers: tiers, CutoffIndex: cutoffIdx, LastResortFrom: lastResortFrom, UpgradeAllowed: upgradeAllowed,
 		MinFormatScore: int(p.Spec.MinFormatScore), CutoffFormatScore: int(p.Spec.CutoffFormatScore),
 		MinUpgradeFormatScore: int(p.Spec.MinUpgradeFormatScore),
 		Scores:                scores, Language: p.Spec.Language, LanguageName: langName,
@@ -455,6 +495,9 @@ func hashProfile(p Profile) string {
 	}
 	if p.AudioCompleteFirst {
 		_, _ = fmt.Fprint(h, "audioCompleteFirst\n")
+	}
+	if p.LastResortFrom > 0 {
+		_, _ = fmt.Fprintf(h, "lastResortFrom=%d\n", p.LastResortFrom)
 	}
 	for _, tier := range p.Tiers {
 		names := make([]string, len(tier))

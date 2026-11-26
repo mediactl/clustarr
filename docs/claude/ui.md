@@ -1081,6 +1081,44 @@ EMBER dual-audio pack had been refused for SENPAI's Japanese-only singles, one
 2,068 episodes of `hevc-small-1080p-anime-tv` held Japanese-only files, their
 grafts still searching. Only a non-grafting policy's import blocklists a file
 lacking a language as mislabelled (`decision.IncompleteAudio`).
+**A tier can be a last resort (owner, 2026-11-26, for `hevc-small-1080p-anime-tv`:
+720p "*should* be blocked and should also not meet the quality cutoff *even*
+when transcoded. The only time a 720p release should be allowed is if there
+are literally no other releases that exist. But in this scenario, season
+packs, episode packs, etc should take precedence and block an episode release
+if one is found that is 1080p").** `Tier.lastResort` marks it; such a tier is
+below the cutoff and every tier under it is one too (`quality.FromCRD` reports
+anything else; `Profile.LastResortFrom`, `LastResort`, `Outranks`). Four rules
+follow, each a person's pick is exempt from:
+- its audio earns it nothing: a release of it is never "complete" in the
+  rank score, the queue rules or the audio shortcut (`videoItemState`,
+  `queuedComplete`, `ReleaseCompletesAudio`), so a dual-audio 720p release
+  ranks below every 1080p one and replaces or passes none. Among the tiers
+  that are not a last resort dual audio still decides first (2026-10-28
+  stands: a dual-audio remux is taken ahead of a Japanese-only encode);
+- it is grabbed only from a search's answer: the grab planner refuses an RSS
+  match or a pushed release of it (`reasonLastResortAlone`), since one
+  release says nothing of what else exists. The release stays in the release
+  index, so the item's next search, or its season's, judges it beside
+  everything known, at the wanted sweep's backoff;
+- it is refused while a release of a better tier approved in the same pass
+  would be taken for an item it brings, a pack included, whether that one is
+  grabbed, delayed or waiting on its indexer's grab limit
+  (`decider.outranked`). A better release the rules refuse for good (blocked,
+  under the minimum score, over the size limit) does not count as existing;
+- a file of it is never final: the Episode and Movie reconcilers read it
+  CutoffUnmet, a transcode included, and a release of a better tier passes
+  the file's audio and `TranscodedFinal` to the upgrade table at the decision
+  (`overLastResort`), in `grabplan.StillWants` and at import (`gate`), where
+  a file of such a tier also fills nothing by its audio or by coming in a
+  pack. A release of the same or a worse tier still meets a final transcode.
+The same request put Remux-1080p in that profile as its own tier under the
+1080p encodes, at the cutoff: taken last of the 1080p releases, and a remux
+file is not replaced by an encode (the transcode encodes a remux like any
+H.264 file). Tests: `pkg/decision/lastresort_test.go`, `pkg/quality`,
+`grabplan` and `importplan`'s `lastresort_test.go`, the Episode envtest's
+"a transcode of a last-resort tier" subtest; the Movie reconciler's identical
+block has none.
 **An anime wants English only when the MAL-Dubs list names it** (owner,
 2026-11-03: English dubs and dual audio "*only* for series who's
 status.externalIDs.mal exists within" github.com/MAL-Dubs/MAL-Dubs'

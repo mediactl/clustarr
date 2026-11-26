@@ -914,12 +914,14 @@ func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.Media
 		return releaseFaultRejection("%s: the release was taken to carry audio %v, and the file carries %v",
 			rel, decision.WantedAudio(prof, p.in.OriginalLanguage), mislabelled), true
 	}
-	if fills {
-		return Rejection{}, false
-	}
 	var q commonv1.Quality
 	if c.f.Frozen.Quality != nil {
 		q = *c.f.Frozen.Quality
+	}
+	// A file of a last-resort tier fills nothing by its audio
+	// (quality.Profile.LastResort): the upgrade table judges it.
+	if fills && !prof.LastResort(q) {
+		return Rejection{}, false
 	}
 	// The profile's bitrate range (owner, 2026-10-27), from the file's own
 	// size and probed runtime: a file outside it is the release's fault,
@@ -948,11 +950,18 @@ func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.Media
 				return Rejection{}, false
 			}
 		}
-		if packRefit(prof, p.in.OriginalLanguage, e, compared, c) {
+		// A pack of a last-resort tier replaces no single's file by being a
+		// pack: the upgrade table judges its files.
+		if !prof.LastResort(q) && packRefit(prof, p.in.OriginalLanguage, e, compared, c) {
 			return Rejection{}, false
 		}
 	}
 	for i := range compared {
+		// A transcode of a last-resort tier is not final against a file of
+		// a better one (owner, 2026-11-26): the upgrade table takes it.
+		if !nonVideoKind(c.kind) && prof.LastResort(compared[i].Spec.Quality) && prof.Outranks(q, compared[i].Spec.Quality) {
+			continue
+		}
 		if r := transcodedRejection(rel, &compared[i], e, manual); !r.none() {
 			return r, true
 		}

@@ -6170,6 +6170,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Tier
   map:
     fields:
+    - name: lastResort
+      type:
+        scalar: boolean
     - name: name
       type:
         scalar: string

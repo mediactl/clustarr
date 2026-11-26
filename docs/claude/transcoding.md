@@ -8,6 +8,8 @@ recorded here.
 
 A transcoded media file should be the final destination. If we detect a transcoded profile, we should not mark the media "CutoffUnmet" - instead it should be marked `Transcoded`.
 
+One exception by profile (owner, 2026-11-26): a file of a tier the profile marks a last resort (`Tier.lastResort`) is never final, a transcode included; it reads CutoffUnmet until a release of a better tier replaces it. The rule and its record are in `docs/claude/ui.md`, "A tier can be a last resort".
+
 The predicate is `app/catalog/controller/rollup.Transcoded` -- `spec.original` false, or the probe's `status.mediaInfo.transcodeProfile` (the `CLUSTARR_PROFILE` tag), or a transcode the transcode controller did not make: `status.mediaInfo.videoEncoder` naming an ffmpeg HEVC or AV1 encoder (`commonv1.MediaInfo.TranscodedElsewhere`; Tdarr's `Lavc… hevc_qsv` on the owner's library, 2026-09-29) -- and such a Movie or Episode reads phase `Transcoded`, with `CutoffMet=True` reason `Transcoded` (the one exception: a file missing an audio language a non-grafting profile wants, `MissingAudio` under UI below); `pkg/decision` rejects every release over it as `TranscodedFinal` (spec §4.2) -- a user-invoked search's too, since "Search now" grabs its best automatically, so only a person's own pick (Search `spec.grab`, exempt in the Search controller's `resolveGrab`) replaces it; an import refused for it reads `importplan.MessageExistingFileFinal`, which never blocklists (2026-10-07: a refused 21 GB grab was blocklisted and its file deleted) -- and transcode never encodes it again: a file another tool transcoded is
 still remuxed into the MP4 layout when its video is compliant, and skipped
 rather than encoded a second time otherwise (2026-10-15;

@@ -332,7 +332,9 @@ type RankKey struct {
 	// LanguagesComplete is whether the release carries every audio
 	// language the profile wants (always true without an audio policy): at
 	// a tie in tier and format score, a complete release beats one a graft
-	// would complete (anime dual-audio spec §5.2).
+	// would complete (anime dual-audio spec §5.2). False for a release of
+	// a last-resort tier (quality.Profile.LastResort), whose audio earns it
+	// nothing.
 	LanguagesComplete bool
 	// CompleteFirst ranks LanguagesComplete ahead of every other key
 	// (QualityProfileSpec.Audio.CompleteFirst).

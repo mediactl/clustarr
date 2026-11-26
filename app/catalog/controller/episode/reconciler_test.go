@@ -529,6 +529,71 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		transcoded(t, "t1-show-s01e02")
 	})
 
+	// A file of a last-resort tier is never final (owner, 2026-11-26: 720p
+	// "should also not meet the quality cutoff *even* when transcoded"): its
+	// transcode reads CutoffUnmet and the wanted sweep picks it, where the
+	// same file under the same tiers without the mark reads Transcoded.
+	t.Run("a transcode of a last-resort tier reads CutoffUnmet and stays wanted", func(t *testing.T) {
+		hdtv720 := commonv1.Quality{Name: "HDTV-720p", Resolution: 720, Source: commonv1.SourceTV, Modifier: commonv1.ModifierNone}
+		profile := func(name string, lastResort bool) *catalogv1alpha1.QualityProfile {
+			p := testQualityProfile("ep-ns", name, "Bluray-1080p")
+			p.Spec.Tiers = append(p.Spec.Tiers, catalogv1alpha1.Tier{Name: "720p", Qualities: []string{"HDTV-720p"}, LastResort: lastResort})
+			return p
+		}
+		require.NoError(t, c.Create(ctx, profile("lr-marked", true)))
+		require.NoError(t, c.Create(ctx, profile("lr-plain", false)))
+		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "lr-show", "lr-marked")))
+		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "lr-plain-show", "lr-plain")))
+
+		transcode := func(t *testing.T, series, name string) catalogv1alpha1.Episode {
+			t.Helper()
+			require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ep-ns"},
+				Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: series, SeasonNumber: 1, EpisodeNumber: 1},
+			}))
+			waitForPhase(t, ctx, c, "ep-ns", name)
+			require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
+				ObjectMeta: metav1.ObjectMeta{Name: name + "-abc1234567", Namespace: "ep-ns"},
+				Spec: catalogv1alpha1.MediaFileSpec{
+					MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: name},
+					Path:     "/data/media/tv/Show/Season 01/" + name + ".mp4",
+					Quality:  hdtv720, Original: new(false),
+				},
+			}))
+			var got catalogv1alpha1.Episode
+			require.Eventually(t, func() bool {
+				if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: name}, &got); err != nil {
+					return false
+				}
+				return got.Status.HasFile && got.Status.CutoffReason != "" && got.Status.CutoffReason != k8s.ReasonPending
+			}, 5*time.Second, 20*time.Millisecond, "%s: the file must be rolled up", name)
+			return got
+		}
+		wanted := func(t *testing.T, name string) schema.SearchReason {
+			t.Helper()
+			cands, err := wantedcron.ListCandidates(ctx, c, func(k commonv1.MediaKind) bool { return k == commonv1.MediaKindEpisode },
+				time.Now(), client.InNamespace("ep-ns"))
+			require.NoError(t, err)
+			for _, cand := range cands {
+				if cand.Ref.Name == name {
+					return cand.Reason
+				}
+			}
+			return ""
+		}
+
+		got := transcode(t, "lr-show", "lr-show-s01e01")
+		assert.Equal(t, catalogv1alpha1.EpisodePhaseCutoffUnmet, got.Status.Phase)
+		assert.False(t, got.Status.CutoffMet)
+		assert.Equal(t, episode.CutoffReasonUnmet, got.Status.CutoffReason)
+		assert.NotEmpty(t, wanted(t, "lr-show-s01e01"), "the wanted sweep keeps looking for a better release")
+
+		plain := transcode(t, "lr-plain-show", "lr-plain-show-s01e01")
+		assert.Equal(t, catalogv1alpha1.EpisodePhaseTranscoded, plain.Status.Phase, "without the mark a transcode is final")
+		assert.True(t, plain.Status.CutoffMet)
+		assert.Empty(t, wanted(t, "lr-plain-show-s01e01"))
+	})
+
 	// A profile that cannot be resolved -- here a Series whose
 	// qualityProfileRef dangles -- must not read as a genuine "your file is
 	// below the cutoff". See the movie package's identical subtest.

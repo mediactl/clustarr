@@ -590,6 +590,15 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		cutoffMet = false
 		transcoded = false
 	}
+	// A file of a last-resort tier (quality.Profile.LastResort; owner,
+	// 2026-11-26: 720p "should also not meet the quality cutoff *even* when
+	// transcoded") is never final: it reads CutoffUnmet, a transcode
+	// included, and the wanted sweep keeps looking for a release of a
+	// better tier.
+	if profile != nil && hasFile && profile.LastResort(mf.Spec.Quality) {
+		cutoffMet = false
+		transcoded = false
+	}
 	if action, file := rollup.FileTransition(m.Status.FileRef, mf); action != "" {
 		r.publishFile(ctx, m, action, file, mf, now)
 	}

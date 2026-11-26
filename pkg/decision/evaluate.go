@@ -119,13 +119,22 @@ func ParseForItemState(ctx context.Context, kind common.MediaKind, originalTag s
 // ReleaseCompletesAudio reports whether a release, parsed by
 // ParseForItemState, carries every language p's audio policy wants for an
 // item whose original language is originalTag, as Evaluate ranks
-// LanguagesComplete. True without a policy; false for a nil parse.
+// LanguagesComplete. True without a policy; false for a nil parse, and for
+// a release of a last-resort tier (quality.Profile.LastResort), whose audio
+// earns it nothing: it is taken only when nothing better exists.
 func ReleaseCompletesAudio(ctx context.Context, p quality.Profile, originalTag string, parsed *release.ParsedRelease) bool {
 	if len(p.AudioLanguages) == 0 {
 		return true
 	}
 	if parsed == nil {
 		return false
+	}
+	if p.LastResortFrom > 0 {
+		var rel common.ReleaseInfo
+		parsed.ApplyTo(&rel)
+		if p.LastResort(rel.Quality) {
+			return false
+		}
 	}
 	_, complete := audioRejection(resolveAudioNames(ctx, p, originalLanguageName(ctx, originalTag)), p, parsed)
 	return complete
@@ -159,8 +168,12 @@ func AudioOutranked(ctx context.Context, p quality.Profile, originalTag string, 
 }
 
 // queuedComplete reports whether the queued grab q's release carries every
-// language an names.
+// language an names; never for a grab of a last-resort tier, whose audio
+// holds nothing back.
 func queuedComplete(an audioNames, p quality.Profile, q Queued) bool {
+	if p.LastResort(q.Quality) {
+		return false
+	}
 	_, complete := audioRejection(an, p, &release.ParsedRelease{Languages: q.Languages})
 	return complete
 }
@@ -284,7 +297,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 	// Every parsed decision is ranked, approved or not (Wave S): a caller
 	// orders the rejected band by the same comparator.
 	d.Rank = buildRankKey(p, o, t, parsed, rel, score)
-	d.Rank.LanguagesComplete = languagesComplete
+	d.Rank.LanguagesComplete = languagesComplete && !p.LastResort(rel.Quality)
 	if t.Kind == common.MediaKindEpisode || t.Kind == common.MediaKindSeries {
 		// What the release covers, through the identity index's scene
 		// table (Wave S): the search agent records it, and the grab
@@ -321,6 +334,12 @@ func wholeSeasonOf(id Identity, c coverage) bool {
 // baseline and upgrade rules do not hold it. Under a profile taking
 // complete audio first, a release that does not carry them never replaces
 // a file that does, whatever else it upgrades.
+//
+// A release of a last-resort tier (quality.Profile.LastResort; owner,
+// 2026-11-26) is judged as one that does not carry them, so its audio
+// replaces no file and passes no grab; and a file of such a tier is held
+// by neither its audio nor its transcode against a release of a better
+// tier, which the upgrade table then takes, the file being below the cutoff.
 func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.ParsedRelease, rel common.ReleaseInfo, score int, complete bool) []common.Rejection {
 	var out []common.Rejection
 	add := func(r *common.Rejection) {
@@ -331,11 +350,13 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 	out = append(out, blocklistAndHistoryRejections(t, rel)...)
 	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
 	pack := parsed != nil && (parsed.FullSeason || len(parsed.Episodes) > 1 || len(parsed.Absolute) > 1)
+	complete = complete && !p.LastResort(rel.Quality)
+	overLastResort := t.Current != nil && p.LastResort(t.Current.Quality) && p.Outranks(rel.Quality, t.Current.Quality)
 	add(queueRejection(p, t, candidate, an, complete, pack))
 	if complete && t.Current != nil && AudioUpgradeable(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
 		return out
 	}
-	if p.AudioCompleteFirst && !complete && t.Current != nil && CompletesAudio(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
+	if p.AudioCompleteFirst && !complete && !overLastResort && t.Current != nil && CompletesAudio(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
 		r := newRejection(ReasonExistingHigherPreference, "the file carries every wanted language and the release does not")
 		add(&r)
 		return out
@@ -363,7 +384,9 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 	if t.Current != nil && t.Current.Truncated && p.Lists(rel.Quality) {
 		return out
 	}
-	add(transcodedRejection(t, Options{}))
+	if !overLastResort {
+		add(transcodedRejection(t, Options{}))
+	}
 	out = append(out, baselineRejections(p, t, parsed, rel)...)
 	add(upgradeRejection(p, t, candidate, namesWantedLanguages(an, p, parsed)))
 	return out

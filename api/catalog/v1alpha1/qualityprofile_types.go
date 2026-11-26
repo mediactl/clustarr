@@ -118,6 +118,19 @@ type Tier struct {
 	// +kubebuilder:validation:MaxItems=8
 	// +kubebuilder:validation:items:MaxLength=64
 	Qualities []string `json:"qualities"`
+
+	// LastResort marks a tier taken only when nothing better exists (owner,
+	// 2026-11-26: "The only time a 720p release should be allowed is if
+	// there are literally no other releases that exist"). A release of it is
+	// grabbed only from a search's answer, never from an RSS match alone,
+	// and not while a release of a better tier covers the same item, a
+	// season or episode pack included; its audio earns it nothing in the
+	// ranking, so a dual-audio release of it never passes a release of a
+	// better tier. A file of it never meets the cutoff and is never final, a
+	// transcode included: a release of a better tier replaces it. Such a
+	// tier is below the cutoff, and every tier below it is one too.
+	// +optional
+	LastResort bool `json:"lastResort,omitempty"`
 }
 
 // FormatScore overrides the catalogue score of one custom format.
