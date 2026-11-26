@@ -24,8 +24,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // A profile selects the Movies and Series in its own namespace whose labels
 // match spec.selector (nil selects nothing; a malformed one selects nothing
-// and reports Ready=False, InvalidSelector) and whose kind is in
-// spec.kinds (unset: both). When several profiles select one item the
+// and reports Ready=False, InvalidSelector), whose kind is in spec.kinds
+// (unset: both) and which spec.anime admits (only: an anime alone; exclude:
+// everything else; unset: both). When several profiles select one item the
 // lowest name wins it -- the rule overlayplan.Winner states once for the
 // controller and the renderer alike -- and every other selecting profile
 // reports Overlap=True, as TranscodeProfile does. status.selected counts

@@ -68,6 +68,18 @@ spec:
               such a field is silently ignored, unlike on a plain []string as
               ImportListSpec.Kinds uses).
             properties:
+              anime:
+                description: |-
+                  Anime limits the selection by whether the item is an anime -- a
+                  Series of type anime, a Movie its classification calls anime: only
+                  selects anime alone, exclude everything else, and unset both. It is
+                  how one profile draws an anime's MyAnimeList score while another
+                  draws every other item's Metacritic, where no label tells the two
+                  apart.
+                enum:
+                - only
+                - exclude
+                type: string
               badges:
                 description: |-
                   Badges are drawn bottom-up along the chosen corner. Unset means one
@@ -91,6 +103,7 @@ spec:
                       - hardcover
                       - anilist
                       - comicvine
+                      - myanimelist
                       type: string
                   required:
                   - source

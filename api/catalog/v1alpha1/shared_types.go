@@ -629,7 +629,7 @@ type OverlayEntry struct {
 
 // RatingSource is an upstream rating provider.
 //
-// +kubebuilder:validation:Enum=imdb;tmdb;rottenTomatoesCritic;rottenTomatoesAudience;metacritic;trakt;letterboxd;musicbrainz;audnexus;hardcover;anilist;comicvine
+// +kubebuilder:validation:Enum=imdb;tmdb;rottenTomatoesCritic;rottenTomatoesAudience;metacritic;trakt;letterboxd;musicbrainz;audnexus;hardcover;anilist;comicvine;myanimelist
 type RatingSource string
 
 // Rating sources.
@@ -650,6 +650,11 @@ const (
 	RatingSourceHardcover   RatingSource = "hardcover"
 	RatingSourceAniList     RatingSource = "anilist"
 	RatingSourceComicVine   RatingSource = "comicvine"
+	// MyAnimeList's score of an anime, out of 10 (owner, 2026-11-25: "pivot
+	// from metascores for anime overlays to mal scores"): a Movie's or a
+	// Series', from MDBList, which reports it for an anime and null for
+	// anything else.
+	RatingSourceMyAnimeList RatingSource = "myanimelist"
 )
 
 // Rating is one score reported by one rating source.

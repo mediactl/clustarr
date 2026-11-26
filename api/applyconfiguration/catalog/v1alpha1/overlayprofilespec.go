@@ -44,6 +44,13 @@ type OverlayProfileSpecApplyConfiguration struct {
 	// Kinds limits the selection; unset means both movie and series. Only
 	// movie and series are accepted; see the CEL rule on OverlayProfileSpec.
 	Kinds []commonv1alpha1.MediaKind `json:"kinds,omitempty"`
+	// Anime limits the selection by whether the item is an anime -- a
+	// Series of type anime, a Movie its classification calls anime: only
+	// selects anime alone, exclude everything else, and unset both. It is
+	// how one profile draws an anime's MyAnimeList score while another
+	// draws every other item's Metacritic, where no label tells the two
+	// apart.
+	Anime *catalogv1alpha1.OverlayAnime `json:"anime,omitempty"`
 	// Badges are drawn bottom-up along the chosen corner. Unset means one
 	// badge, metacritic.
 	Badges []OverlayBadgeApplyConfiguration `json:"badges,omitempty"`
@@ -74,6 +81,14 @@ func (b *OverlayProfileSpecApplyConfiguration) WithKinds(values ...commonv1alpha
 	for i := range values {
 		b.Kinds = append(b.Kinds, values[i])
 	}
+	return b
+}
+
+// WithAnime sets the Anime field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Anime field is set to the value of the last call.
+func (b *OverlayProfileSpecApplyConfiguration) WithAnime(value catalogv1alpha1.OverlayAnime) *OverlayProfileSpecApplyConfiguration {
+	b.Anime = &value
 	return b
 }
 

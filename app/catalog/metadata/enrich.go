@@ -226,6 +226,7 @@ var ratingSources = func() map[string]catalogv1alpha1.RatingSource {
 		pkgmetadata.RatingSourceHardcover:   catalogv1alpha1.RatingSourceHardcover,
 		pkgmetadata.RatingSourceAniList:     catalogv1alpha1.RatingSourceAniList,
 		pkgmetadata.RatingSourceComicVine:   catalogv1alpha1.RatingSourceComicVine,
+		pkgmetadata.RatingSourceMyAnimeList: catalogv1alpha1.RatingSourceMyAnimeList,
 		"mb":                                catalogv1alpha1.RatingSourceMusicBrainz,
 	}
 	out := make(map[string]catalogv1alpha1.RatingSource, len(m))

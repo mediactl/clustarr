@@ -590,8 +590,9 @@ func TestRatingSourceRoundTripsTheEnum(t *testing.T) {
 		pkgmetadata.RatingSourceHardcover:   catalogv1alpha1.RatingSourceHardcover,
 		pkgmetadata.RatingSourceAniList:     catalogv1alpha1.RatingSourceAniList,
 		pkgmetadata.RatingSourceComicVine:   catalogv1alpha1.RatingSourceComicVine,
+		pkgmetadata.RatingSourceMyAnimeList: catalogv1alpha1.RatingSourceMyAnimeList,
 	}
-	require.Len(t, pairs, 12, "one pair per RatingSource the CRD enum names")
+	require.Len(t, pairs, 13, "one pair per RatingSource the CRD enum names")
 	for name, want := range pairs {
 		got, ok := ratingSource(name)
 		require.True(t, ok, name)

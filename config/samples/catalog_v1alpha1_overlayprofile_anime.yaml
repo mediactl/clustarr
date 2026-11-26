@@ -1,0 +1,31 @@
+# An anime's poster carries its MyAnimeList score; everything else keeps
+# Metacritic's. Two profiles divide the namespace by spec.anime, which reads
+# what the item is -- a Series of type anime, a Movie classified anime --
+# where no label tells the two apart: "only" selects an anime alone,
+# "exclude" everything else, so the two never overlap and neither wins the
+# other's items by name.
+#
+# A dubbed anime's dub mark is drawn after the score by whichever profile
+# selects it. The score comes from the mdblist MetadataProvider, which
+# reports MyAnimeList's for an anime and none for anything else.
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: OverlayProfile
+metadata:
+  name: mal
+spec:
+  selector: {}
+  anime: only
+  badges:
+    - source: myanimelist
+  corner: topLeft
+---
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: OverlayProfile
+metadata:
+  name: metascore
+spec:
+  selector: {}
+  anime: exclude
+  badges:
+    - source: metacritic
+  corner: topLeft

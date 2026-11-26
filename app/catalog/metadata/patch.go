@@ -69,10 +69,13 @@ func mapImageType(t pkgmetadata.ImageType) (catalogv1alpha1.ImageType, bool) {
 // ratingsMaxItems is MovieMetadata.ratings' and SeriesMetadata.ratings'
 // shared +kubebuilder:validation:MaxItems (api/catalog/v1alpha1/movie_types.go,
 // series_types.go) -- one entry per video RatingSource, of which the CRD
-// enum has exactly seven; nonVideoRatingsMaxItems is the six non-video
-// kinds' (2026-11-10 design §4.1: "ratings []Rating (MaxItems 8)").
+// enum has eight: the seven every film and series may have and
+// MyAnimeList's, which only an anime has (seven until 2026-11-25, when an
+// anime film with all of them would have lost the last by name, trakt);
+// nonVideoRatingsMaxItems is the six non-video kinds' (2026-11-10 design
+// §4.1: "ratings []Rating (MaxItems 8)").
 const (
-	ratingsMaxItems         = 7
+	ratingsMaxItems         = 8
 	nonVideoRatingsMaxItems = 8
 )
 

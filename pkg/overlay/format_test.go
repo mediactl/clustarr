@@ -47,6 +47,7 @@ func TestFormatScore(t *testing.T) {
 		{"tmdb one decimal", overlay.SourceTMDB, 830, "8.3", true},
 		{"trakt one decimal", overlay.SourceTrakt, 910, "9.1", true},
 		{"letterboxd one decimal", overlay.SourceLetterboxd, 450, "4.5", true},
+		{"myanimelist one decimal", overlay.SourceMyAnimeList, 830, "8.3", true},
 		{"imdb max", overlay.SourceIMDb, 1000, "10.0", true},
 		{"decimal truncates, does not round", overlay.SourceIMDb, 729, "7.2", true},
 

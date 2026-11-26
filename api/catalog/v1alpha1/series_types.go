@@ -278,9 +278,10 @@ type SeriesMetadata struct {
 	FirstAired *metav1.Time `json:"firstAired,omitempty"`
 
 	// Ratings lists the scores gathered from the enabled ratings providers,
-	// one entry per source (pkg/metadata.RatingsProvider).
+	// one entry per source (pkg/metadata.RatingsProvider): the seven video
+	// sources and, for an anime, MyAnimeList's.
 	// +optional
-	// +kubebuilder:validation:MaxItems=7
+	// +kubebuilder:validation:MaxItems=8
 	// +listType=map
 	// +listMapKey=source
 	Ratings []Rating `json:"ratings,omitempty"`

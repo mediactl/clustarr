@@ -42,6 +42,19 @@ const (
 	OverlayCornerTopLeft     OverlayCorner = "topLeft"
 )
 
+// OverlayAnime limits a profile's selection by whether an item is an anime.
+//
+// +kubebuilder:validation:Enum=only;exclude
+type OverlayAnime string
+
+// Anime selections.
+const (
+	// OverlayAnimeOnly selects only anime.
+	OverlayAnimeOnly OverlayAnime = "only"
+	// OverlayAnimeExclude selects everything but anime.
+	OverlayAnimeExclude OverlayAnime = "exclude"
+)
+
 // OverlayBadge is one rating source drawn as a badge in the stack.
 type OverlayBadge struct {
 	// Source is the rating source this badge renders.
@@ -127,6 +140,15 @@ type OverlayProfileSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=2
 	Kinds []commonv1.MediaKind `json:"kinds,omitempty"`
+
+	// Anime limits the selection by whether the item is an anime -- a
+	// Series of type anime, a Movie its classification calls anime: only
+	// selects anime alone, exclude everything else, and unset both. It is
+	// how one profile draws an anime's MyAnimeList score while another
+	// draws every other item's Metacritic, where no label tells the two
+	// apart.
+	// +optional
+	Anime OverlayAnime `json:"anime,omitempty"`
 
 	// Badges are drawn bottom-up along the chosen corner. Unset means one
 	// badge, metacritic.

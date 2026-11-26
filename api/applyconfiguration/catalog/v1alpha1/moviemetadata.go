@@ -90,7 +90,8 @@ type MovieMetadataApplyConfiguration struct {
 	// film.
 	SchemaVersion *int32 `json:"schemaVersion,omitempty"`
 	// Ratings lists the scores gathered from the enabled ratings providers,
-	// one entry per source (pkg/metadata.RatingsProvider).
+	// one entry per source (pkg/metadata.RatingsProvider): the seven video
+	// sources and, for an anime, MyAnimeList's.
 	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
 	// Tagline is the film's promotional line (TMDB tagline).
 	Tagline *string `json:"tagline,omitempty"`

@@ -102,6 +102,9 @@ const (
 	RatingSourceHardcover   = "hardcover"
 	RatingSourceAniList     = "anilist"
 	RatingSourceComicVine   = "comicvine"
+	// MyAnimeList's score of an anime, out of 10, as MDBList reports it for
+	// a movie or a series (null for anything that is not anime).
+	RatingSourceMyAnimeList = "myanimelist"
 )
 
 // AltTitle is a title an entity is also known by, optionally scoped to a

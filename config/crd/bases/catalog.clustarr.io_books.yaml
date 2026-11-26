@@ -1335,6 +1335,7 @@ spec:
                           - hardcover
                           - anilist
                           - comicvine
+                          - myanimelist
                           type: string
                         valueCentis:
                           description: |-

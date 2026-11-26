@@ -26,7 +26,7 @@ import (
 	"sync"
 )
 
-// logoFS embeds the seven rating-source marks. Ruling R6 (the owner's
+// logoFS embeds the eight rating-source marks. Ruling R6 (the owner's
 // decision over the trademark concern, 2026-09-24): they ship embedded with
 // pkg/overlay/logos/NOTICE naming each mark's owner, the same nominative use
 // Kometa (https://github.com/Kometa-Team/Kometa) makes of them.
@@ -39,13 +39,14 @@ var logoFS embed.FS
 // the source string (rottenTomatoesCritic, rottenTomatoesAudience) --
 // pkg/overlay/logos/NOTICE records where each file came from.
 var logoFiles = map[string]string{
-	SourceIMDb:       "logos/imdb.png",
-	SourceTMDB:       "logos/tmdb.png",
-	SourceMetacritic: "logos/metacritic.png",
-	SourceRTCritic:   "logos/rt-critic.png",
-	SourceRTAudience: "logos/rt-audience.png",
-	SourceTrakt:      "logos/trakt.png",
-	SourceLetterboxd: "logos/letterboxd.png",
+	SourceIMDb:        "logos/imdb.png",
+	SourceTMDB:        "logos/tmdb.png",
+	SourceMetacritic:  "logos/metacritic.png",
+	SourceRTCritic:    "logos/rt-critic.png",
+	SourceRTAudience:  "logos/rt-audience.png",
+	SourceTrakt:       "logos/trakt.png",
+	SourceLetterboxd:  "logos/letterboxd.png",
+	SourceMyAnimeList: "logos/mal.png",
 }
 
 var (

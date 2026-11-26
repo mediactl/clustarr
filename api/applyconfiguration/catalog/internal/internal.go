@@ -4227,6 +4227,8 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: reason
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.NamingReason
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayAnime
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayBadge
   map:
     fields:
@@ -4310,6 +4312,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayProfileSpec
   map:
     fields:
+    - name: anime
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayAnime
     - name: badges
       type:
         list:

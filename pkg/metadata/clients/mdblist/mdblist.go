@@ -153,21 +153,24 @@ func (c *Client) Capabilities() metadata.Capabilities {
 // scale -- to ValueCentis on the CRD's: out of 10 scaled to 0-1000 for
 // imdb, tmdb, trakt and letterboxd, out of 100 scaled to 0-10000 for
 // metacritic and the Rotten Tomatoes pair (catalogv1alpha1.Rating). MDBList
-// reports tmdb and trakt out of 100 and letterboxd out of 5. A source not
-// listed -- metacriticuser, rogerebert, myanimelist, and anything MDBList
-// adds later -- has no RatingSource and is left out.
+// reports tmdb and trakt out of 100 and letterboxd out of 5, and
+// myanimelist out of 10 to one decimal, for an anime only (86: 8.3 with
+// 533,936 votes, recorded 2026-11-25; null for anything else). A source not
+// listed -- metacriticuser, rogerebert, and anything MDBList adds later --
+// has no RatingSource and is left out.
 var ratingScale = map[string]struct {
 	source string
 	factor float64
 	max    int32
 }{
-	"imdb":       {metadata.RatingSourceIMDb, 100, 1000},        // 8.8/10  -> 880
-	"tmdb":       {metadata.RatingSourceTMDB, 10, 1000},         // 83/100  -> 830
-	"trakt":      {metadata.RatingSourceTrakt, 10, 1000},        // 87/100  -> 870
-	"letterboxd": {metadata.RatingSourceLetterboxd, 200, 1000},  // 4.2/5   -> 840
-	"metacritic": {metadata.RatingSourceMetacritic, 100, 10000}, // 74/100  -> 7400
-	"tomatoes":   {metadata.RatingSourceRTCritic, 100, 10000},   // 86/100  -> 8600
-	"popcorn":    {metadata.RatingSourceRTAudience, 100, 10000}, // 91/100 -> 9100
+	"imdb":        {metadata.RatingSourceIMDb, 100, 1000},        // 8.8/10  -> 880
+	"tmdb":        {metadata.RatingSourceTMDB, 10, 1000},         // 83/100  -> 830
+	"trakt":       {metadata.RatingSourceTrakt, 10, 1000},        // 87/100  -> 870
+	"letterboxd":  {metadata.RatingSourceLetterboxd, 200, 1000},  // 4.2/5   -> 840
+	"metacritic":  {metadata.RatingSourceMetacritic, 100, 10000}, // 74/100  -> 7400
+	"tomatoes":    {metadata.RatingSourceRTCritic, 100, 10000},   // 86/100  -> 8600
+	"popcorn":     {metadata.RatingSourceRTAudience, 100, 10000}, // 91/100 -> 9100
+	"myanimelist": {metadata.RatingSourceMyAnimeList, 100, 1000}, // 8.3/10 -> 830
 }
 
 // declared is every source ratingScale fills, in RatingSources' order.
@@ -175,7 +178,7 @@ var declared = []string{
 	metadata.RatingSourceIMDb, metadata.RatingSourceTMDB,
 	metadata.RatingSourceRTCritic, metadata.RatingSourceRTAudience,
 	metadata.RatingSourceMetacritic, metadata.RatingSourceTrakt,
-	metadata.RatingSourceLetterboxd,
+	metadata.RatingSourceLetterboxd, metadata.RatingSourceMyAnimeList,
 }
 
 // RatingSources implements metadata.RatingsProvider: every source for a

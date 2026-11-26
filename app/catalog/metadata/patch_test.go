@@ -168,20 +168,37 @@ func TestBuildMovieMetadataACOmitsRatingsWhenEmpty(t *testing.T) {
 	require.Empty(t, ac.Ratings)
 }
 
-// TestBuildMovieMetadataACCapsRatingsAtSeven proves ratingsMaxItems is
+// TestBuildMovieMetadataACCapsRatingsAtEight proves ratingsMaxItems is
 // enforced even if enrichRatings were ever handed more than the CRD's
-// seven declared sources.
-func TestBuildMovieMetadataACCapsRatingsAtSeven(t *testing.T) {
+// eight video sources -- and that an anime film with all eight keeps every
+// one: at seven, the cap until MyAnimeList's joined them, the list lost
+// its last by name, trakt.
+func TestBuildMovieMetadataACCapsRatingsAtEight(t *testing.T) {
 	var ratings []catalogv1alpha1.Rating
 	for _, s := range []catalogv1alpha1.RatingSource{
 		catalogv1alpha1.RatingSourceIMDb, catalogv1alpha1.RatingSourceTMDB, catalogv1alpha1.RatingSourceRTCritic,
 		catalogv1alpha1.RatingSourceRTAudience, catalogv1alpha1.RatingSourceMetacritic, catalogv1alpha1.RatingSourceTrakt,
-		catalogv1alpha1.RatingSourceLetterboxd, "eighth-not-a-real-source",
+		catalogv1alpha1.RatingSourceLetterboxd, catalogv1alpha1.RatingSourceMyAnimeList,
 	} {
 		ratings = append(ratings, catalogv1alpha1.Rating{Source: s, ValueCentis: 500, Votes: 1})
 	}
-	ac := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Padded"}, ratings, time.Now())
-	require.Len(t, ac.Ratings, 7, "MovieMetadata.Ratings: +kubebuilder:validation:MaxItems=7")
+	kept := func(ac []catalogac.RatingApplyConfiguration) []catalogv1alpha1.RatingSource {
+		var out []catalogv1alpha1.RatingSource
+		for _, r := range ac {
+			out = append(out, *r.Source)
+		}
+		return out
+	}
+	film := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Anime film"}, ratings, time.Now())
+	require.Len(t, film.Ratings, 8, "MovieMetadata.Ratings: +kubebuilder:validation:MaxItems=8")
+	require.Contains(t, kept(film.Ratings), catalogv1alpha1.RatingSourceTrakt)
+	require.Contains(t, kept(film.Ratings), catalogv1alpha1.RatingSourceMyAnimeList)
+	series := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Anime series"}, ratings, time.Now())
+	require.Len(t, series.Ratings, 8, "SeriesMetadata.Ratings: +kubebuilder:validation:MaxItems=8")
+
+	ratings = append(ratings, catalogv1alpha1.Rating{Source: "ninth-not-a-real-source", ValueCentis: 500, Votes: 1})
+	padded := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Padded"}, ratings, time.Now())
+	require.Len(t, padded.Ratings, 8)
 }
 
 // TestBuildSeriesMetadataACSetsFirstAiredFromTheProviderDocument proves
@@ -830,13 +847,14 @@ func TestNonVideoBuildersWriteTheFetchLanguageAndRatings(t *testing.T) {
 		catalogv1alpha1.RatingSourceRTAudience, catalogv1alpha1.RatingSourceMetacritic, catalogv1alpha1.RatingSourceTrakt,
 		catalogv1alpha1.RatingSourceLetterboxd, catalogv1alpha1.RatingSourceMusicBrainz, catalogv1alpha1.RatingSourceAudnexus,
 		catalogv1alpha1.RatingSourceHardcover, catalogv1alpha1.RatingSourceAniList, catalogv1alpha1.RatingSourceComicVine,
+		catalogv1alpha1.RatingSourceMyAnimeList,
 	} {
 		many = append(many, catalogv1alpha1.Rating{Source: src, ValueCentis: 500, Votes: 1})
 	}
 	require.Len(t, buildComicMetadataAC(&pkgmetadata.ComicVolume{Title: "C"}, many, "", now).Ratings, nonVideoRatingsMaxItems,
 		"the non-video kinds' ratings: +kubebuilder:validation:MaxItems=8")
 	require.Len(t, buildMovieMetadataAC(&pkgmetadata.Movie{Title: "M"}, many, now).Ratings, ratingsMaxItems,
-		"a Movie's keep their seven")
+		"a Movie's keep their eight")
 }
 
 // The Audiobook builder reads the 2026-11-10 design's fields (§4.6, §5.4):

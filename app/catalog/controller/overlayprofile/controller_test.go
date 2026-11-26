@@ -64,6 +64,7 @@ func TestStatusHashChangesWithEveryRenderField(t *testing.T) {
 			s.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{"a": "b"}}
 		},
 		"Kinds": func(s *catalogv1alpha1.OverlayProfileSpec) { s.Kinds = []commonv1.MediaKind{commonv1.MediaKindMovie} },
+		"Anime": func(s *catalogv1alpha1.OverlayProfileSpec) { s.Anime = catalogv1alpha1.OverlayAnimeOnly },
 	}
 	st := reflect.TypeOf(catalogv1alpha1.OverlayProfileSpec{})
 	for i := range st.NumField() {
@@ -604,4 +605,42 @@ func TestTheSampleReconciles(t *testing.T) {
 	assert.True(t, k8s.IsReady(got.Status.Conditions))
 	assert.EqualValues(t, 1, got.Status.Selected)
 	assert.Equal(t, overlayprofile.Hash(got.Spec), got.Status.Hash)
+}
+
+// The anime sample's two profiles divide a namespace as the apiserver
+// stores them: mal wins the anime and metascore everything else, neither
+// overlapped, though both select every label.
+func TestTheAnimeSampleDividesTheNamespace(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "config", "samples", "catalog_v1alpha1_overlayprofile_anime.yaml"))
+	require.NoError(t, err)
+	w := newWorld(t, "sample-anime")
+	bg := context.Background()
+	var names []string
+	for _, doc := range strings.Split(string(raw), "\n---\n") {
+		var p catalogv1alpha1.OverlayProfile
+		require.NoError(t, yaml.UnmarshalStrict([]byte(doc), &p))
+		p.Namespace = w.ns
+		require.NoError(t, w.c.Create(bg, &p))
+		names = append(names, p.Name)
+	}
+	require.Equal(t, []string{"mal", "metascore"}, names)
+
+	w.movie("heat", nil, true)
+	w.movie("ronin", nil, true)
+	require.NoError(t, w.c.Create(bg, &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "eighty-six", Namespace: w.ns},
+		Spec:       catalogv1alpha1.SeriesSpec{TvdbID: 1, QualityProfileRef: "q", RootFolderRef: "r", SeriesType: catalogv1alpha1.SeriesTypeAnime},
+	}))
+	w.series("lost", nil)
+	for _, n := range names {
+		w.reconcile(n)
+	}
+
+	mal, meta := w.get("mal"), w.get("metascore")
+	assert.EqualValues(t, 1, mal.Status.Selected, "the anime")
+	assert.EqualValues(t, 3, meta.Status.Selected, "two films and a series that is no anime")
+	for _, p := range []*catalogv1alpha1.OverlayProfile{mal, meta} {
+		assert.True(t, k8s.IsReady(p.Status.Conditions), p.Name)
+		assert.Equal(t, metav1.ConditionFalse, condition(p, "Overlap").Status, p.Name)
+	}
 }

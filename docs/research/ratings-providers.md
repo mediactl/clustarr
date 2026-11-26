@@ -16,6 +16,13 @@ written, per spec §C.3 ("Until recorded, no field name from memory is to be rel
 
 ## MDBList (recorded 2026-09-24)
 
+**An anime's `myanimelist` rating (recorded 2026-11-25,
+`test/data/metadata/mdblist/show_100565.json`, 86 EIGHTY-SIX):**
+`{"source":"myanimelist","value":8.3,"score":83,"votes":533936,"url":null}`,
+out of 10 to one decimal, with `ids.mal` 41457 and a null `metacritic`.
+Every non-anime document carries the same entry with null `value`, `score`
+and `votes`, as the two fixtures below do.
+
 Fixtures (key stripped; `user.json` trimmed to its quota fields, personal fields replaced):
 
 | File | Request | Status |

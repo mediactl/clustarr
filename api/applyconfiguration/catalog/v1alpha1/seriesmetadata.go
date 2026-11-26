@@ -81,7 +81,8 @@ type SeriesMetadataApplyConfiguration struct {
 	// TMDB first_air_date. Plex requires it.
 	FirstAired *v1.Time `json:"firstAired,omitempty"`
 	// Ratings lists the scores gathered from the enabled ratings providers,
-	// one entry per source (pkg/metadata.RatingsProvider).
+	// one entry per source (pkg/metadata.RatingsProvider): the seven video
+	// sources and, for an anime, MyAnimeList's.
 	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
 	// Tagline is the series' promotional line (TMDB tv, when a TMDB id and
 	// key exist).

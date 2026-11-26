@@ -1761,7 +1761,8 @@ spec:
                   ratings:
                     description: |-
                       Ratings lists the scores gathered from the enabled ratings providers,
-                      one entry per source (pkg/metadata.RatingsProvider).
+                      one entry per source (pkg/metadata.RatingsProvider): the seven video
+                      sources and, for an anime, MyAnimeList's.
                     items:
                       description: Rating is one score reported by one rating source.
                       properties:
@@ -1780,6 +1781,7 @@ spec:
                           - hardcover
                           - anilist
                           - comicvine
+                          - myanimelist
                           type: string
                         valueCentis:
                           description: |-
@@ -1801,7 +1803,7 @@ spec:
                       - source
                       - valueCentis
                       type: object
-                    maxItems: 7
+                    maxItems: 8
                     type: array
                     x-kubernetes-list-map-keys:
                     - source

@@ -332,3 +332,67 @@ func TestAnAnimesDubIsUnreadUntilTheListIs(t *testing.T) {
 	assert.False(t, it.DubUnread)
 	assert.True(t, it.Dubbed)
 }
+
+// spec.anime divides a library between two profiles with nothing on the
+// items to tell them apart (owner, 2026-11-25: "pivot from metascores for
+// anime overlays to mal scores"): "only" selects an anime alone -- a Series
+// by its type, a Movie by its classification -- "exclude" everything else,
+// and unset both, as before the field. The two never overlap, so neither
+// wins the other's items by name.
+func TestAProfileSelectsByAnime(t *testing.T) {
+	lbls := map[string]string{"overlay": "critics"}
+	with := func(name string, anime catalogv1alpha1.OverlayAnime, source catalogv1alpha1.RatingSource) catalogv1alpha1.OverlayProfile {
+		p := profile(name, "anime", lbls, source)
+		p.Spec.Anime = anime
+		return p
+	}
+	mal := with("mal", catalogv1alpha1.OverlayAnimeOnly, catalogv1alpha1.RatingSourceMyAnimeList)
+	meta := with("metascore", catalogv1alpha1.OverlayAnimeExclude, catalogv1alpha1.RatingSourceMetacritic)
+	both := with("zz-both", "", catalogv1alpha1.RatingSourceTMDB)
+	profiles := []catalogv1alpha1.OverlayProfile{mal, meta}
+
+	ix := dubs.NewIndex()
+	ix.Set(dubs.Record{Dubbed: []int{41457}})
+	scores := []catalogv1alpha1.Rating{
+		{Source: catalogv1alpha1.RatingSourceMetacritic, ValueCentis: 7800},
+		{Source: catalogv1alpha1.RatingSourceMyAnimeList, ValueCentis: 830},
+	}
+	drama := func() overlayplan.Item {
+		s := &catalogv1alpha1.Series{
+			ObjectMeta: metav1.ObjectMeta{Name: "lost", Namespace: "anime", Labels: lbls},
+			Status:     catalogv1alpha1.SeriesStatus{Metadata: &catalogv1alpha1.SeriesMetadata{Ratings: scores}},
+		}
+		it, err := overlayplan.ItemOf(context.Background(), s)
+		require.NoError(t, err)
+		return it
+	}()
+
+	for _, kind := range []commonv1.MediaKind{commonv1.MediaKindSeries, commonv1.MediaKindMovie} {
+		anime := animeItem(t, ix, kind, "41457", scores...)
+		require.True(t, anime.Anime)
+		assert.True(t, overlayplan.Selects(&mal, anime))
+		assert.False(t, overlayplan.Selects(&meta, anime))
+		assert.True(t, overlayplan.Selects(&both, anime))
+
+		// An anime with both scores, as 31 of talos' 34 anime films have,
+		// shows MyAnimeList's and its dub mark, and no Metacritic.
+		w := overlayplan.Plan(anime, profiles, "orig")
+		require.Equal(t, "mal", w.ProfileName(), string(kind))
+		assert.Equal(t, []string{overlay.SourceMyAnimeList, overlay.SourceDub}, sources(w.Badges))
+		assert.Equal(t, "8.3", w.Badges[0].Score)
+		assert.NotNil(t, w.Badges[0].Logo, "the MyAnimeList mark is embedded")
+	}
+
+	require.False(t, drama.Anime)
+	assert.False(t, overlayplan.Selects(&mal, drama))
+	assert.True(t, overlayplan.Selects(&meta, drama))
+	assert.True(t, overlayplan.Selects(&both, drama))
+	w := overlayplan.Plan(drama, profiles, "orig")
+	require.Equal(t, "metascore", w.ProfileName())
+	assert.Equal(t, []string{overlay.SourceMetacritic}, sources(w.Badges), "a MyAnimeList score on anything else is not drawn")
+
+	// The selection is not a render field: it moves no profile hash, so
+	// setting it re-renders nothing the profile still selects.
+	plain := with("metascore", "", catalogv1alpha1.RatingSourceMetacritic)
+	assert.Equal(t, overlayplan.ProfileHash(plain.Spec), overlayplan.ProfileHash(meta.Spec))
+}

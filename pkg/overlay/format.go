@@ -37,6 +37,8 @@ const (
 	SourceMetacritic = "metacritic"
 	SourceTrakt      = "trakt"
 	SourceLetterboxd = "letterboxd"
+	// SourceMyAnimeList is an anime's MyAnimeList score, a 0-10 source.
+	SourceMyAnimeList = "myanimelist"
 )
 
 // FormatScore renders centis -- a Rating.ValueCentis, the score scaled by
@@ -48,7 +50,7 @@ const (
 // metacritic, rottenTomatoesCritic and rottenTomatoesAudience are 0-100
 // scores (ValueCentis 0-10000 in steps of 100): FormatScore renders the
 // whole number, "53" for 5300. Every other source -- imdb, tmdb, trakt,
-// letterboxd, and any source this package does not otherwise recognize -- is
+// letterboxd, myanimelist, and any source this package does not otherwise recognize -- is
 // treated as a 0-10 score (ValueCentis 0-1000) rendered with one decimal
 // digit, truncated rather than rounded: "7.2" for 720, and "7.2" for 729 too.
 func FormatScore(source string, centis int32) (string, bool) {

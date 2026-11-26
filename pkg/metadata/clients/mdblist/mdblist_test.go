@@ -155,6 +155,32 @@ func TestRatingsKeysASeriesByTVDBWhenItHasNoTMDBID(t *testing.T) {
 	assert.Equal(t, []string{"/tvdb/show/121361", "/tmdb/show/1399"}, f.paths, "a TMDB id is preferred when there is one")
 }
 
+// An anime carries MyAnimeList's score, which MDBList reports out of 10 to
+// one decimal, and here no Metacritic at all: 86 EIGHTY-SIX as recorded
+// 2026-11-25 (MAL id 41457). The recorded film and series above report it
+// null, as everything that is not anime does, and so carry none.
+func TestRatingsCarryAnAnimesMyAnimeListScore(t *testing.T) {
+	_, srv := newFake(t, map[string][]byte{
+		"/tmdb/show/100565": fixture(t, "show_100565.json"),
+		"/tmdb/show/1399":   fixture(t, "show_1399.json"),
+		"/tmdb/movie/27205": fixture(t, "movie_27205.json"),
+	})
+	c := newClient(t, srv, nil, "key-one")
+
+	got, err := c.Ratings(context.Background(), commonv1.MediaKindSeries, metadata.ExternalIDs{metadata.KeyTMDB: "100565"})
+	require.NoError(t, err)
+	assert.Equal(t, metadata.Rating{Source: metadata.RatingSourceMyAnimeList, ValueCentis: 830, Votes: 533936}, got[metadata.RatingSourceMyAnimeList])
+	assert.NotContains(t, got, metadata.RatingSourceMetacritic, "no anime series on talos has a Metacritic score")
+
+	show, err := c.Ratings(context.Background(), commonv1.MediaKindSeries, metadata.ExternalIDs{metadata.KeyTMDB: "1399"})
+	require.NoError(t, err)
+	assert.NotContains(t, show, metadata.RatingSourceMyAnimeList)
+	film, err := c.Ratings(context.Background(), commonv1.MediaKindMovie, metadata.ExternalIDs{metadata.KeyTMDB: "27205"})
+	require.NoError(t, err)
+	assert.NotContains(t, film, metadata.RatingSourceMyAnimeList)
+	assert.Contains(t, c.RatingSources(commonv1.MediaKindSeries), metadata.RatingSourceMyAnimeList)
+}
+
 func TestRatingsRefusesWhatItCannotKey(t *testing.T) {
 	f, srv := newFake(t, nil)
 	c := newClient(t, srv, nil, "key-one")
@@ -168,8 +194,8 @@ func TestRatingsRefusesWhatItCannotKey(t *testing.T) {
 	require.ErrorIs(t, err, mdblist.ErrInvalidID)
 	assert.Empty(t, f.paths, "nothing is requested for an id that cannot be keyed")
 
-	assert.Len(t, c.RatingSources(commonv1.MediaKindMovie), 7)
-	assert.Len(t, c.RatingSources(commonv1.MediaKindSeries), 7)
+	assert.Len(t, c.RatingSources(commonv1.MediaKindMovie), 8)
+	assert.Len(t, c.RatingSources(commonv1.MediaKindSeries), 8)
 	assert.Nil(t, c.RatingSources(commonv1.MediaKindAlbum))
 }
 

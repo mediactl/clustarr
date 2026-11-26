@@ -33,6 +33,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
 	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -76,6 +77,11 @@ type Item struct {
 	// Overlay is status.overlay, the renderer's record.
 	Overlay *catalogv1alpha1.OverlayEntry
 
+	// Anime is an anime Series or Movie (itemread.Anime: a Series by its
+	// type, a Movie by its classification), which a profile's spec.anime
+	// selects on.
+	Anime bool
+
 	// Dubbed is an anime the MAL-Dubs list names dubbed (dubs.Dubbed, the
 	// state the audio policy wants English for): its poster carries the
 	// dub mark (overlay.DubBadge). A dub still being made (dubs.Incomplete)
@@ -98,14 +104,14 @@ func ItemOf(ctx context.Context, obj client.Object) (Item, error) {
 	ix := dubs.From(ctx)
 	switch o := obj.(type) {
 	case *catalogv1alpha1.Movie:
-		it := Item{Kind: commonv1.MediaKindMovie, Object: o, Overlay: o.Status.Overlay, PosterDigest: posterDigest(o.Status.Artwork)}
+		it := Item{Kind: commonv1.MediaKindMovie, Object: o, Overlay: o.Status.Overlay, PosterDigest: posterDigest(o.Status.Artwork), Anime: itemread.Anime(o)}
 		if o.Status.Metadata != nil {
 			it.Ratings = o.Status.Metadata.Ratings
 		}
 		it.Dubbed, it.DubUnread = ix.Movie(o) == dubs.Dubbed, ix.Unread(o)
 		return it, nil
 	case *catalogv1alpha1.Series:
-		it := Item{Kind: commonv1.MediaKindSeries, Object: o, Overlay: o.Status.Overlay, PosterDigest: posterDigest(o.Status.Artwork)}
+		it := Item{Kind: commonv1.MediaKindSeries, Object: o, Overlay: o.Status.Overlay, PosterDigest: posterDigest(o.Status.Artwork), Anime: itemread.Anime(o)}
 		if o.Status.Metadata != nil {
 			it.Ratings = o.Status.Metadata.Ratings
 		}
@@ -174,13 +180,26 @@ func ProfileHash(spec catalogv1alpha1.OverlayProfileSpec) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Selects reports whether p's selector and kinds match it. A nil or
+// Selects reports whether p's selector, kinds and anime match it. A nil or
 // malformed selector selects nothing -- a typo fails safe into no overlays
 // rather than badging a whole library -- and a profile being deleted, or in
-// another namespace, selects nothing.
+// another namespace, selects nothing. spec.anime "only" selects an anime
+// alone and "exclude" everything else, so two profiles divide a library
+// between an anime's MyAnimeList score and the rest's Metacritic without
+// overlapping (owner, 2026-11-25).
 func Selects(p *catalogv1alpha1.OverlayProfile, it Item) bool {
 	if p.Spec.Selector == nil || k8s.IsDeleting(p) || p.Namespace != it.Object.GetNamespace() {
 		return false
+	}
+	switch p.Spec.Anime {
+	case catalogv1alpha1.OverlayAnimeOnly:
+		if !it.Anime {
+			return false
+		}
+	case catalogv1alpha1.OverlayAnimeExclude:
+		if it.Anime {
+			return false
+		}
 	}
 	kindOK := false
 	for _, k := range EffectiveKinds(p.Spec) {

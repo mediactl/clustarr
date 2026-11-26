@@ -26,6 +26,7 @@ rating source it labels, as Kometa's overlay defaults already do.
                      (critic badge)
   rt-audience.png    Rotten Tomatoes "RT" popcorn Fandango Media, LLC
                      (audience badge)
+  mal.png            MyAnimeList "MAL" logo      MyAnimeList Co., Ltd.
 
 Source: each file is byte-identical to the corresponding file fetched
 2026-09-24 from Kometa-Team/Kometa's defaults/overlays/images/rating/ at
@@ -39,6 +40,12 @@ marks above, not Kometa's copyrighted work):
   letterboxd.png  <- defaults/overlays/images/rating/Letterboxd.png
   rt-critic.png   <- defaults/overlays/images/rating/RT-Crit-Direct.png
   rt-audience.png <- defaults/overlays/images/rating/RT-Aud-Direct.png
+
+mal.png was added 2026-11-25 under the same ruling, for the MyAnimeList
+score of an anime, byte-identical to the file fetched that day from the
+same directory:
+
+  mal.png         <- defaults/overlays/images/rating/MAL.png
 
 None of these seven were drawn as a placeholder -- every source named in
 task C2 (imdb, tmdb, metacritic, rottenTomatoesCritic, rottenTomatoesAudience,
