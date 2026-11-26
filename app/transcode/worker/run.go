@@ -373,6 +373,7 @@ func (r *runner) run(ctx context.Context) error {
 	info.Path = local
 	info.OriginalLanguage = r.t.OriginalLanguage
 	info.CropAspectMilli = r.t.CropAspectMilli
+	info.Languages = r.t.Languages
 	if len(info.Video) > 0 {
 		r.resolution = resolutionClass(info.Video[0].Height)
 	}

@@ -119,6 +119,12 @@ type CommandRelease struct {
 	GUID       string `json:"guid,omitempty"`
 	IndexerRef string `json:"indexerRef,omitempty"`
 	SizeBytes  int64  `json:"sizeBytes,omitempty"`
+	// Languages are the languages the grab took the release to carry
+	// (DownloadRelease.Languages: the indexer's reading of its audio where
+	// it reports one, else the title's), in the catalogue's names. An
+	// import task's alone: the import reads them for a file whose own
+	// audio tags do not say.
+	Languages []string `json:"languages,omitempty"`
 }
 
 // EngineCommand is a transfer's whole desired state at a seq, from the

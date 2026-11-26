@@ -74,6 +74,12 @@ type Task struct {
 	// profile's language lists, which no probe can read, so the worker plans
 	// as the manager did (transcode.MediaInfo.OriginalLanguage).
 	OriginalLanguage string `json:"originalLanguage,omitempty"`
+	// Languages are the languages the file is known to carry, as base tags
+	// ("ja", "en"; its MediaFile's spec.languages): the standard names an
+	// untagged audio track by them (transcode.MediaInfo.Languages). The
+	// record's, which no probe can read, so the worker plans as the manager
+	// did.
+	Languages []string `json:"languages,omitempty"`
 	// CropAspectMilli is the display aspect ratio, in thousandths, the
 	// picture is cropped to in its encode (1778 or 1333), 0 for none: the
 	// file's series keeps another shape than the file's and crops

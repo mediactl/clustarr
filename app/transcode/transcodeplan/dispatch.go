@@ -228,5 +228,6 @@ func buildTask(in Inputs, mf *catalogv1alpha1.MediaFile, tp *transcodev1alpha1.T
 	t, err := jobspec.BuildTask(mf, tp, hash, in.Folders, seq, class, plan)
 	t.OriginalLanguage = in.OriginalLanguage
 	t.CropAspectMilli = in.CropAspectMilli
+	t.Languages = FileLanguages(mf)
 	return t, err
 }

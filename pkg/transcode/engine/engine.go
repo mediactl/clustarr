@@ -1013,9 +1013,19 @@ func mp4Title(o ffgo.StreamOptions, c transcode.Container) ffgo.StreamOptions {
 // audioOptions are an output audio track's tags: the source's language and
 // metadata, the plan's title when it names one or the track is encoded
 // (ruling R5), and the plan's default and comment flags in place of the
-// source's.
+// source's. The plan's language is written when it is not the source's:
+// the standard named an untagged track (standard.nameUntagged).
 func audioOptions(src *ffgo.StreamInfo, a standard.AudioPlan, copied bool) ffgo.StreamOptions {
 	o := streamOptions(src, copied)
+	if a.Language != "" && a.Language != o.Language {
+		o.Language = a.Language
+		// The source's own "language" tag (und) would be written after it.
+		for k := range o.Metadata {
+			if strings.EqualFold(k, "language") {
+				delete(o.Metadata, k)
+			}
+		}
+	}
 	if a.Title != "" || !copied {
 		o.Title = a.Title
 	}

@@ -318,6 +318,7 @@ func (p *planner) inspectTask(seq int64) *schema.ImportInspectTask {
 		Seq: seq, Owner: p.in.Owner, Entry: schema.EntryRef{ID: e.ID, UID: e.UID},
 		Release: schema.CommandRelease{
 			Title: e.Release.Title, GUID: e.Release.GUID, IndexerRef: e.Release.IndexerRef, SizeBytes: e.Release.SizeBytes,
+			Languages: slices.Clone(e.Release.Languages),
 		},
 		Protocol: e.Release.Protocol, Targets: p.in.Targets, Issues: e.Issues,
 		QualityProfile: p.in.ProfileRef, Purpose: e.Purpose, GrabbedBy: e.GrabbedBy,

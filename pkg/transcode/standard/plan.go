@@ -40,6 +40,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/text/language"
+
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -364,7 +366,8 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	}
 	subLangs := resolveLanguages(profile.SubtitleLanguages, info.OriginalLanguage)
 	var audioDropped []string
-	p.Audio, audioDropped = planAudio(info.Audio, resolveLanguages(profile.Languages, info.OriginalLanguage))
+	named := nameUntagged(info.Audio, info.Languages)
+	p.Audio, audioDropped = planAudio(named, resolveLanguages(profile.Languages, info.OriginalLanguage))
 	p.Subtitles = []SubtitlePlan{}
 	p.Sidecars, p.Dropped = planSubtitles(info.Subtitles, subLangs)
 	p.Dropped = append(audioDropped, p.Dropped...)
@@ -417,7 +420,8 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	}
 	audioAsIs := len(p.Audio) == len(info.Audio)
 	for _, a := range p.Audio {
-		audioAsIs = audioAsIs && a.Action == AudioCopy
+		// A track named here is not as it is: its language is written.
+		audioAsIs = audioAsIs && a.Action == AudioCopy && a.Language == info.Audio[a.SourceIndex].Language
 	}
 	subsAsIs := len(info.Subtitles) == 0 && len(info.Attachments) == 0
 	sameContainer := containerOf(info.Format.Name) == p.Container
@@ -880,6 +884,54 @@ func planAudio(as []transcode.AudioStream, languages wanted) ([]AudioPlan, []str
 	}
 	markDefault(out, as)
 	return out, dropped
+}
+
+// nameUntagged is as with its untagged tracks named (owner, 2026-11-26, of
+// a Blu-ray remux whose English dub carried no language tag: "The audio
+// appears to be mislabeled"): when at least one track is tagged and the
+// file's known languages (MediaInfo.Languages) name exactly one language
+// no tagged track carries, every untagged track is that language's, and
+// the output carries its ISO 639 three-letter code. Anything less certain
+// -- no track tagged, none untagged, no language or more than one
+// unaccounted for -- leaves the tracks as they are: an untagged track may
+// then be anything, a commentary included. as itself is never changed.
+func nameUntagged(as []transcode.AudioStream, known []string) []transcode.AudioStream {
+	if len(known) == 0 {
+		return as
+	}
+	tagged, untagged := map[string]bool{}, false
+	for _, a := range as {
+		if b := baseLanguage(a.Language); b != "" {
+			tagged[b] = true
+		} else {
+			untagged = true
+		}
+	}
+	if !untagged || len(tagged) == 0 {
+		return as
+	}
+	missing := ""
+	for _, k := range known {
+		b := baseLanguage(k)
+		if b == "" || tagged[b] || b == missing {
+			continue
+		}
+		if missing != "" {
+			return as
+		}
+		missing = b
+	}
+	base, err := language.ParseBase(missing)
+	if missing == "" || err != nil {
+		return as
+	}
+	out := slices.Clone(as)
+	for i := range out {
+		if baseLanguage(out[i].Language) == "" {
+			out[i].Language = base.ISO3()
+		}
+	}
+	return out
 }
 
 // keptAudio is the languages filter: the tracks in a kept language, an

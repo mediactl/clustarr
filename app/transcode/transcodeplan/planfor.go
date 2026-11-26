@@ -27,6 +27,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -36,6 +37,27 @@ import (
 // into MediaFile.status.mediaInfo.transcodeProfile, and a transcode it
 // incorporates sets status.transcode.profileTag.
 const ProfileTagKey = "CLUSTARR_PROFILE"
+
+// FileLanguages are the languages mf is known to carry, as base tags
+// ("ja", "en"): its spec.languages, which holds the catalogue's names, each
+// once and in order; a name the catalogue has no tag for is left out. The
+// planner and the task carry them so the standard names an untagged audio
+// track the same way in the manager and in the worker
+// (transcode.MediaInfo.Languages).
+func FileLanguages(mf *catalogv1alpha1.MediaFile) []string {
+	if mf == nil {
+		return nil
+	}
+	var out []string
+	for _, name := range mf.Spec.Languages {
+		tag, ok := catalogue.LanguageTag(name)
+		if !ok || slices.Contains(out, tag) {
+			continue
+		}
+		out = append(out, tag)
+	}
+	return out
+}
 
 // MediaInfoOf builds pkg/transcode's MediaInfo from the probe the draft
 // status st holds (ruling R3: the manager does not probe; the worker
@@ -55,6 +77,7 @@ func MediaInfoOf(path string, mf *catalogv1alpha1.MediaFile, st *catalogv1alpha1
 	info.Format.SizeBytes = mf.Spec.SizeBytes
 	info.OriginalLanguage = original
 	info.CropAspectMilli = cropMilli
+	info.Languages = FileLanguages(mf)
 	if t := recordedTag(st, tag); t != "" {
 		info.Tags = map[string]string{ProfileTagKey: t}
 		// CLUSTARR_VIDEO is the probe's read of it, else the recorded plan's

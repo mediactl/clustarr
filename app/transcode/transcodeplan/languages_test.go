@@ -71,3 +71,15 @@ func TestTheFirstDispatchCarriesTheOriginalLanguage(t *testing.T) {
 	require.NotNil(t, d.Publish, "the dispatch publishes its task")
 	assert.Equal(t, "ja", d.Publish.OriginalLanguage)
 }
+
+// The task carries the file's languages, on a first dispatch and on a
+// republish alike, so the worker names an untagged audio track as the
+// manager's plan did (standard.nameUntagged; FileLanguages).
+func TestTheTaskCarriesTheFilesLanguages(t *testing.T) {
+	for name, in := range map[string]Inputs{"republish": queuedIn(t), "first dispatch": dispatchIn(t)} {
+		in.File.Spec.Languages = []string{"Japanese", "English"}
+		d := pass(in)
+		require.NotNil(t, d.Publish, name)
+		assert.Equal(t, []string{"ja", "en"}, d.Publish.Languages, name)
+	}
+}

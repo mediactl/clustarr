@@ -219,6 +219,12 @@ type MediaInfo struct {
 	// "ja"), "" when unknown: the standard's "original" (Profile.Languages).
 	// Not probed; the planner and the worker set it from the item.
 	OriginalLanguage string
+	// Languages are the languages the file is known to carry, as base tags
+	// ("ja", "en"): its MediaFile's spec.languages, which import froze from
+	// the tagged tracks and the grab's reading of the release. The standard
+	// names an untagged audio track by them (standard.nameUntagged). Not
+	// probed; the planner and the worker set it from the file's record.
+	Languages []string
 	// CropAspectMilli is the display aspect ratio, in thousandths, the
 	// file's picture is cropped to in its encode (1778 for 16:9, 1333 for
 	// 4:3): its series keeps another shape than the file's and crops

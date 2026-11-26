@@ -104,3 +104,13 @@ func TestAnImportReplacesATranscodeOfALastResortTier(t *testing.T) {
 	assert.True(t, gate(true, packEntry, incoming(web720, "ja"), jp1080), "nor does a 720p pack's file replace a single's 1080p one")
 	assert.False(t, gate(false, packEntry, incoming(web720, "ja"), jp1080), "without the mark a pack's file does")
 }
+
+// The inspect task carries the languages the grab took the release to
+// carry, which the import reads for a file whose own audio tags do not say
+// (fileimport's untaggedLanguageNames).
+func TestTheInspectTaskCarriesTheGrabsLanguages(t *testing.T) {
+	p := &planner{in: Input{Entry: catalogv1alpha1.DownloadEntry{
+		ID: "e1", Release: catalogv1alpha1.DownloadRelease{Title: "Show.S01E02.1080p.BluRay.REMUX-GRP", Languages: []string{"English", "Japanese"}},
+	}}}
+	assert.Equal(t, []string{"English", "Japanese"}, p.inspectTask(1).Release.Languages)
+}

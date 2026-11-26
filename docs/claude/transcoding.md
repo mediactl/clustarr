@@ -212,7 +212,39 @@ series) and the task carries to the worker (`task.OriginalLanguage`,
 original keeps every audio track. Untagged tracks stay, commentary only in
 a kept language, and an image subtitle in a dropped language holds no
 file for OCR. A dropped track is gone once the output replaces the
-source. The size limit
+source.
+**An untagged audio track is named when the file's languages say which it
+is (owner, 2026-11-26: "The audio appears to be mislabeled", of Panty &
+Stocking's Blu-ray remux, Japanese tagged and its English 5.1 dub
+untagged; the transcode wrote the dub's two tracks untagged, the file was
+named `[JA]`, players listed "Unknown" and no donor was looked for, since
+unknown audio never lacks a language).** `standard.nameUntagged`: with at
+least one track tagged and exactly one of the file's known languages
+carried by no tagged track, every untagged track is that language's, and
+the output carries its three-letter code; anything less certain names
+nothing (no track tagged, none untagged, none or two unaccounted for). The
+file's languages are its MediaFile's `spec.languages` as base tags
+(`transcodeplan.FileLanguages`), carried like the original language
+(`transcode.MediaInfo.Languages`, `task.Languages`) so the manager's plan
+and the worker's hash alike; the engine writes a plan's language where it
+is not the source's (`audioOptions`; until then it wrote the source's
+always). Import gives the evidence: for a file whose probe names no
+languages because a track is untagged, `spec.languages` is the tagged
+tracks' and the languages the grab took the release to carry
+(`CommandRelease.Languages` on the inspect task, from the entry's
+`release.languages`, the indexer's reading where it reports one;
+`fileimport.untaggedLanguageNames`). It trusts the indexer's listing
+(owner's choice). A scanned file's languages are its name's alone, and a
+file already transcoded is not planned again for this: of the 20 library
+files mixing tagged and untagged tracks that day, 18 had nothing recorded
+saying what the untagged one is. `standard.Version` stays 9: a plan
+changes only for a file the rule names. Tests:
+`standard/untagged_test.go`, `engine/untagged_test.go`,
+`fileimport/untagged_internal_test.go`, `transcodeplan`'s
+`TestTheTaskCarriesTheFilesLanguages` and `TestTheFilesLanguagesReachThePlan`,
+`importplan`'s `TestTheInspectTaskCarriesTheGrabsLanguages`; no test runs
+the engine on a real file with an untagged track.
+The size limit
 holds an encode only: a remux adds the AAC 2.0 companion, so it is a little
 larger by design (`worker.outputTooLarge`), and an encode of an AV1
 source may run to 150% (`worker.AV1LimitPercent`, owner, 2026-11-03): the

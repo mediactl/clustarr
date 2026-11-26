@@ -311,7 +311,7 @@ type videoFacts struct {
 // (the release's name for this file) else the file name.
 func (w *Worker) readVideo(
 	ctx context.Context, m events.Message, path, rel, sceneName string, parsed *release.ParsedRelease,
-	prof quality.Profile, originalLanguageName string, pre *probed,
+	prof quality.Profile, originalLanguageName string, grabbed []string, pre *probed,
 ) (videoFacts, error) {
 	parsed.Languages = parsed.LanguagesWith(originalLanguageName, release.GroupLanguagesFrom(ctx))
 	p := pre
@@ -330,8 +330,15 @@ func (w *Worker) readVideo(
 	// AggregateLanguage, where MediaInfo outranks the file's and the
 	// release's names): a title's MULTI names nothing, so Solo Leveling's
 	// OldT pack froze as Japanese alone with fourteen tracks (talos,
-	// 2026-10-27). An untagged track leaves the names' reading.
+	// 2026-10-27). An untagged track leaves the names' reading -- unless
+	// the grab read the release's languages (grabbed, the indexer's reading
+	// where it reports one): then the file's are its tagged tracks' and
+	// those (owner, 2026-11-26: a Blu-ray remux listed English and Japanese
+	// whose English dub carried no tag froze as Japanese alone). The
+	// transcode names the untagged track by them (standard.nameUntagged).
 	if names := probedLanguageNames(mi); len(names) > 0 {
+		parsed.Languages = names
+	} else if names := untaggedLanguageNames(mi, grabbed); len(names) > 0 {
 		parsed.Languages = names
 	}
 	parsed.Quality, _ = quality.AugmentFromMediaInfo(parsed.Quality, mi)
@@ -416,6 +423,40 @@ func probedLanguageNames(mi *commonv1.MediaInfo) []string {
 		out = append(out, name)
 		if len(out) == maxFileLanguages {
 			break
+		}
+	}
+	return out
+}
+
+// untaggedLanguageNames is the languages of a file whose probe leaves them
+// unknown because a track is untagged, when the grab read the release's
+// (grabbed, in the catalogue's names): the tagged tracks' names in track
+// order, then the grab's, each once. nil when the probe names every track
+// or none is tagged, when it has no audio, or when the grab read none: the
+// names' reading stands.
+func untaggedLanguageNames(mi *commonv1.MediaInfo, grabbed []string) []string {
+	if mi == nil || len(mi.Audio) == 0 || len(grabbed) == 0 || decision.AudioLanguages(mi) != nil {
+		return nil
+	}
+	var out []string
+	add := func(name string) {
+		if name != "" && !slices.Contains(out, name) && len(out) < maxFileLanguages {
+			out = append(out, name)
+		}
+	}
+	for _, a := range mi.Audio {
+		// A code the catalogue cannot name is an untagged one ("und") or
+		// one it has no word for; neither names a language here.
+		if name, ok := catalogue.ResolveLanguageName(a.Language); ok {
+			add(name)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	for _, g := range grabbed {
+		if name, ok := catalogue.ResolveLanguageName(g); ok {
+			add(name)
 		}
 	}
 	return out
@@ -524,7 +565,7 @@ func (w *Worker) inspectMovie(
 	target := &schema.ItemRef{Kind: "Movie", Ref: schema.Ref{Namespace: ns, Name: movie.Name, UID: string(movie.UID)}}
 	manual := task.Manual || task.Override
 	if err := w.walk(ctx, m, commonv1.MediaKindMovie, root, manual,
-		insp, w.movieVisit(ctx, m, insp, &movie, rf, prof, base, lang, target, root, task.Release.Title, task.Part)); err != nil {
+		insp, w.movieVisit(ctx, m, insp, &movie, rf, prof, base, lang, task.Release.Languages, target, root, task.Release.Title, task.Part)); err != nil {
 		return err
 	}
 	// A set's other parts (a movie released in parts): each part's payload
@@ -540,7 +581,7 @@ func (w *Worker) inspectMovie(
 			continue
 		}
 		if err := w.walk(ctx, m, commonv1.MediaKindMovie, pr, manual,
-			insp, w.movieVisit(ctx, m, insp, &movie, rf, prof, base, lang, target, pr, part.Title, part.Part)); err != nil {
+			insp, w.movieVisit(ctx, m, insp, &movie, rf, prof, base, lang, task.Release.Languages, target, pr, part.Title, part.Part)); err != nil {
 			return err
 		}
 	}
@@ -552,8 +593,8 @@ func (w *Worker) inspectMovie(
 // part the set part the payload is (zero for no set).
 func (w *Worker) movieVisit(
 	ctx context.Context, m events.Message, insp *schema.ImportInspection, movie *catalogv1alpha1.Movie,
-	rf *catalogv1alpha1.RootFolder, prof quality.Profile, base naming.Context, lang string, target *schema.ItemRef,
-	root, title string, part int32,
+	rf *catalogv1alpha1.RootFolder, prof quality.Profile, base naming.Context, lang string, grabbed []string,
+	target *schema.ItemRef, root, title string, part int32,
 ) func(path string, info os.FileInfo) error {
 	return func(path string, info os.FileInfo) error {
 		rel := relPath(root, path)
@@ -564,7 +605,7 @@ func (w *Worker) movieVisit(
 			insp.Files = append(insp.Files, f)
 			return nil
 		}
-		v, err := w.readVideo(ctx, m, path, rel, title, parsed, prof, lang, nil)
+		v, err := w.readVideo(ctx, m, path, rel, title, parsed, prof, lang, grabbed, nil)
 		if err != nil {
 			return err
 		}
@@ -702,7 +743,7 @@ func (w *Worker) inspectEpisodes(
 			}
 			eps = []EpisodeCandidate{*plan.named}
 		}
-		v, err := w.readVideo(ctx, m, path, rel, plan.sceneName, parsed, plan.profile, plan.originalLanguageName, pre)
+		v, err := w.readVideo(ctx, m, path, rel, plan.sceneName, parsed, plan.profile, plan.originalLanguageName, task.Release.Languages, pre)
 		if err != nil {
 			return err
 		}
