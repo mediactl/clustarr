@@ -402,6 +402,27 @@ func TestFileWakesLeaveTheInitialListToTheItems(t *testing.T) {
 	assert.Equal(t, map[Key]int{{Kind: KindMovie, Namespace: "media", Name: "heat"}: 0}, q.added, "a new file still wakes its items")
 }
 
+// A file that ends before its own chapters do wakes its items at a start
+// too: a transcoded Episode is idle to its own watch, so no pass would hold
+// its file against its listed runtime (MediaFile.CutShort) -- talos'
+// transcodes cut short before 2026-11-25 would never be judged. A whole
+// file's initial-list create still wakes none.
+func TestAFileShortOfItsChaptersWakesItsItemsAtAStart(t *testing.T) {
+	ir := &ItemReconciler{Items: map[KeyKind]rollup.Item{KindMovie: &recordingItem{}}}
+	h := ir.fileWakes()
+	probed := func(runtimeMillis int64) *catalogv1alpha1.MediaFile {
+		return heatFile(1, nil, catalogv1alpha1.MediaFileStatus{ProbeHash: "h1", MediaInfo: &commonv1.MediaInfo{
+			VideoCodec: "hevc", RuntimeMillis: runtimeMillis, ChapterList: []commonv1.Chapter{{EndMillis: 6_339_760}},
+		}})
+	}
+	q := newRecordingQueue()
+	h.Create(context.Background(), event.TypedCreateEvent[client.Object]{Object: probed(6_339_760), IsInInitialList: true}, q)
+	assert.Empty(t, q.added, "a whole file")
+	h.Create(context.Background(), event.TypedCreateEvent[client.Object]{Object: probed(1_689_392), IsInInitialList: true}, q)
+	assert.Equal(t, map[Key]int{{Kind: KindMovie, Namespace: "media", Name: "heat"}: handler.LowPriority}, q.added,
+		"at the initial list's priority")
+}
+
 // passSeconds is clustarr_remediation_pass_seconds' sample count for kind
 // and phase, read through client_model as passes is.
 func passSeconds(t *testing.T, kind KeyKind, phase string) uint64 {

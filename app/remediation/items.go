@@ -494,7 +494,9 @@ func itemHandler(kind KeyKind, m handler.MapFunc) handler.TypedEventHandler[clie
 // going, a spec change, or a FileSignature change enqueues the keys of every
 // item the file covers that has a path here. It never enqueues the file key,
 // and leaves the cache's initial list to the items' own watches, which list
-// every item at the same start and decide which are idle (Watch.SkipInitial).
+// every item at the same start and decide which are idle (Watch.SkipInitial)
+// -- but for a file that ends before its own chapters do, whose items it
+// wakes at a start too.
 func (ir *ItemReconciler) fileWakes() handler.TypedEventHandler[client.Object, Key] {
 	add := func(q workqueue.TypedRateLimitingInterface[Key], keys []Key) {
 		for _, k := range keys {
@@ -505,10 +507,16 @@ func (ir *ItemReconciler) fileWakes() handler.TypedEventHandler[client.Object, K
 	}
 	return handler.TypedFuncs[client.Object, Key]{
 		CreateFunc: func(_ context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {
-			if e.IsInInitialList {
+			// A file that ends before its own chapters do is the exception
+			// at a start: its item may be one its own watch calls idle (a
+			// transcoded Episode is), and only a pass holds the file
+			// against the item's listed runtime (MediaFile.CutShort). They
+			// are few: five of talos' 1,279 movie files (2026-11-25).
+			mf := asMediaFile(e.Object)
+			if e.IsInInitialList && mf.TruncatedBy() == 0 {
 				return
 			}
-			add(q, ItemKeys(asMediaFile(e.Object)))
+			add(q, ItemKeys(mf))
 		},
 		UpdateFunc: func(_ context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {
 			add(q, itemWakeKeys(asMediaFile(e.ObjectOld), asMediaFile(e.ObjectNew)))
