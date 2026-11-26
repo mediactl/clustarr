@@ -110,6 +110,23 @@ reason: PMS keeps reading the channel its client left for 30 s to 3 min. On
 way, and Plex showed "failed to fetch play queue response". Before the cap,
 two upstreams knocked each other off.
 
+**`tuners` above what the provider really serves breaks every channel
+change** (talos, 2026-11-16 to 2026-11-25; owner: "tv channels besides ABC
+News and CNN seem to be throwing errors when tuning"). The account reports
+`maxConnections: 3` and `spec.tuners` was raised from 1 to 3 on that reading
+(2026-11-16), but tvload.win still serves one stream at a time: a second
+connection ends the first, the relay reopens it (reason `eof`), which ends
+the second, every 2.5 to 4.5 s for as long as both have a reader, and PMS
+reads the channel its client left for 30 s to 3 min. So a tune from cold
+worked (ABC NEWS, the first channel) and a tune made while another channel
+was open failed. Nothing in the relay is at fault and no channel was: no
+`eof` on the days at `tuners: 1`, one on every multi-channel session after,
+and two curls through the tuner port reproduce it with nobody watching.
+Back at `tuners: 1` (owner, 2026-11-25) three channels tuned in a row each
+took the tuner cleanly ("a new tune took a watched channel's tuner").
+`status.account.maxConnections` is what the panel says, not what its CDN
+does: raise `tuners` only after two streams have been held side by side.
+
 A viewer starts where a decoder can (2026-10-21, `relay.ring.Join`):
 
 - within a connection's first 1 MiB (`relay.connectionStart`), at the
