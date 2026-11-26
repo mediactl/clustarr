@@ -1517,4 +1517,12 @@ recorded here.
   file transcoded and held the download ("a transcoded file is final"): the
   owner saw season 2 import and season 1 not. The title stored in
   `status.downloads[].release.title` showed the `&amp;` all along. Cardigann
-  results were already unescaped (`pkg/cardigann/filters.go`).
+  results were already unescaped (`pkg/cardigann/filters.go`). The title is
+  unescaped until that changes nothing (`unescapeTitle`, at most four
+  passes): the same day the release index held nzbgeek's `Abyss S01 E02
+  T&amp;amp;M E16 (2019)`, a level deeper, which one pass leaves `T&amp;M`.
+  Rows stored before the fix are rewritten when the release is seen again
+  and pruned 72 h after their last fetch (108 of 65,682 held an entity).
+  That title's "T&M" is the Dutch "t/m" (tot en met, "through"), a range
+  E02-E16 that `release.Parse` reads as the whole season in every spelling:
+  not built.

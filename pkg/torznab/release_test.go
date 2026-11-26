@@ -418,9 +418,11 @@ func parseResultsFile(t *testing.T, path string) []torznab.Release {
 	return rels
 }
 
-// A title the indexer escaped twice reads as its name: the XML decoder
-// leaves the text "&amp;" (or "&#039;") in it, and nothing downstream reads
-// that as "&". nzbgeek's feed sent the first of these on 2026-11-26.
+// A title the indexer escaped twice, or three times, reads as its name: the
+// XML decoder leaves the text "&amp;" (or "&amp;amp;", or "&#039;") in it,
+// and nothing downstream reads that as "&". nzbgeek's feed sent the first
+// two of these on 2026-11-26; the second was in the release index as
+// "T&amp;amp;M" after one unescape would have left it "T&amp;M".
 func TestParseResultsReadsATitleEscapedTwiceAsItsName(t *testing.T) {
 	feed := func(title string) string {
 		return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><item><title>` + title +
@@ -428,6 +430,7 @@ func TestParseResultsReadsATitleEscapedTwiceAsItsName(t *testing.T) {
 	}
 	for name, tc := range map[string]struct{ wire, want string }{
 		"escaped twice":       {"[DKB] New Panty &amp;amp; Stocking with Garterbelt-S01E12 [1080p]", "[DKB] New Panty & Stocking with Garterbelt-S01E12 [1080p]"},
+		"escaped three times": {"Abyss S01 E02 T&amp;amp;amp;M E16 (2019)", "Abyss S01 E02 T&M E16 (2019)"},
 		"an entity in CDATA":  {"<![CDATA[[DKB] New Panty &amp; Stocking with Garterbelt-S01E12 [1080p]]]>", "[DKB] New Panty & Stocking with Garterbelt-S01E12 [1080p]"},
 		"a numeric entity":    {"Bob&amp;#039;s.Burgers.S01E01.1080p.WEB-DL-GRP", "Bob's.Burgers.S01E01.1080p.WEB-DL-GRP"},
 		"escaped once":        {"Law &amp; Order S01E01 1080p WEB-DL-GRP", "Law & Order S01E01 1080p WEB-DL-GRP"},

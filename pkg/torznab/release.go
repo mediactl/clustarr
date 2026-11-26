@@ -172,15 +172,32 @@ func ParseResults(r io.Reader) ([]Release, error) {
 	return rels, nil
 }
 
+// titleUnescapes bounds unescapeTitle: more passes than any indexer has been
+// seen to need, and an end for a title built to be unescaped forever.
+const titleUnescapes = 4
+
+// unescapeTitle is a title as a person reads it. It comes out of the XML
+// decoder as the indexer wrote it, and some escape it again, more than
+// once: nzbgeek's "New Panty &amp;amp; Stocking with Garterbelt" decodes to
+// a title holding the text "&amp;", and its "T&amp;amp;amp;M" to one
+// holding "&amp;amp;" (both seen 2026-11-26). The first kept the title
+// from matching the series' scene name for its second season, so its
+// S01E12 was grabbed for the first. A release name holds no entity of its
+// own, so the title is unescaped until that changes nothing.
+func unescapeTitle(title string) string {
+	for range titleUnescapes {
+		next := html.UnescapeString(title)
+		if next == title {
+			break
+		}
+		title = next
+	}
+	return title
+}
+
 func newRelease(w wireItem) Release {
 	rel := Release{
-		// A title comes out of the XML decoder as the indexer wrote it, and
-		// some escape it twice: nzbgeek's "New Panty &amp;amp; Stocking with
-		// Garterbelt" decodes to a title holding the text "&amp;". A name
-		// is compared and parsed as a person reads it (2026-11-26: that
-		// "amp" kept the title from matching the series' scene name for
-		// its second season, so its S01E12 was grabbed for the first).
-		Title: html.UnescapeString(w.Title), GUID: w.GUID, Link: w.Link, CommentURL: w.Comments,
+		Title: unescapeTitle(w.Title), GUID: w.GUID, Link: w.Link, CommentURL: w.Comments,
 		Description: w.Description,
 		IDs:         map[string]string{}, Attrs: map[string][]string{},
 	}
