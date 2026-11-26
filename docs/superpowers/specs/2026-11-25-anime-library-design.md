@@ -350,10 +350,10 @@ Read in cluster-plex's code on 2026-11-26 (not run):
   (`clustarrwatch`, the MediaFile informer's `UpdateFunc`). The old row
   goes at the next whole-section reconcile ("a row whose UID names no
   MediaFile there is deleted", `Projector.Reconcile`); until then the
-  series shows in both libraries, its TV Shows episodes unavailable. To
-  build in cluster-plex before the bulk move: the update handler queues a
-  removal from the section the old path was in when the new path is in
-  another.
+  series shows in both libraries, its TV Shows episodes unavailable.
+  Built the same day in cluster-plex (`53b6d6b`, not deployed, not run on
+  the rig): the update handler queues a departure, and the flush removes
+  the old path's rows when the new path is under another section.
 
 Before section 4 is deployed, on the cluster-plex rig:
 
