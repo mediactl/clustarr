@@ -46,6 +46,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/release"
@@ -322,8 +323,9 @@ func ConfiguredLanguage(p *quality.Profile) string {
 // formatNamesMemo remembers formatNames's answer by its inputs: the file
 // pass renders every file's name on every pass, and parsing the release
 // title and running the catalogue's regexes over it again was 7% of the
-// manager's CPU (talos, 2026-11-03). The catalogue is loaded once, so an
-// answer never goes stale; the memo is emptied once it holds
+// manager's CPU (talos, 2026-11-03). The catalogue is loaded once, so a
+// whole answer never goes stale; one a regex's time limit cut short is
+// never kept (renameSlugs). The memo is emptied once it holds
 // formatNamesMemoMax answers.
 var formatNamesMemo = struct {
 	sync.Mutex
@@ -355,15 +357,13 @@ func formatNames(ctx context.Context, c naming.Context, frozen []string) []strin
 	if ok {
 		return slices.Clone(names)
 	}
-	slugs := frozen
-	if r, err := release.Parse(c.ReleaseTitle, release.Options{Kind: c.Kind}); err == nil {
-		for _, s := range cat.RenameMatches(ctx, r, catalogue.ItemContext{ReleaseTitle: c.ReleaseTitle}) {
-			if !slices.Contains(slugs, s) {
-				slugs = append(slices.Clip(slugs), s)
-			}
-		}
-	}
+	slugs, whole := renameSlugs(ctx, cat, c, frozen)
 	names = cat.NamesForRename(slugs, c.Anime)
+	if !whole {
+		logging.FromContext(ctx).Warn("naming: a regex ran out of time on a release title; its formats are not remembered",
+			"kind", c.Kind, "tries", renameSlugsTries)
+		return names
+	}
 	formatNamesMemo.Lock()
 	if len(formatNamesMemo.m) >= formatNamesMemoMax {
 		formatNamesMemo.m = map[formatNamesKey][]string{}
@@ -371,6 +371,56 @@ func formatNames(ctx context.Context, c naming.Context, frozen []string) []strin
 	formatNamesMemo.m[key] = slices.Clone(names)
 	formatNamesMemo.Unlock()
 	return names
+}
+
+// renameSlugsTries is how often renameSlugs works a title out before it
+// gives an answer it knows is short.
+const renameSlugsTries = 3
+
+// parseRelease is release.Parse, a variable so a test can run a title out
+// of time.
+var parseRelease = release.Parse
+
+// renameSlugs is frozen plus the formats c's release title matches now,
+// and whether that is the whole answer: false when a regex ran out of
+// time, in the parse or in a format's condition, on each of
+// renameSlugsTries tries.
+//
+// The time limit is 50 ms of wall clock, and a process held off its CPU
+// that long (a throttled container, a collection pause) runs out on a
+// title that takes microseconds. Such a parse errs and such a condition
+// reads "no match", so the answer came back as the frozen formats alone,
+// or short one format, and the memo kept it for the life of the process.
+// On talos a file with no recorded release title, named from its own
+// name, then read "[v2]" from the name "[v2 v3]" and "[v2 v3]" from
+// "[v2]", and was renamed between the two 4.86 million times in eight days
+// (One Piece S18E28, 2026-11-18 to 2026-11-25; five more on 2026-11-03,
+// which ended when the memo filled and was emptied). A short answer is
+// worked out again at once, which a pause does not outlast, and is never
+// remembered.
+func renameSlugs(ctx context.Context, cat *catalogue.Catalogue, c naming.Context, frozen []string) (slugs []string, whole bool) {
+	for range renameSlugsTries {
+		ctx, failed := catalogue.WithMatchFailures(ctx)
+		slugs = frozen
+		r, err := parseRelease(c.ReleaseTitle, release.Options{Kind: c.Kind})
+		if err != nil {
+			if release.IsTimeout(err) {
+				continue
+			}
+			// A title that does not parse names no format beyond the
+			// frozen ones, every time.
+			return slugs, true
+		}
+		for _, s := range cat.RenameMatches(ctx, r, catalogue.ItemContext{ReleaseTitle: c.ReleaseTitle}) {
+			if !slices.Contains(slugs, s) {
+				slugs = append(slices.Clip(slugs), s)
+			}
+		}
+		if failed.Load() == 0 {
+			return slugs, true
+		}
+	}
+	return slugs, false
 }
 
 // ContainerExt maps mi's probed container to a file extension. It reads

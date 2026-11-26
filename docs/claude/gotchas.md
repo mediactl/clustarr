@@ -1033,6 +1033,39 @@ recorded here.
 - **Use `github.com/dlclark/regexp2`, not stdlib `regexp`, for TRaSH patterns.**
   Go's RE2 rejects 157 of the 2791 custom-format regexes (backtracking,
   lookaround). Set `IgnoreCase` and a `MatchTimeout`.
+- **A regexp2 `MatchTimeout` is wall-clock time, so a timeout is "unknown",
+  not "no", and must never be remembered.** A process held off its CPU for
+  50 ms (a throttled container, a collection pause) runs out on a title that
+  matches in microseconds: agents logged four on plain titles in nine days
+  (talos, 2026-11). `release.Parse` returns the timeout as an error and
+  `catalogue` reads it as "no match"; `catalogctx.formatNames` took either
+  as its answer and its memo kept it for the life of the process. A file
+  with no recorded release title is named from its own name, so on talos
+  One Piece S18E28 read `[v2]` from the name `[v2 v3]` and `[v2 v3]` from
+  `[v2]`, and was renamed between them 4.86 million times in eight days
+  (2026-11-18 04:28Z to 2026-11-25: five API requests a pass, 83% of the
+  requests on the kube-apiserver the manager was connected to, the
+  apiservers at their 4 Gi limit; five more files on 2026-11-03, which
+  ended when the memo filled and was emptied). The warning went nowhere:
+  the naming render passes `context.Background()`, whose logger discards.
+  Now (owner, 2026-11-25: "Fix this in whatever way seems suitable"):
+  `release.IsTimeout` and `catalogue.WithMatchFailures` say an answer is
+  short; `catalogctx.renameSlugs` works a short answer out again, three
+  times, and `formatNames` never remembers one; and
+  `mediafile.settledName` proposes a name only if the file would keep it
+  once it had it (rendered again at the proposed name, three names on): a
+  name that proposes itself is the answer, names that go round leave the
+  file where it is, and names that neither settle nor return are
+  `Unrenderable`, which holds the rename. Tests:
+  `TestAnAnswerARegexRanOutOfTimeOnIsNotRemembered`,
+  `TestAnAnswerAConditionRanOutOfTimeOnIsNotRemembered`,
+  `TestAFailedMatchIsCountedForACallerThatAsks`,
+  `TestANameIsProposedOnlyIfTheFileWouldKeepIt` (each fails with its fix
+  removed). Not changed: a timeout in `Match` or `Score` still scores a
+  release short for that one evaluation, and nothing caps how often one
+  file may be renamed for any other cause. To stop such a loop on a live
+  manager without a restart, send the MediaFile's `spec.matchedFormats`
+  again in another order: the memo's key includes them.
 - **Quality profiles are TRaSH-only and opinionated.** Built-in profiles ship as
   embedded data; custom-format editing is deliberately not exposed.
 - **Every per-file answer is a record written by compare-and-swap, and only the

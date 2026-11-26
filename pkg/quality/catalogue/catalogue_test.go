@@ -618,3 +618,27 @@ func TestReleaseTitleConditionsReadTheFullReleaseName(t *testing.T) {
 		require.NotContains(t, matched, "hdr")
 	})
 }
+
+// A match that runs out of time reads "no match", and a caller that keeps
+// answers has to know the answer is short: WithMatchFailures counts it.
+// The format memo of pkg/naming/catalogctx kept such an answer and a file
+// was renamed 4.86 million times on it (talos, 2026-11-18 to 2026-11-25).
+func TestAFailedMatchIsCountedForACallerThatAsks(t *testing.T) {
+	re, err := regexp2.Compile(`^(a+)+$`, regexp2.None)
+	require.NoError(t, err)
+	re.MatchTimeout = 1 * time.Nanosecond
+	evil := strings.Repeat("a", 40) + "!"
+
+	ctx, failed := catalogue.WithMatchFailures(context.Background())
+	require.False(t, catalogue.MatchTRaSHForTest(ctx, re, "evil", evil))
+	require.EqualValues(t, 1, failed.Load(), "the match that ran out of time is counted")
+
+	plain, err := regexp2.Compile(`^a+$`, regexp2.None)
+	require.NoError(t, err)
+	require.True(t, catalogue.MatchTRaSHForTest(ctx, plain, "plain", "aaa"))
+	require.False(t, catalogue.MatchTRaSHForTest(ctx, plain, "plain", "b"))
+	require.EqualValues(t, 1, failed.Load(), "a match that answers, either way, is not a failure")
+
+	// No counter asked for: the match still reads no match.
+	require.False(t, catalogue.MatchTRaSHForTest(context.Background(), re, "evil", evil))
+}

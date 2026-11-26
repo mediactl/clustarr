@@ -35,6 +35,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/naming"
 )
 
 const nvNS = "media"
@@ -436,4 +437,76 @@ func TestAnAlbumFileWhoseTitleIsAnotherSongIsNotNamed(t *testing.T) {
 	assert.NotEmpty(t, n.ExpectedPath)
 	n, _ = RenderNaming(file, look, tagged(""), nil, file.Spec.Path, false, false)
 	assert.NotEmpty(t, n.ExpectedPath, "a file without a title tag is named by its track")
+}
+
+// flippingLook is a lookup whose renderer names an episode file by its
+// release title alone, with next deciding what each title proposes: what
+// the format memo's one wrong answer made of One Piece S18E28 on talos.
+func flippingLook(next map[string]string) NamingLookup {
+	return NamingLookup{
+		root: &catalogv1alpha1.RootFolder{},
+		owner: &namingOwner{render: func(_ *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
+			to, ok := next[c.ReleaseTitle]
+			if !ok {
+				return "", fmt.Errorf("no name for %q", c.ReleaseTitle)
+			}
+			return "/data/tv/One Piece/Season 18/" + to + ext, nil
+		}},
+	}
+}
+
+func flippingFile(title string) *catalogv1alpha1.MediaFile {
+	return &catalogv1alpha1.MediaFile{Spec: catalogv1alpha1.MediaFileSpec{
+		Path:     "/data/tv/One Piece/Season 18/" + title + ".mp4",
+		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "one-piece-s18e28"},
+	}}
+}
+
+// A file with no recorded release title is named from its own name, so what
+// is proposed for it depends on what it is called. A proposal is only a name
+// the file would keep: on talos "[v2 v3]" proposed "[v2]" and "[v2]"
+// proposed "[v2 v3]", and the file was renamed between them 4.86 million
+// times in eight days (2026-11-18 to 2026-11-25).
+func TestANameIsProposedOnlyIfTheFileWouldKeepIt(t *testing.T) {
+	mi := &commonv1.MediaInfo{Container: "mp4"}
+	at := func(title string) string { return "/data/tv/One Piece/Season 18/" + title + ".mp4" }
+	render := func(next map[string]string, title string) *catalogv1alpha1.NamingStatus {
+		f := flippingFile(title)
+		n, retry := RenderNaming(f, flippingLook(next), mi, nil, f.Spec.Path, false, false)
+		require.NotNil(t, n)
+		require.False(t, retry)
+		return n
+	}
+
+	t.Run("two names that propose each other: the file stays where it is", func(t *testing.T) {
+		round := map[string]string{"S18E28 [v2 v3]": "S18E28 [v2]", "S18E28 [v2]": "S18E28 [v2 v3]"}
+		for _, title := range []string{"S18E28 [v2 v3]", "S18E28 [v2]"} {
+			n := render(round, title)
+			assert.Empty(t, n.Reason, title)
+			assert.Equal(t, at(title), n.ExpectedPath, title)
+			assert.True(t, n.Current, "%s: nothing is renamed", title)
+		}
+	})
+	t.Run("a name that proposes itself is the answer, in one rename", func(t *testing.T) {
+		chain := map[string]string{"a": "b", "b": "c", "c": "c"}
+		n := render(chain, "a")
+		assert.Equal(t, at("c"), n.ExpectedPath, "the name the file comes to rest at, not the first one proposed")
+		assert.False(t, n.Current)
+		assert.True(t, render(chain, "c").Current)
+	})
+	t.Run("a longer round holds the file too", func(t *testing.T) {
+		round := map[string]string{"a": "b", "b": "c", "c": "a"}
+		n := render(round, "a")
+		assert.Equal(t, at("a"), n.ExpectedPath)
+		assert.True(t, n.Current)
+	})
+	t.Run("names that neither settle nor return are no name", func(t *testing.T) {
+		n := render(map[string]string{"a": "b", "b": "c", "c": "d", "d": "e", "e": "d"}, "a")
+		assert.Equal(t, catalogv1alpha1.NamingReasonUnrenderable, n.Reason)
+		assert.Empty(t, n.ExpectedPath, "no path, so no rename")
+	})
+	t.Run("a proposal that cannot be rendered on is no name", func(t *testing.T) {
+		n := render(map[string]string{"a": "b"}, "a")
+		assert.Equal(t, catalogv1alpha1.NamingReasonUnrenderable, n.Reason)
+	})
 }

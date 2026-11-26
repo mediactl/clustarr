@@ -58,6 +58,15 @@ func isRegexTimeout(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "match timeout")
 }
 
+// IsTimeout reports whether err, from Parse or ParsePath, is a regex that
+// ran out of its time rather than a title that does not parse. The budget
+// is wall-clock time, so a process held off its CPU for that long (a
+// throttled container, a collection pause) times out on a title that
+// parses in microseconds: the answer is unknown, not "no", and a caller
+// that remembers answers must not remember this one (the rename loop of
+// 2026-11-18, pkg/naming/catalogctx.formatNames).
+func IsTimeout(err error) bool { return isRegexTimeout(err) }
+
 // sourceRegex ports Radarr/Sonarr's QualityParser.SourceRegex named-group
 // family (docs/research/quality.md §7.1). Alternatives are ordered
 // most-specific-first within each token family so that, e.g., "DVDSCR"

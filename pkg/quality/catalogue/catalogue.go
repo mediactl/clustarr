@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dlclark/regexp2"
@@ -71,9 +72,26 @@ func matchTRaSH(ctx context.Context, re *regexp2.Regexp, name, s string) bool {
 	if err != nil {
 		logging.FromContext(ctx).Warn(matchFailureMessage(err),
 			"condition", name, "timeout", trashMatchTimeout, "err", err)
+		if n, counted := ctx.Value(matchFailuresKey{}).(*atomic.Int32); counted {
+			n.Add(1)
+		}
 		return false
 	}
 	return ok
+}
+
+type matchFailuresKey struct{}
+
+// WithMatchFailures returns a context under which every match that fails
+// (a timeout, in practice) is counted in the returned counter as well as
+// read as "no match". The budget is wall-clock time, so a failure says the
+// process was held off its CPU as often as it says a pattern backtracks:
+// agents logged four on plain titles in nine days (talos, 2026-11). A
+// caller that keeps what Match, Score or RenameMatches answered reads the
+// counter and does not keep an answer a failure shortened.
+func WithMatchFailures(ctx context.Context) (context.Context, *atomic.Int32) {
+	n := new(atomic.Int32)
+	return context.WithValue(ctx, matchFailuresKey{}, n), n
 }
 
 // MatchTRaSHForTest exposes matchTRaSH to tests in catalogue_test (external

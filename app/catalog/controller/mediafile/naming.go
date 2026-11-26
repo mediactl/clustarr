@@ -191,17 +191,64 @@ func RenderNaming(mf *catalogv1alpha1.MediaFile, look NamingLookup, mi *commonv1
 	// and logging, so the pure render passes context.Background(). The
 	// extension is the probed container's for a video file and the file's
 	// own for every other kind (catalogctx.FileExt).
-	expected, err := look.owner.render(look.root, catalogctx.File(context.Background(), look.owner.context, &spec, mi), catalogctx.FileExt(spec.MediaRef.Kind, mi, spec.Path))
-	if err == nil && len(expected) > maxExpectedPathLen {
-		err = fmt.Errorf("the rendered path is %d bytes, over the %d status.naming.expectedPath holds", len(expected), maxExpectedPathLen)
+	render := func(path string) (string, error) {
+		at := spec
+		at.Path = path
+		to, err := look.owner.render(look.root, catalogctx.File(context.Background(), look.owner.context, &at, mi), catalogctx.FileExt(at.MediaRef.Kind, mi, at.Path))
+		if err == nil && len(to) > maxExpectedPathLen {
+			err = fmt.Errorf("the rendered path is %d bytes, over the %d status.naming.expectedPath holds", len(to), maxExpectedPathLen)
+		}
+		return to, err
+	}
+	here := filepath.Clean(spec.Path)
+	expected, err := render(spec.Path)
+	if err == nil && expected != here {
+		expected, err = settledName(render, here, expected)
 	}
 	if err != nil {
 		out.Reason = catalogv1alpha1.NamingReasonUnrenderable
 		return out, false
 	}
 	out.ExpectedPath = expected
-	out.Current = filepath.Clean(spec.Path) == expected
+	out.Current = here == expected
 	return out, false
+}
+
+// namingHops is how many names settledName follows a proposal through.
+const namingHops = 3
+
+// settledName is the name a file at here comes to rest at, given the name
+// proposed for it: a proposal is a name the file would keep once it had it.
+//
+// A file with no recorded release title is named from its own name
+// (catalogctx.File), so the proposal for a file depends on what the file is
+// called, and a rename changes the next proposal. Nothing checked that the
+// proposal was itself a name that proposes nothing further: on talos one
+// answer the format memo held wrong made "[v2 v3]" propose "[v2]" and
+// "[v2]" propose "[v2 v3]", and the file was renamed between them eight
+// times a second for eight days (2026-11-18 to 2026-11-25, 4.86 million
+// renames, each five API requests). So the proposal is rendered again as if
+// the file had it, up to namingHops names on:
+//   - a name that proposes itself is the answer, and the file goes there in
+//     one rename however many names lay between;
+//   - a name that proposes here means the names go round, and the file
+//     stays where it is: here is as canonical as any name in the round;
+//   - names that neither settle nor return are no name at all, an error the
+//     caller reads as Unrenderable, which holds the rename.
+func settledName(render func(path string) (string, error), here, proposed string) (string, error) {
+	for range namingHops {
+		next, err := render(proposed)
+		switch {
+		case err != nil:
+			return "", err
+		case next == proposed:
+			return proposed, nil
+		case next == here:
+			return here, nil
+		}
+		proposed = next
+	}
+	return "", fmt.Errorf("the name proposed for %s proposes another, %d names on", here, namingHops)
 }
 
 // keepNaming is prev, the proposal already on the object, re-judged
