@@ -26,6 +26,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
@@ -102,7 +103,21 @@ func (*Actuator) Name() string { return "rename" }
 // (refusedBefore). A scan in progress or a changed file asks for a pass in a
 // minute; a collision asks for none of its own, and a pass that finds the
 // proposal still waiting it out asks for the one that retries it.
+//
+// Before any of that, an episode's file that is under another root folder
+// than the one its Series is stored under follows the Series there
+// (relocation, relocate): that is a move the root folder's rename switches
+// do not decide, and one a file whose name is current still owes.
 func (a *Actuator) Act(ctx context.Context, env *remediation.Env, c client.Client, applied *catalogv1alpha1.MediaFile) (time.Duration, error) {
+	if !k8s.IsDeleting(applied) {
+		move, roots, ok, err := a.relocation(ctx, env.Reader, applied)
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			return a.relocate(ctx, env, c, applied, move, roots)
+		}
+	}
 	if k8s.IsDeleting(applied) || !mediafilespec.Renameable(applied) || inFlight(applied) {
 		a.forget(applied)
 		return 0, nil
@@ -116,7 +131,7 @@ func (a *Actuator) Act(ctx context.Context, env *remediation.Env, c client.Clien
 	if wait, refused := a.refusedBefore(applied, how); refused {
 		return wait, nil
 	}
-	scan, err := a.openScanOver(ctx, env.Reader, applied, roots, how)
+	scan, err := a.openScanOver(ctx, env.Reader, applied, roots, how, "")
 	if err != nil {
 		return 0, err
 	}
@@ -154,6 +169,156 @@ func (a *Actuator) Act(ctx context.Context, env *remediation.Env, c client.Clien
 		a.remember(applied, how, time.Time{})
 	}
 	return 0, nil
+}
+
+// ReasonRelocated is the Event of a file moved after its Series to the
+// folder the Series has under another root folder.
+const ReasonRelocated = "Relocated"
+
+// move is one file's relocation: from the folder its Series had under the
+// root folder fromRoot to the folder it has under toRoot, named root.
+type move struct {
+	from, to, fromRoot, toRoot, root string
+}
+
+// relocation is the move an episode's file owes because its Series is
+// stored under another root folder than the one the file is in (anime
+// library design, 2026-11-25, §3): the root folder a Series is stored
+// under decides its library -- Anime under an anime root, TV Shows under
+// any other -- and a library is a folder, so the files go where the
+// Series' folder now is, each keeping its place below it. A Series is
+// re-rooted by a change of spec.rootFolderRef and nothing else: the ui's
+// Move, or a hand's.
+//
+// A file under the Series' folder, a file under no series root folder (a
+// stray path nothing here understands), a file that is in a root folder
+// itself and so in no item's folder, and a Series whose folder under its
+// root is not known yet owe none. The Episode and its Series are read only
+// for a file whose own path and proposed name are not under one root
+// folder -- or that has no proposed name -- so a library at rest pays the
+// cached RootFolder list and nothing more.
+func (a *Actuator) relocation(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (move, []catalogv1alpha1.RootFolder, bool, error) {
+	if mf.Spec.MediaRef.Kind != commonv1.MediaKindEpisode {
+		return move{}, nil, false, nil
+	}
+	var roots catalogv1alpha1.RootFolderList
+	if err := c.List(ctx, &roots, client.InNamespace(mf.Namespace)); err != nil {
+		return move{}, nil, false, err
+	}
+	rootOf := func(p string) *catalogv1alpha1.RootFolder {
+		for i := range roots.Items {
+			if rf := &roots.Items[i]; rf.Spec.Kind == catalogv1alpha1.RootFolderKindSeries && fsops.StrictlyUnder(p, rf.Spec.Path) {
+				return rf
+			}
+		}
+		return nil
+	}
+	path := filepath.Clean(mf.Spec.Path)
+	old := rootOf(path)
+	if old == nil {
+		return move{}, nil, false, nil
+	}
+	if n := mf.Status.Naming; n != nil && n.ExpectedPath != "" {
+		if named := rootOf(n.ExpectedPath); named != nil && named.Name == old.Name {
+			return move{}, nil, false, nil
+		}
+	}
+	key := func(name string) types.NamespacedName {
+		return types.NamespacedName{Namespace: mf.Namespace, Name: name}
+	}
+	var ep catalogv1alpha1.Episode
+	if err := c.Get(ctx, key(mf.Spec.MediaRef.Name), &ep); err != nil {
+		return move{}, nil, false, client.IgnoreNotFound(err)
+	}
+	var s catalogv1alpha1.Series
+	if err := c.Get(ctx, key(ep.Spec.SeriesRef), &s); err != nil {
+		return move{}, nil, false, client.IgnoreNotFound(err)
+	}
+	if s.Spec.RootFolderRef == old.Name || s.Status.Path == "" || fsops.StrictlyUnder(path, s.Status.Path) {
+		return move{}, nil, false, nil
+	}
+	i := slices.IndexFunc(roots.Items, func(rf catalogv1alpha1.RootFolder) bool { return rf.Name == s.Spec.RootFolderRef })
+	if i < 0 || roots.Items[i].Spec.Kind != catalogv1alpha1.RootFolderKindSeries || !fsops.StrictlyUnder(s.Status.Path, roots.Items[i].Spec.Path) {
+		// The Series' root folder is missing, or its folder was rendered
+		// under another one and its reconciler has not caught up.
+		return move{}, nil, false, nil
+	}
+	rel, err := filepath.Rel(filepath.Clean(old.Spec.Path), path)
+	if err != nil {
+		return move{}, nil, false, nil
+	}
+	folder, _, inFolder := strings.Cut(rel, string(filepath.Separator))
+	if !inFolder {
+		return move{}, nil, false, nil
+	}
+	return move{
+		from: filepath.Join(old.Spec.Path, folder), to: filepath.Clean(s.Status.Path),
+		fromRoot: filepath.Clean(old.Spec.Path), toRoot: filepath.Clean(roots.Items[i].Spec.Path), root: roots.Items[i].Name,
+	}, roots.Items, true, nil
+}
+
+// relocate moves applied's file as m says, once it is present and probed,
+// nothing of it is in flight, no LibraryScan walks the folder it is in or
+// the one it goes to, and this move is not waiting out a collision. It is
+// specwrite.RelocateFile: the move and the spec apply are one guarded step,
+// as a rename's are. The path-only probe pass that follows carries the
+// file's history to its new probe hash (MediaFileStatus.CarryBytes).
+func (a *Actuator) relocate(
+	ctx context.Context, env *remediation.Env, c client.Client, applied *catalogv1alpha1.MediaFile, m move, roots []catalogv1alpha1.RootFolder,
+) (time.Duration, error) {
+	cond := applied.Status.Conditions
+	if !meta.IsStatusConditionTrue(cond, catalogv1alpha1.MediaFileConditionReady) ||
+		!meta.IsStatusConditionTrue(cond, catalogv1alpha1.MediaFileConditionProbed) || inFlight(applied) || graftInFlight(applied) {
+		return 0, nil
+	}
+	how := renameAs{on: true, mode: specwrite.RenameRelocate, container: m.to}
+	if wait, refused := a.refusedBefore(applied, how); refused {
+		return wait, nil
+	}
+	rel, err := filepath.Rel(m.from, filepath.Clean(applied.Spec.Path))
+	if err != nil {
+		return 0, nil
+	}
+	scan, err := a.openScanOver(ctx, env.Reader, applied, roots, how, filepath.Dir(filepath.Join(m.to, rel)))
+	if err != nil {
+		return 0, err
+	}
+	if scan != "" {
+		a.event(applied, corev1.EventTypeNormal, ReasonScanInProgress, "not moved to root folder %s yet: LibraryScan %s is walking the file's folder or the one it moves to", m.root, scan)
+		return recheckAfter, nil
+	}
+	out, err := specwrite.RelocateFile(ctx, c, env.APIReader, applied, false, m.from, m.to, m.fromRoot, m.toRoot)
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case out.Moved:
+		a.forget(applied)
+		a.event(applied, corev1.EventTypeNormal, ReasonRelocated, "moved %s to %s: its series is stored under root folder %s", out.From, out.To, m.root)
+		logging.FromContext(ctx).Info("moved a library file after its series to another root folder", "from", out.From, "to", out.To, "rootFolder", m.root)
+	case out.Reason == mediafilespec.RenameCollision:
+		a.event(applied, corev1.EventTypeWarning, out.Reason,
+			"not moved to %s: something already exists there, or where one of its folders would be", out.To)
+		a.remember(applied, how, a.now())
+	case out.Reason == mediafilespec.RenameChanged:
+		a.event(applied, corev1.EventTypeWarning, out.Reason,
+			"not moved to %s: the file changed since it was recorded; retrying once it is re-observed", out.To)
+		return recheckAfter, nil
+	case out.Reason == mediafilespec.RenameHeld:
+		a.remember(applied, how, time.Time{})
+	}
+	return 0, nil
+}
+
+// graftInFlight is a file an audio graft is rewriting or has just swapped.
+func graftInFlight(mf *catalogv1alpha1.MediaFile) bool {
+	if g := mf.Status.Graft; g != nil {
+		switch g.Phase {
+		case catalogv1alpha1.GraftPhaseQueued, catalogv1alpha1.GraftPhaseRunning, catalogv1alpha1.GraftPhaseSwapping:
+			return true
+		}
+	}
+	return false
 }
 
 // inFlight holds a rename while a remediation block of the file is in
@@ -327,17 +492,20 @@ func transcodedHere(mf *catalogv1alpha1.MediaFile) bool {
 
 // openScanOver names a LibraryScan still in progress -- not Completed or
 // Failed -- whose walk covers the folder mf's file is in, or, for a move to
-// another folder under RenameOrganize, the folder it moves to, or returns
-// "". A scan's walk is its RootFolder's path joined with spec.subpath; one
+// another folder under RenameOrganize, the folder it moves to, or to, the
+// folder a relocation moves it to ("" for none), or returns "". A scan's walk is its RootFolder's path joined with spec.subpath; one
 // narrowed to a single file in the folder counts too.
 func (a *Actuator) openScanOver(
-	ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile, roots []catalogv1alpha1.RootFolder, how renameAs,
+	ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile, roots []catalogv1alpha1.RootFolder, how renameAs, to string,
 ) (string, error) {
 	var scans catalogv1alpha1.LibraryScanList
 	if err := c.List(ctx, &scans, client.InNamespace(mf.Namespace)); err != nil {
 		return "", err
 	}
 	dirs := []string{filepath.Dir(filepath.Clean(mf.Spec.Path))}
+	if to != "" && filepath.Clean(to) != dirs[0] {
+		dirs = append(dirs, filepath.Clean(to))
+	}
 	if n := mf.Status.Naming; how.mode == specwrite.RenameOrganize && n != nil && n.ExpectedPath != "" {
 		if to := filepath.Dir(filepath.Clean(n.ExpectedPath)); to != dirs[0] {
 			dirs = append(dirs, to)

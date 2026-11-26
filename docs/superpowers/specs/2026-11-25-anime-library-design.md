@@ -143,53 +143,54 @@ in `tv`. The list's later syncs find the item, keep its root, and go on
 owning its monitoring and tags. A watchlisted anime film goes to `movies`
 and stays there.
 
-## 3. Relocation: a series follows its root folder
+## 3. Relocation: a series' files follow its root folder
 
-`spec.rootFolderRef` is desired state. When a Series' files are in a folder
-under another root, the manager moves the folder. This is what a "Move to
-Anime" in the ui, a classification and the bulk migration all are: a spec
-patch, and the same convergence.
+`spec.rootFolderRef` is desired state. This is what a "Move to Anime" in
+the ui and the bulk migration are: a spec patch, after which the files
+converge. (As first written this section had the import agent rename the
+whole folder under a new task, record and status block; what was built is
+below, and section 10 says why.)
 
-A series with no folder on disk has nothing to move: `status.path`
-re-renders under the new root and that is all.
+The Series reconciler renders `status.path` under the root folder the
+Series now names, as it always has, so what is imported from then on lands
+in the new folder. A series with no file has nothing more to do.
 
-Otherwise, for one series:
+Each of its files then follows, one at a time, through the file loop's
+rename actuator (`rename.Actuator.relocation`, `specwrite.RelocateFile`):
 
-1. **Wait until it is quiet.** While any of its files has an import, a
-   transcode, a graft, a subtitle or a marker task in flight, the
-   relocation waits. While it is pending, the loop admits no new file work
-   for the series, and a scan of either root leaves its folders alone.
-2. **Move the folder.** The manager publishes one task to the `import`
-   agent, which renames the series folder to its folder under the new root
-   (the destination root's naming renders the name) through `pkg/fsops`,
-   and answers in a record. One rename carries everything in it: episodes,
-   sidecars, NFO, extras, unmatched files. Refused, never worked around:
-   a destination that exists (`Collision`: nothing is merged or
-   overwritten) and a destination on another filesystem (`CrossDevice`:
-   nothing is copied). Source gone and destination present reads as done.
-3. **Re-point the files.** The manager rewrites the folder prefix of every
-   MediaFile `spec.path` of the series, under import's field manager, each
-   a complete apply. Size and mtime are unchanged, so it is a path-only
-   change: no probe, no transcode verdict lost.
-4. **Finish.** `status.path` becomes the new folder, the condition clears,
-   a Normal `Relocated` event is recorded, and a scan of the new folder
-   re-derives whatever status names a path.
+- **What moves.** An episode's file that is under a series root folder
+  other than the one its Series is stored under, once the Series' folder
+  under its own root is rendered. It goes to the place under the Series'
+  new folder that it had under the old one, name included; what it is
+  called stays the naming pass's, under the rules of the root it arrives
+  in. No root folder's rename switch decides this move.
+- **One guarded step**, a rename's: the file's size and mtime must still be
+  what spec records; nothing may exist at the target, and something that
+  does is never replaced, so two series' folders are never merged over each
+  other (`Collision`, said once and tried again a minute later); the move
+  and the complete spec apply go together, moved back when the apply
+  fails, rolled forward when a move was made and never recorded. Nothing is
+  copied: a move across filesystems fails.
+- **With it** go the file's sidecars. The folders the move empties are
+  pruned, the Series' old folder too, the root folder never. A file that is
+  not media and that nothing records stays, and keeps the old folder.
+- **It waits** for the file to be present and probed, for no transcode or
+  graft of it to be in flight (their tasks name the path), and for no
+  LibraryScan to be walking the folder it is in or the one it goes to,
+  which could re-attribute the vacated path or find the file before the
+  move is recorded.
+- **Afterwards** the file's probe pass takes the change of path alone and
+  carries its history to the new hash (section 8a): nothing is searched,
+  fetched, analysed or encoded again.
 
-The Series carries condition `Relocating` while 1 to 3 run, its reason the
-step or the refusal (`Waiting`, `Moving`, `Collision`, `CrossDevice`), and
-`status.path` keeps naming where the files are until step 4.
+A scan of the old root meanwhile finds the files still there recorded and
+their Series under another root, and leaves them (`other_root_folder`).
+There is no series-level phase: a series is moved when none of its files
+is under another root, which the Events on its MediaFiles and its old
+folder's disappearance show.
 
-The rename is the only change on disk and is atomic. Everything after it is
-a prefix rewrite keyed on the agent's record, so a manager that dies at any
-point resumes without a second move.
-
-Held to the invariants: the agent writes no Kubernetes object and answers
-in a record; the manager ensures the new consumer; the manager makes every
-apply. One relocation runs at a time: the rename is instant, but each one
-has every file of the series leave one Plex library and enter another.
-
-Series only. The mechanism does not care about the kind, but nothing asks
-for it elsewhere yet.
+Episodes only. The mechanism does not care about the kind, but nothing
+asks for it elsewhere yet.
 
 ## 4. Plex
 
@@ -282,7 +283,8 @@ The author's, for the owner to overturn.
    hint on its page), not corrected: which of the two was meant is not the
    controller's to guess.
 6. A classification that cannot route waits rather than recording.
-7. One relocation at a time.
+7. Files are relocated one at a time, each in its own pass of the file
+   loop; nothing moves a folder.
 8. Activity, calendar, wanted and dashboard are not split yet.
 9. A list places an item once, at creation, and never moves it after; its
    root folder default is not re-asserted on what exists.
@@ -314,27 +316,11 @@ The stages keep their history under the new hash when the bytes did not
 change, which also ends the same waste at every ordinary rename. Built
 first, as section 10 records; section 3 follows it.
 
-What section 3 must also do, beyond its text:
-
-- **Hold `status.path`.** The Series reconciler renders it from the
-  current root on every pass, so a re-rooted series points at the new
-  folder at once; while a relocation is pending it has to keep naming where
-  the files are.
-- **Guard the scans.** A scan matches a file to a Series by its
-  `status.path` and looks a file up by `spec.path` alone, so a scan of the
-  new root between the folder's move and the path rewrite would record
-  every moved file a second time; a scan of the old root deletes a file's
-  record after ten minutes missing (`MissingGrace`). Nothing lets a scan
-  skip an item today. The existing hold runs the other way -- a rename
-  waits while a scan covers its folder (`rename.openScanOver`) -- and the
-  relocation takes the same one, and the scan apply refuses a Series that
-  is relocating.
-- **Read "quiet" off the files.** There is no per-series view of work in
-  flight: a transcode or graft is `status.transcode`/`status.graft` phase
-  and dispatch on each MediaFile, a subtitle fetch its item's dispatch, a
-  probe `Probed=False/ProbePending`. An import is the download entry the
-  planner still reads as importable (`lifecycle.Importable`): completed,
-  not yet imported.
+What section 3, as first written, would also have had to do -- hold
+`status.path`, guard the scans against a folder moved before its paths were
+rewritten, and read "quiet" off every file of the series -- is not needed
+by what was built: a file's move and its path are one step, guarded per
+file by the holds a rename already has.
 
 Settled, and no obstacle:
 
@@ -424,4 +410,23 @@ in memory by path. `TestAMovedFilesHistoryFollowsIt` and its two
 neighbours, `TestAPathOnlyChangeKeepsTheHashTheBytesHad`,
 `TestAMovedSeasonsFingerprintsAreFoundUnderTheHashTheyHad`; each fails
 with its part of the carry removed.
+
+**Relocation, 2026-11-26** (clustarr; not deployed; section 3 as it now
+reads). Not the folder rename by the import agent that section 3 first
+described: the file loop's rename actuator already moved a file and
+recorded its path in one guarded step -- fingerprint check, no-replace
+move, apply with roll back and roll forward, sidecars, pruning, a hold
+while a transcode is live or a scan covers either folder -- so the
+relocation is a second kind of move through it. `specwrite.RelocateFile`
+shares `RenameFile`'s move-and-record (`moveRecorded`) with a target that
+keeps the file's path below its item's folder; `rename.Actuator` decides
+it before its rename gate, for an episode's file whose own path and
+proposed name are not under one root folder, reading the Series only then.
+That dropped the task, the record, the agent handler, the Series status
+block and the scan guard, and with them the window in which a folder had
+moved and its files' paths had not. What it costs: files move one pass
+each rather than a folder at a time, and a file nothing records keeps the
+old folder alive. `TestRelocateFileMovesAFileAfterItsItemToAnotherRootFolder`,
+`TestAFileFollowsItsSeriesToAnotherRootFolder` and its neighbours in
+`app/remediation/rename`.
 

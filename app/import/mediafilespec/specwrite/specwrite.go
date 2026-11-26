@@ -174,6 +174,11 @@ const (
 	// the root's renameFiles and organizeFolders). A video file keeps D5:
 	// RenameOrganize renames it as RenameWhole does.
 	RenameOrganize
+	// RenameRelocate is no mode of RenameFile's: it names what
+	// [RelocateFile] does -- a file following its item to the folder the
+	// item has under another root folder -- where a rename is told apart by
+	// its mode (the rename actuator's memo of refused proposals).
+	RenameRelocate
 )
 
 func (m RenameMode) String() string {
@@ -184,6 +189,8 @@ func (m RenameMode) String() string {
 		return "inFolder"
 	case RenameOrganize:
 		return "organize"
+	case RenameRelocate:
+		return "relocate"
 	}
 	return fmt.Sprintf("RenameMode(%d)", int(m))
 }
@@ -275,6 +282,26 @@ func RenameFile(
 		prune = filepath.Clean(container)
 	}
 
+	return moveRecorded(ctx, c, api, &fresh, out, dryRun, prune, prune)
+}
+
+// moveRecorded moves fresh's file from out.From to out.To and records the
+// move, the part [RenameFile] and [RelocateFile] share once each has decided
+// where the file goes: nothing may exist at out.To and the file's size and
+// mtime must still match spec, both checked immediately before the move
+// ([fsops.MoveNoReplace]); the apply that fails moves the file back; a move
+// an earlier call made and never recorded is rolled forward; the sidecars
+// follow. A dry run returns after the checks.
+//
+// mkBase, when set, is the folder out.To's missing folders are made under
+// ([fsops.MkdirUnder], never followed out of it), and pruneBase the folder
+// the folders the move emptied are pruned up to, never itself: one
+// container folder for RenameOrganize, the two root folders for a
+// relocation, "" for a move within a folder.
+func moveRecorded(
+	ctx context.Context, c client.Client, api client.Reader, fresh *catalogv1alpha1.MediaFile,
+	out mediafilespec.RenameOutcome, dryRun bool, mkBase, pruneBase string,
+) (mediafilespec.RenameOutcome, error) {
 	fromInfo, fromErr := os.Stat(out.From)
 	if fromErr != nil && !errors.Is(fromErr, fs.ErrNotExist) {
 		return out, fmt.Errorf("rescan: rename: stat %s: %w", out.From, fromErr)
@@ -291,7 +318,7 @@ func RenameFile(
 	case toErr == nil && fromErr != nil:
 		// Only the proposed path exists. If it holds the file spec records,
 		// an earlier rename moved it and never recorded the move.
-		if !toInfo.Mode().IsRegular() || !mediafilespec.SameFingerprint(&fresh, toInfo) {
+		if !toInfo.Mode().IsRegular() || !mediafilespec.SameFingerprint(fresh, toInfo) {
 			out.Reason = mediafilespec.RenameCollision
 			return out, nil
 		}
@@ -301,7 +328,7 @@ func RenameFile(
 		}
 		logging.FromContext(ctx).Info("the file is already at its proposed path; recording the rename",
 			"mediaFile", fresh.Name, "from", out.From, "to", out.To)
-		return recordRename(ctx, c, api, &fresh, out, toInfo, prune)
+		return recordRename(ctx, c, api, fresh, out, toInfo, pruneBase)
 	case toErr == nil && !os.SameFile(fromInfo, toInfo):
 		// A hard link of the same file is a MoveNoReplace cut short between
 		// its link and its unlink, which the move below finishes.
@@ -318,7 +345,7 @@ func RenameFile(
 	if err != nil {
 		return out, fmt.Errorf("rescan: rename: stat %s: %w", out.From, err)
 	}
-	if !mediafilespec.SameFingerprint(&fresh, info) {
+	if !mediafilespec.SameFingerprint(fresh, info) {
 		out.Reason = mediafilespec.RenameChanged
 		return out, nil
 	}
@@ -330,11 +357,11 @@ func RenameFile(
 	// made is the topmost folder the move created for its target, which a
 	// move that does not end recorded removes again.
 	var made string
-	if prune != "" {
+	if mkBase != "" {
 		// The target's folder may be the container itself -- an audiobook
 		// part, an issue or a standalone book leaving a subfolder for the
 		// folder its preset places it in -- where nothing is made.
-		if made, err = fsops.MkdirUnder(prune, filepath.Dir(out.To), 0o775); err != nil {
+		if made, err = fsops.MkdirUnder(mkBase, filepath.Dir(out.To), 0o775); err != nil {
 			if errors.Is(err, fsops.ErrNotDirectory) {
 				// A file or a symbolic link stands where a folder of the
 				// target would be: never replaced, nor followed out of the
@@ -353,13 +380,60 @@ func RenameFile(
 		}
 		return out, fmt.Errorf("rescan: rename: %w", err)
 	}
-	out, err = recordRename(ctx, c, api, &fresh, out, info, prune)
+	out, err = recordRename(ctx, c, api, fresh, out, info, pruneBase)
 	if !out.Moved {
 		// Moved back (or left where the apply could not record it, when
 		// the folder is not empty and nothing is removed).
 		fsops.PruneMade(made, filepath.Dir(out.To))
 	}
 	return out, err
+}
+
+// RelocateFile moves one library file to the place under the folder to that
+// it has under the folder from, and records the move as [RenameFile] does:
+// a file following its item to the folder the item has under another root
+// folder (anime library design, 2026-11-25, §3 -- a Series stored under the
+// anime root is in the Anime library, and its files are where the library's
+// folder is). from is the item's folder the file is in, under the root
+// folder fromRoot; to the item's folder under toRoot. The file keeps its
+// path below the item's folder, name included: what it is called is the
+// naming pass's to change, under the rules of the root folder it arrives
+// in.
+//
+// It refuses as RenameFile does -- a file that is not what spec records
+// ([mediafilespec.RenameChanged]), something already at the target or a
+// file where one of its folders would be ([mediafilespec.RenameCollision],
+// never replaced, so two items' folders are never merged over each other)
+// -- and returns [mediafilespec.RenameNotCurrent] for a file that is not
+// under from, which has moved already or was never there. The target's
+// folders are made under toRoot; the folders the move empties, the item's
+// own included, are pruned up to fromRoot. A move across filesystems is an
+// error and nothing is copied. The sidecars move with the file.
+func RelocateFile(
+	ctx context.Context, c client.Client, api client.Reader, mf *catalogv1alpha1.MediaFile, dryRun bool,
+	from, to, fromRoot, toRoot string,
+) (mediafilespec.RenameOutcome, error) {
+	var fresh catalogv1alpha1.MediaFile
+	if err := api.Get(ctx, client.ObjectKeyFromObject(mf), &fresh); err != nil {
+		return mediafilespec.RenameOutcome{}, fmt.Errorf("rescan: relocate: read media file %s: %w", mf.Name, err)
+	}
+	out := mediafilespec.RenameOutcome{From: fresh.Spec.Path}
+	from, to, fromRoot, toRoot = filepath.Clean(from), filepath.Clean(to), filepath.Clean(fromRoot), filepath.Clean(toRoot)
+	path := filepath.Clean(fresh.Spec.Path)
+	if !fsops.StrictlyUnder(path, from) {
+		out.Reason = mediafilespec.RenameNotCurrent
+		return out, nil
+	}
+	if !fsops.StrictlyUnder(from, fromRoot) || !fsops.StrictlyUnder(to, toRoot) || fromRoot == toRoot {
+		out.Reason = mediafilespec.RenameHeld
+		return out, nil
+	}
+	rel, err := filepath.Rel(from, path)
+	if err != nil {
+		return out, fmt.Errorf("rescan: relocate: %w", err)
+	}
+	out.To = filepath.Join(to, rel)
+	return moveRecorded(ctx, c, api, &fresh, out, dryRun, toRoot, fromRoot)
 }
 
 // organizes reports whether RenameFile may move mf's file from from to to,
@@ -420,8 +494,9 @@ func recordRename(
 // status.naming proposes.
 func applyRenamed(ctx context.Context, c client.Client, mf *catalogv1alpha1.MediaFile, to string, before os.FileInfo) error {
 	f := mediafilespec.ReassertFrozen(&mf.Spec)
-	if q := mf.Status.Naming.Quality; q != nil {
-		f.Quality = q
+	// A relocation moves a file catalog may have proposed no name for.
+	if n := mf.Status.Naming; n != nil && n.Quality != nil {
+		f.Quality = n.Quality
 	}
 	info := before
 	if moved, err := os.Stat(to); err == nil {

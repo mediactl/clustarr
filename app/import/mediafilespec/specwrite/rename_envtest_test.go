@@ -583,3 +583,66 @@ func TestRenameFileOrganizingRemovesTheFolderItMadeWhenMovedBack(t *testing.T) {
 	requireExists(t, tr.artist)
 	assert.Equal(t, before.Spec, f.read(t, ctx, tr.name).Spec, "the rename applied nothing")
 }
+
+// A file follows its item to the folder the item has under another root
+// folder (anime library design, 2026-11-25, §3): it keeps its place below
+// the item's folder, name included, its sidecar goes with it, the complete
+// spec is re-applied with the new path as a rename's is, and the folder it
+// emptied is pruned -- the item's own too, the root folder never. Something
+// already at the target is never replaced, so two items' folders are not
+// merged over each other; a file that is not under the folder it is said to
+// leave has moved already, and is left.
+func TestRelocateFileMovesAFileAfterItsItemToAnotherRootFolder(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, ctx, "rl-move", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
+	sf := f.plantStaleFile(t, ctx, renamedBase)
+	before := f.read(t, ctx, sf.name)
+	other := mediaTempDir(t)
+	from, to := filepath.Dir(sf.path), filepath.Join(other, "Heat (1995)")
+	target := filepath.Join(to, filepath.Base(sf.path))
+
+	dry, err := specwrite.RelocateFile(ctx, f.c, f.api(t), before, true, from, to, f.root, other)
+	require.NoError(t, err)
+	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: target, Reason: mediafilespec.RenameDryRun}, dry)
+	requireExists(t, sf.path)
+	requireAbsent(t, to)
+
+	// Something is in the way: nothing moves.
+	mustWriteFile(t, target, 16)
+	out, err := specwrite.RelocateFile(ctx, f.c, f.api(t), before, false, from, to, f.root, other)
+	require.NoError(t, err)
+	assert.Equal(t, mediafilespec.RenameCollision, out.Reason)
+	requireExists(t, sf.path)
+	require.NoError(t, os.RemoveAll(to))
+
+	// One root folder is no relocation.
+	out, err = specwrite.RelocateFile(ctx, f.c, f.api(t), before, false, from, filepath.Join(f.root, "Elsewhere"), f.root, f.root)
+	require.NoError(t, err)
+	assert.Equal(t, mediafilespec.RenameHeld, out.Reason)
+	requireExists(t, sf.path)
+
+	out, err = specwrite.RelocateFile(ctx, f.c, f.api(t), before, false, from, to, f.root, other)
+	require.NoError(t, err)
+	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: target, Moved: true}, out)
+	requireExists(t, target)
+	requireAbsent(t, sf.path)
+	requireExists(t, filepath.Join(to, filepath.Base(sf.sidecar)))
+	requireAbsent(t, sf.sidecar)
+	requireAbsent(t, from)
+	requireExists(t, f.root)
+
+	after := f.read(t, ctx, sf.name)
+	want := before.Spec
+	want.Path = target
+	want.Quality = correctedQuality // the probe-corrected quality status.naming carries rides any recorded move
+	assert.Equal(t, want, after.Spec, "only the path moves; every frozen field is re-asserted verbatim")
+	for _, leaf := range renameSpecLeaves {
+		assert.Equal(t, []string{string(mediafilespec.FieldManager)}, managersOf(t, after.ManagedFields, leaf), leaf)
+	}
+
+	// Moved already: nothing to do, and nothing touched.
+	out, err = specwrite.RelocateFile(ctx, f.c, f.api(t), after, false, from, to, f.root, other)
+	require.NoError(t, err)
+	assert.Equal(t, mediafilespec.RenameNotCurrent, out.Reason)
+	requireExists(t, target)
+}

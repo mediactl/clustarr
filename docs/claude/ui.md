@@ -1167,9 +1167,7 @@ moved they show on TV; `RootFolderOnTab` puts every RootFolder on exactly
 one tab (a series folder on TV or Anime), which is what Rescan and Add New
 read; Add New on TV offers `standard` and `daily`, on Anime no type, and the
 handler holds a posted type to the folder. The projection lists and watches
-RootFolders for it (one more List a round). Not built: relocating an
-existing series' folder when its root changes, the ui's Move action, the
-Plex library.
+RootFolders for it (one more List a round).
 **A file's history follows it across a rename or a move** (owner,
 2026-11-26: "Carry the history across a path-only move"; the anime library
 design's §8a and §10). The probe hash is `sha1(path|size|mtime)`, so a
@@ -1193,6 +1191,23 @@ keyed by hash outside the status, so the markers planner
 and the worker (`worker.record`, `worker.window`) take a former hash for the
 file's own. The mediafiles CRD goes on before the manager that writes the
 field.
+**A re-rooted series' files follow it, one at a time, through the rename
+actuator** (anime library design §3 and §10; not deployed). Not a folder
+rename by an agent, which the design first described: the file loop's
+rename actuator already moves a file and records its path in one guarded
+step, so `rename.Actuator.relocation` adds a second kind of move ahead of
+its rename gate -- an episode's file under another series root folder than
+its Series', to the same place under the Series' new folder, name kept --
+and `specwrite.RelocateFile` shares `RenameFile`'s move-and-record. No root
+folder's rename switch decides it; it waits for the file to be Ready and
+Probed, for no transcode or graft in flight, and for no LibraryScan over
+the folder it leaves or the one it goes to; a target that exists is never
+replaced. The Series reconciler still renders `status.path` under the
+current root at once, so new imports land in the new folder while the old
+files drain; a scan of the old root refuses them (`other_root_folder`).
+The Series is read only for a file whose path and proposed name are not
+under one root folder, so a library at rest pays the cached RootFolder list.
+Still not built: the ui's Move action and the Plex library.
 An Episode carries two conditions, Ready and DeadLettered (owner,
 2026-11-03, cutting the manager's memory): the Aired, HasFile, CutoffMet and
 WrongLanguage conditions every episode carried restated `status.phase`,
