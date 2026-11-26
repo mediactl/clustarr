@@ -69,6 +69,10 @@ type resolveState struct {
 	dub dubs.State
 }
 
+// An owner's Kind is the kind the item path keys it by ("Movie", "Series":
+// itemread.Kind): the intake parks a candidate under its owner and wakes
+// the owner's key by this ref, and the grab stage takes it by the ref it
+// builds from the object, so a Kind spelled any other way is never taken.
 func itemRef(kind string, o client.Object) schema.ItemRef {
 	return schema.ItemRef{Kind: kind, Ref: schema.Ref{Namespace: o.GetNamespace(), Name: o.GetName(), UID: string(o.GetUID())}}
 }
@@ -92,7 +96,7 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 			st.originalLanguageTag = m.Status.Metadata.OriginalLanguage
 		}
 		st.identity = search.MovieIdentity(&m)
-		st.owner = itemRef(string(commonv1.MediaKindMovie), &m)
+		st.owner = itemRef("Movie", &m)
 
 	case commonv1.MediaKindEpisode, commonv1.MediaKindSeries:
 		seriesName := ref.Name
