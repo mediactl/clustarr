@@ -76,7 +76,31 @@ func IsTransient(err error) bool {
 		return true
 	}
 	var ne net.Error
-	return errors.As(err, &ne)
+	if !errors.As(err, &ne) {
+		return false
+	}
+	// A syscall.Errno has Timeout and Temporary methods, so every one of
+	// them is a net.Error: EPERM from a link(2), ENOENT from a stat. Read
+	// as transient they were retried for good without a word (talos,
+	// 2026-11-26: a library file the manager could not hard-link). Only
+	// an errno that says "again" is one; a network error that wraps an
+	// errno (*net.OpError) is found before it and stays transient.
+	if en, ok := ne.(syscall.Errno); ok {
+		return transientErrno(en)
+	}
+	return true
+}
+
+// transientErrno reports an errno a retry may clear: a timeout or an
+// interrupted call, a stale NFS handle, a connection that was refused or
+// dropped. EIO is IsTransient's own row.
+func transientErrno(en syscall.Errno) bool {
+	switch en {
+	case syscall.ESTALE, syscall.ECONNREFUSED, syscall.ECONNRESET, syscall.ECONNABORTED, syscall.EPIPE,
+		syscall.ENETUNREACH, syscall.EHOSTUNREACH, syscall.ENETDOWN, syscall.EHOSTDOWN:
+		return true
+	}
+	return en.Timeout() || en.Temporary()
 }
 
 // outcome is one isolated call's classification.

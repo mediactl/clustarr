@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fsops
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -298,4 +299,72 @@ func TestMoveNoReplaceRollsBackOnlyWhileTheSourceIsTheSameFile(t *testing.T) {
 			}
 		})
 	}
+}
+
+// protectedLink is link(2) under fs.protected_hardlinks for a caller that
+// does not own the file: refused with EPERM unless the file may be written.
+func protectedLink(t *testing.T) {
+	t.Helper()
+	old := linkFunc
+	t.Cleanup(func() { linkFunc = old })
+	linkFunc = func(oldname, newname string) error {
+		info, err := os.Lstat(oldname)
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm()&0o200 == 0 {
+			return &os.LinkError{Op: "link", Old: oldname, New: newname, Err: syscall.EPERM}
+		}
+		return os.Link(oldname, newname)
+	}
+}
+
+// A read-only file the caller does not own cannot be hard-linked (talos,
+// 2026-11-26: a torrent's payload is 0444 and an import copies the mode, so
+// such a library file followed no rename and no move). It is given its
+// owner's write bit and moved.
+func TestMoveNoReplaceMovesAReadOnlyFileItMayNotLink(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	dst := filepath.Join(dir, "sub", "dst.mkv")
+	require.NoError(t, os.MkdirAll(filepath.Dir(dst), 0o775))
+	require.NoError(t, os.WriteFile(src, []byte("payload"), 0o444))
+	require.NoError(t, os.Chmod(src, 0o444))
+	protectedLink(t)
+
+	require.NoError(t, MoveNoReplace(src, dst))
+
+	_, err := os.Lstat(src)
+	require.True(t, os.IsNotExist(err), "the source is gone")
+	info, err := os.Stat(dst)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o644), info.Mode().Perm(), "owner-writable, nothing else changed")
+	got, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	require.Equal(t, "payload", string(got))
+}
+
+// A link refused for another reason is reported as it was, and the file
+// keeps the mode it had: nothing is left half-changed.
+func TestMoveNoReplaceLeavesAFileItStillCannotLinkAsItWas(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	dst := filepath.Join(dir, "dst.mkv")
+	require.NoError(t, os.WriteFile(src, []byte("payload"), 0o444))
+	require.NoError(t, os.Chmod(src, 0o444))
+	old := linkFunc
+	t.Cleanup(func() { linkFunc = old })
+	linkFunc = func(oldname, newname string) error {
+		return &os.LinkError{Op: "link", Old: oldname, New: newname, Err: syscall.EPERM}
+	}
+
+	err := MoveNoReplace(src, dst)
+
+	require.ErrorIs(t, err, fs.ErrPermission)
+	require.NotErrorIs(t, err, ErrExists)
+	info, serr := os.Stat(src)
+	require.NoError(t, serr, "the source is still there")
+	require.Equal(t, os.FileMode(0o444), info.Mode().Perm())
+	_, derr := os.Lstat(dst)
+	require.True(t, os.IsNotExist(derr))
 }

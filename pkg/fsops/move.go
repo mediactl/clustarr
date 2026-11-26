@@ -106,8 +106,12 @@ var ErrExists = errors.New("fsops: destination exists")
 // retried after its reply was lost reports ENOENT too -- so that is
 // success. Any other failure removes dst again only while src still names
 // the same file; otherwise both names are left for the next call to finish.
+//
+// A file its owner may not write is given that bit first when link(2)
+// refuses it (linkWritable): the move's callers are the library's own
+// renames, and a library file is one the library may rewrite.
 func MoveNoReplace(src, dst string) error {
-	if err := linkFunc(src, dst); err != nil {
+	if err := linkWritable(src, dst); err != nil {
 		if !errors.Is(err, fs.ErrExist) || !sameFile(src, dst) {
 			if errors.Is(err, fs.ErrExist) {
 				return fmt.Errorf("fsops: move %s to %s: %w: %w", src, dst, ErrExists, err)
@@ -129,6 +133,36 @@ func MoveNoReplace(src, dst string) error {
 	}
 	if srcDir := filepath.Dir(src); srcDir != filepath.Dir(dst) {
 		return fsyncDir(srcDir)
+	}
+	return nil
+}
+
+// linkWritable is link(2), and for a regular file without its owner's write
+// bit that the kernel refuses to link (EPERM), the same link after granting
+// that bit. With fs.protected_hardlinks, a process may hard-link only a
+// file it owns or may both read and write; on a share that maps every
+// client to one owner the server answers the access check as that owner,
+// so a 0444 file -- a torrent's payload is written read-only, and an import
+// copies the mode -- can be read, renamed and removed by the library but
+// not linked (talos, 2026-11-26: 20 such files followed no rename and no
+// move to another root folder). The bit is taken back when the link still
+// fails; a file that is refused for another reason is left as it was.
+func linkWritable(src, dst string) error {
+	err := linkFunc(src, dst)
+	if err == nil || !errors.Is(err, fs.ErrPermission) {
+		return err
+	}
+	info, serr := os.Lstat(src)
+	if serr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o200 != 0 {
+		return err
+	}
+	perm := info.Mode().Perm()
+	if cerr := os.Chmod(src, perm|0o200); cerr != nil {
+		return err
+	}
+	if rerr := linkFunc(src, dst); rerr != nil {
+		_ = os.Chmod(src, perm)
+		return rerr
 	}
 	return nil
 }

@@ -20,6 +20,10 @@ package remediation
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
+	"net"
+	"os"
 	"syscall"
 	"testing"
 	"time"
@@ -99,3 +103,31 @@ type fsPathError struct{ err error }
 
 func (e *fsPathError) Error() string { return "stat /data/x: " + e.err.Error() }
 func (e *fsPathError) Unwrap() error { return e.err }
+
+// An errno is a net.Error by its method set, whatever it says: only one a
+// retry may clear is transient. A link(2) refused with EPERM, read as
+// transient, was retried for good and reached no log (talos, 2026-11-26).
+func TestAnErrnoIsTransientOnlyWhenARetryMayClearIt(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"a link the kernel refuses", &os.LinkError{Op: "link", Old: "a", New: "b", Err: syscall.EPERM}, false},
+		{"a missing file", &fs.PathError{Op: "stat", Path: "/data/a.mkv", Err: syscall.ENOENT}, false},
+		{"a full disk", &fs.PathError{Op: "write", Path: "/data/a.mkv", Err: syscall.ENOSPC}, false},
+		{"a file in the way", &os.LinkError{Op: "link", Old: "a", New: "b", Err: syscall.EEXIST}, false},
+		{"a wrapped refusal", fmt.Errorf("rescan: rename: %w", &os.LinkError{Op: "link", Old: "a", New: "b", Err: syscall.EACCES}), false},
+		{"EIO from /data", &fs.PathError{Op: "read", Path: "/data/a.mkv", Err: syscall.EIO}, true},
+		{"a stale NFS handle", &fs.PathError{Op: "stat", Path: "/data/a.mkv", Err: syscall.ESTALE}, true},
+		{"an interrupted call", &fs.PathError{Op: "read", Path: "/data/a.mkv", Err: syscall.EINTR}, true},
+		{"a timed-out call", &fs.PathError{Op: "read", Path: "/data/a.mkv", Err: syscall.ETIMEDOUT}, true},
+		{"a refused connection", &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}, true},
+		{"a network error over any errno", &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.EPERM)}, true},
+		{"a bare refused connection", syscall.ECONNREFUSED, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsTransient(tc.err))
+		})
+	}
+}

@@ -541,3 +541,24 @@ that now exists.
   ask for 8 CPUs and have been unschedulable since 04:51Z.
 - 45 FileMissing records of eight series that are not anime (Deadwood, In
   Treatment and others, all 2026-11-05) are as they were.
+
+**The three defects, fixed the same day (owner: "Fix the Three code
+defects").** `fsops.MoveNoReplace` gives a regular file its owner's write
+bit when link(2) refuses it for want of one, links again, and takes the
+bit back if that fails too (`linkWritable`); its callers are the library's
+renames and moves only. `remediation.IsTransient` reads an errno as
+transient only when a retry may clear it (a timeout, an interrupted call,
+ESTALE, a refused or dropped connection; EIO as before): a refused link
+or a missing file is a failure the actuator's pass now logs. And
+`rename.Actuator.relocate` records a move that was made and never recorded
+(`recordMoved`): a file that reads FileMissing while the file its spec
+records, by size and mtime, is at the place it moves to. Each test fails
+with its fix taken out. Not changed: an import still copies a read-only
+source's mode, and a move's record that fails is still not said on the
+MediaFile itself, only in the log. The same day's hand repairs, after this
+section was first written: the five unrecorded originals were deleted,
+Maria the Virgin Witch's two files followed once their graft Jobs were
+ended (a deleted Job whose pod never started is created again; a Job that
+ends without an answer is the way out), and 48 FileMissing records of
+eight series that are not anime were pointed at their files as the anime
+ones were. Plex's TV Shows then listed no anime.

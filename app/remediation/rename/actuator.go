@@ -19,6 +19,9 @@ package rename
 
 import (
 	"context"
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -27,6 +30,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
@@ -267,9 +271,12 @@ func (a *Actuator) relocate(
 	ctx context.Context, env *remediation.Env, c client.Client, applied *catalogv1alpha1.MediaFile, m move, roots []catalogv1alpha1.RootFolder,
 ) (time.Duration, error) {
 	cond := applied.Status.Conditions
-	if !meta.IsStatusConditionTrue(cond, catalogv1alpha1.MediaFileConditionReady) ||
-		!meta.IsStatusConditionTrue(cond, catalogv1alpha1.MediaFileConditionProbed) || inFlight(applied) || graftInFlight(applied) {
+	if inFlight(applied) || graftInFlight(applied) {
 		return 0, nil
+	}
+	if !meta.IsStatusConditionTrue(cond, catalogv1alpha1.MediaFileConditionReady) ||
+		!meta.IsStatusConditionTrue(cond, catalogv1alpha1.MediaFileConditionProbed) {
+		return 0, a.recordMoved(ctx, env, c, applied, m)
 	}
 	how := renameAs{on: true, mode: specwrite.RenameRelocate, container: m.to}
 	if wait, refused := a.refusedBefore(applied, how); refused {
@@ -308,6 +315,42 @@ func (a *Actuator) relocate(
 		a.remember(applied, how, time.Time{})
 	}
 	return 0, nil
+}
+
+// recordMoved finishes a relocation that was made and never recorded: the
+// file is gone from spec.path (Ready False, FileMissing) and the file spec
+// records -- its size and mtime -- is at the place it moves to. A move and
+// its apply are two steps, and one cut between them, with the move back
+// failing too or the process ending, leaves this; relocate asks for a file
+// that is present, so without this the record named nothing for good
+// (talos, 2026-11-26: one file of about 7,800, found by hand).
+// specwrite.RelocateFile records the move when only the target exists and
+// holds that file; nothing is moved here, and a missing file whose target
+// is absent, or is another file, is left as it is, without a word.
+func (a *Actuator) recordMoved(ctx context.Context, env *remediation.Env, c client.Client, applied *catalogv1alpha1.MediaFile, m move) error {
+	ready := meta.FindStatusCondition(applied.Status.Conditions, catalogv1alpha1.MediaFileConditionReady)
+	if ready == nil || ready.Status != metav1.ConditionFalse || ready.Reason != "FileMissing" {
+		return nil
+	}
+	path := filepath.Clean(applied.Spec.Path)
+	rel, err := filepath.Rel(m.from, path)
+	if err != nil {
+		return nil
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if info, err := os.Stat(filepath.Join(m.to, rel)); err != nil || !info.Mode().IsRegular() || !mediafilespec.SameFingerprint(applied, info) {
+		return nil
+	}
+	out, err := specwrite.RelocateFile(ctx, c, env.APIReader, applied, false, m.from, m.to, m.fromRoot, m.toRoot)
+	if err != nil || !out.Moved {
+		return err
+	}
+	a.forget(applied)
+	a.event(applied, corev1.EventTypeNormal, ReasonRelocated, "recorded %s at %s, where an earlier move to root folder %s left it", out.From, out.To, m.root)
+	logging.FromContext(ctx).Info("recorded a library file's move to another root folder that was made and never recorded", "from", out.From, "to", out.To, "rootFolder", m.root)
+	return nil
 }
 
 // graftInFlight is a file an audio graft is rewriting or has just swapped.

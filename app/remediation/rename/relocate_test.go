@@ -268,3 +268,59 @@ func TestARelocationNeverReplacesWhatIsInItsWay(t *testing.T) {
 	assert.Equal(t, "another series' episode", string(b))
 	assert.Equal(t, g.from, g.stored(t).Spec.Path)
 }
+
+// A move and its record are two steps, and a move made and never recorded
+// leaves a MediaFile that names nothing: Ready False, FileMissing, the file
+// it records already under the Series' folder (talos, 2026-11-26: one file
+// of about 7,800). The pass that finds it so records where the file is;
+// nothing is moved.
+func TestAMoveMadeAndNeverRecordedIsRecorded(t *testing.T) {
+	g := newRelocateRig(t, func(g *relocateRig, _ *catalogv1alpha1.Series, mf *catalogv1alpha1.MediaFile) {
+		require.NoError(t, os.MkdirAll(filepath.Dir(g.to), 0o755))
+		require.NoError(t, os.Rename(g.from, g.to))
+		mf.Status.Naming.ExpectedPath = g.to
+		mf.Status.Conditions[1] = metav1.Condition{Type: catalogv1alpha1.MediaFileConditionReady, Status: metav1.ConditionFalse, Reason: "FileMissing"}
+	})
+	g.act(t)
+
+	recorded := withPrefix(drain(g.rec), "Normal "+ReasonRelocated)
+	require.Len(t, recorded, 1)
+	assert.Contains(t, recorded[0], "an earlier move")
+	assert.Equal(t, g.to, g.stored(t).Spec.Path)
+	assert.FileExists(t, g.to)
+	assert.FileExists(t, g.sidecarTo, "its subtitle follows")
+	assert.NoDirExists(t, filepath.Join(g.tv, "86 EIGHTY-SIX (2021)"))
+}
+
+// A missing file is recorded elsewhere only where the file it records is:
+// not when nothing is at the place it would move to, not when another file
+// is, and not while the file is still where spec names it.
+func TestAMissingFileIsNotRecordedWhereItIsNot(t *testing.T) {
+	missing := metav1.Condition{Type: catalogv1alpha1.MediaFileConditionReady, Status: metav1.ConditionFalse, Reason: "FileMissing"}
+	for name, mutate := range map[string]func(g *relocateRig, mf *catalogv1alpha1.MediaFile){
+		"nothing at the target": func(g *relocateRig, _ *catalogv1alpha1.MediaFile) {
+			require.NoError(t, os.Remove(g.from))
+		},
+		"another file at the target": func(g *relocateRig, _ *catalogv1alpha1.MediaFile) {
+			require.NoError(t, os.Remove(g.from))
+			require.NoError(t, os.MkdirAll(filepath.Dir(g.to), 0o755))
+			require.NoError(t, os.WriteFile(g.to, []byte("another series' episode"), 0o644))
+		},
+		"the file still where spec names it": func(g *relocateRig, _ *catalogv1alpha1.MediaFile) {
+			require.NoError(t, os.MkdirAll(filepath.Dir(g.to), 0o755))
+			data, err := os.ReadFile(g.from)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(g.to, data, 0o644))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := newRelocateRig(t, func(g *relocateRig, _ *catalogv1alpha1.Series, mf *catalogv1alpha1.MediaFile) {
+				mutate(g, mf)
+				mf.Status.Conditions[1] = missing
+			})
+			g.act(t)
+			assert.Empty(t, drain(g.rec))
+			assert.Equal(t, g.from, g.stored(t).Spec.Path)
+		})
+	}
+}
