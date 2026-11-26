@@ -71,8 +71,10 @@ func (r *countingReader) List(ctx context.Context, list client.ObjectList, opts 
 // two more: project's own listLibraryScans call (Task G3-3, the one new
 // List the Unmatched stream adds to the shared round) and its
 // listImportLists call (Task G3-4, the one new List the Import Lists stream
-// adds), neither running a ticker of its own.
-const listCallsPerTick = 2 + 10 + 1 + 1
+// adds), neither running a ticker of its own -- and the RootFolders, which
+// say whether a Series' card is TV's or Anime's (2026-11-25 anime library
+// design §5).
+const listCallsPerTick = 2 + 10 + 1 + 1 + 1
 
 // grabEntry is a minimal grab entry in phase on its owner's status.downloads.
 func grabEntry(id string, phase commonv1.DownloadPhase) catalogv1.DownloadEntry {

@@ -596,6 +596,9 @@ func addLabel(tab projection.Tab) string {
 	switch tab {
 	case projection.TabTV:
 		return "series"
+	case projection.TabAnime:
+		// Not "series": the Add New menu lists TV's beside it.
+		return "anime"
 	case projection.TabMusic:
 		return "artist"
 	case projection.TabBooks:
@@ -909,6 +912,8 @@ func tabLabel(tab projection.Tab) string {
 		return "Movies"
 	case projection.TabTV:
 		return "TV"
+	case projection.TabAnime:
+		return "Anime"
 	case projection.TabMusic:
 		return "Music"
 	case projection.TabBooks:

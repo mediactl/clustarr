@@ -177,13 +177,19 @@ type LibraryItem struct {
 // belongs to none and produces no card.
 type Tab string
 
-// The six tabs (2026-11-10 design D1: Movies, TV, Music, Books, Comics,
-// Audiobooks). A Comic is carded on Comics and an Audiobook on Audiobooks,
-// where until then both sat on Books (2026-09-23 library page design,
-// superseded there).
+// The seven tabs (2026-11-10 design D1: Movies, TV, Music, Books, Comics,
+// Audiobooks; Anime since the 2026-11-25 anime library design §5). A Comic
+// is carded on Comics and an Audiobook on Audiobooks, where until then both
+// sat on Books (2026-09-23 library page design, superseded there).
+//
+// Anime is the one tab that is not a kind's own: a Series is carded on it
+// when its root folder is an anime root (catalogv1.RootFolderSpec.AnimeRoot)
+// and on TV otherwise, the same line Plex draws between its two show
+// libraries, which are folders.
 const (
 	TabMovies     Tab = "movies"
 	TabTV         Tab = "tv"
+	TabAnime      Tab = "anime"
 	TabMusic      Tab = "music"
 	TabBooks      Tab = "books"
 	TabComics     Tab = "comics"
@@ -192,7 +198,9 @@ const (
 
 // Tabs lists the tabs in the order the page shows them: the sidebar's
 // Library sub-menu and the Add New menu both iterate it.
-func Tabs() []Tab { return []Tab{TabMovies, TabTV, TabMusic, TabBooks, TabComics, TabAudiobooks} }
+func Tabs() []Tab {
+	return []Tab{TabMovies, TabTV, TabAnime, TabMusic, TabBooks, TabComics, TabAudiobooks}
+}
 
 // ParseTab turns a URL path segment into a Tab, refusing anything that is
 // not exactly one of [Tabs].
@@ -217,14 +225,13 @@ func ForTab(items []LibraryItem, tab Tab) []LibraryItem {
 }
 
 // RootFolderKinds lists the RootFolder kinds whose folders hold a tab's
-// items: the page's single Rescan (2026-09-24) fans out to every
-// RootFolder of these kinds. Every RootFolderKind belongs to exactly one
-// tab, mirroring the parent kinds Build puts in each.
+// items. Every RootFolderKind belongs to one tab but series, whose folders
+// TV and Anime divide ([RootFolderOnTab]).
 func RootFolderKinds(tab Tab) []catalogv1.RootFolderKind {
 	switch tab {
 	case TabMovies:
 		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindMovie}
-	case TabTV:
+	case TabTV, TabAnime:
 		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindSeries}
 	case TabMusic:
 		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindMusic}
@@ -236,6 +243,36 @@ func RootFolderKinds(tab Tab) []catalogv1.RootFolderKind {
 		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindAudiobook}
 	}
 	return nil
+}
+
+// RootFolderOnTab reports whether rf's items are carded on tab: a folder of
+// one of the tab's kinds, and for a series folder the anime roots on Anime
+// and every other on TV. Every RootFolder is on exactly one tab; the page's
+// single Rescan (2026-09-24) fans out to those on its own, and Add New
+// offers them.
+func RootFolderOnTab(rf *catalogv1.RootFolder, tab Tab) bool {
+	if !slices.Contains(RootFolderKinds(tab), rf.Spec.Kind) {
+		return false
+	}
+	switch tab {
+	case TabAnime:
+		return rf.Spec.AnimeRoot()
+	case TabTV:
+		return !rf.Spec.AnimeRoot()
+	}
+	return true
+}
+
+// AnimeRoots are the anime roots among folders, by namespace and name: what
+// [buildLibraryItems] cards a Series on Anime by.
+func AnimeRoots(folders []catalogv1.RootFolder) map[types.NamespacedName]bool {
+	out := map[types.NamespacedName]bool{}
+	for i := range folders {
+		if folders[i].Spec.AnimeRoot() {
+			out[types.NamespacedName{Namespace: folders[i].Namespace, Name: folders[i].Name}] = true
+		}
+	}
+	return out
 }
 
 // UnmatchedEntry is one row on the Unmatched page (amendment §A3.4): one file
@@ -430,7 +467,11 @@ func folderOf(o client.Object) (root string, pin *string, at string, ok bool) {
 // nothing here needs to duplicate that. items and entries must be the same
 // length and in the same order -- project's loop guarantees this by
 // construction, building both from one range over items.
-func buildLibraryItems(items []client.Object, entries []pipeline.Entry, fileOf func(client.Object) *catalogv1.MediaFile) []LibraryItem {
+//
+// animeRoots are the namespace's anime roots ([AnimeRoots]): a Series
+// stored under one is carded on Anime, where describeLibraryItem, which
+// reads the item alone, puts every Series on TV.
+func buildLibraryItems(items []client.Object, entries []pipeline.Entry, fileOf func(client.Object) *catalogv1.MediaFile, animeRoots map[types.NamespacedName]bool) []LibraryItem {
 	out := make([]LibraryItem, 0, len(items))
 	for i, item := range items {
 		card, ok := describeLibraryItem(item)
@@ -439,6 +480,9 @@ func buildLibraryItems(items []client.Object, entries []pipeline.Entry, fileOf f
 		}
 		ann := item.GetAnnotations()
 		li := card.item
+		if li.Tab == TabTV && animeRoots[types.NamespacedName{Namespace: item.GetNamespace(), Name: li.RootFolder}] {
+			li.Tab = TabAnime
+		}
 		li.DeleteMode = ann[catalogv1.AnnotationDelete]
 		li.DeleteExclude = ann[catalogv1.AnnotationDeleteAddExclusion] == "true"
 		li.DeleteError = ann[catalogv1.AnnotationDeleteError]

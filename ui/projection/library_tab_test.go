@@ -173,12 +173,13 @@ func TestLibraryProjectionPutsEveryParentInATabWithArtYearAndProfile(t *testing.
 	require.Len(t, projection.ForTab(items, projection.TabAudiobooks), 1)
 }
 
-// The tab in a URL is untrusted input: the six tabs parse (2026-11-10
-// design D1), in the order the page lists them, and anything else is
-// refused rather than treated as an empty tab.
-func TestParseTabAcceptsTheSixTabsOnly(t *testing.T) {
+// The tab in a URL is untrusted input: the seven tabs parse (2026-11-10
+// design D1; Anime since the 2026-11-25 anime library design), in the order
+// the page lists them, and anything else is refused rather than treated as
+// an empty tab.
+func TestParseTabAcceptsTheSevenTabsOnly(t *testing.T) {
 	require.Equal(t, []projection.Tab{
-		projection.TabMovies, projection.TabTV, projection.TabMusic,
+		projection.TabMovies, projection.TabTV, projection.TabAnime, projection.TabMusic,
 		projection.TabBooks, projection.TabComics, projection.TabAudiobooks,
 	}, projection.Tabs())
 	for _, tab := range projection.Tabs() {
@@ -192,26 +193,93 @@ func TestParseTabAcceptsTheSixTabsOnly(t *testing.T) {
 	}
 }
 
-// TestRootFolderKindsCoverEveryKindOnce: every RootFolderKind belongs to
-// exactly one tab, so the page's Rescan reaches every folder and no folder
-// twice.
-func TestRootFolderKindsCoverEveryKindOnce(t *testing.T) {
-	seen := map[catalogv1.RootFolderKind]projection.Tab{}
-	for _, tab := range projection.Tabs() {
-		for _, k := range projection.RootFolderKinds(tab) {
-			_, dup := seen[k]
-			require.False(t, dup, "%s is in two tabs", k)
-			seen[k] = tab
+// TestEveryRootFolderIsOnOneTab: every RootFolder belongs to exactly one
+// tab, so the page's Rescan reaches every folder and no folder twice, and
+// Add New offers each folder once. A kind's folders are its tab's (2026-11-10
+// design D1), but a series folder is TV's or Anime's by whether it is an
+// anime root (2026-11-25 anime library design §1, §5).
+func TestEveryRootFolderIsOnOneTab(t *testing.T) {
+	folder := func(kind catalogv1.RootFolderKind, typ catalogv1.SeriesType) *catalogv1.RootFolder {
+		rf := &catalogv1.RootFolder{Spec: catalogv1.RootFolderSpec{Kind: kind}}
+		rf.Spec.Defaults.SeriesType = typ
+		return rf
+	}
+	for name, tc := range map[string]struct {
+		rf   *catalogv1.RootFolder
+		want projection.Tab
+	}{
+		"movies":            {folder(catalogv1.RootFolderKindMovie, ""), projection.TabMovies},
+		"a TV root":         {folder(catalogv1.RootFolderKindSeries, catalogv1.SeriesTypeStandard), projection.TabTV},
+		"a root unset":      {folder(catalogv1.RootFolderKindSeries, ""), projection.TabTV},
+		"a daily root":      {folder(catalogv1.RootFolderKindSeries, catalogv1.SeriesTypeDaily), projection.TabTV},
+		"an anime root":     {folder(catalogv1.RootFolderKindSeries, catalogv1.SeriesTypeAnime), projection.TabAnime},
+		"music":             {folder(catalogv1.RootFolderKindMusic, ""), projection.TabMusic},
+		"books":             {folder(catalogv1.RootFolderKindBook, ""), projection.TabBooks},
+		"audiobooks":        {folder(catalogv1.RootFolderKindAudiobook, ""), projection.TabAudiobooks},
+		"comics":            {folder(catalogv1.RootFolderKindComic, ""), projection.TabComics},
+		"a film root typed": {folder(catalogv1.RootFolderKindMovie, catalogv1.SeriesTypeAnime), projection.TabMovies},
+	} {
+		var on []projection.Tab
+		for _, tab := range projection.Tabs() {
+			if projection.RootFolderOnTab(tc.rf, tab) {
+				on = append(on, tab)
+			}
+		}
+		require.Equal(t, []projection.Tab{tc.want}, on, name)
+	}
+}
+
+// A Series is carded on Anime when the root folder it is stored under is an
+// anime root, and on TV otherwise -- whatever its own series type says, so
+// the page divides the library where Plex's two show libraries, which are
+// folders, do. Until the existing anime are moved they sit under the TV
+// root with type anime, and show on TV, where the move finds them. A root
+// folder of the same name in another namespace decides nothing here.
+func TestASeriesIsCardedByItsRootFolder(t *testing.T) {
+	root := func(ns, name string, typ catalogv1.SeriesType) *catalogv1.RootFolder {
+		rf := &catalogv1.RootFolder{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+			Spec:       catalogv1.RootFolderSpec{Kind: catalogv1.RootFolderKindSeries, Path: "/data/media/" + name},
+		}
+		rf.Spec.Defaults.SeriesType = typ
+		return rf
+	}
+	series := func(ns, name, rootFolder string, typ catalogv1.SeriesType) *catalogv1.Series {
+		return &catalogv1.Series{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, UID: types.UID(ns + "-" + name)},
+			Spec:       catalogv1.SeriesSpec{TvdbID: 1, QualityProfileRef: "q", RootFolderRef: rootFolder, SeriesType: typ},
 		}
 	}
-	require.Equal(t, map[catalogv1.RootFolderKind]projection.Tab{
-		catalogv1.RootFolderKindMovie:     projection.TabMovies,
-		catalogv1.RootFolderKindSeries:    projection.TabTV,
-		catalogv1.RootFolderKindMusic:     projection.TabMusic,
-		catalogv1.RootFolderKindBook:      projection.TabBooks,
-		catalogv1.RootFolderKindAudiobook: projection.TabAudiobooks,
-		catalogv1.RootFolderKindComic:     projection.TabComics,
-	}, seen, "each tab's Rescan covers its own RootFolder kind (2026-11-10 design D1)")
+	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(
+		root("default", "tv", catalogv1.SeriesTypeStandard),
+		root("default", "anime", catalogv1.SeriesTypeAnime),
+		root("other", "anime", catalogv1.SeriesTypeStandard),
+		series("default", "frieren", "anime", catalogv1.SeriesTypeAnime),
+		series("default", "andor", "tv", catalogv1.SeriesTypeStandard),
+		series("default", "not-moved-yet", "tv", catalogv1.SeriesTypeAnime),
+		series("other", "elsewhere", "anime", catalogv1.SeriesTypeStandard),
+	).Build()
+	proj := projection.New(fakeClient, time.Hour)
+	ctx := t.Context()
+	go func() { _ = proj.Run(ctx) }()
+	var items []projection.LibraryItem
+	require.Eventually(t, func() bool {
+		items = proj.Library(ctx)
+		return len(items) == 4
+	}, 5*time.Second, 5*time.Millisecond)
+
+	tabOf := map[string]projection.Tab{}
+	for _, it := range items {
+		tabOf[it.Ref.Name] = it.Tab
+	}
+	require.Equal(t, map[string]projection.Tab{
+		"frieren":       projection.TabAnime,
+		"andor":         projection.TabTV,
+		"not-moved-yet": projection.TabTV,
+		"elsewhere":     projection.TabTV,
+	}, tabOf)
+	require.Len(t, projection.ForTab(items, projection.TabAnime), 1)
+	require.Len(t, projection.ForTab(items, projection.TabTV), 3)
 }
 
 // TestLibraryItemsCarryTheirProviderID: Add New marks a search hit already
@@ -226,8 +294,10 @@ func TestLibraryItemsCarryTheirProviderID(t *testing.T) {
 		&catalogv1.Series{ObjectMeta: metav1.ObjectMeta{Name: "bb", Namespace: "media", UID: "bb-uid"}, Spec: catalogv1.SeriesSpec{TvdbID: 81189}},
 		&catalogv1.Artist{ObjectMeta: metav1.ObjectMeta{Name: "rh", Namespace: "media", UID: "rh-uid"}, Spec: catalogv1.ArtistSpec{MusicBrainzID: "a74b1b7f-71a5-4011-9441-d0b5e4122711"}},
 		&catalogv1.Author{ObjectMeta: metav1.ObjectMeta{Name: "ja", Namespace: "media", UID: "ja-uid"}, Spec: catalogv1.AuthorSpec{OpenLibraryID: "OL21594A"}},
-		&catalogv1.Comic{ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: "media", UID: "saga-uid"},
-			Spec: catalogv1.ComicSpec{Source: catalogv1.ComicSourceComicVine, SourceID: "4050-18166"}},
+		&catalogv1.Comic{
+			ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: "media", UID: "saga-uid"},
+			Spec:       catalogv1.ComicSpec{Source: catalogv1.ComicSourceComicVine, SourceID: "4050-18166"},
+		},
 		&catalogv1.Comic{ObjectMeta: metav1.ObjectMeta{Name: "blank", Namespace: "media", UID: "blank-uid"}},
 		&catalogv1.Audiobook{ObjectMeta: metav1.ObjectMeta{Name: "dune-audio", Namespace: "media", UID: "dune-audio-uid"}, Spec: catalogv1.AudiobookSpec{ASIN: "B0036I54I6"}},
 		&catalogv1.Book{ObjectMeta: metav1.ObjectMeta{Name: "lone", Namespace: "media", UID: "lone-uid"}, Spec: catalogv1.BookSpec{WorkID: "OL45883W"}},

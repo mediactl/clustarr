@@ -1159,8 +1159,19 @@ without the move. **A list places an item once and never moves it**
 (`importlist.applySeries`, `applyMovie` send the root folder the item has):
 until this, every sync forced the list's `defaults.rootFolderRef` onto
 everything it had added, so re-pointing a list would have re-rooted all of
-it with nothing moving the files. Not built: relocating an existing series'
-folder when its root changes, the ui's Anime tab, the Plex library.
+it with nothing moving the files. **The ui has an Anime tab** (step 3 in
+part, not deployed): `projection.TabAnime` after TV; a Series is carded on
+it when its root folder is an anime root, whatever its series type
+(`buildLibraryItems` with `AnimeRoots`), so until the existing anime are
+moved they show on TV; `RootFolderOnTab` puts every RootFolder on exactly
+one tab (a series folder on TV or Anime), which is what Rescan and Add New
+read; Add New on TV offers `standard` and `daily`, on Anime no type, and the
+handler holds a posted type to the folder. The projection lists and watches
+RootFolders for it (one more List a round). Not built: relocating an
+existing series' folder when its root changes -- held on an owner decision,
+since a file's probe hash names its path and a move reads as new bytes to
+subtitles and markers (the design's §8a) -- the ui's Move action, the Plex
+library.
 An Episode carries two conditions, Ready and DeadLettered (owner,
 2026-11-03, cutting the manager's memory): the Aired, HasFile, CutoffMet and
 WrongLanguage conditions every episode carried restated `status.phase`,

@@ -289,16 +289,67 @@ The author's, for the owner to overturn.
 
 ## 8. Not verified
 
-Before section 3 is built:
+Before section 3 is built: the three checks first listed here were made on
+2026-11-25, and section 8a is what they found. One of them is a decision
+for the owner.
 
-- every record that holds a path besides `MediaFile.spec.path` (the
-  trailers bucket, NFO state, the recycle folder, the ASS backups,
-  download entries, graft donors) and whether each follows a prefix
-  rewrite or a scan;
-- how a root's scan treats a folder that is mid-move, and how the loop
-  tells that a series has file work in flight;
-- whether the 2026-11-04 chain, in which import's facts were re-applied
-  over a renamed file's `spec.path`, is fixed; a relocation would trip it.
+## 8a. What the checks found (2026-11-25)
+
+**A file's probe hash names its path** (`sha1(path|size|mtime)`,
+`pkg/mediainfo/hash.go`), so a relocation gives every file of the series a
+new hash. The MediaFile controller takes the new hash without a probe
+(`pathOnly`), but two stages read a changed hash as new bytes:
+
+- subtitles reset every language's attempts and next search and withdraw
+  what is in flight (`subtitleplan`, "New bytes"), so the file is searched
+  for again;
+- markers are due again (`markers.Due`, `segmentplan.due`): TheIntroDB is
+  fetched and the segments analysed again, and the old fingerprints stay in
+  the object store until their 90 days are up.
+
+Both happen today at every single rename. The bulk move is 7,784 files in
+368 series (141 of the 509 anime have no file and only change root).
+**Open, the owner's:** either a path-only change carries that state -- the
+stages keep their history under the new hash when the bytes did not change,
+which also ends the same waste at every ordinary rename -- or the move
+accepts the searches and analyses, paced by one relocation at a time.
+Section 3 is not built until this is settled.
+
+What section 3 must also do, beyond its text:
+
+- **Hold `status.path`.** The Series reconciler renders it from the
+  current root on every pass, so a re-rooted series points at the new
+  folder at once; while a relocation is pending it has to keep naming where
+  the files are.
+- **Guard the scans.** A scan matches a file to a Series by its
+  `status.path` and looks a file up by `spec.path` alone, so a scan of the
+  new root between the folder's move and the path rewrite would record
+  every moved file a second time; a scan of the old root deletes a file's
+  record after ten minutes missing (`MissingGrace`). Nothing lets a scan
+  skip an item today. The existing hold runs the other way -- a rename
+  waits while a scan covers its folder (`rename.openScanOver`) -- and the
+  relocation takes the same one, and the scan apply refuses a Series that
+  is relocating.
+- **Read "quiet" off the files.** There is no per-series view of work in
+  flight: a transcode or graft is `status.transcode`/`status.graft` phase
+  and dispatch on each MediaFile, a subtitle fetch its item's dispatch, a
+  probe `Probed=False/ProbePending`. An import is the download entry the
+  planner still reads as importable (`lifecycle.Importable`): completed,
+  not yet imported.
+
+Settled, and no obstacle:
+
+- The 2026-11-04 chain is bounded. An import's destination is applied to a
+  MediaFile's path only while its download entry is importable, which is
+  the window the relocation already waits out.
+- No other record holds a path that goes stale harmfully. A file's
+  `status.naming.expectedPath` re-renders from `Series.status.path`; donor
+  files and trailers live under `<root>/.clustarr`, outside the series
+  folder, and stay where they are and valid; sidecar names are bare;
+  artwork, metadata and leases are keyed by UID. In-flight task payloads
+  carry paths, which is why the relocation waits for none.
+- A MediaFile's name hashes the path it was created at and never changes;
+  scans find it by `spec.path`, as they do after a rename.
 
 Before section 4 is deployed, on the cluster-plex rig:
 
@@ -335,4 +386,15 @@ recorded anime without detection. The first cut recorded the route in
 status and lost the whole record whenever a pass ran between the
 classification's two writes; `TestAnAnimeIsRoutedToTheAnimeRoot` found it.
 The root folder form's "Anime root folder" waits for step 3.
+
+**Step 3, in part, 2026-11-25** (clustarr ui; not deployed). The Anime
+tab: `projection.TabAnime` after TV, a Series carded on it by its root
+folder (`AnimeRoots`, `RootFolderOnTab`; the projection lists and watches
+RootFolders for it), TV's sorts, filters and find, Rescan over the anime
+roots, and Add New on each tab offering its own folders -- TV the types
+`standard` and `daily`, Anime none, the handler setting `anime` under an
+anime root and refusing it under any other. Checked in a browser against
+the preview harness seeded from talos. Not built, because they move files:
+Move to Anime / Move to TV, and the series type control on the edit form;
+nor the root folder form's "Anime root folder", Collections and Hubs.
 

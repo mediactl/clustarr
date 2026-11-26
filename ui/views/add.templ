@@ -45,6 +45,10 @@ type AddKind struct {
 	ProfileKind catalogv1.ProfileMediaKind
 	Monitor     []AddOption
 	MonitorNew  []AddOption
+	// SeriesTypes are the series types the kind's form offers: a TV
+	// series' two. None draws no control, the Anime tab's, where the root
+	// folder makes the series anime.
+	SeriesTypes []AddOption
 	// IDKeys, when set, are the id keys a hit may carry instead of IDKey,
 	// tried in order, each naming the hit's source.
 	IDKeys []AddIDKey
@@ -325,7 +329,7 @@ templ AddPage(d AddPageData) {
 		@input.Input(input.Props{
 			Type:        "search",
 			Name:        "q",
-			Placeholder: "Search for a " + d.Kind.Label + " by title",
+			Placeholder: "Search for " + withArticle(d.Kind.Label) + " by title",
 			Value:       d.Query,
 			Class:       "max-w-xl",
 			Attributes:  searchAttrs(d),
@@ -551,7 +555,9 @@ templ addForm(d AddResultsData, h AddHit) {
 					case commonv1.MediaKindMovie:
 						@addSelect("minimumAvailability", h.ID, "Minimum availability", []AddOption{{Value: "announced", Label: "Announced"}, {Value: "inCinemas", Label: "In cinemas"}, {Value: "released", Label: "Released"}}, posted(d, h, "minimumAvailability", "released"))
 					case commonv1.MediaKindSeries:
-						@addSelect("seriesType", h.ID, "Series type", []AddOption{{Value: "standard", Label: "Standard"}, {Value: "daily", Label: "Daily"}, {Value: "anime", Label: "Anime"}}, posted(d, h, "seriesType", "standard"))
+						if len(d.Kind.SeriesTypes) > 0 {
+							@addSelect("seriesType", h.ID, "Series type", d.Kind.SeriesTypes, posted(d, h, "seriesType", d.Kind.SeriesTypes[0].Value))
+						}
 						@addCheck("seasonFolder", h.ID, "Season folders", postedCheck(d, h, "seasonFolder", true))
 						@addCheck("searchCutoffUnmet", h.ID, "Search for cutoff unmet", postedCheck(d, h, "searchCutoffUnmet", false))
 					case commonv1.MediaKindComic:
@@ -689,3 +695,13 @@ func addSearchTrigger(query string) string {
 	}
 	return "input changed delay:400ms, search"
 }
+
+// withArticle is noun after "a", or "an" before a vowel: "a Movie", "an
+// Anime", "an Artist".
+func withArticle(noun string) string {
+	if noun != "" && strings.ContainsRune("AEIOUaeiou", rune(noun[0])) {
+		return "an " + noun
+	}
+	return "a " + noun
+}
+

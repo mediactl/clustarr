@@ -792,7 +792,7 @@ func findAddAttrs(t addTarget) templ.Attributes {
 // state: "No monitored series match …".
 func findNoun(tab projection.Tab) string {
 	switch tab {
-	case projection.TabTV:
+	case projection.TabTV, projection.TabAnime:
 		return "series"
 	case projection.TabMusic:
 		return "artists"

@@ -182,20 +182,22 @@ func (f Field) ValueLabel(value string) string {
 func (f Field) onTab(tab Tab) bool { return len(f.tabs) == 0 || slices.Contains(f.tabs, tab) }
 
 var (
-	videoTabs = []Tab{TabMovies, TabTV}
+	videoTabs = []Tab{TabMovies, TabTV, TabAnime}
 	movieTab  = []Tab{TabMovies}
-	tvTab     = []Tab{TabTV}
+	// tvTab is the two tabs a Series is carded on: Anime's cards are
+	// Series, so it filters by everything TV does.
+	tvTab = []Tab{TabTV, TabAnime}
 	// The non-video tabs' own (2026-11-10 design §9.1): a publisher
 	// stands where a studio does, a book's and an audiobook's publication
 	// date where a movie's release dates do, an audiobook's runtime and
 	// language where a video's do, a comic's age rating where a
 	// certification does, and a container's children counts where a
 	// series' episode counts do.
-	publisherTabs = []Tab{TabMovies, TabTV, TabBooks, TabComics, TabAudiobooks}
+	publisherTabs = []Tab{TabMovies, TabTV, TabAnime, TabBooks, TabComics, TabAudiobooks}
 	releasedTabs  = []Tab{TabBooks, TabAudiobooks}
-	runtimeTabs   = []Tab{TabMovies, TabTV, TabAudiobooks}
-	languageTabs  = []Tab{TabMovies, TabTV, TabAudiobooks}
-	ratedTabs     = []Tab{TabMovies, TabTV, TabComics}
+	runtimeTabs   = []Tab{TabMovies, TabTV, TabAnime, TabAudiobooks}
+	languageTabs  = []Tab{TabMovies, TabTV, TabAnime, TabAudiobooks}
+	ratedTabs     = []Tab{TabMovies, TabTV, TabAnime, TabComics}
 	containerTabs = []Tab{TabMusic, TabBooks, TabComics}
 )
 
@@ -223,14 +225,14 @@ var libraryFields = []Field{
 
 	{Key: "genres", Label: "Genres", Type: FieldList, texts: func(li LibraryItem) []string { return li.Genres }},
 	{Key: "subGenres", Label: "Sub-Genres", Type: FieldList, tabs: tvTab, texts: func(li LibraryItem) []string { return li.SubGenres }},
-	{Key: "keywords", Label: "Keywords", Type: FieldTextList, tabs: []Tab{TabMovies, TabTV, TabBooks}, texts: func(li LibraryItem) []string { return li.Keywords }},
+	{Key: "keywords", Label: "Keywords", Type: FieldTextList, tabs: []Tab{TabMovies, TabTV, TabAnime, TabBooks}, texts: func(li LibraryItem) []string { return li.Keywords }},
 	{Key: "originalLanguage", Label: "Original Language", Type: FieldEnum, Language: true, tabs: languageTabs,
 		text: func(li LibraryItem) string { return li.OriginalLanguage }},
 	{Key: "certification", Label: "Certification", Type: FieldEnum, tabs: ratedTabs, text: func(li LibraryItem) string { return li.Certification }},
 	{Key: "studio", Label: "Studio", Type: FieldTextList, tabs: videoTabs, texts: func(li LibraryItem) []string { return li.Studios }},
 	{Key: "publisher", Label: "Publisher", Type: FieldTextList, tabs: []Tab{TabBooks, TabComics, TabAudiobooks}, texts: func(li LibraryItem) []string { return li.Studios }},
 	{Key: "network", Label: "Network", Type: FieldTextList, tabs: tvTab, texts: func(li LibraryItem) []string { return li.Networks }},
-	{Key: "countries", Label: "Country", Type: FieldList, tabs: []Tab{TabMovies, TabTV, TabMusic}, texts: func(li LibraryItem) []string { return li.Countries }},
+	{Key: "countries", Label: "Country", Type: FieldList, tabs: []Tab{TabMovies, TabTV, TabAnime, TabMusic}, texts: func(li LibraryItem) []string { return li.Countries }},
 	{Key: "runtime", Label: "Runtime", Type: FieldNumber, Unit: "minutes", tabs: runtimeTabs,
 		number: positive(func(li LibraryItem) float64 { return float64(li.RuntimeMinutes) })},
 	{Key: "ratingTmdb", Label: "TMDB Rating", Type: FieldNumber, tabs: videoTabs, number: rating(catalogv1.RatingSourceTMDB)},

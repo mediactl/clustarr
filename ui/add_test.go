@@ -857,3 +857,72 @@ func TestAddAudiobooksShowThePeopleAndLinkTheAuthor(t *testing.T) {
 		require.Empty(t, calls.asked, "a form AddItem refuses is refused before the author lookup")
 	})
 }
+
+// TV and Anime each add a Series to the folders that are theirs (anime
+// library design, 2026-11-25, §5). Anime's page offers the anime roots and
+// no series type, and what it adds is anime; TV's offers the other series
+// folders and the two types a TV series has, and refuses a hand-made post
+// of the third: an anime is added on Anime, or on TV as a standard series,
+// which its metadata then moves.
+func TestTVAndAnimeAddASeriesToTheirOwnFolders(t *testing.T) {
+	animeRoot := &catalogv1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: "anime", Namespace: "media"},
+		Spec:       catalogv1.RootFolderSpec{Path: "/data/media/anime", Kind: catalogv1.RootFolderKindSeries},
+	}
+	animeRoot.Spec.Defaults.SeriesType = catalogv1.SeriesTypeAnime
+	hit := `{"IDs":{"tvdb":"424536"},"Title":"Frieren","Year":2023}`
+	srv, c := addServer(t, hits(commonv1.MediaKindSeries, hit), tvRoot, animeRoot, hdProfile)
+
+	anime := get(t, srv, "/library/anime/add/search?q=frieren").Body.String()
+	require.Contains(t, anime, "Frieren", "the same search as TV's: a series by its TVDB id")
+	require.Contains(t, anime, `data-templ-value="media/anime"`)
+	require.NotContains(t, anime, `data-templ-value="media/tv"`, "the TV root is not Anime's to add to")
+	require.NotContains(t, anime, "Series type", "under an anime root a series is anime: nothing to choose")
+	tv := get(t, srv, "/library/tv/add/search?q=frieren").Body.String()
+	require.Contains(t, tv, `data-templ-value="media/tv"`)
+	require.NotContains(t, tv, `data-templ-value="media/anime"`)
+	require.Contains(t, tv, "Series type")
+	require.Contains(t, tv, `data-templ-value="daily"`)
+	require.NotContains(t, tv, `data-templ-value="anime"`, "TV offers standard and daily")
+
+	form := func(root, seriesType string) url.Values {
+		v := url.Values{
+			"title": {"Frieren"}, "id": {"424536"}, "rootFolder": {root}, "qualityProfile": {"hd"},
+			"monitored": {"false", "true"}, "monitor": {"unmonitorSpecials"}, "monitorNewItems": {"all"},
+			"seasonFolder": {"false", "true"}, "searchOnAdd": {"false", "true"},
+		}
+		if seriesType != "" {
+			v.Set("seriesType", seriesType)
+		}
+		return v
+	}
+	name := names.Series("Frieren", 424536)
+	get := func() catalogv1.Series {
+		var s catalogv1.Series
+		require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "media", Name: name}, &s))
+		return s
+	}
+
+	// The wrong tab's folder is not one the page offered.
+	require.Equal(t, http.StatusBadRequest, post(t, srv, "/library/anime/add", form("media/tv", "")).Code)
+	require.Equal(t, http.StatusBadRequest, post(t, srv, "/library/tv/add", form("media/anime", "standard")).Code)
+	// Nor is anime a TV series' type.
+	refused := post(t, srv, "/library/tv/add", form("media/tv", "anime"))
+	require.Equal(t, http.StatusBadRequest, refused.Code)
+	require.Contains(t, refused.Body.String(), "Anime tab")
+
+	// Anime adds an anime, whatever type a hand-made post names.
+	rec := post(t, srv, "/library/anime/add", form("media/anime", "daily"))
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	s := get()
+	require.Equal(t, "anime", s.Spec.RootFolderRef)
+	require.Equal(t, catalogv1.SeriesTypeAnime, s.Spec.SeriesType)
+	require.NoError(t, c.Delete(t.Context(), &s))
+
+	// TV adds it standard, as a watchlist does.
+	rec = post(t, srv, "/library/tv/add", form("media/tv", "standard"))
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	s = get()
+	require.Equal(t, "tv", s.Spec.RootFolderRef)
+	require.Equal(t, catalogv1.SeriesTypeStandard, s.Spec.SeriesType)
+}

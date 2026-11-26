@@ -77,26 +77,14 @@ var addKinds = map[projection.Tab]views.AddKind{
 		},
 		SearchOnAdd: "Start search for missing",
 	},
-	projection.TabTV: {
-		Tab: projection.TabTV, Kind: commonv1.MediaKindSeries, Label: "Series", RootKind: catalogv1.RootFolderKindSeries, IDKey: metadata.KeyTVDB,
-		ProfileKind: catalogv1.ProfileMediaKindVideo,
-		// Every season but the specials first, so it is the default: a
-		// monitored series monitors all of its seasons (owner, 2026-10-27).
-		Monitor: []views.AddOption{
-			{Value: "unmonitorSpecials", Label: "All seasons, no specials"},
-			{Value: "all", Label: "All episodes"},
-			{Value: "future", Label: "Future episodes"},
-			{Value: "missing", Label: "Missing episodes"},
-			{Value: "existing", Label: "Existing episodes"},
-			{Value: "firstSeason", Label: "First season"},
-			{Value: "lastSeason", Label: "Last season"},
-			{Value: "pilot", Label: "Pilot"},
-			{Value: "recent", Label: "Recent episodes"},
-			{Value: "none", Label: "None"},
-		},
-		MonitorNew:  monitorNewAllOrNone,
-		SearchOnAdd: "Start search for missing",
-	},
+	// TV and Anime both add a Series, to the folders that are theirs
+	// (projection.RootFolderOnTab). TV offers the two types a TV series has;
+	// Anime offers none, a series under an anime root being anime (anime
+	// library design, 2026-11-25, §5). An anime added on TV is created
+	// standard and moved to the anime root by its classification.
+	projection.TabTV: seriesAddKind(projection.TabTV, "Series",
+		views.AddOption{Value: "standard", Label: "Standard"}, views.AddOption{Value: "daily", Label: "Daily"}),
+	projection.TabAnime: seriesAddKind(projection.TabAnime, "Anime"),
 	projection.TabMusic: {
 		Tab: projection.TabMusic, Kind: commonv1.MediaKindArtist, Label: "Artist", RootKind: catalogv1.RootFolderKindMusic, IDKey: metadata.KeyMBArtist,
 		ProfileKind: catalogv1.ProfileMediaKindMusic,
@@ -230,13 +218,39 @@ func tabKinds(tab projection.Tab) []views.AddKind {
 	return append([]views.AddKind{k}, altAddKinds[tab]...)
 }
 
+// seriesAddKind is Add New for a Series on tab, offering types.
+func seriesAddKind(tab projection.Tab, label string, types ...views.AddOption) views.AddKind {
+	return views.AddKind{
+		Tab: tab, Kind: commonv1.MediaKindSeries, Label: label, RootKind: catalogv1.RootFolderKindSeries, IDKey: metadata.KeyTVDB,
+		ProfileKind: catalogv1.ProfileMediaKindVideo,
+		// Every season but the specials first, so it is the default: a
+		// monitored series monitors all of its seasons (owner, 2026-10-27).
+		Monitor: []views.AddOption{
+			{Value: "unmonitorSpecials", Label: "All seasons, no specials"},
+			{Value: "all", Label: "All episodes"},
+			{Value: "future", Label: "Future episodes"},
+			{Value: "missing", Label: "Missing episodes"},
+			{Value: "existing", Label: "Existing episodes"},
+			{Value: "firstSeason", Label: "First season"},
+			{Value: "lastSeason", Label: "Last season"},
+			{Value: "pilot", Label: "Pilot"},
+			{Value: "recent", Label: "Recent episodes"},
+			{Value: "none", Label: "None"},
+		},
+		MonitorNew:  monitorNewAllOrNone,
+		SeriesTypes: types,
+		SearchOnAdd: "Start search for missing",
+	}
+}
+
 // addChoices lists the root folders of k's own kind -- a book root for an
 // Author, never an audiobook or comic one, which the rescan would read as
 // its own kind -- each valued "namespace/name" so the item is created
 // beside its root folder, and the quality profiles of k's media kind.
 func (s *Server) addChoices(ctx context.Context, k views.AddKind) (roots, profiles []views.AddOption) {
 	for _, rf := range s.listRootFolders(ctx) {
-		if rf.Spec.Kind == k.RootKind {
+		// Of k's kind and on its tab: a series folder is TV's or Anime's.
+		if rf.Spec.Kind == k.RootKind && projection.RootFolderOnTab(&rf, k.Tab) {
 			roots = append(roots, views.AddOption{Value: rf.Namespace + "/" + rf.Name, Label: rf.Name + " (" + rf.Spec.Path + ")"})
 		}
 	}
@@ -561,6 +575,19 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 	if rf != nil {
 		rootDefaults(&req, k, r.PostForm, rf.Spec.Defaults)
 	}
+	if k.Kind == commonv1.MediaKindSeries {
+		// The root folder decides: a series under an anime root is anime,
+		// and under any other it is one of the types the page offers.
+		// A hand-made POST cannot say otherwise.
+		switch {
+		case rf != nil && rf.Spec.AnimeRoot():
+			req.SeriesType = string(catalogv1.SeriesTypeAnime)
+		case !slices.ContainsFunc(k.SeriesTypes, func(o views.AddOption) bool { return o.Value == req.SeriesType }):
+			s.rejectAdd(w, r, k, fmt.Errorf("%w: a series under %s is %s; an anime is added on the Anime tab, or here as a standard series, which its metadata then moves",
+				actions.ErrInvalid, root, seriesTypeChoice(k.SeriesTypes)))
+			return
+		}
+	}
 	// The request is checked before the author link is resolved, so a form
 	// AddItem refuses (no profile, an id that cannot key the kind) never
 	// spends the lookup's gateway round trip.
@@ -581,6 +608,16 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/library/"+ns+"/"+string(k.Kind)+"/"+name, http.StatusSeeOther)
+}
+
+// seriesTypeChoice reads a tab's series types as a choice: "standard or
+// daily".
+func seriesTypeChoice(types []views.AddOption) string {
+	names := make([]string, 0, len(types))
+	for _, o := range types {
+		names = append(names, o.Value)
+	}
+	return strings.Join(names, " or ")
 }
 
 // checkFolderFree refuses an add that pins req.Folder when an item of the

@@ -187,6 +187,7 @@ var librarySorts = []LibrarySort{SortTitle, SortYear, SortProfile, SortStatus, S
 var tabSorts = map[Tab][]LibrarySort{
 	TabMovies:     {SortReleased, SortRuntime, SortRating, SortSize},
 	TabTV:         {SortNetwork, SortNextAiring, SortPreviousAiring, SortEpisodes, SortRuntime, SortRating, SortSize},
+	TabAnime:      {SortNetwork, SortNextAiring, SortPreviousAiring, SortEpisodes, SortRuntime, SortRating, SortSize},
 	TabMusic:      {SortNextRelease, SortPreviousRelease, SortRating},
 	TabBooks:      {SortReleased, SortNextRelease, SortPreviousRelease, SortRating},
 	TabComics:     {SortNextRelease, SortPreviousRelease, SortRating},
@@ -276,6 +277,7 @@ var libraryFilters = []LibraryFilter{FilterAll, FilterMonitored, FilterUnmonitor
 // tabFilters are a tab's presets after the shared ones.
 var tabFilters = map[Tab][]LibraryFilter{
 	TabTV:     {FilterContinuing, FilterEnded},
+	TabAnime:  {FilterContinuing, FilterEnded},
 	TabMusic:  {FilterContinuing, FilterEnded},
 	TabComics: {FilterContinuing, FilterEnded},
 }

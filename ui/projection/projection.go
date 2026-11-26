@@ -432,15 +432,15 @@ type informerSource interface {
 }
 
 // watchedKinds is every kind a round lists (listItems, buildRelatedIndex,
-// listLibraryScans, listImportLists); a change to any of them marks the
-// projection dirty. TestEveryListedKindIsWatched holds the two together.
+// listLibraryScans, listImportLists, and the RootFolders a Series' tab is
+// told by); a change to any of them marks the projection dirty. TestEveryListedKindIsWatched holds the two together.
 func watchedKinds() []client.Object {
 	return []client.Object{
 		&catalogv1.Movie{}, &catalogv1.Series{}, &catalogv1.Episode{},
 		&catalogv1.Album{}, &catalogv1.Artist{}, &catalogv1.Author{},
 		&catalogv1.Book{}, &catalogv1.Audiobook{}, &catalogv1.Comic{}, &catalogv1.Issue{},
 		&catalogv1.MediaFile{}, &catalogv1.Search{},
-		&catalogv1.LibraryScan{}, &catalogv1.ImportList{},
+		&catalogv1.LibraryScan{}, &catalogv1.ImportList{}, &catalogv1.RootFolder{},
 	}
 }
 
@@ -525,7 +525,11 @@ func (p *Projection) project(
 		entries = append(entries, pipeline.Project(item, related))
 	}
 
-	library := buildLibraryItems(items, entries, idx.fileOf)
+	var folders catalogv1.RootFolderList
+	if err := p.reader.List(ctx, &folders, listOpts...); err != nil {
+		return nil, nil, nil, nil, nil, Dashboard{}, err
+	}
+	library := buildLibraryItems(items, entries, idx.fileOf, AnimeRoots(folders.Items))
 
 	// Stages are evaluated in reverse-completion order internally
 	// (pipeline.Project's own doc comment); the page itself sorts rows

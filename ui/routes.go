@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"sort"
 	"strings"
 
@@ -756,11 +755,10 @@ func (s *Server) handleRescan(w http.ResponseWriter, r *http.Request) {
 // rootFoldersFor keeps the RootFolders whose kind belongs to tab
 // (projection.RootFolderKinds), in their existing order.
 func rootFoldersFor(folders []catalogv1.RootFolder, tab projection.Tab) []catalogv1.RootFolder {
-	kinds := projection.RootFolderKinds(tab)
 	out := make([]catalogv1.RootFolder, 0, len(folders))
-	for _, rf := range folders {
-		if slices.Contains(kinds, rf.Spec.Kind) {
-			out = append(out, rf)
+	for i := range folders {
+		if projection.RootFolderOnTab(&folders[i], tab) {
+			out = append(out, folders[i])
 		}
 	}
 	return out
