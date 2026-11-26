@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/events"
@@ -283,17 +284,25 @@ func (h *Handler) maxDeliver() int {
 }
 
 // record is the bucket's analysis of f for its probe and the current
-// analyzer; nil when there is none, it failed, or it is unreadable.
+// analyzer; nil when there is none, it failed, or it is unreadable. An
+// analysis recorded under a hash the same bytes had at an earlier path
+// (f.FormerProbeHashes) is theirs.
 func (h *Handler) record(ctx context.Context, f schema.AnalyzeFile) *segments.Record {
 	if h.Records == nil {
 		return nil
 	}
 	r, _, ok, err := h.Records.Get(ctx, f.UID)
-	if err != nil || !ok || r.ProbeHash != f.ProbeHash || r.Version != segments.AnalyzerVersion ||
+	if err != nil || !ok || !sameBytes(f, r.ProbeHash) || r.Version != segments.AnalyzerVersion ||
 		r.Result == segments.ResultError {
 		return nil
 	}
 	return &r
+}
+
+// sameBytes reports whether hash names f's bytes: its probe hash, or one
+// they had at a path the file was renamed or moved from.
+func sameBytes(f schema.AnalyzeFile, hash string) bool {
+	return hash != "" && (hash == f.ProbeHash || slices.Contains(f.FormerProbeHashes, hash))
 }
 
 // analysisResult is one file's analysis, as store records it, and the

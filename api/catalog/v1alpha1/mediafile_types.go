@@ -284,6 +284,18 @@ type MediaFileStatus struct {
 	// +kubebuilder:validation:MaxLength=128
 	ProbeHash string `json:"probeHash,omitempty"`
 
+	// FormerProbeHashes are the probe hashes these same bytes had at the
+	// paths the file was renamed or moved from, oldest first: the hash
+	// names the path, so a change of path alone moves it. What a stage, a
+	// record or a cache holds under one of them is still about this file
+	// (SameBytes, CarryBytes). The probe sets it when it takes a path-only
+	// change without probing and clears it when the bytes change.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=4
+	// +kubebuilder:validation:items:MaxLength=128
+	FormerProbeHashes []string `json:"formerProbeHashes,omitempty"`
+
 	// ProbedAt is when the file was last probed.
 	// +optional
 	ProbedAt *metav1.Time `json:"probedAt,omitempty"`

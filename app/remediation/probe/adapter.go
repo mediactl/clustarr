@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"slices"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -155,13 +156,14 @@ func publish(rec schema.ProbeRecord, now metav1.Time) (remediation.Publish, erro
 	return remediation.Publish{Subject: subject, MsgID: id, ExpectStream: events.StreamWorkProbe, Envelope: env}, nil
 }
 
-// Copy is the probe's row of §3.5's table: probeHash, probedAt,
-// probeVersion, mediaInfo, handledNonces.reprobe, and the Probed and Ready
-// conditions.
+// Copy is the probe's row of §3.5's table: probeHash, formerProbeHashes,
+// probedAt, probeVersion, mediaInfo, handledNonces.reprobe, and the Probed
+// and Ready conditions.
 // status.transcode is the transcode planner's (F6.2); status.graft,
 // graftTag and graftedAt the graft planner's (F7.2).
 func (*Adapter) Copy(from, into *catalogv1alpha1.MediaFileStatus) {
 	into.ProbeHash, into.ProbedAt, into.ProbeVersion = from.ProbeHash, from.ProbedAt.DeepCopy(), from.ProbeVersion
+	into.FormerProbeHashes = slices.Clone(from.FormerProbeHashes)
 	into.MediaInfo = from.MediaInfo.DeepCopy()
 	var reprobe string
 	if from.HandledNonces != nil {

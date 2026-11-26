@@ -50,20 +50,37 @@ func (h *Handler) window(ctx context.Context, f *file, which string, fromS, lenS
 	if fp, ok := h.cached(ctx, name, lenS); ok {
 		return fp, nil
 	}
+	// The same bytes under a path the file was renamed or moved from: the
+	// probe hash names the path, so their fingerprint is cached under the
+	// hash they had. It is stored again under the one they have, newest
+	// former hash first, and nothing is decoded.
+	for i := len(f.FormerProbeHashes) - 1; i >= 0; i-- {
+		fp, ok := h.cached(ctx, segments.FingerprintKey(f.FormerProbeHashes[i], which), lenS)
+		if !ok {
+			continue
+		}
+		h.put(ctx, name, f.ProbeHash, which, lenS, fp)
+		return fp, nil
+	}
 	pcm, err := h.Decoder.Audio(ctx, f.Path, int(f.AudioStream), fromS, lenS)
 	if err != nil {
 		return nil, err
 	}
 	fp := chromaprint.Fingerprint(pcm)
+	h.put(ctx, name, f.ProbeHash, which, lenS, fp)
+	return fp, nil
+}
+
+// put caches fp as name. A cache: a failed write is recomputed next time.
+func (h *Handler) put(ctx context.Context, name, probeHash, which string, lenS float64, fp []uint32) {
+	if h.Fingerprints == nil {
+		return
+	}
 	var buf bytes.Buffer
 	_ = binary.Write(&buf, binary.LittleEndian, fp)
-	if h.Fingerprints != nil {
-		// Self-describing, through the store's one builder (ADR-0021 §2). A
-		// cache: a failed write is recomputed next time.
-		meta := fingerprintmeta.Build(f.ProbeHash, which, lenS, h.writtenBy())
-		_, _ = h.Fingerprints.Put(ctx, name, &buf, meta)
-	}
-	return fp, nil
+	// Self-describing, through the store's one builder (ADR-0021 §2).
+	meta := fingerprintmeta.Build(probeHash, which, lenS, h.writtenBy())
+	_, _ = h.Fingerprints.Put(ctx, name, &buf, meta)
 }
 
 // writtenBy is the fingerprints' clustarr.io/written-by: Handler.WrittenBy,

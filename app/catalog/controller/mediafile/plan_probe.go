@@ -223,7 +223,11 @@ func PlanProbe(in ProbeInput, out *catalogv1alpha1.MediaFileStatus) ProbeOutcome
 	switch {
 	case pathOnly(mf, ps, swapOrKept):
 		// The bytes status.mediaInfo describes, under a new name: record the
-		// new hash and the container the name says, and probe nothing.
+		// new hash and the container the name says, and probe nothing. The
+		// hash they had is kept beside it, so what the later planners, the
+		// segments record and the fingerprint cache hold under it is still
+		// read as this file's (MediaFileStatus.SameBytes).
+		out.FormerProbeHashes = catalogv1alpha1.WithFormerProbeHash(in.Prev.FormerProbeHashes, in.Prev.ProbeHash, ps.Hash)
 		out.ProbeHash = ps.Hash
 		out.MediaInfo = mediainfo.AtPath(in.Prev.MediaInfo, in.Path)
 		out.ProbedAt = &now
@@ -315,6 +319,10 @@ func incorporateProbe(o *ProbeOutcome, in ProbeInput, ps probeState, out *catalo
 	}
 	k8s.MarkTrue(mf, &out.Conditions, catalogv1alpha1.MediaFileConditionProbed, "Probed", "probed at %s", now.UTC().Format(time.RFC3339))
 	k8s.MarkTrue(mf, &out.Conditions, catalogv1alpha1.MediaFileConditionReady, "Ready", "file present and probed")
+	if ps.Hash != in.Prev.ProbeHash {
+		// Other bytes: no earlier hash names them.
+		out.FormerProbeHashes = nil
+	}
 	out.ProbeHash, out.ProbedAt, out.ProbeVersion, out.MediaInfo = ps.Hash, &now, version, mi
 	o.Events = append(o.Events, ProbeEvent{Type: "Normal", Reason: "Probed", Note: "probed " + mf.Spec.Path})
 	if in.Swap == nil && !in.GraftInFlight && transcoded && bytesChanged(mf, ps) && in.Prev.ProbeHash != "" {

@@ -34,13 +34,17 @@ func (SegmentsPlanTask) Schema() string { return "catalog.SegmentsPlanTask.v1" }
 
 // AnalyzeFile is one file of an AnalyzeTask.
 type AnalyzeFile struct {
-	MediaFile   string             `json:"mediaFile"`
-	UID         string             `json:"uid"`
-	Path        string             `json:"path"`
-	ProbeHash   string             `json:"probeHash"`
-	DurationMs  int64              `json:"durationMs"`
-	AudioStream int32              `json:"audioStream,omitempty"`
-	Chapters    []commonv1.Chapter `json:"chapters,omitempty"`
+	MediaFile string `json:"mediaFile"`
+	UID       string `json:"uid"`
+	Path      string `json:"path"`
+	ProbeHash string `json:"probeHash"`
+	// FormerProbeHashes are the hashes the same bytes had at paths the file
+	// was renamed or moved from (MediaFile status.formerProbeHashes): its
+	// record and its cached fingerprints may still be under one.
+	FormerProbeHashes []string           `json:"formerProbeHashes,omitempty"`
+	DurationMs        int64              `json:"durationMs"`
+	AudioStream       int32              `json:"audioStream,omitempty"`
+	Chapters          []commonv1.Chapter `json:"chapters,omitempty"`
 	// Due is false for a file analyzed already: it is fingerprinted only,
 	// as its season's comparison.
 	Due bool `json:"due,omitempty"`

@@ -3672,6 +3672,11 @@ func (in *MediaFileStatus) DeepCopyInto(out *MediaFileStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.FormerProbeHashes != nil {
+		in, out := &in.FormerProbeHashes, &out.FormerProbeHashes
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.ProbedAt != nil {
 		in, out := &in.ProbedAt, &out.ProbedAt
 		*out = (*in).DeepCopy()

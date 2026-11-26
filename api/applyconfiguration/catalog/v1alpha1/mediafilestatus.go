@@ -44,6 +44,13 @@ type MediaFileStatusApplyConfiguration struct {
 	LastSeq *int64 `json:"lastSeq,omitempty"`
 	// ProbeHash is sha1(path|size|mtime); a change makes downstream services replan.
 	ProbeHash *string `json:"probeHash,omitempty"`
+	// FormerProbeHashes are the probe hashes these same bytes had at the
+	// paths the file was renamed or moved from, oldest first: the hash
+	// names the path, so a change of path alone moves it. What a stage, a
+	// record or a cache holds under one of them is still about this file
+	// (SameBytes, CarryBytes). The probe sets it when it takes a path-only
+	// change without probing and clears it when the bytes change.
+	FormerProbeHashes []string `json:"formerProbeHashes,omitempty"`
 	// ProbedAt is when the file was last probed.
 	ProbedAt *metav1.Time `json:"probedAt,omitempty"`
 	// ProbeVersion is the version of the probe that last described the
@@ -133,6 +140,16 @@ func (b *MediaFileStatusApplyConfiguration) WithLastSeq(value int64) *MediaFileS
 // If called multiple times, the ProbeHash field is set to the value of the last call.
 func (b *MediaFileStatusApplyConfiguration) WithProbeHash(value string) *MediaFileStatusApplyConfiguration {
 	b.ProbeHash = &value
+	return b
+}
+
+// WithFormerProbeHashes adds the given value to the FormerProbeHashes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the FormerProbeHashes field.
+func (b *MediaFileStatusApplyConfiguration) WithFormerProbeHashes(values ...string) *MediaFileStatusApplyConfiguration {
+	for i := range values {
+		b.FormerProbeHashes = append(b.FormerProbeHashes, values[i])
+	}
 	return b
 }
 

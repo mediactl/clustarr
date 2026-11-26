@@ -3554,6 +3554,12 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: formerProbeHashes
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: graft
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.GraftState

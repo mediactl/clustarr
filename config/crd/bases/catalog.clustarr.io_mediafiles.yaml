@@ -435,6 +435,20 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              formerProbeHashes:
+                description: |-
+                  FormerProbeHashes are the probe hashes these same bytes had at the
+                  paths the file was renamed or moved from, oldest first: the hash
+                  names the path, so a change of path alone moves it. What a stage, a
+                  record or a cache holds under one of them is still about this file
+                  (SameBytes, CarryBytes). The probe sets it when it takes a path-only
+                  change without probing and clears it when the bytes change.
+                items:
+                  maxLength: 128
+                  type: string
+                maxItems: 4
+                type: array
+                x-kubernetes-list-type: atomic
               graft:
                 description: |-
                   Graft is the remediation loop's graft block (loop spec §2.6;

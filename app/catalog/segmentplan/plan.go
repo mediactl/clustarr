@@ -22,6 +22,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -125,7 +126,8 @@ func (p *Planner) Handle(ctx context.Context, m events.Message) error {
 		}
 		f := schema.AnalyzeFile{
 			MediaFile: mf.Name, UID: string(mf.UID), Path: mf.Spec.Path, ProbeHash: mf.Status.ProbeHash,
-			DurationMs: mf.Status.MediaInfo.RuntimeMillis, Chapters: mf.Status.MediaInfo.ChapterList,
+			FormerProbeHashes: slices.Clone(mf.Status.FormerProbeHashes),
+			DurationMs:        mf.Status.MediaInfo.RuntimeMillis, Chapters: mf.Status.MediaInfo.ChapterList,
 			Due: Due(mf, now), Anime: anime,
 		}
 		if f.Due {

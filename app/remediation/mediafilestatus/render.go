@@ -70,14 +70,16 @@ type bound struct {
 // bounds is the clamp table: every bounded string under status, by JSON
 // path, conditions excepted (conditions renders those).
 var bounds = map[string]bound{
-	"probeHash": {128, keep},
-	"graftTag":  {64, keep},
+	"probeHash":           {128, keep},
+	"formerProbeHashes[]": {128, keep},
+	"graftTag":            {64, keep},
 
 	"mediaInfo.container":                      {64, keep},
 	"mediaInfo.videoCodec":                     {64, keep},
 	"mediaInfo.videoProfile":                   {64, keep},
 	"mediaInfo.pixelFormat":                    {64, keep},
 	"mediaInfo.transcodeProfile":               {320, keep},
+	"mediaInfo.transcodeVideo":                 {16, keep},
 	"mediaInfo.videoEncoder":                   {256, keep},
 	"mediaInfo.audio[].codec":                  {64, keep},
 	"mediaInfo.audio[].profile":                {64, keep},

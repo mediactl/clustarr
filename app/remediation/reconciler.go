@@ -234,6 +234,11 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	}
 	v.Prev = &v.File.Status
 	v.Stale = ks.stale(mf.UID, v.Prev, now.Time)
+	// A block left under a hash these bytes had at an earlier path is
+	// carried to the probe hash before any planner reads it
+	// (MediaFileStatus.CarryBytes); carried forces the status write below,
+	// since the view the pass compares its render with now holds it too.
+	carried := v.Prev.CarryBytes()
 	v.Draft = v.Prev.DeepCopy()
 
 	// 3. Gather. A planner after the probe gathers nothing while the stored
@@ -294,6 +299,15 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 		v.Draft = next
 		if p.Name() == PlannerProbe {
 			v.Main = results[i].Main
+			// When the probe took a change of path alone this pass, the
+			// later planners' blocks follow the bytes to their new hash in
+			// the same status write, so no stored status ever reads as a
+			// file that changed. Those planners are gated while the stored
+			// probe is pending and copy v.Prev's block, so it is carried in
+			// v.Prev as well as in the draft; their own pass comes next and
+			// finds the blocks about the bytes it has.
+			carried = v.Prev.CarryBytesTo(v.Draft.ProbeHash, v.Draft.FormerProbeHashes) || carried
+			carried = v.Draft.CarryBytes() || carried
 		}
 	}
 
@@ -326,7 +340,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 
 	// 7. Status: one compare-and-swap at the resourceVersion the pass
 	// planned from (or its own main apply returned).
-	changed := !equality.Semantic.DeepEqual(normalize(rendered), normalize(v.Prev))
+	changed := carried || !equality.Semantic.DeepEqual(normalize(rendered), normalize(v.Prev))
 	if changed && !anyUnpaced(results) {
 		if wait := r.limiter.Admit(mf.UID, now.Time); wait > 0 {
 			return r.count(passPaced, reconcile.Result{RequeueAfter: wait, Priority: new(PriorityTimed)}), nil
@@ -336,7 +350,10 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	appliedStatus := v.Prev
 	observed := v.Prev
 	if changed {
-		_, ok, err := k8s.PatchStatusCAS(ctx, viewReader{obj: v.File, rv: viewRV, gen: viewGen}, r.c, k8s.ManagerCatalog,
+		// The stored object, not the view: the view's status may hold
+		// blocks carried to the probe hash (CarryBytes), and compared with
+		// it a pass that only carried would read as already stored.
+		_, ok, err := k8s.PatchStatusCAS(ctx, viewReader{obj: &mf, rv: viewRV, gen: viewGen}, r.c, k8s.ManagerCatalog,
 			nn, newMediaFile, func(fresh *catalogv1alpha1.MediaFile) (*catalogac.MediaFileApplyConfiguration, bool, error) {
 				if equality.Semantic.DeepEqual(normalize(rendered), normalize(&fresh.Status)) {
 					return nil, true, nil

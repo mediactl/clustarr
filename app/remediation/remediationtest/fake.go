@@ -19,6 +19,7 @@ package remediationtest
 
 import (
 	"context"
+	"slices"
 	"sync/atomic"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -96,13 +97,15 @@ func MarkersFake(plan PlanFunc) *Fake {
 	}}
 }
 
-// ProbeFake is named remediation.PlannerProbe and owns probeHash, probedAt,
-// probeVersion, mediaInfo and the Probed and Ready conditions: the probe
+// ProbeFake is named remediation.PlannerProbe and owns probeHash,
+// formerProbeHashes, probedAt, probeVersion, mediaInfo and the Probed and
+// Ready conditions: the probe
 // planner's fields, so the loop's structural gate applies to the planners
 // after it.
 func ProbeFake(plan PlanFunc) *Fake {
 	return &Fake{N: remediation.PlannerProbe, PlanFn: plan, CopyFn: func(from, into *catalogv1alpha1.MediaFileStatus) {
 		into.ProbeHash, into.ProbeVersion = from.ProbeHash, from.ProbeVersion
+		into.FormerProbeHashes = slices.Clone(from.FormerProbeHashes)
 		into.ProbedAt = from.ProbedAt.DeepCopy()
 		into.MediaInfo = from.MediaInfo.DeepCopy()
 		remediation.CopyConditions(from, into, catalogv1alpha1.MediaFileConditionProbed, catalogv1alpha1.MediaFileConditionReady)

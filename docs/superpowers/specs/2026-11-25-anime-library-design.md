@@ -309,11 +309,10 @@ new hash. The MediaFile controller takes the new hash without a probe
 
 Both happen today at every single rename. The bulk move is 7,784 files in
 368 series (141 of the 509 anime have no file and only change root).
-**Open, the owner's:** either a path-only change carries that state -- the
-stages keep their history under the new hash when the bytes did not change,
-which also ends the same waste at every ordinary rename -- or the move
-accepts the searches and analyses, paced by one relocation at a time.
-Section 3 is not built until this is settled.
+**Settled, owner, 2026-11-26: "Carry the history across a path-only move."**
+The stages keep their history under the new hash when the bytes did not
+change, which also ends the same waste at every ordinary rename. Built
+first, as section 10 records; section 3 follows it.
 
 What section 3 must also do, beyond its text:
 
@@ -397,4 +396,32 @@ anime root and refusing it under any other. Checked in a browser against
 the preview harness seeded from talos. Not built, because they move files:
 Move to Anime / Move to TV, and the series type control on the edit form;
 nor the root folder form's "Anime root folder", Collections and Hubs.
+
+**The carry, 2026-11-26** (clustarr; not deployed; section 8a's decision).
+`MediaFile.status.formerProbeHashes` (at most four, oldest first): the
+hashes the same bytes had at the paths the file was renamed or moved from.
+The probe planner appends the hash it leaves when it takes a change of path
+alone (`mediafile.PlanProbe`'s path-only row) and clears the list when the
+bytes change. In the same pass, right after the probe planner, the file
+loop re-points every block at rest to the new hash
+(`MediaFileStatus.CarryBytes`: `transcode`, `graft`, `subtitles`, `markers`
+and `markers.analysis`), in the stored view the planners copy from and in
+the draft, so the later planners -- which plan in that pass and compare
+their block with the draft's hash -- find it about the bytes they have, and
+the one status write stores the new hash and the carried blocks together.
+A block with work in flight (a transcode or graft Queued, Running or
+Swapping, a subtitle fetch outstanding) is not carried: its task names the
+old path and is its stage's to withdraw or see fail, as before. A stored
+status that lags is carried at the next pass's start and written even when
+no planner changes anything (the pass's compare-and-swap reads the stored
+object, not the carried view). Outside the status: the markers planner
+reads a segments record under a former hash as the file's, the analyze task
+carries the former hashes, and the segment worker finds an analysis record
+and cached fingerprints under them, storing the fingerprints again under
+the new hash so nothing is decoded. What still happens at a move: the
+subtitle stage lists the file's sidecars again, its last listing being kept
+in memory by path. `TestAMovedFilesHistoryFollowsIt` and its two
+neighbours, `TestAPathOnlyChangeKeepsTheHashTheBytesHad`,
+`TestAMovedSeasonsFingerprintsAreFoundUnderTheHashTheyHad`; each fails
+with its part of the carry removed.
 

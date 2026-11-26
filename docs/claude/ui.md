@@ -1168,10 +1168,31 @@ one tab (a series folder on TV or Anime), which is what Rescan and Add New
 read; Add New on TV offers `standard` and `daily`, on Anime no type, and the
 handler holds a posted type to the folder. The projection lists and watches
 RootFolders for it (one more List a round). Not built: relocating an
-existing series' folder when its root changes -- held on an owner decision,
-since a file's probe hash names its path and a move reads as new bytes to
-subtitles and markers (the design's §8a) -- the ui's Move action, the Plex
-library.
+existing series' folder when its root changes, the ui's Move action, the
+Plex library.
+**A file's history follows it across a rename or a move** (owner,
+2026-11-26: "Carry the history across a path-only move"; the anime library
+design's §8a and §10). The probe hash is `sha1(path|size|mtime)`, so a
+change of path alone moves it, and until this every rename read as new
+bytes to the stages keyed by it: subtitles reset every language's attempts
+and searched again, markers were fetched and the segments analysed again,
+a Failed or Skipped transcode verdict was made again. Now
+`status.formerProbeHashes` (four at most) keeps the hashes the same bytes
+had; the probe planner appends to it at a path-only change
+(`mediafile.PlanProbe`) and clears it when the bytes change; and the file
+loop, right after the probe planner, re-points every block at rest to the
+new hash (`MediaFileStatus.CarryBytes`, in `v.Prev` and the draft) so the
+later planners of that same pass see their block as current and one status
+write stores hash and blocks together -- no stored status ever names the
+new hash beside a block under the old. A block with work in flight is left
+to its stage. **A planner compares its block with the draft's probe hash,
+never the stored one**: one that read `v.Prev.ProbeHash` would see the
+carried block as changed. The segments record and the fingerprint cache are
+keyed by hash outside the status, so the markers planner
+(`markers.Adapter.input`), the analyze task (`AnalyzeFile.formerProbeHashes`)
+and the worker (`worker.record`, `worker.window`) take a former hash for the
+file's own. The mediafiles CRD goes on before the manager that writes the
+field.
 An Episode carries two conditions, Ready and DeadLettered (owner,
 2026-11-03, cutting the manager's memory): the Aired, HasFile, CutoffMet and
 WrongLanguage conditions every episode carried restated `status.phase`,

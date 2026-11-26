@@ -113,6 +113,14 @@ func (a *Adapter) input(v *remediation.View, in Input, s *catalogv1alpha1.MediaF
 	pin.Kind, pin.Now, pin.Prev = v.File.Spec.MediaRef.Kind, v.Now.Time, v.Prev.Markers
 	pin.File = schema.Ref{Namespace: v.File.Namespace, Name: v.File.Name, UID: string(v.File.UID)}
 	pin.ProbeHash, pin.Probed = s.ProbeHash, s.MediaInfo != nil
+	if pin.SegmentsOK && pin.Segments.ProbeHash != s.ProbeHash && s.SameBytes(pin.Segments.ProbeHash) {
+		// Analysed under a path the file was renamed or moved from: the
+		// same bytes, so the segments record is read as theirs, where a
+		// record of another hash is another file's and contributes
+		// nothing. The worker writes it under the new hash when it next
+		// analyses the season.
+		pin.Segments.ProbeHash = s.ProbeHash
+	}
 	if s.MediaInfo != nil {
 		pin.DurationMs, pin.Chapters = s.MediaInfo.RuntimeMillis, s.MediaInfo.ChapterList
 	}

@@ -411,3 +411,50 @@ func TestAStuckDecodeIsCutOff(t *testing.T) {
 	}
 	assert.Equal(t, "Error", pub.byFile()["m"].Result)
 }
+
+// A season moved with its series to another root folder, or renamed, is the
+// same bytes under new probe hashes (the hash names the path). Its
+// fingerprints are cached under the hashes it had, which the task carries
+// (MediaFile status.formerProbeHashes): they are read from there and stored
+// again under the new ones, so when a new episode makes the season due only
+// that episode is decoded -- and nothing is on the pass after, the former
+// hashes forgotten or not.
+func TestAMovedSeasonsFingerprintsAreFoundUnderTheHashTheyHad(t *testing.T) {
+	dec := &fakeDecoder{
+		introAt: map[string]float64{"e1": 10, "e2": 10, "e3": 10},
+		black:   map[string]int{"e1": 30, "e2": 30, "e3": 30},
+	}
+	h, pub := handler(t, dec, nil)
+	require.NoError(t, h.Handle(context.Background(), taskOf(t, "episode", "e1", "e2")))
+	perFile := dec.audioHits / 2
+	require.Positive(t, perFile, "setup: a fingerprinted file is decoded")
+	analysed := pub.byFile()
+	require.Len(t, analysed, 2)
+
+	moved := func(former bool, files ...string) events.Message {
+		task := schema.AnalyzeTask{Namespace: "media", Key: "show-s01", Kind: "episode"}
+		for _, f := range files {
+			af := schema.AnalyzeFile{MediaFile: f, UID: "uid-" + f, Path: f, ProbeHash: "moved-" + f, DurationMs: duration * 1000}
+			if _, was := analysed[f]; was {
+				if former {
+					af.FormerProbeHashes = []string{"renamed-once-" + f, "hash-" + f}
+				}
+			} else {
+				af.Due = true // the new episode
+			}
+			task.Files = append(task.Files, af)
+		}
+		s, data, err := schema.Encode(task)
+		require.NoError(t, err)
+		return message{&events.Envelope{Key: "media/show-s01", Schema: s, Data: data}}
+	}
+
+	before := dec.audioHits
+	require.NoError(t, h.Handle(context.Background(), moved(true, "e1", "e2", "e3")))
+	assert.Equal(t, perFile, dec.audioHits-before, "only the new episode is decoded; its moved siblings' fingerprints are read")
+	assert.Contains(t, kinds(pub.byFile()["e3"]), "intro", "and they served as its comparison")
+
+	before = dec.audioHits
+	require.NoError(t, h.Handle(context.Background(), moved(false, "e1", "e2", "e3")))
+	assert.Zero(t, dec.audioHits-before, "found again under the hash the files have now")
+}
