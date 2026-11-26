@@ -40,6 +40,9 @@ func pantyAndStocking() Identity {
 			row(2, 4, 2, 7, "Daten City President"), row(2, 4, 2, 8, "Pet Cematary Hills"), row(2, 4, 2, 9, "Shoot for Yesterday!"),
 			row(2, 7, 2, 14, "Independence Dick"), row(2, 7, 2, 15, "Longest Bitch Yard"),
 			row(2, 10, 2, 22, "The Sex From Another World"), row(2, 10, 2, 23, "Lord of the Kokan the Great"),
+			// Broadcast 12 of each season, without the titles: no case reads them.
+			row(1, 12, 1, 23, ""), row(1, 12, 1, 24, ""),
+			row(2, 12, 2, 27, ""), row(2, 12, 2, 28, ""),
 		},
 		SceneSeasonNames: []SceneSeasonName{{Title: "New Panty & Stocking with Garterbelt", Season: 2}},
 	}
@@ -68,6 +71,7 @@ func TestAReleaseOfABroadcastOrOfOneOfItsEpisodesCoversWhatItHolds(t *testing.T)
 		{"a list the table does not hold is read as written", "Panty.and.Stocking.with.Garterbelt.S02E07.20.21.1080p.AMZN.WEB-DL.H.264-GRP", se(2, 7, 2, 20, 2, 21)},
 		{"the season's own title numbers it season 1", "New.PANTY.and.STOCKING.with.GARTERBELT.S01E07.14.15.1080p.AMZN.WEB-DL.DUAL.DDP5.1.H.265.MSubs-ToonsHub", se(2, 14, 2, 15)},
 		{"and without a list", "[ToonsHub] New PANTY and STOCKING with GARTERBELT S01E10 1080p AMZN WEB-DL DDP5.1 H.265 (Dual-Audio, Multi-Subs)", se(2, 22, 2, 23)},
+		{"an anime group's name for the season, with its ampersand", "[DKB] New Panty & Stocking with Garterbelt-S01E12 [1080p][HEVC x265 10bit][Dual-Audio][Multi-Subs][A6F199E7]", se(2, 27, 2, 28)},
 		{"the series' title keeps season 1", "PANTY.and.STOCKING.with.GARTERBELT.S01E07.1080p.BluRay.x264-GRP", se(1, 13, 1, 14)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1504,3 +1504,17 @@ recorded here.
   marker; the seed now starts with the loop's sources (`seedSource`), before
   a worker runs. The trailers and segments sweepers still read key by key:
   nothing waits on them.
+
+- **An indexer's title is HTML-unescaped where the feed is parsed
+  (`torznab.newRelease`), because some escape it twice (2026-11-26).**
+  nzbgeek wrote `New Panty &amp;amp; Stocking with Garterbelt`, the XML
+  decoder left the text `&amp;` in the title, and `titleKey` read
+  "newpantyampstocking...": not the series' scene name for its second
+  season, so `sceneSeason` kept the release in season 1 and four `[DKB] New
+  Panty & Stocking with Garterbelt-S01E07/09/12/13` releases were grabbed
+  for the 2010 season's S01E14-E26. The import agent reads the file's own
+  name, which has a real "&", mapped each to season 2, found that episode's
+  file transcoded and held the download ("a transcoded file is final"): the
+  owner saw season 2 import and season 1 not. The title stored in
+  `status.downloads[].release.title` showed the `&amp;` all along. Cardigann
+  results were already unescaped (`pkg/cardigann/filters.go`).

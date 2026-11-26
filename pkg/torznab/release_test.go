@@ -417,3 +417,27 @@ func parseResultsFile(t *testing.T, path string) []torznab.Release {
 	require.NoError(t, err)
 	return rels
 }
+
+// A title the indexer escaped twice reads as its name: the XML decoder
+// leaves the text "&amp;" (or "&#039;") in it, and nothing downstream reads
+// that as "&". nzbgeek's feed sent the first of these on 2026-11-26.
+func TestParseResultsReadsATitleEscapedTwiceAsItsName(t *testing.T) {
+	feed := func(title string) string {
+		return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><item><title>` + title +
+			`</title><guid>https://indexer.example.invalid/details/1</guid></item></channel></rss>`
+	}
+	for name, tc := range map[string]struct{ wire, want string }{
+		"escaped twice":       {"[DKB] New Panty &amp;amp; Stocking with Garterbelt-S01E12 [1080p]", "[DKB] New Panty & Stocking with Garterbelt-S01E12 [1080p]"},
+		"an entity in CDATA":  {"<![CDATA[[DKB] New Panty &amp; Stocking with Garterbelt-S01E12 [1080p]]]>", "[DKB] New Panty & Stocking with Garterbelt-S01E12 [1080p]"},
+		"a numeric entity":    {"Bob&amp;#039;s.Burgers.S01E01.1080p.WEB-DL-GRP", "Bob's.Burgers.S01E01.1080p.WEB-DL-GRP"},
+		"escaped once":        {"Law &amp; Order S01E01 1080p WEB-DL-GRP", "Law & Order S01E01 1080p WEB-DL-GRP"},
+		"nothing to unescape": {"Some.Show.S01E01.1080p.WEB-DL.H.264-GRP", "Some.Show.S01E01.1080p.WEB-DL.H.264-GRP"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rels, err := torznab.ParseResults(strings.NewReader(feed(tc.wire)))
+			require.NoError(t, err)
+			require.Len(t, rels, 1)
+			require.Equal(t, tc.want, rels[0].Title)
+		})
+	}
+}

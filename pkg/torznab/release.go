@@ -19,6 +19,7 @@ package torznab
 
 import (
 	"encoding/xml"
+	"html"
 	"io"
 	"regexp"
 	"strconv"
@@ -173,7 +174,13 @@ func ParseResults(r io.Reader) ([]Release, error) {
 
 func newRelease(w wireItem) Release {
 	rel := Release{
-		Title: w.Title, GUID: w.GUID, Link: w.Link, CommentURL: w.Comments,
+		// A title comes out of the XML decoder as the indexer wrote it, and
+		// some escape it twice: nzbgeek's "New Panty &amp;amp; Stocking with
+		// Garterbelt" decodes to a title holding the text "&amp;". A name
+		// is compared and parsed as a person reads it (2026-11-26: that
+		// "amp" kept the title from matching the series' scene name for
+		// its second season, so its S01E12 was grabbed for the first).
+		Title: html.UnescapeString(w.Title), GUID: w.GUID, Link: w.Link, CommentURL: w.Comments,
 		Description: w.Description,
 		IDs:         map[string]string{}, Attrs: map[string][]string{},
 	}
