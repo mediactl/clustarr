@@ -1119,6 +1119,26 @@ H.264 file). Tests: `pkg/decision/lastresort_test.go`, `pkg/quality`,
 `grabplan` and `importplan`'s `lastresort_test.go`, the Episode envtest's
 "a transcode of a last-resort tier" subtest; the Movie reconciler's identical
 block has none.
+
+**A custom format can be a last resort (owner, 2026-11-27, for the anime
+low-quality groups: "low-quality-group encodes should be allowed as a last
+resort when nothing else exists").** `QualityProfile.spec.lastResortFormats`
+names catalogue slugs (`anime-lq-groups`). A release those formats alone put
+below `minFormatScore` is not refused for its score
+(`Profile.LastResortScore`, `qualityRejections`); one below the minimum for
+another format as well (a raw, a dub alone) is refused as before. Its score
+is unchanged, so it ranks under everything else. The grab planner holds it to
+the last-resort rule of a tier (`decider.lastResort`): an RSS match or a
+pushed release of it is refused, and from a search it is refused while any
+approved release that is no last resort would be taken for an item it
+brings, whatever that one's tier, a pack included. A person's pick is
+exempt. Not carried over from the tier's rule, my default: its audio counts
+as any release's, and a file of it is final once transcoded like any other,
+so a better release is taken over it only by the usual upgrade rules.
+Seasons this was for (talos, 2026-11-27): Altair, Yuuki Yuuna's third,
+Sacrificial Princess, every candidate an ASW or Sokudo encode. No settings
+form field yet: the list is set in the profile's manifest.
+
 **An anime wants English only when the MAL-Dubs list names it** (owner,
 2026-11-03: English dubs and dual audio "*only* for series who's
 status.externalIDs.mal exists within" github.com/MAL-Dubs/MAL-Dubs'

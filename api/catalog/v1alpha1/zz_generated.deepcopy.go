@@ -5257,6 +5257,11 @@ func (in *QualityProfileSpec) DeepCopyInto(out *QualityProfileSpec) {
 		*out = make([]FormatScore, len(*in))
 		copy(*out, *in)
 	}
+	if in.LastResortFormats != nil {
+		in, out := &in.LastResortFormats, &out.LastResortFormats
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Audio != nil {
 		in, out := &in.Audio, &out.Audio
 		*out = new(AudioPolicy)

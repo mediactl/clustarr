@@ -271,6 +271,22 @@ type QualityProfileSpec struct {
 	// +kubebuilder:validation:MaxItems=200
 	FormatScores []FormatScore `json:"formatScores,omitempty"`
 
+	// LastResortFormats names custom formats (catalogue slugs) a release may
+	// match and still be taken when their scores put it below
+	// minFormatScore, as a last resort (owner, 2026-11-27: "low-quality-group
+	// encodes should be allowed as a last resort when nothing else exists").
+	// Such a release is refused as an RSS match or a pushed release, and
+	// taken from a search only while no release that is not a last resort
+	// would be taken for an item it brings. A release that is below the
+	// minimum without these formats' scores is refused as any other. An
+	// unknown slug raises the Invalid condition.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=64
+	LastResortFormats []string `json:"lastResortFormats,omitempty"`
+
 	// Language is the accepted language: "original", "any" or a BCP-47 tag.
 	// +optional
 	// +kubebuilder:default="original"

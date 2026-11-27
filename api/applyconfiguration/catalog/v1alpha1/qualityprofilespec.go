@@ -58,6 +58,16 @@ type QualityProfileSpecApplyConfiguration struct {
 	// FormatScores overrides individual catalogue scores. An unknown slug raises
 	// the Invalid condition.
 	FormatScores []FormatScoreApplyConfiguration `json:"formatScores,omitempty"`
+	// LastResortFormats names custom formats (catalogue slugs) a release may
+	// match and still be taken when their scores put it below
+	// minFormatScore, as a last resort (owner, 2026-11-27: "low-quality-group
+	// encodes should be allowed as a last resort when nothing else exists").
+	// Such a release is refused as an RSS match or a pushed release, and
+	// taken from a search only while no release that is not a last resort
+	// would be taken for an item it brings. A release that is below the
+	// minimum without these formats' scores is refused as any other. An
+	// unknown slug raises the Invalid condition.
+	LastResortFormats []string `json:"lastResortFormats,omitempty"`
 	// Language is the accepted language: "original", "any" or a BCP-47 tag.
 	Language *string `json:"language,omitempty"`
 	// Audio is the audio a file must carry. When set it replaces Language
@@ -194,6 +204,16 @@ func (b *QualityProfileSpecApplyConfiguration) WithFormatScores(values ...*Forma
 			panic("nil value passed to WithFormatScores")
 		}
 		b.FormatScores = append(b.FormatScores, *values[i])
+	}
+	return b
+}
+
+// WithLastResortFormats adds the given value to the LastResortFormats field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the LastResortFormats field.
+func (b *QualityProfileSpecApplyConfiguration) WithLastResortFormats(values ...string) *QualityProfileSpecApplyConfiguration {
+	for i := range values {
+		b.LastResortFormats = append(b.LastResortFormats, values[i])
 	}
 	return b
 }

@@ -4889,6 +4889,12 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: string
       default: original
+    - name: lastResortFormats
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: associative
     - name: mediaKind
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ProfileMediaKind

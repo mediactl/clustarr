@@ -346,18 +346,24 @@ const (
 	// reasonLastResortAlone: an RSS match or a pushed release is one
 	// release, which says nothing of what else exists; the item's own
 	// search, or its season's, answers that.
-	reasonLastResortAlone = "its quality is a last resort, taken only from a search that finds nothing better"
+	reasonLastResortAlone = "it is a last resort, taken only from a search that finds nothing better"
 	// reasonLastResortOutranked: a release of a better tier approved in the
 	// same pass covers an item it covers, a pack included, whether that one
 	// is grabbed now, delayed or waiting on its indexer's grab limit.
-	reasonLastResortOutranked = "its quality is a last resort, and a release of a better quality covers an item it covers"
+	reasonLastResortOutranked = "it is a last resort, and a better release covers an item it covers"
 )
 
-// lastResort reports an automatic video candidate of a last-resort tier. A
-// person's pick and a donor are not held to the rule.
+// lastResort reports an automatic video candidate of a last-resort tier, or
+// one matching a custom format the profile takes only as a last resort
+// (quality.Profile.LastResortFormats; owner, 2026-11-27, for the anime
+// low-quality groups). A person's pick and a donor are not held to the rule.
 func (d *decider) lastResort(c Candidate) bool {
 	return !c.Manual && !c.Override && c.Purpose == "" && d.v.Profile != nil &&
-		d.v.Profile.LastResort(c.Release.Decision.Quality)
+		(d.v.Profile.LastResort(c.Release.Decision.Quality) || d.lastResortFormat(c))
+}
+
+func (d *decider) lastResortFormat(c Candidate) bool {
+	return d.v.Profile.LastResortFormat(c.Release.Decision.MatchedFormats)
 }
 
 // outranked reports a last-resort candidate one of approved outranks: a
@@ -372,8 +378,12 @@ func (d *decider) outranked(vd verdict, approved []verdict) bool {
 	for _, it := range payload(vd) {
 		brings[it.Ref.Name] = true
 	}
+	byFormat := d.lastResortFormat(vd.c)
 	for _, o := range approved {
-		if o.c.Purpose != "" || !d.v.Profile.Outranks(o.c.Release.Decision.Quality, q) {
+		// A release of a better tier outranks it; one that is a last resort
+		// by its format is outranked by every release that is no last
+		// resort at all, whatever its tier.
+		if o.c.Purpose != "" || (!d.v.Profile.Outranks(o.c.Release.Decision.Quality, q) && (!byFormat || d.lastResort(o.c))) {
 			continue
 		}
 		for _, it := range o.items {

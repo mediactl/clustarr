@@ -42,7 +42,12 @@ type Profile struct {
 	// resort (Tier.LastResort), every tier from it on being one; 0 when the
 	// profile has none, since such a tier is always below the cutoff
 	// (LastResort).
-	LastResortFrom        int
+	LastResortFrom int
+	// LastResortFormats are the custom formats (catalogue slugs) a release
+	// may match and still be taken below MinFormatScore, as a last resort
+	// (QualityProfileSpec.LastResortFormats; LastResortFormat,
+	// LastResortScore). Nil when the profile names none.
+	LastResortFormats     map[string]bool
 	UpgradeAllowed        bool
 	MinFormatScore        int
 	CutoffFormatScore     int
@@ -201,6 +206,32 @@ func (p Profile) CutoffMet(q common.Quality) bool {
 	return ok && idx <= p.CutoffIndex
 }
 
+// LastResortFormat reports whether matched, a release's matched custom
+// formats, holds one the profile takes only as a last resort
+// (LastResortFormats; owner, 2026-11-27): the grab planner then holds the
+// release to the last-resort rule a tier's mark holds it to.
+func (p Profile) LastResortFormat(matched []string) bool {
+	for _, slug := range matched {
+		if p.LastResortFormats[slug] {
+			return true
+		}
+	}
+	return false
+}
+
+// LastResortScore is score without what the release's last-resort formats
+// took from it: the score MinFormatScore is held against for a release that
+// matches one. A last-resort format that scores above zero gives nothing
+// back, and a release matching none keeps its score.
+func (p Profile) LastResortScore(score int, matched []string) int {
+	for _, slug := range matched {
+		if p.LastResortFormats[slug] && p.Scores[slug] < 0 {
+			score -= p.Scores[slug]
+		}
+	}
+	return score
+}
+
 // LastResort reports whether q's tier is one taken only as a last resort
 // (Tier.LastResort; owner, 2026-11-26): a release of it is grabbed only
 // when no release of a better tier covers the item, its audio earns it
@@ -327,6 +358,21 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		errs = append(errs, fmt.Errorf("formatScores references unknown format %q", slug))
 	}
 
+	var lastResortFormats map[string]bool
+	for _, slug := range p.Spec.LastResortFormats {
+		switch _, known := formats[slug]; {
+		case !isVideoKind(kind):
+			errs = append(errs, fmt.Errorf("lastResortFormats: custom formats apply to video profiles only; a %s profile cannot name %q", kind, slug))
+		case !known:
+			errs = append(errs, fmt.Errorf("lastResortFormats references unknown format %q", slug))
+		default:
+			if lastResortFormats == nil {
+				lastResortFormats = map[string]bool{}
+			}
+			lastResortFormats[slug] = true
+		}
+	}
+
 	langName, err := normaliseLanguage(p.Spec.Language)
 	if err != nil {
 		errs = append(errs, err)
@@ -402,7 +448,8 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 
 	prof := Profile{
 		Tiers: tiers, CutoffIndex: cutoffIdx, LastResortFrom: lastResortFrom, UpgradeAllowed: upgradeAllowed,
-		MinFormatScore: int(p.Spec.MinFormatScore), CutoffFormatScore: int(p.Spec.CutoffFormatScore),
+		LastResortFormats: lastResortFormats,
+		MinFormatScore:    int(p.Spec.MinFormatScore), CutoffFormatScore: int(p.Spec.CutoffFormatScore),
 		MinUpgradeFormatScore: int(p.Spec.MinUpgradeFormatScore),
 		Scores:                scores, Language: p.Spec.Language, LanguageName: langName,
 		AudioLanguages: audio, GraftAudio: audioGraft, AudioDefault: audioDefault, ScoreSet: scoreSet,
@@ -498,6 +545,14 @@ func hashProfile(p Profile) string {
 	}
 	if p.LastResortFrom > 0 {
 		_, _ = fmt.Fprintf(h, "lastResortFrom=%d\n", p.LastResortFrom)
+	}
+	if len(p.LastResortFormats) > 0 {
+		slugs := make([]string, 0, len(p.LastResortFormats))
+		for slug := range p.LastResortFormats {
+			slugs = append(slugs, slug)
+		}
+		sort.Strings(slugs)
+		_, _ = fmt.Fprintf(h, "lastResortFormats=%s\n", strings.Join(slugs, ","))
 	}
 	for _, tier := range p.Tiers {
 		names := make([]string, len(tier))

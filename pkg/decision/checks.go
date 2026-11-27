@@ -172,7 +172,10 @@ func qualityRejections(p quality.Profile, rel common.ReleaseInfo, score int) []c
 	if !p.Allowed(rel.Quality) {
 		out = append(out, newRejection(ReasonQualityNotWanted, "%s is not wanted in this profile", rel.Quality.Name))
 	}
-	if score < p.MinFormatScore {
+	// A release its last-resort formats alone put below the minimum is not
+	// refused for it (quality.Profile.LastResortFormats): the grab planner
+	// takes it only when nothing that is not a last resort would be.
+	if score < p.MinFormatScore && p.LastResortScore(score, rel.MatchedFormats) < p.MinFormatScore {
 		out = append(out, newRejection(ReasonCustomFormatMinimumScore,
 			"custom format score %d is below the profile minimum %d", score, p.MinFormatScore))
 	}
