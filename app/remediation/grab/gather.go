@@ -29,6 +29,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/catalog/grabplan"
 	"github.com/mediactl/clustarr/app/catalog/itemread"
@@ -191,7 +192,14 @@ func (s *Stage) covered(ctx context.Context, item client.Object, g *gathered) er
 // coveredItem is one item's own monitoring and availability (its
 // container's monitoring is the caller's).
 func coveredItem(item client.Object, now time.Time) grabplan.Covered {
-	return grabplan.Covered{Ref: itemread.Ref(item), Monitored: itemread.OwnMonitored(item), Wanted: itemread.Available(item, now)}
+	c := grabplan.Covered{Ref: itemread.Ref(item), Monitored: itemread.OwnMonitored(item), Wanted: itemread.Available(item, now)}
+	switch t := item.(type) {
+	case *catalogv1alpha1.Movie:
+		c.GraftOpen = rollup.GraftOpen(t.Status.Audio, t.Status.DonorSearchAttempts)
+	case *catalogv1alpha1.Episode:
+		c.GraftOpen = rollup.GraftOpen(t.Status.Audio, t.Status.DonorSearchAttempts)
+	}
+	return c
 }
 
 // candidates gathers the owner's candidates: its parked intake candidates,

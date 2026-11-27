@@ -125,3 +125,37 @@ func TestTheGraftAnchorOfADubAloneIsItsDub(t *testing.T) {
 	require.Equal(t, "", rollup.GraftAnchor("ja", state("ger")), "nothing to align on")
 	require.Equal(t, "", rollup.GraftAnchor("", dub), "an unknown original stays unknown")
 }
+
+// A graft is open -- a torrent pack waits on it (grabplan's grafts) -- while
+// the file lacks a language and a donor is on its way or the donor search
+// has not run out (owner, 2026-11-27: "If no eng release exists whatsoever
+// that we can download (unlikely) - we can then finally fallback to a full
+// season re-download from torrent for dual").
+func TestAGraftIsOpenUntilItsDonorSearchesRunOut(t *testing.T) {
+	searched := func(n int32) commonv1.Attempts { return commonv1.Attempts{Count: n} }
+	missing := func(graft, reason string) *catalogv1alpha1.AudioState {
+		return &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Present: []string{"ja"}, Missing: []string{"en"}, Graft: graft, Reason: reason}
+	}
+	for _, tc := range []struct {
+		name     string
+		audio    *catalogv1alpha1.AudioState
+		searches int32
+		want     bool
+	}{
+		{"no audio state", nil, 0, false},
+		{"nothing missing", &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Present: []string{"en", "ja"}, Graft: "none"}, 0, false},
+		{"searching, never searched", missing("searching", ""), 0, true},
+		{"searching, searches left", missing("searching", ""), rollup.GraftDonorSearches - 1, true},
+		{"searching, searches run out", missing("searching", ""), rollup.GraftDonorSearches, false},
+		{"a donor downloading, whatever the count", missing("grabbed", ""), 9, true},
+		{"the graft waiting or running", missing("pending", ""), 9, true},
+		{"aligned", missing("aligned", ""), 9, true},
+		{"a failed graft, another donor to find", missing("failed", "DonorFault"), 1, true},
+		{"a failed graft, searches run out", missing("failed", "DonorFault"), rollup.GraftDonorSearches, false},
+		{"a file that backs several items is never grafted", missing("failed", rollup.ReasonMultiItemFile), 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, rollup.GraftOpen(tc.audio, searched(tc.searches)))
+		})
+	}
+}

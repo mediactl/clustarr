@@ -20,6 +20,7 @@ package grabplan
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -111,6 +112,10 @@ type Covered struct {
 	// DonorRejected are the donor releases a graft of this item already
 	// failed with (the item's status.audio.rejectedReleases).
 	DonorRejected []string
+	// GraftOpen is an item whose file lacks a wanted language and whose
+	// graft can still supply it (rollup.GraftOpen): a torrent pack is
+	// passed over for it (grafts).
+	GraftOpen bool
 }
 
 // View is everything Decide reads for one owner.
@@ -186,6 +191,9 @@ type verdict struct {
 	// complete is whether the release carries every language the profile's
 	// audio policy wants, read only under Audio.CompleteFirst.
 	complete bool
+	// missing are the wanted languages the release lacks
+	// (decision.ReleaseMissingAudio), read only under a grafting audio policy.
+	missing []string
 }
 
 // Decide is the owner key's grab decision (ADR-0019 §6.6 steps 1-5), its
@@ -458,13 +466,85 @@ func (d *decider) usenetCovers(vd verdict, approved []verdict) bool {
 			}
 		}
 		switch {
-		case byUsenet:
+		case byUsenet, d.grafts(vd, it, approved):
 			usenet++
 		case !bySingle:
 			return false
 		}
 	}
 	return len(vd.items) == 1 || usenet*2 > len(vd.items)
+}
+
+// torrentPack reports a torrent that brings more than one item.
+func torrentPack(vd verdict) bool {
+	return vd.c.Release.Decision.Protocol == commonv1.ProtocolTorrent && len(payload(vd)) > 1
+}
+
+// grafts reports an item a grafting audio policy completes without the
+// torrent pack `pack` (owner, 2026-11-27, of JoJo's Bizarre Adventure,
+// where a 162 GB pack of five seasons was taken for 26 episodes: "For jojo
+// episodes where we can't find a working dual audio, download the jpn
+// release and an eng release and perform the audio graft. If no eng release
+// exists whatsoever that we can download (unlikely) - we can then finally
+// fallback to a full season re-download from torrent for dual", and "a
+// dual lang or eng lang release of the single episode will **also** be
+// higher priority than the season torrent at that point"):
+//
+//   - its file lacks a wanted language and its graft can still supply it
+//     (Covered.GraftOpen), a donor of it is live, or a donor of it is
+//     approved in this pass; or
+//   - releases approved in this pass, none a donor, a person's pick or a
+//     torrent pack, and none of a worse tier than the pack, bring it and
+//     together carry every wanted language: the best is grabbed as any
+//     release is, and the donor search finds the other for its graft.
+//
+// A release that carries them all by itself is usenetCovers' own case, and
+// counts here too. When the donors fail or none exists, the graft is no
+// longer open and the pack is taken after all.
+func (d *decider) grafts(pack verdict, it Covered, approved []verdict) bool {
+	p := d.v.Profile
+	if p == nil || !p.GraftAudio {
+		return false
+	}
+	if it.GraftOpen {
+		return true
+	}
+	for i := range d.v.Entries {
+		if e := &d.v.Entries[i]; e.Purpose == commonv1.DownloadPurposeAudioDonor && live(e) && covers(e, it) {
+			return true
+		}
+	}
+	packQ, packLast := pack.c.Release.Decision.Quality, p.LastResort(pack.c.Release.Decision.Quality)
+	// lacking is what every release counted so far lacks: empty once they
+	// carry every wanted language between them.
+	var lacking []string
+	counted := false
+	for _, o := range approved {
+		oc := o.c
+		brings := false
+		for _, oi := range o.items {
+			if oi.Ref.Name == it.Ref.Name {
+				brings = true
+				break
+			}
+		}
+		if !brings || oc.Manual || oc.Override || len(oc.Parts) > 0 || o.id == pack.id {
+			continue
+		}
+		if oc.Purpose == commonv1.DownloadPurposeAudioDonor {
+			return true
+		}
+		if oc.Purpose != "" || torrentPack(o) || p.Outranks(packQ, oc.Release.Decision.Quality) ||
+			(!packLast && p.LastResort(oc.Release.Decision.Quality)) {
+			continue
+		}
+		if !counted {
+			lacking, counted = slices.Clone(o.missing), true
+			continue
+		}
+		lacking = slices.DeleteFunc(lacking, func(w string) bool { return !slices.Contains(o.missing, w) })
+	}
+	return counted && len(lacking) == 0
 }
 
 // outranked reports a last-resort candidate one of approved outranks: a
@@ -487,6 +567,12 @@ func (d *decider) outranked(vd verdict, approved []verdict) bool {
 		if o.c.Purpose != "" || (!d.v.Profile.Outranks(o.c.Release.Decision.Quality, q) && (!byFormat || d.lastResort(o.c))) {
 			continue
 		}
+		// A release that lacks a wanted language is not outranked, as a
+		// last resort by its format, by a torrent pack its items are
+		// grafted without (grafts): the pack is the last of the three.
+		if !d.v.Profile.Outranks(o.c.Release.Decision.Quality, q) && torrentPack(o) && d.graftsEvery(o, vd, approved) {
+			continue
+		}
 		for _, it := range o.items {
 			if brings[it.Ref.Name] {
 				return true
@@ -494,6 +580,20 @@ func (d *decider) outranked(vd verdict, approved []verdict) bool {
 		}
 	}
 	return false
+}
+
+// graftsEvery reports a release lacking a wanted language every item of
+// whose payload is completed without the torrent pack (grafts).
+func (d *decider) graftsEvery(pack, vd verdict, approved []verdict) bool {
+	if len(vd.missing) == 0 {
+		return false
+	}
+	for _, it := range payload(vd) {
+		if !d.grafts(pack, it, approved) {
+			return false
+		}
+	}
+	return true
 }
 
 // settle records a candidate's outcome -- the decision label the plan
@@ -566,6 +666,10 @@ func (d *decider) check(c Candidate) verdict {
 	if d.v.Profile.AudioCompleteFirst {
 		parsed, _ := d.parsed(d.v.Kind, d.v.OriginalLanguageTag, rel)
 		vd.complete = decision.ReleaseCompletesAudio(ctxBackground, *d.v.Profile, d.v.OriginalLanguageTag, parsed)
+	}
+	if d.v.Profile.GraftAudio {
+		parsed, _ := d.parsed(d.v.Kind, d.v.OriginalLanguageTag, rel)
+		vd.missing = decision.ReleaseMissingAudio(ctxBackground, *d.v.Profile, d.v.OriginalLanguageTag, parsed)
 	}
 	vd.covered = d.coverage(c)
 	if len(vd.covered) == 0 {

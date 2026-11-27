@@ -23,6 +23,7 @@ import (
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/lang"
@@ -130,6 +131,35 @@ func GraftAnchor(original string, a *catalogv1alpha1.AudioState) string {
 // the item meets the cutoff without it.
 func wantedTags(p *quality.Profile, originalTag string) []string {
 	return append(decision.WantedAudio(*p, originalTag), decision.OptionalAudio(*p, originalTag)...)
+}
+
+// GraftDonorSearches is how many donor searches an item whose file lacks a
+// wanted language is given before its graft is no longer counted on
+// (GraftOpen).
+const GraftDonorSearches = 3
+
+// GraftOpen reports an item whose file lacks a wanted language and whose
+// graft can still supply it: a donor is downloading or the graft is under
+// way, or the donor search has not yet run GraftDonorSearches times without
+// one. The grab planner passes a torrent pack over for such an item (owner,
+// 2026-11-27: "download the jpn release and an eng release and perform the
+// audio graft. If no eng release exists whatsoever that we can download
+// (unlikely) - we can then finally fallback to a full season re-download
+// from torrent for dual"). A file that backs several items is never
+// grafted, so its graft is not open.
+func GraftOpen(a *catalogv1alpha1.AudioState, donorSearches commonv1.Attempts) bool {
+	if a == nil || len(a.Missing) == 0 {
+		return false
+	}
+	switch a.Graft {
+	case "grabbed", "pending", "aligned":
+		return true
+	case "searching":
+		return donorSearches.Count < GraftDonorSearches
+	case "failed":
+		return a.Reason != ReasonMultiItemFile && donorSearches.Count < GraftDonorSearches
+	}
+	return false
 }
 
 // graftState is status.audio.graft (anime dual-audio spec §6, §9; loop spec

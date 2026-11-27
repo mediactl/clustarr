@@ -165,3 +165,23 @@ func DubAlone(ctx context.Context, p quality.Profile, originalTag string, parsed
 	}
 	return dubAlone(resolveAudioNames(ctx, p, originalLanguageName(ctx, originalTag)), parsed.Languages)
 }
+
+// ReleaseMissingAudio is the languages p's audio policy wants that a release,
+// parsed by ParseForItemState, does not carry, in the catalogue's names
+// (optional languages are not counted): empty for one that carries them
+// all, nil without a policy or for a nil parse. The grab planner reads it
+// to tell releases that together carry what one alone does not
+// (grabplan's grafts).
+func ReleaseMissingAudio(ctx context.Context, p quality.Profile, originalTag string, parsed *release.ParsedRelease) []string {
+	if len(p.AudioLanguages) == 0 || parsed == nil {
+		return nil
+	}
+	an := resolveAudioNames(ctx, p, originalLanguageName(ctx, originalTag))
+	out := []string{}
+	for _, w := range an.wanted {
+		if !containsFold(parsed.Languages, w) {
+			out = append(out, w)
+		}
+	}
+	return out
+}

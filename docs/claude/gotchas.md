@@ -1501,6 +1501,38 @@ recorded here.
   pass (the 2026-11-03 "a pack replaces the singles" stands for a usenet
   pack and for torrent singles); when they fail they stop counting and
   the pack is taken. Test: `TestATorrentPackIsPassedOverForUsenetEpisodes`.
+- **A torrent pack is the last of three ways to a dual-audio episode
+  (2026-11-27, owner, of JoJo's Bizarre Adventure: "For jojo episodes where
+  we can't find a working dual audio, download the jpn release and an eng
+  release and perform the audio graft. If no eng release exists whatsoever
+  that we can download (unlikely) - we can then finally fallback to a full
+  season re-download from torrent for dual", and "a dual lang or eng lang
+  release of the single episode will **also** be higher priority than the
+  season torrent at that point").** The pack rule above counted only
+  releases that carry every wanted language, so once one uploader's
+  dual-audio usenet posts had failed (taken down on every provider) the
+  planner took a 162 GB five-season torrent for 26 episodes. Under a
+  grafting audio policy `grabplan.grafts` now counts an episode as had
+  without the pack when (a) releases approved in the pass, none a donor, a
+  person's pick or a torrent pack, and none of a worse tier than the pack,
+  together carry every wanted language (`decision.ReleaseMissingAudio`):
+  the best is grabbed as any release is and the donor search finds the
+  other; or (b) its file lacks a language and the graft can still supply
+  it: a donor is live or approved in the pass, or `Covered.GraftOpen`
+  (`rollup.GraftOpen`: a donor downloading, the graft under way, or fewer
+  than `GraftDonorSearches`, 3, donor searches run with none found; never
+  a file that backs several items). `usenetCovers` counts such an episode
+  as usenet's, and `outranked` does not let that pack outrank a release
+  lacking a language whose every episode is so covered (a raw or a dub
+  alone is a last resort by its format, which any other release
+  outranked). A dual-audio single still outranks both and is taken first.
+  The rule is the profile's, not JoJo's: every series under a grafting
+  policy (the anime profiles) follows it. Not built: the two releases are
+  not grabbed together, so the English one waits for the donor search
+  after the Japanese file is in; and an episode with no English release
+  sends its whole season to the pack, as "every episode it would be taken
+  for" did before. Tests: `TestATorrentPackIsTheLastWayToDualAudio`
+  (falsified), `TestAGraftIsOpenUntilItsDonorSearchesRunOut`.
 - **Quality profiles are TRaSH-only and opinionated.** Built-in profiles ship as
   embedded data; custom-format editing is deliberately not exposed.
 - **Every per-file answer is a record written by compare-and-swap, and only the
