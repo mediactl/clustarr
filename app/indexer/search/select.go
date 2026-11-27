@@ -59,7 +59,10 @@ const (
 	skipNoCaps        = schema.SkipReasonNoCaps
 	skipNoCategory    = "no requested category is served by this indexer"
 	skipNoIDParam     = "no supported id parameter for this request"
-	skipUnhealthy     = schema.SkipReasonUnhealthy
+	// skipTextOnly is an indexer that takes an id of a request sent for
+	// text indexers alone (SearchRequest.TextOnly).
+	skipTextOnly  = "the request is for indexers searched by text, and this one takes its id"
+	skipUnhealthy = schema.SkipReasonUnhealthy
 	// skipQueryLimit is given at the last moment, by the query's own
 	// reservation on the ring (Service.reserveQuery), not here: selection
 	// reads only the Indexer object, and the object's queriesInWindow is a
@@ -173,6 +176,10 @@ func resolveQuery(
 	q, ok, queryMode := buildQuery(req, c.Indexer, mode, limit)
 	if !ok {
 		return torznab.Query{}, skipNoIDParam, ""
+	}
+	if req.TextOnly && queryMode != schema.SearchQueryModeText {
+		// The search's first request already asked this indexer by id.
+		return torznab.Query{}, skipTextOnly, ""
 	}
 	return q, "", queryMode
 }

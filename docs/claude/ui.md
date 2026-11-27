@@ -1138,6 +1138,28 @@ so a better release is taken over it only by the usual upgrade rules.
 Seasons this was for (talos, 2026-11-27): Altair, Yuuki Yuuna's third,
 Sacrificial Princess, every candidate an ASW or Sokudo encode. No settings
 form field yet: the list is set in the profile's manifest.
+**An anime season search asks a text indexer for the season's own names
+(owner, 2026-11-27: "The sixth season should also show [SubsPlease] Lupin
+III - Part 6 (00-24) (1080p) [Batch]").** An anime season's text is the
+series title alone, with no season (its packs are named by absolute range
+or "Batch"), and a text indexer answers one page of that, newest first.
+For a franchise the page holds none of the season's packs: nyaa has 809
+"Lupin III" torrents in its English-translated category and returned 75,
+neither Part 6 batch among them, while the search of one of the season's
+episodes ("Lupin III 2", 455 results) happened to return both. That was
+luck, not a rule. The season search now sends further requests
+(`search.seasonNamed`, merged as `otherSeasons`' are), each with one of
+`TargetIDs.SeasonTexts` as its text: TheXEM's scene titles of the season,
+then the series' alternate titles that end in the season's number, in
+digits or as a Roman numeral ("Lupin III Part 6", "Lupin III Part II"),
+three names at most, and "<title> Snn" for a season past the first. They
+carry `SearchRequest.TextOnly`, so the indexer agent skips every indexer
+that takes the series' id (`resolveQuery`, `skipTextOnly`): those answered
+the first request by id, and their queries are not spent twice. What comes
+back is judged by the search's identity like any release. Cost: up to four
+more queries of each text indexer per anime season search, at its
+`requestDelay`. A standard series is unchanged: its season goes on the
+wire as a parameter.
 **Raws, dubs alone and releases naming no quality are last resorts too
 (owner, 2026-11-27: "Allow dubs-only (or vice versa - *with* the graft),
 tentatively allow "unknown" quality releases - but we should find out the

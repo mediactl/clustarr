@@ -331,7 +331,9 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		}
 		resp, err = w.searchIndex(ctx, req)
 	} else {
-		resp, err = w.searchLive(ctx, m, task, req, append(tvdbNumbered(req, snap.IDs, task), otherSeasons(req, snap.IDs, task)...)...)
+		more := append(tvdbNumbered(req, snap.IDs, task), otherSeasons(req, snap.IDs, task)...)
+		more = append(more, seasonNamed(req, snap.IDs, task)...)
+		resp, err = w.searchLive(ctx, m, task, req, more...)
 	}
 	if err != nil {
 		tracing.RecordError(span, err)

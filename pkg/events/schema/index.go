@@ -290,6 +290,15 @@ type SearchRequest struct {
 	// free-text input.
 	Text string `json:"text,omitempty"`
 
+	// TextOnly asks only the indexers that take this request as a text
+	// query: one that takes an id of it is skipped. It marks a further
+	// request of a search whose first request those indexers already
+	// answered by id -- an anime season search's own names
+	// (app/catalog/worker/search's seasonNamed) -- so their queries are not
+	// spent twice on the same releases.
+	// +optional
+	TextOnly bool `json:"textOnly,omitempty"`
+
 	// IDs are the external IDs to search by, preferred over Text.
 	IDs map[string]string `json:"ids,omitempty"`
 

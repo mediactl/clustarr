@@ -223,3 +223,36 @@ func TestSelectCandidatesWithNoRequestedCategories(t *testing.T) {
 	require.Len(t, got, 1)
 	require.Empty(t, got[0].Skip)
 }
+
+// A request for text indexers alone (SearchRequest.TextOnly: an anime
+// season search's own names, 2026-11-27) is answered by an indexer that
+// takes no id, with the name as its query and no season, and skipped by one
+// that takes the series' id: the search's first request already asked that
+// one by id.
+func TestATextOnlyRequestSkipsAnIndexerThatTakesItsID(t *testing.T) {
+	season := int32(6)
+	req := schema.SearchRequest{
+		Kind: commonv1.MediaKindEpisode, Anime: true, Season: &season, Text: "Lupin III Part 6", TextOnly: true,
+		IDs: map[string]string{commonv1.IDKeyTVDB: "71863"}, Categories: []int32{5000},
+	}
+
+	text := healthyIndexer("nyaa")
+	text.Status.Caps.Modes = map[string][]string{"tvsearch": {"q", "season", "ep"}}
+	q, skip, mode := resolveQuery(candidate{Indexer: &text}, req, torznab.ModeTVSearch, 100)
+	require.Empty(t, skip)
+	require.Equal(t, schema.SearchQueryModeText, mode)
+	require.Equal(t, "Lupin III Part 6", q.Q)
+	require.Nil(t, q.Season, "an anime text query names no season")
+
+	byID := healthyIndexer("geek")
+	byID.Status.Caps.Modes = map[string][]string{"tvsearch": {"q", "tvdbid", "season", "ep"}}
+	_, skip, mode = resolveQuery(candidate{Indexer: &byID}, req, torznab.ModeTVSearch, 100)
+	require.Equal(t, skipTextOnly, skip)
+	require.Empty(t, mode)
+
+	req.TextOnly = false
+	q, skip, mode = resolveQuery(candidate{Indexer: &byID}, req, torznab.ModeTVSearch, 100)
+	require.Empty(t, skip, "the search's first request asks it by id")
+	require.Equal(t, schema.SearchQueryModeID, mode)
+	require.Equal(t, "71863", q.TVDBID)
+}

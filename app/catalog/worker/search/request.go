@@ -50,6 +50,10 @@ type TargetIDs struct {
 	// those, beside Season, that hold a wanted episode of the stored season
 	// (SceneSeasons). Nil for every other search.
 	OtherSeasons []int32
+	// SeasonTexts are the further texts an anime season search asks a text
+	// indexer for: the season's own names and "<title> Snn" (seasonTexts,
+	// seasonNamed). Nil for every other search.
+	SeasonTexts []string
 	// Anime marks a series whose episodes are numbered absolutely: Episode
 	// then carries the absolute number and there is no season token.
 	Anime bool

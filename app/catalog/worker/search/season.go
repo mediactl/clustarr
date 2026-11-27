@@ -122,6 +122,11 @@ func (w *Worker) snapshotSeason(ctx context.Context, ns string, ref commonv1.Med
 	snap.Target.Identity = EpisodeIdentity(&s, eps...)
 	snap.Target.Identity.Season = int(season)
 	snap.Target.Identity.SceneMappings, snap.Target.Identity.SceneSeasonNames = SceneReadings(ctx, w.Client, w.SceneMaps, &s, scene)
+	if md := s.Status.Metadata; md != nil {
+		// What a text indexer is asked beside the title: one page of a
+		// franchise's title holds none of one season's packs.
+		snap.IDs.SeasonTexts = seasonTexts(md.Title, anime, season, first, snap.Target.Identity.SceneSeasonNames, md.AlternateTitles)
+	}
 	// A season search takes any release of the season: singles,
 	// multi-episode releases and packs (decision.Identity.SeasonSearch).
 	// Set here, at the season search's own call site, never in
