@@ -557,6 +557,21 @@ func (d *decider) terminal(e *catalogv1alpha1.DownloadEntry, rec *schema.Transfe
 			return true
 		}
 	}
+	if e.Phase == commonv1.DownloadPhaseFailed && e.FailureReason.IsLocalFault() {
+		// A local fault judges nothing about the release, but the same
+		// release grabbed again at once fails the same way while the fault
+		// lasts, and for some releases always: its entry stays
+		// LocalFaultHold so the planner takes another (grabplan's
+		// tombstoned).
+		end := e.Dispatch.DispatchedAt.Add(LocalFaultHold)
+		if e.FailedAt != nil {
+			end = e.FailedAt.Add(LocalFaultHold)
+		}
+		if d.now.Before(end) {
+			d.at(end)
+			return true
+		}
+	}
 	return d.finishRemoval(e)
 }
 

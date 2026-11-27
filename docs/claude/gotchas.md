@@ -1624,7 +1624,19 @@ recorded here.
   the grab read it when the series' scene seasons have names
   (`MatchDownloaded`, `sceneIndex.absolute`): "Shingeki no Bahamut -
   Virgin Soul - 01" was filed as season 1's first episode, its release
-  grabbed for season 2's. With it: a pack's file named for its episode
+  grabbed for season 2's. A third loop, found in the transfer records the
+  same night: a Failed entry of a local fault (`writeError`, `diskFull`)
+  was dropped at once, and the search answer it came from handed the
+  planner the same release again every pass for its whole candidate
+  window. One usenet release whose finished files `verifyContent` could
+  not find under the NZB's name ("[Cleo]Shuumatsu.Nani.Shitemasu.ka-03.
+  Dual.Audio.10bit.720p.x265", `ErrScratchLost`) was grabbed 65 times in
+  30 minutes, 23 releases 262 times in a week. Such an entry now stands
+  `lifecycle.LocalFaultHold` (2 h) as a tombstone the planner refuses the
+  release for (`tombstoned`), blocking and searching nothing. Not fixed:
+  why those releases fail `verifyContent` every time (a content file
+  missing under the NZB's name, or a size other than the yEnc header's),
+  which is a fact about the release classed as a local fault. With it: a pack's file named for its episode
   alone is read (`bareEpisode`: "S02EP01.mkv" by the season it writes,
   "[Prof] Episode 01 - The Wind Blows.mkv" by the one season its release
   is a pack of), and a name that is nothing but hexadecimal digits is no

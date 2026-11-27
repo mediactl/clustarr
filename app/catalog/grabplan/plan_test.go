@@ -530,3 +530,27 @@ func TestCompleteAudioIsGrabbedFirstUnderCompleteFirst(t *testing.T) {
 func TestSearchRecordsOutliveTheCandidateWindow(t *testing.T) {
 	require.GreaterOrEqual(t, events.SearchesTTL, grabplan.CandidateWindow)
 }
+
+// A release that failed on a local fault is not grabbed again while its
+// Failed entry stands (lifecycle.LocalFaultHold): the planner takes the
+// next release of the same answer, where it took the same one again every
+// pass.
+func TestAReleaseThatFailedOnALocalFaultIsNotGrabbedAgainWhileItsEntryStands(t *testing.T) {
+	failed := movieCandidate(t, "Heat.1995.720p.HDTV.x264-GRP")
+	other := movieCandidate(t, "Heat.1995.720p.HDTV.x264-OTHER")
+	e := liveEntry(failed, commonv1.DownloadPhaseFailed)
+	e.FailureReason = commonv1.DownloadFailureWriteError
+	e.ID = "heat-older-grab"
+
+	v := movieView(t, nil, failed)
+	v.PendingCap = 0
+	v.Entries = []catalogv1alpha1.DownloadEntry{e}
+	require.Empty(t, grabplan.Decide(v).NewEntries, "the same release is not grabbed again")
+
+	v = movieView(t, nil, failed, other)
+	v.PendingCap = 0
+	v.Entries = []catalogv1alpha1.DownloadEntry{e}
+	p := grabplan.Decide(v)
+	require.Len(t, p.NewEntries, 1)
+	require.Equal(t, other.Release.Decision.GUID, p.NewEntries[0].Release.GUID)
+}

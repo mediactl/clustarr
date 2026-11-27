@@ -945,7 +945,11 @@ func (d *decider) queue(it Covered, purpose commonv1.DownloadPurpose) []decision
 func (d *decider) tombstoned(it Covered, rel commonv1.ReleaseInfo) bool {
 	for i := range d.v.Entries {
 		e := &d.v.Entries[i]
-		refused := e.Phase == commonv1.DownloadPhaseFailed && e.FailureReason == commonv1.DownloadFailureReleaseRefused
+		// A release its indexer kept refusing, or one that failed on a
+		// local fault, is held as a tombstone without a block
+		// (lifecycle.RefusedHold, LocalFaultHold).
+		refused := e.Phase == commonv1.DownloadPhaseFailed &&
+			(e.FailureReason == commonv1.DownloadFailureReleaseRefused || e.FailureReason.IsLocalFault())
 		if (e.Phase != commonv1.DownloadPhaseBlocklisted && !refused) || !covers(e, it) {
 			continue
 		}

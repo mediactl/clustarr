@@ -31,6 +31,18 @@ const (
 	// so the redownload search grabs another release rather than the same
 	// one; the release may be grabbed again after it, unblocked.
 	RefusedHold = 24 * time.Hour
+	// LocalFaultHold is how long a Failed entry of a local fault (a write
+	// error, a full disk) stays as a tombstone after its failure, so the
+	// search answer it was grabbed from does not hand the planner the same
+	// release again. Nothing is blocked and no redownload is searched, as
+	// before; the release may be grabbed again after it. Without it the
+	// entry was dropped at once and the release regrabbed from the same
+	// answer for the answer's whole candidate window: on talos one usenet
+	// release whose finished files the engine could not verify was grabbed
+	// 65 times in 30 minutes, and 23 releases 262 times in a week
+	// (2026-11-20 to 27, "the transfer's scratch files are gone or
+	// altered").
+	LocalFaultHold = 2 * time.Hour
 	// UnclaimedGrace is how long after an engine boot or a transfer's add
 	// claimed: false means nothing (§6.7).
 	UnclaimedGrace = 10 * time.Minute

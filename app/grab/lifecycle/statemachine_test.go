@@ -576,16 +576,34 @@ func TestEveryRowOfTheStateMachine(t *testing.T) {
 			assert.False(t, *p.Finalizer)
 		},
 	}, {
-		name: "Failed: record removed -> dropped",
+		name: "Failed: record removed -> dropped once its local fault's hold is over",
 		view: func() lifecycle.View {
 			e := entry(commonv1.DownloadPhaseFailed)
 			e.FailureReason = commonv1.DownloadFailureDiskFull
 			e.RemoveDataOnDelete = false
+			old := metav1.NewTime(now.Add(-lifecycle.LocalFaultHold - time.Minute))
+			e.FailedAt = &old
 			return view([]catalogv1alpha1.DownloadEntry{e}, removedRecord(e))
 		},
 		check: func(t *testing.T, p lifecycle.Plan) {
 			assert.Empty(t, p.Entries)
 			assert.Empty(t, p.Removals, "no data asked")
+		},
+	}, {
+		name: "Failed: a local fault's entry stands LocalFaultHold, blocking and searching nothing",
+		view: func() lifecycle.View {
+			e := entry(commonv1.DownloadPhaseFailed)
+			e.FailureReason = commonv1.DownloadFailureDiskFull
+			e.RemoveDataOnDelete = false
+			recent := metav1.NewTime(now.Add(-time.Minute))
+			e.FailedAt = &recent
+			return view([]catalogv1alpha1.DownloadEntry{e}, removedRecord(e))
+		},
+		check: func(t *testing.T, p lifecycle.Plan) {
+			require.NotNil(t, only(p))
+			assert.Empty(t, p.Blocks)
+			assert.Empty(t, p.Redownloads)
+			assert.Empty(t, p.Removals)
 		},
 	}, {
 		name: "Seeding: record failed payloadUnavailable -> dropped with SeedingLost, nothing blocked or searched",

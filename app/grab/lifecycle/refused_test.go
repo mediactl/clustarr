@@ -65,3 +65,32 @@ func TestARefusedReleaseIsFailedAndHeldWithoutABlock(t *testing.T) {
 	require.NotNil(t, only(lifecycle.Decide(held(2*time.Hour))), "kept as a tombstone, the search done")
 	assert.Empty(t, lifecycle.Decide(held(lifecycle.RefusedHold+time.Minute)).Entries, "dropped once the hold is over")
 }
+
+// A release that failed on a local fault is held as a tombstone
+// LocalFaultHold, without a block and without a redownload search: dropped
+// at once, its entry left the search answer it came from to hand the
+// planner the same release again, 65 times in 30 minutes for one usenet
+// release on talos (2026-11-20).
+func TestAReleaseThatFailedOnALocalFaultIsHeldWithoutABlock(t *testing.T) {
+	e := usenetEntry(commonv1.DownloadPhaseDownloading)
+	v := view([]catalogv1alpha1.DownloadEntry{e}, failedRecord(e, commonv1.DownloadFailureWriteError))
+	p := lifecycle.Decide(v)
+	got := only(p)
+	require.NotNil(t, got)
+	assert.Equal(t, commonv1.DownloadPhaseFailed, got.Phase)
+	assert.Equal(t, commonv1.DownloadFailureWriteError, got.FailureReason)
+	assert.Nil(t, got.Block, "never blocklisted")
+	assert.Empty(t, lifecycle.Decide(next(v, p)).Redownloads, "a local fault asks no redownload search")
+
+	held := func(age time.Duration) lifecycle.View {
+		f := *got
+		f.Dispatch.DispatchedAt = metav1.NewTime(now.Add(-age))
+		f.FailedAt = ptr.To(metav1.NewTime(now.Add(-age)))
+		f.OutputPath = "" // its data already removed
+		gone := removedRecord(f)
+		gone.Record.OutputPath = ""
+		return view([]catalogv1alpha1.DownloadEntry{f}, gone)
+	}
+	require.NotNil(t, only(lifecycle.Decide(held(30*time.Minute))), "kept as a tombstone through the answer's candidate window")
+	assert.Empty(t, lifecycle.Decide(held(lifecycle.LocalFaultHold+time.Minute)).Entries, "dropped once the hold is over")
+}
