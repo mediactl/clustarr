@@ -83,10 +83,17 @@ type Inbox struct {
 	byID  map[string]*parked
 	wakes chan schema.ItemRef
 	// settled remembers each recent settlement by Msg-Id, so the Search
-	// controller can report a pick its owner refused (A4.3); bounded by
-	// settledMax, oldest first out.
-	settled      map[string]Outcome
+	// controller can report a pick its owner refused (A4.3) and why;
+	// bounded by settledMax, oldest first out.
+	settled      map[string]settlement
 	settledOrder []string
+}
+
+// settlement is how a candidate was settled, and the planner's reason when
+// it was refused.
+type settlement struct {
+	outcome Outcome
+	reason  string
 }
 
 // settledMax bounds the settlements an inbox remembers.
@@ -101,7 +108,7 @@ func NewInbox(limit int) *Inbox {
 		order:   map[OwnerKey][]*parked{},
 		byID:    map[string]*parked{},
 		wakes:   make(chan schema.ItemRef, limit),
-		settled: map[string]Outcome{},
+		settled: map[string]settlement{},
 	}
 }
 
@@ -129,7 +136,13 @@ func (in *Inbox) Len() int {
 // Settle releases the handler waiting on msgID with o, after the owner's
 // decision landed. An unknown msgID (settled, timed out, or parked by an
 // earlier leader) is ignored.
-func (in *Inbox) Settle(msgID string, o Outcome) {
+func (in *Inbox) Settle(msgID string, o Outcome) { in.SettleBecause(msgID, o, "") }
+
+// SettleBecause is Settle with the planner's reason, which Refusal answers
+// for a refused candidate: until 2026-11-27 the reason went to a Debug line
+// alone, and a person whose pick was refused read "the item's owner did not
+// take the release (see its Events)" over an item with no such Event.
+func (in *Inbox) SettleBecause(msgID string, o Outcome, reason string) {
 	in.mu.Lock()
 	p, ok := in.byID[msgID]
 	if ok {
@@ -142,7 +155,7 @@ func (in *Inbox) Settle(msgID string, o Outcome) {
 			in.settledOrder = in.settledOrder[1:]
 		}
 	}
-	in.settled[msgID] = o
+	in.settled[msgID] = settlement{outcome: o, reason: reason}
 	in.mu.Unlock()
 	if ok {
 		p.done <- o
@@ -154,8 +167,19 @@ func (in *Inbox) Settle(msgID string, o Outcome) {
 func (in *Inbox) Settled(msgID string) (Outcome, bool) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
-	o, ok := in.settled[msgID]
-	return o, ok
+	st, ok := in.settled[msgID]
+	return st.outcome, ok
+}
+
+// Refusal is why an owner's pass refused msgID, "" when it did not refuse
+// it, gave no reason, or this leader settled no such candidate.
+func (in *Inbox) Refusal(msgID string) string {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if st, ok := in.settled[msgID]; ok && st.outcome == Refused {
+		return st.reason
+	}
+	return ""
 }
 
 // Wakes is S30: each parked candidate's owner, to enqueue at PriorityUser.

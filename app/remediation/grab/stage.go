@@ -134,7 +134,7 @@ func (s *Stage) result(ctx context.Context, v *remediation.ItemView, g *gathered
 		Due:  plan.Due,
 	}
 	for id, o := range plan.Settle {
-		res.Effects = append(res.Effects, remediation.SettleCandidate{MsgID: id, Outcome: o})
+		res.Effects = append(res.Effects, remediation.SettleCandidate{MsgID: id, Outcome: o, Reason: plan.Refusals[id]})
 	}
 	for i := range plan.NewEntries {
 		if eff, ok := grabbed(gv, &plan.NewEntries[i], v.Now.Time); ok {
@@ -159,7 +159,7 @@ func (s *Stage) deleting(v *remediation.ItemView) remediation.ItemResult {
 	res := remediation.ItemResult{Sets: []itempass.Set{pendingSet(v.Key.Kind, pendingOf(v.Item))}}
 	if s.o.Inbox != nil {
 		for _, p := range s.o.Inbox.Take(intake.OwnerOf(itemread.Ref(v.Item))) {
-			res.Effects = append(res.Effects, remediation.SettleCandidate{MsgID: p.MsgID, Outcome: intake.Refused})
+			res.Effects = append(res.Effects, remediation.SettleCandidate{MsgID: p.MsgID, Outcome: intake.Refused, Reason: "the item is being deleted"})
 		}
 	}
 	return res

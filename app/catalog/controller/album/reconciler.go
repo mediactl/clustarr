@@ -337,7 +337,7 @@ func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName)
 		r.OnReconcile()
 	}
 	var alb catalogv1alpha1.Album
-	if err := r.Get(ctx, nn, &alb); err != nil {
+	if err := itempass.Read(ctx, r.Client, nn, &alb); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&alb) {

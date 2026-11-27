@@ -21,10 +21,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"reflect"
 	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -74,6 +76,9 @@ type Pass struct {
 	// itemstatus.Apply sends none that would change nothing (nil: every
 	// apply is sent).
 	Applies Applies
+	// View is the item the stages planned on, which the kind's own pass
+	// starts from (Read): nil outside a staged pass.
+	View client.Object
 
 	mu        sync.Mutex
 	retry     time.Duration
@@ -104,6 +109,34 @@ type passKey struct{}
 // With returns ctx carrying p.
 func With(ctx context.Context, p *Pass) context.Context {
 	return context.WithValue(ctx, passKey{}, p)
+}
+
+// Read is the item a kind's own pass starts from: inside a staged pass the
+// object the stages planned on (Pass.View), a copy of it; outside one, r's.
+//
+// The kind's catalog apply is preconditioned on the resourceVersion of the
+// object it read, and it carries the stages' contribution, so the two must
+// be one object. They were two reads until 2026-11-27, the stages' and then
+// the kind's own from the manager's cache, and the cache can catch up with
+// the pass before's apply in between: the stages planned on status from
+// before it, the kind read the status after it, and the apply landed at
+// that newer resourceVersion with the older plan. On talos five imports ran
+// twice that way in one night (Ascendance of a Bookworm 1x05, 1x26 and
+// 1x27 in one pass): the pass before had sent an execute and recorded its
+// seq, this one saw the answered inspection alone and sent another at a new
+// seq, the first placed the file, the second found the source gone and its
+// failure was the answer the entry kept. Read from the view, a pass on a
+// stale object is a Conflict at the apiserver, and sends nothing.
+func Read(ctx context.Context, r client.Reader, key client.ObjectKey, out client.Object) error {
+	if p := From(ctx); p != nil && p.View != nil &&
+		p.View.GetNamespace() == key.Namespace && p.View.GetName() == key.Name {
+		view, dst := reflect.ValueOf(p.View.DeepCopyObject()), reflect.ValueOf(out)
+		if view.Type() == dst.Type() && dst.Kind() == reflect.Pointer {
+			dst.Elem().Set(view.Elem())
+			return nil
+		}
+	}
+	return r.Get(ctx, key, out)
 }
 
 // From is the pass ctx carries; nil outside a staged pass (tests, F4's

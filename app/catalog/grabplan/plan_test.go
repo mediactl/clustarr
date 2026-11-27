@@ -554,3 +554,48 @@ func TestAReleaseThatFailedOnALocalFaultIsNotGrabbedAgainWhileItsEntryStands(t *
 	require.Len(t, p.NewEntries, 1)
 	require.Equal(t, other.Release.Decision.GUID, p.NewEntries[0].Release.GUID)
 }
+
+// TestARefusedPickSaysWhyAndOverWhichGrab: the planner's reason for
+// refusing a candidate goes back with its settlement (Plan.Refusals), and a
+// release refused over a live grab names that grab and where it stands. On
+// talos (2026-11-27) a person picked another release for an episode whose
+// download had finished hours before, its import held, and read only "the
+// item's owner did not take the release (see its Events)": the reason was a
+// Debug line, and "already downloading" would not have told them it was a
+// held import in the way.
+func TestARefusedPickSaysWhyAndOverWhichGrab(t *testing.T) {
+	const heldTitle, pickTitle = "Breaking.Bad.S01E27.1080p.BluRay.x264-AAA", "Breaking.Bad.S01E27.1080p.BluRay.x264-BBB"
+	var held, pick grabplan.Candidate
+	for _, c := range seasonCandidates(t, 1, 27, heldTitle, pickTitle) {
+		if c.Release.Decision.Title == heldTitle {
+			held = c
+		} else {
+			pick = c
+		}
+	}
+	entry := liveEntry(held, commonv1.DownloadPhaseCompleted, ep(1, 27))
+	entry.Import = &catalogv1alpha1.DownloadImportSummary{Phase: catalogv1alpha1.ImportPhaseHeld}
+
+	v := seriesView(t, season(1, 27), parked(bbRef, "pick-1", pick, true, false))
+	v.Entries = []catalogv1alpha1.DownloadEntry{entry}
+	p := grabplan.Decide(v)
+	require.Empty(t, p.NewEntries)
+	require.Equal(t, intake.Refused, p.Settle["pick-1"])
+	why := p.Refusals["pick-1"]
+	require.True(t, decision.ReasonQueueHigherPreference.Of(commonv1.Rejection{Reason: why}), why)
+	require.Contains(t, why, heldTitle, "the grab in the way is named")
+	require.Contains(t, why, entry.ID)
+	require.Contains(t, why, "its import is held for a person")
+
+	entry.Import = nil
+	entry.Phase = commonv1.DownloadPhaseDownloading
+	v.Entries = []catalogv1alpha1.DownloadEntry{entry}
+	require.Contains(t, grabplan.Decide(v).Refusals["pick-1"], "), downloading")
+
+	// With spec.override the pick is taken, and nothing is refused.
+	v = seriesView(t, season(1, 27), parked(bbRef, "pick-2", pick, true, true))
+	v.Entries = []catalogv1alpha1.DownloadEntry{entry}
+	p = grabplan.Decide(v)
+	require.Len(t, p.NewEntries, 1)
+	require.Empty(t, p.Refusals)
+}

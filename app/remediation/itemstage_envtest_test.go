@@ -54,7 +54,7 @@ type stubMovie struct {
 
 func (s *stubMovie) ReconcileItem(ctx context.Context, nn types.NamespacedName) (reconcile.Result, error) {
 	var m catalogv1alpha1.Movie
-	if err := s.r.Get(ctx, nn, &m); err != nil {
+	if err := itempass.Read(ctx, s.r, nn, &m); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 	p := itempass.From(ctx)
@@ -79,7 +79,7 @@ type stubStage struct {
 	declares []k8s.FieldManager
 }
 
-func (s *stubStage) Name() remediation.ItemStageName { return s.name }
+func (s *stubStage) Name() remediation.ItemStageName  { return s.name }
 func (s *stubStage) Applies(remediation.KeyKind) bool { return true }
 func (s *stubStage) Plan(_ context.Context, _ *remediation.Env, v *remediation.ItemView) (remediation.ItemResult, error) {
 	return s.plan(v)
@@ -334,4 +334,55 @@ func TestAStageThatPanicsKeepsItsStoredValues(t *testing.T) {
 	h.pass(t)
 	got = h.movie(t)
 	assert.Equal(t, time.Unix(searched.Load(), 0).UTC(), got.Status.LastSearchedAt.UTC(), "the next clean pass applies the set")
+}
+
+// TestAPassAppliesAtTheResourceVersionItsStagesPlannedOn: the kind's own
+// pass starts from the object the stages planned on (itempass.Read), so a
+// write that reaches the cache while the stages plan makes the catalog
+// apply a Conflict, where it used to land the stages' older plan over it.
+// On talos (2026-11-27) that was the pass before's own apply, read late: a
+// Series' stages planned on status from before an import's execute was
+// sent, sent a second one at a new seq, and the kind's own read of the
+// newer object let the apply through; the first execute placed the file,
+// the second's "no such file" was the answer the entry kept.
+func TestAPassAppliesAtTheResourceVersionItsStagesPlannedOn(t *testing.T) {
+	var h *itemHarness
+	first := itemtest.Entry("first", commonv1.DownloadPhaseQueued)
+	late := true
+	downloads := &stubStage{name: remediation.StageDownloads, plan: func(v *remediation.ItemView) (remediation.ItemResult, error) {
+		stored := v.Item.(*catalogv1alpha1.Movie).Status.Downloads
+		if late {
+			// The pass before's apply, which the cache holds only after
+			// this pass read its view.
+			late = false
+			st := catalogac.MovieStatus().WithDownloads(itempass.EntryACs([]catalogv1alpha1.DownloadEntry{first})...)
+			if _, err := k8s.PatchStatus(t.Context(), h.e.Admin, k8s.ManagerCatalog, catalogac.Movie("heat", "late").WithStatus(st)); err != nil {
+				return remediation.ItemResult{}, err
+			}
+			require.Eventually(t, func() bool {
+				var m catalogv1alpha1.Movie
+				return h.e.Loop.Reader.Get(t.Context(), h.nn, &m) == nil && len(m.Status.Downloads) == 1
+			}, 10*time.Second, 20*time.Millisecond, "the cache catches up while the stage plans")
+		}
+		// What the stage decides from its view: the stored entries, and one
+		// more when it sees none.
+		entries := append([]catalogv1alpha1.DownloadEntry(nil), stored...)
+		if len(entries) == 0 {
+			entries = append(entries, itemtest.Entry("second", commonv1.DownloadPhaseQueued))
+		}
+		return remediation.ItemResult{Contribution: itempass.Contribution{Downloads: &entries}}, nil
+	}}
+	h = newItemHarness(t, "late", downloads)
+
+	res := h.pass(t)
+	assert.NotZero(t, res.RequeueAfter, "a pass planned on an object another write has replaced is a Conflict, and runs again")
+	m := h.movie(t)
+	require.Len(t, m.Status.Downloads, 1)
+	assert.Equal(t, "first", m.Status.Downloads[0].ID, "the plan made on the older object did not land over the newer one")
+
+	res = h.pass(t)
+	assert.Zero(t, res.RequeueAfter)
+	m = h.movie(t)
+	require.Len(t, m.Status.Downloads, 1)
+	assert.Equal(t, "first", m.Status.Downloads[0].ID, "the next pass plans on what is stored")
 }

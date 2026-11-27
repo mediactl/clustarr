@@ -1771,3 +1771,57 @@ recorded here.
   (`pickedAt`: the entry is manual and `release.quality.name` is the
   file's). A pick whose file is another quality than its release's, and
   any automatic grab, are refused as before.
+
+- **A kind's own pass starts from the object its stages planned on: one
+  read, never two (2026-11-27, owner: "Fix this", of imports that ran
+  twice).** A staged item pass read its item twice: `ItemReconciler.staged`
+  for the stages, then the kind's `ReconcileItem` again from the manager's
+  cache, and the catalog apply was preconditioned on the second. The cache
+  can catch up with the pass before's apply between the two (the stages
+  read records and lists for every entry: seconds, on a Series with 23), so
+  the stages planned on status from before that apply and the plan landed
+  at the resourceVersion after it. On talos five imports ran twice in a
+  night (Ascendance of a Bookworm 1x05, 1x26 and 1x27 in one pass, How a
+  Realist Hero 1x25, Yuuki Yuuna 3x01): the pass before had sent an execute
+  and recorded its seq; this one saw the answered inspection alone, sent a
+  second execute at a new seq, and its status replaced the first's. The
+  first placed the file; the second found the source gone, and since
+  `executeAnswer` keeps only an answer at the same seq, its "no such file"
+  replaced the placed answer. No MediaFile was made, the entry was held
+  "the download holds no file, and an import of it was already carried
+  out", and the episode read Wanted with its file in the library. Nothing
+  was logged: no apply failed. Now `itempass.Read` gives every kind's
+  `ReconcileItem` a copy of the pass's view (`Pass.View`), so a pass on a
+  stale object is a Conflict at the apiserver and sends nothing
+  (`TestAPassAppliesAtTheResourceVersionItsStagesPlannedOn`, and
+  `TestEveryItemKindStartsFromThePassesView` holds each kind's source to
+  it, since no staged-pass test runs a real kind's reconciler). The agent
+  is held to the same end from its side: a second execute of a plan an
+  earlier one placed, every file still at its destination with the size
+  and modification time recorded, answers what the first placed
+  (`fileimport.placedBefore`), whatever sent it twice. The 2026-10-21 case
+  (a status write lost to an etcd timeout) ends the same way now.
+  **Finding one:** `status.downloads[].import.message` matching "holds no
+  file, and an import"; the agent's "fileimport: executed an import ...
+  placed 1" for the entry is in VictoriaLogs (field `entry`). **Repairing
+  one:** a `LibraryScan` of the item's folder (`rootFolderRef`, `subpath`),
+  first with `dryRun: true`, whose `itemsUpdated` counts the unrecorded
+  files.
+
+- **A refused pick says why, and over which grab (2026-11-27, owner: "The
+  refusal reason should reach the UI").** The grab planner's reason for
+  refusing a candidate was one Debug line, and the Search reported "the
+  item's owner did not take the release (see its Events)" over an owner
+  with no such Event. The reason now goes back with the settlement
+  (`grabplan.Plan.Refusals`, `remediation.SettleCandidate.Reason`,
+  `intake.Inbox.SettleBecause` and `Refusal`), and `status.grabbed[].error`
+  reads "the item's owner did not take the release: <reason>", which the
+  interactive search's download button shows. A release refused over a
+  live grab names it and where it stands: `"<release>" (<entry id>),
+  downloading`, or `downloaded, and its import is held for a person`. That
+  last one is the case that raised it: **a Completed entry whose import is
+  held is still live in the planner's queue**, so a person's pick of
+  another release for the same episode is refused (`overlapsLive`,
+  QueueHigherPreference) unless `spec.override`, which the UI sends only
+  for a release the search itself rejected. The inbox is leader-local: a
+  refusal settled before a leader change reads without its reason.

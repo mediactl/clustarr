@@ -286,7 +286,7 @@ func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName)
 		r.OnReconcile()
 	}
 	var s catalogv1alpha1.Series
-	if err := r.Get(ctx, nn, &s); err != nil {
+	if err := itempass.Read(ctx, r.Client, nn, &s); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&s) {

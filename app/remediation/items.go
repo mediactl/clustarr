@@ -236,7 +236,7 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key, unc
 	// that did not land (a conflict, an error, a path that returned before
 	// applying) stops here: no set, no effect.
 	phaseStart = time.Now()
-	pass := &itempass.Pass{Contribution: merged, Admitter: ir.admitterFor(k)}
+	pass := &itempass.Pass{Contribution: merged, Admitter: ir.admitterFor(k), View: item}
 	if ir.Applies != nil {
 		pass.Applies = ir.Applies
 	}

@@ -19,6 +19,7 @@ package grabplan
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -157,6 +158,9 @@ type Plan struct {
 	Pending []catalogv1alpha1.PendingGrab
 	// Settle is every intake candidate's outcome, by Msg-Id.
 	Settle map[string]intake.Outcome
+	// Refusals is why each refused intake candidate was refused, by Msg-Id:
+	// what the Search that sent a person's pick reports to them.
+	Refusals map[string]string
 	// Due is the soonest grabAt.
 	Due    time.Time
 	Events []lifecycle.Event
@@ -199,6 +203,7 @@ func Decide(v View) Plan {
 func DecideContext(ctx context.Context, v View) Plan {
 	d := &decider{ctx: ctx, v: v, now: v.Now.UTC()}
 	d.plan.Settle = map[string]intake.Outcome{}
+	d.plan.Refusals = map[string]string{}
 	d.plan.Decisions = map[string]int{}
 	d.taken = map[string]bool{}
 
@@ -403,6 +408,9 @@ func (d *decider) settle(c Candidate, o intake.Outcome, decision, reason string)
 	d.plan.Decisions[decision]++
 	if c.MsgID != "" {
 		d.plan.Settle[c.MsgID] = o
+		if o == intake.Refused && reason != "" {
+			d.plan.Refusals[c.MsgID] = reason
+		}
 	}
 	rel := c.Release.Decision.ReleaseInfo
 	attrs := []any{
@@ -482,10 +490,19 @@ func (d *decider) check(c Candidate) verdict {
 	}
 	if rejs := CoverageRejections(coveredKind(vd.covered[0]), checks, season, c.Release.Parsed.FullSeason, c.Manual, c.Override); rejs != nil {
 		vd.reason, vd.decision = rejs[0].Reason, refusalDecision(rejs)
-		if vd.decision == decisionRefused {
+		switch vd.decision {
+		case decisionRefused:
 			// P23: a pack covering no wanted episode is refused; one
 			// covering some is taken as covering those.
 			vd.reason = "no item it covers wants it: " + rejs[0].Reason
+		case decisionOverlapsLive:
+			// Which grab, and where it stands: "already downloading" over
+			// a download finished hours ago, its import held for a person,
+			// told the person who picked another release nothing they
+			// could act on (talos, 2026-11-27).
+			if e := d.liveCovering(vd.covered, c.Purpose); e != nil {
+				vd.reason += "; that grab is " + describeLive(e)
+			}
 		}
 		return vd
 	}
@@ -937,6 +954,33 @@ func (d *decider) queue(it Covered, purpose commonv1.DownloadPurpose) []decision
 		})
 	}
 	return out
+}
+
+// liveCovering is the first live entry of purpose covering any of items,
+// nil for none: the grab a release was refused over.
+func (d *decider) liveCovering(items []Covered, purpose commonv1.DownloadPurpose) *catalogv1alpha1.DownloadEntry {
+	for i := range d.v.Entries {
+		e := &d.v.Entries[i]
+		if !live(e) || e.Purpose != purpose {
+			continue
+		}
+		for _, it := range items {
+			if covers(e, it) {
+				return e
+			}
+		}
+	}
+	return nil
+}
+
+// describeLive names a live entry and where it stands, for a refusal a
+// person reads: its release, its phase, and a held import as that.
+func describeLive(e *catalogv1alpha1.DownloadEntry) string {
+	state := strings.ToLower(string(e.Phase))
+	if e.Import != nil && e.Import.Phase == catalogv1alpha1.ImportPhaseHeld {
+		state = "downloaded, and its import is held for a person"
+	}
+	return fmt.Sprintf("%q (%s), %s", e.Release.Title, e.ID, state)
 }
 
 // tombstoned reports a Blocklisted entry covering it for the same release,

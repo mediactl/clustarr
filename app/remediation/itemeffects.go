@@ -130,6 +130,9 @@ type DeleteObject struct {
 type SettleCandidate struct {
 	MsgID   string
 	Outcome intake.Outcome
+	// Reason is why the planner refused it, for the Search that sent the
+	// pick to report (intake.Inbox.Refusal); "" for none.
+	Reason string
 }
 
 // CountGrab counts a direct-source grab into its Indexer's grab ring
@@ -338,7 +341,7 @@ func (ir *ItemReconciler) runItemEffect(ctx context.Context, item client.Object,
 		return nil
 	case SettleCandidate:
 		if ir.Inbox != nil {
-			ir.Inbox.Settle(e.MsgID, e.Outcome)
+			ir.Inbox.SettleBecause(e.MsgID, e.Outcome, e.Reason)
 		}
 		return nil
 	case CountGrab:

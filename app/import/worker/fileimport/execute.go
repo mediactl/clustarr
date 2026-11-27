@@ -67,7 +67,8 @@ func (w *Worker) handleExecute(ctx context.Context, m events.Message, env *event
 		return events.Discard("fileimport: an execute task names no entry or owner", nil)
 	}
 	key := agentrecords.ImportKey(task.Entry.UID, schema.ImportSubExecute)
-	if cur, _, ok, err := w.reader().Get(ctx, key); err != nil {
+	cur, _, ok, err := w.reader().Get(ctx, key)
+	if err != nil {
 		return fmt.Errorf("fileimport: read the execute record: %w", err)
 	} else if ok && cur.Seq >= task.Seq {
 		return nil
@@ -75,21 +76,32 @@ func (w *Worker) handleExecute(ctx context.Context, m events.Message, env *event
 	log := logging.FromContext(ctx).With("namespace", task.Owner.Namespace, "owner", task.Owner.Name, "entry", task.Entry.ID)
 	ctx = logging.NewContext(ctx, log)
 
-	// The whole execute is kept alive: its steps are unbounded -- a join,
-	// a copy of a whole film, a donor placed and reduced, the replaced files
-	// recycled -- and a delivery whose ack deadline lapses is redelivered
-	// beside it (keepAlive).
 	var (
 		x       *schema.ImportExecution
 		failure string
+		again   bool
 	)
-	err := w.keepAlive(ctx, m, func() error {
-		var err error
-		x, failure, err = w.execute(ctx, m, &task)
-		return err
-	})
-	if err != nil {
-		return err
+	if ok {
+		x = placedBefore(cur, &task)
+	}
+	if x != nil {
+		// An earlier execute of the entry carried out this very plan.
+		again = true
+		log.Info("fileimport: an earlier execute of this entry placed the plan's files; answering with what it placed",
+			"seq", task.Seq, "placedAtSeq", cur.Seq, "placed", len(x.Placed))
+	} else {
+		// The whole execute is kept alive: its steps are unbounded -- a
+		// join, a copy of a whole film, a donor placed and reduced, the
+		// replaced files recycled -- and a delivery whose ack deadline
+		// lapses is redelivered beside it (keepAlive).
+		err := w.keepAlive(ctx, m, func() error {
+			var err error
+			x, failure, err = w.execute(ctx, m, &task)
+			return err
+		})
+		if err != nil {
+			return err
+		}
 	}
 	now := w.now().UTC()
 	rec := &schema.ImportRecord{
@@ -113,10 +125,45 @@ func (w *Worker) handleExecute(ctx context.Context, m events.Message, env *event
 		log.Warn("fileimport: another delivery answered this execute first; keeping its answer", "seq", task.Seq, "failure", failure)
 		return nil
 	}
-	if x != nil {
+	if x != nil && !again {
 		log.Info("fileimport: executed an import", "placed", len(x.Placed), "recycled", len(x.Recycled), "refused", x.Refused)
 	}
 	return nil
+}
+
+// placedBefore is what an earlier execute of the entry answered, when it
+// carried out this very plan and its files are still where it placed them:
+// the answer a second execute of the plan gives, nil when it must run.
+//
+// One plan was sent twice at two seqs on talos (2026-10-21 after a status
+// write was lost, 2026-11-27 five times in a night from a pass planned on a
+// stale object, itempass.Read): the first placed the file, the second found
+// its source gone, and since executeAnswer keeps only an answer at the same
+// seq the failure replaced the placed answer. The manager never recorded
+// the file, the entry was held "the download holds no file", and the
+// episode read as missing with its file in the library.
+//
+// Every move must be the one placed: its source, its destination and its
+// MediaFile, with the file at the destination of the size and modification
+// time recorded. A donor's plan always runs.
+func placedBefore(cur *schema.ImportRecord, task *schema.ImportExecuteTask) *schema.ImportExecution {
+	x, plan := cur.Execute, task.Plan
+	if cur.State != records.StateAnswered || x == nil || x.Refused != "" || cur.Entry.UID != task.Entry.UID ||
+		plan.Donor != nil || len(plan.Moves) == 0 || len(x.Placed) != len(plan.Moves) {
+		return nil
+	}
+	for i, mv := range plan.Moves {
+		p := x.Placed[i]
+		if p.Source != mv.Source || p.Dest != mv.Dest || p.MediaFileName != mv.MediaFileName {
+			return nil
+		}
+		info, err := os.Stat(mv.Dest)
+		if err != nil || info.Size() != p.SizeBytes || !info.ModTime().Equal(p.ModTime) {
+			return nil
+		}
+	}
+	out := *x
+	return &out
 }
 
 // executeAnswer is the execute record's write rule: an answer already

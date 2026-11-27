@@ -254,7 +254,7 @@ func (r *Reconciler) handlePicks(ctx context.Context, s *catalogv1alpha1.Search)
 			}
 			if o, ok := r.settled(s, guid); ok && o == intake.Refused {
 				// Sent again only under a new Msg-Id: flipping spec.override.
-				grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: "the item's owner did not take the release (see its Events)"}
+				grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: refusedText(r.refusal(s, guid))}
 				continue
 			}
 			if have && cur.Error == "" {
@@ -348,6 +348,33 @@ func pickMsgID(s *catalogv1alpha1.Search, indexer, guid string) string {
 		guid += "#override"
 	}
 	return events.MsgIDForCandidate(events.CandidateMsgOriginPick, string(s.UID), indexer, guid)
+}
+
+// refusal is why the owner's planner refused guid's pick, "" when it gave
+// no reason.
+func (r *Reconciler) refusal(s *catalogv1alpha1.Search, guid string) string {
+	if r.Inbox == nil {
+		return ""
+	}
+	for _, res := range s.Status.Results {
+		if res.GUID == guid {
+			return r.Inbox.Refusal(pickMsgID(s, res.IndexerRef, guid))
+		}
+	}
+	return ""
+}
+
+// maxGrabError bounds a GrabResult's error.
+const maxGrabError = 512
+
+// refusedText is a refused pick's error: the planner's own reason. It read
+// "the item's owner did not take the release (see its Events)" until
+// 2026-11-27, and the owner had no such Event: the reason was a Debug line.
+func refusedText(reason string) string {
+	if reason == "" {
+		return "the item's owner did not take the release"
+	}
+	return k8s.ClampText("the item's owner did not take the release: "+reason, maxGrabError)
 }
 
 // settled is the owner's settlement of guid's pick, from the intake inbox.
