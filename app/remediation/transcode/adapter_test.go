@@ -32,8 +32,10 @@ import (
 // destination's.
 func TestCopyTakesTheTranscodeBlockAndItsNoncesOnly(t *testing.T) {
 	from := &catalogv1alpha1.MediaFileStatus{
-		ProbeHash: "p", Transcode: &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhasePlanned,
-			Dispatch: &catalogv1alpha1.Dispatch{Seq: 4}},
+		ProbeHash: "p", Transcode: &catalogv1alpha1.TranscodeState{
+			Phase:    catalogv1alpha1.TranscodePhasePlanned,
+			Dispatch: &catalogv1alpha1.Dispatch{Seq: 4},
+		},
 		HandledNonces: &catalogv1alpha1.HandledNonces{TranscodeRetry: "1", TranscodeCancel: "2", SubtitleSearch: "3"},
 	}
 	theirs := &catalogv1alpha1.HandledNonces{SubtitleSearch: "9"}

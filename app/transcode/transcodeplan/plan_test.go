@@ -56,8 +56,10 @@ func TestPlanNormalisesALegacyBlock(t *testing.T) {
 // again, a current one is not.
 func TestAVerdictHoldsOnlyForItsTagAndProbe(t *testing.T) {
 	in := inputs(nil, probed("ph-1"), GrantNone)
-	cur := &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSkipped, Reason: ReasonPlanSkip,
-		Profile: "hevc", ProfileHash: in.Eligibility.Hash, ProfileTag: in.Eligibility.Tag, ProbeHash: "ph-1"}
+	cur := &catalogv1alpha1.TranscodeState{
+		Phase: catalogv1alpha1.TranscodePhaseSkipped, Reason: ReasonPlanSkip,
+		Profile: "hevc", ProfileHash: in.Eligibility.Hash, ProfileTag: in.Eligibility.Tag, ProbeHash: "ph-1",
+	}
 	stale := cur.DeepCopy()
 	stale.ProfileHash, stale.ProfileTag = "0ld", "hevc@0ld"
 	failed := cur.DeepCopy()
@@ -177,8 +179,11 @@ func TestThePlanNamesTheSubtitlesItDrops(t *testing.T) {
 	// second en.srt) and a dvb_teletext track, neither text nor bitmap (a
 	// bitmap codec would hold the file, HoldImageSubtitles).
 	st := probed("ph-1")
-	st.MediaInfo.Subtitles = []commonv1.SubtitleStream{{Index: 2, Codec: "subrip", Language: "eng"},
-		{Index: 3, Codec: "subrip", Language: "eng"}, {Index: 4, Codec: "dvb_teletext", Language: "ger"}}
+	st.MediaInfo.Subtitles = []commonv1.SubtitleStream{
+		{Index: 2, Codec: "subrip", Language: "eng"},
+		{Index: 3, Codec: "subrip", Language: "eng"},
+		{Index: 4, Codec: "dvb_teletext", Language: "ger"},
+	}
 	d := pass(inputs(nil, st, GrantWindow))
 	require.NotNil(t, d.Block)
 	require.NotNil(t, d.Block.Plan)
@@ -302,8 +307,10 @@ func TestASwapIsIncorporatedWithTheDispatchedTag(t *testing.T) {
 // that are gone; the block stays Succeeded and spec.original keeps the file
 // Transcoded().
 func TestNewBytesOnASucceededFileDropItsVerdict(t *testing.T) {
-	done := &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, Compliant: true,
-		ProfileTag: "hevc@d1spatched", ProbeHash: "ph-out"}
+	done := &catalogv1alpha1.TranscodeState{
+		Phase: catalogv1alpha1.TranscodePhaseSucceeded, Compliant: true,
+		ProfileTag: "hevc@d1spatched", ProbeHash: "ph-out",
+	}
 	assert.Equal(t, done, pass(inputs(done, probed("ph-out"), GrantNone)).Block)
 	b := pass(inputs(done, probed("ph-remuxed"), GrantNone)).Block
 	assert.Equal(t, &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProbeHash: "ph-out"}, b)
@@ -316,8 +323,10 @@ func TestNewBytesOnASucceededFileDropItsVerdict(t *testing.T) {
 // kind a rename after the swap dropped profileTag and compliant (smoke test,
 // 2026-10-07), and a block that lost them that way gets them back.
 func TestARenameKeepsASucceededFilesVerdict(t *testing.T) {
-	done := &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, Compliant: true,
-		Profile: "hevc", ProfileHash: "d1spatched", ProfileTag: "hevc@d1spatched", ProbeHash: "ph-out"}
+	done := &catalogv1alpha1.TranscodeState{
+		Phase: catalogv1alpha1.TranscodePhaseSucceeded, Compliant: true,
+		Profile: "hevc", ProfileHash: "d1spatched", ProfileTag: "hevc@d1spatched", ProbeHash: "ph-out",
+	}
 	renamed := probed("ph-renamed")
 	renamed.MediaInfo.TranscodeProfile = "hevc@d1spatched"
 

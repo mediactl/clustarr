@@ -81,8 +81,10 @@ func dispatchInputs(t *testing.T) transcodeplan.Inputs {
 // to join it clears the previous dispatch's join.
 func TestADispatchCarriesTheJoinableGraft(t *testing.T) {
 	in := dispatchInputs(t)
-	j := &graftplan.Joinable{Task: grafttask.Task{Target: joinSource, Language: "en", Donor: "/d.mka"},
-		Join: catalogv1alpha1.TranscodeGraftJoin{DonorRelease: "R", Languages: []string{"en"}, ProbeHash: in.Draft.ProbeHash}}
+	j := &graftplan.Joinable{
+		Task: grafttask.Task{Target: joinSource, Language: "en", Donor: "/d.mka"},
+		Join: catalogv1alpha1.TranscodeGraftJoin{DonorRelease: "R", Languages: []string{"en"}, ProbeHash: in.Draft.ProbeHash},
+	}
 	in.Joinable = j
 	d := transcodeplan.Plan(in)
 	require.NotNil(t, d.Block)
@@ -114,8 +116,10 @@ func TestADispatchWaitsForTheJoinedGraftToBeRecorded(t *testing.T) {
 		name string
 		g    *catalogv1alpha1.GraftState
 	}{
-		{"the graft still runs with its transcode", &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseRunning,
-			Reason: graftplan.ReasonJoinedTranscode, JoinedTranscodeSeq: 7}},
+		{"the graft still runs with its transcode", &catalogv1alpha1.GraftState{
+			Phase:  catalogv1alpha1.GraftPhaseRunning,
+			Reason: graftplan.ReasonJoinedTranscode, JoinedTranscodeSeq: 7,
+		}},
 		{"the graft has not seen the dispatch yet", &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseWaiting, JoinedTranscodeSeq: 6}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

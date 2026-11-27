@@ -930,8 +930,10 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 			// recorded (a lost answer), so they may be in the library
 			// unrecorded. That is no fault of the release: held for a
 			// person, never blocklisted (talos, 2026-10-27).
-			return planResult{class: commonv1.ImportClassNeedsPerson,
-				message: "the download holds no file, and an import of it was already carried out: its files may be in the library unrecorded (a library scan of the folder finds them)"}
+			return planResult{
+				class:   commonv1.ImportClassNeedsPerson,
+				message: "the download holds no file, and an import of it was already carried out: its files may be in the library unrecorded (a library scan of the folder finds them)",
+			}
 		}
 		return refused(rs, none)
 	}

@@ -494,7 +494,7 @@ func (w *Worker) write(ctx context.Context, a answer, resp schema.SearchResponse
 	rec.AllPaced = allPaced(resp.Outcomes)
 	// An index-only search asks the release index, not the indexers, and
 	// reports no outcomes: it counts.
-	rec.NoIndexer = !(a.task.IndexOnly && w.Index != nil) && noIndexer(resp.Outcomes)
+	rec.NoIndexer = (!a.task.IndexOnly || w.Index == nil) && noIndexer(resp.Outcomes)
 	rec.IndexerOutcomes = outcomes
 	rec.Candidates = RankScored(ds, opts, resp.Releases, schema.MaxSearchCandidates)
 	return w.store(ctx, a, rec)

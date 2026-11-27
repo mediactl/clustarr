@@ -58,12 +58,16 @@ var domains = map[string]registerFunc{
 		return metadatadomain.Register(ctx, mgr, bus, metadatadomain.Options{Options: o.Options})
 	},
 	"import": func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
-		return importagent.Register(ctx, mgr, bus, importagent.Options{Options: o.Options, DataDir: o.DataDir,
-			SampleMaxBytes: o.SampleMaxBytes, TraktBaseURL: o.TraktBaseURL, PlexBaseURL: o.PlexBaseURL})
+		return importagent.Register(ctx, mgr, bus, importagent.Options{
+			Options: o.Options, DataDir: o.DataDir,
+			SampleMaxBytes: o.SampleMaxBytes, TraktBaseURL: o.TraktBaseURL, PlexBaseURL: o.PlexBaseURL,
+		})
 	},
 	"index": func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
-		return indexeragent.Register(ctx, mgr, bus, indexeragent.Options{Options: o.Options, IndexPath: o.IndexPath,
-			IndexDSN: o.IndexDSN, FacadeBindAddress: o.FacadeBindAddress, FacadeAPIKeySecret: o.FacadeAPIKeySecret})
+		return indexeragent.Register(ctx, mgr, bus, indexeragent.Options{
+			Options: o.Options, IndexPath: o.IndexPath,
+			IndexDSN: o.IndexDSN, FacadeBindAddress: o.FacadeBindAddress, FacadeAPIKeySecret: o.FacadeAPIKeySecret,
+		})
 	},
 	"caption": func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 		return captionagent.Register(ctx, mgr, bus, captionagent.Options{Options: o.Options, DataDir: o.DataDir})
@@ -76,16 +80,20 @@ var domains = map[string]registerFunc{
 		if err != nil {
 			return catalogagent.Registration{}, err
 		}
-		return torrentagent.Register(ctx, mgr, bus, torrentagent.Options{Options: o.Options, Client: client, Engine: o.Engine,
-			DataDir: o.DataDir, ScratchDir: o.ScratchDir})
+		return torrentagent.Register(ctx, mgr, bus, torrentagent.Options{
+			Options: o.Options, Client: client, Engine: o.Engine,
+			DataDir: o.DataDir, ScratchDir: o.ScratchDir,
+		})
 	},
 	"usenet-engine": func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 		client, err := engineClient(o.Engine)
 		if err != nil {
 			return catalogagent.Registration{}, err
 		}
-		return usenetagent.Register(ctx, mgr, bus, usenetagent.Options{Options: o.Options, Client: client, Engine: o.Engine,
-			DataDir: o.DataDir, ScratchDir: o.ScratchDir, PublishDir: o.PublishDir})
+		return usenetagent.Register(ctx, mgr, bus, usenetagent.Options{
+			Options: o.Options, Client: client, Engine: o.Engine,
+			DataDir: o.DataDir, ScratchDir: o.ScratchDir, PublishDir: o.PublishDir,
+		})
 	},
 }
 

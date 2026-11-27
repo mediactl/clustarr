@@ -58,8 +58,10 @@ func TestPathAgreesWithTheImport(t *testing.T) {
 	root := &catalogv1alpha1.RootFolder{Spec: catalogv1alpha1.RootFolderSpec{Path: "/music", Kind: "music", Naming: catalogv1alpha1.NamingSpec{Dialect: "plex"}}}
 	artist := &catalogv1alpha1.Artist{ObjectMeta: metav1.ObjectMeta{Name: "radiohead"}, Spec: catalogv1alpha1.ArtistSpec{MusicBrainzID: "mbid-artist"}, Status: catalogv1alpha1.ArtistStatus{Path: "/music/Radiohead", Metadata: &catalogv1alpha1.ArtistMetadata{Name: "Radiohead"}}}
 	for _, title := range []string{"OK Computer", "What If...?", `A:B*C"D<E>F|G`, "Trailing dot.", strings.Repeat("Long ", 78)} {
-		alb := &catalogv1alpha1.Album{ObjectMeta: metav1.ObjectMeta{Name: "ok-computer"}, Spec: catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg"},
-			Status: catalogv1alpha1.AlbumStatus{Metadata: &catalogv1alpha1.AlbumMetadata{Title: title}}}
+		alb := &catalogv1alpha1.Album{
+			ObjectMeta: metav1.ObjectMeta{Name: "ok-computer"}, Spec: catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg"},
+			Status: catalogv1alpha1.AlbumStatus{Metadata: &catalogv1alpha1.AlbumMetadata{Title: title}},
+		}
 		track := &catalogv1alpha1.Track{RecordingID: "rec-1", Medium: 1, Number: 1, Title: "Airbag"}
 		c, ok := catalogctx.Album(artist, alb, track)
 		require.True(t, ok, title)

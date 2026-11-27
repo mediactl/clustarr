@@ -21,10 +21,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"slices"
 	"strings"
 	"time"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"k8s.io/utils/ptr"
 

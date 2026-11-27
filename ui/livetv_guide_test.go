@@ -52,14 +52,18 @@ func guideFixture(t *testing.T, withIndex bool) (*ui.Server, client.Client) {
 		at := func(h, m int) time.Time {
 			return guideFrom.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute)
 		}
-		putObject(t, store, livetvstore.GuideIndexObject(tvKey), livetvstore.GuideIndex{From: guideFrom,
+		putObject(t, store, livetvstore.GuideIndexObject(tvKey), livetvstore.GuideIndex{
+			From:     guideFrom,
 			Channels: []livetvstore.IndexChannel{{Number: "1001", Name: "ESPN HD", Logo: "https://epg.example/espn.png"}, {Number: "1002", Name: "CNN"}},
 			Programmes: []livetvstore.IndexProgramme{
 				{Channel: "1001", Start: at(17, 30), Stop: at(18, 30), Title: "Pregame"},
-				{Channel: "1001", Start: at(19, 0), Stop: at(20, 0), Title: "NFL Football", SubTitle: "Cowboys at Eagles", Desc: "Week 9.",
-					Episode: "S01E02", Image: "https://image.tmdb.org/t/p/w500/nfl.jpg", Live: true, New: true},
+				{
+					Channel: "1001", Start: at(19, 0), Stop: at(20, 0), Title: "NFL Football", SubTitle: "Cowboys at Eagles", Desc: "Week 9.",
+					Episode: "S01E02", Image: "https://image.tmdb.org/t/p/w500/nfl.jpg", Live: true, New: true,
+				},
 				{Channel: "1002", Start: at(18, 0), Stop: at(19, 0), Title: "News", Image: "https://iptv-epg.example/news.jpg"},
-			}})
+			},
+		})
 	}
 	espn := tvChannel("argon-tv-espn", "n:espn", "1001", true, "Active", "xmltv/US-ESPN")
 	cnn := tvChannel("argon-tv-cnn", "n:cnn", "1002", true, "Active", "dummy/60")
@@ -131,13 +135,15 @@ func TestGuidePageRendersTheWindowAroundNow(t *testing.T) {
 
 func TestTheGuideOpensWithWhatIsAiringThoughItStartedBeforeTheWindow(t *testing.T) {
 	store := liveTVStore(t)
-	putObject(t, store, livetvstore.GuideIndexObject(tvKey), livetvstore.GuideIndex{From: guideFrom,
+	putObject(t, store, livetvstore.GuideIndexObject(tvKey), livetvstore.GuideIndex{
+		From:     guideFrom,
 		Channels: []livetvstore.IndexChannel{{Number: "1001", Name: "ESPN HD"}},
 		Programmes: []livetvstore.IndexProgramme{
 			// 17:00-21:00 starts in window 2 (12:00-18:00) and airs at
 			// 19:10, when the page opens on window 3.
 			{Channel: "1001", Start: guideFrom.Add(17 * time.Hour), Stop: guideFrom.Add(21 * time.Hour), Title: "Marathon"},
-		}})
+		},
+	})
 	srv, _ := tvServerWith(t, store, tvProvider(), tvChannel("argon-tv-espn", "n:espn", "1001", true, "Active", "xmltv/US-ESPN"))
 	body := get(t, srv, "/livetv/guide").Body.String()
 	assert.Equal(t, 1, strings.Count(body, ">Marathon<"), "drawn at the now line on load, once")
@@ -222,14 +228,18 @@ func TestTheProgrammeDialogShowsTheStillAndThePlexLink(t *testing.T) {
 	)
 	at := func(h int) time.Time { return guideFrom.Add(time.Duration(h) * time.Hour) }
 	store := liveTVStore(t)
-	putObject(t, store, livetvstore.GuideIndexObject(tvKey), livetvstore.GuideIndex{From: guideFrom,
+	putObject(t, store, livetvstore.GuideIndexObject(tvKey), livetvstore.GuideIndex{
+		From:     guideFrom,
 		Channels: []livetvstore.IndexChannel{{Number: "1001", Name: "ESPN HD"}},
 		Programmes: []livetvstore.IndexProgramme{
-			{Channel: "1001", Start: at(18), Stop: at(19), Title: "SportsCenter", Image: icon, Poster: poster, Still: still,
-				Backdrop: backdrop, PlexGUID: "plex://episode/" + plexID},
+			{
+				Channel: "1001", Start: at(18), Stop: at(19), Title: "SportsCenter", Image: icon, Poster: poster, Still: still,
+				Backdrop: backdrop, PlexGUID: "plex://episode/" + plexID,
+			},
 			{Channel: "1001", Start: at(19), Stop: at(20), Title: "NFL Live", Image: icon, Poster: poster},
 			{Channel: "1001", Start: at(20), Stop: at(21), Title: "Pardon the Interruption", Image: icon},
-		}})
+		},
+	})
 	srv, _ := tvServerWith(t, store, tvProvider(), tvChannel("argon-tv-espn", "n:espn", "1001", true, "Active", "plex/abc"))
 	programme := func(start string) string {
 		rec := get(t, srv, "/livetv/guide/programme?provider=media%2Fargon-tv&channel=1001&start=2026-10-27T"+start+":00:00Z")

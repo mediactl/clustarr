@@ -182,9 +182,11 @@ func TestAFactAfterTheClosingWithdrawalPassIsIncorporated(t *testing.T) {
 			require.NotEqual(t, catalogv1alpha1.TranscodePhaseRunning, closed.Status.Transcode.Phase)
 			done := time.Now().UTC()
 			v, err := task.Answers(h.raw.KV(events.BucketTranscodes), "pool-0").Answer(context.Background(), events.RecordKey(string(mf.UID)),
-				&task.Record{RecordHeader: schema.RecordHeader{Schema: task.RecordSchema, MediaFile: refOf(mf), Seq: 9, State: records.StateAnswered, AnsweredAt: &done},
-					Inputs: task.Inputs{OutputPath: out},
-					Answer: &task.Answer{Outcome: task.OutcomeSucceeded, FinishedAt: &done, Result: &task.Result{OutputPath: out, OutputSizeBytes: 7}}})
+				&task.Record{
+					RecordHeader: schema.RecordHeader{Schema: task.RecordSchema, MediaFile: refOf(mf), Seq: 9, State: records.StateAnswered, AnsweredAt: &done},
+					Inputs:       task.Inputs{OutputPath: out},
+					Answer:       &task.Answer{Outcome: task.OutcomeSucceeded, FinishedAt: &done, Result: &task.Result{OutputPath: out, OutputSizeBytes: 7}},
+				})
 			require.NoError(t, err)
 			require.Equal(t, records.Wrote, v, "a fact is written over withdrawn{9} (§4.8)")
 			got := waitFile(t, h.c, mf, "the fact is incorporated", func(m *catalogv1alpha1.MediaFile) bool {

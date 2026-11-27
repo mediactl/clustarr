@@ -60,8 +60,10 @@ var graftFile = schema.Ref{Namespace: "media", Name: "pb", UID: "mf-uid"}
 // graft planner does before it creates the Job (loop spec §4.7).
 func putGraftRecord(t *testing.T, kv events.KV, seq int64, state string) {
 	t.Helper()
-	b, err := json.Marshal(grafttask.Record{RecordHeader: schema.RecordHeader{Schema: grafttask.RecordSchema,
-		MediaFile: graftFile, Seq: seq, State: state, RequestedAt: time.Now()}})
+	b, err := json.Marshal(grafttask.Record{RecordHeader: schema.RecordHeader{
+		Schema:    grafttask.RecordSchema,
+		MediaFile: graftFile, Seq: seq, State: state, RequestedAt: time.Now(),
+	}})
 	require.NoError(t, err)
 	_, err = kv.Put(context.Background(), events.RecordKey(graftFile.UID), b)
 	require.NoError(t, err)
@@ -80,10 +82,12 @@ func readGraftRecord(t *testing.T, kv events.KV) grafttask.Record {
 // not exist under the pod's data dir.
 func graftTaskJSON(t *testing.T, seq int64) string {
 	t.Helper()
-	b, err := json.Marshal(grafttask.Task{Schema: grafttask.TaskSchema, File: graftFile, Seq: seq,
+	b, err := json.Marshal(grafttask.Task{
+		Schema: grafttask.TaskSchema, File: graftFile, Seq: seq,
 		Target: "/data/media/movies/pb.mkv", TargetProbeHash: "h1", Root: "/data/media/movies",
 		Donor: "/data/media/movies/.clustarr/donors/u/pb.mka", Language: "en", Anchor: "ja",
-		Inputs: grafttask.Inputs{TargetProbeHash: "h1", Language: "en", Anchor: "ja"}})
+		Inputs: grafttask.Inputs{TargetProbeHash: "h1", Language: "en", Anchor: "ja"},
+	})
 	require.NoError(t, err)
 	return string(b)
 }

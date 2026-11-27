@@ -70,9 +70,11 @@ func TestIntentsAreRecordedOnce(t *testing.T) {
 // the window, with NothingToRetry.
 func TestRetryClearsAVerdictForTheCurrentTag(t *testing.T) {
 	in := inputs(nil, probed("ph-1"), GrantNone)
-	blocked := &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseFailed, Blocked: true, Reason: ReasonRetriesExhausted,
+	blocked := &catalogv1alpha1.TranscodeState{
+		Phase: catalogv1alpha1.TranscodePhaseFailed, Blocked: true, Reason: ReasonRetriesExhausted,
 		Profile: "hevc", ProfileHash: in.Eligibility.Hash, ProfileTag: in.Eligibility.Tag, ProbeHash: "ph-1", Attempts: 5,
-		Dispatch: &catalogv1alpha1.Dispatch{Seq: 77, AnsweredSeq: 77, DispatchedAt: metav1.NewTime(t0)}}
+		Dispatch: &catalogv1alpha1.Dispatch{Seq: 77, AnsweredSeq: 77, DispatchedAt: metav1.NewTime(t0)},
+	}
 	in.Prev, in.Intents.Retry = blocked, "1759752000"
 	d := pass(in)
 	assert.Nil(t, d.Block, "the verdict goes; the file is backlog again")
@@ -132,8 +134,10 @@ func TestStandingIntentsAreRecordedInTheBlock(t *testing.T) {
 	assert.Equal(t, catalogv1alpha1.TranscodeHardware("auto"), bad.Block.Hardware, "the profile's hardware stands")
 	assert.False(t, bad.Block.Suspended)
 
-	verdict := &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSkipped, Reason: ReasonPlanSkip,
-		Profile: "hevc", ProfileHash: in.Eligibility.Hash, ProbeHash: "ph-1"}
+	verdict := &catalogv1alpha1.TranscodeState{
+		Phase: catalogv1alpha1.TranscodePhaseSkipped, Reason: ReasonPlanSkip,
+		Profile: "hevc", ProfileHash: in.Eligibility.Hash, ProbeHash: "ph-1",
+	}
 	v := inputs(verdict, probed("ph-1"), GrantNone)
 	v.Intents = Intents{Priority: "50", Hardware: "nvidia", Suspend: "true"}
 	assert.Equal(t, verdict, pass(v).Block, "a verdict holds no window place to record them on")

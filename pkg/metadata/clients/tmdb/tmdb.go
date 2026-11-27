@@ -503,8 +503,8 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 	m.Certification, m.CertificationCountry = cert.Rating, cert.Country
 	m.People = mapCredits(d)
 	m.Similar = mapRecommendations(d)
-	if d.MovieKeywordsAppend != nil && d.MovieKeywordsAppend.Keywords.MovieKeywords != nil {
-		for _, k := range d.MovieKeywordsAppend.Keywords.MovieKeywords.Keywords {
+	if d.MovieKeywordsAppend != nil && d.Keywords.MovieKeywords != nil {
+		for _, k := range d.Keywords.Keywords {
 			m.Keywords = appendKeyword(m.Keywords, k.Name)
 		}
 	}
@@ -666,8 +666,8 @@ func (c *Client) SeriesExtras(ctx context.Context, ids metadata.ExternalIDs) (me
 		return metadata.SeriesExtras{}, mapped
 	}
 	out := metadata.SeriesExtras{Tagline: strings.TrimSpace(d.Tagline), Images: mapImages(d.MovieImagesAppend, "")}
-	if d.TVKeywordsAppend != nil && d.TVKeywordsAppend.Keywords.TVKeywords != nil && d.TVKeywordsAppend.Keywords.TVKeywords.TVKeywordsResults != nil {
-		for _, k := range d.TVKeywordsAppend.Keywords.TVKeywords.TVKeywordsResults.Results {
+	if d.TVKeywordsAppend != nil && d.Keywords.TVKeywords != nil && d.Keywords.TVKeywordsResults != nil {
+		for _, k := range d.Keywords.Results {
 			out.Keywords = appendKeyword(out.Keywords, k.Name)
 		}
 	}

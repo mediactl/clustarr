@@ -44,8 +44,10 @@ func tvProvider() clustarrv1.IPTVProvider {
 }
 
 func tvChannel(name, key, number string, active bool, reason string) clustarrv1.IPTVChannel {
-	c := clustarrv1.IPTVChannel{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name, ResourceVersion: "5", Generation: 3},
-		Spec: clustarrv1.IPTVChannelSpec{ProviderRef: "argon-tv", Key: key, Number: number, Active: active}}
+	c := clustarrv1.IPTVChannel{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name, ResourceVersion: "5", Generation: 3},
+		Spec:       clustarrv1.IPTVChannelSpec{ProviderRef: "argon-tv", Key: key, Number: number, Active: active},
+	}
 	status := metav1.ConditionFalse
 	if reason == clustarrv1.ReasonActive {
 		status = metav1.ConditionTrue

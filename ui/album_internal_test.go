@@ -50,51 +50,63 @@ func TestAlbumStatus(t *testing.T) {
 		want      views.RowStatus
 	}{
 		"downloading": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseDownloading}, true,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseDownloading},
+			true,
 			views.RowStatus{Kind: "downloading", Label: "Downloading", Title: "Album is downloading"},
 		},
 		"a grab in flight whatever the phase": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseWanted, ActiveDownloadRef: new("dl")}, true,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseWanted, ActiveDownloadRef: new("dl")},
+			true,
 			views.RowStatus{Kind: "downloading", Label: "Downloading", Title: "Album is downloading"},
 		},
 		"pending": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseDelayed}, true,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseDelayed},
+			true,
 			views.RowStatus{Kind: "pending", Label: "Pending", Title: "A release waits out its delay profile"},
 		},
 		"on disk at the cutoff": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseImported, HasFile: true, FileQuality: flac, TrackSummary: "10/10", CutoffReason: "CutoffMet"}, true,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseImported, HasFile: true, FileQuality: flac, TrackSummary: "10/10", CutoffReason: "CutoffMet"},
+			true,
 			views.RowStatus{Kind: "file", Label: "FLAC · 10/10", Title: "Album on disk"},
 		},
 		"on disk with tracks missing": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseCutoffUnmet, HasFile: true, FileQuality: flac, TrackSummary: "9/10", CutoffReason: "TracksMissing"}, true,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseCutoffUnmet, HasFile: true, FileQuality: flac, TrackSummary: "9/10", CutoffReason: "TracksMissing"},
+			true,
 			views.RowStatus{Kind: "file", Label: "FLAC · 9/10", Title: "Tracks are missing: 9/10 on disk", Warn: true},
 		},
 		"on disk below the cutoff": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseCutoffUnmet, HasFile: true, FileQuality: &commonv1.Quality{Name: "MP3-320"}, CutoffReason: "CutoffUnmet"}, true,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseCutoffUnmet, HasFile: true, FileQuality: &commonv1.Quality{Name: "MP3-320"}, CutoffReason: "CutoffUnmet"},
+			true,
 			views.RowStatus{Kind: "file", Label: "MP3-320", Title: "Quality cutoff has not been met", Warn: true},
 		},
 		"on disk, profile unresolved": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseCutoffUnevaluated, TrackFileCount: 3, FileQuality: flac}, true,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseCutoffUnevaluated, TrackFileCount: 3, FileQuality: flac},
+			true,
 			views.RowStatus{Kind: "file", Label: "FLAC", Title: "Quality profile could not be resolved", Warn: true},
 		},
 		"on disk, quality unknown": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseImported, HasFile: true}, true,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseImported, HasFile: true},
+			true,
 			views.RowStatus{Kind: "file", Label: "Unknown", Title: "Album on disk"},
 		},
 		"unreleased": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseWanted, Metadata: &catalogv1.AlbumMetadata{ReleaseDate: &future}}, true,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseWanted, Metadata: &catalogv1.AlbumMetadata{ReleaseDate: &future}},
+			true,
 			views.RowStatus{Kind: "unreleased", Label: "Unreleased", Title: "Album has not been released"},
 		},
 		"unmonitored": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseUnmonitored, Metadata: &catalogv1.AlbumMetadata{ReleaseDate: &past}}, false,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseUnmonitored, Metadata: &catalogv1.AlbumMetadata{ReleaseDate: &past}},
+			false,
 			views.RowStatus{Kind: "unmonitored", Label: "Unmonitored", Title: "Album is not monitored"},
 		},
 		"missing": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseWanted, Metadata: &catalogv1.AlbumMetadata{ReleaseDate: &past}}, true,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseWanted, Metadata: &catalogv1.AlbumMetadata{ReleaseDate: &past}},
+			true,
 			views.RowStatus{Kind: "missing", Label: "Missing", Title: "Album missing from disk"},
 		},
 		"undated reads missing": {
-			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseWanted}, true,
+			catalogv1.AlbumStatus{Phase: catalogv1.AlbumPhaseWanted},
+			true,
 			views.RowStatus{Kind: "missing", Label: "Missing", Title: "Album missing from disk"},
 		},
 	} {

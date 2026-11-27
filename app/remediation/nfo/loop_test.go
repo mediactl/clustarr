@@ -112,10 +112,10 @@ func TestThePlannerToWorkerLoopOnTheBus(t *testing.T) {
 	pub, ok := res.Effects[1].(remediation.DispatchPublish)
 	require.True(t, ok)
 	assert.Equal(t, nfo.Durable, pub.Durable)
-	assert.Equal(t, events.WorkNFOSubject("Album", "u1"), pub.Publish.Subject)
-	assert.Equal(t, events.StreamWorkImport, pub.Publish.ExpectStream)
+	assert.Equal(t, events.WorkNFOSubject("Album", "u1"), pub.Subject)
+	assert.Equal(t, events.StreamWorkImport, pub.ExpectStream)
 	var task schema.NFOWriteTask
-	require.NoError(t, schema.Decode(pub.Publish.Envelope.Schema, pub.Publish.Envelope.Data, &task))
+	require.NoError(t, schema.Decode(pub.Envelope.Schema, pub.Envelope.Data, &task))
 	assert.Equal(t, pub.Seq, task.Seq)
 	assert.Equal(t, folder, task.Folder)
 	require.Len(t, task.Files, 1)
@@ -126,8 +126,8 @@ func TestThePlannerToWorkerLoopOnTheBus(t *testing.T) {
 	assert.Empty(t, task.Owned, "a first write owns nothing yet")
 
 	// The task on the bus: the worker writes the folder and answers.
-	_, err = bus.Publish(ctx, pub.Publish.Subject, pub.Publish.Envelope,
-		events.WithMsgID(pub.Publish.MsgID), events.WithExpectStream(pub.Publish.ExpectStream))
+	_, err = bus.Publish(ctx, pub.Subject, pub.Envelope,
+		events.WithMsgID(pub.MsgID), events.WithExpectStream(pub.ExpectStream))
 	require.NoError(t, err)
 	rd := records.NewRequester(bus.KV(events.BucketNFO), agentrecords.NFO())
 	var rec *schema.NFORecord

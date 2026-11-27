@@ -164,8 +164,10 @@ func TestTaskEventSubjectsListOnlyDispatchedConsumersAndNeverGt(t *testing.T) {
 		}
 	}
 	assert.Positive(t, dispatched)
-	for _, name := range []string{events.ConsumerCatalogRSSMatcher, events.ConsumerCatalogHistory, events.ConsumerDLQProjector,
-		events.ConsumerIntakeCandidate, events.ConsumerIntakeScan, events.ConsumerTaskEvents} {
+	for _, name := range []string{
+		events.ConsumerCatalogRSSMatcher, events.ConsumerCatalogHistory, events.ConsumerDLQProjector,
+		events.ConsumerIntakeCandidate, events.ConsumerIntakeScan, events.ConsumerTaskEvents,
+	} {
 		c, ok := top.Consumer(name)
 		require.True(t, ok, name)
 		assert.False(t, c.Dispatched, "%s is no task the manager dispatches", name)

@@ -179,8 +179,10 @@ func TestAnEncodedStreamThatRepeatsATimestampStillMuxes(t *testing.T) {
 
 	// An encoder that, as QSV's does, carries a repeated presentation
 	// time through to a repeated decode time: x265 without B-frames.
-	plan := encodePlan(standard.VideoPlan{Encoder: "libx265", Decode: "cpu", Filter: "format=yuv420p", HDR: "sdr",
-		Options: map[string]string{"preset": "ultrafast", "x265-params": "log-level=error:bframes=0"}})
+	plan := encodePlan(standard.VideoPlan{
+		Encoder: "libx265", Decode: "cpu", Filter: "format=yuv420p", HDR: "sdr",
+		Options: map[string]string{"preset": "ultrafast", "x265-params": "log-level=error:bframes=0"},
+	})
 	plan.Container = transcode.ContainerMP4
 	out := filepath.Join(t.TempDir(), "out.part.mp4")
 	_, err := Run(context.Background(), plan, src, out, Options{})

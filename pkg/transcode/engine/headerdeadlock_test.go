@@ -53,8 +53,10 @@ func manyAudioClip(t *testing.T, n int) string {
 func TestManyEncodedStreamsNeverDeadlockTheHeader(t *testing.T) {
 	const n = 12
 	src := manyAudioClip(t, n)
-	plan := standard.Result{Decision: standard.DecisionCopyVideo, Container: transcode.ContainerMP4,
-		Video: standard.VideoPlan{SourceIndex: 0, Action: "copy"}}
+	plan := standard.Result{
+		Decision: standard.DecisionCopyVideo, Container: transcode.ContainerMP4,
+		Video: standard.VideoPlan{SourceIndex: 0, Action: "copy"},
+	}
 	for i := range n {
 		plan.Audio = append(plan.Audio, standard.AudioPlan{SourceIndex: int32(i), Action: "aac", Channels: 2, Layout: "stereo", BitRate: 128000})
 	}

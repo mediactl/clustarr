@@ -48,16 +48,26 @@ func TestReaderIndexesCoverEveryParentsChildren(t *testing.T) {
 		orphan  client.Object
 		want    string
 	}{
-		{"episode", EpisodeSeriesRefField, IndexEpisodeBySeriesRef,
-			&catalogv1alpha1.Episode{Spec: catalogv1alpha1.EpisodeSpec{SeriesRef: "andor"}}, &catalogv1alpha1.Episode{}, "andor"},
-		{"album", AlbumArtistRefField, IndexAlbumByArtistRef,
-			&catalogv1alpha1.Album{Spec: catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead"}}, &catalogv1alpha1.Album{}, "radiohead"},
-		{"book", BookAuthorRefField, IndexBookByAuthorRef,
-			&catalogv1alpha1.Book{Spec: catalogv1alpha1.BookSpec{AuthorRef: ptr.To("le-guin")}}, &catalogv1alpha1.Book{Spec: catalogv1alpha1.BookSpec{AuthorRef: ptr.To("")}}, "le-guin"},
-		{"issue", IssueComicRefField, IndexIssueByComicRef,
-			&catalogv1alpha1.Issue{Spec: catalogv1alpha1.IssueSpec{ComicRef: "saga"}}, &catalogv1alpha1.Issue{}, "saga"},
-		{"audiobook", AudiobookAuthorRefField, IndexAudiobookByAuthorRef,
-			&catalogv1alpha1.Audiobook{Spec: catalogv1alpha1.AudiobookSpec{AuthorRef: ptr.To("herbert")}}, &catalogv1alpha1.Audiobook{}, "herbert"},
+		{
+			"episode", EpisodeSeriesRefField, IndexEpisodeBySeriesRef,
+			&catalogv1alpha1.Episode{Spec: catalogv1alpha1.EpisodeSpec{SeriesRef: "andor"}}, &catalogv1alpha1.Episode{}, "andor",
+		},
+		{
+			"album", AlbumArtistRefField, IndexAlbumByArtistRef,
+			&catalogv1alpha1.Album{Spec: catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead"}}, &catalogv1alpha1.Album{}, "radiohead",
+		},
+		{
+			"book", BookAuthorRefField, IndexBookByAuthorRef,
+			&catalogv1alpha1.Book{Spec: catalogv1alpha1.BookSpec{AuthorRef: ptr.To("le-guin")}}, &catalogv1alpha1.Book{Spec: catalogv1alpha1.BookSpec{AuthorRef: ptr.To("")}}, "le-guin",
+		},
+		{
+			"issue", IssueComicRefField, IndexIssueByComicRef,
+			&catalogv1alpha1.Issue{Spec: catalogv1alpha1.IssueSpec{ComicRef: "saga"}}, &catalogv1alpha1.Issue{}, "saga",
+		},
+		{
+			"audiobook", AudiobookAuthorRefField, IndexAudiobookByAuthorRef,
+			&catalogv1alpha1.Audiobook{Spec: catalogv1alpha1.AudiobookSpec{AuthorRef: ptr.To("herbert")}}, &catalogv1alpha1.Audiobook{}, "herbert",
+		},
 	} {
 		require.Equal(t, []string{tc.want}, tc.extract(tc.child), tc.name)
 		require.Nil(t, tc.extract(tc.orphan), "%s: an orphan is under no parent", tc.name)

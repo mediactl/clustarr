@@ -136,8 +136,10 @@ func (g guide) window(k int) views.GuideWindowView {
 				IndexProgramme: p, Row: i, Start: at,
 				Left:  views.GuideMinutePx * at.Sub(start).Minutes(),
 				Width: max(views.GuideMinutePx*p.Stop.Sub(at).Minutes()-2, 1),
-				URL: "/livetv/guide/programme?" + url.Values{"provider": {g.provider}, "channel": {c.Number},
-					"start": {p.Start.UTC().Format(time.RFC3339)}}.Encode(),
+				URL: "/livetv/guide/programme?" + url.Values{
+					"provider": {g.provider}, "channel": {c.Number},
+					"start": {p.Start.UTC().Format(time.RFC3339)},
+				}.Encode(),
 			})
 		}
 	}
@@ -245,8 +247,10 @@ func (s *Server) handleLiveTVProgramme(w http.ResponseWriter, r *http.Request) {
 		if !p.Start.Equal(start) {
 			continue
 		}
-		d := views.ProgrammeDialog{IndexProgramme: p, Channel: channel, StreamURL: g.streams[channel],
-			Image: s.firstSearchArt(p.Still, p.Poster, p.Image), Backdrop: s.searchArt.URL(p.Backdrop), PlexURL: plexItemURL(p.PlexGUID)}
+		d := views.ProgrammeDialog{
+			IndexProgramme: p, Channel: channel, StreamURL: g.streams[channel],
+			Image: s.firstSearchArt(p.Still, p.Poster, p.Image), Backdrop: s.searchArt.URL(p.Backdrop), PlexURL: plexItemURL(p.PlexGUID),
+		}
 		for _, c := range g.view.Index.Channels {
 			if c.Number == channel {
 				d.ChannelName = c.Name

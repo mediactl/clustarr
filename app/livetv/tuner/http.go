@@ -156,20 +156,20 @@ func (t *Tuner) serveDevice(w http.ResponseWriter, r *http.Request, p *provider,
 		return
 	}
 	device := hdhr.Device{FriendlyName: block.FriendlyName, DeviceID: block.DeviceID, BaseURL: base, TunerCount: AdvertisedTuners(tuners)}
-	switch {
-	case file == "lineup.json":
+	switch file {
+	case "lineup.json":
 		if !fetched {
 			http.Error(w, "the playlist has not been fetched yet", http.StatusServiceUnavailable)
 			return
 		}
 		writeTagged(w, r, "application/json", hdhr.Lineup(absolute(entries, base)))
-	case file == "playlist.m3u":
+	case "playlist.m3u":
 		if !fetched {
 			http.Error(w, "the playlist has not been fetched yet", http.StatusServiceUnavailable)
 			return
 		}
 		writeBody(w, "audio/x-mpegurl", withBase(playlistM3U(entries, t.logos(p), base), base))
-	case file == "plexmap.json":
+	case "plexmap.json":
 		// A Plex block's channel map, which cluster-plex saves on its DVR
 		// (the Plex native guide design §5.5).
 		if block.Lineup == "" {
@@ -181,7 +181,7 @@ func (t *Tuner) serveDevice(w http.ResponseWriter, r *http.Request, p *provider,
 			return
 		}
 		writeTagged(w, r, "application/json", plexMapJSON)
-	case file == "xmltv.xml":
+	case "xmltv.xml":
 		if guideObject == "" {
 			http.NotFound(w, r)
 			return
@@ -224,20 +224,20 @@ func (t *Tuner) serveRange(w http.ResponseWriter, r *http.Request, p *provider, 
 		FriendlyName: friendly, DeviceID: hdhr.BlockDeviceID(key.Namespace, key.Name, rg.from),
 		BaseURL: base, LineupURL: base + "/lineup.json" + rg.query(), TunerCount: AdvertisedTuners(tuners),
 	}
-	switch {
-	case file == "lineup.json":
+	switch file {
+	case "lineup.json":
 		if !fetched {
 			http.Error(w, "the playlist has not been fetched yet", http.StatusServiceUnavailable)
 			return
 		}
 		writeTagged(w, r, "application/json", hdhr.Lineup(absolute(entries, base)))
-	case file == "playlist.m3u":
+	case "playlist.m3u":
 		if !fetched {
 			http.Error(w, "the playlist has not been fetched yet", http.StatusServiceUnavailable)
 			return
 		}
 		writeBody(w, "audio/x-mpegurl", withBase(playlistM3U(entries, t.logos(p), base), base))
-	case file == "xmltv.xml":
+	case "xmltv.xml":
 		if !fetched {
 			http.NotFound(w, r)
 			return

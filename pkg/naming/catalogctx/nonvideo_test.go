@@ -73,14 +73,22 @@ func TestTrackFilePath(t *testing.T) {
 		album  *catalogv1alpha1.Album
 		want   string
 	}{
-		{"every folder from the presets", artist("", nil), album(""),
-			"/data/music/Boards of Canada/Music Has the Right to Children (1998)/" + file},
-		{"the artist's spec.folder", artist("", ptr.To("BoC")), album(""),
-			"/data/music/BoC/Music Has the Right to Children (1998)/" + file},
-		{"the artist's resolved path", artist("/data/music/Boards of Canada (band)", nil), album(""),
-			"/data/music/Boards of Canada (band)/Music Has the Right to Children (1998)/" + file},
-		{"the album's resolved path wins", artist("/data/music/Boards of Canada", nil), album("/data/music/BoC/MHTRTC"),
-			"/data/music/BoC/MHTRTC/" + file},
+		{
+			"every folder from the presets", artist("", nil), album(""),
+			"/data/music/Boards of Canada/Music Has the Right to Children (1998)/" + file,
+		},
+		{
+			"the artist's spec.folder", artist("", ptr.To("BoC")), album(""),
+			"/data/music/BoC/Music Has the Right to Children (1998)/" + file,
+		},
+		{
+			"the artist's resolved path", artist("/data/music/Boards of Canada (band)", nil), album(""),
+			"/data/music/Boards of Canada (band)/Music Has the Right to Children (1998)/" + file,
+		},
+		{
+			"the album's resolved path wins", artist("/data/music/Boards of Canada", nil), album("/data/music/BoC/MHTRTC"),
+			"/data/music/BoC/MHTRTC/" + file,
+		},
 	} {
 		c, ok := catalogctx.Album(tc.artist, tc.album, track)
 		require.True(t, ok, tc.name)

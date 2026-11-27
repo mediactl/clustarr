@@ -246,10 +246,10 @@ func (r *objectReader) Read(p []byte) (int, error) {
 		return n, err
 	}
 	if cerr := r.ctx.Err(); cerr != nil {
-		return n, fmt.Errorf("natsbus: read %s/%s: %w (%v)", r.bucket, r.name, cerr, err)
+		return n, fmt.Errorf("natsbus: read %s/%s: %w (%w)", r.bucket, r.name, cerr, err)
 	}
 	if d, ok := r.ctx.Deadline(); ok && isReadTimeout(err) && !time.Now().Before(d) {
-		return n, fmt.Errorf("natsbus: read %s/%s: %w (%v)", r.bucket, r.name, context.DeadlineExceeded, err)
+		return n, fmt.Errorf("natsbus: read %s/%s: %w (%w)", r.bucket, r.name, context.DeadlineExceeded, err)
 	}
 	return n, objectError("read", r.bucket, r.name, err)
 }

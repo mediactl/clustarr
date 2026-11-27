@@ -43,15 +43,19 @@ func TestBindManagerBindsElevenFlagsAndElectsByDefault(t *testing.T) {
 	require.NoError(t, fs.Parse(nil))
 	got := names(fs)
 	assert.Len(t, got, 12)
-	for _, name := range []string{"metrics-bind-address", "metrics-secure", "health-probe-bind-address",
+	for _, name := range []string{
+		"metrics-bind-address", "metrics-secure", "health-probe-bind-address",
 		"pprof-bind-address", "leader-elect", "leader-election-namespace", "namespace", "watch-namespace",
-		"nats-url", "nats-single-node", "graceful-shutdown-timeout", "library-dsn"} {
+		"nats-url", "nats-single-node", "graceful-shutdown-timeout", "library-dsn",
+	} {
 		assert.True(t, got[name], name)
 	}
 	assert.True(t, o.LeaderElect, "every controller manifest passed --leader-elect; the manager defaults it on")
 	assert.False(t, o.BusSingleNode)
-	require.NoError(t, fs.Parse([]string{"--leader-elect=false", "--nats-single-node",
-		"--leader-election-namespace=leases", "--watch-namespace=a,b"}))
+	require.NoError(t, fs.Parse([]string{
+		"--leader-elect=false", "--nats-single-node",
+		"--leader-election-namespace=leases", "--watch-namespace=a,b",
+	}))
 	assert.False(t, o.LeaderElect)
 	assert.True(t, o.BusSingleNode)
 	assert.Equal(t, "leases", o.LeaderElectionNamespace)
@@ -101,10 +105,17 @@ func TestParseGIDs(t *testing.T) {
 		want    []int64
 		wantErr bool
 	}{
-		{in: "", want: nil}, {in: "  ", want: nil}, {in: " 109 ", want: []int64{109}},
-		{in: "44,109", want: []int64{44, 109}}, {in: "44, 109", want: []int64{44, 109}}, {in: "0", want: []int64{0}},
-		{in: "-1", wantErr: true}, {in: "44,,109", wantErr: true}, {in: "44,", wantErr: true},
-		{in: "video", wantErr: true}, {in: "44;109", wantErr: true},
+		{in: "", want: nil},
+		{in: "  ", want: nil},
+		{in: " 109 ", want: []int64{109}},
+		{in: "44,109", want: []int64{44, 109}},
+		{in: "44, 109", want: []int64{44, 109}},
+		{in: "0", want: []int64{0}},
+		{in: "-1", wantErr: true},
+		{in: "44,,109", wantErr: true},
+		{in: "44,", wantErr: true},
+		{in: "video", wantErr: true},
+		{in: "44;109", wantErr: true},
 	} {
 		got, err := ctrlflags.ParseGIDs(tc.in)
 		if tc.wantErr {

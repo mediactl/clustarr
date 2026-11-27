@@ -43,17 +43,20 @@ func TestCoverageRejectionsNameTheCoveredKind(t *testing.T) {
 			"WrongItem: the release covers no issue of the comic",
 		},
 		{
-			"a live pack holds one", []grabplan.ItemCheck{{Live: true, PackLive: true}},
+			"a live pack holds one",
+			[]grabplan.ItemCheck{{Live: true, PackLive: true}},
 			"PackDownloading: the release covers an episode a pack still downloading holds; it is judged again once the pack has imported or failed",
 			"PackDownloading: the release covers an issue a pack still downloading holds; it is judged again once the pack has imported or failed",
 		},
 		{
-			"a pack over a single carrying every wanted language", []grabplan.ItemCheck{{Queued: true}, {}},
+			"a pack over a single carrying every wanted language",
+			[]grabplan.ItemCheck{{Queued: true}, {}},
 			"EpisodeDownloading: the pack covers an episode a grab carrying every wanted language is still downloading, and the pack does not carry them",
 			"EpisodeDownloading: the pack covers an issue a grab carrying every wanted language is still downloading, and the pack does not carry them",
 		},
 		{
-			"a live grab of equal preference", []grabplan.ItemCheck{{Live: true}},
+			"a live grab of equal preference",
+			[]grabplan.ItemCheck{{Live: true}},
 			"QueueHigherPreference: the release covers an episode a grab of equal or higher preference is already downloading",
 			"QueueHigherPreference: the release covers an issue a grab of equal or higher preference is already downloading",
 		},

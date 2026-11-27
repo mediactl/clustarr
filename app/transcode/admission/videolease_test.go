@@ -106,8 +106,17 @@ func TestAdmissionResumesOnceTheCountIsZero(t *testing.T) {
 
 func TestVideoAllowanceReservesTheStreamsEnginesWhole(t *testing.T) {
 	for _, c := range []struct{ engines, streams, want int }{
-		{2, 1, 1}, {2, 4, 1}, {2, 5, 0}, {2, 8, 0}, {2, 9, 0},
-		{1, 1, 0}, {0, 1, 0}, {3, 1, 2}, {3, 5, 1}, {2, 0, 2}, {0, 0, 1},
+		{2, 1, 1},
+		{2, 4, 1},
+		{2, 5, 0},
+		{2, 8, 0},
+		{2, 9, 0},
+		{1, 1, 0},
+		{0, 1, 0},
+		{3, 1, 2},
+		{3, 5, 1},
+		{2, 0, 2},
+		{0, 0, 1},
 	} {
 		assert.Equal(t, c.want, VideoAllowance(c.engines, c.streams), "engines %d streams %d", c.engines, c.streams)
 	}

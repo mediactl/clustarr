@@ -59,8 +59,10 @@ func TestGraftSlotsCountJobsStatusAndGrants(t *testing.T) {
 
 func TestGraftGrantsFillFreeSlotsByDonorImportedAtThenKey(t *testing.T) {
 	w := func(name string, at time.Time) GraftFile {
-		return GraftFile{UID: types.UID(name), Key: types.NamespacedName{Namespace: "media", Name: name},
-			Phase: catalogv1alpha1.GraftPhaseWaiting, Reason: graftplan.ReasonWaitingForSlot, DonorImportedAt: at}
+		return GraftFile{
+			UID: types.UID(name), Key: types.NamespacedName{Namespace: "media", Name: name},
+			Phase: catalogv1alpha1.GraftPhaseWaiting, Reason: graftplan.ReasonWaitingForSlot, DonorImportedAt: at,
+		}
 	}
 	files := []GraftFile{w("x", t0.Add(2*time.Hour)), w("y", t0.Add(time.Hour)), w("a", t0.Add(time.Hour))}
 	assert.Equal(t, []types.UID{"a", "y"}, GraftGrants(files, nil, nil, 2))
@@ -79,8 +81,10 @@ func TestGraftGrantsFillFreeSlotsByDonorImportedAtThenKey(t *testing.T) {
 // block's or an expired grant's) and a file already granted are not
 // candidates.
 func TestAJoinedGraftIsNeverAGraftSlotCandidate(t *testing.T) {
-	base := GraftFile{UID: "f", Key: types.NamespacedName{Namespace: "media", Name: "f"},
-		Phase: catalogv1alpha1.GraftPhaseWaiting, Reason: graftplan.ReasonWaitingForSlot}
+	base := GraftFile{
+		UID: "f", Key: types.NamespacedName{Namespace: "media", Name: "f"},
+		Phase: catalogv1alpha1.GraftPhaseWaiting, Reason: graftplan.ReasonWaitingForSlot,
+	}
 	joined, backoff, expired, granted := base, base, base, base
 	joined.JoinInFlight = true
 	backoff.Reason = graftplan.ReasonBackoff
@@ -103,15 +107,19 @@ func TestTheLedgerGrantsAGraftSlotAndTheLoopTakesIt(t *testing.T) {
 	l.setWaker(func(nn types.NamespacedName, _ int) { woken = append(woken, nn) })
 	waiting := func(name string, at time.Time) (*catalogv1alpha1.MediaFile, *catalogv1alpha1.MediaFileStatus, *transcodeplan.Eligibility) {
 		return &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name, UID: types.UID(name)}},
-			&catalogv1alpha1.MediaFileStatus{LastSeq: 1, Graft: &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseWaiting,
-				Reason: graftplan.ReasonWaitingForSlot, DonorImportedAt: &metav1.Time{Time: at}}}, nil
+			&catalogv1alpha1.MediaFileStatus{LastSeq: 1, Graft: &catalogv1alpha1.GraftState{
+				Phase:  catalogv1alpha1.GraftPhaseWaiting,
+				Reason: graftplan.ReasonWaitingForSlot, DonorImportedAt: &metav1.Time{Time: at},
+			}}, nil
 	}
 	l.Observe(FileViewOf(waiting("f", t0)))
 	l.Observe(FileViewOf(waiting("g", t0.Add(time.Hour))))
 	mf, st, _ := waiting("j", t0.Add(-time.Hour))
-	st.Transcode = &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseQueued,
+	st.Transcode = &catalogv1alpha1.TranscodeState{
+		Phase:       catalogv1alpha1.TranscodePhaseQueued,
 		Dispatch:    &catalogv1alpha1.Dispatch{Seq: 1, DispatchedAt: metav1.NewTime(t0)},
-		JoinedGraft: &catalogv1alpha1.TranscodeGraftJoin{ProbeHash: "h1"}}
+		JoinedGraft: &catalogv1alpha1.TranscodeGraftJoin{ProbeHash: "h1"},
+	}
 	l.Observe(FileViewOf(mf, st, nil))
 
 	l.Pass(PassInputs{})

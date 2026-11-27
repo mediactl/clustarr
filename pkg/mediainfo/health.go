@@ -196,7 +196,7 @@ type trackLine struct {
 // the file's start, where a transport stream's may jump by design. It is
 // nil for any other container, and for one that states no length.
 func NewTracker(format string, duration, start time.Duration) *Tracker {
-	if duration <= 0 || !(strings.Contains(format, "matroska") || strings.Contains(format, "mp4")) {
+	if duration <= 0 || (!strings.Contains(format, "matroska") && !strings.Contains(format, "mp4")) {
 		return nil
 	}
 	return &Tracker{duration: duration, end: start + duration, lines: map[int]*trackLine{}}

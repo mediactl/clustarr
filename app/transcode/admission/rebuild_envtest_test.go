@@ -38,9 +38,11 @@ import (
 func TestRebuildCountsEveryInFlightFileFromTheAPIServer(t *testing.T) {
 	const ns = "rebuild-counts"
 	c := requireEnvtest(t, ns)
-	phases := []catalogv1alpha1.TranscodePhase{catalogv1alpha1.TranscodePhasePending, catalogv1alpha1.TranscodePhasePlanned,
+	phases := []catalogv1alpha1.TranscodePhase{
+		catalogv1alpha1.TranscodePhasePending, catalogv1alpha1.TranscodePhasePlanned,
 		catalogv1alpha1.TranscodePhaseQueued, catalogv1alpha1.TranscodePhaseRunning, catalogv1alpha1.TranscodePhaseSwapping,
-		catalogv1alpha1.TranscodePhaseSucceeded, catalogv1alpha1.TranscodePhaseFailed, catalogv1alpha1.TranscodePhaseSkipped}
+		catalogv1alpha1.TranscodePhaseSucceeded, catalogv1alpha1.TranscodePhaseFailed, catalogv1alpha1.TranscodePhaseSkipped,
+	}
 	inFlight := map[string]int{}
 	window := 0
 	for i := range 40 {

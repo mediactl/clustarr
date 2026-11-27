@@ -48,9 +48,11 @@ func (p stubAudiobookProvider) Name() string { return "audnexus" }
 func (p stubAudiobookProvider) Capabilities() pkgmetadata.Capabilities {
 	return pkgmetadata.Capabilities{}
 }
+
 func (p stubAudiobookProvider) Audiobook(context.Context, string, string) (*pkgmetadata.Audiobook, error) {
 	return p.audiobook, nil
 }
+
 func (p stubAudiobookProvider) Chapters(context.Context, string, string) ([]pkgmetadata.Chapter, error) {
 	return nil, nil
 }
@@ -65,12 +67,14 @@ type stubKindRatings struct {
 
 func (p stubKindRatings) Name() string                           { return "ratings-" + p.source }
 func (p stubKindRatings) Capabilities() pkgmetadata.Capabilities { return pkgmetadata.Capabilities{} }
+
 func (p stubKindRatings) RatingSources(kind commonv1.MediaKind) []string {
 	if kind != p.kind {
 		return nil
 	}
 	return []string{p.source}
 }
+
 func (p stubKindRatings) Ratings(_ context.Context, _ commonv1.MediaKind, ids pkgmetadata.ExternalIDs) (pkgmetadata.Ratings, error) {
 	if p.seen != nil {
 		*p.seen = append(*p.seen, ids.Merge(nil))
@@ -109,8 +113,10 @@ func TestHandlerWritesANonVideoDocumentsLanguageRatingsAndExtendedDocument(t *te
 		Registry: &pkgmetadata.Registry{
 			Artists: []pkgmetadata.ArtistProvider{stubArtistOnlyProvider{artist: doc}},
 			Ratings: []pkgmetadata.RatingsProvider{
-				stubKindRatings{kind: commonv1.MediaKindArtist, source: pkgmetadata.RatingSourceHardcover,
-					ratings: pkgmetadata.Ratings{pkgmetadata.RatingSourceHardcover: {ValueCentis: 500, Votes: 1}}, seen: &seen},
+				stubKindRatings{
+					kind: commonv1.MediaKindArtist, source: pkgmetadata.RatingSourceHardcover,
+					ratings: pkgmetadata.Ratings{pkgmetadata.RatingSourceHardcover: {ValueCentis: 500, Votes: 1}}, seen: &seen,
+				},
 				stubKindRatings{kind: commonv1.MediaKindBook, source: pkgmetadata.RatingSourceAudnexus},
 			},
 		},
@@ -209,8 +215,10 @@ func TestHandlerAsksABooksRatingsByItsFirstEditionsISBN(t *testing.T) {
 		Client: c, Reader: c, Cache: noopCache{}, Records: h.records,
 		Registry: &pkgmetadata.Registry{
 			Books: []pkgmetadata.BookProvider{stubBookProvider{book: doc}},
-			Ratings: []pkgmetadata.RatingsProvider{stubKindRatings{kind: commonv1.MediaKindBook, source: pkgmetadata.RatingSourceHardcover,
-				ratings: pkgmetadata.Ratings{pkgmetadata.RatingSourceHardcover: {ValueCentis: 822, Votes: 63}}, seen: &seen}},
+			Ratings: []pkgmetadata.RatingsProvider{stubKindRatings{
+				kind: commonv1.MediaKindBook, source: pkgmetadata.RatingSourceHardcover,
+				ratings: pkgmetadata.Ratings{pkgmetadata.RatingSourceHardcover: {ValueCentis: 822, Votes: 63}}, seen: &seen,
+			}},
 		},
 		Languages: metadata.FetchLanguages{catalogv1alpha1.MetadataProviderOpenLibrary: "pt-BR"},
 	}
@@ -230,16 +238,21 @@ type stubBookProvider struct{ book *pkgmetadata.Book }
 
 func (p stubBookProvider) Name() string                           { return "openlibrary" }
 func (p stubBookProvider) Capabilities() pkgmetadata.Capabilities { return pkgmetadata.Capabilities{} }
+
 func (p stubBookProvider) SearchBooks(context.Context, string) ([]pkgmetadata.SearchHit, error) {
 	return nil, nil
 }
+
 func (p stubBookProvider) Author(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.Author, error) {
 	return nil, pkgmetadata.ErrNotFound
 }
+
 func (p stubBookProvider) Books(context.Context, string) ([]pkgmetadata.Book, error) { return nil, nil }
+
 func (p stubBookProvider) Book(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.Book, error) {
 	return p.book, nil
 }
+
 func (p stubBookProvider) Edition(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.Edition, error) {
 	return nil, pkgmetadata.ErrNotFound
 }

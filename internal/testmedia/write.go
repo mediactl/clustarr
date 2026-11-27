@@ -782,13 +782,24 @@ var dispositions = []struct {
 	name string
 	bit  ffgo.Disposition
 }{
-	{"default", ffgo.DispositionDefault}, {"dub", ffgo.DispositionDub}, {"original", ffgo.DispositionOriginal},
-	{"comment", ffgo.DispositionComment}, {"lyrics", ffgo.DispositionLyrics}, {"karaoke", ffgo.DispositionKaraoke},
-	{"forced", ffgo.DispositionForced}, {"hearing_impaired", ffgo.DispositionHearingImpaired},
-	{"visual_impaired", ffgo.DispositionVisualImpaired}, {"clean_effects", ffgo.DispositionCleanEffects},
-	{"attached_pic", ffgo.DispositionAttachedPic}, {"timed_thumbnails", 0x800}, {"non_diegetic", 0x1000},
-	{"captions", ffgo.DispositionCaptions}, {"descriptions", ffgo.DispositionDescriptions},
-	{"metadata", ffgo.DispositionMetadata}, {"dependent", 0x80000}, {"still_image", 0x100000},
+	{"default", ffgo.DispositionDefault},
+	{"dub", ffgo.DispositionDub},
+	{"original", ffgo.DispositionOriginal},
+	{"comment", ffgo.DispositionComment},
+	{"lyrics", ffgo.DispositionLyrics},
+	{"karaoke", ffgo.DispositionKaraoke},
+	{"forced", ffgo.DispositionForced},
+	{"hearing_impaired", ffgo.DispositionHearingImpaired},
+	{"visual_impaired", ffgo.DispositionVisualImpaired},
+	{"clean_effects", ffgo.DispositionCleanEffects},
+	{"attached_pic", ffgo.DispositionAttachedPic},
+	{"timed_thumbnails", 0x800},
+	{"non_diegetic", 0x1000},
+	{"captions", ffgo.DispositionCaptions},
+	{"descriptions", ffgo.DispositionDescriptions},
+	{"metadata", ffgo.DispositionMetadata},
+	{"dependent", 0x80000},
+	{"still_image", 0x100000},
 	{"multilayer", 0x200000},
 }
 

@@ -506,7 +506,7 @@ func redownloadRetryAt(v View, now time.Time) (time.Time, bool) {
 	if itemread.SearchCounted(d, v.LastSearched) {
 		return time.Time{}, false
 	}
-	wait := min(max(d.DispatchedAt.Time.Sub(*v.Redownload), RedownloadRetry), RedownloadRetryMax)
+	wait := min(max(d.DispatchedAt.Sub(*v.Redownload), RedownloadRetry), RedownloadRetryMax)
 	return d.DispatchedAt.Add(wait), true
 }
 

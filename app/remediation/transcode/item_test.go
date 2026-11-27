@@ -44,18 +44,24 @@ func TestTheItemReadGivesTheOriginalLanguage(t *testing.T) {
 	upgrading.Status.ActiveDownloadRef = &grab
 	series := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "lupin"}}
 	series.Status.Metadata = &catalogv1alpha1.SeriesMetadata{OriginalLanguage: "fr"}
-	episode := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "lupin-s01e01"},
-		Spec: catalogv1alpha1.EpisodeSpec{SeriesRef: "lupin"}}
+	episode := &catalogv1alpha1.Episode{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "lupin-s01e01"},
+		Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "lupin"},
+	}
 	exclude := map[string]string{catalogv1alpha1.AnnotationTranscodeExclude: "true"}
 	keptMovie := &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "kept", Annotations: exclude}}
 	keptSeries := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "rogers", Annotations: exclude}}
-	keptEpisode := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "rogers-s01e01"},
-		Spec: catalogv1alpha1.EpisodeSpec{SeriesRef: "rogers"}}
+	keptEpisode := &catalogv1alpha1.Episode{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "rogers-s01e01"},
+		Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "rogers"},
+	}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
 		WithObjects(movie, upgrading, series, episode, keptMovie, keptSeries, keptEpisode).Build()
 	file := func(kind commonv1.MediaKind, name string) *catalogv1alpha1.MediaFile {
-		return &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "f"},
-			Spec: catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: kind, Name: name}}}
+		return &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "f"},
+			Spec:       catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: kind, Name: name}},
+		}
 	}
 	for _, tc := range []struct {
 		name        string
@@ -89,23 +95,31 @@ func TestTheItemReadGivesTheOriginalLanguage(t *testing.T) {
 // (spec.aspectRatioFix crop). Nothing for a series that replaces, a file
 // already the shape, one no probe read the shape of, or a movie.
 func TestTheItemReadGivesTheCropTarget(t *testing.T) {
-	crops := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "frasier"},
+	crops := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "frasier"},
 		Spec: catalogv1alpha1.SeriesSpec{
 			AspectRatio: catalogv1alpha1.AspectRatioWidescreen, AspectRatioFix: catalogv1alpha1.AspectRatioFixCrop,
 			SeasonAspectRatios: []catalogv1alpha1.SeasonAspectRatio{{Number: 2, AspectRatio: catalogv1alpha1.AspectRatioFullscreen}},
-		}}
-	replaces := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "seinfeld"},
-		Spec: catalogv1alpha1.SeriesSpec{AspectRatio: catalogv1alpha1.AspectRatioWidescreen}}
+		},
+	}
+	replaces := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "seinfeld"},
+		Spec:       catalogv1alpha1.SeriesSpec{AspectRatio: catalogv1alpha1.AspectRatioWidescreen},
+	}
 	episode := func(name, series string, season int32) *catalogv1alpha1.Episode {
-		return &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name},
-			Spec: catalogv1alpha1.EpisodeSpec{SeriesRef: series, SeasonNumber: season}}
+		return &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: series, SeasonNumber: season},
+		}
 	}
 	movie := &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "heat"}}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(crops, replaces, movie,
 		episode("frasier-s01e01", "frasier", 1), episode("frasier-s02e01", "frasier", 2), episode("seinfeld-s09e01", "seinfeld", 9)).Build()
 	file := func(kind commonv1.MediaKind, name string, milli int32) *catalogv1alpha1.MediaFile {
-		mf := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "f"},
-			Spec: catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: kind, Name: name}}}
+		mf := &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "f"},
+			Spec:       catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: kind, Name: name}},
+		}
 		if milli >= 0 {
 			mf.Status.MediaInfo = &commonv1.MediaInfo{DisplayAspectMilli: milli}
 		}

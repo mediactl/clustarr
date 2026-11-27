@@ -24,8 +24,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/mediactl/clustarr/pkg/ortlog"
 	ort "github.com/shota3506/onnxruntime-purego/onnxruntime"
+
+	"github.com/mediactl/clustarr/pkg/ortlog"
 )
 
 //go:embed model/det.onnx

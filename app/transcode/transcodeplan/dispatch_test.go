@@ -161,8 +161,10 @@ func TestTheRecordMovesTheBlock(t *testing.T) {
 	in := queuedIn(t)
 	inputs := in.Record.Inputs
 	claimedAt := t0.Add(time.Minute)
-	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateClaimed, ClaimedAt: &claimedAt, Writer: "pool-0"},
-		Inputs: inputs}
+	in.Record = &task.Record{
+		RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateClaimed, ClaimedAt: &claimedAt, Writer: "pool-0"},
+		Inputs:       inputs,
+	}
 	in.Now = metav1.NewTime(t0.Add(2 * time.Minute))
 	rd := pass(in)
 	r := rd.Block
@@ -178,9 +180,13 @@ func TestTheRecordMovesTheBlock(t *testing.T) {
 	assert.Empty(t, pass(in).History, "started is owed once")
 
 	done := t0.Add(time.Hour)
-	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
-		Inputs: inputs, Answer: &task.Answer{Outcome: task.OutcomeSucceeded, FinishedAt: &done,
-			Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30, OutputToSourcePercent: 38}}}
+	in.Record = &task.Record{
+		RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
+		Inputs:       inputs, Answer: &task.Answer{
+			Outcome: task.OutcomeSucceeded, FinishedAt: &done,
+			Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30, OutputToSourcePercent: 38},
+		},
+	}
 	in.Now = metav1.NewTime(done.Add(time.Minute))
 	s := pass(in)
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseSwapping, s.Block.Phase)
@@ -208,8 +214,10 @@ func TestTheRecordMovesTheBlock(t *testing.T) {
 // Decided as retriable with the record's Failure, never WorkerLost.
 func TestAFinalDeliveryFailureIsRetriableWithItsCause(t *testing.T) {
 	in := queuedIn(t)
-	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateFailed,
-		Failure: "nats: no responders", Transient: true}, Inputs: in.Record.Inputs}
+	in.Record = &task.Record{RecordHeader: schema.RecordHeader{
+		Seq: 42, State: records.StateFailed,
+		Failure: "nats: no responders", Transient: true,
+	}, Inputs: in.Record.Inputs}
 	d := pass(in)
 	b := d.Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, b.Phase)

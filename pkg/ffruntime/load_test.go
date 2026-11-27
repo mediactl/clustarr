@@ -54,6 +54,8 @@ func TestRequireNamesWhatIsMissing(t *testing.T) {
 	assert.ErrorContains(t, err, "muxer no-such-muxer")
 	assert.ErrorContains(t, err, "decoder no-such-decoder")
 	assert.ErrorContains(t, err, "filter no-such-filter")
-	assert.NoError(t, ffruntime.Require(ffruntime.Needs{Demuxers: []string{"matroska"}, Muxers: []string{"mp4", "srt", "ass"},
-		Decoders: []string{"h264"}, Encoders: []string{"srt"}, Filters: []string{"scale"}}))
+	assert.NoError(t, ffruntime.Require(ffruntime.Needs{
+		Demuxers: []string{"matroska"}, Muxers: []string{"mp4", "srt", "ass"},
+		Decoders: []string{"h264"}, Encoders: []string{"srt"}, Filters: []string{"scale"},
+	}))
 }

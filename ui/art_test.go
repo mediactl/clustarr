@@ -373,7 +373,7 @@ func (o *overwritingStore) Get(ctx context.Context, name string) (events.ObjectI
 		return info, rc, nil
 	}
 	return info, &overwriteAfter{ReadCloser: rc, after: 128 << 10, overwrite: func() {
-		_, err := o.ObjectStore.Put(context.Background(), name, bytes.NewReader(o.replacement),
+		_, err := o.Put(context.Background(), name, bytes.NewReader(o.replacement),
 			events.ObjectMeta{Headers: map[string]string{events.HeaderContentType: "image/png"}})
 		assert.NoError(o.t, err, "overwrite the object mid-read")
 	}}, nil

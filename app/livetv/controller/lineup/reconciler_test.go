@@ -575,8 +575,15 @@ func TestACollapseIsTenAndMoreThanHalf(t *testing.T) {
 		n, active int
 		want      bool
 	}{
-		{0, 0, false}, {9, 9, false}, {9, 12, false}, {10, 20, false},
-		{10, 19, true}, {11, 20, true}, {16, 20, true}, {500, 1000, false}, {501, 1000, true},
+		{0, 0, false},
+		{9, 9, false},
+		{9, 12, false},
+		{10, 20, false},
+		{10, 19, true},
+		{11, 20, true},
+		{16, 20, true},
+		{500, 1000, false},
+		{501, 1000, true},
 	} {
 		assert.Equal(t, tc.want, collapses(tc.n, tc.active), "%d of %d", tc.n, tc.active)
 	}

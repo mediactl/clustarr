@@ -279,7 +279,7 @@ func (s *Server) artBytes(ctx context.Context, kind commonv1.MediaKind, uid type
 			s.artCache.add(got.Digest, b)
 			return b, got, nil
 		}
-		if attempt > 0 || !(errors.Is(err, errArtMoved) || errors.Is(err, events.ErrObjectNotFound)) {
+		if attempt > 0 || (!errors.Is(err, errArtMoved) && !errors.Is(err, events.ErrObjectNotFound)) {
 			return nil, objindex.Entry{}, err
 		}
 		if name, e, err = s.chooseArt(ctx, kind, uid, t); err != nil {

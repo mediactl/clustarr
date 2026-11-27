@@ -171,20 +171,35 @@ type Sort struct {
 // 2026-11-10, test/data/plexfilter).
 var sortsByType = map[catalogv1.PlexItemType][]Sort{
 	catalogv1.PlexItemMovie: {
-		{"titleSort", "Title"}, {"originallyAvailableAt", "Release Date"}, {"rating", "Critic Rating"},
-		{"audienceRating", "Audience Rating"}, {"duration", "Duration"}, {"addedAt", "Date Added"},
-		{"lastViewedAt", "Date Viewed"}, {"mediaHeight", "Resolution"}, {"random", "Randomly"},
+		{"titleSort", "Title"},
+		{"originallyAvailableAt", "Release Date"},
+		{"rating", "Critic Rating"},
+		{"audienceRating", "Audience Rating"},
+		{"duration", "Duration"},
+		{"addedAt", "Date Added"},
+		{"lastViewedAt", "Date Viewed"},
+		{"mediaHeight", "Resolution"},
+		{"random", "Randomly"},
 	},
 	catalogv1.PlexItemShow: {
-		{"titleSort", "Title"}, {"originallyAvailableAt", "Release Date"}, {"rating", "Critic Rating"},
-		{"audienceRating", "Audience Rating"}, {"unviewedLeafCount", "Unwatched"},
-		{"episode.addedAt", "Last Episode Date Added"}, {"lastViewedAt", "Date Viewed"}, {"random", "Randomly"},
+		{"titleSort", "Title"},
+		{"originallyAvailableAt", "Release Date"},
+		{"rating", "Critic Rating"},
+		{"audienceRating", "Audience Rating"},
+		{"unviewedLeafCount", "Unwatched"},
+		{"episode.addedAt", "Last Episode Date Added"},
+		{"lastViewedAt", "Date Viewed"},
+		{"random", "Randomly"},
 	},
 	catalogv1.PlexItemSeason: {{"show.titleSort,index", "Show"}, {"random", "Randomly"}},
 	catalogv1.PlexItemEpisode: {
 		{"show.titleSort,season.index:nullsLast,episode.index:nullsLast,episode.originallyAvailableAt:nullsLast,episode.titleSort,episode.id", "Show"},
-		{"originallyAvailableAt", "Release Date"}, {"rating", "Critic Rating"}, {"audienceRating", "Audience Rating"},
-		{"addedAt", "Date Added"}, {"lastViewedAt", "Date Viewed"}, {"random", "Randomly"},
+		{"originallyAvailableAt", "Release Date"},
+		{"rating", "Critic Rating"},
+		{"audienceRating", "Audience Rating"},
+		{"addedAt", "Date Added"},
+		{"lastViewedAt", "Date Viewed"},
+		{"random", "Randomly"},
 	},
 }
 

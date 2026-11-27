@@ -217,8 +217,10 @@ func TestComicPageIsMylarsIssuesTable(t *testing.T) {
 	// The actions sit in the hero, above its facts.
 	bar := page[strings.Index(page, `data-toolbar`):]
 	bar = beforeFacts(t, bar)
-	for _, a := range []string{`data-action="refresh-metadata"`, `data-action="search-now"`, `data-action="comic-volume-search"`,
-		`data-action="rename-dry-run"`, `data-action="rename-apply"`} {
+	for _, a := range []string{
+		`data-action="refresh-metadata"`, `data-action="search-now"`, `data-action="comic-volume-search"`,
+		`data-action="rename-dry-run"`, `data-action="rename-apply"`,
+	} {
 		require.Contains(t, bar, a, "the actions live in the bar")
 	}
 	require.NotContains(t, bar, `data-action="comic-interactive-search"`, "a comic has no interactive search of itself as an item")

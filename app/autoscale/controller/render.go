@@ -208,8 +208,10 @@ func RenderHPA(in RenderInput) Rendered {
 // topology's slots are used.
 func slotOverrides(spec *corev1.PodSpec, d agentdomain.Domain) (map[string]int, *Warning) {
 	invalid := func(format string, args ...any) (map[string]int, *Warning) {
-		return nil, &Warning{Reason: ReasonInvalidSlots,
-			Message: fmt.Sprintf(format, args...) + "; the topology's slots are used"}
+		return nil, &Warning{
+			Reason:  ReasonInvalidSlots,
+			Message: fmt.Sprintf(format, args...) + "; the topology's slots are used",
+		}
 	}
 	var value string
 	seen := false

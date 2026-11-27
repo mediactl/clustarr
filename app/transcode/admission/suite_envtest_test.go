@@ -84,9 +84,13 @@ func requireEnvtest(t *testing.T, ns string) client.Client {
 func seed(t *testing.T, c client.Client, ns, name string, st catalogv1alpha1.MediaFileStatus) *catalogv1alpha1.MediaFile {
 	t.Helper()
 	ctx := context.Background()
-	mf := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-		Spec: catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name},
-			Path: "/data/m/" + name + ".mkv", Quality: commonv1.Quality{Name: "Bluray-1080p"}}}
+	mf := &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+		Spec: catalogv1alpha1.MediaFileSpec{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name},
+			Path:     "/data/m/" + name + ".mkv", Quality: commonv1.Quality{Name: "Bluray-1080p"},
+		},
+	}
 	require.NoError(t, c.Create(ctx, mf))
 	raw, err := json.Marshal(st)
 	require.NoError(t, err)
@@ -101,8 +105,10 @@ func seed(t *testing.T, c client.Client, ns, name string, st catalogv1alpha1.Med
 // block is a status whose transcode block is phase at lastSeq seq; a
 // Queued or Running one carries its class, pool and dispatch.
 func block(phase catalogv1alpha1.TranscodePhase, seq int64, class string) catalogv1alpha1.MediaFileStatus {
-	b := &catalogv1alpha1.TranscodeState{Phase: phase, Profile: "hevc", ProfileHash: "h", ProbeHash: "p",
-		PlannedAt: new(metav1.NewTime(time.Now().UTC().Truncate(time.Second)))}
+	b := &catalogv1alpha1.TranscodeState{
+		Phase: phase, Profile: "hevc", ProfileHash: "h", ProbeHash: "p",
+		PlannedAt: new(metav1.NewTime(time.Now().UTC().Truncate(time.Second))),
+	}
 	if phase == catalogv1alpha1.TranscodePhaseQueued || phase == catalogv1alpha1.TranscodePhaseRunning {
 		b.Class, b.Pool = catalogv1alpha1.TranscodeClass(class), "pool-"+class
 		b.Dispatch = &catalogv1alpha1.Dispatch{Seq: seq, DispatchedAt: metav1.NewTime(time.Now().UTC().Truncate(time.Second))}

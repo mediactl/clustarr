@@ -97,11 +97,15 @@ func newLibrary(t *testing.T, donorAudio []string, lead float64, targetExtra ...
 	video := testmedia.Video{Source: "testsrc2=size=160x90:rate=24", Encoder: "libx264", Options: map[string]string{"preset": "ultrafast"}}
 
 	target := filepath.Join(show, "Monster - S01E02.mkv")
-	audio := []testmedia.Audio{{Samples: &testmedia.Samples{Rate: rate, Mono: bursts(1, clip)}, Encoder: "aac",
-		Stream: testmedia.Stream{Language: "jpn"}}}
+	audio := []testmedia.Audio{{
+		Samples: &testmedia.Samples{Rate: rate, Mono: bursts(1, clip)}, Encoder: "aac",
+		Stream: testmedia.Stream{Language: "jpn"},
+	}}
 	for i, e := range targetExtra {
-		audio = append(audio, testmedia.Audio{Samples: &testmedia.Samples{Rate: rate, Mono: bursts(50+uint64(i), clip)},
-			Encoder: "aac", Stream: testmedia.Stream{Language: e}})
+		audio = append(audio, testmedia.Audio{
+			Samples: &testmedia.Samples{Rate: rate, Mono: bursts(50+uint64(i), clip)},
+			Encoder: "aac", Stream: testmedia.Stream{Language: e},
+		})
 	}
 	require.NoError(t, testmedia.Write(target, testmedia.Spec{Duration: clip * time.Second, Video: []testmedia.Video{video}, Audio: audio}))
 
@@ -120,8 +124,10 @@ func newLibrary(t *testing.T, donorAudio []string, lead float64, targetExtra ...
 		case "other-eng":
 			lang = "eng"
 		}
-		dub = append(dub, testmedia.Audio{Samples: &testmedia.Samples{Rate: rate, Mono: delayed(x, lead)},
-			Encoder: "ac3", Layout: "stereo", Stream: testmedia.Stream{Language: lang}})
+		dub = append(dub, testmedia.Audio{
+			Samples: &testmedia.Samples{Rate: rate, Mono: delayed(x, lead)},
+			Encoder: "ac3", Layout: "stereo", Stream: testmedia.Stream{Language: lang},
+		})
 	}
 	require.NoError(t, testmedia.Write(donor, testmedia.Spec{Duration: (clip + 2) * time.Second, Video: []testmedia.Video{video}, Audio: dub}))
 

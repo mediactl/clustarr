@@ -57,8 +57,10 @@ func TestLiveTVServiceRoutesToTheLeader(t *testing.T) {
 		}
 		listening := tuner{ch: make(chan struct{})}
 		close(listening.ch)
-		if err := mgr.Add(&leaderendpoint.Publisher{Client: mgr.GetClient(), Tuner: listening,
-			Service: "clustarr-livetv", Namespace: "default", PodName: "manager-" + ip, PodIP: ip, Port: 5004}); err != nil {
+		if err := mgr.Add(&leaderendpoint.Publisher{
+			Client: mgr.GetClient(), Tuner: listening,
+			Service: "clustarr-livetv", Namespace: "default", PodName: "manager-" + ip, PodIP: ip, Port: 5004,
+		}); err != nil {
 			t.Fatalf("add: %v", err)
 		}
 		ctx, cancel := context.WithCancel(context.Background())

@@ -295,13 +295,15 @@ func TestAStageThatPanicsKeepsItsStoredValues(t *testing.T) {
 	searched.Store(time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC).Unix())
 	var metaTitle atomic.Value
 	metaTitle.Store("Heat")
-	grab := declaringStage{&stubStage{name: remediation.StageGrab, declares: []k8s.FieldManager{k8s.ManagerCatalogGrab},
+	grab := declaringStage{&stubStage{
+		name: remediation.StageGrab, declares: []k8s.FieldManager{k8s.ManagerCatalogGrab},
 		plan: func(*remediation.ItemView) (remediation.ItemResult, error) {
 			if panics.Load() {
 				panic("grab: boom")
 			}
 			return grabbing("Heat.1995.1080p.BluRay"), nil
-		}}}
+		},
+	}}
 	search := &stubStage{name: remediation.StageSearch, plan: func(*remediation.ItemView) (remediation.ItemResult, error) {
 		return remediation.ItemResult{Sets: []itempass.Set{{Manager: k8s.ManagerCatalogGrab, Fields: map[string]any{
 			"lastSearchedAt": metav1.NewTime(time.Unix(searched.Load(), 0).UTC()),

@@ -41,6 +41,7 @@ func (s stubAudiobookSearcher) Name() string { return s.name }
 func (s stubAudiobookSearcher) Capabilities() pkgmetadata.Capabilities {
 	return pkgmetadata.Capabilities{Search: true}
 }
+
 func (s stubAudiobookSearcher) SearchAudiobooks(_ context.Context, _ string, region string) ([]pkgmetadata.SearchHit, error) {
 	if s.region != nil {
 		*s.region = region

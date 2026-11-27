@@ -54,19 +54,29 @@ func TestWithdrawalTakesTwoPasses(t *testing.T) {
 		blocked bool
 		after   string // the reason pass 2 writes, when not reason
 	}{
-		{name: "cancel", mutate: func(in *Inputs) { in.Intents.Cancel = "1759752000" },
-			reason: ReasonCancelled, phase: catalogv1alpha1.TranscodePhaseSkipped},
-		{name: "suspend", mutate: func(in *Inputs) { in.Intents.Suspend = "true" },
-			reason: ReasonSuspended, phase: catalogv1alpha1.TranscodePhasePlanned},
-		{name: "suspend while running", running: true, mutate: func(in *Inputs) { in.Intents.Suspend = "true" },
-			reason: ReasonSuspended, phase: catalogv1alpha1.TranscodePhasePlanned},
+		{
+			name: "cancel", mutate: func(in *Inputs) { in.Intents.Cancel = "1759752000" },
+			reason: ReasonCancelled, phase: catalogv1alpha1.TranscodePhaseSkipped,
+		},
+		{
+			name: "suspend", mutate: func(in *Inputs) { in.Intents.Suspend = "true" },
+			reason: ReasonSuspended, phase: catalogv1alpha1.TranscodePhasePlanned,
+		},
+		{
+			name: "suspend while running", running: true, mutate: func(in *Inputs) { in.Intents.Suspend = "true" },
+			reason: ReasonSuspended, phase: catalogv1alpha1.TranscodePhasePlanned,
+		},
 		{name: "reroute", mutate: func(in *Inputs) {
 			in.Ledger.Directive = &Directive{Kind: DirectiveReroute, Seq: 42, Reason: "GPU pool p-nvidia unschedulable for 10m"}
 		}, reason: ReasonRerouted, phase: catalogv1alpha1.TranscodePhasePlanned},
-		{name: "unclaimed", mutate: func(in *Inputs) { in.Now = metav1.NewTime(t0.Add(records.RepublishWindow + time.Second)) },
-			reason: ReasonUnclaimed, phase: catalogv1alpha1.TranscodePhasePlanned},
-		{name: "new bytes, their probe landed", mutate: func(in *Inputs) { in.Draft = probed("ph-2") },
-			reason: ReasonSourceChanged, phase: catalogv1alpha1.TranscodePhasePending, after: ReasonProbePending},
+		{
+			name: "unclaimed", mutate: func(in *Inputs) { in.Now = metav1.NewTime(t0.Add(records.RepublishWindow + time.Second)) },
+			reason: ReasonUnclaimed, phase: catalogv1alpha1.TranscodePhasePlanned,
+		},
+		{
+			name: "new bytes, their probe landed", mutate: func(in *Inputs) { in.Draft = probed("ph-2") },
+			reason: ReasonSourceChanged, phase: catalogv1alpha1.TranscodePhasePending, after: ReasonProbePending,
+		},
 		{name: "dead-lettered", mutate: func(in *Inputs) {
 			in.DeadLettered = events.WorkTranscodeTaskSubject("uid-hevc", "cpu", string(in.File.UID)) + "@" + t0.Add(time.Minute).Format(time.RFC3339)
 		}, reason: ReasonDeadLettered, phase: catalogv1alpha1.TranscodePhaseFailed, blocked: true},
@@ -183,9 +193,13 @@ func TestAFactAfterTheClosingWithdrawalIsIncorporated(t *testing.T) {
 
 	done := t0.Add(2 * time.Hour)
 	in.Now = metav1.NewTime(done.Add(time.Minute))
-	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
-		Answer: &task.Answer{Outcome: task.OutcomeSucceeded, FinishedAt: &done,
-			Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30}}}
+	in.Record = &task.Record{
+		RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
+		Answer: &task.Answer{
+			Outcome: task.OutcomeSucceeded, FinishedAt: &done,
+			Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30},
+		},
+	}
 	d := pass(in)
 	b := d.Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseSwapping, b.Phase)
@@ -200,9 +214,13 @@ func TestAFactAfterTheClosingWithdrawalIsIncorporated(t *testing.T) {
 	in.Record = &other
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseSkipped, pass(in).Block.Phase, "a fact at another seq is not the withdrawn dispatch's")
 
-	fact := &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
-		Answer: &task.Answer{Outcome: task.OutcomeSucceeded, FinishedAt: &done,
-			Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30}}}
+	fact := &task.Record{
+		RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
+		Answer: &task.Answer{
+			Outcome: task.OutcomeSucceeded, FinishedAt: &done,
+			Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30},
+		},
+	}
 	in.Record = fact
 	in.Now = metav1.NewTime(t0.Add(FactWindow(jobspec.DefaultActiveDeadline) + time.Second))
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseSkipped, pass(in).Block.Phase, "past the fact window the record is not read")
@@ -219,9 +237,13 @@ func TestAFactAfterTheClosingWithdrawalIsIncorporated(t *testing.T) {
 func TestALateFactOfAWithdrawnAttemptSurvivesItsRetry(t *testing.T) {
 	done := t0.Add(51 * time.Minute)
 	fact42 := func() *task.Record {
-		return &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
-			Answer: &task.Answer{Outcome: task.OutcomeSucceeded, FinishedAt: &done,
-				Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30}}}
+		return &task.Record{
+			RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
+			Answer: &task.Answer{
+				Outcome: task.OutcomeSucceeded, FinishedAt: &done,
+				Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30},
+			},
+		}
 	}
 	// withdrawn is the file once attempt 42 was withdrawn as Unclaimed:
 	// Planned, its dispatch closed and withdrawn, holding a dispatch grant.

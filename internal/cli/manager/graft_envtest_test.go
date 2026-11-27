@@ -118,14 +118,22 @@ func startGraftFixture(t *testing.T, name string) *graftFixture {
 	f.path = filepath.Join(root, "Perfect Blue (1997)", "Perfect Blue (1997).mkv")
 	require.NoError(t, os.MkdirAll(filepath.Dir(f.path), 0o755))
 	require.NoError(t, os.WriteFile(f.path, []byte("japanese-only bytes"), 0o644))
-	require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.RootFolder{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-		Spec: catalogv1alpha1.RootFolderSpec{Path: root, Kind: catalogv1alpha1.RootFolderKindMovie}}))
-	require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.QualityProfile{ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec: catalogv1alpha1.QualityProfileSpec{MediaKind: catalogv1alpha1.ProfileMediaKindVideo, Cutoff: "hd",
+	require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec:       catalogv1alpha1.RootFolderSpec{Path: root, Kind: catalogv1alpha1.RootFolderKindMovie},
+	}))
+	require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.QualityProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: catalogv1alpha1.QualityProfileSpec{
+			MediaKind: catalogv1alpha1.ProfileMediaKindVideo, Cutoff: "hd",
 			Tiers: []catalogv1alpha1.Tier{{Name: "hd", Qualities: []string{"Bluray-1080p"}}},
-			Audio: &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true, Default: "en"}}}))
-	f.movie = &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-		Spec: catalogv1alpha1.MovieSpec{TmdbID: 10494, QualityProfileRef: name, RootFolderRef: name, Monitored: new(false)}}
+			Audio: &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true, Default: "en"},
+		},
+	}))
+	f.movie = &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 10494, QualityProfileRef: name, RootFolderRef: name, Monitored: new(false)},
+	}
 	require.NoError(t, f.c.Create(ctx, f.movie))
 	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Movie(name, "default").WithStatus(catalogac.MovieStatus().
 		WithMetadata(catalogac.MovieMetadata().WithTitle("Perfect Blue").WithYear(1997).WithOriginalLanguage("ja").WithRefreshedAt(metav1.Now()))))
@@ -139,20 +147,26 @@ func startGraftFixture(t *testing.T, name string) *graftFixture {
 	entry.Purpose = commonv1.DownloadPurposeAudioDonor
 	entry.Release.Title = "Perfect.Blue.1997.DVDRip.DUAL-GRP"
 	imported := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
-	entry.Import = &catalogv1alpha1.DownloadImportSummary{Phase: catalogv1alpha1.ImportPhaseImported, ImportedAt: &imported,
-		Dispatch: catalogv1alpha1.Dispatch{Seq: 1, AnsweredSeq: 1, DispatchedAt: imported}}
+	entry.Import = &catalogv1alpha1.DownloadImportSummary{
+		Phase: catalogv1alpha1.ImportPhaseImported, ImportedAt: &imported,
+		Dispatch: catalogv1alpha1.Dispatch{Seq: 1, AnsweredSeq: 1, DispatchedAt: imported},
+	}
 	w := records.NewWriter(bus.KV(events.BucketImports), agentrecords.Imports(), "import-agent", "test")
 	_, err = w.Write(ctx, agentrecords.ImportKey(entry.UID, schema.ImportSubExecute), &schema.ImportRecord{
-		RecordHeader: schema.RecordHeader{Item: &schema.ItemRef{Kind: "Movie", Namespace: "default", Name: name, UID: string(f.movie.UID)},
-			Sub: schema.ImportSubExecute, Seq: 1, State: records.StateAnswered},
+		RecordHeader: schema.RecordHeader{
+			Item: &schema.ItemRef{Kind: "Movie", Namespace: "default", Name: name, UID: string(f.movie.UID)},
+			Sub:  schema.ImportSubExecute, Seq: 1, State: records.StateAnswered,
+		},
 		Entry:   schema.EntryRef{ID: entry.ID, UID: entry.UID},
 		Execute: &schema.ImportExecution{DonorPath: donor},
 	})
 	require.NoError(t, err)
 	require.NoError(t, itemtest.SeedEntries(ctx, f.c, f.movie, entry))
 
-	f.mf = &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: name + "-file", Namespace: "default"},
-		Spec: catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}, Path: f.path}}
+	f.mf = &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: name + "-file", Namespace: "default"},
+		Spec:       catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}, Path: f.path},
+	}
 	require.NoError(t, f.c.Create(ctx, f.mf))
 	return f
 }

@@ -76,15 +76,24 @@ func TestFileCellsPerKind(t *testing.T) {
 		heads []string
 		cells []string
 	}{
-		{"", []string{"Relative Path", "Video Codec", "Audio Info", "Size", "Languages", "Quality", "Release Group", "Formats", "Markers", "Transcode", "Score"},
-			[]string{"a/b.ext", "HEVC", "EAC3 - 5.1", "2.00 GiB", "en", "Q", "GRP", "F1", "intro 0:00–1:00 (chapters)", "Succeeded", "7"}},
+		{
+			"",
+			[]string{"Relative Path", "Video Codec", "Audio Info", "Size", "Languages", "Quality", "Release Group", "Formats", "Markers", "Transcode", "Score"},
+			[]string{"a/b.ext", "HEVC", "EAC3 - 5.1", "2.00 GiB", "en", "Q", "GRP", "F1", "intro 0:00–1:00 (chapters)", "Succeeded", "7"},
+		},
 		{commonv1.MediaKindMovie, nil, []string{"a/b.ext", "HEVC", "EAC3 - 5.1", "2.00 GiB", "en", "Q", "GRP", "F1", "intro 0:00–1:00 (chapters)", "Succeeded", "7"}},
 		{commonv1.MediaKindEpisode, nil, []string{"a/b.ext", "HEVC", "EAC3 - 5.1", "2.00 GiB", "en", "Q", "GRP", "F1", "intro 0:00–1:00 (chapters)", "Succeeded", "7"}},
-		{commonv1.MediaKindAlbum, []string{"Relative Path", "Codec", "Bitrate", "Sample Rate", "Size", "Quality", "Release Group", "Formats", "Score"},
-			[]string{"a/b.ext", "FLAC", "1411 kbps", "44.1 kHz / 16-bit", "2.00 GiB", "Q", "GRP", "F1", "7"}},
+		{
+			commonv1.MediaKindAlbum,
+			[]string{"Relative Path", "Codec", "Bitrate", "Sample Rate", "Size", "Quality", "Release Group", "Formats", "Score"},
+			[]string{"a/b.ext", "FLAC", "1411 kbps", "44.1 kHz / 16-bit", "2.00 GiB", "Q", "GRP", "F1", "7"},
+		},
 		{commonv1.MediaKindAudiobook, nil, []string{"a/b.ext", "FLAC", "1411 kbps", "44.1 kHz / 16-bit", "2.00 GiB", "Q", "GRP", "F1", "7"}},
-		{commonv1.MediaKindBook, []string{"Relative Path", "Format", "Pages", "Size", "Quality", "Release Group", "Formats", "Score"},
-			[]string{"a/b.ext", "EPUB", "312", "2.00 GiB", "Q", "GRP", "F1", "7"}},
+		{
+			commonv1.MediaKindBook,
+			[]string{"Relative Path", "Format", "Pages", "Size", "Quality", "Release Group", "Formats", "Score"},
+			[]string{"a/b.ext", "EPUB", "312", "2.00 GiB", "Q", "GRP", "F1", "7"},
+		},
 		{commonv1.MediaKindIssue, nil, []string{"a/b.ext", "EPUB", "312", "2.00 GiB", "Q", "GRP", "F1", "7"}},
 	} {
 		row := base

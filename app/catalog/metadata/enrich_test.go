@@ -108,6 +108,7 @@ type stubPageProvider struct {
 
 func (p stubPageProvider) Name() string                           { return p.name }
 func (p stubPageProvider) Capabilities() pkgmetadata.Capabilities { return pkgmetadata.Capabilities{} }
+
 func (p stubPageProvider) Page(_ context.Context, _ commonv1.MediaKind, ids pkgmetadata.ExternalIDs) (pkgmetadata.Link, error) {
 	if p.calls != nil {
 		*p.calls++
@@ -636,6 +637,7 @@ func (s stubBiographyProvider) Name() string { return s.name }
 func (s stubBiographyProvider) Capabilities() pkgmetadata.Capabilities {
 	return pkgmetadata.Capabilities{}
 }
+
 func (s stubBiographyProvider) Biography(context.Context, []pkgmetadata.Link) (string, string, error) {
 	if s.calls != nil {
 		*s.calls++
@@ -732,8 +734,10 @@ func TestRatingSourceRoundTripsTheEnum(t *testing.T) {
 func TestEnrichRatingsReadsANonVideoSeedThroughTheEnum(t *testing.T) {
 	calls := 0
 	reg := &pkgmetadata.Registry{Ratings: []pkgmetadata.RatingsProvider{
-		stubRatingsProvider{name: "hardcover", declared: []string{pkgmetadata.RatingSourceHardcover},
-			ratings: pkgmetadata.Ratings{pkgmetadata.RatingSourceHardcover: {Source: "hardcover", ValueCentis: 822, Votes: 63}}, calls: &calls},
+		stubRatingsProvider{
+			name: "hardcover", declared: []string{pkgmetadata.RatingSourceHardcover},
+			ratings: pkgmetadata.Ratings{pkgmetadata.RatingSourceHardcover: {Source: "hardcover", ValueCentis: 822, Votes: 63}}, calls: &calls,
+		},
 	}}
 	seed := pkgmetadata.Ratings{
 		"mb":        {Source: "mb", ValueCentis: 860, Votes: 12},

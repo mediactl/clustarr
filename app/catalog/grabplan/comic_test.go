@@ -172,8 +172,8 @@ func TestAWholeVolumeRanksAsAWholeSeason(t *testing.T) {
 	pack := parked(sagaRef, "rss-pack", volumeCandidates(t, sagaTitle(1))[0], false, false)
 	pack.Release.Score = 0
 	pack.Release.Decision.Title, pack.Release.Decision.GUID = "Saga v01 pack", "guid-pack"
-	pack.Release.Decision.ReleaseInfo.Title, pack.Release.Decision.ReleaseInfo.GUID = "Saga v01 pack", "guid-pack"
-	pack.Release.Decision.ReleaseInfo.InfoHash = fmt.Sprintf("%040d", 7)
+	pack.Release.Decision.Title, pack.Release.Decision.GUID = "Saga v01 pack", "guid-pack"
+	pack.Release.Decision.InfoHash = fmt.Sprintf("%040d", 7)
 	for _, it := range covered {
 		pack.Targets = append(pack.Targets, it.Ref)
 	}

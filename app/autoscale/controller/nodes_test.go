@@ -56,6 +56,7 @@ func tainted(key string, effect corev1.TaintEffect) nodeOpt {
 		n.Spec.Taints = append(n.Spec.Taints, corev1.Taint{Key: key, Value: "x", Effect: effect})
 	}
 }
+
 func allocatable(r corev1.ResourceName, q string) nodeOpt {
 	return func(n *corev1.Node) { n.Status.Allocatable[r] = resource.MustParse(q) }
 }
@@ -116,22 +117,39 @@ func TestMatchingNodes(t *testing.T) {
 		{"no Ready condition at all", []corev1.Node{node("a", noReadyCondition)}, spec(), 0},
 		{"cordoned", []corev1.Node{node("a", cordoned)}, spec(), 0},
 		{"nodeSelector miss", []corev1.Node{node("a"), node("b", labelled("role", "agent"))}, spec(nodeSelector("role", "agent")), 1},
-		{"affinity In", []corev1.Node{node("a", labelled("zone", "a")), node("c", labelled("zone", "c"))},
-			spec(affinity("zone", corev1.NodeSelectorOpIn, "a", "b")), 1},
-		{"affinity NotIn matches an absent label", []corev1.Node{node("a", labelled("zone", "a")), node("c", labelled("zone", "c")), node("none")},
-			spec(affinity("zone", corev1.NodeSelectorOpNotIn, "c")), 2},
-		{"affinity Exists", []corev1.Node{node("gpu", labelled("gpu", "x")), node("plain")},
-			spec(affinity("gpu", corev1.NodeSelectorOpExists)), 1},
-		{"affinity DoesNotExist", []corev1.Node{node("gpu", labelled("gpu", "x")), node("plain"), node("other", labelled("zone", "a"))},
-			spec(affinity("gpu", corev1.NodeSelectorOpDoesNotExist)), 2},
+		{
+			"affinity In",
+			[]corev1.Node{node("a", labelled("zone", "a")), node("c", labelled("zone", "c"))},
+			spec(affinity("zone", corev1.NodeSelectorOpIn, "a", "b")), 1,
+		},
+		{
+			"affinity NotIn matches an absent label",
+			[]corev1.Node{node("a", labelled("zone", "a")), node("c", labelled("zone", "c")), node("none")},
+			spec(affinity("zone", corev1.NodeSelectorOpNotIn, "c")), 2,
+		},
+		{
+			"affinity Exists",
+			[]corev1.Node{node("gpu", labelled("gpu", "x")), node("plain")},
+			spec(affinity("gpu", corev1.NodeSelectorOpExists)), 1,
+		},
+		{
+			"affinity DoesNotExist",
+			[]corev1.Node{node("gpu", labelled("gpu", "x")), node("plain"), node("other", labelled("zone", "a"))},
+			spec(affinity("gpu", corev1.NodeSelectorOpDoesNotExist)), 2,
+		},
 		{"an untolerated NoSchedule taint", []corev1.Node{node("a", tainted("dedicated", corev1.TaintEffectNoSchedule))}, spec(), 0},
-		{"a tolerated NoSchedule taint", []corev1.Node{node("a", tainted("dedicated", corev1.TaintEffectNoSchedule))},
-			spec(tolerates("dedicated", corev1.TaintEffectNoSchedule)), 1},
+		{
+			"a tolerated NoSchedule taint",
+			[]corev1.Node{node("a", tainted("dedicated", corev1.TaintEffectNoSchedule))},
+			spec(tolerates("dedicated", corev1.TaintEffectNoSchedule)), 1,
+		},
 		{"an untolerated NoExecute taint", []corev1.Node{node("a", tainted("evict", corev1.TaintEffectNoExecute))}, spec(), 0},
 		{"a PreferNoSchedule taint is ignored", []corev1.Node{node("a", tainted("soft", corev1.TaintEffectPreferNoSchedule))}, spec(), 1},
-		{"an extended resource with zero allocatable",
+		{
+			"an extended resource with zero allocatable",
 			[]corev1.Node{node("none", allocatable("nvidia.com/gpu", "0")), node("one", allocatable("nvidia.com/gpu", "1"))},
-			spec(requests("nvidia.com/gpu", "1")), 1},
+			spec(requests("nvidia.com/gpu", "1")), 1,
+		},
 		{"an extended resource absent from allocatable", []corev1.Node{node("a")}, spec(requests("nvidia.com/gpu", "1")), 0},
 		{"cpu is never counted", []corev1.Node{node("a")}, spec(requests(corev1.ResourceCPU, "2")), 1},
 		{"memory is never counted", []corev1.Node{node("a")}, spec(requests(corev1.ResourceMemory, "1Gi")), 1},

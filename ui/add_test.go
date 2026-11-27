@@ -732,8 +732,10 @@ func TestAddAudiobooksShowThePeopleAndLinkTheAuthor(t *testing.T) {
 	}
 	// answering is the gateway's author answer naming the ASIN's author name.
 	answering := func(name string) schema.MetadataResponse {
-		return schema.MetadataResponse{Kind: commonv1.MediaKindAuthor, Provider: "audnexus", IDs: map[string]string{"asin": "B000AP9A6K"},
-			Result: []byte(`{"ids":{"asin":"B000AP9A6K"},"name":"` + name + `","genres":["Science Fiction & Fantasy"]}`)}
+		return schema.MetadataResponse{
+			Kind: commonv1.MediaKindAuthor, Provider: "audnexus", IDs: map[string]string{"asin": "B000AP9A6K"},
+			Result: []byte(`{"ids":{"asin":"B000AP9A6K"},"name":"` + name + `","genres":["Science Fiction & Fantasy"]}`),
+		}
 	}
 	found := answering("frank herbert")
 	form := url.Values{

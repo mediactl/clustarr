@@ -35,16 +35,26 @@ import (
 // notice an engine argv the agent refuses: the pod would crash-loop on the
 // first real cluster.
 func TestEngineArgvParses(t *testing.T) {
-	torrent := &downloadv1alpha1.DownloadClient{ObjectMeta: metav1.ObjectMeta{Name: "my-torrent-client"},
+	torrent := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-torrent-client"},
 		Spec: downloadv1alpha1.DownloadClientSpec{Torrent: &downloadv1alpha1.TorrentSpec{
-			Scratch: &downloadv1alpha1.ScratchSpec{Path: "/data/torrents/incomplete"}}}}
-	plainTorrent := &downloadv1alpha1.DownloadClient{ObjectMeta: metav1.ObjectMeta{Name: "seedbox"},
-		Spec: downloadv1alpha1.DownloadClientSpec{Torrent: &downloadv1alpha1.TorrentSpec{}}}
-	usenet := &downloadv1alpha1.DownloadClient{ObjectMeta: metav1.ObjectMeta{Name: "nzb"},
-		Spec: downloadv1alpha1.DownloadClientSpec{Usenet: &downloadv1alpha1.UsenetSpec{PublishDir: "/data/usenet/complete"}}}
-	scratchUsenet := &downloadv1alpha1.DownloadClient{ObjectMeta: metav1.ObjectMeta{Name: "my-nzb"},
+			Scratch: &downloadv1alpha1.ScratchSpec{Path: "/data/torrents/incomplete"},
+		}},
+	}
+	plainTorrent := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "seedbox"},
+		Spec:       downloadv1alpha1.DownloadClientSpec{Torrent: &downloadv1alpha1.TorrentSpec{}},
+	}
+	usenet := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "nzb"},
+		Spec:       downloadv1alpha1.DownloadClientSpec{Usenet: &downloadv1alpha1.UsenetSpec{PublishDir: "/data/usenet/complete"}},
+	}
+	scratchUsenet := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-nzb"},
 		Spec: downloadv1alpha1.DownloadClientSpec{Usenet: &downloadv1alpha1.UsenetSpec{
-			Scratch: &downloadv1alpha1.ScratchSpec{Path: "/data/usenet/incomplete"}}}}
+			Scratch: &downloadv1alpha1.ScratchSpec{Path: "/data/usenet/incomplete"},
+		}},
+	}
 
 	t.Setenv("POD_NAME", "my-torrent-client-engine-1")
 	cmd, args := downloadclient.EngineCommand(torrent, "/data", "/scratch")

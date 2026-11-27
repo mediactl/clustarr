@@ -66,8 +66,10 @@ func TestAPackNoPatternReadsImportsByItsSeasonsEpisodes(t *testing.T) {
 	}
 	series := &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: "gosick", Namespace: "media", UID: "gosick-uid"},
-		Spec: catalogv1alpha1.SeriesSpec{TvdbID: 219771, QualityProfileRef: qp.Name, RootFolderRef: rf.Name,
-			SeriesType: catalogv1alpha1.SeriesTypeAnime},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 219771, QualityProfileRef: qp.Name, RootFolderRef: rf.Name,
+			SeriesType: catalogv1alpha1.SeriesTypeAnime,
+		},
 		Status: catalogv1alpha1.SeriesStatus{Metadata: &catalogv1alpha1.SeriesMetadata{
 			Title: "Gosick", Year: 2011, OriginalLanguage: "ja",
 		}},

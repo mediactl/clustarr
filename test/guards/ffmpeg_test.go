@@ -360,7 +360,7 @@ func scanForSilentFFgoGates(root string) (found []string, checked int) {
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			ifs, ok := n.(*ast.IfStmt)
-			if !ok || !(ifs.Init != nil && callsFFgo(ifs.Init) || callsFFgo(ifs.Cond)) {
+			if !ok || ((ifs.Init == nil || !callsFFgo(ifs.Init)) && !callsFFgo(ifs.Cond)) {
 				return true
 			}
 			skips := false

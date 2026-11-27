@@ -118,7 +118,7 @@ func overUsenet(cands []grabplan.Candidate, usenet ...string) []grabplan.Candida
 	for i := range cands {
 		for _, title := range usenet {
 			if cands[i].Release.Decision.Title == title {
-				cands[i].Release.Decision.ReleaseInfo.Protocol = commonv1.ProtocolUsenet
+				cands[i].Release.Decision.Protocol = commonv1.ProtocolUsenet
 			}
 		}
 	}

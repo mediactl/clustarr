@@ -527,8 +527,10 @@ func TestMonitoringAnUnmonitoredSeriesMonitorsItsSeasons(t *testing.T) {
 	}
 	on := &catalogv1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: "gt", Namespace: "default"},
-		Spec: catalogv1.SeriesSpec{Monitored: boolPtr(true), QualityProfileRef: "hd", RootFolderRef: "tv", TvdbID: 1,
-			Seasons: []catalogv1.SeasonSpec{{Number: 1, Monitored: boolPtr(false)}}},
+		Spec: catalogv1.SeriesSpec{
+			Monitored: boolPtr(true), QualityProfileRef: "hd", RootFolderRef: "tv", TvdbID: 1,
+			Seasons: []catalogv1.SeasonSpec{{Number: 1, Monitored: boolPtr(false)}},
+		},
 		Status: catalogv1.SeriesStatus{Seasons: []catalogv1.SeasonStatus{{Number: 1}, {Number: 2}}},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(off, on).Build()

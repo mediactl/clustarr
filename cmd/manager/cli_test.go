@@ -49,11 +49,13 @@ func execute(t *testing.T, args ...string) (string, error) {
 // installerEnv is every variable an installer sets on the manager. A test
 // that reads a default clears them first, so a developer's shell cannot
 // answer for a flag.
-var installerEnv = []string{"NATS_URL", "CLUSTARR_NATIVE_IMAGE", "CLUSTARR_DATA_CLAIM",
+var installerEnv = []string{
+	"NATS_URL", "CLUSTARR_NATIVE_IMAGE", "CLUSTARR_DATA_CLAIM",
 	"CLUSTARR_ENGINE_SERVICE_ACCOUNT", "CLUSTARR_INTEL_RENDER_GROUPS", "CLUSTARR_GPU_NODE_LABEL_NVIDIA",
 	"CLUSTARR_GPU_NODE_LABEL_INTEL", "CLUSTARR_CARDIGANN_DEFINITIONS_DIR", "CLUSTARR_CARDIGANN_BUNDLED",
 	"CLUSTARR_TRAKT_BASE_URL", "CLUSTARR_FACADE_API_KEY_SECRET", "CLUSTARR_EXTERNAL_METRICS_SERVICE",
-	"CLUSTARR_EXTERNAL_METRICS_SECRET"}
+	"CLUSTARR_EXTERNAL_METRICS_SECRET",
+}
 
 func clearInstallerEnv(t *testing.T) {
 	t.Helper()
@@ -255,8 +257,10 @@ func TestGraftConcurrency(t *testing.T) {
 // (loop spec §3.1, §3.7, §3.17).
 func TestManagerValidatesTheRemediationFlags(t *testing.T) {
 	for _, args := range [][]string{
-		{"--remediation-concurrency=0"}, {"--remediation-concurrency=65"},
-		{"--remediation-io-workers=0"}, {"--remediation-io-workers=65"},
+		{"--remediation-concurrency=0"},
+		{"--remediation-concurrency=65"},
+		{"--remediation-io-workers=0"},
+		{"--remediation-io-workers=65"},
 		{"--remediation-bulk-writes-per-second=-1"},
 		{"--search-live-per-minute=0"},
 	} {
@@ -286,8 +290,10 @@ func TestEngineMemoryLimitFlags(t *testing.T) {
 	assert.Equal(t, "3Gi", o.EngineMemoryLimitTorrent.String())
 	assert.Equal(t, "6Gi", o.EngineMemoryLimitUsenet.String())
 
-	for _, arg := range []string{"--engine-memory-limit-torrent=0", "--engine-memory-limit-usenet=-1Gi",
-		"--engine-memory-limit-usenet=lots"} {
+	for _, arg := range []string{
+		"--engine-memory-limit-torrent=0", "--engine-memory-limit-usenet=-1Gi",
+		"--engine-memory-limit-usenet=lots",
+	} {
 		_, err := parse(t, "--native-image=n", arg)
 		assert.ErrorContains(t, err, strings.SplitN(arg, "=", 2)[0], "%s was accepted", arg)
 	}
@@ -296,10 +302,12 @@ func TestEngineMemoryLimitFlags(t *testing.T) {
 // Every flag the split merged, renamed or dropped is refused rather than
 // silently ignored: a manifest still passing one fails at start.
 func TestRetiredFlagsAreGone(t *testing.T) {
-	for _, flag := range []string{"--role=controller", "--engine-image=x", "--worker-image=x",
+	for _, flag := range []string{
+		"--role=controller", "--engine-image=x", "--worker-image=x",
 		"--index-path=/x", "--publish-dir=/x", "--sample-max-bytes=1", "--data-path=/data", "--scratch-dir=/s",
 		"--legacy-lease-check=false", "--job-retention=24h", "--legacy-fold=apply", "--legacy-fold-retain=72h",
-		"--facade-bind-address=:9696", "--index-dsn=postgres://x"} {
+		"--facade-bind-address=:9696", "--index-dsn=postgres://x",
+	} {
 		_, err := parse(t, "--native-image=n", flag)
 		assert.ErrorContains(t, err, "unknown flag", flag)
 	}

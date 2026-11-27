@@ -154,7 +154,7 @@ func (o Options) Validate() error {
 
 // managerOptions is AgentManagerOptions plus the test seam.
 func managerOptions(o Options) ctrl.Options {
-	opts := o.Options.AgentManagerOptions()
+	opts := o.AgentManagerOptions()
 	if o.SkipNameValidation {
 		opts.Controller.SkipNameValidation = new(true)
 	}

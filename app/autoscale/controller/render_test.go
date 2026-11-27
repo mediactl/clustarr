@@ -168,8 +168,10 @@ func TestRenderHPA(t *testing.T) {
 		wantReasons []string
 	}{
 		{name: "import on two nodes", d: dep(agentdomain.Import), nodes: 2, min: 0, max: 2, targets: importTargets, down: 300},
-		{name: "markers waits out its 30-minute AckWait before scaling down", d: dep(agentdomain.Markers), nodes: 3,
-			min: 0, max: 3, targets: map[string]string{events.ConsumerMarkersAnalyze: "1"}, down: 1800},
+		{
+			name: "markers waits out its 30-minute AckWait before scaling down", d: dep(agentdomain.Markers), nodes: 3,
+			min: 0, max: 3, targets: map[string]string{events.ConsumerMarkersAnalyze: "1"}, down: 1800,
+		},
 		// Per node (agentdomain.Domain.PerNode): a pod per task up to a pod
 		// per node, whatever its slots. With three slots a pod, the slots
 		// target ran one pod per three seasons, and markers-analyze's
@@ -200,35 +202,57 @@ func TestRenderHPA(t *testing.T) {
 			min: 0, max: 8, targets: map[string]string{events.ConsumerMarkersAnalyze: "1"}, down: 1800,
 			wantReasons: []string{controller.ReasonPerNodeClamped},
 		},
-		{name: "events never goes below one", d: dep(agentdomain.Events), nodes: 1, min: 1, max: 1, down: 300,
-			targets: map[string]string{events.ConsumerCatalogRSSMatcher: "256"}},
-		{name: "catalog is throttled to one replica on six nodes, and never below it", d: dep(agentdomain.Catalog), nodes: 6, min: 1, max: 1, down: 300,
+		{
+			name: "events never goes below one", d: dep(agentdomain.Events), nodes: 1, min: 1, max: 1, down: 300,
+			targets: map[string]string{events.ConsumerCatalogRSSMatcher: "256"},
+		},
+		{
+			name: "catalog is throttled to one replica on six nodes, and never below it", d: dep(agentdomain.Catalog), nodes: 6, min: 1, max: 1, down: 300,
 			targets: map[string]string{
 				events.ConsumerCatalogSearchHigh: "8", events.ConsumerCatalogSearchNorm: "8",
 				events.ConsumerCatalogArtworkRender: "4",
-			}},
+			},
+		},
 		{name: "caption is throttled to one replica on six nodes", d: dep(agentdomain.Caption), nodes: 6, min: 0, max: 1, down: 300},
-		{name: "a slot override changes the target and the clamp", d: dep(agentdomain.Import, slotsEnv(events.ConsumerImportScan+"=8")), nodes: 6,
-			min: 0, max: 4, targets: map[string]string{events.ConsumerImportScan: "8"}, down: 300},
-		{name: "an override above MaxAckPending clamps to one", d: dep(agentdomain.Import, slotsEnv(events.ConsumerImportRecycle+"=9")), nodes: 6,
+		{
+			name: "a slot override changes the target and the clamp", d: dep(agentdomain.Import, slotsEnv(events.ConsumerImportScan+"=8")), nodes: 6,
+			min: 0, max: 4, targets: map[string]string{events.ConsumerImportScan: "8"}, down: 300,
+		},
+		{
+			name: "an override above MaxAckPending clamps to one", d: dep(agentdomain.Import, slotsEnv(events.ConsumerImportRecycle+"=9")), nodes: 6,
 			min: 0, max: 1, targets: map[string]string{events.ConsumerImportRecycle: "9"}, down: 300,
-			wantReasons: []string{controller.ReasonSlotsExceedMaxAckPending}},
-		{name: "an override naming another domain's consumer is ignored", d: dep(agentdomain.Import, slotsEnv(events.ConsumerCaptionFetchHigh+"=2")),
-			nodes: 2, min: 0, max: 2, targets: importTargets, down: 300, wantReasons: []string{controller.ReasonInvalidSlots}},
-		{name: "a valueFrom override is ignored", d: dep(agentdomain.Import, slotsFromConfigMap), nodes: 2, min: 0, max: 2,
-			targets: importTargets, down: 300, wantReasons: []string{controller.ReasonInvalidSlots}},
-		{name: "containers that disagree are ignored", d: dep(agentdomain.Import, disagreeingContainers), nodes: 2, min: 0, max: 2,
-			targets: importTargets, down: 300, wantReasons: []string{controller.ReasonInvalidSlots}},
-		{name: "a malformed override is ignored", d: dep(agentdomain.Import, slotsEnv(events.ConsumerImportScan)), nodes: 2, min: 0, max: 2,
-			targets: importTargets, down: 300, wantReasons: []string{controller.ReasonInvalidSlots}},
+			wantReasons: []string{controller.ReasonSlotsExceedMaxAckPending},
+		},
+		{
+			name: "an override naming another domain's consumer is ignored", d: dep(agentdomain.Import, slotsEnv(events.ConsumerCaptionFetchHigh+"=2")),
+			nodes: 2, min: 0, max: 2, targets: importTargets, down: 300, wantReasons: []string{controller.ReasonInvalidSlots},
+		},
+		{
+			name: "a valueFrom override is ignored", d: dep(agentdomain.Import, slotsFromConfigMap), nodes: 2, min: 0, max: 2,
+			targets: importTargets, down: 300, wantReasons: []string{controller.ReasonInvalidSlots},
+		},
+		{
+			name: "containers that disagree are ignored", d: dep(agentdomain.Import, disagreeingContainers), nodes: 2, min: 0, max: 2,
+			targets: importTargets, down: 300, wantReasons: []string{controller.ReasonInvalidSlots},
+		},
+		{
+			name: "a malformed override is ignored", d: dep(agentdomain.Import, slotsEnv(events.ConsumerImportScan)), nodes: 2, min: 0, max: 2,
+			targets: importTargets, down: 300, wantReasons: []string{controller.ReasonInvalidSlots},
+		},
 		{name: "the min-replicas annotation raises the floor", d: dep(agentdomain.Import, minReplicas("2")), nodes: 6, min: 2, max: 6, down: 300},
-		{name: "a min-replicas annotation above capacity raises maxReplicas", d: dep(agentdomain.Import, minReplicas("3")), nodes: 1,
-			min: 3, max: 3, down: 300, wantReasons: []string{controller.ReasonMinReplicasAboveCapacity}},
+		{
+			name: "a min-replicas annotation above capacity raises maxReplicas", d: dep(agentdomain.Import, minReplicas("3")), nodes: 1,
+			min: 3, max: 3, down: 300, wantReasons: []string{controller.ReasonMinReplicasAboveCapacity},
+		},
 		{name: "a min-replicas annotation never lowers the floor", d: dep(agentdomain.Events, minReplicas("0")), nodes: 2, min: 1, max: 2, down: 300},
-		{name: "an unparseable min-replicas annotation is ignored", d: dep(agentdomain.Import, minReplicas("two")), nodes: 2, min: 0, max: 2,
-			down: 300, wantReasons: []string{controller.ReasonInvalidMinReplicas}},
-		{name: "no matching node", d: dep(agentdomain.Import), nodes: 0, min: 0, max: 1, down: 300,
-			wantReasons: []string{controller.ReasonNoMatchingNodes}},
+		{
+			name: "an unparseable min-replicas annotation is ignored", d: dep(agentdomain.Import, minReplicas("two")), nodes: 2, min: 0, max: 2,
+			down: 300, wantReasons: []string{controller.ReasonInvalidMinReplicas},
+		},
+		{
+			name: "no matching node", d: dep(agentdomain.Import), nodes: 0, min: 0, max: 1, down: 300,
+			wantReasons: []string{controller.ReasonNoMatchingNodes},
+		},
 		{name: "ForceMinOne, after ScaleToZeroUnavailable", d: dep(agentdomain.Import), nodes: 2, force: true, min: 1, max: 2, down: 300},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

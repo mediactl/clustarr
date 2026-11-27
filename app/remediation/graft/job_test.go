@@ -44,11 +44,15 @@ import (
 // writer, owned by its MediaFile, labelled with its UID and the pool Job
 // cache's managed-by label, and still credential-less.
 func TestTheGraftJobRunsTheTranscodeBinary(t *testing.T) {
-	cfg := pool.Config{Image: "native:test", DataDir: "/data", DataClaimName: "clustarr-data", NATSURL: "nats://nats:4222",
-		ExtraArgs: []string{"--log-level=DEBUG"}}
+	cfg := pool.Config{
+		Image: "native:test", DataDir: "/data", DataClaimName: "clustarr-data", NATSURL: "nats://nats:4222",
+		ExtraArgs: []string{"--log-level=DEBUG"},
+	}
 	mf := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "perfect-blue-1997", UID: "mf-uid"}}
-	tk := grafttask.Task{Schema: grafttask.TaskSchema, File: schema.Ref{Namespace: "media", Name: mf.Name, UID: "mf-uid"}, Seq: 100,
-		Target: "/data/media/movies/pb.mkv", Language: "en"}
+	tk := grafttask.Task{
+		Schema: grafttask.TaskSchema, File: schema.Ref{Namespace: "media", Name: mf.Name, UID: "mf-uid"}, Seq: 100,
+		Target: "/data/media/movies/pb.mkv", Language: "en",
+	}
 	name := graftplan.JobName(mf.Name, 100)
 	job, err := graft.Job(cfg, mf, tk, name)
 	require.NoError(t, err)
@@ -104,8 +108,10 @@ func TestTheGraftJobRunsTheTranscodeBinary(t *testing.T) {
 // its limits, and its thread count follows its own CPU limit.
 func TestAGraftJobAsksForWhatAGraftUses(t *testing.T) {
 	mf := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "perfect-blue-1997", UID: "mf-uid"}}
-	tk := grafttask.Task{Schema: grafttask.TaskSchema, File: schema.Ref{Namespace: "media", Name: mf.Name, UID: "mf-uid"}, Seq: 100,
-		Target: "/data/media/movies/pb.mkv", Language: "en"}
+	tk := grafttask.Task{
+		Schema: grafttask.TaskSchema, File: schema.Ref{Namespace: "media", Name: mf.Name, UID: "mf-uid"}, Seq: 100,
+		Target: "/data/media/movies/pb.mkv", Language: "en",
+	}
 	job, err := graft.Job(pool.Config{Image: "native:test"}, mf, tk, graftplan.JobName(mf.Name, 100))
 	require.NoError(t, err)
 	c := job.Spec.Template.Spec.Containers[0]

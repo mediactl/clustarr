@@ -57,8 +57,10 @@ func TestIssueServingNamesTheServiceFourWaysForOneYear(t *testing.T) {
 	certPEM, keyPEM, err := extmetrics.IssueServing(ca.certPEM, ca.keyPEM, "external-metrics", ns, now)
 	require.NoError(t, err)
 	leaf := parseCert(t, certPEM)
-	want := []string{"external-metrics", "external-metrics.clustarr-system", "external-metrics.clustarr-system.svc",
-		"external-metrics.clustarr-system.svc.cluster.local"}
+	want := []string{
+		"external-metrics", "external-metrics.clustarr-system", "external-metrics.clustarr-system.svc",
+		"external-metrics.clustarr-system.svc.cluster.local",
+	}
 	assert.Equal(t, want, leaf.DNSNames)
 	assert.Equal(t, want, extmetrics.SANs("external-metrics", ns))
 	assert.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, leaf.ExtKeyUsage)

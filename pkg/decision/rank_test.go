@@ -122,10 +122,14 @@ func TestRankSecondaryKeys(t *testing.T) {
 
 	t.Run("size: the smallest wins under a profile preferring it, ahead of seeders", func(t *testing.T) {
 		many, few := seeders(500), seeders(3)
-		big := decision.Decision{Release: common.ReleaseInfo{GUID: "big", Protocol: common.ProtocolTorrent, Seeders: &many},
-			Rank: decision.RankKey{PreferSmallestSize: true, SizeBytes: 9_000_000_000}}
-		small := decision.Decision{Release: common.ReleaseInfo{GUID: "small", Protocol: common.ProtocolTorrent, Seeders: &few},
-			Rank: decision.RankKey{PreferSmallestSize: true, SizeBytes: 2_000_000_000}}
+		big := decision.Decision{
+			Release: common.ReleaseInfo{GUID: "big", Protocol: common.ProtocolTorrent, Seeders: &many},
+			Rank:    decision.RankKey{PreferSmallestSize: true, SizeBytes: 9_000_000_000},
+		}
+		small := decision.Decision{
+			Release: common.ReleaseInfo{GUID: "small", Protocol: common.ProtocolTorrent, Seeders: &few},
+			Rank:    decision.RankKey{PreferSmallestSize: true, SizeBytes: 2_000_000_000},
+		}
 		ranked := decision.Rank([]decision.Decision{big, small}, decision.Options{})
 		require.Equal(t, "small", ranked[0].Release.GUID)
 

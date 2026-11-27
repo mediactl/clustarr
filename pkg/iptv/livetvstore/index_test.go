@@ -56,9 +56,11 @@ func TestIndexGuideReadsWhatBuildGuideWrote(t *testing.T) {
 	assert.Equal(t, from, ix.From)
 	assert.Equal(t, []livetvstore.IndexChannel{{Number: "1001", Name: "ESPN", Logo: "https://i.example/espn.png"}, {Number: "1002", Name: "Local"}}, ix.Channels)
 	require.NotEmpty(t, ix.Programmes)
-	assert.Equal(t, livetvstore.IndexProgramme{Channel: "1001", Start: from.Add(19 * time.Hour), Stop: from.Add(22 * time.Hour),
+	assert.Equal(t, livetvstore.IndexProgramme{
+		Channel: "1001", Start: from.Add(19 * time.Hour), Stop: from.Add(22 * time.Hour),
 		Title: "NFL Football", SubTitle: "Cowboys at Eagles", Desc: "Week 9.", Episode: "S01E02", Image: "https://img.example/p.jpg",
-		Categories: []string{"Sports"}, Live: true, New: true}, ix.Programmes[0])
+		Categories: []string{"Sports"}, Live: true, New: true,
+	}, ix.Programmes[0])
 	assert.Len(t, ix.Programmes, 1+7*24, "the dummy channel's hourly blocks follow")
 	assert.Equal(t, "1002", ix.Programmes[1].Channel)
 	assert.Equal(t, "Local", ix.Programmes[1].Title)

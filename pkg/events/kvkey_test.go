@@ -169,8 +169,10 @@ func TestRecordKeysAreUIDTokens(t *testing.T) {
 // ParseKVKeyToken inverts KVKeyToken and refuses anything KVKeyToken never
 // emits; the segments sweeper and records' Withdraw read UIDs back with it.
 func TestParseKVKeyTokenInvertsKVKeyToken(t *testing.T) {
-	corpus := []string{"", "-", "--", "-0", "-00", "\x00", "a:b", "en:forced", "Amélie", "a.b",
-		"4b0c5a7e-2f1d-4c8e-9a3b-6d7e8f901234", "with space", "\xff", "Wall·E (2008)"}
+	corpus := []string{
+		"", "-", "--", "-0", "-00", "\x00", "a:b", "en:forced", "Amélie", "a.b",
+		"4b0c5a7e-2f1d-4c8e-9a3b-6d7e8f901234", "with space", "\xff", "Wall·E (2008)",
+	}
 	r := rand.New(rand.NewPCG(1, 2))
 	for range 5000 {
 		b := make([]byte, r.IntN(24))

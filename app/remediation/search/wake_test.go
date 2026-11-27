@@ -203,12 +203,18 @@ func TestANewlyWantedItemWakesItsOwnSearch(t *testing.T) {
 		ok:     &catalogv1alpha1.Audiobook{ObjectMeta: meta("x"), Status: catalogv1alpha1.AudiobookStatus{ObservedGeneration: 2}},
 	}, {
 		kind: remediation.KindIssue,
-		before: &catalogv1alpha1.Issue{ObjectMeta: meta("x"), Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
-			Status: catalogv1alpha1.IssueStatus{Phase: catalogv1alpha1.IssuePhaseImported}},
-		wanted: &catalogv1alpha1.Issue{ObjectMeta: meta("x"), Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
-			Status: catalogv1alpha1.IssueStatus{Phase: catalogv1alpha1.IssuePhaseCutoffUnmet}},
-		ok: &catalogv1alpha1.Issue{ObjectMeta: meta("x"), Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
-			Status: catalogv1alpha1.IssueStatus{Phase: catalogv1alpha1.IssuePhaseImported, Date: &past}},
+		before: &catalogv1alpha1.Issue{
+			ObjectMeta: meta("x"), Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
+			Status: catalogv1alpha1.IssueStatus{Phase: catalogv1alpha1.IssuePhaseImported},
+		},
+		wanted: &catalogv1alpha1.Issue{
+			ObjectMeta: meta("x"), Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
+			Status: catalogv1alpha1.IssueStatus{Phase: catalogv1alpha1.IssuePhaseCutoffUnmet},
+		},
+		ok: &catalogv1alpha1.Issue{
+			ObjectMeta: meta("x"), Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
+			Status: catalogv1alpha1.IssueStatus{Phase: catalogv1alpha1.IssuePhaseImported, Date: &past},
+		},
 	}}
 	for _, tc := range cases {
 		key := remediation.Key{Kind: tc.kind, Namespace: "media", Name: "x"}

@@ -46,7 +46,6 @@ import (
 // and no index -- which is what the design's deferral ("the gateway's pod
 // has no Episode index") lacked.
 
-
 const (
 	// EpisodePeopleTTL is how long an episode's people stand before a
 	// refresh asks again.

@@ -93,8 +93,10 @@ func TestHubsPageListsEachLibrarysHubsInOrder(t *testing.T) {
 		require.Greater(t, i, at, "%s out of order", want)
 		at = i
 	}
-	for _, want := range []string{"Recently Released Movies", "Top Movies in (Genre)", "Library Recommended", "Friends&#39; Home",
-		"Reset customization", "Add collection", "Studio Ghibli Essentials", `hx-post="/library/hubs/clustarr-system/clustarr-movies/edit"`} {
+	for _, want := range []string{
+		"Recently Released Movies", "Top Movies in (Genre)", "Library Recommended", "Friends&#39; Home",
+		"Reset customization", "Add collection", "Studio Ghibli Essentials", `hx-post="/library/hubs/clustarr-system/clustarr-movies/edit"`,
+	} {
 		assert.Contains(t, movies, want)
 	}
 	assert.Equal(t, 1, strings.Count(movies, `data-hub-listed="true"`), "A24 alone is listed")

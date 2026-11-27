@@ -55,9 +55,11 @@ func TestResolveGrab(t *testing.T) {
 			Rejections:  []commonv1.Rejection{{Reason: r.Code + ": quoted", Type: r.Type}},
 		}
 	}
-	results := []commonv1.ReleaseDecision{ok, permanent, temporary, transcoded, transcodedAndPermanent,
+	results := []commonv1.ReleaseDecision{
+		ok, permanent, temporary, transcoded, transcodedAndPermanent,
 		rejected("loses-hdr", decision.ReasonLosesHDR), rejected("avc", decision.ReasonAVCOverHEVC),
-		rejected("dv", decision.ReasonDolbyVision), rejected("hi10", decision.ReasonNeverTaken)}
+		rejected("dv", decision.ReasonDolbyVision), rejected("hi10", decision.ReasonNeverTaken),
+	}
 
 	tests := []struct {
 		name        string

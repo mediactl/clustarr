@@ -56,9 +56,11 @@ func TestItemsRunEveryItemKind(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
 	env := &remediation.Env{IO: remediation.NewIOExecutor(1), DataDir: "/data"}
 	got := items(c, k8s.MustNewScheme(), recorder, bus, env)
-	assert.ElementsMatch(t, []remediation.KeyKind{remediation.KindMovie, remediation.KindEpisode, remediation.KindAlbum,
+	assert.ElementsMatch(t, []remediation.KeyKind{
+		remediation.KindMovie, remediation.KindEpisode, remediation.KindAlbum,
 		remediation.KindBook, remediation.KindAudiobook, remediation.KindIssue, remediation.KindSeries, remediation.KindComic,
-		remediation.KindArtist, remediation.KindAuthor},
+		remediation.KindArtist, remediation.KindAuthor,
+	},
 		slices.Collect(maps.Keys(got)))
 
 	mov, ok := got[remediation.KindMovie].(*movie.Reconciler)

@@ -82,15 +82,23 @@ func TestTheApplierNeverAttachesAFileToAnItemOfAnotherRootFolder(t *testing.T) {
 	}, {
 		name: "a proposal of the movie", within: uhd.Name, owner: hd.Name, item: inception.Name,
 		path: "/data/media/movies-4k/Inception (2010) {tmdb-27205}/Inception (2010).mkv",
-		attribution: &schema.ScanAttribution{Kind: movie, Name: inception.Name, ProviderID: "tmdb:27205", Evidence: "tmdb:27205",
-			Create: &schema.ItemCreate{Kind: movie, Name: inception.Name, TmdbID: 27205, Title: "Inception", Year: 2010,
-				QualityProfileRef: "hd", RootFolderRef: uhd.Name}},
+		attribution: &schema.ScanAttribution{
+			Kind: movie, Name: inception.Name, ProviderID: "tmdb:27205", Evidence: "tmdb:27205",
+			Create: &schema.ItemCreate{
+				Kind: movie, Name: inception.Name, TmdbID: 27205, Title: "Inception", Year: 2010,
+				QualityProfileRef: "hd", RootFolderRef: uhd.Name,
+			},
+		},
 	}, {
 		name: "a proposal of the series", within: anime.Name, owner: shows.Name, item: andor.Name,
 		path: "/data/media/anime/Andor (2022) {tvdb-393189}/Season 01/Andor - S01E01.mkv",
-		attribution: &schema.ScanAttribution{Kind: string(commonv1.MediaKindSeries), Name: andor.Name, ProviderID: "tvdb:393189", Evidence: "folder",
-			Create: &schema.ItemCreate{Kind: string(commonv1.MediaKindSeries), Name: andor.Name, TvdbID: 393189, Title: "Andor", Year: 2022,
-				QualityProfileRef: "hd", RootFolderRef: anime.Name}},
+		attribution: &schema.ScanAttribution{
+			Kind: string(commonv1.MediaKindSeries), Name: andor.Name, ProviderID: "tvdb:393189", Evidence: "folder",
+			Create: &schema.ItemCreate{
+				Kind: string(commonv1.MediaKindSeries), Name: andor.Name, TvdbID: 393189, Title: "Andor", Year: 2022,
+				QualityProfileRef: "hd", RootFolderRef: anime.Name,
+			},
+		},
 	}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -155,8 +163,10 @@ func TestAScanNeverCreatesAnItemThatExistsUnderAnotherName(t *testing.T) {
 	series := string(commonv1.MediaKindSeries)
 	proposal := func(title string, id int64, within string) *schema.ScanAttribution {
 		name := names.Series(title, id)
-		return &schema.ScanAttribution{Kind: series, Name: name, ProviderID: "tvdb", Evidence: "folder",
-			Create: &schema.ItemCreate{Kind: series, Name: name, TvdbID: id, Title: title, Year: 2010, QualityProfileRef: "hd", RootFolderRef: within}}
+		return &schema.ScanAttribution{
+			Kind: series, Name: name, ProviderID: "tvdb", Evidence: "folder",
+			Create: &schema.ItemCreate{Kind: series, Name: name, TvdbID: id, Title: title, Year: 2010, QualityProfileRef: "hd", RootFolderRef: within},
+		}
 	}
 	require.NotEqual(t, existing.Name, names.Series("Panty & Stocking with Garterbelt", tvdb), "the two titles name two objects")
 

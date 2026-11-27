@@ -27,7 +27,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/a-h/templ"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -297,7 +296,7 @@ func (s *Server) handleHubEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	collections, _ := s.plexCollections(r.Context())
-	var view templ.Component = views.HubEditAnswer(done, hubLibrary(l, "", "", "", collections))
+	view := views.HubEditAnswer(done, hubLibrary(l, "", "", "", collections))
 	if r.PostForm.Get("view") == "collection" && e.Ref.Collection != "" {
 		pc := catalogv1.PlexCollection{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: e.Ref.Collection}}
 		pc.Spec.Library = l.Spec.Library

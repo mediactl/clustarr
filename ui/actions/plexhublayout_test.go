@@ -38,8 +38,10 @@ import (
 const hubNS = "clustarr-system"
 
 func builtin(id, title string, rec, home, friends bool) catalogv1.PlexHubStatus {
-	return catalogv1.PlexHubStatus{Identifier: id, Title: title, Kind: catalogv1.PlexHubBuiltin,
-		LibraryRecommended: rec, Home: home, FriendsHome: friends}
+	return catalogv1.PlexHubStatus{
+		Identifier: id, Title: title, Kind: catalogv1.PlexHubBuiltin,
+		LibraryRecommended: rec, Home: home, FriendsHome: friends,
+	}
 }
 
 // plexHubs is a movie library as Plex reports it: three built-in hubs, a

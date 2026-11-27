@@ -174,6 +174,7 @@ func (s *fakeStore) Unblock(context.Context, relindex.Block) (bool, error) { ret
 func (s *fakeStore) BlockState(context.Context, []relindex.BlockKey, time.Time) (map[int][]relindex.Block, error) {
 	return nil, nil
 }
+
 func (s *fakeStore) ListBlocks(context.Context, string, int, int) ([]relindex.Block, error) {
 	return nil, nil
 }

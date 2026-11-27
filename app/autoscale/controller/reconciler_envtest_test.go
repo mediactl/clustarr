@@ -120,11 +120,14 @@ func (l *eventLog) has(reason string) bool {
 var agentLabel = map[string]string{"clustarr.io/agent": "true"}
 
 func makeNode(t *testing.T, c client.Client, name string, labels map[string]string, ready corev1.ConditionStatus,
-	taints []corev1.Taint, unschedulable bool) {
+	taints []corev1.Taint, unschedulable bool,
+) {
 	t.Helper()
 	ctx := context.Background()
-	n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
-		Spec: corev1.NodeSpec{Unschedulable: unschedulable, Taints: taints}}
+	n := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
+		Spec:       corev1.NodeSpec{Unschedulable: unschedulable, Taints: taints},
+	}
 	require.NoError(t, c.Create(ctx, n))
 	// The apiserver's NodeTaint admission adds node.kubernetes.io/not-ready
 	// to every new Node, and envtest runs no node-lifecycle controller to
@@ -132,25 +135,33 @@ func makeNode(t *testing.T, c client.Client, name string, labels map[string]stri
 	n.Spec.Taints = taints
 	require.NoError(t, c.Update(ctx, n))
 	now := metav1.Now()
-	n.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: ready, Reason: "Test",
-		LastHeartbeatTime: now, LastTransitionTime: now}}
-	n.Status.Allocatable = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"),
-		corev1.ResourceMemory: resource.MustParse("8Gi"), corev1.ResourcePods: resource.MustParse("110")}
+	n.Status.Conditions = []corev1.NodeCondition{{
+		Type: corev1.NodeReady, Status: ready, Reason: "Test",
+		LastHeartbeatTime: now, LastTransitionTime: now,
+	}}
+	n.Status.Allocatable = corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("4"),
+		corev1.ResourceMemory: resource.MustParse("8Gi"), corev1.ResourcePods: resource.MustParse("110"),
+	}
 	require.NoError(t, c.Status().Update(ctx, n)) //nolint:forbidigo // simulating the kubelet
 }
 
 func deployment(ns, name, domain string, replicas *int32) *appsv1.Deployment {
 	sel := map[string]string{"app": name}
 	return &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns,
-			Labels: map[string]string{agentdomain.LabelDomain: domain, "app.kubernetes.io/component": name}},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name, Namespace: ns,
+			Labels: map[string]string{agentdomain.LabelDomain: domain, "app.kubernetes.io/component": name},
+		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: replicas,
 			Selector: &metav1.LabelSelector{MatchLabels: sel},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: sel},
-				Spec: corev1.PodSpec{NodeSelector: agentLabel,
-					Containers: []corev1.Container{{Name: "agent", Image: "example.invalid/native:test"}}},
+				Spec: corev1.PodSpec{
+					NodeSelector: agentLabel,
+					Containers:   []corev1.Container{{Name: "agent", Image: "example.invalid/native:test"}},
+				},
 			},
 		},
 	}

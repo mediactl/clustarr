@@ -24,6 +24,7 @@ import (
 	"time"
 
 	anatorrent "github.com/anacrolix/torrent"
+
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 )

@@ -99,8 +99,10 @@ func TestSweepWithdrawsADeletedFilesTaskAfterRestart(t *testing.T) {
 	require.NoError(t, (&admission.Reconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Ledger: ledger, Bus: bus, Admin: admin,
 		Namespaces: []string{ns}, Pool: pool.Config{Namespace: ns},
-		Withdrawal: task.Withdrawal{Records: task.Requests(bus.KV(events.BucketTranscodes)),
-			Leases: bus.KV(events.BucketTranscodeLeases), Admin: admin},
+		Withdrawal: task.Withdrawal{
+			Records: task.Requests(bus.KV(events.BucketTranscodes)),
+			Leases:  bus.KV(events.BucketTranscodeLeases), Admin: admin,
+		},
 		IntelWork: &admission.IntelWorkLease{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Key: intelWork, Identity: "manager-a"},
 	}).SetupWithManager(mgr))
 	mctx, cancel := context.WithCancel(ctx)

@@ -99,8 +99,10 @@ func TestAddedUnsearchedReadsTheFlagForWhatWasMissingOnAdd(t *testing.T) {
 		author := author.DeepCopy()
 		author.Namespace, author.Name = "media", "pratchett"
 		r := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(artist, author).Build()
-		album := &catalogv1alpha1.Album{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "mhtrtc"}, Spec: catalogv1alpha1.AlbumSpec{ArtistRef: "boc"},
-			Status: catalogv1alpha1.AlbumStatus{Metadata: &catalogv1alpha1.AlbumMetadata{ReleaseDate: &before}}}
+		album := &catalogv1alpha1.Album{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "mhtrtc"}, Spec: catalogv1alpha1.AlbumSpec{ArtistRef: "boc"},
+			Status: catalogv1alpha1.AlbumStatus{Metadata: &catalogv1alpha1.AlbumMetadata{ReleaseDate: &before}},
+		}
 		got, err := addedUnsearched(t.Context(), r, album, album)
 		require.NoError(t, err)
 		require.True(t, got, "the Artist's flag off")
@@ -109,8 +111,10 @@ func TestAddedUnsearchedReadsTheFlagForWhatWasMissingOnAdd(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, got, "an artist that is gone searches on add")
 
-		book := &catalogv1alpha1.Book{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "guards"}, Spec: catalogv1alpha1.BookSpec{AuthorRef: ptr.To("pratchett")},
-			Status: catalogv1alpha1.BookStatus{Metadata: &catalogv1alpha1.BookMetadata{ReleaseDate: &before}}}
+		book := &catalogv1alpha1.Book{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "guards"}, Spec: catalogv1alpha1.BookSpec{AuthorRef: ptr.To("pratchett")},
+			Status: catalogv1alpha1.BookStatus{Metadata: &catalogv1alpha1.BookMetadata{ReleaseDate: &before}},
+		}
 		got, err = addedUnsearched(t.Context(), r, book, book)
 		require.NoError(t, err)
 		require.True(t, got, "the Author's flag off")

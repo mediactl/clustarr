@@ -46,8 +46,10 @@ func TestObjectNames(t *testing.T) {
 }
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
-	in := livetvstore.Playlist{Account: "a1", Hash: "h", FetchedAt: time.Date(2026, 10, 27, 1, 2, 3, 0, time.UTC),
-		Entries: []livetvstore.PlaylistEntry{{Key: "n:1", Name: "ESPN", Group: "Sports", Logo: "https://l/e.png", URL: "http://p/{username}/1.ts"}}}
+	in := livetvstore.Playlist{
+		Account: "a1", Hash: "h", FetchedAt: time.Date(2026, 10, 27, 1, 2, 3, 0, time.UTC),
+		Entries: []livetvstore.PlaylistEntry{{Key: "n:1", Name: "ESPN", Group: "Sports", Logo: "https://l/e.png", URL: "http://p/{username}/1.ts"}},
+	}
 	var b bytes.Buffer
 	require.NoError(t, livetvstore.Encode(&b, in))
 	var out livetvstore.Playlist

@@ -33,8 +33,10 @@ import (
 // delivers, wakes none.
 func TestAQualityProfileWakesItsFilesOnlyWhenItsLanguagePolicyChanges(t *testing.T) {
 	qp := func(mutate func(*catalogv1alpha1.QualityProfileSpec)) *catalogv1alpha1.QualityProfile {
-		p := &catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{Cutoff: "hd",
-			Audio: &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true, Default: "en"}}}
+		p := &catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{
+			Cutoff: "hd",
+			Audio:  &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true, Default: "en"},
+		}}
 		if mutate != nil {
 			mutate(&p.Spec)
 		}

@@ -291,14 +291,22 @@ func TestSelectorListsMatchTheAPIServer(t *testing.T) {
 		status          map[string]any
 	}
 	files := []file{
-		{name: "b-running", kind: "episode", ref: "show-s01e01", labels: map[string]any{"tier": "gold"},
-			status: map[string]any{"transcode": map[string]any{"phase": "Running"}, "naming": map[string]any{"current": true}}},
-		{name: "a-planned", kind: "episode", ref: "show-s01e02", labels: map[string]any{"tier": "silver", "held": "true"},
-			status: map[string]any{"transcode": map[string]any{"phase": "Planned"}, "naming": map[string]any{"current": false}}},
-		{name: "c-dashed", kind: "movie", ref: "film",
-			status: map[string]any{"transcode": map[string]any{"phase": "Succeeded"}, "graft": map[string]any{"phase": "Queued"}}},
-		{name: "c.dotted", kind: "movie", ref: "film", labels: map[string]any{"held": "true"},
-			status: map[string]any{"graft": map[string]any{"phase": "Running"}, "naming": map[string]any{"current": true}}},
+		{
+			name: "b-running", kind: "episode", ref: "show-s01e01", labels: map[string]any{"tier": "gold"},
+			status: map[string]any{"transcode": map[string]any{"phase": "Running"}, "naming": map[string]any{"current": true}},
+		},
+		{
+			name: "a-planned", kind: "episode", ref: "show-s01e02", labels: map[string]any{"tier": "silver", "held": "true"},
+			status: map[string]any{"transcode": map[string]any{"phase": "Planned"}, "naming": map[string]any{"current": false}},
+		},
+		{
+			name: "c-dashed", kind: "movie", ref: "film",
+			status: map[string]any{"transcode": map[string]any{"phase": "Succeeded"}, "graft": map[string]any{"phase": "Queued"}},
+		},
+		{
+			name: "c.dotted", kind: "movie", ref: "film", labels: map[string]any{"held": "true"},
+			status: map[string]any{"graft": map[string]any{"phase": "Running"}, "naming": map[string]any{"current": true}},
+		},
 		{name: "d-bare", kind: "album", ref: "record"},
 		{name: "e-empty-status", kind: "episode", ref: "show-s01e01", labels: map[string]any{"tier": "gold"}, status: map[string]any{"probeHash": "abc"}},
 	}

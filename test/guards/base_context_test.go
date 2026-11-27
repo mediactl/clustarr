@@ -46,7 +46,7 @@ func TestEveryManagerGetsTheBaseContext(t *testing.T) {
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
-			if !ok || !(isSelector(call.Fun, ctrlAlias, "NewManager") || isSelector(call.Fun, mgrAlias, "New")) {
+			if !ok || (!isSelector(call.Fun, ctrlAlias, "NewManager") && !isSelector(call.Fun, mgrAlias, "New")) {
 				return true
 			}
 			calls++

@@ -156,8 +156,10 @@ func newHarness(t *testing.T, o harnessOptions) *harness {
 			IO:    remediation.NewIOExecutorFuncs(4, h.stat, h.readDir),
 			Pacer: records.NewPacer(records.DefaultRates(), time.Now), DataDir: h.dir,
 		}
-		d := remediationmanager.Deps{Env: env, Manager: mgr,
-			Options: remediationmanager.Options{DataDir: h.dir, Ledger: h.ledger, Clock: h.clock.Now}}
+		d := remediationmanager.Deps{
+			Env: env, Manager: mgr,
+			Options: remediationmanager.Options{DataDir: h.dir, Ledger: h.ledger, Clock: h.clock.Now},
+		}
 		r, err := remediation.NewReconciler(mgr.GetClient(), env, mgr.GetEventRecorder(remediation.ControllerName),
 			remediation.Config{Concurrency: 4}, remediationmanager.Planners(d), remediationmanager.Actuators(mgr, d)...)
 		if err != nil {
@@ -193,11 +195,15 @@ func (h *harness) readDir(path string) ([]fs.DirEntry, error) { return os.ReadDi
 func (h *harness) fixtures(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
-	require.NoError(t, h.c.Create(ctx, &catalogv1alpha1.RootFolder{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "movies"},
-		Spec: catalogv1alpha1.RootFolderSpec{Path: "/data/media/movies", Kind: catalogv1alpha1.RootFolderKindMovie}}))
+	require.NoError(t, h.c.Create(ctx, &catalogv1alpha1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "movies"},
+		Spec:       catalogv1alpha1.RootFolderSpec{Path: "/data/media/movies", Kind: catalogv1alpha1.RootFolderKindMovie},
+	}))
 	remediationtest.MustQualityProfile(t, ctx, h.c, "hd")
-	h.profile = &transcodev1alpha1.TranscodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "hevc"},
-		Spec: transcodev1alpha1.TranscodeProfileSpec{Default: true}}
+	h.profile = &transcodev1alpha1.TranscodeProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "hevc"},
+		Spec:       transcodev1alpha1.TranscodeProfileSpec{Default: true},
+	}
 	require.NoError(t, h.c.Create(ctx, h.profile))
 }
 
@@ -237,8 +243,10 @@ func (h *harness) probeAgent(t *testing.T) {
 			rec.ProbeHash = mediainfo.ProbeHash(pt.Path, fi.Size(), fi.ModTime())
 			mi := h264Summary()
 			if strings.HasSuffix(pt.Path, ".mp4") {
-				mi = &commonv1.MediaInfo{Container: "mov,mp4,m4a,3gp,3g2,mj2", VideoCodec: "hevc", Width: 1920, Height: 1080,
-					RuntimeMillis: 2 * 60 * 60 * 1000, TranscodeProfile: h.outputTag(t)}
+				mi = &commonv1.MediaInfo{
+					Container: "mov,mp4,m4a,3gp,3g2,mj2", VideoCodec: "hevc", Width: 1920, Height: 1080,
+					RuntimeMillis: 2 * 60 * 60 * 1000, TranscodeProfile: h.outputTag(t),
+				}
 			}
 			rec.State, rec.ProbedAt, rec.MediaInfo = schema.ProbeProbed, time.Now().UTC(), mi
 		}
@@ -336,12 +344,14 @@ func (h *harness) blockFor(t *testing.T, mf *catalogv1alpha1.MediaFile, phase ca
 		return *st
 	}
 	st.LastSeq = seq
-	st.Transcode = &catalogv1alpha1.TranscodeState{Phase: phase, Profile: tp.Name, ProfileHash: hash,
+	st.Transcode = &catalogv1alpha1.TranscodeState{
+		Phase: phase, Profile: tp.Name, ProfileHash: hash,
 		ProfileTag: transcodeplan.Tag(tp.Name, hash), ProbeHash: st.ProbeHash, Class: "cpu", Attempts: 1, Hardware: "auto",
 		Priority: tp.Spec.Priority,
 		Pool:     pool.Name(pool.Key{Profile: tp.Name, ProfileUID: tp.UID, Class: transcodev1alpha1.HardwareCPU}),
 		Plan:     &catalogv1alpha1.TranscodePlan{Mode: catalogv1alpha1.TranscodeModeTranscode, Encoder: "libx265", PlanHash: "p"},
-		Dispatch: &catalogv1alpha1.Dispatch{Seq: seq, DispatchedAt: metav1.NewTime(h.clock.Now())}}
+		Dispatch: &catalogv1alpha1.Dispatch{Seq: seq, DispatchedAt: metav1.NewTime(h.clock.Now())},
+	}
 	if phase == catalogv1alpha1.TranscodePhaseRunning {
 		st.Transcode.WorkerPod, st.Transcode.StartedAt = "pool-0", new(metav1.NewTime(h.clock.Now()))
 	}
@@ -401,9 +411,11 @@ func (h *harness) worker(t *testing.T, class string, process func(context.Contex
 	tp := h.currentProfile(t)
 	go func() {
 		defer close(done)
-		_ = worker.Serve(ctx, h.raw, worker.ServeOptions{ProfileUID: string(tp.UID), Class: class, Node: "node-a",
+		_ = worker.Serve(ctx, h.raw, worker.ServeOptions{
+			ProfileUID: string(tp.UID), Class: class, Node: "node-a",
 			Options: worker.Options{DataDir: h.dir, PodName: "pool-0"}, Process: process, HeldRetry: 100 * time.Millisecond,
-			Leases: h.raw.KV(events.BucketTranscodeLeases), Records: h.raw.KV(events.BucketTranscodes)})
+			Leases: h.raw.KV(events.BucketTranscodeLeases), Records: h.raw.KV(events.BucketTranscodes),
+		})
 	}()
 }
 

@@ -140,8 +140,10 @@ func getTickValuesFixedDomain(domain [2]float64, tickCount int, allowDecimals bo
 	return ticks
 }
 
-var minValueReg = regexp.MustCompile(`^dataMin\s*-\s*([0-9]+(?:\.[0-9]+)?)$`)
-var maxValueReg = regexp.MustCompile(`^dataMax\s*\+\s*([0-9]+(?:\.[0-9]+)?)$`)
+var (
+	minValueReg = regexp.MustCompile(`^dataMin\s*-\s*([0-9]+(?:\.[0-9]+)?)$`)
+	maxValueReg = regexp.MustCompile(`^dataMax\s*\+\s*([0-9]+(?:\.[0-9]+)?)$`)
+)
 
 func parseSpecifiedDomain(specified []any, data [2]float64, allowDataOverflow bool) [2]float64 {
 	if len(specified) == 0 {

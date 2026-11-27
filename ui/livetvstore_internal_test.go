@@ -141,13 +141,15 @@ func TestPlaylistEntriesCarryNoStreamURL(t *testing.T) {
 func TestTheGuideIndexViewIsByChannel(t *testing.T) {
 	s := liveTVBucket(t)
 	from := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
-	ix := livetvstore.GuideIndex{From: from,
+	ix := livetvstore.GuideIndex{
+		From:     from,
 		Channels: []livetvstore.IndexChannel{{Number: "1001", Name: "ESPN", Logo: "https://i/e.png"}, {Number: "1002", Name: "CNN"}},
 		Programmes: []livetvstore.IndexProgramme{
 			{Channel: "1001", Start: from, Stop: from.Add(time.Hour), Title: "A"},
 			{Channel: "1001", Start: from.Add(time.Hour), Stop: from.Add(2 * time.Hour), Title: "B"},
 			{Channel: "1002", Start: from, Stop: from.Add(time.Hour), Title: "C"},
-		}}
+		},
+	}
 	var b bytes.Buffer
 	require.NoError(t, livetvstore.Encode(&b, ix))
 	_, err := s.Put(context.Background(), livetvstore.GuideIndexObject(tvKey), &b, events.ObjectMeta{})

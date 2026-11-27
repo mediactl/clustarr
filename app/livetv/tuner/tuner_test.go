@@ -1222,8 +1222,10 @@ func TestEveryStoredObjectDescribesItself(t *testing.T) {
 	h.fetched(t)
 	ctx := context.Background()
 	require.Eventually(t, func() bool {
-		for _, name := range []string{livetvstore.PlaylistObject(key), livetvstore.GuideCacheObject(key), livetvstore.GuideChannelsObject(key),
-			livetvstore.GuideObject(key), livetvstore.GuideIndexObject(key)} {
+		for _, name := range []string{
+			livetvstore.PlaylistObject(key), livetvstore.GuideCacheObject(key), livetvstore.GuideChannelsObject(key),
+			livetvstore.GuideObject(key), livetvstore.GuideIndexObject(key),
+		} {
 			if _, err := store.Info(ctx, name); err != nil {
 				return false
 			}

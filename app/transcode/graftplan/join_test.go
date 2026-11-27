@@ -40,15 +40,19 @@ func TestJoinCarriesTheGraftOfAJoinableFile(t *testing.T) {
 	assert.Equal(t, "h1", j.Task.TargetProbeHash)
 	assert.True(t, j.Task.Default)
 	assert.Zero(t, j.Task.Seq, "a joined task is fenced by the transcode's dispatch")
-	assert.Equal(t, catalogv1alpha1.TranscodeGraftJoin{DonorRelease: release, DonorImportedAt: &theDonor().ImportedAt,
-		Languages: []string{"en"}, ProbeHash: "h1"}, j.Join)
+	assert.Equal(t, catalogv1alpha1.TranscodeGraftJoin{
+		DonorRelease: release, DonorImportedAt: &theDonor().ImportedAt,
+		Languages: []string{"en"}, ProbeHash: "h1",
+	}, j.Join)
 }
 
 func TestJoinRefusesWhatCannotRideAlong(t *testing.T) {
 	cases := map[string]catalogv1alpha1.MediaFileStatus{
 		"a standalone graft holds the file": with(probed("h1", "jpn"), flying(catalogv1alpha1.GraftPhaseRunning, 100)),
-		"the donor failed these bytes": with(probed("h1", "jpn"), &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseFailed,
-			DonorFault: true, DonorRelease: release, DonorImportedAt: &theDonor().ImportedAt, ProbeHash: "h1"}),
+		"the donor failed these bytes": with(probed("h1", "jpn"), &catalogv1alpha1.GraftState{
+			Phase:      catalogv1alpha1.GraftPhaseFailed,
+			DonorFault: true, DonorRelease: release, DonorImportedAt: &theDonor().ImportedAt, ProbeHash: "h1",
+		}),
 		"the file carries the language": probed("h1", "jpn", "eng"),
 	}
 	for name, st := range cases {
@@ -62,18 +66,24 @@ func TestJoinRefusesWhatCannotRideAlong(t *testing.T) {
 
 // TestJoinPendingHoldsTheNextDispatchUntilTheGraftRecordsItsResult (§5.13).
 func TestJoinPendingHoldsTheNextDispatchUntilTheGraftRecordsItsResult(t *testing.T) {
-	tc := &catalogv1alpha1.TranscodeState{Dispatch: &catalogv1alpha1.Dispatch{Seq: 200, AnsweredSeq: 200},
-		JoinedGraft: &catalogv1alpha1.TranscodeGraftJoin{ProbeHash: "h1"}}
+	tc := &catalogv1alpha1.TranscodeState{
+		Dispatch:    &catalogv1alpha1.Dispatch{Seq: 200, AnsweredSeq: 200},
+		JoinedGraft: &catalogv1alpha1.TranscodeGraftJoin{ProbeHash: "h1"},
+	}
 	s, pending := graftplan.JoinPending(tc, &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseRunning, Reason: graftplan.ReasonJoinedTranscode, JoinedTranscodeSeq: 200})
 	assert.Equal(t, int64(200), s)
 	assert.True(t, pending)
 	_, pending = graftplan.JoinPending(tc, &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseSwapping, JoinedTranscodeSeq: 200})
 	assert.False(t, pending)
-	_, pending = graftplan.JoinPending(tc, &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseWaiting,
-		Reason: graftplan.ReasonWaitingForSlot, JoinedTranscodeSeq: 150})
+	_, pending = graftplan.JoinPending(tc, &catalogv1alpha1.GraftState{
+		Phase:  catalogv1alpha1.GraftPhaseWaiting,
+		Reason: graftplan.ReasonWaitingForSlot, JoinedTranscodeSeq: 150,
+	})
 	assert.True(t, pending, "a graft block that never derived the join still owes it")
-	_, pending = graftplan.JoinPending(tc, &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseWaiting,
-		Reason: graftplan.ReasonWaitingForSlot, JoinedTranscodeSeq: 200})
+	_, pending = graftplan.JoinPending(tc, &catalogv1alpha1.GraftState{
+		Phase:  catalogv1alpha1.GraftPhaseWaiting,
+		Reason: graftplan.ReasonWaitingForSlot, JoinedTranscodeSeq: 200,
+	})
 	assert.False(t, pending, "the join ended without its graft, and the block recorded that")
 	_, pending = graftplan.JoinPending(tc, nil)
 	assert.False(t, pending, "no graft block is left to read the record: a hold would keep the transcode from ever dispatching")
@@ -91,9 +101,11 @@ func TestJoinPendingHoldsTheNextDispatchUntilTheGraftRecordsItsResult(t *testing
 func TestAPanickingGraftPlannerNeverLeavesAJoinedTaskBesideAWaitingBlock(t *testing.T) {
 	waiting := &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseWaiting, Reason: graftplan.ReasonWaitingForSlot, ProbeHash: "h1"}
 	afterPass1 := with(probed("h1", "jpn"), waiting)
-	afterPass1.Transcode = &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseQueued,
+	afterPass1.Transcode = &catalogv1alpha1.TranscodeState{
+		Phase:       catalogv1alpha1.TranscodePhaseQueued,
 		Dispatch:    &catalogv1alpha1.Dispatch{Seq: 200, DispatchedAt: now},
-		JoinedGraft: &catalogv1alpha1.TranscodeGraftJoin{DonorRelease: release, Languages: []string{"en"}, ProbeHash: "h1"}}
+		JoinedGraft: &catalogv1alpha1.TranscodeGraftJoin{DonorRelease: release, Languages: []string{"en"}, ProbeHash: "h1"},
+	}
 	assert.True(t, graftplan.JoinInFlight(afterPass1.Transcode))
 	_, held := graftplan.JoinPending(afterPass1.Transcode, afterPass1.Graft)
 	assert.True(t, held, "the transcode's next dispatch waits for the graft to record the join")

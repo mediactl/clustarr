@@ -176,8 +176,10 @@ func TestAnItemsCurrentFileCarriesWhetherItWasCutShort(t *testing.T) {
 	movie := func(listed int32) *catalogv1alpha1.Movie {
 		return &catalogv1alpha1.Movie{
 			ObjectMeta: metav1.ObjectMeta{Name: "m", Namespace: ns},
-			Status: catalogv1alpha1.MovieStatus{HasFile: true, FileRef: new("file"),
-				Metadata: &catalogv1alpha1.MovieMetadata{RuntimeMinutes: listed}},
+			Status: catalogv1alpha1.MovieStatus{
+				HasFile: true, FileRef: new("file"),
+				Metadata: &catalogv1alpha1.MovieMetadata{RuntimeMinutes: listed},
+			},
 		}
 	}
 	cur, err := itemread.Current(ctx, c, movie(105))

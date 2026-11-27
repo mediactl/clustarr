@@ -18,8 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"strings"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

@@ -177,16 +177,22 @@ func TestEditItemSendsEachKindsOwnFields(t *testing.T) {
 		"book": {commonv1.MediaKindBook, actions.EditRequest{
 			QualityProfileRef: "ebook", RootFolderRef: "books", Monitored: &off,
 		}, `{"spec":{"qualityProfileRef":"ebook","rootFolderRef":"books","monitored":false}}`},
-		"an author's book, monitored alone": {commonv1.MediaKindBook, actions.EditRequest{Monitored: &on},
-			`{"spec":{"monitored":true}}`},
+		"an author's book, monitored alone": {
+			commonv1.MediaKindBook,
+			actions.EditRequest{Monitored: &on},
+			`{"spec":{"monitored":true}}`,
+		},
 		"album": {commonv1.MediaKindAlbum, actions.EditRequest{
 			QualityProfileRef: "lossless", Monitored: &off, AnyReleaseOk: &off, ReleaseID: &dune,
 		}, `{"spec":{"qualityProfileRef":"lossless","monitored":false,"anyReleaseOk":false,"releaseID":"dune"}}`},
 		"album, the artist's profile and no pin": {commonv1.MediaKindAlbum, actions.EditRequest{
 			InheritProfile: true, AnyReleaseOk: &on, ReleaseID: &none,
 		}, `{"spec":{"qualityProfileRef":null,"anyReleaseOk":true,"releaseID":null}}`},
-		"album, monitored alone": {commonv1.MediaKindAlbum, actions.EditRequest{Monitored: &on},
-			`{"spec":{"monitored":true}}`},
+		"album, monitored alone": {
+			commonv1.MediaKindAlbum,
+			actions.EditRequest{Monitored: &on},
+			`{"spec":{"monitored":true}}`,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := &fakeWriter{}

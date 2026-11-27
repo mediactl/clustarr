@@ -112,9 +112,11 @@ func TestPreviewHarness(t *testing.T) {
 	}{{"debut", "Debut", "d1f1b0e8-0000-4000-8000-000000000001", 1993, true}, {"post", "Post", "d1f1b0e8-0000-4000-8000-000000000002", 1995, false}} {
 		al := &catalogv1.Album{ObjectMeta: meta(a.name), Spec: catalogv1.AlbumSpec{ArtistRef: "bjork", ReleaseGroupID: a.rg, Monitored: new(true)}}
 		create(al, func() {
-			al.Status = catalogv1.AlbumStatus{Metadata: &catalogv1.AlbumMetadata{Title: a.title, AlbumType: "Album", ReleaseDate: date(a.year, time.July, 5), Label: "One Little Indian", SchemaVersion: 8, RefreshedAt: now},
-				Tracks:  []catalogv1.Track{{RecordingID: a.rg + "-1", Medium: 1, Number: 1, Title: "Human Behaviour", DurationMs: 250000}, {RecordingID: a.rg + "-2", Medium: 1, Number: 2, Title: "Crying", DurationMs: 290000}},
-				HasFile: a.hasFile, TrackFileCount: 0, TrackSummary: "0/2 tracks", Phase: commonv1.LeafPhaseWanted, CutoffReason: "CutoffUnmet"}
+			al.Status = catalogv1.AlbumStatus{
+				Metadata: &catalogv1.AlbumMetadata{Title: a.title, AlbumType: "Album", ReleaseDate: date(a.year, time.July, 5), Label: "One Little Indian", SchemaVersion: 8, RefreshedAt: now},
+				Tracks:   []catalogv1.Track{{RecordingID: a.rg + "-1", Medium: 1, Number: 1, Title: "Human Behaviour", DurationMs: 250000}, {RecordingID: a.rg + "-2", Medium: 1, Number: 2, Title: "Crying", DurationMs: 290000}},
+				HasFile:  a.hasFile, TrackFileCount: 0, TrackSummary: "0/2 tracks", Phase: commonv1.LeafPhaseWanted, CutoffReason: "CutoffUnmet",
+			}
 			if a.hasFile {
 				al.Status.TrackFileCount, al.Status.TrackSummary, al.Status.Phase, al.Status.CutoffMet = 2, "2/2 tracks", commonv1.LeafPhaseImported, true
 				al.Status.FileQuality = &commonv1.Quality{Name: "FLAC"}
@@ -136,7 +138,8 @@ func TestPreviewHarness(t *testing.T) {
 		pages             int32
 		standalone        bool
 	}{
-		{"the-dispossessed", "The Dispossessed", "OL138052W", 1974, 341, false}, {"the-left-hand-of-darkness", "The Left Hand of Darkness", "OL59799W", 1969, 304, false}, {"standalone", "A Standalone Book", "OL999W", 2001, 200, true}} {
+		{"the-dispossessed", "The Dispossessed", "OL138052W", 1974, 341, false}, {"the-left-hand-of-darkness", "The Left Hand of Darkness", "OL59799W", 1969, 304, false}, {"standalone", "A Standalone Book", "OL999W", 2001, 200, true},
+	} {
 		bk := &catalogv1.Book{ObjectMeta: meta(b.name), Spec: catalogv1.BookSpec{WorkID: b.work, Monitored: new(true)}}
 		if b.standalone {
 			bk.Spec.QualityProfileRef, bk.Spec.RootFolderRef = new("ebook"), new("books")
@@ -148,7 +151,8 @@ func TestPreviewHarness(t *testing.T) {
 				Title: b.title, ReleaseDate: date(b.year, time.May, 1), PageCount: b.pages, Publisher: "Harper & Row", Genres: []string{"Science Fiction"},
 				SeriesLinks:   []catalogv1.SeriesLink{{Series: "Hainish Cycle", Position: fmt.Sprint(b.pages % 7), Primary: true}},
 				Editions:      []catalogv1.Edition{{ID: "OL1M", Title: b.title, Language: "en", Format: "Hardcover", Publisher: "Harper & Row", PageCount: b.pages, ReleaseDate: date(b.year, time.May, 1)}},
-				SchemaVersion: 8, Language: "en", RefreshedAt: now}}
+				SchemaVersion: 8, Language: "en", RefreshedAt: now,
+			}}
 		})
 	}
 
@@ -157,15 +161,18 @@ func TestPreviewHarness(t *testing.T) {
 		comic.Status = catalogv1.ComicStatus{Path: "/data/media/comics/Saga (2012)", IssueFileCount: 1, Metadata: &catalogv1.ComicMetadata{
 			Title: "Saga", Publisher: "Image Comics", Year: 2012, VolumeNumber: 1, IssueCount: 72, Manga: catalogv1.MangaFlagNo, AgeRating: "Mature", Status: catalogv1.ComicRunStatusContinuing,
 			Genres: []string{"Science Fiction", "Fantasy"}, OriginalLanguage: "en", Overview: "Two soldiers from opposite sides of a galactic war fall in love.",
-			ExternalIDs: map[string]string{"comicvine": "4050-56582"}, SchemaVersion: 8, Language: "en", RefreshedAt: now}}
+			ExternalIDs: map[string]string{"comicvine": "4050-56582"}, SchemaVersion: 8, Language: "en", RefreshedAt: now,
+		}}
 	})
 	for i, title := range []string{"Chapter One", "Chapter Two", "Chapter Three"} {
 		n := i + 1
 		iss := &catalogv1.Issue{ObjectMeta: meta(fmt.Sprintf("saga-%03d.0", n)), Spec: catalogv1.IssueSpec{ComicRef: "saga", Number: fmt.Sprint(n), CalculatedNumberCentis: int32(n * 100), Monitored: new(true)}}
 		create(iss, func() {
-			iss.Status = catalogv1.IssueStatus{Title: title, Date: date(2012, time.Month(2+n), 14), StoreDate: date(2012, time.Month(2+n), 14), SourceID: fmt.Sprintf("4000-%d", 12344+n),
+			iss.Status = catalogv1.IssueStatus{
+				Title: title, Date: date(2012, time.Month(2+n), 14), StoreDate: date(2012, time.Month(2+n), 14), SourceID: fmt.Sprintf("4000-%d", 12344+n),
 				Overview: "Marko and Alana flee with their newborn daughter.", Credits: []catalogv1.Credit{{Name: "Brian K. Vaughan", Role: "writer"}, {Name: "Fiona Staples", Role: "artist"}},
-				Phase: commonv1.LeafPhaseWanted, CutoffReason: "CutoffUnmet"}
+				Phase: commonv1.LeafPhaseWanted, CutoffReason: "CutoffUnmet",
+			}
 			if n == 1 {
 				iss.Status.HasFile, iss.Status.FileFormat, iss.Status.FileQuality, iss.Status.Phase = true, "CBZ", &commonv1.Quality{Name: "CBZ"}, commonv1.LeafPhaseCutoffUnmet
 			}
@@ -178,7 +185,8 @@ func TestPreviewHarness(t *testing.T) {
 			Title: "A Wizard of Earthsea", Authors: []catalogv1.NamedRef{{Name: "Ursula K. Le Guin", ASIN: "B000AP9A6K"}}, Narrators: []string{"Rob Inglis"}, Publisher: "Recorded Books",
 			ReleaseDate: date(2010, time.March, 1), RuntimeMinutes: 430, Language: "en", Overview: "Ged was the greatest sorcerer in Earthsea.",
 			Series: &catalogv1.SeriesLink{Series: "Earthsea Cycle", Position: "1", Primary: true}, Chapters: []catalogv1.Chapter{{Title: "Warriors in the Mist", StartMs: 0}, {Title: "The Shadow", StartMs: 1800000}},
-			SchemaVersion: 8, FetchLanguage: "en", RefreshedAt: now}}
+			SchemaVersion: 8, FetchLanguage: "en", RefreshedAt: now,
+		}}
 	})
 
 	// A sample of a real library, exported with kubectl, beside the inline

@@ -53,8 +53,10 @@ func theDonor() *catalogv1alpha1.AudioDonor {
 }
 
 func theItem() *graftplan.Item {
-	return &graftplan.Item{UID: "mv-uid", Anchor: "ja", Grafts: true, Default: "en",
-		Audio: &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Present: []string{"ja"}, Missing: []string{"en"}, Donor: theDonor()}}
+	return &graftplan.Item{
+		UID: "mv-uid", Anchor: "ja", Grafts: true, Default: "en",
+		Audio: &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Present: []string{"ja"}, Missing: []string{"en"}, Donor: theDonor()},
+	}
 }
 
 func ready() graftplan.Input {
@@ -85,17 +87,22 @@ func with(st catalogv1alpha1.MediaFileStatus, b *catalogv1alpha1.GraftState) cat
 
 type opt func(*graftplan.View)
 
-func at(t time.Time) opt                             { return func(v *graftplan.View) { v.Now = metav1.NewTime(t) } }
-func draft(st catalogv1alpha1.MediaFileStatus) opt   { return func(v *graftplan.View) { v.Draft = &st } }
-func probePending() opt                              { return func(v *graftplan.View) { v.ProbeCurrent = false } }
+func at(t time.Time) opt { return func(v *graftplan.View) { v.Now = metav1.NewTime(t) } }
+
+func draft(st catalogv1alpha1.MediaFileStatus) opt { return func(v *graftplan.View) { v.Draft = &st } }
+
+func probePending() opt { return func(v *graftplan.View) { v.ProbeCurrent = false } }
+
 func fileOpt(f func(*catalogv1alpha1.MediaFile)) opt { return func(v *graftplan.View) { f(v.File) } }
 
 // pass runs one graft planner pass over prev; the draft is prev unless an
 // opt replaces it, and dispatches issue sequences from 100.
 func pass(prev catalogv1alpha1.MediaFileStatus, in graftplan.Input, opts ...opt) (catalogv1alpha1.MediaFileStatus, graftplan.Decision) {
 	next := int64(99)
-	v := graftplan.View{File: theFile(), Prev: &prev, Draft: prev.DeepCopy(), Now: now, ProbeCurrent: true,
-		Issue: func(rec int64) int64 { next = max(next+1, rec+1); return next }}
+	v := graftplan.View{
+		File: theFile(), Prev: &prev, Draft: prev.DeepCopy(), Now: now, ProbeCurrent: true,
+		Issue: func(rec int64) int64 { next = max(next+1, rec+1); return next },
+	}
 	for _, o := range opts {
 		o(&v)
 	}
@@ -112,14 +119,18 @@ func kinds(d graftplan.Decision) []graftplan.EffectKind {
 }
 
 func flying(phase catalogv1alpha1.GraftPhase, seq int64) *catalogv1alpha1.GraftState {
-	return &catalogv1alpha1.GraftState{Phase: phase, DonorRelease: release, DonorImportedAt: &theDonor().ImportedAt,
+	return &catalogv1alpha1.GraftState{
+		Phase: phase, DonorRelease: release, DonorImportedAt: &theDonor().ImportedAt,
 		Languages: []string{"en"}, ProbeHash: "h1", JobName: graftplan.JobName(fileName, seq),
-		Dispatch: &catalogv1alpha1.Dispatch{Seq: seq, DispatchedAt: metav1.NewTime(t0.Add(-10 * time.Minute))}}
+		Dispatch: &catalogv1alpha1.Dispatch{Seq: seq, DispatchedAt: metav1.NewTime(t0.Add(-10 * time.Minute))},
+	}
 }
 
 func rec(seq int64, state string, ans *grafttask.Result) *grafttask.Record {
-	r := &grafttask.Record{RecordHeader: schema.RecordHeader{Schema: grafttask.RecordSchema,
-		MediaFile: schema.Ref{Namespace: "media", Name: fileName, UID: "mf-uid"}, Seq: seq, State: state, Writer: "graft-0"}, Answer: ans}
+	r := &grafttask.Record{RecordHeader: schema.RecordHeader{
+		Schema:    grafttask.RecordSchema,
+		MediaFile: schema.Ref{Namespace: "media", Name: fileName, UID: "mf-uid"}, Seq: seq, State: state, Writer: "graft-0",
+	}, Answer: ans}
 	switch state {
 	case records.StateClaimed:
 		c := t0.Add(-5 * time.Minute)
@@ -151,8 +162,10 @@ func TestAGraftBlockExistsOnlyWhereAGraftCan(t *testing.T) {
 		out, d := pass(probed("h1", "jpn"), c.in(), c.opts...)
 		assert.Nil(t, out.Graft, name)
 		assert.Empty(t, d.Effects, name)
-		gone, _ := pass(with(probed("h1", "jpn"), &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseWaiting,
-			Reason: graftplan.ReasonWaitingForSlot}), c.in(), c.opts...)
+		gone, _ := pass(with(probed("h1", "jpn"), &catalogv1alpha1.GraftState{
+			Phase:  catalogv1alpha1.GraftPhaseWaiting,
+			Reason: graftplan.ReasonWaitingForSlot,
+		}), c.in(), c.opts...)
 		assert.Nil(t, gone.Graft, "%s: a waiting block goes too", name)
 	}
 }
@@ -227,8 +240,10 @@ func TestAClaimedRecordIsRunning(t *testing.T) {
 // then Succeeded, and status.graftTag takes the tag.
 func TestAnAnsweredGraftSwapsThenSucceedsOnItsProbe(t *testing.T) {
 	in := ready()
-	in.Record = rec(100, records.StateAnswered, &grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonGrafted,
-		GraftTag: "tag-1", Segments: []grafttask.Segment{{LengthMillis: 1000}}})
+	in.Record = rec(100, records.StateAnswered, &grafttask.Result{
+		Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonGrafted,
+		GraftTag: "tag-1", Segments: []grafttask.Segment{{LengthMillis: 1000}},
+	})
 	out, d := pass(with(probed("h1", "jpn"), flying(catalogv1alpha1.GraftPhaseRunning, 100)), in)
 	b := out.Graft
 	assert.Equal(t, catalogv1alpha1.GraftPhaseSwapping, b.Phase)
@@ -428,9 +443,11 @@ func TestAGraftWaitsForTheFilesTranscodeAtMostSixHours(t *testing.T) {
 // TestAJoinedGraftRunsWithItsTranscodeAndTakesItsResult (§5.13, D42).
 func TestAJoinedGraftRunsWithItsTranscodeAndTakesItsResult(t *testing.T) {
 	st := with(probed("h1", "jpn"), &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseWaiting, Reason: graftplan.ReasonWaitingForSlot})
-	st.Transcode = &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseQueued,
+	st.Transcode = &catalogv1alpha1.TranscodeState{
+		Phase:       catalogv1alpha1.TranscodePhaseQueued,
 		Dispatch:    &catalogv1alpha1.Dispatch{Seq: 200, DispatchedAt: now},
-		JoinedGraft: &catalogv1alpha1.TranscodeGraftJoin{DonorRelease: release, Languages: []string{"en"}, ProbeHash: "h1"}}
+		JoinedGraft: &catalogv1alpha1.TranscodeGraftJoin{DonorRelease: release, Languages: []string{"en"}, ProbeHash: "h1"},
+	}
 	out, d := pass(st, ready())
 	b := out.Graft
 	assert.Equal(t, catalogv1alpha1.GraftPhaseRunning, b.Phase)
@@ -440,8 +457,10 @@ func TestAJoinedGraftRunsWithItsTranscodeAndTakesItsResult(t *testing.T) {
 	assert.False(t, graftplan.Standalone(b))
 
 	in := ready()
-	in.Transcode = &task.Record{RecordHeader: schema.RecordHeader{Seq: 200, State: records.StateAnswered, AnsweredAt: &t0},
-		Answer: &task.Answer{Graft: &grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonGrafted, GraftTag: "joined-tag"}}}
+	in.Transcode = &task.Record{
+		RecordHeader: schema.RecordHeader{Seq: 200, State: records.StateAnswered, AnsweredAt: &t0},
+		Answer:       &task.Answer{Graft: &grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonGrafted, GraftTag: "joined-tag"}},
+	}
 	took, _ := pass(out, in)
 	assert.Equal(t, catalogv1alpha1.GraftPhaseSwapping, took.Graft.Phase)
 	assert.Equal(t, "joined-tag", took.Graft.Tag)

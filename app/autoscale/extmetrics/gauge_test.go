@@ -122,8 +122,10 @@ func TestQueueGaugeSetsStreamFill(t *testing.T) {
 	top := events.Topology{Streams: []events.StreamSpec{
 		{Name: "S1", MaxBytes: 1000}, {Name: "S2"}, {Name: "S3", MaxBytes: 10}, {Name: "S4"}, {Name: "S5", MaxBytes: 10},
 	}}
-	g := &extmetrics.QueueGauge{States: &fakeStates{}, Topology: top,
-		Streams: fakeFill{"S1": {Bytes: 800, MaxBytes: 1000}, "S2": {Bytes: 5}, "S4": {Bytes: 5, MaxBytes: 100}, "S5": {Bytes: 5}}}
+	g := &extmetrics.QueueGauge{
+		States: &fakeStates{}, Topology: top,
+		Streams: fakeFill{"S1": {Bytes: 800, MaxBytes: 1000}, "S2": {Bytes: 5}, "S4": {Bytes: 5, MaxBytes: 100}, "S5": {Bytes: 5}},
+	}
 	g.Update(context.Background())
 	assert.InDelta(t, 0.8, gaugeValue(t, metrics.StreamFillRatio.WithLabelValues("S1")), 1e-9)
 	assert.Equal(t, 0, seriesCount(metrics.StreamFillRatio)-1,
@@ -179,8 +181,10 @@ func TestQueueGaugeAndTheAPIShareOneRead(t *testing.T) {
 	cache := &extmetrics.StateCache{States: states, Now: func() time.Time { return now }}
 	s := extmetrics.Series{Stream: events.StreamWorkImport, Consumer: events.ConsumerImportScan}
 	h := &extmetrics.Handler{Namespace: ns, Series: []extmetrics.Series{s}, Cache: cache, States: states, Now: func() time.Time { return now }}
-	g := &extmetrics.QueueGauge{States: states, Cache: cache,
-		Topology: events.Topology{Consumers: []events.ConsumerSpec{{Name: s.Consumer, Stream: s.Stream}}}}
+	g := &extmetrics.QueueGauge{
+		States: states, Cache: cache,
+		Topology: events.Topology{Consumers: []events.ConsumerSpec{{Name: s.Consumer, Stream: s.Stream}}},
+	}
 
 	code, body, _ := do(h, http.MethodGet, listPath+"?labelSelector="+url.QueryEscape("consumer="+s.Consumer))
 	require.Equal(t, http.StatusOK, code, body)

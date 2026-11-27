@@ -48,8 +48,10 @@ func newClient() client.Client {
 var key = types.NamespacedName{Namespace: "clustarr-system", Name: "clustarr-livetv"}
 
 func publisher(c client.Client, tn tuner, ip string) *leaderendpoint.Publisher {
-	return &leaderendpoint.Publisher{Client: c, Tuner: tn, Service: key.Name, Namespace: key.Namespace,
-		PodName: "clustarr-manager-abc", PodIP: ip, Port: 5004}
+	return &leaderendpoint.Publisher{
+		Client: c, Tuner: tn, Service: key.Name, Namespace: key.Namespace,
+		PodName: "clustarr-manager-abc", PodIP: ip, Port: 5004,
+	}
 }
 
 func run(t *testing.T, p *leaderendpoint.Publisher) context.CancelFunc {

@@ -26,7 +26,6 @@ import (
 	"strings"
 	"testing"
 
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	xhtml "golang.org/x/net/html"
@@ -36,6 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/ui"
@@ -207,7 +208,8 @@ func TestCollectionsPageListsByLibrary(t *testing.T) {
 	rec := get(t, srv, "/library/collections")
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	for _, want := range []string{"Clustarr Movies", "Clustarr TV", "Anime Dubbed", "Netflix", "UP", "259", "23", "Adopted",
+	for _, want := range []string{
+		"Clustarr Movies", "Clustarr TV", "Anime Dubbed", "Netflix", "UP", "259", "23", "Adopted",
 		"Audio Language is en and Genre is Anime",
 		html.EscapeString(`Title is "Seven Up!" or (Genre is Documentary and Title contains "Up")`),
 	} {
@@ -331,11 +333,15 @@ func TestValueSuggestions(t *testing.T) {
 		return c.List(ctx, list, opts...)
 	}}
 	srv, _ := collectionsServerWith(t, funcs, libraryWith(
-		projection.LibraryItem{Ref: types.NamespacedName{Namespace: pcolNS, Name: "a"}, Kind: commonv1.MediaKindSeries,
-			Genres: []string{"Drama", "Anime"}, SubGenres: []string{"Dark Comedy"}, Networks: []string{"Netflix", "HBO"}, Keywords: []string{"time travel"}},
+		projection.LibraryItem{
+			Ref: types.NamespacedName{Namespace: pcolNS, Name: "a"}, Kind: commonv1.MediaKindSeries,
+			Genres: []string{"Drama", "Anime"}, SubGenres: []string{"Dark Comedy"}, Networks: []string{"Netflix", "HBO"}, Keywords: []string{"time travel"},
+		},
 		projection.LibraryItem{Ref: types.NamespacedName{Namespace: pcolNS, Name: "b"}, Kind: commonv1.MediaKindSeries, Genres: []string{"Anime"}},
-		projection.LibraryItem{Ref: types.NamespacedName{Namespace: pcolNS, Name: "m"}, Kind: commonv1.MediaKindMovie,
-			Genres: []string{"Documentary"}, Studios: []string{"Pixar", "A24"}, Keywords: []string{"heist"}},
+		projection.LibraryItem{
+			Ref: types.NamespacedName{Namespace: pcolNS, Name: "m"}, Kind: commonv1.MediaKindMovie,
+			Genres: []string{"Documentary"}, Studios: []string{"Pixar", "A24"}, Keywords: []string{"heist"},
+		},
 	))
 
 	show := get(t, srv, "/library/collections/new?itemType=show").Body.String()

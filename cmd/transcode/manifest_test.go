@@ -40,8 +40,10 @@ import (
 // own flags: envtest runs no pods, so nothing else would catch a flag the
 // binary no longer takes (spec §10.3.1).
 func TestPoolAndGraftArgsParse(t *testing.T) {
-	cfg := pool.Config{DataDir: "/data", ExtraArgs: []string{"--log-level=DEBUG", "--log-format=json",
-		"--tracing-enabled", "--tracing-endpoint=otel:4317", "--tracing-sample-ratio=0.25"}}
+	cfg := pool.Config{DataDir: "/data", ExtraArgs: []string{
+		"--log-level=DEBUG", "--log-format=json",
+		"--tracing-enabled", "--tracing-endpoint=otel:4317", "--tracing-sample-ratio=0.25",
+	}}
 	tp := &transcodev1alpha1.TranscodeProfile{}
 	for _, class := range []transcodev1alpha1.Hardware{
 		transcodev1alpha1.HardwareCPU, transcodev1alpha1.HardwareNVIDIA, transcodev1alpha1.HardwareIntel,
@@ -62,9 +64,11 @@ func TestPoolAndGraftArgsParse(t *testing.T) {
 	// The graft planner's Job (app/remediation/graft.Job): the cpu pool's
 	// args with --graft-task spliced in, carrying the task the pod runs.
 	mf := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "pb", UID: "mf-uid"}}
-	want := grafttask.Task{Schema: grafttask.TaskSchema, File: schema.Ref{Namespace: "media", Name: "pb", UID: "mf-uid"}, Seq: 7,
+	want := grafttask.Task{
+		Schema: grafttask.TaskSchema, File: schema.Ref{Namespace: "media", Name: "pb", UID: "mf-uid"}, Seq: 7,
 		Target: "/data/media/movies/pb.mkv", TargetProbeHash: "h1", Root: "/data/media/movies",
-		Donor: "/data/media/movies/.clustarr/donors/u/pb.mka", Language: "en", Anchor: "ja"}
+		Donor: "/data/media/movies/.clustarr/donors/u/pb.mka", Language: "en", Anchor: "ja",
+	}
 	job, err := graft.Job(cfg, mf, want, "pb-graft-7")
 	require.NoError(t, err)
 	c := job.Spec.Template.Spec.Containers[0]

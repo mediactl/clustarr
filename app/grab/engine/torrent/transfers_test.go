@@ -112,7 +112,7 @@ func TestRemoveDetachedForgetsTheEntrysDescriptor(t *testing.T) {
 	loaded, errs := loadDescriptors(e.StateDir)
 	require.Empty(t, errs)
 	require.Len(t, loaded, 1)
-	require.Equal(t, "uid-b", loaded[0].Desc.Journal.EntryUID)
+	require.Equal(t, "uid-b", loaded[0].Desc.EntryUID)
 	_, err := os.Stat(torrentFileName(e.StateDir, "id-a"))
 	require.ErrorIs(t, err, os.ErrNotExist)
 }

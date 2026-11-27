@@ -55,11 +55,15 @@ func TestBookXStatusLabel(t *testing.T) {
 // subtitle.
 func TestBookXCrumbsAndTitle(t *testing.T) {
 	item := projection.LibraryItem{Ref: types.NamespacedName{Namespace: "default", Name: "dispossessed"}, Kind: commonv1.MediaKindBook, Tab: projection.TabBooks, Title: "The Dispossessed"}
-	v := BookXView{Detail: Detail{Item: item}, Row: BookRow{Name: "dispossessed", Title: "The Dispossessed", Subtitle: "An Ambiguous Utopia"},
-		AuthorTitle: "Ursula K. Le Guin", AuthorURL: "/library/default/author/le-guin"}
+	v := BookXView{
+		Detail: Detail{Item: item}, Row: BookRow{Name: "dispossessed", Title: "The Dispossessed", Subtitle: "An Ambiguous Utopia"},
+		AuthorTitle: "Ursula K. Le Guin", AuthorURL: "/library/default/author/le-guin",
+	}
 	assert.Equal(t, []Crumb{
-		{Label: "Library", Href: "/library"}, {Label: "Books", Href: "/library/books"},
-		{Label: "Ursula K. Le Guin", Href: "/library/default/author/le-guin"}, {Label: "The Dispossessed"},
+		{Label: "Library", Href: "/library"},
+		{Label: "Books", Href: "/library/books"},
+		{Label: "Ursula K. Le Guin", Href: "/library/default/author/le-guin"},
+		{Label: "The Dispossessed"},
 	}, bookXCrumbs(v))
 	assert.Equal(t, "Ursula K. Le Guin - The Dispossessed: An Ambiguous Utopia", bookXPageTitle(v))
 

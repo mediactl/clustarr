@@ -116,11 +116,13 @@ func TestEligibleFollowsTheWinningProfile(t *testing.T) {
 			f.Status.Transcode = &catalogv1alpha1.TranscodeState{ProfileTag: "hevc@0ld", Compliant: true}
 		}},
 		{name: "no profile at all", profs: []transcodev1alpha1.TranscodeProfile{}},
-		{name: "its winner is an Invalid duplicate default", mutate: func(f *File) { f.Labels = map[string]string{"tier": "uhd"} },
+		{
+			name: "its winner is an Invalid duplicate default", mutate: func(f *File) { f.Labels = map[string]string{"tier": "uhd"} },
 			profs: []transcodev1alpha1.TranscodeProfile{
 				newProfile("aa-default", true, t0, nil),
 				newProfile("zz-default", true, t0.Add(time.Hour), map[string]string{"tier": "uhd"}), // wins by selector, Invalid as the newer default
-			}},
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := eligibleFile(probed("ph-1"))

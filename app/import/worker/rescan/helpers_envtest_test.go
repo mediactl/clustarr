@@ -251,8 +251,8 @@ func readProgress(t *testing.T, ctx context.Context, bus events.Bus, scanUID str
 	require.NoError(t, err, "no progress checkpoint was written")
 	got, err := scanprogress.DecodeProgress(entry.Value)
 	require.NoError(t, err)
-	switch applied, err := bus.KV(events.BucketProgress).Get(ctx, scanprogress.AppliedKey(scanUID)); {
-	case err == nil:
+	switch applied, err := bus.KV(events.BucketProgress).Get(ctx, scanprogress.AppliedKey(scanUID)); err {
+	case nil:
 		q, err := scanprogress.DecodeProgress(applied.Value)
 		require.NoError(t, err)
 		got = got.Merge(q)

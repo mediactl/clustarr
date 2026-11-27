@@ -104,8 +104,10 @@ func (m *CertManager) EnsureSecret(ctx context.Context) (*corev1.Secret, error) 
 			return nil, err
 		}
 		created := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Namespace: m.Namespace, Name: m.SecretName,
-				Labels: map[string]string{"app.kubernetes.io/part-of": "clustarr", "app.kubernetes.io/component": "manager"}},
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: m.Namespace, Name: m.SecretName,
+				Labels: map[string]string{"app.kubernetes.io/part-of": "clustarr", "app.kubernetes.io/component": "manager"},
+			},
 			Type: corev1.SecretTypeTLS, Data: data,
 		}
 		if err := m.Client.Create(ctx, created, client.FieldOwner(k8s.ManagerAutoscale.String())); err != nil {

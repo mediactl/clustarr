@@ -167,4 +167,6 @@ func reasons(ev []Event) []string {
 	return out
 }
 
-func tagOf(p transcodev1alpha1.TranscodeProfile) string { return Tag(p.Name, jobspec.ProfileHash(p.Spec)) }
+func tagOf(p transcodev1alpha1.TranscodeProfile) string {
+	return Tag(p.Name, jobspec.ProfileHash(p.Spec))
+}

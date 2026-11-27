@@ -19,6 +19,7 @@ package livetvstore
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -114,7 +115,7 @@ func IndexGuide(r io.Reader, from time.Time) (GuideIndex, error) {
 	dec := xml.NewDecoder(r)
 	for {
 		tok, err := dec.Token()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

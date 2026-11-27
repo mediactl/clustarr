@@ -40,8 +40,10 @@ func TestAFilesLanguagesAreFrozenFromItsProbedAudio(t *testing.T) {
 	run, _ := packRun(t, "Historys.Greatest.Mysteries.S01.1080p.CR.WEB-DL.MULTI.AAC2.0.H.264-OldT", "ja", 1, []string{name},
 		func(string) (*commonv1.MediaInfo, *mediainfo.Raw) {
 			return &commonv1.MediaInfo{VideoCodec: "h264", Width: 1920, Height: 1080, Audio: []commonv1.AudioStream{
-				{Codec: "aac", Language: "jpn"}, {Codec: "aac", Language: "deu"},
-				{Codec: "aac", Language: "eng"}, {Codec: "aac", Language: "eng"},
+				{Codec: "aac", Language: "jpn"},
+				{Codec: "aac", Language: "deu"},
+				{Codec: "aac", Language: "eng"},
+				{Codec: "aac", Language: "eng"},
 			}}, &mediainfo.Raw{Format: &ffprobe.Format{TagList: ffprobe.Tags{}}}
 		})
 	run.decide()

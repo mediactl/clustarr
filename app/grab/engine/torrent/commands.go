@@ -278,7 +278,7 @@ func (t *Transfers) RemoveDetached(ctx context.Context, entryUID string, removeD
 	t.load(ctx)
 	var ids []string
 	for id, d := range t.desc {
-		if d.Journal.EntryUID == entryUID {
+		if d.EntryUID == entryUID {
 			ids = append(ids, id)
 		}
 	}

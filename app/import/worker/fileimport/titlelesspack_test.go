@@ -63,8 +63,10 @@ func TestASeasonPackNamedForItsEpisodesAloneImports(t *testing.T) {
 	}
 	series := &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: "aso", Namespace: "media", UID: "aso-uid"},
-		Spec: catalogv1alpha1.SeriesSpec{TvdbID: 425458, QualityProfileRef: qp.Name, RootFolderRef: rf.Name,
-			SeriesType: catalogv1alpha1.SeriesTypeAnime},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 425458, QualityProfileRef: qp.Name, RootFolderRef: rf.Name,
+			SeriesType: catalogv1alpha1.SeriesTypeAnime,
+		},
 		Status: catalogv1alpha1.SeriesStatus{Metadata: &catalogv1alpha1.SeriesMetadata{
 			Title: "A Sign of Affection", Year: 2024, OriginalLanguage: "ja",
 		}},

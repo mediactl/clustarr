@@ -169,8 +169,10 @@ var configFixtures = map[string]configFixture{
 		minimal:  map[string]any{"providerRef": "argon-tv", "key": "n:espn", "number": "1001"},
 		nullable: configField{"name", "ESPN HD"},
 		change:   configField{"number", "1005"},
-		invalid: map[string]any{"providerRef": "argon-tv", "key": "n:espn", "number": "1001",
-			"epg": map[string]any{"channelID": "US-ESPN", "dummy": true}},
+		invalid: map[string]any{
+			"providerRef": "argon-tv", "key": "n:espn", "number": "1001",
+			"epg": map[string]any{"channelID": "US-ESPN", "dummy": true},
+		},
 		rejects: "the CEL rule 'set exactly one of channelID and dummy'",
 	},
 }

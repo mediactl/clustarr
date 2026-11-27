@@ -32,8 +32,10 @@ import (
 // a finished transcode does not, and an outstanding window grant does.
 func TestWindowCountsWindowPhasesAndGrants(t *testing.T) {
 	l, _ := newTestLedger(t, map[string]int32{"cpu": 0}, 3)
-	for i, p := range []catalogv1alpha1.TranscodePhase{pending, planned, queued, running, swapping, skipped,
-		catalogv1alpha1.TranscodePhaseSucceeded, catalogv1alpha1.TranscodePhaseFailed} {
+	for i, p := range []catalogv1alpha1.TranscodePhase{
+		pending, planned, queued, running, swapping, skipped,
+		catalogv1alpha1.TranscodePhaseSucceeded, catalogv1alpha1.TranscodePhaseFailed,
+	} {
 		v := fv(string(rune('a'+i)), int64(i+1), p)
 		v.Eligible = windowPhase(p) // a Succeeded file is Transcoded()
 		v.VerdictHolds = p == skipped || p == catalogv1alpha1.TranscodePhaseFailed

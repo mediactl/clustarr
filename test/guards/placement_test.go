@@ -46,9 +46,11 @@ var (
 // placementOn turns placement on with the subcharts' literal placements the
 // render checks (NATS on the control plane, nats-box on the workers).
 func placementOn(extra ...string) []string {
-	return append([]string{"--set", "placement.enabled=true",
+	return append([]string{
+		"--set", "placement.enabled=true",
 		"--set-json", "nats.podTemplate.merge.spec.affinity=" + cpAffinity,
-		"--set-json", "nats.natsBox.podTemplate.merge.spec.affinity=" + workersAffinity}, extra...)
+		"--set-json", "nats.natsBox.podTemplate.merge.spec.affinity=" + workersAffinity,
+	}, extra...)
 }
 
 // renderErr is RenderChart for a render that may fail: its stderr, and

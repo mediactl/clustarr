@@ -147,8 +147,10 @@ func TestAMultiEpisodeFileWakesEveryEpisode(t *testing.T) {
 		if err := remediation.RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 			return err
 		}
-		loop := &remediation.Env{Reader: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Bus: bus,
-			IO: remediation.NewIOExecutor(2), Pacer: records.NewPacer(records.DefaultRates(), time.Now)}
+		loop := &remediation.Env{
+			Reader: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Bus: bus,
+			IO: remediation.NewIOExecutor(2), Pacer: records.NewPacer(records.DefaultRates(), time.Now),
+		}
 		r, err := remediation.NewReconciler(mgr.GetClient(), loop, nil, remediation.Config{Concurrency: 2}, []remediation.Bound{remediation.Bind[int](probe)})
 		if err != nil {
 			return err

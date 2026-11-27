@@ -198,8 +198,8 @@ func TestRemoveAndKeepSurvivesALibraryRescan(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(1), p.FilesSeen, "the walk must reach the kept file")
 		// The LibraryScan controller adds the applier's tally to the walk's.
-		switch entry, err := bus.KV(events.BucketProgress).Get(ctx, scanprogress.AppliedKey(string(scan.UID))); {
-		case err == nil:
+		switch entry, err := bus.KV(events.BucketProgress).Get(ctx, scanprogress.AppliedKey(string(scan.UID))); err {
+		case nil:
 			applied, err := scanprogress.DecodeProgress(entry.Value)
 			require.NoError(t, err)
 			p = p.Merge(applied)

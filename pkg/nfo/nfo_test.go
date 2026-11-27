@@ -129,7 +129,7 @@ func TestDatesAreReadInUTC(t *testing.T) {
 	loc, err := time.LoadLocation("America/Chicago")
 	require.NoError(t, err)
 	al := album()
-	al.Status.Metadata.ReleaseDate = ptrTime(newYear.Time.In(loc))
+	al.Status.Metadata.ReleaseDate = ptrTime(newYear.In(loc))
 	al.Status.Metadata.Releases = nil
 	doc := string(nfo.Album(al, nil, ""))
 	assert.Contains(t, doc, "<year>2004</year>")

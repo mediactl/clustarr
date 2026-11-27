@@ -77,40 +77,52 @@ func ownerKinds() []ownerKind {
 	rec := func() *k8sevents.FakeRecorder { return k8sevents.NewFakeRecorder(1024) }
 	return []ownerKind{
 		{remediation.KindMovie, func(ns, name string) client.Object {
-			return &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-				Spec: catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd", RootFolderRef: "movies"}}
+			return &catalogv1alpha1.Movie{
+				ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+				Spec:       catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd", RootFolderRef: "movies"},
+			}
 		}, func(c client.Client, s *runtime.Scheme, bus *fullQueueBus) rollup.Item {
 			return &movie.Reconciler{Client: c, Scheme: s, Recorder: rec(), Bus: bus}
 		}},
 		{remediation.KindSeries, func(ns, name string) client.Object {
-			return &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-				Spec: catalogv1alpha1.SeriesSpec{TvdbID: 81189, QualityProfileRef: "hd", RootFolderRef: "tv"}}
+			return &catalogv1alpha1.Series{
+				ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+				Spec:       catalogv1alpha1.SeriesSpec{TvdbID: 81189, QualityProfileRef: "hd", RootFolderRef: "tv"},
+			}
 		}, func(c client.Client, s *runtime.Scheme, bus *fullQueueBus) rollup.Item {
 			return &series.Reconciler{Client: c, Scheme: s, Recorder: rec(), Bus: bus}
 		}},
 		{remediation.KindAlbum, func(ns, name string) client.Object {
-			return &catalogv1alpha1.Album{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-				Spec: catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "b1392450-e666-3926-a536-22c65f834433"}}
+			return &catalogv1alpha1.Album{
+				ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+				Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "b1392450-e666-3926-a536-22c65f834433"},
+			}
 		}, func(c client.Client, s *runtime.Scheme, bus *fullQueueBus) rollup.Item {
 			return &album.Reconciler{Client: c, Scheme: s, Recorder: rec(), Bus: bus, Releases: album.NewReleaseCache(album.DefaultReleaseCacheSize)}
 		}},
 		{remediation.KindBook, func(ns, name string) client.Object {
 			// A standalone Book names its profile and root (2026-11-10
 			// design §4.5); as the other kinds' refs, neither exists.
-			return &catalogv1alpha1.Book{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-				Spec: catalogv1alpha1.BookSpec{WorkID: "OL45883W", QualityProfileRef: new("ebook"), RootFolderRef: new("books")}}
+			return &catalogv1alpha1.Book{
+				ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+				Spec:       catalogv1alpha1.BookSpec{WorkID: "OL45883W", QualityProfileRef: new("ebook"), RootFolderRef: new("books")},
+			}
 		}, func(c client.Client, s *runtime.Scheme, bus *fullQueueBus) rollup.Item {
 			return &book.Reconciler{Client: c, Scheme: s, Recorder: rec(), Bus: bus}
 		}},
 		{remediation.KindAudiobook, func(ns, name string) client.Object {
-			return &catalogv1alpha1.Audiobook{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-				Spec: catalogv1alpha1.AudiobookSpec{ASIN: "B002V0QK4C", QualityProfileRef: "audio", RootFolderRef: "audiobooks"}}
+			return &catalogv1alpha1.Audiobook{
+				ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+				Spec:       catalogv1alpha1.AudiobookSpec{ASIN: "B002V0QK4C", QualityProfileRef: "audio", RootFolderRef: "audiobooks"},
+			}
 		}, func(c client.Client, s *runtime.Scheme, bus *fullQueueBus) rollup.Item {
 			return &audiobook.Reconciler{Client: c, Scheme: s, Recorder: rec(), Bus: bus}
 		}},
 		{remediation.KindComic, func(ns, name string) client.Object {
-			return &catalogv1alpha1.Comic{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-				Spec: catalogv1alpha1.ComicSpec{Source: catalogv1alpha1.ComicSourceComicVine, SourceID: "4050-18166", QualityProfileRef: "comics", RootFolderRef: "comics"}}
+			return &catalogv1alpha1.Comic{
+				ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+				Spec:       catalogv1alpha1.ComicSpec{Source: catalogv1alpha1.ComicSourceComicVine, SourceID: "4050-18166", QualityProfileRef: "comics", RootFolderRef: "comics"},
+			}
 		}, func(c client.Client, s *runtime.Scheme, bus *fullQueueBus) rollup.Item {
 			return &comic.Reconciler{Client: c, Scheme: s, Recorder: rec(), Bus: bus}
 		}},

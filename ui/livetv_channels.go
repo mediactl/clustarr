@@ -258,7 +258,7 @@ func (s *Server) answerInPlace(w http.ResponseWriter, r *http.Request, err error
 // posts the category override there instead).
 func (s *Server) handleEditChannel(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.answerInPlace(w, r, fmt.Errorf("%w: %v", actions.ErrInvalid, err))
+		s.answerInPlace(w, r, fmt.Errorf("%w: %w", actions.ErrInvalid, err))
 		return
 	}
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
@@ -524,8 +524,10 @@ func (s *Server) playlistPane(ctx context.Context, in projection.LiveTVInputs, q
 		if !candidate && !pane.All {
 			continue
 		}
-		pe := views.PlaylistPaneEntry{ID: paneEntryID(e.Key), Key: e.Key, Name: e.Name, Group: e.Group, TvgID: e.TvgID,
-			Provider: pane.Provider, Number: numbers[e.Key], Candidate: candidate}
+		pe := views.PlaylistPaneEntry{
+			ID: paneEntryID(e.Key), Key: e.Key, Name: e.Name, Group: e.Group, TvgID: e.TvgID,
+			Provider: pane.Provider, Number: numbers[e.Key], Candidate: candidate,
+		}
 		marks.mark(&pe)
 		if e.Logo != "" {
 			pe.LogoPath = projection.LogoPath(key, e.Logo)
@@ -554,8 +556,10 @@ func (s *Server) planMarks(ctx context.Context, p *clustarrv1.IPTVProvider) plan
 	if lp == nil {
 		return planMarks{}
 	}
-	m := planMarks{category: make(map[string]string, len(lp.Channels)), name: make(map[string]string, len(lp.Channels)),
-		dropped: make(map[string]lineup.Dropped, len(lp.Dropped))}
+	m := planMarks{
+		category: make(map[string]string, len(lp.Channels)), name: make(map[string]string, len(lp.Channels)),
+		dropped: make(map[string]lineup.Dropped, len(lp.Dropped)),
+	}
 	for _, a := range lp.Channels {
 		m.category[a.Key], m.name[a.Key] = a.Category, a.Name
 	}
@@ -610,7 +614,7 @@ func nextChannelNumber(in projection.LiveTVInputs, p *clustarrv1.IPTVProvider) s
 // number, answering the pane's row naming it.
 func (s *Server) handleAddChannel(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.answerInPlace(w, r, fmt.Errorf("%w: %v", actions.ErrInvalid, err))
+		s.answerInPlace(w, r, fmt.Errorf("%w: %w", actions.ErrInvalid, err))
 		return
 	}
 	in := s.liveTVInputs(r.Context())

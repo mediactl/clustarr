@@ -308,7 +308,7 @@ func TestAPackAndTheProfilesProtocolWinOverAHigherScore(t *testing.T) {
 		cands := seasonCandidates(t, 1, 7, pack720, other)
 		for i := range cands {
 			if cands[i].Release.Decision.Title == pack720 {
-				cands[i].Release.Decision.ReleaseInfo.Protocol = commonv1.ProtocolUsenet
+				cands[i].Release.Decision.Protocol = commonv1.ProtocolUsenet
 			} else {
 				cands[i].Release.Score = 500
 			}

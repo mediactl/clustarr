@@ -118,8 +118,8 @@ func TestATombstoneRejectsACandidateFromBeforeTheBlock(t *testing.T) {
 
 	t.Run("by info hash from another indexer", func(t *testing.T) {
 		mirror := blocked
-		mirror.Release.Decision.ReleaseInfo.GUID = "another-indexers-guid"
-		mirror.Release.Decision.ReleaseInfo.IndexerRef = "another-indexer"
+		mirror.Release.Decision.GUID = "another-indexers-guid"
+		mirror.Release.Decision.IndexerRef = "another-indexer"
 		mirror.Source.IndexerDownload = &commonv1.IndexerDownload{IndexerRef: "another-indexer", GUID: "another-indexers-guid"}
 		v := v
 		v.Candidates = []grabplan.Candidate{mirror}
@@ -518,8 +518,8 @@ func TestTheQuarantineTombstoneRefusesAutomaticGrabsButNotAnOverride(t *testing.
 func TestTheSmallestIsGrabbedUnderASmallestFirstProfile(t *testing.T) {
 	big := movieCandidate(t, "Heat.1995.1080p.BluRay.x265-BIG")
 	small := movieCandidate(t, "Heat.1995.1080p.WEB-DL.x265-SMALL")
-	big.Release.Decision.ReleaseInfo.SizeBytes = 14_000_000_000
-	small.Release.Decision.ReleaseInfo.SizeBytes = 3_000_000_000
+	big.Release.Decision.SizeBytes = 14_000_000_000
+	small.Release.Decision.SizeBytes = 3_000_000_000
 	big.Release.Score, small.Release.Score = 100, 100
 	v := movieView(t, nil, big, small)
 	v.Profile.Tiers = [][]quality.Definition{append(append([]quality.Definition{}, v.Profile.Tiers[0]...), v.Profile.Tiers[1]...)}

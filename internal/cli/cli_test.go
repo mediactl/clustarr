@@ -54,8 +54,10 @@ func TestRootBindsTheObservabilityFlagsOnce(t *testing.T) {
 	root, lo, to := cli.NewRoot("manager", "short", "long")
 	require.NotNil(t, lo)
 	require.NotNil(t, to)
-	for _, name := range []string{"log-level", "log-format", "log-add-source",
-		"tracing-enabled", "tracing-endpoint", "tracing-insecure", "tracing-sample-ratio"} {
+	for _, name := range []string{
+		"log-level", "log-format", "log-add-source",
+		"tracing-enabled", "tracing-endpoint", "tracing-insecure", "tracing-sample-ratio",
+	} {
 		assert.NotNil(t, root.PersistentFlags().Lookup(name), name)
 		assert.Nil(t, root.LocalNonPersistentFlags().Lookup(name), "%s is bound once, on PersistentFlags", name)
 	}
@@ -81,10 +83,14 @@ func TestEnvBoolOr(t *testing.T) {
 		fallback bool
 		want     bool
 	}{
-		{"", true, true}, {"", false, false},
-		{"false", true, false}, {"0", true, false},
-		{"true", false, true}, {"1", false, true},
-		{"nonsense", true, true}, {"nonsense", false, false},
+		{"", true, true},
+		{"", false, false},
+		{"false", true, false},
+		{"0", true, false},
+		{"true", false, true},
+		{"1", false, true},
+		{"nonsense", true, true},
+		{"nonsense", false, false},
 	} {
 		t.Setenv("CLUSTARR_TEST_ENV_BOOL", tc.value)
 		assert.Equal(t, tc.want, cli.EnvBoolOr("CLUSTARR_TEST_ENV_BOOL", tc.fallback), "%q fallback %v", tc.value, tc.fallback)

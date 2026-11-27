@@ -153,11 +153,15 @@ func TestNamingReportsWhyItCannotRender(t *testing.T) {
 		answer   schema.ProbeRecord
 		want     catalogv1alpha1.NamingReason
 	}{
-		{name: "a file never probed", movie: "inception", metadata: true,
-			answer: schema.ProbeRecord{RecordHeader: schema.RecordHeader{State: schema.ProbeFailed, Failure: "Invalid data found when processing input"}}},
-		{name: "an item without metadata", movie: "memento",
+		{
+			name: "a file never probed", movie: "inception", metadata: true,
+			answer: schema.ProbeRecord{RecordHeader: schema.RecordHeader{State: schema.ProbeFailed, Failure: "Invalid data found when processing input"}},
+		},
+		{
+			name: "an item without metadata", movie: "memento",
 			answer: schema.ProbeRecord{RecordHeader: schema.RecordHeader{State: schema.ProbeProbed}, MediaInfo: fakeMediaInfo()},
-			want:   catalogv1alpha1.NamingReasonMetadataPending},
+			want:   catalogv1alpha1.NamingReasonMetadataPending,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mfName := tc.movie + "-abc1234567"
@@ -313,8 +317,10 @@ func TestNamingHoldsWhileATranscodeRuns(t *testing.T) {
 
 	at := metav1.NewTime(clk.Now())
 	setStatus(t, f, func(s *catalogv1alpha1.MediaFileStatus) {
-		s.Transcode = &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseRunning, Profile: "hevc-main10",
-			ProfileHash: "profile-hash-def", StartedAt: &at}
+		s.Transcode = &catalogv1alpha1.TranscodeState{
+			Phase: catalogv1alpha1.TranscodePhaseRunning, Profile: "hevc-main10",
+			ProfileHash: "profile-hash-def", StartedAt: &at,
+		}
 	})
 	clk.Add(31 * time.Second)
 	reconcileOnce(t, r, f.key)

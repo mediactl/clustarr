@@ -38,8 +38,10 @@ func TestTheStageAppliesToTheFourNFOKinds(t *testing.T) {
 		assert.True(t, s.Applies(k), k)
 		assert.Equal(t, []k8s.FieldManager{k8s.ManagerCatalogNFO}, s.DeclaresSets(k), k)
 	}
-	for _, k := range []remediation.KeyKind{remediation.KindMovie, remediation.KindSeries, remediation.KindEpisode,
-		remediation.KindBook, remediation.KindComic, remediation.KindIssue, remediation.KindMediaFile} {
+	for _, k := range []remediation.KeyKind{
+		remediation.KindMovie, remediation.KindSeries, remediation.KindEpisode,
+		remediation.KindBook, remediation.KindComic, remediation.KindIssue, remediation.KindMediaFile,
+	} {
 		assert.False(t, s.Applies(k), k)
 		assert.Nil(t, s.DeclaresSets(k), k)
 	}

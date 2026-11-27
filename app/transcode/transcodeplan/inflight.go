@@ -119,8 +119,10 @@ func planInFlight(in Inputs) Decision {
 			if rec.ClaimedAt != nil {
 				b.StartedAt = &metav1.Time{Time: *rec.ClaimedAt}
 			}
-			d.Events = []Event{{Type: "Normal", Reason: ReasonReclaimed,
-				Message: fmt.Sprintf("attempt %d was claimed again by %s after %s", seq, w, was)}}
+			d.Events = []Event{{
+				Type: "Normal", Reason: ReasonReclaimed,
+				Message: fmt.Sprintf("attempt %d was claimed again by %s after %s", seq, w, was),
+			}}
 			d.Unpaced = true
 		}
 		return running(in, b, d)

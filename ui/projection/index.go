@@ -623,7 +623,7 @@ func compareDates(a, b *metav1.Time) int {
 	case b == nil:
 		return -1
 	}
-	return a.Time.Compare(b.Time)
+	return a.Compare(b.Time)
 }
 
 func albumReleaseDate(a *catalogv1.Album) *metav1.Time {

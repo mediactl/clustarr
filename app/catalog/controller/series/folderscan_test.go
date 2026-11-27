@@ -88,8 +88,10 @@ func folderScanFixture(t *testing.T, s *catalogv1alpha1.Series, objs ...client.O
 		{SeasonNumber: 1, EpisodeNumber: 2, AirDate: &air},
 	}}
 	folders := &countingFolders{folder: "/data/media/tv/" + scannedFolder, holds: true}
-	r := &series.Reconciler{Client: c, Scheme: c.Scheme(), Bus: combinedBus{Publisher: &subjectRecorder{}, requester: rpc},
-		Folders: folders}
+	r := &series.Reconciler{
+		Client: c, Scheme: c.Scheme(), Bus: combinedBus{Publisher: &subjectRecorder{}, requester: rpc},
+		Folders: folders,
+	}
 	return c, r, folders
 }
 
@@ -169,8 +171,10 @@ func TestASeriesWithEpisodesAlreadyRecordedScansNothing(t *testing.T) {
 	})
 	ep := func(n int32) client.Object {
 		return &catalogv1alpha1.Episode{
-			ObjectMeta: metav1.ObjectMeta{Namespace: ns,
-				Name: series.EpisodeName(s.Name, catalogv1alpha1.SeriesTypeStandard, 1, n, nil)},
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: ns,
+				Name:      series.EpisodeName(s.Name, catalogv1alpha1.SeriesTypeStandard, 1, n, nil),
+			},
 			Spec: catalogv1alpha1.EpisodeSpec{SeriesRef: s.Name, SeasonNumber: 1, EpisodeNumber: n},
 		}
 	}

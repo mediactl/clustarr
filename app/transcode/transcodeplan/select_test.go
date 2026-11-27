@@ -509,8 +509,10 @@ func TestATaggedHEVCOverTheLimitIsEligibleUnlessClustarrEncodedIt(t *testing.T) 
 		return f
 	}
 	recorded := func(action string) *catalogv1alpha1.TranscodeState {
-		return &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@old",
-			Plan: &catalogv1alpha1.TranscodePlan{VideoAction: action}}
+		return &catalogv1alpha1.TranscodeState{
+			Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@old",
+			Plan: &catalogv1alpha1.TranscodePlan{VideoAction: action},
+		}
 	}
 	for _, tc := range []struct {
 		name     string
@@ -550,8 +552,10 @@ func TestClustarrsRemuxOfATenBitReleaseIsEligibleOnce(t *testing.T) {
 		return f
 	}
 	recorded := func(action string) *catalogv1alpha1.TranscodeState {
-		return &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@old",
-			Plan: &catalogv1alpha1.TranscodePlan{VideoAction: action}}
+		return &catalogv1alpha1.TranscodeState{
+			Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@old",
+			Plan: &catalogv1alpha1.TranscodePlan{VideoAction: action},
+		}
 	}
 	const ten, eight = "yuv420p10le", "yuv420p"
 	for _, tc := range []struct {

@@ -139,7 +139,7 @@ func (r Rule) equalFold(a, b string) bool {
 	if isASCII(a) && isASCII(b) {
 		return len(a) == len(b) && strings.EqualFold(a, b)
 	}
-	return strings.ToLower(a) == strings.ToLower(b)
+	return strings.EqualFold(a, b)
 }
 
 func isASCII(s string) bool {

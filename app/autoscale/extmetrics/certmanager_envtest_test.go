@@ -50,8 +50,10 @@ func TestCAInjectorOwnsOnlyCABundle(t *testing.T) {
 	ctx := context.Background()
 	namespace := createNamespace(t, c, "extmetrics-ca")
 	rec := k8sevents.NewFakeRecorder(10)
-	m := &extmetrics.CertManager{Client: c, Reader: c, Recorder: rec, Namespace: namespace,
-		ServiceName: "external-metrics", SecretName: "external-metrics-tls"}
+	m := &extmetrics.CertManager{
+		Client: c, Reader: c, Recorder: rec, Namespace: namespace,
+		ServiceName: "external-metrics", SecretName: "external-metrics-tls",
+	}
 
 	t.Run("an installer-shaped APIService", func(t *testing.T) {
 		require.NoError(t, c.Create(ctx, installerAPIService(namespace, "external-metrics"), client.FieldOwner("helm")))

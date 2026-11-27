@@ -34,7 +34,9 @@ import (
 func newGame() Identity {
 	id := Identity{SceneSeasonNames: []SceneSeasonName{
 		{Title: "New Game!", Season: 1},
-		{Title: "New Game!!", Season: 2}, {Title: "New Game! S2", Season: 2}, {Title: "New Game!! S2", Season: 2},
+		{Title: "New Game!!", Season: 2},
+		{Title: "New Game! S2", Season: 2},
+		{Title: "New Game!! S2", Season: 2},
 	}}
 	for s := 1; s <= 2; s++ {
 		for n := 1; n <= 12; n++ {
@@ -79,7 +81,9 @@ func TestSceneNamesTwoSeasonsShareAreToldApartBySpelling(t *testing.T) {
 // name none.
 func TestNamedSeason(t *testing.T) {
 	id := Identity{SceneSeasonNames: []SceneSeasonName{
-		{Title: "Date A Live S2", Season: 2}, {Title: "Date A Live II", Season: 2}, {Title: "Date a Live IV", Season: 4},
+		{Title: "Date A Live S2", Season: 2},
+		{Title: "Date A Live II", Season: 2},
+		{Title: "Date a Live IV", Season: 4},
 		{Title: "Shingeki no Bahamut: Genesis", Season: 1},
 	}}
 	for title, want := range map[string]int{

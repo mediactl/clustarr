@@ -29,8 +29,12 @@ import (
 // empty group left out.
 func TestAlbumGroupsAreInLidarrsOrder(t *testing.T) {
 	rows := []AlbumRow{
-		{Name: "s1", Type: "single"}, {Name: "a1", Type: "album"}, {Name: "o1", Type: "mixtape"},
-		{Name: "e1", Type: "ep", HasFile: true}, {Name: "a2", Type: "Album", HasFile: true}, {Name: "u1"},
+		{Name: "s1", Type: "single"},
+		{Name: "a1", Type: "album"},
+		{Name: "o1", Type: "mixtape"},
+		{Name: "e1", Type: "ep", HasFile: true},
+		{Name: "a2", Type: "Album", HasFile: true},
+		{Name: "u1"},
 	}
 	groups := AlbumGroups(rows)
 	keys := make([]string, 0, len(groups))
@@ -85,5 +89,5 @@ func TestAlbumStatusLabelAndPanelRoutes(t *testing.T) {
 		ArtistTitle: "Pink Floyd",
 	}
 	assert.Equal(t, "Interactive Search - Pink Floyd - Wish You Were Here", p.Heading())
-	assert.Equal(t, "/searches/default/wish-abc12", p.SearchPanel.URL(), "the shared panel's page is still the Search's")
+	assert.Equal(t, "/searches/default/wish-abc12", p.URL(), "the shared panel's page is still the Search's")
 }

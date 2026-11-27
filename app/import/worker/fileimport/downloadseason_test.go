@@ -100,8 +100,10 @@ func inspectedByHandAs(
 	}
 	series := &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: "show", Namespace: "media", UID: "show-uid"},
-		Spec: catalogv1alpha1.SeriesSpec{TvdbID: 1, QualityProfileRef: qp.Name, RootFolderRef: rf.Name,
-			SeriesType: catalogv1alpha1.SeriesTypeAnime},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 1, QualityProfileRef: qp.Name, RootFolderRef: rf.Name,
+			SeriesType: catalogv1alpha1.SeriesTypeAnime,
+		},
 		Status: catalogv1alpha1.SeriesStatus{Metadata: &catalogv1alpha1.SeriesMetadata{
 			Title: "Show", Year: 2024, OriginalLanguage: "ja",
 		}},

@@ -63,8 +63,10 @@ func TestAManualImportTakesAnUnparsableFileForTheNamedEpisode(t *testing.T) {
 	}
 	series := &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: "got", Namespace: "media", UID: "got-uid"},
-		Spec: catalogv1alpha1.SeriesSpec{TvdbID: 121361, QualityProfileRef: qp.Name, RootFolderRef: rf.Name,
-			SeriesType: catalogv1alpha1.SeriesTypeStandard},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 121361, QualityProfileRef: qp.Name, RootFolderRef: rf.Name,
+			SeriesType: catalogv1alpha1.SeriesTypeStandard,
+		},
 		Status: catalogv1alpha1.SeriesStatus{Metadata: &catalogv1alpha1.SeriesMetadata{
 			Title: "Game of Thrones", Year: 2011, OriginalLanguage: "en",
 		}},

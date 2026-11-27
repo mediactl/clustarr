@@ -48,8 +48,10 @@ import (
 var tvKey = types.NamespacedName{Namespace: "media", Name: "argon-tv"}
 
 func tvChannel(name, key, number string, active bool, reason, guide string) *clustarrv1.IPTVChannel {
-	c := &clustarrv1.IPTVChannel{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name, Generation: 1},
-		Spec: clustarrv1.IPTVChannelSpec{ProviderRef: "argon-tv", Key: key, Number: number, Active: active}}
+	c := &clustarrv1.IPTVChannel{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name, Generation: 1},
+		Spec:       clustarrv1.IPTVChannelSpec{ProviderRef: "argon-tv", Key: key, Number: number, Active: active},
+	}
 	status := metav1.ConditionFalse
 	if reason == clustarrv1.ReasonActive {
 		status = metav1.ConditionTrue
@@ -92,13 +94,18 @@ func channelsFixture(t *testing.T) (*ui.Server, client.Client) {
 		{Key: "n:hbo", Name: "HBO", Group: "USA: MOVIES", URL: "http://provider.example/live/{username}/{password}/3.ts"},
 	}}
 	for i := range 117 {
-		pl.Entries = append(pl.Entries, livetvstore.PlaylistEntry{Key: fmt.Sprintf("n:c%03d", i), Name: fmt.Sprintf("Channel %03d", i), Group: "USA: ENTERTAINMENT",
-			URL: "http://provider.example/live/{username}/{password}/x.ts"})
+		pl.Entries = append(pl.Entries, livetvstore.PlaylistEntry{
+			Key: fmt.Sprintf("n:c%03d", i), Name: fmt.Sprintf("Channel %03d", i), Group: "USA: ENTERTAINMENT",
+			URL: "http://provider.example/live/{username}/{password}/x.ts",
+		})
 	}
 	putObject(t, store, livetvstore.PlaylistObject(tvKey), pl)
 	gc := []livetvstore.GuideChannel{
-		{ID: "US-ESPN", DisplayName: "ESPN"}, {ID: "US-ESPN2", DisplayName: "ESPN 2"}, {ID: "US-ESPNEWS", DisplayName: "ESPNews"},
-		{ID: "US-FOXESPN", DisplayName: "Fox ESPN Deportes"}, {ID: "US-CNN", DisplayName: "CNN"},
+		{ID: "US-ESPN", DisplayName: "ESPN"},
+		{ID: "US-ESPN2", DisplayName: "ESPN 2"},
+		{ID: "US-ESPNEWS", DisplayName: "ESPNews"},
+		{ID: "US-FOXESPN", DisplayName: "Fox ESPN Deportes"},
+		{ID: "US-CNN", DisplayName: "CNN"},
 	}
 	for i := range 8 {
 		gc = append(gc, livetvstore.GuideChannel{ID: fmt.Sprintf("US-X%d", i), DisplayName: fmt.Sprintf("Other %d", i)})

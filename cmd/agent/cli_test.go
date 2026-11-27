@@ -133,7 +133,7 @@ func TestAgentManagersNeverElect(t *testing.T) {
 	}
 	o, err := parse(t, "--domain=index")
 	require.NoError(t, err)
-	opts := o.Options.AgentManagerOptions()
+	opts := o.AgentManagerOptions()
 	assert.False(t, opts.LeaderElection)
 	require.NotNil(t, opts.Controller.NeedLeaderElection)
 	assert.False(t, *opts.Controller.NeedLeaderElection, "an agent's controllers are declared non-leader")
@@ -142,8 +142,10 @@ func TestAgentManagersNeverElect(t *testing.T) {
 // TestRetiredFlagsAreGone: the per-service binaries' role, image and claim
 // flags belong to no agent (the manager renders the engines' pods).
 func TestRetiredFlagsAreGone(t *testing.T) {
-	for _, flag := range []string{"--role=worker", "--cardigann-bundled=false", "--engine-image=x",
-		"--data-claim=x", "--engine-service-account=x", "--data-path=/data"} {
+	for _, flag := range []string{
+		"--role=worker", "--cardigann-bundled=false", "--engine-image=x",
+		"--data-claim=x", "--engine-service-account=x", "--data-path=/data",
+	} {
 		_, err := parse(t, "--domain=import", flag)
 		assert.ErrorContains(t, err, "unknown flag", flag)
 	}

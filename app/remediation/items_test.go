@@ -77,36 +77,63 @@ func TestItemWakeKeys(t *testing.T) {
 		want     []Key
 	}{
 		{"a spec change", heatFile(1, nil, none), heatFile(2, nil, none), heat},
-		{"the Transcoded verdict", heatFile(1, nil, none),
-			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{TranscodeProfile: "hevc@abc"}}), heat},
-		{"the probed audio languages", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{
-			Audio: []commonv1.AudioStream{{Language: "eng"}}}}),
+		{
+			"the Transcoded verdict", heatFile(1, nil, none),
+			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{TranscodeProfile: "hevc@abc"}}), heat,
+		},
+		{
+			"the probed audio languages", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{
+				Audio: []commonv1.AudioStream{{Language: "eng"}},
+			}}),
 			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{
-				Audio: []commonv1.AudioStream{{Language: "eng"}, {Language: "jpn"}}}}), heat},
+				Audio: []commonv1.AudioStream{{Language: "eng"}, {Language: "jpn"}},
+			}}), heat,
+		},
 		{"probed at all", heatFile(1, nil, none), heatFile(1, nil, catalogv1alpha1.MediaFileStatus{ProbeHash: "p1"}), heat},
-		{"a new probe hash alone", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{ProbeHash: "p1"}),
-			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{ProbeHash: "p2"}), nil},
-		{"Ready", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{Conditions: readyIs(metav1.ConditionTrue)}),
-			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{Conditions: readyIs(metav1.ConditionFalse)}), heat},
-		{"the transcode phase", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{
-			Transcode: &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseQueued}}),
+		{
+			"a new probe hash alone", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{ProbeHash: "p1"}),
+			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{ProbeHash: "p2"}), nil,
+		},
+		{
+			"Ready", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{Conditions: readyIs(metav1.ConditionTrue)}),
+			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{Conditions: readyIs(metav1.ConditionFalse)}), heat,
+		},
+		{
+			"the transcode phase", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{
+				Transcode: &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseQueued},
+			}),
 			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{
-				Transcode: &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseRunning}}), heat},
-		{"the graft phase", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{
-			Graft: &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseWaiting}}),
+				Transcode: &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseRunning},
+			}), heat,
+		},
+		{
+			"the graft phase", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{
+				Graft: &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseWaiting},
+			}),
 			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{
-				Graft: &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseRunning}}), heat},
-		{"the graft block's tag", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{
-			Graft: &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseSucceeded}}),
+				Graft: &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseRunning},
+			}), heat,
+		},
+		{
+			"the graft block's tag", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{
+				Graft: &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseSucceeded},
+			}),
 			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{
-				Graft: &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseSucceeded, Tag: "graft@1"}}), heat},
+				Graft: &catalogv1alpha1.GraftState{Phase: catalogv1alpha1.GraftPhaseSucceeded, Tag: "graft@1"},
+			}), heat,
+		},
 		{"the flat graftTag", heatFile(1, nil, none), heatFile(1, nil, catalogv1alpha1.MediaFileStatus{GraftTag: "graft@1"}), heat},
-		{"probe metadata outside the rollups", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{ProbeVersion: 1}),
-			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{ProbeVersion: 2}), nil},
-		{"the loop's own sequence", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{LastSeq: 1}),
-			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{LastSeq: 2}), nil},
+		{
+			"probe metadata outside the rollups", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{ProbeVersion: 1}),
+			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{ProbeVersion: 2}), nil,
+		},
+		{
+			"the loop's own sequence", heatFile(1, nil, catalogv1alpha1.MediaFileStatus{LastSeq: 1}),
+			heatFile(1, nil, catalogv1alpha1.MediaFileStatus{LastSeq: 2}), nil,
+		},
 		{"naming", heatFile(1, nil, none), heatFile(1, nil, catalogv1alpha1.MediaFileStatus{
-			Naming: &catalogv1alpha1.NamingStatus{ExpectedPath: "/x.mkv"}}), nil},
+			Naming: &catalogv1alpha1.NamingStatus{ExpectedPath: "/x.mkv"},
+		}), nil},
 		{"a label", heatFile(1, nil, none), heatFile(1, map[string]string{"tier": "hd"}, none), nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -313,8 +340,10 @@ func TestS24WakesOnlyTheCoveredEpisodes(t *testing.T) {
 	require.NoError(t, series.RegisterIndexes(context.Background(), indexBuilder{b}))
 	require.NoError(t, comic.RegisterIndexes(context.Background(), indexBuilder{b}))
 	issue := func(name, comicRef, number string) *catalogv1alpha1.Issue {
-		return &catalogv1alpha1.Issue{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name},
-			Spec: catalogv1alpha1.IssueSpec{ComicRef: comicRef, Number: number}}
+		return &catalogv1alpha1.Issue{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name},
+			Spec:       catalogv1alpha1.IssueSpec{ComicRef: comicRef, Number: number},
+		}
 	}
 	c := b.WithObjects(
 		episodeOf("show-s01e01", "show", 1, 1), episodeOf("show-s01e02", "show", 1, 2), episodeOf("show-s01e03", "show", 1, 3),

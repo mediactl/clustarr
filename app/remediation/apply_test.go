@@ -99,10 +99,12 @@ func fullStatus(t *testing.T) *catalogv1alpha1.MediaFileStatus {
 	fill(reflect.ValueOf(s).Elem(), 2)
 	now := metav1.Now()
 	s.Conditions = nil
-	for _, typ := range []string{"Probed", "Ready", "NamingCurrent", "DeadLettered",
+	for _, typ := range []string{
+		"Probed", "Ready", "NamingCurrent", "DeadLettered",
 		catalogv1alpha1.MediaFileConditionProbePlannerError, catalogv1alpha1.MediaFileConditionNamingPlannerError,
 		catalogv1alpha1.MediaFileConditionTranscodePlannerError, catalogv1alpha1.MediaFileConditionGraftPlannerError,
-		catalogv1alpha1.MediaFileConditionSubtitlesPlannerError, catalogv1alpha1.MediaFileConditionMarkersPlannerError} {
+		catalogv1alpha1.MediaFileConditionSubtitlesPlannerError, catalogv1alpha1.MediaFileConditionMarkersPlannerError,
+	} {
 		s.Conditions = append(s.Conditions, metav1.Condition{Type: typ, Status: metav1.ConditionTrue, Reason: "R", Message: typ, LastTransitionTime: now})
 	}
 	return s

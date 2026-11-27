@@ -39,14 +39,22 @@ import (
 // hold is still not found, as is a name no object carries.
 func TestNonVideoPagesWaitForAnItemAddNewJustCreated(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(
-		&catalogv1.Comic{ObjectMeta: metav1.ObjectMeta{Name: "new-comic", Namespace: "default"},
-			Spec: catalogv1.ComicSpec{Source: catalogv1.ComicSourceComicVine, SourceID: "4050-1", Kind: catalogv1.ComicKindComic}},
-		&catalogv1.Audiobook{ObjectMeta: metav1.ObjectMeta{Name: "new-ab", Namespace: "default"},
-			Spec: catalogv1.AudiobookSpec{ASIN: "B000000001"}},
-		&catalogv1.Book{ObjectMeta: metav1.ObjectMeta{Name: "new-book", Namespace: "default"},
-			Spec: catalogv1.BookSpec{WorkID: "OL1W"}},
-		&catalogv1.Book{ObjectMeta: metav1.ObjectMeta{Name: "orphan", Namespace: "default"},
-			Spec: catalogv1.BookSpec{WorkID: "OL2W", AuthorRef: new("nobody")}},
+		&catalogv1.Comic{
+			ObjectMeta: metav1.ObjectMeta{Name: "new-comic", Namespace: "default"},
+			Spec:       catalogv1.ComicSpec{Source: catalogv1.ComicSourceComicVine, SourceID: "4050-1", Kind: catalogv1.ComicKindComic},
+		},
+		&catalogv1.Audiobook{
+			ObjectMeta: metav1.ObjectMeta{Name: "new-ab", Namespace: "default"},
+			Spec:       catalogv1.AudiobookSpec{ASIN: "B000000001"},
+		},
+		&catalogv1.Book{
+			ObjectMeta: metav1.ObjectMeta{Name: "new-book", Namespace: "default"},
+			Spec:       catalogv1.BookSpec{WorkID: "OL1W"},
+		},
+		&catalogv1.Book{
+			ObjectMeta: metav1.ObjectMeta{Name: "orphan", Namespace: "default"},
+			Spec:       catalogv1.BookSpec{WorkID: "OL2W", AuthorRef: new("nobody")},
+		},
 	).Build()
 	srv := ui.NewServer(t.Context(), ui.Options{
 		Reader:  c,

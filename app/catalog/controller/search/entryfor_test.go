@@ -52,17 +52,27 @@ func TestAPicksOwnBlocklistedGrabIsItsGrab(t *testing.T) {
 		owner *catalogv1alpha1.Movie
 		want  string
 	}{
-		{"the pick's grab, blocklisted in the second it was grabbed",
-			movie(entry("own", "gone", commonv1.DownloadPhaseBlocklisted, created)), "own"},
-		{"the pick's grab, blocklisted later",
-			movie(entry("own", "gone", commonv1.DownloadPhaseBlocklisted, created.Add(time.Minute))), "own"},
-		{"a tombstone from before the Search is no grab of the pick",
-			movie(entry("tomb", "gone", commonv1.DownloadPhaseBlocklisted, created.Add(-time.Hour))), ""},
-		{"past a tombstone, the override's own grab",
+		{
+			"the pick's grab, blocklisted in the second it was grabbed",
+			movie(entry("own", "gone", commonv1.DownloadPhaseBlocklisted, created)), "own",
+		},
+		{
+			"the pick's grab, blocklisted later",
+			movie(entry("own", "gone", commonv1.DownloadPhaseBlocklisted, created.Add(time.Minute))), "own",
+		},
+		{
+			"a tombstone from before the Search is no grab of the pick",
+			movie(entry("tomb", "gone", commonv1.DownloadPhaseBlocklisted, created.Add(-time.Hour))), "",
+		},
+		{
+			"past a tombstone, the override's own grab",
 			movie(entry("tomb", "gone", commonv1.DownloadPhaseBlocklisted, created.Add(-time.Hour)),
-				entry("over", "gone", commonv1.DownloadPhaseDownloading, created.Add(time.Second))), "over"},
-		{"an earlier live grab of the release is the pick's",
-			movie(entry("live", "gone", commonv1.DownloadPhaseSeeding, created.Add(-time.Hour))), "live"},
+				entry("over", "gone", commonv1.DownloadPhaseDownloading, created.Add(time.Second))), "over",
+		},
+		{
+			"an earlier live grab of the release is the pick's",
+			movie(entry("live", "gone", commonv1.DownloadPhaseSeeding, created.Add(-time.Hour))), "live",
+		},
 		{"another release's entry is not", movie(entry("other", "x", commonv1.DownloadPhaseBlocklisted, created)), ""},
 	}
 	for _, tt := range tests {

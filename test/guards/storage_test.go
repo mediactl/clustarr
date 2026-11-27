@@ -24,10 +24,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mediactl/clustarr/test/installtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
+
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
 // TestEveryPVCMountingWorkloadGetsFsGroup closes a gap that no existing test

@@ -76,8 +76,10 @@ func TestApplyKeepsPreferredAndPodAffinity(t *testing.T) {
 		MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "p", Operator: corev1.NodeSelectorOpExists}},
 	}}}
 	podAffinity := &corev1.PodAffinity{PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
-		Weight: 5, PodAffinityTerm: corev1.PodAffinityTerm{TopologyKey: "kubernetes.io/hostname",
-			LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db"}}},
+		Weight: 5, PodAffinityTerm: corev1.PodAffinityTerm{
+			TopologyKey:   "kubernetes.io/hostname",
+			LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db"}},
+		},
 	}}}
 	anti := &corev1.PodAntiAffinity{RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
 		TopologyKey: "kubernetes.io/hostname", LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "me"}},

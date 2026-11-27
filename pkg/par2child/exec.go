@@ -181,7 +181,7 @@ func (e Exec) run(ctx context.Context, req Request) (Result, error) {
 	case ctx.Err() != nil:
 		return res, fmt.Errorf("par2child: %w", ctx.Err())
 	case decodeErr != nil:
-		return Result{}, fmt.Errorf("%w: %v: %s", ErrChildDied, waitErr, strings.TrimSpace(tail.String()))
+		return Result{}, fmt.Errorf("%w: %w: %s", ErrChildDied, waitErr, strings.TrimSpace(tail.String()))
 	}
 	return res, res.Error()
 }

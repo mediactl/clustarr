@@ -295,7 +295,7 @@ func testDrain(t *testing.T, newBus func() events.Bus) {
 		close(stopped)
 		select {
 		case err := <-result:
-			if !errors.Is(err, tc.wantErr) && err != tc.wantErr {
+			if !errors.Is(err, tc.wantErr) && !errors.Is(err, tc.wantErr) {
 				t.Errorf("%s: the handler's context 300ms after the subscription stopped = %v, want %v", tc.durable, err, tc.wantErr)
 			}
 		case <-time.After(Timeout):

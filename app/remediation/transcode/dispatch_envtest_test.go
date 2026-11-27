@@ -155,10 +155,13 @@ func TestHeldFilesAreWrittenOnlyOnChange(t *testing.T) {
 	h := newHarness(t, harnessOptions{slots: map[string]int32{"cpu": 32}, seed: func(h *harness) {
 		k := h.cpuPool(t)
 		require.NoError(t, h.c.Create(context.Background(), &batchv1.Job{
-			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: pool.Name(k),
-				Labels: map[string]string{pool.LabelManagedBy: pool.ManagedByValue, pool.LabelProfile: pool.ProfileLabelValue(k.Profile)}},
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: ns, Name: pool.Name(k),
+				Labels: map[string]string{pool.LabelManagedBy: pool.ManagedByValue, pool.LabelProfile: pool.ProfileLabelValue(k.Profile)},
+			},
 			Spec: batchv1.JobSpec{Suspend: new(true), Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
-				RestartPolicy: corev1.RestartPolicyNever, Containers: []corev1.Container{{Name: "x", Image: "busybox"}}}}},
+				RestartPolicy: corev1.RestartPolicyNever, Containers: []corev1.Container{{Name: "x", Image: "busybox"}},
+			}}},
 		}))
 		for i := range files {
 			files[i] = h.seeded(t, fmt.Sprintf("held-%02d", i), "", 0)
@@ -310,8 +313,10 @@ func TestAFinalDeliveryFailureShowsItsCause(t *testing.T) {
 	key := events.RecordKey(string(mf.UID))
 	require.Eventually(t, func() bool { return requested(9)(h.record(t, mf.UID)) }, 30*time.Second, 200*time.Millisecond, "the owed request")
 	_, err := task.Answers(h.raw.KV(events.BucketTranscodes), "pool-0").Answer(context.Background(), key,
-		&task.Record{RecordHeader: schema.RecordHeader{Schema: task.RecordSchema, MediaFile: refOf(mf), Seq: 9, State: records.StateFailed,
-			Failure: "lease bucket unavailable", Transient: true}})
+		&task.Record{RecordHeader: schema.RecordHeader{
+			Schema: task.RecordSchema, MediaFile: refOf(mf), Seq: 9, State: records.StateFailed,
+			Failure: "lease bucket unavailable", Transient: true,
+		}})
 	require.NoError(t, err)
 	got := waitFile(t, h.c, mf, "decided", phase(catalogv1alpha1.TranscodePhasePlanned))
 	assert.Contains(t, got.Status.Transcode.Message, "lease bucket unavailable")
@@ -349,8 +354,10 @@ func TestRequestedWithoutATaskIsRepublished(t *testing.T) {
 		mf = h.seeded(t, "heat-1995", catalogv1alpha1.TranscodePhaseQueued, 9)
 		var err error
 		rev, err = task.Requests(h.raw.KV(events.BucketTranscodes)).Request(context.Background(), events.RecordKey(string(mf.UID)), 0,
-			&task.Record{RecordHeader: schema.RecordHeader{Schema: task.RecordSchema, MediaFile: refOf(mf), Seq: 9, State: records.StateRequested,
-				RequestedAt: h.clock.Now()}})
+			&task.Record{RecordHeader: schema.RecordHeader{
+				Schema: task.RecordSchema, MediaFile: refOf(mf), Seq: 9, State: records.StateRequested,
+				RequestedAt: h.clock.Now(),
+			}})
 		require.NoError(t, err)
 	}})
 	require.Eventually(t, func() bool { return h.storedTasks(t, mf.UID) == 1 }, 30*time.Second, 200*time.Millisecond)
@@ -372,8 +379,10 @@ func TestAStaleAnswerIsNotIncorporated(t *testing.T) {
 			&task.Record{RecordHeader: schema.RecordHeader{Schema: task.RecordSchema, MediaFile: refOf(mf), Seq: 9, State: records.StateRequested}})
 		require.NoError(t, err)
 		_, err = task.Answers(h.raw.KV(events.BucketTranscodes), "pool-0").Answer(context.Background(), key,
-			&task.Record{RecordHeader: schema.RecordHeader{Schema: task.RecordSchema, MediaFile: refOf(mf), Seq: 9, State: records.StateAnswered},
-				Answer: &task.Answer{Outcome: task.OutcomeFailed, Reason: task.ReasonVerifyFailed}})
+			&task.Record{
+				RecordHeader: schema.RecordHeader{Schema: task.RecordSchema, MediaFile: refOf(mf), Seq: 9, State: records.StateAnswered},
+				Answer:       &task.Answer{Outcome: task.OutcomeFailed, Reason: task.ReasonVerifyFailed},
+			})
 		require.NoError(t, err)
 	}})
 	require.Eventually(t, func() bool { return requested(10)(h.record(t, mf.UID)) }, 30*time.Second, 200*time.Millisecond)

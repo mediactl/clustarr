@@ -19,9 +19,10 @@ package mediainfo
 
 import (
 	"errors"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"math"
 	"strconv"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 
 	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
 )
