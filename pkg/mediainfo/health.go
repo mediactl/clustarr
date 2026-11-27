@@ -45,11 +45,21 @@ const (
 	// track's, and a subtitle or a chapter may outlast the picture and the
 	// sound by a few seconds in a file that is whole.
 	MinTail = 10 * time.Second
-	// MaxMissing is how much of a file's timeline may be gone before it is
-	// damaged. One lost usenet article of a 1080p WEB-DL is about a second;
-	// the two files this was written for had lost 373 s of 1,435 and more
-	// (Fena: Pirate Princess S01E01 and E11, talos, 2026-11-17).
+	// MaxMissing is how much of any file's timeline may be gone before it
+	// is damaged. One lost usenet article of a 1080p WEB-DL is about a
+	// second; the two files this was written for had lost 373 s of 1,435
+	// and more (Fena: Pirate Princess S01E01 and E11, talos, 2026-11-17).
 	MaxMissing = 2 * time.Second
+	// MissingPerMille is how much of a longer file's timeline may be gone,
+	// in thousandths of its length, and MaxMissingLong the most that comes
+	// to: a few seconds lost from an episode is a file worth taking (owner,
+	// 2026-11-27: "losing 4sec of a 30min show seems acceptable - and like
+	// we should take the media file anyway", of Kemono Friends S2E06, 4 s of
+	// 22m55s, refused while the episode had no other file). Five in a
+	// thousand is 7 s of a 23-minute episode and 9 s of half an hour; a
+	// film's share stops at MaxMissingLong.
+	MissingPerMille = 5
+	MaxMissingLong  = 10 * time.Second
 )
 
 // Health is what reading a whole file found of its timeline: the stretches
@@ -73,8 +83,15 @@ type Health struct {
 	Largest time.Duration
 }
 
-// Damaged reports whether more of the timeline is gone than MaxMissing.
-func (h Health) Damaged() bool { return h.Judged && h.Missing > MaxMissing }
+// Tolerated is how much of the timeline may be gone from a file this long:
+// MissingPerMille of its length, no less than MaxMissing and no more than
+// MaxMissingLong.
+func (h Health) Tolerated() time.Duration {
+	return min(max(h.Duration*MissingPerMille/1000, MaxMissing), MaxMissingLong)
+}
+
+// Damaged reports whether more of the timeline is gone than Tolerated.
+func (h Health) Damaged() bool { return h.Judged && h.Missing > h.Tolerated() }
 
 // Err is ErrDamaged with what is missing for a damaged file, nil otherwise.
 func (h Health) Err() error {

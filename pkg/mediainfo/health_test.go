@@ -124,3 +124,37 @@ func TestAFileWithNoStreamsIsNotJudged(t *testing.T) {
 	require.False(t, h.Judged)
 	require.False(t, h.Damaged())
 }
+
+// A few seconds gone from an episode is a file worth taking; much of it
+// gone, or more than a film's ten seconds, is damage (owner, 2026-11-27:
+// "losing 4sec of a 30min show seems acceptable - and like we should take
+// the media file anyway").
+func TestAFewSecondsMissingFromALongFileAreTolerated(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		duration, missing time.Duration
+		damaged           bool
+	}{
+		{"Kemono Friends S2E06: 4 s of 22m55s", 22*time.Minute + 55*time.Second, 4 * time.Second, false},
+		{"the same episode with 8 s gone", 22*time.Minute + 55*time.Second, 8 * time.Second, true},
+		{"half an hour with 9 s gone", 30 * time.Minute, 9 * time.Second, false},
+		{"Fena S01E01: 373 s of 1,435", 1435 * time.Second, 373 * time.Second, true},
+		{"a film with 10 s gone", 2 * time.Hour, 10 * time.Second, false},
+		{"a film with 11 s gone", 2 * time.Hour, 11 * time.Second, true},
+		{"a five-minute short with 2 s gone", 5 * time.Minute, 2 * time.Second, false},
+		{"a five-minute short with 3 s gone", 5 * time.Minute, 3 * time.Second, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := Health{Judged: true, Duration: tc.duration, Holes: 1, Missing: tc.missing, Largest: tc.missing}
+			if got := h.Damaged(); got != tc.damaged {
+				t.Fatalf("Damaged() = %v with %s tolerated, want %v", got, h.Tolerated(), tc.damaged)
+			}
+			if (h.Err() != nil) != tc.damaged {
+				t.Fatalf("Err() = %v, want an error: %v", h.Err(), tc.damaged)
+			}
+		})
+	}
+	if (Health{Duration: 30 * time.Minute, Missing: time.Minute}).Damaged() {
+		t.Fatal("a file that was not judged is not damaged")
+	}
+}

@@ -1025,7 +1025,10 @@ recorded here.
   (`fileimport.videoHealth`, `mediainfo.HealthProber`, heartbeating; owner:
   "We should verify the video files are healthy before considering a
   release ready for transfer and next steps") and refuses one with more
-  than `mediainfo.MaxMissing` (2 s) gone from *every* audio and video
+  than `mediainfo.Health.Tolerated` gone (2 s, or five thousandths of a
+  longer file's length up to 10 s, since 2026-11-27 -- owner: "losing 4sec
+  of a 30min show seems acceptable - and like we should take the media
+  file anyway", of Kemono Friends S2E06, 4 s of 22m55s) from *every* audio and video
   stream at once as the release's fault (`mediainfo.ErrDamaged`, "not a
   whole media file"): a hole in the bytes takes every stream's packets, and
   a still in a variable-rate video or a late audio track does not. Only
