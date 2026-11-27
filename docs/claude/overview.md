@@ -122,6 +122,21 @@ same shape carries the ONNX Runtime binding
 `clustarr`: upstream plus `NewEnvWithLogger` and `Env.SetLogLevel`, ORT's
 custom logger, offered upstream as shota3506/onnxruntime-purego#18;
 `pkg/ortlog` routes ORT's lines under the `onnx` subsystem through it).
+nats-server is the third (`github.com/mediactl/nats-server/v2
+v2.15.3-clustarr.N`, branch `clustarr/v2.15.3`; owner, 2026-11-27: "We
+should create another fork and patch"): v2.15.3 plus one commit, the file
+store looking in a subject's last block before it walks every block from a
+stale first-block hint (`docs/claude/gotchas.md`, "Writing an object again
+..."), and one fork-only commit, `docker/Dockerfile.clustarr`. Here the
+module is only the server the tests embed; what talos runs is the image
+built from that Dockerfile by hand, `ghcr.io/mediactl/nats-server:
+2.15.3-clustarr.N` (amd64 and arm64; the command is in the Dockerfile's
+head), which reports upstream's version and the fork's commit. Actions are
+off on the fork, so upstream's test and release workflows do not run there.
+Not offered upstream yet: nats-io asks that a PR be in the author's own
+words and signed off under a legal name, so the owner opens it, from the
+fork's branch `fblk-miss-check-last-block` (the same commit on upstream's
+main).
 anacrolix/torrent is upstream's again since 2026-11-26, at a commit of its
 master and not a release (`v1.63.1-0.20261126050437-7ed5d797828d`; owner,
 2026-11-26: "Pin upstream master by pseudo-version", over a fork rebased on

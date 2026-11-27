@@ -228,3 +228,15 @@ replace github.com/obinnaokechukwu/ffgo => github.com/mediactl/ffgo v0.0.0-clust
 // subsystem. Offered upstream as shota3506/onnxruntime-purego#18; drop the
 // replace at the first upstream release that carries it.
 replace github.com/shota3506/onnxruntime-purego => github.com/mediactl/onnxruntime-purego v0.0.0-clustarr.1
+
+// nats-server's file store looks a subject up from the first block it was
+// ever in (psi.fblk, which a removal never moves), so a rollup -- every
+// rewrite of an object store's record -- had it load every block written to
+// the bucket since that object's last write, under the stream's lock: 6 to
+// 10 s stalls of talos's artwork stream (docs/claude/gotchas.md, "Writing an
+// object again ..."). The fork is v2.15.3 plus one commit that looks in the
+// subject's last block first, and one that builds the image talos runs
+// (ghcr.io/mediactl/nats-server). Here it is the server the tests embed.
+// Not yet offered upstream; drop the replace at the first upstream release
+// that carries the fix.
+replace github.com/nats-io/nats-server/v2 => github.com/mediactl/nats-server/v2 v2.15.3-clustarr.1
