@@ -670,15 +670,28 @@ func (w *Worker) inspectEpisodes(
 	// The release title is the scene name of an episode file only when it
 	// is not a full season's and the download holds no other video file
 	// (Sonarr's SceneNameCalculator).
+	titled, terr := release.Parse(task.Release.Title, release.Options{Kind: commonv1.MediaKindEpisode})
+	if terr != nil {
+		titled = nil
+	}
 	if videos == 1 {
-		if p, perr := release.Parse(task.Release.Title, release.Options{Kind: commonv1.MediaKindEpisode}); perr == nil && !p.FullSeason {
-			plan.sceneName, plan.sceneParsed = task.Release.Title, p
+		if titled != nil && !titled.FullSeason {
+			plan.sceneName, plan.sceneParsed = task.Release.Title, titled
 		}
 		if !manual {
 			plan.granted = grantedEpisodes(task, plan.episodes)
 		}
-	} else if p, perr := release.Parse(task.Release.Title, release.Options{Kind: commonv1.MediaKindEpisode}); perr == nil && p.FullSeason && len(p.Seasons) == 1 {
-		plan.packSeason = p.Seasons[0]
+	}
+	// The season a file's bare number is read in is its download's: the
+	// one its release title names, else the one it was grabbed for. A
+	// person's own target says nothing of what the grab took it for, and
+	// the episode a person names is that person's to say.
+	if !manual || plan.named == nil {
+		var grabbed []EpisodeCandidate
+		if task.TargetOverride == nil {
+			grabbed = grantedEpisodes(task, plan.episodes)
+		}
+		plan.season = downloadSeason(titled, plan.numbering, grabbed)
 	}
 	series := plan.series
 	language := catalogctx.ConfiguredLanguage(&plan.profile)
@@ -690,9 +703,9 @@ func (w *Worker) inspectEpisodes(
 			// A pack's file named for its episode alone, with no title for
 			// a release pattern to read: "S02EP01.mkv", "[Prof] Episode 01
 			// - The Wind Blows.mkv" (bareEpisode).
-			if bp := bareEpisode(path, plan.packSeason); bp != nil {
+			if bp := bareEpisode(path, plan.season); bp != nil {
 				parsed, perr = bp, nil
-			} else if tp := titledEpisode(path, seriesTitles(plan.series), plan.packSeason); tp != nil {
+			} else if tp := titledEpisode(path, seriesTitles(plan.series), plan.season); tp != nil {
 				// "<the series' title> 01.mkv" (titledEpisode).
 				parsed, perr = tp, nil
 			}
@@ -739,6 +752,18 @@ func (w *Worker) inspectEpisodes(
 		}
 		fillFromRelease(parsed, task.Release.Title, commonv1.MediaKindEpisode)
 		eps, reason := MatchDownloaded(parsed, series.Spec.SeriesType, plan.episodes, plan.numbering)
+		if own, ok := inDownloadSeason(parsed, eps, reason, plan.episodes, plan.numbering, plan.season); ok {
+			// "Show - 07" in a download of season 2: the number is that
+			// season's episode, not the seventh of the series.
+			counted := reason
+			if counted == "" {
+				counted = strings.Join(names(eps), ", ")
+			}
+			logging.FromContext(ctx).Info("fileimport: the file's number is read in the season its download is of",
+				"source", rel, "season", plan.season, "counted", counted, "episodes", names(own))
+			parsed.Seasons, parsed.Episodes, parsed.Absolute = []int{plan.season}, slices.Clone(parsed.Absolute), nil
+			eps, reason = own, ""
+		}
 		if reason != "" && plan.sceneParsed != nil {
 			// The download's one video file names no episode of the series,
 			// and its release title names one: the file is the release's,

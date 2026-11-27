@@ -2068,14 +2068,58 @@ recorded here.
   title, since a title may end in one; at import the title is known, so
   `fileimport.titledEpisode` reads the name when what stands before its
   last number is one of the series' titles (its own and its alternates,
-  compared as `release.CleanTitle`) and the download is one season's pack
-  (`packSeason`, as for `bareEpisode`). On talos "[anime4life.] Wandering
+  compared as `release.CleanTitle`) and the download is one season's
+  (`downloadSeason`, as for `bareEpisode`). On talos "[anime4life.] Wandering
   Witch The Journey of Elaina Season 1 BD 1080p ..." held twelve files
   named "Wandering Witch The Journey of Elaina 01.mkv" to 12 for a person,
   eleven episodes missing meanwhile. Still held, and by rule: a pack named
   in scene seasons the series does not have and TheXEM does not map (How a
   Realist Hero Rebuilt the Kingdom "S01-S02", TVDB one season of 26: "the
   series has no S02E01"), and files with no number at all.
+
+- **A file named by a number and no season is an episode of the season its
+  download is of (2026-11-27, owner: "we provide season, release, etc
+  metadata so that it can *just* infer the episode number this way").** A
+  name's bare number ("[GRP] Show - 07") was counted through the series
+  whatever the download was, so a season 2 pack whose files restart at 01
+  was filed as season 1. Found among the failed transcodes: on talos all
+  twelve files of Ranma ½ (2024)'s season 1 are its season 2 pack's
+  (imported 2026-10-28; the same running times to the millisecond as the
+  season 2 files imported from that pack on 11-27), Date A Live's season 1
+  is twelve files whose releases were titled "Date A Live II" and "IV"
+  (11-05 and 11-09), and New Game!'s S01E01 and S01E05 came from "New
+  Game!!" releases (11-03); those two by their release titles, not by a
+  check of the content. All three predate
+  the season-marker and scene-name readings above, which now read those
+  titles when TheXEM answers; nothing read the download.
+  `fileimport.downloadSeason` is the one season a download is of: the
+  season its release title names, read as the grab read it
+  (`decision.CoverageFor` for a pack or an SxxEyy, `decision.NamedSeason`
+  for a marker or a later season's scene name), and under a title that
+  names none the season of the episodes it was grabbed for (the task's
+  `targets`, never a person's own target). `inDownloadSeason` then reads a
+  bare number in that season when the count through the series did not
+  land there and the season has the number. Three things stand as they
+  were, each with a test: a count that lands in the season ("Show - 14" in
+  a season 2 pack), a count the season has no episode for (a pack titled
+  for one season holding the cour TVDB lists as the next is filed by its
+  count), and a name that says its season ("S01E05", "Show S2 - 04"),
+  since the name, not the download, says what such a file is. A download
+  of several seasons says none, and the episode a person names is that
+  person's. `bareEpisode` and `titledEpisode` take the same season, so a
+  lone "Episode 01.mkv" is read too. **Two seasons' scene names that
+  differ in punctuation alone were one name**: `sceneIndex` keyed names by
+  `titleKey`, which drops punctuation, so TheXEM's "New Game!" (season 1)
+  and "New Game!!" (season 2) shared a key, the later won, and every
+  season 1 release of that series covered season 2 ("[DB]New Game! - 09"
+  as S02E09, at the grab and at import, live from the scene-name reading
+  until this). Names two seasons share are now kept under their spelling
+  (`addSeasonNames`, `spelledKey`), and a title that is neither spelling
+  names no season. Not done: the twenty-six misfiled files above are still
+  in the library under the wrong episodes; and with TheXEM unreachable at
+  the grab a title it alone knows as a later season ("Date A Live II",
+  which is also one of the series' own alternate titles) is still counted
+  through the series there.
 
 - **A file takes the quality its download's release title names even when
   no release pattern reads that title (2026-11-27, owner: "We know the

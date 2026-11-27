@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/mediactl/clustarr/pkg/release"
 )
@@ -68,26 +69,84 @@ type sceneIndex struct {
 	bySeason   map[int][]EpisodeNumbering
 	byAbsolute map[int][]absoluteRow
 	// titles is each TVDB episode's title key, where the rows carry one;
-	// seasonNames the scene season each of the series' scene titles names.
-	titles      map[seasonEpisode]string
-	seasonNames map[string]int
+	// seasonNames the scene season each of the series' scene titles names,
+	// and spelledNames the same for the names whose key two seasons share,
+	// under their spelling (addSeasonNames).
+	titles       map[seasonEpisode]string
+	seasonNames  map[string]int
+	spelledNames map[string]int
 }
 
 // newIdentitySceneIndex is an Identity's scene table and scene season
 // names, keyed for lookup.
 func newIdentitySceneIndex(id Identity) sceneIndex {
 	idx := newSceneIndex(id.SceneMappings)
-	for _, n := range id.SceneSeasonNames {
-		k := titleKey(n.Title)
-		if k == "" || n.Season < 1 {
-			continue
-		}
-		if idx.seasonNames == nil {
-			idx.seasonNames = map[string]int{}
-		}
-		idx.seasonNames[k] = n.Season
-	}
+	idx.addSeasonNames(id.SceneSeasonNames)
 	return idx
+}
+
+// addSeasonNames keys the scene season each of names is the name of. A key
+// is a title with its punctuation gone (titleKey), and two seasons' names
+// can differ in nothing else: TheXEM's "New Game!" is season 1 and "New
+// Game!!" season 2. Under the one key the later name won, so every season 1
+// release of that series was read as season 2's ("[DB]New Game! - 09" as
+// S02E09, found replaying talos' files, 2026-11-27). Such names are kept
+// under their spelling instead (spelledKey), and a title that is neither
+// spelling names no season.
+func (idx *sceneIndex) addSeasonNames(names []SceneSeasonName) {
+	seasons := map[string]map[int]bool{}
+	for _, n := range names {
+		if k := titleKey(n.Title); k != "" && n.Season >= 1 {
+			if seasons[k] == nil {
+				seasons[k] = map[int]bool{}
+			}
+			seasons[k][n.Season] = true
+		}
+	}
+	for _, n := range names {
+		k := titleKey(n.Title)
+		switch len(seasons[k]) {
+		case 0:
+		case 1:
+			if idx.seasonNames == nil {
+				idx.seasonNames = map[string]int{}
+			}
+			idx.seasonNames[k] = n.Season
+		default:
+			if idx.spelledNames == nil {
+				idx.spelledNames = map[string]int{}
+			}
+			sk := spelledKey(n.Title)
+			if prior, ok := idx.spelledNames[sk]; ok && prior != n.Season {
+				// One spelling for two seasons says nothing.
+				idx.spelledNames[sk] = 0
+				continue
+			}
+			idx.spelledNames[sk] = n.Season
+		}
+	}
+}
+
+// spelledKey is a title as it is spelled, apart from its case and how its
+// words are separated: what tells "New Game!" from "New Game!!".
+func spelledKey(title string) string {
+	return strings.Join(strings.FieldsFunc(strings.ToLower(title), func(r rune) bool {
+		return unicode.IsSpace(r) || r == '.' || r == '_'
+	}), " ")
+}
+
+// namedSeason is the scene season title is the series' name of, 0 when it
+// is the name of none.
+func (idx sceneIndex) namedSeason(title string) int {
+	if n, ok := idx.seasonNames[titleKey(title)]; ok {
+		return n
+	}
+	return idx.spelledNames[spelledKey(title)]
+}
+
+// namesSeasons reports whether the series has scene names for its seasons.
+func (idx sceneIndex) namesSeasons() bool {
+	return len(idx.seasonNames) > 0 || len(idx.spelledNames) > 0
 }
 
 // sceneSeason is the scene season a release's season number means under
@@ -95,10 +154,31 @@ func newIdentitySceneIndex(id Identity) sceneIndex {
 // season numbers its own first season from there. Any other season number
 // under such a title, and any title that is not one, is read as written.
 func (idx sceneIndex) sceneSeason(title string, season int) int {
-	if n, ok := idx.seasonNames[titleKey(title)]; ok && n > 1 && season == 1 {
+	if n := idx.namedSeason(title); n > 1 && season == 1 {
 		return n
 	}
 	return season
+}
+
+// NamedSeason is the season p's own title names: the marker it ends in
+// ("Show S2 - 05", release.ParsedRelease.TitleSeason) or, under a title
+// that is one of the series' scene names for a later season ("Date A Live
+// II - 07"), that season. 0 when the title names none: the series' own
+// title, or its first season's name. A number under such a title says
+// nothing of its season (fileimport reads it by its download's).
+func NamedSeason(p *release.ParsedRelease, id Identity) int {
+	if p == nil {
+		return 0
+	}
+	if p.TitleSeason > 1 {
+		return p.TitleSeason
+	}
+	var idx sceneIndex
+	idx.addSeasonNames(id.SceneSeasonNames)
+	if n := idx.namedSeason(p.Title); n > 1 {
+		return n
+	}
+	return 0
 }
 
 // absoluteRow is one row of the table under its scene absolute number: the
@@ -128,7 +208,7 @@ func (idx sceneIndex) absolute(title string, a int) []EpisodeNumbering {
 		return nil
 	}
 	if !oneSceneEpisode(rows) {
-		if len(idx.seasonNames) == 0 {
+		if !idx.namesSeasons() {
 			return nil
 		}
 		season := idx.sceneSeason(title, 1)

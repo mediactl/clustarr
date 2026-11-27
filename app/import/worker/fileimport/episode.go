@@ -107,6 +107,85 @@ func narrowToGranted(eps, granted []EpisodeCandidate) []EpisodeCandidate {
 	return kept
 }
 
+// downloadSeason is the one season a download is of, 0 when nothing says or
+// it is of several: the season its release title names -- a pack's or an
+// episode's season, read through the series' numbering as the grab read it
+// (decision.CoverageFor), or the season its title is the name of
+// (decision.NamedSeason) -- and, under a title that names none ("[Group]
+// Show - 07", a batch titled by the series alone), the season of the
+// episodes it was grabbed for. The specials are no season to read a number
+// in.
+//
+// It is what a file's name is not asked for: a name that gives a number and
+// no season gives the episode, and the download says the season
+// (inDownloadSeason, bareEpisode, titledEpisode).
+func downloadSeason(titled *release.ParsedRelease, id decision.Identity, grabbed []EpisodeCandidate) int {
+	named := map[int]bool{}
+	if titled != nil {
+		if titled.FullSeason || len(titled.Seasons) > 0 {
+			cov := decision.CoverageFor(titled, id)
+			for _, s := range cov.FullSeasons {
+				named[s] = true
+			}
+			for _, e := range cov.Episodes {
+				named[e.Season] = true
+			}
+		} else if s := decision.NamedSeason(titled, id); s > 0 {
+			named[s] = true
+		}
+	}
+	if len(named) == 0 {
+		for _, g := range grabbed {
+			named[g.Season] = true
+		}
+	}
+	if len(named) != 1 {
+		return 0
+	}
+	for s := range named {
+		if s >= 1 {
+			return s
+		}
+	}
+	return 0
+}
+
+// inDownloadSeason reads a file named by a number and no season ("Show -
+// 07") in the season its download is of. eps and reason are what the count
+// through the series gave (MatchDownloaded); ok is true, and own the
+// season's episodes, when that count did not land in the season -- it named
+// another season's episodes, or none -- and the season has every number.
+//
+// A count that lands in the season stands ("Show - 14" in a pack of season
+// 2 is its second episode where the group counts on), and so does one the
+// season has no such episode for: a pack titled for one season that holds
+// the cour TVDB lists as the next is filed by its count, as before. A name
+// that says its season -- "S02E07", "Show S2 - 07", a title that is a later
+// season's scene name -- is not asked: the name, not the download, says
+// what such a file is.
+//
+// Before this a number was counted through the series whatever the
+// download was: a season 2 pack whose files restart at 01 was filed as
+// season 1, over the files there or beside them (talos: Ranma ½ (2024)'s
+// season 2 pack on 2026-10-28, twelve files that are season 2's by their
+// running times, and "[Cleo]Date A Live II - 07" on 2026-11-05 where the
+// series' scene names were not yet read; found 2026-11-27).
+func inDownloadSeason(
+	p *release.ParsedRelease, eps []EpisodeCandidate, reason string, cands []EpisodeCandidate, id decision.Identity, season int,
+) (own []EpisodeCandidate, ok bool) {
+	if season < 1 || len(p.Absolute) == 0 || len(p.Seasons) > 0 || len(p.Episodes) > 0 || decision.NamedSeason(p, id) > 0 {
+		return nil, false
+	}
+	if reason == "" && !slices.ContainsFunc(eps, func(e EpisodeCandidate) bool { return e.Season != season }) {
+		return nil, false
+	}
+	places := make([]decision.SeasonEpisode, len(p.Absolute))
+	for i, n := range p.Absolute {
+		places[i] = decision.SeasonEpisode{Season: season, Episode: n}
+	}
+	return candidatesAt(places, cands)
+}
+
 // What this file knows about episode files, shared with
 // app/import/worker/rescan so the importer and the scanner attribute an
 // episode file the same way.
@@ -307,15 +386,15 @@ var titledEpisodeRegex = regexp.MustCompile(`^(?:\[[^\]]*\][\s._-]*)*(.+?)[\s._-
 // take that shape, since a title may itself end in a number. Here it can
 // be read, because the title is known: what stands before the number must
 // be one of titles (the series' own and its alternates, compared as
-// release.CleanTitle), and the season is packSeason, as for bareEpisode.
-// Nil otherwise.
+// release.CleanTitle), and the season is its download's (downloadSeason),
+// as for bareEpisode. Nil otherwise.
 //
 // On talos a twelve-file pack of Wandering Witch: The Journey of Elaina
 // ("Wandering Witch The Journey of Elaina 01.mkv" to 12) was downloaded
 // whole and held for a person, eleven of its episodes missing
 // (2026-11-27).
-func titledEpisode(path string, titles []string, packSeason int) *release.ParsedRelease {
-	if packSeason < 1 {
+func titledEpisode(path string, titles []string, season int) *release.ParsedRelease {
+	if season < 1 {
 		return nil
 	}
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
@@ -331,7 +410,7 @@ func titledEpisode(path string, titles []string, packSeason int) *release.Parsed
 	for _, t := range titles {
 		if release.CleanTitle(t) == name {
 			return &release.ParsedRelease{
-				Seasons: []int{packSeason}, Episodes: []int{n},
+				Seasons: []int{season}, Episodes: []int{n},
 				LanguageUnknown: true,
 				ReleaseType:     commonv1.ReleaseTypeSingle,
 			}
@@ -360,22 +439,22 @@ func seriesTitles(s *catalogv1alpha1.Series) []string {
 // release pattern does: a release name opens with its title, and a pack's
 // files often carry none. The season is the one the name writes ("S02EP01")
 // or, for a name with the episode only ("Episode 01 - The Wind Blows"),
-// packSeason: the one season its download's release title is a pack of, 0
-// when it is not such a pack. Nil when the name is not of that shape or
-// names no season either way. The numbering is the release's, so it is
+// downloadSeason: the one season its download is of, by its release title
+// or the episodes it was grabbed for, 0 when it is of none or several. Nil
+// when the name is not of that shape or names no season either way. The numbering is the release's, so it is
 // read through the series' numbering as any other (MatchDownloaded); the
 // quality, group and languages are the release's (fillFromRelease).
 //
 // On talos two packs downloaded whole were held as unparseable and removed
 // (Fog Hill of Five Elements' season 2, Ushio and Tora's, 2026-11-24).
-func bareEpisode(path string, packSeason int) *release.ParsedRelease {
+func bareEpisode(path string, downloadSeason int) *release.ParsedRelease {
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	season, number := 0, ""
 	if m := bareSeasonEpisodeRegex.FindStringSubmatch(base); m != nil {
 		season, _ = strconv.Atoi(m[1])
 		number = m[2]
 	} else if m := bareEpisodeRegex.FindStringSubmatch(base); m != nil {
-		season, number = packSeason, m[1]
+		season, number = downloadSeason, m[1]
 	}
 	n, err := strconv.Atoi(number)
 	if err != nil || season < 1 || n < 1 {
