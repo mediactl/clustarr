@@ -191,31 +191,58 @@ func (p *planner) expire() {
 }
 
 // unattributed reports whether a held import is an automatic grab's whose
-// inspection refused a file because its name does not say which item it is
-// (schema.InspectKindUnattributed): hashed names, a numbering the series
-// lacks. Such a hold expired as any other, its release was never blocked,
-// and the next search grabbed it again to the same end (owner, 2026-11-27:
-// "Break the loop"). Not a person's import, whose release is theirs to
-// judge; not a hold for any other reason -- a suspected sample, the item's
-// own state, a local fault -- since blocking those would have the search
-// take every release of the item in turn, one a day; and not one whose
-// inspection is gone, where nothing says why it was held.
+// release brought nothing the item can take, so that grabbing it again ends
+// the same way (owner, 2026-11-27: "Break the loop"):
+//
+//   - its inspection refused a file because its name does not say which
+//     item it is (schema.InspectKindUnattributed): hashed names, a numbering
+//     the series lacks; or
+//   - it attributed files, and none to an item the grab was for: a "season
+//     pack" without the episodes still missing (Heaven's Design Team's
+//     pack of ten, grabbed for episodes 11 and 12 and held because the ten
+//     have files already).
+//
+// Such a hold expired as any other, its release was never blocked, and the
+// next search grabbed it again. Not a person's import, whose release is
+// theirs to judge; not a hold for any other reason -- a suspected sample, a
+// file of a wanted item the item's state refuses, a local fault -- since
+// blocking those would have the search take every release of the item in
+// turn, one a day; and not one whose inspection is gone, where nothing says
+// why it was held.
 func (p *planner) unattributed() bool {
-	if p.person() || p.donor() || p.sum.Class != commonv1.ImportClassNeedsPerson {
+	if p.person() || p.donor() {
 		return false
 	}
 	rec := p.in.Inspect
 	if rec == nil || rec.Inspect == nil {
 		return false
 	}
+	switch p.sum.Class {
+	case commonv1.ImportClassNeedsPerson, commonv1.ImportClassItemState:
+	default:
+		return false
+	}
+	granted := map[string]bool{}
+	for _, t := range p.in.Targets {
+		granted[t.Name] = true
+	}
+	attributed, brought := false, false
 	for _, f := range rec.Inspect.Files {
 		for _, r := range f.Rejections {
-			if r.Kind == schema.InspectKindUnattributed {
+			if r.Kind == schema.InspectKindUnattributed && p.sum.Class == commonv1.ImportClassNeedsPerson {
 				return true
 			}
 		}
+		if f.Proposed == nil {
+			continue
+		}
+		attributed = true
+		brought = brought || granted[f.Proposed.Name]
+		for _, k := range f.Keys {
+			brought = brought || granted[k]
+		}
 	}
-	return false
+	return attributed && !brought && len(granted) > 0
 }
 
 func (p *planner) donor() bool { return p.in.Entry.Purpose == commonv1.DownloadPurposeAudioDonor }

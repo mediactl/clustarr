@@ -50,10 +50,16 @@ func MatchDownloaded(
 			return eps, ""
 		}
 	}
-	if absolute && p.TitleSeason > 1 {
+	if absolute && (p.TitleSeason > 1 || len(id.SceneSeasonNames) > 0) {
 		// "Show S2 - 01": the number is the episode of the season the
-		// title names, as the grab read it (decision's addTitleSeason). A
-		// name whose episode the series lacks is read as MatchEpisodes
+		// title names, as the grab read it (decision's addTitleSeason);
+		// and on a series whose scene seasons have names of their own
+		// ("Shingeki no Bahamut - Virgin Soul - 01"), the season its title
+		// is the name of (sceneIndex.absolute). Read by TVDB's absolute
+		// number, that file was season 1's first episode, held against the
+		// file there, while its release had been grabbed for season 2's
+		// (talos, 2026-11-27). A name whose episode the series lacks, or
+		// that the scene table does not place, is read as MatchEpisodes
 		// reads it, by the absolute number.
 		if eps, ok := candidatesAt(decision.CoverageFor(p, id).Episodes, cands); ok {
 			return eps, ""

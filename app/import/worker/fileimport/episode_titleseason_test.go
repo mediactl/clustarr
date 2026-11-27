@@ -79,3 +79,37 @@ func TestAPacksFileNamedForItsSeasonIsThatSeasonsEpisode(t *testing.T) {
 		})
 	}
 }
+
+// A file under a title that is the series' scene name for a later season
+// is that season's episode, as its release was grabbed: read by TVDB's
+// absolute number, "Shingeki no Bahamut - Virgin Soul - 01" was season 1's
+// first episode and held against the file there (talos, 2026-11-27, Rage of
+// Bahamut's season 2). The scene counts each season from 1.
+func TestAFileUnderASeasonsSceneNameIsThatSeasonsEpisode(t *testing.T) {
+	cands := twoSeasons()
+	id := decision.Identity{SceneSeasonNames: []decision.SceneSeasonName{{Title: "Shingeki no Bahamut: Virgin Soul", Season: 2}}}
+	for s := 1; s <= 2; s++ {
+		for n := 1; n <= 12; n++ {
+			id.SceneMappings = append(id.SceneMappings, decision.SceneMapping{
+				Scene: decision.EpisodeNumbering{Season: s, Episode: n, Absolute: n},
+				TVDB:  decision.EpisodeNumbering{Season: s, Episode: n, Absolute: (s-1)*12 + n},
+			})
+		}
+	}
+	for _, tc := range []struct {
+		file string
+		want []string
+	}{
+		{"[Erai-raws] Shingeki no Bahamut - Virgin Soul - 01 [1080p].mkv", []string{"show-s02e01"}},
+		{"Shingeki no Bahamut - Virgin Soul - 12 (1280x720 HEVC2 AAC).mkv", []string{"show-s02e12"}},
+		{"[Erai-raws] Shingeki no Bahamut - Genesis - 01 [1080p].mkv", []string{"show-s01e01"}},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			p, err := release.ParsePath("/data/torrents/tv/show-0000000000/"+tc.file, release.Options{Kind: commonv1.MediaKindEpisode})
+			require.NoError(t, err)
+			eps, reason := MatchDownloaded(p, catalogv1alpha1.SeriesTypeAnime, cands, id)
+			require.Empty(t, reason)
+			require.Equal(t, tc.want, names(eps))
+		})
+	}
+}

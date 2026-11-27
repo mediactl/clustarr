@@ -18,15 +18,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package importplan_test
 
 import (
-	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/app/import/importplan"
+	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"k8s.io/utils/ptr"
+	"path/filepath"
+	"testing"
 )
 
 // hashedPack is a season pack as talos downloaded Sonny Boy's on
@@ -119,4 +120,48 @@ func TestAHashedNameThatSpellsAnEpisodeIsNotThatEpisode(t *testing.T) {
 	dec := g.inspected()
 	require.Equal(t, lifecycle.ImportHeld, dec.Verdict, dec.Summary.Message)
 	assert.Nil(t, dec.Dispatch, "nothing is imported from a pack no file of which says what it is")
+}
+
+// A pack that holds none of the episodes it was grabbed for expires with
+// its release blocked too: Heaven's Design Team's "S01" held ten episodes,
+// was grabbed for the two still missing, and was held because the ten have
+// transcoded files (talos, 2026-11-27). A pack that does hold a wanted
+// episode's file, which the item's state refuses, blocks nothing: the next
+// release would end the same way.
+func TestAnExpiredHoldOfAPackWithoutTheWantedEpisodesBlocksTheRelease(t *testing.T) {
+	wd := newWorld(t)
+	existing := wd.mediaFile("the-wire-s01e01-transcoded", commonv1.MediaKindEpisode, "the-wire-s01e01",
+		filepath.Join(wd.lib("tv"), "The Wire", "Season 01", "The Wire - S01E01.mp4"), "HDTV-720p")
+	existing.Spec.Original = ptr.To(false)
+	wd.add(existing)
+	pack := func() string {
+		return wd.payload(map[string]int64{
+			"The.Wire.S01.1080p.BluRay.x264-GRP/The.Wire.S01E01.1080p.BluRay.x264-GRP.mkv": big,
+		})
+	}
+	only := func(g *grab, episode string) {
+		var kept []schema.ItemRef
+		for _, tg := range g.in.Targets {
+			if tg.Name == episode {
+				kept = append(kept, tg)
+			}
+		}
+		require.Len(t, kept, 1)
+		g.in.Targets = kept
+	}
+	start := wd.now
+
+	missing := wd.grab(commonv1.MediaKindSeries, "the-wire", "The.Wire.S01.1080p.BluRay.x264-GRP", pack())
+	only(missing, "the-wire-s01e02")
+	dec := missing.inspected()
+	require.Equal(t, lifecycle.ImportHeld, dec.Verdict, dec.Summary.Message)
+	require.Equal(t, commonv1.ImportClassItemState, dec.Summary.Class)
+
+	wanted := wd.grab(commonv1.MediaKindSeries, "the-wire", "The.Wire.S01.1080p.BluRay.x264-GRP", pack())
+	only(wanted, "the-wire-s01e01")
+	require.Equal(t, lifecycle.ImportHeld, wanted.inspected().Verdict)
+
+	wd.now = start.Add(lifecycle.ImportHoldRetention)
+	assert.Equal(t, lifecycle.ImportExpiredBlocked, missing.decide().Verdict, "it brought nothing it was grabbed for")
+	assert.Equal(t, lifecycle.ImportExpired, wanted.decide().Verdict, "the wanted episode's file is there, and the item refuses it")
 }

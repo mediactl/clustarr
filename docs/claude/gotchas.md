@@ -1616,7 +1616,15 @@ recorded here.
   blocking nothing: a suspected sample, the item's own state, a local
   fault (blocking those would have the search take every release of the
   item in turn, one a day), a person's own import, and a hold whose
-  inspection record is gone. With it: a pack's file named for its episode
+  inspection record is gone. The same verdict ends the hold of a release
+  that brought nothing it was grabbed for: its files were attributed, none
+  to an item of the grab (Heaven's Design Team's "S01" held ten episodes,
+  was grabbed for the two still missing and held because the ten have
+  transcoded files). And an anime's absolute number is read at import as
+  the grab read it when the series' scene seasons have names
+  (`MatchDownloaded`, `sceneIndex.absolute`): "Shingeki no Bahamut -
+  Virgin Soul - 01" was filed as season 1's first episode, its release
+  grabbed for season 2's. With it: a pack's file named for its episode
   alone is read (`bareEpisode`: "S02EP01.mkv" by the season it writes,
   "[Prof] Episode 01 - The Wind Blows.mkv" by the one season its release
   is a pack of), and a name that is nothing but hexadecimal digits is no
