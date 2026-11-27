@@ -39,8 +39,9 @@ import (
 )
 
 // CandidateWindow is how long a search answer stays grab input (ruling R7):
-// below lifecycle.BlockQuarantine, so no answer computed before a block can
-// regrab the release once its tombstone is gone.
+// below lifecycle.BlockYield, the least a blocked release's tombstone stays,
+// so no answer computed before a block can regrab the release once its
+// tombstone is gone.
 const CandidateWindow = 30 * time.Minute
 
 // CapacityRetry is how long a release held because its owner is at its

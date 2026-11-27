@@ -395,6 +395,44 @@ func TestABlocklistedEntryIsDroppedOnlyAfterConfirmationAndQuarantine(t *testing
 		assert.Empty(t, p.Entries)
 		assert.Contains(t, actions(p), lifecycle.ActionRemoved)
 	})
+	t.Run("a full list keeps it only for the answer window", func(t *testing.T) {
+		// Seven other tombstones fill the owner's eight entries, as a
+		// Series' 24 were all failed releases' on talos.
+		fill := func(at time.Time) lifecycle.View {
+			e, tr := blocklisted(&at)
+			entries, transfers := []catalogv1alpha1.DownloadEntry{e}, []lifecycle.Transfer{tr}
+			for i := range 7 {
+				recent := now.Add(-time.Minute)
+				o, otr := blocklisted(&recent)
+				o.ID, o.UID = fmt.Sprintf("%s-%d", e.ID, i), fmt.Sprintf("%s-%d", e.UID, i)
+				otr.Record.Entry = schema.EntryRef{ID: o.ID, UID: o.UID}
+				entries, transfers = append(entries, o), append(transfers, otr)
+			}
+			return view(entries, transfers...)
+		}
+		ids := func(p lifecycle.Plan) []string {
+			var out []string
+			for i := range p.Entries {
+				out = append(out, p.Entries[i].ID)
+			}
+			return out
+		}
+		past := fill(now.Add(-lifecycle.BlockYield - time.Minute))
+		require.Len(t, past.Stored, past.EntryCap)
+		p := lifecycle.Decide(past)
+		assert.Len(t, p.Entries, 7, "the one past the answer window gives its place up")
+		assert.NotContains(t, ids(p), past.Stored[0].ID)
+
+		inside := fill(now.Add(-lifecycle.BlockYield + time.Minute))
+		p = lifecycle.Decide(inside)
+		assert.Len(t, p.Entries, 8, "an answer from before the block may still name it")
+
+		// With room in the list the same entry stays its whole quarantine.
+		room := fill(now.Add(-lifecycle.BlockYield - time.Minute))
+		room.Stored = room.Stored[:7]
+		p = lifecycle.Decide(room)
+		assert.Contains(t, ids(p), room.Stored[0].ID)
+	})
 	t.Run("confirmed past the quarantine but the transfer not yet removed: kept, absent owed", func(t *testing.T) {
 		at := now.Add(-2 * time.Hour)
 		e, _ := blocklisted(&at)

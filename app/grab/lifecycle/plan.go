@@ -47,6 +47,13 @@ type decider struct {
 	all []catalogv1alpha1.DownloadEntry
 }
 
+// full reports an owner whose stored entries fill its cap: a grab finds no
+// room there (the grab stage holds it as a pending grab), so a tombstone
+// gives its place up as soon as its job is done (BlockYield).
+func (d *decider) full() bool {
+	return d.v.EntryCap > 0 && len(d.v.Stored) >= d.v.EntryCap
+}
+
 // Decide runs the grab state machine over one owner's entries (§6.4): the
 // stored ones, the grab stage's new ones and the transfers no entry claims,
 // under the owner's intents, and returns the next entries and every effect

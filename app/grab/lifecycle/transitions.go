@@ -544,7 +544,12 @@ func (d *decider) terminal(e *catalogv1alpha1.DownloadEntry, rec *schema.Transfe
 		return true
 	}
 	if e.Phase == commonv1.DownloadPhaseBlocklisted && e.Block != nil && e.Block.ConfirmedAt != nil {
+		// A full list keeps the tombstone only while an answer from before
+		// the block can still name its release (BlockYield).
 		end := e.Block.ConfirmedAt.Add(BlockQuarantine)
+		if d.full() {
+			end = e.Block.ConfirmedAt.Add(BlockYield)
+		}
 		if d.now.Before(end) {
 			d.at(end)
 			return true

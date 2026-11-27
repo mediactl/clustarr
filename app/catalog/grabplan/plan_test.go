@@ -552,6 +552,13 @@ func TestSearchRecordsOutliveTheCandidateWindow(t *testing.T) {
 	require.GreaterOrEqual(t, events.SearchesTTL, grabplan.CandidateWindow)
 }
 
+// A full list's tombstone outlives every answer computed before its block:
+// lifecycle.BlockYield is past the window an answer is grab input for.
+func TestATombstoneYieldsOnlyAfterTheCandidateWindow(t *testing.T) {
+	require.Greater(t, lifecycle.BlockYield, grabplan.CandidateWindow)
+	require.LessOrEqual(t, lifecycle.BlockYield, lifecycle.BlockQuarantine)
+}
+
 // A release that failed on a local fault is not grabbed again while its
 // Failed entry stands (lifecycle.LocalFaultHold): the planner takes the
 // next release of the same answer, where it took the same one again every

@@ -26,6 +26,17 @@ const (
 	// tombstone after its transfer is removed, so no answer computed before
 	// the block regrabs the release (§6.14).
 	BlockQuarantine = time.Hour
+	// BlockYield is how long that tombstone stays when its owner's list is
+	// full: the answer window (grabplan.CandidateWindow, 30 min, counted
+	// from a search's end) and ten minutes for a search that was running
+	// when the block was confirmed, after which no answer from before the
+	// block is grab input and the tombstone has nothing left to refuse.
+	// The hour past it is margin a full list cannot afford: every entry of
+	// a Series' 24 was a failed release's tombstone, each for its hour, and
+	// the releases that would have worked waited for room behind them
+	// (talos, 2026-11-27: JoJo's Bizarre Adventure, 21 tombstones and 24
+	// held grabs, nothing downloading; owner: "correct this now").
+	BlockYield = 40 * time.Minute
 	// RefusedHold is how long a Failed releaseRefused entry -- a release
 	// its indexer kept refusing -- stays as a tombstone after its failure,
 	// so the redownload search grabs another release rather than the same

@@ -531,6 +531,24 @@ recorded here.
     and Afraid and Sex and the City hit the cap the same day. The release is
     now a pending grab, tried again every five minutes until there is room;
     a set and a donor are still refused.
+  - **A full list keeps a blocked release's tombstone 40 minutes, not the
+    hour** (`lifecycle.BlockYield`, 2026-11-27, owner: "correct this now",
+    of "all 24 slots of the series' list are held by failed entries"). The
+    pending grab kept the releases but not the pace: JoJo's Bizarre
+    Adventure on talos held 21 tombstones and 24 pending grabs with nothing
+    downloading, because every release ranked first for its episode was dead
+    on every provider (one uploader's posts, taken down) and each failure
+    held a slot for its hour while the releases that worked waited behind
+    it. The tombstone's only job is refusing an answer computed before the
+    block (`grabplan.CandidateWindow`, 30 min from the search's end); past
+    that and ten minutes for a search in flight it refuses nothing, so an
+    owner whose stored entries fill its cap (`decider.full`) drops it then.
+    With room in the list it stays the hour as before. Only a confirmed
+    Blocklisted entry yields: a `RefusedHold` or `LocalFaultHold` tombstone
+    is the only thing keeping its release from the next answer, and stays.
+    Guards: `TestABlocklistedEntryIsDroppedOnlyAfterConfirmationAndQuarantine`
+    ("a full list keeps it only for the answer window", falsified) and
+    `TestATombstoneYieldsOnlyAfterTheCandidateWindow`.
   - **A dispatch that asked no indexer is not the failure's search**
     (`itemread.SearchCounted`: closed, and `lastSearchedAt` not before it).
     One every indexer was paced for, one with none to ask and one nobody
