@@ -39,6 +39,11 @@ type Candidate struct {
 	// LastSearched is status.lastSearchedAt, the tie-break among items
 	// with no live search recorded.
 	LastSearched *time.Time
+	// Granted: the item holds a grant of an earlier cycle, neither spent
+	// nor lapsed (Book.Granted). Its search is still owed, so it is not due
+	// another: a unit whose search never starts would otherwise be the
+	// oldest due at every cycle and take its queue's every slot.
+	Granted bool
 	// Series and Season place an Episode in its season: its due episodes
 	// may be searched as one season query. Nil for every other kind.
 	Series *schema.ItemRef
@@ -81,7 +86,8 @@ type Counts struct {
 
 // Select is a cycle's choice (design §"What it is"): per queue, missing
 // first, the due candidates -- past the queue's cooldown since their last
-// live search -- oldest last live search first, up to the queue's perCycle
+// live search, and holding no grant of an earlier cycle (Candidate.Granted)
+// -- oldest last live search first, up to the queue's perCycle
 // and the hour's room in all. With SeasonSearch an Episode due beside
 // another due episode of its season (not the specials) is taken with every
 // such episode, of either queue, as one unit.
@@ -96,7 +102,7 @@ func Select(cands []Candidate, cfg Config, now time.Time) ([]Unit, map[schema.Se
 		}
 		n := counts[c.Reason]
 		n.Candidates++
-		if c.LastLive == nil || now.Sub(*c.LastLive) >= q.Cooldown {
+		if !c.Granted && (c.LastLive == nil || now.Sub(*c.LastLive) >= q.Cooldown) {
 			n.Due++
 			due[c.Reason] = append(due[c.Reason], i)
 			if c.LastLive != nil && (n.OldestLive == nil || c.LastLive.Before(*n.OldestLive)) {

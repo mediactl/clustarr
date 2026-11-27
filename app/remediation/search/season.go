@@ -284,12 +284,17 @@ func (s *Stage) gatherContainer(ctx context.Context, v *remediation.ItemView, no
 	}
 	sv.Priorities = itemread.Priorities(idxs)
 
-	// Only a request about to start, an automatic state that could (a
-	// monitored container with a PackFirst season, or volume), or a state in
-	// progress needs the season facts and records.
+	// Only a request about to start, an automatic state that could
+	// (couldAsk), or a state in progress needs the season facts and records.
 	if st := sv.State; st == nil || st.FinishedAt != nil {
-		if len(sv.Requests) == 0 && (!sv.Monitored || !anyPackFirst(item)) {
-			return sv, served, nil
+		if len(sv.Requests) == 0 {
+			could, err := s.couldAsk(ctx, item, sv.Monitored, now)
+			if err != nil {
+				return sv, served, err
+			}
+			if !could {
+				return sv, served, nil
+			}
 		}
 	}
 	switch t := item.(type) {
@@ -629,8 +634,7 @@ func holdsSeason(prof *quality.Profile, originalTag string, e *catalogv1alpha1.D
 // for (automaticSeasons, SeasonFacts.ReplaceDue), and they wait for it
 // (seasonReplaces).
 func replacesAsPack(ep *catalogv1alpha1.Episode, now time.Time) bool {
-	if ep.Status.CutoffMet || (ep.Status.CutoffReason != rollup.ReasonUndecodableVideo && ep.Status.CutoffReason != rollup.ReasonMissingAudio &&
-		ep.Status.CutoffReason != rollup.ReasonTruncated) {
+	if !itemread.Replaceable(ep) {
 		return false
 	}
 	cand, _ := wantedcron.CandidateOf(ep, now)
@@ -824,6 +828,39 @@ func (SeasonLedgerSource) Rebuild(ctx context.Context, r client.Reader) ([]dispa
 		})
 	}
 	return out, nil
+}
+
+// couldAsk reports a container whose automatic search might ask for a
+// season at now (automaticSeasons), read without listing its children:
+// monitored, and a PackFirst season or volume (anyPackFirst), a season a
+// BacklogSearch granted as one unit (backlog.Book.SeasonGranted), or two
+// or more Episodes holding a file a whole release replaces
+// (itemread.ReplaceableIndex; seasonFacts' ReplaceDue judges which are
+// due). The last two are seasons with every file, which PackFirst never
+// passes: until 2026-11-27 they were not read here, their Series counted
+// no episode and asked for no season, and the episodes -- told to wait for
+// the season's query (seasonBacklog, seasonReplaces) -- were never
+// searched. Magi: Adventure of Sinbad's first season, 13 files below the
+// cutoff, was granted by the backlog every 15 minutes for hours.
+func (s *Stage) couldAsk(ctx context.Context, item client.Object, monitored bool, now time.Time) (bool, error) {
+	if !monitored {
+		return false, nil
+	}
+	if anyPackFirst(item) {
+		return true, nil
+	}
+	ser, ok := item.(*catalogv1alpha1.Series)
+	if !ok {
+		return false, nil
+	}
+	if s.o.Backlog.SeasonGranted(string(ser.UID), now) {
+		return true, nil
+	}
+	var eps catalogv1alpha1.EpisodeList
+	if err := s.o.Reader.List(ctx, &eps, client.InNamespace(ser.Namespace), client.MatchingFields{itemread.ReplaceableIndex: ser.Name}); err != nil {
+		return false, fmt.Errorf("search: list the replaceable Episodes of %s: %w", ser.Name, err)
+	}
+	return len(eps.Items) >= 2, nil
 }
 
 // anyPackFirst reports a container with a pack-first season: a Series one

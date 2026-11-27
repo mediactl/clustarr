@@ -106,6 +106,12 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 			return fmt.Errorf("remediation: register %s on %T: %w", itemread.BacklogIndex, obj, err)
 		}
 	}
+	// The Episodes holding a file a whole release replaces, by series: a
+	// Series' search pass counts them before it lists its Episodes
+	// (search stage, gatherContainer).
+	if err := idx.IndexField(ctx, &catalogv1alpha1.Episode{}, itemread.ReplaceableIndex, itemread.ReplaceableValues); err != nil {
+		return fmt.Errorf("remediation: register %s: %w", itemread.ReplaceableIndex, err)
+	}
 	// A Series' seasonSearch and, since 2026-11-10 (design D10), a Comic's
 	// volumeSearch: the extractor reads both (itemread.ContainerSearch).
 	for _, obj := range []client.Object{&catalogv1alpha1.Series{}, &catalogv1alpha1.Comic{}} {

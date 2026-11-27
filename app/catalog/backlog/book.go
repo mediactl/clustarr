@@ -44,12 +44,15 @@ type Grant struct {
 type Book struct {
 	mu     sync.Mutex
 	grants map[string]Grant // by item uid
-	wakes  chan schema.ItemRef
+	// seasons are the Series holding a season unit's grants, by series uid,
+	// each until its unit's grants lapse (GrantSeason).
+	seasons map[string]time.Time
+	wakes   chan schema.ItemRef
 }
 
 // NewBook is an empty book.
 func NewBook() *Book {
-	return &Book{grants: map[string]Grant{}, wakes: make(chan schema.ItemRef, WakeBuffer)}
+	return &Book{grants: map[string]Grant{}, seasons: map[string]time.Time{}, wakes: make(chan schema.ItemRef, WakeBuffer)}
 }
 
 // Grant records g for the item uid.
@@ -61,6 +64,35 @@ func (b *Book) Grant(uid string, g Grant) {
 	defer b.mu.Unlock()
 	b.grants[uid] = g
 	b.prune(g.At)
+}
+
+// GrantSeason records that the Series uid holds a season unit's grants
+// until until: its episodes wait for the season's query, which only the
+// Series' own pass asks for. That pass counts a season's granted episodes
+// only when it lists them, and it lists them for a Series this names (the
+// search stage's gatherContainer): on 2026-11-27 a season with every file,
+// below its cutoff, was granted at every cycle for hours because nothing
+// told its Series.
+func (b *Book) GrantSeason(uid string, until time.Time) {
+	if b == nil || uid == "" {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if until.After(b.seasons[uid]) {
+		b.seasons[uid] = until
+	}
+}
+
+// SeasonGranted reports a Series holding a season unit's grants at now.
+func (b *Book) SeasonGranted(uid string, now time.Time) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	until, ok := b.seasons[uid]
+	return ok && now.Before(until)
 }
 
 // Granted is the item's grant, false when it has none or it lapsed by now.
@@ -104,6 +136,11 @@ func (b *Book) prune(now time.Time) {
 	for uid, g := range b.grants {
 		if !now.Before(g.Until) {
 			delete(b.grants, uid)
+		}
+	}
+	for uid, until := range b.seasons {
+		if !now.Before(until) {
+			delete(b.seasons, uid)
 		}
 	}
 }

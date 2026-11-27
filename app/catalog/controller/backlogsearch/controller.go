@@ -186,8 +186,10 @@ func (r *Reconciler) cycle(ctx context.Context, bs *catalogv1alpha1.BacklogSearc
 			r.Book.Grant(c.Item.UID, backlog.Grant{Reason: c.Reason, At: now, Until: until})
 		}
 		// The Series first, so its season facts count the grants before its
-		// episodes plan.
+		// episodes plan -- and named in the book, or its pass lists no
+		// episode and counts none (Book.GrantSeason).
 		if u.Series != nil {
+			r.Book.GrantSeason(u.Series.UID, until)
 			if err := r.Book.Wake(ctx, *u.Series); err != nil {
 				return units, err
 			}
@@ -329,6 +331,7 @@ func (r *Reconciler) candidate(ctx context.Context, o client.Object, reason sche
 	}
 	ref := itemread.Ref(o)
 	cand := backlog.Candidate{Item: ref, Reason: reason}
+	_, cand.Granted = r.Book.Granted(ref.UID, now)
 	if t := itemread.LastLiveSearchAt(o); t != nil {
 		at := t.UTC()
 		cand.LastLive = &at

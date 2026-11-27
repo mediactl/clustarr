@@ -675,9 +675,40 @@ const (
 	// before. The BacklogSearch controller lists a namespace's backlog by
 	// it.
 	BacklogIndex = "remediation.item.backlog"
+	// ReplaceableIndex is an Episode's series while the Episode holds a
+	// file a whole release replaces (ReplaceableValues). A Series' search
+	// pass asks it whether a season of such files could be due a pack
+	// query, without listing every Episode of the Series.
+	ReplaceableIndex = "remediation.episode.replaceable"
 	// IndexTrue is the one value of a marker index.
 	IndexTrue = "true"
 )
+
+// Replaceable reports an Episode holding a file a whole release replaces:
+// below its cutoff because no GPU here decodes its video, it lacks a
+// wanted audio language, or it ends before its own chapters do
+// (rollup.ReasonUndecodableVideo, ReasonMissingAudio, ReasonTruncated).
+// Whether its search is due is the caller's (the search stage's
+// replacesAsPack).
+func Replaceable(ep *catalogv1alpha1.Episode) bool {
+	if ep.Status.CutoffMet {
+		return false
+	}
+	switch ep.Status.CutoffReason {
+	case rollup.ReasonUndecodableVideo, rollup.ReasonMissingAudio, rollup.ReasonTruncated:
+		return true
+	}
+	return false
+}
+
+// ReplaceableValues is ReplaceableIndex's extractor: a Replaceable
+// Episode's seriesRef, nothing else.
+func ReplaceableValues(o client.Object) []string {
+	if ep, ok := o.(*catalogv1alpha1.Episode); ok && Replaceable(ep) && ep.Spec.SeriesRef != "" {
+		return []string{ep.Spec.SeriesRef}
+	}
+	return nil
+}
 
 // SearchInFlightValues is SearchInFlightIndex's extractor.
 func SearchInFlightValues(o client.Object) []string {

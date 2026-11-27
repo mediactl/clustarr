@@ -459,6 +459,29 @@ recorded here.
   season search asks for the season (`SeasonFacts.BacklogDue`) and they wait
   for it (`View.SeasonBacklog`). A grant is spent at dispatch (an all-paced
   backlog search loses its turn) and lapses after `max(2 x interval, 3h)`.
+  **A season with every file was never asked for, and its backlog grant
+  came back every cycle** (owner, 2026-11-27: Magi: Adventure of Sinbad S1,
+  cutoff-unmet, granted "every 15 minutes for hours, which starves every
+  other cutoff-unmet search"). A Series' search pass listed its Episodes
+  only when a season passed `PackFirst` (two or more files missing), so a
+  series holding every file counted no `BacklogDue` and no `ReplaceDue` and
+  asked for no season, while its episodes were told to wait for exactly
+  that query (`seasonBacklog`, `seasonReplaces`): nothing was searched, no
+  `lastLiveSearchAt` was written, the grant lapsed, and the season was the
+  oldest due again. On talos 40 seasons (480 episodes) could loop this way;
+  of the replaceable episodes in them 235 of 349 had not been searched
+  since 11-12. Now the pass also lists them for a Series the book names
+  (`backlog.Book.GrantSeason`, set by the cycle before it wakes the Series)
+  and for one with two or more replaceable Episodes
+  (`itemread.ReplaceableIndex`; `search.couldAsk`), and a cycle leaves out
+  a candidate still holding an earlier cycle's grant (`Candidate.Granted`),
+  so a unit whose search does not start costs its queue one slot per lapse
+  and not every slot. A count the planner reads is only as good as the
+  pass that fills it: the episode-side tests of both rules passed all
+  along. Guards: `TestASeasonOfFilesBelowTheCutoffIsAskedForAndNotGrantedAgain`
+  (the cycle's grants through the stage's passes),
+  `TestASeriesWithEveryFileAsksForASeasonOfReplaceableFiles`,
+  `TestAnItemStillHoldingItsGrantIsNotDueAgain`.
   **A release date is a day, and three things followed from it** (owner,
   2026-11-17: "Do we check for new episodes or follow release dates ...
   Upon release, we should search", then "Implement the fixes"):

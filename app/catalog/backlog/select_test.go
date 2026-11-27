@@ -167,3 +167,28 @@ func TestTheBookGrantsUntilALapseAndSpends(t *testing.T) {
 	require.NoError(t, nilBook.Wake(context.Background(), schema.ItemRef{}))
 	assert.Nil(t, nilBook.Wakes())
 }
+
+// An item holding a grant of an earlier cycle is owed that search and is
+// not due another, whatever its last live search: on talos (2026-11-27) a
+// season whose search never started was the oldest due at every cycle and
+// took the cutoff queue's one slot for hours. Its Series' season grant
+// lapses with it (Book.SeasonGranted).
+func TestAnItemStillHoldingItsGrantIsNotDueAgain(t *testing.T) {
+	stuck1 := episode("stuck", 1, "stuck-s01e01", schema.SearchReasonCutoffUnmet, nil)
+	stuck2 := episode("stuck", 1, "stuck-s01e02", schema.SearchReasonCutoffUnmet, nil)
+	stuck1.Granted, stuck2.Granted = true, true
+	cands := []Candidate{stuck1, stuck2, movie("waiting", schema.SearchReasonCutoffUnmet, ago(30*24*time.Hour))}
+
+	units, counts := Select(cands, cfg(5, 1, 20), now)
+	assert.Equal(t, []string{"waiting"}, names(units))
+	assert.Equal(t, Counts{Candidates: 3, Due: 1, OldestLive: ago(30 * 24 * time.Hour)}, counts[schema.SearchReasonCutoffUnmet])
+
+	b := NewBook()
+	until := now.Add(3 * time.Hour)
+	b.GrantSeason("uid-stuck", until)
+	b.GrantSeason("uid-stuck", now.Add(time.Hour))
+	assert.True(t, b.SeasonGranted("uid-stuck", until.Add(-time.Second)), "a later, shorter grant does not cut the season's short")
+	assert.False(t, b.SeasonGranted("uid-stuck", until))
+	assert.False(t, b.SeasonGranted("uid-other", now))
+	assert.False(t, (*Book)(nil).SeasonGranted("uid-stuck", now))
+}
