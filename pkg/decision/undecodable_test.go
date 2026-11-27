@@ -87,6 +87,34 @@ func TestTheSpellingsOfH264TenBit(t *testing.T) {
 	}
 }
 
+// A release that names HEVC at 12 bits is refused under every profile, as
+// H.264 10-bit is (owner, 2026-11-27: "Block 12-bit HEVC releases"): no GPU
+// here decodes it, so the transcode skips the file. The 10-bit HEVC every
+// other release is stays taken, and so does an episode numbered 12 whose
+// title begins "Bit".
+func TestAnHEVCTwelveBitReleaseIsRefused(t *testing.T) {
+	for _, profile := range []string{"hd-bluray-web", "anime-remux-1080p"} {
+		p, cat := builtin(t, profile)
+		for title, refused := range map[string]bool{
+			"Rushmore.1998.1080p.BluRay.x265.12bit.DTS-GROUP":                  true,
+			"Rushmore.1998.1080p.BluRay.HEVC.12-bit.FLAC-GROUP":                true,
+			"[Group] Rushmore (1998) [BD 1080p HEVC Main12 FLAC]":              true,
+			"[Group] Rushmore (1998) [BD 1080p x265 Ma12p Opus]":               true,
+			"[Erai-raws] Rushmore (1998) [1080p HEVC-YUV444P12][E-AC3]":        true,
+			"Rushmore.1998.1080p.BluRay.x265.10bit.DTS-GROUP":                  false,
+			"[Group] Rushmore (1998) [BD 1080p HEVC Main10 FLAC]":              false,
+			"Rushmore.1998.1080p.BluRay.AV1.12bit.Opus-GROUP":                  false, // AV1's own format judges it
+			"Rushmore.1998.S01E12.Bit.by.Bit.1080p.AMZN.WEB-DL.DDP5.1.H.265-G": false,
+			"Rushmore.1998.1080p.BluRay.DD5.1.x265-GRP":                        false,
+		} {
+			got := decide(t, p, cat, rushmoreTarget(nil), title)
+			matched := slices.Contains(got.Release.MatchedFormats, "hevc-12bit")
+			assert.Equal(t, refused, matched, "%s under %s: %v", title, profile, got.Release.MatchedFormats)
+			assert.Equal(t, refused, hasRejection(got, decision.ReasonUndecodableVideo), "%s under %s: %v", title, profile, reasons(got))
+		}
+	}
+}
+
 // No profile takes one (owner, 2026-11-27: "H.264 10-bit should *always*
 // be blocked for every library - these cannot be transcoded"): the formats'
 // -10000 is a score, which a profile that scores the format itself or

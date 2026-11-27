@@ -106,12 +106,20 @@ func (mf *MediaFile) UndecodableVideo() string {
 // (owner, the same day: "The 12 XviD files and 18 H.264 10-bit files should
 // be under the cutoff - forced to search for a new release"; talos-88's
 // Arrow Lake: no mpeg4_qsv decoder exists, and VA-API answers "No support
-// for codec mpeg4 profile 15"), with DivX 3's MS-MPEG-4 before it.
+// for codec mpeg4 profile 15"), with DivX 3's MS-MPEG-4 before it; and HEVC
+// 12-bit (owner, 2026-11-27: "Block 12-bit HEVC releases", of the fifty
+// Range-extensions files the transcode had skipped: "the qsv tier's GPU does
+// not decode hevc 12-bit"). HEVC at 8 and 10 bits is what everything else
+// here is.
 func UndecodableVideoCodec(codec string, bitDepth int32, pixFmt string) string {
 	switch codec {
 	case "h264":
 		if bitDepth == 10 || strings.Contains(pixFmt, "10") {
 			return "H.264 10-bit"
+		}
+	case "hevc":
+		if bitDepth == 12 || strings.Contains(pixFmt, "p12") {
+			return "HEVC 12-bit"
 		}
 	case "mpeg4":
 		return "MPEG-4 Part 2 (XviD, DivX)"

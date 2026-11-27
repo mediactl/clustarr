@@ -114,7 +114,24 @@ func fillFromRelease(p *release.ParsedRelease, releaseTitle string, kind commonv
 		return
 	}
 	r, err := release.Parse(releaseTitle, release.Options{Kind: kind})
-	if err != nil || r.Quality.Source == "" || r.Quality.Source == commonv1.SourceUnknown {
+	if err != nil {
+		// A title no release pattern takes still names what its files are:
+		// a batch named for its series alone has no episode for a pattern
+		// to hold on to, and its tags are read on their own
+		// (release.TitleTags). On talos a person's pick of "[GERMini] Rozen
+		// Maiden 2013 Zurückspulen [BD.1080p.x265.HEVC][Dual Audio]" was
+		// held "quality Unknown is not allowed by the quality profile", its
+		// thirteen files named "Rozen Maiden - Zurückspulen - 01.mkv"
+		// (2026-11-27). The languages stay the file's, which the probe
+		// reads.
+		if kind == commonv1.MediaKindMovie || kind == commonv1.MediaKindEpisode || kind == commonv1.MediaKindSeries {
+			if q, rev, group := release.TitleTags(releaseTitle); q.Source != "" && q.Source != commonv1.SourceUnknown {
+				p.Quality, p.Revision, p.Group = q, rev, group
+			}
+		}
+		return
+	}
+	if r.Quality.Source == "" || r.Quality.Source == commonv1.SourceUnknown {
 		return
 	}
 	p.Quality, p.Revision, p.Group = r.Quality, r.Revision, r.Group

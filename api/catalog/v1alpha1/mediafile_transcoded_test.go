@@ -143,6 +143,11 @@ func TestUndecodableVideoReadsTheProbe(t *testing.T) {
 	assert.Equal(t, "MS-MPEG-4 (DivX 3)", mf(&commonv1.MediaInfo{VideoCodec: "msmpeg4v3"}).UndecodableVideo())
 	assert.Empty(t, mf(&commonv1.MediaInfo{VideoCodec: "h264", VideoBitDepth: 8, PixelFormat: "yuv420p"}).UndecodableVideo())
 	assert.Empty(t, mf(&commonv1.MediaInfo{VideoCodec: "hevc", VideoBitDepth: 10}).UndecodableVideo())
+	assert.Empty(t, mf(&commonv1.MediaInfo{VideoCodec: "hevc", VideoBitDepth: 10, PixelFormat: "yuv420p10le"}).UndecodableVideo())
+	assert.Equal(t, "HEVC 12-bit", mf(&commonv1.MediaInfo{VideoCodec: "hevc", VideoBitDepth: 12, PixelFormat: "yuv420p12le"}).UndecodableVideo(),
+		"the fifty Range-extensions files talos' transcode skipped (2026-11-27)")
+	assert.Equal(t, "HEVC 12-bit", mf(&commonv1.MediaInfo{VideoCodec: "hevc", PixelFormat: "yuv444p12le"}).UndecodableVideo())
+	assert.Empty(t, mf(&commonv1.MediaInfo{VideoCodec: "av1", VideoBitDepth: 12}).UndecodableVideo(), "only HEVC is judged at 12 bits")
 	assert.Empty(t, mf(&commonv1.MediaInfo{VideoCodec: "mpeg2video", VideoBitDepth: 8}).UndecodableVideo(), "the GPU decodes MPEG-2")
 	assert.Empty(t, mf(nil).UndecodableVideo())
 	var none *catalogv1alpha1.MediaFile

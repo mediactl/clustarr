@@ -180,6 +180,19 @@ downloaded 21 such releases in a night, each refused at import and
 redownloaded, because "Hi10" without its P (Kametsu) and "AVC-YUV444P10"
 (Erai-raws) matched nothing; "10 bit" and "10bits" are read too, and the
 10 needs a boundary before it, so "S01E10.Bit.by.Bit" names no bit depth.
+**HEVC at 12 bits is off limits too (owner, 2026-11-27: "Block 12-bit HEVC
+releases").** The transcode had skipped fifty anime files, HEVC Range
+extensions at `yuv420p12le`, "the qsv tier's GPU does not decode hevc
+12-bit, and a GPU transcode never decodes on the CPU", and they stayed as
+downloaded. `hevc-12bit` in `clustarr.json` reads a title's `12bit`,
+`12-bit`, `Main12`, `Ma12p` or `YUV4xxP12` naming no AV1 or VP9 (12 bits is
+HEVC's in practice; the 12 needs a boundary before it and no space after,
+so "S01E12.Bit.by.Bit" names none), and being of the `clustarr` family it
+is refused by `UndecodableVideo` under every profile. The probe's half is
+`UndecodableVideoCodec`: `hevc` at depth 12 or a `p12` pixel format, so the
+import refuses such a file whose title did not say, and a file already in
+the library reads CutoffUnmet, reason `UndecodableVideo`, until a release
+replaces it, as an H.264 10-bit one does.
 **What a title cannot say is still the import's to catch**: Coalgirls'
 "(1920x1080_Blu-Ray_FLAC)" packs are H.264 10-bit and name no bit depth,
 so one is downloaded whole and refused by its probe

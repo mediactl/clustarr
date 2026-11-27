@@ -1896,3 +1896,18 @@ recorded here.
   in scene seasons the series does not have and TheXEM does not map (How a
   Realist Hero Rebuilt the Kingdom "S01-S02", TVDB one season of 26: "the
   series has no S02E01"), and files with no number at all.
+
+- **A file takes the quality its download's release title names even when
+  no release pattern reads that title (2026-11-27, owner: "We know the
+  quality from the release title").** `fileimport.fillFromRelease` gave a
+  file that names no source the release's quality, revision and group by
+  parsing the title as a release, and a batch named for its series alone
+  ("[GERMini] Rozen Maiden 2013 Zurückspulen [BD.1080p.x265.HEVC][Dual
+  Audio]": no episode for a pattern to hold on to) parses as none, so its
+  thirteen files ("Rozen Maiden - Zurückspulen - 01.mkv") read Unknown and
+  a person's pick was held "quality Unknown is not allowed by the quality
+  profile". Now a title that does not parse has its tags read on their own
+  (`release.TitleTags`: quality, revision, group). Such a release is still
+  refused at search as UnableToParse; a person takes it by an **episode**
+  Search's pick with `spec.override` (a season Search's pick of an unparsed
+  release covers nothing and is refused).

@@ -262,6 +262,8 @@ func TestAnImportRefusesUndecodableVideoAndReplacesIt(t *testing.T) {
 	assert.Contains(t, r.Text, "H.264 10-bit")
 	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 8}).none())
 	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "hevc", VideoBitDepth: 10}).none())
+	twelve := undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "hevc", VideoBitDepth: 12})
+	assert.Contains(t, twelve.Text, "HEVC 12-bit", "a 12-bit HEVC file is refused as the release's fault (owner, 2026-11-27)")
 	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264"}).none(), "an unknown depth is not judged")
 	assert.True(t, undecodableRejection("S05E01.mkv", nil).none())
 	xvid := undecodableRejection("S09E06.avi", &schema.ProbeSummary{VideoCodec: "mpeg4", VideoBitDepth: 8})

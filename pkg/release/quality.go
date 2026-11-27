@@ -549,6 +549,18 @@ func parseQualityTags(title string) (commonv1.Quality, commonv1.Revision, string
 	return q, rev, "", ""
 }
 
+// TitleTags reads the quality, the revision and the release group a video
+// title's tags name, without reading the title as a release: for a title no
+// release pattern takes -- a batch named for its series alone, "[GERMini]
+// Rozen Maiden 2013 Zurückspulen [BD.1080p.x265.HEVC][Dual Audio]" -- whose
+// tags still say what its files are. The quality is Unknown when the title
+// names none, and the group "" when it names none.
+func TitleTags(title string) (commonv1.Quality, commonv1.Revision, string) {
+	q, rev, _, _ := parseQualityTags(title)
+	group, _, _ := parseGroup(title)
+	return q, rev, group
+}
+
 // revisionOrDefault is detectRevision for the non-video parsers, degrading a
 // regexp2 MatchTimeout to Version 1 exactly as parseQualityTags does.
 func revisionOrDefault(title string) commonv1.Revision {
