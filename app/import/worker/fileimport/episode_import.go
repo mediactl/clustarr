@@ -63,6 +63,10 @@ type episodePlan struct {
 	// series target keyed to one episode); nil for a pack.
 	named *EpisodeCandidate
 
+	// packSeason is the season the Download's release title names when it
+	// is a pack of exactly that one season, 0 otherwise: the season of a
+	// file named for its episode alone (bareEpisode).
+	packSeason int
 	// sceneName is the Download's release title when it names the one
 	// episode file the download holds, else "": see runEpisodes.
 	sceneName string

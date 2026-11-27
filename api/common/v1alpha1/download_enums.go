@@ -106,7 +106,10 @@ const (
 	// attributed, or the import kept failing transiently -- and nobody
 	// imported them within ImportHoldRetention. The files are removed; the
 	// release is not blocklisted and no redownload is searched, since
-	// nothing showed the release was at fault.
+	// nothing showed the release was at fault. The one exception is an
+	// automatic grab held because its files' names do not say which item
+	// they are: its entry is Blocklisted under this reason, for the item
+	// alone, and the item searched again (2026-11-27).
 	DownloadFailureImportExpired DownloadFailureReason = "importExpired"
 	// DownloadFailureManual means an operator failed the grab by hand.
 	DownloadFailureManual DownloadFailureReason = "manual"

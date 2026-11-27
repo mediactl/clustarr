@@ -181,6 +181,43 @@ func (p *planner) pickedAt(q commonv1.Quality) bool {
 // never the release's to be blocklisted for (smoke T2).
 func (p *planner) person() bool { return p.manual() || p.sum.Target != "" }
 
+// expire ends a hold: its verdict says whether the release is blocked.
+func (p *planner) expire() {
+	p.sum.Phase = catalogv1alpha1.ImportPhaseExpired
+	p.dec.Verdict = lifecycle.ImportExpired
+	if p.unattributed() {
+		p.dec.Verdict = lifecycle.ImportExpiredBlocked
+	}
+}
+
+// unattributed reports whether a held import is an automatic grab's whose
+// inspection refused a file because its name does not say which item it is
+// (schema.InspectKindUnattributed): hashed names, a numbering the series
+// lacks. Such a hold expired as any other, its release was never blocked,
+// and the next search grabbed it again to the same end (owner, 2026-11-27:
+// "Break the loop"). Not a person's import, whose release is theirs to
+// judge; not a hold for any other reason -- a suspected sample, the item's
+// own state, a local fault -- since blocking those would have the search
+// take every release of the item in turn, one a day; and not one whose
+// inspection is gone, where nothing says why it was held.
+func (p *planner) unattributed() bool {
+	if p.person() || p.donor() || p.sum.Class != commonv1.ImportClassNeedsPerson {
+		return false
+	}
+	rec := p.in.Inspect
+	if rec == nil || rec.Inspect == nil {
+		return false
+	}
+	for _, f := range rec.Inspect.Files {
+		for _, r := range f.Rejections {
+			if r.Kind == schema.InspectKindUnattributed {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (p *planner) donor() bool { return p.in.Entry.Purpose == commonv1.DownloadPurposeAudioDonor }
 
 func (p *planner) decide() {
@@ -195,7 +232,7 @@ func (p *planner) decide() {
 	}
 	switch p.sum.Phase {
 	case catalogv1alpha1.ImportPhaseExpired:
-		p.dec.Verdict = lifecycle.ImportExpired
+		p.expire()
 	case catalogv1alpha1.ImportPhaseBlocked:
 		p.dec.Verdict = lifecycle.ImportReleaseFault
 	case catalogv1alpha1.ImportPhaseHeld:
@@ -209,7 +246,9 @@ func (p *planner) decide() {
 	}
 }
 
-// held keeps a held import until ImportHoldRetention, then expires it.
+// held keeps a held import until ImportHoldRetention, then expires it: as
+// lifecycle.ImportExpiredBlocked when the release is one the item cannot
+// take (unattributed), else as lifecycle.ImportExpired.
 func (p *planner) held() {
 	if p.sum.HeldSince == nil {
 		t := metav1.NewTime(p.now)
@@ -217,8 +256,7 @@ func (p *planner) held() {
 	}
 	until := p.sum.HeldSince.UTC().Add(lifecycle.ImportHoldRetention)
 	if !p.now.Before(until) {
-		p.sum.Phase = catalogv1alpha1.ImportPhaseExpired
-		p.dec.Verdict = lifecycle.ImportExpired
+		p.expire()
 		return
 	}
 	p.dec.Verdict = lifecycle.ImportHeld

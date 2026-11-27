@@ -337,6 +337,31 @@ func TestEveryRowOfTheStateMachine(t *testing.T) {
 			assert.Empty(t, p.Redownloads, "an expired hold is never searched again")
 		},
 	}, {
+		name: "Completed -> Blocklisted on an expired hold of unattributable files: item scope, a redownload",
+		view: func() lifecycle.View {
+			e := entry(commonv1.DownloadPhaseCompleted)
+			v := view([]catalogv1alpha1.DownloadEntry{e}, record(e, seq0, commonv1.DownloadStageSeeding))
+			v.Import = map[types.UID]lifecycle.ImportDecision{entryUID: {
+				Summary: catalogv1alpha1.DownloadImportSummary{Phase: catalogv1alpha1.ImportPhaseExpired},
+				Verdict: lifecycle.ImportExpiredBlocked,
+			}}
+			return v
+		},
+		check: func(t *testing.T, p lifecycle.Plan) {
+			e := only(p)
+			assert.Equal(t, commonv1.DownloadPhaseBlocklisted, e.Phase)
+			assert.Equal(t, commonv1.DownloadFailureImportExpired, e.FailureReason)
+			require.NotNil(t, e.Block)
+			assert.Equal(t, catalogv1alpha1.BlockScopeItem, e.Block.Scope, "the release is no fault: it is this item that cannot take it")
+			require.Len(t, absents(p), 1)
+			assert.True(t, absents(p)[0].Cmd.RemoveData)
+		},
+		nextCheck: func(t *testing.T, p lifecycle.Plan) {
+			assert.Equal(t, []schema.ItemRef{owner()}, p.Redownloads, "the item is searched again, and the planner takes the next release")
+			require.Len(t, p.Blocks, 1)
+			assert.Equal(t, schema.BlockScopeOf(owner()), p.Blocks[0].Req.Scope)
+		},
+	}, {
 		name: "Downloading -> Blocklisted on missingArticles: a global block",
 		view: func() lifecycle.View {
 			e := usenetEntry(commonv1.DownloadPhaseDownloading)

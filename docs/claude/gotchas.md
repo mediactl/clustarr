@@ -1582,8 +1582,24 @@ recorded here.
   table (refused, where it was matched by absolute number).
 
 - **A held import that nobody acts on is deleted after 24 hours and its
-  release grabbed again (found 2026-11-27, not fixed: the owner's rule to
-  make).** 56 anime series had 938 monitored episodes missing. Re-running
+  release grabbed again (found 2026-11-27; the unattributable case fixed
+  the same day, the owner's "Break the loop").** The fix: an automatic
+  grab's hold for files whose names do not say which item they are (the
+  import agent's `InspectKindUnattributed`: a name that does not parse, or
+  names an episode the series lacks) expires as
+  `lifecycle.ImportExpiredBlocked`: the entry is Blocklisted under
+  `importExpired`, for the item alone, and R25 searches the item again, so
+  the planner takes the next release. Every other hold expires as before,
+  blocking nothing: a suspected sample, the item's own state, a local
+  fault (blocking those would have the search take every release of the
+  item in turn, one a day), a person's own import, and a hold whose
+  inspection record is gone. With it: a pack's file named for its episode
+  alone is read (`bareEpisode`: "S02EP01.mkv" by the season it writes,
+  "[Prof] Episode 01 - The Wind Blows.mkv" by the one season its release
+  is a pack of), and a name that is nothing but hexadecimal digits is no
+  name (`hashedNameRegex`): the release parser read "5e21e3e9...mkv" as
+  S05E21 and "00e74c75...mkv" as S00E74, and a hash spelling an episode
+  the series has would have been imported as it. What was found: 56 anime series had 938 monitored episodes missing. Re-running
   their 74 season searches grabbed for 44 of them, and 49 of the 105 grabs
   were releases already downloaded whole once, held at import as
   `needsPerson`, removed when the hold lapsed (`lifecycle.
@@ -1593,7 +1609,7 @@ recorded here.
   and no container title (Kitsune's and others' Crunchyroll packs on
   usenet: nothing to read, see the 2026-11-25 Higurashi record); the
   season-marker names above; names with no title ("S02EP01.mkv", "[Prof]
-  Episode 01 - The Wind Blows.mkv": not parsed, not built); scene-numbered
+  Episode 01 - The Wind Blows.mkv"); scene-numbered
   names on a build before `MatchDownloaded`. No Episode in the library
   store carries `status.sceneNumbering` (0 of 27,707), so `MatchEpisodes`'
   scene fallback never matches: `decision.CoverageFor` is the only scene

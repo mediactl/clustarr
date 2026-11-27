@@ -20,8 +20,10 @@ package fileimport
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -45,6 +47,10 @@ import (
 // and HeartbeatInterval to that deadline together.
 const videoProbeTimeout = 15 * time.Second
 
+// hashedNameRegex is a file name that is nothing but hexadecimal digits, as
+// an obfuscating uploader leaves it.
+var hashedNameRegex = regexp.MustCompile(`^[0-9a-fA-F]{24,}$`)
+
 // parseMediaFile parses a media file's name, and when that names nothing
 // -- an obfuscated post's "2ef6f194995e4a11b055d0f2354ef0ba.mp4", the
 // first grab on the owner's cluster (2026-09-24) -- the release title the
@@ -56,7 +62,19 @@ const videoProbeTimeout = 15 * time.Second
 // An empty releaseTitle (a pack, whose title names none of its files) is
 // no fallback, and the file's own parse error is the one reported.
 func parseMediaFile(srcPath, releaseTitle string, kind commonv1.MediaKind) (*release.ParsedRelease, error) {
-	p, err := release.ParsePath(srcPath, release.Options{Kind: kind})
+	var (
+		p   *release.ParsedRelease
+		err error
+	)
+	if base := strings.TrimSuffix(filepath.Base(srcPath), filepath.Ext(srcPath)); hashedNameRegex.MatchString(base) {
+		// An obfuscated name is no name: read as one, "5e21e3e90faf...mkv"
+		// was S05E21 and "00e74c75a59a...mkv" S00E74 (talos, 2026-11-24,
+		// two files of hashed packs), and a hash that happened to spell an
+		// episode the series has would have been imported as it.
+		err = fmt.Errorf("release: %q is a hash, not a name", base)
+	} else {
+		p, err = release.ParsePath(srcPath, release.Options{Kind: kind})
+	}
 	if err == nil || releaseTitle == "" {
 		return p, err
 	}

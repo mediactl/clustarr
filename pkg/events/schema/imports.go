@@ -204,6 +204,12 @@ const (
 	InspectKindSample = "sample"
 	// InspectKindIncidental: explains a file and decides nothing.
 	InspectKindIncidental = "incidental"
+	// InspectKindUnattributed: the file's name does not say which item it
+	// is -- it does not parse, or names an episode the series lacks. A
+	// person can say; left unsaid, the release is one this item cannot
+	// take, so its expired hold blocks it for the item
+	// (importplan's held, lifecycle.ImportExpiredBlocked).
+	InspectKindUnattributed = "unattributed"
 )
 
 // InspectRejection is one reason a file could not be imported, with its

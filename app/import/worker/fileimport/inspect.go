@@ -105,6 +105,12 @@ func needsPersonRejection(format string, args ...any) schema.InspectRejection {
 	return inspectRejection(commonv1.ImportClassNeedsPerson, "", format, args...)
 }
 
+// unattributedRejection is a needsPerson rejection of a file whose name does
+// not say which item it is (schema.InspectKindUnattributed).
+func unattributedRejection(format string, args ...any) schema.InspectRejection {
+	return inspectRejection(commonv1.ImportClassNeedsPerson, schema.InspectKindUnattributed, format, args...)
+}
+
 func blockedRejection(format string, args ...any) schema.InspectRejection {
 	return inspectRejection(commonv1.ImportClassNeedsPerson, schema.InspectKindBlocked, format, args...)
 }
@@ -601,7 +607,7 @@ func (w *Worker) movieVisit(
 		f := schema.InspectedFile{Path: path, SizeBytes: info.Size(), Part: part}
 		parsed, perr := parseMediaFile(path, title, commonv1.MediaKindMovie)
 		if perr != nil {
-			f.Rejections = append(f.Rejections, needsPersonRejection("%s: could not parse the filename: %v", rel, perr))
+			f.Rejections = append(f.Rejections, unattributedRejection("%s: could not parse the filename: %v", rel, perr))
 			insp.Files = append(insp.Files, f)
 			return nil
 		}
@@ -661,6 +667,8 @@ func (w *Worker) inspectEpisodes(
 		if !manual {
 			plan.granted = grantedEpisodes(task, plan.episodes)
 		}
+	} else if p, perr := release.Parse(task.Release.Title, release.Options{Kind: commonv1.MediaKindEpisode}); perr == nil && p.FullSeason && len(p.Seasons) == 1 {
+		plan.packSeason = p.Seasons[0]
 	}
 	series := plan.series
 	language := catalogctx.ConfiguredLanguage(&plan.profile)
@@ -668,6 +676,14 @@ func (w *Worker) inspectEpisodes(
 		rel := relPath(root, path)
 		f := schema.InspectedFile{Path: path, SizeBytes: info.Size()}
 		parsed, perr := parseMediaFile(path, plan.sceneName, commonv1.MediaKindEpisode)
+		if perr != nil {
+			// A pack's file named for its episode alone, with no title for
+			// a release pattern to read: "S02EP01.mkv", "[Prof] Episode 01
+			// - The Wind Blows.mkv" (bareEpisode).
+			if bp := bareEpisode(path, plan.packSeason); bp != nil {
+				parsed, perr = bp, nil
+			}
+		}
 		if perr != nil && manual && plan.named != nil {
 			// A person named the episode, and a name no episode pattern reads
 			// carries no numbering either: it is the named episode's file,
@@ -704,7 +720,7 @@ func (w *Worker) inspectEpisodes(
 			}
 		}
 		if perr != nil {
-			f.Rejections = append(f.Rejections, needsPersonRejection("%s: could not parse the filename: %v", rel, perr))
+			f.Rejections = append(f.Rejections, unattributedRejection("%s: could not parse the filename: %v", rel, perr))
 			insp.Files = append(insp.Files, f)
 			return nil
 		}
@@ -736,7 +752,7 @@ func (w *Worker) inspectEpisodes(
 			// says; a pack's numbered files are never all the named one.
 			numbered := len(parsed.Episodes)+len(parsed.Absolute) > 0 || parsed.AirDate != nil
 			if !manual || plan.named == nil || (numbered && videos != 1) {
-				f.Rejections = append(f.Rejections, needsPersonRejection("%s: not attributable to an episode of series %s: %s",
+				f.Rejections = append(f.Rejections, unattributedRejection("%s: not attributable to an episode of series %s: %s",
 					rel, series.Name, reason))
 				insp.Files = append(insp.Files, f)
 				return nil

@@ -19,7 +19,10 @@ package fileimport
 
 import (
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -277,4 +280,44 @@ func names(eps []EpisodeCandidate) []string {
 		out = append(out, e.Name)
 	}
 	return out
+}
+
+// bareSeasonEpisodeRegex and bareEpisodeRegex read a file named for its
+// episode alone, after any bracketed group: "S02EP01", "S02 E01", and
+// "Episode 01 - The Wind Blows", "Ep 01", "E01".
+var (
+	bareSeasonEpisodeRegex = regexp.MustCompile(`(?i)^(?:\[[^\]]*\][\s._-]*)*S(\d{1,2})[\s._-]*E(?:P|pisode)?[\s._-]*(\d{1,3})(?:v\d+)?(?:$|[\s._\-\[\(])`)
+	bareEpisodeRegex       = regexp.MustCompile(`(?i)^(?:\[[^\]]*\][\s._-]*)*E(?:P|pisode)?[\s._-]*(\d{1,3})(?:v\d+)?(?:$|[\s._\-\[\(])`)
+)
+
+// bareEpisode reads a downloaded file named for its episode alone, which no
+// release pattern does: a release name opens with its title, and a pack's
+// files often carry none. The season is the one the name writes ("S02EP01")
+// or, for a name with the episode only ("Episode 01 - The Wind Blows"),
+// packSeason: the one season its download's release title is a pack of, 0
+// when it is not such a pack. Nil when the name is not of that shape or
+// names no season either way. The numbering is the release's, so it is
+// read through the series' numbering as any other (MatchDownloaded); the
+// quality, group and languages are the release's (fillFromRelease).
+//
+// On talos two packs downloaded whole were held as unparseable and removed
+// (Fog Hill of Five Elements' season 2, Ushio and Tora's, 2026-11-24).
+func bareEpisode(path string, packSeason int) *release.ParsedRelease {
+	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	season, number := 0, ""
+	if m := bareSeasonEpisodeRegex.FindStringSubmatch(base); m != nil {
+		season, _ = strconv.Atoi(m[1])
+		number = m[2]
+	} else if m := bareEpisodeRegex.FindStringSubmatch(base); m != nil {
+		season, number = packSeason, m[1]
+	}
+	n, err := strconv.Atoi(number)
+	if err != nil || season < 1 || n < 1 {
+		return nil
+	}
+	return &release.ParsedRelease{
+		Seasons: []int{season}, Episodes: []int{n},
+		LanguageUnknown: true,
+		ReleaseType:     commonv1.ReleaseTypeSingle,
+	}
 }

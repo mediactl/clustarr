@@ -257,7 +257,11 @@ const (
 	ImportReleaseFault ImportVerdict = "releaseFault"
 	ImportHeld         ImportVerdict = "held"
 	ImportExpired      ImportVerdict = "expired"
-	ImportRetry        ImportVerdict = "retry"
+	// ImportExpiredBlocked is an expired hold of an automatic grab whose
+	// files could not be told apart by name: the release is blocked for the
+	// item and the item searched again (owner, 2026-11-27).
+	ImportExpiredBlocked ImportVerdict = "expiredBlocked"
+	ImportRetry          ImportVerdict = "retry"
 )
 
 // ImportDispatch is one inspect or execute task owed; Subject and MsgID are

@@ -39,7 +39,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // more, then blocklisted -- except a person's import (a pick, or the intent
 // with override or a target), held as needsPerson; itemState and
 // needsPerson held at once; a hold expires after
-// lifecycle.ImportHoldRetention, never blocklisted.
+// lifecycle.ImportHoldRetention, never blocklisted -- except an automatic
+// grab's hold for files whose names do not say which item they are, whose
+// release is then blocked for the item and the item searched again
+// (unattributed, 2026-11-27).
 //
 // A missing record is never a verdict: an unanswered task is republished
 // under its Msg-Id inside RepublishWindow and re-issued at a new seq past

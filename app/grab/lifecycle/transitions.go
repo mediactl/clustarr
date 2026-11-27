@@ -352,6 +352,15 @@ func (d *decider) importStep(e *catalogv1alpha1.DownloadEntry) bool {
 	case ImportExpired:
 		d.toFailed(e, commonv1.DownloadFailureImportExpired, "the held import expired after "+ImportHoldRetention.String())
 		return true
+	case ImportExpiredBlocked:
+		// Its files could not be attributed and nobody said which is which:
+		// the same release, grabbed again, ends the same way. On talos 49
+		// of 105 anime grabs of one night were releases already downloaded
+		// whole, held and removed (2026-11-27). Blocked for this item, so
+		// R25 searches it again and the planner takes the next release.
+		d.toBlocklisted(e, commonv1.DownloadFailureImportExpired,
+			"the held import expired after "+ImportHoldRetention.String()+"; its files could not be attributed, so the release is blocked for this item")
+		return true
 	}
 	return false
 }
