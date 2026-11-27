@@ -119,3 +119,35 @@ func TestAManualImportIsNeverBlocklisted(t *testing.T) {
 		})
 	}
 }
+
+// A person's pick of a release at a quality the profile does not allow is
+// imported at that quality: they overrode the grab's refusal of it, and the
+// import does not ask again. On talos (2026-11-26) each Blu-ray remux picked
+// for Panty & Stocking with Garterbelt's first season was downloaded and
+// then held "quality Remux-1080p is not allowed by the quality profile". An
+// automatic grab of the same file is the release's fault as before, and so
+// is a pick whose file is another quality than its release advertised
+// (TestAManualImportIsNeverBlocklisted).
+func TestAPickIsImportedAtTheQualityItWasPickedAt(t *testing.T) {
+	const title = "Heat.1995.1080p.BluRay.REMUX.AVC.FLAC.2.0-GRP"
+	wd := newWorld(t)
+	root := wd.payload(map[string]int64{title + ".mkv": big})
+
+	auto := wd.grab(commonv1.MediaKindMovie, "heat", title, root)
+	concluded(t, auto.inspected(), commonv1.ImportClassReleaseFault, lifecycle.ImportRetry, "Remux-1080p is not allowed")
+
+	g := wd.grab(commonv1.MediaKindMovie, "heat", title, root)
+	g.in.Entry.Manual, g.in.Entry.GrabbedBy = true, commonv1.GrabSourceInteractive
+	// What the grab records of the release it was made from.
+	g.in.Entry.Release.Quality = commonv1.Quality{Name: "Remux-1080p", Source: commonv1.SourceBluray, Resolution: 1080, Modifier: commonv1.ModifierRemux}
+	g.decide()
+	g.deliver()
+	g.decide()
+	task := g.plan()
+	require.Len(t, task.Plan.Moves, 1, "the pick's file is taken")
+	require.NotNil(t, task.Plan.Moves[0].Frozen.Quality)
+	assert.Equal(t, "Remux-1080p", task.Plan.Moves[0].Frozen.Quality.Name)
+
+	dec := g.executed()
+	assert.Equal(t, lifecycle.ImportImported, dec.Verdict, dec.Summary.Message)
+}

@@ -163,6 +163,19 @@ func (p *planner) at(t time.Time) {
 
 func (p *planner) manual() bool { return p.in.Entry.Manual || p.sum.Override }
 
+// pickedAt reports a quality the person who picked the release took with
+// it: the entry is a pick (Search.spec.grab) and q is the quality its
+// release advertised. The profile does not allow it, so the grab refused it
+// until that person overrode the refusal, and the file is what they asked
+// for. A file of another quality than its release's is still the release's
+// fault and held for them. On talos (2026-11-26) every Blu-ray remux a
+// person picked for a profile without Remux-1080p was downloaded and then
+// held "quality Remux-1080p is not allowed by the quality profile" until
+// they overrode a second time at the import.
+func (p *planner) pickedAt(q commonv1.Quality) bool {
+	return p.in.Entry.Manual && q.Name != "" && p.in.Entry.Release.Quality.Name == q.Name
+}
+
 // person reports an import a person made: a pick (manual), or the import
 // intent with override or a target. Its failure is that person's to settle,
 // never the release's to be blocklisted for (smoke T2).
@@ -733,9 +746,10 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 			continue
 		}
 		switch {
-		case q != nil && !prof.Allowed(*q) && !p.sum.Override:
+		case q != nil && !prof.Allowed(*q) && !p.sum.Override && !p.pickedAt(*q):
 			// An override import is a person's "this file, for this item":
-			// it takes a quality the profile does not allow (smoke T2).
+			// it takes a quality the profile does not allow (smoke T2). So
+			// does a person's pick of a release at that quality (pickedAt).
 			rs = append(rs, notAllowedRejection(rel, *q))
 			continue
 		case q == nil && nonVideoKind(c.kind) && !manual:

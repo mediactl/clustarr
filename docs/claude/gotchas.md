@@ -1544,3 +1544,16 @@ recorded here.
   releases were read right all along and refused only by the profile
   (`QualityNotWanted: Remux-1080p`). `rssmatcher` keeps its own copy of the
   single-row rule (`match.go`), unchanged.
+
+- **A person's pick is imported at the quality it was picked at
+  (2026-11-26).** A pick (`Search.spec.grab`, the entry's `manual`) of a
+  release whose quality the profile does not allow needs `spec.override` to
+  be grabbed at all, and the import then refused the same file a second
+  time ("quality Remux-1080p is not allowed by the quality profile", held
+  as `needsPerson`) until the person sent `download.clustarr.io/import ...
+  override` as well: six Blu-ray remuxes for Panty & Stocking with
+  Garterbelt's first season each needed both. `importplan`'s planner now
+  takes a file whose quality is the one the picked release advertised
+  (`pickedAt`: the entry is manual and `release.quality.name` is the
+  file's). A pick whose file is another quality than its release's, and
+  any automatic grab, are refused as before.
