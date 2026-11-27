@@ -106,15 +106,23 @@ type wireChannelOut struct {
 }
 
 type wireItemOut struct {
-	Title       string        `xml:"title"`
-	GUID        string        `xml:"guid,omitempty"`
-	Link        string        `xml:"link,omitempty"`
-	Comments    string        `xml:"comments,omitempty"`
-	PubDate     string        `xml:"pubDate,omitempty"`
-	Size        int64         `xml:"size,omitempty"`
-	Description string        `xml:"description,omitempty"`
-	Categories  []int32       `xml:"category"`
-	Attrs       []wireAttrOut `xml:"torznab:attr"`
+	Title       string  `xml:"title"`
+	GUID        string  `xml:"guid,omitempty"`
+	Link        string  `xml:"link,omitempty"`
+	Comments    string  `xml:"comments,omitempty"`
+	PubDate     string  `xml:"pubDate,omitempty"`
+	Size        int64   `xml:"size,omitempty"`
+	Description string  `xml:"description,omitempty"`
+	Categories  []int32 `xml:"category"`
+	// Enclosures are written as they were read (Release.Enclosures), so a
+	// feed that names a payload per protocol reads back the same.
+	Enclosures []wireEnclosureOut `xml:"enclosure"`
+	Attrs      []wireAttrOut      `xml:"torznab:attr"`
+}
+
+type wireEnclosureOut struct {
+	URL  string `xml:"url,attr"`
+	Type string `xml:"type,attr,omitempty"`
 }
 
 type wireAttrOut struct {
@@ -156,6 +164,9 @@ func writeItem(rel Release) wireItemOut {
 	}
 	for _, c := range rel.Categories {
 		wi.Categories = append(wi.Categories, int32(c))
+	}
+	for _, e := range rel.Enclosures {
+		wi.Enclosures = append(wi.Enclosures, wireEnclosureOut(e))
 	}
 
 	skip := make(map[string]bool, len(rel.Attrs))

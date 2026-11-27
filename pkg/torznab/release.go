@@ -34,9 +34,13 @@ import (
 // same split the research note's own §11 Release sketch uses. This is the
 // struct pkg/cardigann (Task B7) returns from its own Search.
 type Release struct {
-	Title       string
-	GUID        string
-	Link        string
+	Title string
+	GUID  string
+	Link  string
+	// Enclosures are the item's <enclosure> elements, in feed order: an
+	// indexer that mirrors one release to both protocols sends one of each
+	// type (PayloadLink).
+	Enclosures  []Enclosure
 	CommentURL  string
 	PubDate     time.Time
 	Size        int64
@@ -87,6 +91,57 @@ type Release struct {
 	Attrs map[string][]string
 }
 
+// The media types an item's enclosure names its payload by.
+const (
+	MediaTypeNZB     = "application/x-nzb"
+	MediaTypeTorrent = "application/x-bittorrent"
+)
+
+// Enclosure is one <enclosure> of an item: a payload's URL and its media
+// type as the indexer wrote it.
+type Enclosure struct {
+	URL  string
+	Type string
+}
+
+// PayloadLink is where the item's payload of mediaType is downloaded, and
+// whether the item has one: its first enclosure of that type; with no
+// enclosure that names a type at all, Link, which is how a plain Newznab
+// or Torznab feed has always been read. An item whose enclosures name
+// types and none is mediaType has no such payload ("", false): a release
+// its indexer carries for the other protocol only.
+//
+// Sonarr and Prowlarr read the enclosure before <link> for the same reason
+// (NewznabRssParser/TorznabRssParser.GetDownloadUrl over
+// PreferredEnclosureMimeTypes): on a feed whose <link> is the release's
+// page, <link> is not a download. The Anime Tosho successor's feed
+// (feed.animetosho.net, 2026-11-27) sends a torrent enclosure, then an NZB
+// one where the release was mirrored to Usenet, and the page as <link>.
+func (r Release) PayloadLink(mediaType string) (string, bool) {
+	typed := false
+	for _, e := range r.Enclosures {
+		t := enclosureType(e.Type)
+		if t == "" || e.URL == "" {
+			continue
+		}
+		typed = true
+		if t == mediaType {
+			return e.URL, true
+		}
+	}
+	if typed {
+		return "", false
+	}
+	return r.Link, r.Link != ""
+}
+
+// enclosureType is an enclosure's media type without parameters, in lower
+// case.
+func enclosureType(t string) string {
+	t, _, _ = strings.Cut(t, ";")
+	return strings.ToLower(strings.TrimSpace(t))
+}
+
 // wireEnclosure mirrors an RSS <enclosure> element. Length is a string, not
 // an int64, for the same reason wireItem.Size is: encoding/xml aborts the
 // ENTIRE Decode -- not just this nested struct -- the moment an attribute
@@ -127,18 +182,18 @@ type wireAttr struct {
 // elements, never as torznab:attr, so without them every Jackett release
 // lost both. They are fallbacks; an attr of the same name wins.
 type wireItem struct {
-	Title       string         `xml:"title"`
-	GUID        string         `xml:"guid"`
-	Link        string         `xml:"link"`
-	Comments    string         `xml:"comments"`
-	PubDate     string         `xml:"pubDate"`
-	Size        string         `xml:"size"`
-	Grabs       string         `xml:"grabs"`
-	Files       string         `xml:"files"`
-	Description string         `xml:"description"`
-	Categories  []string       `xml:"category"`
-	Enclosure   *wireEnclosure `xml:"enclosure"`
-	Extra       []wireAttr     `xml:",any"` // every element the named fields above don't claim
+	Title       string          `xml:"title"`
+	GUID        string          `xml:"guid"`
+	Link        string          `xml:"link"`
+	Comments    string          `xml:"comments"`
+	PubDate     string          `xml:"pubDate"`
+	Size        string          `xml:"size"`
+	Grabs       string          `xml:"grabs"`
+	Files       string          `xml:"files"`
+	Description string          `xml:"description"`
+	Categories  []string        `xml:"category"`
+	Enclosures  []wireEnclosure `xml:"enclosure"`
+	Extra       []wireAttr      `xml:",any"` // every element the named fields above don't claim
 }
 
 // wireFeed mirrors an <rss><channel> document.
@@ -219,8 +274,13 @@ func newRelease(w wireItem) Release {
 			rel.addCategoryIfAbsent(newznab.CategoryID(id))
 		}
 	}
-	if w.Enclosure != nil && rel.Link == "" {
-		rel.Link = w.Enclosure.URL
+	for _, e := range w.Enclosures {
+		rel.Enclosures = append(rel.Enclosures, Enclosure{URL: e.URL, Type: e.Type})
+	}
+	// With no <link>, the last enclosure is the link, as it was when an
+	// item's one enclosure was all that was read.
+	if n := len(w.Enclosures); n > 0 && rel.Link == "" {
+		rel.Link = w.Enclosures[n-1].URL
 	}
 	for _, a := range w.Extra {
 		if a.XMLName.Local != "attr" {
@@ -260,8 +320,8 @@ func newRelease(w wireItem) Release {
 func releaseSize(w wireItem, attrs []string) int64 {
 	candidates := append([]string{}, attrs...)
 	candidates = append(candidates, w.Size)
-	if w.Enclosure != nil {
-		candidates = append(candidates, w.Enclosure.Length)
+	for i := len(w.Enclosures) - 1; i >= 0; i-- {
+		candidates = append(candidates, w.Enclosures[i].Length)
 	}
 	for _, c := range candidates {
 		if v, err := strconv.ParseInt(strings.TrimSpace(c), 10, 64); err == nil && v > 0 {

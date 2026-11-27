@@ -502,6 +502,11 @@ func (w *Worker) indexAndPublish(
 			belowSeeders++
 			continue
 		}
+		// A release the indexer does not carry for its protocol (a torrent
+		// not mirrored to Usenet, on a usenet indexer) is not its release.
+		if NoPayload(r, string(protocol)) {
+			continue
+		}
 		rel := ProjectRelease(r, idx.Name, string(protocol))
 		rel.FetchedAt = now
 

@@ -465,6 +465,12 @@ func (s *Service) project(idx *indexv1alpha1.Indexer, raw []torznab.Release) []s
 		if rss.BelowMinimumSeeders(idx, string(protocol), r.Seeders) {
 			continue
 		}
+		// Nor is a release the indexer does not carry for its protocol
+		// (rss.NoPayload): a torrent not mirrored to Usenet, on a usenet
+		// indexer.
+		if rss.NoPayload(r, string(protocol)) {
+			continue
+		}
 		rel := rss.ProjectRelease(r, idx.Name, string(protocol))
 		// ProjectRelease leaves FetchedAt zero on purpose: exactly one place
 		// stamps it, and for a search that place is here.

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+<channel>
+<atom:link href="https://feed.animetosho.net/api?t=search&amp;q=frieren&amp;limit=5" rel="self" type="application/rss+xml"/>
+<title>Anime Tosho</title>
+<link>https://animetosho.net/</link>
+<description>Anime Tosho Newznab/Torznab API</description>
+<language>en-gb</language>
+<ttl>30</ttl>
+<lastBuildDate>Fri, 27 Nov 2026 15:03:56 +0000</lastBuildDate>
+<newznab:response offset="0" total="1209"/>
+<item>
+<title>[BlackRabbit] Frieren - Beyond Journey&apos;s End (2023) - S01 v2 [Bluray-1080p][Opus 2.0][Dual Audio][AV1]</title>
+<description>trimmed</description>
+<link>https://animetosho.net/view/687355</link>
+<comments>https://animetosho.net/view/687355</comments>
+<enclosure url="https://storage.animetosho.net/legacy_tosho/storage/torrents/05b/d3a45348e1338117e89cf1e25fd76b7a30de3.torrent?filename=%5BBlackRabbit%5D+Frieren+-+Beyond+Journey%27s+End+%282023%29+-+S01+v2+%5BBluray-1080p%5D%5BOpus+2.0%5D%5BDual+Audio%5D%5BAV1%5D.torrent" type="application/x-bittorrent" length="8423228390"/>
+<enclosure url="https://feed.animetosho.net/nzb/687355" type="application/x-nzb" length="8423228390"/>
+<source url="https://nekobt.to/torrents/13687545209098">nekoBT</source>
+<category>Anime</category>
+<pubDate>Fri, 11 Sep 2026 19:56:13 +0000</pubDate>
+<guid isPermaLink="true">https://animetosho.net/view/687355</guid>
+<newznab:attr name="category" value="5070"/>
+<newznab:attr name="category" value="2020"/>
+<newznab:attr name="category" value="5030"/>
+<newznab:attr name="category" value="5040"/>
+<torznab:attr name="category" value="5070"/>
+<torznab:attr name="category" value="2020"/>
+<torznab:attr name="category" value="5030"/>
+<torznab:attr name="category" value="5040"/>
+<newznab:attr name="size" value="8423228390"/>
+<torznab:attr name="size" value="8423228390"/>
+<newznab:attr name="year" value="2023-2024"/>
+<torznab:attr name="year" value="2023-2024"/>
+<newznab:attr name="tvdbid" value="424536"/>
+<torznab:attr name="tvdbid" value="424536"/>
+<newznab:attr name="season" value="1"/>
+<torznab:attr name="season" value="1"/>
+<newznab:attr name="tmdbid" value="209867"/>
+<torznab:attr name="tmdbid" value="209867"/>
+<torznab:attr name="infohash" value="05bd3a45348e1338117e89cf1e25fd76b7a30de3"/>
+<torznab:attr name="magneturl" value="magnet:?xt=urn:btih:05bd3a45348e1338117e89cf1e25fd76b7a30de3&amp;dn=%5BBlackRabbit%5D%20Frieren%20-%20Beyond%20Journey%27s%20End%20%282023%29%20-%20S01%20v2%20%5BBluray-1080p%5D%5BOpus%202.0%5D%5BDual%20Audio%5D%5BAV1%5D%20%7BTags%3AL2%3BV12%3BC3%3BA%3Dja%2Cen%3BF%3Den%3B%7D&amp;tr=https%3A%2F%2Ftracker.nekobt.to%2Fapi%2Ftracker%2Fpublic%2Fannounce&amp;tr=udp%3A%2F%2Ftr.anitracker.org%3A7777%2Fannounce&amp;tr=http%3A%2F%2Ftr.anitracker.org%3A1337%2Fannounce&amp;tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce&amp;tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&amp;tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&amp;tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce"/>
+<torznab:attr name="seeders" value="47"/>
+<torznab:attr name="leechers" value="5"/>
+<torznab:attr name="peers" value="52"/>
+<newznab:attr name="nzburl" value="https://feed.animetosho.net/nzb/687355"/>
+<torznab:attr name="downloadvolumefactor" value="0"/>
+</item>
+<item>
+<title>[Salieri] Frieren - Beyond Journey&apos;s End S2 - BD (1080p) (HDR) [Dual Audio]</title>
+<description>trimmed</description>
+<link>https://animetosho.net/view/631504</link>
+<comments>https://animetosho.net/view/631504</comments>
+<enclosure url="https://storage.animetosho.net/legacy_tosho/storage/torrents/728/7ec428ad3c76c565297c54fc8c9d2a397c63f.torrent?filename=%5BSalieri%5D+Frieren+-+Beyond+Journey%27s+End+S2+-+BD+%281080p%29+%28HDR%29+%5BDual+Audio%5D.torrent" type="application/x-bittorrent" length="31545611636"/>
+<source url="https://nyaa.si/view/2150071">Nyaa.si</source>
+<category>Anime</category>
+<pubDate>Sat, 22 Aug 2026 22:26:33 +0000</pubDate>
+<guid isPermaLink="true">https://animetosho.net/view/631504</guid>
+<newznab:attr name="category" value="5070"/>
+<newznab:attr name="category" value="2020"/>
+<newznab:attr name="category" value="5030"/>
+<newznab:attr name="category" value="5040"/>
+<torznab:attr name="category" value="5070"/>
+<torznab:attr name="category" value="2020"/>
+<torznab:attr name="category" value="5030"/>
+<torznab:attr name="category" value="5040"/>
+<newznab:attr name="size" value="31545611636"/>
+<torznab:attr name="size" value="31545611636"/>
+<newznab:attr name="year" value="2026"/>
+<torznab:attr name="year" value="2026"/>
+<newznab:attr name="tvdbid" value="424536"/>
+<torznab:attr name="tvdbid" value="424536"/>
+<newznab:attr name="season" value="2"/>
+<torznab:attr name="season" value="2"/>
+<newznab:attr name="tmdbid" value="209867"/>
+<torznab:attr name="tmdbid" value="209867"/>
+<torznab:attr name="infohash" value="7287ec428ad3c76c565297c54fc8c9d2a397c63f"/>
+<torznab:attr name="magneturl" value="magnet:?xt=urn:btih:7287ec428ad3c76c565297c54fc8c9d2a397c63f&amp;dn=%5BSalieri%5D%20Frieren%20-%20Beyond%20Journey%27s%20End%20S2%20-%20BD%20%281080p%29%20%28HDR%29%20%5BDual%20Audio%5D&amp;tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce&amp;tr=udp%3A%2F%2Ftr.anitracker.org%3A7777%2Fannounce&amp;tr=http%3A%2F%2Ftr.anitracker.org%3A1337%2Fannounce&amp;tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&amp;tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&amp;tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&amp;tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce"/>
+<torznab:attr name="seeders" value="42"/>
+<torznab:attr name="leechers" value="20"/>
+<torznab:attr name="peers" value="62"/>
+<torznab:attr name="downloadvolumefactor" value="0"/>
+</item>
+</channel>
+</rss>

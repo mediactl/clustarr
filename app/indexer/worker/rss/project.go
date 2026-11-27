@@ -51,6 +51,13 @@ import (
 // it -- and schema.Release.FetchedAt has no omitempty, so a value forgotten
 // here would ship as "0001-01-01T00:00:00Z" rather than simply be absent.
 func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Release {
+	if protocol == string(commonv1.ProtocolUsenet) {
+		// A usenet release is its NZB. An indexer that mirrors torrents to
+		// Usenet sends the torrent's magnet, info hash and swarm on the
+		// same item, and a release carrying a magnet is fetched by it
+		// whatever its protocol (grabsource.ResolveSource).
+		r.MagnetURL, r.InfoHash, r.Seeders, r.Leechers = "", "", nil, nil
+	}
 	info := commonv1.ReleaseInfo{
 		GUID:        r.GUID,
 		IndexerRef:  indexerName,
@@ -58,7 +65,7 @@ func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Rele
 		Title:       r.Title,
 		Protocol:    commonv1.Protocol(protocol),
 		SizeBytes:   r.Size,
-		DownloadURL: r.Link,
+		DownloadURL: downloadURL(r, protocol),
 		MagnetURL:   r.MagnetURL,
 		InfoHash:    r.InfoHash,
 		InfoURL:     r.CommentURL,
@@ -169,6 +176,18 @@ func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Rele
 		Author:      author,
 		Issue:       issue,
 	}
+}
+
+// downloadURL is where r's payload for protocol is fetched: its enclosure
+// of that protocol's media type, and with no typed enclosure its <link>
+// (torznab.Release.PayloadLink). A release with enclosures of another type
+// only is dropped before it is projected (NoPayload); projected anyway, it
+// keeps its <link>, as before.
+func downloadURL(r torznab.Release, protocol string) string {
+	if u, ok := r.PayloadLink(payloadType(protocol)); ok {
+		return u
+	}
+	return r.Link
 }
 
 // nonVideoNames is the artist, album, author and issue number a release

@@ -1743,6 +1743,35 @@ recorded here.
   a worker runs. The trailers and segments sweepers still read key by key:
   nothing waits on them.
 
+- **A feed item's download is its enclosure of the indexer's own protocol,
+  and a usenet release carries nothing of a torrent (2026-11-27, owner:
+  "Add an additional usenet indexer for animetosho").** Anime Tosho itself
+  is gone: updates stopped 2026-05-09 and feed.animetosho.org stopped
+  resolving in October. Its successor at animetosho.net (a third party,
+  named on the original's shutdown page; `https://feed.animetosho.net/api`,
+  no API key) answers Newznab and Torznab from one endpoint, and each item
+  holds both: the release's page as `<link>`, a torrent `<enclosure>`, an
+  NZB one where the release was mirrored to Usenet, and the torrent's
+  `magneturl`, `infohash` and swarm as attrs. The client read `<link>` as
+  the download and one enclosure only as its fallback, and
+  `grabsource.ResolveSource` takes a magnet before anything else, so as a
+  usenet indexer its releases would have been fetched by their magnets, or
+  by the HTML page. Now `torznab.Release.Enclosures` keeps every enclosure
+  and `PayloadLink` answers the one of a media type, as Sonarr's
+  `GetDownloadUrl` does over `PreferredEnclosureMimeTypes`;
+  `rss.ProjectRelease` takes it for the indexer's protocol and, for
+  usenet, drops the magnet, info hash and swarm; `rss.NoPayload`, beside
+  `BelowMinimumSeeders` in the RSS poll and the search fan-out, drops an
+  item whose enclosures name types and none is the protocol's (a torrent
+  not mirrored). A feed with one enclosure, or with none that names a
+  type, is read as before. Fixture: `test/data/torznab/
+  mirror_both_protocols.xml`, two items of the live answer; test:
+  `app/indexer/worker/rss/payload_test.go`. The other live replacements
+  probed that day: aninzb.moe (keyless, plain NZB links, works unchanged;
+  its `tvdbid` search answered nothing for one sample) and amenzb.moe
+  (needs an API key, registration closed); AniFix has closed and SceneNZBs
+  rebranded.
+
 - **An indexer's title is HTML-unescaped where the feed is parsed
   (`torznab.newRelease`), because some escape it twice (2026-11-26).**
   nzbgeek wrote `New Panty &amp;amp; Stocking with Garterbelt`, the XML
@@ -2046,21 +2075,32 @@ recorded here.
   does not place is still an absolute number, compared as before. Tests:
   `pkg/decision`'s `TestASceneRowNamesItsEpisodeByPlaceAlone`, grabplan's
   `mappedabsolute_test.go`.
-  **The other form of "a grab over a final file" is not explained.** On
-  2026-11-26 and 27 (builds before sha-77a88ff) 720p releases were taken
-  for episodes of Monogatari Series: Off & Monster Season holding 1080p
-  transcodes, each time after a manager start or a batch of entry
-  removals. The release's coverage was the episode it was filed as, the
-  rules refuse it when replayed with the file read, the titles parse, and
-  the importer's and the planner's "final" are one predicate
-  (`MediaFile.Final`); so the planner read no file for an item whose row
-  held one, and nothing recorded what it read. Every automatic grab now
-  logs one Info line, `grab: taking a release`, with `over`: each covered
-  item as `<name>=<quality>[/transcoded]`, or `=none` for an item that
-  read as having no file (`takenOver`, app/remediation/grab). The next one
-  that is held "transcoded file is final" with `=none` in its line is the
-  proof, and says which read to look at (`itemread.Current`: the cached
-  Episode's `hasFile`/`fileRef`, then the cached MediaFile).
+  **The other form of "a grab over a final file" is not explained, and it
+  is not "the planner read no file".** On 2026-11-26 and 27 single-episode
+  releases were taken for episodes holding transcodes, the release's
+  coverage being the episode it was then filed as (Monogatari Series: Off
+  & Monster Season, 720p over 1080p; Bahamut; Realist Hero), and the guess
+  was `Covered.Current` nil. The first build that logged each grab
+  (sha-6f8a8fb, sha-d04cc65) settled that: at 14:22-14:35Z four URANiME
+  singles of Cardcaptor Sakura season 3 were taken with
+  `over: [...-s03e19=Bluray-720p/transcoded]` and the like, each the very
+  release its episode's file had been imported from twelve hours before,
+  each then held "transcoded file is final". Replayed offline through
+  `grabplan.Decide` with the live season record, the live profile and the
+  episodes and MediaFiles from SQL, every one is refused
+  (`AlreadyImportedSameName`), on the first pass and on a second with the
+  first pass's seventeen grabs queued; a grab held for the indexer's limit
+  is re-checked when it comes due and refused too; the titles parse; no
+  removal intent ran on the series; the importer's and the planner's
+  "final" are one predicate (`MediaFile.Final`). So an input the replay
+  does not have differs: where the candidate came from, or a flag that
+  exempts it. The line now says so (`logGrab`, grabplan, since the commit
+  after 2d8bae27): `grab: taking a release` with `release`, `source`
+  (`answer`, `parked`, `pending`), `by`, `manual`, `override`, `complete`,
+  `covered` and `over`, each item as `<name>=<quality>[/transcoded]
+  [/same-release]` or `=none`. Read that line for the next hold before
+  theorising, and replay the record as above (save it from
+  `clustarr-searches` inside its 30 minutes).
 
 - **A pack's file named "<the series' title> <number>" is that episode
   (2026-11-27, owner: "Ensure no remaining series has any missing monitored

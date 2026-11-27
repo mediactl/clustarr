@@ -20,6 +20,7 @@ package rss
 import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
 // BelowMinimumSeeders reports whether a release from idx carries fewer
@@ -44,4 +45,28 @@ func BelowMinimumSeeders(idx *indexv1alpha1.Indexer, protocol string, seeders *i
 		return false
 	}
 	return *seeders < idx.Spec.MinimumSeedersOrDefault()
+}
+
+// payloadType is the media type an item's enclosure names protocol's
+// payload by: an NZB for usenet, a .torrent for anything else.
+func payloadType(protocol string) string {
+	if protocol == string(commonv1.ProtocolUsenet) {
+		return torznab.MediaTypeNZB
+	}
+	return torznab.MediaTypeTorrent
+}
+
+// NoPayload reports a release its indexer does not carry for protocol: its
+// enclosures name media types and none is protocol's
+// (torznab.Release.PayloadLink). An indexer that mirrors torrents to
+// Usenet lists every release in one feed, each with a torrent enclosure
+// and, once mirrored, an NZB one; read as a usenet indexer, a release with
+// no NZB is not one of its releases. A torrent is still a torrent by its
+// magnet or info hash alone. Like BelowMinimumSeeders, the one function
+// serves the RSS poll and the search fan-out.
+func NoPayload(r torznab.Release, protocol string) bool {
+	if _, ok := r.PayloadLink(payloadType(protocol)); ok || len(r.Enclosures) == 0 {
+		return false
+	}
+	return protocol == string(commonv1.ProtocolUsenet) || (r.MagnetURL == "" && r.InfoHash == "")
 }
