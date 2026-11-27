@@ -846,6 +846,11 @@ func (j *job) fetchFirstArticles(ctx context.Context, targets []*os.File) error 
 			j.sizes[fi] = r.Meta.FileSize
 			j.mu.Unlock()
 		}
+		if name := strings.TrimSpace(r.Meta.FileName); name != "" {
+			j.mu.Lock()
+			j.wireNames[fi] = name
+			j.mu.Unlock()
+		}
 		if err := j.writeSegment(targets[fi], fi, 0, r); err != nil {
 			return err
 		}

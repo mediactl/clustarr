@@ -20,6 +20,7 @@ package usenet
 import (
 	"archive/zip"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -51,6 +52,9 @@ import (
 type fileSpec struct {
 	name  string
 	parts [][]byte
+	// wire is the name the articles' yEnc headers carry when it is not the
+	// one the NZB's subject gives the file; "" means the same.
+	wire string
 }
 
 // buildNZB writes an NZB for the given files and registers every article on
@@ -111,12 +115,13 @@ func buildNZBWithPrefix(t *testing.T, srv *stubServer, title, idPrefix string, f
 		var offset int64
 		for pi, payload := range f.parts {
 			id := fmt.Sprintf("%sf%d-p%d@clustarr.test", idPrefix, fi, pi)
+			wire := cmp.Or(f.wire, f.name)
 			art := stubArticle{data: payload, meta: rapidyenc.Meta{
-				FileName: f.name, FileSize: size, PartNumber: int64(pi + 1),
+				FileName: wire, FileSize: size, PartNumber: int64(pi + 1),
 				TotalParts: int64(len(f.parts)), Offset: offset, PartSize: int64(len(payload)),
 			}}
 			if srv != nil {
-				srv.addArticle(id, f.name, size, offset, pi+1, len(f.parts), payload)
+				srv.addArticle(id, wire, size, offset, pi+1, len(f.parts), payload)
 			}
 			// A real NZB records the ENCODED size of the article, which yEnc
 			// makes 2-3% larger than the payload. Recording the decoded size

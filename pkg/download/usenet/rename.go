@@ -495,6 +495,7 @@ func (j *job) renameObfuscated(ctx context.Context) {
 		j.par2Names = names
 		j.mu.Unlock()
 	}
+	renamed += j.renameStrayVolumes(ctx)
 	for i, f := range j.nzb.Files {
 		if hasUsableExtension(f.Name) {
 			continue
@@ -511,7 +512,84 @@ func (j *job) renameObfuscated(ctx context.Context) {
 	}
 }
 
-// plannedRename is content file i's name from the par2 set.
+// rarSetStem is the multi-volume set a RAR volume's name puts it in, lower
+// case: "x" for x.rar, x.r00 and x.part03.rar alike. ok is false for a name
+// that is no RAR volume's.
+func rarSetStem(name string) (stem string, ok bool) {
+	lower := strings.ToLower(name)
+	if m := rarVolumeRE.FindStringSubmatch(lower); m != nil {
+		return m[1], true
+	}
+	if strings.HasSuffix(lower, ".rar") {
+		return strings.TrimSuffix(lower, ".rar"), true
+	}
+	return "", false
+}
+
+// renameStrayVolumes gives a RAR volume the name its poster gave it on the
+// wire -- its first article's yEnc name= -- when the NZB lists it under a
+// name that leaves it out of its set, and reports how many it renamed.
+//
+// An indexer's NZB can name a file its own way. nzbgeek lists the first
+// volume of an old-style scene set as "<release>.part01.rar" and leaves
+// x.r00, x.r01, ... as posted, the par2 set beside them covers the sample
+// alone, and the archive's own header says old numbering, so the volume
+// after "<release>.part01.rar" was looked for as "<release>.part01.r00"
+// and the unpack failed "no such file or directory" with every article in
+// hand (talos, the week to 2026-11-27: 225 failures, 216 of them one
+// series' episodes, each grabbed again and again). SABnzbd takes the yEnc
+// name for any file unless it looks obfuscated (verify_nzf_filename); this
+// is that for the one case it decides an unpack in, and no wider, because
+// an obfuscated post puts a different name on every article and the
+// importer reads a media file's name:
+//
+//   - the file is a RAR volume by its bytes;
+//   - its listed name is not already in a set with another of the job's
+//     files (a consistent listing is left alone, whatever the wire says);
+//   - its wire name is a RAR volume's, in a set another of the job's files
+//     is listed in, and no file holds that name.
+//
+// It runs after the par2 names, which are the stronger evidence where a
+// set has them. The unpacker is the judge of the result, as before: every
+// volume's header and the packed file's checksum still have to agree.
+func (j *job) renameStrayVolumes(ctx context.Context) int {
+	j.mu.Lock()
+	wire := append([]string(nil), j.wireNames...)
+	j.mu.Unlock()
+
+	held := map[string]bool{}
+	sets := map[string]int{}
+	for _, f := range j.nzb.Files {
+		held[strings.ToLower(safeName(f.Name))] = true
+		if stem, ok := rarSetStem(f.Name); ok {
+			sets[stem]++
+		}
+	}
+	var plan []plannedRename
+	for i, f := range j.nzb.Files {
+		if i >= len(wire) || wire[i] == "" {
+			continue
+		}
+		to := safeName(wire[i])
+		if strings.EqualFold(to, safeName(f.Name)) || held[strings.ToLower(to)] {
+			continue
+		}
+		if listed, ok := rarSetStem(f.Name); ok && sets[listed] > 1 {
+			continue
+		}
+		if set, ok := rarSetStem(to); !ok || sets[set] == 0 {
+			continue
+		}
+		if sniffExtension(filepath.Join(j.contentDir(), safeName(f.Name))) != ".rar" {
+			continue
+		}
+		held[strings.ToLower(to)] = true
+		plan = append(plan, plannedRename{i: i, to: to})
+	}
+	return j.renameSet(ctx, plan)
+}
+
+// plannedRename is the name content file i is to take.
 type plannedRename struct {
 	i  int
 	to string

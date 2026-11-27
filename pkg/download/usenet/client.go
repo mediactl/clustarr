@@ -486,6 +486,9 @@ type manifest struct {
 	// a manifest from before it carries none, and such a file is not held
 	// to a size at publish.
 	Sizes []int64 `json:"sizes,omitempty"`
+	// WireNames is each file's name from its yEnc header (job.wireNames);
+	// a manifest from before it carries none.
+	WireNames []string `json:"wireNames,omitempty"`
 	// Journal is the engine's per-transfer journal (ADR-0019 §6.7), an
 	// opaque document this client stores and never reads
 	// ([download.Journaled]).
@@ -626,6 +629,11 @@ type job struct {
 	// verifyContent holds it to before anything is published; zero while
 	// the first article has not arrived. Kept in the manifest.
 	sizes []int64
+	// wireNames is each file's name as its poster gave it: the name= of
+	// its first article's yEnc header (fetchFirstArticles), "" until that
+	// article arrives. The NZB's subject is the indexer's account of the
+	// same file and can differ (renameStrayVolumes). Kept in the manifest.
+	wireNames []string
 	// exhausted marks the failed segments every server has refused: what
 	// the health verdict counts (segment.go, healthVerdict). A segment a
 	// later fetch recovers leaves it.
@@ -721,6 +729,7 @@ func (j *job) checkpoint() error {
 		Done:           cloneBitsets(j.done),
 		Failed:         cloneBitsets(j.failedSegs),
 		Sizes:          append([]int64(nil), j.sizes...),
+		WireNames:      append([]string(nil), j.wireNames...),
 		Journal:        append(json.RawMessage(nil), j.journal...),
 	}
 	j.mu.Unlock()
@@ -831,6 +840,7 @@ func (c *Client) loadJob(dir string) (*job, error) {
 	restoreBitsets(j.done, m.Done)
 	restoreBitsets(j.failedSegs, m.Failed)
 	copy(j.sizes, m.Sizes)
+	copy(j.wireNames, m.WireNames)
 	for i := range j.done {
 		j.downloaded += completedBytes(parsed.Files[i], j.done[i])
 	}
@@ -875,6 +885,7 @@ func (c *Client) newJob(id, name, category, dir string, parsed *nzbJob) *job {
 	j.failedSegs = make([]bitset, len(parsed.Files))
 	j.exhausted = make([]bitset, len(parsed.Files))
 	j.sizes = make([]int64, len(parsed.Files))
+	j.wireNames = make([]string, len(parsed.Files))
 	for i := range parsed.Files {
 		j.done[i] = newBitset(len(parsed.Files[i].Segments))
 		j.failedSegs[i] = newBitset(len(parsed.Files[i].Segments))

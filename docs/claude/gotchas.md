@@ -938,6 +938,40 @@ recorded here.
   minutes, or eleven minutes after any scan of its folder. **An item still
   counts a FileMissing file as its file** (`episode.FileState` does not
   read the Ready condition): only the record's removal makes it wanted.
+- **A RAR volume the NZB lists outside its set takes the name its articles
+  carry (2026-11-27; owner: "Pursue the unrar fix").** 225 unpacks failed
+  in a week on talos with every article in hand, "open
+  .../<release>.part01.r00: no such file or directory", 216 of them Lupin
+  the 3rd S04 (`...1080p.WEB.x264-ANiURL`), each grabbed again at the next
+  search since a `writeError` blocks nothing. It was first read as
+  rardecode lacking unrar's fallback between naming schemes; it is not.
+  The release is an old-style scene set (`aniurl-lt3.s04e09.1080p.web.rar`,
+  `.r00` ... `.r09`), and nzbgeek's NZB lists the first volume as
+  `<release>.part01.rar` (and the par2 files as `<release>.vol-0N.par2`)
+  while leaving every other file as posted. The archive header says old
+  numbering (main header flags 0x0101: volume, first volume, no new
+  numbering), so the next volume is looked for beside the listed name;
+  `unrar t` fails the same way on those names ("Cannot find volume
+  ...part01.r00"), so no change to the library would help. The par2 set
+  cannot rename it either: it describes the sample alone
+  (`...web-sample.par2`). The poster's name is on the wire, in the first
+  article's yEnc `name=`, which the engine already fetches first for the
+  file's size and threw away. It is kept now (`job.wireNames`, in the
+  manifest), and `renameStrayVolumes`, after the par2 names, gives a file
+  its wire name only when all of these hold: its bytes are a RAR volume's;
+  its listed name is in no set with another of the job's files; the wire
+  name is a RAR volume's, in a set another of the job's files is listed in,
+  and unheld. SABnzbd takes the yEnc name for any file that does not look
+  obfuscated (`verify_nzf_filename`); this is narrower on purpose, because
+  an obfuscated post names every article differently (the entry above) and
+  the importer reads a media file's name. **How it was found, for the next
+  one:** the transfer record's `files[]` are the listed names; the NZB
+  comes from the indexer's `t=get`; one `BODY <message-id>` per file shows
+  `=ybegin ... name=` and the first bytes. The tests' archives are real:
+  `storedRarVolumes` writes a stored RAR 3 multi-volume set that `unrar t`
+  accepts, since the tree had no RAR fixture at all. Not covered: the
+  week's other three failures (`...CtrlHD.part10.rar` missing, a volume
+  that was never posted or never listed).
 - **A file the import ran out of time to judge is retried, never imported
   by name (2026-11-27).** `fileimport.probeVideo` treated every probe
   failure but "not media" as harmless -- "could not probe the file;
