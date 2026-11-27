@@ -20,12 +20,15 @@ package ui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
@@ -75,7 +78,7 @@ func episodeFileCells(f *catalogv1.MediaFile) *views.EpisodeFile {
 		return nil
 	}
 	return &views.EpisodeFile{
-		Languages:  f.Spec.Languages,
+		Languages:  fileLanguages(f),
 		Score:      f.Spec.FormatScore,
 		VideoCodec: videoCell(f),
 		AudioCodec: audioCell(f.Status.MediaInfo),
@@ -83,6 +86,30 @@ func episodeFileCells(f *catalogv1.MediaFile) *views.EpisodeFile {
 		Subtitles:  subtitlesCell(f.Status.Subtitles),
 		Markers:    markersCell(f.Status.Markers),
 	}
+}
+
+// fileLanguages is the languages a file's row shows: its probe's tagged
+// audio tracks by name, in track order, each once, and the file's frozen
+// spec.languages only while the probe names none (no probe yet, or a track
+// with no tag). The frozen ones are import's reading, and for a file a
+// library scan found, its name's: JoJo's Bizarre Adventure on talos showed
+// 84 files as Japanese that carry English and Japanese, scanned on
+// 2026-10-15 before import read the probe, so its dual-audio episodes read
+// as Japanese-only ones nothing was done about (owner, 2026-11-27:
+// "investigate why Jojo has an english dub but doesn't mark its jpn only
+// audio files as needs graft or missing cutoff"). What is done about a file
+// -- the item's status.audio, its graft, its cutoff -- reads the probe.
+func fileLanguages(f *catalogv1.MediaFile) []string {
+	var out []string
+	for _, code := range decision.AudioLanguages(f.Status.MediaInfo) {
+		if name, ok := catalogue.LanguageName(code); ok && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	if len(out) == 0 {
+		return f.Spec.Languages
+	}
+	return out
 }
 
 // videoCell is the probe's video: the codec by its common name, its bit

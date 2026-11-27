@@ -362,7 +362,7 @@ func fileRows(folder string, f *catalogv1.MediaFile) ([]views.FileRow, []views.E
 	}
 	row := views.FileRow{
 		Name: f.Name, Kind: f.Spec.MediaRef.Kind, Path: f.Spec.Path, RelativePath: rel(f.Spec.Path), SizeBytes: f.Spec.SizeBytes,
-		Languages: f.Spec.Languages, Quality: f.Spec.Quality.Name, ReleaseGroup: f.Spec.ReleaseGroup,
+		Languages: fileLanguages(f), Quality: f.Spec.Quality.Name, ReleaseGroup: f.Spec.ReleaseGroup,
 		Formats: f.Spec.MatchedFormats, Score: f.Spec.FormatScore,
 		Format: fileFormat(f),
 	}

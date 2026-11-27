@@ -163,3 +163,35 @@ func TestMarkersCellNamesTheKinds(t *testing.T) {
 		})
 	}
 }
+
+// A file's Languages are what its probe's audio tracks carry, and its
+// frozen spec.languages only while the probe names none: a file a library
+// scan found froze as its series' original language whatever it carries
+// (talos, 2026-11-27: 84 dual-audio files of JoJo's Bizarre Adventure read
+// "Japanese").
+func TestFileLanguagesAreTheProbedAudioTracks(t *testing.T) {
+	audio := func(langs ...string) *commonv1.MediaInfo {
+		mi := &commonv1.MediaInfo{}
+		for _, l := range langs {
+			mi.Audio = append(mi.Audio, commonv1.AudioStream{Codec: "aac", Language: l})
+		}
+		return mi
+	}
+	for name, tc := range map[string]struct {
+		frozen []string
+		mi     *commonv1.MediaInfo
+		want   []string
+	}{
+		"a scanned dual-audio file frozen as Japanese": {[]string{"Japanese"}, audio("eng", "jpn"), []string{"English", "Japanese"}},
+		"two tracks of one language, once":             {[]string{"Japanese"}, audio("jpn", "jpn"), []string{"Japanese"}},
+		"an untagged track leaves the frozen reading":  {[]string{"English", "Japanese"}, audio("jpn", "und"), []string{"English", "Japanese"}},
+		"no probe yet": {[]string{"Japanese"}, nil, []string{"Japanese"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &catalogv1.MediaFile{Spec: catalogv1.MediaFileSpec{Languages: tc.frozen}}
+			f.Status.MediaInfo = tc.mi
+			assert.Equal(t, tc.want, fileLanguages(f))
+			assert.Equal(t, tc.want, episodeFileCells(f).Languages)
+		})
+	}
+}

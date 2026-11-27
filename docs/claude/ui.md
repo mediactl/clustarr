@@ -134,7 +134,14 @@ item should also include Languages, Score, Video and Audio Codec,
 Transcode status, Subtitle status, Marker status") the row also carries
 its file's columns, read from the Episode's MediaFile by name
 (`ui.episodeFiles`: a cached Get per file, never a List; `ui/episodefile.go`,
-`views.EpisodeFile`, `views.Cell`): the frozen languages (three as badges,
+`views.EpisodeFile`, `views.Cell`): the languages its probe's tagged audio
+tracks carry, and the frozen `spec.languages` only while the probe names
+none (`ui.fileLanguages`, 2026-11-27, the modal's Files table too: a file a
+library scan found before 2026-10-27 froze as its series' original
+language whatever it carries, so 84 dual-audio files of JoJo's Bizarre
+Adventure read "Japanese" and the owner asked why its Japanese-only files
+were not marked for a graft; the item's `status.audio`, graft and cutoff
+have always read the probe) (three as badges,
 the rest behind a count), the format score, the probe's video ("HEVC 10-bit
 HDR10", warned when `MediaFile.UndecodableVideo`) and its first audio track
 as Radarr labels it ("EAC3 - 5.1") with the count of the others, and the
