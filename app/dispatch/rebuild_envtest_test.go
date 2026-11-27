@@ -28,12 +28,17 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/dispatch"
+	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/remediation/search"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/test/librarytest"
@@ -55,10 +60,31 @@ func TestTheLedgerIsRebuiltFromStatusNeverTrusted(t *testing.T) {
 	cfg, err := env.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, env.Stop()) })
-	c, err := librarytest.NewClient(cfg, client.Options{Scheme: k8s.MustNewScheme()})
-	require.NoError(t, err)
-
+	// The reader the manager gives the ledger: its cache, with the indexes
+	// the binaries register. The Sources list by marker index since
+	// 2026-11-03 (a53706fe), which a client that reads the API server
+	// directly cannot answer: every rebuild failed on "field label not
+	// supported" and this test, still on such a client, waited for a rebuild
+	// that never came.
 	ctx := t.Context()
+	mgr, err := librarytest.NewManager(cfg, ctrl.Options{
+		Scheme:                 k8s.MustNewScheme(),
+		Metrics:                metricsserver.Options{BindAddress: "0"},
+		HealthProbeBindAddress: "0",
+		Controller:             config.Controller{SkipNameValidation: new(true)},
+	})
+	require.NoError(t, err)
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
+	mgrCtx, stopMgr := context.WithCancel(ctx)
+	stopped := make(chan error, 1)
+	go func() { stopped <- mgr.Start(mgrCtx) }()
+	t.Cleanup(func() {
+		stopMgr()
+		require.NoError(t, <-stopped)
+	})
+	require.True(t, mgr.GetCache().WaitForCacheSync(ctx), "the cache never synced")
+	c := mgr.GetClient()
+
 	const ns = "dispatch-rebuild"
 	require.NoError(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
 	movie := func(name string, tmdbID int64, d *catalogac.DispatchApplyConfiguration) {
@@ -82,6 +108,12 @@ func TestTheLedgerIsRebuiltFromStatusNeverTrusted(t *testing.T) {
 	movie("ronin", 8195, catalogac.Dispatch().WithSeq(7).WithAnsweredSeq(5).WithDispatchedAt(at))
 	movie("collateral", 1538, catalogac.Dispatch().WithSeq(2).WithAnsweredSeq(2).WithDispatchedAt(at))
 	movie("thief", 11524, nil)
+	// The ledger rebuilds once, from what the cache holds then.
+	require.Eventually(t, func() bool {
+		var l catalogv1alpha1.MovieList
+		err := c.List(ctx, &l, client.InNamespace(ns), client.MatchingFields{itemread.SearchInFlightIndex: itemread.IndexTrue})
+		return err == nil && len(l.Items) == 2
+	}, 10*time.Second, 10*time.Millisecond, "the cache never held heat's and ronin's dispatches in flight")
 
 	key := func(name string) dispatch.Key {
 		return dispatch.Key{Kind: "Movie", Namespace: ns, Name: name, Sub: "search"}
