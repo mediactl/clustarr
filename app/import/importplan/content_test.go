@@ -253,28 +253,23 @@ func TestAnImportHoldsTheProfilesBitrateRange(t *testing.T) {
 }
 
 // H.264 10-bit and XviD at import (owner, 2026-11-03): an incoming movie or
-// episode file whose probe says so is the release's fault, a person's pick
-// exempt, and a file that is not replaces one that is, at any quality the
-// profile takes, past the upgrade table.
+// episode file whose probe says so is the release's fault, a person's
+// import included (2026-11-27; TestNoManualImportTakesWhatPlexCannotPlay),
+// and a file that is not replaces one that is, at any quality the profile
+// takes, past the upgrade table.
 func TestAnImportRefusesUndecodableVideoAndReplacesIt(t *testing.T) {
-	r := undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 10}, false)
+	r := undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 10})
 	assert.Equal(t, commonv1.ImportClassReleaseFault, r.Class)
 	assert.Contains(t, r.Text, "H.264 10-bit")
-	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 8}, false).none())
-	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "hevc", VideoBitDepth: 10}, false).none())
-	twelve := undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "hevc", VideoBitDepth: 12}, false)
+	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 8}).none())
+	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "hevc", VideoBitDepth: 10}).none())
+	twelve := undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "hevc", VideoBitDepth: 12})
 	assert.Contains(t, twelve.Text, "HEVC 12-bit", "a 12-bit HEVC file is refused as the release's fault (owner, 2026-11-27)")
-	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264"}, false).none(), "an unknown depth is not judged")
-	assert.True(t, undecodableRejection("S05E01.mkv", nil, false).none())
-	xvid := undecodableRejection("S09E06.avi", &schema.ProbeSummary{VideoCodec: "mpeg4", VideoBitDepth: 8}, false)
+	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264"}).none(), "an unknown depth is not judged")
+	assert.True(t, undecodableRejection("S05E01.mkv", nil).none())
+	xvid := undecodableRejection("S09E06.avi", &schema.ProbeSummary{VideoCodec: "mpeg4", VideoBitDepth: 8})
 	assert.Equal(t, commonv1.ImportClassReleaseFault, xvid.Class)
 	assert.Contains(t, xvid.Text, "MPEG-4 Part 2 (XviD, DivX)")
-	// A person's import is exempt for XviD alone (owner, 2026-11-27: "Never
-	// - nor HEVC 12-bit").
-	assert.True(t, undecodableRejection("S09E06.avi", &schema.ProbeSummary{VideoCodec: "mpeg4", VideoBitDepth: 8}, true).none())
-	assert.False(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 10}, true).none())
-	assert.False(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "hevc", VideoBitDepth: 12}, true).none())
-
 	web, ok := quality.Lookup("video", "WEBDL-1080p")
 	assert.True(t, ok)
 	bluray, ok := quality.Lookup("video", "Bluray-1080p")

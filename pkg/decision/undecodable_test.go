@@ -135,21 +135,17 @@ func TestNoProfileTakesAnH264TenBitRelease(t *testing.T) {
 		for _, title := range []string{hi10, xvid} {
 			got := decide(t, p, cat, rushmoreTarget(nil), title)
 			assert.False(t, hasRejection(got, decision.ReasonCustomFormatMinimumScore), "%s, %s: the score no longer refuses it: %v", name, title, reasons(got))
-			// XviD is refused as undecodable, which a person may override;
-			// H.264 10-bit as what no override takes either.
-			assert.Equal(t, title == xvid, hasRejection(got, decision.ReasonUndecodableVideo), "%s, %s: %v", name, title, reasons(got))
-			assert.Equal(t, title == hi10, hasRejection(got, decision.ReasonNeverTaken), "%s, %s: %v", name, title, reasons(got))
+			assert.True(t, hasRejection(got, decision.ReasonNeverTaken), "%s, %s: %v", name, title, reasons(got))
 			assert.False(t, got.Approved, "%s, %s", name, title)
 		}
 	}
 }
 
-// A person's override takes neither H.264 10-bit nor HEVC 12-bit (owner,
-// 2026-11-27, asked whether an override should still take an H.264 10-bit
-// release: "Never - nor HEVC 12-bit"): their rejection is the one
-// spec.override does not pass, where XviD's and Dolby Vision's stay a
-// person's to overrule.
-func TestNoOverrideTakesH264TenBitOrHEVCTwelveBit(t *testing.T) {
+// A person's override takes none of them (owner, 2026-11-27, asked whether
+// an override should still take an H.264 10-bit release: "Never - nor HEVC
+// 12-bit", then "close XviD"): their rejection is the one spec.override
+// does not pass, where Dolby Vision's stays a person's to overrule.
+func TestNoOverrideTakesWhatPlexCannotPlay(t *testing.T) {
 	p, cat := builtin(t, "hd-bluray-web")
 	unoverridable := func(title string) bool {
 		got := decide(t, p, cat, rushmoreTarget(nil), title)
@@ -158,7 +154,7 @@ func TestNoOverrideTakesH264TenBitOrHEVCTwelveBit(t *testing.T) {
 	}
 	assert.True(t, unoverridable("Rushmore.1998.1080p.BluRay.10bit.x264.DTS-GROUP"))
 	assert.True(t, unoverridable("Rushmore.1998.1080p.BluRay.x265.12bit.DTS-GROUP"))
-	assert.False(t, unoverridable("Rushmore.1998.1080p.BluRay.XviD.AC3-GROUP"))
+	assert.True(t, unoverridable("Rushmore.1998.1080p.BluRay.XviD.AC3-GROUP"))
 	assert.False(t, unoverridable("Rushmore.1998.2160p.WEB-DL.DV.HEVC-GROUP"))
 }
 

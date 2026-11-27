@@ -87,26 +87,19 @@ func dolbyVisionRejection(parsed *release.ParsedRelease) *common.Rejection {
 }
 
 // offLimitsRejection rejects a release whose title names a codec no GPU
-// here decodes (ReasonUndecodableVideo): H.264 10-bit or MPEG-4 Part 2,
-// read by clustarr's own catalogue formats (catalogue.Format.OffLimits)
-// among the release's matched ones. Those formats score -10000, which a
-// profile's formatScores or lastResortFormats could give back; this cannot
-// be (owner, 2026-11-27: "H.264 10-bit should *always* be blocked for
-// every library - these cannot be transcoded").
-//
-// H.264 10-bit and HEVC 12-bit are ReasonNeverTaken instead
-// (catalogue.Format.NeverTaken): a person's override does not take them
-// either (owner, the same day: "Never - nor HEVC 12-bit").
+// here decodes (ReasonNeverTaken): H.264 10-bit, HEVC 12-bit or MPEG-4
+// Part 2, read by clustarr's own catalogue formats
+// (catalogue.Format.OffLimits) among the release's matched ones. Those
+// formats score -10000, which a profile's formatScores or lastResortFormats
+// could give back; this cannot be (owner, 2026-11-27: "H.264 10-bit should
+// *always* be blocked for every library - these cannot be transcoded"),
+// nor does a person's override pass it.
 func offLimitsRejection(cat *catalogue.Catalogue, matched []string) *common.Rejection {
-	if name := cat.NeverTaken(matched); name != "" {
-		r := newRejection(ReasonNeverTaken, "the release is %s, which cannot be transcoded and is never taken, by an override either", name)
-		return &r
-	}
 	name := cat.OffLimits(matched)
 	if name == "" {
 		return nil
 	}
-	r := newRejection(ReasonUndecodableVideo, "the release is %s, which cannot be transcoded and is never taken", name)
+	r := newRejection(ReasonNeverTaken, "the release is %s, which cannot be transcoded and is never taken, by an override either", name)
 	return &r
 }
 

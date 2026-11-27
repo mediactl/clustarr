@@ -168,7 +168,11 @@ const FamilyClustarr = "clustarr"
 // 2026-11-27: "H.264 10-bit should *always* be blocked for every library -
 // these cannot be transcoded"): clustarr's own, h264-10bit and mpeg4-part2,
 // the codecs no GPU here decodes. Their -10000 is a score a profile can
-// change; this is what the decision reads, and no profile changes it.
+// change; this is what the decision reads, and no profile changes it. Nor
+// does a person: Search.spec.override and a manual import refuse them too
+// (owner, 2026-11-27, of H.264 10-bit and HEVC 12-bit: "Never"; then of
+// XviD: "close XviD"), since Plex cannot transcode such a file and it
+// errors where a missing one would not.
 func (f *Format) OffLimits() bool { return f.Family == FamilyClustarr }
 
 // OffLimits is the Name of the first of slugs (matched formats) that is
@@ -179,27 +183,6 @@ func (c *Catalogue) OffLimits(slugs []string) string {
 	}
 	for _, slug := range slugs {
 		if f := c.Formats[slug]; f != nil && f.OffLimits() {
-			return f.Name
-		}
-	}
-	return ""
-}
-
-// NeverTaken reports an off-limits format a person does not take either,
-// by Search.spec.override or by a manual import (owner, 2026-11-27, asked
-// whether an override should still take an H.264 10-bit release: "Never -
-// nor HEVC 12-bit"): every one but mpeg4-part2, which the owner did not
-// name and which plays as it is on most players.
-func (f *Format) NeverTaken() bool { return f.OffLimits() && f.Slug != "mpeg4-part2" }
-
-// NeverTaken is the Name of the first of slugs (matched formats) that is
-// never taken (Format.NeverTaken), "" when none is.
-func (c *Catalogue) NeverTaken(slugs []string) string {
-	if c == nil {
-		return ""
-	}
-	for _, slug := range slugs {
-		if f := c.Formats[slug]; f != nil && f.NeverTaken() {
 			return f.Name
 		}
 	}

@@ -104,22 +104,17 @@ func episodeContentRejection(rel string, probe *schema.ProbeSummary) Rejection {
 // cutoff (MediaFile.UndecodableVideo), so taking one only for search to
 // replace it would loop. The h264-10bit and mpeg4-part2 formats refuse such
 // a release at search by its title; this catches one whose title did not
-// say. A person's manual import is exempt, as from every content gate, but
-// not for H.264 10-bit or HEVC 12-bit (NeverTakenVideoCodec; owner,
-// 2026-11-27, asked whether an override should still take one: "Never - nor
-// HEVC 12-bit"), so of the codecs here a person imports only XviD by hand.
-func undecodableRejection(rel string, probe *schema.ProbeSummary, manual bool) Rejection {
+// say. A person's manual import is refused it too, the one content gate an
+// override does not pass (owner, 2026-11-27, asked whether an override
+// should still take an H.264 10-bit release: "Never - nor HEVC 12-bit",
+// then "close XviD"): Plex cannot transcode such a file, and one that
+// errors is worse than one that is missing.
+func undecodableRejection(rel string, probe *schema.ProbeSummary) Rejection {
 	if probe == nil {
 		return Rejection{}
 	}
-	if name := catalogv1alpha1.NeverTakenVideoCodec(probe.VideoCodec, probe.VideoBitDepth, ""); name != "" {
-		return releaseFaultRejection("%s: the file is %s, which is never taken, by a manual import either", rel, name)
-	}
-	if manual {
-		return Rejection{}
-	}
 	if name := catalogv1alpha1.UndecodableVideoCodec(probe.VideoCodec, probe.VideoBitDepth, ""); name != "" {
-		return releaseFaultRejection("%s: the file is %s, which is never taken", rel, name)
+		return releaseFaultRejection("%s: the file is %s, which is never taken, by a manual import either", rel, name)
 	}
 	return Rejection{}
 }

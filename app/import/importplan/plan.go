@@ -852,7 +852,7 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 			}
 		}
 		if c.kind == commonv1.MediaKindMovie || c.kind == commonv1.MediaKindEpisode {
-			if r := undecodableRejection(rel, f.Probe, manual); !r.none() {
+			if r := undecodableRejection(rel, f.Probe); !r.none() {
 				rs = append(rs, r)
 				continue
 			}

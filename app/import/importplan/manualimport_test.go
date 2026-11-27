@@ -60,40 +60,35 @@ func TestAnOverrideImportTakesAQualityTheProfileDoesNotAllow(t *testing.T) {
 	assert.Equal(t, catalogv1alpha1.ImportPhaseImported, dec.Summary.Phase)
 }
 
-// A manual import does not take an H.264 10-bit or an HEVC 12-bit file
-// (owner, 2026-11-27, asked whether an override should still take an H.264
-// 10-bit release: "Never - nor HEVC 12-bit"), where it takes the XviD file
-// an automatic import refuses: override is exempt from every other content
-// gate.
-func TestNoManualImportTakesH264TenBitOrHEVCTwelveBit(t *testing.T) {
+// A manual import does not take an H.264 10-bit, an HEVC 12-bit or an XviD
+// file (owner, 2026-11-27, asked whether an override should still take an
+// H.264 10-bit release: "Never - nor HEVC 12-bit", then "close XviD"): Plex
+// cannot transcode it, so the file errors on the server where a missing one
+// would not. Override is exempt from every other content gate, the
+// profile's allowed qualities included
+// (TestAnOverrideImportTakesAQualityTheProfileDoesNotAllow).
+func TestNoManualImportTakesWhatPlexCannotPlay(t *testing.T) {
 	const file = "Heat.1995.1080p.BluRay.x264-GRP.mkv"
-	overridden := func(t *testing.T, mi *commonv1.MediaInfo) (*grab, lifecycle.ImportDecision) {
-		t.Helper()
-		wd := newWorld(t)
-		wd.probes[file] = mi
-		g := wd.grab(commonv1.MediaKindMovie, "heat", "Heat.1995.1080p.BluRay.x264-GRP", wd.payload(map[string]int64{file: big}))
-		g.in.Intent = &lifecycle.ImportIntent{ID: g.in.Entry.ID, Override: true}
-		g.decide()
-		g.in.Intent = nil
-		g.deliver()
-		return g, g.decide()
-	}
 	for name, mi := range map[string]*commonv1.MediaInfo{
-		"H.264 10-bit": {VideoCodec: "h264", VideoBitDepth: 10, Width: 1920, Height: 1080},
-		"HEVC 12-bit":  {VideoCodec: "hevc", VideoBitDepth: 12, Width: 1920, Height: 1080},
+		"H.264 10-bit":  {VideoCodec: "h264", VideoBitDepth: 10, Width: 1920, Height: 1080},
+		"HEVC 12-bit":   {VideoCodec: "hevc", VideoBitDepth: 12, Width: 1920, Height: 1080},
+		"MPEG-4 Part 2": {VideoCodec: "mpeg4", VideoBitDepth: 8, Width: 1920, Height: 1080},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, dec := overridden(t, mi)
+			wd := newWorld(t)
+			wd.probes[file] = mi
+			g := wd.grab(commonv1.MediaKindMovie, "heat", "Heat.1995.1080p.BluRay.x264-GRP", wd.payload(map[string]int64{file: big}))
+			g.in.Intent = &lifecycle.ImportIntent{ID: g.in.Entry.ID, Override: true}
+			g.decide()
+			g.in.Intent = nil
+			g.deliver()
+			dec := g.decide()
 			assert.Nil(t, dec.Dispatch, "nothing is placed")
 			assert.Equal(t, catalogv1alpha1.ImportPhaseHeld, dec.Summary.Phase, dec.Summary.Message)
 			assert.Contains(t, dec.Summary.Message, name)
 			assert.Contains(t, dec.Summary.Message, "by a manual import either")
 		})
 	}
-	t.Run("XviD is a person's to take", func(t *testing.T) {
-		g, _ := overridden(t, &commonv1.MediaInfo{VideoCodec: "mpeg4", VideoBitDepth: 8, Width: 1920, Height: 1080})
-		require.Len(t, g.plan().Plan.Moves, 1)
-	})
 }
 
 // TestAManualImportIsNeverBlocklisted is the other half of the T2 finding:

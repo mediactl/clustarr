@@ -130,25 +130,20 @@ var (
 	ReasonLosesHDR    = Reason{"LosesHDR", common.RejectionPermanent}
 	ReasonAVCOverHEVC = Reason{"AVCOverHEVC", common.RejectionPermanent}
 
-	// ReasonUndecodableVideo is the owner's rule of 2026-11-27 ("H.264
-	// 10-bit should *always* be blocked for every library - these cannot be
-	// transcoded"): a release whose title names a codec no GPU here decodes
-	// -- H.264 10-bit, MPEG-4 Part 2 -- is never taken, under any profile,
-	// whatever it scores the h264-10bit and mpeg4-part2 formats. Until then
-	// the formats' -10000 alone refused it (CustomFormatMinimumScore), which
-	// a profile's own score or lastResortFormats could undo. Like
-	// DolbyVision it is the release's own fault, Permanent, and a person's
-	// pick needs spec.override. The import refuses the file whose title did
-	// not say (importplan's undecodableRejection).
-	ReasonUndecodableVideo = Reason{"UndecodableVideo", common.RejectionPermanent}
-
-	// ReasonNeverTaken is ReasonUndecodableVideo for the codecs a person
-	// does not take either (owner, 2026-11-27, asked whether a person's
-	// override should still take an H.264 10-bit release: "Never - nor HEVC
-	// 12-bit"; catalogue.Format.NeverTaken): the one permanent rejection
-	// Search.spec.override does not pass (Unoverridable), at the Search
-	// controller and at the grab planner alike. A manual import refuses the
-	// file too (importplan's undecodableRejection).
+	// ReasonNeverTaken is the owner's rule of 2026-11-27 ("H.264 10-bit
+	// should *always* be blocked for every library - these cannot be
+	// transcoded"): a release whose title names a codec no GPU here
+	// decodes -- H.264 10-bit, HEVC 12-bit, MPEG-4 Part 2 -- is never
+	// taken, under any profile, whatever it scores the format. It is the
+	// one permanent rejection Search.spec.override does not pass
+	// (Unoverridable), at the Search controller and at the grab planner
+	// alike (owner, the same day, asked whether an override should still
+	// take one: "Never - nor HEVC 12-bit", then "close XviD"): Plex cannot
+	// transcode such a file, so it errors on the server and plays nowhere,
+	// "the only scenario that is worse than not having the file at all".
+	// The import refuses the file whose title did not say, a manual import
+	// included (importplan's undecodableRejection). It was UndecodableVideo
+	// for a day, and for XviD a few hours longer, which an override took.
 	ReasonNeverTaken = Reason{"NeverTaken", common.RejectionPermanent}
 
 	// ReasonFullSeasonNotAired is Sonarr's FullSeasonSpecification (Wave S):
