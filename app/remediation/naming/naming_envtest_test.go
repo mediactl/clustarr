@@ -36,6 +36,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/import/worker/probe/probetest"
 	"github.com/mediactl/clustarr/app/remediation/remediationtest"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -434,7 +435,7 @@ func TestNamingKeepsItsProposalOverALookupFailure(t *testing.T) {
 	r := h.loop(t, f, false)
 	probeAndName(t, h, r, f, fakeMediaInfo())
 	res := reconcileOnce(t, r, f.key)
-	require.Zero(t, res.RequeueAfter, "setup: a healthy render does not requeue")
+	require.Equal(t, mediafile.RecheckInterval, res.RequeueAfter, "setup: a healthy render asks for nothing sooner than the day's recheck")
 	steady := f.get(t)
 	require.NotNil(t, steady.Status.Naming)
 	require.NotEmpty(t, steady.Status.Naming.ExpectedPath, "setup: never rendered")

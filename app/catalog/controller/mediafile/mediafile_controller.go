@@ -49,15 +49,27 @@ import (
 // fingerprint moved, re-records size and mtime under catalog and drops
 // the transcode verdict the old bytes earned. The value is never
 // parsed: the stat is the authority, the annotation only the doorbell.
+//
+// Since 2026-11-27 a scan rings it for a file it did not find as well, of
+// any MediaFile ("missing@<RFC 3339>", mediafilespec.ObservedMissing): the
+// pass's stat then marks the file FileMissing, the first of the two
+// observations its record is removed on.
 const AnnotationObservedFingerprint = "catalog.clustarr.io/observed-fingerprint"
 
-// TranscodedRecheckInterval is how often a transcoded MediaFile
-// (spec.original=false) is re-examined on disk when nothing else wakes it:
-// the floor under [AnnotationObservedFingerprint], for a library whose root
-// folder has no rescan schedule, or a change between two scans. A day is the
-// budget: one stat, two cached Lists and one no-op apply per transcoded file
-// per day.
-const TranscodedRecheckInterval = 24 * time.Hour
+// RecheckInterval is how often a MediaFile is re-examined on disk when
+// nothing else wakes it: the floor under [AnnotationObservedFingerprint],
+// for a library whose root folder has no rescan schedule, or a change
+// between two scans. A day is the budget: one stat, two cached Lists and
+// one no-op apply per file per day.
+//
+// Until 2026-11-27 only a transcoded file (spec.original=false) had it, as
+// the one whose changed bytes no scan re-records. But a file that is gone
+// is the same case for every file: only this stat says FileMissing, the
+// first of the two observations its record is removed on, and on a library
+// with no rescan schedule nothing else ever made it (talos, where no root
+// folder has one: an untranscoded episode's file deleted by hand stayed
+// "file present").
+const RecheckInterval = 24 * time.Hour
 
 // SwapTarget is the path a Swapping transcode block's output is probed at
 // (loop spec §5.9 "The swap"): result.outputPath when it is set and differs

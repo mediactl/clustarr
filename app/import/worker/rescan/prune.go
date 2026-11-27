@@ -37,15 +37,24 @@ import (
 // that is gone from disk (ADR-0019 §7.6, P46), as Sonarr's and Radarr's
 // rescans remove a missing file's record: a folder renamed "Season 01" ->
 // "Season 1" otherwise left a record at every old path for good (832 on the
-// owner's library, 2026-10-01). A record is reported only on two
+// owner's library, 2026-10-01). A record is removed only on two
 // observations -- the reconciler's FileMissing past
-// mediafilespec.MissingGrace, and the
-// file absent (ENOENT, nothing else) now -- never on a manual assignment,
-// and never when the root folder itself is gone: an unmounted share is not
-// a library whose files all went. The manager's scan applier re-reads the
-// MediaFile and deletes it with UID and resourceVersion preconditions,
-// counting it (FilesRemoved). A dry run reports nothing and counts what it
-// would.
+// mediafilespec.MissingGrace, and the file absent (ENOENT, nothing else)
+// now -- so what the walk reports is its own half, the absence, of every
+// record the reconciler has either had missing that long or not marked at
+// all: the manager's scan applier re-reads the MediaFile, deletes the
+// first with UID and resourceVersion preconditions, counting it
+// (FilesRemoved), and hands the second to the reconciler
+// (mediafilespec.ObservedMissing). The second half was missing until
+// 2026-11-27: nothing made the reconciler look at a settled file again, so
+// a file deleted by hand was never marked and no scan could remove its
+// record. A record inside the grace is the reconciler's to keep judging and
+// is not reported. Never on a manual assignment, and never when the root
+// folder itself is gone: an unmounted share is not a library whose files
+// all went. A dry run reports nothing and counts what it would remove.
+//
+// Each record under the path costs one lstat, of a tree the walk has just
+// read.
 func (w *Worker) prunePass(ctx context.Context, st *scanState) error {
 	if st.manual != nil {
 		return nil
@@ -60,14 +69,20 @@ func (w *Worker) prunePass(ctx context.Context, st *scanState) error {
 	now := w.now()
 	for i := range files.Items {
 		mf := &files.Items[i]
-		if mf.Spec.Path == "" || !withinRoot(st.task.Path, mf.Spec.Path) || !seenMissing(mf, now) {
+		if mf.Spec.Path == "" || !withinRoot(st.task.Path, mf.Spec.Path) {
+			continue
+		}
+		past := seenMissing(mf, now)
+		if _, marked := mediafilespec.MarkedMissing(mf); marked && !past {
 			continue
 		}
 		if _, err := os.Lstat(mf.Spec.Path); !errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if st.task.DryRun {
-			st.progress.FilesRemoved++
+			if past {
+				st.progress.FilesRemoved++
+			}
 			continue
 		}
 		if err := w.observe(ctx, st, schema.ScanObservation{
@@ -77,8 +92,13 @@ func (w *Worker) prunePass(ctx context.Context, st *scanState) error {
 		}); err != nil {
 			return err
 		}
-		logging.FromContext(ctx).Info("library scan: reported the record of a file gone from disk",
-			"mediaFile", mf.Name, "path", mf.Spec.Path)
+		if past {
+			logging.FromContext(ctx).Info("library scan: reported the record of a file gone from disk",
+				"mediaFile", mf.Name, "path", mf.Spec.Path)
+		} else {
+			logging.FromContext(ctx).Info("library scan: a recorded file is not on disk; reported for catalog to look",
+				"mediaFile", mf.Name, "path", mf.Spec.Path)
+		}
 	}
 	return nil
 }

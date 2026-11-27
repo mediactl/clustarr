@@ -34,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/names"
@@ -179,8 +180,10 @@ func TestEveryTrackTakesOneFile(t *testing.T) {
 
 	got, _ := f.handle(t, false)
 	obs := f.bus.observed(t, f.root)
-	assert.ElementsMatch(t, []string{flac, moved, held}, slices.Collect(maps.Keys(obs)),
+	assert.ElementsMatch(t, []string{flac, moved, held, gone}, slices.Collect(maps.Keys(obs)),
 		"one file per track: the first copy, the recorded file and the track whose record's file is gone")
+	assert.Equal(t, schema.ScanObservationMissing, obs[gone].Kind,
+		"and the record whose file is gone is reported as that, for the reconciler to look")
 	assert.Equal(t, "airbag", obs[flac].Attribution.Track)
 	assert.Equal(t, "subterranean", obs[moved].Attribution.Track, "a record whose file is gone holds nothing")
 

@@ -26,19 +26,31 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
-// missing deletes the record of a file gone from disk (P46, W20): the
-// agent's two observations -- the MediaFile reconciler's FileMissing past
-// mediafilespec.MissingGrace, and the file ENOENT -- checked again on a
-// fresh read of the MediaFile the basis names, which must still be that
-// object (its UID) at that path, then a delete with UID and resourceVersion
-// preconditions. A record gone already, or changed since the read, is the
-// next scan's to decide.
+// missing answers a scan that did not find a recorded file (P46, W20), on
+// a fresh read of the MediaFile the basis names, which must still be that
+// object (its UID) at that path:
+//
+//   - the MediaFile reconciler has had it FileMissing past
+//     mediafilespec.MissingGrace: the two observations a removal wants. The
+//     record is deleted with UID and resourceVersion preconditions.
+//   - the reconciler has not marked it: it has not looked since the file
+//     went, and nothing else would make it (a settled file has no timer
+//     sooner than a day). The applier rings its doorbell, the
+//     observed-fingerprint annotation (mediafilespec.ObservedMissing), and
+//     the reconciler's own stat marks the file; the grace runs from there.
+//   - marked, inside the grace: nothing. A share that blinks is not a file
+//     gone.
+//
+// A record gone already, or changed since the read, is the next scan's to
+// decide.
 func (a *Applier) missing(ctx context.Context, obs schema.ScanObservation, t *tally) error {
 	b := obs.Basis
 	if b == nil || obs.Missing == nil {
@@ -55,9 +67,14 @@ func (a *Applier) missing(ctx context.Context, obs schema.ScanObservation, t *ta
 	case err != nil:
 		return fmt.Errorf("scanapply: get media file %s: %w", b.Name, err)
 	}
-	if string(mf.UID) != b.UID || filepath.Clean(mf.Spec.Path) != filepath.Clean(obs.Path) ||
-		!mediafilespec.SeenMissing(&mf, a.now()) {
+	if string(mf.UID) != b.UID || filepath.Clean(mf.Spec.Path) != filepath.Clean(obs.Path) {
 		return nil
+	}
+	if !mediafilespec.SeenMissing(&mf, a.now()) {
+		if _, marked := mediafilespec.MarkedMissing(&mf); marked {
+			return nil
+		}
+		return a.handMissing(ctx, &mf, obs)
 	}
 	if err := a.pace(ctx, mf.UID); err != nil {
 		return err
@@ -73,5 +90,28 @@ func (a *Applier) missing(ctx context.Context, obs schema.ScanObservation, t *ta
 	default:
 		return fmt.Errorf("scanapply: remove media file %s: %w", mf.Name, err)
 	}
+	return nil
+}
+
+// handMissing tells catalog that a scan did not find mf's file: the one
+// observed-fingerprint annotation apply handOver makes, under
+// k8s.ManagerImport, carrying mediafilespec.ObservedMissing. The annotation
+// wakes the file's pass, whose stat is the authority; a redelivered
+// observation finds the annotation as it left it and writes nothing.
+func (a *Applier) handMissing(ctx context.Context, mf *catalogv1alpha1.MediaFile, obs schema.ScanObservation) error {
+	v := mediafilespec.ObservedMissing(obs.Missing.At)
+	if mf.Annotations[mediafilespec.AnnotationObservedFingerprint] == v {
+		return nil
+	}
+	if err := a.pace(ctx, mf.UID); err != nil {
+		return err
+	}
+	ac := catalogac.MediaFile(mf.Name, mf.Namespace).
+		WithAnnotations(map[string]string{mediafilespec.AnnotationObservedFingerprint: v})
+	if _, err := k8s.Apply(ctx, a.Client, k8s.ManagerImport, ac); err != nil {
+		return fmt.Errorf("scanapply: hand missing media file %s over to catalog: %w", mf.Name, err)
+	}
+	logging.FromContext(ctx).Info("scanapply: a recorded file is not on disk; handed to catalog",
+		"mediaFile", mf.Name, "path", mf.Spec.Path)
 	return nil
 }

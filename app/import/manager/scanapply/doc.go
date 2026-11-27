@@ -55,7 +55,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     per folder per ReobserveWindow, and the file is counted Deferred.
 //   - missing: delete the MediaFile with UID and resourceVersion
 //     preconditions once a fresh read still has it FileMissing for 10
-//     minutes (P46).
+//     minutes (P46); one the MediaFile reconciler has not marked is handed
+//     to it by the observed-fingerprint annotation
+//     (mediafilespec.ObservedMissing), so its own stat marks the file and
+//     the grace runs; one inside the grace is left alone.
 //   - orphanPart: a transcode attempt's part file unwritten for 72 h whose
 //     source has no transcode in flight and whose job is not live is
 //     recycled through a recycle-files task on import-recycle (P47).

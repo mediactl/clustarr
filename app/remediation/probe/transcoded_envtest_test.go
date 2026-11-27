@@ -77,9 +77,10 @@ func incorporateSwap(t *testing.T, h *probeHarness, r *remediation.Reconciler, f
 // TestTranscodedFileBytesChangedOnDisk is catalog's side of "a transcoded
 // file's bytes legitimately changed": after a swap catalog owns
 // spec.sizeBytes, modTime and original and the rescan leaves the file alone,
-// so the loop alone must notice a later change: a transcoded file is
-// rechecked every TranscodedRecheckInterval even when nothing wakes it, an
-// unchanged file reports nothing, and a change no transcode explains is
+// so the loop alone must notice a later change: a file is rechecked every
+// RecheckInterval even when nothing wakes it (since 2026-11-27 an
+// untranscoded one too: only that stat finds a file gone), an unchanged
+// file reports nothing, and a change no transcode explains is
 // re-probed, its size and mtime re-recorded under catalog (never reclaimed by
 // the import manager), with a Warning Event. (The verdict the old bytes
 // earned is the transcode planner's to drop: transcodeplan's
@@ -93,7 +94,8 @@ func TestTranscodedFileBytesChangedOnDisk(t *testing.T) {
 	reconcileOnce(t, r, f.key)
 	h.Answer(t, f.uid(t), fakeMediaInfo())
 	res := reconcileOnce(t, r, f.key)
-	assert.Zero(t, res.RequeueAfter, "an untranscoded file is the rescan's to watch, not this timer's")
+	assert.Equal(t, mediafile.RecheckInterval, res.RequeueAfter,
+		"an untranscoded file's bytes are the rescan's to watch, but only this timer's stat finds the file gone")
 
 	// The transcode's swap: new bytes at the same path.
 	base := time.Now().Add(-time.Hour).Truncate(time.Second)
@@ -101,7 +103,7 @@ func TestTranscodedFileBytesChangedOnDisk(t *testing.T) {
 	require.NoError(t, os.WriteFile(f.path, encoded, 0o644))
 	require.NoError(t, os.Chtimes(f.path, base.Add(10*time.Minute), base.Add(10*time.Minute)))
 	after, mf := incorporateSwap(t, h, r, f, clk, f.path, int64(len(encoded)))
-	assert.Equal(t, mediafile.TranscodedRecheckInterval, after, "a transcoded file is rechecked on a timer")
+	assert.Equal(t, mediafile.RecheckInterval, after, "a transcoded file is rechecked on a timer")
 	require.NotNil(t, mf.Spec.Original)
 	require.False(t, *mf.Spec.Original, "setup: the swap was incorporated")
 	swappedHash := mf.Status.ProbeHash
@@ -111,7 +113,7 @@ func TestTranscodedFileBytesChangedOnDisk(t *testing.T) {
 	sent := len(h.Sent())
 	clk.Add(time.Minute)
 	res = reconcileOnce(t, r, f.key)
-	assert.Equal(t, mediafile.TranscodedRecheckInterval, res.RequeueAfter)
+	assert.Equal(t, mediafile.RecheckInterval, res.RequeueAfter)
 	assert.Equal(t, swappedHash, f.get(t).Status.ProbeHash)
 	assert.Len(t, h.Sent(), sent)
 	assert.Empty(t, remediationtest.Drain(f.e.Recorder), "an unchanged file reports nothing")
@@ -125,7 +127,7 @@ func TestTranscodedFileBytesChangedOnDisk(t *testing.T) {
 	assert.Len(t, h.Sent(), sent+1, "the changed file is probed again")
 	h.Answer(t, f.uid(t), encodeOf(f.path))
 	res = reconcileOnce(t, r, f.key)
-	assert.Equal(t, mediafile.TranscodedRecheckInterval, res.RequeueAfter)
+	assert.Equal(t, mediafile.RecheckInterval, res.RequeueAfter)
 
 	mf = f.get(t)
 	assert.NotEqual(t, swappedHash, mf.Status.ProbeHash, "the changed file is re-probed")
@@ -204,6 +206,44 @@ func TestObservedFingerprintWakesTheController(t *testing.T) {
 	}, 20*time.Second, 50*time.Millisecond, "the observed-fingerprint annotation must wake the re-probe")
 }
 
+// TestAScansMissingFileWakesTheController is the other use of the doorbell
+// (2026-11-27), through a real manager running the loop: an episode's file
+// was deleted by hand, and its record said "file present" for good, since
+// nothing wakes a settled, untranscoded file and only the loop's own stat
+// says FileMissing. A scan that does not find the file has the import
+// domain apply mediafilespec.ObservedMissing, and that is what makes the
+// loop look.
+func TestAScansMissingFileWakesTheController(t *testing.T) {
+	h := newProbeHarness(t).WithAgent(t, fakeProber)
+	e := remediationtest.StartControllerOn(t, h.Pub, h.Probe())
+	ctx := context.Background()
+	const ns, name = "missing", "gosick-s01e22-abc1234567"
+	mustNamespace(t, ctx, e.Admin, ns)
+	base := time.Now().Add(-time.Hour).Truncate(time.Second)
+	path := writeFile(t, t.TempDir(), "Gosick (2011) - S01E22.mkv", []byte("as imported"))
+	require.NoError(t, os.Chtimes(path, base, base))
+	f := queuedFile{e: e, c: e.Admin, key: types.NamespacedName{Namespace: ns, Name: name}, path: path}
+	importCreates(t, e.Admin, ns, name, movieRef("gosick"), path, int64(len("as imported")), base, bluray1080p)
+	require.Eventually(t, func() bool { got := f.get(t); return got.ProbeCurrent() }, 20*time.Second, 50*time.Millisecond,
+		"the initial pass never probed the file")
+
+	missing := func() bool {
+		c := k8s.FindCondition(f.get(t).Status.Conditions, catalogv1alpha1.MediaFileConditionReady)
+		return c != nil && c.Status == metav1.ConditionFalse && c.Reason == "FileMissing"
+	}
+	require.NoError(t, os.Remove(path))
+	require.Never(t, missing, 2*time.Second, 100*time.Millisecond,
+		"setup: nothing should wake the loop for a file deleted on disk")
+
+	// The import domain's hand-over of a scan's missing observation.
+	_, err := k8s.Apply(ctx, e.Admin, k8s.ManagerImport, catalogac.MediaFile(name, ns).WithAnnotations(map[string]string{
+		mediafilespec.AnnotationObservedFingerprint: mediafilespec.ObservedMissing(time.Now()),
+	}))
+	require.NoError(t, err)
+	require.Eventually(t, missing, 20*time.Second, 50*time.Millisecond,
+		"the scan's missing observation must wake the pass whose stat marks the file")
+}
+
 // TestContainerChangeMovesSpecPath is R-11's catalog half: the encode
 // changes container, so the worker writes "<stem>.<container>" under a new
 // name and retires the source. Incorporating that swap moves spec.path to
@@ -223,7 +263,7 @@ func TestContainerChangeMovesSpecPath(t *testing.T) {
 	require.NoError(t, os.WriteFile(output, encoded, 0o644))
 	require.NoError(t, os.Remove(f.path))
 	after, mf := incorporateSwap(t, h, r, f, clk, output, int64(len(encoded)))
-	assert.Equal(t, mediafile.TranscodedRecheckInterval, after)
+	assert.Equal(t, mediafile.RecheckInterval, after)
 
 	assert.Equal(t, output, mf.Spec.Path, "the MediaFile must follow the file to its new name")
 	assert.EqualValues(t, len(encoded), mf.Spec.SizeBytes)
@@ -272,7 +312,8 @@ func TestReplaceSourceFalseIsNotASwap(t *testing.T) {
 	sent := len(h.Sent())
 
 	res := reconcileOnce(t, r, f.key)
-	assert.Zero(t, res.RequeueAfter, "the MediaFile is still an untranscoded original")
+	assert.Equal(t, mediafile.RecheckInterval, res.RequeueAfter,
+		"the MediaFile is still an untranscoded original: nothing sooner than the day's recheck")
 	mf := f.get(t)
 	assert.Equal(t, f.path, mf.Spec.Path, "the kept source stays the MediaFile's file")
 	assert.Equal(t, before.Spec.SizeBytes, mf.Spec.SizeBytes)

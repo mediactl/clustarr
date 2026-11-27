@@ -32,6 +32,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
@@ -69,6 +70,14 @@ func pruneScan(t *testing.T, root, subpath string, objs ...client.Object) (*Work
 	return w, st
 }
 
+// doorbell is name's observed-fingerprint annotation, "" when it has none.
+func doorbell(t *testing.T, w *Worker, name string) string {
+	t.Helper()
+	var mf catalogv1alpha1.MediaFile
+	require.NoError(t, w.Client.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: name}, &mf))
+	return mf.Annotations[mediafilespec.AnnotationObservedFingerprint]
+}
+
 func exists(t *testing.T, w *Worker, name string) bool {
 	t.Helper()
 	err := w.Client.Get(context.Background(), client.ObjectKey{Namespace: "media", Name: name}, &catalogv1alpha1.MediaFile{})
@@ -104,6 +113,61 @@ func TestTheScanRemovesRecordsOfFilesGoneFromDisk(t *testing.T) {
 	assert.True(t, exists(t, w, "gone-just-now"), "within the grace: a share's blip")
 	assert.True(t, exists(t, w, "present-but-flagged"), "on disk now")
 	assert.EqualValues(t, 1, appliedTally(t, context.Background(), w.Bus, st.scan).FilesRemoved)
+}
+
+// An episode's file was deleted by hand; two scans and a quarter of an hour
+// later its record still said "file present" (talos, 2026-11-27). A scan
+// reported a record only once the MediaFile reconciler had marked the file
+// missing, and nothing made the reconciler look at a settled file again, so
+// neither half of the removal ever began. The scan now reports what it did
+// not find, and the manager rings the reconciler's doorbell for a record it
+// has not marked: the one annotation a pass wakes on, whose stat is the
+// authority. A record the reconciler is already judging is left to it, and
+// so is a file that is there.
+func TestTheScanHandsAFileItDidNotFindToTheReconciler(t *testing.T) {
+	root := t.TempDir()
+	season := filepath.Join(root, "Gosick (2011)", "Season 01")
+	require.NoError(t, os.MkdirAll(season, 0o755))
+	here := filepath.Join(season, "S01E21.mkv")
+	require.NoError(t, os.WriteFile(here, []byte("x"), 0o644))
+
+	w, st := pruneScan(t, root, "",
+		recordFor("deleted-by-hand", filepath.Join(season, "S01E22.mkv"), 0),
+		recordFor("gone-just-now", filepath.Join(season, "S01E23.mkv"), 2*time.Minute),
+		recordFor("present", here, 0),
+	)
+	require.NoError(t, w.prunePass(context.Background(), st))
+	assert.True(t, exists(t, w, "deleted-by-hand"), "one observation removes nothing")
+	assert.Equal(t, mediafilespec.ObservedMissing(pruneNow), doorbell(t, w, "deleted-by-hand"))
+	assert.Empty(t, doorbell(t, w, "gone-just-now"), "marked already: the grace is the reconciler's to run")
+	assert.Empty(t, doorbell(t, w, "present"))
+
+	// A dry run says what it would remove, and it would remove nothing yet.
+	w, st = pruneScan(t, root, "", recordFor("deleted-by-hand", filepath.Join(season, "S01E22.mkv"), 0))
+	st.task.DryRun = true
+	require.NoError(t, w.prunePass(context.Background(), st))
+	assert.Empty(t, doorbell(t, w, "deleted-by-hand"))
+	assert.Zero(t, st.progress.FilesRemoved)
+}
+
+// A season folder removed by hand takes its files with it, and the scan of
+// that folder is the one that names their records: it ended at "the folder
+// does not exist" before reaching them. It prunes as a scan that walked
+// does, and a manual assignment still removes nothing.
+func TestAScanOfAFolderGoneFromDiskStillPrunesItsRecords(t *testing.T) {
+	root := t.TempDir()
+	gone := filepath.Join(root, "Gosick (2011)", "Season 01")
+	w, st := pruneScan(t, root, filepath.Join("Gosick (2011)", "Season 01"),
+		recordFor("past-the-grace", filepath.Join(gone, "S01E01.mkv"), time.Hour),
+		recordFor("unmarked", filepath.Join(gone, "S01E02.mkv"), 0),
+		recordFor("elsewhere", filepath.Join(root, "Andor", "S01E01.mkv"), time.Hour),
+	)
+	handled, err := w.scanMissingFolder(context.Background(), st)
+	require.NoError(t, err)
+	require.True(t, handled)
+	assert.False(t, exists(t, w, "past-the-grace"))
+	assert.Equal(t, mediafilespec.ObservedMissing(pruneNow), doorbell(t, w, "unmarked"))
+	assert.True(t, exists(t, w, "elsewhere"), "outside the scanned folder")
 }
 
 // A scan of one folder removes only records under it.

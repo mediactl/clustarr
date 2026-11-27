@@ -39,6 +39,12 @@ import (
 // folder that is itself missing -- an unmounted share -- is not an empty
 // library, so that scan goes on to fail as before, and so does any other
 // error, which the walk reports.
+//
+// Nothing to walk is not nothing to do: a folder deleted with its files
+// still has their records, and this scan of it is the one that names them,
+// so the prune pass runs here as it does after a walk (2026-11-27; before
+// it a season folder removed by hand kept every record for good, since the
+// scan asked for it ended here).
 func (w *Worker) scanMissingFolder(ctx context.Context, st *scanState) (bool, error) {
 	root, path := filepath.Clean(st.root.Spec.Path), filepath.Clean(st.task.Path)
 	if path == root {
@@ -54,8 +60,11 @@ func (w *Worker) scanMissingFolder(ctx context.Context, st *scanState) (bool, er
 	if st.manual != nil {
 		return true, w.refuseScan(ctx, st, refuse("%q does not exist under root folder %q", rel, st.root.Name))
 	}
-	logging.FromContext(ctx).Info("library scan: the folder does not exist yet; nothing to scan",
+	logging.FromContext(ctx).Info("library scan: the folder does not exist; nothing to walk",
 		"rootFolder", st.root.Name, "subpath", rel)
+	if err := w.prunePass(ctx, st); err != nil {
+		return true, events.Retry(checkpointInterval, err)
+	}
 	st.progress.Done = true
 	if err := w.checkpoint(ctx, st, true); err != nil {
 		return true, events.Retry(checkpointInterval, err)

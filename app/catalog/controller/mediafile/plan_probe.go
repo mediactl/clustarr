@@ -287,9 +287,7 @@ func PlanProbe(in ProbeInput, out *catalogv1alpha1.MediaFileStatus) ProbeOutcome
 			}
 		}
 	}
-	if transcoded || in.Swap != nil {
-		o.Due = earliest(o.Due, now.Add(TranscodedRecheckInterval))
-	}
+	o.Due = earliest(o.Due, now.Add(RecheckInterval))
 	return o
 }
 

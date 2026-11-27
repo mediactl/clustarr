@@ -71,6 +71,7 @@ var Subsystems = []string{
 	"import.importlist",
 	"import.librarydelete",
 	"import.libraryscan",
+	"import.missingfile",
 	"import.nfo",
 	"import.probe",
 	"import.recycle",

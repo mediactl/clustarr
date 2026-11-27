@@ -901,6 +901,43 @@ recorded here.
   (`ErrArticleMismatch`), so the next one's is taken, as for a corrupt one.
   The yEnc `name=` is no test: obfuscated posts name every article
   differently.
+- **A file deleted from disk is found, and its record removed, without a
+  person asking (2026-11-27; owner: "Fix the gap").** A record is removed on
+  two observations (P46): the MediaFile reconciler's stat held for
+  `mediafilespec.MissingGrace` (10 min of Ready False, `FileMissing`), and a
+  library scan's lstat of the same path. Neither began for a settled,
+  untranscoded file: nothing wakes its pass (no timer; the day's recheck was
+  for `spec.original=false` only), so it was never marked, and a scan
+  reported a record only once it was marked. Gosick S01E22's file was
+  deleted by hand on talos and its record said "file present and probed" a
+  quarter of an hour later; no root folder there has a `scanSchedule`, so no
+  scan was coming either, and the episode kept counting a file it did not
+  have. Four parts now close it:
+  - the rescan's prune pass reports every record under the scanned path
+    whose file is ENOENT and which the reconciler has either had missing
+    past the grace or not marked at all (one lstat a record), and the scan
+    applier rings the reconciler's doorbell for the second kind: the
+    observed-fingerprint annotation with `mediafilespec.ObservedMissing`
+    under `k8s.ManagerImport`. The pass's own stat is still the authority;
+    a record inside the grace is left alone;
+  - a scan of a folder that is itself gone (`scanMissingFolder`) runs the
+    prune pass instead of ending at "nothing to walk": a season folder
+    removed with its files kept every record otherwise;
+  - `mediafile.RecheckInterval` (was `TranscodedRecheckInterval`): every
+    settled file is stat'd again a day on, so a library that is never
+    scanned still finds a file gone;
+  - `app/import/controller/missingfile`: once a file has been FileMissing
+    for the grace plus `Margin` (1 min), one incremental LibraryScan of its
+    own folder is created (named by root folder, folder and the minute it
+    was marked), whose prune pass is the second observation. It asks for
+    nothing while more than `MassLimit` (100, my default) MediaFiles are
+    marked at once -- a share that came back empty would otherwise have
+    every record removed and every item downloaded again -- and those wait
+    for a scan a person asks for.
+  So a file deleted on the NAS reads Wanted within a day and eleven
+  minutes, or eleven minutes after any scan of its folder. **An item still
+  counts a FileMissing file as its file** (`episode.FileState` does not
+  read the Ready condition): only the record's removal makes it wanted.
 - **A file the import ran out of time to judge is retried, never imported
   by name (2026-11-27).** `fileimport.probeVideo` treated every probe
   failure but "not media" as harmless -- "could not probe the file;

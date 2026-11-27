@@ -36,6 +36,7 @@ import (
 	importlistctrl "github.com/mediactl/clustarr/app/import/controller/importlist"
 	"github.com/mediactl/clustarr/app/import/controller/librarydelete"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
+	"github.com/mediactl/clustarr/app/import/controller/missingfile"
 	"github.com/mediactl/clustarr/app/import/controller/recyclesweep"
 	"github.com/mediactl/clustarr/app/import/controller/rootfolderschedule"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -94,6 +95,16 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// library is mounted, under the lease.
 	if err := librarydelete.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("import: librarydelete: %w", err)
+	}
+
+	// The scan that removes a missing file's record: asked for once the
+	// MediaFile reconciler has had the file missing past the grace, since a
+	// root folder with no rescan schedule had none coming (2026-11-27).
+	if err := (&missingfile.Reconciler{
+		Client: mgr.GetClient(),
+		Clock:  time.Now,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("import: missingfile: %w", err)
 	}
 
 	// The ImportList controller (plan task G1-3; ADR-0019 §7.6): schedules

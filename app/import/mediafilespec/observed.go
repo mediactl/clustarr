@@ -43,13 +43,27 @@ import (
 // the file in place -- the manager's scan applier applies this one
 // annotation instead, under k8s.ManagerImport, which owns nothing else on
 // any MediaFile, so the apply releases nothing (ADR-0019 §7.6, W17).
-// catalog's MediaFile controller declares the same key.
+// catalog's MediaFile controller declares the same key. A file a scan did
+// not find is handed over the same way, whatever the file
+// ([ObservedMissing]).
 const AnnotationObservedFingerprint = "catalog.clustarr.io/observed-fingerprint"
 
 // ObservedFingerprint renders [AnnotationObservedFingerprint]'s value for a
 // file of size bytes last modified at modTime.
 func ObservedFingerprint(size int64, modTime time.Time) string {
 	return strconv.FormatInt(size, 10) + "@" + modTime.UTC().Truncate(time.Second).Format(time.RFC3339)
+}
+
+// ObservedMissing renders [AnnotationObservedFingerprint]'s value for a
+// file a scan did not find at at: "missing@<RFC 3339, UTC, whole seconds>".
+// The annotation is the same doorbell: catalog parses none of it and stats
+// the file itself, and it is that stat which says FileMissing. Without it a
+// settled file nothing else wakes was never looked at again, so its record
+// said "file present" for good and no scan could remove it (talos,
+// 2026-11-27: an episode's file deleted by hand, its record unmoved a
+// quarter of an hour and two scans' worth of waiting later).
+func ObservedMissing(at time.Time) string {
+	return "missing@" + at.UTC().Truncate(time.Second).Format(time.RFC3339)
 }
 
 // SpecHash is the SHA-256, in hex, of a MediaFile's spec as the apiserver
@@ -119,12 +133,22 @@ func FrozenFromScan(f *schema.FrozenFields, manual bool, at time.Time) Frozen {
 // gone (P46).
 const MissingGrace = 10 * time.Minute
 
-// SeenMissing reports whether the MediaFile reconciler has had mf's file
-// missing for at least [MissingGrace]. The rescan reports a record only
-// when it holds (and the file is ENOENT), and the manager's scan applier
-// deletes one only when it still holds on a fresh read.
-func SeenMissing(mf *catalogv1alpha1.MediaFile, now time.Time) bool {
+// MarkedMissing reports when the MediaFile reconciler first saw mf's file
+// missing (Ready=False, FileMissing), and false when it has not.
+func MarkedMissing(mf *catalogv1alpha1.MediaFile) (since time.Time, ok bool) {
 	c := meta.FindStatusCondition(mf.Status.Conditions, catalogv1alpha1.MediaFileConditionReady)
-	return c != nil && c.Status == metav1.ConditionFalse && c.Reason == "FileMissing" &&
-		now.Sub(c.LastTransitionTime.Time) >= MissingGrace
+	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != "FileMissing" {
+		return time.Time{}, false
+	}
+	return c.LastTransitionTime.Time, true
+}
+
+// SeenMissing reports whether the MediaFile reconciler has had mf's file
+// missing for at least [MissingGrace]. The manager's scan applier deletes a
+// record a scan found ENOENT only when it holds on a fresh read; one the
+// reconciler has not marked at all is handed to it instead
+// ([ObservedMissing]), and one inside the grace is left to it.
+func SeenMissing(mf *catalogv1alpha1.MediaFile, now time.Time) bool {
+	since, ok := MarkedMissing(mf)
+	return ok && now.Sub(since) >= MissingGrace
 }
