@@ -104,18 +104,14 @@ func TestTheUnclaimedSeedReadsTheBucketInOnePass(t *testing.T) {
 	bus := &countingBus{Bus: inner}
 	s := New(Options{Bus: bus})
 
-	// The sources start it; a pass finds it done or waits for the rest.
+	// The sources start it; a pass finds it done or waits for the rest. The
+	// read is waited for before the test takes the pass's place: a Do here
+	// before the source's goroutine had run would be the seed itself, and
+	// did so now and then (the test failed with nothing read, 2026-11-26).
 	require.NoError(t, seedSource{s: s}.Start(t.Context(), nil))
-	seeded := make(chan struct{})
-	go func() {
-		s.seedOnce.Do(func() { t.Error("the sources did not start the seed") })
-		close(seeded)
-	}()
-	select {
-	case <-seeded:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the seed did not finish")
-	}
+	require.Eventually(t, func() bool { return bus.entries.Load() == 1 }, 10*time.Second, time.Millisecond,
+		"the sources did not start the seed")
+	s.seedOnce.Do(func() { t.Error("the seed had not begun") })
 
 	assert.Len(t, s.unclaimed.forOwner(keyOfRef(owner)), unclaimedOfOwner, "the owner's unclaimed transfers, without its claimed one")
 	assert.Len(t, s.unclaimed.forOwner(keyOfRef(other)), 1)
