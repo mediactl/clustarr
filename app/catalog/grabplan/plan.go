@@ -820,6 +820,59 @@ func (d *decider) grab(vd verdict) {
 	d.take(vd)
 	d.dropPending(vd)
 	d.settle(vd.c, intake.Incorporated, "grabbed", "")
+	d.logGrab(vd)
+}
+
+// maxLoggedItems caps logGrab's list: a pack of a long season names this
+// many of its items and counts the rest.
+const maxLoggedItems = 30
+
+// logGrab is the one Info line a grab leaves: where the candidate came
+// from, what exempted it, and what the planner read of the current file of
+// each item it is taken for. No other line at this level says why a release
+// was taken, so a grab over a file that is final left no trace of what the
+// planner had read (talos, 2026-11-27).
+//
+// over names each item as "<item>=<quality>", with "/transcoded" for a
+// file that is final and "/same-release" for a file imported from this
+// very release, or "<item>=none" for an item that read as having no file
+// (itemread.Current: the item's own status.hasFile and fileRef, then the
+// MediaFile). source is "parked" for an intake candidate (an RSS match, a
+// push, a Search's pick), "pending" for a held grab come due, and "answer"
+// for a search record's release.
+func (d *decider) logGrab(vd verdict) {
+	c := vd.c
+	source := "answer"
+	switch {
+	case c.pending >= 0:
+		source = "pending"
+	case c.MsgID != "":
+		source = "parked"
+	}
+	rel := c.Release.Decision.ReleaseInfo
+	over := make([]string, 0, min(len(vd.items), maxLoggedItems+1))
+	for i, it := range vd.items {
+		if i == maxLoggedItems {
+			over = append(over, fmt.Sprintf("and %d more", len(vd.items)-i))
+			break
+		}
+		s := "none"
+		if cur := it.Current; cur != nil {
+			s = cur.Quality.Name
+			if cur.Transcoded {
+				s += "/transcoded"
+			}
+			if (cur.SourceTitle != "" && strings.EqualFold(cur.SourceTitle, rel.Title)) ||
+				(cur.SourceHash != "" && strings.EqualFold(cur.SourceHash, rel.InfoHash)) {
+				s += "/same-release"
+			}
+		}
+		over = append(over, it.Ref.Name+"="+s)
+	}
+	logging.FromContext(d.ctx).Info("grab: taking a release",
+		"owner", d.v.Owner.Name, "entry", vd.id, "release", rel.Title, "quality", rel.Quality.Name,
+		"source", source, "by", c.GrabbedBy, "purpose", c.Purpose, "manual", c.Manual, "override", c.Override,
+		"complete", vd.complete, "covered", len(vd.covered), "over", over)
 }
 
 // The reasons a candidate is held, which are its settle's decision label.
