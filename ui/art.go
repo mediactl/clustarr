@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -126,7 +127,17 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	chosen := e
 	body, e, err := s.artBytes(ctx, kind, uid, imgType, name, e)
+	if err != nil && errors.Is(err, errArtMoved) && s.isOverlay(kind, uid, imgType, name) {
+		// The overlay could not be read, twice: serve what it was drawn on.
+		s.artUnreadable.mark(chosen.Digest, s.now())
+		logging.FromContext(ctx).Warn("art: the overlay could not be read; serving the original",
+			"kind", string(kind), "type", string(imgType), "err", err)
+		if name, e, err = s.chooseArt(ctx, kind, uid, imgType); err == nil {
+			body, e, err = s.artBytes(ctx, kind, uid, imgType, name, e)
+		}
+	}
 	if err != nil {
 		s.artError(w, r, kind, imgType, err)
 		return
@@ -148,6 +159,63 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(body); err != nil {
 		logging.FromContext(ctx).Error("write artwork response", "err", err)
 	}
+}
+
+// isOverlay reports whether name is kind/uid/t's overlay object.
+func (s *Server) isOverlay(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType, name string) bool {
+	return name == events.ArtworkKey(kind, uid, string(t), events.ArtworkVariantOverlay)
+}
+
+// artUnreadableFor is how long /art passes over an overlay it could not
+// read and serves the original in its place, before it tries the overlay
+// again.
+const artUnreadableFor = 5 * time.Minute
+
+// artUnreadableMax bounds the set; past it the set starts over.
+const artUnreadableMax = 4096
+
+// unreadableArt is the overlays /art could not read, by digest, each until
+// its time: chooseArt passes over one and picks the original.
+//
+// An overlay's record can outlive its content: a Put that fails after its
+// record was stored leaves the record and no chunk (pkg/events/natsbus's
+// Put says how, and removes the record when it can; the renderer draws such
+// an overlay again when its task comes back). Until one of those repairs
+// it, a read of it stalls to its deadline, twice, and /art answered 500 --
+// a poster with no image for as long as the record stood, which on talos
+// was days (owner, 2026-11-27, of Beef). The original is the same poster
+// without its badge, so it is what a viewer gets, under no-cache (the URL's
+// ?v names the overlay), and the stall is paid once in artUnreadableFor
+// rather than by every request.
+//
+// By digest, so an overlay drawn again from other inputs is served at once;
+// one drawn again to the same bytes waits out the mark.
+type unreadableArt struct {
+	mu    sync.Mutex
+	until map[string]time.Time
+}
+
+func (u *unreadableArt) mark(digest string, now time.Time) {
+	if digest == "" {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.until == nil || len(u.until) >= artUnreadableMax {
+		u.until = map[string]time.Time{}
+	}
+	u.until[digest] = now.Add(artUnreadableFor)
+}
+
+func (u *unreadableArt) has(digest string, now time.Time) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	until, ok := u.until[digest]
+	if ok && !now.Before(until) {
+		delete(u.until, digest)
+		return false
+	}
+	return ok
 }
 
 // artError answers a failed choice or read: 404 for a missing object, 500

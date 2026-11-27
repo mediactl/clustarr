@@ -21,7 +21,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -35,6 +37,7 @@ import (
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
@@ -435,4 +438,69 @@ func TestArtRetriesAnObjectOverwrittenMidRead(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, replacement, rec.Body.Bytes(), "the retry serves the new object whole")
 	require.Equal(t, `"`+hex.EncodeToString(sum[:])+`"`, rec.Header().Get("ETag"), "the ETag names the bytes sent")
+}
+
+// TestArtServesTheOriginalForAnOverlayItCannotRead: an overlay whose record
+// stands and whose chunks are gone -- what a Put leaves when it fails after
+// its record was stored -- stalls every read of it. /art answered 500 for as
+// long as the record stood (talos, 2026-11-27: 31 posters, Beef's among
+// them, for up to ten days). It serves the original instead, uncached, and
+// does not try the overlay again for a while. Real server: the chunks are
+// purged from the bucket's own stream, as nats.go's Put purges them.
+func TestArtServesTheOriginalForAnOverlayItCannotRead(t *testing.T) {
+	srv, err := natsserver.NewServer(&natsserver.Options{
+		ServerName: "clustarr-ui-art-hollow-test", Host: "127.0.0.1", Port: -1,
+		JetStream: true, StoreDir: t.TempDir(), NoLog: true, NoSigs: true,
+		JetStreamMaxStore: 64 << 30,
+	})
+	require.NoError(t, err)
+	go srv.Start()
+	require.True(t, srv.ReadyForConnections(20*time.Second))
+	t.Cleanup(srv.Shutdown)
+	nc, err := nats.Connect(srv.ClientURL())
+	require.NoError(t, err)
+	t.Cleanup(nc.Close)
+	bus, err := natsbus.New(nc)
+	require.NoError(t, err)
+	require.NoError(t, bus.Ensure(t.Context(), events.Default().ForSingleNode()))
+	store := &countingStore{ObjectStore: bus.ObjectStore(events.BucketArtwork)}
+
+	originalKey := posterKey(commonv1.MediaKindSeries, "u9", events.ArtworkVariantOriginal)
+	overlayKey := posterKey(commonv1.MediaKindSeries, "u9", events.ArtworkVariantOverlay)
+	original := putArt(t, store.ObjectStore, originalKey, "image/jpeg", "the poster")
+	overlay := putArt(t, store.ObjectStore, overlayKey, "image/jpeg", "the poster with its badge")
+
+	// Purge the overlay's chunks and leave its record.
+	js, err := jetstream.New(nc)
+	require.NoError(t, err)
+	stream, err := js.Stream(t.Context(), events.ObjectStoreStream(events.BucketArtwork))
+	require.NoError(t, err)
+	record, err := stream.GetLastMsgForSubject(t.Context(),
+		"$O."+events.BucketArtwork+".M."+base64.URLEncoding.EncodeToString([]byte(overlayKey)))
+	require.NoError(t, err)
+	var rec struct {
+		NUID string `json:"nuid"`
+	}
+	require.NoError(t, json.Unmarshal(record.Data, &rec))
+	require.NoError(t, stream.Purge(t.Context(), jetstream.WithPurgeSubject("$O."+events.BucketArtwork+".C."+rec.NUID)))
+	_, err = store.ObjectStore.Info(t.Context(), overlayKey)
+	require.NoError(t, err, "the record stands: the overlay still looks present")
+
+	ui.SetArtReadTimeoutForTest(t, time.Second)
+	s := newSyncedArtServer(t, ui.Options{Artwork: store, ArtCacheBytes: 1 << 20})
+
+	rec1 := getArt(s, "/art/series/u9/poster?v="+overlay.Digest)
+	require.Equal(t, http.StatusOK, rec1.Code)
+	require.Equal(t, "the poster", rec1.Body.String())
+	require.Equal(t, `"`+original.Digest+`"`, rec1.Header().Get("ETag"), "the ETag names the bytes sent")
+	require.Equal(t, "no-cache", rec1.Header().Get("Cache-Control"), "the URL names the overlay: nothing keeps the original as it")
+	tried := store.gets.Load()
+
+	// The next request does not stall on the overlay again.
+	start := time.Now()
+	rec2 := getArt(s, "/art/series/u9/poster?v="+overlay.Digest)
+	require.Equal(t, http.StatusOK, rec2.Code)
+	require.Equal(t, "the poster", rec2.Body.String())
+	require.Equal(t, tried, store.gets.Load(), "the overlay is passed over, and the original is cached")
+	require.Less(t, time.Since(start), 500*time.Millisecond)
 }

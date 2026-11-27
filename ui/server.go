@@ -437,6 +437,9 @@ type Server struct {
 	// artCache holds whole artwork objects by digest, ArtCacheBytes of them.
 	artCache *artCache
 
+	// artUnreadable is the overlays /art could not read and passes over.
+	artUnreadable unreadableArt
+
 	// artEvents turns artIndex's changes into SSE art events; nil without
 	// Artwork.
 	artEvents *artEvents

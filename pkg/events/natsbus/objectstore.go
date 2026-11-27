@@ -270,9 +270,93 @@ func (o *objectHandle) Put(ctx context.Context, name string, r io.Reader,
 	}
 	info, err := store.Put(ctx, jm, r)
 	if err != nil {
+		o.dropHollowAfterPut(ctx, store, name)
 		return events.ObjectInfo{}, objectError("put", o.name, name, err)
 	}
 	return objectInfoOf(o.name, info)
+}
+
+// hollowCheckTimeout bounds the look a failed Put takes at what it left. It
+// is the context's own time no longer: the Put that failed usually failed
+// on a stream too slow to answer, or on a context that is done.
+const hollowCheckTimeout = 10 * time.Second
+
+// dropHollowAfterPut removes name's record when a failed Put left it naming
+// content the store does not hold.
+//
+// nats.go's Put (v1.56.0, and its main on 2026-11-27) is not atomic: it
+// publishes the chunks and the record without waiting, then waits for every
+// acknowledgement, and on any error purges the chunks it wrote -- although
+// the record may be stored by then. An acknowledgement that takes longer
+// than the 5 s a publish is given ("nats: timeout waiting for ack"), or a
+// chunk a full bucket refuses while the small record still fits, leaves a
+// live record whose chunks are gone: Info answers, Get stalls to its
+// deadline, and every writer that asks "is it there, from these inputs"
+// reads yes and never writes it again. On talos that was 31 poster overlays
+// in ten days, each written within seconds of a 6 to 10 s stall of the
+// artwork stream, and each a poster /art answered 500 for (owner,
+// 2026-11-27, of Beef: "has no image").
+//
+// Removing the record is what a failed Put should have left of a new
+// object, and for a replaced one it is the nearest thing: the previous
+// content's chunks are not purged by a failed Put, but nothing names them
+// any more (the orphan purge reclaims them). The next writer finds no
+// object and writes it. Best effort: a store still too slow to answer is
+// logged, and PurgeOrphanChunks removes the record on its next pass.
+func (o *objectHandle) dropHollowAfterPut(ctx context.Context, store jetstream.ObjectStore, name string) {
+	log := logging.FromContext(ctx)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), hollowCheckTimeout)
+	defer cancel()
+	info, err := store.GetInfo(ctx, name)
+	if err != nil {
+		if !errors.Is(err, jetstream.ErrObjectNotFound) {
+			log.Warn("bus: could not read back the record a failed put may have left",
+				"bucket", o.name, "object", name, "err", err)
+		}
+		return
+	}
+	removed, err := o.dropIfHollow(ctx, store, info)
+	if err != nil {
+		log.Warn("bus: could not check the record a failed put may have left",
+			"bucket", o.name, "object", name, "err", err)
+		return
+	}
+	if removed {
+		log.Warn("bus: a failed put left a record whose content the store does not hold; removed the record",
+			"bucket", o.name, "object", name)
+	}
+}
+
+// dropIfHollow deletes info's object when the store holds fewer chunks than
+// its record names, and reports whether it did. The chunks are counted by
+// the stream's leader (a subject-filtered stream info, which carries no
+// payload): a direct get is answered by any replica, and one that trails
+// the record's would call a whole object hollow.
+//
+// The delete is nats.go's, with no compare-and-swap: a Put of the same name
+// that completes between the count and the delete is deleted with it, and
+// its writer's next pass writes it again.
+func (o *objectHandle) dropIfHollow(ctx context.Context, store jetstream.ObjectStore, info *jetstream.ObjectInfo) (bool, error) {
+	if info.Deleted || info.Size == 0 || info.Chunks == 0 {
+		return false, nil
+	}
+	s, err := o.bus.lookupStream(ctx, events.ObjectStoreStream(o.name))
+	if err != nil {
+		return false, err
+	}
+	subject := "$O." + o.name + ".C." + info.NUID
+	si, err := s.Info(ctx, jetstream.WithSubjectFilter(subject))
+	if err != nil {
+		return false, fmt.Errorf("natsbus: chunks of %s/%s: %w", o.name, info.Name, err)
+	}
+	if si.State.Subjects[subject] >= uint64(info.Chunks) {
+		return false, nil
+	}
+	if err := store.Delete(ctx, info.Name); err != nil {
+		return false, objectError("delete", o.name, info.Name, err)
+	}
+	metrics.ObjectHollowRecordsRemovedTotal.WithLabelValues(o.name).Inc()
+	return true, nil
 }
 
 // SetMeta is NATS UpdateMeta with the name unchanged: no rename can happen
@@ -540,7 +624,56 @@ func (b *Bus) PurgeOrphanChunks(ctx context.Context, bucket string, grace time.D
 	}
 	metrics.ObjectOrphanChunksPurgedTotal.WithLabelValues(bucket).Add(float64(purged))
 	metrics.ObjectOrphanBytesPurgedTotal.WithLabelValues(bucket).Add(float64(freed))
+	if err := o.dropHollowRecords(ctx, store, all, info.State.Subjects, prefix, grace); err != nil {
+		errs = append(errs, err)
+	}
 	return purged, freed, errors.Join(errs...)
+}
+
+// dropHollowRecords is the purge's other half: where an orphan is chunks no
+// record names, a hollow record is a record whose chunks are gone
+// (dropHollowAfterPut says how one comes about). It removes every record of
+// live that the listing found no chunk subject for and that is older than
+// grace, each read again from the bucket and its chunks counted again
+// first, so a list that trails the bucket removes nothing: a record
+// replaced since the list is judged by what it is now.
+//
+// This is the net under dropHollowAfterPut, whose look comes while the
+// stream is at its slowest, and what removes a record left before
+// 2026-11-27. An item whose object is gone is written again by its stage.
+func (o *objectHandle) dropHollowRecords(ctx context.Context, store jetstream.ObjectStore, live []*jetstream.ObjectInfo,
+	subjects map[string]uint64, prefix string, grace time.Duration,
+) error {
+	var errs []error
+	removed := 0
+	for _, listed := range live {
+		if listed.Deleted || listed.Size == 0 || listed.Chunks == 0 || subjects[prefix+listed.NUID] >= uint64(listed.Chunks) {
+			continue
+		}
+		if time.Since(listed.ModTime) < grace {
+			continue
+		}
+		now, err := store.GetInfo(ctx, listed.Name)
+		if err != nil {
+			if !errors.Is(err, jetstream.ErrObjectNotFound) { // expired or deleted since the list
+				errs = append(errs, objectError("info", o.name, listed.Name, err))
+			}
+			continue
+		}
+		ok, err := o.dropIfHollow(ctx, store, now)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if ok {
+			removed++
+		}
+	}
+	if removed > 0 {
+		logging.FromContext(ctx).Warn("bus: removed records whose content the object store does not hold",
+			"bucket", o.name, "records", removed)
+	}
+	return errors.Join(errs...)
 }
 
 // orphanSubjects is the chunk subjects, sorted, that no object of live

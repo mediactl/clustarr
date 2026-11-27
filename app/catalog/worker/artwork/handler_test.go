@@ -430,6 +430,76 @@ func TestACurrentObjectIsRecordedWithoutARender(t *testing.T) {
 	f.assertSplit(f.get())
 }
 
+// stalledReader is the reader natsbus hands out for an object whose record
+// names chunks the stream does not hold: nothing arrives, and the read ends
+// with the context's deadline.
+type stalledReader struct{ ctx context.Context }
+
+func (r stalledReader) Read([]byte) (int, error) {
+	<-r.ctx.Done()
+	return 0, fmt.Errorf("natsbus: read: %w", r.ctx.Err())
+}
+
+func (stalledReader) Close() error { return nil }
+
+// hollowStore serves name's record and none of its content, as a store does
+// after a Put that failed once its record was stored, until the next Put of
+// that name.
+type hollowStore struct {
+	events.ObjectStore
+	name   string
+	hollow atomic.Bool
+}
+
+func (s *hollowStore) Get(ctx context.Context, name string) (events.ObjectInfo, io.ReadCloser, error) {
+	info, rc, err := s.ObjectStore.Get(ctx, name)
+	if err != nil || name != s.name || !s.hollow.Load() {
+		return info, rc, err
+	}
+	_ = rc.Close()
+	return info, stalledReader{ctx: ctx}, nil
+}
+
+func (s *hollowStore) Put(ctx context.Context, name string, r io.Reader, meta events.ObjectMeta) (events.ObjectInfo, error) {
+	info, err := s.ObjectStore.Put(ctx, name, r, meta)
+	if err == nil && name == s.name {
+		s.hollow.Store(false)
+	}
+	return info, err
+}
+
+// An overlay whose record carries the current inputs and whose content is
+// gone is drawn again: the record alone is not the overlay. It is what a
+// Put leaves when it fails after its record was stored, and the retry of
+// that Put is the task that finds it.
+func TestAnOverlayWhoseContentIsGoneIsDrawnAgain(t *testing.T) {
+	defer artwork.SetOverlayReadTimeout(200 * time.Millisecond)()
+	ctx := context.Background()
+	f := newFixture(t, commonv1.MediaKindSeries, "render-hollow", catalogv1alpha1.RatingSourceTMDB)
+	require.NoError(t, f.handle())
+	require.EqualValues(t, 1, f.store.puts.Load())
+	first, ok := f.overlay()
+	require.True(t, ok)
+
+	hollow := &hollowStore{ObjectStore: f.store.ObjectStore, name: f.overlayKey()}
+	hollow.hollow.Store(true)
+	f.store.ObjectStore = hollow
+
+	require.NoError(t, f.handle())
+	require.EqualValues(t, 2, f.store.puts.Load(), "the record named content the store did not hold")
+	info, rc, err := f.store.Get(ctx, f.overlayKey())
+	require.NoError(t, err)
+	body, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	require.NoError(t, rc.Close())
+	assert.Equal(t, f.wantDigest(), info.Headers["Clustarr-Rendered-From"])
+	assert.EqualValues(t, first.Size, len(body), "the same inputs draw the same overlay")
+
+	// Held again, it is left alone.
+	require.NoError(t, f.handle())
+	assert.EqualValues(t, 2, f.store.puts.Load())
+}
+
 // A stale object header re-renders even though an earlier render stored the
 // current inputs: the object is what the ui serves.
 func TestAStaleObjectIsReRenderedWhateverTheStatusSays(t *testing.T) {

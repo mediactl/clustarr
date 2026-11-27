@@ -42,13 +42,15 @@ func overlaid(kind commonv1.MediaKind, t catalogv1.ImageType) bool {
 // else the original, else not found with no NATS call; with no index, or one
 // not yet synced, Info -- the overlay first only where one can exist. The
 // index never makes a miss authoritative on its own: only a synced one does.
+// An overlay /art could not read is passed over while its mark stands
+// (unreadableArt).
 func (s *Server) chooseArt(ctx context.Context, kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType,
 ) (name string, e objindex.Entry, err error) {
 	overlayKey := events.ArtworkKey(kind, uid, string(t), events.ArtworkVariantOverlay)
 	originalKey := events.ArtworkKey(kind, uid, string(t), events.ArtworkVariantOriginal)
 	if s.artIndex != nil && s.artIndex.Synced() {
 		if overlaid(kind, t) {
-			if e, ok := s.artIndex.Lookup(overlayKey); ok {
+			if e, ok := s.artIndex.Lookup(overlayKey); ok && !s.artUnreadable.has(e.Digest, s.now()) {
 				return overlayKey, e, nil
 			}
 		}
@@ -59,10 +61,10 @@ func (s *Server) chooseArt(ctx context.Context, kind commonv1.MediaKind, uid typ
 	}
 	if overlaid(kind, t) {
 		info, err := s.opts.Artwork.Info(ctx, overlayKey)
-		if err == nil {
+		if err == nil && !s.artUnreadable.has(info.Digest, s.now()) {
 			return overlayKey, artEntryOf(info), nil
 		}
-		if !errors.Is(err, events.ErrObjectNotFound) {
+		if err != nil && !errors.Is(err, events.ErrObjectNotFound) {
 			return "", objindex.Entry{}, err
 		}
 	}

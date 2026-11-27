@@ -1499,6 +1499,48 @@ recorded here.
   until the watch is open (2 minutes), and `objindex` waits at least 10 s
   after a watch that ended before its replay. The first Ensure fills each
   index with one read of its bucket.
+- **A failed object `Put` can leave a record with no content, and a record
+  alone is not the object** (2026-11-27; owner, of the series Beef:
+  "has no image", then "Repair the 31 now ... Afterwards, stop it
+  recurring"). nats.go's `ObjectStore.Put` (v1.56.0, unchanged on its main
+  that day) publishes the chunks and the record without waiting, then waits
+  for every acknowledgement, and on any error purges the chunks it wrote --
+  though the record may be stored by then. Two real ways in: an
+  acknowledgement slower than the 5 s a publish is given ("nats: timeout
+  waiting for ack"; the handler's context has no deadline, and with one
+  nats.go returns `ErrTimeout` and purges nothing), and a bucket with no
+  room for the chunk while the small record still fits
+  (`clustarr-artwork` discards new at 5 GiB). What is left answers `Info`
+  and stalls every `Get` to its deadline. On talos: 31 poster overlays in
+  ten days (19 movies, 12 series), each written within seconds of nats
+  logging `Internal subscription on "$JS.API.STREAM.INFO|PURGE.
+  OBJ_clustarr-artwork" took too long` (6 to 10 s; 2 to 35 such lines a
+  day), 14 of them with the ack timeout logged 5 to 9 s after the record's
+  time. The renderer's retry then read the record, found its own inputs
+  digest in it and answered "unchanged"; the overlay stage reads the index
+  and saw an overlay; `/art` picked the overlay, stalled twice and answered
+  500. Four things hold it now. natsbus's `Put` looks at what a failed Put
+  left and deletes a record whose chunks the stream's leader does not count
+  (`dropHollowAfterPut`; a subject-filtered stream info, never a direct
+  get, which any replica answers). `PurgeOrphanChunks` does the same for
+  every record older than the grace that the listing found no chunks for,
+  each read again from the bucket first (`dropHollowRecords`): the net
+  under the first, whose look comes while the stream is slowest, and it
+  covers originals and fingerprints, whose writers also ask `Info` and skip.
+  The renderer reads and hashes a recorded overlay before it answers
+  "unchanged" (`held`). And `/art` serves the original for an overlay it
+  could not read, under `no-cache`, passing that digest over for five
+  minutes (`unreadableArt`). Counted in
+  `clustarr_object_hollow_records_removed_total{bucket}`. A hand repair is
+  `nats object rm clustarr-artwork <name> -f` from the nats-box, after
+  checking that the record's `nuid` has no `$O.<bucket>.C.<nuid>` message:
+  the stage draws it again within seconds. Finding them: the records from
+  `OBJMETA_<bucket>` (`nats sub --stream ... --all --raw`) against `nats
+  stream subjects OBJ_<bucket> '$O.<bucket>.C.>'`, neither of which reads
+  a chunk. Why the artwork stream stalls for 6 to 10 s is not known (a
+  per-`Put` purge by subject on a 3 GiB file stream with 106,000 interior
+  deletes is the suspect, unproven), and the gap itself is upstream's: no
+  issue was filed.
 - **ffgo maps FFmpeg at package init, and a stale shim is silently wrong.** Any
   binary or test that links ffgo has dlopened FFmpeg before `main`, through
   `LD_LIBRARY_PATH` and a fixed list of system paths, and ffgo's loader

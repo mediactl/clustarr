@@ -20,6 +20,8 @@ package artwork
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"image"
@@ -176,6 +178,11 @@ type Handler struct {
 // so the bound is what turns that into ErrInputsMoved, a retry, rather than
 // a slot held until the task's own deadline. A var so tests can shorten it.
 var originalReadTimeout = 30 * time.Second
+
+// overlayReadTimeout bounds the read that proves a recorded overlay is held
+// (held): an overlay whose chunks are gone stalls its reader this long. A
+// var so tests can shorten it.
+var overlayReadTimeout = 10 * time.Second
 
 // DefaultMaxConcurrentRenders is MaxConcurrentRenders when unset: two
 // ordinary posters, under 100 MB, beside the controllers.
@@ -356,6 +363,15 @@ func (h *Handler) Render(ctx context.Context, key client.ObjectKey, kind commonv
 	current, err := h.Store.Info(ctx, overlayKey)
 	switch {
 	case err == nil && current.Headers[HeaderRenderedFrom] == want.InputsDigest:
+		held, err := h.held(ctx, overlayKey, current)
+		if err != nil {
+			return "", err
+		}
+		if !held {
+			logging.FromContext(ctx).Warn("artwork: the overlay's record names content the store does not hold; drawing it again",
+				"kind", it.Kind, "item", client.ObjectKeyFromObject(it.Object).String())
+			break
+		}
 		if catalogartwork.MetaCurrent(current) && current.Metadata[events.ArtworkMetaKeyProfile] == want.Profile.Name {
 			return OutcomeUnchanged, nil
 		}
@@ -377,6 +393,49 @@ func (h *Handler) Render(ctx context.Context, key client.ObjectKey, kind commonv
 		return "", err
 	}
 	return OutcomeRendered, nil
+}
+
+// held reports whether the store holds the content current, the overlay's
+// record, names: the whole object is read and hashed. A record alone says
+// little -- a Put that failed after its record was stored leaves the record
+// and no chunk (nats.go purges what it wrote; natsbus's Put removes such a
+// record when it can, and says how it comes about), and until 2026-11-27 the
+// retry of that very Put read the record, found its own inputs digest in it
+// and answered "unchanged": 31 posters on talos that /art could not serve
+// and nothing would draw again.
+//
+// A read that stalls to its bound while the task's own context lives is the
+// content being gone (research E14: an ordered consumer with nothing to
+// deliver), and so is a missing object or bytes that are not the record's;
+// a record replaced since Info is a retry.
+//
+// The read costs one overlay, some tens of kilobytes, and only on a task
+// whose inputs the record already carries: a redelivery, or a task that
+// raced another.
+func (h *Handler) held(ctx context.Context, overlayKey string, current events.ObjectInfo) (bool, error) {
+	rctx, cancel := context.WithTimeout(ctx, overlayReadTimeout)
+	defer cancel()
+	info, rc, err := h.Store.Get(rctx, overlayKey)
+	if errors.Is(err, events.ErrObjectNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("artwork: get %s: %w", overlayKey, err)
+	}
+	defer func() { _ = rc.Close() }()
+	if info.Digest != current.Digest {
+		return false, fmt.Errorf("%w: %s changed", ErrInputsMoved, overlayKey)
+	}
+	sum := sha256.New()
+	n, err := io.Copy(sum, io.LimitReader(rc, current.Size+1))
+	if err != nil {
+		stalled := errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)
+		if stalled && ctx.Err() == nil {
+			return false, nil
+		}
+		return false, fmt.Errorf("artwork: read %s: %w", overlayKey, err)
+	}
+	return n == current.Size && hex.EncodeToString(sum.Sum(nil)) == current.Digest, nil
 }
 
 // clear deletes the overlay object, reporting whether there was one.

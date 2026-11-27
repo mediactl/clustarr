@@ -327,6 +327,16 @@ var (
 		"bucket",
 	)
 
+	// ObjectHollowRecordsRemovedTotal counts records natsbus removed because
+	// the store held fewer chunks than they named, by bucket: what a failed
+	// Put leaves when its record was stored and its chunks purged (nats.go's
+	// Put is not atomic), found after the Put or by PurgeOrphanChunks.
+	ObjectHollowRecordsRemovedTotal = newCounterVec(
+		"clustarr_object_hollow_records_removed_total",
+		"Total object-store records removed because their content was not held, by bucket.",
+		"bucket",
+	)
+
 	// ObjectOrphanBytesPurgedTotal counts the bytes those purges freed
 	// (estimated from each subject's last chunk), by bucket.
 	ObjectOrphanBytesPurgedTotal = newCounterVec(
