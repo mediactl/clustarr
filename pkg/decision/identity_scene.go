@@ -66,7 +66,7 @@ type seasonEpisode struct{ season, episode int }
 type sceneIndex struct {
 	byEpisode  map[seasonEpisode][]EpisodeNumbering
 	bySeason   map[int][]EpisodeNumbering
-	byAbsolute map[int][]EpisodeNumbering
+	byAbsolute map[int][]absoluteRow
 	// titles is each TVDB episode's title key, where the rows carry one;
 	// seasonNames the scene season each of the series' scene titles names.
 	titles      map[seasonEpisode]string
@@ -101,6 +101,59 @@ func (idx sceneIndex) sceneSeason(title string, season int) int {
 	return season
 }
 
+// absoluteRow is one row of the table under its scene absolute number: the
+// scene episode it is a row of, and the TVDB episode it names.
+type absoluteRow struct {
+	scene seasonEpisode
+	tvdb  EpisodeNumbering
+}
+
+// absolute is the TVDB episodes the scene absolute number a names in a
+// release titled title, nil when no row has it or the table cannot say
+// which rows are meant.
+//
+// The rows of one scene episode are that episode: a broadcast TVDB lists as
+// two episodes has two rows under its one absolute number, and it is both.
+// Rows of several scene episodes share a number when the scene counts each
+// season from 1 (TheXEM on Panty & Stocking with Garterbelt: absolute 8 is
+// the 2010 season's eighth broadcast and the 2025 season's). Then the
+// release's title says which season, where the series' scene names tell its
+// seasons apart (sceneSeason: the series' own title is its first season, a
+// later season's name that season). Without such names nothing does, and
+// the number is left unmapped, as Sonarr leaves it ("Don't allow multiple
+// results without a scene name mapping", GetAnimeEpisodes).
+func (idx sceneIndex) absolute(title string, a int) []EpisodeNumbering {
+	rows := idx.byAbsolute[a]
+	if len(rows) == 0 {
+		return nil
+	}
+	if !oneSceneEpisode(rows) {
+		if len(idx.seasonNames) == 0 {
+			return nil
+		}
+		season := idx.sceneSeason(title, 1)
+		rows = slices.DeleteFunc(slices.Clone(rows), func(r absoluteRow) bool { return r.scene.season != season })
+		if len(rows) == 0 || !oneSceneEpisode(rows) {
+			return nil
+		}
+	}
+	out := make([]EpisodeNumbering, len(rows))
+	for i, r := range rows {
+		out[i] = r.tvdb
+	}
+	return out
+}
+
+// oneSceneEpisode reports whether rows are all rows of one scene episode.
+func oneSceneEpisode(rows []absoluteRow) bool {
+	for _, r := range rows[1:] {
+		if r.scene != rows[0].scene {
+			return false
+		}
+	}
+	return true
+}
+
 // titled reports whether title is the title of TVDB's episode e of season:
 // the sign of a release numbered by TVDB on a series scene numbers
 // otherwise.
@@ -119,7 +172,7 @@ func newSceneIndex(rows []SceneMapping) sceneIndex {
 	idx := sceneIndex{
 		byEpisode:  map[seasonEpisode][]EpisodeNumbering{},
 		bySeason:   map[int][]EpisodeNumbering{},
-		byAbsolute: map[int][]EpisodeNumbering{},
+		byAbsolute: map[int][]absoluteRow{},
 		titles:     map[seasonEpisode]string{},
 	}
 	for _, r := range rows {
@@ -138,7 +191,8 @@ func newSceneIndex(rows []SceneMapping) sceneIndex {
 			idx.bySeason[r.Scene.Season] = append(idx.bySeason[r.Scene.Season], r.TVDB)
 		}
 		if r.Scene.Absolute > 0 {
-			idx.byAbsolute[r.Scene.Absolute] = append(idx.byAbsolute[r.Scene.Absolute], r.TVDB)
+			idx.byAbsolute[r.Scene.Absolute] = append(idx.byAbsolute[r.Scene.Absolute],
+				absoluteRow{scene: seasonEpisode{r.Scene.Season, r.Scene.Episode}, tvdb: r.TVDB})
 		}
 	}
 	return idx
@@ -164,9 +218,10 @@ type coverage struct {
 //   - Each SxxEyy is looked up as a scene number, per episode number, and read
 //     literally only when no row has it (GetStandardEpisodes).
 //   - Each absolute number is looked up as a scene absolute, read literally
-//     when no row has it -- and also when more than one row does, because
-//     Sonarr refuses to pick between several ("Don't allow multiple results
-//     without a scene name mapping", GetAnimeEpisodes).
+//     when no row has it -- and also when several scene episodes do and the
+//     title does not say which, because Sonarr refuses to pick between
+//     several ("Don't allow multiple results without a scene name mapping",
+//     GetAnimeEpisodes). sceneIndex.absolute has what the title can say.
 //
 // A mapping REPLACES the literal reading rather than adding to it. That is
 // the point of it: on a series whose scene season 2 is TVDB's season 1
@@ -232,8 +287,8 @@ func releaseCoverage(p *release.ParsedRelease, scene sceneIndex) coverage {
 		}
 	}
 	for _, a := range p.Absolute {
-		if eps := scene.byAbsolute[a]; len(eps) == 1 {
-			c.addMapped(eps[0])
+		if eps := scene.absolute(p.Title, a); len(eps) > 0 {
+			c.addMapped(eps...)
 			continue
 		}
 		c.absolutes[a] = true

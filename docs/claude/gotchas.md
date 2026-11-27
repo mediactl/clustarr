@@ -1526,3 +1526,21 @@ recorded here.
   That title's "T&M" is the Dutch "t/m" (tot en met, "through"), a range
   E02-E16 that `release.Parse` reads as the whole season in every spelling:
   not built.
+
+- **A scene absolute number is every TVDB episode of its broadcast, and on
+  a scene that counts each season from 1 the release's title says which
+  season (2026-11-26).** `releaseCoverage` mapped an absolute number only
+  when the table had exactly one row for it (Sonarr's "Don't allow multiple
+  results without a scene name mapping"). TheXEM gives Panty & Stocking
+  with Garterbelt's eighth broadcast of each season the absolute 8, and two
+  or three TVDB rows each, so "Panty.And.Stocking.With.Garterbelt.E08.720p.
+  BluRay.x264-GOTEi" (and Moozzi2's "-08") was read as TVDB's absolute 8,
+  S01E08: `WrongItem` in a search for S01E15, and, in a season search,
+  refused against S01E08's file. `sceneIndex.absolute` now maps the rows of
+  one scene episode together, and picks the scene season from the title
+  (`sceneSeason`: the series' own title is season 1, a later season's scene
+  name that season) when several scene episodes share the number; with no
+  scene names it still refuses. The same day's `S01E08...BluRay.REMUX`
+  releases were read right all along and refused only by the profile
+  (`QualityNotWanted: Remux-1080p`). `rssmatcher` keeps its own copy of the
+  single-row rule (`match.go`), unchanged.

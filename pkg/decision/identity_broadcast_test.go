@@ -81,3 +81,52 @@ func TestAReleaseOfABroadcastOrOfOneOfItsEpisodesCoversWhatItHolds(t *testing.T)
 		})
 	}
 }
+
+// An absolute number on a series whose scene counts each season's
+// broadcasts from 1, and whose broadcasts hold several of TVDB's episodes:
+// TheXEM's rows for the eighth broadcast of each season of TVDB 188551
+// (fetched 2026-11-26). On talos that day a search for S01E19 turned
+// "Panty.And.Stocking.With.Garterbelt.E10.720p.BluRay.x264-GOTEi" away as
+// the wrong item: absolute 10 had rows of two scene episodes, so it was read
+// as TVDB's absolute 10, S01E10.
+func TestAnAbsoluteNumberIsTheBroadcastItsTitlesSeasonCounts(t *testing.T) {
+	row := func(ss, se, abs, ts, te, tabs int) SceneMapping {
+		return SceneMapping{
+			Scene: EpisodeNumbering{Season: ss, Episode: se, Absolute: abs},
+			TVDB:  EpisodeNumbering{Season: ts, Episode: te, Absolute: tabs},
+		}
+	}
+	rows := []SceneMapping{
+		row(1, 8, 8, 1, 15, 15), row(1, 8, 8, 1, 16, 16),
+		row(2, 8, 8, 2, 16, 42), row(2, 8, 8, 2, 17, 43), row(2, 8, 8, 2, 18, 44),
+	}
+	named := Identity{SceneMappings: rows, SceneSeasonNames: []SceneSeasonName{{Title: "New Panty & Stocking with Garterbelt", Season: 2}}}
+	se := func(pairs ...int) []SeasonEpisode {
+		var out []SeasonEpisode
+		for i := 0; i+1 < len(pairs); i += 2 {
+			out = append(out, SeasonEpisode{Season: pairs[i], Episode: pairs[i+1]})
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name, title  string
+		id           Identity
+		wantEpisodes []SeasonEpisode
+		wantAbsolute []int
+	}{
+		{"the series' title counts its first season", "Panty.And.Stocking.With.Garterbelt.E08.720p.BluRay.x264-GOTEi", named, se(1, 15, 1, 16), []int{15, 16}},
+		{"an anime group's bare number likewise", "[Moozzi2] Panty & Stocking with Garterbelt-08 [BD 1920x1080 x265-10Bit FLACx3]", named, se(1, 15, 1, 16), []int{15, 16}},
+		{"the later season's title counts that season", "[Group] New Panty & Stocking with Garterbelt - 08 [1080p]", named, se(2, 16, 2, 17, 2, 18), []int{42, 43, 44}},
+		{"no scene names: nothing says which, and the number is read as written", "Panty.And.Stocking.With.Garterbelt.E08.720p.BluRay.x264-GOTEi", Identity{SceneMappings: rows}, nil, []int{8}},
+		{"one scene episode has the number: it is every episode of that broadcast", "Panty.And.Stocking.With.Garterbelt.E08.720p.BluRay.x264-GOTEi", Identity{SceneMappings: rows[:2]}, se(1, 15, 1, 16), []int{15, 16}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := release.Parse(tc.title, release.Options{Kind: common.MediaKindEpisode, SeriesType: "anime"})
+			require.NoError(t, err)
+			require.Equal(t, []int{8}, p.Absolute, "the parser reads the bare number as absolute")
+			c := CoverageFor(p, tc.id)
+			require.Equal(t, tc.wantEpisodes, c.Episodes)
+			require.Equal(t, tc.wantAbsolute, c.Absolute)
+		})
+	}
+}
