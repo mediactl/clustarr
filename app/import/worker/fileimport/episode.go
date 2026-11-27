@@ -33,7 +33,8 @@ import (
 // series' numbering (decision.CoverageFor over id -- its scene table, its
 // scene season names, the numbers a broadcast's release lists, an
 // episode's own title) when the name carries one season's episode numbers
-// and id or the name has anything to read them through, and as
+// and id or the name has anything to read them through, or an anime's
+// number under a title that names its season ("Show S2 - 01"), and as
 // MatchEpisodes does otherwise -- an anime's absolute number, an air date,
 // and any name whose covered episodes the series does not all have.
 func MatchDownloaded(
@@ -42,6 +43,15 @@ func MatchDownloaded(
 	absolute := len(p.Absolute) > 0 && seriesType == catalogv1alpha1.SeriesTypeAnime
 	read := len(id.SceneMappings) > 0 || len(id.SceneSeasonNames) > 0 || len(p.ListedEpisodes) > 0
 	if len(p.Episodes) > 0 && len(p.Seasons) == 1 && !p.FullSeason && !absolute && read {
+		if eps, ok := candidatesAt(decision.CoverageFor(p, id).Episodes, cands); ok {
+			return eps, ""
+		}
+	}
+	if absolute && p.TitleSeason > 1 {
+		// "Show S2 - 01": the number is the episode of the season the
+		// title names, as the grab read it (decision's addTitleSeason). A
+		// name whose episode the series lacks is read as MatchEpisodes
+		// reads it, by the absolute number.
 		if eps, ok := candidatesAt(decision.CoverageFor(p, id).Episodes, cands); ok {
 			return eps, ""
 		}

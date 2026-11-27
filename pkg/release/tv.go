@@ -151,6 +151,24 @@ func parseSeries(title string, o Options) (*ParsedRelease, error) {
 			}
 		}
 
+		// A fansub episode named for its season with no group in front
+		// ("Seirei.Gensouki.S2.-.01", a pack's file; "Lupin III S3 - 13 -
+		// Title") is the anime parser's: the standard one reads its "S2" as
+		// a whole season (animeTitleSeasonEpisodeRegex).
+		if ok, err := animeTitleSeasonEpisode(title, &ParsedRelease{}); err != nil {
+			if isRegexTimeout(err) {
+				return nil, fmt.Errorf("release: series: title-season check: %w", err)
+			}
+		} else if ok {
+			p, err := parseAnimeSeries(title)
+			if err == nil {
+				return p, nil
+			}
+			if isRegexTimeout(err) {
+				return nil, err
+			}
+		}
+
 		if p, err := parseStandardSeries(title); err == nil {
 			return p, nil
 		} else if isRegexTimeout(err) {

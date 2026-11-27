@@ -1545,6 +1545,72 @@ recorded here.
   (`QualityNotWanted: Remux-1080p`). `rssmatcher` keeps its own copy of the
   single-row rule (`match.go`), unchanged.
 
+- **The number after a title that ends in a season marker is that
+  season's episode, however the separators are written (2026-11-27).**
+  Owner: "Investigate the anime series with missing episodes. Determine why
+  monitored seasons/episodes are missing and fix the issue." Fansubs name
+  an episode "Show S2 - 05"; a pack's files write it "Seirei.Gensouki.S2.-
+  .01" or "_Re-Dive_S2_-_01_V2", and a usenet indexer flattens it to
+  "[SubsPlease].Kingdom.S5-06.1080p". Only the spaced, bracketed form was an
+  episode, and that one an absolute number whatever its title said. The
+  others were season packs: "S5-04" all of season 5, "S5-06" seasons 5 to
+  6, "S6-13" seasons 6 to 13 (the standard parser for a name with no group
+  in front, `animeSeasonPackRegex`'s range for one with). Of the 8,343
+  candidate titles of talos's 71 anime season searches that night, 556 one-
+  episode releases were read as packs (380 as a range of seasons) and 74
+  of them approved as packs, a 1.6 GB episode grabbed for a whole season;
+  at import a pack's "Pop Team Epic S2 - 01" was filed as absolute 1,
+  S01E01, and "Kemono Friends S2 - 01" held as "a whole season's, not an
+  episode's". Now: `animeTitleSeasonEpisodeRegex` reads every spelling as
+  one episode (title "Show S2", `Absolute` [5]), `parseSeries` sends a
+  group-less name of that shape to the anime parser, and
+  `ParsedRelease.TitleSeason` carries the season the title's ending names
+  ("S2", "Season 2", "2nd Season"). `releaseCoverage` (`addTitleSeason`)
+  takes the number as that season's episode: through the scene table's row
+  for it, the season being the one the series' scene names give the title
+  where they know it; as the absolute number when the table has no such
+  episode and does hold the number as an absolute (a group counting on
+  through the series, "Shingeki no Kyojin S3 - 49"); and literally
+  otherwise, never both ways ("Show S2 - 05" read as an absolute too would
+  be season 1's fifth episode in a season 1 search). `MatchDownloaded`
+  reads a file's name the same way and falls back to the absolute number
+  when the series lacks that episode. What stays a range of seasons: a
+  zero-padded season, a bare dash and no E ("Tsugumomo S01-02 + OVA"); "S05-
+  E01" is a season and episode outright. Not read: an unpadded season
+  before a two-digit count of seasons ("S1-10" is now season 1's episode
+  10), and a group counting through the series on a series with no scene
+  table (refused, where it was matched by absolute number).
+
+- **A held import that nobody acts on is deleted after 24 hours and its
+  release grabbed again (found 2026-11-27, not fixed: the owner's rule to
+  make).** 56 anime series had 938 monitored episodes missing. Re-running
+  their 74 season searches grabbed for 44 of them, and 49 of the 105 grabs
+  were releases already downloaded whole once, held at import as
+  `needsPerson`, removed when the hold lapsed (`lifecycle.
+  ImportHoldRetention`) and never blocklisted, so every search takes the
+  same best-ranked release again; BacklogSearch's cooldown makes that once
+  in 7 days. What held them, by file name: hashed names with hashed par2
+  and no container title (Kitsune's and others' Crunchyroll packs on
+  usenet: nothing to read, see the 2026-11-25 Higurashi record); the
+  season-marker names above; names with no title ("S02EP01.mkv", "[Prof]
+  Episode 01 - The Wind Blows.mkv": not parsed, not built); scene-numbered
+  names on a build before `MatchDownloaded`. No Episode in the library
+  store carries `status.sceneNumbering` (0 of 27,707), so `MatchEpisodes`'
+  scene fallback never matches: `decision.CoverageFor` is the only scene
+  reading at import. Also seen in the same sample: three torrents removed
+  on `input/output error` writing under `/data/torrents/incomplete`, three
+  usenet transfers on "scratch files are gone or altered"; D.Gray-man
+  Hallow refused whole because TVDB numbers its 13 episodes absolute 104
+  to 116 and every release 01 to 13; a TVDB season the scene splits in four
+  (Ascendance of a Bookworm) searched as one query, its 200 kept results
+  all scene season 4; and seasons whose only releases the profile refuses
+  (raws, `anime-lq-groups`, dubs alone). How it was read: each season
+  search's record from `clustarr-searches` inside its 30 minutes
+  (`nats kv get clustarr-searches '<uid with - doubled>.season--<n>'
+  --raw`), and the transfer and import records by `nats sub --stream
+  KV_clustarr-transfers --last-per-subject --raw '$KV.clustarr-
+  transfers.>'`.
+
 - **A person's pick is imported at the quality it was picked at
   (2026-11-26).** A pick (`Search.spec.grab`, the entry's `manual`) of a
   release whose quality the profile does not allow needs `spec.override` to

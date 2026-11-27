@@ -287,6 +287,9 @@ func releaseCoverage(p *release.ParsedRelease, scene sceneIndex) coverage {
 		}
 	}
 	for _, a := range p.Absolute {
+		if p.TitleSeason > 1 && c.addTitleSeason(p, scene, a) {
+			continue
+		}
 		if eps := scene.absolute(p.Title, a); len(eps) > 0 {
 			c.addMapped(eps...)
 			continue
@@ -294,6 +297,41 @@ func releaseCoverage(p *release.ParsedRelease, scene sceneIndex) coverage {
 		c.absolutes[a] = true
 	}
 	return c
+}
+
+// addTitleSeason reads a, the number after a title that ends in a season
+// marker ("Kingdom S5 - 06", "Seirei Gensouki S2 - 01",
+// release.ParsedRelease.TitleSeason), as that season's episode: fansubs
+// number such a release inside the season its title names, as Sonarr reads
+// an absolute number under a title that maps to a season (ParsingService's
+// GetAnimeEpisodes: the scene season and the number first, the absolute
+// number last). The season is the one the series' scene names give the
+// title where they know it, and the marker's otherwise.
+//
+// It answers false, leaving the number an absolute one, only when the scene
+// table has no such episode of the season and does hold the number as an
+// absolute: a group that counts on through the series under a season's
+// name ("Shingeki no Kyojin S3 - 49"). With no row either way the number is
+// the season's, never also the series' absolute: read both ways, "Show S2 -
+// 05" would be taken for season 1's fifth episode as well.
+//
+// Before this the number was an absolute one whatever the title said, so a
+// pack's "Pop Team Epic S2 - 01" was filed at import as S01E01 and held
+// against the file there (talos, 2026-11-27).
+func (c *coverage) addTitleSeason(p *release.ParsedRelease, scene sceneIndex, a int) bool {
+	season := scene.sceneSeason(p.Title, 1)
+	if season == 1 {
+		season = p.TitleSeason
+	}
+	if eps := scene.byEpisode[seasonEpisode{season, a}]; len(eps) > 0 {
+		c.addMapped(eps...)
+		return true
+	}
+	if len(scene.byAbsolute[a]) > 0 {
+		return false
+	}
+	c.pairs[seasonEpisode{season, a}] = true
+	return true
 }
 
 // mapsOnto reports whether a scene episode's rows name exactly the listed

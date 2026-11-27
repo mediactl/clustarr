@@ -134,17 +134,25 @@ type ParsedRelease struct {
 	ListedEpisodes []int
 	EpisodeTitle   string
 	Absolute       []int
-	AirDate        *time.Time
-	FullSeason     bool
-	Partial        bool
-	MultiSeason    bool
-	Special        bool
-	ReleaseType    commonv1.ReleaseType
-	Music          *MusicInfo
-	Book           *BookInfo
-	Comic          *ComicInfo
-	Hints          Hints
-	IDs            map[string]string
+	// TitleSeason is the season an anime title's own ending names, when the
+	// number after it was read as an absolute one: "Frieren S2 - 05",
+	// "Kingdom 3rd Season - 26" and "Show Season 2 - 05" carry 2, 3 and 2,
+	// and Title keeps the marker. Fansubs number such a release inside the
+	// season it names, so a reader that knows the series takes the number
+	// as that season's episode where its scene names do not say otherwise
+	// (pkg/decision's releaseCoverage); 0 when the title names no season.
+	TitleSeason int
+	AirDate     *time.Time
+	FullSeason  bool
+	Partial     bool
+	MultiSeason bool
+	Special     bool
+	ReleaseType commonv1.ReleaseType
+	Music       *MusicInfo
+	Book        *BookInfo
+	Comic       *ComicInfo
+	Hints       Hints
+	IDs         map[string]string
 	// FromFolder is true when ParsePath's basename parse failed and this
 	// result came from an ancestor folder instead (spec D4, movies only):
 	// Title, Year and IDs are the folder's, while Quality, Revision, Group

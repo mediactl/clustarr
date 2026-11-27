@@ -131,6 +131,74 @@ var animeSeasonPackRegex = mustCompile(
 	regexp2.IgnoreCase,
 )
 
+// animeTitleSeasonEpisodeRegex matches a fansub episode whose title ends in
+// a season marker, in every way its separators are written: "Frieren S2 -
+// 05" as the group names it, "Seirei.Gensouki.S2.-.01" and
+// "_Re-Dive_S2_-_01_V2" as a pack's files are, and "[SubsPlease].Kingdom.
+// S5-06.1080p" as a usenet indexer flattens it. Only the first was read as
+// an episode (animeAbsoluteRegex); the dotted and underscored ones were a
+// whole season 2, "S5-04" all of season 5 and "S5-06" seasons 5 to 6, so a
+// one-episode release was grabbed as a season pack and a pack's files were
+// held at import as "a whole season's" (talos, 2026-11-27: Kingdom, Seirei
+// Gensouki, Princess Connect, 938 anime episodes missing). An E after the
+// dash ("S05-E01") is a season and episode outright.
+//
+// What stays a season range is animeTitleSeasonEpisode's to say.
+var animeTitleSeasonEpisodeRegex = mustCompile(
+	`^(?<title>.+?)[\s._]+S(?<season>\d{1,2})(?<sep>[\s._]*-[\s._]*)(?<e>E(?:p(?:isode)?)?[\s._]*)?(?<num>\d{2,3})(?:v\d+)?`+notResolution+`(?=$|[\s._\[\(\-])`,
+	regexp2.IgnoreCase,
+)
+
+// animeTitleSeasonRegex is a season marker ending an anime title: "S2",
+// "Season 2", "2nd Season".
+var animeTitleSeasonRegex = mustCompile(
+	`(?:^|[\s._])(?:S(?<a>\d{1,2})|Season[\s._]*(?<b>\d{1,2})|(?<c>\d{1,2})(?:st|nd|rd|th)[\s._]+Season)$`,
+	regexp2.IgnoreCase,
+)
+
+// animeTitleSeasonEpisode reads work as animeTitleSeasonEpisodeRegex's
+// shape. ok is false when it is not one, and for the one spelling that is a
+// range of seasons: a zero-padded season, a bare dash and no E, "Tsugumomo
+// S01-02 + OVA". A group writes an episode "S2 - 05" and an indexer
+// flattens that to "S2-05", never to "S02-05".
+func animeTitleSeasonEpisode(work string, p *ParsedRelease) (ok bool, err error) {
+	m, err := animeTitleSeasonEpisodeRegex.FindStringMatch(work)
+	if err != nil || m == nil {
+		return false, err
+	}
+	seasonText, explicit := groupString(m, "season"), groupString(m, "e") != ""
+	if !explicit && groupString(m, "sep") == "-" && len(seasonText) > 1 && seasonText[0] == '0' {
+		return false, nil
+	}
+	season, serr := strconv.Atoi(seasonText)
+	num, nerr := strconv.Atoi(groupString(m, "num"))
+	if serr != nil || nerr != nil {
+		return false, nil
+	}
+	name := cleanTitleSeparators(groupString(m, "title"))
+	if explicit {
+		p.Title, p.Seasons, p.Episodes = name, []int{season}, []int{num}
+		return true, nil
+	}
+	p.Title, p.Absolute = name+" S"+seasonText, []int{num}
+	return true, nil
+}
+
+// titleSeason is the season an anime title's ending names
+// (animeTitleSeasonRegex), 0 when it names none.
+func titleSeason(title string) int {
+	m, err := animeTitleSeasonRegex.FindStringMatch(strings.TrimSpace(title))
+	if err != nil || m == nil {
+		return 0
+	}
+	for _, g := range []string{"a", "b", "c"} {
+		if n, convErr := strconv.Atoi(groupString(m, g)); convErr == nil {
+			return n
+		}
+	}
+	return 0
+}
+
 // animeYearAbsoluteRegex matches an absolute episode after the series'
 // year: "Pocket Monsters (2023) 152 (1080p) [B3545811]".
 var animeYearAbsoluteRegex = mustCompile(
@@ -227,6 +295,14 @@ func parseAnime(title string, p *ParsedRelease) error {
 		return fmt.Errorf("release: anime: cross-episode match: %w", err)
 	} else if ok {
 		p.Title, p.Seasons, p.Episodes = name, []int{season}, episodes
+		return nil
+	}
+
+	// "S2 - 05" in each of its spellings, ahead of the season pack pattern,
+	// which took the dotted and flattened ones for a pack or a season range.
+	if ok, err := animeTitleSeasonEpisode(work, p); err != nil {
+		return fmt.Errorf("release: anime: title season match: %w", err)
+	} else if ok {
 		return nil
 	}
 
@@ -335,6 +411,10 @@ func parseAnimeSeries(title string) (*ParsedRelease, error) {
 	p := &ParsedRelease{}
 	if err := parseAnime(title, p); err != nil {
 		return nil, err
+	}
+
+	if len(p.Absolute) > 0 && len(p.Seasons) == 0 && !p.Special {
+		p.TitleSeason = titleSeason(p.Title)
 	}
 
 	q, rev, _, _ := parseQualityTags(title)
