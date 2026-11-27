@@ -324,7 +324,9 @@ func (j *job) ensureGrant(ctx context.Context) error {
 	if has {
 		return nil
 	}
-	candidates := j.client.primaries()
+	// Never on a primary the transfer left for not holding its post
+	// (leave.go).
+	candidates := j.holdingPrimaries()
 	if preferred != "" {
 		candidates = append([]string{preferred}, slices.DeleteFunc(candidates, func(n string) bool { return n == preferred })...)
 	}

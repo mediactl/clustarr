@@ -639,6 +639,21 @@ type job struct {
 	// later fetch recovers leaves it.
 	exhausted      []bitset
 	publishedFiles []download.File
+	// fromBackup counts the articles a backup server has supplied, and
+	// backupWithheld the ones a chase did not ask a backup for because they
+	// are more than a fill (segment.go, overBackupShare). Guarded by mu; not
+	// kept in the manifest, so a restart counts again from none.
+	fromBackup     int
+	backupWithheld int
+	// lacking are the primaries this transfer found not to hold its post,
+	// askedOn and refusedOn what its workers asked each for and were
+	// refused, and requeue the articles a server it left refused, which the
+	// next primary is asked for (leave.go). Guarded by mu; none is kept in
+	// the manifest.
+	lacking   map[string]bool
+	askedOn   map[string]int
+	refusedOn map[string]int
+	requeue   []seg
 
 	paused atomic.Bool
 	rate   rateMeter

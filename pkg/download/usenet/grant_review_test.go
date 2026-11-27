@@ -41,9 +41,11 @@ import (
 func TestASecondBreachIsChasedOnAServerTriedForEarlierArticles(t *testing.T) {
 	primary := newStubServer(t)
 	backup := newStubServer(t)
-	nzb := buildNZB(t, primary, "Scattered", []fileSpec{{name: "movie.mkv", parts: manyParts(1, 60, 300)}})
+	// One article in twelve: a backup fills a few articles, never the bulk
+	// of a download (overBackupShare).
+	nzb := buildNZB(t, primary, "Scattered", []fileSpec{{name: "movie.mkv", parts: manyParts(1, 240, 300)}})
 	backup.mirror(primary)
-	for i := 0; i < 60; i += 3 {
+	for i := 0; i < 240; i += 12 {
 		primary.refuse[fmt.Sprintf("f0-p%d@clustarr.test", i)] = 430
 	}
 	bp := backup.provider("backup", 1, 2)
@@ -84,7 +86,7 @@ func TestATransferTakesTheNextPrimaryWhenTheFirstCannotBeAsked(t *testing.T) {
 func TestConcurrentBreachesRunOneChase(t *testing.T) {
 	primary := newStubServer(t)
 	backup := newStubServer(t)
-	nzb := buildNZB(t, primary, "Dup", []fileSpec{{name: "movie.mkv", parts: manyParts(1, 40, 300)}})
+	nzb := buildNZB(t, primary, "Dup", []fileSpec{{name: "movie.mkv", parts: manyParts(1, 120, 300)}})
 	backup.mirror(primary)
 	backup.bodyDelay = 30 * time.Millisecond
 	primary.bodyDelay = 5 * time.Millisecond

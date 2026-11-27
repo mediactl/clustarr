@@ -170,16 +170,18 @@ func TestThePreCheckChasesTheShortfallBeforeJudging(t *testing.T) {
 // about 2% of every post's articles, easynews had them all, and each job
 // still failed as missing -- the verdict after a chase counted the articles
 // the primary's workers had failed meanwhile, which no second server had
-// been asked for. A primary refusing every third of 120 articles and a
+// been asked for. A primary refusing every twelfth of 600 articles and a
 // backup slow enough for new failures to pile up during each chase must
-// complete, and the backup serves exactly the refused ones.
+// complete, and the backup serves exactly the refused ones. (Until
+// 2026-11-27 the primary refused two in three: a backup now fills a few
+// articles and never the bulk of a download, overBackupShare.)
 func TestFailuresDuringAChaseAreChasedBeforeTheyAreJudged(t *testing.T) {
 	primary := newStubServer(t)
 	backup := newStubServer(t)
 	nzb := buildNZB(t, primary, "Piling", []fileSpec{{name: "movie.mkv", parts: manyParts(1, 600, 300)}})
 	backup.mirror(primary)
 	for i := 0; i < 600; i++ {
-		if i%3 != 0 {
+		if i%12 == 0 {
 			primary.refuse[fmt.Sprintf("f0-p%d@clustarr.test", i)] = 430
 		}
 	}
@@ -198,7 +200,7 @@ func TestFailuresDuringAChaseAreChasedBeforeTheyAreJudged(t *testing.T) {
 	require.NoError(t, err)
 	it := waitForTerminal(t, c, id)
 	require.Equal(t, download.StatusCompleted, it.Status, "message: %s", it.Message)
-	require.Equal(t, 400, backup.servedTotal(), "the backup serves each refused article once")
+	require.Equal(t, 50, backup.servedTotal(), "the backup serves each refused article once")
 }
 
 // An article every server refused is what the verdict counts: a set with
@@ -273,7 +275,7 @@ func TestALaterServerIsAskedOnlyForWhatTheEarlierOnesLacked(t *testing.T) {
 	nzb := buildNZB(t, primary, "Walked", []fileSpec{{name: "movie.mkv", parts: manyParts(1, 600, 300)}})
 	full.mirror(primary)
 	for i := 0; i < 600; i++ {
-		if i%3 != 0 {
+		if i%12 == 0 {
 			primary.refuse[fmt.Sprintf("f0-p%d@clustarr.test", i)] = 430
 		}
 	}
@@ -292,6 +294,6 @@ func TestALaterServerIsAskedOnlyForWhatTheEarlierOnesLacked(t *testing.T) {
 	require.NoError(t, err)
 	it := waitForTerminal(t, c, id)
 	require.Equal(t, download.StatusCompleted, it.Status, "message: %s", it.Message)
-	require.Equal(t, 400, full.servedTotal(), "the full backup serves each refused article once")
+	require.Equal(t, 50, full.servedTotal(), "the full backup serves each refused article once")
 	require.Zero(t, empty.askedTotal(), "a later server was asked for articles an earlier one holds")
 }

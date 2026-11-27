@@ -280,6 +280,10 @@ func (j *job) transfer(ctx context.Context) error {
 		}
 	}
 
+	// A pass starts from what is not done: nothing waits from the last one.
+	j.mu.Lock()
+	j.requeue = nil
+	j.mu.Unlock()
 	batches := j.buildBatches(j.client.cfg.PipelineDepth)
 	if len(batches) == 0 {
 		return nil
@@ -301,12 +305,17 @@ func (j *job) transfer(ctx context.Context) error {
 		})
 	}
 
+	// inflight counts the batches handed to a worker and not yet answered:
+	// a round is over when it is zero.
+	var inflight sync.WaitGroup
 	for range j.client.workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for b := range work {
-				if err := j.fetchUnderGrant(workerCtx, targets, b); err != nil {
+				err := j.fetchUnderGrant(workerCtx, targets, b)
+				inflight.Done()
+				if err != nil {
 					if !errors.Is(err, context.Canceled) {
 						fail(err)
 					}
@@ -319,10 +328,26 @@ func (j *job) transfer(ctx context.Context) error {
 	stop := j.startCheckpoint(ctx, fail)
 	stopWatch := j.startStallWatch(workerCtx, fail)
 
+	// Rounds: every batch once, then what a server the transfer left had
+	// refused, asked of the next primary (leave.go), until none is left.
 dispatch:
-	for _, b := range batches {
+	for round := batches; len(round) > 0; round = j.takeRequeued(j.client.cfg.PipelineDepth) {
+		for _, b := range round {
+			inflight.Add(1)
+			select {
+			case work <- b:
+			case <-workerCtx.Done():
+				inflight.Done()
+				break dispatch
+			}
+		}
+		answered := make(chan struct{})
+		go func() {
+			inflight.Wait()
+			close(answered)
+		}()
 		select {
-		case work <- b:
+		case <-answered:
 		case <-workerCtx.Done():
 			break dispatch
 		}
@@ -681,7 +706,8 @@ dispatch:
 // nothing is missing or every server was tried: the verdict is then the
 // health gate's, as it was for a pool walk that ended on a 430 everywhere.
 // It never parks for a server already tried, so a single-server job fails
-// as missing at once. Chases are serialised, so workers that breach
+// as missing at once. A backup is asked for a fill only (overBackupShare):
+// more than that, and the articles count as missing without it. Chases are serialised, so workers that breach
 // together run one between them and nothing is fetched twice.
 func (j *job) chase(ctx context.Context, skip string) error {
 	j.chaseMu.Lock()
@@ -719,6 +745,13 @@ func (j *job) chaseLocked(ctx context.Context, skip string) error {
 func (j *job) chaseServers(ctx context.Context, skip string, asked []seg) error {
 	log := logging.FromContext(ctx)
 	tried := map[string]bool{skip: true}
+	if len(asked) > lackSample {
+		// A primary the transfer left for not holding the post is not asked
+		// for much of it again; a few stray articles it may still have.
+		for _, name := range j.lackingServers() {
+			tried[name] = true
+		}
+	}
 	for pass := 0; pass < 2; pass++ {
 		skipped := false
 		for _, p := range j.client.pool.Providers() {
@@ -731,6 +764,27 @@ func (j *job) chaseServers(ctx context.Context, skip string, asked []seg) error 
 			}
 			if !j.client.pool.Available(p.Name, time.Now()) {
 				skipped = true
+				continue
+			}
+			if p.Backup && j.overBackupShare(len(missing)) {
+				// A backup fills a few articles, never the bulk of a
+				// download (overBackupShare). While a primary could not be
+				// asked the verdict is not the release's: it is visited in
+				// the next pass, and waited for after that.
+				if skipped {
+					if pass == 0 {
+						continue
+					}
+					return fmt.Errorf("%w: a primary server could not be asked, and a backup is not asked for %d of the download's %d articles",
+						ErrProvidersUnavailable, len(missing), j.nzb.TotalSegments)
+				}
+				tried[p.Name] = true
+				j.mu.Lock()
+				j.backupWithheld = len(missing)
+				j.mu.Unlock()
+				log.InfoContext(ctx, "usenet: a backup server is not asked for the bulk of a download; the articles count as missing",
+					"download", j.id, "server", p.Name, "articles", len(missing), "total", j.nzb.TotalSegments,
+					"limitPercent", 100-j.abortHealth)
 				continue
 			}
 			g, err := j.takeGrant(ctx, []string{p.Name}, "/chase", 1)
@@ -749,6 +803,11 @@ func (j *job) chaseServers(ctx context.Context, skip string, asked []seg) error 
 				return err
 			}
 			tried[p.Name] = true
+			if p.Backup {
+				j.mu.Lock()
+				j.fromBackup += recovered
+				j.mu.Unlock()
+			}
 			log.InfoContext(ctx, "usenet: chase on a server finished",
 				"download", j.id, "server", p.Name, "recovered", recovered, "stillMissing", len(missing)-recovered)
 			// More than the engine tolerates missing, and half or more of
@@ -766,6 +825,54 @@ func (j *job) chaseServers(ctx context.Context, skip string, asked []seg) error 
 	}
 	return nil
 }
+
+// overBackupShare reports a chase that would make a backup server carry
+// more than a fill. A backup is asked for a few articles, never the bulk of
+// a download (DownloadClient's providers[].backup), and a download that is
+// not on the primaries is failed as missing there -- blocklisted, and the
+// next release taken -- where it used to be fetched whole through the
+// backup's chase share (owner, 2026-11-27: "ensure frugal bonus is reserved
+// for downloads that have a *few* articles missing - **not** for the entire
+// download. For downloads that will depend on frugal-bonus, blocklist and
+// grab the next").
+//
+// With the n articles it is about to be asked for, the backups would have
+// supplied more than maxBadArticles and either
+//
+//   - more than the share of the download the health floor lets go missing
+//     (100 less abortHealthPercent: a tenth by default), or
+//   - more than half of what the transfer has asked the primaries for so
+//     far, once that is backupSample articles: a chase runs while the
+//     transfer does, as soon as a breach is imminent, and a post the
+//     primaries do not hold would otherwise be fed to the backup a batch at
+//     a time until the first limit stopped it.
+//
+// On talos that day thirteen episodes of one poster, on none of the three
+// primaries, each held a transfer slot and an idle primary grant while its
+// chase asked every server for every article and then took the post from
+// frugal-bonus on two connections (a share of its twenty), 1.3 MiB/s; ten
+// other downloads waited, a 92 GB one a single article short.
+func (j *job) overBackupShare(n int) bool {
+	j.mu.Lock()
+	asked := j.fromBackup + n
+	attempted := 0
+	for i := range j.done {
+		attempted += j.done[i].count() + j.failedSegs[i].count()
+	}
+	j.mu.Unlock()
+	if asked <= maxBadArticles || j.nzb.TotalSegments == 0 {
+		return false
+	}
+	if asked*100 > int(100-j.abortHealth)*j.nzb.TotalSegments {
+		return true
+	}
+	return attempted >= backupSample && asked*2 > attempted
+}
+
+// backupSample is how many articles a transfer has asked its primaries for
+// before the share of them it lacks says the post is not there
+// (overBackupShare).
+const backupSample = 50
 
 // missingBytes totals the failed segments of non-par2 files, SABnzbd's
 // bytes_missing: par2 that is absent does not stop the job completing.
@@ -903,6 +1010,11 @@ func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 		return err
 	}
 	var unavailable error
+	// A server the transfer has left (leave.go) answers for a batch that was
+	// in flight: what it refuses is the next primary's to be asked for, not
+	// a failure yet.
+	server, left := scope[0], j.lacks(scope[0])
+	asked, refused := 0, 0
 	for i, r := range results {
 		si := b.segs[i]
 		if errors.Is(r.Err, ErrProvidersUnavailable) {
@@ -911,8 +1023,14 @@ func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 			unavailable = cmp.Or(unavailable, r.Err)
 			continue
 		}
+		asked++
 		if r.Err != nil {
-			j.recordFailure(b.file, si, r.Err)
+			refused++
+			if left {
+				j.requeueSeg(b.file, si, r.Err)
+			} else {
+				j.recordFailure(b.file, si, r.Err)
+			}
 			continue
 		}
 		if err := j.writeSegment(targets[b.file], b.file, si, r); err != nil {
@@ -921,6 +1039,11 @@ func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 	}
 	if unavailable != nil {
 		return unavailable
+	}
+	if j.noteAnswers(server, asked, refused) {
+		// The server does not hold the post: the transfer leaves it, and
+		// the gate judges what the next one answers.
+		return j.leaveServer(ctx, server)
 	}
 	err = j.healthGate(ctx)
 	if errors.Is(err, errTurnLost) {
@@ -1061,8 +1184,15 @@ func (j *job) healthVerdict(ctx context.Context) error {
 	if j.nzb.TotalSegments > 0 {
 		health = int32((j.nzb.TotalSegments - exhausted) * 100 / j.nzb.TotalSegments) //nolint:gosec // bounded by 100.
 	}
-	return j.breach(ctx, fmt.Sprintf("health %d%% is below the floor (abort %d%%, critical %d%%): %d of %d articles missing on every server%s",
-		health, j.abortHealth, j.nzb.criticalHealthPercent(), exhausted, j.nzb.TotalSegments, j.nzb.unlistedNote()), last)
+	j.mu.Lock()
+	withheld := j.backupWithheld
+	j.mu.Unlock()
+	where := "on every server"
+	if withheld > 0 {
+		where = fmt.Sprintf("on every primary server (a backup is not asked for %d: it fills a few articles, never the bulk of a download)", withheld)
+	}
+	return j.breach(ctx, fmt.Sprintf("health %d%% is below the floor (abort %d%%, critical %d%%): %d of %d articles missing %s%s",
+		health, j.abortHealth, j.nzb.criticalHealthPercent(), exhausted, j.nzb.TotalSegments, where, j.nzb.unlistedNote()), last)
 }
 
 // unlistedGate judges an NZB that does not list every article of its post

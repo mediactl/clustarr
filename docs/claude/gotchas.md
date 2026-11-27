@@ -1472,6 +1472,46 @@ recorded here.
   `app/transcode/controller/pool.Render` re-sends the template recorded in
   `transcode.clustarr.io/applied-template`, and judges drift against that annotation rather
   than the stored template, which carries apiserver defaults.
+- **A transfer leaves a primary that does not hold its post, and a backup
+  fills a few articles, never the bulk of a download (2026-11-27, owner:
+  "ensure frugal bonus is reserved for downloads that have a *few* articles
+  missing ... For downloads that will depend on frugal-bonus, blocklist and
+  grab the next", then "frugal gets blacklisted when it's missing too many
+  articles and then the download has to use easynews - reconciling the
+  connections used").** On talos thirteen episodes of one poster (nzb-life,
+  `...DUAL-FRNcR`) were on none of frugal, easynews and newsdemon. Each held
+  a transfer slot and its 13-15 connection grant while its workers asked the
+  granted server for every article, then its chase asked each other server
+  for every article in turn on a chase share (frugal and easynews take about
+  half a second a connection to refuse one: 8-14 minutes an episode), then
+  took what frugal-bonus had on two connections (20 / maxActive); the
+  ledger read "frugal 50/50 in use", the engine moved 1.4 MiB/s, and ten
+  downloads waited, a 92 GB one a single article short. frugal-bonus never
+  held a whole post (E10: 1,474 of 4,466). Now, in `pkg/download/usenet`:
+  `leave.go` -- a primary that refuses more than half of at least
+  `lackSample` (50) articles the transfer's workers asked it for is left:
+  its grant goes back at once, no grant is taken on it again
+  (`holdingPrimaries`), what it refused is asked of the next primary as
+  transfer work (the requeue, in rounds after the batches), and when the
+  last primary is left with more refused than fetched the download fails as
+  missing ("no primary server holds the post"); with more fetched than
+  refused the judgement is forgotten and the failures are the chase's.
+  And `overBackupShare` (segment.go): a chase does not ask a backup when,
+  with what it is about to ask, the backups would have supplied more than
+  `maxBadArticles` and more than 100 less `abortHealthPercent` percent of
+  the download (a tenth), or more than half of what the transfer has asked
+  for once that is 50; the articles count as missing, and while a primary
+  could not be asked the chase waits (`ErrProvidersUnavailable`) and judges
+  nothing. Neither count is kept in the manifest: a restart starts both
+  again. Tests: `TestATransferLeavesAPrimaryThatDoesNotHoldThePost` (its
+  first case fails without the rule: 601 articles asked, three connections
+  held), `TestABackupIsNotAskedForTheBulkOfADownload`. Four older tests fed
+  a backup a quarter to two thirds of a post and now refuse one article in
+  twelve. Not changed: a chase still holds the transfer's grant while it
+  waits on another server for a post the granted one holds with holes, and
+  the pre-check's `chaseExists` asks every server. The package's tests
+  report data races in `client_test.go`'s reads of a job under
+  `go test -race`; they are there without this change.
 - **A fired schedule has no `Nats-Msg-Id`.** nats-server strips it and adds
   `Nats-Scheduler` and `Nats-Schedule-Next: purge` (`scheduler.go:214-231`); a
   copy published with those onto a stream without schedules is refused with
