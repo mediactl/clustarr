@@ -71,6 +71,10 @@ type Repairer interface {
 	// every other regular file in dir as a candidate target, and repairs
 	// when it can. A cancelled ctx returns an error wrapping ctx.Err().
 	Repair(ctx context.Context, dir, indexFile string) (Par2Result, error)
+	// RepairSet is Repair for one set of a job that carries several: par2
+	// scans candidates (names inside dir) alone, the set's own volumes and
+	// the files no set names, and not the other sets' files.
+	RepairSet(ctx context.Context, dir, indexFile string, candidates []string) (Par2Result, error)
 }
 
 var (
@@ -84,6 +88,10 @@ type noRepairer struct{}
 func (noRepairer) Available() bool { return false }
 
 func (noRepairer) Repair(context.Context, string, string) (Par2Result, error) {
+	return Par2Result{}, ErrPar2Unavailable
+}
+
+func (noRepairer) RepairSet(context.Context, string, string, []string) (Par2Result, error) {
 	return Par2Result{}, ErrPar2Unavailable
 }
 
@@ -177,7 +185,9 @@ func extraFiles(dir, indexFile string) []string {
 //
 // When several sets are present the one with the most recovery volumes wins,
 // because that is the set covering the main content rather than a stray par2
-// of a sample.
+// of a sample. That choice stands for a job whose par2 files name one set,
+// however they are named; a job of several sets is repaired a set at a time
+// (job.par2Runs), and this only says that it has par2 at all.
 func par2IndexFile(files []nzbFile) string {
 	blocks := map[string]int{}
 	var indexes []string

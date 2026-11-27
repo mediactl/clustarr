@@ -617,6 +617,9 @@ type job struct {
 	// par2Names is every name the par2 set records, from renameObfuscated,
 	// for adoptRepairedSet.
 	par2Names []string
+	// par2Sets is what renameObfuscated read of the job's par2 sets, for
+	// repair to tell which set covers which file when there are several.
+	par2Sets *par2Sets
 	// damagedHead is set by renameObfuscated when a file's first 16 KiB are
 	// not what the par2 set records for it, so repair's quick check, which
 	// trusts the articles' CRCs, does not skip par2.
@@ -1524,15 +1527,50 @@ func (j *job) repair(ctx context.Context) error {
 	}
 	j.setStage(commonv1alpha1.DownloadStageRepairing, download.StatusDownloading)
 	log := logging.FromContext(ctx)
-	log.InfoContext(ctx, "usenet: par2 verifying and repairing", "download", j.id,
-		"failedArticles", j.failedArticles(), "setBytes", j.nzb.TotalBytes)
+	if runs := j.par2Runs(); len(runs) > 1 {
+		// Several sets: each on its own files, and only those that hold a
+		// file to repair (planPar2Runs).
+		plan := j.planPar2Runs(runs, damagedHead)
+		log.InfoContext(ctx, "usenet: the job carries several par2 sets; repairing those with a damaged file",
+			"download", j.id, "sets", len(runs), "repairing", len(plan.runs), "whole", plan.skipped,
+			"failedArticles", j.failedArticles())
+		for _, run := range plan.runs {
+			bytes := run.bytes
+			if bytes == 0 {
+				bytes = j.nzb.TotalBytes
+			}
+			candidates := append(append([]string(nil), run.volumes...), plan.unclaimed...)
+			err := j.runPar2(ctx, run.index, bytes, func(ctx context.Context) (Par2Result, error) {
+				return j.client.repairer.RepairSet(ctx, j.contentDir(), run.index, candidates)
+			})
+			if err != nil {
+				return err
+			}
+		}
+	} else if err := j.runPar2(ctx, safeName(index), j.nzb.TotalBytes, func(ctx context.Context) (Par2Result, error) {
+		return j.client.repairer.Repair(ctx, j.contentDir(), safeName(index))
+	}); err != nil {
+		return err
+	}
+	if err := removePar2Backups(ctx, j.contentDir(), j.nzb.Files); err != nil {
+		return err
+	}
+	return j.adoptRepairedSet(ctx)
+}
+
+// runPar2 runs par2 on the set entered at index, bytes of content, under
+// its deadline.
+func (j *job) runPar2(ctx context.Context, index string, bytes int64, run func(context.Context) (Par2Result, error)) error {
+	log := logging.FromContext(ctx)
+	log.InfoContext(ctx, "usenet: par2 verifying and repairing", "download", j.id, "index", index,
+		"failedArticles", j.failedArticles(), "setBytes", bytes)
 	started := time.Now()
 	// A deadline, so a par2 wedged on a slow volume is a failed job to retry
 	// rather than a job stuck in Repairing for good: udl's 30 minutes plus a
 	// budget for the set's size.
-	repairCtx, cancel := context.WithTimeout(ctx, par2Deadline(j.nzb.TotalBytes))
+	repairCtx, cancel := context.WithTimeout(ctx, par2Deadline(bytes))
 	defer cancel()
-	if _, err := j.client.repairer.Repair(repairCtx, j.contentDir(), safeName(index)); err != nil {
+	if _, err := run(repairCtx); err != nil {
 		if ctx.Err() != nil {
 			// The job was stopped (engine shutdown, Remove) or hit its own
 			// deadline: never a verdict on the release. A stopped par2 used
@@ -1544,15 +1582,34 @@ func (j *job) repair(ctx context.Context) error {
 			return fmt.Errorf("usenet: par2 interrupted: %w", ctx.Err())
 		}
 		if repairCtx.Err() != nil {
-			return fmt.Errorf("%w: par2 did not finish within %s", ErrPar2Timeout, par2Deadline(j.nzb.TotalBytes))
+			return fmt.Errorf("%w: par2 did not finish within %s", ErrPar2Timeout, par2Deadline(bytes))
 		}
 		return err
 	}
-	log.InfoContext(ctx, "usenet: par2 repaired", "download", j.id, "duration", time.Since(started).Round(time.Second))
-	if err := removePar2Backups(ctx, j.contentDir(), j.nzb.Files); err != nil {
-		return err
+	log.InfoContext(ctx, "usenet: par2 repaired", "download", j.id, "index", index, "duration", time.Since(started).Round(time.Second))
+	return nil
+}
+
+// planPar2Runs is [planPar2Runs] over the job's own state: the content
+// files that lost an article and what is in the content directory.
+func (j *job) planPar2Runs(runs []par2Run, damagedHead bool) par2RunPlan {
+	failed := map[string]bool{}
+	j.mu.Lock()
+	for i, f := range j.nzb.Files {
+		if i < len(j.failedSegs) && j.failedSegs[i].count() > 0 {
+			failed[safeName(f.Name)] = true
+		}
 	}
-	return j.adoptRepairedSet(ctx)
+	j.mu.Unlock()
+	onDisk := map[string]bool{}
+	if entries, err := os.ReadDir(j.contentDir()); err == nil {
+		for _, e := range entries {
+			if st, err := e.Info(); err == nil && st.Mode().IsRegular() && st.Size() > 0 {
+				onDisk[e.Name()] = true
+			}
+		}
+	}
+	return planPar2Runs(runs, failed, onDisk, damagedHead)
 }
 
 // publish moves the finished content into the data directory with one atomic

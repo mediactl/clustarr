@@ -74,6 +74,33 @@ func (r *LibraryRepairer) Available() bool {
 
 // Repair verifies dir against indexFile and repairs it when it can.
 func (r *LibraryRepairer) Repair(ctx context.Context, dir, indexFile string) (Par2Result, error) {
+	return r.repair(ctx, dir, indexFile, par2Extras)
+}
+
+// RepairSet verifies dir against indexFile, one set of several, with
+// candidates alone for par2 to match by content. Handed every other file,
+// as Repair hands them, par2 searched twelve 7 GB episodes of other sets
+// for the thirteenth's blocks, and inside the megabytes of zeros each
+// opens with re-hashed a whole block at every byte, a block of zeros
+// already being found: 77 minutes on eight cores without finishing, for a
+// set that did not hold the damaged file (talos, 2026-11-27).
+func (r *LibraryRepairer) RepairSet(ctx context.Context, dir, indexFile string, candidates []string) (Par2Result, error) {
+	return r.repair(ctx, dir, indexFile, func(abs, _ string) []string {
+		out := make([]string, 0, len(candidates))
+		for _, name := range candidates {
+			if name == indexFile {
+				continue
+			}
+			p := filepath.Join(abs, name)
+			if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() && st.Size() > 0 {
+				out = append(out, p)
+			}
+		}
+		return out
+	})
+}
+
+func (r *LibraryRepairer) repair(ctx context.Context, dir, indexFile string, extras func(abs, indexFile string) []string) (Par2Result, error) {
 	ctx, span := tracing.Start(ctx, "usenet.par2.repair")
 	defer span.End()
 
@@ -92,7 +119,7 @@ func (r *LibraryRepairer) Repair(ctx context.Context, dir, indexFile string) (Pa
 		Op:          par2child.OpRepair,
 		Index:       filepath.Join(abs, indexFile),
 		Dir:         abs,
-		Extras:      par2Extras(abs, indexFile),
+		Extras:      extras(abs, indexFile),
 		Threads:     r.Threads,
 		FileThreads: r.FileThreads,
 		MemoryLimit: r.MemoryLimit,

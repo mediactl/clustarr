@@ -705,6 +705,56 @@ recorded here.
   `lifecycle.MaxEntryMessage` (1024) when it renders the grab entry: any string
   an engine reports must be clamped at the `pkg/download` boundary and again
   where the manager writes it into a bounded CRD field, never trusted.
+- **A post can carry a par2 set per file, and the engine read every job
+  as one set (2026-11-27, owner: "investigate it", then "Yes to both").**
+  `[pcela] Gargantia on the Verdurous Planet (2013) S01` (98.6 GB): 13
+  episodes of about 7 GB, each with its own `<episode>.mkv.par2` and
+  volumes (1 MiB slices, about 348 recovery blocks), and five more sets
+  for the .md5/.nfo/.sfv/.sha1/.tth beside them; the files on disk carried
+  the NZB subjects' names, the sets `[pcela] ... - S01Enn ...mkv`. One
+  article of 94,229 was missing, in `[B8846714]`. Three places took one
+  set for the job: `renameObfuscated` stopped at the first par2 file that
+  completed a set (the smallest index, the .md5's: one rename);
+  `par2IndexFile` picked the set with the most recovery blocks
+  (`[BF067D90]`, another episode); and `Repair` handed par2 every other
+  file as an extra. par2 found its one target missing by name and searched
+  the other twelve episodes for it, and there met par2cmdline's own slow
+  path: every episode opens with 2.66 MiB of zeros (a reserved gap, offset
+  78,601), the set holds a whole slice of zeros, and once that slice is
+  found each further byte offset inside a run of zeros matches it again by
+  CRC, is hashed whole (MD5 of 1 MiB) and dropped as a duplicate
+  (`ScanDataFile`: `if (duplicate && false) // ignore duplicates`, so one
+  byte forward, not one block). 1.7 million hashes a file: eight files
+  held eight cores with no read for 15-35 minutes each, then slid through
+  their 7 GB at about 10 MB/s; the run was killed by a deploy at 77
+  minutes of its 121-minute `par2Deadline`, started over, and would have
+  ended by renaming one intact episode and publishing the damaged one as
+  it was. Read it on the node: `talosctl processes` for the `agent
+  par2-repair` child, `/proc/<pid>/io` (`rchar` flat) and
+  `/proc/<pid>/fdinfo/<fd>` (`pos` stuck at 2-3 MiB). Reproduced with the
+  library and with stock par2cmdline 2.0.0 alike: a 16 MiB target holding
+  a zero slice and damaged elsewhere, beside an unrelated 8 MiB file with
+  a zero run 20,000 bytes over a slice, verifies in 23 s against 0.16 s
+  without the run; a set that is whole never scans its extras. Now
+  `par2Sets` reads every set by the id its packets carry (the rename walk
+  still stops at the first file that completes a set, per set, the files
+  of one taken to be those sharing its name), each file takes its own
+  set's name by its first 16 KiB, and a damaged start is matched by a
+  slice only one file of one set owns (the sets share slices: the zeros).
+  `job.par2Runs` groups the par2 files by set id at repair time, one
+  header read a file, and for a job of two sets or more `planPar2Runs`
+  runs par2 (`Repairer.RepairSet`) on each set that holds a file with a
+  failed article, whose files are unknown, every set when a file's start
+  is damaged, or one missing a file while a file no set names lost an
+  article; its candidates are its own volumes and the files no set names,
+  never another set's. A set whose files are all on disk under its names
+  with every article verified is left alone, the quick check a set at a
+  time; a failed run fails the job as one set's did. A job of one set
+  (or none readable) takes the old path unchanged, extras and all, so the
+  zero-run slow path is still there for a one-set job with a foreign
+  file: the par2go patch for it is the second half, not yet built. Tests:
+  `TestAJobOfSeveralPar2SetsRepairsTheSetOfTheDamagedFile` (real par2),
+  `TestPlanPar2Runs`, `TestPar2FileSetID`.
 - **An obfuscated season pack unpacks to hashed file names
   (`02fb98288e35eea0f5b10ea420980959.mkv`), and no job name can restore
   them (2026-10-27).** The uploader hashes the `.mkv` names before

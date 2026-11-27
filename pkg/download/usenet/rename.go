@@ -67,6 +67,10 @@ type par2FileDesc struct {
 // file -- the check par2 itself runs to recognise a file whose name it does
 // not know. Every volume repeats the packets, so a set merges by file id.
 type par2Set struct {
+	// ID is the set's id, the one every packet of it carries. A set read
+	// through parse alone (one file, whatever set its packets name) has
+	// none.
+	ID [16]byte
 	// SliceSize is the Main packet's slice size, zero until one is seen.
 	SliceSize uint64
 	// Files is keyed by file id.
@@ -143,6 +147,12 @@ const par2ScanChunk = 1 << 20
 // a file to garbage. Only the packets the set consumes are hashed; a
 // recovery packet's body is skipped by its length.
 func (s *par2Set) parse(r io.ReaderAt, size int64) {
+	walkPar2(r, size, func(_ [16]byte, typ, body []byte) { s.take(typ, body) })
+}
+
+// walkPar2 walks the packets of one par2 file as parse describes, handing
+// take each verified packet of a consumed type with the id of its set.
+func walkPar2(r io.ReaderAt, size int64, take func(setID [16]byte, typ, body []byte)) {
 	header := make([]byte, 64)
 	var off int64
 	for off+64 <= size {
@@ -150,7 +160,7 @@ func (s *par2Set) parse(r io.ReaderAt, size int64) {
 			return
 		}
 		if !bytes.Equal(header[:8], par2Magic) {
-			off = s.nextMagic(r, size, off+1)
+			off = nextPar2Magic(r, size, off+1)
 			continue
 		}
 		length := int64(binary.LittleEndian.Uint64(header[8:16])) //nolint:gosec // bounded below
@@ -175,14 +185,16 @@ func (s *par2Set) parse(r io.ReaderAt, size int64) {
 			off++
 			continue
 		}
-		s.take(typ, body)
+		var id [16]byte
+		copy(id[:], header[32:48])
+		take(id, typ, body)
 		off += length
 	}
 }
 
-// nextMagic returns the offset of the next packet magic at or after from,
-// or size when there is none.
-func (s *par2Set) nextMagic(r io.ReaderAt, size, from int64) int64 {
+// nextPar2Magic returns the offset of the next packet magic at or after
+// from, or size when there is none.
+func nextPar2Magic(r io.ReaderAt, size, from int64) int64 {
 	buf := make([]byte, par2ScanChunk)
 	for from < size {
 		n, err := r.ReadAt(buf, from)
@@ -407,24 +419,17 @@ func (j *job) renameObfuscated(ctx context.Context) {
 	log := logging.FromContext(ctx)
 	dir := j.contentDir()
 
-	set := newPar2Set()
-	parse := func(p string) {
-		fh, err := os.Open(p)
-		if err != nil {
-			return
-		}
-		if st, err := fh.Stat(); err == nil {
-			set.parse(fh, st.Size())
-		}
-		_ = fh.Close()
-	}
-	// One intact par2 file describes the whole set, so the walk stops at the
-	// first that completes it: the index, then the volumes smallest first.
-	// Each packet header is a read, and on NFS every one was a round trip
-	// queued behind the transfers' writes, across volumes holding thousands
-	// of packets (talos, 2026-10-28: a job held a post-processing slot for
-	// minutes here). A file whose name hides that it is par2 is opened only
-	// when the named ones leave the set incomplete.
+	sets := newPar2Sets()
+	// One intact par2 file describes its whole set, so the walk of a set's
+	// files stops at the first that completes it: the index, then the
+	// volumes smallest first. Each packet header is a read, and on NFS every
+	// one was a round trip queued behind the transfers' writes, across
+	// volumes holding thousands of packets (talos, 2026-10-28: a job held a
+	// post-processing slot for minutes here). A job may carry several sets
+	// (par2Sets), so the walk stops per set, the files of one taken to be
+	// those that share its name; the set a packet belongs to is still the
+	// one it names. A file whose name hides that it is par2 is opened only
+	// when the named ones leave a set incomplete, or name none.
 	named := make([]nzbFile, 0, len(j.nzb.Files))
 	for _, f := range j.nzb.Files {
 		if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
@@ -437,26 +442,29 @@ func (j *job) renameObfuscated(ctx context.Context) {
 		}
 		return named[a].Bytes < named[b].Bytes
 	})
+	read, done := map[string][][16]byte{}, map[string]bool{}
 	for _, f := range named {
-		if set.complete() {
-			break
+		base := par2Base(f.Name)
+		if done[base] {
+			continue
 		}
-		parse(filepath.Join(dir, safeName(f.Name)))
+		read[base] = append(read[base], sets.parseFile(filepath.Join(dir, safeName(f.Name)))...)
+		done[base] = sets.complete(read[base])
 	}
 	for _, f := range j.nzb.Files {
-		if set.complete() {
+		if sets.allComplete() {
 			break
 		}
 		if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
 			continue
 		}
 		if p := filepath.Join(dir, safeName(f.Name)); isPar2File(p) {
-			parse(p)
+			sets.parseFile(p)
 		}
 	}
 
 	renamed := 0
-	if len(set.Files) > 0 {
+	if len(sets.sets()) > 0 {
 		var plan []plannedRename
 		damaged := false
 		for i, f := range j.nzb.Files {
@@ -468,11 +476,11 @@ func (j *job) renameObfuscated(ctx context.Context) {
 			if err != nil {
 				continue
 			}
-			want := set.nameByHash16k(h)
+			want := sets.nameByHash16k(h)
 			if want == "" {
-				// Known by a later slice only: the set's file, its start
+				// Known by a later slice only: a set's file, its start
 				// damaged.
-				if want = set.matchBySlice(p); want != "" {
+				if want = sets.matchBySlice(p); want != "" {
 					damaged = true
 				}
 			}
@@ -486,13 +494,10 @@ func (j *job) renameObfuscated(ctx context.Context) {
 			j.mu.Unlock()
 		}
 		renamed += j.renameSet(ctx, plan)
-		names := make([]string, 0, len(set.Files))
-		for _, d := range set.Files {
-			names = append(names, d.Name)
-		}
-		sort.Strings(names)
+		names := sets.names()
 		j.mu.Lock()
 		j.par2Names = names
+		j.par2Sets = sets
 		j.mu.Unlock()
 	}
 	renamed += j.renameStrayVolumes(ctx)

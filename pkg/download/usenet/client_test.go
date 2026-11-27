@@ -344,6 +344,10 @@ func (f fakeRepairer) Repair(ctx context.Context, dir, index string) (Par2Result
 	return f.repair(ctx, dir, index)
 }
 
+func (f fakeRepairer) RepairSet(ctx context.Context, dir, index string, _ []string) (Par2Result, error) {
+	return f.repair(ctx, dir, index)
+}
+
 // Every article's pcrc32 is verified on receipt, so a set that arrived whole
 // needs no par2: a full verify would read every byte again (10 GB over NFS)
 // to learn what the transfer already proved. The fake repairer here fails
