@@ -114,11 +114,11 @@ func TestAnAbsoluteNumberIsTheBroadcastItsTitlesSeasonCounts(t *testing.T) {
 		wantEpisodes []SeasonEpisode
 		wantAbsolute []int
 	}{
-		{"the series' title counts its first season", "Panty.And.Stocking.With.Garterbelt.E08.720p.BluRay.x264-GOTEi", named, se(1, 15, 1, 16), []int{15, 16}},
-		{"an anime group's bare number likewise", "[Moozzi2] Panty & Stocking with Garterbelt-08 [BD 1920x1080 x265-10Bit FLACx3]", named, se(1, 15, 1, 16), []int{15, 16}},
-		{"the later season's title counts that season", "[Group] New Panty & Stocking with Garterbelt - 08 [1080p]", named, se(2, 16, 2, 17, 2, 18), []int{42, 43, 44}},
+		{"the series' title counts its first season", "Panty.And.Stocking.With.Garterbelt.E08.720p.BluRay.x264-GOTEi", named, se(1, 15, 1, 16), nil},
+		{"an anime group's bare number likewise", "[Moozzi2] Panty & Stocking with Garterbelt-08 [BD 1920x1080 x265-10Bit FLACx3]", named, se(1, 15, 1, 16), nil},
+		{"the later season's title counts that season", "[Group] New Panty & Stocking with Garterbelt - 08 [1080p]", named, se(2, 16, 2, 17, 2, 18), nil},
 		{"no scene names: nothing says which, and the number is read as written", "Panty.And.Stocking.With.Garterbelt.E08.720p.BluRay.x264-GOTEi", Identity{SceneMappings: rows}, nil, []int{8}},
-		{"one scene episode has the number: it is every episode of that broadcast", "Panty.And.Stocking.With.Garterbelt.E08.720p.BluRay.x264-GOTEi", Identity{SceneMappings: rows[:2]}, se(1, 15, 1, 16), []int{15, 16}},
+		{"one scene episode has the number: it is every episode of that broadcast", "Panty.And.Stocking.With.Garterbelt.E08.720p.BluRay.x264-GOTEi", Identity{SceneMappings: rows[:2]}, se(1, 15, 1, 16), nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, err := release.Parse(tc.title, release.Options{Kind: common.MediaKindEpisode, SeriesType: "anime"})

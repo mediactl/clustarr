@@ -64,10 +64,10 @@ func TestANumberUnderATitleThatNamesItsSeasonIsThatSeasonsEpisode(t *testing.T) 
 		{"flattened by an indexer", "[SubsPlease].Kingdom.S5-06.1080p.[914E20BC]", Identity{}, se(5, 6), nil},
 		{"a pack's file with no group", "Seirei.Gensouki.S2.-.01", Identity{}, se(2, 1), nil},
 		{"the marker in words", "[Erai-raws] Kingdom 3rd Season - 26 END [1080p][Multiple Subtitle][3DC8CB0C]", Identity{}, se(3, 26), nil},
-		{"through the scene table", "[SubsPlease] Show S2 - 01 (1080p) [ABCD1234]", split, se(1, 13), []int{13}},
+		{"through the scene table", "[SubsPlease] Show S2 - 01 (1080p) [ABCD1234]", split, se(1, 13), nil},
 		{"the season the scene names give the title", "[Erai-raws].Shiguang.Dailiren.Season.3-05.[CA].[1080p.CR.WEBRip.HEVC.AAC]", named, se(4, 5), nil},
-		{"a count through the series stays absolute", "[HorribleSubs] Shingeki no Kyojin S3 - 49 [1080p]", counted, se(3, 12), []int{49}},
-		{"no marker, no season", "[SubsPlease] Show - 13 (1080p) [ABCD1234]", split, se(1, 13), []int{13}},
+		{"a count through the series is the episode the table gives it", "[HorribleSubs] Shingeki no Kyojin S3 - 49 [1080p]", counted, se(3, 12), nil},
+		{"no marker, no season", "[SubsPlease] Show - 13 (1080p) [ABCD1234]", split, se(1, 13), nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, err := release.Parse(tc.title, release.Options{Kind: common.MediaKindEpisode})

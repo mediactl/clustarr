@@ -186,8 +186,8 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           load: true
           tags: selfcheck/${{ matrix.image }}:ci
-          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+          # No Actions cache: see release.yml, "No build writes the Actions
+          # cache".
 
       # The one definition of the image checks (hack/image-checks.sh); GPU
       # encodes need hardware (--trial, run on hosts that have it).

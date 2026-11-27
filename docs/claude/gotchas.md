@@ -1947,9 +1947,9 @@ recorded here.
   automatic one must beat for an episode it would otherwise be taken for,
   as a release and never as a pack. Import would refuse one no better for
   the same reason, and without it the planner takes the answer's next
-  release at every pass, a whole download each (the planner still approves
-  releases over final files it should not, `Covered.Current` nil at grab
-  time, cause not found). It holds nothing for an episode the release is
+  release at every pass, a whole download each (one cause of the planner approving a
+  release over a final file was found the same day, the next bullet; the
+  other, `Covered.Current` nil at grab time, was not). It holds nothing for an episode the release is
   not taken for, nothing against a person's pick, and a hold of any other
   class (`needsPerson`, an import that could not be carried out) holds
   nothing at all. Tests: grabplan's `heldimport_test.go`.
@@ -1968,6 +1968,49 @@ recorded here.
   judged by that file, so a torrent seeding after its import still holds
   nothing. Any rule that reads "no current file" as "has no file" has this
   window; the planner is the one that acts on it at once.
+
+- **A release the scene table places at an episode is that episode, by its
+  season and number alone (2026-11-27, owner: "Fix in order", of "Planner
+  approving releases over final files").** A coverage's absolute numbers
+  are compared with the series' stored ones (`Episode.status.absoluteNumber`,
+  from the metadata provider), and `addMapped` also put each scene row's
+  TVDB absolute number into the coverage, which is TheXEM's count. The two
+  disagree on some series, and a provider's own count can repeat a number
+  across seasons. Link Click on talos: TheXEM's row for the scene's season
+  3 episode 5 is S04E05 with absolute 34; the series stores S04E05 as 29,
+  and both S03E10 and S04E10 as 34. A search of season 3 took
+  "[Erai-raws] Shiguang Dailiren Season 3 - 05" as one of its episodes, a
+  search for S03E10 took it as that episode, and the planner
+  (`coveredBy`: place *or* absolute) grabbed it for S03E10, which was
+  missing. The importer reads places only (`fileimport.MatchDownloaded`:
+  `CoverageFor(...).Episodes`), filed it as S04E05 and held it against the
+  transcoded file there; the entry then named S04E05 (importplan's
+  `provide`), S03E10 was free and searched again at once, and the next
+  release of the same episode was taken: four in four minutes, the only
+  grabs over a final file after that day's 12:02Z roll. A mapped row now
+  adds its place and nothing else, so the search, the planner and the
+  importer read one release as one episode. What it gives up: a row whose
+  TVDB place the series does not have no longer reaches an episode through
+  its absolute number; such a release covers nothing and is refused, where
+  before it was taken for whatever shared the number. A number the table
+  does not place is still an absolute number, compared as before. Tests:
+  `pkg/decision`'s `TestASceneRowNamesItsEpisodeByPlaceAlone`, grabplan's
+  `mappedabsolute_test.go`.
+  **The other form of "a grab over a final file" is not explained.** On
+  2026-11-26 and 27 (builds before sha-77a88ff) 720p releases were taken
+  for episodes of Monogatari Series: Off & Monster Season holding 1080p
+  transcodes, each time after a manager start or a batch of entry
+  removals. The release's coverage was the episode it was filed as, the
+  rules refuse it when replayed with the file read, the titles parse, and
+  the importer's and the planner's "final" are one predicate
+  (`MediaFile.Final`); so the planner read no file for an item whose row
+  held one, and nothing recorded what it read. Every automatic grab now
+  logs one Info line, `grab: taking a release`, with `over`: each covered
+  item as `<name>=<quality>[/transcoded]`, or `=none` for an item that
+  read as having no file (`takenOver`, app/remediation/grab). The next one
+  that is held "transcoded file is final" with `=none` in its line is the
+  proof, and says which read to look at (`itemread.Current`: the cached
+  Episode's `hasFile`/`fileRef`, then the cached MediaFile).
 
 - **A pack's file named "<the series' title> <number>" is that episode
   (2026-11-27, owner: "Ensure no remaining series has any missing monitored

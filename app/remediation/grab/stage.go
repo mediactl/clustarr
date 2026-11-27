@@ -19,6 +19,7 @@ package grab
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -137,7 +138,14 @@ func (s *Stage) result(ctx context.Context, v *remediation.ItemView, g *gathered
 		res.Effects = append(res.Effects, remediation.SettleCandidate{MsgID: id, Outcome: o, Reason: plan.Refusals[id]})
 	}
 	for i := range plan.NewEntries {
-		if eff, ok := grabbed(gv, &plan.NewEntries[i], v.Now.Time); ok {
+		e := &plan.NewEntries[i]
+		// One line per grab, with what the planner read of the files it is
+		// taken over (takenOver): the manager logs no decision at this
+		// level otherwise, so a grab over a file that is final left no
+		// trace of whether the planner had read the file at all.
+		logging.FromContext(ctx).Info("grab: taking a release", "owner", gv.Owner.Name, "entry", e.ID,
+			"by", e.GrabbedBy, "purpose", e.Purpose, "quality", e.Release.Quality.Name, "over", takenOver(g, e))
+		if eff, ok := grabbed(gv, e, v.Now.Time); ok {
 			res.Effects = append(res.Effects, eff)
 		}
 	}
@@ -151,6 +159,41 @@ func (s *Stage) result(ctx context.Context, v *remediation.ItemView, g *gathered
 		logging.FromContext(ctx).Debug("grab: planned", "new", len(plan.NewEntries), "pending", len(plan.Pending), "settled", len(plan.Settle))
 	}
 	return res
+}
+
+// maxTakenOver caps takenOver's list: a pack of a long season names this
+// many of its items and counts the rest.
+const maxTakenOver = 30
+
+// takenOver is what the planner read of the current file of each item e
+// was taken for, as "<item>=<quality>", with "/transcoded" for a file that
+// is final and "none" for an item that read as having no file
+// (itemread.Current: the item's own status.hasFile and fileRef, then the
+// MediaFile).
+func takenOver(g *gathered, e *catalogv1alpha1.DownloadEntry) []string {
+	var out []string
+	more := 0
+	for i, o := range g.objects {
+		if !itemread.Covers(e, o) {
+			continue
+		}
+		if len(out) == maxTakenOver {
+			more++
+			continue
+		}
+		s := "none"
+		if cur := g.v.Covered[i].Current; cur != nil {
+			s = cur.Quality.Name
+			if cur.Transcoded {
+				s += "/transcoded"
+			}
+		}
+		out = append(out, o.GetName()+"="+s)
+	}
+	if more > 0 {
+		out = append(out, fmt.Sprintf("and %d more", more))
+	}
+	return out
 }
 
 // deleting refuses every parked candidate of a deleting owner and keeps

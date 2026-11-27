@@ -353,12 +353,24 @@ func mapsOnto(rows []EpisodeNumbering, listed []int) bool {
 	return len(want) == 0
 }
 
+// addMapped adds the TVDB episodes a scene row names, by their place alone:
+// the season and episode. The row's own absolute number is TheXEM's count,
+// and what a coverage's absolute numbers are compared with is the series'
+// stored one (Episode.status.absoluteNumber, from the metadata provider);
+// the two disagree on some series, and a number that names one episode in
+// TheXEM's count names another in the series'. The importer attributes a
+// file the same way (fileimport.MatchDownloaded: CoverageFor's places), so
+// a release is grabbed for the episode its file will be filed as.
+//
+// Until 2026-11-27 the row's absolute number went into the coverage too. On
+// talos "[Erai-raws] Shiguang Dailiren Season 3 - 05", the scene's name for
+// Link Click's S04E05 (TheXEM absolute 34; the series stores 29), was taken
+// for S03E10, which the series stores as absolute 34 and which was missing:
+// four releases of it in four minutes, each filed at import as S04E05 and
+// held against the transcoded file there.
 func (c *coverage) addMapped(eps ...EpisodeNumbering) {
 	for _, e := range eps {
 		c.pairs[seasonEpisode{e.Season, e.Episode}] = true
-		if e.Absolute > 0 {
-			c.absolutes[e.Absolute] = true
-		}
 		c.mapped = append(c.mapped, e)
 	}
 }
