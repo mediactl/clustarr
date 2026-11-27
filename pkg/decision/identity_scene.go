@@ -24,6 +24,7 @@ import (
 	"strings"
 	"unicode"
 
+	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -75,6 +76,10 @@ type sceneIndex struct {
 	titles       map[seasonEpisode]string
 	seasonNames  map[string]int
 	spelledNames map[string]int
+	// ownTitles keys the titles the series itself is known by
+	// (Identity.Titles, and its scene names for every season at once),
+	// empty when the identity carries none: see places.
+	ownTitles map[string]struct{}
 }
 
 // newIdentitySceneIndex is an Identity's scene table and scene season
@@ -82,7 +87,60 @@ type sceneIndex struct {
 func newIdentitySceneIndex(id Identity) sceneIndex {
 	idx := newSceneIndex(id.SceneMappings)
 	idx.addSeasonNames(id.SceneSeasonNames)
+	if len(id.Titles) > 0 {
+		idx.ownTitles = targetTitleKeys(common.MediaKindEpisode, id)
+		for _, n := range id.SceneSeasonNames {
+			if k := titleKey(n.Title); k != "" && n.Season < 1 {
+				idx.ownTitles[k] = struct{}{}
+			}
+		}
+	}
 	return idx
+}
+
+// places reports whether a bare number under p's title can be placed in the
+// series: an anime release's "- 02", which says nothing of its season.
+//
+// On a series whose seasons have scene names of their own, the title is
+// what says which season such a number counts in: one of those names is
+// that season, and the series' own title its first (sceneSeason). A title
+// that is neither names some part of the series the tables do not know -- a
+// cour ("JoJo no Kimyou na Bouken - Stone Ocean Part 2 - 01 ~ 12", episodes
+// 13-24 of season 5's name), or a season under another spelling of its
+// name ("JoJo's Bizarre Adventure: Golden Wind (Part 5) - 02", season 4)
+// -- and such a release reaches the numbering at all only because an
+// indexer asked by the series' id returned it, with no title check
+// (Identity.IDQueryIndexers). Its number was read as the series' own, the
+// first season's: both were approved for S01E02, and the first was taken
+// for S01E02 and S01E03 twice in two minutes, displacing a live download
+// of the right episode (talos, 2026-11-27; owner: "Ensure that only the
+// correct season is selected. Either Season 1 or 'Phantom Blood & Battle
+// Tendency'"). Such a number is now left unplaced: not mapped, and not read
+// literally either.
+//
+// A series with no scene season names, and an identity that carries no
+// titles to know its own by, read every number as before.
+func (idx sceneIndex) places(p *release.ParsedRelease) bool {
+	if !idx.namesSeasons() || len(idx.ownTitles) == 0 {
+		return true
+	}
+	titles := p.Titles
+	if len(titles) == 0 {
+		titles = []string{p.Title}
+	}
+	for _, t := range titles {
+		k := titleKey(t)
+		if _, ok := idx.ownTitles[k]; ok {
+			return true
+		}
+		if _, ok := idx.seasonNames[k]; ok {
+			return true
+		}
+		if _, ok := idx.spelledNames[spelledKey(t)]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // addSeasonNames keys the scene season each of names is the name of. A key
@@ -104,6 +162,9 @@ func (idx *sceneIndex) addSeasonNames(names []SceneSeasonName) {
 		}
 	}
 	for _, n := range names {
+		if n.Season < 1 {
+			continue // a name for every season names none (Identity.SceneSeasonNames)
+		}
 		k := titleKey(n.Title)
 		switch len(seasons[k]) {
 		case 0:
@@ -285,6 +346,9 @@ type coverage struct {
 	fullSeasons map[int]bool // a pack of the season, read literally
 	absolutes   map[int]bool
 	mapped      []EpisodeNumbering // every TVDB episode a scene lookup produced, for messages
+	// unplaced is set when the release's bare numbers were left out because
+	// its title places them nowhere in the series (sceneIndex.places).
+	unplaced bool
 }
 
 // releaseCoverage reads a release's numbering through the series' scene
@@ -366,8 +430,13 @@ func releaseCoverage(p *release.ParsedRelease, scene sceneIndex) coverage {
 			}
 		}
 	}
+	placed := len(p.Absolute) == 0 || scene.places(p)
 	for _, a := range p.Absolute {
 		if p.TitleSeason > 1 && c.addTitleSeason(p, scene, a) {
+			continue
+		}
+		if !placed {
+			c.unplaced = true
 			continue
 		}
 		if eps := scene.absolute(p.Title, a); len(eps) > 0 {
@@ -522,6 +591,7 @@ func (c coverage) export() Coverage {
 		out.Absolute = append(out.Absolute, a)
 	}
 	slices.Sort(out.Absolute)
+	out.Unplaced = c.unplaced
 	return out
 }
 

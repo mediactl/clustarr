@@ -529,6 +529,12 @@ func numberingRejection(id Identity, scene sceneIndex, p *release.ParsedRelease)
 		r := newRejection(ReasonWrongItem, "%s", strings.Join(mismatches, "; "))
 		return &r
 	}
+	if cov.unplaced {
+		r := newRejection(ReasonUnknownItem,
+			"the release's title %q is neither the series' own nor one of its seasons' scene names, so its number says nothing of where it falls in the series (release is %s)",
+			p.Title, describeRelease(p))
+		return &r
+	}
 	target := describeTarget(id)
 	if id.SeasonSearch {
 		target = fmt.Sprintf("season %d", id.Season)

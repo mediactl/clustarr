@@ -244,7 +244,8 @@ type Identity struct {
 	// SceneSeasonNames are the titles scene releases use for single seasons
 	// of the series (TheXEM's names table): a release under one numbers its
 	// seasons from the season it names (sceneIndex.sceneSeason). Nil reads
-	// every season number as written.
+	// every season number as written. A name with Season 0 is one the scene
+	// uses for every season: one of the series' own titles, and no season's.
 	SceneSeasonNames []SceneSeasonName
 	// IDQueryIndexers names (by ReleaseInfo.IndexerRef) the indexers whose
 	// query for THIS search was keyed by one of the item's ids
@@ -383,6 +384,11 @@ type Coverage struct {
 	FullSeasons []int
 	Episodes    []SeasonEpisode
 	Absolute    []int
+	// Unplaced is set when the release carries bare numbers its title
+	// places nowhere in the series: a title that is neither the series'
+	// own nor one of its seasons' scene names (sceneIndex.places). They
+	// are in none of the lists.
+	Unplaced bool
 }
 
 // Reason is a typed, non-string rejection reason: a stable Code ported from

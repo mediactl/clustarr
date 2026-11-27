@@ -161,7 +161,13 @@ func SceneReadings(
 	var names []decision.SceneSeasonName
 	if m, err := src.SceneMap(ctx, s.Spec.TvdbID); err == nil && m != nil {
 		for _, n := range m.Names {
-			if n.Season != nil && *n.Season > 0 && n.Title != "" {
+			switch {
+			case n.Title == "":
+			case n.Season == nil:
+				// A name for the whole series: one of its own titles to the
+				// identity check, and no season's (Season 0).
+				names = append(names, decision.SceneSeasonName{Title: n.Title})
+			case *n.Season > 0:
 				names = append(names, decision.SceneSeasonName{Title: n.Title, Season: *n.Season})
 			}
 		}

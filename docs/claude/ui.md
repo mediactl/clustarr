@@ -1217,6 +1217,47 @@ back is judged by the search's identity like any release. Cost: up to four
 more queries of each text indexer per anime season search, at its
 `requestDelay`. A standard series is unchanged: its season goes on the
 wire as a parameter.
+**A bare number under a title the series does not know is placed nowhere
+(owner, 2026-11-27: "that's season 5 --- definitely should not be an
+approved S01E02 release!", "Ensure that only the correct season is
+selected. Either Season 1 or 'Phantom Blood & Battle Tendency'").** JoJo's
+Bizarre Adventure (TVDB 262954; six seasons, each counted from 1 by the
+scene as by TVDB): `[Erai-raws] JoJo no Kimyou na Bouken - Stone Ocean
+Part 2 - 01 ~ 12` and `[KaiDubs] JoJo's Bizarre Adventure: Golden Wind
+(Part 5) - 02` were approved for S01E02, and the first was taken for
+S01E02 and S01E03 twice in two minutes (23:15Z and 23:16Z, two postings on
+amenzb), each a pack that displaced the live download of the right
+episode; both failed as missing articles, so nothing was imported. Two
+standing rules met. An anime episode is asked for by the series' id and
+its number with no season, so an indexer that takes ids (amenzb,
+animetosho, added that day) answers with that number of every season; and
+a release from an indexer asked by id passes the title half unread
+(`Identity.IDQueryIndexers`). Its number then counts in the season its
+title names (`sceneIndex.sceneSeason`): one of TheXEM's names is that
+season, and ANY other title was the series' own, the first season. Neither
+title is a TheXEM name (it lists "JoJo no Kimyou na Bouken: Stone Ocean"
+and "JoJo's Bizarre Adventure - Golden Wind"), so both were season 1's.
+Now `sceneIndex.places`: on a series whose seasons have scene names, a
+bare number is read only under a title that is one of those names or one
+of the series' own (`Identity.Titles`, keyed with the year as the title
+half keys them, and TheXEM's names for every season at once, which
+`SceneReadings` now passes as `SceneSeasonName{Season: 0}`); under any
+other it is left out of the coverage (`Coverage.Unplaced`), neither mapped
+nor read literally, and `numberingRejection` answers UnknownItem naming the
+title. Not placed in the later season either, my call: "Stone Ocean Part
+2 - 01" is the season's episode 13 and "Golden Wind (Part 5) - 02" its
+episode 2, and nothing tells a cour's count from a season's. Replayed over
+the 3,842 JoJo titles in the release index: 1,661 carry a bare number,
+1,501 are placed (203 in season 1, 143, 463, 515, 80, 97) and about 130
+are not, every one a later season's under another spelling ("Stone Ocean
+Part 3", "Stardust Crusaders Egypt Hen", "Golden Wind (Part 5)"); all of
+those were season 1's before. Unchanged: a series with no scene season
+names, an identity that carries no titles (the import agent's: a file is
+read by its download's episodes, and files inside a rightly taken pack
+carry titles of their own), SxxEyy and "Show S2 - 05" releases. Tests:
+`TestABareNumberUnderATitleTheSeriesDoesNotKnowIsPlacedNowhere`,
+`TestAnEpisodeRefusesAReleaseOfAnotherPartOfItsSeries`,
+`TestABareNumberIsReadAsBeforeWithoutSeasonNames`.
 **An indexer kept to anime is asked for anime alone (owner, 2026-11-27:
 "ensure the amenzb and anime tosho indexers are only combined with the
 other usenet indexers for anime series. otherwise, it will be a collosal

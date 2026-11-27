@@ -79,8 +79,9 @@ func TestSceneReadingsTitleTheRowsAndNameTheSceneSeasons(t *testing.T) {
 	id.SceneMappings, id.SceneSeasonNames = SceneReadings(ctx, c, src, series, rows)
 	require.Equal(t, []string{"Daten City President", "Independence Dick", "Longest Bitch Yard"},
 		[]string{id.SceneMappings[0].Title, id.SceneMappings[1].Title, id.SceneMappings[2].Title})
-	require.Equal(t, []decision.SceneSeasonName{{Title: "New Panty & Stocking with Garterbelt", Season: 2}}, id.SceneSeasonNames,
-		"a title naming the whole series names no season")
+	require.Equal(t, []decision.SceneSeasonName{{Title: "New Panty & Stocking with Garterbelt", Season: 2}, {Title: "Panty & Stocking"}}, id.SceneSeasonNames,
+		"a title naming the whole series names no season: Season 0, one of the series' own titles to the identity check")
+	require.Zero(t, decision.NamedSeason(&release.ParsedRelease{Title: "Panty & Stocking"}, id))
 	require.Empty(t, rows[0].Title, "the table SceneMappings answered is not written")
 
 	covers := func(title string) []decision.SeasonEpisode {
