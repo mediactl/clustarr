@@ -142,8 +142,10 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		StallTimeout: 0,
 		// Seed keeps a completed torrent uploading once finished; the
 		// manager's command carries the seed criteria that govern it.
-		Seed:   true,
-		Logger: logging.FromContext(ctx),
+		Seed: true,
+		// spec.torrent.maxSeeding: how many of them at once.
+		MaxSeeding: int(dc.Spec.Torrent.MaxSeeding),
+		Logger:     logging.FromContext(ctx),
 	})
 	if err != nil {
 		return catalogagent.Registration{}, fmt.Errorf("grab: build torrent client: %w", err)

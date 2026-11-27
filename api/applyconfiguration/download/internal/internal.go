@@ -327,6 +327,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: numeric
       default: 200
+    - name: maxSeeding
+      type:
+        scalar: numeric
     - name: maxUnverifiedBytes
       type:
         scalar: numeric

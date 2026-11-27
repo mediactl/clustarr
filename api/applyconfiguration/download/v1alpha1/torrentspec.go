@@ -41,6 +41,15 @@ type TorrentSpecApplyConfiguration struct {
 	EnablePEX *bool `json:"enablePEX,omitempty"`
 	// MaxActive caps how many torrents may transfer at once per replica.
 	MaxActive *int32 `json:"maxActive,omitempty"`
+	// MaxSeeding caps how many completed torrents seed at once per replica.
+	// While more than that are seeding, the ones that have seeded longest
+	// have their seed goal counted as met: they stop uploading, and what
+	// follows is what follows any met goal -- one already imported is
+	// removed with its data (removeCompleted), and one not yet imported
+	// waits in publishDir for its import, uploading nothing. A torrent that
+	// completes therefore takes a place from the one that has had the most
+	// of its turn. Zero or unset means no cap. The engine reads it at start.
+	MaxSeeding *int32 `json:"maxSeeding,omitempty"`
 	// DownloadLimitBps caps the aggregate download rate in bytes per second.
 	// Zero or unset means unlimited.
 	DownloadLimitBps *int64 `json:"downloadLimitBps,omitempty"`
@@ -141,6 +150,14 @@ func (b *TorrentSpecApplyConfiguration) WithEnablePEX(value bool) *TorrentSpecAp
 // If called multiple times, the MaxActive field is set to the value of the last call.
 func (b *TorrentSpecApplyConfiguration) WithMaxActive(value int32) *TorrentSpecApplyConfiguration {
 	b.MaxActive = &value
+	return b
+}
+
+// WithMaxSeeding sets the MaxSeeding field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MaxSeeding field is set to the value of the last call.
+func (b *TorrentSpecApplyConfiguration) WithMaxSeeding(value int32) *TorrentSpecApplyConfiguration {
+	b.MaxSeeding = &value
 	return b
 }
 

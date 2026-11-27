@@ -91,6 +91,18 @@ type TorrentSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	MaxActive int32 `json:"maxActive,omitempty"`
 
+	// MaxSeeding caps how many completed torrents seed at once per replica.
+	// While more than that are seeding, the ones that have seeded longest
+	// have their seed goal counted as met: they stop uploading, and what
+	// follows is what follows any met goal -- one already imported is
+	// removed with its data (removeCompleted), and one not yet imported
+	// waits in publishDir for its import, uploading nothing. A torrent that
+	// completes therefore takes a place from the one that has had the most
+	// of its turn. Zero or unset means no cap. The engine reads it at start.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MaxSeeding int32 `json:"maxSeeding,omitempty"`
+
 	// DownloadLimitBps caps the aggregate download rate in bytes per second.
 	// Zero or unset means unlimited.
 	// +optional

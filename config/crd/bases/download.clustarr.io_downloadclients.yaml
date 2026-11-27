@@ -266,6 +266,19 @@ spec:
                     format: int32
                     minimum: 1
                     type: integer
+                  maxSeeding:
+                    description: |-
+                      MaxSeeding caps how many completed torrents seed at once per replica.
+                      While more than that are seeding, the ones that have seeded longest
+                      have their seed goal counted as met: they stop uploading, and what
+                      follows is what follows any met goal -- one already imported is
+                      removed with its data (removeCompleted), and one not yet imported
+                      waits in publishDir for its import, uploading nothing. A torrent that
+                      completes therefore takes a place from the one that has had the most
+                      of its turn. Zero or unset means no cap. The engine reads it at start.
+                    format: int32
+                    minimum: 0
+                    type: integer
                   maxUnverifiedBytes:
                     default: 134217728
                     description: |-

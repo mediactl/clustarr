@@ -1241,6 +1241,28 @@ recorded here.
   RenewDeadline/2, 5 s by default). `pkg/k8s.ManagerOptions` sets the lease
   to 60 s / 45 s / 5 s (`k8s.LeaseDuration`, `RenewDeadline`,
   `RetryPeriod`), and a deploy loads only images whose inputs changed.
+- **At most `spec.torrent.maxSeeding` torrents seed at once (2026-11-27;
+  owner: "We should only allow a max of 3 seeding torrents at a time.
+  Torrents that have seeding turned off immediately move their files off
+  the node's storage and into the NAS storage (unless the files were
+  already moved - in which case, we delete them)").** The field is new on
+  DownloadClient (0 or unset: no cap; read at start, so a change rolls the
+  engine), and the cap is the engine's, in the one place a seed goal is
+  judged (`pkg/download/torrent`, `Client.capSeeding`, on every `List`):
+  while more than the cap are seeding, the ones with the most cumulative
+  seed time have their goal counted as met, sticky and persisted like any
+  met goal. Seed time is the key because it is the only order that
+  survives a restart; a newly completed torrent has none, so it takes its
+  place from the one that has had the most of its turn (my choice of
+  which, told to the owner). Nothing else was built, because the second
+  sentence is what a met goal already does: a torrent is moved from
+  scratch to `publishDir` when it completes, whatever its seeding; with the
+  goal met it uploads nothing; one already imported goes Seeding ->
+  Removing with its data (`lifecycle` transitions, `removeCompleted`), and
+  one not yet imported keeps its files for the importer and is removed
+  after it. A paused or failed torrent holds no place. On talos the
+  torrent scratch is a path on the NAS, so "the node's storage" is not in
+  play there yet.
 - **A torrent engine behind a SOCKS5 proxy (`spec.torrent.proxy`,
   2026-09-30) must not leak by UDP or by DNS, and Go's library covers
   neither.** `golang.org/x/net/proxy` speaks CONNECT only, so `pkg/socks5`

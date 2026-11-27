@@ -383,7 +383,7 @@ var kinds = []Kind{
 		Groups: []Group{
 			{Title: "Client", Paths: []string{"protocol", "enabled", "priority", "categories"}},
 			{Title: "Torrent", When: whenTorrent, Paths: []string{
-				"torrent.listenPort", "torrent.publicIP", "torrent.maxActive", "torrent.downloadLimitBps", "torrent.uploadLimitBps",
+				"torrent.listenPort", "torrent.publicIP", "torrent.maxActive", "torrent.maxSeeding", "torrent.downloadLimitBps", "torrent.uploadLimitBps",
 				"torrent.enableDHT", "torrent.enablePEX", "torrent.removeCompleted", "torrent.stallTimeout", "torrent.maxUnverifiedBytes", "torrent.seed",
 			}},
 			{Title: "Storage", When: whenTorrent, Help: "Keep incomplete torrents in a working area and move each to the publish directory when complete; with no working area a torrent downloads and seeds in the publish directory.", Paths: []string{
@@ -413,6 +413,7 @@ var kinds = []Kind{
 			"usenet.scratch.existingClaim": "Existing claim", "usenet.scratch.volumeName": "Persistent volume",
 			"usenet.stallTimeout": "Stall timeout (no article completed)",
 			"usenet.maxActive":    "Downloads at once", "usenet.maxPostProcess": "Repairs and unpacks at once",
+			"torrent.maxSeeding": "Seeding at once (0 for no limit)",
 			"torrent.proxy.type": "Type", "torrent.proxy.host": "Host", "torrent.proxy.port": "Port",
 			"torrent.proxy.secretRef":       "Authentication",
 			"torrent.proxy.hostnameLookup":  "Perform hostname lookup via proxy",

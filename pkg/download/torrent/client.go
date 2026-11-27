@@ -107,6 +107,11 @@ type Config struct {
 	// Debug turns on anacrolix's own verbose logging.
 	Debug bool
 
+	// MaxSeeding caps how many completed torrents seed at once
+	// (DownloadClient.spec.torrent.maxSeeding); 0 is no cap. See
+	// [Client.capSeeding].
+	MaxSeeding int
+
 	// StallTimeout is how long an unfinished, unpaused transfer may go
 	// without downloading a byte before it is failed with
 	// DownloadFailureStalled (DownloadClient.spec.torrent.stallTimeout).
@@ -461,6 +466,9 @@ func (c *Client) List(ctx context.Context) ([]download.Item, error) {
 		return nil, err
 	}
 	ts := c.cl.Torrents()
+	// The cap is held before the items are built, so a torrent this poll
+	// takes off the swarm is reported so by this poll.
+	c.capSeeding(ts, time.Now())
 	items := make([]download.Item, 0, len(ts))
 	for _, t := range ts {
 		items = append(items, c.itemFromTorrent(idFromInfoHash(t.InfoHash()), t))
