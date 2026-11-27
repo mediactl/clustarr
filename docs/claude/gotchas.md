@@ -1537,10 +1537,55 @@ recorded here.
   the stage draws it again within seconds. Finding them: the records from
   `OBJMETA_<bucket>` (`nats sub --stream ... --all --raw`) against `nats
   stream subjects OBJ_<bucket> '$O.<bucket>.C.>'`, neither of which reads
-  a chunk. Why the artwork stream stalls for 6 to 10 s is not known (a
-  per-`Put` purge by subject on a 3 GiB file stream with 106,000 interior
-  deletes is the suspect, unproven), and the gap itself is upstream's: no
-  issue was filed.
+  a chunk. The non-atomic `Put` is nats.go's gap; no issue was filed.
+- **Writing an object again makes nats-server read every block written to
+  the bucket since that object was last written, under the stream's lock**
+  (2026-11-27; owner: "Determine the cause of the 6-10 second stalls on the
+  artwork stream. Check if it's an upstream issue"). This is what stalls
+  `OBJ_clustarr-artwork` for 6 to 10 s several times a day, and so what
+  times out a `Put`'s acknowledgement (the entry above). nats-server
+  v2.15.3, and its main at 52f36cf2 the same day. An object's record is
+  published with `Nats-Rollup: sub`; the stream stores it and then runs
+  `purgeLocked({Subject, Keep: 1})` inside `processJetStreamMsg`, holding
+  the stream's lock. `PurgeEx` removes the previous record, and
+  `purgeLocked` then asks `FilteredState(firstSeq, subject)` for the
+  consumers' sake. The file store keeps, per subject, the first and last
+  block it is in (`psi.fblk`, `lblk`), and `fblk` is lazy: a removal never
+  moves it ("We do not update sense of fblk here", `removePerSubject`), and
+  only a stream with `MaxMsgsPerSubject: 1` has it corrected on write, which
+  an object store's stream is not (-1; the rollup does that job). So
+  `numFilteredPendingWithLast` looks in the block the record was just
+  removed from, misses, and walks forward block by block to the one the new
+  record is in, loading each block's per-subject state, which is the whole
+  block read from disk once it has been idle two minutes
+  (`defaultFssExpiration`). Then it corrects `fblk`. The cost of a rewrite is
+  therefore the bytes written to the bucket since that object's previous
+  write, at most the bucket; a first write costs nothing. Reproduced on an
+  embedded v2.15.3 with nats.go's own object store (150 KiB objects, 2,000
+  per span, the server idle 150 s, bytes counted from `/proc/self/io`): a
+  new object read 1.8 MiB, an object last written one span ago 293.7 MiB,
+  and the stack through it was `internalLoop < processJetStreamMsg <
+  processJetStreamMsgWithRollup < purgeLocked < FilteredState <
+  numFilteredPendingWithLast < filteredPending < ensurePerSubjectInfoLoaded
+  < loadMsgsWithLock < loadBlock`, with a direct get of another object
+  waiting on the stream's lock for as long. It fits what talos showed: only
+  overlays, the one variant written again whenever a rating moves; every
+  replica at once, since each applies the record; 0.3 to 1.3 GiB read from
+  the NVMe and as much less memory available on the leader's node in the
+  half minute of a stall; and nats's memory spikes. The server's own logs
+  name the victims (`STREAM.INFO`, `STREAM.PURGE` and `DIRECT.GET` "took
+  too long"), never the scan. A single-subject purge is not the cause:
+  `PurgeEx` is bounded to the subject's blocks since upstream PR 8004. No
+  upstream issue describes this (searched: fblk, numFilteredPending,
+  rollup, purge); PR 5545 and 5577 (2024) added the lazy correction, PR
+  8234, which gave a subject its full set of blocks, was closed unmerged.
+  What would bound it here without the server changing: overlays in a
+  bucket of their own, so a rewrite scans other overlays only; a longer
+  acknowledgement wait on natsbus's JetStream context than nats.go's 5 s,
+  so the stall is not also an error; more than the one CPU the nats pods
+  are limited to. None was done. `/stacksz` on the monitoring port (8222,
+  through the apiserver's pod proxy) dumps a live server's goroutines,
+  which is how to see a stall's holder.
 - **ffgo maps FFmpeg at package init, and a stale shim is silently wrong.** Any
   binary or test that links ffgo has dlopened FFmpeg before `main`, through
   `LD_LIBRARY_PATH` and a fixed list of system paths, and ffgo's loader
