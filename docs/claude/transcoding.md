@@ -303,6 +303,32 @@ changes only for a file the rule names. Tests:
 `TestTheTaskCarriesTheFilesLanguages` and `TestTheFilesLanguagesReachThePlan`,
 `importplan`'s `TestTheInspectTaskCarriesTheGrabsLanguages`; no test runs
 the engine on a real file with an untagged track.
+**A file's one untagged audio track is the language its record names
+(owner, 2026-11-27: "Treat a file's single untagged track as the language
+its record already names. The untagged language default is only suitable
+(and only partially) for dual language where the original lang is already
+tagged").** The default was "an untagged track may be the wanted language",
+so its file never lacked one: 139 One Piece episodes from HorribleSubs and
+Erai-raws, one Japanese track each with no tag, read as unknown, counted as
+final, and no English was looked for. `decision.FileAudioLanguages(mi,
+spec.languages)`: one audio track, untagged ("", und, unk), and a record
+naming exactly one language the catalogue carries -- the track is that
+language's. It is what `rollup.ProbedAudioLanguages` returns (the item's
+`status.audio`, WrongLanguage, the cutoff, `decision.Current`), what
+importplan reads of an existing file, and what an inspection reports of an
+incoming one (`summaryOf`, by the languages it will freeze). Every other
+untagged shape stays unknown: the original tagged beside an untagged track
+(the dub may be it; `nameUntagged` names it where the record says which),
+several untagged tracks, a record naming none or several. The file is not
+rewritten: its track stays untagged on disk (the graft worker already takes
+a target's one untagged track as the anchor, `donoraudio.Pick`), and the
+transcode standard is unchanged. On talos 1,410 files were of the shape
+(tv 1,096, anime 298, movies 16). A record's language is its name's reading
+for a scanned file, so a word in an episode title can be it: four files
+read Chinese, French or Spanish for "The Chinese Woman" (Seinfeld) and
+three Mister Rogers episodes, and now show WrongLanguage. Tests:
+`TestFileAudioLanguagesNameASingleUntaggedTrack` and
+`TestASingleUntaggedTrackIsTheRecordedLanguage` (both falsified).
 The size limit
 holds an encode only: a remux adds the AAC 2.0 companion, so it is a little
 larger by design (`worker.outputTooLarge`), and an encode of an AV1

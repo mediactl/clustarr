@@ -24,6 +24,7 @@ import (
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
 // LacksLanguage reports whether a file whose probed audio languages are
@@ -203,4 +204,35 @@ func AudioLanguages(mi *common.MediaInfo) []string {
 		}
 	}
 	return out
+}
+
+// FileAudioLanguages is AudioLanguages for a file whose record names its
+// languages (MediaFile.spec.languages, in the catalogue's names): where the
+// probe leaves them unknown because the file's one audio track carries no
+// tag, and the record names exactly one language, the track is that
+// language's (owner, 2026-11-27: "Treat a file's single untagged track as
+// the language its record already names. The untagged language default is
+// only suitable (and only partially) for dual language where the original
+// lang is already tagged"). On talos 139 One Piece episodes from
+// HorribleSubs and Erai-raws, one Japanese track each with no tag, read as
+// unknown, so they counted as final and no English was looked for; 1,410
+// files in the library were of that shape. Every other untagged shape --
+// several tracks, or a record naming none or several languages -- stays
+// unknown, as AudioLanguages leaves it: there an untagged track may be the
+// wanted language (the dub beside a tagged original), which the transcode
+// names where it can (standard.nameUntagged).
+func FileAudioLanguages(mi *common.MediaInfo, recorded []string) []string {
+	out := AudioLanguages(mi)
+	if out != nil || mi == nil || len(mi.Audio) != 1 || len(recorded) != 1 {
+		return out
+	}
+	tag, ok := catalogue.LanguageTag(recorded[0])
+	if !ok {
+		return nil
+	}
+	t, ok := lang.Normalize(tag)
+	if !ok {
+		return nil
+	}
+	return []string{string(t)}
 }

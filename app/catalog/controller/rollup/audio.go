@@ -26,13 +26,15 @@ import (
 	"github.com/mediactl/clustarr/pkg/decision"
 )
 
-// ProbedAudioLanguages is decision.AudioLanguages over mf's probe: its
-// audio languages as canonical BCP-47 tags, or nil when not all are known.
+// ProbedAudioLanguages is decision.FileAudioLanguages over mf's probe and
+// record: its audio languages as canonical BCP-47 tags, a single untagged
+// track read as the one language spec.languages names, or nil when not all
+// are known.
 func ProbedAudioLanguages(mf *catalogv1alpha1.MediaFile) []string {
 	if mf == nil {
 		return nil
 	}
-	return decision.AudioLanguages(mf.Status.MediaInfo)
+	return decision.FileAudioLanguages(mf.Status.MediaInfo, mf.Spec.Languages)
 }
 
 // AudioLanguagesObject is ProbedAudioLanguages as a watch key, for

@@ -487,8 +487,10 @@ func bitDepth(mi *commonv1.MediaInfo) int32 {
 	return mi.VideoBitDepth
 }
 
-// summaryOf is a probe as an inspection reports it.
-func summaryOf(mi *commonv1.MediaInfo) *schema.ProbeSummary {
+// summaryOf is a probe as an inspection reports it; recorded are the
+// languages the file's record will name (its frozen spec.languages), which
+// name a single untagged audio track (decision.FileAudioLanguages).
+func summaryOf(mi *commonv1.MediaInfo, recorded []string) *schema.ProbeSummary {
 	if mi == nil {
 		return nil
 	}
@@ -496,7 +498,7 @@ func summaryOf(mi *commonv1.MediaInfo) *schema.ProbeSummary {
 		VideoCodec: mi.VideoCodec, Width: mi.Width, Height: mi.Height, HDR: string(mi.Hdr),
 		DisplayAspectMilli: mi.DisplayAspectMilli,
 		VideoBitDepth:      bitDepth(mi),
-		AudioLanguages:     decision.AudioLanguages(mi),
+		AudioLanguages:     decision.FileAudioLanguages(mi, recorded),
 		DurationSeconds:    mi.RuntimeMillis / 1000,
 		Transcoded:         mi.TranscodeProfile != "" || mi.TranscodedElsewhere(),
 		ProfileTag:         mi.TranscodeProfile,
@@ -630,7 +632,7 @@ func (w *Worker) movieVisit(
 			insp.Files = append(insp.Files, f)
 			return nil
 		}
-		f.Parsed, f.Probe = factsOf(v.parsed), summaryOf(v.mi)
+		f.Parsed, f.Probe = factsOf(v.parsed), summaryOf(v.mi, v.parsed.Languages)
 		f.Frozen = frozenFields(v, prof)
 		nctx := catalogctx.File(ctx, base, frozenSpec(f.Frozen, title), v.mi)
 		dest, derr := catalogctx.MovieFilePath(rf, movie, nctx, catalogctx.ContainerExt(v.mi, path))
@@ -834,7 +836,7 @@ func (w *Worker) inspectEpisodes(
 			insp.Files = append(insp.Files, f)
 			return nil
 		}
-		f.Probe = summaryOf(v.mi)
+		f.Probe = summaryOf(v.mi, v.parsed.Languages)
 		f.Frozen = frozenFields(v, plan.profile)
 		nctx, _ := catalogctx.Episode(series, episodesFor(eps))
 		nctx.Language = language
@@ -971,7 +973,7 @@ func (w *Worker) inspectDonor(
 		return err
 	}
 	insp.Files = append(insp.Files, schema.InspectedFile{
-		Path: src, SizeBytes: info.Size(), Probe: summaryOf(mi),
+		Path: src, SizeBytes: info.Size(), Probe: summaryOf(mi, nil),
 		Proposed: &schema.ItemRef{Kind: objectKind(kindOf(item.obj)), Ref: schema.Ref{
 			Namespace: ns, Name: item.obj.GetName(), UID: string(item.obj.GetUID()),
 		}},

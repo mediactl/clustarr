@@ -159,3 +159,36 @@ func TestAGraftIsOpenUntilItsDonorSearchesRunOut(t *testing.T) {
 		})
 	}
 }
+
+// A file's one untagged track is the language its record names, so an item
+// whose file is a subbed Japanese release with no audio tag lacks English
+// and is grafted, where it read as unknown and final (talos, 2026-11-27:
+// 139 One Piece episodes; decision.FileAudioLanguages).
+func TestASingleUntaggedTrackIsTheRecordedLanguage(t *testing.T) {
+	p := &quality.Profile{AudioLanguages: []string{"en", "original"}, GraftAudio: true, AudioCompleteFirst: true}
+	file := func(recorded []string, langs ...string) *catalogv1alpha1.MediaFile {
+		var a []commonv1.AudioStream
+		for _, l := range langs {
+			a = append(a, commonv1.AudioStream{Language: l})
+		}
+		return &catalogv1alpha1.MediaFile{
+			Spec:   catalogv1alpha1.MediaFileSpec{Languages: recorded},
+			Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{Audio: a}},
+		}
+	}
+
+	subbed := file([]string{"Japanese"}, "und")
+	require.Equal(t, []string{"ja"}, rollup.ProbedAudioLanguages(subbed))
+	st := rollup.AudioStateFor(p, "ja", subbed, rollup.GraftObservation{})
+	require.Equal(t, []string{"ja"}, st.Present)
+	require.Equal(t, []string{"en"}, st.Missing)
+	require.Equal(t, "searching", st.Graft)
+	require.Equal(t, "ja", rollup.GraftAnchor("ja", st))
+
+	// The original tagged beside an untagged track stays unknown: the
+	// untagged one may be the dub.
+	require.Nil(t, rollup.ProbedAudioLanguages(file([]string{"Japanese"}, "jpn", "und")))
+	require.Empty(t, rollup.AudioStateFor(p, "ja", file([]string{"Japanese"}, "jpn", "und"), rollup.GraftObservation{}).Missing)
+	// A record naming two languages names neither for one track.
+	require.Nil(t, rollup.ProbedAudioLanguages(file([]string{"English", "Japanese"}, "und")))
+}

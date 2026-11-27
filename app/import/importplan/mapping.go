@@ -206,7 +206,7 @@ func verdictRejection(p quality.Profile, e *catalogv1alpha1.DownloadEntry, actua
 // profile's language (decision.LacksLanguage) and the incoming file's own
 // probe carries it (anime dual-audio spec §5.3).
 func replacesWrongLanguage(p quality.Profile, originalTag string, existing *catalogv1alpha1.MediaFile, incoming *schema.ProbeSummary) bool {
-	have := decision.AudioLanguages(existing.Status.MediaInfo)
+	have := decision.FileAudioLanguages(existing.Status.MediaInfo, existing.Spec.Languages)
 	if !decision.LacksLanguage(p, originalTag, have) {
 		return false
 	}
@@ -232,7 +232,7 @@ func replacesWrongLanguage(p quality.Profile, originalTag string, existing *cata
 func audioFill(p quality.Profile, originalTag string, existing []catalogv1alpha1.MediaFile, incoming *schema.ProbeSummary) (fills bool, mislabelled []string) {
 	replaceable, incomplete := 0, 0
 	for i := range existing {
-		audio := decision.AudioLanguages(existing[i].Status.MediaInfo)
+		audio := decision.FileAudioLanguages(existing[i].Status.MediaInfo, existing[i].Spec.Languages)
 		if decision.AudioUpgradeable(p, originalTag, audio) {
 			replaceable++
 		}
@@ -341,7 +341,7 @@ func packRefit(p quality.Profile, originalTag string, e *catalogv1alpha1.Downloa
 		if mf.Spec.ImportedFrom == nil || !singleEpisodeRelease(mf.Spec.ImportedFrom.ReleaseTitle) {
 			return false
 		}
-		if have := decision.AudioLanguages(mf.Status.MediaInfo); have != nil {
+		if have := decision.FileAudioLanguages(mf.Status.MediaInfo, mf.Spec.Languages); have != nil {
 			had := policyLanguagesMissing(p, originalTag, have)
 			for l := range lacks {
 				if !had[l] {
