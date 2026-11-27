@@ -38,7 +38,7 @@ import (
 func TestPhaseInputsReadTheAudiobook(t *testing.T) {
 	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	fresh := func(release *metav1.Time) *catalogv1alpha1.AudiobookMetadata {
-		return &catalogv1alpha1.AudiobookMetadata{Title: "Guards! Guards!", ReleaseDate: release, RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: metadata.SchemaVersion}
+		return &catalogv1alpha1.AudiobookMetadata{Title: "Guards! Guards!", ReleaseDate: release, RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: metadata.SchemaVersion(commonv1.MediaKindAudiobook)}
 	}
 	dated := func(d int) *metav1.Time { t := metav1.NewTime(now.AddDate(0, 0, d)); return &t }
 	grab := &catalogv1alpha1.PendingGrab{}
@@ -88,9 +88,9 @@ func TestMetadataStaleIsTheAudiobooksRefreshRule(t *testing.T) {
 		stale, outdated bool
 	}{
 		{"no document", nil, true, false},
-		{"fresh", md(time.Hour, metadata.SchemaVersion), false, false},
-		{"past its TTL", md(ttl+time.Minute, metadata.SchemaVersion), true, false},
-		{"recent but written before the gateway learned a field", md(time.Hour, metadata.SchemaVersion-1), false, true},
+		{"fresh", md(time.Hour, metadata.SchemaVersion(commonv1.MediaKindAudiobook)), false, false},
+		{"past its TTL", md(ttl+time.Minute, metadata.SchemaVersion(commonv1.MediaKindAudiobook)), true, false},
+		{"recent but written before the gateway learned a field", md(time.Hour, metadata.SchemaVersion(commonv1.MediaKindAudiobook)-1), false, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -110,7 +110,7 @@ func TestIdleInputsReadTheAudiobook(t *testing.T) {
 		Status: catalogv1alpha1.AudiobookStatus{
 			ObservedGeneration: 2,
 			Phase:              catalogv1alpha1.AudiobookPhaseUnmonitored,
-			Metadata:           &catalogv1alpha1.AudiobookMetadata{RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: metadata.SchemaVersion},
+			Metadata:           &catalogv1alpha1.AudiobookMetadata{RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: metadata.SchemaVersion(commonv1.MediaKindAudiobook)},
 			Conditions:         []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue}, {Type: "BookRefResolved", Status: metav1.ConditionTrue}},
 		},
 	}

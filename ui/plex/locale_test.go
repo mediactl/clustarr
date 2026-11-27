@@ -88,3 +88,16 @@ func TestSeasonPostersFollowTheStoredOrder(t *testing.T) {
 	s.Spec.EpisodeOrder = ""
 	assert.Equal(t, "https://artworks.thetvdb.com/s1-aired.jpg", seasonPoster(s, 1))
 }
+
+// A series rated by translation stores a US rating no country published
+// (owner, 2026-11-27: Germany's 16+ read as TV-MA for Maria the Virgin
+// Witch): Plex shows it as a US rating, and a client in a country that has
+// a published one is still shown that.
+func TestContentRatingShowsATranslatedRatingAsTheUSOne(t *testing.T) {
+	certs := []catalogv1.Certification{{Country: "DE", Rating: "16+"}}
+	stored := catalogv1.Certification{Country: "US", Rating: "TV-MA"}
+	assert.Equal(t, "TV-MA", contentRating(certs, stored, locale{Country: "US"}))
+	assert.Equal(t, "TV-MA", contentRating(certs, stored, locale{}))
+	assert.Equal(t, "TV-MA", contentRating(certs, stored, locale{Country: "FR"}))
+	assert.Equal(t, "de/16+", contentRating(certs, stored, locale{Country: "DE"}))
+}

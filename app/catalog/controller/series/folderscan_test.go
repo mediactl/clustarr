@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -59,7 +61,7 @@ func scannedSeries(ns string, status catalogv1alpha1.SeriesStatus) *catalogv1alp
 	status.ObservedGeneration, status.AddOptionsApplied = 1, true
 	status.Metadata = &catalogv1alpha1.SeriesMetadata{
 		Title: "Breaking Bad", Year: 2008, RefreshedAt: metav1.NewTime(now),
-		Status: catalogv1alpha1.SeriesRunStatusEnded, SchemaVersion: metadata.SchemaVersion,
+		Status: catalogv1alpha1.SeriesRunStatusEnded, SchemaVersion: metadata.SchemaVersion(commonv1.MediaKindSeries),
 	}
 	return &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "breaking-bad-81189", UID: "series-uid", Generation: 1},

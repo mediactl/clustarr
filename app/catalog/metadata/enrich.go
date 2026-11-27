@@ -106,6 +106,7 @@ func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaK
 		}
 		s.Keywords = extras.Keywords
 		s.Images = withExtraImages(s.Images, extras.Images, s.Language)
+		withExtraCertifications(s, extras)
 	}
 
 	// An artist's or author's biography when its own provider gave none
@@ -441,11 +442,40 @@ func withExtraImages(own, extra []pkgmetadata.Image, language string) []pkgmetad
 	return out
 }
 
+// withExtraCertifications gives a series its TMDB tv record's age ratings
+// for the countries its own provider has none for, and chooses its rating
+// again from the two together (owner, 2026-11-27: "Why do many anime
+// series not have a content rating? Can we retrieve this from tmdb? e.g.
+// Maria the Virgin Witch", then "Build it and also translate foreign only
+// ratings like MA 15+ as TV-MA"). The order is the series provider's:
+// the region's, else the origin country's, else the US one, else another
+// country's translated to the US television scale
+// (pkgmetadata.PickSeriesCertification).
+//
+// A published rating the series provider chose stands in for the origin
+// step, since it is the origin's or the US's when it is not the region's:
+// so a rating TheTVDB had is replaced by the region's alone, never by one
+// lower in the order. Chosen from nothing published -- none, or a
+// translation -- the origin is the tv record's.
+func withExtraCertifications(s *pkgmetadata.Series, extras pkgmetadata.SeriesExtras) {
+	if len(extras.Certifications) == 0 {
+		return
+	}
+	own := pkgmetadata.Certification{Country: s.CertificationCountry, Rating: s.Certification}
+	origin := extras.OriginCountry
+	if pkgmetadata.CertificationPublished(s.Certifications, own) {
+		origin = own.Country
+	}
+	s.Certifications = pkgmetadata.MergeCertifications(s.Certifications, extras.Certifications)
+	cert := pkgmetadata.PickSeriesCertification(s.Certifications, extras.Region, origin)
+	s.Certification, s.CertificationCountry = cert.Rating, cert.Country
+}
+
 // seriesExtras asks each extras provider in turn for a series' tagline,
-// keywords and images (TheTVDB has no tagline or keywords and few images;
-// TMDB's tv record has them, spec 2026-09-30 §3.4), with the ids the
-// crosswalk settled on. Best effort: a failure, or
-// an empty answer, asks the next.
+// keywords, images and age ratings (TheTVDB has no tagline or keywords,
+// few images and often no US rating; TMDB's tv record has them, spec
+// 2026-09-30 §3.4), with the ids the crosswalk settled on. Best effort: a
+// failure, or an empty answer, asks the next.
 func seriesExtras(ctx context.Context, providers []pkgmetadata.SeriesExtrasProvider, ids pkgmetadata.ExternalIDs) pkgmetadata.SeriesExtras {
 	for _, p := range providers {
 		tctx, span := tracing.Start(ctx, "metadata.SeriesExtrasProvider.SeriesExtras")
@@ -454,7 +484,7 @@ func seriesExtras(ctx context.Context, providers []pkgmetadata.SeriesExtrasProvi
 			tracing.RecordError(span, err)
 		}
 		span.End()
-		if err == nil && (x.Tagline != "" || len(x.Keywords) > 0 || len(x.Images) > 0) {
+		if err == nil && (x.Tagline != "" || len(x.Keywords) > 0 || len(x.Images) > 0 || len(x.Certifications) > 0) {
 			return x
 		}
 	}

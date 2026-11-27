@@ -51,6 +51,7 @@ func (rec *recorded) client(t *testing.T) *tmdb.Client {
 		"/movie/372058|ja":    "movie-372058-ja.json",
 		"/tv/57243|en-US":     "tv-57243.json",
 		"/tv/298831|en-US":    "tv-298831.json",
+		"/tv/62157|en-US":     "tv-62157.json",
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Path + "|" + r.URL.Query().Get("language")
@@ -189,6 +190,39 @@ func TestSeriesExtrasComeFromTMDBsTVRecord(t *testing.T) {
 	x, err = rec.client(t).SeriesExtras(context.Background(), metadata.ExternalIDs{metadata.KeyTVDB: "78804"})
 	require.NoError(t, err, "no TMDB id: nothing to ask")
 	assert.Equal(t, metadata.SeriesExtras{}, x)
+}
+
+// A series' age ratings come with its extras, in the same request, with
+// the region and origin country they are chosen by (owner, 2026-11-27:
+// "Why do many anime series not have a content rating? Can we retrieve
+// this from tmdb? e.g. Maria the Virgin Witch"). TheTVDB lists Germany's
+// 16+ alone for it; TMDB lists the US's TV-MA and seven more, and not
+// Germany's. Recorded 2026-11-27.
+func TestSeriesExtrasCarryTheTVRecordsAgeRatings(t *testing.T) {
+	rec := &recorded{}
+	x, err := rec.client(t).WithLocale("en", "us").SeriesExtras(context.Background(), metadata.ExternalIDs{metadata.KeyTMDB: "62157"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/tv/62157|en-US"}, rec.Requests(), "one request, the one the keywords came in")
+	assert.Equal(t, []metadata.Certification{
+		{Country: "US", Rating: "TV-MA"},
+		{Country: "AT", Rating: "14"},
+		{Country: "IE", Rating: "15"},
+		{Country: "CH", Rating: "16"},
+		{Country: "CA", Rating: "18+"},
+		{Country: "TW", Rating: "15+"},
+		{Country: "AU", Rating: "MA 15+"},
+		{Country: "BR", Rating: "16"},
+	}, x.Certifications)
+	assert.Equal(t, "US", x.Region)
+	assert.Equal(t, "JP", x.OriginCountry)
+
+	// A record recorded before the ratings were asked for has none, and
+	// names no region to choose by.
+	x, err = rec.client(t).WithLocale("en", "us").SeriesExtras(context.Background(), metadata.ExternalIDs{metadata.KeyTMDB: "57243"})
+	require.NoError(t, err)
+	assert.Empty(t, x.Certifications)
+	assert.Empty(t, x.Region)
+	assert.Empty(t, x.OriginCountry)
 }
 
 // A series' images come with its extras, in the same request: the logo in

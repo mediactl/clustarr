@@ -153,7 +153,7 @@ func TestArtistItemPath(t *testing.T) {
 	// The gateway's write wakes the item (the metadata.refreshedAt arm); the
 	// fan-out creates the accepted release group's Album.
 	metaAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(catalogac.ArtistStatus().WithMetadata(
-		catalogac.ArtistMetadata().WithName("Radiohead").WithRefreshedAt(metav1.Now()).WithSchemaVersion(pkgmetadata.SchemaVersion)))
+		catalogac.ArtistMetadata().WithName("Radiohead").WithRefreshedAt(metav1.Now()).WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindArtist))))
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 

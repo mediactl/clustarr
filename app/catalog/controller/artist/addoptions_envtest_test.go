@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -89,7 +91,7 @@ func TestTheFirstAlbumFanOutAppliesTheAddTimeMonitorMode(t *testing.T) {
 	// its write wakes: the one fetch, the Album under the add-time mode,
 	// and the flag recorded with that first complete fan-out.
 	metaAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(catalogac.ArtistStatus().WithMetadata(
-		catalogac.ArtistMetadata().WithName("Radiohead").WithRefreshedAt(metav1.Now()).WithSchemaVersion(pkgmetadata.SchemaVersion)))
+		catalogac.ArtistMetadata().WithName("Radiohead").WithRefreshedAt(metav1.Now()).WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindArtist))))
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {

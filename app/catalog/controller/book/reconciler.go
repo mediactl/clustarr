@@ -441,7 +441,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 		// never drops out of Ready for a schema bump.
 		if outdated {
 			k8s.MarkTrue(bk, &conditions, catalogv1alpha1.BookConditionMetadataReady, "Upgrading",
-				"metadata schema %d is older than %d; refreshing once", bk.Status.Metadata.SchemaVersion, pkgmetadata.SchemaVersion)
+				"metadata schema %d is older than %d; refreshing once", bk.Status.Metadata.SchemaVersion, pkgmetadata.SchemaVersion(commonv1.MediaKindBook))
 		} else {
 			k8s.MarkFalse(bk, &conditions, catalogv1alpha1.BookConditionMetadataReady, "Refreshing", "metadata refresh requested")
 		}

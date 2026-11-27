@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -88,7 +90,7 @@ func TestTheFirstBookFanOutAppliesTheAddTimeMonitorMode(t *testing.T) {
 	// its write wakes: the one fetch, the Book under the add-time mode, and
 	// the flag recorded with that first complete fan-out.
 	metaAC := catalogac.Author(a.Name, a.Namespace).WithStatus(catalogac.AuthorStatus().WithMetadata(
-		catalogac.AuthorMetadata().WithName("J. R. R. Tolkien").WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion)))
+		catalogac.AuthorMetadata().WithName("J. R. R. Tolkien").WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion(commonv1.MediaKindAuthor))))
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {

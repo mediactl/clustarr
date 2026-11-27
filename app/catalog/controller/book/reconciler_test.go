@@ -247,7 +247,7 @@ func createBookProfile(t *testing.T, ctx context.Context, c client.Client, name 
 // to see it. Without one a Book reads Pending whatever its files say (design
 // D4: metadata not ready), so a fixture that wants Wanted, Imported or
 // CutoffUnmet seeds one first, as Movie's tests do. schemaVersion is the
-// document's status.metadata.schemaVersion: metadata.SchemaVersion for one
+// document's status.metadata.schemaVersion: a Book's metadata.SchemaVersion for one
 // the gateway writes today, 0 for one written before design D8 gave the six
 // non-video kinds a version, which is refreshed once while the Book stays
 // ready.
@@ -621,7 +621,7 @@ func TestBookReconcilerRealQualityCutoffEvaluation(t *testing.T) {
 		waitCached(t, ctx, c, bk)
 		// The cutoff is judged on a Book the gateway has answered: without
 		// a document it reads Pending whatever its file says (design D4).
-		seedMetadata(t, ctx, c, bk, "Guards! Guards!", metadata.SchemaVersion)
+		seedMetadata(t, ctx, c, bk, "Guards! Guards!", metadata.SchemaVersion(commonv1.MediaKindBook))
 		return bk
 	}
 	newMediaFile := func(name, bookName, qualityName string) {
@@ -713,7 +713,7 @@ func TestBookReconcilerFieldManagerNeverIncludesFanout(t *testing.T) {
 	// answer is seeded under its manager, as production's loop writes it.
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Author(a.Name, a.Namespace).WithStatus(
 		catalogac.AuthorStatus().WithMetadata(
-			catalogac.AuthorMetadata().WithName("Fan-out Author").WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion))))
+			catalogac.AuthorMetadata().WithName("Fan-out Author").WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion(commonv1.MediaKindAuthor)))))
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var got catalogv1alpha1.Author

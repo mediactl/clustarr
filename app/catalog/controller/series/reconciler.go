@@ -397,7 +397,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	// A recent document the gateway wrote before it learned a field is
 	// refreshed once, at once, and the item stays ready meanwhile: every
 	// item in an upgraded library would otherwise drop to Pending together.
-	outdated := !stale && s.Status.Metadata.SchemaVersion < metadata.SchemaVersion
+	outdated := !stale && s.Status.Metadata.SchemaVersion < metadata.SchemaVersion(commonv1.MediaKindSeries)
 
 	if stale || outdated {
 		// The task carries what the refresh asks for -- the item and its
@@ -432,7 +432,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		}
 		if outdated {
 			k8s.MarkTrue(s, &conditions, catalogv1alpha1.SeriesConditionMetadataReady, "Upgrading",
-				"metadata schema %d is older than %d; refreshing once", s.Status.Metadata.SchemaVersion, metadata.SchemaVersion)
+				"metadata schema %d is older than %d; refreshing once", s.Status.Metadata.SchemaVersion, metadata.SchemaVersion(commonv1.MediaKindSeries))
 		} else {
 			k8s.MarkFalse(s, &conditions, catalogv1alpha1.SeriesConditionMetadataReady, "Refreshing", "metadata refresh requested")
 		}

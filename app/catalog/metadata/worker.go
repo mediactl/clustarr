@@ -322,7 +322,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	if err != nil {
 		return events.Discard("metadata: encode the status.metadata block", err)
 	}
-	if err := h.answer(ctx, item, inputs, refreshed, block); err != nil {
+	if err := h.answer(ctx, item, task.MediaRef.Kind, inputs, refreshed, block); err != nil {
 		if errors.Is(err, records.ErrTooLarge) {
 			return events.Discard("metadata: the record is over the bucket's value limit", err)
 		}
@@ -408,14 +408,14 @@ func (h *Handler) writeExtended(ctx context.Context, kind commonv1.MediaKind, ta
 // the inputs the task asked for, the refresh time and the block, carrying
 // the fetcher's artwork failures forward. The writer re-reads before its
 // compare-and-swap.
-func (h *Handler) answer(ctx context.Context, item schema.ItemRef, inputs schema.MetadataInputs,
+func (h *Handler) answer(ctx context.Context, item schema.ItemRef, kind commonv1.MediaKind, inputs schema.MetadataInputs,
 	refreshed time.Time, block json.RawMessage,
 ) error {
 	if h.Records == nil {
 		return errors.New("metadata: no item-metadata records writer")
 	}
 	_, err := h.Records.Update(ctx, agentrecords.ItemMetadataKey(item.UID), func(cur *schema.ItemMetadataRecord, ok bool) (*schema.ItemMetadataRecord, bool) {
-		next := &schema.ItemMetadataRecord{Inputs: inputs, RefreshedAt: refreshed, SchemaVersion: pkgmetadata.SchemaVersion, Metadata: block}
+		next := &schema.ItemMetadataRecord{Inputs: inputs, RefreshedAt: refreshed, SchemaVersion: pkgmetadata.SchemaVersion(kind), Metadata: block}
 		ref := item
 		next.Item = &ref
 		next.State = records.StateAnswered

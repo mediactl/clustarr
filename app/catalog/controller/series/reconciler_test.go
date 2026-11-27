@@ -630,7 +630,7 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 		}))
 		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series("bleach", "series-ns").WithStatus(
 			catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Bleach").WithGenres("Anime").
-				WithStatus(catalogv1alpha1.SeriesRunStatusEnded).WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion))))
+				WithStatus(catalogv1alpha1.SeriesRunStatusEnded).WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion(commonv1.MediaKindSeries)))))
 		require.NoError(t, err)
 		key := types.NamespacedName{Namespace: "series-ns", Name: "bleach"}
 		require.Eventually(t, func() bool {

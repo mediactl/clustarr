@@ -535,7 +535,10 @@ func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region, 
 			s.Certifications = append(s.Certifications, metadata.Certification{Country: code, Rating: cr.Name})
 		}
 	}
-	cert := metadata.PickCertification(s.Certifications, region, origin)
+	// A series with no rating in the region, its own country or the US
+	// takes another country's, translated (PickSeriesCertification); the
+	// gateway chooses again when TMDB's tv record adds countries.
+	cert := metadata.PickSeriesCertification(s.Certifications, region, origin)
 	s.Certification, s.CertificationCountry = cert.Rating, cert.Country
 	s.People = mapCharacters(d.Characters)
 	type seasonKey struct {

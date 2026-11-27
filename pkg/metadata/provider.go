@@ -305,6 +305,16 @@ type SeriesExtras struct {
 	// the language TMDB tags it with ("" for one without text), best first
 	// within a type. They follow the series provider's own.
 	Images []Image
+	// Certifications are the tv record's age ratings, one per country
+	// (TMDB's content_ratings), for the countries the series provider has
+	// none for (owner, 2026-11-27: TheTVDB lists Germany's alone for Maria
+	// the Virgin Witch, TMDB the US's TV-MA and seven more). Region is the
+	// region the provider is configured for and OriginCountry the tv
+	// record's first origin country, both ISO 3166-1 alpha-2: what the
+	// series' rating is chosen again with once the two lists are one.
+	Certifications []Certification
+	Region         string
+	OriginCountry  string
 }
 
 // SeriesExtrasProvider supplies a series' extras from TMDB's tv record,

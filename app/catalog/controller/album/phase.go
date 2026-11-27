@@ -106,7 +106,7 @@ func MetadataStale(alb *catalogv1alpha1.Album, now time.Time) (stale, outdated b
 	}
 	ttl := pkgmetadata.RefreshTTL(commonv1.MediaKindAlbum, pkgmetadata.RefreshStateActive, md.RefreshedAt.Time)
 	stale = now.Sub(md.RefreshedAt.Time) >= ttl+pkgmetadata.RefreshSpread(ttl, string(alb.UID))
-	return stale, !stale && md.SchemaVersion < pkgmetadata.SchemaVersion
+	return stale, !stale && md.SchemaVersion < pkgmetadata.SchemaVersion(commonv1.MediaKindAlbum)
 }
 
 // RefreshIn is how long from now the Album's pass is owed again for its

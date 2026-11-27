@@ -79,7 +79,7 @@ func MetadataStale(m *catalogv1alpha1.Audiobook, now time.Time) (stale, outdated
 	}
 	ttl := metadata.RefreshTTL(commonv1.MediaKindAudiobook, metadata.RefreshStateActive, md.RefreshedAt.Time)
 	stale = now.Sub(md.RefreshedAt.Time) >= ttl
-	return stale, !stale && md.SchemaVersion < metadata.SchemaVersion
+	return stale, !stale && md.SchemaVersion < metadata.SchemaVersion(commonv1.MediaKindAudiobook)
 }
 
 // IdleInputs is the Audiobook's view for rollup.LeafIdleAtStart, the

@@ -335,7 +335,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 	// item in an upgraded library would otherwise drop to Pending together
 	// (Movie's rule; the 2026-11-10 design D8 gives every kind a
 	// schemaVersion).
-	outdated := !stale && c.Status.Metadata.SchemaVersion < metadata.SchemaVersion
+	outdated := !stale && c.Status.Metadata.SchemaVersion < metadata.SchemaVersion(commonv1.MediaKindComic)
 
 	if stale || outdated {
 		// The task carries what the refresh asks for -- the item and its
@@ -371,7 +371,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 		// never drops out of Ready for a schema bump.
 		if outdated {
 			k8s.MarkTrue(c, &conditions, catalogv1alpha1.ComicConditionMetadataReady, "Upgrading",
-				"metadata schema %d is older than %d; refreshing once", c.Status.Metadata.SchemaVersion, metadata.SchemaVersion)
+				"metadata schema %d is older than %d; refreshing once", c.Status.Metadata.SchemaVersion, metadata.SchemaVersion(commonv1.MediaKindComic))
 		} else {
 			k8s.MarkFalse(c, &conditions, catalogv1alpha1.ComicConditionMetadataReady, "Refreshing", "metadata refresh requested")
 		}

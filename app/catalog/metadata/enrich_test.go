@@ -480,15 +480,125 @@ func ratingsBySource(ratings []catalogv1alpha1.Rating) map[catalogv1alpha1.Ratin
 type stubExtrasProvider struct {
 	tagline  string
 	keywords []string
-	err      error
-	asked    *[]pkgmetadata.ExternalIDs
+	// certifications, region and origin are a tv record's age ratings and
+	// what they are chosen by.
+	certifications []pkgmetadata.Certification
+	region, origin string
+	err            error
+	asked          *[]pkgmetadata.ExternalIDs
 }
 
 func (s stubExtrasProvider) SeriesExtras(_ context.Context, ids pkgmetadata.ExternalIDs) (pkgmetadata.SeriesExtras, error) {
 	if s.asked != nil {
 		*s.asked = append(*s.asked, ids)
 	}
-	return pkgmetadata.SeriesExtras{Tagline: s.tagline, Keywords: s.keywords}, s.err
+	return pkgmetadata.SeriesExtras{
+		Tagline: s.tagline, Keywords: s.keywords,
+		Certifications: s.certifications, Region: s.region, OriginCountry: s.origin,
+	}, s.err
+}
+
+// A series' rating is chosen again once TMDB's tv record has added the
+// countries TheTVDB has none for (owner, 2026-11-27, of Maria the Virgin
+// Witch: TheTVDB lists Germany's 16+ alone, so the series had no rating;
+// "Build it and also translate foreign only ratings like MA 15+ as
+// TV-MA"). The series documents are what the TheTVDB client hands the
+// gateway (PickSeriesCertification) and the tv records what the TMDB one
+// does (TestSeriesExtrasCarryTheTVRecordsAgeRatings).
+func TestEnrichChoosesASeriesRatingFromBothProviders(t *testing.T) {
+	cert := func(country, rating string) pkgmetadata.Certification {
+		return pkgmetadata.Certification{Country: country, Rating: rating}
+	}
+	// What the TheTVDB client gives a series whose ratings are tvdb, in a
+	// US region.
+	fromTVDB := func(origin string, tvdb ...pkgmetadata.Certification) *pkgmetadata.Series {
+		picked := pkgmetadata.PickSeriesCertification(tvdb, "US", origin)
+		return &pkgmetadata.Series{
+			IDs:            pkgmetadata.ExternalIDs{"tvdb": "286856", "tmdb": "62157"},
+			Certifications: tvdb, Certification: picked.Rating, CertificationCountry: picked.Country,
+		}
+	}
+	maria := []pkgmetadata.Certification{
+		cert("US", "TV-MA"), cert("AT", "14"), cert("IE", "15"), cert("CH", "16"),
+		cert("CA", "18+"), cert("TW", "15+"), cert("AU", "MA 15+"), cert("BR", "16"),
+	}
+	for _, tc := range []struct {
+		name      string
+		doc       *pkgmetadata.Series
+		tmdb      []pkgmetadata.Certification
+		origin    string
+		want      pkgmetadata.Certification
+		wantCerts []pkgmetadata.Certification
+	}{
+		{
+			name: "Maria the Virgin Witch: the US rating is TMDB's, and published",
+			doc:  fromTVDB("JP", cert("DE", "16+")), tmdb: maria, origin: "JP",
+			want:      cert("US", "TV-MA"),
+			wantCerts: append([]pkgmetadata.Certification{cert("DE", "16+")}, maria...),
+		},
+		{
+			name: "no US rating on either: Australia's, translated",
+			doc:  fromTVDB("JP"), tmdb: []pkgmetadata.Certification{cert("BR", "14"), cert("AU", "M")}, origin: "JP",
+			want:      cert("US", "TV-14"),
+			wantCerts: []pkgmetadata.Certification{cert("BR", "14"), cert("AU", "M")},
+		},
+		{
+			name: "TheTVDB's own US rating stands over TMDB's",
+			doc:  fromTVDB("JP", cert("US", "TV-14")), tmdb: maria, origin: "JP",
+			want:      cert("US", "TV-14"),
+			wantCerts: append([]pkgmetadata.Certification{cert("US", "TV-14")}, maria[1:]...),
+		},
+		{
+			name: "the origin country's from TheTVDB gives way to the region's from TMDB",
+			doc:  fromTVDB("KR", cert("KR", "15")), tmdb: []pkgmetadata.Certification{cert("US", "TV-MA")}, origin: "KR",
+			want:      cert("US", "TV-MA"),
+			wantCerts: []pkgmetadata.Certification{cert("KR", "15"), cert("US", "TV-MA")},
+		},
+		{
+			name: "and stays when TMDB has no region's: published, never translated over",
+			doc:  fromTVDB("KR", cert("KR", "15")), tmdb: []pkgmetadata.Certification{cert("AU", "MA 15+")}, origin: "JP",
+			want:      cert("KR", "15"),
+			wantCerts: []pkgmetadata.Certification{cert("KR", "15"), cert("AU", "MA 15+")},
+		},
+		{
+			name: "a translation from TheTVDB's ratings gives way to the origin's from TMDB",
+			doc:  fromTVDB("KR", cert("DE", "12")), tmdb: []pkgmetadata.Certification{cert("KR", "15")}, origin: "KR",
+			want:      cert("KR", "15"),
+			wantCerts: []pkgmetadata.Certification{cert("DE", "12"), cert("KR", "15")},
+		},
+		{
+			name: "a tv record with no ratings leaves TheTVDB's translation alone",
+			doc:  fromTVDB("JP", cert("DE", "16+")), tmdb: nil, origin: "JP",
+			want:      cert("US", "TV-MA"),
+			wantCerts: []pkgmetadata.Certification{cert("DE", "16+")},
+		},
+		{
+			name: "nothing either can be read from: unrated",
+			doc:  fromTVDB("JP"), tmdb: []pkgmetadata.Certification{cert("TW", "6+")}, origin: "JP",
+			want:      pkgmetadata.Certification{},
+			wantCerts: []pkgmetadata.Certification{cert("TW", "6+")},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := &pkgmetadata.Registry{Extras: []pkgmetadata.SeriesExtrasProvider{
+				stubExtrasProvider{keywords: []string{"anime"}, certifications: tc.tmdb, region: "US", origin: tc.origin},
+			}}
+			enrich(context.Background(), reg, commonv1.MediaKindSeries, nil, nil, tc.doc)
+			require.Equal(t, tc.want, pkgmetadata.Certification{Country: tc.doc.CertificationCountry, Rating: tc.doc.Certification})
+			require.Equal(t, tc.wantCerts, tc.doc.Certifications)
+		})
+	}
+}
+
+// A tv record that carries age ratings and nothing else is still an answer.
+func TestSeriesExtrasWithOnlyAgeRatingsAreAnAnswer(t *testing.T) {
+	reg := &pkgmetadata.Registry{Extras: []pkgmetadata.SeriesExtrasProvider{
+		stubExtrasProvider{certifications: []pkgmetadata.Certification{{Country: "US", Rating: "TV-14"}}, region: "US"},
+	}}
+	doc := &pkgmetadata.Series{IDs: pkgmetadata.ExternalIDs{"tmdb": "1"}}
+	enrich(context.Background(), reg, commonv1.MediaKindSeries, nil, nil, doc)
+	require.Equal(t, "TV-14", doc.Certification)
+	require.Equal(t, "US", doc.CertificationCountry)
 }
 
 // TVDB has no taglines or keywords, so the gateway fills a series' from

@@ -38,7 +38,7 @@ import (
 func TestPhaseInputsReadTheBook(t *testing.T) {
 	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	fresh := func(release *metav1.Time) *catalogv1alpha1.BookMetadata {
-		return &catalogv1alpha1.BookMetadata{Title: "Dune", ReleaseDate: release, RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: metadata.SchemaVersion}
+		return &catalogv1alpha1.BookMetadata{Title: "Dune", ReleaseDate: release, RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: metadata.SchemaVersion(commonv1.MediaKindBook)}
 	}
 	dated := func(d int) *metav1.Time { t := metav1.NewTime(now.AddDate(0, 0, d)); return &t }
 	cases := []struct {
@@ -86,10 +86,10 @@ func TestMetadataStaleIsTheBooksRefreshRule(t *testing.T) {
 		stale, outdated bool
 	}{
 		{"no document", nil, true, false},
-		{"fresh", md(time.Hour, metadata.SchemaVersion), false, false},
-		{"past its TTL", md(ttl+time.Minute, metadata.SchemaVersion), true, false},
-		{"recent but written before the gateway learned a field", md(time.Hour, metadata.SchemaVersion-1), false, true},
-		{"past its TTL and old: stale alone, the refresh covers both", md(ttl+time.Minute, metadata.SchemaVersion-1), true, false},
+		{"fresh", md(time.Hour, metadata.SchemaVersion(commonv1.MediaKindBook)), false, false},
+		{"past its TTL", md(ttl+time.Minute, metadata.SchemaVersion(commonv1.MediaKindBook)), true, false},
+		{"recent but written before the gateway learned a field", md(time.Hour, metadata.SchemaVersion(commonv1.MediaKindBook)-1), false, true},
+		{"past its TTL and old: stale alone, the refresh covers both", md(ttl+time.Minute, metadata.SchemaVersion(commonv1.MediaKindBook)-1), true, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -109,7 +109,7 @@ func TestIdleInputsReadTheBook(t *testing.T) {
 		Status: catalogv1alpha1.BookStatus{
 			ObservedGeneration: 2,
 			Phase:              catalogv1alpha1.BookPhaseImported,
-			Metadata:           &catalogv1alpha1.BookMetadata{RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: metadata.SchemaVersion},
+			Metadata:           &catalogv1alpha1.BookMetadata{RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: metadata.SchemaVersion(commonv1.MediaKindBook)},
 			Conditions:         []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue}},
 		},
 	}

@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+
 	"github.com/stretchr/testify/require"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -69,7 +71,7 @@ func TestSeriesClassifiesAnimeOnce(t *testing.T) {
 		}))
 		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series(name, ns).WithStatus(
 			catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle(name).WithGenres(genres...).
-				WithStatus(catalogv1alpha1.SeriesRunStatusEnded).WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion))))
+				WithStatus(catalogv1alpha1.SeriesRunStatusEnded).WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion(commonv1.MediaKindSeries)))))
 		require.NoError(t, err)
 		key := types.NamespacedName{Namespace: ns, Name: name}
 		require.Eventually(t, func() bool {
@@ -194,7 +196,7 @@ func TestAnAnimeIsRoutedToTheAnimeRoot(t *testing.T) {
 		}))
 		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series(name, ns).WithStatus(
 			catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle(name).WithGenres(genres...).
-				WithStatus(catalogv1alpha1.SeriesRunStatusEnded).WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion))))
+				WithStatus(catalogv1alpha1.SeriesRunStatusEnded).WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion(commonv1.MediaKindSeries)))))
 		require.NoError(t, err)
 		key := types.NamespacedName{Namespace: ns, Name: name}
 		require.Eventually(t, func() bool {
@@ -291,7 +293,7 @@ func TestAnAnimeIsRoutedToTheAnimeRoot(t *testing.T) {
 	}))
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series("between-writes", ns).WithStatus(
 		catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("between-writes").WithGenres("Drama").
-			WithStatus(catalogv1alpha1.SeriesRunStatusEnded).WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion))))
+			WithStatus(catalogv1alpha1.SeriesRunStatusEnded).WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion(commonv1.MediaKindSeries)))))
 	require.NoError(t, err)
 	between := types.NamespacedName{Namespace: ns, Name: "between-writes"}
 	s = reconcileUntil(between, "a series under the anime root was never recorded", func(s catalogv1alpha1.Series) bool {

@@ -337,7 +337,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 				catalogac.MovieStatus().WithMetadata(
 					catalogac.MovieMetadata().WithTitle("Weekend").WithYear(2011).
 						WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()).
-						WithSchemaVersion(metadata.SchemaVersion-1),
+						WithSchemaVersion(metadata.SchemaVersion(commonv1.MediaKindMovie)-1),
 				),
 			))
 		require.NoError(t, err)

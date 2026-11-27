@@ -216,7 +216,10 @@ type SeriesMetadata struct {
 
 	// CertificationCountry is the ISO 3166-1 alpha-2 country Certification
 	// was chosen from (the region's, else the origin's, else the US), which
-	// the Plex provider prefixes the rating with outside the US.
+	// the Plex provider prefixes the rating with outside the US. "US" with
+	// no US entry in Certifications is a rating no country published:
+	// another country's read on the US television scale (Australia's
+	// MA 15+ as TV-MA), for a series rated in neither of the three.
 	// +optional
 	// +kubebuilder:validation:MaxLength=2
 	CertificationCountry string `json:"certificationCountry,omitempty"`
@@ -307,9 +310,10 @@ type SeriesMetadata struct {
 	// +kubebuilder:validation:MaxItems=5
 	Countries []string `json:"countries,omitempty"`
 
-	// Certifications are the series' age ratings, one per country (TVDB
-	// contentRatings). Certification is the one chosen for the configured
-	// region.
+	// Certifications are the series' age ratings as published, one per
+	// country (TVDB contentRatings, then TMDB content_ratings for the
+	// countries TVDB has none for). Certification is the one chosen for the
+	// configured region.
 	// +optional
 	// +kubebuilder:validation:MaxItems=60
 	// +listType=map

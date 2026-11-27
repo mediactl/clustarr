@@ -75,7 +75,7 @@ func MetadataStale(bk *catalogv1alpha1.Book, now time.Time) (stale, outdated boo
 	}
 	ttl := metadata.RefreshTTL(commonv1.MediaKindBook, "", md.RefreshedAt.Time)
 	stale = now.Sub(md.RefreshedAt.Time) >= ttl
-	return stale, !stale && md.SchemaVersion < metadata.SchemaVersion
+	return stale, !stale && md.SchemaVersion < metadata.SchemaVersion(commonv1.MediaKindBook)
 }
 
 // IdleInputs is the Book's view for rollup.LeafIdleAtStart, the Book watch's

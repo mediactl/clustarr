@@ -31,6 +31,7 @@ import (
 	"golang.org/x/time/rate"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
 )
@@ -92,25 +93,32 @@ func TestMovieImagesKeepEveryLanguageAndEveryProvider(t *testing.T) {
 	assert.Equal(t, *ac.Images[0].Type, catalogv1alpha1.ImageTypePoster, "the lead poster stays first")
 }
 
-// The gateway stamps every Movie and Series document with the current
-// schema version; one it left unstamped would read as outdated for ever and
-// refresh on every reconcile.
+// The gateway stamps every Movie and Series document with its kind's
+// current schema version; one it left unstamped, or stamped with another
+// kind's lower one, would read as outdated for ever and refresh on every
+// reconcile.
 func TestMovieAndSeriesDocumentsCarryTheSchemaVersion(t *testing.T) {
 	mv := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Weekend"}, nil, time.Now())
 	require.NotNil(t, mv.SchemaVersion)
-	assert.Equal(t, pkgmetadata.SchemaVersion, *mv.SchemaVersion)
+	assert.Equal(t, pkgmetadata.SchemaVersion(commonv1.MediaKindMovie), *mv.SchemaVersion)
 
 	sr := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Firefly"}, nil, time.Now())
 	require.NotNil(t, sr.SchemaVersion)
-	assert.Equal(t, pkgmetadata.SchemaVersion, *sr.SchemaVersion)
+	assert.Equal(t, pkgmetadata.SchemaVersion(commonv1.MediaKindSeries), *sr.SchemaVersion)
 }
 
-// The L2 cache key carries the schema version, so the one refresh an
+// The L2 cache key carries the kind's schema version, so the one refresh an
 // outdated document asks for is never answered from a document cached
-// before the gateway learned the field.
-func TestCacheKeyCarriesTheSchemaVersion(t *testing.T) {
+// before the gateway learned the field -- and a kind that learned nothing
+// keeps its keys: a Series' change empties no Album's cache (owner,
+// 2026-11-27: "Can we split this for each type?").
+func TestCacheKeyCarriesTheKindsSchemaVersion(t *testing.T) {
 	ids := pkgmetadata.ExternalIDs{"tmdb": "79120"}
-	assert.Contains(t, cacheKey("Movie", ids), ".v"+strconv.Itoa(int(pkgmetadata.SchemaVersion))+".")
+	for _, kind := range []commonv1.MediaKind{commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindAlbum, albumListKind} {
+		assert.Contains(t, cacheKey(kind, ids), ".v"+strconv.Itoa(int(pkgmetadata.SchemaVersion(kind)))+".", "%s", kind)
+	}
+	assert.Equal(t, "series.v10.tmdb=79120", cacheKey(commonv1.MediaKindSeries, ids))
+	assert.Equal(t, "album.v9.tmdb=79120", cacheKey(commonv1.MediaKindAlbum, ids), "the key the Albums' documents are cached under today")
 }
 
 // The gateway records the country of the certification it chose, which the

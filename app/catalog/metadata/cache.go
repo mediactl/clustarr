@@ -119,8 +119,9 @@ func cacheKey(kind commonv1.MediaKind, ids pkgmetadata.ExternalIDs) string {
 	for _, k := range keys {
 		parts = append(parts, events.KVKeyToken(k)+"="+events.KVKeyToken(ids[k]))
 	}
-	// The schema version keeps a refresh an outdated document asks for
-	// from being answered by a document cached before the gateway learned
-	// the field (pkg/metadata.SchemaVersion).
-	return events.KVKeyToken(string(kind)) + ".v" + strconv.Itoa(int(pkgmetadata.SchemaVersion)) + "." + strings.Join(parts, "_")
+	// The kind's schema version keeps a refresh an outdated document asks
+	// for from being answered by a document cached before the gateway
+	// learned the field (pkg/metadata.SchemaVersion); a kind that learned
+	// nothing keeps its keys.
+	return events.KVKeyToken(string(kind)) + ".v" + strconv.Itoa(int(pkgmetadata.SchemaVersion(kind))) + "." + strings.Join(parts, "_")
 }

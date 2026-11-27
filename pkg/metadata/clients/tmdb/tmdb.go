@@ -636,6 +636,10 @@ func mapImages(a *rawtmdb.MovieImagesAppend, lang string) []metadata.Image {
 // to Getting Even had TheTVDB's Japanese logo alone, so no logo and no
 // titled poster, where TMDB lists an English logo and two posters without
 // text; 160 of the 171 series without a logo had an English one here).
+// Its age ratings come in that request too (content_ratings), with the
+// region and origin country they are chosen by: TheTVDB lacks a US rating
+// for many series TMDB has one for (owner, 2026-11-27: 158 of the 210
+// unrated series on talos, 125 of them anime).
 func (c *Client) SeriesExtras(ctx context.Context, ids metadata.ExternalIDs) (metadata.SeriesExtras, error) {
 	ctx, span := tracing.Start(ctx, "metadata.tmdb.SeriesExtras")
 	defer span.End()
@@ -653,7 +657,7 @@ func (c *Client) SeriesExtras(ctx context.Context, ids metadata.ExternalIDs) (me
 	}
 	d, err := c.raw.GetTVDetails(id, map[string]string{
 		"language":               c.languageFor(c.region),
-		"append_to_response":     "keywords,images",
+		"append_to_response":     "keywords,images,content_ratings",
 		"include_image_language": c.baseLanguage() + ",null",
 	})
 	if err != nil {
@@ -665,6 +669,22 @@ func (c *Client) SeriesExtras(ctx context.Context, ids metadata.ExternalIDs) (me
 	if d.TVKeywordsAppend != nil && d.TVKeywordsAppend.Keywords.TVKeywords != nil && d.TVKeywordsAppend.Keywords.TVKeywords.TVKeywordsResults != nil {
 		for _, k := range d.TVKeywordsAppend.Keywords.TVKeywords.TVKeywordsResults.Results {
 			out.Keywords = appendKeyword(out.Keywords, k.Name)
+		}
+	}
+	if d.TVContentRatingsAppend != nil {
+		for _, cr := range d.ContentRatings.Results {
+			country, rating := strings.ToUpper(strings.TrimSpace(cr.Iso3166_1)), strings.TrimSpace(cr.Rating)
+			// "NR" is TMDB's "not rated", in any country: no rating.
+			if len(country) != 2 || rating == "" || strings.EqualFold(rating, "NR") {
+				continue
+			}
+			out.Certifications = metadata.MergeCertifications(out.Certifications, []metadata.Certification{{Country: country, Rating: rating}})
+		}
+	}
+	if len(out.Certifications) > 0 {
+		out.Region = c.region
+		if len(d.OriginCountry) > 0 {
+			out.OriginCountry = strings.ToUpper(d.OriginCountry[0])
 		}
 	}
 	return out, nil

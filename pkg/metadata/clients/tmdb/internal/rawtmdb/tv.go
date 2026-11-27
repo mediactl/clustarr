@@ -58,6 +58,18 @@ type TVDetails struct {
 	*TVKeywordsAppend
 	// A tv record's images in append_to_response have a movie's shape.
 	*MovieImagesAppend
+	*TVContentRatingsAppend
+}
+
+// TVContentRatingsAppend is content_ratings in append_to_response: the
+// show's age rating in each country that has one.
+type TVContentRatingsAppend struct {
+	ContentRatings struct {
+		Results []struct {
+			Iso3166_1 string `json:"iso_3166_1"`
+			Rating    string `json:"rating"`
+		} `json:"results"`
+	} `json:"content_ratings"`
 }
 
 // TVKeywordsAppend is keywords in append_to_response.

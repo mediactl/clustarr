@@ -52,12 +52,15 @@ const (
 
 // For is what a refresh of obj asks for: its provider ids (the ids the
 // gateway looks it up by), the document schema version this binary wants
-// (pkg/metadata.SchemaVersion), and -- while the operator's
+// of its kind (pkg/metadata.SchemaVersion), and -- while the operator's
 // clustarr.io/refresh-metadata annotation stands -- Force with its epoch.
 // obj must be one of the eight kinds with a status.metadata of their own;
 // any other reads as empty inputs.
 func For(obj client.Object) schema.MetadataInputs {
-	in := schema.MetadataInputs{ProviderIDs: providerIDs(obj), SchemaVersion: pkgmetadata.SchemaVersion}
+	in := schema.MetadataInputs{ProviderIDs: providerIDs(obj)}
+	if kind, _, ok := KindOf(obj); ok {
+		in.SchemaVersion = pkgmetadata.SchemaVersion(kind)
+	}
 	if v, ok := obj.GetAnnotations()[catalogv1alpha1.AnnotationRefreshMetadata]; ok {
 		if epoch, err := strconv.ParseInt(v, 10, 64); err == nil && epoch > 0 {
 			in.Force, in.RefreshEpoch = true, epoch

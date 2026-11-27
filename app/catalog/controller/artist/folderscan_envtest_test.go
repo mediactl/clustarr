@@ -228,7 +228,7 @@ func TestAScannedArtistScansItsFolderOnlyOnceEveryAlbumListsItsTracks(t *testing
 	// The gateway's document wakes the artist, whose fan-out lists its
 	// three albums.
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Artist(a.Name, ns).WithStatus(catalogac.ArtistStatus().WithMetadata(
-		catalogac.ArtistMetadata().WithName("Muse").WithRefreshedAt(metav1.Now()).WithSchemaVersion(pkgmetadata.SchemaVersion))))
+		catalogac.ArtistMetadata().WithName("Muse").WithRefreshedAt(metav1.Now()).WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindArtist)))))
 	require.NoError(t, err)
 
 	albumKeys := make([]types.NamespacedName, len(groups))
@@ -307,7 +307,7 @@ func TestAScannedArtistScansItsFolderOnlyOnceEveryAlbumListsItsTracks(t *testing
 		t.Helper()
 		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Album(albumKeys[i].Name, ns).WithStatus(
 			catalogac.AlbumStatus().WithMetadata(catalogac.AlbumMetadata().
-				WithTitle(fmt.Sprintf("Album %d", i+1)).WithRefreshedAt(metav1.NewTime(refreshed)).WithSchemaVersion(pkgmetadata.SchemaVersion))))
+				WithTitle(fmt.Sprintf("Album %d", i+1)).WithRefreshedAt(metav1.NewTime(refreshed)).WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindArtist)))))
 		require.NoError(t, err)
 	}
 	refreshed := time.Now().Add(-time.Hour).Truncate(time.Second)

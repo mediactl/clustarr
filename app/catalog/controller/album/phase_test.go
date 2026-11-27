@@ -43,7 +43,7 @@ import (
 func TestPhaseInputsReadTheAlbum(t *testing.T) {
 	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	fresh := func(release *metav1.Time) *catalogv1alpha1.AlbumMetadata {
-		return &catalogv1alpha1.AlbumMetadata{Title: "OK Computer", ReleaseDate: release, RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: pkgmetadata.SchemaVersion}
+		return &catalogv1alpha1.AlbumMetadata{Title: "OK Computer", ReleaseDate: release, RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: pkgmetadata.SchemaVersion(commonv1.MediaKindAlbum)}
 	}
 	dated := func(d int) *metav1.Time { t := metav1.NewTime(now.AddDate(0, 0, d)); return &t }
 	grab := &catalogv1alpha1.PendingGrab{}
@@ -119,10 +119,10 @@ func TestMetadataStaleIsTheAlbumsRefreshRule(t *testing.T) {
 		stale, outdated bool
 	}{
 		{"no document", nil, true, false},
-		{"fresh", md(time.Hour, pkgmetadata.SchemaVersion), false, false},
-		{"past its TTL, not yet its spread", md(ttl+time.Minute, pkgmetadata.SchemaVersion), false, false},
-		{"past its TTL and its spread", md(ttl+ttl/16, pkgmetadata.SchemaVersion), true, false},
-		{"recent but written before the gateway learned a field", md(time.Hour, pkgmetadata.SchemaVersion-1), false, true},
+		{"fresh", md(time.Hour, pkgmetadata.SchemaVersion(commonv1.MediaKindAlbum)), false, false},
+		{"past its TTL, not yet its spread", md(ttl+time.Minute, pkgmetadata.SchemaVersion(commonv1.MediaKindAlbum)), false, false},
+		{"past its TTL and its spread", md(ttl+ttl/16, pkgmetadata.SchemaVersion(commonv1.MediaKindAlbum)), true, false},
+		{"recent but written before the gateway learned a field", md(time.Hour, pkgmetadata.SchemaVersion(commonv1.MediaKindAlbum)-1), false, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -147,7 +147,7 @@ func TestAlbumsRefreshedTogetherComeDueApart(t *testing.T) {
 		alb := &catalogv1alpha1.Album{
 			ObjectMeta: metav1.ObjectMeta{UID: types.UID(fmt.Sprintf("0b6f2a4e-0000-4000-8000-%012d", i))},
 			Status: catalogv1alpha1.AlbumStatus{Metadata: &catalogv1alpha1.AlbumMetadata{
-				RefreshedAt: metav1.NewTime(refreshed), SchemaVersion: pkgmetadata.SchemaVersion,
+				RefreshedAt: metav1.NewTime(refreshed), SchemaVersion: pkgmetadata.SchemaVersion(commonv1.MediaKindAlbum),
 			}},
 		}
 		due := album.RefreshIn(alb, refreshed)
@@ -173,7 +173,7 @@ func TestIdleInputsReadTheAlbum(t *testing.T) {
 		Status: catalogv1alpha1.AlbumStatus{
 			ObservedGeneration: 5,
 			Phase:              catalogv1alpha1.AlbumPhaseImported,
-			Metadata:           &catalogv1alpha1.AlbumMetadata{RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: pkgmetadata.SchemaVersion},
+			Metadata:           &catalogv1alpha1.AlbumMetadata{RefreshedAt: metav1.NewTime(now.Add(-time.Hour)), SchemaVersion: pkgmetadata.SchemaVersion(commonv1.MediaKindAlbum)},
 			Conditions:         []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue}, {Type: "TracksSynced", Status: metav1.ConditionTrue}},
 		},
 	}

@@ -110,3 +110,29 @@ func TestRefreshWakeIsNeverLessThanASecond(t *testing.T) {
 	require.Equal(t, time.Second, metadata.RefreshWake(6*time.Hour, refreshed, refreshed.Add(48*time.Hour), "uid"))
 	require.Equal(t, time.Second, metadata.RefreshWake(0, refreshed, refreshed, "uid"))
 }
+
+// Each kind's document has a version of its own (owner, 2026-11-27: "Can we
+// split this for each type?"): a Series that learned its TMDB ratings is
+// refreshed once and no Movie, Album or Book is. No kind is ever below the
+// version they shared, or every item of it would read as newer than the
+// gateway and one written today as outdated.
+func TestSchemaVersionIsEachKindsOwn(t *testing.T) {
+	const shared = 9
+	require.EqualValues(t, 10, metadata.SchemaVersion(commonv1.MediaKindSeries))
+	for _, kind := range []commonv1.MediaKind{
+		commonv1.MediaKindMovie, commonv1.MediaKindArtist, commonv1.MediaKindAlbum, commonv1.MediaKindAuthor,
+		commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindComic,
+	} {
+		require.EqualValues(t, shared, metadata.SchemaVersion(kind), "%s has learned nothing since the kinds parted", kind)
+	}
+	require.EqualValues(t, shared, metadata.SchemaVersion("albumlist"), "a cache key that is no item's kind keeps the shared version")
+	for _, kind := range []commonv1.MediaKind{
+		commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindArtist, commonv1.MediaKindAlbum,
+		commonv1.MediaKindAuthor, commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindComic,
+	} {
+		require.GreaterOrEqual(t, metadata.SchemaVersion(kind), int32(shared), "%s", kind)
+	}
+	require.Equal(t, "metadata-schema10", metadata.RefreshPurpose(commonv1.MediaKindSeries, true))
+	require.Equal(t, "metadata-schema9", metadata.RefreshPurpose(commonv1.MediaKindAlbum, true))
+	require.Equal(t, "metadata", metadata.RefreshPurpose(commonv1.MediaKindSeries, false))
+}

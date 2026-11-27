@@ -1211,6 +1211,47 @@ is no render field and moves no profile hash. A Movie's and a Series'
 is cut by source name, so at seven an anime film with every score would have
 lost trakt. The CRDs go on before the images, as ever: an eighth rating is
 refused by the old schema.
+**A series is rated from TheTVDB and TMDB together, and by translation when
+no rating it can show was published** (owner, 2026-11-27: "Why do many anime
+series not have a content rating? Can we retrieve this from tmdb? e.g.
+Maria the Virgin Witch", then "Build it and also translate foreign only
+ratings like MA 15+ as TV-MA"). A series' ratings were TheTVDB's alone and
+its rating the region's, else the origin country's, else the US one: 210 of
+752 series on talos had none, 168 of them anime (TheTVDB lists Germany's
+16+ alone for Maria). Now `tmdb.SeriesExtras` asks for `content_ratings` in
+the request the tagline, keywords and images already come in, the gateway
+adds those countries to the series' list, TheTVDB's kept where both have
+one (`metadata.MergeCertifications`, `enrich.withExtraCertifications`), and
+the rating is chosen again in the same order with one more step
+(`metadata.PickSeriesCertification`): another country's rating read on the
+US television scale (`TranslateCertification`, table `tvTranslations`:
+Australia, New Zealand, the UK, Canada, Brazil, South Korea, Singapore,
+Germany, Austria, the first that has a rating it knows). A translated
+rating is stored as `certification` with `certificationCountry` "US" and
+**no US entry in `certifications`**, which stays the published list: that
+is how a reader tells it, and the Plex provider shows it unprefixed while
+a client in a country with a published rating still gets that one.
+The table is each rating's own meaning (G and PG keep their word, an age is
+its age), and data only where a country's 15 or 16 could be TV-14 or TV-MA:
+South Korea's 15 is TV-14 (198 series against 64), Australia's MA 15+
+TV-MA (170 against 33). One entry is the owner's ruling against its word
+("Australia's PG -- map to TV-14", 2026-11-27: the series carrying it are
+TV-14 in the US 42 times against 25 TV-PG). Measured on the 687 series with
+a US rating and a rating the table reads: the same rating for 82 in 100, a
+neighbouring one for 99 in 100. Taiwan is left out (its 6+ and 0+ sit on TV-14 series). Of
+the 210, TMDB's US rating answers 158, a published origin-country rating
+5, a translation 45 (41 through Australia: 34 TV-14, 10 TV-MA, 1 TV-Y) and
+2 have no rating anywhere; 9 series rated from their own
+country (eight Korean, one German: "kr/15" in Plex) take TMDB's US rating. A film is never translated: its
+ratings are cinema scales (`PickCertification`). It is Series'
+`SchemaVersion` 10, and **each kind has had a version of its own since**
+(owner, 2026-11-27: "Can we split this for each type?" -- one number for
+all eight kinds meant this refreshed the roughly 6,900 Albums too):
+`metadata.SchemaVersion(kind)`, every other kind at the 9 they shared, the
+L2 cache key and a refresh's inputs carrying the kind's. Raise the one
+kind that learned the field. The region and origin the gateway chooses by are the TMDB
+provider's and the tv record's; a TMDB MetadataProvider with another
+`spec.region` than TheTVDB's would choose by its own.
 **Anime is becoming a library of its own, by root folder** (owner,
 2026-11-25; design of record
 `docs/superpowers/specs/2026-11-25-anime-library-design.md`, its §10 says

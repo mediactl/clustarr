@@ -1,0 +1,1244 @@
+{
+  "status": "success",
+  "data": {
+    "id": 286856,
+    "name": "純潔のマリア",
+    "slug": "maria-the-virgin-witch",
+    "image": "https://artworks.thetvdb.com/banners/posters/286856-2.jpg",
+    "nameTranslations": [
+      "deu",
+      "eng",
+      "fra",
+      "heb",
+      "ita",
+      "jpn",
+      "kor",
+      "por",
+      "rus",
+      "spa",
+      "zho",
+      "zhtw"
+    ],
+    "overviewTranslations": [
+      "deu",
+      "eng",
+      "fra",
+      "heb",
+      "ita",
+      "jpn",
+      "kor",
+      "por",
+      "rus",
+      "spa",
+      "zho",
+      "zhtw"
+    ],
+    "aliases": [
+      {
+        "language": "eng",
+        "name": "Junketsu no Maria"
+      },
+      {
+        "language": "fra",
+        "name": "Junketsu no Maria"
+      }
+    ],
+    "firstAired": "2015-01-11",
+    "lastAired": "2015-03-29",
+    "nextAired": "",
+    "score": 6216,
+    "status": {
+      "id": 2,
+      "name": "Ended",
+      "recordType": "series",
+      "keepUpdated": false
+    },
+    "originalCountry": "jpn",
+    "originalLanguage": "jpn",
+    "defaultSeasonType": 1,
+    "isOrderRandomized": false,
+    "lastUpdated": "2026-01-12 08:01:23",
+    "averageRuntime": 25,
+    "episodes": null,
+    "overview": "中世ヨーロッパ、百年戦争の時代を舞台に描かれる、\r\n最強にして処女、魔女にして聖女の名を持つ少女の物語――。\r\n\r\n人知れず森にすむ、外見は少女だが強大な魔力を持つ魔女マリア。\r\n恋はしたいけどその先はちょっと怖いお年頃…な彼女は\r\n目の前に溢れる戦争や争いが大嫌い。\r\n\r\n兵士や戦争を止めない教会を、\r\n普段はフクロウ姿のサキュバス・アルテミスを放って惑わし、\r\n時に強大な魔力をもって、戦場そのものを消滅させ戦争をかき乱す。\r\n\r\nしかし、魔力をもって人の世に介入する彼女の行動は、\r\n天界の方針に沿わないと大天使ミカエルに目を付けれられてしまい…\r\n\r\nこうして、天使と教会と百年戦争に、\r\n魔女は真っ向ケンカを売った。処女だけど。",
+    "year": "2015",
+    "artworks": [
+      {
+        "id": 1134628,
+        "image": "https://artworks.thetvdb.com/banners/posters/286856-2.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/posters/286856-2_t.jpg",
+        "language": "jpn",
+        "type": 2,
+        "score": 100001,
+        "width": 680,
+        "height": 1000,
+        "includesText": false,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 1039419,
+        "image": "https://artworks.thetvdb.com/banners/posters/286856-1.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/posters/286856-1_t.jpg",
+        "language": "jpn",
+        "type": 2,
+        "score": 100001,
+        "width": 680,
+        "height": 1000,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 62766703,
+        "image": "https://artworks.thetvdb.com/banners/v4/series/286856/clearart/611dfaf9b5622.png",
+        "thumbnail": "https://artworks.thetvdb.com/banners/v4/series/286856/clearart/611dfaf9b5622_t.png",
+        "language": "jpn",
+        "type": 22,
+        "score": 100001,
+        "width": 1000,
+        "height": 562,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 62766700,
+        "image": "https://artworks.thetvdb.com/banners/v4/series/286856/clearlogo/611dfaeaf2e94.png",
+        "thumbnail": "https://artworks.thetvdb.com/banners/v4/series/286856/clearlogo/611dfaeaf2e94_t.png",
+        "language": "jpn",
+        "type": 23,
+        "score": 100001,
+        "width": 800,
+        "height": 310,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 1053874,
+        "image": "https://artworks.thetvdb.com/banners/fanart/original/286856-3.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/fanart/original/286856-3_t.jpg",
+        "language": "zho",
+        "type": 3,
+        "score": 1,
+        "width": 1920,
+        "height": 1080,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 1063437,
+        "image": "https://artworks.thetvdb.com/banners/fanart/original/286856-5.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/fanart/original/286856-5_t.jpg",
+        "language": "eng",
+        "type": 3,
+        "score": 1,
+        "width": 1280,
+        "height": 720,
+        "includesText": false,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 1048357,
+        "image": "https://artworks.thetvdb.com/banners/fanart/original/286856-1.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/fanart/original/286856-1_t.jpg",
+        "language": "eng",
+        "type": 3,
+        "score": 1,
+        "width": 1280,
+        "height": 720,
+        "includesText": false,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 1053488,
+        "image": "https://artworks.thetvdb.com/banners/fanart/original/286856-2.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/fanart/original/286856-2_t.jpg",
+        "language": "eng",
+        "type": 3,
+        "score": 1,
+        "width": 1280,
+        "height": 720,
+        "includesText": false,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 1057121,
+        "image": "https://artworks.thetvdb.com/banners/fanart/original/286856-4.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/fanart/original/286856-4_t.jpg",
+        "language": "eng",
+        "type": 3,
+        "score": 1,
+        "width": 1280,
+        "height": 720,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 1053487,
+        "image": "https://artworks.thetvdb.com/banners/graphical/286856-g.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/graphical/286856-g_t.jpg",
+        "language": "eng",
+        "type": 1,
+        "score": 1,
+        "width": 758,
+        "height": 140,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 1291965,
+        "image": "https://artworks.thetvdb.com/banners/posters/5b3628ffac7d9.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/posters/5b3628ffac7d9_t.jpg",
+        "language": "eng",
+        "type": 2,
+        "score": 0,
+        "width": 680,
+        "height": 1000,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 1291966,
+        "image": "https://artworks.thetvdb.com/banners/posters/5b36291690c24.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/posters/5b36291690c24_t.jpg",
+        "language": "eng",
+        "type": 2,
+        "score": 0,
+        "width": 680,
+        "height": 1000,
+        "includesText": false,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 62766701,
+        "image": "https://artworks.thetvdb.com/banners/v4/series/286856/clearlogo/611dfaedcfc4a.png",
+        "thumbnail": "https://artworks.thetvdb.com/banners/v4/series/286856/clearlogo/611dfaedcfc4a_t.png",
+        "language": "fra",
+        "type": 23,
+        "score": 0,
+        "width": 800,
+        "height": 310,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 62766702,
+        "image": "https://artworks.thetvdb.com/banners/v4/series/286856/clearlogo/611dfaf063d26.png",
+        "thumbnail": "https://artworks.thetvdb.com/banners/v4/series/286856/clearlogo/611dfaf063d26_t.png",
+        "language": "eng",
+        "type": 23,
+        "score": 0,
+        "width": 800,
+        "height": 310,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      },
+      {
+        "id": 61907425,
+        "image": "https://artworks.thetvdb.com/banners/seasons/286856-1.jpg",
+        "thumbnail": "https://artworks.thetvdb.com/banners/seasons/286856-1_t.jpg",
+        "language": "eng",
+        "type": 7,
+        "score": 0,
+        "width": 400,
+        "height": 578,
+        "includesText": true,
+        "thumbnailWidth": 0,
+        "thumbnailHeight": 0,
+        "updatedAt": 0,
+        "seasonId": 606332,
+        "status": {
+          "id": 0,
+          "name": null
+        },
+        "tagOptions": null
+      }
+    ],
+    "companies": [
+      {
+        "id": 372,
+        "name": "Tokyo MX",
+        "slug": "tokyo-mx",
+        "nameTranslations": [
+          "eng"
+        ],
+        "overviewTranslations": [],
+        "aliases": [],
+        "country": "jpn",
+        "primaryCompanyType": 1,
+        "activeDate": null,
+        "inactiveDate": null,
+        "companyType": {
+          "companyTypeId": 1,
+          "companyTypeName": "Network"
+        },
+        "parentCompany": {
+          "id": null,
+          "name": null,
+          "relation": {
+            "id": null,
+            "typeName": null
+          }
+        },
+        "tagOptions": null
+      }
+    ],
+    "originalNetwork": {
+      "id": 372,
+      "name": "Tokyo MX",
+      "slug": "tokyo-mx",
+      "nameTranslations": [
+        "eng"
+      ],
+      "overviewTranslations": [],
+      "aliases": [],
+      "country": "jpn",
+      "primaryCompanyType": 1,
+      "activeDate": null,
+      "inactiveDate": null,
+      "companyType": {
+        "companyTypeId": 1,
+        "companyTypeName": "Network"
+      },
+      "parentCompany": {
+        "id": null,
+        "name": null,
+        "relation": {
+          "id": null,
+          "typeName": null
+        }
+      },
+      "tagOptions": null
+    },
+    "latestNetwork": {
+      "id": 372,
+      "name": "Tokyo MX",
+      "slug": "tokyo-mx",
+      "nameTranslations": [
+        "eng"
+      ],
+      "overviewTranslations": [],
+      "aliases": [],
+      "country": "jpn",
+      "primaryCompanyType": 1,
+      "activeDate": null,
+      "inactiveDate": null,
+      "companyType": {
+        "companyTypeId": 1,
+        "companyTypeName": "Network"
+      },
+      "parentCompany": {
+        "id": null,
+        "name": null,
+        "relation": {
+          "id": null,
+          "typeName": null
+        }
+      },
+      "tagOptions": null
+    },
+    "genres": [
+      {
+        "id": 10,
+        "name": "Fantasy",
+        "slug": "fantasy"
+      },
+      {
+        "id": 12,
+        "name": "Drama",
+        "slug": "drama"
+      },
+      {
+        "id": 15,
+        "name": "Comedy",
+        "slug": "comedy"
+      },
+      {
+        "id": 17,
+        "name": "Animation",
+        "slug": "animation"
+      },
+      {
+        "id": 27,
+        "name": "Anime",
+        "slug": "anime"
+      },
+      {
+        "id": 28,
+        "name": "Romance",
+        "slug": "romance"
+      },
+      {
+        "id": 33,
+        "name": "History",
+        "slug": "history"
+      }
+    ],
+    "trailers": [],
+    "lists": [
+      {
+        "id": 14041,
+        "name": "Every Anime Series Seen to Completion in Chronological Order",
+        "overview": "Will include all anime series and series only (anime films are included on my general film list with live action and cartoons), whether TV, OVA/OAD, or ONA. Only series seen through to completion or at least one full season of (for the few I decided not to watch further) will be included.  ",
+        "url": "14041",
+        "isOfficial": false,
+        "nameTranslations": [
+          "eng"
+        ],
+        "overviewTranslations": [
+          "eng"
+        ],
+        "aliases": [],
+        "score": 16244613,
+        "image": "",
+        "imageIsFallback": false,
+        "remoteIds": null,
+        "tags": null
+      }
+    ],
+    "remoteIds": [
+      {
+        "id": "tt4219154",
+        "type": 2,
+        "sourceName": "IMDB"
+      },
+      {
+        "id": "62157",
+        "type": 12,
+        "sourceName": "TheMovieDB.com"
+      }
+    ],
+    "characters": [
+      {
+        "id": 65261730,
+        "name": "Ezekiel",
+        "peopleId": 300736,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 8,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/300736-kana-hanazawa",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Kana Hanazawa",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/300736/5fa7b78d1827d.jpg"
+      },
+      {
+        "id": 65261732,
+        "name": "Yvain",
+        "peopleId": 303226,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 23,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/303226-kenta-miyake",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Kenta Miyake",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/303226/primary.jpg"
+      },
+      {
+        "id": 65261734,
+        "name": "Suzanne",
+        "peopleId": 7869902,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 22,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/7869902-chinami-hashimoto",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Chinami Hashimoto",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/7869902/primary.jpg"
+      },
+      {
+        "id": 65261736,
+        "name": "Lolotte",
+        "peopleId": 448698,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 21,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/448698-sachiko-kojima",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Sachiko Kojima",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/448698/61be41eb6225e.jpg"
+      },
+      {
+        "id": 65261738,
+        "name": "Gilbert",
+        "peopleId": 271014,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 10,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/271014-natsuki-hanae",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Natsuki Hanae",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/271014/61a0c1042916a.jpg"
+      },
+      {
+        "id": 65261740,
+        "name": "Garfa",
+        "peopleId": 7868622,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 9,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/7868622-yuuki-ono",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Yuki Ono",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/7868622/61be440cb48df.jpg"
+      },
+      {
+        "id": 65261742,
+        "name": "Edwina",
+        "peopleId": 292642,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 7,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/292642-yumi-uchiyama",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Yumi Uchiyama",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/292642/6140df9aa4521.jpg"
+      },
+      {
+        "id": 65261744,
+        "name": "Dorothy",
+        "peopleId": 301627,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 20,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/301627-rie-takahashi",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Rie Takahashi",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/301627/5f1714e24ac5a.jpg"
+      },
+      {
+        "id": 65261746,
+        "name": "Denis",
+        "peopleId": 7882833,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 19,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/7882833-makoto-yasumura",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Makoto Yasumura",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/7882833/primary.jpg"
+      },
+      {
+        "id": 65261753,
+        "name": "Chantal",
+        "peopleId": 7869907,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 18,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/7869907-eri-suzuki",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Eri Suzuki",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/7869907/61be42ce44627.jpg"
+      },
+      {
+        "id": 65261758,
+        "name": "Cernunnos",
+        "peopleId": 280731,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 6,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/280731-takaya-hashi",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Takaya Hashi",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/280731/61be29a0b1908.jpg"
+      },
+      {
+        "id": 65261761,
+        "name": "Bonne",
+        "peopleId": 7936812,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 17,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/7936812-yuka-keichou",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Yuka Keichou",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/7936812/primary.jpg"
+      },
+      {
+        "id": 65261764,
+        "name": "Bibb",
+        "peopleId": 293451,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 5,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/293451-mamiko-noto",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Mamiko Noto",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/v4/actor/293451/photo/62ebe27cdce53.jpg"
+      },
+      {
+        "id": 65261766,
+        "name": "Bernard",
+        "peopleId": 277100,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 4,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/277100-takahiro-sakurai",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Takahiro Sakurai",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/277100/primary.jpg"
+      },
+      {
+        "id": 65261769,
+        "name": "Bella",
+        "peopleId": 7951856,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 16,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/7951856-yuna-yoshino",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Yuna Yoshino",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/7951856/primary.jpg"
+      },
+      {
+        "id": 65261770,
+        "name": "Anne",
+        "peopleId": 460210,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 2,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/460210-ai-kakuma",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Ai Kakuma",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/460210/5f191e98041dc.jpg"
+      },
+      {
+        "id": 65261772,
+        "name": "Priapos",
+        "peopleId": 307472,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 15,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/307472-mikako-komatsu",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Mikako Komatsu",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/307472/61ab2aa982c03.jpg"
+      },
+      {
+        "id": 65261774,
+        "name": "Michael",
+        "peopleId": 300732,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 14,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/300732-kikuko-inoue",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Kikuko Inoue",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/300732/5fb4a978c3181.jpg"
+      },
+      {
+        "id": 65261777,
+        "name": "Josef",
+        "peopleId": 7875623,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 12,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/7875623-kenshou-ono",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Kensho Ono",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/7875623/primary.jpg"
+      },
+      {
+        "id": 65261779,
+        "name": "Artemis",
+        "peopleId": 294194,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 3,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/294194-youko-hikasa",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Yoko Hikasa",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/v4/actor/294194/photo/62e22ea51361b.jpg"
+      },
+      {
+        "id": 65261781,
+        "name": "Maria",
+        "peopleId": 289879,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 1,
+        "isFeatured": true,
+        "url": "https://thetvdb.com/people/289879-hisako-kanemoto",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Hisako Kanemoto",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/289879/61a0cf5b49d13.jpg"
+      },
+      {
+        "id": 68590554,
+        "name": "Guillaume",
+        "peopleId": 299647,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 11,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/299647-bin-shimada",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Bin Shimada",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/299647/61be4552ca41e.jpg"
+      },
+      {
+        "id": 68590555,
+        "name": "Martha",
+        "peopleId": 312197,
+        "seriesId": 286856,
+        "series": null,
+        "movie": null,
+        "movieId": null,
+        "episodeId": null,
+        "type": 3,
+        "image": null,
+        "sort": 13,
+        "isFeatured": false,
+        "url": "https://thetvdb.com/people/312197-miyuki-ichijou",
+        "nameTranslations": null,
+        "overviewTranslations": null,
+        "aliases": null,
+        "peopleType": "Actor",
+        "personName": "Miyuki Ichijou",
+        "tagOptions": null,
+        "personImgURL": "https://artworks.thetvdb.com/banners/person/312197/primary.jpg"
+      }
+    ],
+    "airsDays": {
+      "sunday": true,
+      "monday": false,
+      "tuesday": false,
+      "wednesday": false,
+      "thursday": false,
+      "friday": false,
+      "saturday": false
+    },
+    "airsTime": "22:30",
+    "seasons": [
+      {
+        "id": 599663,
+        "seriesId": 286856,
+        "type": {
+          "id": 1,
+          "name": "Aired Order",
+          "type": "official",
+          "alternateName": null
+        },
+        "number": 0,
+        "nameTranslations": [],
+        "overviewTranslations": [],
+        "companies": {
+          "studio": null,
+          "network": null,
+          "production": null,
+          "distributor": null,
+          "special_effects": null
+        },
+        "lastUpdated": "2019-11-13 13:41:26"
+      },
+      {
+        "id": 606332,
+        "seriesId": 286856,
+        "type": {
+          "id": 1,
+          "name": "Aired Order",
+          "type": "official",
+          "alternateName": null
+        },
+        "number": 1,
+        "nameTranslations": [],
+        "overviewTranslations": [],
+        "image": "https://artworks.thetvdb.com/banners/seasons/286856-1.jpg",
+        "imageType": 7,
+        "companies": {
+          "studio": null,
+          "network": null,
+          "production": null,
+          "distributor": null,
+          "special_effects": null
+        },
+        "lastUpdated": "2025-06-03 09:21:52"
+      },
+      {
+        "id": 1793932,
+        "seriesId": 286856,
+        "type": {
+          "id": 3,
+          "name": "Absolute Order",
+          "type": "absolute",
+          "alternateName": null
+        },
+        "number": 1,
+        "nameTranslations": [],
+        "overviewTranslations": [],
+        "companies": {
+          "studio": null,
+          "network": null,
+          "production": null,
+          "distributor": null,
+          "special_effects": null
+        },
+        "lastUpdated": "2025-06-03 09:21:52"
+      }
+    ],
+    "translations": {
+      "nameTranslations": [
+        {
+          "name": "Maria the Virgin Witch",
+          "language": "deu"
+        },
+        {
+          "name": "Maria the Virgin Witch",
+          "language": "eng"
+        },
+        {
+          "name": "Maria, Sorcière de gré, pucelle de force !",
+          "language": "fra"
+        },
+        {
+          "name": "מריה המכשפה הבתולה",
+          "language": "heb"
+        },
+        {
+          "name": "Maria the Virgin Witch",
+          "language": "ita"
+        },
+        {
+          "name": "純潔のマリア",
+          "language": "jpn",
+          "isPrimary": true
+        },
+        {
+          "name": "순결의 마리아",
+          "language": "kor"
+        },
+        {
+          "name": "Junketsu no Maria",
+          "language": "por"
+        },
+        {
+          "name": "Непорочная Мария",
+          "language": "rus"
+        },
+        {
+          "name": "Junketsu no Maria",
+          "language": "spa"
+        },
+        {
+          "name": "纯洁的玛利亚",
+          "language": "zho"
+        },
+        {
+          "name": "Junketsu no Maria",
+          "isAlias": true,
+          "language": "eng"
+        },
+        {
+          "name": "Junketsu no Maria",
+          "isAlias": true,
+          "language": "fra"
+        },
+        {
+          "name": "純潔的瑪利亞",
+          "language": "zhtw"
+        }
+      ],
+      "overviewTranslations": [
+        {
+          "overview": "Maria ist die mächtigste Hexe, die während des hundertjährigen Krieges in Frankreich lebt. Da sie den Krieg ablehnt nutzt sie ihre magischen Kräfte, um so viel Unheil wie möglich zu verhindern. Dabei erhält Maria Unterstützung von ihrer Sukkubus Artemis sowie ihrem Inkubus Priapos, was allerdings schnell die Aufmerksamkeit des Himmels auf sich zieht. Der Erzengel Michael erlässt deshalb das Urteil, dass Maria ihre magischen Kräfte verliert, sollte sie auch ihre Jungfräulichkeit verlieren.\r\nUm vorzubeugen, dass Maria ihre magischen Kräfte nicht mehr vor anderen Menschen einsetzt, wird ihr der Engel Ezekiel zur Seite gestellt. Allerdings lässt sich Maria nicht so leicht beeindrucken und nutzt ihre Magie einfach weiter.",
+          "language": "deu"
+        },
+        {
+          "overview": "The story follows Maria, the most powerful witch who lives during the Hundred Years' War in France. She despises war, so she obstructs battles with her strong magical powers. Her meddling with her succubus Artemis and incubus Priapos has caught the attention of the heavens, and so the Archangel Michael issues an edict. When Maria loses her virginity, she will also lose her magical powers. A beautiful angel named Ezekiel is supposed to watch Maria and make sure the witch does not use magic in front of people, but Maria continues to use magic anyways.",
+          "language": "eng"
+        },
+        {
+          "overview": "Maria est une sorcière qui vit à l'époque de la Guerre de Cent Ans et qui déteste les conflits. Grâce à ses pouvoirs, elle protège le village dans lequel elle vit et compte bien étendre sa puissance à plus grande échelle. Qu'il s'agisse de repousser des dragons ou des soldats, Maria va tout faire pour empêcher les guerres sur son territoire… Mais est-il bien sain de laisser une sorcière s'occuper des affaires des humains ? Le Ciel ne voit pas cela d’un très bon œil et envoie alors un Chevalier céleste du nom de Ezekiel pour la surveiller et l'Archange Michael lui impose une malédiction : Maria perdra ses pouvoirs magiques en même temps que sa virginité !",
+          "language": "fra"
+        },
+        {
+          "overview": "הסיפור עוקב אחרי מריה, המכשפה החזקה ביותר שחיה במהלך מלחמת מאה השנים בצרפת. היא מתעבת מלחמה, לכן היא חוסמת קרבות עם כוחות הקסם החזקים שלה. ההתערבות שלה יחד עם הסוקובוס ארטמיס והשד פרפיוס תפסה את תשומת הלב של השמים, וכתוצאה מכך המלאך מיכאל נתן פקודה. כאשר מריה תאבד את בתוליה, היא תאבד גם את כוחות הקסם שלה. מלאכית יפיפייה בשם אזקיאל אמורה להשגיח על מריה ולוודא שהמכשפה לא תשתמש בכוחות הקסם שלה מול אנשים, אבל מריה ממשיכה להשתמש בקסם בכל מקרה.",
+          "language": "heb"
+        },
+        {
+          "overview": "Maria è una strega che vive durante il periodo della Guerra dei Cent'anni, che vede Francia e Inghilterra combattersi aspramente. Maria però odia la guerra, e per proteggere gli abitanti del suo villaggio è disposta a dar fondo a tutti i suoi poteri e le sue risorse, anche se questo dovesse significare evocare draghi giganti o mandare il suo succube famiglio a ipnotizzare i generali di entrambi gli schieramenti. Ma cosa pensano davvero gli abitanti del villaggio di questi suoi interventi? E cosa accadrebbe se in Paradiso si accorgessero delle sue continue interferenze nelle questioni umane?",
+          "language": "ita"
+        },
+        {
+          "overview": "中世ヨーロッパ、百年戦争の時代を舞台に描かれる、\r\n最強にして処女、魔女にして聖女の名を持つ少女の物語――。\r\n\r\n人知れず森にすむ、外見は少女だが強大な魔力を持つ魔女マリア。\r\n恋はしたいけどその先はちょっと怖いお年頃…な彼女は\r\n目の前に溢れる戦争や争いが大嫌い。\r\n\r\n兵士や戦争を止めない教会を、\r\n普段はフクロウ姿のサキュバス・アルテミスを放って惑わし、\r\n時に強大な魔力をもって、戦場そのものを消滅させ戦争をかき乱す。\r\n\r\nしかし、魔力をもって人の世に介入する彼女の行動は、\r\n天界の方針に沿わないと大天使ミカエルに目を付けれられてしまい…\r\n\r\nこうして、天使と教会と百年戦争に、\r\n魔女は真っ向ケンカを売った。処女だけど。",
+          "language": "jpn",
+          "isPrimary": true
+        },
+        {
+          "overview": "영국과 프랑스의 백년 전쟁 중 전쟁을 싫어하는 마녀 마리아가 마력을 이용하여 전쟁을 교란시키게 되고 이로 인해 대천사에게 제재를 받게 되면서 일어나는 이야기.",
+          "language": "kor"
+        },
+        {
+          "overview": "A história segue Maria, a mais poderosa bruxa que vive durante o período da Guerra dos Cem Anos, na França. Ela despreza guerras, então acaba com a mesma usando seus fortes poderes mágicos. Sua intromissão com seus servos Artemis e Priapos, chama a atenção dos céus e assim o Arcanjo Miguel emite um decreto. Quando Maria perde sua virgindade, ela perde também seus poderes. Um anjo muito bonito chamado Ezekiel fica responsável de vigiar Maria para que ela não use magia na frente das pessoas, mas ela continua usando de qualquer forma.",
+          "language": "por"
+        },
+        {
+          "overview": "Мария - молодая ведьма, которая живет в то время, когда Англия воевала против Франции. Наша юная героиня не любит войну, и пытается сохранить мир с небольшой помощью от суккуба, который заманивает генералов ее прелестями. Хотя Мария приказала ей делать это, она все еще девственница.",
+          "language": "rus"
+        },
+        {
+          "overview": "La historia sigue a Maria, la más poderosa bruja que vive durante la Guerra de los Cien Años en Francia. Ella desprecia la guerra, así que obstruye las batallas con sus poderes mágicos. Su intromisión con su súcubo Artemis e íncubo Priapos ha llamado la atención de los cielos, y entonces el Arcángel Michael emite un edicto. Cuando Maria pierda su virginidad, también perderá sus poderes mágicos. Un hermoso ángel llamado Ezekiel debe observar a Maria y asegurarse de que no use su magia frente a la gente, pero Maria continúa usando su magia de todas maneras.",
+          "language": "spa"
+        },
+        {
+          "overview": "以中世纪的法兰西王国为舞台，讲述了在百年战争的时代，身为最强魔女同时也是圣女的玛利亚十分厌恶战争，她拥有的强大魔力足以让纷争消失。然而，如果她失去了自己的处女之身，那么届时也将失去强大的力量。",
+          "language": "zho"
+        },
+        {
+          "overview": "　　本作的題材內容包含了戰爭、魔法與宗教，並以正值百年戰爭的中世紀法國作為故事背景，演繹出本時代最強魔女的故事。\r\n　　魔女 瑪麗亞 基於對戰爭的厭惡，只要以戰場之箭附上委託文射到魔女居所，便會在夜晚釋放出夢魔來干擾戰爭。使士兵們做著一遍又一遍的春夢，並沉溺在其中無法自拔，最後導致戰役的崩潰。然而，在夜晚釋放出夢魔誘惑、品嚐無數男人，並擁有強大魔力的瑪麗亞，實際上卻是個長相可愛、連交往經驗都沒有的「處女」蘿莉！這究竟是怎麼一回事呢？且就算接受委託、保衛了民眾的和平，在這個魔女被視為邪惡異端的時代，瑪麗亞和基督教會之間的對決，結果又將如何呢？",
+          "language": "zhtw"
+        }
+      ],
+      "aliases": [
+        "Junketsu no Maria",
+        "Junketsu no Maria"
+      ]
+    },
+    "tags": null,
+    "contentRatings": [
+      {
+        "id": 77,
+        "name": "16+",
+        "country": "deu",
+        "description": "Restricted to ages 16 and older",
+        "contentType": "",
+        "order": 0,
+        "fullname": null
+      }
+    ],
+    "seasonTypes": [
+      {
+        "id": 1,
+        "name": "Aired Order",
+        "type": "official",
+        "alternateName": null
+      },
+      {
+        "id": 2,
+        "name": "DVD Order",
+        "type": "dvd",
+        "alternateName": null
+      },
+      {
+        "id": 3,
+        "name": "Absolute Order",
+        "type": "absolute",
+        "alternateName": null
+      }
+    ]
+  }
+}
+

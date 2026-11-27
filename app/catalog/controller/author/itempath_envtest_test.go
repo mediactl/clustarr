@@ -151,7 +151,7 @@ func TestAuthorItemPath(t *testing.T) {
 	// The gateway's write wakes the item; the fan-out creates the work's
 	// Book.
 	metaAC := catalogac.Author(a.Name, a.Namespace).WithStatus(catalogac.AuthorStatus().WithMetadata(
-		catalogac.AuthorMetadata().WithName("J. R. R. Tolkien").WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion)))
+		catalogac.AuthorMetadata().WithName("J. R. R. Tolkien").WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion(commonv1.MediaKindAuthor))))
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 

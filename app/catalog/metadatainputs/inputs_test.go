@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 )
@@ -35,7 +36,7 @@ func TestForCarriesAnAuthorsHardcoverID(t *testing.T) {
 	id := " 51942 "
 	with := For(&catalogv1alpha1.Author{Spec: catalogv1alpha1.AuthorSpec{OpenLibraryID: "OL23919A", HardcoverID: &id}})
 	require.Equal(t, map[string]string{pkgmetadata.KeyOpenLibraryAuthor: "OL23919A", "hardcover": "51942"}, with.ProviderIDs)
-	require.EqualValues(t, pkgmetadata.SchemaVersion, with.SchemaVersion)
+	require.EqualValues(t, pkgmetadata.SchemaVersion(commonv1.MediaKindAuthor), with.SchemaVersion)
 	require.Empty(t, with.Language, "the fetch language is the gateway's, not the ask's")
 
 	blank := ""
@@ -57,4 +58,17 @@ func TestMatchesComparesTheLanguage(t *testing.T) {
 	b.Language = "de"
 	require.False(t, Matches(a, b))
 	require.True(t, Matches(a, a))
+}
+
+// A refresh asks for its own kind's schema version, so a field one kind
+// learns makes no other kind's answer read as outdated (owner, 2026-11-27:
+// "Can we split this for each type?" -- a Series' new rating was about to
+// refresh every Album).
+func TestForAsksForTheKindsOwnSchemaVersion(t *testing.T) {
+	series := For(&catalogv1alpha1.Series{})
+	album := For(&catalogv1alpha1.Album{})
+	require.EqualValues(t, pkgmetadata.SchemaVersion(commonv1.MediaKindSeries), series.SchemaVersion)
+	require.EqualValues(t, pkgmetadata.SchemaVersion(commonv1.MediaKindAlbum), album.SchemaVersion)
+	require.Greater(t, series.SchemaVersion, album.SchemaVersion, "a Series has learned its TMDB ratings; an Album nothing since")
+	require.Zero(t, For(&catalogv1alpha1.Episode{}).SchemaVersion, "a kind with no document of its own asks for none")
 }

@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
@@ -165,7 +167,7 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, ratings []catalogv1alpha1.Rating
 	}
 	// The full Plex Metadata Response (spec 2026-09-30 §3.3), each list at
 	// its CRD MaxItems.
-	ac.WithTagline(m.Tagline).WithAdult(m.Adult).WithSchemaVersion(pkgmetadata.SchemaVersion)
+	ac.WithTagline(m.Tagline).WithAdult(m.Adult).WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindMovie))
 	if len(m.Studios) > 0 {
 		ac.WithStudios(capStrings(m.Studios, 10)...)
 	}
@@ -254,7 +256,7 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rati
 			ac.WithImages(ic)
 		}
 	}
-	ac.WithTagline(s.Tagline).WithSchemaVersion(pkgmetadata.SchemaVersion)
+	ac.WithTagline(s.Tagline).WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindSeries))
 	if len(s.Networks) > 0 {
 		ac.WithNetworks(capStrings(s.Networks, 5)...)
 	}
@@ -352,7 +354,7 @@ func buildArtistMetadataAC(a *pkgmetadata.Artist, ratings []catalogv1alpha1.Rati
 	}
 	// The 2026-11-10 design's fields (§4.2): the life-span, country,
 	// aliases, links, the biography's source and the ratings.
-	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindArtist))
 	if a.Begin != nil {
 		ac.WithBegin(a.Begin.UTC().Format("2006-01-02"))
 	}
@@ -450,7 +452,7 @@ func buildAlbumMetadataAC(a *pkgmetadata.Album, ratings []catalogv1alpha1.Rating
 	// The 2026-11-10 design's fields (§4.3): genres, ids, the artist
 	// credit, labels and ratings; the label and catalogue number are the
 	// first release's, the selected release's own ride on its summary.
-	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindAlbum))
 	if len(a.Genres) > 0 {
 		ac.WithGenres(capStrings(a.Genres, 30)...)
 	}
@@ -557,7 +559,7 @@ func buildAuthorMetadataAC(a *pkgmetadata.Author, ratings []catalogv1alpha1.Rati
 		ac.WithGenres(capStrings(a.Genres, 30)...) // Genres: +kubebuilder:validation:MaxItems=30 on every kind that has this field
 	}
 	// The 2026-11-10 design's fields (§4.4): dates, links and ratings.
-	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindAuthor))
 	if a.Born != nil {
 		ac.WithBorn(a.Born.UTC().Format("2006-01-02"))
 	}
@@ -617,7 +619,7 @@ func buildBookMetadataAC(b *pkgmetadata.Book, ratings []catalogv1alpha1.Rating, 
 	}
 	// The 2026-11-10 design's fields (§4.5): languages, subjects, the
 	// representative edition's pages and publisher, links and ratings.
-	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindBook))
 	if len(b.Languages) > 0 {
 		ac.WithLanguages(capStrings(b.Languages, 16)...)
 	}
@@ -749,7 +751,7 @@ func buildAudiobookMetadataAC(a *pkgmetadata.Audiobook, ratings []catalogv1alpha
 	}
 	// The 2026-11-10 design's fields (§4.6): abridged, the ISBN, tags, the
 	// adult flag and the rating.
-	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindAudiobook))
 	if a.Abridged || strings.EqualFold(strings.TrimSpace(a.Format), "abridged") {
 		ac.WithAbridged(true)
 	}
@@ -810,7 +812,7 @@ func buildComicMetadataAC(v *pkgmetadata.ComicVolume, ratings []catalogv1alpha1.
 	// The 2026-11-10 design's fields (§4.7): genres, the run status, the
 	// other titles, the end year, the original language, the sort title
 	// and the ratings.
-	ac.WithSchemaVersion(pkgmetadata.SchemaVersion)
+	ac.WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindComic))
 	if len(v.Genres) > 0 {
 		ac.WithGenres(capStrings(v.Genres, 30)...)
 	}

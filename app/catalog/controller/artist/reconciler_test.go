@@ -239,7 +239,7 @@ func TestAFailedAlbumListingHoldsTheArtistsNextLookup(t *testing.T) {
 	refresh := func(at time.Time) {
 		t.Helper()
 		metaAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(catalogac.ArtistStatus().WithMetadata(
-			catalogac.ArtistMetadata().WithName("Cher").WithRefreshedAt(metav1.NewTime(at)).WithSchemaVersion(pkgmetadata.SchemaVersion)))
+			catalogac.ArtistMetadata().WithName("Cher").WithRefreshedAt(metav1.NewTime(at)).WithSchemaVersion(pkgmetadata.SchemaVersion(commonv1.MediaKindArtist))))
 		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {

@@ -134,16 +134,26 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 	}
 }
 
-// SchemaVersion is the version of every kind's metadata document the
-// gateway writes (status.metadata.schemaVersion; Movie's and Series' since
+// SchemaVersion is the version of kind's metadata document the gateway
+// writes (status.metadata.schemaVersion; Movie's and Series' since
 // 2026-09-30, the six non-video kinds' since the 2026-11-10 design D8:
-// their documents carried none, so they read 0 and refresh once under 8,
-// which is what the design wants of them, with no Movie or Series touched).
-// Raise it when the gateway learns a field: an item whose document is
-// older is refreshed once,
-// bypassing the L2 cache (whose key carries it), instead of lacking the new
-// field until its RefreshTTL -- weeks for a released film -- the way
-// mediainfo.ProbeVersion re-probes files.
+// their documents carried none, so they read 0 and refreshed once under 8).
+// Raise a kind's when the gateway learns a field of that kind: an item
+// whose document is older is refreshed once, bypassing the L2 cache (whose
+// key carries it), instead of lacking the new field until its RefreshTTL
+// -- weeks for a released film -- the way mediainfo.ProbeVersion re-probes
+// files.
+//
+// Each kind has its own (owner, 2026-11-27, of the Series change below
+// refreshing every Album too: "Can we split this for each type?"). Through
+// 9 the version was one number for every kind, so a field one kind learned
+// refreshed all eight: the roughly 6,900 Albums on talos against
+// MusicBrainz's one request a second, for a change to a Series. A kind with
+// no entry in schemaVersions stands at sharedSchemaVersion, where they
+// parted, and so does a cache key that is no item's kind (the artist's
+// album list).
+//
+// The shared history:
 //
 //	1: the full Plex Metadata Response (2026-09-30): tagline, studios,
 //	   countries, certifications, people, season posters, stills.
@@ -176,16 +186,40 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 //	   language (2026-11-17): 171 of 750 series had no logo in the titles'
 //	   language, so an anime among them no titled poster, and TheTVDB's
 //	   posters, listed without their tags, all read as posters without text.
-const SchemaVersion int32 = 9
+//
+// And each kind's own since (schemaVersions):
+//
+//	Series 10: a Series' age ratings gain its TMDB tv record's for the
+//	   countries TheTVDB has none for, and a series rated in neither its
+//	   region, its own country nor the US is rated by another country's,
+//	   translated to the US television scale (2026-11-27): 210 of 752
+//	   series had no rating, 168 of them anime, where TMDB had a US one
+//	   for 158 and another country's for 45 more.
+func SchemaVersion(kind commonv1.MediaKind) int32 {
+	if v, ok := schemaVersions[kind]; ok {
+		return v
+	}
+	return sharedSchemaVersion
+}
 
-// RefreshPurpose is the events.MsgIDForObject purpose of an item's metadata
-// task. The refresh an outdated document asks for has one of its own, per
-// SchemaVersion: under the plain "metadata" id the bus would drop it as a
-// duplicate of the generation's last refresh while that id is still in the
-// stream's duplicate window.
-func RefreshPurpose(outdated bool) string {
+// sharedSchemaVersion is the version every kind's document had when the
+// kinds took versions of their own. A kind's own is never below it.
+const sharedSchemaVersion int32 = 9
+
+// schemaVersions is the version of each kind that has moved on from
+// sharedSchemaVersion.
+var schemaVersions = map[commonv1.MediaKind]int32{
+	commonv1.MediaKindSeries: 10,
+}
+
+// RefreshPurpose is the events.MsgIDForObject purpose of a kind item's
+// metadata task. The refresh an outdated document asks for has one of its
+// own, per SchemaVersion: under the plain "metadata" id the bus would drop
+// it as a duplicate of the generation's last refresh while that id is still
+// in the stream's duplicate window.
+func RefreshPurpose(kind commonv1.MediaKind, outdated bool) string {
 	if outdated {
-		return "metadata-schema" + strconv.Itoa(int(SchemaVersion))
+		return "metadata-schema" + strconv.Itoa(int(SchemaVersion(kind)))
 	}
 	return "metadata"
 }

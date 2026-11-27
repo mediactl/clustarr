@@ -41,6 +41,7 @@ func recordedTVDB(t *testing.T) *tvdb.Client {
 		"/login":                             "login.json",
 		"/series/78804/extended":             "series-78804-extended.json",
 		"/series/467005/extended":            "series-467005-extended.json",
+		"/series/286856/extended":            "series-286856-extended.json",
 		"/series/78804/episodes/default/eng": "episodes-78804.json",
 		"/episodes/295294/extended":          "episode-295294-extended.json",
 	}
@@ -56,6 +57,23 @@ func recordedTVDB(t *testing.T) *tvdb.Client {
 	}))
 	t.Cleanup(srv.Close)
 	return tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+}
+
+// Maria the Virgin Witch has one rating on TheTVDB, Germany's: no rating in
+// the US region, its own country or the US, so the series had none (owner,
+// 2026-11-27). It reads Germany's on the US television scale; the published
+// list stays Germany's alone, which is how a reader tells the translation.
+// Recorded 2026-11-27.
+func TestSeriesWithOnlyAForeignRatingIsRatedByTranslation(t *testing.T) {
+	s, err := recordedTVDB(t).WithLocale("en", "US").Series(context.Background(), "286856")
+	require.NoError(t, err)
+
+	assert.Equal(t, []metadata.Certification{{Country: "DE", Rating: "16+"}}, s.Certifications)
+	assert.Equal(t, "TV-MA", s.Certification)
+	assert.Equal(t, "US", s.CertificationCountry)
+	assert.False(t, metadata.CertificationPublished(s.Certifications,
+		metadata.Certification{Country: s.CertificationCountry, Rating: s.Certification}))
+	assert.Equal(t, "62157", s.IDs[metadata.KeyTMDB], "the id its TMDB tv record is asked for by")
 }
 
 func TestSeriesMapsTheFullMetadataFields(t *testing.T) {

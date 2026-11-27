@@ -123,7 +123,7 @@ func TestHandlerWritesANonVideoDocumentsLanguageRatingsAndExtendedDocument(t *te
 	require.NoError(t, json.Unmarshal(rec.Metadata, &md))
 	require.Equal(t, "Radiohead", md.Name)
 	require.Equal(t, "de", md.Language, "the musicbrainz provider's spec.language")
-	require.EqualValues(t, pkgmetadata.SchemaVersion, md.SchemaVersion)
+	require.EqualValues(t, pkgmetadata.SchemaVersion(commonv1.MediaKindArtist), md.SchemaVersion)
 	require.Equal(t, []catalogv1alpha1.Rating{
 		{Source: catalogv1alpha1.RatingSourceAniList, ValueCentis: 700, Votes: 2},
 		{Source: catalogv1alpha1.RatingSourceHardcover, ValueCentis: 500, Votes: 1},
