@@ -751,8 +751,15 @@ recorded here.
   with every article verified is left alone, the quick check a set at a
   time; a failed run fails the job as one set's did. A job of one set
   (or none readable) takes the old path unchanged, extras and all, so the
-  zero-run slow path is still there for a one-set job with a foreign
-  file: the par2go patch for it is the second half, not yet built. Tests:
+  zero-run slow path could still be met by a one-set job with a foreign
+  file: par2go v0.1.2 closes it in par2 itself
+  (`shim/patches/0003-duplicate-run.patch`: the scan keeps the length of
+  the run of one byte its window ends with, and a block of one byte
+  repeated that has no entry to give is not looked up again a byte on;
+  22.6 s to 0.13 s on the reproduction, the verdict unchanged; the first
+  cut keyed on FindMatch's `duplicate`, which several identical blocks
+  never set, and par2go's `TestALongRunOfZerosInAnExtraFileIsNotRehashedAtEveryOffset`
+  caught it). Not offered upstream yet: the owner's to open. Tests:
   `TestAJobOfSeveralPar2SetsRepairsTheSetOfTheDamagedFile` (real par2),
   `TestPlanPar2Runs`, `TestPar2FileSetID`.
 - **An obfuscated season pack unpacks to hashed file names

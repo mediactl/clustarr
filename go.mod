@@ -26,7 +26,7 @@ require (
 	github.com/jonboulle/clockwork v0.5.0
 	github.com/klauspost/compress v1.20.5
 	github.com/lithammer/fuzzysearch v1.1.8
-	github.com/mediactl/par2go v0.1.1
+	github.com/mediactl/par2go v0.1.2
 	github.com/moistari/rls v0.6.0
 	github.com/nats-io/nats-server/v2 v2.15.3
 	github.com/nats-io/nats.go v1.56.0
