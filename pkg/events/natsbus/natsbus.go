@@ -120,9 +120,12 @@ func WithHooks(h events.Hooks) Option {
 
 // Bus is a JetStream-backed events.Bus.
 type Bus struct {
-	nc   *nats.Conn
-	js   jetstream.JetStream
-	opts options
+	nc *nats.Conn
+	js jetstream.JetStream
+	// jsObjects is js with objectStoreTimeout for its default: every object
+	// store is bound through it.
+	jsObjects jetstream.JetStream
+	opts      options
 
 	mu     sync.Mutex
 	closed bool
@@ -175,20 +178,23 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 	if nc.Opts.ReconnectedCB == nil {
 		nc.SetReconnectHandler(ae.onReconnect)
 	}
-	var (
-		js  jetstream.JetStream
-		err error
-	)
-	switch {
-	case o.domain != "":
-		js, err = jetstream.NewWithDomain(nc, o.domain)
-	case o.apiPrefix != "":
-		js, err = jetstream.NewWithAPIPrefix(nc, o.apiPrefix)
-	default:
-		js, err = jetstream.New(nc)
+	open := func(opts ...jetstream.JetStreamOpt) (jetstream.JetStream, error) {
+		switch {
+		case o.domain != "":
+			return jetstream.NewWithDomain(nc, o.domain, opts...)
+		case o.apiPrefix != "":
+			return jetstream.NewWithAPIPrefix(nc, o.apiPrefix, opts...)
+		default:
+			return jetstream.New(nc, opts...)
+		}
 	}
+	js, err := open()
 	if err != nil {
 		return nil, fmt.Errorf("natsbus: open jetstream: %w", err)
+	}
+	jsObjects, err := open(jetstream.WithDefaultTimeout(objectStoreTimeout))
+	if err != nil {
+		return nil, fmt.Errorf("natsbus: open jetstream for object stores: %w", err)
 	}
 	base := context.Background()
 	if o.log != nil {
@@ -200,6 +206,7 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 		serveCancel:  serveCancel,
 		nc:           nc,
 		js:           js,
+		jsObjects:    jsObjects,
 		opts:         o,
 		buckets:      map[string]jetstream.KeyValue{},
 		objectStores: map[string]jetstream.ObjectStore{},

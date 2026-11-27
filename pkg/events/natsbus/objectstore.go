@@ -58,6 +58,26 @@ func (b *Bus) objectStoreSpec(bucket string) events.ObjectStoreSpec {
 	return spec
 }
 
+// objectStoreTimeout is how long an object store's requests and, above
+// all, a Put's acknowledgements are waited for when the caller's context
+// has no deadline, in place of nats.go's 5 s (owner, 2026-11-27: "Start
+// with this for now").
+//
+// A stream stalls for as long as nats-server takes to read what was written
+// to a bucket since an object was last written, every time that object is
+// written again (docs/claude/gotchas.md, "Writing an object again ..."): 6
+// to 10 s on talos's artwork bucket several times a day, 14.2 s the longest
+// in twelve days. nats.go's Put gives each publish the JetStream context's
+// default timeout, and one that runs out is "nats: timeout waiting for
+// ack" -- after which it purges the chunks it wrote and leaves the record
+// (dropHollowAfterPut). The record and the chunks were stored; only the
+// answer was late. With the wait past the stall, that Put succeeds.
+//
+// The stall is not shortened: every reader and writer of the bucket still
+// waits it out. A context with a deadline is unaffected, and nats.go then
+// answers its end with nats.ErrTimeout and purges nothing.
+const objectStoreTimeout = 30 * time.Second
+
 // ObjectStore binds to bucket, created by Ensure. The binding is lazy and
 // cached, like KV's, so a bus created before Ensure still works.
 func (b *Bus) ObjectStore(bucket string) events.ObjectStore {
@@ -83,7 +103,7 @@ func (o *objectHandle) resolve(ctx context.Context) (jetstream.ObjectStore, erro
 	}
 	o.bus.mu.Unlock()
 
-	store, err := o.bus.js.ObjectStore(ctx, o.name)
+	store, err := o.bus.jsObjects.ObjectStore(ctx, o.name)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrBucketNotFound) {
 			return nil, fmt.Errorf("natsbus: object store %q: %w", o.name, events.ErrBucketNotFound)

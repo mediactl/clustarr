@@ -1579,11 +1579,16 @@ recorded here.
   upstream issue describes this (searched: fblk, numFilteredPending,
   rollup, purge); PR 5545 and 5577 (2024) added the lazy correction, PR
   8234, which gave a subject its full set of blocks, was closed unmerged.
-  What would bound it here without the server changing: overlays in a
-  bucket of their own, so a rewrite scans other overlays only; a longer
-  acknowledgement wait on natsbus's JetStream context than nats.go's 5 s,
-  so the stall is not also an error; more than the one CPU the nats pods
-  are limited to. None was done. `/stacksz` on the monitoring port (8222,
+  What holds it here, the server unchanged: every object store is bound
+  through a second JetStream context whose default timeout is 30 s
+  (`objectStoreTimeout`; owner, 2026-11-27: "Start with this for now"), so a
+  `Put` caught in a stall waits for its acknowledgements and succeeds --
+  the stall itself is as long as before for every reader and writer.
+  Still open: overlays in a bucket of their own, so a rewrite scans other
+  overlays only (148 MiB of the bucket's 2.99 GiB that day; the rest is
+  originals, 1.15 GiB of it disc art and 538 MiB clearart, and nothing in
+  the bucket is other than an item's images). More CPU for the nats pods
+  (limited to one) the owner would rather not. `/stacksz` on the monitoring port (8222,
   through the apiserver's pod proxy) dumps a live server's goroutines,
   which is how to see a stall's holder.
 - **ffgo maps FFmpeg at package init, and a stale shim is silently wrong.** Any
