@@ -687,6 +687,9 @@ func (w *Worker) inspectEpisodes(
 			// - The Wind Blows.mkv" (bareEpisode).
 			if bp := bareEpisode(path, plan.packSeason); bp != nil {
 				parsed, perr = bp, nil
+			} else if tp := titledEpisode(path, seriesTitles(plan.series), plan.packSeason); tp != nil {
+				// "<the series' title> 01.mkv" (titledEpisode).
+				parsed, perr = tp, nil
 			}
 		}
 		if perr != nil && manual && plan.named != nil {

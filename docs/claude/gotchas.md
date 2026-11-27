@@ -1847,3 +1847,18 @@ recorded here.
   QueueHigherPreference) unless `spec.override`, which the UI sends only
   for a release the search itself rejected. The inbox is leader-local: a
   refusal settled before a leader change reads without its reason.
+
+- **A pack's file named "<the series' title> <number>" is that episode
+  (2026-11-27, owner: "Ensure no remaining series has any missing monitored
+  episodes").** No release pattern reads a number that only follows a
+  title, since a title may end in one; at import the title is known, so
+  `fileimport.titledEpisode` reads the name when what stands before its
+  last number is one of the series' titles (its own and its alternates,
+  compared as `release.CleanTitle`) and the download is one season's pack
+  (`packSeason`, as for `bareEpisode`). On talos "[anime4life.] Wandering
+  Witch The Journey of Elaina Season 1 BD 1080p ..." held twelve files
+  named "Wandering Witch The Journey of Elaina 01.mkv" to 12 for a person,
+  eleven episodes missing meanwhile. Still held, and by rule: a pack named
+  in scene seasons the series does not have and TheXEM does not map (How a
+  Realist Hero Rebuilt the Kingdom "S01-S02", TVDB one season of 26: "the
+  series has no S02E01"), and files with no number at all.

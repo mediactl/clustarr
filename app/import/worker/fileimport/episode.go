@@ -296,6 +296,66 @@ var (
 	bareEpisodeRegex       = regexp.MustCompile(`(?i)^(?:\[[^\]]*\][\s._-]*)*E(?:P|pisode)?[\s._-]*(\d{1,3})(?:v\d+)?(?:$|[\s._\-\[\(])`)
 )
 
+// titledEpisodeRegex splits a file name into what stands before its last
+// number and that number, after any bracketed group: "Wandering Witch The
+// Journey of Elaina 01", "[Group] Show 07v2 [1080p]".
+var titledEpisodeRegex = regexp.MustCompile(`^(?:\[[^\]]*\][\s._-]*)*(.+?)[\s._-]+(\d{1,3})(?:v\d+)?(?:[\s._-]*[\[\(].*)?$`)
+
+// titledEpisode reads a pack's file named "<the series' title> <number>",
+// with no dash, group or season for a release pattern to hold on to: the
+// number alone is all that follows the title, and a release pattern cannot
+// take that shape, since a title may itself end in a number. Here it can
+// be read, because the title is known: what stands before the number must
+// be one of titles (the series' own and its alternates, compared as
+// release.CleanTitle), and the season is packSeason, as for bareEpisode.
+// Nil otherwise.
+//
+// On talos a twelve-file pack of Wandering Witch: The Journey of Elaina
+// ("Wandering Witch The Journey of Elaina 01.mkv" to 12) was downloaded
+// whole and held for a person, eleven of its episodes missing
+// (2026-11-27).
+func titledEpisode(path string, titles []string, packSeason int) *release.ParsedRelease {
+	if packSeason < 1 {
+		return nil
+	}
+	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	m := titledEpisodeRegex.FindStringSubmatch(base)
+	if m == nil {
+		return nil
+	}
+	name := release.CleanTitle(m[1])
+	n, err := strconv.Atoi(m[2])
+	if err != nil || n < 1 || name == "" {
+		return nil
+	}
+	for _, t := range titles {
+		if release.CleanTitle(t) == name {
+			return &release.ParsedRelease{
+				Seasons: []int{packSeason}, Episodes: []int{n},
+				LanguageUnknown: true,
+				ReleaseType:     commonv1.ReleaseTypeSingle,
+			}
+		}
+	}
+	return nil
+}
+
+// seriesTitles are the titles a series is released under: its own and its
+// alternates.
+func seriesTitles(s *catalogv1alpha1.Series) []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	if md := s.Status.Metadata; md != nil {
+		out = append(out, md.Title)
+		for _, alt := range md.AlternateTitles {
+			out = append(out, alt.Title)
+		}
+	}
+	return out
+}
+
 // bareEpisode reads a downloaded file named for its episode alone, which no
 // release pattern does: a release name opens with its title, and a pack's
 // files often carry none. The season is the one the name writes ("S02EP01")
