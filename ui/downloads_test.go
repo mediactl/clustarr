@@ -23,6 +23,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -215,6 +216,28 @@ func TestDownloadsPageRendersWithoutACluster(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "text-muted-foreground")
 }
 
+// TestAPacksPopoverListsItsExpectedFilesInOrder (owner, 2026-11-27: "an
+// info button that presents a shadcn-templ popover listing the expected
+// files"): a pack's popover names every episode its entry covers, in
+// order, whatever order the entry holds them in.
+func TestAPacksPopoverListsItsExpectedFilesInOrder(t *testing.T) {
+	row := grabRow("pack", commonv1.DownloadPhaseQueued)
+	row.OwnerKind = commonv1.MediaKindSeries
+	row.Entry.Episodes = []catalogv1.EpisodeNumber{{Season: 2, Number: 10}, {Season: 2, Number: 1}, {Season: 1, Number: 12}}
+	var d projection.Dashboard
+	d.Downloads.Pending = projection.DownloadList{Rows: []projection.DownloadRow{row}, Total: 1}
+	srv := ui.NewServer(t.Context(), ui.Options{Dashboard: func(context.Context) projection.Dashboard { return d }})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/activity/downloads?tab=queued", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, "Expected files (3)")
+	at := func(s string) int { return strings.Index(body, ">"+s+"<") }
+	require.Greater(t, at("S01E12"), 0)
+	require.Greater(t, at("S02E01"), at("S01E12"))
+	require.Greater(t, at("S02E10"), at("S02E01"))
+}
+
 // TestDownloadsPageListsTheProjectionsRows proves the handler wiring end to
 // end: the grab rows come from the projection (Options.Dashboard), the
 // running one on the Running tab, a failed one on the Failed tab.
@@ -239,6 +262,30 @@ func TestDownloadsPageListsTheProjectionsRows(t *testing.T) {
 	requireTag(t, running, `data-download-action="remove"`, `hx-confirm="The transfer is removed from its client; its data is kept."`, `data-confirm-title="Remove this download?"`, `data-confirm-action="Remove"`)
 	requireTag(t, running, `aria-label="Remove and blocklist"`, `hx-confirm="`, `data-confirm-title="Remove and blocklist this download?"`)
 	require.NotContains(t, tagWith(t, running, `data-download-action="pause"`), `hx-confirm`)
+
+	// The actions are one button (owner, 2026-11-27: "consolidated into a
+	// grouped, selectable action button"): a button group of the first
+	// action and a menu of the rest, each posting as the buttons did.
+	requireTag(t, running, `data-row-actions`, `data-slot="button-group"`)
+	requireTag(t, running, `data-download-action="pause"`, `data-slot="button"`, `hx-post="/downloads/default/movie/arrival/arrival/pause"`, `hx-target="#action-status"`)
+	more := requireTag(t, running, `data-row-actions-more`, `data-slot="dropdown-menu-trigger"`, `aria-label="More actions"`)
+	menu := regexp.MustCompile(`data-templ-controls="([^"]+)"`).FindStringSubmatch(more)
+	require.NotNil(t, menu, "the menu's button names its menu")
+	require.Equal(t, "actions-movie-arrival-arrival", menu[1], "an id a redraw keeps")
+	requireTag(t, running, `id="`+menu[1]+`"`, `data-slot="dropdown-menu-content"`)
+	for _, action := range []string{"resume", "remove"} {
+		requireTag(t, running, `data-download-action="`+action+`"`, `data-slot="dropdown-menu-item"`, `hx-post="/downloads/default/movie/arrival/arrival/`+action+`"`)
+	}
+	require.Equal(t, 4, strings.Count(running, `data-download-action="`), "pause, and in the menu resume and the two removals")
+	failedRows := body[failedAt:]
+	requireTag(t, failedRows, `data-download-action="remove"`, `data-slot="button"`)
+	require.Equal(t, 2, strings.Count(failedRows, `data-download-action="`), "a failed entry can only be removed")
+
+	// What stood under the title is in the row's popover (owner,
+	// 2026-11-27): the expected files, here the movie itself.
+	requireTag(t, running, `data-row-info`, `data-slot="popover-trigger"`, `data-templ-controls="info-movie-arrival-arrival"`)
+	requireTag(t, running, `id="info-movie-arrival-arrival"`, `data-slot="popover-content"`)
+	require.Regexp(t, `data-row-expected[^>]*>.*Expected file<.*<li><span[^>]*data-slot="badge"[^>]*>arrival</span></li>`, running)
 	// The dialog's heading is found inside the dialog: every asking button
 	// carries data-confirm-title too.
 	js := get(t, srv, "/static/confirm.js")

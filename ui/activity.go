@@ -51,8 +51,8 @@ func redirectTo(target string) http.HandlerFunc {
 	}
 }
 
-// handleActivity is an Activity page, on the tab and the pages the URL
-// names (tab-<section>, page-<list>).
+// handleActivity is an Activity page, on the tab and the page the URL
+// names (?tab=&page=).
 func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	v, ok := s.activityView(r.Context(), r)
 	if !ok {
@@ -98,9 +98,21 @@ func (s *Server) activityView(ctx context.Context, r *http.Request) (views.Activ
 		d = s.opts.Dashboard(ctx)
 	}
 	q := r.URL.Query()
-	v := views.ActivityView{Section: section, Title: title, Summary: d, Tab: q.Get("tab-" + section), Pages: map[string]views.ListPage{}}
+	// The page's own URL names the open tab and its page (?tab=&page=,
+	// owner 2026-11-27: "saved on page refresh and reflected in the url");
+	// the poller names the tab and every list's page as the dashboard's
+	// does (tab-<section>, page-<list>), and its word is the newer.
+	tab := q.Get("tab-" + section)
+	if tab == "" {
+		tab = q.Get("tab")
+	}
+	v := views.ActivityView{Section: section, Title: title, Summary: d, Tab: tab, Pages: map[string]views.ListPage{}}
 	page := func(list string) int {
-		n, _ := strconv.Atoi(q.Get("page-" + list))
+		asked := q.Get("page-" + list)
+		if asked == "" && list == section+"-"+tab {
+			asked = q.Get("page")
+		}
+		n, _ := strconv.Atoi(asked)
 		return n
 	}
 	switch section {

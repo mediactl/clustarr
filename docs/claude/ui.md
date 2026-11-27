@@ -406,6 +406,56 @@ pipeline page, `/events/pipeline`, `/events/downloads` and Options
 `/downloads` redirect. The e2e scenarios that read them (`test/e2e`
 ui, subtitle and transcode) still do, and are Phase H's to rewrite.
 
+**The Activity pages were redrawn on 2026-11-27** (owner: "selected tab
+should be both saved on page refresh and reflected in the url"; "the tabs
+should be simplified to use the shadcn-templ tabs component and drop the
+overly fancy styling"; "each item in the list should follow the dashboard
+page's styling and how it leveraged the progress component. It should look
+similar to a table where each entry is concise"; "the item buttons should
+be consolidated into a grouped, selectable action button that is aligned to
+the right of each row"; "the current subtitle text ... should be moved into
+an info button that presents a shadcn-templ popover listing the expected
+files"). They no longer use the dashboard's `sectionCard`:
+
+- **Tabs** are `tabs` as it comes (the default pill list), a tab its name
+  and its count in a badge, under `data-activity-tabs` -- not
+  `data-dashboard-tabs`, which the dashboard's frosted tile is keyed on.
+  The open tab is `?tab=<value>` and its page `&page=<n>`
+  (`ui/static/dashboard.js` replaces the URL at a tab or a pager click,
+  never at a poll; `activityView` reads both, and the poller's
+  `tab-<section>` / `page-<list>` win when present). A pager links
+  `/activity/{section}?tab=&page=`.
+- **A list is a grid its rows share** (`views.activityList`, rows
+  `grid-cols-subgrid`), not a `<table>`: from 48rem of card (`@3xl/activity`)
+  a row is one line -- name, line, state, actions -- with a header; narrower
+  it is two lines. Every row is `views.activityRow`: the name linking to the
+  item, the info button, the line (`rowProgress`, the dashboard's bar, while
+  a transfer or a transcode moves; a detail or a failure otherwise; a
+  download past its transfer has no bar), a state badge toned by meaning
+  (`downloadPhaseTone`, `stateTone`).
+- **A download's actions are one button**: a `buttongroup` of its first
+  action (`downloadActionList`: pause or unpause, else import again, else
+  remove) and a `dropdownmenu` of the rest, each still the same
+  `hx-post` into `#action-status` with the layout's confirm.
+- **The info button** opens a `popover` (vendored 2026-11-27 with
+  `shadcn-templ add popover`): a download's expected files (its entry's
+  episodes in order as `S02E01`, issues as `#n`, else the item), then item,
+  size, indexer, client, when and by what it was grabbed, the transfer and
+  swarm, the import with its detail link, the failure or note; a
+  transcode's profile, class, plan, reason and message; a file's state,
+  detail and when.
+- **Menus and popovers in a polled list.** They are portaled to `<body>`
+  and stay there closed, so: every one has an id from its row
+  (`views.rowID`), the poll's trigger waits while one is open
+  (`activityPollTrigger`, `window.activityFloatOpen`), and before the card
+  is swapped `dashboard.js` removes every portal the old rows own
+  (`htmx:oobBeforeSwap`; an out-of-band swap's element is `detail.target`,
+  the event's own target is the requester by `oobAfterSwap`). Checked in
+  Chromium against talos at 1600px and 430px: no stray portal and no
+  duplicate id after a redraw. The poll's answer for Downloads is about
+  1.2 MB of markup (88 KB gzipped) for four tabs of 25 rows, most of it the
+  menus' and popovers' class strings.
+
 The ui's home page is the **Dashboard** (2026-10-22: `ui/dashboard.go`,
 `ui/views/dashboard.templ`). `/` redirects to `/dashboard`, the sidebar's
 first entry. It is a section per subject (owner, 2026-11-04), in the order
@@ -1716,7 +1766,8 @@ click-to-open rows with a switch, read-only built-in profiles with Copy,
 and Save disabled on an untouched form; the collection editor, Add New and
 manual assign as dialogs; the guide's own scroller and "jump to now"; the
 dashboard's charts replaying their entrance at every poll and its empty
-states; Activity's rows as one component with toned badges; the Files
+states (Activity's rows became one component with toned badges on
+2026-11-27); the Files
 tables' narrow layouts; the nine hero copies folded into one component.
 
 **The ui counts its requests, and its autoscaler waits five minutes**

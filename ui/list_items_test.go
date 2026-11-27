@@ -36,12 +36,15 @@ import (
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
-// The downloads and unmatched rows are shadcn-templ items like
+// The unmatched rows and the download clients are shadcn-templ items like
 // the library's (design 2026-09-23): one item group per list, the title as
 // the item's title, the stage or phase as a badge that keeps its meaning
-// colour, the progress bar carrying data-progress, and the unmatched row's
-// manual-assign form in the item's footer. Every data attribute the
-// earlier tests key on stays on the item element.
+// colour, and the unmatched row's manual-assign form in the item's footer.
+// A download is a row of its Activity list since 2026-11-27 (owner: "each
+// item in the list should follow the dashboard page's styling and how it
+// leveraged the progress component"): the progress component in full, its
+// percent on data-progress, the phase a toned badge. Every data attribute
+// the earlier tests key on stays on the row's element.
 
 func TestDownloadRowsAreItems(t *testing.T) {
 	scheme, err := ui.NewReaderScheme()
@@ -74,10 +77,12 @@ func TestDownloadRowsAreItems(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 
-	require.Equal(t, 2, strings.Count(body, `data-slot="item-group"`), "the clients and the downloads are each a group")
-	requireTag(t, body, `data-download="arrival"`, `data-slot="item"`, `data-phase="Downloading"`, `data-protocol="torrent"`)
-	require.Regexp(t, `data-slot="badge"[^>]*>Downloading<`, body)
-	require.Contains(t, body, `data-progress="55"`)
+	require.Equal(t, 1, strings.Count(body, `data-slot="item-group"`), "the clients are a group; the downloads are a list's rows")
+	requireTag(t, body, `data-download="arrival"`, `grid-cols-subgrid`, `data-phase="Downloading"`, `data-protocol="torrent"`)
+	require.Regexp(t, `data-slot="badge"[^>]*bg-sky-500/20[^>]*>Downloading<`, body)
+	requireTag(t, body, `data-progress="55"`, `data-slot="progress"`)
+	require.Contains(t, body, `data-slot="progress-label"`, "the dashboard's bar: its label and its value over it")
+	require.Contains(t, body, `data-slot="progress-value"`)
 	requireTag(t, body, `data-client="qbittorrent"`, `data-slot="item"`, `data-protocol="torrent"`)
 	require.Regexp(t, `data-slot="badge"[^>]*>enabled<`, body, "the client's enabled state is a badge")
 }

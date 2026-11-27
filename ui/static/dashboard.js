@@ -33,10 +33,11 @@
         /* no Intl: the server's zone */
       }
     }
-    document.querySelectorAll("[data-dashboard-tabs]").forEach(function (root) {
+    document.querySelectorAll("[data-dashboard-tabs], [data-activity-tabs]").forEach(function (root) {
       var tab = root.querySelector('[role="tab"][aria-selected="true"]');
       if (tab) {
-        e.detail.parameters["tab-" + root.getAttribute("data-dashboard-tabs")] = tab.getAttribute("data-templ-value");
+        var key = root.getAttribute("data-dashboard-tabs") || root.getAttribute("data-activity-tabs");
+        e.detail.parameters["tab-" + key] = tab.getAttribute("data-templ-value");
       }
     });
     document.querySelectorAll("[data-dashboard-page-list]").forEach(function (list) {
@@ -59,6 +60,70 @@
     if (!list || !poller || !window.htmx) return;
     e.preventDefault();
     asked[key] = link.getAttribute("data-dashboard-goto");
+    paged = true;
     window.htmx.trigger(poller, "dashboard:page");
+  });
+
+  // An Activity page's open tab and that tab's page are its URL's (owner,
+  // 2026-11-27: "selected tab should be both saved on page refresh and
+  // reflected in the url"): ?tab=<value>, and &page=<n> past the first. The
+  // URL is replaced, not pushed, so Back still leaves the page; it moves
+  // when a person opens a tab or a page, never at a refresh alone.
+  var paged = false;
+
+  function activityURL() {
+    var root = document.querySelector("[data-activity-tabs]");
+    var tab = root && root.querySelector('[role="tab"][aria-selected="true"]');
+    if (!tab) return;
+    var value = tab.getAttribute("data-templ-value");
+    var list = document.querySelector('[data-dashboard-page-list="' + root.getAttribute("data-activity-tabs") + "-" + value + '"]');
+    var page = list ? list.getAttribute("data-dashboard-page") : "1";
+    var url = new URL(window.location.href);
+    url.searchParams.set("tab", value);
+    if (page && page !== "1") url.searchParams.set("page", page);
+    else url.searchParams.delete("page");
+    window.history.replaceState(window.history.state, "", url);
+  }
+
+  // The tabs component announces a change before it makes it.
+  document.addEventListener("tabs-value-change", function (e) {
+    if (!e.target || !e.target.closest || !e.target.closest("[data-activity-tabs]")) return;
+    window.setTimeout(activityURL, 0);
+  });
+
+  // htmx raises an out-of-band swap's events with the swapped element as
+  // the detail's target; the event's own target is the requester afterwards.
+  function swapped(e) {
+    return (e.detail && e.detail.target) || e.target;
+  }
+
+  document.addEventListener("htmx:oobAfterSwap", function (e) {
+    var card = swapped(e);
+    if (!paged || !card || card.id !== "activity-card") return;
+    paged = false;
+    activityURL();
+  });
+
+  // A row's menu and its popover are moved to <body> while they are open
+  // (ui/components/baseui/portal.js) and stay there, closed, afterwards. The
+  // lists' poll waits while one is open (views.activityPollTrigger), and a
+  // redraw first takes away every one the old rows own: the morph draws each
+  // row's again where it is declared, from what the row now is.
+  var FLOAT = '[data-slot="dropdown-menu-content"][data-open], [data-slot="popover-content"][data-open]';
+
+  window.activityFloatOpen = function () {
+    return !!document.querySelector("[data-activity]") && !!document.querySelector(FLOAT);
+  };
+
+  document.addEventListener("htmx:oobBeforeSwap", function (e) {
+    var card = swapped(e);
+    if (!card || card.id !== "activity-card") return;
+    var portal = window.templ && window.templ.portal;
+    document.querySelectorAll("body > [data-base-ui-portal]").forEach(function (node) {
+      var owner = node._templPortalOwner;
+      if (!owner || !card.contains(owner)) return;
+      if (portal && portal.remove) portal.remove(node);
+      else node.remove();
+    });
   });
 })();

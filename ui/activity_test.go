@@ -61,10 +61,11 @@ func activityServer(t *testing.T) *ui.Server {
 	return ui.NewServer(t.Context(), ui.Options{Dashboard: func(context.Context) projection.Dashboard { return d }})
 }
 
-// TestEveryActivityPageIsATabbedCard (owner, 2026-11-10): each Activity
-// page is the dashboard's tabbed card for its section, under the Activity
-// entry with its own sub-entry active, and a poller that fetches the card
-// again.
+// TestEveryActivityPageIsATabbedCard (owner, 2026-11-10; 2026-11-27: "the
+// tabs should be simplified to use the shadcn-templ tabs component"): each
+// Activity page is its section's lists under the tabs component as it
+// comes, a tab a state with its count, under the Activity entry with its
+// own sub-entry active, and a poller that fetches the lists again.
 func TestEveryActivityPageIsATabbedCard(t *testing.T) {
 	srv := activityServer(t)
 	activeAttr := regexp.MustCompile(`\sdata-active(\s|>)`)
@@ -78,7 +79,10 @@ func TestEveryActivityPageIsATabbedCard(t *testing.T) {
 		for _, label := range tabs {
 			requireTag(t, body, `data-stat="`+label+`"`, `data-slot="tabs-trigger"`)
 		}
-		requireTag(t, body, `data-dashboard-tabs="`+section+`"`)
+		requireTag(t, body, `data-activity-tabs="`+section+`"`, `data-slot="tabs"`)
+		require.NotContains(t, body, `data-dashboard-tabs`, "%s: the dashboard's frosted tabs are keyed on that mark", section)
+		require.NotContains(t, body, `data-stripe`, "%s: no coloured line under a tab", section)
+		require.Regexp(t, `data-stat="[^"]+"[^>]*>[^<]+<span[^>]*data-slot="badge"`, body, "%s: a tab is its name and its count", section)
 		requireTag(t, body, `id="activity-poller"`, `data-list-poller`, `hx-get="/activity/`+section+`/list"`)
 		sidebar := body[strings.Index(body, `data-slot="sidebar-wrapper"`):strings.Index(body, `data-slot="sidebar-inset"`)]
 		require.Regexp(t, activeAttr, requireTag(t, sidebar, `href="/activity"`, `data-slot="sidebar-menu-button"`), "%s: the Activity entry is active", section)
@@ -104,6 +108,66 @@ func TestActivityFileRowsShowTheirStateDetailAndFailure(t *testing.T) {
 	require.Regexp(t, `data-slot="tabs-trigger"[^>]*data-active[^>]*data-stat="Found"|data-stat="Found"[^>]*data-active`, body, "the asked-for tab is open")
 }
 
+// TestActivityTabAndPageAreTheURLs (owner, 2026-11-27: "selected tab should
+// be both saved on page refresh and reflected in the url"): ?tab= opens a
+// tab and ?page= its page, a pager links both, the script that keeps the
+// URL is served, and the poller's own word (tab-<section>) is the newer.
+func TestActivityTabAndPageAreTheURLs(t *testing.T) {
+	srv := activityServer(t)
+	open := func(body, label string) {
+		t.Helper()
+		require.Regexp(t, `data-slot="tabs-trigger"[^>]*data-active[^>]*data-stat="`+label+`"|data-stat="`+label+`"[^>]*data-active`, body, "%s is open", label)
+	}
+
+	open(getPage(t, srv, "/activity/markers?tab=found"), "Found")
+	open(getPage(t, srv, "/activity/markers?tab=nonsense"), "Pending")
+	open(getPage(t, srv, "/activity/markers/list?tab=found&tab-markers=error"), "Error")
+
+	body := getPage(t, srv, "/activity/markers?tab=pending&page=2")
+	open(body, "Pending")
+	pending := body[strings.Index(body, `data-list="markers-pending"`):strings.Index(body, `data-list="markers-found"`)]
+	requireTag(t, pending, `data-dashboard-page-list="markers-pending"`, `data-dashboard-page="2"`)
+	require.Equal(t, 5, strings.Count(pending, `data-file="p-`), "page 2 of 30 at 25 a page")
+	require.Contains(t, pending, `href="/activity/markers?tab=pending&amp;page=1"`, "the pager links its tab and its page")
+
+	// A page named for one tab is not another's.
+	body = getPage(t, srv, "/activity/markers?tab=found&page=2")
+	pending = body[strings.Index(body, `data-list="markers-pending"`):strings.Index(body, `data-list="markers-found"`)]
+	requireTag(t, pending, `data-dashboard-page-list="markers-pending"`, `data-dashboard-page="1"`)
+
+	js := get(t, srv, "/static/dashboard.js")
+	require.Equal(t, http.StatusOK, js.Code)
+	require.Contains(t, js.Body.String(), `url.searchParams.set("tab", value)`)
+	require.Contains(t, js.Body.String(), "history.replaceState")
+}
+
+// TestActivityRowsAreOneRowWithAnInfoPopover (owner, 2026-11-27: "similar to
+// a table where each entry is concise", "moved into an info button that
+// presents a shadcn-templ popover"): every list is a grid its rows share
+// the columns of, a row its name, its line and a toned state, and what a
+// row has more to say is in its popover.
+func TestActivityRowsAreOneRowWithAnInfoPopover(t *testing.T) {
+	srv := activityServer(t)
+
+	body := getPage(t, srv, "/activity/subtitles")
+	_, row, ok := strings.Cut(body, `data-file="a"`)
+	require.True(t, ok)
+	row, _, ok = strings.Cut(row, `data-file="b"`)
+	require.True(t, ok, "the row ends where the next one begins")
+	require.Contains(t, tagWith(t, body, `data-file="a"`), "grid-cols-subgrid", "a row takes its list's columns")
+	requireTag(t, row, `data-row-info`, `data-slot="popover-trigger"`, `aria-label="Details"`, `data-templ-controls="info-file-a"`)
+	requireTag(t, row, `id="info-file-a"`, `data-slot="popover-content"`)
+	require.Regexp(t, `data-slot="badge"[^>]*bg-sky-500/20[^>]*>Searching<`, row, "the state badge is toned")
+	require.NotContains(t, row, `data-row-actions`, "a file row has no actions")
+
+	// The poll waits while a row's menu or popover is open, and a redraw
+	// takes the old rows' away first.
+	requireTag(t, body, `id="activity-poller"`, `activityFloatOpen()`)
+	js := get(t, srv, "/static/dashboard.js")
+	require.Contains(t, js.Body.String(), "window.activityFloatOpen")
+	require.Contains(t, js.Body.String(), "htmx:oobBeforeSwap")
+}
+
 // TestActivityListIsTheCardOutOfBandOnItsPage: the poller's answer is the
 // card alone, swapped out of band, on the page each list's page-<list>
 // names, 25 rows a page.
@@ -118,7 +182,7 @@ func TestActivityListIsTheCardOutOfBandOnItsPage(t *testing.T) {
 	require.Contains(t, pending, `data-file="p-29"`)
 	require.NotContains(t, pending, `data-file="p-00"`)
 	requireTag(t, pending, `data-dashboard-page-list="markers-pending"`, `data-dashboard-page="2"`)
-	require.Contains(t, pending, `href="/activity/markers?page-markers-pending=1"`, "the pager links its own page")
+	require.Contains(t, pending, `href="/activity/markers?tab=pending&amp;page=1"`, "the pager links its own page")
 
 	full := getPage(t, srv, "/activity/markers")
 	require.Equal(t, 25, strings.Count(full, `data-file="p-`), "the first page")

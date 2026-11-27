@@ -18,24 +18,36 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package views
 
 import (
+	"cmp"
+	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/badge"
-	"github.com/mediactl/clustarr/ui/components/item"
-	"github.com/mediactl/clustarr/ui/components/separator"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/buttongroup"
+	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/dropdownmenu"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/popover"
+	"github.com/mediactl/clustarr/ui/components/tabs"
+	"github.com/mediactl/clustarr/ui/components/utils"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
-// ActivityRefresh is how often an Activity page's card is fetched again.
+// ActivityRefresh is how often an Activity page's lists are fetched again.
 const ActivityRefresh = "10s"
 
 // ActivityView is one Activity page (owner, 2026-11-10: "Move pipeline and
 // downloads into a new group Activity ... Downloads, Transcodes, Subtitles,
 // Markers. Each page should have tabs like Running, Failed, etc like on
 // the dashboard"): the projection's lists for its section, each cut to the
-// page it shows, as tabs of the dashboard's card.
+// page it shows, a tab a list.
 type ActivityView struct {
 	// Section is the page's: downloads, transcodes, subtitles or markers.
 	Section, Title string
@@ -51,10 +63,14 @@ type ActivityView struct {
 	Pages map[string]ListPage
 }
 
-// Activity is an Activity page: its title, on Downloads the clients and the
-// actions' status region, and the section's tabbed card, which a hidden
-// poller fetches again every ActivityRefresh on the tab and the pages the
-// reader has open (ui/static/dashboard.js).
+// Activity is an Activity page (redrawn at the owner's word, 2026-11-27:
+// "the tabs should be simplified to use the shadcn-templ tabs component and
+// drop the overly fancy styling", "each item in the list should follow the
+// dashboard page's styling ... similar to a table where each entry is
+// concise"): its title, on Downloads the clients and the actions' status
+// region, and the section's tabs over their lists, which a hidden poller
+// fetches again every ActivityRefresh on the tab and the pages the reader
+// has open (ui/static/dashboard.js).
 templ Activity(v ActivityView) {
 	@Shell(Chrome{Title: v.Title, Crumbs: []Crumb{{Label: "Activity", Href: "/activity"}, {Label: v.Title}}, Activity: "/activity/" + v.Section}) {
 		<h1 class="mb-6 text-2xl font-semibold tracking-tight">{ v.Title }</h1>
@@ -66,19 +82,31 @@ templ Activity(v ActivityView) {
 				</div>
 			}
 		}
-		<div id="activity-poller" data-list-poller hidden hx-get={ "/activity/" + v.Section + "/list" } hx-trigger={ pollTrigger(ActivityRefresh) + ", dashboard:page" } hx-swap="none"></div>
+		<div id="activity-poller" data-list-poller hidden hx-get={ "/activity/" + v.Section + "/list" } hx-trigger={ activityPollTrigger() } hx-swap="none"></div>
 		@activityCard(v, false)
 	}
 }
 
-// ActivityList is GET /activity/{section}/list: the card, out of band.
+// activityPollTrigger is the lists' poll: every ActivityRefresh while the
+// tab is shown and no row's menu or popover is open (a redraw under an open
+// one would take it from under the pointer; activityFloatOpen is
+// ui/static/dashboard.js's), and at once for a pager's page.
+func activityPollTrigger() string {
+	return "every " + ActivityRefresh + " [!document.hidden && !activityFloatOpen()], shell:visible from:body, dashboard:page"
+}
+
+// ActivityList is GET /activity/{section}/list: the tabs, out of band.
 templ ActivityList(v ActivityView) {
 	@activityCard(v, true)
 }
 
-// activityCard is the section's tabbed card, swapped in place by the
-// poller.
+// activityCard is the section's tabs and their lists, swapped in place by
+// the poller: shadcn-templ's tabs as they come, each tab its name and its
+// count, the open one in the URL (?tab=, ui/static/dashboard.js) so a
+// reload or a link opens it (owner, 2026-11-27: "selected tab should be
+// both saved on page refresh and reflected in the url").
 templ activityCard(v ActivityView, oob bool) {
+	{{ tabList := activityTabs(v) }}
 	<div
 		id="activity-card"
 		data-activity={ v.Section }
@@ -86,167 +114,647 @@ templ activityCard(v ActivityView, oob bool) {
 			hx-swap-oob="morph"
 		}
 	>
-		{{ tabList := activityTabs(v) }}
-		@sectionCard(v.Section, v.Title, activityDescription(v.Section), "", tabList, selectedTab(tabList, v.Tab))
+		@tabs.Tabs(tabs.Props{ID: "activity-tabs-" + v.Section, DefaultValue: selectedTab(tabList, v.Tab), Class: "gap-4", Attributes: templ.Attributes{"data-activity-tabs": v.Section}}) {
+			@tabs.List(tabs.ListProps{Class: "max-w-full justify-start overflow-x-auto overflow-y-hidden [scrollbar-width:none]"}) {
+				for _, t := range tabList {
+					@tabs.Trigger(tabs.TriggerProps{Value: t.Value, Class: "flex-none", Attributes: templ.Attributes{"data-stat": t.Label, "data-count": t.figure()}}) {
+						{ t.Label }
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "h-5 min-w-5 px-1.5 tabular-nums"}) {
+							{ t.figure() }
+						}
+					}
+				}
+			}
+			for _, t := range tabList {
+				@tabs.Content(tabs.ContentProps{Value: t.Value, Attributes: templ.Attributes{"data-list": v.Section + "-" + t.Value}}) {
+					@t.Body
+				}
+			}
+		}
 	</div>
 }
 
-// activityDescription is a card's one line.
-func activityDescription(section string) string {
-	switch section {
-	case "downloads":
-		return "Every grab, by state"
-	case "transcodes":
-		return "Every file's transcode, by state"
-	case "subtitles":
-		return "Every file's subtitles, by state"
-	case "markers":
-		return "Every movie's and episode's skip segments, by state"
-	}
-	return ""
-}
-
-// activityTabs are a section's tabs, as the dashboard's cards have them.
+// activityTabs are a section's tabs: a state a tab, its count and its list.
 func activityTabs(v ActivityView) []statTab {
-	base := "/activity/" + v.Section
-	pg := func(list string) ListPage { return v.Pages[list] }
+	pg := func(tab string) ListPage { return v.Pages[v.Section+"-"+tab] }
 	switch v.Section {
 	case "downloads":
 		d := v.Summary.Downloads
+		rows := func(tab string, rows []DownloadView, none string) templ.Component {
+			return activityDownloads(v.Section, tab, rows, pg(tab), none)
+		}
 		return []statTab{
-			{Value: "running", Label: "Running", Color: "bg-sky-500", N: d.Active.Total,
-				Body: activityDownloads(base, "downloads-running", v.Active, pg("downloads-running"), "Nothing is downloading.")},
-			{Value: "queued", Label: "Queued", Color: "bg-blue-700", N: d.Pending.Total,
-				Body: activityDownloads(base, "downloads-queued", rowViews(d.Pending.Rows), pg("downloads-queued"), "Nothing is waiting.")},
-			{Value: "completed", Label: "Completed", Color: "bg-emerald-500", N: d.Completed.Total,
-				Body: activityDownloads(base, "downloads-completed", rowViews(d.Completed.Rows), pg("downloads-completed"), "Nothing has completed.")},
-			{Value: "failed", Label: "Failed", Color: "bg-red-500", N: d.Failed.Total,
-				Body: activityDownloads(base, "downloads-failed", rowViews(d.Failed.Rows), pg("downloads-failed"), "Nothing has failed.")},
+			{Value: "running", Label: "Running", N: d.Active.Total, Body: rows("running", v.Active, "Nothing is downloading.")},
+			{Value: "queued", Label: "Queued", N: d.Pending.Total, Body: rows("queued", rowViews(d.Pending.Rows), "Nothing is waiting.")},
+			{Value: "completed", Label: "Completed", N: d.Completed.Total, Body: rows("completed", rowViews(d.Completed.Rows), "Nothing has completed.")},
+			{Value: "failed", Label: "Failed", N: d.Failed.Total, Body: rows("failed", rowViews(d.Failed.Rows), "Nothing has failed.")},
 		}
 	case "transcodes":
 		t := v.Summary.Transcodes
+		rows := func(tab string, rows []projection.TranscodeRow, none string) templ.Component {
+			return activityTranscodes(v.Section, tab, rows, pg(tab), none)
+		}
 		return []statTab{
-			{Value: "running", Label: "Running", Color: "bg-sky-500", N: t.Running.Total,
-				Body: activityTranscodes(base, "transcodes-running", t.Running.Rows, pg("transcodes-running"), "Nothing is transcoding.")},
-			{Value: "pending", Label: "Pending", Color: "bg-blue-700", N: t.Pending.Total,
-				Body: activityTranscodes(base, "transcodes-pending", t.Pending.Rows, pg("transcodes-pending"), "Nothing is waiting.")},
-			{Value: "failed", Label: "Failed", Color: "bg-red-500", N: t.Failed.Total,
-				Body: activityTranscodes(base, "transcodes-failed", t.Failed.Rows, pg("transcodes-failed"), "Nothing has failed.")},
-			{Value: "skipped", Label: "Skipped", Color: "bg-amber-500", N: t.Skipped.Total,
-				Body: activityTranscodes(base, "transcodes-skipped", t.Skipped.Rows, pg("transcodes-skipped"), "No transcode was skipped.")},
+			{Value: "running", Label: "Running", N: t.Running.Total, Body: rows("running", t.Running.Rows, "Nothing is transcoding.")},
+			{Value: "pending", Label: "Pending", N: t.Pending.Total, Body: rows("pending", t.Pending.Rows, "Nothing is waiting.")},
+			{Value: "failed", Label: "Failed", N: t.Failed.Total, Body: rows("failed", t.Failed.Rows, "Nothing has failed.")},
+			{Value: "skipped", Label: "Skipped", N: t.Skipped.Total, Body: rows("skipped", t.Skipped.Rows, "No transcode was skipped.")},
 		}
 	case "subtitles":
 		s := v.Summary.Subtitles
+		rows := func(tab string, rows []projection.FileRow, none string) templ.Component {
+			return activityFiles(v.Section, tab, rows, pg(tab), none)
+		}
 		return []statTab{
-			{Value: "searching", Label: "Searching", Color: "bg-sky-500", N: s.Searching.Total,
-				Body: activityFiles(base, "subtitles-searching", s.Searching.Rows, pg("subtitles-searching"), "Nothing is being searched for.")},
-			{Value: "wanted", Label: "Wanted", Color: "bg-blue-700", N: s.Wanted.Total,
-				Body: activityFiles(base, "subtitles-wanted", s.Wanted.Rows, pg("subtitles-wanted"), "No subtitle is waiting for its next search.")},
-			{Value: "failed", Label: "Failed", Color: "bg-red-500", N: s.Failed.Total,
-				Body: activityFiles(base, "subtitles-failed", s.Failed.Rows, pg("subtitles-failed"), "Nothing has failed.")},
-			{Value: "done", Label: "Done", Color: "bg-emerald-500", N: s.Satisfied.Total,
-				Body: activityFiles(base, "subtitles-done", s.Satisfied.Rows, pg("subtitles-done"), "No file has every subtitle it wants yet.")},
+			{Value: "searching", Label: "Searching", N: s.Searching.Total, Body: rows("searching", s.Searching.Rows, "Nothing is being searched for.")},
+			{Value: "wanted", Label: "Wanted", N: s.Wanted.Total, Body: rows("wanted", s.Wanted.Rows, "No subtitle is waiting for its next search.")},
+			{Value: "failed", Label: "Failed", N: s.Failed.Total, Body: rows("failed", s.Failed.Rows, "Nothing has failed.")},
+			{Value: "done", Label: "Done", N: s.Satisfied.Total, Body: rows("done", s.Satisfied.Rows, "No file has every subtitle it wants yet.")},
 		}
 	case "markers":
 		m := v.Summary.Markers
+		rows := func(tab string, rows []projection.FileRow, none string) templ.Component {
+			return activityFiles(v.Section, tab, rows, pg(tab), none)
+		}
 		return []statTab{
-			{Value: "pending", Label: "Pending", Color: "bg-blue-700", N: m.Pending.Total,
-				Body: activityFiles(base, "markers-pending", m.Pending.Rows, pg("markers-pending"), "Every file has been looked at.")},
-			{Value: "found", Label: "Found", Color: "bg-emerald-500", N: m.Found.Total,
-				Body: activityFiles(base, "markers-found", m.Found.Rows, pg("markers-found"), "No segment has been found yet.")},
-			{Value: "none", Label: "None found", Color: "bg-amber-500", N: m.NotFound.Total,
-				Body: activityFiles(base, "markers-none", m.NotFound.Rows, pg("markers-none"), "Every file looked at had segments.")},
-			{Value: "error", Label: "Error", Color: "bg-red-500", N: m.Error.Total,
-				Body: activityFiles(base, "markers-error", m.Error.Rows, pg("markers-error"), "Nothing has failed.")},
+			{Value: "pending", Label: "Pending", N: m.Pending.Total, Body: rows("pending", m.Pending.Rows, "Every file has been looked at.")},
+			{Value: "found", Label: "Found", N: m.Found.Total, Body: rows("found", m.Found.Rows, "No segment has been found yet.")},
+			{Value: "none", Label: "None found", N: m.NotFound.Total, Body: rows("none", m.NotFound.Rows, "Every file looked at had segments.")},
+			{Value: "error", Label: "Error", N: m.Error.Total, Body: rows("error", m.Error.Rows, "Nothing has failed.")},
 		}
 	}
 	return []statTab{{Value: "none", Label: "None"}}
 }
 
-// activityDownloads is a downloads tab: the Downloads page's rows, each
-// with its telemetry and its actions, a page of them, and the pages.
-templ activityDownloads(base, list string, rows []DownloadView, pg ListPage, none string) {
+// activityDownloads is a downloads tab: a grab a row, a page of them, and
+// the pages.
+templ activityDownloads(section, tab string, rows []DownloadView, pg ListPage, none string) {
 	if len(rows) == 0 {
-		@emptyNote(none, "py-6", templ.Attributes{"data-dashboard-page-list": list, "data-dashboard-page": "1"})
+		@emptyNote(none, "py-6", templ.Attributes{"data-dashboard-page-list": section + "-" + tab, "data-dashboard-page": "1"})
 	} else {
-		@item.Group(item.GroupProps{Class: "gap-3", Attributes: templ.Attributes{"data-dashboard-page-list": list, "data-dashboard-page": strconv.Itoa(pg.Page)}}) {
+		@activityList(section+"-"+tab, pg, "Release", lineHead(tab), true) {
 			for _, d := range rows {
 				@downloadRow(d)
 			}
 		}
 	}
-	@listPager(base, list, pg)
+	@activityPager(section, tab, pg)
 }
 
-// activityTranscodes is a transcodes tab: the dashboard's rows, a row a
-// line.
-templ activityTranscodes(base, list string, rows []projection.TranscodeRow, pg ListPage, none string) {
+// activityTranscodes is a transcodes tab: a file's transcode a row.
+templ activityTranscodes(section, tab string, rows []projection.TranscodeRow, pg ListPage, none string) {
 	if len(rows) == 0 {
-		@emptyNote(none, "py-6", templ.Attributes{"data-dashboard-page-list": list, "data-dashboard-page": "1"})
+		@emptyNote(none, "py-6", templ.Attributes{"data-dashboard-page-list": section + "-" + tab, "data-dashboard-page": "1"})
 	} else {
-		<div class="grid gap-3" data-dashboard-page-list={ list } data-dashboard-page={ strconv.Itoa(pg.Page) }>
-			for i, r := range rows {
-				if i > 0 {
-					@separator.Separator()
-				}
-				@dashboardTranscode(r)
+		@activityList(section+"-"+tab, pg, "File", lineHead(tab), false) {
+			for _, r := range rows {
+				@transcodeRow(r)
 			}
-		</div>
+		}
 	}
-	@listPager(base, list, pg)
+	@activityPager(section, tab, pg)
 }
 
-// activityFiles is a subtitles or markers tab: a file a line.
-templ activityFiles(base, list string, rows []projection.FileRow, pg ListPage, none string) {
+// activityFiles is a subtitles or markers tab: a file a row.
+templ activityFiles(section, tab string, rows []projection.FileRow, pg ListPage, none string) {
 	if len(rows) == 0 {
-		@emptyNote(none, "py-6", templ.Attributes{"data-dashboard-page-list": list, "data-dashboard-page": "1"})
+		@emptyNote(none, "py-6", templ.Attributes{"data-dashboard-page-list": section + "-" + tab, "data-dashboard-page": "1"})
 	} else {
-		<div class="grid gap-3" data-dashboard-page-list={ list } data-dashboard-page={ strconv.Itoa(pg.Page) }>
-			for i, r := range rows {
-				if i > 0 {
-					@separator.Separator()
-				}
-				@activityFile(r)
+		@activityList(section+"-"+tab, pg, "File", "Detail", false) {
+			for _, r := range rows {
+				@fileRow(r)
 			}
-		</div>
+		}
 	}
-	@listPager(base, list, pg)
+	@activityPager(section, tab, pg)
 }
 
-// activityFile is one file's subtitles or markers: its name linking to its
-// item, its state, the languages or segments and when, and a failure.
-templ activityFile(r projection.FileRow) {
-	<div class="min-w-0 space-y-1" data-file={ r.File.Name } data-state={ r.State }>
-		<div class="flex items-start justify-between gap-2">
-			<a class="min-w-0 truncate text-sm font-medium hover:underline" href={ templ.SafeURL(r.ItemURL) } title={ r.Name }>{ r.Name }</a>
-			<div class="flex flex-none gap-1">
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
-					{ r.State }
+// lineHead heads a list's second column by what its tab's rows say there.
+func lineHead(tab string) string {
+	switch tab {
+	case "running", "queued":
+		return "Progress"
+	case "completed":
+		return "Import"
+	case "pending":
+		return "Plan"
+	case "failed":
+		return "Failure"
+	case "skipped":
+		return "Reason"
+	}
+	return "Detail"
+}
+
+// activityPager is a list's pages, each a link to its tab on that page.
+templ activityPager(section, tab string, pg ListPage) {
+	@pagerOf(section+"-"+tab, pg, func(n int) string {
+		return fmt.Sprintf("/activity/%s?tab=%s&page=%d", section, tab, n)
+	})
+}
+
+// The Activity lists are laid out as a table without being one (owner,
+// 2026-11-27: "It should look similar to a table where each entry is concise
+// and requires less scrolling"): the list is a grid whose columns every row
+// shares (a subgrid), so the names, the bars, the states and the actions
+// line up down the page. From 48rem of card a row is one line -- the name
+// takes what is left, the bar up to 20rem, the state and the actions their
+// own width; narrower, it is the dashboard's row: the name and the state,
+// then the bar and the actions.
+const (
+	activityGrid        = "grid grid-cols-[minmax(0,1fr)_auto] @3xl/activity:grid-cols-[minmax(0,1fr)_minmax(0,20rem)_auto]"
+	activityGridActions = "grid grid-cols-[minmax(0,1fr)_auto] @3xl/activity:grid-cols-[minmax(0,1fr)_minmax(0,20rem)_auto_auto]"
+	activityRowClass    = "col-span-full grid grid-cols-subgrid items-center gap-x-4 gap-y-1.5 border-b border-border px-4 py-2.5 last:border-b-0 hover:bg-muted/30"
+	activityHeadClass   = "col-span-full hidden grid-cols-subgrid items-center gap-x-4 border-b border-border px-4 py-2 text-xs font-medium text-muted-foreground @3xl/activity:grid"
+)
+
+// activityList is a tab's list: a card holding the grid, headed from 48rem
+// by what each column is; actions is whether its rows have any.
+templ activityList(list string, pg ListPage, name, line string, actions bool) {
+	@card.Card(card.Props{Class: "@container/activity gap-0 overflow-hidden py-0"}) {
+		<div class={ templ.KV(activityGridActions, actions), templ.KV(activityGrid, !actions) } data-dashboard-page-list={ list } data-dashboard-page={ strconv.Itoa(pg.Page) }>
+			<div class={ activityHeadClass } aria-hidden="true">
+				<span>{ name }</span>
+				<span>{ line }</span>
+				<span class="text-right">State</span>
+				if actions {
+					<span class="text-right">Actions</span>
 				}
 			</div>
+			{ children... }
 		</div>
-		@rowDetail(fileDetail(r, time.Now()))
-		if r.Message != "" {
-			<div class="truncate text-xs text-destructive" title={ r.Message }>{ r.Message }</div>
+	}
+}
+
+// activityRowView is one row of an Activity list: what it names and links
+// to, its info button, its line (a bar, or a detail), its state and, in a
+// list with them, its actions.
+type activityRowView struct {
+	Attrs       templ.Attributes
+	Title, Href string
+	Info        templ.Component
+	Line        templ.Component
+	State       templ.Component
+	// Actions is the row's action button; HasActions whether the list has
+	// the column.
+	Actions    templ.Component
+	HasActions bool
+}
+
+// activityRow is the one row every Activity list is made of.
+templ activityRow(v activityRowView) {
+	<div class={ activityRowClass } { v.Attrs... }>
+		<div class="col-start-1 row-start-1 flex min-w-0 items-center gap-1">
+			<a class="min-w-0 truncate text-sm font-medium hover:underline" href={ templ.SafeURL(v.Href) } title={ v.Title }>{ v.Title }</a>
+			@v.Info
+		</div>
+		<div class={ "col-start-1 row-start-2 min-w-0 @3xl/activity:col-start-2 @3xl/activity:row-start-1", templ.KV("col-span-2 @3xl/activity:col-span-1", !v.HasActions) }>
+			@v.Line
+		</div>
+		<div class="col-start-2 row-start-1 flex justify-end @3xl/activity:col-start-3">
+			@v.State
+		</div>
+		if v.HasActions {
+			<div class="col-start-2 row-start-2 flex justify-end @3xl/activity:col-start-4 @3xl/activity:row-start-1">
+				@v.Actions
+			</div>
 		}
 	</div>
 }
 
-// fileDetail is a file row's line: its detail and when, a time ahead read
-// as the next search.
-func fileDetail(r projection.FileRow, now time.Time) string {
-	parts := []string{}
-	if r.Detail != "" {
-		parts = append(parts, r.Detail)
+// rowID is an element id for a row's menu or popover: stable across the
+// poller's redraws, so a morph keeps the row it had.
+func rowID(parts ...string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			return r
+		}
+		return '-'
+	}, strings.Join(parts, "-"))
+}
+
+// stateBadge is a row's state, toned by what it means.
+templ stateBadge(label, tone string) {
+	@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: tone}) {
+		{ label }
 	}
-	switch {
-	case r.Since.IsZero():
-	case r.Since.After(now):
-		parts = append(parts, "next search "+untilLabel(r.Since.Sub(now)))
-	default:
-		parts = append(parts, sinceLabel(now.Sub(r.Since)))
+}
+
+// stateTone is a transcode's, a subtitle's or a marker's state badge's
+// colour, by what the state means, as downloadPhaseTone is a grab's.
+func stateTone(state string) string {
+	switch state {
+	case "Failed", "Error", "Blocked":
+		return "bg-red-500/20 text-red-300"
+	case "Skipped", "NotFound", "None", "Wanted":
+		return "bg-amber-500/20 text-amber-300"
+	case "Completed", "Satisfied", "Found", "Done":
+		return "bg-emerald-500/20 text-emerald-300"
+	case "Running", "Swapping", "Searching":
+		return "bg-sky-500/20 text-sky-300"
+	}
+	return "bg-slate-500/20 text-slate-300"
+}
+
+// rowFailure is a row's line when it failed: why, in the failure's colour.
+templ rowFailure(text string) {
+	<p class="truncate text-xs text-destructive" title={ text }>{ text }</p>
+}
+
+// rowInfo is a row's info button and what it opens (owner, 2026-11-27:
+// "the current subtitle text that's under the release title should be moved
+// into an info button that presents a shadcn-templ popover listing the
+// expected files and any additional info"): a popover headed by the row's
+// full name, its children the body.
+templ rowInfo(id, title string) {
+	@popover.Popover(popover.Props{ID: id}) {
+		@button.Button(button.Props{
+			Variant:    button.VariantGhost,
+			Size:       button.SizeIconXs,
+			Class:      "flex-none text-muted-foreground",
+			Attributes: utils.MergeAttributes(popover.Trigger(ctx), templ.Attributes{"aria-label": "Details", "data-row-info": true}),
+		}) {
+			@icon.Icon("info")()
+		}
+		@popover.Content(popover.ContentProps{Align: popover.AlignStart, Class: "w-96 max-w-[calc(100vw-2rem)] gap-3", Attributes: templ.Attributes{"data-row-info-content": true}}) {
+			@popover.Header() {
+				@popover.Title(popover.TitleProps{Class: "wrap-anywhere"}) {
+					{ title }
+				}
+			}
+			{ children... }
+		}
+	}
+}
+
+// infoFacts is a popover's labelled values, a narrow muted column of
+// labels and the values beside it.
+templ infoFacts() {
+	<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+		{ children... }
+	</dl>
+}
+
+// infoFact is one labelled value; an empty one is left out.
+templ infoFact(label, value string) {
+	if value != "" {
+		<dt class="text-muted-foreground">{ label }</dt>
+		<dd class="min-w-0 wrap-anywhere">{ value }</dd>
+	}
+}
+
+// downloadRow is one grab entry (ADR-0019 §6.12): its release title linking
+// to the owner's page, the info button, the transfer's bar or what the
+// entry waits on, its phase, and its actions. Every row carries
+// data-download (the entry id), data-phase and data-protocol (ruling R8):
+// tests assert on those attributes, not on visible copy.
+templ downloadRow(d DownloadView) {
+	{{ id := rowID(string(d.Row.OwnerKind), d.Row.Owner.Name, d.Row.Entry.ID) }}
+	@activityRow(activityRowView{
+		Attrs: templ.Attributes{
+			"data-download": d.Row.Entry.ID,
+			"data-entry":    d.Row.Entry.UID,
+			"data-owner":    string(d.Row.OwnerKind) + "/" + d.Row.Owner.Name,
+			"data-phase":    string(d.Row.Entry.Phase),
+			"data-protocol": string(d.Row.Entry.Release.Protocol),
+		},
+		Title:      downloadTitle(d.Row),
+		Href:       ownerURL(d.Row),
+		Info:       downloadInfo("info-"+id, d),
+		Line:       downloadLine(d),
+		State:      stateBadge(downloadPhaseLabel(d.Row.Entry.Phase), downloadPhaseTone(d.Row.Entry.Phase)),
+		Actions:    downloadActions("actions-"+id, d.Row),
+		HasActions: true,
+	})
+}
+
+// downloadLine is a grab's line: why it failed, else while it transfers
+// the dashboard's bar under its rate, else what it waits on. An entry past
+// its transfer has no bar: one always full says nothing its state does not.
+templ downloadLine(d DownloadView) {
+	{{ pct := downloadPercent(d) }}
+	switch  {
+		case failed(d.Row.Entry.Phase):
+			@rowFailure(downloadFailureDetail(d.Row.Entry))
+		case pct >= 0 && transferring(d.Row.Entry.Phase):
+			@rowProgress(downloadDetail(d, time.Now()), pct)
+		default:
+			@rowDetail(downloadDetail(d, time.Now()))
+	}
+}
+
+// transferring is a phase whose transfer has yet to finish.
+func transferring(phase commonv1.DownloadPhase) bool {
+	switch phase {
+	case commonv1.DownloadPhaseDownloading, commonv1.DownloadPhaseQueued, commonv1.DownloadPhasePaused:
+		return true
+	}
+	return false
+}
+
+// downloadDetail is what a grab's line says: a moving transfer's rate and
+// ETA, a seeding one's ratio, an import's state, else what was grabbed and
+// when.
+func downloadDetail(d DownloadView, now time.Time) string {
+	e := d.Row.Entry
+	if pr := d.Progress; pr != nil {
+		switch e.Phase {
+		case commonv1.DownloadPhaseDownloading, commonv1.DownloadPhaseQueued, commonv1.DownloadPhasePaused:
+			return downloadRate(d)
+		case commonv1.DownloadPhaseSeeding:
+			return fmt.Sprintf("ratio %s · up %s/s", ratioString(pr.RatioMilli), formatBytes(pr.UpRateBytesPerSec))
+		}
+	}
+	if e.Import != nil {
+		return "import: " + downloadImportDetail(e.Import)
+	}
+	var parts []string
+	if e.Release.SizeBytes > 0 {
+		parts = append(parts, formatBytes(e.Release.SizeBytes))
+	}
+	if e.Release.IndexerName != "" {
+		parts = append(parts, e.Release.IndexerName)
+	}
+	if !e.GrabbedAt.IsZero() {
+		parts = append(parts, "grabbed "+sinceLabel(now.Sub(e.GrabbedAt.Time)))
 	}
 	return joinDot(parts)
+}
+
+// downloadInfo is a grab's popover: the episodes or issues it is expected
+// to bring (the item itself for a single), then the release, the transfer,
+// the import and the failure.
+templ downloadInfo(id string, d DownloadView) {
+	{{ e := d.Row.Entry }}
+	@rowInfo(id, downloadTitle(d.Row)) {
+		{{ files := expectedFiles(d.Row) }}
+		<div class="space-y-1.5" data-row-expected>
+			<div class="text-xs font-medium text-muted-foreground">{ expectedLabel(files) }</div>
+			<ul class="flex max-h-32 flex-wrap gap-1 overflow-y-auto">
+				for _, name := range files {
+					<li>
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "font-mono tabular-nums"}) {
+							{ name }
+						}
+					</li>
+				}
+			</ul>
+		</div>
+		@infoFacts() {
+			<dt class="text-muted-foreground">Item</dt>
+			<dd class="min-w-0 wrap-anywhere">
+				<a class="underline underline-offset-4" href={ templ.SafeURL(ownerURL(d.Row)) }>{ string(d.Row.OwnerKind) + " " + d.Row.Owner.Name }</a>
+			</dd>
+			if e.Release.SizeBytes > 0 {
+				@infoFact("Size", formatBytes(e.Release.SizeBytes))
+			}
+			@infoFact("Indexer", e.Release.IndexerName)
+			@infoFact("Client", clientLabel(e))
+			if !e.GrabbedAt.IsZero() {
+				@infoFact("Grabbed", joinDot(nonEmpty(sinceLabel(time.Since(e.GrabbedAt.Time)), string(e.GrabbedBy))))
+			}
+			if pr := d.Progress; pr != nil {
+				@infoFact("Transfer", fmt.Sprintf("down %s/s · up %s/s · ETA %s", formatBytes(pr.DownRateBytesPerSec), formatBytes(pr.UpRateBytesPerSec), formatETA(pr.ETASeconds)))
+				if e.Release.Protocol == commonv1.ProtocolTorrent {
+					@infoFact("Swarm", fmt.Sprintf("seeders %d · peers %d · ratio %s", pr.Seeders, pr.Peers, ratioString(pr.RatioMilli)))
+				}
+			}
+			if imp := e.Import; imp != nil {
+				@infoFact("Import", downloadImportDetail(imp))
+			}
+			if failed(e.Phase) {
+				<dt class="text-muted-foreground">Failure</dt>
+				<dd class="min-w-0 wrap-anywhere text-destructive">{ downloadFailureDetail(e) }</dd>
+			} else {
+				@infoFact("Note", e.Message)
+			}
+		}
+		if e.Import != nil {
+			<a class="text-xs font-medium underline underline-offset-4" href={ templ.SafeURL(downloadURL(d.Row, "import")) }>Import detail</a>
+		}
+	}
+}
+
+// expectedFiles are what a grab is expected to bring, a file each: the
+// episodes its entry names in order ("S02E01"), a comic's issues ("#12"),
+// and for an item that is one file -- a movie, a book -- the item.
+func expectedFiles(r projection.DownloadRow) []string {
+	eps := slices.Clone(r.Entry.Episodes)
+	slices.SortFunc(eps, func(a, b catalogv1.EpisodeNumber) int {
+		return cmp.Or(cmp.Compare(a.Season, b.Season), cmp.Compare(a.Number, b.Number))
+	})
+	out := make([]string, 0, len(eps)+len(r.Entry.Issues))
+	for _, e := range eps {
+		out = append(out, fmt.Sprintf("S%02dE%02d", e.Season, e.Number))
+	}
+	for _, n := range r.Entry.Issues {
+		out = append(out, "#"+n)
+	}
+	if len(out) == 0 {
+		out = append(out, r.Owner.Name)
+	}
+	return out
+}
+
+// expectedLabel heads a grab's expected files: how many, when a pack.
+func expectedLabel(files []string) string {
+	if len(files) > 1 {
+		return fmt.Sprintf("Expected files (%d)", len(files))
+	}
+	return "Expected file"
+}
+
+// clientLabel is a grab's client and its protocol, once when the client
+// is named for it.
+func clientLabel(e catalogv1.DownloadEntry) string {
+	if e.Client == string(e.Release.Protocol) {
+		return e.Client
+	}
+	return joinDot(nonEmpty(e.Client, string(e.Release.Protocol)))
+}
+
+// nonEmpty is parts without the empty ones.
+func nonEmpty(parts ...string) []string {
+	var out []string
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// rowAction is one of an entry's actions: the route's action, its label
+// and what it posts.
+type rowAction struct {
+	Action, Label, Vals string
+	Destructive         bool
+}
+
+// downloadActionList are an entry's actions by its phase, the one a person
+// most likely wants first: pause or unpause while it transfers, import
+// again once it has, else remove. A removal is always last.
+func downloadActionList(r projection.DownloadRow) []rowAction {
+	var out []rowAction
+	switch r.Entry.Phase {
+	case commonv1.DownloadPhaseRemoving:
+		return nil
+	case commonv1.DownloadPhasePaused:
+		out = append(out, rowAction{Action: "pause", Label: "Unpause", Vals: `{"paused":"false"}`})
+	case commonv1.DownloadPhaseQueued, commonv1.DownloadPhaseDownloading, commonv1.DownloadPhaseAssigned:
+		out = append(out, rowAction{Action: "pause", Label: "Pause", Vals: `{"paused":"true"}`})
+	}
+	if r.Entry.Phase == commonv1.DownloadPhasePaused || r.Entry.Phase == commonv1.DownloadPhaseDownloading {
+		out = append(out, rowAction{Action: "resume", Label: "Resume"})
+	}
+	if r.Entry.Phase == commonv1.DownloadPhaseCompleted {
+		out = append(out, rowAction{Action: "retry-import", Label: "Import again", Vals: `{"override":"true"}`})
+	}
+	return append(out,
+		rowAction{Action: "remove", Label: "Remove", Destructive: true},
+		rowAction{Action: "remove", Label: "Remove and blocklist", Vals: `{"data":"true","blocklist":"true"}`, Destructive: true},
+	)
+}
+
+// downloadActions is an entry's one action button (owner, 2026-11-27: "the
+// item buttons should be consolidated into a grouped, selectable action
+// button that is aligned to the right of each row"): a button group of its
+// first action and a menu of the rest, each a patch of one annotation on
+// the owner (ADR-0019 §6.10) answered into #action-status.
+templ downloadActions(id string, r projection.DownloadRow) {
+	{{ acts := downloadActionList(r) }}
+	if len(acts) > 0 {
+		@dropdownmenu.DropdownMenu(dropdownmenu.Props{ID: id}) {
+			@buttongroup.ButtonGroup(buttongroup.Props{Attributes: templ.Attributes{"data-row-actions": true}}) {
+				@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Attributes: downloadActionAttrs(r, acts[0].Action, acts[0].Label, acts[0].Vals)}) {
+					{ acts[0].Label }
+				}
+				if len(acts) > 1 {
+					@button.Button(button.Props{
+						Variant:    button.VariantOutline,
+						Size:       button.SizeIconSm,
+						Attributes: utils.MergeAttributes(dropdownmenu.Trigger(ctx), templ.Attributes{"aria-label": "More actions", "data-row-actions-more": true}),
+					}) {
+						@icon.Icon("chevron-down")()
+					}
+				}
+			}
+			if len(acts) > 1 {
+				@dropdownmenu.Content(dropdownmenu.ContentProps{Align: dropdownmenu.AlignEnd, Class: "w-52"}) {
+					for _, a := range acts[1:] {
+						@dropdownmenu.Item(dropdownmenu.ItemProps{Variant: menuVariant(a), Attributes: downloadActionAttrs(r, a.Action, a.Label, a.Vals)}) {
+							{ a.Label }
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// menuVariant is a menu item's: destructive for a removal.
+func menuVariant(a rowAction) dropdownmenu.ItemVariant {
+	if a.Destructive {
+		return dropdownmenu.ItemVariantDestructive
+	}
+	return dropdownmenu.ItemVariantDefault
+}
+
+// transcodeRow is one MediaFile's transcode: the file linking to its item,
+// the bar or the plan, and its phase.
+templ transcodeRow(r projection.TranscodeRow) {
+	@activityRow(activityRowView{
+		Attrs: templ.Attributes{"data-transcode": r.File.Name, "data-phase": string(r.Phase)},
+		Title: r.Name,
+		Href:  r.ItemURL,
+		Info:  transcodeInfo("info-"+rowID("transcode", r.File.Name), r),
+		Line:  transcodeLine(r),
+		State: stateBadge(string(r.Phase), stateTone(string(r.Phase))),
+	})
+}
+
+// transcodeLine is a transcode's line, as the dashboard's row has it.
+templ transcodeLine(r projection.TranscodeRow) {
+	switch  {
+		case r.Percent >= 0:
+			@rowProgress(transcodeDetail(r), r.Percent)
+		case r.Phase == catalogv1.TranscodePhaseFailed:
+			@rowFailure(transcodeDetail(r))
+		default:
+			@rowDetail(transcodeDetail(r))
+	}
+}
+
+// transcodeInfo is a transcode's popover: what it is to do, on what, and
+// what the last attempt said.
+templ transcodeInfo(id string, r projection.TranscodeRow) {
+	@rowInfo(id, r.Name) {
+		@infoFacts() {
+			@infoFact("Profile", r.Profile)
+			@infoFact("Class", string(r.Class))
+			@infoFact("Plan", r.Plan)
+			@infoFact("Reason", r.Reason)
+			@infoFact("Message", r.Message)
+			if !r.Since.IsZero() {
+				@infoFact("Since", sinceLabel(time.Since(r.Since)))
+			}
+		}
+	}
+}
+
+// fileRow is one file's subtitles or markers: its name linking to its
+// item, the languages or segments and when, or why it failed, and its
+// state.
+templ fileRow(r projection.FileRow) {
+	@activityRow(activityRowView{
+		Attrs: templ.Attributes{"data-file": r.File.Name, "data-state": r.State},
+		Title: r.Name,
+		Href:  r.ItemURL,
+		Info:  fileInfo("info-"+rowID("file", r.File.Name), r),
+		Line:  fileLine(r),
+		State: stateBadge(r.State, stateTone(r.State)),
+	})
+}
+
+// fileLine is a file row's line: a failure's text, else its detail.
+templ fileLine(r projection.FileRow) {
+	if r.Message != "" {
+		@rowFailure(r.Message)
+	} else {
+		@rowDetail(fileDetail(r, time.Now()))
+	}
+}
+
+// fileInfo is a file row's popover.
+templ fileInfo(id string, r projection.FileRow) {
+	@rowInfo(id, r.Name) {
+		@infoFacts() {
+			@infoFact("State", r.State)
+			@infoFact("Detail", r.Detail)
+			@infoFact("When", fileWhen(r, time.Now()))
+			if r.Message != "" {
+				<dt class="text-muted-foreground">Message</dt>
+				<dd class="min-w-0 wrap-anywhere text-destructive">{ r.Message }</dd>
+			}
+		}
+	}
+}
+
+// fileDetail is a file row's line: its detail and when.
+func fileDetail(r projection.FileRow, now time.Time) string {
+	return joinDot(nonEmpty(r.Detail, fileWhen(r, now)))
+}
+
+// fileWhen dates a file row: a time ahead read as the next search.
+func fileWhen(r projection.FileRow, now time.Time) string {
+	switch {
+	case r.Since.IsZero():
+		return ""
+	case r.Since.After(now):
+		return "next search " + untilLabel(r.Since.Sub(now))
+	}
+	return sinceLabel(now.Sub(r.Since))
 }
 
 // untilLabel is a duration ahead: "in 5m", "in 3h", "in 2d".

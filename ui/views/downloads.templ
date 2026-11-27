@@ -19,7 +19,6 @@ package views
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -27,10 +26,8 @@ import (
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/ui/components/badge"
-	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/card"
 	"github.com/mediactl/clustarr/ui/components/item"
-	"github.com/mediactl/clustarr/ui/components/progress"
 	"github.com/mediactl/clustarr/ui/components/table"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -41,113 +38,6 @@ import (
 type DownloadView struct {
 	Row      projection.DownloadRow
 	Progress *schema.DownloadProgress
-}
-
-// downloadRow renders one grab entry: its release title linking to the
-// owner's page, the covered episodes or issues, a progress bar and the
-// transfer's telemetry while it moves, the import's state, the failure, and
-// the entry's actions -- pause or resume, remove, import again -- each a
-// patch of one annotation on the owner (ADR-0019 §6.10). Every row carries
-// data-download (the entry id), data-phase and data-protocol (ruling R8):
-// tests assert on those attributes, not on visible copy.
-templ downloadRow(d DownloadView) {
-	@item.Item(item.Props{
-		Variant: item.VariantOutline,
-		Class:   "flex-nowrap items-start",
-		Attributes: templ.Attributes{
-			"data-download": d.Row.Entry.ID,
-			"data-entry":    d.Row.Entry.UID,
-			"data-owner":    string(d.Row.OwnerKind) + "/" + d.Row.Owner.Name,
-			"data-phase":    string(d.Row.Entry.Phase),
-			"data-protocol": string(d.Row.Entry.Release.Protocol),
-		},
-	}) {
-		@item.Content() {
-			@item.Title() {
-				<a class="hover:underline" href={ templ.SafeURL(ownerURL(d.Row)) }>{ downloadTitle(d.Row) }</a>
-			}
-			if len(d.Row.Covered) > 0 {
-				@item.Description() {
-					{ coveredLine(d.Row) }
-				}
-			}
-			if pct := downloadPercent(d); pct >= 0 {
-				@progressBar(pct)
-			}
-			if pr := d.Progress; pr != nil {
-				<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-4">
-					<span>{ fmt.Sprintf("down %s/s · up %s/s", formatBytes(pr.DownRateBytesPerSec), formatBytes(pr.UpRateBytesPerSec)) }</span>
-					if d.Row.Entry.Release.Protocol == commonv1.ProtocolTorrent {
-						<span>{ fmt.Sprintf("seeders %d · peers %d", pr.Seeders, pr.Peers) }</span>
-						<span>{ fmt.Sprintf("ratio %s", ratioString(pr.RatioMilli)) }</span>
-					}
-					<span>{ fmt.Sprintf("ETA %s", formatETA(pr.ETASeconds)) }</span>
-				</div>
-			}
-			if imp := d.Row.Entry.Import; imp != nil {
-				// The link stands outside the clamped description: inside it
-				// the "detail" link was clipped away on the very rows (a long
-				// held-import message) that need it.
-				<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-muted-foreground">
-					<span class="line-clamp-2 min-w-0 wrap-anywhere">{ fmt.Sprintf("import: %s", downloadImportDetail(imp)) }</span>
-					<a class="shrink-0 font-medium text-foreground underline underline-offset-4" href={ templ.SafeURL(downloadURL(d.Row, "import")) }>Import detail</a>
-				</div>
-			}
-			if failed(d.Row.Entry.Phase) {
-				<div class="text-sm text-destructive">{ downloadFailureDetail(d.Row.Entry) }</div>
-			}
-			<div class="flex flex-wrap gap-1 pt-1">
-				@downloadActions(d.Row)
-			</div>
-		}
-		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
-			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: downloadPhaseTone(d.Row.Entry.Phase)}) {
-				{ downloadPhaseLabel(d.Row.Entry.Phase) }
-			}
-		}
-	}
-}
-
-// downloadActions are an entry's actions, by its phase.
-templ downloadActions(r projection.DownloadRow) {
-	switch r.Entry.Phase {
-		case commonv1.DownloadPhasePaused:
-			@downloadAction(r, "pause", "Unpause", `{"paused":"false"}`)
-		case commonv1.DownloadPhaseQueued, commonv1.DownloadPhaseDownloading, commonv1.DownloadPhaseAssigned:
-			@downloadAction(r, "pause", "Pause", `{"paused":"true"}`)
-	}
-	if r.Entry.Phase == commonv1.DownloadPhasePaused || r.Entry.Phase == commonv1.DownloadPhaseDownloading {
-		@downloadAction(r, "resume", "Resume", "")
-	}
-	if r.Entry.Phase == commonv1.DownloadPhaseCompleted {
-		@downloadAction(r, "retry-import", "Import again", `{"override":"true"}`)
-	}
-	if r.Entry.Phase != commonv1.DownloadPhaseRemoving {
-		@downloadAction(r, "remove", "Remove", "")
-		@downloadAction(r, "remove", "Remove and blocklist", `{"data":"true","blocklist":"true"}`)
-	}
-}
-
-// downloadAction is one posting action, answered into #action-status.
-templ downloadAction(r projection.DownloadRow, action, label, vals string) {
-	@button.Button(button.Props{
-		Variant:    button.VariantOutline,
-		Size:       button.SizeSm,
-		Attributes: downloadActionAttrs(r, action, label, vals),
-	}) {
-		{ label }
-	}
-}
-
-// progressBar is the bar a download row shows while it moves: the fill
-// carries data-progress with the raw percentage, the width the clamped one.
-templ progressBar(percent int32) {
-	@progress.Progress(progress.Props{
-		Value:      int(clampPercent(percent)),
-		Class:      "mt-1 gap-0",
-		Attributes: templ.Attributes{"data-progress": fmt.Sprint(percent)},
-	})
-	<div class="text-xs text-muted-foreground">{ fmt.Sprintf("%d%%", percent) }</div>
 }
 
 // DownloadImport renders an entry's import records: the inspect's files
@@ -350,18 +240,6 @@ func downloadActionAttrs(r projection.DownloadRow, action, label, vals string) t
 		attrs["data-confirm-variant"] = "default"
 	}
 	return attrs
-}
-
-// coveredLine names a pack's covered episodes or issues.
-func coveredLine(r projection.DownloadRow) string {
-	const most = 6
-	names := r.Covered
-	more := ""
-	if len(names) > most {
-		more = fmt.Sprintf(" and %d more", len(names)-most)
-		names = names[:most]
-	}
-	return "covers " + strings.Join(names, ", ") + more
 }
 
 // downloadPhaseLabel renders the entry's phase, "unset" for a fresh entry.
