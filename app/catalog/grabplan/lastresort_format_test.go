@@ -88,3 +88,58 @@ func TestAReleaseOfALastResortFormatIsGrabbedOnlyWhenNothingElseCoversItsItems(t
 		require.Equal(t, []string{bdSingle1}, titles(p))
 	})
 }
+
+// grafting is v for a Japanese series under a profile whose audio policy
+// wants English and the original and grafts.
+func grafting(v grabplan.View) grabplan.View {
+	prof := *v.Profile
+	prof.AudioLanguages, prof.GraftAudio = []string{"en", "original"}, true
+	v.Profile, v.OriginalLanguageTag = &prof, "ja"
+	return v
+}
+
+// spoken marks the candidates titled title with the audio languages their
+// indexer reports, as the search recorded them.
+func spoken(cands []grabplan.Candidate, title string, languages ...string) []grabplan.Candidate {
+	for i := range cands {
+		if cands[i].Release.Decision.Title == title {
+			cands[i].Release.Decision.IndexerLanguages = languages
+		}
+	}
+	return cands
+}
+
+// A dub alone is a last resort (owner, 2026-11-27: "Allow dubs-only (or
+// vice versa - *with* the graft)"): the decision approves it under a
+// grafting policy, and the planner takes it as it takes a last-resort
+// format's release -- never from RSS, and from a search only when no other
+// release covers the episode, a lower tier's included.
+func TestADubAloneIsGrabbedOnlyWhenNothingElseCoversItsItems(t *testing.T) {
+	t.Run("an RSS match alone says nothing of what else exists", func(t *testing.T) {
+		match := parked(bbRef, "rss-1", spoken(seasonCandidates(t, 1, 7, bdSingle1), bdSingle1, "English")[0], false, false)
+		p := grabplan.Decide(grafting(seriesView(t, season(1, 7), match)))
+		require.Empty(t, p.NewEntries)
+		require.Equal(t, intake.Refused, p.Settle["rss-1"])
+
+		original := parked(bbRef, "rss-2", spoken(seasonCandidates(t, 1, 7, bdSingle1), bdSingle1, "Japanese")[0], false, false)
+		require.Equal(t, []string{bdSingle1}, titles(grabplan.Decide(grafting(seriesView(t, season(1, 7), original)))),
+			"a release carrying the original is no last resort")
+	})
+	t.Run("a search that finds nothing else takes it", func(t *testing.T) {
+		cands := spoken(seasonCandidates(t, 1, 7, bdSingle1), bdSingle1, "English")
+		require.Equal(t, []string{bdSingle1}, titles(grabplan.Decide(grafting(seriesView(t, season(1, 7), cands...)))))
+	})
+	t.Run("a release carrying the original is taken in its place, a lower tier's included", func(t *testing.T) {
+		cands := spoken(spoken(seasonCandidates(t, 1, 7, bdSingle1, single1), bdSingle1, "English"), single1, "Japanese")
+		p := grabplan.Decide(grafting(seriesView(t, season(1, 7), cands...)))
+		require.Equal(t, []string{single1}, titles(p))
+	})
+	t.Run("a profile that does not graft holds no release to the rule", func(t *testing.T) {
+		cands := spoken(spoken(seasonCandidates(t, 1, 7, bdSingle1, single1), bdSingle1, "English"), single1, "Japanese")
+		v := grafting(seriesView(t, season(1, 7), cands...))
+		prof := *v.Profile
+		prof.GraftAudio = false
+		v.Profile = &prof
+		require.Equal(t, []string{bdSingle1}, titles(grabplan.Decide(v)), "the decision refuses a dub there; the planner ranks what it is given")
+	})
+}

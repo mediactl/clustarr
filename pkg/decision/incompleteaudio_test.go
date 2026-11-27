@@ -137,7 +137,7 @@ func TestADualAudioReleaseCarriesItsGroupsLanguage(t *testing.T) {
 	require.Contains(t, ds[1].Release.MatchedFormats, "h264-10bit")
 	require.Len(t, ds[1].Rejections, 2, "%v", reasons(ds[1]))
 	require.True(t, hasRejection(ds[1], decision.ReasonCustomFormatMinimumScore), "%v", reasons(ds[1]))
-	require.True(t, hasRejection(ds[1], decision.ReasonUndecodableVideo), "%v", reasons(ds[1]))
+	require.True(t, hasRejection(ds[1], decision.ReasonNeverTaken), "%v", reasons(ds[1]))
 }
 
 // TestTheIndexersAudioLanguagesBeatTheTitle: hallowed's Akira Blu-ray names

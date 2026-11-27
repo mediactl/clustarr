@@ -107,6 +107,14 @@ func namesWantedLanguages(an audioNames, p quality.Profile, parsed *release.Pars
 // (audioAnchor: the original language when listed) that a donor's audio is
 // aligned against; an unknown anchor fails open, as languageRejection does.
 // A dual-audio title's languages are the parser's (LanguagesFor).
+//
+// A dub alone passes a grafting policy too (owner, 2026-11-27: "Allow
+// dubs-only (or vice versa - *with* the graft)"): a release carrying a
+// wanted language and not the anchor, which the grab planner takes only as
+// a last resort (DubAlone) and whose file's graft aligns on the dub it
+// carries, the original its missing language (rollup.GraftAnchor). On talos
+// 78 episodes of Lupin the 3rd's second series and six of Sacrificial
+// Princess had no other release.
 func audioRejection(an audioNames, p quality.Profile, parsed *release.ParsedRelease) (*common.Rejection, bool) {
 	have := parsed.Languages
 	var missing []string
@@ -123,9 +131,37 @@ func audioRejection(an audioNames, p quality.Profile, parsed *release.ParsedRele
 		}
 		return nil, true
 	}
-	if p.GraftAudio && (an.anchor == "" || containsFold(have, an.anchor)) {
+	if p.GraftAudio && (an.anchor == "" || containsFold(have, an.anchor) || dubAlone(an, have)) {
 		return nil, false
 	}
 	r := newRejection(ReasonWantedLanguage, "audio %v wanted, found %v", an.wanted, have)
 	return &r, false
+}
+
+// dubAlone reports languages that carry one the policy wants, an optional
+// one included, and not its anchor: a dub without the original.
+func dubAlone(an audioNames, have []string) bool {
+	if an.anchor == "" || containsFold(have, an.anchor) {
+		return false
+	}
+	for _, w := range append(append([]string(nil), an.wanted...), an.optional...) {
+		if containsFold(have, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// DubAlone reports a release, parsed by ParseForItemState, that a grafting
+// audio policy takes though it lacks the anchor (audioRejection): a dub
+// without the item's original language. The grab planner holds it to the
+// last-resort rule -- never from RSS or a push, and from a search only when
+// no release that is not a last resort covers an item it brings -- as it
+// holds a last-resort tier's and a last-resort format's. False without a
+// grafting policy, for a nil parse, and while the original is unknown.
+func DubAlone(ctx context.Context, p quality.Profile, originalTag string, parsed *release.ParsedRelease) bool {
+	if !p.GraftAudio || len(p.AudioLanguages) == 0 || parsed == nil {
+		return false
+	}
+	return dubAlone(resolveAudioNames(ctx, p, originalLanguageName(ctx, originalTag)), parsed.Languages)
 }

@@ -58,7 +58,17 @@ func TestAReleaseCarriesTheLanguagesItsTitleNames(t *testing.T) {
 
 	ds := evaluateTitles(t, monsterS01E02(nil), dual, dub)
 	require.True(t, ds[0].Rank.LanguagesComplete, "%+v", ds[0].Rejections)
-	require.True(t, rejectedFor(ds[1], decision.ReasonWantedLanguage), "%+v", ds[1].Rejections)
+	// The dub lacks the anchor: a grafting policy takes it as a dub alone
+	// (owner, 2026-11-27), incomplete, and one that does not graft refuses it.
+	require.False(t, rejectedFor(ds[1], decision.ReasonWantedLanguage), "%+v", ds[1].Rejections)
+	require.False(t, ds[1].Rank.LanguagesComplete)
+	require.True(t, decision.DubAlone(context.Background(), donorProfile(t), "ja", ds[1].Parsed))
+	noGraft := donorProfile(t)
+	noGraft.GraftAudio = false
+	refused := decision.Evaluate(context.Background(), monsterS01E02(nil), noGraft, &catalogue.Catalogue{},
+		[]common.ReleaseInfo{{GUID: "gb", Title: dub, IndexerRef: "nzbgeek", Protocol: common.ProtocolUsenet, SizeBytes: 400 << 20}},
+		decision.Options{ProtocolsEnabled: map[string]bool{"usenet": true}})
+	require.True(t, rejectedFor(refused[0], decision.ReasonWantedLanguage), "%+v", refused[0].Rejections)
 }
 
 // TestDualAudioOutranksEveryJapaneseOnlyReleaseOfItsQuality: the built-in

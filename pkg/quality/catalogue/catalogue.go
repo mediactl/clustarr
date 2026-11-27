@@ -185,6 +185,27 @@ func (c *Catalogue) OffLimits(slugs []string) string {
 	return ""
 }
 
+// NeverTaken reports an off-limits format a person does not take either,
+// by Search.spec.override or by a manual import (owner, 2026-11-27, asked
+// whether an override should still take an H.264 10-bit release: "Never -
+// nor HEVC 12-bit"): every one but mpeg4-part2, which the owner did not
+// name and which plays as it is on most players.
+func (f *Format) NeverTaken() bool { return f.OffLimits() && f.Slug != "mpeg4-part2" }
+
+// NeverTaken is the Name of the first of slugs (matched formats) that is
+// never taken (Format.NeverTaken), "" when none is.
+func (c *Catalogue) NeverTaken(slugs []string) string {
+	if c == nil {
+		return ""
+	}
+	for _, slug := range slugs {
+		if f := c.Formats[slug]; f != nil && f.NeverTaken() {
+			return f.Name
+		}
+	}
+	return ""
+}
+
 // Catalogue is the full set of loaded custom formats.
 type Catalogue struct {
 	Version   string

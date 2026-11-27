@@ -42,7 +42,9 @@ func TestAudioRejection(t *testing.T) {
 		{"a dual-audio tagged anime release is complete", dual, "Japanese", "[Group] Show - 01 [1080p] [Dual Audio]", false, true},
 		{"an untagged release is partial, accepted with graft on", dual, "Japanese", "Show.S01E01.1080p.WEB-DL-GRP", false, false},
 		{"the same release with graft off is rejected", noGraft, "Japanese", "Show.S01E01.1080p.WEB-DL-GRP", true, false},
-		{"an english-only release lacks the anchor", dual, "Japanese", "Show.S01E01.1080p.WEB-DL.ENGLISH-GRP", true, false},
+		{"an english-only release is a dub alone, taken with graft on (owner, 2026-11-27)", dual, "Japanese", "Show.S01E01.1080p.WEB-DL.ENGLISH-GRP", false, false},
+		{"and refused with graft off", noGraft, "Japanese", "Show.S01E01.1080p.WEB-DL.ENGLISH-GRP", true, false},
+		{"a release of neither wanted language is refused", dual, "Japanese", "Show.S01E01.1080p.WEB-DL.KOREAN-GRP", true, false},
 		{"an unknown original fails open (only english is wanted, and it is there)", dual, "", "Show.S01E01.1080p.WEB-DL.ENGLISH-GRP", false, true},
 		{"an unknown original fails open for a partial too", dual, "", "Show.S01E01.1080p.WEB-DL.FRENCH-GRP", false, false},
 		{"an explicit english and japanese release is complete", dual, "Japanese", "Show.S01E01.1080p.WEB-DL.JAPANESE.ENGLISH-GRP", false, true},
@@ -83,7 +85,16 @@ func TestAudioRejectionReadsAKoreanDualAudioTitleAsKorean(t *testing.T) {
 		parsed, err := release.Parse(title, release.Options{Kind: common.MediaKindEpisode})
 		require.NoError(t, err)
 		parsed.Languages = parsed.LanguagesFor("Japanese")
-		rej, _ := audioRejection(resolveAudioNames(context.Background(), dual, "Japanese"), dual, parsed)
+		// It carries English and lacks the Japanese anchor: a dub alone,
+		// which a grafting policy takes as a last resort (owner,
+		// 2026-11-27) and one that does not graft refuses.
+		rej, complete := audioRejection(resolveAudioNames(context.Background(), dual, "Japanese"), dual, parsed)
+		require.Nil(t, rej, title)
+		require.False(t, complete, title)
+		require.True(t, DubAlone(context.Background(), dual, "ja", parsed), title)
+		noGraft := dual
+		noGraft.GraftAudio = false
+		rej, _ = audioRejection(resolveAudioNames(context.Background(), noGraft, "Japanese"), noGraft, parsed)
 		require.NotNil(t, rej, "%s lacks the Japanese anchor", title)
 		require.False(t, namesWantedLanguages(resolveAudioNames(context.Background(), dual, "Japanese"), dual, parsed), "%s names Korean, not the wanted languages", title)
 	}

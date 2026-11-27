@@ -81,6 +81,40 @@ func AugmentFromMediaInfo(q commonv1.Quality, mi *commonv1.MediaInfo) (commonv1.
 	return out, true
 }
 
+// ResolveUnknown is the quality of a file whose names say no source, once
+// its probe says a frame size: HDTV at the probed resolution, SDTV below
+// 720p. That is the parser's own rule for a title that names a resolution
+// and nothing else (release.ParseQuality's last fallback), read from the
+// file instead of its name. ok is false, and q returned, when q names a
+// source or mi has no frame size.
+//
+// An import calls it after AugmentFromMediaInfo (owner, 2026-11-27, of
+// releases whose titles name no quality, taken as a last resort: "we should
+// find out the quality after download to determine if we'll keep it"): the
+// profile then judges the file by what it is, where "Unknown" was refused
+// whatever the file held. The scanner and the renamer do not: ruling R13
+// stands for a file already in the library.
+func ResolveUnknown(q commonv1.Quality, mi *commonv1.MediaInfo) (commonv1.Quality, bool) {
+	if q.Source != "" && q.Source != commonv1.SourceUnknown {
+		return q, false
+	}
+	if mi == nil {
+		return q, false
+	}
+	res := probedResolution(mi.Width, mi.Height)
+	if res == commonv1.ResolutionUnknown {
+		return q, false
+	}
+	if res < commonv1.Resolution720p {
+		res = commonv1.Resolution480p
+	}
+	found, ok := release.QualityFor(commonv1.SourceTV, res, commonv1.ModifierNone)
+	if !ok {
+		return q, false
+	}
+	return found, true
+}
+
 // probedResolution is Radarr's AugmentQualityFromMediaInfo bucketing: a
 // frame counts by its width or its height, so a scope encode -- 1280x536,
 // 1920x800 -- is the 720p or 1080p its width says, not the rung its height

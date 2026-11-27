@@ -361,14 +361,26 @@ const (
 // lastResort reports an automatic video candidate of a last-resort tier, or
 // one matching a custom format the profile takes only as a last resort
 // (quality.Profile.LastResortFormats; owner, 2026-11-27, for the anime
-// low-quality groups). A person's pick and a donor are not held to the rule.
+// low-quality groups), or a dub alone under a grafting audio policy
+// (decision.DubAlone; owner, the same day: "Allow dubs-only"). A person's
+// pick and a donor are not held to the rule.
 func (d *decider) lastResort(c Candidate) bool {
 	return !c.Manual && !c.Override && c.Purpose == "" && d.v.Profile != nil &&
 		(d.v.Profile.LastResort(c.Release.Decision.Quality) || d.lastResortFormat(c))
 }
 
+// lastResortFormat reports a candidate that is a last resort whatever its
+// tier: by a format the profile names one, or as a dub alone.
 func (d *decider) lastResortFormat(c Candidate) bool {
-	return d.v.Profile.LastResortFormat(c.Release.Decision.MatchedFormats)
+	return d.v.Profile.LastResortFormat(c.Release.Decision.MatchedFormats) || d.dubAlone(c)
+}
+
+func (d *decider) dubAlone(c Candidate) bool {
+	if !d.v.Profile.GraftAudio {
+		return false
+	}
+	parsed, _ := d.parsed(d.v.Kind, d.v.OriginalLanguageTag, c.Release.Decision.ReleaseInfo)
+	return decision.DubAlone(ctxBackground, *d.v.Profile, d.v.OriginalLanguageTag, parsed)
 }
 
 // outranked reports a last-resort candidate one of approved outranks: a
@@ -606,7 +618,13 @@ func releaseOK(c Candidate) (bool, string) {
 // with spec.override every permanent one; a pick TranscodedFinal,
 // FullSeasonNotAired (Wave S), LosesHDR and AVCOverHEVC (2026-10-16) and
 // every temporary one.
+//
+// None passes decision.Unoverridable (H.264 10-bit, HEVC 12-bit; owner,
+// 2026-11-27: "Never - nor HEVC 12-bit").
 func exempt(c Candidate, rej commonv1.Rejection) bool {
+	if decision.Unoverridable(rej) {
+		return false
+	}
 	if c.Override && rej.Type == commonv1.RejectionPermanent {
 		return true
 	}

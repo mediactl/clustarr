@@ -60,6 +60,42 @@ func TestAnOverrideImportTakesAQualityTheProfileDoesNotAllow(t *testing.T) {
 	assert.Equal(t, catalogv1alpha1.ImportPhaseImported, dec.Summary.Phase)
 }
 
+// A manual import does not take an H.264 10-bit or an HEVC 12-bit file
+// (owner, 2026-11-27, asked whether an override should still take an H.264
+// 10-bit release: "Never - nor HEVC 12-bit"), where it takes the XviD file
+// an automatic import refuses: override is exempt from every other content
+// gate.
+func TestNoManualImportTakesH264TenBitOrHEVCTwelveBit(t *testing.T) {
+	const file = "Heat.1995.1080p.BluRay.x264-GRP.mkv"
+	overridden := func(t *testing.T, mi *commonv1.MediaInfo) (*grab, lifecycle.ImportDecision) {
+		t.Helper()
+		wd := newWorld(t)
+		wd.probes[file] = mi
+		g := wd.grab(commonv1.MediaKindMovie, "heat", "Heat.1995.1080p.BluRay.x264-GRP", wd.payload(map[string]int64{file: big}))
+		g.in.Intent = &lifecycle.ImportIntent{ID: g.in.Entry.ID, Override: true}
+		g.decide()
+		g.in.Intent = nil
+		g.deliver()
+		return g, g.decide()
+	}
+	for name, mi := range map[string]*commonv1.MediaInfo{
+		"H.264 10-bit": {VideoCodec: "h264", VideoBitDepth: 10, Width: 1920, Height: 1080},
+		"HEVC 12-bit":  {VideoCodec: "hevc", VideoBitDepth: 12, Width: 1920, Height: 1080},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, dec := overridden(t, mi)
+			assert.Nil(t, dec.Dispatch, "nothing is placed")
+			assert.Equal(t, catalogv1alpha1.ImportPhaseHeld, dec.Summary.Phase, dec.Summary.Message)
+			assert.Contains(t, dec.Summary.Message, name)
+			assert.Contains(t, dec.Summary.Message, "by a manual import either")
+		})
+	}
+	t.Run("XviD is a person's to take", func(t *testing.T) {
+		g, _ := overridden(t, &commonv1.MediaInfo{VideoCodec: "mpeg4", VideoBitDepth: 8, Width: 1920, Height: 1080})
+		require.Len(t, g.plan().Plan.Moves, 1)
+	})
+}
+
 // TestAManualImportIsNeverBlocklisted is the other half of the T2 finding:
 // an import a person made -- a pick (the entry's manual), or the import
 // intent with override or a target -- that imports nothing is that
@@ -150,4 +186,34 @@ func TestAPickIsImportedAtTheQualityItWasPickedAt(t *testing.T) {
 
 	dec := g.executed()
 	assert.Equal(t, lifecycle.ImportImported, dec.Verdict, dec.Summary.Message)
+}
+
+// A download whose names say no quality is judged by what its file is
+// (owner, 2026-11-27, of releases taken as a last resort though their
+// titles name no quality: "we should find out the quality after download to
+// determine if we'll keep it"): the probe's frame size makes it HDTV at
+// that resolution, which the profile takes or refuses as it would any
+// release named so. Until then every such file was "quality Unknown is not
+// allowed by the quality profile", whatever it held.
+func TestAFileNamingNoQualityIsJudgedByItsProbe(t *testing.T) {
+	const file = "Heat (1995).mkv"
+	inspected := func(t *testing.T, mi *commonv1.MediaInfo) *grab {
+		t.Helper()
+		wd := newWorld(t)
+		wd.probes[file] = mi
+		g := wd.grab(commonv1.MediaKindMovie, "heat", "Heat 1995", wd.payload(map[string]int64{file: big}))
+		return g
+	}
+	t.Run("a 720p file is HDTV-720p, which this profile takes", func(t *testing.T) {
+		g := inspected(t, &commonv1.MediaInfo{VideoCodec: "hevc", Width: 1280, Height: 720})
+		g.inspected()
+		task := g.plan()
+		require.Len(t, task.Plan.Moves, 1)
+		require.NotNil(t, task.Plan.Moves[0].Frozen.Quality)
+		assert.Equal(t, "HDTV-720p", task.Plan.Moves[0].Frozen.Quality.Name)
+	})
+	t.Run("a 1080p file is HDTV-1080p, which it does not", func(t *testing.T) {
+		g := inspected(t, &commonv1.MediaInfo{VideoCodec: "hevc", Width: 1920, Height: 1080})
+		concluded(t, g.inspected(), commonv1.ImportClassReleaseFault, lifecycle.ImportRetry, "HDTV-1080p is not allowed")
+	})
 }

@@ -357,6 +357,9 @@ func (s *Stage) donorItem(ctx context.Context, ow owner, targets []schema.ItemRe
 	}
 	if audio != nil {
 		d.Missing = audio.Missing
+		// The anchor is the dub of a file that lacks the original
+		// (rollup.GraftAnchor), as the donor search asked for it.
+		d.Original = rollup.GraftAnchor(d.Original, audio)
 		if audio.Donor != nil {
 			d.RecordedDonor = audio.Donor.Path
 		}

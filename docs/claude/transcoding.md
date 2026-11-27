@@ -193,6 +193,23 @@ is refused by `UndecodableVideo` under every profile. The probe's half is
 import refuses such a file whose title did not say, and a file already in
 the library reads CutoffUnmet, reason `UndecodableVideo`, until a release
 replaces it, as an H.264 10-bit one does.
+**No person takes H.264 10-bit or HEVC 12-bit either (owner, 2026-11-27,
+asked whether an override should still take an H.264 10-bit release:
+"Never - nor HEVC 12-bit").** Those two formats are refused as
+`NeverTaken` (`decision.ReasonNeverTaken`, `catalogue.Format.NeverTaken`),
+the one permanent rejection `Search.spec.override` does not pass
+(`decision.Unoverridable`): the Search controller answers the pick with
+"release is never taken, and spec.override does not change that"
+(`resolveGrab`), and the grab planner refuses one that reaches it
+(`grabplan.exempt`). A manual import refuses the file whose title did not
+say (`importplan.undecodableRejection`, `NeverTakenVideoCodec`), where it
+was exempt from every content gate; the import is held for the person and
+its files removed when the hold runs out. XviD and DivX stay
+`UndecodableVideo`, which an override and a manual import still take: the
+owner named the other two, and I left it a person's call since such a file
+plays as it is. The 50 HEVC 12-bit files already in the library stay below
+the cutoff (owner, the same answer: "Treat as below cutoff"), which is
+what `UndecodableVideoCodec` already made them.
 **What a title cannot say is still the import's to catch**: Coalgirls'
 "(1920x1080_Blu-Ray_FLAC)" packs are H.264 10-bit and name no bit depth,
 so one is downloaded whole and refused by its probe

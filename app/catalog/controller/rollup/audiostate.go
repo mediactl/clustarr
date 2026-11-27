@@ -25,6 +25,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
 
@@ -85,6 +86,40 @@ func AudioStateFor(p *quality.Profile, originalTag string, mf *catalogv1alpha1.M
 		st.Graft, st.Reason = graftState(len(st.Missing) > 0, g, mf.Status.GraftTag)
 	}
 	return st
+}
+
+// GraftAnchor is the language a graft of an item aligns on, the track its
+// file and a donor must both carry: the item's original language, or, when
+// its file is known to lack that (a.Missing names it), the first wanted
+// language the file does carry. Such a file is a dub taken alone as a last
+// resort (decision.DubAlone; owner, 2026-11-27: "Allow dubs-only (or vice
+// versa - *with* the graft)"): its missing language is the original, and
+// its donor a release carrying that beside the dub, the two dubs aligned
+// against each other. "" when original is, and when the file carries no
+// wanted language at all, which nothing can be aligned on. The donor
+// search, the donor's import and the graft planner all take it from here,
+// so the three agree on the track.
+func GraftAnchor(original string, a *catalogv1alpha1.AudioState) string {
+	if original == "" || a == nil {
+		return original
+	}
+	base := func(t string) string { b, _, _ := strings.Cut(t, "-"); return strings.ToLower(b) }
+	has := func(tags []string, l string) bool {
+		return slices.ContainsFunc(tags, func(t string) bool { return base(t) == base(l) })
+	}
+	want := original
+	if t, ok := lang.Normalize(original); ok {
+		want = string(t)
+	}
+	if !has(a.Missing, want) {
+		return original
+	}
+	for _, w := range a.Wanted {
+		if has(a.Present, w) {
+			return w
+		}
+	}
+	return ""
 }
 
 // wantedTags is the profile's audio languages as tags, its optional ones

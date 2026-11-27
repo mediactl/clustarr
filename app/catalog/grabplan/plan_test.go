@@ -234,6 +234,27 @@ func TestAManualPickIsExemptFromTheBaselineRules(t *testing.T) {
 // resolveGrab's rule in the planner: a person's pick takes a release over a
 // transcoded file (TranscodedFinal is the automatic rule), and only
 // spec.override takes a release the owner blocklisted.
+// A person's override passes every permanent rejection but the one of what
+// is never taken (owner, 2026-11-27, asked whether an override should still
+// take an H.264 10-bit release: "Never - nor HEVC 12-bit"): the planner
+// refuses the pick the Search controller would not have sent, and says why.
+func TestNoOverrideTakesWhatIsNeverTaken(t *testing.T) {
+	c := movieCandidate(t, "Heat.1995.1080p.BluRay.x264-GRP")
+	rejected := func(r decision.Reason) grabplan.Candidate {
+		x := c
+		x.Release.Decision.Approved = false
+		x.Release.Decision.Rejections = []commonv1.Rejection{{Reason: r.Code + ": the release is that", Type: r.Type}}
+		return x
+	}
+	dv := grabplan.Decide(movieView(t, nil, parked(heatRef, "pick-dv", rejected(decision.ReasonDolbyVision), true, true)))
+	require.Len(t, dv.NewEntries, 1, "an override takes a Dolby Vision release")
+
+	hi10 := grabplan.Decide(movieView(t, nil, parked(heatRef, "pick-hi10", rejected(decision.ReasonNeverTaken), true, true)))
+	require.Empty(t, hi10.NewEntries)
+	require.Equal(t, intake.Refused, hi10.Settle["pick-hi10"])
+	require.Contains(t, hi10.Refusals["pick-hi10"], decision.ReasonNeverTaken.Code)
+}
+
 func TestAManualPickIsExemptFromTranscodedFinalAndOverrideFromBlocklisted(t *testing.T) {
 	c := movieCandidate(t, "Heat.1995.1080p.BluRay.x264-GRP")
 	transcoded := &decision.Current{Quality: q(t, "HDTV-720p"), Transcoded: true}

@@ -57,7 +57,7 @@ func TestResolveGrab(t *testing.T) {
 	}
 	results := []commonv1.ReleaseDecision{ok, permanent, temporary, transcoded, transcodedAndPermanent,
 		rejected("loses-hdr", decision.ReasonLosesHDR), rejected("avc", decision.ReasonAVCOverHEVC),
-		rejected("dv", decision.ReasonDolbyVision)}
+		rejected("dv", decision.ReasonDolbyVision), rejected("hi10", decision.ReasonNeverTaken)}
 
 	tests := []struct {
 		name        string
@@ -78,6 +78,8 @@ func TestResolveGrab(t *testing.T) {
 		{name: "a person's pick of AVC over HEVC needs no override", guid: "avc", wantAllowed: true},
 		{name: "a Dolby Vision release needs override", guid: "dv", wantErr: true},
 		{name: "which takes it", guid: "dv", override: true, wantAllowed: true},
+		{name: "an H.264 10-bit release is refused", guid: "hi10", wantErr: true},
+		{name: "and override does not take it (owner, 2026-11-27)", guid: "hi10", override: true, wantErr: true},
 	}
 
 	for _, tc := range tests {

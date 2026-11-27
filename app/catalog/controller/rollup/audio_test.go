@@ -91,3 +91,37 @@ func TestAudioStateFor(t *testing.T) {
 	require.Equal(t, &catalogv1alpha1.AudioState{Wanted: []string{"ja"}, Present: []string{"ja"}, Graft: "none"},
 		rollup.AudioStateFor(&none, "ja", mf("jpn"), rollup.GraftObservation{}))
 }
+
+// The anchor a graft aligns on is the item's original language, and for a
+// file taken as a dub alone the dub it carries (owner, 2026-11-27: "Allow
+// dubs-only (or vice versa - *with* the graft)"): its missing language is
+// the original, which no track of it could be aligned against. A file whose
+// audio is unknown, or that carries the original, anchors on the original
+// as before; one carrying no wanted language has no anchor, so no donor is
+// searched for it.
+func TestTheGraftAnchorOfADubAloneIsItsDub(t *testing.T) {
+	p := &quality.Profile{AudioLanguages: []string{"en", "original"}, GraftAudio: true, AudioCompleteFirst: true}
+	state := func(langs ...string) *catalogv1alpha1.AudioState {
+		var a []commonv1.AudioStream
+		for _, l := range langs {
+			a = append(a, commonv1.AudioStream{Language: l})
+		}
+		mf := &catalogv1alpha1.MediaFile{Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{Audio: a}}}
+		return rollup.AudioStateFor(p, "ja", mf, rollup.GraftObservation{})
+	}
+
+	dub := state("eng")
+	require.Equal(t, []string{"ja"}, dub.Missing)
+	require.Equal(t, "searching", dub.Graft)
+	require.Equal(t, "en", rollup.GraftAnchor("ja", dub), "the dub it carries")
+
+	original := state("jpn")
+	require.Equal(t, []string{"en"}, original.Missing)
+	require.Equal(t, "ja", rollup.GraftAnchor("ja", original))
+	require.Equal(t, "ja", rollup.GraftAnchor("ja", state("jpn", "und")), "unknown audio is not known to lack it")
+	require.Equal(t, "ja", rollup.GraftAnchor("ja", state("eng", "jpn")))
+	require.Equal(t, "ja", rollup.GraftAnchor("ja", nil))
+
+	require.Equal(t, "", rollup.GraftAnchor("ja", state("ger")), "nothing to align on")
+	require.Equal(t, "", rollup.GraftAnchor("", dub), "an unknown original stays unknown")
+}

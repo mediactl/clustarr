@@ -353,6 +353,11 @@ func (w *Worker) readVideo(
 		parsed.Languages = names
 	}
 	parsed.Quality, _ = quality.AugmentFromMediaInfo(parsed.Quality, mi)
+	// Names that say no quality leave it to the file: the profile judges
+	// what the probe found (quality.ResolveUnknown).
+	if q, ok := quality.ResolveUnknown(parsed.Quality, mi); ok {
+		parsed.Quality = q
+	}
 	title := sceneName
 	if title == "" {
 		title = filepath.Base(path)

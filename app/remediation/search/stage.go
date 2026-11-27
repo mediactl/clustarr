@@ -399,8 +399,9 @@ func redownloadAt(entries []catalogv1alpha1.DownloadEntry, item client.Object, n
 
 // donorWant is what an audio donor for item must carry (P4, anime
 // dual-audio spec §6.1): the languages its status.audio says the file
-// lacks, the original as the anchor, the donors a graft of it already failed
-// with, and the donors in flight; nil when the original is unknown, so no
+// lacks, the anchor a graft aligns on (the original, or the dub of a file
+// that lacks it: rollup.GraftAnchor), the donors a graft of it already
+// failed with, and the donors in flight; nil when there is no anchor, so no
 // donor could be aligned.
 func (s *Stage) donorWant(ctx context.Context, item client.Object, entries []catalogv1alpha1.DownloadEntry) (*schema.DonorWant, error) {
 	var audio *catalogv1alpha1.AudioState
@@ -410,7 +411,10 @@ func (s *Stage) donorWant(ctx context.Context, item client.Object, entries []cat
 	case *catalogv1alpha1.Episode:
 		audio = t.Status.Audio
 	}
-	anchor := itemread.OriginalLanguage(ctx, s.o.Reader, item)
+	// The anchor is the original, or the dub a file taken as a dub alone
+	// carries (rollup.GraftAnchor): its donor carries that dub and the
+	// original.
+	anchor := rollup.GraftAnchor(itemread.OriginalLanguage(ctx, s.o.Reader, item), audio)
 	if audio == nil || len(audio.Missing) == 0 || anchor == "" {
 		return nil, nil
 	}

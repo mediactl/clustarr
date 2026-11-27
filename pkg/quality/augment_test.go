@@ -20,10 +20,12 @@ package quality_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 func TestAugmentFromMediaInfoCorrectsResolutionAndKeepsSource(t *testing.T) {
@@ -136,4 +138,47 @@ func TestAugmentFromMediaInfoPlacesAProbedResolutionOnADefinedQuality(t *testing
 			require.NotEqual(t, "Unknown", got.Name)
 		})
 	}
+}
+
+// A file whose names say no quality takes the one its probe makes (owner,
+// 2026-11-27: "we should find out the quality after download to determine
+// if we'll keep it"): HDTV at the probed resolution, SDTV below 720p, as
+// the parser reads a title naming a resolution alone. A quality whose
+// source is known is left to AugmentFromMediaInfo, and a probe without a
+// frame size resolves nothing.
+func TestAnUnknownQualityIsResolvedFromTheProbe(t *testing.T) {
+	named, err := release.Parse("[Group] Lupin the 3rd - 052", release.Options{Kind: commonv1.MediaKindEpisode})
+	require.NoError(t, err)
+	unknown := named.Quality
+	require.Equal(t, "Unknown", unknown.Name)
+
+	for want, mi := range map[string]*commonv1.MediaInfo{
+		"HDTV-1080p": {Width: 1920, Height: 1080},
+		"HDTV-720p":  {Width: 1280, Height: 720},
+		"SDTV":       {Width: 720, Height: 480},
+		"HDTV-2160p": {Width: 3840, Height: 2160},
+	} {
+		// The import augments first, which leaves an unknown source Unknown
+		// at the probed resolution (R13).
+		aug, _ := quality.AugmentFromMediaInfo(unknown, mi)
+		require.Equal(t, "Unknown", aug.Name)
+		got, ok := quality.ResolveUnknown(aug, mi)
+		require.True(t, ok, want)
+		assert.Equal(t, want, got.Name)
+		_, defined := quality.Lookup("video", got.Name)
+		assert.True(t, defined, "%s is a quality a profile tier can hold", got.Name)
+	}
+	pal, ok := quality.ResolveUnknown(unknown, &commonv1.MediaInfo{Width: 1024, Height: 576})
+	require.True(t, ok)
+	assert.Equal(t, "SDTV", pal.Name)
+
+	_, ok = quality.ResolveUnknown(unknown, nil)
+	assert.False(t, ok)
+	_, ok = quality.ResolveUnknown(unknown, &commonv1.MediaInfo{})
+	assert.False(t, ok)
+	web, err := release.Parse("Lupin.the.3rd.S02E52.WEB-DL.x264-GRP", release.Options{Kind: commonv1.MediaKindEpisode})
+	require.NoError(t, err)
+	got, ok := quality.ResolveUnknown(web.Quality, &commonv1.MediaInfo{Width: 1920, Height: 1080})
+	assert.False(t, ok, "a named source is not the probe's to replace")
+	assert.Equal(t, web.Quality, got)
 }

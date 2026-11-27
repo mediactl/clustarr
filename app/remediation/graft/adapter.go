@@ -29,6 +29,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 	"github.com/mediactl/clustarr/app/transcode/graftplan"
@@ -258,7 +259,8 @@ func GatherItem(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaF
 		return nil, "", "", nil
 	}
 	if t, ok := lang.Normalize(original); ok {
-		it.Anchor = string(t)
+		// The original, or the dub a file taken as a dub alone carries.
+		it.Anchor = rollup.GraftAnchor(string(t), it.Audio)
 	}
 	if profileRef == "" {
 		return nil, "", "", nil

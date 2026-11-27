@@ -43,6 +43,9 @@ type grabDecision struct {
 // picking that release is making exactly the judgement call the temporary
 // rejection was deferring.
 //
+// One rejection no pick passes, spec.override or not: decision.Unoverridable
+// (owner, 2026-11-27: "Never - nor HEVC 12-bit").
+//
 // Since ADR-0019 (§6.6 step 4) an allowed pick is sent to the item's owner
 // as a manual Candidate, and the owner's grab planner applies the same
 // exemptions against its fresh state.
@@ -55,6 +58,14 @@ func resolveGrab(guid string, results []commonv1.ReleaseDecision, override bool)
 			return grabDecision{Release: r.ReleaseInfo, Allowed: true}
 		}
 		for _, rej := range r.Rejections {
+			// What no person takes either (decision.Unoverridable: H.264
+			// 10-bit, HEVC 12-bit) is refused with or without spec.override.
+			if decision.Unoverridable(rej) {
+				return grabDecision{
+					Release: r.ReleaseInfo,
+					Error:   "release is never taken, and spec.override does not change that: " + rej.Reason,
+				}
+			}
 			// A transcoded file is final against every automatic grab, but a
 			// person picking this release by hand is the interactive grab the
 			// importer lets replace one (grabbedBy interactive, manual): the

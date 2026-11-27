@@ -129,6 +129,19 @@ func UndecodableVideoCodec(codec string, bitDepth int32, pixFmt string) string {
 	return ""
 }
 
+// NeverTakenVideoCodec is UndecodableVideoCodec for the streams a person
+// does not take either, by an override or a manual import (owner,
+// 2026-11-27, asked whether an override should still take an H.264 10-bit
+// release: "Never - nor HEVC 12-bit"): H.264 10-bit and HEVC 12-bit, not
+// MPEG-4 Part 2, which the owner did not name.
+func NeverTakenVideoCodec(codec string, bitDepth int32, pixFmt string) string {
+	switch codec {
+	case "h264", "hevc":
+		return UndecodableVideoCodec(codec, bitDepth, pixFmt)
+	}
+	return ""
+}
+
 // Upgradeable reports whether AnnotationUpgradeable is "true" on mf.
 func (mf *MediaFile) Upgradeable() bool {
 	return mf != nil && mf.Annotations[AnnotationUpgradeable] == "true"

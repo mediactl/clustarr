@@ -1138,6 +1138,46 @@ so a better release is taken over it only by the usual upgrade rules.
 Seasons this was for (talos, 2026-11-27): Altair, Yuuki Yuuna's third,
 Sacrificial Princess, every candidate an ASW or Sokudo encode. No settings
 form field yet: the list is set in the profile's manifest.
+**Raws, dubs alone and releases naming no quality are last resorts too
+(owner, 2026-11-27: "Allow dubs-only (or vice versa - *with* the graft),
+tentatively allow "unknown" quality releases - but we should find out the
+quality after download to determine if we'll keep it (or from metadata
+etc), allow raws").** About 190 missing anime episodes had nothing else.
+Three different mechanisms:
+- *A raw* is refused by its format's score alone, so the profile names
+  `anime-raws` in `lastResortFormats` and no code changes.
+- *A dub alone* (a wanted language without the original) was refused twice:
+  by two -10000 formats, `dubs-only` (its title) and `language-not-original`
+  (its languages), which the profile names as last resorts, and by
+  `audioRejection`, which took a partial release only when it carried the
+  anchor a graft aligns on. A grafting policy now takes it
+  (`decision.dubAlone`), and the planner holds it to the last-resort rule
+  whatever its formats (`decision.DubAlone`, `decider.lastResortFormat`),
+  so one whose indexer names English and whose title names nothing is held
+  too. A policy that does not graft refuses it as before, and so does an
+  anime MAL-Dubs says has no dub, whose English is not wanted (`ForDub`).
+  **Its graft runs the other way**: the file's missing language is the
+  original, and the anchor is the dub it carries (`rollup.GraftAnchor`,
+  read by the donor search, the donor's import and the graft planner, so
+  the three name one track). Its donor is a release carrying that dub and
+  the original, an H.264 10-bit dual-audio one included, since a donor is
+  judged on its languages alone. A file carrying no wanted language has no
+  anchor and no donor search. Not changed: such a file is `MissingAudio`,
+  below the cutoff, and a complete release replaces it; a release of the
+  original alone replaces it only while it is not transcoded
+  (`upgradeRejection`'s `LacksLanguage`), since `TranscodedFinal` still
+  holds a transcoded one.
+- *A release naming no quality* is `Unknown`, which a profile takes by
+  listing it in a tier: `{name: Unknown, lastResort: true, qualities:
+  [Unknown]}`, last. The import then reads the file: after
+  `AugmentFromMediaInfo`, `quality.ResolveUnknown` makes an unknown source
+  HDTV at the probed resolution (SDTV below 720p), the parser's own rule
+  for a title naming a resolution alone, and the profile judges that. A
+  1080p file is kept, a 720p one is kept as the last-resort tier it is, an
+  SD one is refused as the release's fault and blocklisted. Only the
+  import of a download does this; the scanner and the renamer keep ruling
+  R13 (an unknown source stays `Unknown`). A file whose probe gives no
+  frame size stays `Unknown`, in the last-resort tier, never final.
 
 **A season is satisfied by as many packs as it takes (owner, 2026-11-27, of
 How a Realist Hero Rebuilt the Kingdom 1x14-26: "we should download and

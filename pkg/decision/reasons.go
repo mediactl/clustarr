@@ -142,6 +142,15 @@ var (
 	// not say (importplan's undecodableRejection).
 	ReasonUndecodableVideo = Reason{"UndecodableVideo", common.RejectionPermanent}
 
+	// ReasonNeverTaken is ReasonUndecodableVideo for the codecs a person
+	// does not take either (owner, 2026-11-27, asked whether a person's
+	// override should still take an H.264 10-bit release: "Never - nor HEVC
+	// 12-bit"; catalogue.Format.NeverTaken): the one permanent rejection
+	// Search.spec.override does not pass (Unoverridable), at the Search
+	// controller and at the grab planner alike. A manual import refuses the
+	// file too (importplan's undecodableRejection).
+	ReasonNeverTaken = Reason{"NeverTaken", common.RejectionPermanent}
+
 	// ReasonFullSeasonNotAired is Sonarr's FullSeasonSpecification (Wave S):
 	// a full-season release of a season that has an episode not yet aired
 	// is incomplete or mislabelled. Evaluate does not run it: the grab
@@ -156,6 +165,11 @@ var (
 func FullSeasonNotAired(season int) common.Rejection {
 	return newRejection(ReasonFullSeasonNotAired, "full season pack of season %d, which has not finished airing", season)
 }
+
+// Unoverridable reports a rejection Search.spec.override does not pass
+// (ReasonNeverTaken): every other permanent rejection is a person's to
+// overrule.
+func Unoverridable(rej common.Rejection) bool { return ReasonNeverTaken.Of(rej) }
 
 // Of reports whether rej was raised for r: newRejection renders every
 // rejection as "<Code>: <detail>".

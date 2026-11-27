@@ -77,7 +77,7 @@ func TestAReleaseNamedForAOneSeasonSeriesAloneIsItsSeasonPack(t *testing.T) {
 	// The same batch as H.264 10-bit is read, and refused for its codec.
 	hi10 := decide(t, p, cat, rozen(true), "[Zaphod] Rozen Maiden: Zurückspulen (2013) [BDRip 1920x1080 x264 Hi10P FLAC]")
 	assert.False(t, hasRejection(hi10, decision.ReasonUnableToParse), "%v", reasons(hi10))
-	assert.True(t, hasRejection(hi10, decision.ReasonUndecodableVideo), "%v", reasons(hi10))
+	assert.True(t, hasRejection(hi10, decision.ReasonNeverTaken), "%v", reasons(hi10))
 
 	// Not for a series of more seasons than one, whose name cannot say which
 	// it holds; not for a title that names less or more than the series.

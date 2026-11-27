@@ -55,7 +55,9 @@ const materialiseRecheck = 10 * time.Second
 type DonorItem struct {
 	Item schema.ItemRef
 	// Missing are the languages the item lacks (status.audio.missing),
-	// Original its original language (the anchor).
+	// Original the anchor a graft of it aligns on: its original language,
+	// or the dub its file carries when that lacks the original
+	// (rollup.GraftAnchor).
 	Missing  []string
 	Original string
 	// AudioDefault is the profile's audio default.
@@ -849,8 +851,8 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 				continue
 			}
 		}
-		if (c.kind == commonv1.MediaKindMovie || c.kind == commonv1.MediaKindEpisode) && !manual {
-			if r := undecodableRejection(rel, f.Probe); !r.none() {
+		if c.kind == commonv1.MediaKindMovie || c.kind == commonv1.MediaKindEpisode {
+			if r := undecodableRejection(rel, f.Probe, manual); !r.none() {
 				rs = append(rs, r)
 				continue
 			}
@@ -1161,7 +1163,7 @@ func (p *planner) planDonor(insp *schema.ImportInspection) planResult {
 	anchor, ok := lang.Normalize(d.Original)
 	if !ok {
 		return planResult{class: commonv1.ImportClassNeedsPerson, message: fmt.Sprintf(
-			"%s %q has no known original language to align a donor on", d.Item.Kind, d.Item.Name)}
+			"%s %q has no known language to align a donor on", d.Item.Kind, d.Item.Name)}
 	}
 	if len(insp.Files) == 0 {
 		return planResult{class: commonv1.ImportClassReleaseFault, message: MessageEveryFileRejected + ": no video or audio file in the download"}
