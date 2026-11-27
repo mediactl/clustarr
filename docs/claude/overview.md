@@ -131,8 +131,13 @@ stale first-block hint (`docs/claude/gotchas.md`, "Writing an object again
 module is only the server the tests embed; what talos runs is the image
 built from that Dockerfile by hand, `ghcr.io/mediactl/nats-server:
 2.15.3-clustarr.N` (amd64 and arm64; the command is in the Dockerfile's
-head), which reports upstream's version and the fork's commit. Actions are
-off on the fork, so upstream's test and release workflows do not run there.
+head), which reports upstream's version and the fork's commit. It is live on
+talos since 2026-11-27 17:10Z (owner: "Roll now"; Helm revision 300, the
+release's `nats.container.image` naming it, where `tag: "2.15"` had floated:
+two of the three servers were still 2.15.2). The package had to be made
+public by hand first; a package first pushed to ghcr.io/mediactl is private
+and no API changes that. Actions are off on the fork, so upstream's test and
+release workflows do not run there.
 Not offered upstream yet: nats-io asks that a PR be in the author's own
 words and signed off under a legal name, so the owner opens it, from the
 fork's branch `fblk-miss-check-last-block` (the same commit on upstream's
