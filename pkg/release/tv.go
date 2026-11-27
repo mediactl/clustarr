@@ -34,16 +34,20 @@ import (
 // the number, and until 2026-10-27 the required separator refused
 // "Vivy_-_Fluorite_Eye's_Song_S01E01v1_2021_..." outright.
 var dashRangeEpisodeRegex = mustCompile(
-	`(?<title>.+?)[.\s_]S(?<season>\d{1,2})E(?<start>\d{1,4})(?:v\d+)?-E?(?<end>\d{1,4})(?:v\d+)?(?:[.\s_]|$)`,
+	`(?<title>.+?)[.\s_]S(?<season>\d{1,2})[.\s_]?E(?<start>\d{1,4})(?:v\d+)?-E?(?<end>\d{1,4})(?:v\d+)?(?:[.\s_]|$)`,
 	regexp2.IgnoreCase,
 )
 
 // multiEpisodeRegex matches both the single-episode form ("S02E03") and the
 // dual/triple-token multi-episode form ("S03E01E02"): the repeated "ep"
 // group collects one capture per E-token (regexp2, like .NET, keeps every
-// capture of a repeated group in Group.Captures).
+// capture of a repeated group in Group.Captures). One separator may stand
+// before an E-token, as Sonarr's patterns allow ("S01 E01", "S01.E01"):
+// until 2026-11-27 "[RUBaDUB][1080p] Sakamoto Days - S01 E01 [BD x265 ...]"
+// read as a season pack, so every file of that pack was "a whole season's
+// name, not an episode's" and the download was held for a person (talos).
 var multiEpisodeRegex = mustCompile(
-	`(?<title>.+?)[.\s_]S(?<season>\d{1,2})(?:E(?<ep>\d{1,4})(?:v\d+)?)+(?:[.\s_]|$)`,
+	`(?<title>.+?)[.\s_]S(?<season>\d{1,2})(?:[.\s_]?E(?<ep>\d{1,4})(?:v\d+)?)+(?:[.\s_]|$)`,
 	regexp2.IgnoreCase,
 )
 

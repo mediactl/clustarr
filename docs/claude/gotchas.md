@@ -1604,6 +1604,15 @@ recorded here.
   10), and a group counting through the series on a series with no scene
   table (refused, where it was matched by absolute number).
 
+- **One separator may stand between the season and an episode token: "S01
+  E01", "S01.E01" (2026-11-27, owner: "Build the smaller fixes").** Until
+  then the name read as a season pack, so each file of Sakamoto Days'
+  RUBaDUB pack ("... - S01 E01 [BD x265 ...]") was "a whole season's name,
+  not an episode's" and the download was held for a person. Both
+  `multiEpisodeRegex` and `dashRangeEpisodeRegex` take `[.\s_]?` before
+  the E; an E with no digits after it ("S01 Extras", "S01.EAC3") is still a
+  pack (`TestASeparatorBeforeTheEpisodeTokenIsStillAnEpisode`).
+
 - **A held import that nobody acts on is deleted after 24 hours and its
   release grabbed again (found 2026-11-27; the unattributable case fixed
   the same day, the owner's "Break the loop").** The fix: an automatic
