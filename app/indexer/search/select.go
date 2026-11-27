@@ -37,6 +37,13 @@ import (
 // and keeps the first of each name (app/catalog/worker/search/worker.go), so
 // two hundred "you did not ask for me" entries would push out the outcomes
 // that matter.
+//
+// Nor is an anime-only Indexer (spec.animeOnly) for a request that is not
+// anime and does not name it: to that request the indexer is not there, as
+// if it did not exist. A skip would be an outcome on every search of a film
+// or a standard series, and would make a search whose other indexers were
+// all paced or in backoff read as an attempt (allPaced and noIndexer in the
+// search worker take any skip but an unavailable indexer's for one).
 type candidate struct {
 	Indexer *indexv1alpha1.Indexer
 	Skip    string
@@ -103,6 +110,10 @@ func selectCandidates(
 			if _, ok := scope[idx.Namespace+"/"+idx.Name]; !ok {
 				continue // not asked for: not a candidate, no outcome
 			}
+		} else if idx.Spec.AnimeOnly && !isAnimeRequest(req) {
+			// Kept to anime, and nobody named it: asking it for a film or a
+			// standard series spends its rate limit on what it cannot hold.
+			continue
 		}
 		c := candidate{Indexer: idx}
 		switch {

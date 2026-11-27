@@ -256,3 +256,103 @@ func TestATextOnlyRequestSkipsAnIndexerThatTakesItsID(t *testing.T) {
 	require.Equal(t, schema.SearchQueryModeID, mode)
 	require.Equal(t, "71863", q.TVDBID)
 }
+
+// An indexer kept to anime (spec.animeOnly) is asked for anime alone: to a
+// film or a standard series it is not there at all, with no outcome, unless
+// the request names it (owner, 2026-11-27: "ensure the amenzb and anime
+// tosho indexers are only combined with the other usenet indexers for anime
+// series. otherwise, it will be a collosal waste of resources, rate limits").
+func TestAnAnimeOnlyIndexerIsAskedForAnimeAlone(t *testing.T) {
+	animeOnly := func() indexv1alpha1.Indexer {
+		idx := healthyIndexer("anime")
+		idx.Spec.AnimeOnly = true
+		idx.Status.Caps.Modes["tvsearch"] = []string{"q", "season", "ep", "tvdbid"}
+		idx.Status.Caps.Categories = []indexv1alpha1.Category{
+			{ID: 2000, Name: "Movies"},
+			{ID: 5000, Name: "TV", Sub: []indexv1alpha1.SubCategory{{ID: 5070, Name: "TV/Anime"}}},
+		}
+		return idx
+	}
+	episode := func(mutate func(*schema.SearchRequest)) schema.SearchRequest {
+		req := schema.SearchRequest{
+			Kind:       commonv1.MediaKindEpisode,
+			IDs:        map[string]string{commonv1.IDKeyTVDB: "81797"},
+			Text:       "One Piece",
+			Categories: []int32{5000},
+		}
+		mutate(&req)
+		return req
+	}
+	for _, tc := range []struct {
+		name  string
+		req   schema.SearchRequest
+		mode  torznab.SearchMode
+		asked bool
+	}{
+		{name: "a film", req: movieRequest(), mode: torznab.ModeMovieSearch},
+		{
+			name: "an anime film", mode: torznab.ModeMovieSearch, asked: true,
+			req: func() schema.SearchRequest { r := movieRequest(); r.Anime = true; return r }(),
+		},
+		{
+			name: "a standard episode", mode: torznab.ModeTVSearch,
+			req: episode(func(r *schema.SearchRequest) { r.Season, r.Episode = new(int32(1)), new(int32(4)) }),
+		},
+		{
+			name: "a standard season", mode: torznab.ModeTVSearch,
+			req: episode(func(r *schema.SearchRequest) { r.Season = new(int32(1)) }),
+		},
+		{
+			name: "an anime episode", mode: torznab.ModeTVSearch, asked: true,
+			req: episode(func(r *schema.SearchRequest) { r.Anime, r.Episode = true, new(int32(1071)) }),
+		},
+		{
+			name: "an anime season", mode: torznab.ModeTVSearch, asked: true,
+			req: episode(func(r *schema.SearchRequest) { r.Anime, r.Season = true, new(int32(2)) }),
+		},
+		{
+			// An older producer's anime request: an absolute number and no season.
+			name: "an absolute number with no season", mode: torznab.ModeTVSearch, asked: true,
+			req: episode(func(r *schema.SearchRequest) { r.Episode = new(int32(1071)) }),
+		},
+		{
+			name: "a film, by a request that names the indexer", mode: torznab.ModeMovieSearch, asked: true,
+			req: func() schema.SearchRequest {
+				r := movieRequest()
+				r.IndexerRefs = []schema.Ref{{Namespace: "media", Name: "anime"}}
+				return r
+			}(),
+		},
+		{
+			name: "a film, by a person", mode: torznab.ModeMovieSearch,
+			req: func() schema.SearchRequest { r := movieRequest(); r.UserInvoked = true; return r }(),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := selectCandidates([]indexv1alpha1.Indexer{animeOnly(), healthyIndexer("general")}, tc.req, tc.mode, selectNow)
+			var names []string
+			for _, c := range got {
+				names = append(names, c.Indexer.Name)
+			}
+			if !tc.asked {
+				for _, c := range got {
+					require.NotEqual(t, "anime", c.Indexer.Name, "not a candidate: no outcome, skipped or not")
+				}
+				return
+			}
+			require.Contains(t, names, "anime")
+			for _, c := range got {
+				if c.Indexer.Name == "anime" {
+					require.Empty(t, c.Skip)
+				}
+			}
+		})
+	}
+
+	// Left as it is, the same indexer is asked for everything it serves.
+	idx := animeOnly()
+	idx.Spec.AnimeOnly = false
+	got := selectCandidates([]indexv1alpha1.Indexer{idx}, movieRequest(), torznab.ModeMovieSearch, selectNow)
+	require.Len(t, got, 1)
+	require.Empty(t, got[0].Skip)
+}

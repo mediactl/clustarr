@@ -77,6 +77,11 @@ type IndexerSpecApplyConfiguration struct {
 	AnimeCategories []int32 `json:"animeCategories,omitempty"`
 	// AnimeStandardFormatSearch also searches anime using standard SxxEyy numbering.
 	AnimeStandardFormatSearch *bool `json:"animeStandardFormatSearch,omitempty"`
+	// AnimeOnly keeps the indexer to anime: a search for anything that is
+	// not anime does not ask it, automatic or interactive. A search that
+	// names the indexer asks it whatever it is for, and its feed is polled
+	// as any other's.
+	AnimeOnly *bool `json:"animeOnly,omitempty"`
 	// MinimumSeeders is the fewest seeders a torrent release may have to be
 	// considered; 0 considers releases with no seeders at all. A pointer so a
 	// Go client can send that 0: with omitempty it would be dropped and
@@ -256,6 +261,14 @@ func (b *IndexerSpecApplyConfiguration) WithAnimeCategories(values ...int32) *In
 // If called multiple times, the AnimeStandardFormatSearch field is set to the value of the last call.
 func (b *IndexerSpecApplyConfiguration) WithAnimeStandardFormatSearch(value bool) *IndexerSpecApplyConfiguration {
 	b.AnimeStandardFormatSearch = &value
+	return b
+}
+
+// WithAnimeOnly sets the AnimeOnly field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AnimeOnly field is set to the value of the last call.
+func (b *IndexerSpecApplyConfiguration) WithAnimeOnly(value bool) *IndexerSpecApplyConfiguration {
+	b.AnimeOnly = &value
 	return b
 }
 

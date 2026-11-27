@@ -175,6 +175,13 @@ type IndexerSpec struct {
 	// +optional
 	AnimeStandardFormatSearch bool `json:"animeStandardFormatSearch,omitempty"`
 
+	// AnimeOnly keeps the indexer to anime: a search for anything that is
+	// not anime does not ask it, automatic or interactive. A search that
+	// names the indexer asks it whatever it is for, and its feed is polled
+	// as any other's.
+	// +optional
+	AnimeOnly bool `json:"animeOnly,omitempty"`
+
 	// MinimumSeeders is the fewest seeders a torrent release may have to be
 	// considered; 0 considers releases with no seeders at all. A pointer so a
 	// Go client can send that 0: with omitempty it would be dropped and

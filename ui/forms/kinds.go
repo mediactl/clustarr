@@ -323,7 +323,7 @@ var kinds = []Kind{
 			{Title: "Indexer", Paths: []string{"definition", "baseURL", "enabled", "priority", "downloadClientRef", "proxyRef", "tags"}},
 			{Title: "Generic Newznab/Torznab", Help: "For an upstream with no definition.", Paths: []string{"generic.protocol", "generic.apiPath"}, When: when("definition", "")},
 			{Title: "Credentials", Help: "The Secret the indexer's credentials are kept in: a generic upstream's API key here, a definition's own under Definition.", Paths: []string{"secretRef"}},
-			{Title: "Search", Paths: []string{"enableRss", "enableAutomaticSearch", "enableInteractiveSearch", "rssInterval", "categories", "animeCategories", "animeStandardFormatSearch", "minimumSeeders"}},
+			{Title: "Search", Paths: []string{"enableRss", "enableAutomaticSearch", "enableInteractiveSearch", "rssInterval", "categories", "animeCategories", "animeOnly", "animeStandardFormatSearch", "minimumSeeders"}},
 			{Title: "Limits", Paths: []string{"limits.queryLimit", "limits.grabLimit", "limits.unit", "requestDelay", "timeout"}, Advanced: true},
 			{Title: "Seeding", When: indexerNot("usenet"), Paths: []string{"seedCriteria"}, Advanced: true},
 			{Title: "Definition object", Help: "An IndexerDefinition by its object name, in place of a definition's id.", When: when("definition", ""), Paths: []string{"definitionRef"}, Advanced: true},

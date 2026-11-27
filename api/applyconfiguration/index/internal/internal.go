@@ -338,6 +338,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             scalar: numeric
           elementRelationship: atomic
+    - name: animeOnly
+      type:
+        scalar: boolean
     - name: animeStandardFormatSearch
       type:
         scalar: boolean

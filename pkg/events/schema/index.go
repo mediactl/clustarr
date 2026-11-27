@@ -340,7 +340,10 @@ type SearchRequest struct {
 	// Anime marks a request for an anime series (Wave S): a season request
 	// keeps its Season for an indexer that takes ids, while a text query
 	// gets the title alone with the indexer's anime categories, since anime
-	// packs are named by absolute range or "Batch", never S01.
+	// packs are named by absolute range or "Batch", never S01. An anime
+	// film's request carries it too. An indexer kept to anime
+	// (Indexer.spec.animeOnly) is asked for no other request, unless the
+	// request names it.
 	Anime bool `json:"anime,omitempty"`
 }
 

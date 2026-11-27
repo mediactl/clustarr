@@ -1210,6 +1210,31 @@ back is judged by the search's identity like any release. Cost: up to four
 more queries of each text indexer per anime season search, at its
 `requestDelay`. A standard series is unchanged: its season goes on the
 wire as a parameter.
+**An indexer kept to anime is asked for anime alone (owner, 2026-11-27:
+"ensure the amenzb and anime tosho indexers are only combined with the
+other usenet indexers for anime series. otherwise, it will be a collosal
+waste of resources, rate limits, etc").** A search went to every enabled
+indexer whose advertised categories overlap the request's, and a parent
+category survives when the indexer serves any child of it
+(`queryCategories`): amenzb advertises the whole Movies and TV trees and
+animetosho Movies (2020) and Anime (5070), so every film and every
+standard series search on talos spent a query of each. `spec.categories`
+never narrowed that: only the RSS poll reads it. `Indexer.spec.animeOnly`
+(default false) now leaves the indexer out of a request that is not anime
+(`selectCandidates`): not a candidate, with no outcome, so a search whose
+other indexers were all paced or in backoff still reads as no attempt
+(`allPaced`, `noIndexer`). A request that names the indexer
+(`IndexerRefs`: an interactive Search of chosen indexers, the Torznab
+facade) asks it whatever it is for; its RSS poll is unchanged, one query
+an interval. Anime is `SearchRequest.Anime` or the older absolute-number
+shape (`isAnimeRequest`): a Series of `seriesType: anime`, and, new with
+this, a Movie whose `status.classification.anime` is set
+(`snapshot` to `TargetIDs.Anime` to `BuildSearchRequest`), so an anime
+film is still searched there and each indexer's `animeCategories` are
+added to its query; `Target.Anime` stays a series'. Not set on nyaasi (my
+call: the owner named the two usenet indexers, and nyaa carries live
+action too). Tests: `TestAnAnimeOnlyIndexerIsAskedForAnimeAlone`,
+`TestAnAnimeFilmIsSearchedAsAnime`.
 **Raws, dubs alone and releases naming no quality are last resorts too
 (owner, 2026-11-27: "Allow dubs-only (or vice versa - *with* the graft),
 tentatively allow "unknown" quality releases - but we should find out the

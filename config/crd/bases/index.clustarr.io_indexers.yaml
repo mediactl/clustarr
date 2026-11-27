@@ -69,6 +69,13 @@ spec:
                   format: int32
                   type: integer
                 type: array
+              animeOnly:
+                description: |-
+                  AnimeOnly keeps the indexer to anime: a search for anything that is
+                  not anime does not ask it, automatic or interactive. A search that
+                  names the indexer asks it whatever it is for, and its feed is polled
+                  as any other's.
+                type: boolean
               animeStandardFormatSearch:
                 description: AnimeStandardFormatSearch also searches anime using standard
                   SxxEyy numbering.

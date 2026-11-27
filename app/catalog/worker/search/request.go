@@ -55,7 +55,9 @@ type TargetIDs struct {
 	// seasonNamed). Nil for every other search.
 	SeasonTexts []string
 	// Anime marks a series whose episodes are numbered absolutely: Episode
-	// then carries the absolute number and there is no season token.
+	// then carries the absolute number and there is no season token. For a
+	// movie it is the movie's own classification (an anime film), and
+	// changes only which indexers and categories are asked.
 	Anime bool
 	Year  int32
 	// OriginalLanguageTag is not part of the request; it rides along
@@ -124,6 +126,10 @@ func BuildSearchRequest(ns string, kind commonv1.MediaKind, ids TargetIDs, limit
 		if ids.ImdbID != "" {
 			idmap[commonv1.IDKeyIMDB] = ids.ImdbID
 		}
+		// An anime film is an anime request: the indexers kept to anime
+		// (Indexer.spec.animeOnly) are asked for it, and each indexer's
+		// anime categories are searched too.
+		req.Anime = ids.Anime
 	case commonv1.MediaKindEpisode:
 		if ids.TvdbID != 0 {
 			idmap[commonv1.IDKeyTVDB] = strconv.FormatInt(ids.TvdbID, 10)

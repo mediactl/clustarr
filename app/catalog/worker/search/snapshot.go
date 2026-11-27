@@ -74,6 +74,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		snap.QualityProfileRef = m.Spec.QualityProfileRef
 		snap.Dub = dubs.From(ctx).Movie(&m)
 		snap.IDs.TmdbID = m.Spec.TmdbID
+		snap.IDs.Anime = m.Status.Classification != nil && m.Status.Classification.Anime
 		snap.Target.Monitored = ptr.Deref(m.Spec.Monitored, true)
 		snap.Target.Available = m.Status.Available
 		if md := m.Status.Metadata; md != nil {
