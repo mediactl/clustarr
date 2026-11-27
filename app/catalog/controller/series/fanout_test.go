@@ -201,3 +201,55 @@ func TestDesiredEpisodesDedupesByProvidedSeasonEpisode(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "first", got[0].Title)
 }
+
+// An anime the provider numbers on from an earlier series counts from 1, as
+// its releases do: TVDB's D.Gray-man Hallow, thirteen episodes numbered 104
+// to 116, every release 01 to 13 (talos, 2026-11-27).
+func TestAnAnimeNumberedOnFromAnEarlierSeriesCountsFromOne(t *testing.T) {
+	now := time.Date(2026, 11, 27, 0, 0, 0, 0, time.UTC)
+	anime := func(name string) *catalogv1alpha1.Series {
+		return &catalogv1alpha1.Series{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec:       catalogv1alpha1.SeriesSpec{SeriesType: catalogv1alpha1.SeriesTypeAnime},
+		}
+	}
+	episodes := func(first int32, n int, special *int32) []metadata.Episode {
+		var out []metadata.Episode
+		if special != nil {
+			out = append(out, metadata.Episode{SeasonNumber: 0, EpisodeNumber: 1, AbsoluteNumber: special})
+		}
+		for i := range n {
+			out = append(out, metadata.Episode{SeasonNumber: 1, EpisodeNumber: int32(i + 1), AbsoluteNumber: new(first + int32(i))})
+		}
+		return out
+	}
+	absolutes := func(s *catalogv1alpha1.Series, eps []metadata.Episode) []int32 {
+		var out []int32
+		for _, d := range series.DesiredEpisodes(s, true, map[string]bool{}, eps, now) {
+			if d.SeasonNumber > 0 {
+				require.NotNil(t, d.AbsoluteNumber)
+				out = append(out, *d.AbsoluteNumber)
+			}
+		}
+		return out
+	}
+
+	got := absolutes(anime("d-gray-man-hallow"), episodes(104, 13, nil))
+	assert.Equal(t, []int32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}, got)
+
+	// Offset by one (an episode 0 filed as a special and counted 1): a
+	// release's 05 could be the provider's 5 or its 6, so nothing is changed.
+	got = absolutes(anime("steins-gate-0"), episodes(2, 23, new(int32(1))))
+	assert.EqualValues(t, 2, got[0])
+	assert.EqualValues(t, 24, got[22])
+
+	// Not an anime: the provider's numbers stand.
+	standard := anime("the-life-and-times-of-tim")
+	standard.Spec.SeriesType = catalogv1alpha1.SeriesTypeStandard
+	assert.EqualValues(t, 22, absolutes(standard, episodes(22, 6, nil))[0])
+
+	// A gap in the provider's count: not one offset, so nothing is changed.
+	gapped := episodes(104, 13, nil)
+	gapped[12].AbsoluteNumber = new(int32(120))
+	assert.EqualValues(t, 104, absolutes(anime("gapped"), gapped)[0])
+}

@@ -46,6 +46,10 @@ type TargetIDs struct {
 	// such an episode exist under either, and a person's search asks for
 	// both (tvdbNumbered). Nil when the numbering sent is TVDB's own.
 	TVDBSeason, TVDBEpisode *int32
+	// OtherSeasons are the further scene seasons a season search asks for:
+	// those, beside Season, that hold a wanted episode of the stored season
+	// (SceneSeasons). Nil for every other search.
+	OtherSeasons []int32
 	// Anime marks a series whose episodes are numbered absolutely: Episode
 	// then carries the absolute number and there is no season token.
 	Anime bool

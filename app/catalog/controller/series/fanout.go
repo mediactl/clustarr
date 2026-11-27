@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package series
 
 import (
+	"cmp"
+	"slices"
 	"strconv"
 	"time"
 
@@ -258,7 +260,52 @@ func DesiredEpisodes(
 			Still: still(ep.Image),
 		})
 	}
+	if s.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime {
+		countFromOne(out)
+	}
 	return out
+}
+
+// countFromOne renumbers an anime's absolute numbers from 1 when the
+// provider counts them on from an earlier series: TVDB lists D.Gray-man
+// Hallow as its own series and numbers its thirteen episodes 104 to 116,
+// after D.Gray-man's 103, while every release numbers them 01 to 13, so
+// each was the wrong item to the search, to the grab planner and to import
+// (talos, 2026-11-27: all thirteen missing, 91 of 111 candidates refused
+// for their number). It acts only when the reading cannot be mistaken:
+// every regular episode has an absolute number, each is its place in the
+// series plus one same offset, and the smallest is above the number of
+// regular episodes, so no number a release counts from 1 is another
+// episode's, and the series' own episode numbers start at 1. A series offset
+// by less (an episode 0 filed as a special and counted 1) is left as the
+// provider numbers it. Specials are not touched.
+func countFromOne(eps []DesiredEpisode) {
+	var regular []*DesiredEpisode
+	for i := range eps {
+		if eps[i].SeasonNumber > 0 {
+			regular = append(regular, &eps[i])
+		}
+	}
+	slices.SortFunc(regular, func(a, b *DesiredEpisode) int {
+		return cmp.Or(cmp.Compare(a.SeasonNumber, b.SeasonNumber), cmp.Compare(a.EpisodeNumber, b.EpisodeNumber))
+	})
+	// Its own numbering starts at 1: a series kept in absolute order, whose
+	// episode numbers are the absolute ones, counts as the provider does.
+	if len(regular) == 0 || regular[0].AbsoluteNumber == nil || regular[0].EpisodeNumber != 1 {
+		return
+	}
+	offset := *regular[0].AbsoluteNumber - 1
+	if offset < int32(len(regular)) {
+		return
+	}
+	for i, e := range regular {
+		if e.AbsoluteNumber == nil || *e.AbsoluteNumber != int32(i+1)+offset {
+			return
+		}
+	}
+	for i, e := range regular {
+		e.AbsoluteNumber = new(int32(i + 1))
+	}
 }
 
 // still is an episode image's URL, "" for none.

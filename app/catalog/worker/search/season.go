@@ -87,7 +87,8 @@ func (w *Worker) snapshotSeason(ctx context.Context, ns string, ref commonv1.Med
 	anime := s.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
 	snap.IDs.TvdbID = s.Spec.TvdbID
 	snap.IDs.Anime = anime
-	snap.IDs.Season = new(SceneSeason(scene, season, eps))
+	first, others := SceneSeasons(scene, season, eps)
+	snap.IDs.Season, snap.IDs.OtherSeasons = &first, others
 	var seriesRuntime int32
 	if md := s.Status.Metadata; md != nil {
 		snap.IDs.Year = md.Year
@@ -168,12 +169,52 @@ func (w *Worker) snapshotVolume(ctx context.Context, ns string, ref commonv1.Med
 	return snap, nil
 }
 
+// MaxOtherSeasons bounds the further scene seasons one season search asks
+// for: each is a query of every indexer.
+const MaxOtherSeasons = 5
+
+// SceneSeasons are the scene seasons a search of the stored season asks
+// for: first the one SceneSeason names among the season's wanted episodes
+// (among all of them when none is wanted), then every other scene season
+// that holds a wanted one, lowest first, at most MaxOtherSeasons.
+//
+// A season the scene splits was searched by its larger part alone, the
+// rest "left to the sweep" (series search design §12). TVDB keeps
+// Ascendance of a Bookworm's 60 episodes in one season and the scene in
+// four: its season search asked for scene season 4, whose 24 episodes then
+// filled every kept result, and episodes 1 to 36 were never asked for
+// (talos, 2026-11-27, 33 of them missing). Only seasons with a wanted
+// episode are asked, so a season that is whole costs no query.
+func SceneSeasons(scene []decision.SceneMapping, season int32, eps []*catalogv1alpha1.Episode) (first int32, others []int32) {
+	var wanted []*catalogv1alpha1.Episode
+	for _, e := range eps {
+		if e.Status.Phase == catalogv1alpha1.EpisodePhaseWanted {
+			wanted = append(wanted, e)
+		}
+	}
+	if len(wanted) == 0 {
+		return SceneSeason(scene, season, eps), nil
+	}
+	first = SceneSeason(scene, season, wanted)
+	seen := map[int32]bool{first: true}
+	for _, e := range wanted {
+		if s, _, _ := searchNumbering(scene, e); !seen[s] {
+			seen[s] = true
+			others = append(others, s)
+		}
+	}
+	slices.Sort(others)
+	if len(others) > MaxOtherSeasons {
+		others = others[:MaxOtherSeasons]
+	}
+	return first, others
+}
+
 // SceneSeason is the scene season most of eps map to in scene (TheXEM),
 // the stored season when the series is unmapped. Each episode counts under
 // its scene season, or its stored one where scene has no row for it; a tie
-// keeps the stored season, else the lowest. A season the scene splits
-// across two scene seasons is searched by the larger part; the other
-// part's episodes are left to the sweep (series search design §12).
+// keeps the stored season, else the lowest. The other scene seasons a
+// split season has are SceneSeasons'.
 func SceneSeason(scene []decision.SceneMapping, season int32, eps []*catalogv1alpha1.Episode) int32 {
 	if len(scene) == 0 || len(eps) == 0 {
 		return season

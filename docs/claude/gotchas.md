@@ -1599,7 +1599,20 @@ recorded here.
   is a pack of), and a name that is nothing but hexadecimal digits is no
   name (`hashedNameRegex`): the release parser read "5e21e3e9...mkv" as
   S05E21 and "00e74c75...mkv" as S00E74, and a hash spelling an episode
-  the series has would have been imported as it. What was found: 56 anime series had 938 monitored episodes missing. Re-running
+  the series has would have been imported as it. Two more from the same
+  list, built the same day: a season the scene splits is searched under
+  every scene season that still holds a wanted episode
+  (`search.SceneSeasons`, `otherSeasons`: further requests of the one
+  search, merged as `tvdbNumbered`'s is, at most `MaxOtherSeasons`; the
+  first is the scene season with the most wanted episodes, where it was the
+  one with the most episodes and the rest were "left to the sweep"); and
+  an anime the provider numbers on from an earlier series counts from 1
+  (`series.countFromOne`: every regular episode's absolute number is its
+  place plus one same offset, the smallest above the number of regular
+  episodes, the series' own numbers starting at 1; D.Gray-man Hallow's 104
+  to 116 become 1 to 13 at the Series' next reconcile). A series offset by
+  less (Steins;Gate 0, Nanbaka: TVDB counts a special as 1) is not
+  renumbered: a release's 05 could be either episode. What was found: 56 anime series had 938 monitored episodes missing. Re-running
   their 74 season searches grabbed for 44 of them, and 49 of the 105 grabs
   were releases already downloaded whole once, held at import as
   `needsPerson`, removed when the hold lapsed (`lifecycle.

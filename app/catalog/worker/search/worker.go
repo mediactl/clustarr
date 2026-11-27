@@ -331,7 +331,7 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		}
 		resp, err = w.searchIndex(ctx, req)
 	} else {
-		resp, err = w.searchLive(ctx, m, task, req, tvdbNumbered(req, snap.IDs, task)...)
+		resp, err = w.searchLive(ctx, m, task, req, append(tvdbNumbered(req, snap.IDs, task), otherSeasons(req, snap.IDs, task)...)...)
 	}
 	if err != nil {
 		tracing.RecordError(span, err)
@@ -385,7 +385,15 @@ func (w *Worker) searchLive(
 	for _, r := range more {
 		next, err := w.RPC.Search(ctx, r)
 		if err != nil {
-			w.log(ctx).Warn("search: the episode's TVDB numbering could not be asked for; the scene numbering's answer stands", "err", err)
+			var season, episode int32 = -1, -1
+			if r.Season != nil {
+				season = *r.Season
+			}
+			if r.Episode != nil {
+				episode = *r.Episode
+			}
+			w.log(ctx).Warn("search: a further request of the search could not be asked; the first request's answer stands",
+				"season", season, "episode", episode, "err", err)
 			continue
 		}
 		resp = mergeResponses(resp, next)
@@ -411,6 +419,24 @@ func tvdbNumbered(req schema.SearchRequest, ids TargetIDs, task schema.SearchTas
 	}
 	req.Season, req.Episode = ids.TVDBSeason, ids.TVDBEpisode
 	return []schema.SearchRequest{req}
+}
+
+// otherSeasons are the further requests of a season search whose stored
+// season the scene splits: the same search under each other scene season
+// that holds a wanted episode (TargetIDs.OtherSeasons, SceneSeasons). The
+// identity check reads every answer against the whole stored season, so a
+// release of any of them is one of the search's.
+func otherSeasons(req schema.SearchRequest, ids TargetIDs, task schema.SearchTask) []schema.SearchRequest {
+	if task.IndexOnly || req.Season == nil || req.Episode != nil {
+		return nil
+	}
+	var out []schema.SearchRequest
+	for _, s := range ids.OtherSeasons {
+		r := req
+		r.Season = &s
+		out = append(out, r)
+	}
+	return out
 }
 
 // mergeResponses folds a further request's reply into a search's: the
