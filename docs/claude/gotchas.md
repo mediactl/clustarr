@@ -1911,3 +1911,30 @@ recorded here.
   refused at search as UnableToParse; a person takes it by an **episode**
   Search's pick with `spec.override` (a season Search's pick of an unparsed
   release covers nothing and is refused).
+
+- **A release that names a one-season series and nothing else is that
+  season's pack (2026-11-27, owner: "Yes - do it").** A fansub batch is
+  often named for its series alone, "[GERMini] Rozen Maiden 2013
+  Zurückspulen [BD.1080p.x265.HEVC][Dual Audio]": no season, no episode,
+  so no release pattern takes it and every search refused it as
+  UnableToParse while thirteen episodes stayed missing. A season search
+  now reads such a title when the season is the series' only one
+  (`decision.Identity.OnlySeason`, from `status.seasons`, specials aside)
+  and what stands between the title's leading groups and its trailing
+  tags, less a year, is exactly one of the series' titles
+  (`release.SeriesBatchTitle`: `CleanTitle`, and once more with the letters
+  outside ASCII dropped, as a usenet post writes "Zurckspulen"). It is
+  parsed as "<groups> <title> S01 <tags>", so its quality, group and
+  languages are read as any pack's, and the Decision keeps the indexer's
+  title. A title with anything else in that place -- "Movie", "OVA", a
+  quality word outside brackets -- and a series of more seasons than one
+  are refused as before: the name cannot say which season it holds.
+  **The grab planner reads a title again without the search's identity**
+  (`decision.ParseForItemState`), so a release that does not parse there
+  but was read as a season pack is judged by what its ReleaseInfo carries;
+  returning no parse, as that function did for every unparsed title,
+  skipped the queue and current-file rules altogether. A torrent grabbed
+  for some of a pack's episodes downloads only their files, so a pick of
+  such a batch from one episode's Search brings that one episode.
+  "Yozakura Quartet - Hana no Uta" (no tags at all) is read too and then
+  refused for its quality, Unknown.

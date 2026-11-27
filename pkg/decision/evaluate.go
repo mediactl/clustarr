@@ -99,6 +99,36 @@ func ItemStateRejections(ctx context.Context, t Target, p quality.Profile, d Dec
 	return videoItemState(t, p, an, parsed, rel, score, complete)
 }
 
+// seriesBatch reads title as the pack of the one season t's search is for,
+// when no release pattern takes it: the search is a season's
+// (Identity.SeasonSearch), the series has that season alone
+// (Identity.OnlySeason), and the title names the series and nothing else
+// (release.SeriesBatchTitle, which holds it to an exact title). nil
+// otherwise. The Decision keeps the title as the indexer wrote it; what it
+// was read as -- quality, group, languages, a season pack -- rides its
+// ReleaseInfo, which is what ParseForItemState falls back on when the grab
+// planner reads the title again without the search's identity.
+//
+// Owner, 2026-11-27: "Yes - do it", of Rozen Maiden: Zurückspulen, whose
+// only complete release was "[GERMini] Rozen Maiden 2013 Zurückspulen
+// [BD.1080p.x265.HEVC][Dual Audio]", refused as unparseable in every
+// search.
+func seriesBatch(t Target, title string) *release.ParsedRelease {
+	if (t.Kind != common.MediaKindSeries && t.Kind != common.MediaKindEpisode) ||
+		!t.Identity.SeasonSearch || !t.Identity.OnlySeason || t.Identity.Season < 1 {
+		return nil
+	}
+	alt := release.SeriesBatchTitle(title, t.Identity.Titles, t.Identity.Season)
+	if alt == "" {
+		return nil
+	}
+	p, err := release.Parse(alt, release.Options{Kind: t.Kind})
+	if err != nil || !p.FullSeason || len(p.Seasons) != 1 || p.Seasons[0] != t.Identity.Season {
+		return nil
+	}
+	return p
+}
+
 // ParseForItemState parses rel as ItemStateRejections does when its Decision
 // carries no Parsed: the title for kind, its languages read for the item's
 // original language (originalTag) and the release groups' learned ones, the
@@ -109,7 +139,18 @@ func ItemStateRejections(ctx context.Context, t Target, p quality.Profile, d Dec
 func ParseForItemState(ctx context.Context, kind common.MediaKind, originalTag string, rel common.ReleaseInfo) (*release.ParsedRelease, error) {
 	pr, err := release.Parse(rel.Title, release.Options{Kind: kind})
 	if err != nil {
-		return nil, err
+		// A title no pattern reads that a season search read as its
+		// season's pack (seriesBatch): the search's identity is not here to
+		// read it again, and what it was read as is on the release. Without
+		// this the item-state rules judged nothing of such a release -- no
+		// queue, no current file -- and every one passed.
+		if rel.ReleaseType != common.ReleaseTypeSeasonPack || rel.Quality.Name == "" {
+			return nil, err
+		}
+		return &release.ParsedRelease{
+			Quality: rel.Quality, Revision: rel.Revision, Group: rel.ReleaseGroup, Edition: rel.Edition,
+			Languages: slices.Clone(rel.Languages), ReleaseType: rel.ReleaseType, FullSeason: true,
+		}, nil
 	}
 	pr.Languages = pr.LanguagesWith(originalLanguageName(ctx, originalTag), release.GroupLanguagesFrom(ctx))
 	indexerLanguages(pr, rel)
@@ -224,6 +265,14 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 	p quality.Profile, cat *catalogue.Catalogue, rel common.ReleaseInfo, o Options, itemState bool,
 ) Decision {
 	parsed, err := release.Parse(rel.Title, release.Options{Kind: t.Kind})
+	if err != nil {
+		// A title that names the series and nothing else, answering the
+		// search of the series' one season, is that season's pack
+		// (seriesBatch).
+		if bp := seriesBatch(t, rel.Title); bp != nil {
+			parsed, err = bp, nil
+		}
+	}
 	if err != nil {
 		logging.FromContext(ctx).Debug("decision: release title did not parse", "title", rel.Title, "err", err)
 		return Decision{

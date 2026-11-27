@@ -280,6 +280,12 @@ type Identity struct {
 	// -- instead of every one of them. Set by the season search's caller
 	// only, like SingleEpisodeSearch; the two are never both true.
 	SeasonSearch bool
+	// OnlySeason is true when Season is the series' one regular season
+	// (specials aside), set by the season search's caller as SeasonSearch
+	// is. A release that names the series and nothing else is then read as
+	// the pack of that season (release.SeriesBatchTitle): with more seasons
+	// than one, such a title cannot say which it holds.
+	OnlySeason bool
 	// Namesakes are the item's titles another library item of its kind (in
 	// its namespace) also carries, keyed by the same clean form (Wave S). A
 	// release matched to the item only through one of them, naming no year,

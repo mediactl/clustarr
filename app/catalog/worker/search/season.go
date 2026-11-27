@@ -127,9 +127,31 @@ func (w *Worker) snapshotSeason(ctx context.Context, ns string, ref commonv1.Med
 	// Set here, at the season search's own call site, never in
 	// EpisodeIdentity, which the RSS matcher shares.
 	snap.Target.Identity.SeasonSearch = true
+	snap.Target.Identity.OnlySeason = onlySeason(&s, season)
 	snap.Target.Identity.Namesakes = w.namesakes(ctx, ns, &s)
 	snap.Owner = ownerRef(string(commonv1.MediaKindSeries), &s)
 	return snap, nil
+}
+
+// onlySeason reports whether season is the series' one regular season, by
+// its status.seasons rollup (specials aside): what lets a release named
+// for the series alone be read as that season's pack
+// (decision.Identity.OnlySeason). False until the rollup lists it.
+func onlySeason(s *catalogv1alpha1.Series, season int32) bool {
+	if season < 1 {
+		return false
+	}
+	found := false
+	for _, st := range s.Status.Seasons {
+		switch st.Number {
+		case 0:
+		case season:
+			found = true
+		default:
+			return false
+		}
+	}
+	return found
 }
 
 // snapshotVolume reads the Comic and builds the volume snapshot (2026-11-10
