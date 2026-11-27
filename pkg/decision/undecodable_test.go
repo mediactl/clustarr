@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package decision_test
 
 import (
+	"maps"
 	"slices"
 	"testing"
 
@@ -25,6 +26,7 @@ import (
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 // H.264 10-bit is the one codec the transcoder cannot take (owner,
@@ -51,6 +53,62 @@ func TestAnH264TenBitReleaseIsRefusedAndX265TenBitIsNot(t *testing.T) {
 				assert.False(t, got.Approved, "%s under %s", title, profile)
 				assert.True(t, hasRejection(got, decision.ReasonCustomFormatMinimumScore), "%s under %s: %v", title, profile, reasons(got))
 			}
+			assert.Equal(t, refused, hasRejection(got, decision.ReasonUndecodableVideo), "%s under %s: %v", title, profile, reasons(got))
+		}
+	}
+}
+
+// The spellings that got through until 2026-11-27, when Gosick, Altair and
+// Rage of Bahamut each downloaded H.264 10-bit releases the import then
+// refused, 21 in a night: Kametsu's "Hi10" without its P, Erai-raws'
+// "AVC-YUV444P10", and a 10 bit with a space. An episode numbered 10 whose
+// title begins "Bit" names no bit depth, nor does an HEVC release's pixel
+// format.
+func TestTheSpellingsOfH264TenBit(t *testing.T) {
+	p, cat := builtin(t, "anime-remux-1080p")
+	for title, refused := range map[string]bool{
+		"[Kametsu] Rushmore (1998) (BD 1080p Hi10 FLAC) [B81767FA]":          true,
+		"[Kametsu] Rushmore (1998) (BD 1080p Hi10P FLAC) [B81767FA]":         true,
+		"[Erai-raws] Rushmore (1998) [1080p AVC-YUV444P10][E-AC3][E0F363A2]": true,
+		"[Erai-raws] Rushmore (1998) [1080p AVC-YUV420P10][AC-3]":            true,
+		"[Group] Rushmore (1998) [BD 1080p 10 bit FLAC]":                     true,
+		"[Group] Rushmore (1998) [BD 1080p 10bits FLAC]":                     true,
+		"[Cleo]Rushmore_(1998)_(Dual Audio_10bit_BD720p)":                    true,
+		"Rushmore.1998.720p-Hi10p.BluRay.AAC2.0-CTR":                         true,
+		"[Erai-raws] Rushmore (1998) [1080p HEVC-YUV420P10][E-AC3]":          false,
+		"[Group] Rushmore (1998) [BD 1080p HEVC 10 bit FLAC]":                false,
+		"Rushmore.1998.S01E10.Bit.by.Bit.1080p.AMZN.WEB-DL.DDP5.1.H.264-GRP": false,
+		"Rushmore.1998.1080p.BluRay.DD5.1.x264-GRP":                          false,
+		"[Coalgirls]_Rushmore_(1998)_(1920x1080_Blu-Ray_FLAC)":               false, // names no bit depth: the import's to catch
+		"Rushmore.1998.1080p.BluRay.DD5.1.x264-HI10":                         true,  // a group of that name is not worth a miss
+	} {
+		got := decide(t, p, cat, rushmoreTarget(nil), title)
+		assert.Equal(t, refused, hasRejection(got, decision.ReasonUndecodableVideo), "%s: %v %v", title, got.Release.MatchedFormats, reasons(got))
+	}
+}
+
+// No profile takes one (owner, 2026-11-27: "H.264 10-bit should *always*
+// be blocked for every library - these cannot be transcoded"): the formats'
+// -10000 is a score, which a profile that scores the format itself or
+// names it a last resort gives back, and the release is refused all the
+// same. An XviD one too.
+func TestNoProfileTakesAnH264TenBitRelease(t *testing.T) {
+	base, cat := builtin(t, "hd-bluray-web")
+	const hi10 = "Rushmore.1998.1080p.BluRay.10bit.x264.DTS-GROUP"
+	const xvid = "Rushmore.1998.1080p.BluRay.XviD.AC3-GROUP"
+
+	scored := base
+	scored.Scores = maps.Clone(base.Scores)
+	scored.Scores["h264-10bit"], scored.Scores["mpeg4-part2"] = 0, 0
+	lastResort := base
+	lastResort.LastResortFormats = map[string]bool{"h264-10bit": true, "mpeg4-part2": true}
+
+	for name, p := range map[string]quality.Profile{"scored 0": scored, "a last resort": lastResort} {
+		for _, title := range []string{hi10, xvid} {
+			got := decide(t, p, cat, rushmoreTarget(nil), title)
+			assert.False(t, hasRejection(got, decision.ReasonCustomFormatMinimumScore), "%s, %s: the score no longer refuses it: %v", name, title, reasons(got))
+			assert.True(t, hasRejection(got, decision.ReasonUndecodableVideo), "%s, %s: %v", name, title, reasons(got))
+			assert.False(t, got.Approved, "%s, %s", name, title)
 		}
 	}
 }

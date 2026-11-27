@@ -165,7 +165,26 @@ MPEG-4 Part 2 (XviD, DivX; MS-MPEG-4 with it): clustarr's own catalogue
 formats `h264-10bit` (`pkg/quality/catalogue/data/formats/clustarr.json`,
 a 10bit or Hi10P title naming no x265, HEVC, AV1 or VP9) and `mpeg4-part2`
 (an XviD or DivX title) score -10000 by default, so every profile refuses
-them, dual audio or not (owner), where x265 10-bit is taken. A file of
+them, dual audio or not (owner), where x265 10-bit is taken.
+**A release that matches either is refused by a rule of its own,
+`UndecodableVideo`, whatever the profile scores the format (owner,
+2026-11-27: "H.264 10-bit should *always* be blocked for every library -
+these cannot be transcoded").** The score alone was a refusal a profile's
+`formatScores` or `lastResortFormats` could give back;
+`decision.offLimitsRejection` reads the matched formats of the
+`clustarr` family (`catalogue.Format.OffLimits`), so a format added to
+`clustarr.json` is off limits by being there, and a person's pick needs
+`spec.override` as for Dolby Vision. The same day the title pattern took
+the spellings that had got through: Gosick, Altair and Rage of Bahamut
+downloaded 21 such releases in a night, each refused at import and
+redownloaded, because "Hi10" without its P (Kametsu) and "AVC-YUV444P10"
+(Erai-raws) matched nothing; "10 bit" and "10bits" are read too, and the
+10 needs a boundary before it, so "S01E10.Bit.by.Bit" names no bit depth.
+**What a title cannot say is still the import's to catch**: Coalgirls'
+"(1920x1080_Blu-Ray_FLAC)" packs are H.264 10-bit and name no bit depth,
+so one is downloaded whole and refused by its probe
+(`importplan.undecodableRejection`). Nothing learns from that refusal
+that the group's other releases of the series are the same. A file of
 either does not meet the cutoff (owner, 2026-11-03: "These files shouldn't
 meet the cutoff - or should be upgraded", then "The 12 XviD files and 18
 H.264 10-bit files should be under the cutoff - forced to search for a new

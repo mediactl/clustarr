@@ -280,6 +280,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 	add(sampleRejection(rel))
 	if isVideoKind(t.Kind) {
 		add(dolbyVisionRejection(parsed))
+		add(offLimitsRejection(cat, matched))
 	}
 	if itemState {
 		rejections = append(rejections, videoItemState(t, p, an, parsed, rel, score, languagesComplete)...)

@@ -160,6 +160,31 @@ type Format struct {
 // name only an anime item.
 func (f *Format) AnimeOnly() bool { return f.Family == "anime" || f.Family == "anime_extra" }
 
+// FamilyClustarr is the family of clustarr's own formats
+// (data/formats/clustarr.json): what the transcoder cannot take.
+const FamilyClustarr = "clustarr"
+
+// OffLimits reports a format no profile can take a release of (owner,
+// 2026-11-27: "H.264 10-bit should *always* be blocked for every library -
+// these cannot be transcoded"): clustarr's own, h264-10bit and mpeg4-part2,
+// the codecs no GPU here decodes. Their -10000 is a score a profile can
+// change; this is what the decision reads, and no profile changes it.
+func (f *Format) OffLimits() bool { return f.Family == FamilyClustarr }
+
+// OffLimits is the Name of the first of slugs (matched formats) that is
+// off limits, "" when none is.
+func (c *Catalogue) OffLimits(slugs []string) string {
+	if c == nil {
+		return ""
+	}
+	for _, slug := range slugs {
+		if f := c.Formats[slug]; f != nil && f.OffLimits() {
+			return f.Name
+		}
+	}
+	return ""
+}
+
 // Catalogue is the full set of loaded custom formats.
 type Catalogue struct {
 	Version   string

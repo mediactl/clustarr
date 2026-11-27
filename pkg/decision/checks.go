@@ -24,6 +24,7 @@ import (
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -82,6 +83,22 @@ func dolbyVisionRejection(parsed *release.ParsedRelease) *common.Rejection {
 		return nil
 	}
 	r := newRejection(ReasonDolbyVision, "the release is Dolby Vision, which is never taken")
+	return &r
+}
+
+// offLimitsRejection rejects a release whose title names a codec no GPU
+// here decodes (ReasonUndecodableVideo): H.264 10-bit or MPEG-4 Part 2,
+// read by clustarr's own catalogue formats (catalogue.Format.OffLimits)
+// among the release's matched ones. Those formats score -10000, which a
+// profile's formatScores or lastResortFormats could give back; this cannot
+// be (owner, 2026-11-27: "H.264 10-bit should *always* be blocked for
+// every library - these cannot be transcoded").
+func offLimitsRejection(cat *catalogue.Catalogue, matched []string) *common.Rejection {
+	name := cat.OffLimits(matched)
+	if name == "" {
+		return nil
+	}
+	r := newRejection(ReasonUndecodableVideo, "the release is %s, which cannot be transcoded and is never taken", name)
 	return &r
 }
 

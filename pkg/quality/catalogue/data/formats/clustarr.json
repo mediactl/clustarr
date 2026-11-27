@@ -5,7 +5,7 @@
     "trashIds": {},
     "scores": {"default": -10000},
     "conditions": [
-      {"kind": "ReleaseTitle", "name": "10bit", "required": true, "pattern": "10[.-]?bit|hi10p"},
+      {"kind": "ReleaseTitle", "name": "10bit", "required": true, "pattern": "(?<![a-z0-9])10[ ._-]?bits?(?![a-z])|(?<![a-z0-9])hi10(p|bit)?(?![a-z0-9])|yuv4[24][024]p10(?![0-9])"},
       {"kind": "ReleaseTitle", "name": "Not x265/HEVC", "negate": true, "required": true, "pattern": "[xh][ ._-]?265|\\bHEVC(\\b|\\d)"},
       {"kind": "ReleaseTitle", "name": "Not AV1", "negate": true, "required": true, "pattern": "\\bAV1\\b"},
       {"kind": "ReleaseTitle", "name": "Not VP9", "negate": true, "required": true, "pattern": "\\bVP9\\b"}

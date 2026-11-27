@@ -130,6 +130,18 @@ var (
 	ReasonLosesHDR    = Reason{"LosesHDR", common.RejectionPermanent}
 	ReasonAVCOverHEVC = Reason{"AVCOverHEVC", common.RejectionPermanent}
 
+	// ReasonUndecodableVideo is the owner's rule of 2026-11-27 ("H.264
+	// 10-bit should *always* be blocked for every library - these cannot be
+	// transcoded"): a release whose title names a codec no GPU here decodes
+	// -- H.264 10-bit, MPEG-4 Part 2 -- is never taken, under any profile,
+	// whatever it scores the h264-10bit and mpeg4-part2 formats. Until then
+	// the formats' -10000 alone refused it (CustomFormatMinimumScore), which
+	// a profile's own score or lastResortFormats could undo. Like
+	// DolbyVision it is the release's own fault, Permanent, and a person's
+	// pick needs spec.override. The import refuses the file whose title did
+	// not say (importplan's undecodableRejection).
+	ReasonUndecodableVideo = Reason{"UndecodableVideo", common.RejectionPermanent}
+
 	// ReasonFullSeasonNotAired is Sonarr's FullSeasonSpecification (Wave S):
 	// a full-season release of a season that has an episode not yet aired
 	// is incomplete or mislabelled. Evaluate does not run it: the grab
