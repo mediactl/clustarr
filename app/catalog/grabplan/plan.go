@@ -251,6 +251,8 @@ func DecideContext(ctx context.Context, v View) Plan {
 			d.settle(vd.c, intake.Refused, decisionRefused, reasonLastResortOutranked)
 		case d.overlaps(vd):
 			d.settle(vd.c, intake.Refused, "refused", reasonOverlapsPass)
+		case d.usenetCovers(vd, approved):
+			d.settle(vd.c, intake.Refused, decisionRefused, reasonUsenetCovers)
 		case len(vd.c.Parts) > 0 && d.limitedUntil(vd).After(d.now):
 			// A set is grabbed now or not at all: a pending grab keeps
 			// one release, never its parts.
@@ -308,6 +310,9 @@ type decider struct {
 	// title and indexer languages: a pack is judged for every episode it
 	// covers, and was parsed again for each.
 	parses map[parseKey]parseResult
+	// packs are the stored entries' releases read as packs or not, by title
+	// (entryPack).
+	packs map[string]bool
 }
 
 type parseKey struct {
@@ -381,6 +386,84 @@ func (d *decider) dubAlone(c Candidate) bool {
 	}
 	parsed, _ := d.parsed(d.v.Kind, d.v.OriginalLanguageTag, c.Release.Decision.ReleaseInfo)
 	return decision.DubAlone(ctxBackground, *d.v.Profile, d.v.OriginalLanguageTag, parsed)
+}
+
+// reasonUsenetCovers is the refusal of a torrent pack the season does not
+// need (usenetCovers).
+const reasonUsenetCovers = "usenet releases cover the episodes it would be taken for, and are taken in its place"
+
+// usenetCovers reports a torrent pack that is passed over for episode
+// releases (owner, 2026-11-27: "I *would* prefer usenet based episode
+// downloads for a season over torrent season downloads ... But *only* if
+// **all** episodes are found and approved", then "It would also be worth
+// taking usenet downloads over torrent series if usenet accounts for *most*
+// downloads and torrent episodes fill the rest"; a torrent here runs under
+// 1 MB/s most of the time and usenet at 20 to 80, several episodes at
+// once): every episode it would be taken for has another release -- a
+// usenet release of any shape, live or approved in this pass, or a torrent
+// single approved in this pass -- and usenet has more than half of them. A
+// pack that would be taken for one episode alone is passed over for any
+// single of it, a torrent's too: a season is not downloaded for an episode
+// while the episode can be had by itself.
+//
+// The other release must be no worse a choice than the pack: not a last
+// resort unless the pack is one, of no worse a tier, and, under a profile
+// taking complete audio first, carrying every wanted language when the pack
+// does. When the episode releases fail, they are no longer live or
+// approved, and the pack is taken after all.
+//
+// It is the rule for an automatic grab on a Series; a person's pick is
+// theirs.
+func (d *decider) usenetCovers(vd verdict, approved []verdict) bool {
+	c := vd.c
+	if d.v.Kind != commonv1.MediaKindSeries || c.Manual || c.Override || c.Purpose != "" || len(c.Parts) > 0 ||
+		c.Release.Decision.Protocol != commonv1.ProtocolTorrent || len(payload(vd)) < 2 || len(vd.items) == 0 || d.v.Profile == nil {
+		return false
+	}
+	p := d.v.Profile
+	packQ, packLast := c.Release.Decision.Quality, d.lastResort(c)
+	usenet := 0
+	for _, it := range vd.items {
+		byUsenet, bySingle := false, false
+		for i := range d.v.Entries {
+			e := &d.v.Entries[i]
+			if e.Purpose == "" && live(e) && e.Release.Protocol == commonv1.ProtocolUsenet && covers(e, it) &&
+				!p.Outranks(packQ, e.Release.Quality) && (packLast || !p.LastResort(e.Release.Quality)) {
+				byUsenet = true
+				break
+			}
+		}
+		for _, o := range approved {
+			if byUsenet {
+				break
+			}
+			oc := o.c
+			torrent := oc.Release.Decision.Protocol == commonv1.ProtocolTorrent
+			if oc.Manual || oc.Override || oc.Purpose != "" || len(oc.Parts) > 0 || o.id == vd.id ||
+				(torrent && len(payload(o)) > 1) || p.Outranks(packQ, oc.Release.Decision.Quality) ||
+				(!packLast && d.lastResort(oc)) || (p.AudioCompleteFirst && vd.complete && !o.complete) {
+				continue
+			}
+			for _, oi := range o.items {
+				if oi.Ref.Name != it.Ref.Name {
+					continue
+				}
+				if torrent {
+					bySingle = true
+				} else {
+					byUsenet = true
+				}
+				break
+			}
+		}
+		switch {
+		case byUsenet:
+			usenet++
+		case !bySingle:
+			return false
+		}
+	}
+	return len(vd.items) == 1 || usenet*2 > len(vd.items)
 }
 
 // outranked reports a last-resort candidate one of approved outranks: a
@@ -869,10 +952,36 @@ func (d *decider) logGrab(vd verdict) {
 		}
 		over = append(over, it.Ref.Name+"="+s)
 	}
+	// beside names the stored entries of the same purpose that cover an
+	// item it is taken for and are not terminal, each as "<id>=<phase>" with
+	// "/held" for an import held: a grab taken beside a download in flight
+	// is by a rule (a pack over singles, complete audio over a release
+	// without it) or a defect, and this says which entries the planner saw.
+	var beside []string
+	for i := range d.v.Entries {
+		e := &d.v.Entries[i]
+		if e.Purpose != c.Purpose || (!live(e) && !refusedByItem(e)) {
+			continue
+		}
+		for _, it := range vd.items {
+			if covers(e, it) {
+				s := e.ID + "=" + string(e.Phase)
+				if refusedByItem(e) {
+					s += "/held"
+				}
+				beside = append(beside, s)
+				break
+			}
+		}
+		if len(beside) == maxLoggedItems {
+			break
+		}
+	}
 	logging.FromContext(d.ctx).Info("grab: taking a release",
 		"owner", d.v.Owner.Name, "entry", vd.id, "release", rel.Title, "quality", rel.Quality.Name,
 		"source", source, "by", c.GrabbedBy, "purpose", c.Purpose, "manual", c.Manual, "override", c.Override,
-		"complete", vd.complete, "covered", len(vd.covered), "over", over)
+		"complete", vd.complete, "covered", len(vd.covered), "over", over,
+		"entries", len(d.v.Entries), "beside", beside)
 }
 
 // The reasons a candidate is held, which are its settle's decision label.
@@ -1025,11 +1134,38 @@ func (d *decider) queue(it Covered, purpose commonv1.DownloadPurpose, refused bo
 		}
 		out = append(out, decision.Queued{
 			Candidate: quality.Candidate{Quality: e.Release.Quality, Revision: e.Release.Revision, FormatScore: int(e.Release.FormatScore)},
-			Pack:      e.Pack() && !byItem,
+			Pack:      d.entryPack(e) && !byItem,
 			Languages: e.Release.Languages,
 		})
 	}
 	return out
+}
+
+// entryPack reports an entry that is a pack: one naming several episodes or
+// issues (DownloadEntry.Pack), or one whose release is a pack by its title
+// (decision.PackTitle) though it was taken for a single episode. An entry
+// names the episodes its release was taken for (P23), so a season pack
+// taken for the one episode that wanted it read as a single; a candidate
+// pack passes every queued single (it replaces them), and so the answer's
+// next pack was taken beside it at the following pass, and the next. On
+// talos eight packs of Aharen-san wa Hakarenai's second season, 3 to 62 GB,
+// were taken for one episode in under three minutes (2026-11-27).
+func (d *decider) entryPack(e *catalogv1alpha1.DownloadEntry) bool {
+	if e.Pack() {
+		return true
+	}
+	if len(e.Episodes) != 1 {
+		return false
+	}
+	pack, ok := d.packs[e.Release.Title]
+	if !ok {
+		pack = decision.PackTitle(e.Release.Title)
+		if d.packs == nil {
+			d.packs = map[string]bool{}
+		}
+		d.packs[e.Release.Title] = pack
+	}
+	return pack
 }
 
 // refusedCovers reports an entry of purpose covering it whose import the

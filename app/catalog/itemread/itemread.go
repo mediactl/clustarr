@@ -606,7 +606,9 @@ func Queue(entries []catalogv1alpha1.DownloadEntry, item client.Object, purpose 
 		}
 		out = append(out, decision.Queued{
 			Candidate: quality.Candidate{Quality: e.Release.Quality, Revision: e.Release.Revision, FormatScore: int(e.Release.FormatScore)},
-			Pack:      e.Pack(),
+			// A pack by its release, though it was taken for one episode
+			// (grabplan's entryPack).
+			Pack:      e.Pack() || (len(e.Episodes) == 1 && decision.PackTitle(e.Release.Title)),
 			Languages: e.Release.Languages,
 		})
 	}

@@ -37,6 +37,28 @@ import (
 // id-stripped title so an embedded id token can never leak into a title,
 // season/episode match or release-group pattern for any kind.
 func Parse(title string, o Options) (*ParsedRelease, error) {
+	p, err := parseAttempt(title, o)
+	for try := 1; try < timeoutTries && isRegexTimeout(err); try++ {
+		p, err = parseAttempt(title, o)
+	}
+	return p, err
+}
+
+// parseAttempt is parseOnce, swapped by the test of Parse's retries.
+var parseAttempt = parseOnce
+
+// timeoutTries is how many times Parse reads a title whose read timed out.
+// regexTimeout is 50 ms of wall clock, which a process held at its CPU
+// limit can spend without matching anything: the manager (750m) was at its
+// limit on 2026-11-27 while it judged a season's answers, titles it had
+// read a thousand times came back as timeouts, and every caller that took
+// "does not parse" for an answer was wrong about them. A pause does not
+// outlast a second and a third read; a pattern that truly backtracks times
+// out each time, and its error is the caller's as before.
+const timeoutTries = 3
+
+// parseOnce is one read of title.
+func parseOnce(title string, o Options) (*ParsedRelease, error) {
 	if strings.TrimSpace(title) == "" {
 		return nil, errors.New("release: empty title")
 	}

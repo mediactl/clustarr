@@ -83,3 +83,52 @@ func TestAPacksFileNamedByTheSeriesTitleAndANumberIsThatEpisode(t *testing.T) {
 		"a download that is not one season's pack names no season for it")
 	assert.Nil(t, titledEpisode(dir+"Wandering Witch The Journey of Elaina 01.mkv", nil, packSeason))
 }
+
+// A pack's file named "<the series' title> <number> <the episode's title>"
+// is that episode too. The release and its file names are the pack of Gosick
+// talos downloaded whole from usenet and held for a person on 2026-11-27,
+// nineteen episodes missing meanwhile.
+func TestAPacksFileNamedByTheSeriesTitleANumberAndTheEpisodesTitleIsThatEpisode(t *testing.T) {
+	const pack = "Gosick  [Dual Audio] [HEVC] [10-bit] [BDRip] [HD 1080p] [bluury]"
+	series := &catalogv1alpha1.Series{}
+	series.Status.Metadata = &catalogv1alpha1.SeriesMetadata{
+		Title:           "Gosick",
+		AlternateTitles: []catalogv1alpha1.AltTitle{{Title: "GOSICK -ゴシック-"}, {Title: "Mob Psycho 100"}},
+	}
+	titles := seriesTitles(series)
+	cands := twoSeasons()
+	dir := "/data/usenet/complete/tv/show-0000000000/" + pack + "/"
+
+	for file, want := range map[string]string{
+		"Gosick 01 The Dark Reaper Finds the Golden Fairy.mkv":           "show-s01e01",
+		"Gosick 02 The Souls of the Dead Raise a Shipwreck.mkv":          "show-s01e02",
+		"Gosick 03 The Hares Break Promises Beneath the Morning Sun.mkv": "show-s01e03",
+		"Gosick.12.A.Summer.Afternoon.mkv":                               "show-s01e12",
+		"[bluury] Gosick 07 A Divine Revelation [1080p].mkv":             "show-s01e07",
+		// A title that ends in a number: the episode is the number after it.
+		"Mob Psycho 100 05 Ochimusha.mkv": "show-s01e05",
+		"Mob Psycho 100.mkv":              "",
+		// Another title: a sequel's, and its own episode.
+		"Gosick 2 01.mkv":                 "",
+		"Gosick 2 01 A New Beginning.mkv": "",
+		"Gosick Movie 01 Something.mkv":   "",
+		"The Dark Reaper 01 Gosick.mkv":   "",
+		"Gosick Creditless Opening.mkv":   "",
+	} {
+		t.Run(file, func(t *testing.T) {
+			if want == "show-s01e01" {
+				_, perr := parseMediaFile(dir+file, "", commonv1.MediaKindEpisode)
+				require.Error(t, perr, "no release pattern reads the name: the case this is for")
+			}
+			got := titledEpisode(dir+file, titles, 1)
+			if want == "" {
+				assert.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			eps, reason := MatchDownloaded(got, catalogv1alpha1.SeriesTypeAnime, cands, decision.Identity{})
+			require.Empty(t, reason)
+			assert.Equal(t, []string{want}, names(eps))
+		})
+	}
+}

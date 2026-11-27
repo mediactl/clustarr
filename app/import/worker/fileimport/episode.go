@@ -375,48 +375,82 @@ var (
 	bareEpisodeRegex       = regexp.MustCompile(`(?i)^(?:\[[^\]]*\][\s._-]*)*E(?:P|pisode)?[\s._-]*(\d{1,3})(?:v\d+)?(?:$|[\s._\-\[\(])`)
 )
 
-// titledEpisodeRegex splits a file name into what stands before its last
-// number and that number, after any bracketed group: "Wandering Witch The
-// Journey of Elaina 01", "[Group] Show 07v2 [1080p]".
-var titledEpisodeRegex = regexp.MustCompile(`^(?:\[[^\]]*\][\s._-]*)*(.+?)[\s._-]+(\d{1,3})(?:v\d+)?(?:[\s._-]*[\[\(].*)?$`)
+// titledNumberRegex finds a number that may follow a title in a file name:
+// set off by a separator and ending the name or followed by one. leadGroups
+// are the bracketed groups a name may open with.
+var (
+	titledNumberRegex = regexp.MustCompile(`[\s._-]+(\d{1,3})(?:v\d+)?(?:$|[\s._\-\[\(])`)
+	leadGroupsRegex   = regexp.MustCompile(`^(?:\[[^\]]*\][\s._-]*)+`)
+)
 
 // titledEpisode reads a pack's file named "<the series' title> <number>",
-// with no dash, group or season for a release pattern to hold on to: the
-// number alone is all that follows the title, and a release pattern cannot
-// take that shape, since a title may itself end in a number. Here it can
-// be read, because the title is known: what stands before the number must
-// be one of titles (the series' own and its alternates, compared as
-// release.CleanTitle), and the season is its download's (downloadSeason),
-// as for bareEpisode. Nil otherwise.
+// with or without the episode's own title after it, and no dash, group or
+// season for a release pattern to hold on to: "Wandering Witch The Journey
+// of Elaina 01", "[Group] Show 07v2 [1080p]", "Gosick 01 The Dark Reaper
+// Finds the Golden Fairy". A release pattern cannot take that shape, since a
+// title may itself end in a number and an episode's title may hold one.
+// Here it can be read, because the title is known: what stands before the
+// number must be one of titles, whole (the series' own and its alternates,
+// compared as release.CleanTitle), so the number is the first one a title
+// ends at, and the season is its download's (downloadSeason), as for
+// bareEpisode. Nil otherwise.
 //
 // On talos a twelve-file pack of Wandering Witch: The Journey of Elaina
 // ("Wandering Witch The Journey of Elaina 01.mkv" to 12) was downloaded
-// whole and held for a person, eleven of its episodes missing
+// whole and held for a person, eleven of its episodes missing, and so was a
+// twenty-four-file pack of Gosick, named with each episode's title
 // (2026-11-27).
 func titledEpisode(path string, titles []string, season int) *release.ParsedRelease {
 	if season < 1 {
 		return nil
 	}
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	m := titledEpisodeRegex.FindStringSubmatch(base)
-	if m == nil {
-		return nil
-	}
-	name := release.CleanTitle(m[1])
-	n, err := strconv.Atoi(m[2])
-	if err != nil || n < 1 || name == "" {
-		return nil
-	}
+	base = base[len(leadGroupsRegex.FindString(base)):]
+	clean := make(map[string]bool, len(titles))
 	for _, t := range titles {
-		if release.CleanTitle(t) == name {
-			return &release.ParsedRelease{
-				Seasons: []int{season}, Episodes: []int{n},
-				LanguageUnknown: true,
-				ReleaseType:     commonv1.ReleaseTypeSingle,
-			}
+		if c := release.CleanTitle(t); c != "" {
+			clean[c] = true
+		}
+	}
+	// Each number in turn, a title's own among them ("Mob Psycho 100 01"):
+	// the search moves on from a number's last digit, so the separator after
+	// it still opens the next.
+	for from := 0; from < len(base); {
+		m := titledNumberRegex.FindStringSubmatchIndex(base[from:])
+		if m == nil {
+			return nil
+		}
+		name, number := base[:from+m[0]], base[from+m[2]:from+m[3]]
+		from += m[3]
+		n, err := strconv.Atoi(number)
+		if err != nil || n < 1 || !clean[release.CleanTitle(name)] || numberNext(base[from:]) {
+			continue
+		}
+		return &release.ParsedRelease{
+			Seasons: []int{season}, Episodes: []int{n},
+			LanguageUnknown: true,
+			ReleaseType:     commonv1.ReleaseTypeSingle,
 		}
 	}
 	return nil
+}
+
+// numberNext reports a rest of a file name that goes on with another number
+// ("Show 2 01": a sequel's title and its episode, not this series' second).
+func numberNext(rest string) bool {
+	rest = strings.TrimLeft(rest, " ._-")
+	if i := strings.IndexAny(rest, " ._-[("); i >= 0 {
+		rest = rest[:i]
+	}
+	if rest == "" {
+		return false
+	}
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // seriesTitles are the titles a series is released under: its own and its

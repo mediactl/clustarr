@@ -289,6 +289,17 @@ func (d *decider) itemCheck(c Candidate, it Covered, complete bool) ItemCheck {
 		queue = d.queue(it, c.Purpose, true)
 		rejs = d.itemStateRejections(c, it, queue)
 	}
+	// A download of the item already stands held at import because the
+	// file it has is final (refusedByItem over a transcoded file): import
+	// will refuse the next one for the same reason, so no automatic release
+	// is taken for the item while that hold stands, whatever rule passed
+	// this one. The planner and import read the item at different moments
+	// and by different evidence (a title against a probe), and where they
+	// disagreed each refusal was answered with the answer's next release.
+	if !c.Manual && !c.Override && c.Purpose == "" && it.Current != nil && it.Current.Transcoded && d.refusedCovers(it, c.Purpose) {
+		rejs = append(rejs, coverageRejection(decision.ReasonTranscodedFinal,
+			"a download of it is already held at import because the file it has is final; remove that download or import it by hand"))
+	}
 	ic.Queued = c.Purpose == "" && Holds(d.v.Profile, d.v.OriginalLanguageTag, queue, complete)
 	for _, rej := range rejs {
 		if c.Purpose == "" {

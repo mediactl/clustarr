@@ -1361,6 +1361,68 @@ recorded here.
   file may be renamed for any other cause. To stop such a loop on a live
   manager without a restart, send the MediaFile's `spec.matchedFormats`
   again in another order: the memo's key includes them.
+- **A release whose title cannot be read is still held to the item's state:
+  the grab planner failed open on it (2026-11-27, owner: "Fix the
+  runaway-grab defect").** `decision.ItemStateRejections` answered a failed
+  `ParseForItemState` with no rejection, so the release was held to no
+  item-state rule at all: not TranscodedFinal, not ExistingHigherPreference,
+  not the queue. A read fails most often by timing out (the record above),
+  and the manager's CPU limit is 750m: while it sat at that limit judging
+  season answers, seven weekly singles were taken over transcoded files of
+  As a Reincarnated Aristocrat's third season (17:55-17:57Z), and some
+  twenty-five German singles of Date A Live's first beside two packs still
+  downloading and then over the files those packs brought (18:06-18:27Z);
+  each logged `complete=false`, which is `ReleaseCompletesAudio` of a nil
+  parse. A replay of the same records, profile, entries and files through
+  `grabplan.Decide` refuses every one, and a grabbing search at 18:51Z,
+  the manager idle, took nothing: the stored state was never the cause.
+  Now `release.Parse` reads a title again when its read timed out
+  (`timeoutTries`, three); `ParseForItemState` judges a release whose title
+  still fails by what its search read it as (the quality, languages and
+  type on the ReleaseInfo), with a Warn for a timeout; and a release read
+  as nothing is `UnableToParse`. Tests:
+  `TestParseReadsATitleAgainWhenItsReadTimesOut`,
+  `TestAReleaseWhoseTitleCannotBeReadIsStillHeldToTheItemsState` (five
+  cases, all failing with the old return). Not changed: the 50 ms limit,
+  the manager's CPU limit, and a timeout inside `catalogue` matching.
+- **A pack taken for one episode holds it as a pack, and a hold over a
+  final file ends the tries (2026-11-27, the same ask).** An entry names
+  the episodes its release was taken for (P23), `DownloadEntry.Pack()` is
+  `len(Episodes) > 1`, and a candidate pack passes every queued single (it
+  replaces them): so a season pack taken for the one episode that wanted
+  it let the answer's next pack through at the following pass. On talos
+  eight packs of Aharen-san wa Hakarenai's second season, 3 to 62 GB, were
+  taken for its eighth episode in under three minutes (clustarr-8a found
+  the cause). `grabplan`'s `entryPack` and `itemread.Queue` now read a
+  one-episode entry's release title (`decision.PackTitle`). And where the
+  planner takes a release over a transcoded file by a rule import does not
+  share (a title read as dual audio whose file is not), import holds it
+  "the file it has is final" and the planner took the next: now a download
+  held `itemState` over a file that is final refuses every further
+  automatic release for that item (`itemCheck`), until the hold is removed
+  or lapses. A person's pick passes. The grab line also names what was
+  beside the grab: `entries` (how many the planner saw) and `beside` (the
+  live or held entries covering an item it is taken for). Tests:
+  `TestAPackTakenForOneEpisodeHoldsItAsAPack`,
+  `TestAHoldOverAFinalFileStopsTheNextRelease`.
+- **A torrent pack is passed over for usenet episodes that cover what it
+  would be taken for (2026-11-27, owner: "I *would* prefer usenet based
+  episode downloads for a season over torrent season downloads ... But
+  *only* if **all** episodes are found and approved", then "if usenet
+  accounts for *most* downloads and torrent episodes fill the rest").** A
+  torrent here runs under 1 MB/s most of the time and usenet at 20 to 80,
+  several episodes at once. `grabplan.usenetCovers`: on a Series, an
+  automatic torrent pack is refused when every episode it would be taken
+  for has another release (a usenet release of any shape, live or approved
+  in the pass, or a torrent single approved in the pass) and usenet has
+  more than half of them ("most" is my reading); a pack that would be
+  taken for one episode is passed over for any single of it. The other
+  release must be of no worse a tier, no last resort unless the pack is
+  one, and dual audio when the pack is (under `completeFirst`). Live
+  usenet singles count, so the pack does not replace them at the next
+  pass (the 2026-11-03 "a pack replaces the singles" stands for a usenet
+  pack and for torrent singles); when they fail they stop counting and
+  the pack is taken. Test: `TestATorrentPackIsPassedOverForUsenetEpisodes`.
 - **Quality profiles are TRaSH-only and opinionated.** Built-in profiles ship as
   embedded data; custom-format editing is deliberately not exposed.
 - **Every per-file answer is a record written by compare-and-swap, and only the
@@ -2112,7 +2174,12 @@ recorded here.
   (`downloadSeason`, as for `bareEpisode`). On talos "[anime4life.] Wandering
   Witch The Journey of Elaina Season 1 BD 1080p ..." held twelve files
   named "Wandering Witch The Journey of Elaina 01.mkv" to 12 for a person,
-  eleven episodes missing meanwhile. Still held, and by rule: a pack named
+  eleven episodes missing meanwhile. The name may go on with the episode's
+  own title ("Gosick 01 The Dark Reaper Finds the Golden Fairy.mkv", a
+  usenet pack of 24 held the same day): the number is the first one a title
+  ends at, whole, so "Mob Psycho 100 05 ..." is episode 5, and a name that
+  goes on with another number ("Gosick 2 01") is a sequel's and is not
+  read. Still held, and by rule: a pack named
   in scene seasons the series does not have and TheXEM does not map (How a
   Realist Hero Rebuilt the Kingdom "S01-S02", TVDB one season of 26: "the
   series has no S02E01"), and files with no number at all.

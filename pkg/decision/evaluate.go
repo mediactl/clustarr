@@ -78,7 +78,12 @@ func ItemStateRejections(ctx context.Context, t Target, p quality.Profile, d Dec
 	if parsed == nil {
 		pr, err := ParseForItemState(ctx, t.Kind, t.OriginalLanguageTag, rel)
 		if err != nil {
-			return nil
+			// A release nothing can be read of is refused, never passed:
+			// until 2026-11-27 this returned no rejection, so a title whose
+			// read failed -- a timeout under load, most of all -- was held
+			// to no item-state rule at all, and was taken over a file that
+			// is final and beside a pack still downloading.
+			return []common.Rejection{newRejection(ReasonUnableToParse, "the release's title could not be read for the item's state: %v", err)}
 		}
 		parsed = pr
 	}
@@ -129,6 +134,9 @@ func seriesBatch(t Target, title string) *release.ParsedRelease {
 	return p
 }
 
+// parseTitle is release.Parse, swapped by the test of a read that fails.
+var parseTitle = release.Parse
+
 // ParseForItemState parses rel as ItemStateRejections does when its Decision
 // carries no Parsed: the title for kind, its languages read for the item's
 // original language (originalTag) and the release groups' learned ones, the
@@ -137,24 +145,46 @@ func seriesBatch(t Target, title string) *release.ParsedRelease {
 // grab planner parsed a pack again for every episode it covers, 78% of the
 // manager's CPU).
 func ParseForItemState(ctx context.Context, kind common.MediaKind, originalTag string, rel common.ReleaseInfo) (*release.ParsedRelease, error) {
-	pr, err := release.Parse(rel.Title, release.Options{Kind: kind})
+	pr, err := parseTitle(rel.Title, release.Options{Kind: kind})
 	if err != nil {
 		// A title no pattern reads that a season search read as its
 		// season's pack (seriesBatch): the search's identity is not here to
 		// read it again, and what it was read as is on the release. Without
 		// this the item-state rules judged nothing of such a release -- no
 		// queue, no current file -- and every one passed.
-		if rel.ReleaseType != common.ReleaseTypeSeasonPack || rel.Quality.Name == "" {
+		//
+		// The same holds for any release whose title fails to read here --
+		// a read that timed out (release.IsTimeout) after Parse's own
+		// retries, or a title only the search's identity reads: what the
+		// search read it as is on the release, and the item's file and
+		// queue are judged against that. A release that carries no quality
+		// was read as nothing, and its error stands.
+		if rel.Quality.Name == "" {
 			return nil, err
+		}
+		if release.IsTimeout(err) {
+			logging.FromContext(ctx).Warn("decision: a release's title timed out being read; it is judged by what its search read it as",
+				"release", rel.Title, "err", err)
 		}
 		return &release.ParsedRelease{
 			Quality: rel.Quality, Revision: rel.Revision, Group: rel.ReleaseGroup, Edition: rel.Edition,
-			Languages: slices.Clone(rel.Languages), ReleaseType: rel.ReleaseType, FullSeason: true,
+			Languages: slices.Clone(rel.Languages), LanguageUnknown: len(rel.Languages) == 0,
+			ReleaseType: rel.ReleaseType, FullSeason: rel.ReleaseType == common.ReleaseTypeSeasonPack,
 		}, nil
 	}
 	pr.Languages = pr.LanguagesWith(originalLanguageName(ctx, originalTag), release.GroupLanguagesFrom(ctx))
 	indexerLanguages(pr, rel)
 	return pr, nil
+}
+
+// PackTitle reports a release title that names a pack: a whole season, or
+// several episodes or absolute numbers. A grab entry keeps its release's
+// title and the episodes it was taken for, not the release's type, and a
+// pack taken for the one episode that wants it is still a pack: it brings
+// the season, and holds the episode as one (ReasonPackDownloading).
+func PackTitle(title string) bool {
+	p, err := release.Parse(title, release.Options{Kind: common.MediaKindEpisode})
+	return err == nil && (p.FullSeason || len(p.Episodes) > 1 || len(p.Absolute) > 1)
 }
 
 // ReleaseCompletesAudio reports whether a release, parsed by
