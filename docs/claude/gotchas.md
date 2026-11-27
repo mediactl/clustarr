@@ -1953,6 +1953,21 @@ recorded here.
   not taken for, nothing against a person's pick, and a hold of any other
   class (`needsPerson`, an import that could not be carried out) holds
   nothing at all. Tests: grabplan's `heldimport_test.go`.
+  **A finished import is the one that is not simply "not live"
+  (`landing`, the same day).** The first roll of this made it so, and within
+  minutes a twelve-episode batch of Rozen Maiden: Zurückspulen imported at
+  11:38:12Z and the rank-2 batch was grabbed at 11:38:13Z for the two
+  episodes whose files had landed last: an item's current file is read from
+  its own status (`itemread.Current`: `hasFile`, `fileRef`), which its
+  reconciler writes a pass after the MediaFile exists, so between the
+  import and that pass the episode had neither a live grab nor a file.
+  (Before, the entry stayed live until `filesLanded`, a narrower window of
+  the same kind.) An entry whose import is finished now holds an item that
+  shows no file, as a grab in flight does, for `grabplan.LandingGrace`
+  (10 minutes) from `import.importedAt`; an item that shows its file is
+  judged by that file, so a torrent seeding after its import still holds
+  nothing. Any rule that reads "no current file" as "has no file" has this
+  window; the planner is the one that acts on it at once.
 
 - **A pack's file named "<the series' title> <number>" is that episode
   (2026-11-27, owner: "Ensure no remaining series has any missing monitored

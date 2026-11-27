@@ -19,9 +19,11 @@ package grabplan_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -93,11 +95,69 @@ func TestAHeldImportHoldsNothingAgainstAnotherRelease(t *testing.T) {
 		}
 	})
 	t.Run("a finished import still seeding holds none", func(t *testing.T) {
-		e := liveEntry(held, commonv1.DownloadPhaseSeeding, episodesOf(1, 1, 7)...)
-		e.Import = &catalogv1alpha1.DownloadImportSummary{Phase: catalogv1alpha1.ImportPhaseImported}
-		v := seriesView(t, season(1, 7), next)
+		// Its files are the owner's, and each episode shows its own: that
+		// file is what a release is judged by, so a better pack is taken,
+		// a second after the import as an hour after.
+		packs := seasonCandidates(t, 1, 7, pack720, pack1080)
+		e := liveEntry(named(t, packs, pack720), commonv1.DownloadPhaseSeeding, episodesOf(1, 1, 7)...)
+		at := metav1.NewTime(now.Add(-time.Second))
+		e.Import = &catalogv1alpha1.DownloadImportSummary{Phase: catalogv1alpha1.ImportPhaseImported, ImportedAt: &at}
+		covered := season(1, 7)
+		for i := range covered {
+			covered[i].Current = &decision.Current{Quality: q(t, "HDTV-720p")}
+		}
+		v := seriesView(t, covered, named(t, packs, pack1080))
 		v.Entries = []catalogv1alpha1.DownloadEntry{e}
-		require.Equal(t, []string{other}, titles(grabplan.Decide(v)), "its files are the owner's: the current file is what a release is judged by")
+		require.Equal(t, []string{pack1080}, titles(grabplan.Decide(v)))
+	})
+}
+
+// A finished import goes on holding an episode that does not show its file
+// yet. The episode's current file is read from its own status, which its
+// reconciler writes a pass after the MediaFile exists; in between it has no
+// live grab and no file, and the planner took the answer's next release.
+// On talos, the day a finished import stopped being live, a twelve-episode
+// batch imported at 11:38:12Z and the rank-2 batch was grabbed a second
+// later for the two episodes whose files had landed last.
+func TestAFinishedImportHoldsAnEpisodeThatDoesNotShowItsFileYet(t *testing.T) {
+	const other = "Breaking.Bad.S01.1080p.BluRay.x264-OTHER"
+	cands := seasonCandidates(t, 1, 7, pack1080, other)
+	imported := func(phase commonv1.DownloadPhase, at *time.Time) catalogv1alpha1.DownloadEntry {
+		e := liveEntry(named(t, cands, pack1080), phase, episodesOf(1, 1, 7)...)
+		e.Import = &catalogv1alpha1.DownloadImportSummary{Phase: catalogv1alpha1.ImportPhaseImported, Files: 7}
+		if at != nil {
+			mt := metav1.NewTime(*at)
+			e.Import.ImportedAt = &mt
+		}
+		return e
+	}
+	// Five episodes show their files; the two that landed last do not.
+	landed := func() []grabplan.Covered {
+		covered := season(1, 7)
+		for i := range covered[:5] {
+			covered[i].Current = &decision.Current{Quality: q(t, "Bluray-1080p")}
+		}
+		return covered
+	}
+	recent, old := now.Add(-time.Second), now.Add(-grabplan.LandingGrace)
+
+	for name, e := range map[string]catalogv1alpha1.DownloadEntry{
+		"its files placed, not every MediaFile landed": imported(commonv1.DownloadPhaseCompleted, nil),
+		"imported a second ago":                        imported(commonv1.DownloadPhaseImported, &recent),
+		"seeding after its import":                     imported(commonv1.DownloadPhaseSeeding, &recent),
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := seriesView(t, landed(), named(t, cands, other))
+			v.Entries = []catalogv1alpha1.DownloadEntry{e}
+			require.Empty(t, grabplan.Decide(v).NewEntries)
+		})
+	}
+	t.Run("an episode with no file long after the import has lost it", func(t *testing.T) {
+		v := seriesView(t, landed(), named(t, cands, other))
+		v.Entries = []catalogv1alpha1.DownloadEntry{imported(commonv1.DownloadPhaseSeeding, &old)}
+		p := grabplan.Decide(v)
+		require.Equal(t, []string{other}, titles(p))
+		assert.Equal(t, episodesOf(1, 6, 7), p.NewEntries[0].Episodes)
 	})
 }
 

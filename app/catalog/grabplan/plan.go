@@ -949,7 +949,7 @@ func (d *decider) queue(it Covered, purpose commonv1.DownloadPurpose, refused bo
 	for i := range d.v.Entries {
 		e := &d.v.Entries[i]
 		byItem := refused && refusedByItem(e)
-		if (!live(e) && !byItem) || e.Purpose != purpose || !covers(e, it) {
+		if (!live(e) && !byItem && !d.landing(e, it)) || e.Purpose != purpose || !covers(e, it) {
 			continue
 		}
 		out = append(out, decision.Queued{
@@ -976,14 +976,18 @@ func (d *decider) refusedCovers(it Covered, purpose commonv1.DownloadPurpose) bo
 // else the first whose import the item refused (refusedByItem), nil for
 // none: the grab a release was refused over.
 func (d *decider) liveCovering(items []Covered, purpose commonv1.DownloadPurpose) *catalogv1alpha1.DownloadEntry {
-	for _, is := range []func(*catalogv1alpha1.DownloadEntry) bool{live, refusedByItem} {
+	always := func(*catalogv1alpha1.DownloadEntry, Covered) bool { return true }
+	for _, is := range []struct {
+		entry func(*catalogv1alpha1.DownloadEntry) bool
+		item  func(*catalogv1alpha1.DownloadEntry, Covered) bool
+	}{{live, always}, {func(*catalogv1alpha1.DownloadEntry) bool { return true }, d.landing}, {refusedByItem, always}} {
 		for i := range d.v.Entries {
 			e := &d.v.Entries[i]
-			if !is(e) || e.Purpose != purpose {
+			if !is.entry(e) || e.Purpose != purpose {
 				continue
 			}
 			for _, it := range items {
-				if covers(e, it) {
+				if covers(e, it) && is.item(e, it) {
 					return e
 				}
 			}
@@ -996,8 +1000,11 @@ func (d *decider) liveCovering(items []Covered, purpose commonv1.DownloadPurpose
 // person reads: its release, its phase, and a held import as that.
 func describeLive(e *catalogv1alpha1.DownloadEntry) string {
 	state := strings.ToLower(string(e.Phase))
-	if e.Import != nil && e.Import.Phase == catalogv1alpha1.ImportPhaseHeld {
+	switch {
+	case e.Import != nil && e.Import.Phase == catalogv1alpha1.ImportPhaseHeld:
 		state = "downloaded, and its import is held for a person"
+	case e.Import != nil && e.Import.Phase == catalogv1alpha1.ImportPhaseImported:
+		state = "imported, its files not yet recorded on every item"
 	}
 	return fmt.Sprintf("%q (%s), %s", e.Release.Title, e.ID, state)
 }
@@ -1056,6 +1063,36 @@ func live(e *catalogv1alpha1.DownloadEntry) bool {
 		return false
 	}
 	return true
+}
+
+// LandingGrace is how long a finished import goes on holding an item that
+// shows no file yet (landing): the Episode's or Movie's own pass records
+// the file within seconds, and a pass delayed by a manager start within
+// minutes.
+const LandingGrace = 10 * time.Minute
+
+// landing reports an entry whose import has placed its files while it, an
+// item it covers, does not show one yet. The item's current file is read
+// from its own status (itemread.Current: hasFile and fileRef), which its
+// reconciler writes a pass after the MediaFile exists; in between the item
+// has neither a live grab nor a file, and the planner took the answer's
+// next release for it. On talos, the day a finished import stopped being
+// live (2026-11-27), a twelve-episode batch of Rozen Maiden: Zurückspulen
+// imported at 11:38:12Z and the rank-2 batch was grabbed at 11:38:13Z for
+// the two episodes whose files had landed last. The entry holds such an
+// item as a grab in flight does, for LandingGrace from its import; an item
+// that shows its file is judged by that file, and after the grace an item
+// with none has lost it since.
+func (d *decider) landing(e *catalogv1alpha1.DownloadEntry, it Covered) bool {
+	imp := e.Import
+	if imp == nil || imp.Phase != catalogv1alpha1.ImportPhaseImported || it.Current != nil {
+		return false
+	}
+	switch e.Phase {
+	case commonv1.DownloadPhaseFailed, commonv1.DownloadPhaseBlocklisted:
+		return false
+	}
+	return imp.ImportedAt == nil || d.now.Sub(imp.ImportedAt.Time) < LandingGrace
 }
 
 // refusedByItem reports a download whose import is held because the item
