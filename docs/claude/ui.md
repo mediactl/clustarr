@@ -1178,6 +1178,14 @@ Three different mechanisms:
   import of a download does this; the scanner and the renamer keep ruling
   R13 (an unknown source stays `Unknown`). A file whose probe gives no
   frame size stays `Unknown`, in the last-resort tier, never final.
+  **The tier as first rolled (sha-6f8a8fb) held nothing**: a tier matches a
+  video quality by source, resolution and modifier, the table's `Unknown`
+  names no source and a parsed one names `unknown`, so Yozakura Quartet's
+  batch was still "Unknown is not wanted" minutes after the profile took
+  the tier. `Definition.holds` now takes an unknown source at any
+  resolution. I had tested the import half through the planner's harness
+  and the grab half not at all; its test builds the profile from its
+  manifest (`TestAReleaseNamingNoQualityIsALastResortUnderAProfileThatListsUnknown`).
 
 **A season is satisfied by as many packs as it takes (owner, 2026-11-27, of
 How a Realist Hero Rebuilt the Kingdom 1x14-26: "we should download and

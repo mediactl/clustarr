@@ -180,12 +180,26 @@ func (p Profile) Index(q common.Quality) (idx int, ok bool) {
 // (Source, Resolution, Modifier) for video (Name is display metadata there,
 // not identity -- two Definitions in one default-tie Group like "WEB 1080p"
 // have different Names but the same triple).
+//
+// The video table's Unknown holds a quality whose source is unknown at any
+// resolution: a parsed one says so (SourceUnknown) where the Definition
+// says nothing, and one a probe has sized keeps its unknown source
+// (AugmentFromMediaInfo). Until 2026-11-27 no tier could hold it, so a
+// profile that listed Unknown as a last resort still refused every such
+// release (talos, Yozakura Quartet's batch, minutes after sha-6f8a8fb).
 func (d Definition) holds(q common.Quality) bool {
+	if d.Quality.Name == unknownName && q.Name == unknownName && d.Quality.Source == "" && q.Source == common.SourceUnknown {
+		return true
+	}
 	if isNonVideo(d.Quality) && isNonVideo(q) {
 		return d.named(q.Name) || (q.Name != "" && d.Quality.Name == q.Name)
 	}
 	return d.Quality.Source == q.Source && d.Quality.Resolution == q.Resolution && d.Quality.Modifier == q.Modifier
 }
+
+// unknownName is the video table's quality for a release or a file that
+// names no source.
+const unknownName = "Unknown"
 
 // isNonVideo reports whether q is a name-only (non-video) quality.
 func isNonVideo(q common.Quality) bool {
