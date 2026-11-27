@@ -38,14 +38,29 @@ import (
 
 // videoProbeTimeout bounds probeVideo's probe (the container, then the first
 // frame, read in-process by the domain's Prober). A healthy file answers in well under a second, even over a
-// network mount; one that hangs -- a stalled mount, a pathological file --
-// must not hold the import handler past its delivery's acknowledgement
-// deadline, ConsumerImportFile's BackOff[0] (30s; HeartbeatInterval says
-// why not its AckWait), so a timeout is a probe failure like any other and
-// the file imports under its name. probeVideo heartbeats immediately before
-// it probes, and TestTheImportFitsTheFileConsumersAckDeadline holds this
-// and HeartbeatInterval to that deadline together.
+// network mount; one that hangs -- a stalled mount, a pathological file, a
+// node busy reading other files end to end -- must not hold the import
+// handler past its delivery's acknowledgement deadline,
+// ConsumerImportFile's BackOff[0] (30s; HeartbeatInterval says why not its
+// AckWait), so the probe is given up on and the file left unjudged
+// (errUnjudged), for the import's retry. probeVideo heartbeats immediately
+// before it probes, and TestTheImportFitsTheFileConsumersAckDeadline holds
+// this and HeartbeatInterval to that deadline together.
 const videoProbeTimeout = 15 * time.Second
+
+// errUnjudged is a video file the import ran out of time to judge: its
+// probe, or its end-to-end read, hit its deadline. Nothing is known of the
+// file, so it is neither imported nor the release's fault: the caller
+// rejects it as transient (notMediaRejection), the import is inspected
+// again on its retry ladder and held for a person after the last.
+//
+// Until 2026-11-27 a probe out of time imported the file under its name
+// with no end-to-end read at all. On talos that night eleven single-episode
+// downloads of one Gosick release arrived with fourteen to sixteen of their
+// twenty-four minutes zeroed; ten were refused, and S01E22's probe timed
+// out while the two import pods read the others end to end, so it went into
+// the library unread (owner, 2026-11-27: "Do all 3").
+var errUnjudged = errors.New("could not be judged")
 
 // hashedNameRegex is a file name that is nothing but hexadecimal digits, as
 // an obfuscating uploader leaves it.
@@ -124,11 +139,15 @@ func takeNumbering(p, r *release.ParsedRelease) {
 // bytes have holes (mediainfo.ErrDamaged, videoHealth), is notMedia,
 // which the caller refuses as the release's fault: imported by name, a fake
 // release's encrypted "remuxes" and empty and zero-headed downloads reached
-// the library on talos (2026-10-15). Any other probe failure never fails the
-// import -- the file imports under its name-derived quality and its source
-// extension, as it did before imports probed, since every MediaInfo block
-// of a preset is optional -- so it is logged and nil returned. The probe gets videoProbeTimeout, and running out of it is
-// such a failure. It heartbeats on m immediately before it probes, so the
+// the library on talos (2026-10-15). A probe that ran out of
+// videoProbeTimeout, or an end-to-end read out of its own bound, leaves the
+// file unjudged (errUnjudged, returned as notMedia is): the caller rejects
+// it as transient and the import is retried. Any other probe failure never
+// fails the import -- the file imports under its name-derived quality and
+// its source extension, as it did before imports probed, since every
+// MediaInfo block of a preset is optional -- but it is still read end to
+// end first: a header the prober cannot describe says nothing of the bytes
+// behind it. It heartbeats on m immediately before it probes, so the
 // probe's whole bound lies inside the delivery's ack deadline however long
 // the file loop has gone since its last beat; a failed heartbeat is the
 // error, which aborts the import as the loop's own heartbeat failure does.
@@ -151,16 +170,32 @@ func (w *Worker) probeVideo(ctx context.Context, m events.Message, srcPath, rel 
 	case errors.Is(perr, mediainfo.ErrNotMedia):
 		logging.FromContext(ctx).Warn("fileimport: the file is not media; refusing it", "source", rel, "err", perr)
 		return nil, nil, perr, nil
+	case perr != nil && ctx.Err() != nil:
+		// The handler's own context ended, not the probe's bound: the
+		// delivery is redelivered, as any walk cut short is.
+		return nil, nil, nil, ctx.Err()
+	case perr != nil && outOfTime(pctx, perr):
+		logging.FromContext(ctx).Warn("fileimport: the probe ran out of time; leaving the file unjudged for the import's retry",
+			"source", rel, "err", perr, "bound", videoProbeTimeout)
+		return nil, nil, fmt.Errorf("%w: its probe did not answer in %s", errUnjudged, videoProbeTimeout), nil
 	case perr != nil:
-		logging.FromContext(ctx).Warn("fileimport: could not probe the file; importing it under its name-derived quality",
+		logging.FromContext(ctx).Warn("fileimport: could not probe the file; reading it end to end, then importing it under its name-derived quality",
 			"source", rel, "err", perr)
-		return nil, nil, nil, nil
+		mi, raw = nil, nil
 	}
-	damaged, err := w.videoHealth(ctx, m, srcPath, rel)
-	if err != nil || damaged != nil {
-		return nil, nil, damaged, err
+	refused, err := w.videoHealth(ctx, m, srcPath, rel)
+	if err != nil || refused != nil {
+		return nil, nil, refused, err
 	}
 	return mi, raw, nil, nil
+}
+
+// outOfTime reports whether err is bound's deadline: the bound has passed,
+// or the prober says the call ran out of its time (it may answer a moment
+// before the context's own timer fires).
+func outOfTime(bound context.Context, err error) bool {
+	return errors.Is(bound.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, mediainfo.ErrProbeAbandoned)
 }
 
 // healthTimeout bounds videoHealth's read of a file of size bytes: a minute,
@@ -181,9 +216,14 @@ func healthTimeout(size int64) time.Duration {
 // healthy before considering a release ready for transfer and next
 // steps"). The read is the whole file's bytes, so it heartbeats on m every
 // HeartbeatInterval while it runs; a failed heartbeat ends it and is the
-// error. A read that could not finish -- the deadline, a prober that does
-// not read files so -- judges nothing, and the file imports as it did.
-func (w *Worker) videoHealth(ctx context.Context, m events.Message, srcPath, rel string) (damaged, err error) {
+// error. A read that ran out of healthTimeout leaves the file unjudged
+// (errUnjudged), for the import's retry: it imported unread until
+// 2026-11-27, which is the hole a busy node opens. A file the read cannot
+// open as media is refused as one the probe found so (it is reached when
+// the probe failed some other way). Any other read that could not finish
+// -- a prober that does not read files so -- judges nothing, and the file
+// imports as it did.
+func (w *Worker) videoHealth(ctx context.Context, m events.Message, srcPath, rel string) (refused, err error) {
 	hp, ok := w.Prober.(mediainfo.HealthProber)
 	if !ok {
 		return nil, nil
@@ -223,6 +263,16 @@ func (w *Worker) videoHealth(ctx context.Context, m events.Message, srcPath, rel
 	}
 	log := logging.FromContext(ctx)
 	switch {
+	case herr != nil && ctx.Err() != nil:
+		return nil, ctx.Err()
+	case errors.Is(herr, mediainfo.ErrNotMedia):
+		log.Warn("fileimport: the file is not media; refusing it", "source", rel, "err", herr)
+		return herr, nil
+	case herr != nil && outOfTime(hctx, herr):
+		bound := healthTimeout(st.Size())
+		log.Warn("fileimport: the end-to-end read ran out of time; leaving the file unjudged for the import's retry",
+			"source", rel, "err", herr, "bound", bound, "took", time.Since(started).Round(time.Millisecond))
+		return fmt.Errorf("%w: reading it end to end did not finish in %s", errUnjudged, bound), nil
 	case herr != nil:
 		log.Warn("fileimport: could not read the file end to end; importing it unjudged", "source", rel, "err", herr)
 		return nil, nil

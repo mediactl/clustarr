@@ -901,6 +901,36 @@ recorded here.
   (`ErrArticleMismatch`), so the next one's is taken, as for a corrupt one.
   The yEnc `name=` is no test: obfuscated posts name every article
   differently.
+- **A file the import ran out of time to judge is retried, never imported
+  by name (2026-11-27).** `fileimport.probeVideo` treated every probe
+  failure but "not media" as harmless -- "could not probe the file;
+  importing it under its name-derived quality" -- and returned before
+  `videoHealth`, so a probe that hit its 15 s (`videoProbeTimeout`) skipped
+  the end-to-end read too. On talos eleven single-episode downloads of
+  `Gosick.S01Exx.1080p.CR.WEB-DL.AAC2.0.H.264-BiOMA` arrived with every
+  article fetched (`failed: 0` of about 2,150) and 14 to 16 of their 24
+  minutes zeroed, in stretches on a 32 MiB grid; ten were refused and
+  blocklisted, and S01E22's probe timed out while both import pods read
+  the others end to end (16 to 106 s a file), so it was placed in the
+  library unread, 49% zeros, and planned for a transcode. Now a probe or an
+  end-to-end read out of its bound is `errUnjudged`, which
+  `notMediaRejection` turns into a *transient* rejection: the import is
+  inspected again on `importplan.RetryLadder` (1, 10, 45 min) and held for
+  a person after the last, never blocklisted; and a header probe that
+  failed any other way is still followed by the read. Only a read that
+  fails for a reason of its own (no decoder) still imports unjudged.
+  **The damage was in the post, not the engine:** S01E23 was fetched twice,
+  from nzb-life's listing and then nzbgeek's, an hour apart, and both
+  copies read "16m25s of 24m29s is missing ... in 11 places (the longest
+  4m8.1s)"; other releases through the same engine in the same minutes
+  were whole. So `failed: 0` says the articles arrived, not that the file
+  is whole: the Fena gates below catch what an NZB does not list, and only
+  the end-to-end read catches zeros the poster uploaded. Checking a library
+  file for holes by hand: a one-off busybox pod with the `clustarr-data-nas`
+  claim mounted read-only, `dd ... | tr -d '\000' | wc -c` over 16 MiB
+  blocks (a whole video is about 1% zeros). Each FFmpeg line now names its
+  file (`ffruntime.DoOn`, `docs/observability.md`): the 116 "invalid as
+  first byte of an EBML number" warnings of that night named none.
 - **An NZB can list only part of a post, and what it does not list is
   missing (2026-11-17).** nzbgeek's NZBs for Fena: Pirate Princess S01E01
   and E11 listed 1,735 of the file's 2,087 articles and 1,248 of 2,079, the

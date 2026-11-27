@@ -43,7 +43,7 @@ func (p *Prober) Health(ctx context.Context, path string) (mediainfo.Health, err
 	ctx, span := tracing.Start(ctx, "mediainfo.native.Health")
 	defer span.End()
 	var h mediainfo.Health
-	err := ffruntime.Do(ctx, func(ctx context.Context) (err error) { h, err = health(ctx, path); return err })
+	err := ffruntime.DoOn(ctx, path, func(ctx context.Context) (err error) { h, err = health(ctx, path); return err })
 	if err != nil {
 		err = probeErr(path, err)
 		tracing.RecordError(span, err)

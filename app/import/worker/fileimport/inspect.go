@@ -118,8 +118,13 @@ func blockedRejection(format string, args ...any) schema.InspectRejection {
 // notMediaRejection refuses a file the prober found is no media
 // (mediainfo.ErrNotMedia), or damaged (mediainfo.ErrDamaged), as the
 // release's fault: it is blocklisted and searched for again, never imported
-// under its name.
+// under its name. A file the import ran out of time to judge (errUnjudged)
+// is no fault of the release: it is rejected as transient, so the import is
+// inspected again and nothing of it reaches the library unread.
 func notMediaRejection(rel string, err error) schema.InspectRejection {
+	if errors.Is(err, errUnjudged) {
+		return transientRejection("%s: %v, so it was not imported", rel, err)
+	}
 	if errors.Is(err, mediainfo.ErrDamaged) {
 		return inspectRejection(commonv1.ImportClassReleaseFault, "", "%s: not a whole media file: %v", rel, err)
 	}

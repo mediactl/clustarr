@@ -69,7 +69,7 @@ var Needs = ffruntime.Needs{
 // wrote.
 func (d Decoder) Audio(ctx context.Context, path string, stream int, fromS, durS float64) ([]int16, error) {
 	var pcm []int16
-	err := ffruntime.Do(ctx, func(ctx context.Context) (err error) {
+	err := ffruntime.DoOn(ctx, path, func(ctx context.Context) (err error) {
 		pcm, err = d.audio(ctx, path, stream, fromS, durS)
 		return err
 	})
@@ -87,7 +87,7 @@ func (d Decoder) Audio(ctx context.Context, path string, stream int, fromS, durS
 // after fromS.
 func (d Decoder) Frames(ctx context.Context, path string, fromS float64) ([][]byte, error) {
 	var out [][]byte
-	err := ffruntime.Do(ctx, func(ctx context.Context) (err error) {
+	err := ffruntime.DoOn(ctx, path, func(ctx context.Context) (err error) {
 		out, err = d.frames(ctx, path, fromS)
 		return err
 	})
@@ -97,7 +97,7 @@ func (d Decoder) Frames(ctx context.Context, path string, fromS float64) ([][]by
 // Frame decodes the frame at atS, RGBW x RGBH x 3 bytes of RGB.
 func (d Decoder) Frame(ctx context.Context, path string, atS float64) ([]byte, error) {
 	var out []byte
-	err := ffruntime.Do(ctx, func(ctx context.Context) (err error) {
+	err := ffruntime.DoOn(ctx, path, func(ctx context.Context) (err error) {
 		out, err = d.frame(ctx, path, atS)
 		return err
 	})

@@ -266,7 +266,10 @@ Third-party writers are mapped onto the same stream at their own level: controll
 `events.nats` (a lost connection is WARN, an async error ERROR), anacrolix's logger under
 `grab.torrent.anacrolix`, FFmpeg's log callback under `ffmpeg` (FFmpeg's errors stay WARN,
 since a decoder's complaint is rarely a failure of the job; `fatal` and `panic` are FATAL; its
-verbose lines appear only when the `ffmpeg` subsystem is at DEBUG, through `logging.Watch`) and
+verbose lines appear only when the `ffmpeg` subsystem is at DEBUG, through `logging.Watch`; a
+line from a probe, an end-to-end read, a markers decode or a subtitle extraction carries `file`,
+the path that call reads, and a message repeats within its own file -- a line from a thread
+FFmpeg started itself, and every line of the transcode engine, carries none) and
 ONNX Runtime under `onnx` (through the `mediactl/onnxruntime-purego` fork's custom logger).
 
 ### Levels and the knob

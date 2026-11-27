@@ -19,13 +19,15 @@ package ffruntime
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 
 	"github.com/obinnaokechukwu/ffgo"
 	"github.com/stretchr/testify/assert"
@@ -199,4 +201,56 @@ func TestTheFFmpegOverrideRaisesAndRestoresTheCSideLevel(t *testing.T) {
 	before := buf.Len()
 	r.dispatch(ffgo.LogWarning, "quiet again\n")
 	assert.Equal(t, before, buf.Len())
+}
+
+// A line FFmpeg logs from a call's thread names the file the call reads
+// (DoOn), and a message is a repeat within its own file: two files with the
+// same fault each say so once (talos, 2026-11-27: eleven damaged episodes
+// read at once, and no line said which; owner: "Do all 3"). A line from no
+// such call carries no file.
+func TestALineNamesTheFileItsCallReadsAndRepeatsWithinIt(t *testing.T) {
+	now := time.Unix(0, 0)
+	r, buf := newRouterForTest(t, func() time.Time { return now })
+	about := func(file string) {
+		t.Helper()
+		done := make(chan struct{})
+		go func() { // a call's own goroutine, as DoOn gives it
+			defer close(done)
+			defer onThread(file)()
+			r.dispatch(ffgo.LogError, "File ended prematurely\n")
+		}()
+		<-done
+	}
+	about("/data/a.mkv")
+	about("/data/b.mkv")
+	about("/data/b.mkv")
+	about("")
+	out := buf.String()
+	assert.Equal(t, 3, strings.Count(out, "msg=ffmpeg"), "once for each file and once for no file:\n%s", out)
+	assert.Equal(t, 1, strings.Count(out, "file=/data/a.mkv"))
+	assert.Equal(t, 1, strings.Count(out, "file=/data/b.mkv"))
+
+	now = now.Add(repeatWindow)
+	about("/data/b.mkv")
+	assert.Contains(t, buf.String(), "file=/data/b.mkv repeated=1", "the repeat is b's own")
+	assert.Empty(t, fileOnThread(), "a finished call leaves no file on its thread")
+}
+
+// DoOn's call runs with its file on the thread, and leaves none behind.
+func TestDoOnNamesItsFileForTheCallAlone(t *testing.T) {
+	var during string
+	require.NoError(t, DoOn(t.Context(), "/data/a.mkv", func(context.Context) error {
+		during = fileOnThread()
+		return nil
+	}))
+	assert.Equal(t, "/data/a.mkv", during)
+	var plain string
+	require.NoError(t, Do(t.Context(), func(context.Context) error {
+		plain = fileOnThread()
+		return nil
+	}))
+	assert.Empty(t, plain)
+	n := 0
+	callFiles.Range(func(any, any) bool { n++; return true })
+	assert.Zero(t, n)
 }

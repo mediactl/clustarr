@@ -63,7 +63,7 @@ var _ embedded.ExtractFunc = Extract
 // context and the grace returns an error wrapping ffruntime.ErrAbandoned.
 func Extract(ctx context.Context, path string, stream int) ([]byte, error) {
 	var out []byte
-	err := ffruntime.Do(ctx, func(ctx context.Context) (err error) { out, err = extract(ctx, path, stream); return err })
+	err := ffruntime.DoOn(ctx, path, func(ctx context.Context) (err error) { out, err = extract(ctx, path, stream); return err })
 	if err != nil {
 		return nil, fmt.Errorf("subtitles: embedded: extract stream %d of %s: %w", stream, path, err)
 	}

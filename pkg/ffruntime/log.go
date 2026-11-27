@@ -207,12 +207,15 @@ func (r *logRouter) dispatch(level ffgo.LogLevel, msg string) {
 		sinks = append(sinks, s)
 	}
 	logger := r.logger
+	// The file the line is about: the one the call on this thread reads
+	// (DoOn), "" for a line from no such call.
+	file := fileOnThread()
 	slogLevel, repeated, toSlog := slogLevelFor(level), 0, false
 	if logger != nil && r.muted == 0 && (level <= ffgo.LogError || r.verbose) {
 		if isDecodeNoise(text) {
 			slogLevel, toSlog = slog.LevelDebug, true
 		} else {
-			repeated, toSlog = r.admitLocked(text)
+			repeated, toSlog = r.admitLocked(file, text)
 		}
 	}
 	r.mu.Unlock()
@@ -225,18 +228,23 @@ func (r *logRouter) dispatch(level ffgo.LogLevel, msg string) {
 	// ffmpegLevel, not level: a second "level" key shadows slog's own for
 	// any reader that keeps the last key (jq, Loki), so a Warn read as an error.
 	attrs := []any{"ffmpegLevel", level.String(), "message", text}
+	if file != "" {
+		attrs = append(attrs, "file", file)
+	}
 	if repeated > 0 {
 		attrs = append(attrs, "repeated", repeated)
 	}
 	logger.Log(context.Background(), slogLevel, "ffmpeg", attrs...)
 }
 
-// admitLocked decides whether text goes to slog: not within repeatWindow of
-// its last line, whose repeats it counts instead, and not past the rate
-// limit, under which it counts as a repeat too. It returns the repeats the
-// line reports. The caller holds r.mu.
-func (r *logRouter) admitLocked(text string) (repeated int, ok bool) {
-	key := repeatKey(text)
+// admitLocked decides whether text, about file, goes to slog: not within
+// repeatWindow of its last line about that file, whose repeats it counts
+// instead, and not past the rate limit, under which it counts as a repeat
+// too. A message is a repeat within its own file: one file's complaint does
+// not stand for another's. It returns the repeats the line reports. The
+// caller holds r.mu.
+func (r *logRouter) admitLocked(file, text string) (repeated int, ok bool) {
+	key := file + "\x00" + repeatKey(text)
 	now := r.now()
 	rep := r.repeats[key]
 	if rep != nil && now.Sub(rep.logged) < repeatWindow {

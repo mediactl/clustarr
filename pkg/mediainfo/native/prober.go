@@ -52,7 +52,7 @@ func (p *Prober) Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *
 	ctx, span := tracing.Start(ctx, "mediainfo.native.Probe")
 	defer span.End()
 	var raw *mediainfo.Raw
-	err := ffruntime.Do(ctx, func(ctx context.Context) (err error) { raw, err = probeRaw(ctx, path, true); return err })
+	err := ffruntime.DoOn(ctx, path, func(ctx context.Context) (err error) { raw, err = probeRaw(ctx, path, true); return err })
 	if err != nil {
 		err = probeErr(path, err)
 		tracing.RecordError(span, err)
@@ -66,7 +66,7 @@ func (p *Prober) ProbeAudio(ctx context.Context, path string) (mediainfo.AudioPr
 	ctx, span := tracing.Start(ctx, "mediainfo.native.ProbeAudio")
 	defer span.End()
 	var ap mediainfo.AudioProbe
-	err := ffruntime.Do(ctx, func(ctx context.Context) error {
+	err := ffruntime.DoOn(ctx, path, func(ctx context.Context) error {
 		raw, err := probeRaw(ctx, path, false)
 		if err == nil {
 			ap, err = mediainfo.AudioProbeFromRaw(raw)

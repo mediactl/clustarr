@@ -60,6 +60,15 @@ var (
 // liveness check restarts. A fault in C code (a segfault) is no Go panic and
 // still ends the process.
 func Do(ctx context.Context, f func(context.Context) error) error {
+	return DoOn(ctx, "", f)
+}
+
+// DoOn is Do for a call that reads file: every line FFmpeg logs from the
+// call's thread while f runs says so ("file" on the ffmpeg record), and a
+// message is counted as a repeat within its own file only. f runs locked to
+// one OS thread (onThread), which is what ties a line to it. An empty file
+// is Do.
+func DoOn(ctx context.Context, file string, f func(context.Context) error) error {
 	select {
 	case <-Wedged():
 		return ErrWedged
@@ -72,7 +81,10 @@ func Do(ctx context.Context, f func(context.Context) error) error {
 	end := Busy() // until f returns, abandoned or not
 	go func() {
 		defer end()
-		done <- call(ctx, f)
+		done <- call(ctx, func(ctx context.Context) error {
+			defer onThread(file)()
+			return f(ctx)
+		})
 	}()
 	select {
 	case err := <-done:

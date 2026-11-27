@@ -59,7 +59,8 @@ func (p errProber) ProbeAudio(context.Context, string) (mediainfo.AudioProbe, er
 // searched for again. Before, every probe failure imported the file under
 // its name-derived quality: a fake release's three encrypted "remuxes", and
 // empty and zero-headed downloads, reached the library on talos
-// (2026-10-15). A probe that could not run still imports by name, as it did.
+// (2026-10-15). A probe that could not run still imports by name, as it did
+// (one that ran out of time does not: TestAFileTheImportRanOutOfTimeToJudge).
 func TestAFileThatIsNotMediaIsTheReleasesFault(t *testing.T) {
 	w := &Worker{Prober: errProber{fmt.Errorf("mediainfo: probe /x.mkv: %w", mediainfo.ErrNotMedia)}}
 	mi, _, notMedia, err := w.probeVideo(context.Background(), nopMessage{}, "/x.mkv", "x.mkv")
@@ -70,7 +71,7 @@ func TestAFileThatIsNotMediaIsTheReleasesFault(t *testing.T) {
 	assert.Equal(t, string(commonv1.ImportClassReleaseFault), r.Class)
 	assert.Contains(t, r.Text, "x.mkv")
 
-	w.Prober = errProber{errors.New("mediainfo: probe /x.mkv: context deadline exceeded")}
+	w.Prober = errProber{errors.New("mediainfo: probe /x.mkv: the FFmpeg libraries are not loaded")}
 	mi, _, notMedia, err = w.probeVideo(context.Background(), nopMessage{}, "/x.mkv", "x.mkv")
 	require.NoError(t, err)
 	assert.Nil(t, mi)
