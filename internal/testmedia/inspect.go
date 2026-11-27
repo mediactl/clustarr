@@ -343,7 +343,7 @@ func MuxFiles(srcs []string, dst string, r Retag) (err error) {
 	var ds []*ffgo.Decoder
 	defer func() {
 		for _, d := range ds {
-			d.Close()
+			_ = d.Close()
 		}
 	}()
 	for _, src := range srcs {
