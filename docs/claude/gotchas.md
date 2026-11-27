@@ -2184,6 +2184,29 @@ recorded here.
   Realist Hero Rebuilt the Kingdom "S01-S02", TVDB one season of 26: "the
   series has no S02E01"), and files with no number at all.
 
+- **A season pack's files no pattern reads are read from what is known of
+  the download (owner, 2026-11-27: "Since we have the episode names and
+  numbers, we should be able to build each filename ... We know the season
+  when downloading a season pack. The import/rename should build the target
+  name intelligently and not just verify that it can be perfectly parsed as
+  is").** `fileimport.packEpisodes` runs once over the media files that
+  neither a release pattern nor `bareEpisode` nor `titledEpisode` read, when
+  the download is of one season (`plan.season`) and holds more than one
+  video. Two readings: the number that follows the names' common prefix
+  (after any leading group), taken only when every file has one, no two
+  share one and each is an episode of the season by its number in it, or
+  each by its absolute number; and an episode's own title found in the name
+  (cleaned, six characters or more, the longest of those found). Where both
+  read a file they must agree and no two files may be one episode; on
+  either contradiction nothing is read for any file and the pack stays a
+  person's. So "Gsk - 01 [BD]" needs no title, a number inside an episode's
+  title is never the one read, and a hashed name is never read. The quality
+  and the group are still the release title's (`fillFromRelease`,
+  `release.TitleTags`), and the file is renamed by the naming format as any
+  import is. Gosick's metadata titles are another translation's than its
+  pack's (one of twenty-four agrees), so the number is what carries a pack
+  and the title what names a file with no number. Not done: the title does
+  not yet overrule or confirm what `bareEpisode` or `titledEpisode` read.
 - **A file named by a number and no season is an episode of the season its
   download is of (2026-11-27, owner: "we provide season, release, etc
   metadata so that it can *just* infer the episode number this way").** A

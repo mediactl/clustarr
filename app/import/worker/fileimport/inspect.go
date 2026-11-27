@@ -695,6 +695,28 @@ func (w *Worker) inspectEpisodes(
 	}
 	series := plan.series
 	language := catalogctx.ConfiguredLanguage(&plan.profile)
+	// What the files no name pattern reads are, from what is known of the
+	// download: one season's, whose episodes have numbers and titles
+	// (packEpisodes). Read over all of them at once, since what tells a
+	// pack's files apart is only seen across them.
+	var packRead map[string]int
+	if plan.season > 0 && videos > 1 {
+		unread, err := unreadPackFiles(ctx, classifier, root, plan.sceneName, seriesTitles(plan.series), plan.season)
+		if err != nil {
+			insp.Rejections = append(insp.Rejections, transientRejection("%v", err))
+			return nil
+		}
+		// By name: two files of one name in different folders are told
+		// apart by nothing here, and neither is read.
+		names, twice := make([]string, 0, len(unread)), false
+		for _, p := range unread {
+			twice = twice || slices.Contains(names, baseName(p))
+			names = append(names, baseName(p))
+		}
+		if !twice {
+			packRead = packEpisodes(names, plan.episodes, plan.season)
+		}
+	}
 	return w.walk(ctx, m, commonv1.MediaKindEpisode, root, manual, insp, func(path string, info os.FileInfo) error {
 		rel := relPath(root, path)
 		f := schema.InspectedFile{Path: path, SizeBytes: info.Size()}
@@ -708,6 +730,12 @@ func (w *Worker) inspectEpisodes(
 			} else if tp := titledEpisode(path, seriesTitles(plan.series), plan.season); tp != nil {
 				// "<the series' title> 01.mkv" (titledEpisode).
 				parsed, perr = tp, nil
+			} else if n, ok := packRead[baseName(path)]; ok {
+				// Named by nothing a pattern reads, and told apart from the
+				// pack's other files by its episode's number or title.
+				logging.FromContext(ctx).Info("fileimport: a pack's file is read from its download's season and episodes",
+					"source", rel, "season", plan.season, "episode", n)
+				parsed, perr = packEpisode(plan.season, n), nil
 			}
 		}
 		if perr != nil && manual && plan.named != nil {
