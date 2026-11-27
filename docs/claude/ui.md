@@ -1139,6 +1139,56 @@ Seasons this was for (talos, 2026-11-27): Altair, Yuuki Yuuna's third,
 Sacrificial Princess, every candidate an ASW or Sokudo encode. No settings
 form field yet: the list is set in the profile's manifest.
 
+**A season is satisfied by as many packs as it takes (owner, 2026-11-27, of
+How a Realist Hero Rebuilt the Kingdom 1x14-26: "we should download and
+extract *both* packs to satisfy the season. Each pack will account for the
+files it provides for things like downloading statuses etc. This should be a
+rule when searching/selecting releases for a full season").** TVDB lists the
+show as one season of 26 and its releases come as two parts of 13. Three
+usenet packs named "S01" were grabbed in turn for 14-26, each held 1-13,
+was held at import over the files those episodes already had, and went on
+covering 14-26 for the 24 hours of its hold; EMBER's "(Season 1 | Part 02
+[EP: 14-26])", the release that held them, read as the whole season too and
+ranked fourth, under the usenet packs. Three rules, each in its own place:
+- **a pack that states its episodes is a pack of those**
+  (`release.stateEpisodes`, both series types): "[EP: 14-26]", "(Episodes
+  01-13)", "Eps 1~12" beside one season marker make `Episodes` the range,
+  `Partial` true and `FullSeason` false, so `decision.CoverageOf` names the
+  pairs. Two parts overlap nowhere and one grab pass takes both, each entry
+  for its own episodes; a part is still refused beside a pack of the whole
+  season (`reasonOverlapsPass`, one release per episode). Only a worded
+  range counts: "Part 02" alone, a year range or "S01-S02" change nothing;
+- **an entry accounts for the files it holds** (`importplan`'s `provide`,
+  `lifecycle.ImportDecision.Episodes`): the first inspection is the first to
+  know which episodes a pack's files are, and from it `status.downloads[]
+  .episodes` are the ones the entry was grabbed for and holds, or, when it
+  holds none of them, the ones its files are. Only that first inspection is
+  read (once an execute has answered, a later one lists what is left of the
+  payload), and only when every file is attributed: a file nobody could
+  attribute may be any episode the entry names, so such a pack keeps its
+  episodes until a person says or its hold expires (iAHD's "S01-S02", whose
+  second half is named S02E01-13, is that case and is not helped). A person's
+  target, a donor and a set are left alone;
+- **the episodes it did not hold are searched again at once**
+  (`lifecycle.Plan.Freed`, the downloads stage's `followUps`,
+  `remediation.GrantSearch`): each still wanted one is granted a live search
+  in the BacklogSearch grant book for `remediation.FollowUpLapse` (3 h), and
+  two or more make their Series hold the season's grant, so its automatic
+  season search asks again (`SeasonFacts.BacklogDue`; within the hour's
+  `AutomaticCooldown` after an automatic one, at once after a requested
+  one). The held pack is "already a grab of the owner", so the answer's
+  next release is taken. The book is the leader's: a grant lost with it
+  leaves the episodes to their own backoff.
+Not built, my choices: nothing prefers a release that states its episodes
+over one that only claims the season, so several mislabelled packs are
+still tried one after another, a download each; and a pack is never taken
+beside another for episodes both claim. Tests: `pkg/release`'s
+`statedrange_test.go`, the coverage corpus in `pkg/decision`'s
+`seasonsearch_test.go`, `grabplan`'s `parts_season_test.go`, `importplan`'s
+`provide_test.go` (through the real inspect worker), `lifecycle`'s
+`provide_test.go`, `followups_internal_test.go` and
+`grantsearch_internal_test.go`. Not proven end to end: no engine ran.
+
 **An anime wants English only when the MAL-Dubs list names it** (owner,
 2026-11-03: English dubs and dual audio "*only* for series who's
 status.externalIDs.mal exists within" github.com/MAL-Dubs/MAL-Dubs'

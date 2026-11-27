@@ -268,6 +268,7 @@ func (s *Stage) result(ctx context.Context, ow owner, v lifecycle.View, plan lif
 			Namespace: ow.ref.Namespace, IndexerRef: g.IndexerRef, Key: string(g.EntryUID), At: g.At,
 		})
 	}
+	res.Effects = append(res.Effects, followUps(ow.ref, v, plan)...)
 	for _, h := range plan.History {
 		if eff, ok := s.history(ow, v, plan, h); ok {
 			res.Effects = append(res.Effects, eff)
@@ -293,6 +294,23 @@ func (s *Stage) result(ctx context.Context, ow owner, v lifecycle.View, plan lif
 	s.issued.forget(dropped)
 	logging.FromContext(ctx).Debug("downloads: planned", "entries", len(entries), "commands", len(plan.Commands), "phase", phase)
 	return res
+}
+
+// followUps grants a search to each episode a pack was grabbed for and does
+// not hold (lifecycle.Plan.Freed), so another release is looked for at
+// once: the ones still wanted, not one that holds a file it is content
+// with or is not monitored.
+func followUps(owner schema.ItemRef, v lifecycle.View, plan lifecycle.Plan) []remediation.Effect {
+	var freed []schema.ItemRef
+	for _, it := range plan.Freed {
+		if !v.Satisfied[it] && !v.Unmonitored[it] {
+			freed = append(freed, it)
+		}
+	}
+	if len(freed) == 0 {
+		return nil
+	}
+	return []remediation.Effect{remediation.GrantSearch{Series: owner, Items: freed, At: v.Now}}
 }
 
 func hasUID(entries []catalogv1alpha1.DownloadEntry, uid string) bool {

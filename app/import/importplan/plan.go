@@ -96,6 +96,10 @@ type Input struct {
 	// (Series.WantedAspect of its season), by ItemKey of every key the
 	// inspection's files name; absent for every other kind.
 	WantedAspect map[string]catalogv1alpha1.AspectRatio
+	// Numbers are the season and number of each Episode the inspection's
+	// files name, by name: what the entry's episodes become when its files
+	// are not the ones it was grabbed for (provide).
+	Numbers map[string]catalogv1alpha1.EpisodeNumber
 	// CropsAspect is whether the owner Series crops a file of another
 	// shape in its transcode (spec.aspectRatioFix crop) where it would
 	// otherwise search for another release.
@@ -140,6 +144,7 @@ func Decide(in Input) lifecycle.ImportDecision {
 	}
 	p.dec.Verdict = lifecycle.ImportNone
 	p.decide()
+	p.provide()
 	p.sum.Message = k8s.ClampText(p.sum.Message, catalogv1alpha1.MaxEntryMessage)
 	p.dec.Summary = p.sum
 	return p.dec

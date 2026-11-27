@@ -176,6 +176,9 @@ func TestCoverageOfMatchesTheNumberingHalf(t *testing.T) {
 		{[]string{"Breaking Bad"}, "Breaking.Bad.S01.720p.BluRay.x264-GRP"},
 		{[]string{"Breaking Bad"}, "Breaking.Bad.S01-S03.720p.BluRay.x264-GRP"},
 		{[]string{"Breaking Bad"}, "Breaking.Bad.S02E05.720p.HDTV.x264-GRP"},
+		// One part of a season released in parts: the episodes its title
+		// states, not the season (release's stateEpisodes).
+		{[]string{"Breaking Bad"}, "[GRP] Breaking Bad (2008) (Season 1 | Part 02 [EP: 14-26]) [BDRip] [1080p HEVC]"},
 		{[]string{"The Wire"}, "The.Wire.S01E01E02.1080p.BluRay.x264-GRP"},
 		{[]string{"Kaiju Show"}, "Kaiju.Show.S02E05.1080p.WEB.x264-GRP"},
 		{[]string{"Kaiju Show"}, "Kaiju.Show.S03E05.1080p.WEB.x264-GRP"},

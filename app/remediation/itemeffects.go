@@ -31,11 +31,13 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/backlog"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -52,6 +54,7 @@ const (
 	EffectDelete           EffectKind = "delete"
 	EffectSettleCandidate  EffectKind = "settleCandidate"
 	EffectCountGrab        EffectKind = "countGrab"
+	EffectGrantSearch      EffectKind = "grantSearch"
 	EffectApply            EffectKind = "apply"
 )
 
@@ -135,6 +138,24 @@ type SettleCandidate struct {
 	Reason string
 }
 
+// FollowUpLapse is how long a GrantSearch's grants live: as long as a
+// BacklogSearch cycle's (backlogsearch.GrantLapse), which outlasts the
+// automatic season search's cooldown, so a season searched within the hour
+// is still owed its follow-up when it may be asked again.
+const FollowUpLapse = 3 * time.Hour
+
+// GrantSearch grants each of Items one live search now, as a BacklogSearch
+// cycle grants one (backlog.Book): the Episodes a pack was grabbed for and
+// did not hold (lifecycle.Plan.Freed). Two or more are their Series' to
+// ask for, as a season (backlog.Book.GrantSeason), where another pack is
+// found; one searches alone. The book is the leader's: a grant lost with
+// it leaves the episode to its own backoff.
+type GrantSearch struct {
+	Series schema.ItemRef
+	Items  []schema.ItemRef
+	At     time.Time
+}
+
 // CountGrab counts a direct-source grab into its Indexer's grab ring
 // (limits.CountGrabAt), keyed by Key -- the entry uid -- so a pass that
 // counts it again counts nothing (§6.11).
@@ -182,6 +203,9 @@ func (SettleCandidate) Kind() EffectKind { return EffectSettleCandidate }
 
 // Kind implements Effect.
 func (CountGrab) Kind() EffectKind { return EffectCountGrab }
+
+// Kind implements Effect.
+func (GrantSearch) Kind() EffectKind { return EffectGrantSearch }
 
 // SpecWriter applies a placed file's MediaFile spec (specwrite.ApplyFacts
 // in the manager); the item path holds it so this package imports no
@@ -342,6 +366,25 @@ func (ir *ItemReconciler) runItemEffect(ctx context.Context, item client.Object,
 	case SettleCandidate:
 		if ir.Inbox != nil {
 			ir.Inbox.SettleBecause(e.MsgID, e.Outcome, e.Reason)
+		}
+		return nil
+	case GrantSearch:
+		if ir.Backlog == nil || len(e.Items) == 0 {
+			return nil
+		}
+		until := e.At.Add(FollowUpLapse)
+		for _, it := range e.Items {
+			ir.Backlog.Grant(it.UID, backlog.Grant{Reason: schema.SearchReasonMissing, At: e.At, Until: until})
+		}
+		wake := e.Items
+		if len(e.Items) > 1 {
+			ir.Backlog.GrantSeason(e.Series.UID, until)
+			wake = []schema.ItemRef{e.Series}
+		}
+		for _, ref := range wake {
+			if err := ir.Backlog.Wake(ctx, ref); err != nil {
+				return Transient(err)
+			}
 		}
 		return nil
 	case CountGrab:

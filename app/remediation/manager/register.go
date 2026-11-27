@@ -202,6 +202,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Dispatch: o.Dispatch, Book: o.Book, Inbox: o.Inbox, DeliveryWakes: o.DeliveryWakes,
 		WantedWakes:  o.WantedWakes,
 		BacklogWakes: o.Backlog.Wakes(),
+		Backlog:      o.Backlog,
 		Dubs:         o.Dubs,
 		Client:       mgr.GetClient(),
 		Recorder:     recorder,

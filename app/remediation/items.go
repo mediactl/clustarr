@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/backlog"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
@@ -87,6 +88,9 @@ type ItemReconciler struct {
 	// enqueued at normal priority so the grant is searched within its
 	// lapse.
 	BacklogWakes <-chan schema.ItemRef
+	// Backlog is that controller's grant book, which a GrantSearch effect
+	// grants in as well. Nil grants none.
+	Backlog *backlog.Book
 	// Dubs is the process's MAL-Dubs index: its changes wake the anime they
 	// move (dubSource). Nil wakes none.
 	Dubs *dubs.Index

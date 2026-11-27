@@ -237,6 +237,10 @@ type Plan struct {
 	// Redownloads are the items a Failed or Blocklisted entry asks to
 	// search (R25).
 	Redownloads []schema.ItemRef
+	// Freed are the Episodes a pack was grabbed for and does not hold
+	// (ImportDecision.Freed): each is granted a search of its own, so a
+	// second pack is taken for what the first left.
+	Freed []schema.ItemRef
 	// DirectGrabs are the Assigned edges of direct-source grabs (§6.11).
 	DirectGrabs []DirectGrab
 	// Finalizer: true ensures FinalizerTransfers, false removes it, nil
@@ -310,6 +314,12 @@ type ImportDecision struct {
 	Answered int64
 	// Due is when the import next needs a pass (a retry, a hold's expiry).
 	Due time.Time
+	// Episodes, when it is not nil, are the entry's episodes from now on:
+	// the ones its inspected files hold (importplan's provide), where a
+	// pack held fewer than it was grabbed for. Freed are the Episodes it
+	// covered and covers no longer, which another release is searched for.
+	Episodes []catalogv1alpha1.EpisodeNumber
+	Freed    []schema.ItemRef
 }
 
 // BlockReply is the release index's answer to a block or unblock call.

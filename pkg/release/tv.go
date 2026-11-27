@@ -429,6 +429,11 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 			p.FullSeason = true
 		}
 		p.ReleaseType = commonv1.ReleaseTypeSeasonPack
+		// A pack that states its episodes is a pack of those, one part of
+		// a season released in parts (stateEpisodes).
+		if stateEpisodes(p, title); len(p.Episodes) > 0 {
+			p.ReleaseType = commonv1.ReleaseTypeMulti
+		}
 		p.Special = specialFromMatch(title, m, p.Seasons)
 		return finishSeries(title, p), nil
 	}

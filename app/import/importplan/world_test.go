@@ -355,6 +355,14 @@ func (g *grab) decide(mutate ...func(*importplan.Input)) lifecycle.ImportDecisio
 				files, err := mfindex.FilesOf(ctx, g.wd.c, ns, kind, k)
 				require.NoError(g.wd.t, err)
 				in.Existing[importplan.ItemKey(kind, k)] = files
+				// The stage's Numbers: each named Episode's season and number.
+				var ep catalogv1alpha1.Episode
+				if kind == commonv1.MediaKindEpisode && g.wd.c.Get(ctx, client.ObjectKey{Namespace: ns, Name: k}, &ep) == nil {
+					if in.Numbers == nil {
+						in.Numbers = map[string]catalogv1alpha1.EpisodeNumber{}
+					}
+					in.Numbers[k] = catalogv1alpha1.EpisodeNumber{Season: ep.Spec.SeasonNumber, Number: ep.Spec.EpisodeNumber}
+				}
 			}
 		}
 	}

@@ -333,6 +333,12 @@ func (d *decider) importStep(e *catalogv1alpha1.DownloadEntry) bool {
 	}
 	sum := dec.Summary
 	e.Import = &sum
+	if dec.Episodes != nil {
+		// The entry accounts for the files it holds, and for no episode it
+		// does not: those are free for another release.
+		e.Episodes = dec.Episodes
+		d.plan.Freed = append(d.plan.Freed, dec.Freed...)
+	}
 	if dec.Dispatch != nil {
 		dd := *dec.Dispatch
 		dd.EntryUID = types.UID(e.UID)

@@ -337,6 +337,9 @@ func parseAnime(title string, p *ParsedRelease) error {
 		if s2, s2Err := strconv.Atoi(groupString(m, "s2")); s2Err == nil && s2 > s1 {
 			p.Seasons, p.MultiSeason = intRange(s1, s2), true
 		}
+		// Unless its title states the episodes it holds: one part of a
+		// season released in parts (stateEpisodes).
+		stateEpisodes(p, work)
 		return nil
 	}
 
