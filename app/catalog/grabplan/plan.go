@@ -563,13 +563,13 @@ func (d *decider) current(it Covered) *decision.Current {
 // candidate for one covered item: the queue preference over the live
 // entries, the current file, its cutoff and TranscodedFinal, the release
 // index's block and the owner's Blocklisted tombstones.
-func (d *decider) itemStateRejections(c Candidate, it Covered) []commonv1.Rejection {
+func (d *decider) itemStateRejections(c Candidate, it Covered, queue []decision.Queued) []commonv1.Rejection {
 	rel := c.Release.Decision.ReleaseInfo
 	t := decision.Target{
 		Kind:                coveredKind(it),
 		OriginalLanguageTag: d.v.OriginalLanguageTag,
 		Current:             d.current(it),
-		Queue:               d.queue(it, c.Purpose),
+		Queue:               queue,
 	}
 	blocked := c.Release.Blocked != nil || d.tombstoned(it, rel)
 	t.Blocklist = func(string, string) bool { return blocked }
@@ -939,34 +939,53 @@ func (d *decider) protocolEnabled(p commonv1.Protocol) bool {
 }
 
 // queue is the live entries covering it, of purpose, as pkg/decision's
-// queue: a pack among them holds it (decision.ReasonPackDownloading).
-func (d *decider) queue(it Covered, purpose commonv1.DownloadPurpose) []decision.Queued {
+// queue: a pack among them holds it (decision.ReasonPackDownloading). With
+// refused it also holds the entries whose import the item refused
+// (refusedByItem), each as a release to beat and never as a pack: a pack
+// holds its items until it has imported or failed, and a held one will do
+// neither on its own.
+func (d *decider) queue(it Covered, purpose commonv1.DownloadPurpose, refused bool) []decision.Queued {
 	var out []decision.Queued
 	for i := range d.v.Entries {
 		e := &d.v.Entries[i]
-		if !live(e) || e.Purpose != purpose || !covers(e, it) {
+		byItem := refused && refusedByItem(e)
+		if (!live(e) && !byItem) || e.Purpose != purpose || !covers(e, it) {
 			continue
 		}
 		out = append(out, decision.Queued{
 			Candidate: quality.Candidate{Quality: e.Release.Quality, Revision: e.Release.Revision, FormatScore: int(e.Release.FormatScore)},
-			Pack:      e.Pack(),
+			Pack:      e.Pack() && !byItem,
 			Languages: e.Release.Languages,
 		})
 	}
 	return out
 }
 
-// liveCovering is the first live entry of purpose covering any of items,
-// nil for none: the grab a release was refused over.
-func (d *decider) liveCovering(items []Covered, purpose commonv1.DownloadPurpose) *catalogv1alpha1.DownloadEntry {
+// refusedCovers reports an entry of purpose covering it whose import the
+// item refused (refusedByItem).
+func (d *decider) refusedCovers(it Covered, purpose commonv1.DownloadPurpose) bool {
 	for i := range d.v.Entries {
-		e := &d.v.Entries[i]
-		if !live(e) || e.Purpose != purpose {
-			continue
+		if e := &d.v.Entries[i]; refusedByItem(e) && e.Purpose == purpose && covers(e, it) {
+			return true
 		}
-		for _, it := range items {
-			if covers(e, it) {
-				return e
+	}
+	return false
+}
+
+// liveCovering is the first live entry of purpose covering any of items,
+// else the first whose import the item refused (refusedByItem), nil for
+// none: the grab a release was refused over.
+func (d *decider) liveCovering(items []Covered, purpose commonv1.DownloadPurpose) *catalogv1alpha1.DownloadEntry {
+	for _, is := range []func(*catalogv1alpha1.DownloadEntry) bool{live, refusedByItem} {
+		for i := range d.v.Entries {
+			e := &d.v.Entries[i]
+			if !is(e) || e.Purpose != purpose {
+				continue
+			}
+			for _, it := range items {
+				if covers(e, it) {
+					return e
+				}
 			}
 		}
 	}
@@ -1011,14 +1030,48 @@ func sameRelease(r catalogv1alpha1.DownloadRelease, rel commonv1.ReleaseInfo) bo
 	return rel.GUID != "" && r.GUID == rel.GUID && r.IndexerRef == rel.IndexerRef
 }
 
-// live reports an entry before Removing that is not terminal: lifecycle's
-// rule, restated (rollup links controller-runtime).
+// live reports an entry that can still deliver content to its owner:
+// lifecycle's and rollup.EntryNonTerminal's rule, restated (rollup links
+// controller-runtime). Imported, Removing, Failed and Blocklisted are
+// terminal, and so is an import that is held, expired or finished: a held
+// one keeps its files for a person and nothing more comes of it on its own.
+//
+// Until 2026-11-27 this left the import out, alone of the three copies of
+// the rule, so a download held at import went on holding its episodes
+// against every other release for the 24 hours of its hold -- and, when it
+// was a pack, against any release at all (PackDownloading, "judged again
+// once the pack has imported or failed"). On talos three packs of How a
+// Realist Hero Rebuilt the Kingdom held in turn kept the release that had
+// the wanted episodes from being taken; the search agent and the Search
+// controller, which read the queue through rollup's copy, had approved it
+// each time (owner: "stop a download held at import from blocking other
+// releases").
 func live(e *catalogv1alpha1.DownloadEntry) bool {
+	if imp := e.Import; imp != nil && (imp.Phase == catalogv1alpha1.ImportPhaseHeld ||
+		imp.Phase == catalogv1alpha1.ImportPhaseExpired || imp.Phase == catalogv1alpha1.ImportPhaseImported) {
+		return false
+	}
 	switch e.Phase {
 	case commonv1.DownloadPhaseImported, commonv1.DownloadPhaseRemoving, commonv1.DownloadPhaseFailed, commonv1.DownloadPhaseBlocklisted:
 		return false
 	}
 	return true
+}
+
+// refusedByItem reports a download whose import is held because the item
+// does not take its files (class itemState: the file it has is final, or
+// no worse). It is not live, but it is still the release to beat for an
+// item another release would be taken for: import would refuse one no
+// better for the same reason, and without it the planner takes the answer's
+// next release at every pass, each a whole download held in its turn. A
+// hold of any other class (files nobody could attribute, an import that
+// could not be carried out) says nothing of the item and holds nothing.
+func refusedByItem(e *catalogv1alpha1.DownloadEntry) bool {
+	switch e.Phase {
+	case commonv1.DownloadPhaseImported, commonv1.DownloadPhaseRemoving, commonv1.DownloadPhaseFailed, commonv1.DownloadPhaseBlocklisted:
+		return false
+	}
+	return e.Import != nil && e.Import.Phase == catalogv1alpha1.ImportPhaseHeld && e.Import.Class == commonv1.ImportClassItemState
 }
 
 // entry is a new Pending entry for vd (§6.6 step 2).

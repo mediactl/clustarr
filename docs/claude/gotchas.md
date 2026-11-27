@@ -1881,6 +1881,36 @@ recorded here.
   QueueHigherPreference) unless `spec.override`, which the UI sends only
   for a release the search itself rejected. The inbox is leader-local: a
   refusal settled before a leader change reads without its reason.
+  **Changed the same day, below: a held import is no longer live, and a
+  person's pick is never refused over one.**
+
+- **A download held at import holds nothing against another release
+  (2026-11-27, owner: "stop a download held at import from blocking other
+  releases").** "A grab still in flight" is written three times
+  (`rollup.EntryNonTerminal`, lifecycle's `nonTerminal`, grabplan's `live`),
+  and the planner's copy was the one that left the import out: a held,
+  expired or finished import was live there, so a download held at import
+  went on holding its episodes for its 24 hours, a held *pack* against any
+  release at all (`PackDownloading`, "judged again once the pack has
+  imported or failed": it never would), and a torrent seeding after its
+  import against every release of its episodes. The search agent and the
+  Search controller read the queue through rollup's copy
+  (`itemread.Queue`), so they approved what the planner then refused. On
+  talos three packs of How a Realist Hero Rebuilt the Kingdom, held in
+  turn, kept EMBER's whole season from being taken; it was grabbed five
+  seconds after the last was removed by hand. `live` now says what the
+  other two say. One thing a hold still decides, the planner's alone
+  (`refusedByItem`): a download whose import is held with class
+  `itemState` (the item's file is final, or no worse) is the release an
+  automatic one must beat for an episode it would otherwise be taken for,
+  as a release and never as a pack. Import would refuse one no better for
+  the same reason, and without it the planner takes the answer's next
+  release at every pass, a whole download each (the planner still approves
+  releases over final files it should not, `Covered.Current` nil at grab
+  time, cause not found). It holds nothing for an episode the release is
+  not taken for, nothing against a person's pick, and a hold of any other
+  class (`needsPerson`, an import that could not be carried out) holds
+  nothing at all. Tests: grabplan's `heldimport_test.go`.
 
 - **A pack's file named "<the series' title> <number>" is that episode
   (2026-11-27, owner: "Ensure no remaining series has any missing monitored

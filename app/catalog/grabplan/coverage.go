@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package grabplan
 
 import (
+	"slices"
 	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -276,8 +277,20 @@ func (d *decider) itemCheck(c Candidate, it Covered, complete bool) ItemCheck {
 			ic.Rejections = append(ic.Rejections, rejectionNotOut(n))
 		}
 	}
-	ic.Queued = c.Purpose == "" && Holds(d.v.Profile, d.v.OriginalLanguageTag, d.queue(it, c.Purpose), complete)
-	for _, rej := range d.itemStateRejections(c, it) {
+	// The live grabs first. Where the release would be taken for the item
+	// past those, a download whose import the item refused is the release
+	// to beat as well (refusedByItem); for an item the release is not
+	// taken for anyway, such a download holds nothing, and it never holds
+	// anything against a person's pick, which is one release and theirs.
+	queue := d.queue(it, c.Purpose, false)
+	rejs := d.itemStateRejections(c, it, queue)
+	if !c.Manual && len(ic.Rejections) == 0 && d.refusedCovers(it, c.Purpose) &&
+		!slices.ContainsFunc(rejs, func(r commonv1.Rejection) bool { return !exempt(c, r) }) {
+		queue = d.queue(it, c.Purpose, true)
+		rejs = d.itemStateRejections(c, it, queue)
+	}
+	ic.Queued = c.Purpose == "" && Holds(d.v.Profile, d.v.OriginalLanguageTag, queue, complete)
+	for _, rej := range rejs {
 		if c.Purpose == "" {
 			ic.NoteQueue(rej)
 		}

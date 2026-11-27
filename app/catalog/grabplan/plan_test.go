@@ -573,15 +573,20 @@ func TestARefusedPickSaysWhyAndOverWhichGrab(t *testing.T) {
 			pick = c
 		}
 	}
+	// A download whose import the item refused is still the release an
+	// automatic one must beat (refusedByItem): the RSS match no better than
+	// it is refused, and told which grab and where it stands. (Since
+	// 2026-11-27 it holds nothing against a person's pick:
+	// TestAHeldImportHoldsNothingAgainstAnotherRelease.)
 	entry := liveEntry(held, commonv1.DownloadPhaseCompleted, ep(1, 27))
-	entry.Import = &catalogv1alpha1.DownloadImportSummary{Phase: catalogv1alpha1.ImportPhaseHeld}
+	entry.Import = &catalogv1alpha1.DownloadImportSummary{Phase: catalogv1alpha1.ImportPhaseHeld, Class: commonv1.ImportClassItemState}
 
-	v := seriesView(t, season(1, 27), parked(bbRef, "pick-1", pick, true, false))
+	v := seriesView(t, season(1, 27), parked(bbRef, "match-1", pick, false, false))
 	v.Entries = []catalogv1alpha1.DownloadEntry{entry}
 	p := grabplan.Decide(v)
 	require.Empty(t, p.NewEntries)
-	require.Equal(t, intake.Refused, p.Settle["pick-1"])
-	why := p.Refusals["pick-1"]
+	require.Equal(t, intake.Refused, p.Settle["match-1"])
+	why := p.Refusals["match-1"]
 	require.True(t, decision.ReasonQueueHigherPreference.Of(commonv1.Rejection{Reason: why}), why)
 	require.Contains(t, why, heldTitle, "the grab in the way is named")
 	require.Contains(t, why, entry.ID)
@@ -589,8 +594,11 @@ func TestARefusedPickSaysWhyAndOverWhichGrab(t *testing.T) {
 
 	entry.Import = nil
 	entry.Phase = commonv1.DownloadPhaseDownloading
+	v = seriesView(t, season(1, 27), parked(bbRef, "pick-1", pick, true, false))
 	v.Entries = []catalogv1alpha1.DownloadEntry{entry}
-	require.Contains(t, grabplan.Decide(v).Refusals["pick-1"], "), downloading")
+	p = grabplan.Decide(v)
+	require.Equal(t, intake.Refused, p.Settle["pick-1"])
+	require.Contains(t, p.Refusals["pick-1"], "), downloading")
 
 	// With spec.override the pick is taken, and nothing is refused.
 	v = seriesView(t, season(1, 27), parked(bbRef, "pick-2", pick, true, true))

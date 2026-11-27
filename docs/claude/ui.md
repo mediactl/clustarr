@@ -1176,7 +1176,10 @@ ranked fourth, under the usenet packs. Three rules, each in its own place:
   two or more make their Series hold the season's grant, so its automatic
   season search asks again (`SeasonFacts.BacklogDue`; within the hour's
   `AutomaticCooldown` after an automatic one, at once after a requested
-  one). The held pack is "already a grab of the owner", so the answer's
+  one). The held pack is "already a grab of the owner", and since the same
+  day holds none of its episodes against another release
+  (`docs/claude/gotchas.md`, "A download held at import holds nothing"), so
+  the answer's
   next release is taken. The book is the leader's: a grant lost with it
   leaves the episodes to their own backoff.
 Not built, my choices: nothing prefers a release that states its episodes
