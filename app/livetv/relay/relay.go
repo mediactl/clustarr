@@ -23,7 +23,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // With every tuner streaming, the newest tune takes a tuner: an unwatched
 // stream's, else the one whose viewer joined longest ago. Viewers get a
 // stream in real time by its own clock, Hold behind its upstream, however
-// the upstream bursts (pacer). It is xTeVe's own buffer, without the
+// the upstream bursts (pacer), and a viewer whose stream has nothing to
+// release is sent padding each KeepAlive, so its reader never times out
+// while the upstream recovers. It is xTeVe's own buffer, without the
 // ffmpeg and VLC options.
 package relay
 
@@ -60,6 +62,15 @@ type Dialer func(ctx context.Context, network, address string) (net.Conn, error)
 // cannot hold its goroutine forever; its next read then finds it behind.
 const writeTimeout = 30 * time.Second
 
+// padding is an MPEG-TS null packet (nullPID), which every demuxer reads
+// and discards: what a viewer is sent while its stream has nothing to
+// release (Options.KeepAlive).
+var padding = func() []byte {
+	p := bytes.Repeat([]byte{0xff}, packetSize)
+	p[0], p[1], p[2], p[3] = 0x47, nullPID>>8, nullPID&0xff, 0x10
+	return p
+}()
+
 // Options configures a Relay. Zero values take the defaults noted.
 type Options struct {
 	// Context is the parent of every upstream: it carries the logger, and
@@ -94,6 +105,19 @@ type Options struct {
 	// a CDN that keeps padding with no media behind it; its silences ran
 	// to 21 s, and 25 s with a reopen's 3 s fits the 30 s DefaultHold.
 	MediaStallTimeout time.Duration
+	// KeepAlive is how long a viewer may be sent nothing before it is sent
+	// a null packet, and another each KeepAlive after, while its stream
+	// has nothing to release: a reopened connection still catching up, an
+	// upstream with no media. Default 1s; negative sends none. PMS's
+	// recorder reads a tuner with -rw_timeout 30 s, and once a stream's
+	// cushion ran out it was sent nothing until the upstream had new
+	// media: on talos (2026-11-28 07:00Z) BBC World News sent none for a
+	// minute and a half, two reopens replayed only what Plex had, and the
+	// session ended 37 s after the cushion did. Padding keeps the
+	// recorder's connection open however long the upstream takes, as a
+	// real HDHomeRun's constant stream does; what then bounds the wait is
+	// the conversion's own stall watch (cluster-plex's video worker).
+	KeepAlive time.Duration
 	// Reclaim is how long a channel whose watched stream a newer tune took
 	// may not take a watched stream's tuner in turn. Default 10s.
 	Reclaim time.Duration
@@ -195,6 +219,12 @@ func New(o Options) *Relay {
 	}
 	if o.MediaStallTimeout <= 0 {
 		o.MediaStallTimeout = 25 * time.Second
+	}
+	switch {
+	case o.KeepAlive == 0:
+		o.KeepAlive = time.Second
+	case o.KeepAlive < 0:
+		o.KeepAlive = 0
 	}
 	if o.Reclaim <= 0 {
 		o.Reclaim = 10 * time.Second
@@ -404,6 +434,13 @@ func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, ups
 		s.ring.onSplice = func(dropped int64, aligned bool) {
 			logging.FromContext(ctx).Info("livetv: upstream reopened and spliced", "channel", channel, "droppedBytes", dropped, "aligned", aligned)
 		}
+		s.ring.onSyncLost = func(at int64) {
+			logging.FromContext(ctx).Warn("livetv: upstream lost MPEG-TS sync; the rest of its connection is not indexed",
+				"channel", channel, "bytesIn", at)
+		}
+		s.ring.onResume = func(dry time.Duration) {
+			logging.FromContext(ctx).Info("livetv: stream resumed; its viewers waited for the upstream", "channel", channel, "waited", dry)
+		}
 		s.ring.setHold(r.o.Hold, func() {
 			logging.FromContext(ctx).Info("livetv: stream ran dry; its viewers wait for the upstream", "channel", channel)
 			if r.o.OnDry != nil {
@@ -470,13 +507,25 @@ func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, ups
 	}
 	buf := make([]byte, 64<<10)
 	for {
-		n, err := s.ring.Read(req.Context(), cur, buf)
+		n, err := s.ring.ReadIdle(req.Context(), cur, buf, r.o.KeepAlive)
 		if n > 0 {
 			_ = rc.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				return
 			}
 			_ = rc.Flush()
+		}
+		if errors.Is(err, errIdle) {
+			// Nothing to release: padding, between whole packets only,
+			// keeps the viewer's connection open (Options.KeepAlive).
+			if s.ring.boundary(cur) {
+				_ = rc.SetWriteDeadline(time.Now().Add(writeTimeout))
+				if _, werr := w.Write(padding); werr != nil {
+					return
+				}
+				_ = rc.Flush()
+			}
+			continue
 		}
 		if err != nil {
 			if errors.Is(err, errSlow) {
@@ -726,15 +775,32 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 		}
 		if err != nil {
 			if errors.Is(context.Cause(ctx), errStalled) {
-				log.Warn("livetv: upstream stalled; reopening", "channel", s.channel, "silentFor", time.Since(lastByte))
+				log.Warn("livetv: upstream stalled; reopening", append([]any{"channel", s.channel, "silentFor", time.Since(lastByte)},
+					silenceAttrs(s.ring.silence())...)...)
 				return ReasonTimeout, false, delivered
 			}
 			if errors.Is(context.Cause(ctx), errNoMedia) {
 				silent, _ := s.ring.mediaSilence(time.Now())
-				log.Warn("livetv: upstream sends no media; reopening", "channel", s.channel, "noMediaFor", silent)
+				log.Warn("livetv: upstream sends no media; reopening", append([]any{"channel", s.channel, "noMediaFor", silent},
+					silenceAttrs(s.ring.silence())...)...)
 				return ReasonTimeout, false, delivered
 			}
 			return ReasonEOF, false, delivered
 		}
 	}
+}
+
+// silenceAttrs are a reopen's log attributes for what its connection sent
+// since its newest PCR (quietTally) and, if it was a reopen still being
+// caught up, how far its replay got: a replay that ends behind what the
+// viewers had is an upstream with nothing newer to send.
+func silenceAttrs(sl silence) []any {
+	a := []any{"paddingPackets", sl.padding, "videoPackets", sl.video, "otherPackets", sl.other, "garbledPackets", sl.garbled}
+	if sl.catching {
+		a = append(a, "catchingUp", true, "droppedBytes", sl.dropped)
+		if sl.replayed {
+			a = append(a, "replayBehind", sl.behind)
+		}
+	}
+	return a
 }

@@ -36,6 +36,9 @@ const packetSize = 188
 // it (Relay.dropped).
 var errSlow = errors.New("relay: viewer fell a buffer behind")
 
+// errIdle ends a ReadIdle that waited its idle time with nothing to read.
+var errIdle = errors.New("relay: nothing to read")
+
 // ring is one channel's fan-out buffer: the upstream writes, every viewer
 // reads at its own cursor, and the writer never waits for a reader. A
 // paced ring (setHold) lets viewers read only up to its release point,
@@ -75,6 +78,12 @@ type ring struct {
 	// until they pass lastPTS (catchUp); onSplice is told how that ended.
 	catch    *catchUp
 	onSplice func(dropped int64, aligned bool)
+	// onSyncLost is told when the current connection loses MPEG-TS sync,
+	// with how far into the connection; onResume when a stream that ran
+	// dry with a viewer reading holds a cushion again, with how long it
+	// was dry. Both are called with r.mu held: they must not call the ring.
+	onSyncLost func(at int64)
+	onResume   func(dry time.Duration)
 	// pace moves the release point, how far viewers may read; keys are
 	// the keyframes still in the buffer, oldest first, across
 	// connections, where a viewer may start behind the release point.
@@ -151,6 +160,11 @@ func (r *ring) setHold(hold time.Duration, onDry func()) {
 			r.onDry() // r.mu is held: it must not call the ring
 		}
 	}
+	r.pace.refilled = func(dry time.Duration) {
+		if len(r.readers) > 0 && r.onResume != nil {
+			r.onResume(dry)
+		}
+	}
 }
 
 // Write appends p, overwriting the oldest bytes, and wakes every reader. A
@@ -173,7 +187,11 @@ func (r *ring) Write(p []byte) {
 
 // appendLocked stores p and wakes the readers; r.mu is held.
 func (r *ring) appendLocked(p []byte) {
+	synced := !r.index.lost
 	r.index.write(p)
+	if synced && r.index.lost && r.onSyncLost != nil {
+		r.onSyncLost(r.index.lostAt - r.align)
+	}
 	if r.index.pts >= 0 {
 		r.lastPTS = r.index.pts
 	}
@@ -327,6 +345,49 @@ func (r *ring) Realign() {
 	r.mu.Unlock()
 }
 
+// silence is what the current connection sent since its newest PCR, and,
+// while it is still being caught up, how far its replay got: whether the
+// upstream's own newest media was any later than what the viewers had.
+type silence struct {
+	quietTally
+	catching bool
+	dropped  int64 // bytes the catch-up dropped
+	// behind is the replay's newest video time behind the last delivered
+	// (negative: ahead, short of a keyframe); replayed says the replay
+	// showed one.
+	behind   time.Duration
+	replayed bool
+}
+
+// silence reports what the current connection sent since its newest PCR.
+func (r *ring) silence() silence {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c := r.catch
+	if c == nil {
+		return silence{quietTally: r.index.quiet}
+	}
+	s := silence{quietTally: c.index.quiet, catching: true, dropped: c.dropped}
+	if c.index.pts >= 0 {
+		d := (c.lastPTS - c.index.pts) & (ptsModulus - 1)
+		if d >= ptsModulus/2 {
+			d -= ptsModulus
+		}
+		s.behind, s.replayed = span(d), true
+	}
+	return s
+}
+
+// boundary says whether v's next byte begins a packet of the current
+// connection, where a packet the ring never stored may be sent between
+// (Relay.ServeWith's padding). A connection's bytes are whole packets from
+// align on: its first byte, or its catch-up's tables.
+func (r *ring) boundary(v *reader) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return v.pos >= r.align && (v.pos-r.align)%packetSize == 0
+}
+
 // mediaSilence is how long the current connection has delivered no PCR,
 // and whether the stream has shown any to judge by.
 func (r *ring) mediaSilence(now time.Time) (time.Duration, bool) {
@@ -413,6 +474,18 @@ func (r *ring) Leave(v *reader) {
 // errSlow when v's bytes are gone, the close error once the ring is closed
 // and drained (or released), or ctx's error.
 func (r *ring) Read(ctx context.Context, v *reader, p []byte) (int, error) {
+	return r.ReadIdle(ctx, v, p, 0)
+}
+
+// ReadIdle is Read giving up with errIdle once it has waited idle with
+// nothing to read; idle zero waits as Read does.
+func (r *ring) ReadIdle(ctx context.Context, v *reader, p []byte, idle time.Duration) (int, error) {
+	var idled <-chan time.Time
+	if idle > 0 {
+		t := time.NewTimer(idle)
+		defer t.Stop()
+		idled = t.C
+	}
 	cur := &v.pos
 	for {
 		r.mu.Lock()
@@ -446,17 +519,28 @@ func (r *ring) Read(ctx context.Context, v *reader, p []byte) (int, error) {
 		wait := r.notify
 		due, timed := r.pace.due()
 		r.mu.Unlock()
-		var tick <-chan time.Time
+		var (
+			tick  <-chan time.Time
+			timer *time.Timer
+		)
 		if timed {
-			t := time.NewTimer(max(due.Sub(now), 0))
-			tick = t.C
-			defer t.Stop()
+			timer = time.NewTimer(max(due.Sub(now), 0))
+			tick = timer.C
 		}
+		var err error
 		select {
 		case <-wait:
 		case <-tick:
+		case <-idled:
+			err = errIdle
 		case <-ctx.Done():
-			return 0, ctx.Err()
+			err = ctx.Err()
+		}
+		if timer != nil {
+			timer.Stop()
+		}
+		if err != nil {
+			return 0, err
 		}
 	}
 }

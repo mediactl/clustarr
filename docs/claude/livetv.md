@@ -248,6 +248,53 @@ reopen's 3 s it fits the 30 s hold) and reopens it as a stalled one
 ("livetv: upstream sends no media; reopening", reason `timeout`). A stream
 that never showed a PCR is never judged. `TestAnUpstreamPaddingWithoutMediaIsReopened`.
 
+**A viewer with nothing to read is sent padding** (owner, 2026-11-28:
+"Determine why the live tv stream ended with an error after about a half
+hour of running"). On talos at 07:00Z BBC World News (1005) sent no media
+for at least a minute and a half. The watchdog reopened it twice, both
+replays ended where Plex already was (no splice), the 30 s cushion ran out at
+07:00:28, and from then on the relay sent PMS nothing, because a connection
+being caught up stores nothing. cluster-plex's video worker failed the job
+"input stalled" at 07:01:05. Its input is not the relay's bytes: it is
+PMS's own 1 s HLS segments of the session, which PMS's recorder cuts from
+the tuner stream and which stop while there is no media, padding or not.
+Two changes, one in each repo:
+
+- **The relay pads.** `Relay.ServeWith` reads with `ring.ReadIdle`, and
+  each `Options.KeepAlive` (1 s) a viewer goes without a byte it is sent a
+  null packet (`padding`, PID 0x1fff). The padding goes only where the
+  viewer's next byte begins a packet of the current connection
+  (`ring.boundary`: whole packets from `ring.align`, the connection's first
+  byte or its catch-up's tables), so it never lands mid-packet. That keeps
+  PMS's recorder (`-rw_timeout` 30 s) connected however long the source
+  takes, as a real HDHomeRun's constant stream does.
+  `TestADryStreamsViewerIsSentPaddingUntilTheUpstreamReturns` was falsified:
+  without the padding its viewer heard nothing for the whole 800 ms window.
+  It was also proven with real ffmpeg reading through the relay with
+  `-rw_timeout` 5 s across a 12 s dry spell. With padding, ffmpeg survived
+  and took the source's media after the gap. Without it, ffmpeg died
+  "Connection timed out" 5 s after the cushion ran out.
+- **cluster-plex's worker waits 90 s** (`worker.DefaultInputStall`, was
+  30 s). This is what now bounds a source outage a session survives:
+  about two minutes from the source's last media (cushion plus 90 s).
+  Not yet proven end to end: whether Plex's HLS session to the client
+  holds through it, and how the client shows the 1-2 minute forward jump
+  in the picture when the source comes back.
+
+**A reopen says what its connection sent.** The "stalled" and "sends no
+media" warnings carry `paddingPackets`, `videoPackets`, `otherPackets`
+and `garbledPackets`: the packets since the connection's newest PCR
+(`tsIndex.quiet`; garbled means read after sync was lost). For a reopen
+still being caught up they also carry `catchingUp`, `droppedBytes` and
+`replayBehind`, which is how far the replay's newest video time was
+behind what the viewers had. A replay ending at or behind zero is an
+upstream with nothing newer to send. A connection that loses MPEG-TS sync
+logs "livetv: upstream lost MPEG-TS sync; the rest of its connection is
+not indexed" (`bytesIn`). This used to be silent, and it would have looked
+just like an upstream with no media. A stream that ran dry with a viewer
+logs "livetv: stream resumed; its viewers waited for the upstream"
+(`waited`) once it holds a cushion again.
+
 **Each stream leaves through its own WireGuard tunnel, so from its own
 public IP** (owner, 2026-11-27: "create a method to masquerade/SNAT/egress
 gateway/NAT gateway so that each open stream up to three using a separate

@@ -86,9 +86,12 @@ type pacer struct {
 	at      time.Time
 	waiting bool
 	// dry is set while the clock waits at the head, and cleared once the
-	// cushion holds dryCushion again; ranDry is told each time it is set.
-	dry    bool
-	ranDry func()
+	// cushion holds dryCushion again; ranDry is told each time it is set,
+	// at dryAt, and refilled how long it was set each time it clears.
+	dry      bool
+	dryAt    time.Time
+	ranDry   func()
+	refilled func(dry time.Duration)
 }
 
 // newPacer starts dry: a stream that never had a cushion has not run out
@@ -155,15 +158,19 @@ func (p *pacer) release(now time.Time, written, floor int64) int64 {
 		p.clock, p.at, p.waiting = p.head, now, true
 		p.marks = p.marks[:0]
 		if !p.dry {
-			p.dry = true
+			p.dry, p.dryAt = true, now
 			if p.ranDry != nil {
 				p.ranDry()
 			}
 		}
 		return written
 	}
-	if p.head-a >= dryCushion {
+	if p.head-a >= dryCushion && p.dry {
 		p.dry = false
+		if !p.dryAt.IsZero() && p.refilled != nil {
+			p.refilled(now.Sub(p.dryAt))
+		}
+		p.dryAt = time.Time{}
 	}
 	i := 0
 	for i < len(p.marks) && p.marks[i].t <= a {

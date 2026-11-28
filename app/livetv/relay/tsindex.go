@@ -31,6 +31,11 @@ type tsIndex struct {
 	filled int   // bytes of pkt so far
 	pos    int64 // stream position of pkt[0]
 	lost   bool  // sync was lost: nothing more is indexed
+	lostAt int64 // the stream position of the packet that lost it
+
+	// quiet tallies the packets since the newest PCR, for the log of a
+	// connection reopened for sending no media (Relay.fetch).
+	quiet quietTally
 
 	pmtPID   int // -1 until a PAT names one
 	videoPID int // -1 until the PMT names one
@@ -60,6 +65,33 @@ type pcrMark struct {
 	pos, base int64
 }
 
+// nullPID is the PID of an MPEG-TS null packet, the padding a demuxer
+// reads and discards.
+const nullPID = 0x1fff
+
+// quietTally is what a connection sent since its newest PCR, in packets:
+// padding (nullPID), the video PID's, any other PID's, and the packets
+// read once sync was lost (garbled). A connection that stopped sending
+// media and pads is all padding; one whose clock stopped while its video
+// went on (a PCR PID the index no longer follows) has video; one the
+// index lost has garbled (talos, 2026-11-28 07:00Z: a stream ended after
+// a minute of no media, and nothing said which of these it was).
+type quietTally struct {
+	padding, video, other, garbled int64
+}
+
+// count tallies one packet on pid, with video the video PID.
+func (q *quietTally) count(pid, video int) {
+	switch pid {
+	case nullPID:
+		q.padding++
+	case video:
+		q.video++
+	default:
+		q.other++
+	}
+}
+
 func newTSIndex(at int64) tsIndex {
 	return tsIndex{pos: at, pmtPID: -1, videoPID: -1, pcrPID: -1, key: -1, pts: -1, keyPTS: -1}
 }
@@ -75,6 +107,8 @@ func (x *tsIndex) write(p []byte) {
 		}
 		if !x.lost {
 			x.packet(x.pkt[:])
+		} else {
+			x.quiet.garbled++
 		}
 		x.pos += packetSize
 		x.filled = 0
@@ -85,14 +119,20 @@ func (x *tsIndex) write(p []byte) {
 // whether it starts a keyframe.
 func (x *tsIndex) packet(p []byte) bool {
 	if p[0] != 0x47 {
-		x.lost, x.key = true, -1
+		x.lost, x.lostAt, x.key = true, x.pos, -1
+		x.quiet.garbled++
 		return false
 	}
 	pid := int(p[1]&0x1f)<<8 | int(p[2])
+	clock := false
 	if pid == x.pcrPID {
 		if base, ok := pcrBase(p); ok {
 			x.pcrs = append(x.pcrs, pcrMark{pos: x.pos, base: base})
+			x.quiet, clock = quietTally{}, true
 		}
+	}
+	if !clock {
+		x.quiet.count(pid, x.videoPID)
 	}
 	start := p[1]&0x40 != 0
 	if !start || (pid != 0 && pid != x.pmtPID && pid != x.videoPID) {
