@@ -298,6 +298,14 @@ templ seasonHead(d Detail, season SeasonRow) {
 					{ " · " + formatBytes(season.SizeBytes) }
 				}
 			</p>
+			<div data-season-actions data-season={ fmt.Sprint(season.Number) } data-monitored={ fmt.Sprintf("%t", season.Monitored) } data-episodes={ fmt.Sprint(season.Episodes) } data-files={ fmt.Sprint(season.Files) } class="mt-3 flex items-center gap-2">
+				@seasonSearchButtons(season)
+				if season.Search.Label != "" {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Attributes: templ.Attributes{"data-season-search": season.Search.Phase, "title": season.Search.Title}}) {
+						{ season.Search.Label }
+					}
+				}
+			</div>
 		</div>
 	</header>
 }
@@ -308,13 +316,8 @@ templ SeasonPage(d Detail, season SeasonRow, episodes []EpisodeRow) {
 	@Shell(Chrome{Title: fmt.Sprintf("%s · %s", d.Item.Title, season.Label()), Crumbs: childCrumbs(d.Item, season.Label()), Tab: d.Item.Tab}) {
 		@selectionBar(SelectionBar{Action: libraryActionURL(d.Item, "rows/bulk"), Verbs: RowVerbs()})
 		@seasonHead(d, season)
-		<div class="overflow-hidden panel">
-			@item.Group(item.GroupProps{Attributes: templ.Attributes{"data-grouped": true}}) {
-				@SeasonHeader(season)
-			}
-			<div class="episodes border-t border-border">
-				@EpisodeRows(episodes)
-			</div>
+		<div class="episodes overflow-hidden panel">
+			@EpisodeRows(episodes)
 		</div>
 		@episodeRegions()
 	}
@@ -331,41 +334,14 @@ templ EpisodeRows(episodes []EpisodeRow) {
 	} else {
 		@dataTable(nil) {
 			@table.Table(table.Props{Attributes: templ.Attributes{"data-episode-table": ""}}) {
-				@table.Header() {
+				@table.Header(table.HeaderProps{Class: "sr-only"}) {
 					@table.Row() {
 						@selectHead("Select every episode of this season")
-						@table.Head(table.HeadProps{Class: "w-px"}) {
-							<span class="sr-only">Monitored</span>
-						}
-						@table.Head(table.HeadProps{Class: colP2 + " w-px " + colNum}) {
+						@table.Head(table.HeadProps{Class: "w-px " + colNum}) {
 							# 
 						}
-						@table.Head(table.HeadProps{Class: colTitleHead}) {
+						@table.Head() {
 							Title 
-						}
-						@table.Head(table.HeadProps{Class: colP3}) {
-							Air Date 
-						}
-						@table.Head(table.HeadProps{Class: colP4}) {
-							Languages 
-						}
-						@table.Head(table.HeadProps{Class: colP4 + " " + colNum}) {
-							Score 
-						}
-						@table.Head(table.HeadProps{Class: colP5}) {
-							Video 
-						}
-						@table.Head(table.HeadProps{Class: colP5}) {
-							Audio 
-						}
-						@table.Head(table.HeadProps{Class: colP6}) {
-							Transcode 
-						}
-						@table.Head(table.HeadProps{Class: colP6}) {
-							Subtitles 
-						}
-						@table.Head(table.HeadProps{Class: colP6}) {
-							Markers 
 						}
 						@table.Head(table.HeadProps{Class: colP2}) {
 							Status 
@@ -385,17 +361,14 @@ templ EpisodeRows(episodes []EpisodeRow) {
 	}
 }
 
-// EpisodeRowView is one episode's row, Sonarr's: the select mark
-// (2026-11-17: the season's rows are selectable and bulk-editable,
-// rowselect.templ), the monitor bookmark, the number, the title (its
-// page), the air date, the file's columns and the status cell, and the
-// two searches. Its columns fold by the table's own width (datatable.templ:
-// the table overflowed its card at 1280 and, with an audio note, at 1440,
-// when they folded by the window's), and what a folded column held -- the
-// number, the date, the status -- moves to a line under the title, so a
-// phone's row is the mark, the bookmark, the title and the searches. A
-// toggle swaps the row from the object its write returned; a failed one is
-// a toast (answerInPlace), not an alert inside the cell.
+// EpisodeRowView is one episode's row (2026-11-28, the Liquid Glass
+// redesign; Sonarr's dozen columns until then): the select mark, the
+// number, the title -- its page -- over one " · " line of what the episode
+// is (its air date, its file's quality, video, audio, languages and score,
+// its transcode, subtitles and markers, each part still carrying the data
+// attribute it had as a column), the status, and trailing its monitor
+// toggle and the two searches. A toggle swaps the row from the object its
+// write returned; a failed one is a toast (answerInPlace).
 templ EpisodeRowView(ep EpisodeRow) {
 	@table.Row(table.RowProps{
 		Class: rowTone(ep.Monitored),
@@ -409,22 +382,15 @@ templ EpisodeRowView(ep EpisodeRow) {
 		}),
 	}) {
 		@selectCell("Select episode " + fmt.Sprint(ep.Number))
-		@table.Cell(table.CellProps{Class: "py-1"}) {
-			<form hx-post={ ep.MonitorURL() } hx-target="closest tr" hx-swap="outerHTML" method="post" action={ templ.URL(ep.MonitorURL()) } class="contents">
-				<input type="hidden" name="return" value={ ep.ReturnURL() }/>
-				<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !ep.Monitored) }/>
-				@bookmarkToggle(ep.Monitored, "set-monitored", false)
-			</form>
-		}
-		@table.Cell(table.CellProps{Class: colP2 + " text-muted-foreground " + colNum}) {
+		@table.Cell(table.CellProps{Class: "w-px pr-0 align-top text-label-2 tabular-nums " + colNum}) {
 			{ fmt.Sprint(ep.Number) }
 		}
-		@table.Cell(table.CellProps{Class: colTitle}) {
+		@table.Cell(table.CellProps{Class: "min-w-0 whitespace-normal"}) {
 			<span class="flex flex-wrap items-center gap-2">
 				<a
 					href={ templ.URL(ep.URL()) }
 					preload="mouseover"
-					class="font-medium hover:underline"
+					class="text-headline text-label-1 hover:opacity-80"
 					data-episode-title
 				>
 					if ep.Title != "" {
@@ -434,7 +400,7 @@ templ EpisodeRowView(ep EpisodeRow) {
 					}
 				</a>
 				if ep.FinaleLabel() != "" {
-					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-sky-300", Attributes: templ.Attributes{"data-finale": ep.FinaleType}}) {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Attributes: templ.Attributes{"data-finale": ep.FinaleType}}) {
 						{ ep.FinaleLabel() }
 					}
 				}
@@ -442,64 +408,52 @@ templ EpisodeRowView(ep EpisodeRow) {
 					@audioBadge(ep.Audio)
 				}
 			</span>
-			@rowMeta() {
-				<span class={ belowP2, "tabular-nums" }>E{ fmt.Sprint(ep.Number) }</span>
+			<span data-episode-meta class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-footnote text-label-2">
 				if ep.AirDate != "" {
-					<time class={ belowP3 } datetime={ ep.AirDate }>{ ep.AirDateLabel }</time>
+					<time datetime={ ep.AirDate } title={ ep.AirDate }>{ ep.AirDateLabel }</time>
 				}
-				<span class={ belowP2 }>
-					@statusCell(ep.Status)
-				</span>
-			}
-		}
-		@table.Cell(table.CellProps{Class: colP3 + " text-muted-foreground"}) {
-			if ep.AirDate != "" {
-				<time datetime={ ep.AirDate } title={ ep.AirDate }>{ ep.AirDateLabel }</time>
-			}
-		}
-		@table.Cell(table.CellProps{Class: colP4}) {
-			if ep.File != nil {
-				@languagesCell(ep.File)
-			}
-		}
-		@table.Cell(table.CellProps{Class: colP4 + " " + colNum}) {
-			if ep.File != nil {
-				<span data-score={ signed(ep.File.Score) }>{ signed(ep.File.Score) }</span>
-			}
-		}
-		@table.Cell(table.CellProps{Class: colP5}) {
-			if ep.File != nil {
-				@fileCell(ep.File.VideoCodec, "data-video")
-			}
-		}
-		@table.Cell(table.CellProps{Class: colP5}) {
-			if ep.File != nil {
-				@fileCell(ep.File.AudioCodec, "data-audio-codec")
-			}
-		}
-		@table.Cell(table.CellProps{Class: colP6}) {
-			if ep.File != nil {
-				@fileCell(ep.File.Transcode, "data-transcode")
-			}
-		}
-		@table.Cell(table.CellProps{Class: colP6}) {
-			if ep.File != nil {
-				@fileCell(ep.File.Subtitles, "data-subtitles")
-			}
-		}
-		@table.Cell(table.CellProps{Class: colP6}) {
-			if ep.File != nil {
-				@fileCell(ep.File.Markers, "data-markers")
-			}
+				if ep.File != nil {
+					@metaPart(ep.File.VideoCodec, "data-video")
+					@metaPart(ep.File.AudioCodec, "data-audio-codec")
+					if len(ep.File.Languages) > 0 {
+						<span data-languages={ strings.Join(ep.File.Languages, ",") }>
+							{ strings.Join(ep.File.Languages[:min(len(ep.File.Languages), LanguagesShown)], ", ") }
+							if more := ep.File.MoreLanguages(); len(more) > 0 {
+								<span title={ strings.Join(more, ", ") } data-more-languages={ fmt.Sprint(len(more)) }>{ fmt.Sprintf(" +%d", len(more)) }</span>
+							}
+						</span>
+					}
+					if ep.File.Score != 0 {
+						<span data-score={ signed(ep.File.Score) }>Score { signed(ep.File.Score) }</span>
+					}
+					@metaPart(ep.File.Transcode, "data-transcode")
+					@metaPart(ep.File.Subtitles, "data-subtitles")
+					@metaPart(ep.File.Markers, "data-markers")
+				}
+			</span>
 		}
 		@table.Cell(table.CellProps{Class: colP2}) {
 			@statusCell(ep.Status)
 		}
 		@table.Cell(table.CellProps{Class: "w-px py-1"}) {
-			<span class="flex justify-end">
+			<span class="flex items-center justify-end gap-0.5">
+				<form hx-post={ ep.MonitorURL() } hx-target="closest tr" hx-swap="outerHTML" method="post" action={ templ.URL(ep.MonitorURL()) } class="contents">
+					<input type="hidden" name="return" value={ ep.ReturnURL() }/>
+					<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !ep.Monitored) }/>
+					@bookmarkToggle(ep.Monitored, "set-monitored", false)
+				</form>
 				@episodeSearchButtons(ep)
 			</span>
 		}
+	}
+}
+
+// metaPart is one part of an episode's meta line: its label in its tone,
+// the detail as its tooltip, carried on attr for the tests; nothing for an
+// empty one.
+templ metaPart(c Cell, attr string) {
+	if c.Label != "" {
+		<span class={ "whitespace-nowrap " + cellTone(c.Tone) } title={ c.Title } { templ.Attributes{attr: c.Label}... }>{ c.Label }</span>
 	}
 }
 

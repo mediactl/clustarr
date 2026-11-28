@@ -2163,6 +2163,28 @@ section[data-section] + section[data-section] {
   }
 }
 
+/* An episode's meta line: its parts joined with " · ", the normal states
+   quiet and only a warning or a failure in colour. */
+[data-episode-meta] {
+  column-gap: 0;
+}
+[data-episode-meta] > * + *::before {
+  content: "·";
+  margin-inline: 0.375rem;
+  color: var(--label-2);
+}
+[data-episode-meta] :is(.text-emerald-300, .text-sky-300, .text-muted-foreground) {
+  color: var(--label-2);
+}
+/* A season's header actions: glass circles. */
+[data-season-actions] :is([data-slot="button"], .group\/button) {
+  width: 2.125rem;
+  height: 2.125rem;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-edge), var(--shadow-2);
+}
+
 /* --- Grouped lists (Settings-style rows) ----------------------------------- */
 /* A grouped list is a platter of rows, each a hairline apart, inset from the
    leading edge past the row's glyph tile; a row lifts under the pointer. */

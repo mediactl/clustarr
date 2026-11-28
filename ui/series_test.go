@@ -468,8 +468,11 @@ func TestAnEpisodeRowShowsItsFile(t *testing.T) {
 	for _, attr := range []string{"data-languages=", "data-score=", "data-video=", "data-transcode=", "data-subtitles=", "data-markers="} {
 		require.Equal(t, 1, strings.Count(body, attr), "%s: only the episode whose Episode names a file", attr)
 	}
-	for _, head := range []string{"Languages", "Score", "Video", "Audio", "Transcode", "Subtitles", "Markers"} {
-		require.Contains(t, body, ">"+head+" <", "column %s", head)
+	// Since 2026-11-28 the file's parts are one meta line under the title,
+	// not a column each.
+	require.Contains(t, body, `data-episode-meta`)
+	for _, head := range []string{"Languages", "Score", "Video", "Audio"} {
+		require.NotContains(t, body, ">"+head+" <", "no %s column", head)
 	}
 
 	srv, c := seriesFixtureWithActions(t)
