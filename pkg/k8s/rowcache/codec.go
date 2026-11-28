@@ -81,6 +81,9 @@ type codec struct {
 	dictID uint32
 
 	decodes map[string]prometheus.Counter
+
+	// memo holds the objects read most recently, decoded (memo.go).
+	memo *memo
 }
 
 // Decode reasons, the reason label of clustarr_rowcache_decodes_total.
@@ -100,7 +103,7 @@ func newCodec(kind string, gvk schema.GroupVersionKind, typ reflect.Type) (*code
 	if err != nil {
 		return nil, fmt.Errorf("rowcache: %s: decoder: %w", kind, err)
 	}
-	c := &codec{kind: kind, gvk: gvk, typ: typ, enc: enc, dec: dec, decodes: map[string]prometheus.Counter{}}
+	c := &codec{kind: kind, gvk: gvk, typ: typ, enc: enc, dec: dec, decodes: map[string]prometheus.Counter{}, memo: newMemo(memoBudget)}
 	for _, reason := range []string{reasonRead, reasonEvent, reasonIndex, reasonSample} {
 		c.decodes[reason] = metrics.RowCacheDecodesTotal.WithLabelValues(kind, reason)
 	}

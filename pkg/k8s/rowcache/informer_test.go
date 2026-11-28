@@ -519,3 +519,80 @@ func TestAnEventIsDecodedOnceForEveryHandler(t *testing.T) {
 	assert.Same(t, r1.of("update")[0].obj, r2.of("update")[0].obj, "the new state is one object")
 	assert.Same(t, r1.of("update")[0].old, r2.of("update")[0].old, "the old state is one object")
 }
+
+// A row read again is copied from the kind's memo, not decoded again: an
+// item's pass reads its Series for its monitoring, its owner, its settings
+// and its profile in every stage, and on talos (2026-11-28) those decodes
+// were 63% of the manager's CPU at its limit. What a reader gets is its
+// own: writing to it changes nothing another reader sees. A changed object
+// is a new row and is decoded once more.
+func TestARowReadAgainIsNotDecodedAgain(t *testing.T) {
+	eps := episodes("media", "a", 3)
+	h := newHarness(t, eps...)
+	ctx := h.run()
+	reads := h.k.codec.decodes[reasonRead]
+	before := counterValue(t, reads)
+
+	first, err := h.get(ctx, eps[0])
+	require.NoError(t, err)
+	assertSameEpisode(t, eps[0], first)
+	require.InDelta(t, before+1, counterValue(t, reads), 0, "the first read decodes")
+
+	first.Labels["written"] = "by-the-first-reader"
+	first.Spec.SeasonNumber = 99
+	for range 5 {
+		again, err := h.get(ctx, eps[0])
+		require.NoError(t, err)
+		assertSameEpisode(t, eps[0], again)
+	}
+	require.InDelta(t, before+1, counterValue(t, reads), 0, "five more reads decode nothing")
+
+	// A List of a few rows is served the same way, and remembers its own.
+	var l catalogv1alpha1.EpisodeList
+	require.NoError(t, h.cache.List(ctx, &l, client.InNamespace("media")))
+	require.Len(t, l.Items, 3)
+	require.InDelta(t, before+3, counterValue(t, reads), 0, "the two rows not read yet are decoded, the third copied")
+	require.NoError(t, h.cache.List(ctx, &l, client.InNamespace("media")))
+	require.InDelta(t, before+3, counterValue(t, reads), 0)
+
+	// A change is a new row.
+	changed := eps[0].DeepCopy()
+	changed.Spec.SeasonNumber = 2
+	h.src.Modify(changed)
+	require.Eventually(t, func() bool {
+		got, err := h.get(ctx, eps[0])
+		return err == nil && got.Spec.SeasonNumber == 2
+	}, 5*time.Second, 10*time.Millisecond, "a read after the change returns the changed object")
+
+	// A reader that promises not to write shares the memo's object.
+	var a, b catalogv1alpha1.Episode
+	require.NoError(t, h.cache.Get(ctx, client.ObjectKeyFromObject(eps[1]), &a, client.UnsafeDisableDeepCopy))
+	require.NoError(t, h.cache.Get(ctx, client.ObjectKeyFromObject(eps[1]), &b, client.UnsafeDisableDeepCopy))
+	assertSameEpisode(t, eps[1], &a)
+	a.Labels["shared"] = "yes"
+	assert.Equal(t, "yes", b.Labels["shared"], "no copy was made")
+}
+
+// The memo holds no more than its budget of rows' JSON, the ones read
+// longest ago leaving first, and never an entry of a row that was replaced.
+func TestTheMemoIsBounded(t *testing.T) {
+	m := newMemo(100)
+	rows := make([]*Row, 5)
+	for i := range rows {
+		rows[i] = &Row{k: fmt.Sprintf("media/e%d", i), size: 40}
+		m.store(rows[i], &catalogv1alpha1.Episode{})
+	}
+	assert.LessOrEqual(t, m.used, 100)
+	assert.Nil(t, m.lookup(rows[0]), "the oldest left")
+	assert.NotNil(t, m.lookup(rows[4]))
+	assert.NotNil(t, m.lookup(rows[3]))
+
+	next := &Row{k: rows[4].k, size: 40}
+	assert.Nil(t, m.lookup(next), "a new row of the key is not the remembered one")
+	m.store(next, &catalogv1alpha1.Episode{})
+	assert.Nil(t, m.lookup(rows[4]), "the replaced row is forgotten")
+	assert.NotNil(t, m.lookup(next))
+
+	m.store(&Row{k: "media/huge", size: 101}, &catalogv1alpha1.Episode{})
+	assert.Nil(t, m.lookup(&Row{k: "media/huge", size: 101}), "a row over the whole budget is not kept")
+}

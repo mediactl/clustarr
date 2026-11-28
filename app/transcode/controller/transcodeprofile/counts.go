@@ -30,6 +30,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/app/transcode/task"
 	busevents "github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/k8s/rowcache"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -42,12 +43,20 @@ type counts struct{ pending, running, matching, waiting int32 }
 // backlog, and matchingFiles from every file whose block names the profile
 // plus that backlog.
 func (r *Reconciler) counts(ctx context.Context, profile string) (counts, error) {
+	// The files are counted by their keys, through the cache itself
+	// (rowcache.Keys reads no row's body): listed through the client every
+	// one was decoded to be counted, 17,000 files a pass and a tenth of the
+	// manager's CPU (talos, 2026-11-28).
+	var reader client.Reader = r.Client
+	if r.Cache != nil {
+		reader = r.Cache
+	}
 	n := func(value string) (int32, error) {
-		var l catalogv1alpha1.MediaFileList
-		if err := r.Client.List(ctx, &l, client.MatchingFields{mfindex.TranscodeProfile: value}, client.UnsafeDisableDeepCopy); err != nil {
+		keys, err := rowcache.Keys(ctx, reader, &catalogv1alpha1.MediaFileList{}, client.MatchingFields{mfindex.TranscodeProfile: value})
+		if err != nil {
 			return 0, fmt.Errorf("transcodeprofile: count %s: %w", value, err)
 		}
-		return int32(len(l.Items)), nil //nolint:gosec // a library's file count fits
+		return int32(len(keys)), nil //nolint:gosec // a library's file count fits
 	}
 	var c counts
 	for _, p := range []catalogv1alpha1.TranscodePhase{

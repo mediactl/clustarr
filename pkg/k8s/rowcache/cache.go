@@ -54,6 +54,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	toolscache "k8s.io/client-go/tools/cache"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -172,8 +173,11 @@ func (c *Cache) informer(ctx context.Context, k *kind) (*Informer, error) {
 	return ri, nil
 }
 
-// Get implements client.Reader: a kind held as rows is decoded into out
-// from its row; any other kind is the cache's own Get.
+// Get implements client.Reader: a kind held as rows is read into out from
+// its row -- decoded, or copied from the kind's memo of what was read
+// lately (memo.go) -- and any other kind is the cache's own Get.
+// client.UnsafeDisableDeepCopy is honoured as the informer cache honours
+// it: out may then share the memo's object, and must not be written.
 func (c *Cache) Get(ctx context.Context, key client.ObjectKey, out client.Object, opts ...client.GetOption) error {
 	k, ok := c.kinds[reflect.TypeOf(out)]
 	if !ok {
@@ -194,7 +198,9 @@ func (c *Cache) Get(ctx context.Context, key client.ObjectKey, out client.Object
 	if !exists {
 		return apierrors.NewNotFound(schema.GroupResource{Group: k.gvk.Group, Resource: k.gvk.Kind}, key.Name)
 	}
-	return inf.codec.decodeInto(item.(*Row), out, reasonRead)
+	var o client.GetOptions
+	o.ApplyOptions(opts)
+	return inf.codec.read(item.(*Row), out, ptr.Deref(o.UnsafeDisableDeepCopy, false), true)
 }
 
 // selectRows narrows a kind's rows as controller-runtime's reader narrows
@@ -265,12 +271,15 @@ func (c *Cache) List(ctx context.Context, list client.ObjectList, opts ...client
 		return fmt.Errorf("rowcache: %T carries no Items []%s", list, k.typ)
 	}
 	items.Set(reflect.MakeSlice(items.Type(), len(rows), len(rows)))
+	var lo client.ListOptions
+	lo.ApplyOptions(opts)
+	shared := ptr.Deref(lo.UnsafeDisableDeepCopy, false)
 	for i, r := range rows {
 		item, ok := reflect.TypeAssert[runtime.Object](items.Index(i).Addr())
 		if !ok {
 			return fmt.Errorf("rowcache: %s: *%s is not a runtime.Object", k.gvk.Kind, k.typ)
 		}
-		if err := inf.codec.decodeInto(r, item, reasonRead); err != nil {
+		if err := inf.codec.read(r, item, shared, len(rows) <= memoListLimit); err != nil {
 			return err
 		}
 	}

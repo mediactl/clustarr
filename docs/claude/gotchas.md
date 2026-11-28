@@ -1328,6 +1328,32 @@ recorded here.
   of one object from the first decode, by the same object (the planners
   read with `UnsafeDisableDeepCopy` already and never mutate what they
   read), counted in `clustarr_remediation_pass_reads_total{kind,result}`.
+  **A row read again is copied, not decoded (2026-11-28, owner: "Do the
+  kubernetes libraries included in the project ... provide more efficient
+  methods of handling this?", then "Design and implement fixes for all
+  identified blockers").** The libraries' method is the one the rows
+  replaced: controller-runtime's informer cache keeps every object decoded,
+  so a Get is a map lookup and a DeepCopy (none under
+  `UnsafeDisableDeepCopy`), and beyond `ByObject` selectors, cache
+  transforms and metadata-only informers they offer nothing between that
+  and no cache. The rows' price showed once a long series was worked: a
+  30 s profile of the manager, held at its 750m limit, had 63% of its CPU
+  in `rowcache.(*codec).decodeInto` -- every item pass reads its Series for
+  its monitoring, owner, settings and profile, stage by stage, and One
+  Piece's is 168 KB of JSON, 1.9 ms a decode, with a thousand episodes in
+  flight -- and another 10% in `transcodeprofile.counts`, which listed
+  17,000 MediaFiles to count them. Thirty interactive searches the agents
+  answered in seconds were unfolded 30 minutes later. Now each row kind
+  keeps the objects read most recently decoded (`rowcache/memo.go`:
+  `memoBudget`, 4 MiB of rows' JSON a kind, about 40 MB decoded at the
+  most across the five kinds; an entry is the row it came from, so a
+  changed object is never served stale): a repeat Get or a short List is a
+  DeepCopy (33 µs for One Piece's Series, 4 µs for an average one), and
+  under `UnsafeDisableDeepCopy` it is the memo's own object, which
+  therefore must not be written (it bought nothing on these kinds before).
+  A List of more than `memoListLimit` rows reads the memo and does not fill
+  it. `transcodeprofile.counts` counts keys (`rowcache.Keys` on the cache).
+  The CPU limit itself is the owner's and unchanged.
   **Album is the fifth row kind, and the music library is why** (owner,
   2026-11-17, "What's causing clustarr-manager's memory to spike now?",
   then "Approve all"): the scan of 2026-11-16 took talos from 1,055 to
