@@ -74,7 +74,7 @@ func (t *Tuner) fetchPlexLineups(ctx context.Context, p *provider, cfg Config, c
 	if removed {
 		return
 	}
-	t.scheduleRender(p)
+	t.scheduleRender(p, renderPlexLineup)
 	t.poke()
 }
 
