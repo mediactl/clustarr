@@ -252,4 +252,9 @@ Until the guard lands, review holds the invariant; drop the mark when it does.
   when the compact overlay's `Clustarr-Rendered-From` is not the plan's.
   The ui's pages never show one and raise no art event for one
   (`TestACompactObjectRaisesNoArtEvent`).
+  A profile edit that moves only the compact template
+  (`spec.compactGeometry`) wakes its namespace's items through the overlay
+  stage's source S41 (`app/remediation/artwork/overlaysource.go`): the
+  OverlayProfile controller compares `status.overlay` and cannot see it.
+  The compact digest carries `RenderVersion` as well as its own version.
 

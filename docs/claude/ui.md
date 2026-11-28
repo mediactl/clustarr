@@ -799,7 +799,11 @@ that big). So, since 2026-10-26:
   (built by `artworkFor.url`, the `:443` and `&nowebp=1` included: Plex
   names its stored poster by that URL's SHA-1) and the twin's path with
   its digest in `?v`; sorted, no title, ETag and 304. A ui whose artwork
-  index is not synced lists nothing;
+  index is not synced lists nothing. The list pairs like with like
+  (`Server.compactArt`): an overlaid poster with its compact overlay only,
+  an original with the compact poster, so a phone never gets a poster
+  without the badge the large one carries (`/art?size=compact` itself
+  still falls back from an unreadable compact overlay to the compact poster);
 - a match result (`POST .../matches`) carries them by the artwork entry's
   `sourceURL` instead (`urls.sourced`, `artworkFor.url`), because PMS makes
   a match result's thumb the item's and selects a refresh's download only
