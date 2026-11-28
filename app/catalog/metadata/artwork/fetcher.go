@@ -400,7 +400,7 @@ func (f *Fetcher) fetchTitled(ctx context.Context, key string, ref catalogartwor
 		if text {
 			continue
 		}
-		out, err := f.titled(canvas, mark)
+		out, err := f.titled(canvas, mark, RegularTitle)
 		if err != nil {
 			return fmt.Errorf("the title logo: %w", err)
 		}

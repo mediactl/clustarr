@@ -46,13 +46,6 @@ const (
 	// 54 -- but a title drawn as artwork (Akira's) reads as little as 0,
 	// which no threshold catches.
 	titleTextPermille = 3
-	// titleMaxWidthPct and titleMaxHeightPct bound the logo, as percentages
-	// of the poster's width and height; it is scaled to fit both, never up.
-	titleMaxWidthPct  = 78
-	titleMaxHeightPct = 24
-	// titleBottomPct is the gap under the logo, a percentage of the
-	// poster's height.
-	titleBottomPct = 5
 	// titleShadeFromPct is where the shade begins, a percentage of the
 	// poster's height from the top; it deepens to titleShadeAlpha (of 255)
 	// at the bottom edge.
@@ -66,6 +59,26 @@ const (
 	// logo dark: it is drawn white, since it sits on the shade.
 	titleDarkLuma = 70
 	titleDarkPct  = 85
+)
+
+// TitleGeometry is the box a logo is drawn in, in percentages of the poster.
+type TitleGeometry struct {
+	// MaxWidthPct and MaxHeightPct bound the logo, as percentages of the
+	// poster's width and height; it is scaled to fit both, never up.
+	MaxWidthPct, MaxHeightPct int
+	// BottomPct is the gap under the logo, a percentage of the poster's
+	// height.
+	BottomPct int
+}
+
+var (
+	// RegularTitle is the titled poster's geometry (TitleVersion 1). A
+	// change here is a change of every titled poster's bytes: raise
+	// catalogartwork.TitleVersion with it.
+	RegularTitle = TitleGeometry{MaxWidthPct: 78, MaxHeightPct: 24, BottomPct: 5}
+	// CompactTitle is the compact rendition's: the same logo drawn larger,
+	// for a poster shown small (catalogartwork.CompactTitleVersion).
+	CompactTitle = TitleGeometry{MaxWidthPct: 90, MaxHeightPct: 32, BottomPct: 5}
 )
 
 // errNoTitle is a logo with nothing to draw.
@@ -122,15 +135,12 @@ func (f *Fetcher) hasText(ctx context.Context, canvas *image.RGBA) (bool, error)
 	return permille >= titleTextPermille, nil
 }
 
-// titled is canvas with mark drawn at its bottom centre over the shade,
-// encoded as a JPEG at FitJPEGQuality. The logo's transparent margins are
-// trimmed first, so its own padding moves neither its size nor its place,
-// and a logo that is all dark is drawn white. canvas is drawn on.
-func (f *Fetcher) titled(canvas *image.RGBA, mark image.Image) (fitted, error) {
+// titled is canvas with mark drawn at its bottom centre over the shade
+// (DrawTitled), encoded as a JPEG at FitJPEGQuality. canvas is drawn on.
+func (f *Fetcher) titled(canvas *image.RGBA, mark image.Image, g TitleGeometry) (fitted, error) {
 	f.fitMu.Lock()
 	defer f.fitMu.Unlock()
-	shade(canvas)
-	if err := drawTitle(canvas, mark); err != nil {
+	if err := DrawTitled(canvas, mark, g); err != nil {
 		return fitted{}, err
 	}
 	var buf bytes.Buffer
@@ -139,6 +149,16 @@ func (f *Fetcher) titled(canvas *image.RGBA, mark image.Image) (fitted, error) {
 	}
 	b := canvas.Bounds()
 	return fitted{body: buf.Bytes(), contentType: "image/jpeg", width: b.Dx(), height: b.Dy()}, nil
+}
+
+// DrawTitled draws mark at canvas's bottom centre, in g's box, over the
+// shade. The logo's transparent margins are trimmed first, so its own
+// padding moves neither its size nor its place, and a logo that is all dark
+// is drawn white. canvas is drawn on, the shade included, also when the
+// logo turns out to have nothing to draw.
+func DrawTitled(canvas *image.RGBA, mark image.Image, g TitleGeometry) error {
+	shade(canvas)
+	return drawTitle(canvas, mark, g)
 }
 
 // shade darkens canvas from titleShadeFromPct down, deepening with the
@@ -163,8 +183,8 @@ func shade(canvas *image.RGBA) {
 }
 
 // drawTitle draws mark at canvas's bottom centre: trimmed to its opaque
-// pixels, scaled to fit the title box, and white when it is all dark.
-func drawTitle(canvas *image.RGBA, mark image.Image) error {
+// pixels, scaled to fit g's box, and white when it is all dark.
+func drawTitle(canvas *image.RGBA, mark image.Image, g TitleGeometry) error {
 	src := image.NewNRGBA(mark.Bounds())
 	draw.Draw(src, src.Bounds(), mark, mark.Bounds().Min, draw.Src)
 	crop, dark := inked(src)
@@ -176,7 +196,7 @@ func drawTitle(canvas *image.RGBA, mark image.Image) error {
 	}
 
 	cb := canvas.Bounds()
-	maxW, maxH := cb.Dx()*titleMaxWidthPct/100, cb.Dy()*titleMaxHeightPct/100
+	maxW, maxH := cb.Dx()*g.MaxWidthPct/100, cb.Dy()*g.MaxHeightPct/100
 	w, h := crop.Dx(), crop.Dy()
 	if w > maxW {
 		w, h = maxW, h*maxW/w
@@ -188,7 +208,7 @@ func drawTitle(canvas *image.RGBA, mark image.Image) error {
 		return errNoTitle
 	}
 	x := cb.Min.X + (cb.Dx()-w)/2
-	y := cb.Max.Y - cb.Dy()*titleBottomPct/100 - h
+	y := cb.Max.Y - cb.Dy()*g.BottomPct/100 - h
 	xdraw.CatmullRom.Scale(canvas, image.Rect(x, y, x+w, y+h), src, crop, xdraw.Over, nil)
 	return nil
 }
