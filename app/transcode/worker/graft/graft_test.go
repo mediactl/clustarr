@@ -258,3 +258,51 @@ func TestTheReducedDonorKeepsEveryWantedLanguage(t *testing.T) {
 	}
 	require.ElementsMatch(t, []string{"jpn", "eng", "fre"}, langs)
 }
+
+// A donor imported while its series was stored under another root folder is
+// moved under the one the series is stored under now, with everything else
+// in the item's donor folder, and grafted from there. On talos (2026-11-27)
+// 31 grafts of eight series moved from the tv root folder to the anime one
+// failed every few minutes with "donor ... is outside root folder
+// /data/media/anime".
+func TestADonorImportedUnderTheSeriesFormerRootFolderFollowsIt(t *testing.T) {
+	l := newLibrary(t, []string{"jpn", "eng"}, 1.5)
+	// The fixture's donor is under /data/tv, where the series is. Put it,
+	// and a file beside it, where an import under a former root folder
+	// would have: /data/former/.clustarr/donors/uid-1.
+	here := filepath.Dir(l.path(l.task.Donor))
+	former := filepath.Join(l.dataDir, "former", ".clustarr", "donors", "uid-1")
+	require.NoError(t, os.MkdirAll(filepath.Dir(former), 0o755))
+	require.NoError(t, os.Rename(here, former))
+	require.NoError(t, os.WriteFile(filepath.Join(former, "beside.mka"), []byte("x"), 0o644))
+	recorded := "/data/former/.clustarr/donors/uid-1/" + filepath.Base(l.task.Donor)
+
+	want := l.task.Donor
+	l.task.PlaceDonor(recorded)
+	require.Equal(t, want, l.task.Donor, "the donor is named where it lies under the root folder")
+	require.Equal(t, recorded, l.task.DonorFrom)
+
+	res := graft.Run(context.Background(), l.task, graft.Options{DataDir: l.dataDir})
+	require.Equal(t, grafttask.PhaseSucceeded, res.Phase, res.Message)
+	assert.Equal(t, grafttask.ReasonGrafted, res.Reason)
+	// The graft reduces the donor to its audio, so what stands there now is
+	// that, beside the file that followed it.
+	assert.FileExists(t, strings.TrimSuffix(l.path(want), filepath.Ext(want))+".mka")
+	assert.FileExists(t, filepath.Join(here, "beside.mka"), "everything in the item's donor folder follows")
+	assert.NoDirExists(t, former)
+}
+
+// A donor under the root folder is used where it is, and one under no donor
+// folder is refused as it was.
+func TestPlaceDonor(t *testing.T) {
+	for _, tc := range []struct{ root, recorded, donor, from string }{
+		{"/data/media/anime", "/data/media/anime/.clustarr/donors/u/a.mka", "/data/media/anime/.clustarr/donors/u/a.mka", ""},
+		{"/data/media/anime", "/data/media/tv/.clustarr/donors/u/a.mka", "/data/media/anime/.clustarr/donors/u/a.mka", "/data/media/tv/.clustarr/donors/u/a.mka"},
+		{"/data/media/anime", "/data/elsewhere/a.mka", "/data/elsewhere/a.mka", ""},
+	} {
+		task := grafttask.Task{Root: tc.root}
+		task.PlaceDonor(tc.recorded)
+		assert.Equal(t, tc.donor, task.Donor, tc.recorded)
+		assert.Equal(t, tc.from, task.DonorFrom, tc.recorded)
+	}
+}

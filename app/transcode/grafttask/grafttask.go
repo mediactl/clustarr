@@ -70,8 +70,12 @@ type Task struct {
 	// Root is the target's RootFolder path: the target and the donor must
 	// lie under it.
 	Root string `json:"root"`
-	// Donor is the donor as import placed it.
-	Donor string `json:"donor"`
+	// Donor is the donor where it lies under Root (fsops.DonorUnder), and
+	// DonorFrom where import placed it when that is under another root
+	// folder -- the series was moved since -- and "" otherwise: the worker
+	// moves the item's donors from there before it reads one.
+	Donor     string `json:"donor"`
+	DonorFrom string `json:"donorFrom,omitempty"`
 	// Language is the track to graft, Anchor the language both files carry
 	// (BCP-47); Default makes the grafted track the default. Languages are
 	// every language the item is missing: a donor not yet reduced keeps
@@ -83,6 +87,47 @@ type Task struct {
 	// RecycleBin receives the target's original name before the swap; empty
 	// is none.
 	RecycleBin string `json:"recycleBin,omitempty"`
+}
+
+// donorsDir is the folder under a RootFolder that holds audio donors, one
+// folder an item: app/import/importplan.DonorDir, which this package (linked
+// by cmd/transcode, and kept free of the import's) cannot name.
+const donorsDir = ".clustarr/donors"
+
+// DonorUnder is where the audio donor recorded at path lies for a file
+// stored under the root folder root: path itself when it is under root, and
+// otherwise the same place below root's donor folder that it had below the
+// one it was imported into. An item records its donor where the import put
+// it, under the root folder its series had then; a series moved to another
+// root folder takes its files along (remediation's relocation), and its
+// donors follow at the next graft, whose worker moves them. On talos 31
+// grafts of eight series moved from tv to anime failed every few minutes
+// with "donor ... is outside root folder /data/media/anime" (2026-11-27;
+// owner: "Fix these items - moving them into the new root"). A path under
+// no donor folder is returned as it is, and refused by the worker as it
+// was.
+func DonorUnder(root, path string) string {
+	path = filepath.Clean(path)
+	if root == "" || Within(root, path) {
+		return path
+	}
+	marker := "/" + donorsDir + "/"
+	i := strings.LastIndex(path, marker)
+	if i < 0 {
+		return path
+	}
+	return filepath.Join(root, donorsDir, path[i+len(marker):])
+}
+
+// PlaceDonor sets t's Donor and DonorFrom for a donor the item recorded at
+// recorded: under Root it is used where it is, and one imported under
+// another root folder is named where it belongs under Root, with where it
+// was.
+func (t *Task) PlaceDonor(recorded string) {
+	t.Donor, t.DonorFrom = DonorUnder(t.Root, recorded), ""
+	if t.Donor != filepath.Clean(recorded) {
+		t.DonorFrom = recorded
+	}
 }
 
 // Validate reports a Task the worker cannot run.

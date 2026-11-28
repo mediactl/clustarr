@@ -540,12 +540,16 @@ func owedTask(v View, in Input, b *catalogv1alpha1.GraftState) (grafttask.Task, 
 
 // taskOf is the standalone graft task of dispatch s.
 func taskOf(v View, in Input, s int64, x grafttask.Inputs, langs []string) grafttask.Task {
-	return grafttask.Task{
+	t := grafttask.Task{
 		Schema: grafttask.TaskSchema, File: fileRef(v.File), Item: in.Item.UID, Seq: s, Inputs: x,
-		Target: v.File.Spec.Path, TargetProbeHash: x.TargetProbeHash, Root: in.Root, Donor: x.DonorAudio,
+		Target: v.File.Spec.Path, TargetProbeHash: x.TargetProbeHash, Root: in.Root,
 		Language: x.Language, Languages: slices.Clone(langs), Anchor: x.Anchor,
 		Default: isDefault(in.Item.Default, x.Language), RecycleBin: in.RecycleBin,
 	}
+	// The inputs keep the donor as the item recorded it; the task names it
+	// where it lies under the file's root folder now.
+	t.PlaceDonor(x.DonorAudio)
+	return t
 }
 
 // sameAttempt reports a block for this donor and these bytes.

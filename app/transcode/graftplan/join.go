@@ -60,12 +60,14 @@ func Join(v View, in JoinInput) *Joinable {
 	if l == "" {
 		return nil
 	}
+	t := grafttask.Task{
+		Target: v.File.Spec.Path, TargetProbeHash: v.Draft.ProbeHash, Root: in.Root,
+		Language: l, Languages: slices.Clone(it.Audio.Missing), Anchor: it.Anchor,
+		Default: isDefault(it.Default, l), RecycleBin: in.RecycleBin,
+	}
+	t.PlaceDonor(donor.Path)
 	return &Joinable{
-		Task: grafttask.Task{
-			Target: v.File.Spec.Path, TargetProbeHash: v.Draft.ProbeHash, Root: in.Root, Donor: donor.Path,
-			Language: l, Languages: slices.Clone(it.Audio.Missing), Anchor: it.Anchor,
-			Default: isDefault(it.Default, l), RecycleBin: in.RecycleBin,
-		},
+		Task: t,
 		Join: catalogv1alpha1.TranscodeGraftJoin{
 			DonorRelease: donor.Release, DonorImportedAt: donor.ImportedAt.DeepCopy(),
 			Languages: slices.Clone(it.Audio.Missing), ProbeHash: v.Draft.ProbeHash,

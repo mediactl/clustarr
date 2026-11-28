@@ -31,6 +31,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -143,8 +144,63 @@ func Prepare(ctx context.Context, t grafttask.Task, o Options, source string) (*
 	return r.prepare(ctx, source)
 }
 
-func (r *run) prepare(ctx context.Context, target string) (*Prepared, grafttask.Result) {
+// settleDonor brings the item's donors under the target's root folder when
+// the task says import placed them under another (Task.DonorFrom: the
+// series was moved to another root folder since), and returns the donor's
+// local path. Every file of the item's donor folder goes -- the release and
+// the audio a graft reduced it to -- each only where nothing stands yet, so
+// a move cut short is finished by the next graft and a donor imported under
+// the new root since is kept.
+func (r *run) settleDonor() (string, error) {
 	donor, err := r.local(r.t.Donor)
+	if err != nil {
+		return "", err
+	}
+	if r.t.DonorFrom == "" {
+		return donor, nil
+	}
+	if grafttask.DonorUnder(r.t.Root, r.t.DonorFrom) != filepath.Clean(r.t.Donor) || filepath.Clean(r.t.DonorFrom) == filepath.Clean(r.t.Donor) {
+		return "", fmt.Errorf("%s is not where the donor at %s lies under root folder %s", r.t.Donor, r.t.DonorFrom, r.t.Root)
+	}
+	from, err := grafttask.LocalPath(r.o.DataDir, r.t.DonorFrom)
+	if err != nil {
+		return "", err
+	}
+	fromDir, toDir := filepath.Dir(from), filepath.Dir(donor)
+	entries, err := os.ReadDir(fromDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return donor, nil // moved already
+	}
+	if err != nil {
+		return "", fmt.Errorf("read the donor folder under the series' former root folder: %w", err)
+	}
+	if err := os.MkdirAll(toDir, 0o755); err != nil {
+		return "", fmt.Errorf("make the donor folder under root folder %s: %w", r.t.Root, err)
+	}
+	moved := 0
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		to := filepath.Join(toDir, e.Name())
+		if _, err := os.Lstat(to); err == nil {
+			continue
+		}
+		if err := fsops.MoveNoReplace(filepath.Join(fromDir, e.Name()), to); err != nil {
+			return "", fmt.Errorf("move the donor %s under root folder %s: %w", e.Name(), r.t.Root, err)
+		}
+		moved++
+	}
+	_ = os.Remove(fromDir) // empty now, unless something else was left in it
+	if moved > 0 {
+		r.log.Info("graft: moved the item's audio donors after its series to the root folder it is stored under",
+			"from", filepath.Dir(r.t.DonorFrom), "to", filepath.Dir(r.t.Donor), "files", moved)
+	}
+	return donor, nil
+}
+
+func (r *run) prepare(ctx context.Context, target string) (*Prepared, grafttask.Result) {
+	donor, err := r.settleDonor()
 	if err != nil {
 		return nil, grafttask.Failed(grafttask.ReasonInvalidTask, "donor: %v", err)
 	}
