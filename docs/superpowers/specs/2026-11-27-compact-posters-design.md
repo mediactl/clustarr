@@ -1,7 +1,7 @@
 # Compact posters: bigger badges and title on a small poster
 
 **Date:** 2026-11-27
-**Status:** design, awaiting the owner's approval. Nothing is built.
+**Status:** approved by the owner, 2026-11-28 ("Approve the design"). In build: the clustarr half by `docs/superpowers/plans/2026-11-28-compact-posters-clustarr.md`; the compact sizes are the owner's to settle on mock renderings (§5.5 step 1).
 **Owner's ask:** "customize the scaled down posters to make the overlays like
 ratings, dubs, and even the title text bigger to match plex's episode count
 overlay size"; of the title, "it's actually a title image and is the

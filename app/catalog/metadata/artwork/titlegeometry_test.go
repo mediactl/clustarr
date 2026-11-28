@@ -106,7 +106,7 @@ func TestDrawTitled_RegularUnchanged(t *testing.T) {
 
 	f, err := os.Open("../../../../test/data/artwork/title-regular-golden.png")
 	require.NoError(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	golden, err := png.Decode(f)
 	require.NoError(t, err)
 	require.Equal(t, canvas.Bounds(), golden.Bounds())
