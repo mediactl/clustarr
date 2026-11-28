@@ -841,6 +841,33 @@ recorded here.
   hours unblocked, then the same release again. Tests:
   `TestAFilePostedInPiecesIsJoinedByPar2` (real par2, falsified),
   `TestAPar2FileIsNotHeldToItsDeclaredSize`.
+- **The library collector asked the apiserver for every owner every 30
+  seconds (ADR-0025 wave 1, 2026-11-28).** `readwrite.Collector` read every
+  owned row of every kind each sweep and sent one uncached GET per distinct
+  owner: 43,800 GETs in a settled 30 minutes on talos (752 Series, 387
+  Artists, 2 Authors behind 35,000 rows), on control planes whose
+  apiservers had been OOM-killed that month, and 10% of everything the
+  manager allocated. It now works from what changed. The manager's
+  informers of `libraryOwnerKinds` (Series, Artist, Author, Comic:
+  `internal/cli/manager/collect.go`) report an owner that went -- a delete,
+  a tombstone, or an update whose uid changed, which is how client-go
+  reports delete-and-recreate across a relist -- and only that owner's
+  rows are read. One sweep at start (distinct owners, not rows) covers
+  what was deleted with no manager running; there is no timer. The cache
+  may only say an owner is **there**; "gone" is always the apiserver's
+  (`Owners`), and an owner reported deleted is asked for there directly,
+  so a stale cache can keep a row and never delete one. The cache is read
+  for the listed kinds alone: a cached read of any other kind would start
+  an informer of it. The delete is held to the row's version as well as
+  its uid, because a parent deleted and made again under its name adopts
+  its children in place within the second the delete is reported. Still
+  owed: a GIN index for the `ownerReferences @>` lookup (one Series delete
+  scans the episode table). Metrics `clustarr_library_collect_*`. Tests:
+  `TestTheCollectorWorksFromWhatChanged` (falsified three ways),
+  `TestOwnerEventsReportEveryWayAnOwnerGoes`. The same commit stops the
+  Cardigann loader re-applying a definition already in place (752 applies
+  per leader start) and adds `clustarr_item_applies_total` (`applied` in
+  the passes counter never meant written) and the Live TV render counters.
 - **An NZB can list two different files under one name, and both were
   written to one path (2026-11-28, owner: "Ensure it's rolled", after which
   the same message came back in a third shape).** An indexer's listing of

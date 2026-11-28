@@ -19,6 +19,7 @@ package tuner
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -40,14 +41,30 @@ import (
 // defaultDummyMinutes is an unmapped channel's dummy block length.
 const defaultDummyMinutes = 60
 
+// What asks for a render, clustarr_livetv_render_requests_total's and
+// clustarr_livetv_renders_total's reason label.
+const (
+	renderConfig     = "config"     // the provider's configuration changed (Apply)
+	renderPlaylist   = "playlist"   // a playlist fetch landed
+	renderGuide      = "guide"      // a guide fetch landed
+	renderAccount    = "account"    // the first account fetch, before any snapshot
+	renderGrid       = "grid"       // a Plex grid was stored
+	renderPlexLineup = "plexLineup" // the Plex lineup changed
+	renderLogos      = "logos"      // channel logos were found
+	renderAgain      = "again"      // asked for while a render ran
+)
+
 // scheduleRender renders p after Debounce of quiet, but never later than
 // five Debounces after the first change, so a stream of edits still renders.
-func (t *Tuner) scheduleRender(p *provider) {
+// reason is what asked; the render is counted under the first reason of the
+// requests it answers.
+func (t *Tuner) scheduleRender(p *provider, reason string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.removed {
 		return
 	}
+	renderRequests.WithLabelValues(label(p.key), reason).Inc()
 	now := time.Now()
 	if p.renderTimer != nil {
 		if now.Sub(p.renderSince) >= 5*t.o.Debounce {
@@ -56,6 +73,7 @@ func (t *Tuner) scheduleRender(p *provider) {
 		p.renderTimer.Stop()
 	} else {
 		p.renderSince = now
+		p.renderReason = reason
 	}
 	p.renderTimer = time.AfterFunc(t.o.Debounce, func() { t.render(p) })
 }
@@ -85,6 +103,11 @@ func (t *Tuner) render(p *provider) {
 	}
 	p.rendering = true
 	defer t.renderDone(p)
+	defer func(start time.Time, provider, reason string) {
+		renders.WithLabelValues(provider, reason).Inc()
+		renderSeconds.WithLabelValues(provider).Add(time.Since(start).Seconds())
+	}(time.Now(), label(p.key), cmp.Or(p.renderReason, renderAgain))
+	p.renderReason = ""
 	p.renderGen++
 	gen := p.renderGen
 	cfg := p.cfg
@@ -439,7 +462,7 @@ func (t *Tuner) renderDone(p *provider) {
 	p.renderAgain = false
 	p.mu.Unlock()
 	if again {
-		t.scheduleRender(p)
+		t.scheduleRender(p, renderAgain)
 	}
 }
 

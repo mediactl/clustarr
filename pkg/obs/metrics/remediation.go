@@ -23,6 +23,16 @@ var (
 	// (applied, unchanged, conflict, stale, paced, error).
 	RemediationPassesTotal = newCounterVec("clustarr_remediation_passes_total",
 		"Remediation loop passes, by key kind and outcome.", "kind", "outcome")
+	// ItemAppliesTotal counts an item pass's status applies, the catalog
+	// declaration and each other manager's set, by what became of each:
+	// kept (the pass remembered this declaration left the item as it is,
+	// so nothing was sent), unchanged (sent, and the answer left the item
+	// at the version it was read at: the whole merge ran to change
+	// nothing), written (the version moved) and conflict. The passes
+	// counter's "applied" outcome is unchanged plus written; this is the
+	// split (ADR-0025, part 11).
+	ItemAppliesTotal = newCounterVec("clustarr_item_applies_total",
+		"Item status applies, by item kind, field manager and result (kept, unchanged, written, conflict).", "kind", "manager", "result")
 	// RemediationPlannerFailuresTotal counts planner gather, plan and effect
 	// failures by planner and reason (transient, cas_miss, error, panic).
 	RemediationPlannerFailuresTotal = newCounterVec("clustarr_remediation_planner_failures_total",

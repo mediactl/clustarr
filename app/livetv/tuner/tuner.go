@@ -184,6 +184,8 @@ type provider struct {
 	notified    *Snapshot
 	renderTimer *time.Timer
 	renderSince time.Time
+	// renderReason is what first asked for the render renderTimer holds.
+	renderReason string
 	// rendering is a render in progress; renderAgain is one asked for
 	// meanwhile, run when it ends (one render at a time: two had run side by
 	// side, each a few GB, the older's result dropped).
@@ -361,7 +363,7 @@ func (t *Tuner) Apply(c Config) {
 	p.cfg = c
 	t.markWantedGuideDue(p)
 	p.mu.Unlock()
-	t.scheduleRender(p)
+	t.scheduleRender(p, renderConfig)
 	t.poke()
 }
 

@@ -226,7 +226,7 @@ func (t *Tuner) lookupArt(p *provider, art *programmeArt, batch map[string]xmltv
 		art.running = false
 		art.mu.Unlock()
 		if found > 0 {
-			t.scheduleRender(p)
+			t.scheduleRender(p, renderLogos)
 		}
 		if failed > 10 {
 			return

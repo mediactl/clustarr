@@ -62,13 +62,24 @@ var (
 	gridHold = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "clustarr_livetv_grid_hold_seconds", Help: "Seconds left of the hold the guide service's last 429 set on a provider's grid fetches; 0 when none holds.",
 	}, []string{"provider"})
+	// The render (ADR-0025, part 11): each is the whole lineup and guide
+	// built again in the manager's heap, and nothing counted them.
+	renders = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "clustarr_livetv_renders_total", Help: "Lineup and guide renders, per provider and the first reason asked (config, playlist, guide, account, grid, plexLineup, logos, again).",
+	}, []string{"provider", "reason"})
+	renderRequests = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "clustarr_livetv_render_requests_total", Help: "Requests for a render, per provider and reason; several are answered by one render.",
+	}, []string{"provider", "reason"})
+	renderSeconds = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "clustarr_livetv_render_seconds_total", Help: "Seconds spent rendering lineups and guides, per provider.",
+	}, []string{"provider"})
 
 	metricsOnce sync.Once
 )
 
 func registerMetrics() {
 	metricsOnce.Do(func() {
-		ctrlmetrics.Registry.MustRegister(tunersInUse, viewers, streamBytes, upstreamErrors, viewersDropped, streamsDry, upstreamFirstByte, fetchDuration, gridCalls, gridHold)
+		ctrlmetrics.Registry.MustRegister(tunersInUse, viewers, streamBytes, upstreamErrors, viewersDropped, streamsDry, upstreamFirstByte, fetchDuration, gridCalls, gridHold, renders, renderSeconds, renderRequests)
 	})
 }
 
@@ -76,6 +87,9 @@ func registerMetrics() {
 func forgetMetrics(key types.NamespacedName) {
 	l := prometheus.Labels{"provider": label(key)}
 	tunersInUse.DeletePartialMatch(l)
+	renders.DeletePartialMatch(l)
+	renderRequests.DeletePartialMatch(l)
+	renderSeconds.DeletePartialMatch(l)
 	viewers.DeletePartialMatch(l)
 	streamBytes.DeletePartialMatch(l)
 	upstreamErrors.DeletePartialMatch(l)

@@ -139,8 +139,9 @@ func Run(ctx context.Context, o Options) error {
 	}
 	// A library object's owner is a custom resource the apiserver's garbage
 	// collector cannot follow into the store: the leader collects in its
-	// place (design §3.4).
-	collector := &readwrite.Collector{Store: store, Owners: built.GetAPIReader()}
+	// place (design §3.4), from the owners' delete events and the cache the
+	// manager already holds (ADR-0025, part 4).
+	collector := newCollector(mgr, store, built.GetAPIReader())
 	if err := mgr.Add(k8s.LeaderOnly(collector.Run)); err != nil {
 		return fmt.Errorf("manager: add the library's collector: %w", err)
 	}

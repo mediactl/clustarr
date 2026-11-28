@@ -110,15 +110,21 @@ func TestLoaderAppliesTheBundleAndLeavesTheOperatorsObjects(t *testing.T) {
 	require.Equal(t, []string{string(k8s.ManagerIndex)}, managers,
 		"the bundle's spec must be owned by index's field manager alone")
 
-	// Steady state: idempotent, and a changed file carries through.
+	// Steady state: a definition already in place is sent nowhere (every
+	// leader start re-applied all 752 on talos, ADR-0025 part 4), and a
+	// changed file carries through.
+	before := got.ResourceVersion
 	res, err = l.SyncOnce(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 1, res.Applied)
+	require.Equal(t, bundle.Result{Unchanged: 1, Refused: 1}, res)
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: "1337x"}, &got))
+	require.Equal(t, before, got.ResourceVersion, "an unchanged definition was written again")
 	changed := append([]byte(nil), real1337x...)
 	changed = append(changed, []byte("\n# a later corpus revision\n")...)
 	fsys["1337x.yml"] = &fstest.MapFile{Data: changed}
-	_, err = l.SyncOnce(ctx)
+	res, err = l.SyncOnce(ctx)
 	require.NoError(t, err)
+	require.Equal(t, bundle.Result{Applied: 1, Refused: 1}, res)
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: "1337x"}, &got))
 	require.Equal(t, string(changed), got.Spec.YAML, "a changed bundle file did not reach its IndexerDefinition")
 

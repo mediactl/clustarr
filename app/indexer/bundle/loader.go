@@ -52,9 +52,10 @@ type Loader struct {
 
 // Result counts one SyncOnce.
 type Result struct {
-	Applied int // created or updated
-	Kept    int // an operator's same-named object, left alone
-	Refused int // files LoadBundle refused, or ids with no valid name
+	Applied   int // created or updated
+	Unchanged int // already the bundle's definition, byte for byte: nothing sent
+	Kept      int // an operator's same-named object, left alone
+	Refused   int // files LoadBundle refused, or ids with no valid name
 }
 
 // Run syncs the bundle once, then waits for ctx: a bundle changes with a
@@ -66,7 +67,7 @@ func (l *Loader) Run(ctx context.Context) error {
 		return err
 	}
 	logging.FromContext(ctx).Info("bundle: Cardigann definitions loaded",
-		"dir", l.Dir, "applied", res.Applied, "kept", res.Kept, "refused", res.Refused)
+		"dir", l.Dir, "applied", res.Applied, "unchanged", res.Unchanged, "kept", res.Kept, "refused", res.Refused)
 	<-ctx.Done()
 	return nil
 }
@@ -119,6 +120,15 @@ func (l *Loader) SyncOnce(ctx context.Context) (Result, error) {
 		case err != nil && !apierrors.IsNotFound(err):
 			tracing.RecordError(span, err)
 			return res, fmt.Errorf("bundle: get IndexerDefinition %s: %w", name, err)
+		case err == nil && existing.Spec.YAML == string(def.YAML):
+			// The bundle's own object already says this, so an apply would
+			// change nothing and still cost the apiserver a request and a
+			// merge: 752 of them at every leader start on talos, with the
+			// bundle changing only at a redeploy (ADR-0025, part 4). The
+			// read is the manager's cache, which costs the apiserver
+			// nothing.
+			res.Unchanged++
+			continue
 		}
 
 		ac := indexac.IndexerDefinition(name).

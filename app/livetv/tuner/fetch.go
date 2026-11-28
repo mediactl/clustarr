@@ -188,7 +188,7 @@ func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, cfg Config) {
 		p.playlistNext = t.o.Now().Add(cfg.Every)
 	}
 	p.mu.Unlock()
-	t.scheduleRender(p)
+	t.scheduleRender(p, renderPlaylist)
 	t.poke()
 }
 
@@ -278,7 +278,7 @@ func (t *Tuner) fetchAccount(ctx context.Context, p *provider, cfg Config) {
 	// for as before.
 	if p.notified == nil {
 		p.mu.Unlock()
-		t.scheduleRender(p)
+		t.scheduleRender(p, renderAccount)
 		return
 	}
 	p.snap.Account, p.snap.Tuners = p.account, effectiveTuners(p.cfg, p.account)
@@ -419,7 +419,7 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, cfg Config) {
 		t.putGuideCache(ctx, p, cfg, parsed, want, t.o.Now())
 		t.putGuideChannels(ctx, p, parsed.Channels)
 	}
-	t.scheduleRender(p)
+	t.scheduleRender(p, renderGuide)
 }
 
 // withPanelFallback adds the panel's own guide (xmltv.php) to a guideURL's

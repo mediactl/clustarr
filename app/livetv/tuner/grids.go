@@ -568,7 +568,7 @@ func (t *Tuner) fetchGrids(ctx context.Context, p *provider, cfg Config) {
 	}
 	if len(stored) > 0 {
 		p.mu.Unlock()
-		t.scheduleRender(p)
+		t.scheduleRender(p, renderGrid)
 		return
 	}
 	// Nothing stored, so the guide is the one rendered: the snapshot takes

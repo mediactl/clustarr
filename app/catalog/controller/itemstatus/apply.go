@@ -29,6 +29,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -41,6 +42,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
 // ConflictRequeue is how soon an item whose apply met a newer object is
@@ -73,16 +75,25 @@ func Apply[A k8s.CASApplyConfiguration[A]](ctx context.Context, c client.Client,
 	digest, remembered := declaration(p, item, ac)
 	if remembered && p.Applies.Unchanged(item.GetUID(), item.GetResourceVersion(), digest) {
 		p.Kept(item.GetResourceVersion())
+		countApply(item, k8s.ManagerCatalog, applyKept)
 		return false, nil
 	}
 	applied, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, ac.WithResourceVersion(item.GetResourceVersion()))
 	if err != nil {
 		if apierrors.IsConflict(err) {
+			countApply(item, k8s.ManagerCatalog, applyConflict)
 			return true, nil
 		}
 		return false, err
 	}
 	rv := resourceVersionOf(applied)
+	// An apply that changes nothing leaves the version where it was, in the
+	// apiserver and in the library store alike: sent, merged, and no write.
+	if rv != "" && rv == item.GetResourceVersion() {
+		countApply(item, k8s.ManagerCatalog, applyUnchanged)
+	} else {
+		countApply(item, k8s.ManagerCatalog, applyWritten)
+	}
 	if remembered && rv != "" {
 		p.Applies.Applied(item.GetUID(), rv, digest)
 	}
@@ -166,9 +177,17 @@ func ApplySet(ctx context.Context, c client.Client, item client.Object, rv strin
 	applied, err := k8s.PatchStatusUnstructured(ctx, c, s.Manager, u)
 	if err != nil {
 		if apierrors.IsConflict(err) {
+			countApply(item, s.Manager, applyConflict)
 			return "", true, nil
 		}
 		return "", false, err
+	}
+	// rv is the version this set was applied on: the same one back is a
+	// set sent, merged and not written.
+	if rv != "" && applied.GetResourceVersion() == rv {
+		countApply(item, s.Manager, applyUnchanged)
+	} else {
+		countApply(item, s.Manager, applyWritten)
 	}
 	return applied.GetResourceVersion(), false, nil
 }
@@ -248,4 +267,32 @@ func Requeue(conflicted bool) reconcile.Result {
 		return reconcile.Result{RequeueAfter: ConflictRequeue}
 	}
 	return reconcile.Result{}
+}
+
+// The results of an item's catalog apply, clustarr_item_applies_total's
+// result label.
+const (
+	applyKept      = "kept"
+	applyUnchanged = "unchanged"
+	applyWritten   = "written"
+	applyConflict  = "conflict"
+)
+
+// countApply counts one status apply of item under manager by what became
+// of it.
+func countApply(item client.Object, manager k8s.FieldManager, result string) {
+	metrics.ItemAppliesTotal.WithLabelValues(itemKind(item), string(manager), result).Inc()
+}
+
+// itemKind is item's kind as its Go type names it ("Episode"): a typed
+// object from a cache carries no TypeMeta to read it from.
+func itemKind(item client.Object) string {
+	if k := item.GetObjectKind().GroupVersionKind().Kind; k != "" {
+		return k
+	}
+	name := fmt.Sprintf("%T", item)
+	if i := strings.LastIndexByte(name, '.'); i >= 0 {
+		name = name[i+1:]
+	}
+	return name
 }

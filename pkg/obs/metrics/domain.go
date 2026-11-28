@@ -306,6 +306,25 @@ var (
 		"Rows the library database returned to lists and initial watch events, by kind.",
 		"kind",
 	)
+	// The library collector (ADR-0025, part 4): what made it look, how it
+	// learned whether each owner is there, and what it deleted. Its
+	// apiserver checks were 24 a second on talos before it worked from
+	// events (2026-11-28); settled they are now zero.
+	LibraryCollectRunsTotal = newCounterVec(
+		"clustarr_library_collect_runs_total",
+		"Library collector runs, by trigger (sweep, event).",
+		"trigger",
+	)
+	LibraryCollectChecksTotal = newCounterVec(
+		"clustarr_library_collect_checks_total",
+		"Owner existence checks by the library collector, by source (cache, apiserver, store).",
+		"source",
+	)
+	LibraryCollectDeletedTotal = newCounterVec(
+		"clustarr_library_collect_deleted_total",
+		"Library objects the collector deleted because every owner was gone, by kind.",
+		"kind",
+	)
 
 	// TranscodeDispatches counts transcode dispatches by class and outcome
 	// (published, republished, unclaimed, withdrawn, lost).
