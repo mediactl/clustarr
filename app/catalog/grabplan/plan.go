@@ -114,7 +114,8 @@ type Covered struct {
 	DonorRejected []string
 	// GraftOpen is an item whose file lacks a wanted language and whose
 	// graft can still supply it (rollup.GraftOpen): a torrent pack is
-	// passed over for it (grafts).
+	// passed over for it (grafts), unless such items are more than half
+	// of what the pack brings (graftsOutweigh).
 	GraftOpen bool
 }
 
@@ -421,6 +422,9 @@ const reasonUsenetCovers = "usenet releases cover the episodes it would be taken
 // does. When the episode releases fail, they are no longer live or
 // approved, and the pack is taken after all.
 //
+// Episodes only a graft would complete count towards the pack, not against
+// it, once they are more than half of what the pack brings (graftsOutweigh).
+//
 // It is the rule for an automatic grab on a Series; a person's pick is
 // theirs.
 func (d *decider) usenetCovers(vd verdict, approved []verdict) bool {
@@ -429,10 +433,40 @@ func (d *decider) usenetCovers(vd verdict, approved []verdict) bool {
 		c.Release.Decision.Protocol != commonv1.ProtocolTorrent || len(payload(vd)) < 2 || len(vd.items) == 0 || d.v.Profile == nil {
 		return false
 	}
+	usenet, grafted, all := d.cover(vd, approved)
+	if !all || graftsOutweigh(vd, grafted) {
+		return false
+	}
+	return len(vd.items) == 1 || usenet*2 > len(vd.items)
+}
+
+// graftsOutweigh reports a torrent pack more than half of whose payload
+// would otherwise be completed by grafts (owner, 2026-11-27, of Sacrificial
+// Princess and the King of Beasts' first season, 24 episodes whose 17
+// files were Japanese alone and whose other 7 had no file, with one
+// dual-audio pack of exactly that season: "we should take a season release
+// over episodes when episodes are already present for a season ... We
+// should have a limit for which it's preferable to download individual
+// episodes", the limit being half of the episodes the pack brings): the
+// pack is taken rather than a donor download and a graft for each of
+// them. A pack that brings far more than it is taken for -- JoJo's
+// Bizarre Adventure's five seasons, taken for 26 episodes (grafts) --
+// still waits for the grafts.
+func graftsOutweigh(pack verdict, grafted int) bool {
+	return grafted*2 > len(payload(pack))
+}
+
+// cover counts the items torrent pack `pack` would be taken for that
+// another release brings without it: usenet are those a usenet release
+// brings (live, or approved in this pass) or a graft completes (grafts),
+// grafted those of them only a graft completes, and all is false when one
+// item has neither these nor an approved torrent single.
+func (d *decider) cover(pack verdict, approved []verdict) (usenet, grafted int, all bool) {
+	c := pack.c
 	p := d.v.Profile
 	packQ, packLast := c.Release.Decision.Quality, d.lastResort(c)
-	usenet := 0
-	for _, it := range vd.items {
+	all = true
+	for _, it := range pack.items {
 		byUsenet, bySingle := false, false
 		for i := range d.v.Entries {
 			e := &d.v.Entries[i]
@@ -448,9 +482,9 @@ func (d *decider) usenetCovers(vd verdict, approved []verdict) bool {
 			}
 			oc := o.c
 			torrent := oc.Release.Decision.Protocol == commonv1.ProtocolTorrent
-			if oc.Manual || oc.Override || oc.Purpose != "" || len(oc.Parts) > 0 || o.id == vd.id ||
+			if oc.Manual || oc.Override || oc.Purpose != "" || len(oc.Parts) > 0 || o.id == pack.id ||
 				(torrent && len(payload(o)) > 1) || p.Outranks(packQ, oc.Release.Decision.Quality) ||
-				(!packLast && d.lastResort(oc)) || (p.AudioCompleteFirst && vd.complete && !o.complete) {
+				(!packLast && d.lastResort(oc)) || (p.AudioCompleteFirst && pack.complete && !o.complete) {
 				continue
 			}
 			for _, oi := range o.items {
@@ -466,13 +500,16 @@ func (d *decider) usenetCovers(vd verdict, approved []verdict) bool {
 			}
 		}
 		switch {
-		case byUsenet, d.grafts(vd, it, approved):
+		case byUsenet:
 			usenet++
+		case d.grafts(pack, it, approved):
+			usenet++
+			grafted++
 		case !bySingle:
-			return false
+			all = false
 		}
 	}
-	return len(vd.items) == 1 || usenet*2 > len(vd.items)
+	return usenet, grafted, all
 }
 
 // torrentPack reports a torrent that brings more than one item.
@@ -569,8 +606,10 @@ func (d *decider) outranked(vd verdict, approved []verdict) bool {
 		}
 		// A release that lacks a wanted language is not outranked, as a
 		// last resort by its format, by a torrent pack its items are
-		// grafted without (grafts): the pack is the last of the three.
-		if !d.v.Profile.Outranks(o.c.Release.Decision.Quality, q) && torrentPack(o) && d.graftsEvery(o, vd, approved) {
+		// grafted without (grafts): the pack is the last of the three,
+		// until the grafts would be most of what it brings (graftsOutweigh).
+		if !d.v.Profile.Outranks(o.c.Release.Decision.Quality, q) && torrentPack(o) && d.graftsEvery(o, vd, approved) &&
+			!d.packOutweighed(o, approved) {
 			continue
 		}
 		for _, it := range o.items {
@@ -580,6 +619,13 @@ func (d *decider) outranked(vd verdict, approved []verdict) bool {
 		}
 	}
 	return false
+}
+
+// packOutweighed reports a torrent pack the grafts it would spare outweigh
+// (graftsOutweigh): one taken, not passed over for them.
+func (d *decider) packOutweighed(pack verdict, approved []verdict) bool {
+	_, grafted, _ := d.cover(pack, approved)
+	return graftsOutweigh(pack, grafted)
 }
 
 // graftsEvery reports a release lacking a wanted language every item of

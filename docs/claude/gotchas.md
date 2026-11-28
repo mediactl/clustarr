@@ -1533,6 +1533,38 @@ recorded here.
   sends its whole season to the pack, as "every episode it would be taken
   for" did before. Tests: `TestATorrentPackIsTheLastWayToDualAudio`
   (falsified), `TestAGraftIsOpenUntilItsDonorSearchesRunOut`.
+- **A torrent pack whose grafts would be most of what it brings is taken
+  rather than them (2026-11-27, owner, of Sacrificial Princess and the King
+  of Beasts S1: "we should take a season release over episodes when
+  episodes are already present for a season ... We should have a limit for
+  which it's preferable to download individual episodes - where usenet is
+  the primary heavy weight - torrent follows the fallback to torrent season
+  if all else fails model we already have in place"; the owner's limit:
+  half of the episodes the pack brings).** The season is 24 episodes: 17
+  Japanese-only files from 11-02/03 singles (taken the evening the
+  no-pack-while-singles-download rule was live) and 7 with none. At 14:09Z
+  the planner took AV1ARY's dual-audio torrent pack of exactly that season
+  (nyaasi), which died at 16:54Z on the NAS `input/output error` under
+  `/data/torrents/incomplete`; the owner took the same pack from the
+  `animetosho` usenet indexer by hand at 23:40Z. Under the rule above
+  (a96abf59, not yet live then) the pack would have been refused instead:
+  every episode counted as grafted (17 open grafts, 7 by a Japanese single
+  and an English donor), so 24 donor downloads and 24 grafts in its place.
+  `grabplan.cover` now counts, of the episodes the pack would be taken
+  for, those only a graft completes, and `graftsOutweigh` takes the pack
+  when they are more than half of its payload (`payload`, every episode
+  its coverage names): `usenetCovers` does not pass it over, and
+  `outranked` lets it outrank the last-resort releases it spares
+  (`packOutweighed`), so none is grabbed while the pack waits on its
+  indexer. A usenet release that carries every wanted language by itself
+  still counts for usenet with no limit, and a usenet pack is untouched
+  (it outranks singles and replaces Japanese-only files already). JoJo's
+  pack, five seasons taken for 26 episodes, stays the last of the three.
+  An episode whose donor is already downloading still counts as grafted.
+  Tests: `TestATorrentSeasonPackOutweighsItsGrafts` (the limit, its
+  payload measure and the `outranked` half each falsified), and
+  `TestATorrentPackIsTheLastWayToDualAudio` now gives its pack seven more
+  episodes with dual-audio files, as JoJo's had.
 - **Quality profiles are TRaSH-only and opinionated.** Built-in profiles ship as
   embedded data; custom-format editing is deliberately not exposed.
 - **Every per-file answer is a record written by compare-and-swap, and only the

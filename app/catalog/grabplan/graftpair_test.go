@@ -20,6 +20,7 @@ package grabplan_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,11 +79,13 @@ func completeFirst(v grabplan.View) grabplan.View {
 // can then finally fallback to a full season re-download from torrent for
 // dual", and "a dual lang or eng lang release of the single episode will
 // **also** be higher priority than the season torrent at that point").
+//
+// The pack brings far more than the three episodes it would be taken for,
+// as JoJo's five seasons did for its 26: the season's other seven episodes
+// already have dual-audio files (broughtBesides). A pack that is mostly the
+// grafted episodes themselves is TestATorrentSeasonPackOutweighsItsGrafts.
 func TestATorrentPackIsTheLastWayToDualAudio(t *testing.T) {
-	var jas, ens []string
-	for n := 1; n <= 3; n++ {
-		jas, ens = append(jas, jaOf(n)), append(ens, enOf(n))
-	}
+	jas, ens := jasAndEns()
 	with := func(titles ...[]string) []string {
 		out := []string{pack1080}
 		for _, ts := range titles {
@@ -90,8 +93,16 @@ func TestATorrentPackIsTheLastWayToDualAudio(t *testing.T) {
 		}
 		return out
 	}
+	broughtBesides := func(wanted []grabplan.Covered) []grabplan.Covered {
+		out := append([]grabplan.Covered{}, wanted...)
+		for _, it := range season(1, 10)[3:] {
+			it.Current = &decision.Current{Quality: q(t, "Bluray-1080p"), Transcoded: true, AudioLanguages: []string{"ja", "en"}}
+			out = append(out, it)
+		}
+		return out
+	}
 	decide := func(covered []grabplan.Covered, titles ...string) []string {
-		return titlesOf(grabplan.Decide(completeFirst(seriesView(t, covered, graftSeason(t, titles...)...))))
+		return titlesOf(grabplan.Decide(completeFirst(seriesView(t, broughtBesides(covered), graftSeason(t, titles...)...))))
 	}
 
 	t.Run("a Japanese and an English release of every episode: the Japanese is taken, to be grafted", func(t *testing.T) {
@@ -102,7 +113,7 @@ func TestATorrentPackIsTheLastWayToDualAudio(t *testing.T) {
 		for _, ja := range jas {
 			cands = lowQuality(cands, ja)
 		}
-		p := grabplan.Decide(lastResortFormat(completeFirst(seriesView(t, season(1, 3), cands...))))
+		p := grabplan.Decide(lastResortFormat(completeFirst(seriesView(t, broughtBesides(season(1, 3)), cands...))))
 		got := titlesOf(p)
 		require.Len(t, got, 3, "one release an episode, and not the pack: %v", got)
 		assert.NotContains(t, got, pack1080)
@@ -118,7 +129,7 @@ func TestATorrentPackIsTheLastWayToDualAudio(t *testing.T) {
 		require.Equal(t, []string{pack1080}, decide(season(1, 3), with(jas, ens[:2])...))
 	})
 	t.Run("a profile that does not graft takes the pack", func(t *testing.T) {
-		v := completeFirst(seriesView(t, season(1, 3), graftSeason(t, with(jas, ens)...)...))
+		v := completeFirst(seriesView(t, broughtBesides(season(1, 3)), graftSeason(t, with(jas, ens)...)...))
 		prof := *v.Profile
 		prof.GraftAudio = false
 		v.Profile = &prof
@@ -129,8 +140,7 @@ func TestATorrentPackIsTheLastWayToDualAudio(t *testing.T) {
 	japanese := func(open bool) []grabplan.Covered {
 		covered := season(1, 3)
 		for i := range covered {
-			covered[i].Current = &decision.Current{Quality: q(t, "Bluray-1080p"), Transcoded: true, AudioLanguages: []string{"ja"}}
-			covered[i].GraftOpen = open
+			japaneseFile(t, &covered[i], open)
 		}
 		return covered
 	}
@@ -142,7 +152,7 @@ func TestATorrentPackIsTheLastWayToDualAudio(t *testing.T) {
 	})
 	t.Run("a donor in flight holds the pack off too", func(t *testing.T) {
 		cands := graftSeason(t, with(ens)...)
-		v := completeFirst(seriesView(t, japanese(false), named(t, cands, pack1080)))
+		v := completeFirst(seriesView(t, broughtBesides(japanese(false)), named(t, cands, pack1080)))
 		for n := 1; n <= 3; n++ {
 			e := liveEntry(named(t, cands, enOf(n)), commonv1.DownloadPhaseDownloading, ep(1, int32(n)))
 			e.Purpose = commonv1.DownloadPurposeAudioDonor
@@ -150,6 +160,81 @@ func TestATorrentPackIsTheLastWayToDualAudio(t *testing.T) {
 		}
 		require.Empty(t, titlesOf(grabplan.Decide(v)))
 	})
+}
+
+// A torrent pack of the season whose grafts would be most of what it brings
+// is taken rather than them (owner, 2026-11-27, of Sacrificial Princess and
+// the King of Beasts' first season: 17 of 24 files Japanese alone, 7 with
+// none, one dual-audio pack of exactly that season: "we should take a
+// season release over episodes when episodes are already present for a
+// season ... We should have a limit for which it's preferable to download
+// individual episodes - where usenet is the primary heavy weight", the
+// limit being half of the episodes the pack brings). The pack here is the
+// three-episode season and nothing more.
+func TestATorrentSeasonPackOutweighsItsGrafts(t *testing.T) {
+	jas, ens := jasAndEns()
+	duals := []string{dualOf(1), dualOf(2), dualOf(3)}
+	decide := func(covered []grabplan.Covered, titles ...string) []string {
+		return titlesOf(grabplan.Decide(completeFirst(seriesView(t, covered, graftSeason(t, titles...)...))))
+	}
+	// japanese is the season with a Japanese file, its graft open, for
+	// each of episodes.
+	japanese := func(episodes ...int) []grabplan.Covered {
+		covered := season(1, 3)
+		for _, n := range episodes {
+			japaneseFile(t, &covered[n-1], true)
+		}
+		return covered
+	}
+
+	t.Run("every episode's Japanese file waits for a graft: the pack", func(t *testing.T) {
+		require.Equal(t, []string{pack1080}, decide(japanese(1, 2, 3), pack1080))
+	})
+	t.Run("a Japanese and an English release of every episode: the pack", func(t *testing.T) {
+		require.Equal(t, []string{pack1080}, decide(season(1, 3), append(append([]string{pack1080}, jas...), ens...)...))
+	})
+	t.Run("two of three to graft, the third a dual-audio usenet release: the pack", func(t *testing.T) {
+		require.Equal(t, []string{pack1080}, decide(japanese(1, 2), pack1080, dualOf(3)))
+	})
+	t.Run("one of three to graft: the dual-audio releases, and the graft", func(t *testing.T) {
+		assert.ElementsMatch(t, []string{dualOf(2), dualOf(3)}, decide(japanese(1), pack1080, dualOf(2), dualOf(3)))
+	})
+	t.Run("dual-audio usenet releases of every episode go before it, however many", func(t *testing.T) {
+		assert.ElementsMatch(t, duals, decide(season(1, 3), append([]string{pack1080}, duals...)...))
+	})
+	t.Run("last-resort releases to graft are not taken while the pack waits on its indexer", func(t *testing.T) {
+		cands := graftSeason(t, append(append([]string{pack1080}, jas...), ens...)...)
+		for _, ja := range jas {
+			cands = lowQuality(cands, ja)
+		}
+		for i := range cands {
+			if cands[i].Release.Decision.Title == pack1080 {
+				cands[i].Release.Decision.IndexerRef = "limited"
+			}
+		}
+		v := lastResortFormat(completeFirst(seriesView(t, season(1, 3), cands...)))
+		v.GrabLimited = map[string]time.Time{"limited": now.Add(time.Hour)}
+		p := grabplan.Decide(v)
+		assert.Empty(t, titlesOf(p), "nothing is grabbed in the pack's place")
+		require.Len(t, p.Pending, 1)
+		assert.Equal(t, pack1080, p.Pending[0].ReleaseTitle)
+	})
+}
+
+// jasAndEns are the Japanese and the English releases of episodes 1 to 3.
+func jasAndEns() (jas, ens []string) {
+	for n := 1; n <= 3; n++ {
+		jas, ens = append(jas, jaOf(n)), append(ens, enOf(n))
+	}
+	return jas, ens
+}
+
+// japaneseFile gives it a transcoded Japanese file lacking English, whose
+// graft is open or not.
+func japaneseFile(t *testing.T, it *grabplan.Covered, open bool) {
+	t.Helper()
+	it.Current = &decision.Current{Quality: q(t, "Bluray-1080p"), Transcoded: true, AudioLanguages: []string{"ja"}}
+	it.GraftOpen = open
 }
 
 // titlesOf is the titles of the plan's new entries that are no donor's.
