@@ -841,6 +841,31 @@ recorded here.
   hours unblocked, then the same release again. Tests:
   `TestAFilePostedInPiecesIsJoinedByPar2` (real par2, falsified),
   `TestAPar2FileIsNotHeldToItsDeclaredSize`.
+- **An NZB can list two different files under one name, and both were
+  written to one path (2026-11-28, owner: "Ensure it's rolled", after which
+  the same message came back in a third shape).** An indexer's listing of
+  an obfuscated post gave the episode and its par2 index one name
+  (`b0bfb9714c1bc7e48e4f76456269701b`, 2,115 articles and 1), and a post
+  whose subject carries a path gave a 12-byte `.nfo` the episode's
+  (`fileName` reads the first name in the subject). The transfer opened
+  one scratch file for both: whichever first article arrived second
+  truncated it to its own size and wrote over the other's start, so the
+  episode was either whole with the par2 index lost or opened with the
+  par2 index's bytes, and `verifyContent` failed `b0bf....mkv is
+  1515354440 bytes, its yEnc header declared 40472` (ten downloads in an
+  hour, nine of them One Piece from one indexer; `writeError`, so each
+  came back every two hours). Read as a par2 file, the overwritten episode
+  also matched its own set twice, hence "the post carries a file in
+  pieces" with two pieces. `nameApart` (in `parseNZB`) now gives each a
+  path: the largest keeps the name, the others take `name-2`, `name-3`,
+  which end in no known extension and so are named by their bytes in
+  `renameObfuscated` like any obfuscated file (a hidden par2 index becomes
+  `.par2` and is a par2 file again). Two files of one name whose articles
+  agree in number and size are one file posted twice and still share the
+  path. The names come from the listing alone, so a restart parses the
+  same ones. Tests: `TestTwoFilesListedUnderOneNameAreEachWritten` (real
+  par2, both listing orders, falsified),
+  `TestParseNZBNamesApartFilesListedUnderOneName`.
 - **A reply was one NATS message, and a season pack's .nzb does not fit
   one however it is compressed (2026-11-27, owner: "This one seems fixable
   - find a solution", "I'm guessing we can raise this?").** Three One

@@ -25,6 +25,8 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -214,6 +216,7 @@ func parseNZB(payload []byte, maxBytes int64) (*nzbJob, error) {
 	if job.TotalSegments == 0 {
 		return nil, ErrEmptyNZB
 	}
+	nameApart(job.Files)
 	if job.Title == "" {
 		job.Title = longestContentName(job.Files)
 	}
@@ -333,6 +336,74 @@ func classify(name string) fileKind {
 	default:
 		return kindContent
 	}
+}
+
+// nameApart gives each of files a path of its own where the NZB lists two
+// different files under one name.
+//
+// An indexer's listing of an obfuscated post can give every file the same
+// name: the episode and its par2 index both "b0bfb9714c1bc7e48e4f76456269701b",
+// with nothing else in the subject. Both were written to that one path --
+// whichever first article arrived second truncated the file to its own size
+// and wrote over the other's start -- and the job failed "scratch files are
+// gone or altered: b0bf....mkv is 1515354440 bytes, its yEnc header declared
+// 40472" (talos, 2026-11-28: ten downloads in an hour, nine of them one
+// series' episodes from one indexer).
+//
+// The largest keeps the name, since it is the content and a name is worth
+// most there; each other takes the name with "-2", "-3", ... after it, the
+// first nothing holds. That is a place to write and no claim about what the
+// file is: it ends in no extension the engine knows, so the file is named by
+// what it holds like any obfuscated one (renameObfuscated: the par2 set's
+// name for it, else an extension from its first bytes, which is what makes a
+// hidden par2 index one again). Two files of one name that agree in every
+// article's size are one file posted twice and keep the one path, as they
+// always did. The names depend on the listing alone, so a job parsed again
+// after a restart has the same ones.
+func nameApart(files []nzbFile) {
+	held := map[string]bool{}
+	byName := map[string][]int{}
+	var order []string
+	for i, f := range files {
+		name := safeName(f.Name)
+		held[name] = true
+		if _, ok := byName[name]; !ok {
+			order = append(order, name)
+		}
+		byName[name] = append(byName[name], i)
+	}
+	for _, name := range order {
+		group := byName[name]
+		if len(group) < 2 {
+			continue
+		}
+		// The largest first; the listing's order among equals.
+		sort.SliceStable(group, func(a, b int) bool { return files[group[a]].Bytes > files[group[b]].Bytes })
+		kept := []int{group[0]}
+		for _, i := range group[1:] {
+			if j := slices.IndexFunc(kept, func(k int) bool { return sameArticles(files[k], files[i]) }); j >= 0 {
+				files[i].Name = files[kept[j]].Name
+				continue
+			}
+			for n := 2; ; n++ {
+				to := fmt.Sprintf("%s-%d", files[i].Name, n)
+				if !held[safeName(to)] {
+					held[safeName(to)] = true
+					files[i].Name, files[i].Kind = to, classify(to)
+					break
+				}
+			}
+			kept = append(kept, i)
+		}
+	}
+}
+
+// sameArticles reports whether a and b list articles of the same sizes in
+// the same order: one file, posted twice.
+func sameArticles(a, b nzbFile) bool {
+	return slices.EqualFunc(a.Segments, b.Segments, func(x, y segment) bool {
+		return x.Number == y.Number && x.Bytes == y.Bytes
+	})
 }
 
 func longestContentName(files []nzbFile) string {
