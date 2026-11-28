@@ -179,6 +179,9 @@ func (s *Server) routes() http.Handler {
 			// (plexPhotoURL).
 			PhotoURL:       plexPhotoURL(s.searchArt),
 			ArtContentType: s.artContentType,
+			// The compact rendition /art serves at ?size=compact, for the
+			// pairing list (plex.CompactPostersPath).
+			Compact: s.compactArt,
 		}))
 	}
 

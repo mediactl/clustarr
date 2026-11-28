@@ -96,6 +96,12 @@ type Options struct {
 	// Nil asks for none.
 	ArtContentType func(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType) string
 
+	// Compact is the digest of the compact rendition /art serves for a
+	// movie's or a series' poster (?size=compact), false when it has none:
+	// what the pairing list (CompactPostersPath) is built from. Nil lists
+	// nothing.
+	Compact func(kind commonv1.MediaKind, uid types.UID) (digest string, ok bool)
+
 	// MusicProvider also serves the music and audiobook roots, /plex/music
 	// and /plex/audiobooks (`--plex-music-provider`; 2026-11-10 design
 	// §7.1, D12). Off by default: PMS through 1.43.5.11079 refuses a custom
@@ -125,6 +131,7 @@ func Handler(opts Options) http.Handler {
 		h.register(mux, musicRoot)
 		h.register(mux, audiobooksRoot)
 	}
+	mux.HandleFunc("GET "+CompactPostersPath, h.handleCompactPosters)
 	return mux
 }
 
