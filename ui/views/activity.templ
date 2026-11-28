@@ -292,6 +292,9 @@ templ activityList(list string, pg ListPage, name, line string, actions bool) {
 type activityRowView struct {
 	Attrs       templ.Attributes
 	Title, Href string
+	// Name is the raw name the headline was read from (the link's
+	// tooltip); Sub the headline's line under it.
+	Name, Sub string
 	Info        templ.Component
 	Line        templ.Component
 	State       templ.Component
@@ -305,7 +308,12 @@ type activityRowView struct {
 templ activityRow(v activityRowView) {
 	<div class={ activityRowClass } { v.Attrs... }>
 		<div class="col-start-1 row-start-1 flex min-w-0 items-center gap-1">
-			<a class="min-w-0 truncate text-sm font-medium hover:underline" href={ templ.SafeURL(v.Href) } title={ v.Title }>{ v.Title }</a>
+			<span class="flex min-w-0 flex-col">
+				<a class="min-w-0 truncate text-body font-medium text-label-1 hover:opacity-80" href={ templ.SafeURL(v.Href) } title={ rowTooltip(v) } data-row-title>{ v.Title }</a>
+				if v.Sub != "" {
+					<span class="min-w-0 truncate text-footnote text-label-2" data-row-sub>{ v.Sub }</span>
+				}
+			</span>
 			@v.Info
 		</div>
 		<div class={ "col-start-1 row-start-2 min-w-0 @3xl/activity:col-start-2 @3xl/activity:row-start-1", templ.KV("col-span-2 @3xl/activity:col-span-1", !v.HasActions) }>
@@ -320,6 +328,14 @@ templ activityRow(v activityRowView) {
 			</div>
 		}
 	</div>
+}
+
+// rowTooltip is a row title's tooltip: the raw name it was read from.
+func rowTooltip(v activityRowView) string {
+	if v.Name != "" {
+		return v.Name
+	}
+	return v.Title
 }
 
 // rowID is an element id for a row's menu or popover: stable across the
@@ -411,6 +427,7 @@ templ infoFact(label, value string) {
 // tests assert on those attributes, not on visible copy.
 templ downloadRow(d DownloadView) {
 	{{ id := rowID(string(d.Row.OwnerKind), d.Row.Owner.Name, d.Row.Entry.ID) }}
+	{{ head, sub := headline(downloadTitle(d.Row), d.Row.OwnerKind) }}
 	@activityRow(activityRowView{
 		Attrs: templ.Attributes{
 			"data-download": d.Row.Entry.ID,
@@ -419,7 +436,9 @@ templ downloadRow(d DownloadView) {
 			"data-phase":    string(d.Row.Entry.Phase),
 			"data-protocol": string(d.Row.Entry.Release.Protocol),
 		},
-		Title:      downloadTitle(d.Row),
+		Title:      head,
+		Name:       downloadTitle(d.Row),
+		Sub:        sub,
 		Href:       ownerURL(d.Row),
 		Info:       downloadInfo("info-"+id, d),
 		Line:       downloadLine(d),
@@ -664,9 +683,12 @@ func menuVariant(a rowAction) dropdownmenu.ItemVariant {
 // transcodeRow is one MediaFile's transcode: the file linking to its item,
 // the bar or the plan, and its phase.
 templ transcodeRow(r projection.TranscodeRow) {
+	{{ head, sub := headline(r.Name, "") }}
 	@activityRow(activityRowView{
 		Attrs: templ.Attributes{"data-transcode": r.File.Name, "data-phase": string(r.Phase)},
-		Title: r.Name,
+		Title: head,
+		Name:  r.Name,
+		Sub:   sub,
 		Href:  r.ItemURL,
 		Info:  transcodeInfo("info-"+rowID("transcode", r.File.Name), r),
 		Line:  transcodeLine(r),
@@ -707,9 +729,12 @@ templ transcodeInfo(id string, r projection.TranscodeRow) {
 // item, the languages or segments and when, or why it failed, and its
 // state.
 templ fileRow(r projection.FileRow) {
+	{{ head, sub := headline(r.Name, "") }}
 	@activityRow(activityRowView{
 		Attrs: templ.Attributes{"data-file": r.File.Name, "data-state": r.State},
-		Title: r.Name,
+		Title: head,
+		Name:  r.Name,
+		Sub:   sub,
 		Href:  r.ItemURL,
 		Info:  fileInfo("info-"+rowID("file", r.File.Name), r),
 		Line:  fileLine(r),

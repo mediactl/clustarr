@@ -572,7 +572,13 @@ func rowViews(rows []projection.DownloadRow) []DownloadView {
 templ dashboardDownload(d DownloadView) {
 	<div class="min-w-0 space-y-1" data-download={ d.Row.Entry.ID } data-phase={ string(d.Row.Entry.Phase) }>
 		<div class="flex items-start justify-between gap-2">
-			<a class="min-w-0 truncate text-sm font-medium hover:underline" href={ templ.SafeURL(ownerURL(d.Row)) } title={ downloadTitle(d.Row) }>{ downloadTitle(d.Row) }</a>
+			{{ head, sub := headline(downloadTitle(d.Row), d.Row.OwnerKind) }}
+			<span class="flex min-w-0 flex-col">
+				<a class="min-w-0 truncate text-body font-medium text-label-1 hover:opacity-80" href={ templ.SafeURL(ownerURL(d.Row)) } title={ downloadTitle(d.Row) }>{ head }</a>
+				if sub != "" {
+					<span class="min-w-0 truncate text-footnote text-label-2">{ sub }</span>
+				}
+			</span>
 			<div class="flex flex-none gap-1">
 				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: downloadPhaseTone(d.Row.Entry.Phase)}) {
 					{ downloadPhaseLabel(d.Row.Entry.Phase) }
@@ -595,7 +601,13 @@ templ dashboardDownload(d DownloadView) {
 templ dashboardTranscode(r projection.TranscodeRow) {
 	<div class="min-w-0 space-y-1" data-transcode={ r.File.Name } data-phase={ string(r.Phase) }>
 		<div class="flex items-start justify-between gap-2">
-			<a class="min-w-0 truncate text-sm font-medium hover:underline" href={ templ.SafeURL(r.ItemURL) } title={ r.Name }>{ r.Name }</a>
+			{{ head, sub := headline(r.Name, "") }}
+			<span class="flex min-w-0 flex-col">
+				<a class="min-w-0 truncate text-body font-medium text-label-1 hover:opacity-80" href={ templ.SafeURL(r.ItemURL) } title={ r.Name }>{ head }</a>
+				if sub != "" {
+					<span class="min-w-0 truncate text-footnote text-label-2">{ sub }</span>
+				}
+			</span>
 			<div class="flex flex-none gap-1">
 				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
 					{ string(r.Phase) }
