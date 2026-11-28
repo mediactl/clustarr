@@ -21,9 +21,12 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -403,4 +406,90 @@ func TestAnUpstreamPaddingWithoutMediaIsReopened(t *testing.T) {
 	go func() { _, _ = io.Copy(io.Discard, body) }()
 
 	assert.Eventually(t, func() bool { return conns.Load() >= 2 }, 3*time.Second, 20*time.Millisecond, "the padded connection was reopened")
+}
+
+// viewerOn is viewer on channel ch.
+func viewerOn(t *testing.T, r *Relay, ch, up string) io.Reader {
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { r.Serve(w, req, ch, up) }))
+	t.Cleanup(front.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, front.URL, nil)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { cancel(); _ = resp.Body.Close() })
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	return resp.Body
+}
+
+// countingDialers are n dialers that dial directly, counting each one's
+// connections.
+func countingDialers(n int) ([]Dialer, func() []int) {
+	var mu sync.Mutex
+	counts := make([]int, n)
+	ds := make([]Dialer, n)
+	for i := range ds {
+		ds[i] = func(ctx context.Context, network, address string) (net.Conn, error) {
+			mu.Lock()
+			counts[i]++
+			mu.Unlock()
+			var d net.Dialer
+			return d.DialContext(ctx, network, address)
+		}
+	}
+	return ds, func() []int {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(counts)
+	}
+}
+
+// TestEachStreamLeavesThroughItsOwnTunnel: argon-tv allows one stream per
+// public IP (owner, 2026-11-27), and each tunnel leaves from its own.
+func TestEachStreamLeavesThroughItsOwnTunnel(t *testing.T) {
+	r := testRelay(t, Options{Hold: -1})
+	r.SetTuners(3)
+	dialers, counts := countingDialers(3)
+	r.SetEgress(dialers, true)
+	up := tsUpstream(t, 0, nil, gop())
+	for _, ch := range []string{"1001", "1002", "1003"} {
+		_, err := io.CopyN(io.Discard, viewerOn(t, r, ch, up), 10_000)
+		require.NoError(t, err)
+	}
+	assert.Equal(t, []int{1, 1, 1}, counts(), "three streams, three tunnels")
+
+	_, err := io.CopyN(io.Discard, viewerOn(t, r, "1004", up), 10_000)
+
+	require.NoError(t, err)
+	assert.Equal(t, []int{2, 1, 1}, counts(), "a fourth channel takes the longest-watched stream's tuner, and its tunnel")
+	assert.Equal(t, 3, r.InUse())
+}
+
+func TestFewerTunnelsThanTunersCapTheStreams(t *testing.T) {
+	r := testRelay(t, Options{Hold: -1})
+	r.SetTuners(3)
+	dialers, counts := countingDialers(2)
+	r.SetEgress(dialers, true)
+	up := tsUpstream(t, 0, nil, gop())
+	for _, ch := range []string{"1001", "1002", "1003"} {
+		_, err := io.CopyN(io.Discard, viewerOn(t, r, ch, up), 10_000)
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, 2, r.InUse(), "never two streams through one tunnel")
+	assert.Equal(t, []int{2, 1}, counts())
+}
+
+// TestEgressWantedButNoneOpenStreamsOneChannel: three streams the default
+// way would all leave from one address and knock each other off.
+func TestEgressWantedButNoneOpenStreamsOneChannel(t *testing.T) {
+	r := testRelay(t, Options{Hold: -1})
+	r.SetTuners(3)
+	r.SetEgress(nil, true)
+	up := tsUpstream(t, 0, nil, gop())
+	for _, ch := range []string{"1001", "1002"} {
+		_, err := io.CopyN(io.Discard, viewerOn(t, r, ch, up), 10_000)
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, 1, r.InUse())
 }

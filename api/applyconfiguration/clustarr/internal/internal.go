@@ -271,6 +271,15 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: id
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.EgressTunnel
+  map:
+    fields:
+    - name: address
+      type:
+        scalar: untyped
+    - name: privateKeyRef
+      type:
+        namedType: io.k8s.api.core.v1.SecretKeySelector
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.FilterType
   scalar: string
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.GuideSources
@@ -729,12 +738,30 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: numeric
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.ProviderType
   scalar: string
+- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.StreamEgress
+  map:
+    fields:
+    - name: endpoint
+      type:
+        scalar: string
+    - name: publicKey
+      type:
+        scalar: string
+    - name: tunnels
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.EgressTunnel
+          elementRelationship: atomic
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.StreamSpec
   map:
     fields:
     - name: buffer
       type:
         namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: egress
+      type:
+        namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.StreamEgress
     - name: language
       type:
         scalar: string

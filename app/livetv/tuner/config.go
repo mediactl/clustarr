@@ -20,6 +20,7 @@ package tuner
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -98,6 +99,24 @@ type Config struct {
 	// and pairs the channels with it (the Plex native guide design §5.2);
 	// nil for a provider on the XMLTV guide alone.
 	Plex *PlexConfig
+	// Egress is spec.stream.egress, its private keys read: one WireGuard
+	// tunnel per concurrent stream; nil sends streams the manager's way.
+	Egress *EgressConfig
+}
+
+// EgressConfig is spec.stream.egress as the controller resolves it.
+type EgressConfig struct {
+	// Endpoint is the gateway's WireGuard server, host:port, and PublicKey
+	// its public key, base64.
+	Endpoint, PublicKey string
+	Tunnels             []EgressTunnel
+}
+
+// EgressTunnel is one tunnel: its address inside the tunnel and its
+// private key, base64.
+type EgressTunnel struct {
+	Address    netip.Addr
+	PrivateKey string
 }
 
 // PlexConfig is spec.plexGuide as the controller resolves it. Enabled is

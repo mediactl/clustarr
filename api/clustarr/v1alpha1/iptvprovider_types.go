@@ -458,6 +458,50 @@ type StreamSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=16
 	Language string `json:"language,omitempty"`
+
+	// Egress sends each stream the relay holds at once through its own
+	// WireGuard tunnel to the network's gateway, which translates each
+	// tunnel's address to its own public IP (owner, 2026-11-27: argon-tv
+	// allows one stream per public IP, whatever its max_connections; three
+	// streams from three of the AT&T static IPs all held). A new stream
+	// takes the lowest tunnel no stream holds and keeps it across reopens,
+	// and the relay streams no more channels at once than it has tunnels
+	// open. Unset, every stream leaves the way the manager's traffic does.
+	// +optional
+	Egress *StreamEgress `json:"egress,omitempty"`
+}
+
+// StreamEgress is the gateway's WireGuard server and one tunnel to it per
+// concurrent stream.
+type StreamEgress struct {
+	// Endpoint is the WireGuard server, host:port (the UDM's,
+	// "10.1.0.1:51820").
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=255
+	Endpoint string `json:"endpoint"`
+
+	// PublicKey is the server's public key, base64.
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$`
+	PublicKey string `json:"publicKey"`
+
+	// Tunnels are the server's peers, one per concurrent stream, in the
+	// order streams take them.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
+	// +listType=atomic
+	Tunnels []EgressTunnel `json:"tunnels"`
+}
+
+// EgressTunnel is one WireGuard peer: the address the server knows it by,
+// which the gateway translates to one public IP, and its private key.
+type EgressTunnel struct {
+	// Address is the peer's IPv4 address inside the tunnel.
+	// +kubebuilder:validation:Format=ipv4
+	Address string `json:"address"`
+
+	// PrivateKeyRef is the key of a Secret in the provider's namespace
+	// holding the peer's private key, base64.
+	PrivateKeyRef corev1.SecretKeySelector `json:"privateKeyRef"`
 }
 
 // IPTVProviderStatus is written by the IPTVProvider controller alone, under

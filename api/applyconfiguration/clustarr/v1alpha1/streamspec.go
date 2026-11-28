@@ -44,6 +44,15 @@ type StreamSpecApplyConfiguration struct {
 	// Channel eng). A channel's own language (IPTVChannel spec.language)
 	// replaces whatever the stream declares. Default "eng".
 	Language *string `json:"language,omitempty"`
+	// Egress sends each stream the relay holds at once through its own
+	// WireGuard tunnel to the network's gateway, which translates each
+	// tunnel's address to its own public IP (owner, 2026-11-27: argon-tv
+	// allows one stream per public IP, whatever its max_connections; three
+	// streams from three of the AT&T static IPs all held). A new stream
+	// takes the lowest tunnel no stream holds and keeps it across reopens,
+	// and the relay streams no more channels at once than it has tunnels
+	// open. Unset, every stream leaves the way the manager's traffic does.
+	Egress *StreamEgressApplyConfiguration `json:"egress,omitempty"`
 }
 
 // StreamSpecApplyConfiguration constructs a declarative configuration of the StreamSpec type for use with
@@ -73,5 +82,13 @@ func (b *StreamSpecApplyConfiguration) WithLinger(value v1.Duration) *StreamSpec
 // If called multiple times, the Language field is set to the value of the last call.
 func (b *StreamSpecApplyConfiguration) WithLanguage(value string) *StreamSpecApplyConfiguration {
 	b.Language = &value
+	return b
+}
+
+// WithEgress sets the Egress field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Egress field is set to the value of the last call.
+func (b *StreamSpecApplyConfiguration) WithEgress(value *StreamEgressApplyConfiguration) *StreamSpecApplyConfiguration {
+	b.Egress = value
 	return b
 }

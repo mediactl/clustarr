@@ -52,6 +52,10 @@ const (
 	ReasonPanic             = "panic"
 )
 
+// Dialer dials an upstream connection: an http.Transport's DialContext,
+// such as a WireGuard tunnel's (pkg/wgdial).
+type Dialer func(ctx context.Context, network, address string) (net.Conn, error)
+
 // writeTimeout bounds one write to a viewer, so a client that stops reading
 // cannot hold its goroutine forever; its next read then finds it behind.
 const writeTimeout = 30 * time.Second
@@ -140,6 +144,12 @@ type Relay struct {
 	linger    time.Duration
 	userAgent string
 	language  string
+	// egress is one client per tunnel a stream may leave through
+	// (SetEgress); egressWanted says tunnels were asked for, so none open
+	// streams one channel the default way rather than every tuner from
+	// one address.
+	egress       []*http.Client
+	egressWanted bool
 }
 
 type stream struct {
@@ -155,6 +165,9 @@ type stream struct {
 	linger    *time.Timer
 	userAgent string
 	lang      Language // declared in the program map's audio and subtitle tracks
+	// slot is the egress tunnel the stream leaves through, kept across
+	// reopens; -1 for the default way.
+	slot int
 }
 
 // New returns a Relay.
@@ -193,6 +206,76 @@ func New(o Options) *Relay {
 		o.Hold = 0
 	}
 	return &Relay{o: o, streams: map[string]*stream{}, taken: map[string]time.Time{}, tuners: o.Tuners, buffer: o.Buffer, linger: o.Linger, userAgent: o.UserAgent, language: o.Language}
+}
+
+// SetEgress gives each later stream, and each reopen, its own tunnel: a
+// new stream takes the lowest one no stream holds (owner, 2026-11-27:
+// argon-tv allows one stream per public IP, and each tunnel leaves from its
+// own). The relay then streams at most one channel per tunnel, and with
+// tunnels wanted but none open (wanted, no dialers) at most one, the
+// default way. Dialers nil and wanted false is no egress.
+func (r *Relay) SetEgress(dialers []Dialer, wanted bool) {
+	clients := make([]*http.Client, 0, len(dialers))
+	for _, d := range dialers {
+		clients = append(clients, r.clientVia(d))
+	}
+	r.mu.Lock()
+	r.egress, r.egressWanted = clients, wanted
+	r.mu.Unlock()
+}
+
+// clientVia is the relay's upstream client dialling through d: the same
+// timeouts and redirect policy, its own connections.
+func (r *Relay) clientVia(d Dialer) *http.Client {
+	base := r.o.HTTP
+	tr, ok := base.Transport.(*http.Transport)
+	if ok {
+		tr = tr.Clone()
+	} else {
+		tr = &http.Transport{ResponseHeaderTimeout: 10 * time.Second}
+	}
+	tr.Proxy, tr.DialContext = nil, d
+	return &http.Client{Transport: tr, Timeout: base.Timeout, CheckRedirect: base.CheckRedirect, Jar: base.Jar}
+}
+
+// limit is how many channels may stream at once: tuners, capped by the
+// tunnels open when egress is wanted; r.mu is held.
+func (r *Relay) limit() int {
+	switch {
+	case !r.egressWanted:
+		return r.tuners
+	case len(r.egress) == 0:
+		return min(r.tuners, 1)
+	default:
+		return min(r.tuners, len(r.egress))
+	}
+}
+
+// freeSlot is the lowest tunnel no live stream holds, -1 for none (or no
+// egress); r.mu is held.
+func (r *Relay) freeSlot() int {
+	used := make([]bool, len(r.egress))
+	for _, s := range r.streams {
+		if !s.dead && s.slot >= 0 && s.slot < len(used) {
+			used[s.slot] = true
+		}
+	}
+	for i, u := range used {
+		if !u {
+			return i
+		}
+	}
+	return -1
+}
+
+// client is s's upstream client: its tunnel's, else the relay's own.
+func (r *Relay) client(s *stream) *http.Client {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s.slot >= 0 && s.slot < len(r.egress) {
+		return r.egress[s.slot]
+	}
+	return r.o.HTTP
 }
 
 // InUse is the tuners streaming now.
@@ -289,7 +372,7 @@ func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, ups
 	if !ok {
 		var evicted *stream
 		took := false
-		if r.inUse >= r.tuners {
+		if r.inUse >= r.limit() {
 			// An unwatched stream only lingers in case its viewer comes
 			// back: a viewer who changed channel takes its tuner, or a
 			// one-connection account answers 503 for the whole linger.
@@ -317,7 +400,7 @@ func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, ups
 		// its lifetime, and the viewer's logger: the tuner serves viewers
 		// under the manager's, while its own context carries none.
 		ctx, cancel := context.WithCancel(logging.NewContext(r.o.Context, logging.FromContext(req.Context())))
-		s = &stream{channel: channel, ring: newRing(r.buffer), ready: make(chan struct{}), cancel: cancel, userAgent: r.userAgent, lang: r.streamLanguage(lang)}
+		s = &stream{channel: channel, ring: newRing(r.buffer), ready: make(chan struct{}), cancel: cancel, userAgent: r.userAgent, lang: r.streamLanguage(lang), slot: r.freeSlot()}
 		s.ring.onSplice = func(dropped int64, aligned bool) {
 			logging.FromContext(ctx).Info("livetv: upstream reopened and spliced", "channel", channel, "droppedBytes", dropped, "aligned", aligned)
 		}
@@ -586,7 +669,7 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 	}
 	log := logging.FromContext(ctx)
 	began := time.Now()
-	resp, err := r.o.HTTP.Do(req)
+	resp, err := r.client(s).Do(req)
 	if err != nil {
 		// The URL carries the account's credentials: only the cause is logged.
 		cause := err
@@ -637,7 +720,7 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 				if r.o.OnFirstByte != nil {
 					r.o.OnFirstByte(took)
 				}
-				log.Info("livetv: upstream answered", "channel", s.channel, "firstByte", took)
+				log.Info("livetv: upstream answered", "channel", s.channel, "firstByte", took, "egress", s.slot+1)
 				s.readyOnce.Do(func() { close(s.ready) })
 			}
 		}

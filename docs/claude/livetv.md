@@ -248,6 +248,43 @@ reopen's 3 s it fits the 30 s hold) and reopens it as a stalled one
 ("livetv: upstream sends no media; reopening", reason `timeout`). A stream
 that never showed a PCR is never judged. `TestAnUpstreamPaddingWithoutMediaIsReopened`.
 
+**Each stream leaves through its own WireGuard tunnel, so from its own
+public IP** (owner, 2026-11-27: "create a method to masquerade/SNAT/egress
+gateway/NAT gateway so that each open stream up to three using a separate
+static IP from our AT&T public IP range"; then, of the egress designs,
+"Would it be possible to use the UDM's wireguard or some other tunnel of
+sorts to allow the streams to choose their own masquerade IP? If not, set
+this up using the original port based SNAT concept"). argon-tv allows one
+stream per public IP whatever its `max_connections`: three streams from
+three of the AT&T statics all held, two from one IP ended the first 1.6 s
+after the second started (same day). `spec.stream.egress` names the
+gateway's WireGuard server (`endpoint`, `publicKey`) and one tunnel per
+concurrent stream (`address`, `privateKeyRef` into a Secret); the
+controller reads the keys (`resolveEgress`: a missing Secret or key, a
+malformed key or address, or one address twice is Valid=False,
+`InvalidEgress`, naming no key), and the tuner opens each tunnel in-process
+(`pkg/wgdial`: wireguard-go over gVisor's network stack, no tun device, no
+NET_ADMIN; about 1.5 MB of the manager) and hands the relay one dialer per
+tunnel (`Relay.SetEgress`). A new stream takes the lowest tunnel no stream
+holds and keeps it across reopens; a takeover inherits the taken stream's;
+the relay streams no more channels than tunnels open, one when tunnels are
+wanted but none opened, and `effectiveTuners` (discover.json, status) is
+capped at the tunnels configured. The gateway translates each tunnel
+address to a static: on talos the UDM's WireGuard server "UDM Home"
+(wgsrv1, 10.100.0.1/24, port 51820, reached from pods at 10.1.0.1) has the
+clients `clustarr-livetv-1..3` (10.100.0.21-23), and UniFi SNAT rules
+`clustarr-livetv-2 egress (.26)` and `-3 (.27)` (rule_index 6, 7) sit ahead
+of Static-IP-Rotation (moved from 4 to 8, the catch-all to .25), so .21
+leaves as .25 (owner's choice: ".25 / .26 / .27"), .22 as .26 and .23 as
+.27. Proven before it was built: from a talos pod each tunnel's public IP
+was its own, and three channels played at once through the three for 90 to
+120 s each, HTTP 200, none cut, `active_cons` 3. The rejected designs: a
+Cilium egress gateway (disabled on talos, selects whole pods, so a proxy
+pod per egress node, each node holding an egress IP), and source-port bands
+SNATed by the UDM (Cilium's masquerade keeps a pod's source port, but does
+not promise to). `TestEachStreamLeavesThroughItsOwnTunnel`,
+`TestEachTunnelDialsFromItsOwnAddress` (a real WireGuard server in-process).
+
 discover.json advertises three tuners more than `tuners`
 (`tuner.SpareTuners`). The reason: on 2026-10-20 a grab PMS never ended held
 the one tuner for hours while the relay streamed nothing, and every tune
