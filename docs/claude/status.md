@@ -649,7 +649,10 @@ plan: `docs/superpowers/plans/2026-11-28-compact-posters-clustarr.md`. Two
 more artwork variants (`compact`, `overlay-compact`), `OverlayProfile`'s
 `spec.compactGeometry`, `/art?size=compact`, `/plex/compact-posters`,
 `hack/compactmock`. The compact sizes are the starting ones (badge 28/31,
-title 90 x 32) until the owner settles them on the mock sheet. What the first
+title 90 x 32, a small logo scaled up to the box at most 4x) until the
+owner settles them by comparing before and after on the clients (owner,
+2026-11-28: a mock sheet cannot settle them; first learn which image each
+client asks for where). What the first
 roll costs: every titled poster is fetched once more (the fetch plan's hash
 changed, and the fetch now draws the twin) and every item with an overlay
 gets one render task for its compact overlay; no regular poster changes

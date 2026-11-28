@@ -91,13 +91,44 @@ func TestDrawTitled_Geometry(t *testing.T) {
 	assert.Greater(t, artwork.CompactTitle.MaxHeightPct, artwork.RegularTitle.MaxHeightPct)
 }
 
+// A logo smaller than its box is drawn larger on the compact poster, up to
+// the box and at most four times its own size; the regular poster never
+// scales a logo up, which is what keeps its bytes (owner, 2026-11-28: "we
+// should make the logo readable in both scales").
+func TestDrawTitled_ASmallLogoIsEnlargedOnTheCompactPoster(t *testing.T) {
+	white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	for _, tc := range []struct {
+		name         string
+		markW, markH int
+		geometry     artwork.TitleGeometry
+		wantW, wantH int
+	}{
+		// On 500x750 the compact box is 450x240 and the regular one 390x180.
+		{"regular keeps a small logo's size", 200, 40, artwork.RegularTitle, 200, 40},
+		{"compact fills the width", 200, 40, artwork.CompactTitle, 450, 90},
+		{"compact fills the height", 40, 100, artwork.CompactTitle, 96, 240},
+		{"compact stops at four times", 50, 10, artwork.CompactTitle, 200, 40},
+		{"compact still shrinks a large one", 1000, 100, artwork.CompactTitle, 450, 45},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			canvas := greyCanvas(500, 750)
+			require.NoError(t, artwork.DrawTitled(canvas, flat(tc.markW, tc.markH, white), tc.geometry))
+			box := whiteBox(canvas)
+			assert.InDelta(t, tc.wantW, box.Dx(), 2, "width")
+			assert.InDelta(t, tc.wantH, box.Dy(), 2, "height")
+			assert.InDelta(t, 750-750*tc.geometry.BottomPct/100, box.Max.Y, 1, "bottom edge")
+			assert.InDelta(t, 500-box.Max.X, box.Min.X, 2, "centred")
+		})
+	}
+}
+
 // The compact title's box and its version move together: a stored compact
 // poster records CompactTitleVersion (Source.CompactMark), and one drawn
 // with other numbers under the same version is never fetched again. Change
 // the numbers here only with the version.
 func TestTheCompactTitleBoxIsItsVersions(t *testing.T) {
 	assert.Equal(t, "1", catalogartwork.CompactTitleVersion)
-	assert.Equal(t, artwork.TitleGeometry{MaxWidthPct: 90, MaxHeightPct: 32, BottomPct: 5}, artwork.CompactTitle,
+	assert.Equal(t, artwork.TitleGeometry{MaxWidthPct: 90, MaxHeightPct: 32, BottomPct: 5, MaxEnlargePct: 400}, artwork.CompactTitle,
 		"raise catalogartwork.CompactTitleVersion with these")
 }
 

@@ -133,6 +133,7 @@ func run() error {
 	corner := flag.String("corner", string(catalogv1alpha1.OverlayCornerTopLeft), "the badge corner")
 	titleW := flag.Int("title-width", artwork.CompactTitle.MaxWidthPct, "compact title: most of the poster's width, percent")
 	titleH := flag.Int("title-height", artwork.CompactTitle.MaxHeightPct, "compact title: most of the poster's height, percent")
+	titleUp := flag.Int("title-enlarge", artwork.CompactTitle.MaxEnlargePct, "compact title: most a small logo is scaled up, percent of its own size")
 	badgeW := flag.Int("badge-width", int(catalogv1alpha1.DefaultOverlayCompactWidthPercent), "compact badge: width, percent of the poster's")
 	badgeS := flag.Int("badge-score", int(catalogv1alpha1.DefaultOverlayCompactScorePercent), "compact badge: score height, percent of the box's")
 	flag.Var(&its, "item", "poster;logo;source=centis,...;dub (repeatable)")
@@ -152,9 +153,8 @@ func run() error {
 		}
 	}
 	spec.Badges = dedupe(spec.Badges)
-	compactTitle := artwork.TitleGeometry{
-		MaxWidthPct: *titleW, MaxHeightPct: *titleH, BottomPct: artwork.CompactTitle.BottomPct,
-	}
+	compactTitle := artwork.CompactTitle
+	compactTitle.MaxWidthPct, compactTitle.MaxHeightPct, compactTitle.MaxEnlargePct = *titleW, *titleH, *titleUp
 
 	rowW := margin
 	for _, tw := range tileWidths {

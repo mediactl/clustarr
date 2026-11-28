@@ -163,9 +163,16 @@ overlays' present size again in the bucket (3.2 of 5 GiB used on 2026-11-27).
   `OverlayGeometry` read through accessors whose defaults are width 28 and
   score 31, the rest as the regular defaults. The compact title's constants
   live beside the regular ones in `title.go`: at most 90% of the width and
-  32% of the height to start.
+  32% of the height to start. A logo smaller than that box is scaled up to
+  fill it, at most four times its own size (owner, 2026-11-28: "we should
+  make the logo readable in both scales"); the regular poster still never
+  scales a logo up, since doing so would change its bytes.
 - **The look is settled on mock renderings first** (§5.5): these numbers are
-  starting points from the measurements in §1.
+  starting points from the measurements in §1. Owner, 2026-11-28: the sizes
+  cannot be judged from a sheet; they are settled by comparing before and
+  after on the clients, once `observe` has shown which requests each client
+  makes where. The starting numbers stand until then, and a change after
+  the first compact poster is stored raises `CompactTitleVersion`.
 
 ### 5.3 Serving one from clustarr
 

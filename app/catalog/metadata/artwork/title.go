@@ -64,8 +64,12 @@ const (
 // TitleGeometry is the box a logo is drawn in, in percentages of the poster.
 type TitleGeometry struct {
 	// MaxWidthPct and MaxHeightPct bound the logo, as percentages of the
-	// poster's width and height; it is scaled to fit both, never up.
+	// poster's width and height; a larger logo is scaled down to fit both.
 	MaxWidthPct, MaxHeightPct int
+	// MaxEnlargePct is the most a logo smaller than the box is scaled up
+	// to fill it, as a percentage of the logo's own size. 100 or less never
+	// scales a logo up.
+	MaxEnlargePct int
 	// BottomPct is the gap under the logo, a percentage of the poster's
 	// height.
 	BottomPct int
@@ -77,8 +81,11 @@ var (
 	// catalogartwork.TitleVersion with it.
 	RegularTitle = TitleGeometry{MaxWidthPct: 78, MaxHeightPct: 24, BottomPct: 5}
 	// CompactTitle is the compact rendition's: the same logo drawn larger,
-	// for a poster shown small (catalogartwork.CompactTitleVersion).
-	CompactTitle = TitleGeometry{MaxWidthPct: 90, MaxHeightPct: 32, BottomPct: 5}
+	// for a poster shown small (catalogartwork.CompactTitleVersion). A
+	// small logo is scaled up to its box, at most four times: the poster is
+	// looked at a quarter of its size, where the softness does not show and
+	// a logo left small cannot be read (owner, 2026-11-28).
+	CompactTitle = TitleGeometry{MaxWidthPct: 90, MaxHeightPct: 32, BottomPct: 5, MaxEnlargePct: 400}
 )
 
 // errNoTitle is a logo with nothing to draw.
@@ -183,7 +190,8 @@ func shade(canvas *image.RGBA) {
 }
 
 // drawTitle draws mark at canvas's bottom centre: trimmed to its opaque
-// pixels, scaled to fit g's box, and white when it is all dark.
+// pixels, scaled to fit g's box (up only as far as g allows), and white when
+// it is all dark.
 func drawTitle(canvas *image.RGBA, mark image.Image, g TitleGeometry) error {
 	src := image.NewNRGBA(mark.Bounds())
 	draw.Draw(src, src.Bounds(), mark, mark.Bounds().Min, draw.Src)
@@ -198,6 +206,16 @@ func drawTitle(canvas *image.RGBA, mark image.Image, g TitleGeometry) error {
 	cb := canvas.Bounds()
 	maxW, maxH := cb.Dx()*g.MaxWidthPct/100, cb.Dy()*g.MaxHeightPct/100
 	w, h := crop.Dx(), crop.Dy()
+	if g.MaxEnlargePct > 100 && w < maxW && h < maxH {
+		ew, eh := maxW, h*maxW/w
+		if eh > maxH {
+			ew, eh = w*maxH/h, maxH
+		}
+		if most := w * g.MaxEnlargePct / 100; ew > most {
+			ew, eh = most, h*g.MaxEnlargePct/100
+		}
+		w, h = ew, eh
+	}
 	if w > maxW {
 		w, h = maxW, h*maxW/w
 	}
