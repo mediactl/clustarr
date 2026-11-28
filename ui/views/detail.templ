@@ -291,8 +291,6 @@ templ LibraryDetail(d Detail) {
 		@hero(d)
 		if d.ShowFiles {
 			@filesSection(d)
-			@extrasSection(d)
-			@subtitlesSection(d)
 		}
 		@titlesSection(d)
 		@informationSection(d)
@@ -389,7 +387,22 @@ func ItemActions(d Detail, actions []Action) templ.Component {
 		}
 	}
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		return actionBar().Render(templ.WithChildren(ctx, actionRow(d.Item.Ref.Name, joined(face), joined(circles), joined(more), len(more) > 0)), w)
+		return actionBar().Render(templ.WithChildren(ctx, actionRow(d.Item.Ref.Name, primary == ActionSearch, joined(face), joined(circles), joined(more), len(more) > 0)), w)
+	})
+}
+
+// actionSet lays a page's own bar out as ItemActions does (album, episode,
+// issue): search the primary action while the item is wanted, else
+// refresh; the interactive search a circle; the other of the two and the
+// rest in the "…" popover.
+func actionSet(name string, wanted bool, refresh, search, interactive templ.Component, rest ...templ.Component) templ.Component {
+	face, other := refresh, search
+	if wanted {
+		face, other = search, refresh
+	}
+	more := append([]templ.Component{other}, rest...)
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		return actionBar().Render(templ.WithChildren(ctx, actionRow(name, wanted, face, interactive, joined(more), true)), w)
 	})
 }
 
@@ -413,10 +426,17 @@ func primaryAction(d Detail, actions []Action) Action {
 	return ""
 }
 
-// actionRow lays the bar's parts out: the primary capsule, the circles and
-// the "…" popover, each marked (data-act) for the theme's shapes.
-templ actionRow(name string, face, circles, more templ.Component, hasMore bool) {
-	<div data-act="primary" class="contents">
+// actionRow lays the bar's parts out: the primary capsule (gold when it is
+// Search, glass when it is Refresh), the circles and the "…" popover, each
+// marked (data-act) for the theme's shapes.
+templ actionRow(name string, search bool, face, circles, more templ.Component, hasMore bool) {
+	<div
+		data-act="primary"
+		if search {
+			data-act-search
+		}
+		class="contents"
+	>
 		@face
 	</div>
 	<div data-act="circle" class="contents">
@@ -831,7 +851,17 @@ templ filesSection(d Detail) {
 		if len(d.Files) == 0 {
 			@emptyNote("No file on disk.", "panel px-(--platter-pad) py-3 text-label-2", nil)
 		} else {
-			@FileList(d.Files)
+			// One platter (2026-11-28): the files, then their sidecars and the
+			// subtitles' state nested under them.
+			<div data-file-list class="panel overflow-hidden">
+				for _, f := range d.Files {
+					@fileItem(f)
+				}
+				if columnsFor(FilesKind(d.Files)) == videoColumns {
+					@extrasSection(d)
+					@subtitlesSection(d)
+				}
+			</div>
 		}
 	</section>
 }
@@ -839,29 +869,25 @@ templ filesSection(d Detail) {
 // extrasSection is Radarr's extra files: the sidecars beside the media
 // file, or its "No extra files to manage."
 templ extrasSection(d Detail) {
-	<section data-section="extras" class="-mt-(--section-gap) pt-2">
+	<div data-section="extras">
 		if len(d.Extras) == 0 {
-			<p data-extras-none class="px-1 text-footnote text-label-2">No extra files to manage.</p>
+			<p data-extras-none class="sr-only">No extra files to manage.</p>
 		} else {
-			<div class="panel overflow-hidden">
-				for _, e := range d.Extras {
-					{{ stem, tail := splitTail(e.Path, 14) }}
-					<div data-extra={ e.Path } class="flex items-center gap-3 px-(--platter-pad) py-2.5">
-						<span data-icon-tile="indigo" class="shrink-0">
-							@icon.Icon("captions")()
-						</span>
-						<div class="min-w-0 flex-1">
-							<div class="flex min-w-0 text-subheadline text-label-1" title={ e.Path }>
-								<span class="truncate">{ stem }</span>
-								<span class="shrink-0 whitespace-pre">{ tail }</span>
-							</div>
-							<div class="text-footnote text-label-2"><span>{ e.Kind }</span> · <span>{ e.Language }</span></div>
+			for _, e := range d.Extras {
+				{{ stem, tail := splitTail(e.Path, 14) }}
+				<div data-extra={ e.Path } data-file-child class="flex items-center gap-3 py-2 pr-(--platter-pad) pl-[calc(var(--platter-pad)+2.5rem)]">
+					@icon.Icon("captions")(icon.Props{Class: "size-4 shrink-0 text-label-2"})
+					<div class="min-w-0 flex-1">
+						<div data-file-name class="flex min-w-0 text-subheadline text-label-1" title={ e.Path }>
+							<span class="truncate">{ stem }</span>
+							<span class="shrink-0 whitespace-pre">{ tail }</span>
 						</div>
+						<div class="text-footnote text-label-2"><span>{ e.Kind }</span> · <span>{ e.Language }</span></div>
 					</div>
-				}
-			</div>
+				</div>
+			}
 		}
-	</section>
+	</div>
 }
 
 // subtitlesSection is the file's status.subtitles (loop spec §6.9): the
@@ -871,40 +897,38 @@ templ extrasSection(d Detail) {
 // the ui offers no action for it (§9 D18).
 templ subtitlesSection(d Detail) {
 	if d.SubtitlesPhase != "" {
-		<section data-section="subtitles">
-			@sectionTitle("Subtitles")
-			<p data-subtitles-phase class="mb-2 text-subheadline text-label-2">
+		<div data-section="subtitles" data-file-child class="py-2 pr-(--platter-pad) pl-[calc(var(--platter-pad)+2.5rem)]">
+			<p data-subtitles-phase class="flex items-center gap-2 text-footnote text-label-2">
+				@icon.Icon("languages")(icon.Props{Class: "size-4 shrink-0"})
+				<span>Subtitles</span>
+				<span aria-hidden="true">·</span>
 				<span data-phase={ d.SubtitlesPhase }>{ humanize(d.SubtitlesPhase) }</span>
 			</p>
-			if len(d.Subtitles) > 0 {
-				<div class="panel overflow-hidden">
-					for _, s := range d.Subtitles {
-						<div data-subtitle={ s.LangKey } class="flex items-start gap-3 px-(--platter-pad) py-2.5">
-							<span class="w-10 shrink-0 pt-0.5 text-subheadline font-semibold text-label-1 uppercase">{ s.LangKey }</span>
-							<div class="min-w-0 flex-1">
-								<div class="flex flex-wrap gap-x-1.5 text-subheadline text-label-1">
-									<span>{ s.State }</span>
-									if s.Score != "" {
-										<span aria-hidden="true" class="text-label-2">·</span>
-										<span class="text-label-2 tabular-nums">{ s.Score }</span>
-									}
-									if s.Provider != "" {
-										<span aria-hidden="true" class="text-label-2">·</span>
-										<span class="text-label-2">{ s.Provider }</span>
-									}
-								</div>
-								if s.LastError != "" {
-									<p class="text-footnote break-words text-red-300">{ s.LastError }</p>
-								}
-							</div>
-							if s.NextSearch != "" {
-								<span class="shrink-0 text-footnote text-label-2 tabular-nums">{ s.NextSearch }</span>
+			for _, s := range d.Subtitles {
+				<div data-subtitle={ s.LangKey } class="flex items-start gap-3 py-1.5 pl-6">
+					<span class="w-8 shrink-0 text-subheadline font-semibold text-label-1 uppercase">{ s.LangKey }</span>
+					<div class="min-w-0 flex-1">
+						<div class="flex flex-wrap gap-x-1.5 text-subheadline text-label-1">
+							<span>{ s.State }</span>
+							if s.Score != "" {
+								<span aria-hidden="true" class="text-label-2">·</span>
+								<span class="text-label-2 tabular-nums">{ s.Score }</span>
+							}
+							if s.Provider != "" {
+								<span aria-hidden="true" class="text-label-2">·</span>
+								<span class="text-label-2">{ s.Provider }</span>
 							}
 						</div>
+						if s.LastError != "" {
+							<p class="text-footnote break-words text-red-300">{ s.LastError }</p>
+						}
+					</div>
+					if s.NextSearch != "" {
+						<span class="shrink-0 text-footnote text-label-2 tabular-nums">{ s.NextSearch }</span>
 					}
 				</div>
 			}
-		</section>
+		</div>
 	}
 }
 

@@ -166,4 +166,72 @@
     var more = e.target.closest && e.target.closest("[data-clamp-more]");
     if (more) more.closest("[data-clamp]").setAttribute("data-expanded", "");
   });
+
+  // A segmented filter that does not fit its row becomes a pull-down
+  // (2026-11-28, the designer's round 2: a clipped "Ski…" or a hidden
+  // Failed reads as broken): a native select of the same segments, which a
+  // phone shows as its own picker; choosing one presses its segment. A
+  // section strip (navigation) keeps scrolling instead.
+  function segLabel(t) {
+    var parts = [];
+    t.childNodes.forEach(function (n) {
+      var x = (n.textContent || "").replace(/\s+/g, " ").trim();
+      if (x) parts.push(x);
+    });
+    return parts.join(" · ");
+  }
+  function fitSegments(list) {
+    if (list.closest("[data-section-strip]")) return;
+    var host = list.parentElement;
+    if (!host) return;
+    var triggers = list.querySelectorAll('[data-slot="tabs-trigger"]');
+    if (triggers.length < 2) return;
+    var over = list.scrollWidth > host.clientWidth + 2;
+    list.toggleAttribute("data-collapsed", over);
+    var sel = host.querySelector(":scope > select[data-segment-select]");
+    if (!over) {
+      if (sel) sel.remove();
+      return;
+    }
+    if (!sel) {
+      sel = document.createElement("select");
+      sel.setAttribute("data-segment-select", "");
+      sel.setAttribute("aria-label", list.getAttribute("aria-label") || "Show");
+      sel.addEventListener("change", function () {
+        var t = list.querySelector('[data-slot="tabs-trigger"][data-templ-value="' + sel.value + '"]');
+        if (t) t.click();
+      });
+      list.insertAdjacentElement("afterend", sel);
+    }
+    var html = "";
+    triggers.forEach(function (t) {
+      var v = t.getAttribute("data-templ-value") || "";
+      html += '<option value="' + v.replace(/"/g, "&quot;") + '"' + (t.hasAttribute("data-active") ? " selected" : "") + ">" +
+        segLabel(t).replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }) + "</option>";
+    });
+    if (sel.innerHTML !== html) sel.innerHTML = html;
+  }
+  function fitAllSegments() {
+    document.querySelectorAll('[data-slot="tabs-list"]').forEach(fitSegments);
+  }
+  if ("ResizeObserver" in window) {
+    var segObserver = new ResizeObserver(function (entries) {
+      entries.forEach(function (e) {
+        var list = e.target.querySelector && e.target.querySelector(':scope > [data-slot="tabs-list"]');
+        if (list) fitSegments(list);
+      });
+    });
+    var observeSegments = function () {
+      document.querySelectorAll('[data-slot="tabs-list"]').forEach(function (l) {
+        if (l.parentElement) segObserver.observe(l.parentElement);
+      });
+      fitAllSegments();
+    };
+    observeSegments();
+    document.addEventListener("htmx:afterSettle", observeSegments);
+  }
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest && e.target.closest('[data-slot="tabs-trigger"]');
+    if (t) setTimeout(fitAllSegments, 0);
+  });
 })();

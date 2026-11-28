@@ -66,8 +66,6 @@ templ EpisodePage(v EpisodeView) {
 	@Shell(Chrome{Title: episodePageTitle(v), Crumbs: episodeCrumbs(v), Tab: v.Item.Tab, Prev: v.Detail.Prev, Next: v.Detail.Next}) {
 		@episodeHero(v)
 		@filesSection(v.Detail)
-		@extrasSection(v.Detail)
-		@subtitlesSection(v.Detail)
 		<div id="episode-modal"></div>
 		@ActionStatusRegion()
 	}
@@ -105,12 +103,11 @@ func episodeCrumbs(v EpisodeView) []Crumb {
 // Every form returns here.
 templ episodeToolbar(v EpisodeView) {
 	{{ name, here := v.Row.Name, v.Row.URL() }}
-	@actionBar() {
-		@actionForm("refresh-"+name, libraryActionURL(v.Item, "refresh"), []Field{{"return", here}, {"scan", "true"}}, "refresh-cw", "Refresh", "Refresh & Scan Series", "refresh-metadata", nil)
-		@actionForm("search-"+name, v.Row.SearchURL(), []Field{{"return", here}}, "search", "Search", "Search Episode", "search-now", nil)
-		@actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "episode-interactive-search",
-			templ.Attributes{"hx-post": v.Row.InteractiveSearchURL(), "hx-target": "#episode-modal", "hx-swap": "innerHTML"})
-	}
+	@actionSet(name, !v.Row.HasFile || v.Row.Status.Warn,
+		actionForm("refresh-"+name, libraryActionURL(v.Item, "refresh"), []Field{{"return", here}, {"scan", "true"}}, "refresh-cw", "Refresh", "Refresh & Scan Series", "refresh-metadata", nil),
+		actionForm("search-"+name, v.Row.SearchURL(), []Field{{"return", here}}, "search", "Search", "Search Episode", "search-now", nil),
+		actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "episode-interactive-search",
+			templ.Attributes{"hx-post": v.Row.InteractiveSearchURL(), "hx-target": "#episode-modal", "hx-swap": "innerHTML"}))
 }
 
 // episodeHero is the movie page's header for an episode, on its series'

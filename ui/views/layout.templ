@@ -260,6 +260,15 @@ func (c Chrome) back() (Crumb, bool) {
 	return p, p.Href != ""
 }
 
+// libraryChild reports whether a phone reaches the page from the Library
+// root: a library, Collections, Hubs, Import Lists, Unmatched.
+func (c Chrome) libraryChild() bool {
+	if c.Tab != "" && c.sectionPage() {
+		return true
+	}
+	return c.Title == "Import Lists" || c.Title == "Unmatched"
+}
+
 // pageName is the page's own name, which the toolbar shows once the large
 // title has scrolled away.
 func (c Chrome) pageName() string {
@@ -528,6 +537,12 @@ templ pageToolbar(c Chrome) {
 	<header data-topbar class="sticky top-0 z-30 flex h-(--topbar-h) shrink-0 items-center gap-2 px-(--page-gutter)">
 		<div data-bar-lead class="flex min-w-0 flex-1 items-center gap-2">
 			@sidebar.Trigger(sidebar.TriggerProps{Class: "glass size-[2.125rem] rounded-full max-lg:hidden", Target: sidebarID, Attributes: templ.Attributes{"data-sidebar-show": true, "aria-label": "Show the sidebar"}})
+			if c.libraryChild() {
+				// A page the phone reaches from the Library root goes back to it.
+				<a href="/library" data-back data-root-back class="glass inline-flex size-9 shrink-0 items-center justify-center rounded-full text-label-1 md:hidden" aria-label="Back to Library">
+					@icon.Icon("chevron-left")(icon.Props{Class: "size-[18px] shrink-0"})
+				</a>
+			}
 			if b, ok := c.back(); ok {
 				<a href={ templ.SafeURL(b.Href) } data-back class="glass inline-flex h-[2.125rem] max-w-[20ch] min-w-0 shrink-0 items-center gap-1 rounded-full pr-3.5 pl-2 text-subheadline font-semibold text-label-1 max-md:size-9 max-md:justify-center max-md:p-0" aria-label={ "Back to " + b.Label }>
 					@icon.Icon("chevron-left")(icon.Props{Class: "size-[18px] shrink-0"})

@@ -74,12 +74,11 @@ func issueCrumbs(v IssueView) []Crumb {
 // returns here.
 templ issueToolbar(v IssueView) {
 	{{ name, here := v.Row.Name, v.Row.URL() }}
-	@actionBar() {
-		@actionForm("refresh-"+name, libraryActionURL(v.Item, "refresh"), []Field{{"return", here}, {"scan", "true"}}, "refresh-cw", "Refresh", "Refresh & Scan Comic", "refresh-metadata", nil)
-		@actionForm("search-"+name, v.Row.SearchURL(), []Field{{"return", here}}, "search", "Search", "Search Issue", "search-now", nil)
-		@actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "issue-interactive-search",
-			templ.Attributes{"hx-post": v.Row.InteractiveSearchURL(), "hx-target": "#issue-modal", "hx-swap": "innerHTML"})
-	}
+	@actionSet(name, !v.Row.HasFile || v.Row.Status.Warn,
+		actionForm("refresh-"+name, libraryActionURL(v.Item, "refresh"), []Field{{"return", here}, {"scan", "true"}}, "refresh-cw", "Refresh", "Refresh & Scan Comic", "refresh-metadata", nil),
+		actionForm("search-"+name, v.Row.SearchURL(), []Field{{"return", here}}, "search", "Search", "Search Issue", "search-now", nil),
+		actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "issue-interactive-search",
+			templ.Attributes{"hx-post": v.Row.InteractiveSearchURL(), "hx-target": "#issue-modal", "hx-swap": "innerHTML"}))
 }
 
 // issueHero is the movie page's header for an issue, on its comic's

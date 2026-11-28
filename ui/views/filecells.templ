@@ -19,6 +19,7 @@ package views
 
 import (
 	"fmt"
+	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/badge"
@@ -258,7 +259,14 @@ templ fileItem(f FileRow) {
 						}
 					}
 					if f.Transcode != "" {
-						<span data-file-transcode class="ml-auto text-footnote text-label-2">{ f.Transcode }</span>
+						if strings.HasPrefix(f.Transcode, "Succeeded") {
+							<span data-file-transcode class="ml-auto flex items-center gap-1 text-footnote text-label-2">
+								@icon.Icon("circle-check")(icon.Props{Class: "size-3.5 text-emerald-400"})
+								Transcoded
+							</span>
+						} else {
+							<span data-file-transcode class="ml-auto text-footnote text-label-2">{ f.Transcode }</span>
+						}
 					}
 				</div>
 			}
