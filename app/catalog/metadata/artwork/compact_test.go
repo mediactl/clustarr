@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"image"
 	"io"
 	"testing"
