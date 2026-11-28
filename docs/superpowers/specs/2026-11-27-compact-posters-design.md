@@ -106,7 +106,8 @@ cluster-plex:
     redirected to 225 x 336, one for 450 x 672 or 500 x 750 to 400 x 600.
   So those rows show the source's poster, with no badge, at 225 pixels wide
   on every screen. This design declines them (their name is in no pairing
-  list); putting them back on clustarr's poster is a repair of its own (§6).
+  list); putting them back on clustarr's poster is a repair of its own (§6),
+  made on 2026-11-28.
 - A movie's or show's guid is `plex://...` on talos (1,280 of 1,281 movies,
   all 549 shows), so the guid does not name clustarr's item.
 - The manager holds Plex's database pool and `plex.clustarr.uiURL` (the UI's
@@ -260,6 +261,10 @@ which client action makes Plex call its cloud.
    owner adjusts the numbers on those. Nothing deployed.
 2. **clustarr.** Variants, geometry field (CRD applied by hand on talos, then
    the shared roll), `/art?size=compact`. No client sees a difference.
+   Step 3 does not wait for this one (owner, 2026-11-28: "Ship the observe
+   mode after the sizing round"): `observe` needs nothing of clustarr's, and
+   counts every downloaded poster as `unpaired` until the pairing list is
+   served.
 3. **cluster-plex in `observe`.** One Plex restart, at a quiet time and
    announced. It can carry the shim's `.62` pin in the same restart. Then a
    session with the owner on the iOS app (offered 2026-11-28): the library
@@ -281,11 +286,14 @@ which client action makes Plex call its cloud.
 - A client on a TLS connection the proxy does not end gets the regular
   poster.
 - A row stuck on its match result's thumb (§3) gets neither rendition, and
-  no badge at any size, until it is back on clustarr's poster. Not part of
-  this design: the repair is cluster-plex selecting the downloaded poster
-  the row already holds, or the item's poster URL changing (a new overlay
-  digest should do it, by the 2026-10-26 record; not tested), and it is the
-  owner's to ask for.
+  no badge at any size, until it is back on clustarr's poster. Repaired
+  beside this design (owner, 2026-11-28: "Yes, fix the 70 posters stuck on
+  the cloud thumbnail"): the 70 on talos were given the poster each already
+  held through PMS's own API that day (select, then the lock the select
+  sets taken off), and cluster-plex's `plexproject.ReconcilePosters` does
+  the same for a row that gets stuck later, in the pass that writes the
+  ratings. `observe`'s `cloud` count is then the measure of how often new
+  ones appear between passes.
 
 ## 7. Left to the builder
 
