@@ -110,7 +110,10 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	name, e, err := s.chooseArt(ctx, kind, uid, imgType)
+	// size is "" for the image as it is, or artSizeCompact; chooseArt
+	// answers not found for any other.
+	size := r.URL.Query().Get("size")
+	name, e, err := s.chooseArt(ctx, kind, uid, imgType, size)
 	if err != nil {
 		s.artError(w, r, kind, imgType, err)
 		return
@@ -128,14 +131,14 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chosen := e
-	body, e, err := s.artBytes(ctx, kind, uid, imgType, name, e)
-	if err != nil && errors.Is(err, errArtMoved) && s.isOverlay(kind, uid, imgType, name) {
+	body, e, err := s.artBytes(ctx, kind, uid, imgType, size, name, e)
+	if err != nil && errors.Is(err, errArtMoved) && s.isOverlay(kind, uid, imgType, size, name) {
 		// The overlay could not be read, twice: serve what it was drawn on.
 		s.artUnreadable.mark(chosen.Digest, s.now())
 		logging.FromContext(ctx).Warn("art: the overlay could not be read; serving the original",
 			"kind", string(kind), "type", string(imgType), "err", err)
-		if name, e, err = s.chooseArt(ctx, kind, uid, imgType); err == nil {
-			body, e, err = s.artBytes(ctx, kind, uid, imgType, name, e)
+		if name, e, err = s.chooseArt(ctx, kind, uid, imgType, size); err == nil {
+			body, e, err = s.artBytes(ctx, kind, uid, imgType, size, name, e)
 		}
 	}
 	if err != nil {
@@ -161,9 +164,11 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// isOverlay reports whether name is kind/uid/t's overlay object.
-func (s *Server) isOverlay(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType, name string) bool {
-	return name == events.ArtworkKey(kind, uid, string(t), events.ArtworkVariantOverlay)
+// isOverlay reports whether name is the renderer's object of kind/uid/t at
+// size: its overlay, or its compact overlay.
+func (s *Server) isOverlay(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType, size, name string) bool {
+	rendered, _, ok := artVariants(kind, t, size)
+	return ok && rendered != "" && name == events.ArtworkKey(kind, uid, string(t), rendered)
 }
 
 // artUnreadableFor is how long /art passes over an overlay it could not
@@ -267,7 +272,7 @@ var errArtMoved = errors.New("ui: the artwork object changed while it was read")
 // digest the store then reports, so long as the bytes are its; the bytes go
 // into the cache under the digest they verified against.
 func (s *Server) artBytes(ctx context.Context, kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType,
-	name string, e objindex.Entry,
+	size, name string, e objindex.Entry,
 ) ([]byte, objindex.Entry, error) {
 	want := e.Digest
 	for attempt := 0; ; attempt++ {
@@ -282,7 +287,7 @@ func (s *Server) artBytes(ctx context.Context, kind commonv1.MediaKind, uid type
 		if attempt > 0 || (!errors.Is(err, errArtMoved) && !errors.Is(err, events.ErrObjectNotFound)) {
 			return nil, objindex.Entry{}, err
 		}
-		if name, e, err = s.chooseArt(ctx, kind, uid, t); err != nil {
+		if name, e, err = s.chooseArt(ctx, kind, uid, t, size); err != nil {
 			return nil, objindex.Entry{}, err
 		}
 		want = ""

@@ -37,6 +37,30 @@ func overlaid(kind commonv1.MediaKind, t catalogv1.ImageType) bool {
 	return t == catalogv1.ImageTypePoster && (kind == commonv1.MediaKindMovie || kind == commonv1.MediaKindSeries)
 }
 
+// artSizeCompact is /art's one size: the compact rendition of a movie's or
+// a series' poster (the compact-posters design, 2026-11-27), its title
+// image and badges drawn larger for a client that shows the poster small.
+// /art scales nothing: the rendition is a stored object of its own.
+const artSizeCompact = "compact"
+
+// artVariants are the two variants one size of an image is served from:
+// the renderer's when there is one, else the metadata agent's. ok false is
+// a size the image has none of.
+func artVariants(kind commonv1.MediaKind, t catalogv1.ImageType, size string) (rendered, plain string, ok bool) {
+	switch size {
+	case "":
+		if overlaid(kind, t) {
+			return events.ArtworkVariantOverlay, events.ArtworkVariantOriginal, true
+		}
+		return "", events.ArtworkVariantOriginal, true
+	case artSizeCompact:
+		if overlaid(kind, t) {
+			return events.ArtworkVariantOverlayCompact, events.ArtworkVariantCompact, true
+		}
+	}
+	return "", "", false
+}
+
 // chooseArt picks the variant /art serves (artwork design §B.8 as amended
 // 2026-10-07, step 1): from the synced index, the overlay entry if present,
 // else the original, else not found with no NATS call; with no index, or one
@@ -44,35 +68,62 @@ func overlaid(kind commonv1.MediaKind, t catalogv1.ImageType) bool {
 // index never makes a miss authoritative on its own: only a synced one does.
 // An overlay /art could not read is passed over while its mark stands
 // (unreadableArt).
-func (s *Server) chooseArt(ctx context.Context, kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType,
+//
+// size "" is that choice. artSizeCompact is the same choice between the
+// compact overlay and the compact poster, and not found when the image has
+// neither: never the regular poster, which its caller takes a 404 to mean.
+// Any other size is not found.
+func (s *Server) chooseArt(ctx context.Context, kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType, size string,
 ) (name string, e objindex.Entry, err error) {
-	overlayKey := events.ArtworkKey(kind, uid, string(t), events.ArtworkVariantOverlay)
-	originalKey := events.ArtworkKey(kind, uid, string(t), events.ArtworkVariantOriginal)
+	rendered, plain, ok := artVariants(kind, t, size)
+	if !ok {
+		return "", objindex.Entry{}, events.ErrObjectNotFound
+	}
+	plainKey := events.ArtworkKey(kind, uid, string(t), plain)
+	renderedKey := ""
+	if rendered != "" {
+		renderedKey = events.ArtworkKey(kind, uid, string(t), rendered)
+	}
 	if s.artIndex != nil && s.artIndex.Synced() {
-		if overlaid(kind, t) {
-			if e, ok := s.artIndex.Lookup(overlayKey); ok && !s.artUnreadable.has(e.Digest, s.now()) {
-				return overlayKey, e, nil
+		if renderedKey != "" {
+			if e, ok := s.artIndex.Lookup(renderedKey); ok && !s.artUnreadable.has(e.Digest, s.now()) {
+				return renderedKey, e, nil
 			}
 		}
-		if e, ok := s.artIndex.Lookup(originalKey); ok {
-			return originalKey, e, nil
+		if e, ok := s.artIndex.Lookup(plainKey); ok {
+			return plainKey, e, nil
 		}
 		return "", objindex.Entry{}, events.ErrObjectNotFound
 	}
-	if overlaid(kind, t) {
-		info, err := s.opts.Artwork.Info(ctx, overlayKey)
+	if renderedKey != "" {
+		info, err := s.opts.Artwork.Info(ctx, renderedKey)
 		if err == nil && !s.artUnreadable.has(info.Digest, s.now()) {
-			return overlayKey, artEntryOf(info), nil
+			return renderedKey, artEntryOf(info), nil
 		}
 		if err != nil && !errors.Is(err, events.ErrObjectNotFound) {
 			return "", objindex.Entry{}, err
 		}
 	}
-	info, err := s.opts.Artwork.Info(ctx, originalKey)
+	info, err := s.opts.Artwork.Info(ctx, plainKey)
 	if err != nil {
 		return "", objindex.Entry{}, err
 	}
-	return originalKey, artEntryOf(info), nil
+	return plainKey, artEntryOf(info), nil
+}
+
+// compactArt is the digest of the compact rendition /art serves for
+// kind/uid's poster, from the index alone: ok false when the item has none,
+// or while the index is not synced (the pairing list then names nothing,
+// which is the safe side).
+func (s *Server) compactArt(kind commonv1.MediaKind, uid types.UID) (digest string, ok bool) {
+	if s.artIndex == nil || !s.artIndex.Synced() {
+		return "", false
+	}
+	_, e, err := s.chooseArt(context.Background(), kind, uid, catalogv1.ImageTypePoster, artSizeCompact)
+	if err != nil {
+		return "", false
+	}
+	return e.Digest, true
 }
 
 // artEntryOf is info as the index would hold it.
