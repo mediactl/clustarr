@@ -116,6 +116,9 @@ const (
 	OutcomeCleared Outcome = "cleared"
 	// OutcomeUnchanged found the overlay, or its absence, already right.
 	OutcomeUnchanged Outcome = "unchanged"
+	// OutcomeCompact found the overlay right and drew only its compact
+	// rendition (events.ArtworkVariantOverlayCompact).
+	OutcomeCompact Outcome = "compact"
 )
 
 // Handler is the catalog-artwork-render consumer (spec §C.6, as ADR-0019
@@ -355,11 +358,35 @@ func (h *Handler) Render(ctx context.Context, key client.ObjectKey, kind commonv
 		return "", err
 	}
 	overlayKey := objectKey(it, events.ArtworkVariantOverlay)
+	compactKey := objectKey(it, events.ArtworkVariantOverlayCompact)
 
 	if want.Profile == nil {
-		return h.clear(ctx, overlayKey)
+		return h.clearBoth(ctx, overlayKey, compactKey)
 	}
 
+	outcome, err := h.regular(ctx, it, want, overlayKey)
+	if err != nil {
+		return "", err
+	}
+	if outcome == OutcomeCleared {
+		// The original cannot be drawn on: no overlay, and so no compact
+		// one, which is served ahead of it to a small poster.
+		return h.clearBoth(ctx, overlayKey, compactKey)
+	}
+	drawn, err := h.compact(ctx, it, want, compactKey)
+	if err != nil {
+		return "", err
+	}
+	if outcome == OutcomeUnchanged && drawn {
+		return OutcomeCompact, nil
+	}
+	return outcome, nil
+}
+
+// regular makes the item's overlay agree with want, which names a profile:
+// steps 3 and 4 of Render. OutcomeCleared says the original cannot be drawn
+// on; the caller removes what stands.
+func (h *Handler) regular(ctx context.Context, it overlayplan.Item, want overlayplan.Want, overlayKey string) (Outcome, error) {
 	current, err := h.Store.Info(ctx, overlayKey)
 	switch {
 	case err == nil && current.Headers[HeaderRenderedFrom] == want.InputsDigest:
@@ -381,18 +408,73 @@ func (h *Handler) Render(ctx context.Context, key client.ObjectKey, kind commonv
 		return "", fmt.Errorf("artwork: info %s: %w", overlayKey, err)
 	}
 
-	if err := h.draw(ctx, it, want); err != nil {
+	err = h.draw(ctx, it, want, target{
+		baseKey: objectKey(it, events.ArtworkVariantOriginal), baseDigest: want.OriginalDigest,
+		variant: events.ArtworkVariantOverlay, template: overlay.TemplateSpec(want.Profile.Spec),
+		renderedFrom: want.InputsDigest,
+	})
+	if err != nil {
 		if errors.Is(err, errUndecodable) {
 			// An original this role cannot draw on is "no overlay", as a
 			// missing one is: an overlay left in place would go on being
 			// served ahead of the original it no longer describes.
 			logging.FromContext(ctx).Warn("artwork: the original poster cannot be drawn on; removing the overlay",
 				"kind", it.Kind, "item", client.ObjectKeyFromObject(it.Object).String(), "err", err)
-			return h.clear(ctx, overlayKey)
+			return OutcomeCleared, nil
 		}
 		return "", err
 	}
 	return OutcomeRendered, nil
+}
+
+// compact makes the item's compact overlay agree with want.Compact (the
+// compact-posters design, 2026-11-27): the same badges in the profile's
+// compact geometry, on the item's compact poster when it has one and on its
+// original when not. It reports whether it drew. A stored one whose
+// Clustarr-Rendered-From is the plan's digest and whose content the store
+// holds is left alone; a base that cannot be drawn on removes it, as the
+// regular overlay's does.
+func (h *Handler) compact(ctx context.Context, it overlayplan.Item, want overlayplan.Want, compactKey string) (bool, error) {
+	current, err := h.Store.Info(ctx, compactKey)
+	switch {
+	case err == nil && current.Headers[HeaderRenderedFrom] == want.Compact.InputsDigest:
+		held, err := h.held(ctx, compactKey, current)
+		if err != nil {
+			return false, err
+		}
+		if held {
+			return false, nil
+		}
+	case err != nil && !errors.Is(err, events.ErrObjectNotFound):
+		return false, fmt.Errorf("artwork: info %s: %w", compactKey, err)
+	}
+	err = h.draw(ctx, it, want, target{
+		baseKey: objectKey(it, want.Compact.BaseVariant), baseDigest: want.Compact.BaseDigest,
+		variant: events.ArtworkVariantOverlayCompact, template: overlay.CompactTemplateSpec(want.Profile.Spec),
+		renderedFrom: want.Compact.InputsDigest,
+	})
+	if errors.Is(err, errUndecodable) {
+		logging.FromContext(ctx).Warn("artwork: the compact overlay's base cannot be drawn on; removing it",
+			"kind", it.Kind, "item", client.ObjectKeyFromObject(it.Object).String(), "err", err)
+		_, err := h.clear(ctx, compactKey)
+		return false, err
+	}
+	return err == nil, err
+}
+
+// clearBoth removes the overlay and its compact rendition: cleared when
+// either was there.
+func (h *Handler) clearBoth(ctx context.Context, overlayKey, compactKey string) (Outcome, error) {
+	outcome, err := h.clear(ctx, overlayKey)
+	if err != nil {
+		return "", err
+	}
+	if c, err := h.clear(ctx, compactKey); err != nil {
+		return "", err
+	} else if c == OutcomeCleared {
+		outcome = OutcomeCleared
+	}
+	return outcome, nil
 }
 
 // held reports whether the store holds the content current, the overlay's
@@ -474,12 +556,36 @@ func (h *Handler) plan(ctx context.Context, it overlayplan.Item) (overlayplan.Wa
 	case err != nil:
 		return overlayplan.Want{}, fmt.Errorf("artwork: info %s: %w", originalKey, err)
 	}
-	return overlayplan.Plan(it, list.Items, info.Digest), nil
+	want := overlayplan.Plan(it, list.Items, info.Digest)
+	if want.Profile == nil {
+		return want, nil
+	}
+	// The compact poster, when the metadata agent drew one (a titled
+	// poster): the compact overlay is drawn on it.
+	compactKey := objectKey(it, events.ArtworkVariantCompact)
+	compact, err := h.Store.Info(ctx, compactKey)
+	switch {
+	case errors.Is(err, events.ErrObjectNotFound):
+		return want.WithCompact(it, ""), nil
+	case err != nil:
+		return overlayplan.Want{}, fmt.Errorf("artwork: info %s: %w", compactKey, err)
+	}
+	return want.WithCompact(it, compact.Digest), nil
 }
 
-// draw renders want onto the stored original and Puts the overlay with its
-// complete metadata, the inputs digest and the time included.
-func (h *Handler) draw(ctx context.Context, it overlayplan.Item, want overlayplan.Want) error {
+// target is one rendition to draw: the stored poster it is drawn on, the
+// variant it is stored as, the geometry, and the inputs digest it records.
+type target struct {
+	baseKey, baseDigest string
+	variant             string
+	template            overlay.Template
+	renderedFrom        string
+}
+
+// draw renders want's badges onto the stored poster tg names and Puts the
+// rendition with its complete metadata, the inputs digest and the time
+// included.
+func (h *Handler) draw(ctx context.Context, it overlayplan.Item, want overlayplan.Want, tg target) error {
 	ctx, span := tracing.Start(ctx, "artwork.Render.draw")
 	defer span.End()
 
@@ -489,7 +595,7 @@ func (h *Handler) draw(ctx context.Context, it overlayplan.Item, want overlaypla
 	}
 	defer release()
 
-	originalKey := objectKey(it, events.ArtworkVariantOriginal)
+	originalKey := tg.baseKey
 	rctx, cancel := context.WithTimeout(ctx, originalReadTimeout)
 	defer cancel()
 	info, rc, err := h.Store.Get(rctx, originalKey)
@@ -501,7 +607,7 @@ func (h *Handler) draw(ctx context.Context, it overlayplan.Item, want overlaypla
 		return fmt.Errorf("artwork: get %s: %w", originalKey, err)
 	}
 	defer func() { _ = rc.Close() }()
-	if info.Digest != want.OriginalDigest {
+	if info.Digest != tg.baseDigest {
 		return fmt.Errorf("%w: %s changed", ErrInputsMoved, originalKey)
 	}
 
@@ -532,7 +638,7 @@ func (h *Handler) draw(ctx context.Context, it overlayplan.Item, want overlaypla
 	// here on, so it can be collected before Render allocates its canvas.
 	base = FitWidth(base, MaxRenderWidth)
 
-	img, err := overlayrender.Render(base, want.Badges, overlay.TemplateSpec(want.Profile.Spec))
+	img, err := overlayrender.Render(base, want.Badges, tg.template)
 	if err != nil {
 		return fmt.Errorf("%w: render %s: %w", errUndecodable, originalKey, err)
 	}
@@ -544,14 +650,14 @@ func (h *Handler) draw(ctx context.Context, it overlayplan.Item, want overlaypla
 	// The complete set (artwork design §B.2 as amended): a Put that omits a
 	// key releases it.
 	meta := catalogartwork.ObjectMeta(catalogartwork.RefOf(it.Object, it.Kind), catalogv1alpha1.ImageTypePoster,
-		events.ArtworkVariantOverlay, catalogartwork.Facts{
+		tg.variant, catalogartwork.Facts{
 			ContentType: ContentTypeJPEG, Source: SourceRender, SourceURL: info.Headers[gateway.HeaderSourceURL],
 			Width: img.Bounds().Dx(), Height: img.Bounds().Dy(), UpdatedAt: h.now(),
 			Overlay: &catalogartwork.OverlayFacts{
-				Profile: want.Profile.Name, OriginalDigest: info.Digest, RenderedFrom: want.InputsDigest,
+				Profile: want.Profile.Name, OriginalDigest: info.Digest, RenderedFrom: tg.renderedFrom,
 			},
 		})
-	overlayKey := objectKey(it, events.ArtworkVariantOverlay)
+	overlayKey := objectKey(it, tg.variant)
 	if _, err := h.Store.Put(ctx, overlayKey, &buf, meta); err != nil {
 		tracing.RecordError(span, err)
 		return fmt.Errorf("artwork: put %s: %w", overlayKey, err)

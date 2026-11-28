@@ -298,6 +298,60 @@ func inputsDigest(version int, originalDigest, profileHash string, ratings []cat
 	return hex.EncodeToString(sum[:])
 }
 
+// CompactRenderVersion is the renderer's own input to the compact
+// rendition's digest, as RenderVersion is to the regular one's: a change to
+// how the compact rendition is drawn from the same inputs bumps it, and
+// every stored one is drawn again. It never moves a regular overlay.
+const CompactRenderVersion = 1
+
+// Compact is the compact rendition an item's overlay has beside the regular
+// one (the compact-posters design, 2026-11-27): the same badges in the
+// profile's compact geometry, drawn on the item's compact poster when the
+// metadata agent stored one (a titled poster) and on the original when not.
+type Compact struct {
+	// BaseVariant and BaseDigest name the poster it is drawn on:
+	// events.ArtworkVariantCompact or events.ArtworkVariantOriginal.
+	BaseVariant, BaseDigest string
+	// InputsDigest is what the rendition is drawn from, the stored
+	// object's Clustarr-Rendered-From: CompactRenderVersion, the base, the
+	// compact template, the ratings and the dub mark.
+	InputsDigest string
+}
+
+// WithCompact is w with its compact rendition planned, compactDigest being
+// the digest of the item's compact poster ("" when it has none). A w that
+// wants no overlay wants no compact one and is returned as it is. Nothing
+// the regular overlay is identified by changes.
+func (w Want) WithCompact(it Item, compactDigest string) Want {
+	if w.Profile == nil {
+		return w
+	}
+	c := Compact{BaseVariant: events.ArtworkVariantOriginal, BaseDigest: w.OriginalDigest}
+	if compactDigest != "" {
+		c = Compact{BaseVariant: events.ArtworkVariantCompact, BaseDigest: compactDigest}
+	}
+	sorted := append([]catalogv1alpha1.Rating(nil), it.Ratings...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Source < sorted[j].Source })
+	var b strings.Builder
+	fmt.Fprintf(&b, "compact=%d\nbase=%s:%s\ntemplate=%s\n", CompactRenderVersion, c.BaseVariant, c.BaseDigest,
+		overlay.TemplateHash(overlay.CompactTemplateSpec(w.Profile.Spec)))
+	// Which badges, in the profile's order: the regular digest carries
+	// this through the profile hash, which the compact one does not read.
+	for _, badge := range EffectiveBadges(w.Profile.Spec) {
+		fmt.Fprintf(&b, "badge=%s\n", badge.Source)
+	}
+	for _, r := range sorted {
+		fmt.Fprintf(&b, "rating=%s:%d\n", r.Source, r.ValueCentis)
+	}
+	if it.Dubbed {
+		b.WriteString("dub=" + overlay.DubText + "\n")
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	c.InputsDigest = hex.EncodeToString(sum[:])
+	w.Compact = c
+	return w
+}
+
 // Want is the overlay an item should carry. A nil Profile means none: no
 // profile selects the item, it has neither a rated badge nor the dub mark,
 // or there is no original poster to draw on.
@@ -309,6 +363,10 @@ type Want struct {
 	// OriginalDigest is the original poster's digest the plan was made
 	// from, the one the render must draw on.
 	OriginalDigest string
+
+	// Compact is the compact rendition planned beside it (WithCompact);
+	// zero until then, and for a Want with no profile.
+	Compact Compact
 }
 
 // Plan decides it's overlay from its labels, ratings and dub, the profiles

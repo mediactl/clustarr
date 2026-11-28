@@ -172,6 +172,18 @@ func OverlayOf(idx *objindex.Index, kind commonv1.MediaKind, uid types.UID) (ove
 	}, e, true, true
 }
 
+// CompactOverlayOf is what the item's compact overlay object records it was
+// drawn from (its Clustarr-Rendered-From), and whether there is one. It has
+// no place in status: the overlay stage compares it with the plan's
+// overlayplan.Compact.InputsDigest to say whether a render is due.
+func CompactOverlayOf(idx *objindex.Index, kind commonv1.MediaKind, uid types.UID) (renderedFrom string, present bool) {
+	e, ok := idx.Lookup(events.ArtworkKey(kind, uid, string(catalogv1alpha1.ImageTypePoster), events.ArtworkVariantOverlayCompact))
+	if !ok {
+		return "", false
+	}
+	return e.Metadata[events.ArtworkMetaKeyRenderedFrom], true
+}
+
 // ItemOfMeta names the item an artwork object belongs to, from its
 // metadata: its media kind, namespace and name. false for an object whose
 // metadata names none (stored before object metadata existed).

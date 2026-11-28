@@ -389,17 +389,17 @@ func TestUnchangedInputsSkipTheRender(t *testing.T) {
 	require.NoError(t, f.handle())
 	first := f.get()
 	firstFrom := f.renderedFrom()
-	require.EqualValues(t, 1, f.store.puts.Load())
+	require.EqualValues(t, 2, f.store.puts.Load(), "the overlay and its compact rendition")
 
 	require.NoError(t, f.handle())
 	again := f.get()
-	assert.EqualValues(t, 1, f.store.puts.Load(), "equal inputs: no Put")
+	assert.EqualValues(t, 2, f.store.puts.Load(), "equal inputs: no Put")
 	assert.Equal(t, first.Object.GetResourceVersion(), again.Object.GetResourceVersion(), "and no status write")
 
 	// A new rating is a new input.
 	f.gateway([]catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 802}}, true)
 	require.NoError(t, f.handle())
-	assert.EqualValues(t, 2, f.store.puts.Load())
+	assert.EqualValues(t, 4, f.store.puts.Load())
 	assert.Equal(t, f.wantDigest(), f.renderedFrom())
 	assert.NotEqual(t, firstFrom, f.renderedFrom())
 	f.assertSplit(f.get())
@@ -407,7 +407,7 @@ func TestUnchangedInputsSkipTheRender(t *testing.T) {
 	// A vote count alone is not.
 	f.gateway([]catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 802, Votes: 77}}, true)
 	require.NoError(t, f.handle())
-	assert.EqualValues(t, 2, f.store.puts.Load())
+	assert.EqualValues(t, 4, f.store.puts.Load())
 }
 
 // Ruling (2): every task is judged against the current inputs, whatever it
@@ -422,7 +422,7 @@ func TestACurrentObjectIsRecordedWithoutARender(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, f.handle())
-	assert.EqualValues(t, 0, f.store.puts.Load())
+	assert.EqualValues(t, 1, f.store.puts.Load(), "only the compact rendition, which was missing")
 	info, ok := f.overlay()
 	require.True(t, ok)
 	assert.Equal(t, put.Digest, info.Digest, "the current object was not redrawn")
@@ -477,7 +477,7 @@ func TestAnOverlayWhoseContentIsGoneIsDrawnAgain(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, commonv1.MediaKindSeries, "render-hollow", catalogv1alpha1.RatingSourceTMDB)
 	require.NoError(t, f.handle())
-	require.EqualValues(t, 1, f.store.puts.Load())
+	require.EqualValues(t, 2, f.store.puts.Load())
 	first, ok := f.overlay()
 	require.True(t, ok)
 
@@ -486,7 +486,7 @@ func TestAnOverlayWhoseContentIsGoneIsDrawnAgain(t *testing.T) {
 	f.store.ObjectStore = hollow
 
 	require.NoError(t, f.handle())
-	require.EqualValues(t, 2, f.store.puts.Load(), "the record named content the store did not hold")
+	require.EqualValues(t, 3, f.store.puts.Load(), "the record named content the store did not hold")
 	info, rc, err := f.store.Get(ctx, f.overlayKey())
 	require.NoError(t, err)
 	body, err := io.ReadAll(rc)
@@ -497,7 +497,7 @@ func TestAnOverlayWhoseContentIsGoneIsDrawnAgain(t *testing.T) {
 
 	// Held again, it is left alone.
 	require.NoError(t, f.handle())
-	assert.EqualValues(t, 2, f.store.puts.Load())
+	assert.EqualValues(t, 3, f.store.puts.Load())
 }
 
 // A stale object header re-renders even though an earlier render stored the
@@ -916,7 +916,7 @@ func TestConcurrentDrawsAreBounded(t *testing.T) {
 				require.NoError(t, <-errs)
 			}
 			assert.Equal(t, tc.want, peak.Load(), "peak concurrent draws")
-			assert.EqualValues(t, tc.tasks, started.Load(), "every task drew once let go")
+			assert.EqualValues(t, 2*tc.tasks, started.Load(), "every task drew its overlay and its compact rendition once let go")
 		})
 	}
 }

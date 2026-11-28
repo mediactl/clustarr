@@ -182,6 +182,53 @@ func TestProfileHash_IgnoresCompactGeometry(t *testing.T) {
 	assert.Equal(t, before, overlayplan.ProfileHash(p.Spec))
 }
 
+// The compact rendition (the compact-posters design, 2026-11-27) is planned
+// beside the regular one and has a digest of its own: it is drawn on the
+// compact poster when the item has one and on the original when not, with
+// the profile's compact geometry, and is stale when any of those moves. The
+// regular digest, which status.overlay records, never sees it.
+func TestWithCompact(t *testing.T) {
+	crit := map[string]string{"overlay": "critics"}
+	rated := catalogv1alpha1.Rating{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 781}
+	p := profile("critics", "films", crit, catalogv1alpha1.RatingSourceTMDB)
+	it := movieItem("films", crit, rated)
+
+	none := overlayplan.Plan(movieItem("films", nil, rated), []catalogv1alpha1.OverlayProfile{p}, "orig")
+	assert.Equal(t, none, none.WithCompact(it, "compact"), "no overlay, no compact one")
+
+	w := overlayplan.Plan(it, []catalogv1alpha1.OverlayProfile{p}, "orig")
+	regular := w.InputsDigest
+	onOriginal := w.WithCompact(it, "")
+	assert.Equal(t, overlayplan.Compact{BaseVariant: "original", BaseDigest: "orig", InputsDigest: onOriginal.Compact.InputsDigest}, onOriginal.Compact)
+	assert.NotEmpty(t, onOriginal.Compact.InputsDigest)
+	assert.NotEqual(t, regular, onOriginal.Compact.InputsDigest)
+	assert.Equal(t, regular, onOriginal.InputsDigest, "the regular digest is not touched")
+
+	onCompact := w.WithCompact(it, "cmp")
+	assert.Equal(t, "compact", onCompact.Compact.BaseVariant)
+	assert.Equal(t, "cmp", onCompact.Compact.BaseDigest)
+	assert.NotEqual(t, onOriginal.Compact.InputsDigest, onCompact.Compact.InputsDigest, "another base")
+	assert.NotEqual(t, onCompact.Compact.InputsDigest, w.WithCompact(it, "cmp2").Compact.InputsDigest, "the base redrawn")
+	assert.Equal(t, onCompact.Compact.InputsDigest, w.WithCompact(it, "cmp").Compact.InputsDigest, "the same inputs, the same digest")
+
+	// The profile's compact geometry moves the compact digest alone.
+	wide := p
+	width := int32(40)
+	wide.Spec.CompactGeometry = &catalogv1alpha1.OverlayGeometry{WidthPercent: &width}
+	ww := overlayplan.Plan(it, []catalogv1alpha1.OverlayProfile{wide}, "orig")
+	assert.Equal(t, regular, ww.InputsDigest)
+	assert.NotEqual(t, onCompact.Compact.InputsDigest, ww.WithCompact(it, "cmp").Compact.InputsDigest)
+
+	// So do a rating and the dub mark, as they move the regular one.
+	other := movieItem("films", crit, catalogv1alpha1.Rating{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 790})
+	wo := overlayplan.Plan(other, []catalogv1alpha1.OverlayProfile{p}, "orig")
+	assert.NotEqual(t, onCompact.Compact.InputsDigest, wo.WithCompact(other, "cmp").Compact.InputsDigest)
+	dubbed := it
+	dubbed.Dubbed = true
+	wd := overlayplan.Plan(dubbed, []catalogv1alpha1.OverlayProfile{p}, "orig")
+	assert.NotEqual(t, onCompact.Compact.InputsDigest, wd.WithCompact(dubbed, "cmp").Compact.InputsDigest)
+}
+
 func TestRenderVersionMovesTheDigest(t *testing.T) {
 	ratings := []catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 781}}
 	current := overlayplan.InputsDigest("orig", "hash", ratings, false)

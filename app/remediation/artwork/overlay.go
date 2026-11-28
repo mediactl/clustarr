@@ -80,10 +80,22 @@ func (s *OverlayStage) Plan(ctx context.Context, env *remediation.Env, v *remedi
 	if e, ok := s.o.Index.Lookup(events.ArtworkKey(it.Kind, uid, string(catalogv1alpha1.ImageTypePoster), events.ArtworkVariantOriginal)); ok {
 		poster = e.Digest
 	}
-	want := overlayplan.Plan(it, profiles.Items, poster)
+	compact := ""
+	if e, ok := s.o.Index.Lookup(events.ArtworkKey(it.Kind, uid, string(catalogv1alpha1.ImageTypePoster), events.ArtworkVariantCompact)); ok {
+		compact = e.Digest
+	}
+	want := overlayplan.Plan(it, profiles.Items, poster).WithCompact(it, compact)
 	recorded, _, present, current := catalogartwork.OverlayOf(s.o.Index, it.Kind, uid)
+	// The compact rendition is the renderer's too, and has no place in
+	// status: it is stale when the object does not record the plan's
+	// digest, and left behind when the item wants no overlay.
+	compactFrom, compactPresent := catalogartwork.CompactOverlayOf(s.o.Index, it.Kind, uid)
+	compactStale := compactPresent
+	if want.Profile != nil {
+		compactStale = !compactPresent || compactFrom != want.Compact.InputsDigest
+	}
 
-	status, render, token := decide(it, want, recorded, present, current)
+	status, render, token := decide(it, want, recorded, present, current, compactStale)
 	var res remediation.ItemResult
 	res.Sets = []itempass.Set{{Manager: k8s.ManagerCatalogArtwork, Fields: map[string]any{"overlay": overlayValue(status)}}}
 
@@ -126,7 +138,12 @@ func (s *OverlayStage) Plan(ctx context.Context, env *remediation.Env, v *remedi
 // manager that starts ahead of the MAL-Dubs list neither has a marked poster
 // removed nor one redrawn without its mark. The first list read wakes the
 // key (the dubs source).
-func decide(it overlayplan.Item, want overlayplan.Want, recorded *catalogv1alpha1.OverlayEntry, present, current bool) (status *catalogv1alpha1.OverlayEntry, render bool, token string) {
+//
+// compactStale says the compact rendition is not what the plan wants (or is
+// there when the plan wants none): a task is due for it as for the regular
+// one, status.overlay is untouched by it, and the token carries both
+// digests, so the task for a compact rendition alone is a new one.
+func decide(it overlayplan.Item, want overlayplan.Want, recorded *catalogv1alpha1.OverlayEntry, present, current, compactStale bool) (status *catalogv1alpha1.OverlayEntry, render bool, token string) {
 	status = recorded
 	switch {
 	case want.Profile == nil && !it.DubUnread:
@@ -138,10 +155,11 @@ func decide(it overlayplan.Item, want overlayplan.Want, recorded *catalogv1alpha
 	switch {
 	case it.DubUnread:
 	case want.Profile == nil:
-		render = present
+		render = present || compactStale
 	default:
-		token = want.InputsDigest
-		render = !present || !current || recorded.RenderedFrom != want.InputsDigest || recorded.ProfileRef != want.ProfileName()
+		token = want.InputsDigest + "+" + want.Compact.InputsDigest
+		render = !present || !current || recorded.RenderedFrom != want.InputsDigest || recorded.ProfileRef != want.ProfileName() ||
+			compactStale
 	}
 	return status, render, token
 }
