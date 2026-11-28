@@ -213,3 +213,50 @@ func TestTwoPublishesRunAtOnceByDefault(t *testing.T) {
 	c, _, _ := newTestClient(t, Config{Providers: []Provider{newStubServer(t).provider("solo", 1, 1)}})
 	require.Equal(t, 2, cap(c.publish))
 }
+
+// A large download never takes the last publish token: beside one large
+// copy a second large one waits, and a small download that finishes
+// meanwhile copies at once. On talos (2026-11-28) two 80 GB season packs
+// held both tokens for a quarter of an hour each, two more behind them,
+// while a 500 MB episode waited half an hour for a copy of seconds.
+func TestALargePublishLeavesATokenForASmallOne(t *testing.T) {
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{newStubServer(t).provider("solo", 1, 1)}, MaxPublish: 2})
+	mk := func(id string, bytes int64) *job {
+		j := &job{client: c, id: id, dir: t.TempDir(), nzb: &nzbJob{TotalBytes: bytes}}
+		j.setStage(commonv1.DownloadStagePublishing, download.StatusDownloading)
+		return j
+	}
+	pack1, pack2, episode := mk("pack1", 80<<30), mk("pack2", 80<<30), mk("episode", 500<<20)
+
+	release1, err := pack1.waitToPublish(context.Background())
+	require.NoError(t, err)
+	got := make(chan func(), 1)
+	go func() {
+		if r, err := pack2.waitToPublish(context.Background()); err == nil {
+			got <- r
+		}
+	}()
+	require.Eventually(t, pack2.waitingPublish.Load, 2*time.Second, 5*time.Millisecond)
+	require.Equal(t, "waiting for another large download to finish publishing", pack2.item().Message)
+
+	releaseEpisode, err := episode.waitToPublish(context.Background())
+	require.NoError(t, err, "the small download takes the token the large ones leave")
+	require.False(t, episode.waitingPublish.Load())
+	select {
+	case <-got:
+		t.Fatal("the second large download published beside the first")
+	case <-time.After(50 * time.Millisecond):
+	}
+	releaseEpisode()
+
+	release1()
+	select {
+	case r := <-got:
+		r()
+	case <-time.After(2 * time.Second):
+		t.Fatal("the second large download never took its turn")
+	}
+	// Every token is back.
+	require.Empty(t, c.publish)
+	require.Empty(t, c.publishLarge)
+}

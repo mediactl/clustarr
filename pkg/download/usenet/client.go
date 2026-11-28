@@ -282,7 +282,10 @@ type Client struct {
 	post chan struct{}
 	// publish holds one token per job copying its content onto the data
 	// volume: Config.MaxPublish of them, taken inside a post token.
-	publish chan struct{}
+	// publishLarge holds one per large job among them, one fewer (never
+	// under one): a large copy never takes the last token (waitToPublish).
+	publish      chan struct{}
+	publishLarge chan struct{}
 
 	// ledger is Config.Ledger with its default applied, holder
 	// Config.Holder's, and stopRenew ends renewLoop.
@@ -411,26 +414,27 @@ func New(cfg Config) (download.Client, error) {
 		workers = max(workers, 1)
 	}
 	c := &Client{
-		cfg:       cfg,
-		freeBytes: freeBytes,
-		pool:      pool,
-		repairer:  cfg.Repairer,
-		baseCtx:   context.Background(),
-		workers:   workers,
-		maxActive: maxActive,
-		shares:    shares,
-		budgets:   transferBudgets(cfg.Providers),
-		post:      make(chan struct{}, maxPost),
-		publish:   make(chan struct{}, maxPublish),
-		jobs:      map[string]*job{},
-		slots:     map[*job]struct{}{},
-		scratch:   map[*job]int64{},
-		ledger:    cfg.Ledger,
-		holder:    cfg.Holder,
-		stopRenew: make(chan struct{}),
-		kick:      make(chan struct{}, 1),
-		waiting:   map[*job]chan struct{}{},
-		stopQueue: make(chan struct{}),
+		cfg:          cfg,
+		freeBytes:    freeBytes,
+		pool:         pool,
+		repairer:     cfg.Repairer,
+		baseCtx:      context.Background(),
+		workers:      workers,
+		maxActive:    maxActive,
+		shares:       shares,
+		budgets:      transferBudgets(cfg.Providers),
+		post:         make(chan struct{}, maxPost),
+		publish:      make(chan struct{}, maxPublish),
+		publishLarge: make(chan struct{}, max(1, maxPublish-1)),
+		jobs:         map[string]*job{},
+		slots:        map[*job]struct{}{},
+		scratch:      map[*job]int64{},
+		ledger:       cfg.Ledger,
+		holder:       cfg.Holder,
+		stopRenew:    make(chan struct{}),
+		kick:         make(chan struct{}, 1),
+		waiting:      map[*job]chan struct{}{},
+		stopQueue:    make(chan struct{}),
 	}
 	if c.repairer == nil {
 		c.repairer = noRepairer{}

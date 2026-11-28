@@ -310,6 +310,12 @@ func (d *decider) stalled(e *catalogv1alpha1.DownloadEntry, rec *schema.Transfer
 			d.at(last.Add(st))
 		}
 	}
+	if why, slow, again := tooSlow(rec, c, d.now); slow {
+		d.toBlocklisted(e, commonv1.DownloadFailureStalled, why)
+		return true
+	} else if !again.IsZero() {
+		d.at(again)
+	}
 	if c.DownloadTimeout > 0 && rec.StartedAt != nil {
 		if d.now.Sub(*rec.StartedAt) > c.DownloadTimeout {
 			d.toBlocklisted(e, commonv1.DownloadFailureTimeout, fmt.Sprintf("not finished within %s", c.DownloadTimeout))
@@ -318,6 +324,35 @@ func (d *decider) stalled(e *catalogv1alpha1.DownloadEntry, rec *schema.Transfer
 		d.at(rec.StartedAt.Add(c.DownloadTimeout))
 	}
 	return false
+}
+
+// tooSlow judges a torrent by the rate it has averaged since it started
+// (SlowAfter, SlowHorizon): slow with why once it has transferred for
+// SlowAfter and what is left would take more than SlowHorizon at that rate,
+// else when to look again (zero: never, the transfer is not one this
+// judges). The record's startedAt and byte counts survive an engine
+// restart; while the engine verifies what it holds after one the counts are
+// of what it has verified so far, so only a transfer in its transferring
+// stage is judged, and one waiting its turn is not.
+func tooSlow(rec *schema.TransferRecord, c Client, now time.Time) (why string, slow bool, again time.Time) {
+	if c.Protocol != commonv1.ProtocolTorrent || rec.Stage != commonv1.DownloadStageTransferring || rec.WaitingTurn ||
+		rec.StartedAt == nil || rec.TotalBytes <= 0 || rec.RemainingBytes <= 0 {
+		return "", false, time.Time{}
+	}
+	elapsed := now.Sub(*rec.StartedAt)
+	if elapsed < SlowAfter {
+		return "", false, rec.StartedAt.Add(SlowAfter)
+	}
+	done := rec.TotalBytes - rec.RemainingBytes
+	if done > 0 {
+		left := time.Duration(float64(elapsed) * float64(rec.RemainingBytes) / float64(done))
+		if left <= SlowHorizon {
+			return "", false, now.Add(SlowRecheck)
+		}
+		return fmt.Sprintf("too slow: %d%% in %s, about %s more at that rate", done*100/rec.TotalBytes,
+			elapsed.Round(time.Hour), left.Round(time.Hour)), true, time.Time{}
+	}
+	return fmt.Sprintf("too slow: nothing of it in %s", elapsed.Round(time.Hour)), true, time.Time{}
 }
 
 // importStep runs a Completed entry's import (§6.9) from importplan's

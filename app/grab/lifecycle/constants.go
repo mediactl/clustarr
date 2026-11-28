@@ -82,6 +82,19 @@ const (
 	// spec.torrent.stallTimeout's), moved from the engine (§3.5 P111): the
 	// stall is the manager's judgement on the record's lastProgressAt.
 	StallTimeout = 24 * time.Hour
+	// SlowAfter and SlowHorizon are the torrent "too slow" judgement
+	// (decider.tooSlow): a torrent that has been transferring for SlowAfter
+	// and, at the rate it has averaged since it started, needs more than
+	// SlowHorizon to finish, is failed as stalled. A trickle is progress, so
+	// the stall timeout never ends such a transfer: on talos (2026-11-28)
+	// fifteen torrents moved 0.4 MB/s between them through one to four
+	// peers each, a 200 GB remux at 15% after 23 hours (five more days at
+	// that rate), and their 120 episodes read "downloading" all the while
+	// with nothing else searched for them. SlowRecheck is how often a
+	// transfer inside the horizon is looked at again.
+	SlowAfter   = 12 * time.Hour
+	SlowHorizon = 48 * time.Hour
+	SlowRecheck = time.Hour
 	// RepublishWindow is records.RepublishWindow: an owed command is
 	// republished under its Msg-Id inside it, and at a new seq past it,
 	// below CLUSTARR_WORK_ENGINE's one-hour duplicate window.

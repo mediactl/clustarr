@@ -426,25 +426,69 @@ func jobAhead(a, b *job) bool {
 	return a.id < b.id
 }
 
+// largePublishBytes is the download above which a publish is a large one:
+// minutes of copying onto the data volume, where a smaller one is seconds.
+const largePublishBytes = 8 << 30
+
 // waitToPublish takes one of the client's Config.MaxPublish tokens for
 // the copy onto the data volume, waiting Queued in the publishing stage
 // while every one is held. The job keeps its post-processing slot
 // meanwhile, and the publishing stage's clock starts when the copy does.
+//
+// A large download (over largePublishBytes) takes a large token as well,
+// of which there is one fewer, so the large copies never hold every token:
+// on talos (2026-11-28) two 80 GB season packs were copying, a quarter of
+// an hour each, with two more behind them, and a 500 MB episode and a 6 GB
+// season that had finished waited half an hour and more for a copy of
+// seconds. One token stays a small download's; with one token in all there
+// is no such lane, and with two the large copies go one at a time, which
+// the NAS's write rate made of them anyway.
 func (j *job) waitToPublish(ctx context.Context) (func(), error) {
-	release := func() { <-j.client.publish }
-	select {
-	case j.client.publish <- struct{}{}:
-		return release, nil
-	default:
+	c := j.client
+	large := j.nzb != nil && j.nzb.TotalBytes > largePublishBytes && cap(c.publish) > 1
+	release := func() {
+		<-c.publish
+		if large {
+			<-c.publishLarge
+		}
+	}
+	// The fast path: the tokens are free.
+	if !large {
+		select {
+		case c.publish <- struct{}{}:
+			return release, nil
+		default:
+		}
+	} else {
+		select {
+		case c.publishLarge <- struct{}{}:
+			select {
+			case c.publish <- struct{}{}:
+				return release, nil
+			default:
+				<-c.publishLarge
+			}
+		default:
+		}
 	}
 	j.mu.Lock()
 	j.status = download.StatusQueued
 	j.message = "waiting for another download to finish publishing"
+	if large {
+		j.message = "waiting for another large download to finish publishing"
+	}
 	j.mu.Unlock()
 	j.waitingPublish.Store(true)
 	defer j.waitingPublish.Store(false)
+	if large {
+		select {
+		case c.publishLarge <- struct{}{}:
+		case <-ctx.Done():
+			return func() {}, ctx.Err()
+		}
+	}
 	select {
-	case j.client.publish <- struct{}{}:
+	case c.publish <- struct{}{}:
 		j.mu.Lock()
 		j.status = download.StatusDownloading
 		j.message = ""
@@ -453,6 +497,9 @@ func (j *job) waitToPublish(ctx context.Context) (func(), error) {
 		j.mu.Unlock()
 		return release, nil
 	case <-ctx.Done():
+		if large {
+			<-c.publishLarge
+		}
 		return func() {}, ctx.Err()
 	}
 }

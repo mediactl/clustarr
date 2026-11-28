@@ -776,6 +776,27 @@ recorded here.
   names the first and counts the rest), and a permission error has every
   directory of the tree given its owner's rwx and the removal tried again
   (`removeAllOwned`). A tree another uid owns still fails, by name.
+- **A torrent that trickles is never stalled, and a large publish held up
+  every small one (2026-11-28, owner: "Design and implement fixes for all
+  identified blockers/bugs as well as the smaller items").** The stall
+  verdict (`lifecycle.decider.stalled`) reads the record's
+  `lastProgressAt`, and a byte is progress: fifteen torrents moved 0.4 MB/s
+  between them through one to four peers each, a 200 GB remux at 31 GB
+  after 23.5 hours, and their 120 episodes read "downloading" with nothing
+  else searched. Now `lifecycle.tooSlow` fails a torrent as `stalled`
+  (blocked, redownload searched) once it has transferred for `SlowAfter`
+  (12 h) and what is left would take more than `SlowHorizon` (48 h) at the
+  rate it has averaged since it started; it reads only a record in its
+  transferring stage, since an engine re-verifying after a restart counts
+  what it has verified so far. A person's pause is not known to it, so a
+  torrent resumed after a long pause may be judged at once. On the usenet
+  side `Config.MaxPublish` (2) tokens were both held by 80 GB season packs
+  for a quarter of an hour each, two more behind them, while a 500 MB
+  episode and a 6 GB season waited half an hour for copies of seconds: a
+  download over `largePublishBytes` (8 GiB) now takes a large token too,
+  of which there is one fewer (`Client.publishLarge`), so one token is
+  always a small download's and the large copies go one at a time, which
+  the NAS's write rate made of them anyway.
 - **A reply was one NATS message, and a season pack's .nzb does not fit
   one however it is compressed (2026-11-27, owner: "This one seems fixable
   - find a solution", "I'm guessing we can raise this?").** Three One
