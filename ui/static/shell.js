@@ -127,4 +127,28 @@
     if (!matchMedia(TABLET).matches) return;
     if (e.detail && e.detail.target && e.detail.target.id === "page-body") hideOverlay();
   });
+
+  // The phone's search sheet ends with its sheet (find.js opens it).
+  function syncSearchMode() {
+    if (!root.hasAttribute("data-search-mode")) return;
+    var sheet = document.querySelector('[data-mobile="true"][data-slot="sheet-content"]');
+    if (!sheet || sheet.offsetParent === null || getComputedStyle(sheet).visibility === "hidden") root.removeAttribute("data-search-mode");
+  }
+  document.addEventListener("click", function () {
+    setTimeout(syncSearchMode, 450);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") setTimeout(syncSearchMode, 450);
+  });
+  document.addEventListener("htmx:afterSettle", syncSearchMode);
+
+  // A section strip shows its lit page: scrolled into view on load.
+  function revealStrip() {
+    var lit = document.querySelector("[data-section-strip] [data-active]");
+    if (lit && lit.scrollIntoView) lit.scrollIntoView({ block: "nearest", inline: "center" });
+  }
+  revealStrip();
+  document.addEventListener("htmx:afterSettle", function (e) {
+    if (e.detail && e.detail.target && e.detail.target.id === "page-body") revealStrip();
+  });
 })();

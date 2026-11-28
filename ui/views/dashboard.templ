@@ -421,7 +421,7 @@ templ listPager(base, list string, pg ListPage) {
 
 // pagerOf is a list's pages, each linking where href says.
 templ pagerOf(list string, pg ListPage, href func(n int) string) {
-	@pagination.Pagination(pagination.Props{Class: "mt-4", Attributes: templ.Attributes{"data-pager": list}}) {
+	@pagination.Pagination(pagination.Props{Class: "mt-4", Attributes: pagerAttrs(list, pg)}) {
 		@pagination.Content() {
 			@pagination.Item() {
 				@pagination.Previous(pagination.PreviousProps{Href: href(pg.Page - 1), Disabled: pg.Page <= 1, Text: "Previous", Attributes: gotoAttrs(list, pg.Page-1)})
@@ -801,4 +801,14 @@ func stackID(p ChartPanel) string {
 		return "a"
 	}
 	return ""
+}
+
+// pagerAttrs mark a list's pager, hidden while the list fits one page
+// (2026-11-28, the Liquid Glass redesign: no "1 of 1").
+func pagerAttrs(list string, pg ListPage) templ.Attributes {
+	a := templ.Attributes{"data-pager": list}
+	if pg.Pages <= 1 {
+		a["hidden"] = true
+	}
+	return a
 }

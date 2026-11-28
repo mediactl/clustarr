@@ -413,14 +413,26 @@ func TestLibraryEventsStreamReflectsAStatusChangeBetweenTicks(t *testing.T) {
 func boolPtr(b bool) *bool { return &b }
 
 // The library is one tab per media type (spec 2026-09-23-library-page-design):
-// /library lands on Movies, and a tab that is not one of the four is not
-// found rather than an empty grid.
+// /library is the Library root (2026-11-28, the Liquid Glass redesign), a
+// grouped list of every library with its count, and a tab that is not one
+// of them is not found rather than an empty grid.
 func TestLibraryRedirectsToTheMoviesTabAndRefusesOtherTabs(t *testing.T) {
-	srv := ui.NewServer(t.Context(), ui.Options{})
+	srv := ui.NewServer(t.Context(), ui.Options{
+		Library: func(context.Context) []projection.LibraryItem { return letteredLibrary(3) },
+	})
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library", nil))
-	require.Equal(t, http.StatusFound, rec.Code)
-	require.Equal(t, "/library/movies", rec.Header().Get("Location"))
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	body = body[strings.Index(body, `data-shell-page`):]
+	for _, tab := range projection.Tabs() {
+		requireTag(t, body, `href="/library/`+string(tab)+`"`, `data-root-row=`)
+	}
+	movies := body[strings.Index(body, `data-root-row="Movies"`):]
+	require.Regexp(t, regexp.MustCompile(`^[^§]*?>3</span>`), movies[:strings.Index(movies, "</a>")], "Movies counts its three")
+	for _, href := range []string{"/library/collections", "/library/hubs", "/unmatched", "/import-lists", "/settings"} {
+		requireTag(t, body, `href="`+href+`"`, `data-root-row=`)
+	}
 
 	rec = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/series", nil))

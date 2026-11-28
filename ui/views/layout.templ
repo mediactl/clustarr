@@ -485,25 +485,21 @@ templ navRow(e navEntry, current bool) {
 	}
 }
 
-// pageToolbar is a page's sticky toolbar. Leading: the sidebar's toggle
-// (shown on a tablet, and on a desktop while the sidebar is hidden) and a
-// child page's back button naming its parent. Centre: the tablet's tab
-// bar, else the page's name once its large title has scrolled under the
-// bar (shell.js sets html[data-title-collapsed]). Trailing: Add where it
-// applies, and the search on a tablet. It has no fill of its own: the
-// scroll-edge layer behind it darkens and blurs what scrolls under it.
+// pageToolbar is a page's toolbar. On a tablet it is two rows (iPadOS 26):
+// a fixed first row of the sidebar's toggle, the sections' tab bar and the
+// search, and under it the sticky navigation row. The navigation row --
+// the only row on a desktop and a phone -- holds, leading, the sidebar's
+// toggle (a desktop, while the sidebar is hidden) and a child page's back
+// button naming its parent, then the page's name once its large title has
+// scrolled under the bar (shell.js sets html[data-title-collapsed]; centred
+// on a phone, leading as macOS sets it elsewhere); trailing, the page's own
+// actions and the Dashboard's Add and, on a phone, its Settings. It has no
+// fill of its own: the scroll-edge layer behind it darkens and blurs what
+// scrolls under it.
 templ pageToolbar(c Chrome) {
-	<header data-topbar class="sticky top-0 z-30 flex h-(--topbar-h) shrink-0 items-center gap-2 px-(--page-gutter)">
-		<div class="flex min-w-0 flex-1 basis-0 items-center gap-2">
-			@sidebar.Trigger(sidebar.TriggerProps{Class: "max-md:hidden", Target: sidebarID, Attributes: templ.Attributes{"data-sidebar-show": true, "aria-label": "Show the sidebar"}})
-			if b, ok := c.back(); ok {
-				<a href={ templ.SafeURL(b.Href) } data-back class="glass inline-flex h-[2.125rem] max-w-[16ch] min-w-0 items-center gap-1 rounded-full pr-3.5 pl-2 text-subheadline font-semibold text-label-1 max-md:size-9 max-md:justify-center max-md:p-0" aria-label={ "Back to " + b.Label }>
-					@icon.Icon("chevron-left")(icon.Props{Class: "size-[18px] shrink-0"})
-					<span class="truncate max-md:sr-only">{ b.Label }</span>
-				</a>
-			}
-		</div>
-		<nav data-toptabs aria-label="Sections" class="glass hidden h-11 items-center gap-0.5 rounded-full p-1 md:max-lg:flex" data-edge-light>
+	<div data-tablet-bar class="pointer-events-none fixed inset-x-0 top-2 z-30 hidden h-11 items-center justify-between gap-3 px-(--page-gutter) md:max-lg:flex">
+		@sidebar.Trigger(sidebar.TriggerProps{Class: "glass pointer-events-auto size-11 rounded-full", Target: sidebarID, Attributes: templ.Attributes{"data-sidebar-show": true, "aria-label": "Show the sidebar"}})
+		<nav data-toptabs aria-label="Sections" class="glass pointer-events-auto flex h-11 items-center gap-0.5 rounded-full p-1" data-edge-light>
 			for _, e := range append(barTabs(), settingsEntry) {
 				<a
 					href={ templ.SafeURL(e.Href) }
@@ -515,18 +511,40 @@ templ pageToolbar(c Chrome) {
 				>{ e.Label }</a>
 			}
 		</nav>
-		<div data-inline-title class="min-w-0 truncate text-center text-headline text-label-1 md:max-lg:hidden" aria-hidden="true">{ c.pageName() }</div>
-		<div data-page-actions class="flex min-w-0 flex-1 basis-0 items-center justify-end gap-2">
+		@button.Button(button.Props{
+			Variant:    button.VariantSecondary,
+			Size:       button.SizeIcon,
+			Class:      "glass pointer-events-auto size-11",
+			Attributes: templ.Attributes{"data-find-open-button": true, "aria-label": "Search"},
+		}) {
+			@icon.Icon("search")()
+		}
+	</div>
+	<header data-topbar class="sticky top-0 z-30 flex h-(--topbar-h) shrink-0 items-center gap-2 px-(--page-gutter)">
+		<div data-bar-lead class="flex min-w-0 flex-1 items-center gap-2">
+			@sidebar.Trigger(sidebar.TriggerProps{Class: "glass size-[2.125rem] rounded-full max-lg:hidden", Target: sidebarID, Attributes: templ.Attributes{"data-sidebar-show": true, "aria-label": "Show the sidebar"}})
+			if b, ok := c.back(); ok {
+				<a href={ templ.SafeURL(b.Href) } data-back class="glass inline-flex h-[2.125rem] max-w-[20ch] min-w-0 shrink-0 items-center gap-1 rounded-full pr-3.5 pl-2 text-subheadline font-semibold text-label-1 max-md:size-9 max-md:justify-center max-md:p-0" aria-label={ "Back to " + b.Label }>
+					@icon.Icon("chevron-left")(icon.Props{Class: "size-[18px] shrink-0"})
+					<span class="truncate max-md:sr-only">{ b.Label }</span>
+				</a>
+			}
+			<div data-inline-title class="min-w-0 truncate text-headline text-label-1" aria-hidden="true">{ c.pageName() }</div>
+		</div>
+		<div data-page-actions class="flex shrink-0 items-center justify-end gap-2">
+			if c.Title == "Dashboard" {
+				@button.Button(button.Props{
+					Href:       settingsEntry.Href,
+					Variant:    button.VariantSecondary,
+					Size:       button.SizeIcon,
+					Class:      "md:hidden",
+					Attributes: templ.Attributes{"aria-label": "Settings"},
+				}) {
+					@icon.Icon("settings")()
+				}
+			}
 			if c.addHere() {
 				@addNewMenu()
-			}
-			@button.Button(button.Props{
-				Variant:    button.VariantSecondary,
-				Size:       button.SizeIcon,
-				Class:      "hidden md:max-lg:inline-flex",
-				Attributes: templ.Attributes{"data-find-open-button": true, "aria-label": "Search"},
-			}) {
-				@icon.Icon("search")()
 			}
 		</div>
 	</header>
@@ -534,9 +552,10 @@ templ pageToolbar(c Chrome) {
 
 // sectionStrip is a section's sibling pages on a phone and a tablet (the
 // sidebar lists them on a desktop): a scrolling segmented control of
-// links, the current page its lens.
+// links, the current page its lens. The library's nine pages are the
+// Library root's on a phone, where a strip of them clips.
 templ sectionStrip(c Chrome) {
-	<nav data-section-strip aria-label="Pages" class="flex h-12 items-center px-(--page-gutter) lg:hidden">
+	<nav data-section-strip aria-label="Pages" class={ "flex h-12 items-center px-(--page-gutter) lg:hidden", templ.KV("max-md:hidden", c.LiveTV == "" && c.Activity == "") }>
 		<div data-slot="tabs-list" class="scroll-fade-x">
 			for _, e := range c.strip() {
 				<a

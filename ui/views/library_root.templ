@@ -1,0 +1,126 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// RootRow is one row of the Library root: a page, its glyph on a coloured
+// tile, and a count when it has one (-1 for none).
+type RootRow struct {
+	Label string
+	Href  string
+	Icon  string
+	// Tile is the tile's system colour, a token name ("blue").
+	Tile  string
+	Count int
+	// Alert draws the count as a red capsule (Unmatched above zero).
+	Alert bool
+	// PhoneOnly rows (Settings) show only where the sidebar does not.
+	PhoneOnly bool
+}
+
+// LibraryRootView is the Library root's groups.
+type LibraryRootView struct {
+	Libraries []RootRow
+	Plex      []RootRow
+	Health    []RootRow
+}
+
+// LibraryRootRows builds the root's groups from the item counts per tab
+// and the unmatched files' count.
+func LibraryRootRows(counts map[projection.Tab]int, unmatched int) LibraryRootView {
+	tiles := map[projection.Tab]string{
+		projection.TabMovies: "blue", projection.TabTV: "indigo", projection.TabAnime: "pink", projection.TabMusic: "red",
+		projection.TabBooks: "orange", projection.TabComics: "purple", projection.TabAudiobooks: "teal",
+	}
+	var v LibraryRootView
+	for _, tab := range projection.Tabs() {
+		v.Libraries = append(v.Libraries, RootRow{Label: tabLabel(tab), Href: "/library/" + string(tab), Icon: tabIcon(tab), Tile: tiles[tab], Count: counts[tab]})
+	}
+	v.Plex = []RootRow{
+		{Label: "Collections", Href: "/library/collections", Icon: "layers", Tile: "indigo", Count: -1},
+		{Label: "Hubs", Href: "/library/hubs", Icon: "rows-3", Tile: "gray", Count: -1},
+	}
+	v.Health = []RootRow{
+		{Label: "Unmatched", Href: "/unmatched", Icon: "file-question-mark", Tile: "orange", Count: unmatched, Alert: unmatched > 0},
+		{Label: "Import Lists", Href: "/import-lists", Icon: "list-plus", Tile: "green", Count: -1},
+		{Label: "Settings", Href: "/settings", Icon: "settings", Tile: "gray", Count: -1, PhoneOnly: true},
+	}
+	return v
+}
+
+// LibraryRoot is /library (2026-11-28, the Liquid Glass redesign, after the
+// Music app's Library): the libraries with their counts, Plex's
+// collections and hubs, and the library's health, as grouped lists of rows
+// with a coloured glyph tile and a chevron. It is the phone's and the
+// tablet's way into every library page; the desktop's sidebar lists them.
+templ LibraryRoot(v LibraryRootView) {
+	@Shell(Chrome{Title: "Library", Nav: "/library", Crumbs: []Crumb{{Label: "Library"}}}) {
+		<div class="mx-auto max-w-2xl">
+			<h1 class="mb-4">Library</h1>
+			@rootGroup("", v.Libraries)
+			@rootGroup("Plex", v.Plex)
+			@rootGroup("Library Health", v.Health)
+		</div>
+	}
+}
+
+templ rootGroup(label string, rows []RootRow) {
+	<section class="mb-7">
+		if label != "" {
+			<h2 data-group-header>{ label }</h2>
+		}
+		@item.Group(item.GroupProps{Attributes: templ.Attributes{"data-grouped": true}}) {
+			for _, r := range rows {
+				@item.Item(item.Props{Href: r.Href, Size: item.SizeSm, Class: rootRowClass(r), Attributes: templ.Attributes{"data-root-row": r.Label}}) {
+					@item.Media() {
+						<span data-icon-tile={ r.Tile }>
+							@icon.Icon(r.Icon)()
+						</span>
+					}
+					@item.Content() {
+						@item.Title() {
+							{ r.Label }
+						}
+					}
+					@item.Actions() {
+						if r.Count >= 0 {
+							if r.Alert {
+								<span data-count-alert class="tabular-nums">{ thousands(r.Count) }</span>
+							} else {
+								<span class="text-subheadline text-label-2 tabular-nums">{ thousands(r.Count) }</span>
+							}
+						}
+						@icon.Icon("chevron-right")(icon.Props{Class: "size-4 text-label-3"})
+					}
+				}
+			}
+		}
+	</section>
+}
+
+func rootRowClass(r RootRow) string {
+	if r.PhoneOnly {
+		return "md:hidden"
+	}
+	return ""
+}

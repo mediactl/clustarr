@@ -91,6 +91,9 @@
   function openPhone() {
     var i = input();
     if (!i) return null;
+    // A phone's search circle opens the sheet as a search sheet: the box
+    // and its results, not the navigation (input.css, data-search-mode).
+    if (window.matchMedia("(max-width: 767.98px)").matches) document.documentElement.setAttribute("data-search-mode", "");
     if (i.offsetParent === null || i.getBoundingClientRect().right <= 0) {
       var t = document.querySelector('[data-templ-sidebar-trigger="app-sidebar"]');
       if (t) t.click();

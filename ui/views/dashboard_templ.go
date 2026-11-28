@@ -1376,7 +1376,7 @@ func pagerOf(list string, pg ListPage, href func(n int) string) templ.Component 
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = pagination.Pagination(pagination.Props{Class: "mt-4", Attributes: templ.Attributes{"data-pager": list}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var43), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = pagination.Pagination(pagination.Props{Class: "mt-4", Attributes: pagerAttrs(list, pg)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var43), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2611,6 +2611,16 @@ func stackID(p ChartPanel) string {
 		return "a"
 	}
 	return ""
+}
+
+// pagerAttrs mark a list's pager, hidden while the list fits one page
+// (2026-11-28, the Liquid Glass redesign: no "1 of 1").
+func pagerAttrs(list string, pg ListPage) templ.Attributes {
+	a := templ.Attributes{"data-pager": list}
+	if pg.Pages <= 1 {
+		a["hidden"] = true
+	}
+	return a
 }
 
 var _ = templruntime.GeneratedTemplate

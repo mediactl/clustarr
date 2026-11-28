@@ -421,8 +421,24 @@ func ownerObject(kind commonv1.MediaKind) (client.Object, bool) {
 // handleLibraryIndex sends /library to its first tab: the library is one
 // tab per media type (spec 2026-09-23-library-page-design), and a bare
 // /library has no grid of its own.
+// handleLibraryIndex renders the Library root (2026-11-28, the Liquid Glass
+// redesign): every library with its count, Plex's collections and hubs, and
+// the library's health -- the phone's and the tablet's way into them.
 func (s *Server) handleLibraryIndex(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/library/"+string(projection.TabMovies), http.StatusFound)
+	counts := map[projection.Tab]int{}
+	if s.opts.Library != nil {
+		for _, it := range s.opts.Library(r.Context()) {
+			counts[it.Tab]++
+		}
+	}
+	unmatched := 0
+	if s.opts.Unmatched != nil {
+		unmatched = len(s.opts.Unmatched(r.Context()))
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.LibraryRoot(views.LibraryRootRows(counts, unmatched)).Render(r.Context(), w); err != nil {
+		logging.FromContext(r.Context()).Error("render the library root", "err", err)
+	}
 }
 
 // listRootFolders lists every RootFolder through Options.Reader, sorted by

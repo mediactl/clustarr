@@ -30,11 +30,11 @@ body:has([data-slot="dialog-content"][data-open]) [data-slot="alert-dialog-overl
 /* A form dialog: pinned header, scrolling body, pinned footer. */
 [data-slot="dialog-content"][data-form-dialog] {
   display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden;
-  max-width: 48rem;
+  max-width: 42.5rem;
   max-height: min(calc(100dvh - 2rem), 56rem);
 }
 [data-slot="dialog-content"][data-form-dialog="sm"] { max-width: 32rem; }
-[data-slot="dialog-content"][data-form-dialog="lg"] { max-width: 64rem; }
+[data-slot="dialog-content"][data-form-dialog="lg"] { max-width: 52rem; }
 /* The sheet's bars hold steady over the form scrolling between them (2026-11-28). */
 [data-form-dialog] > [data-slot="dialog-header"] {
   flex: none; padding: 1rem 3.5rem 1rem 1.5rem; border-bottom: 0;
