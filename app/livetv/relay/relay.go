@@ -37,7 +37,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -53,10 +55,6 @@ const (
 	ReasonUnsupportedStream = "unsupportedStream"
 	ReasonPanic             = "panic"
 )
-
-// Dialer dials an upstream connection: an http.Transport's DialContext,
-// such as a WireGuard tunnel's (pkg/wgdial).
-type Dialer func(ctx context.Context, network, address string) (net.Conn, error)
 
 // writeTimeout bounds one write to a viewer, so a client that stops reading
 // cannot hold its goroutine forever; its next read then finds it behind.
@@ -168,12 +166,9 @@ type Relay struct {
 	linger    time.Duration
 	userAgent string
 	language  string
-	// egress is one client per tunnel a stream may leave through
-	// (SetEgress); egressWanted says tunnels were asked for, so none open
-	// streams one channel the default way rather than every tuner from
-	// one address.
-	egress       []*http.Client
-	egressWanted bool
+	// agents is the pool of User-Agents (SetUserAgents): each stream
+	// takes one no other stream uses, and keeps it.
+	agents []string
 }
 
 type stream struct {
@@ -189,8 +184,8 @@ type stream struct {
 	linger    *time.Timer
 	userAgent string
 	lang      Language // declared in the program map's audio and subtitle tracks
-	// slot is the egress tunnel the stream leaves through, kept across
-	// reopens; -1 for the default way.
+	// slot is the User-Agent it took from the pool, kept across reopens;
+	// -1 without a pool.
 	slot int
 }
 
@@ -238,53 +233,32 @@ func New(o Options) *Relay {
 	return &Relay{o: o, streams: map[string]*stream{}, taken: map[string]time.Time{}, tuners: o.Tuners, buffer: o.Buffer, linger: o.Linger, userAgent: o.UserAgent, language: o.Language}
 }
 
-// SetEgress gives each later stream, and each reopen, its own tunnel: a
-// new stream takes the lowest one no stream holds (owner, 2026-11-27:
-// argon-tv allows one stream per public IP, and each tunnel leaves from its
-// own). The relay then streams at most one channel per tunnel, and with
-// tunnels wanted but none open (wanted, no dialers) at most one, the
-// default way. Dialers nil and wanted false is no egress.
-func (r *Relay) SetEgress(dialers []Dialer, wanted bool) {
-	clients := make([]*http.Client, 0, len(dialers))
-	for _, d := range dialers {
-		clients = append(clients, r.clientVia(d))
-	}
+// SetUserAgents gives each later stream its own User-Agent from pool: a
+// new stream takes the first no live stream holds and sends it on every
+// reopen (owner, 2026-11-28: argon-tv allows one stream per public IP and
+// User-Agent, and "make the streams recycle a pool of 3 distinct user
+// agents"). The relay then streams at most one channel per User-Agent.
+// An empty pool sends every stream the relay's one User-Agent. A stream
+// already open keeps the one it has.
+func (r *Relay) SetUserAgents(pool []string) {
 	r.mu.Lock()
-	r.egress, r.egressWanted = clients, wanted
+	r.agents = slices.Clone(pool)
 	r.mu.Unlock()
 }
 
-// clientVia is the relay's upstream client dialling through d: the same
-// timeouts and redirect policy, its own connections.
-func (r *Relay) clientVia(d Dialer) *http.Client {
-	base := r.o.HTTP
-	tr, ok := base.Transport.(*http.Transport)
-	if ok {
-		tr = tr.Clone()
-	} else {
-		tr = &http.Transport{ResponseHeaderTimeout: 10 * time.Second}
-	}
-	tr.Proxy, tr.DialContext = nil, d
-	return &http.Client{Transport: tr, Timeout: base.Timeout, CheckRedirect: base.CheckRedirect, Jar: base.Jar}
-}
-
 // limit is how many channels may stream at once: tuners, capped by the
-// tunnels open when egress is wanted; r.mu is held.
+// pool of User-Agents when there is one; r.mu is held.
 func (r *Relay) limit() int {
-	switch {
-	case !r.egressWanted:
+	if len(r.agents) == 0 {
 		return r.tuners
-	case len(r.egress) == 0:
-		return min(r.tuners, 1)
-	default:
-		return min(r.tuners, len(r.egress))
 	}
+	return min(r.tuners, len(r.agents))
 }
 
-// freeSlot is the lowest tunnel no live stream holds, -1 for none (or no
-// egress); r.mu is held.
+// freeSlot is the first User-Agent in the pool no live stream holds, -1
+// for none (or no pool); r.mu is held.
 func (r *Relay) freeSlot() int {
-	used := make([]bool, len(r.egress))
+	used := make([]bool, len(r.agents))
 	for _, s := range r.streams {
 		if !s.dead && s.slot >= 0 && s.slot < len(used) {
 			used[s.slot] = true
@@ -298,14 +272,13 @@ func (r *Relay) freeSlot() int {
 	return -1
 }
 
-// client is s's upstream client: its tunnel's, else the relay's own.
-func (r *Relay) client(s *stream) *http.Client {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if s.slot >= 0 && s.slot < len(r.egress) {
-		return r.egress[s.slot]
+// agentFor is the User-Agent of a new stream in slot: the pool's, else the
+// relay's own; r.mu is held.
+func (r *Relay) agentFor(slot int) string {
+	if slot >= 0 && slot < len(r.agents) {
+		return r.agents[slot]
 	}
-	return r.o.HTTP
+	return r.userAgent
 }
 
 // InUse is the tuners streaming now.
@@ -430,7 +403,8 @@ func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, ups
 		// its lifetime, and the viewer's logger: the tuner serves viewers
 		// under the manager's, while its own context carries none.
 		ctx, cancel := context.WithCancel(logging.NewContext(r.o.Context, logging.FromContext(req.Context())))
-		s = &stream{channel: channel, ring: newRing(r.buffer), ready: make(chan struct{}), cancel: cancel, userAgent: r.userAgent, lang: r.streamLanguage(lang), slot: r.freeSlot()}
+		slot := r.freeSlot()
+		s = &stream{channel: channel, ring: newRing(r.buffer), ready: make(chan struct{}), cancel: cancel, userAgent: r.agentFor(slot), lang: r.streamLanguage(lang), slot: slot}
 		s.ring.onSplice = func(dropped int64, aligned bool) {
 			logging.FromContext(ctx).Info("livetv: upstream reopened and spliced", "channel", channel, "droppedBytes", dropped, "aligned", aligned)
 		}
@@ -709,7 +683,9 @@ var (
 func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason string, final, delivered bool) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstream, nil)
+	began := time.Now()
+	trace := newUpstreamTrace(began) // where the wait for the first byte goes
+	req, err := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace.hooks()), http.MethodGet, upstream, nil)
 	if err != nil {
 		return ReasonRefused, true, false
 	}
@@ -717,8 +693,7 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 		req.Header.Set("User-Agent", s.userAgent)
 	}
 	log := logging.FromContext(ctx)
-	began := time.Now()
-	resp, err := r.client(s).Do(req)
+	resp, err := r.o.HTTP.Do(req)
 	if err != nil {
 		// The URL carries the account's credentials: only the cause is logged.
 		cause := err
@@ -727,7 +702,7 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 			cause = ue.Err
 		}
 		if ctx.Err() == nil {
-			log.Warn("livetv: upstream failed", "channel", s.channel, "after", time.Since(began), "err", cause.Error())
+			log.Warn("livetv: upstream failed", "channel", s.channel, "after", time.Since(began), "path", trace.String(), "err", cause.Error())
 		}
 		var ne net.Error
 		if errors.As(err, &ne) && ne.Timeout() {
@@ -737,7 +712,7 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
-		log.Warn("livetv: upstream refused", "channel", s.channel, "after", time.Since(began), "status", resp.StatusCode)
+		log.Warn("livetv: upstream refused", "channel", s.channel, "after", time.Since(began), "status", resp.StatusCode, "path", trace.String())
 		return ReasonRefused, false, false
 	}
 	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "mpegurl") {
@@ -769,7 +744,7 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 				if r.o.OnFirstByte != nil {
 					r.o.OnFirstByte(took)
 				}
-				log.Info("livetv: upstream answered", "channel", s.channel, "firstByte", took, "egress", s.slot+1)
+				log.Info("livetv: upstream answered", "channel", s.channel, "firstByte", took, "agent", s.slot+1, "path", trace.String())
 				s.readyOnce.Do(func() { close(s.ready) })
 			}
 		}

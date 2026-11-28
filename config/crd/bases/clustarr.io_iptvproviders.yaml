@@ -465,81 +465,6 @@ spec:
                       is cut off, which PMS reports as "Recording failed".
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
-                  egress:
-                    description: |-
-                      Egress sends each stream the relay holds at once through its own
-                      WireGuard tunnel to the network's gateway, which translates each
-                      tunnel's address to its own public IP (owner, 2026-11-27: argon-tv
-                      allows one stream per public IP, whatever its max_connections; three
-                      streams from three of the AT&T static IPs all held). A new stream
-                      takes the lowest tunnel no stream holds and keeps it across reopens,
-                      and the relay streams no more channels at once than it has tunnels
-                      open. Unset, every stream leaves the way the manager's traffic does.
-                    properties:
-                      endpoint:
-                        description: |-
-                          Endpoint is the WireGuard server, host:port (the UDM's,
-                          "10.1.0.1:51820").
-                        maxLength: 255
-                        minLength: 1
-                        type: string
-                      publicKey:
-                        description: PublicKey is the server's public key, base64.
-                        pattern: ^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$
-                        type: string
-                      tunnels:
-                        description: |-
-                          Tunnels are the server's peers, one per concurrent stream, in the
-                          order streams take them.
-                        items:
-                          description: |-
-                            EgressTunnel is one WireGuard peer: the address the server knows it by,
-                            which the gateway translates to one public IP, and its private key.
-                          properties:
-                            address:
-                              description: Address is the peer's IPv4 address inside
-                                the tunnel.
-                              format: ipv4
-                              type: string
-                            privateKeyRef:
-                              description: |-
-                                PrivateKeyRef is the key of a Secret in the provider's namespace
-                                holding the peer's private key, base64.
-                              properties:
-                                key:
-                                  description: The key of the secret to select from.  Must
-                                    be a valid secret key.
-                                  type: string
-                                name:
-                                  default: ""
-                                  description: |-
-                                    Name of the referent.
-                                    This field is effectively required, but due to backwards compatibility is
-                                    allowed to be empty. Instances of this type with an empty value here are
-                                    almost certainly wrong.
-                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  type: string
-                                optional:
-                                  description: Specify whether the Secret or its key
-                                    must be defined
-                                  type: boolean
-                              required:
-                              - key
-                              type: object
-                              x-kubernetes-map-type: atomic
-                          required:
-                          - address
-                          - privateKeyRef
-                          type: object
-                        maxItems: 64
-                        minItems: 1
-                        type: array
-                        x-kubernetes-list-type: atomic
-                    required:
-                    - endpoint
-                    - publicKey
-                    - tunnels
-                    type: object
                   language:
                     description: |-
                       Language is the language the relay declares for every audio and
@@ -555,6 +480,24 @@ spec:
                       Linger keeps an upstream open after its last viewer leaves, so a
                       channel flip back costs no reconnect. Default 10s.
                     type: string
+                  userAgents:
+                    description: |-
+                      UserAgents is a pool of User-Agents, one for each stream the relay
+                      holds at once: a new stream takes the first no stream is using and
+                      keeps it across reopens, and the relay streams no more channels at
+                      once than the pool holds. argon-tv allows one stream per public IP
+                      and User-Agent: from one IP, a second stream with the same User-Agent
+                      ended the first 1.6 s after it began, while three with three
+                      different ones (even "VLC/3.0.20" and "VLC/3.0.21") all held (owner,
+                      2026-11-28: "make the streams recycle a pool of 3 distinct user
+                      agents"). Empty sends every stream spec.userAgent.
+                    items:
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: set
                 type: object
               tuners:
                 description: |-

@@ -67,7 +67,6 @@ const (
 	ReasonInvalidServer      = "InvalidServer"
 	ReasonInvalidGuideURL    = "InvalidGuideURL"
 	ReasonInvalidPlaylistURL = "InvalidPlaylistURL"
-	ReasonInvalidEgress      = "InvalidEgress"
 
 	// A provider's Ready=False reasons from its blocks (Live TV spec §3.1).
 	// Each keeps the last good status.blocks, so no Plex DVR is removed.

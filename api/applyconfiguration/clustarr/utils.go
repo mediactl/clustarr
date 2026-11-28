@@ -55,8 +55,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &clustarrv1alpha1.DVRSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DVRStatus"):
 		return &clustarrv1alpha1.DVRStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("EgressTunnel"):
-		return &clustarrv1alpha1.EgressTunnelApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GuideSources"):
 		return &clustarrv1alpha1.GuideSourcesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GuideSourcesStatus"):
@@ -91,8 +89,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &clustarrv1alpha1.PlexGuideStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlexSourceStatus"):
 		return &clustarrv1alpha1.PlexSourceStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("StreamEgress"):
-		return &clustarrv1alpha1.StreamEgressApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("StreamSpec"):
 		return &clustarrv1alpha1.StreamSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TunerStatus"):

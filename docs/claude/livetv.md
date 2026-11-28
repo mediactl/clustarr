@@ -295,42 +295,59 @@ just like an upstream with no media. A stream that ran dry with a viewer
 logs "livetv: stream resumed; its viewers waited for the upstream"
 (`waited`) once it holds a cushion again.
 
-**Each stream leaves through its own WireGuard tunnel, so from its own
-public IP** (owner, 2026-11-27: "create a method to masquerade/SNAT/egress
-gateway/NAT gateway so that each open stream up to three using a separate
-static IP from our AT&T public IP range"; then, of the egress designs,
-"Would it be possible to use the UDM's wireguard or some other tunnel of
-sorts to allow the streams to choose their own masquerade IP? If not, set
-this up using the original port based SNAT concept"). argon-tv allows one
-stream per public IP whatever its `max_connections`: three streams from
-three of the AT&T statics all held, two from one IP ended the first 1.6 s
-after the second started (same day). `spec.stream.egress` names the
-gateway's WireGuard server (`endpoint`, `publicKey`) and one tunnel per
-concurrent stream (`address`, `privateKeyRef` into a Secret); the
-controller reads the keys (`resolveEgress`: a missing Secret or key, a
-malformed key or address, or one address twice is Valid=False,
-`InvalidEgress`, naming no key), and the tuner opens each tunnel in-process
-(`pkg/wgdial`: wireguard-go over gVisor's network stack, no tun device, no
-NET_ADMIN; about 1.5 MB of the manager) and hands the relay one dialer per
-tunnel (`Relay.SetEgress`). A new stream takes the lowest tunnel no stream
-holds and keeps it across reopens; a takeover inherits the taken stream's;
-the relay streams no more channels than tunnels open, one when tunnels are
-wanted but none opened, and `effectiveTuners` (discover.json, status) is
-capped at the tunnels configured. The gateway translates each tunnel
-address to a static: on talos the UDM's WireGuard server "UDM Home"
-(wgsrv1, 10.100.0.1/24, port 51820, reached from pods at 10.1.0.1) has the
-clients `clustarr-livetv-1..3` (10.100.0.21-23), and UniFi SNAT rules
-`clustarr-livetv-2 egress (.26)` and `-3 (.27)` (rule_index 6, 7) sit ahead
-of Static-IP-Rotation (moved from 4 to 8, the catch-all to .25), so .21
-leaves as .25 (owner's choice: ".25 / .26 / .27"), .22 as .26 and .23 as
-.27. Proven before it was built: from a talos pod each tunnel's public IP
-was its own, and three channels played at once through the three for 90 to
-120 s each, HTTP 200, none cut, `active_cons` 3. The rejected designs: a
-Cilium egress gateway (disabled on talos, selects whole pods, so a proxy
-pod per egress node, each node holding an egress IP), and source-port bands
-SNATed by the UDM (Cilium's masquerade keeps a pod's source port, but does
-not promise to). `TestEachStreamLeavesThroughItsOwnTunnel`,
-`TestEachTunnelDialsFromItsOwnAddress` (a real WireGuard server in-process).
+**A connection's start says where its first byte went** (owner,
+2026-11-28: "consider whether there's a way to speed up the initial
+startup time for a stream. Is this the fault of argon-tv?"). On talos a
+tune took about 5.8 s from PMS starting its recorder to the first
+playlist. argon-tv's first byte took 1.4-1.7 s of that, about 0.6 s of
+it distance: the panel (46.229.243.219) and the CDN77 edge are each
+110-150 ms away, and a tune is a request to each. PMS took about 3.7 s
+and cluster-plex about 0.3 s. "upstream answered", "upstream failed" and
+"upstream refused" carry `path` (`relay/trace.go`, an `httptrace` per
+request, hosts only, since the panel path carries the account and the
+edge URL a token). It reads like "tvload.win:80 dns 4ms conn 160ms
+answered 420ms > 50.7.196.90:80 conn 540ms answered 1.38s", each time
+since the request began, and "(reused)" marks a kept-alive connection.
+`TestTheTraceTimesEachHopOfARedirect`, `TestAnAnsweredUpstreamLogsItsPath`.
+
+**Each stream sends its own User-Agent, from a pool** (owner, 2026-11-28:
+"attempt a local test with curl and see if we can open multiple streams
+using different http header data to spoof multiple devices", then "Omg
+that's a godsend - immediately refactor the multi stream setup and remove
+all the wireguard stuff and just make the streams recycle a pool of 3
+distinct user agents"). argon-tv's one-stream limit is per public IP *and
+User-Agent*, not per IP. From one address, a second stream with the same
+User-Agent ended the first 1.6 s after it began (`active_cons` 1). With a
+different one it held: VLC against TiviMate, and even "VLC/3.0.20 LibVLC/3.0.20"
+against "VLC/3.0.21 LibVLC/3.0.21". Three streams with three VLC versions
+held for 55-75 s each (`active_cons` 3, the account's limit).
+`spec.stream.userAgents` is the pool (a set, at most 16). `Relay.SetUserAgents`
+gives each new stream the first User-Agent no live stream holds
+(`freeSlot`, `agentFor`), and it sends that one on every reopen. A takeover
+inherits the taken stream's: the taken connection is closed before the new
+one opens. The relay streams no more channels than the pool holds, and
+`effectiveTuners` (discover.json, status) is capped at the pool's size.
+Playlist and guide requests keep `spec.userAgent`, and an empty pool sends
+every stream `spec.userAgent`, as before. The "upstream answered" log
+names the stream's `agent` (1-based slot).
+`TestEachStreamSendsItsOwnUserAgent`,
+`TestAFourthChannelTakesTheLongestWatchedStreamsUserAgent`,
+`TestFewerUserAgentsThanTunersCapTheStreams`,
+`TestAReopenSendsTheStreamsUserAgentAgain`,
+`TestAPoolOfUserAgentsCapsTheTuners`.
+
+The pool replaced the per-stream WireGuard egress, which was live from
+2026-11-28 06:29Z (67cf20b9, Helm rev 312) until this change. That design
+had `spec.stream.egress`, `pkg/wgdial` (wireguard-go over gVisor), three UDM
+WireGuard clients `clustarr-livetv-1..3` on the "UDM Home" server, and SNAT
+rules mapping them to .25/.26/.27. It rested on the belief that argon-tv
+allowed one stream per IP, from a test whose streams all sent one
+User-Agent. An architect review the same day had also found its keys gave
+WAN-reachable access to the whole LAN. A drafted ipvlan relay
+(docs/superpowers/specs/2026-11-28-livetv-stream-relay-design.md, never
+committed) is moot too. Every stream now leaves as the house's .25, so a
+device in the house playing argon-tv with one of the pool's User-Agents
+would knock that stream off.
 
 discover.json advertises three tuners more than `tuners`
 (`tuner.SpareTuners`). The reason: on 2026-10-20 a grab PMS never ended held
