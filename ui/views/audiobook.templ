@@ -44,7 +44,7 @@ func AudiobookActions() []Action {
 // region, #audiobook-modal, where the bar's Interactive Search opens the
 // modal on its Search tab.
 templ AudiobookPage(v AudiobookView) {
-	@Shell(Chrome{Title: v.Item.Title, Crumbs: itemCrumbs(v.Item), Tab: v.Item.Tab}) {
+	@Shell(Chrome{Title: v.Item.Title, Crumbs: itemCrumbs(v.Item), Tab: v.Item.Tab, Prev: v.Detail.Prev, Next: v.Detail.Next}) {
 		@audiobookHero(v)
 		@audiobookPartsSection(v)
 		@audiobookChaptersSection(v)
@@ -96,7 +96,6 @@ templ audiobookHero(v AudiobookView) {
 							@monitorBookmark(li)
 							<h1 class="line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl">{ li.Title }</h1>
 						</div>
-						@neighbours(v.Detail)
 					</div>
 					if v.Subtitle != "" {
 						<p data-subtitle class="mt-1 text-2xl text-muted-foreground">{ v.Subtitle }</p>

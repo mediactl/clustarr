@@ -222,8 +222,7 @@ func TestAudiobookPageIsTheMoviePageForARecording(t *testing.T) {
 	// The Files section lists every part under the audio columns.
 	files := body[indexOf(body, `data-section="files"`):]
 	require.Equal(t, 3, strings.Count(files, `data-file="earthsea-ab-`))
-	require.Contains(t, files, ">Codec<")
-	require.Contains(t, files, ">Sample Rate<")
+	require.Contains(t, files, `data-cell="codec"`)
 	require.Contains(t, files, `data-cell="sampleRate">44.1 kHz<`)
 
 	require.Equal(t, 1, strings.Count(body, `id="audiobook-modal"`))

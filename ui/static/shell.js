@@ -151,4 +151,19 @@
   document.addEventListener("htmx:afterSettle", function (e) {
     if (e.detail && e.detail.target && e.detail.target.id === "page-body") revealStrip();
   });
+
+  // An overview clamped to three lines offers "More" only when it is cut.
+  function markClamps() {
+    document.querySelectorAll("[data-clamp]").forEach(function (c) {
+      var p = c.querySelector("[data-overview]");
+      if (p) c.toggleAttribute("data-clamped", p.scrollHeight > p.clientHeight + 2);
+    });
+  }
+  markClamps();
+  window.addEventListener("resize", markClamps);
+  document.addEventListener("htmx:afterSettle", markClamps);
+  document.addEventListener("click", function (e) {
+    var more = e.target.closest && e.target.closest("[data-clamp-more]");
+    if (more) more.closest("[data-clamp]").setAttribute("data-expanded", "");
+  });
 })();

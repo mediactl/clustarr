@@ -104,7 +104,7 @@ func BookXActions() []Action {
 
 // BookXPage is a book's page.
 templ BookXPage(v BookXView) {
-	@Shell(Chrome{Title: bookXPageTitle(v), Crumbs: bookXCrumbs(v), Tab: v.Item.Tab}) {
+	@Shell(Chrome{Title: bookXPageTitle(v), Crumbs: bookXCrumbs(v), Tab: v.Item.Tab, Prev: v.Detail.Prev, Next: v.Detail.Next}) {
 		@bookXHero(v)
 		@bookXEditions(v)
 		@filesSection(v.Detail)
@@ -188,7 +188,6 @@ templ bookXHero(v BookXView) {
 							@monitorBookmark(li)
 							<h1 class="line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl">{ b.DisplayTitle() }</h1>
 						</div>
-						@neighbours(v.Detail)
 					</div>
 					if b.Subtitle != "" {
 						<p data-subtitle class="mt-1 text-2xl text-muted-foreground">{ b.Subtitle }</p>

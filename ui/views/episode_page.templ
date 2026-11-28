@@ -63,7 +63,7 @@ type EpisodeView struct {
 
 // EpisodePage is an episode's page.
 templ EpisodePage(v EpisodeView) {
-	@Shell(Chrome{Title: episodePageTitle(v), Crumbs: episodeCrumbs(v), Tab: v.Item.Tab}) {
+	@Shell(Chrome{Title: episodePageTitle(v), Crumbs: episodeCrumbs(v), Tab: v.Item.Tab, Prev: v.Detail.Prev, Next: v.Detail.Next}) {
 		@episodeHero(v)
 		@filesSection(v.Detail)
 		@extrasSection(v.Detail)
@@ -160,7 +160,6 @@ templ episodeHero(v EpisodeView) {
 							@episodeBookmark(ep)
 							<h1 class="line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl">{ episodeTitle(ep) }</h1>
 						</div>
-						@neighbours(v.Detail)
 					</div>
 					<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
 						<a href={ templ.URL(libraryDetailPath(li)) } data-series-link class="font-medium hover:underline">{ li.Title }</a>

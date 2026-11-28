@@ -38,7 +38,7 @@ import (
 
 // IssuePage is an issue's page.
 templ IssuePage(v IssueView) {
-	@Shell(Chrome{Title: issuePageTitle(v), Crumbs: issueCrumbs(v), Tab: v.Item.Tab}) {
+	@Shell(Chrome{Title: issuePageTitle(v), Crumbs: issueCrumbs(v), Tab: v.Item.Tab, Prev: v.Detail.Prev, Next: v.Detail.Next}) {
 		@issueHero(v)
 		@filesSection(v.Detail)
 		<div id="issue-modal"></div>
@@ -127,7 +127,6 @@ templ issueHero(v IssueView) {
 							@issueBookmark(iss)
 							<h1 class="line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl">{ iss.DisplayTitle() }</h1>
 						</div>
-						@neighbours(v.Detail)
 					</div>
 					<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
 						<a href={ templ.URL(libraryDetailPath(li)) } data-comic-link class="font-medium hover:underline">{ li.Title }</a>

@@ -86,7 +86,7 @@ func TestDetailHeaderIsRadarrsHeroWithTheActionsInTheToolbar(t *testing.T) {
 	heroAt := strings.Index(body, `data-hero`)
 	require.GreaterOrEqual(t, heroAt, 0)
 	require.Contains(t, body[heroAt:], `data-action="set-monitored"`, "the bookmark on the title toggles monitoring")
-	require.Regexp(t, `data-slot="badge"[^>]*>[^<]*hd-bluray-web`, body, "the quality profile is a badge in the facts")
+	require.Regexp(t, `data-fact="profile"[\s\S]*?hd-bluray-web`, body, "the quality profile is in the Information facts")
 }
 
 // Season headers stay items; a season's episodes are Sonarr's table

@@ -42,7 +42,7 @@ import (
 
 // AlbumPage is an album's page.
 templ AlbumPage(v AlbumView) {
-	@Shell(Chrome{Title: v.PageTitle(), Crumbs: childCrumbs(v.Artist, v.Row.DisplayTitle()), Tab: v.Item.Tab}) {
+	@Shell(Chrome{Title: v.PageTitle(), Crumbs: childCrumbs(v.Artist, v.Row.DisplayTitle()), Tab: v.Item.Tab, Prev: v.Detail.Prev, Next: v.Detail.Next}) {
 		@albumHero(v)
 		@tracksSection(v)
 		@filesSection(v.Detail)
@@ -125,7 +125,6 @@ templ albumHero(v AlbumView) {
 							@albumBookmark(a)
 							<h1 class="line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl">{ a.DisplayTitle() }</h1>
 						</div>
-						@neighbours(v.Detail)
 					</div>
 					<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
 						<a href={ templ.URL(libraryDetailPath(ar)) } data-artist-link class="font-medium hover:underline">{ ar.Title }</a>
@@ -516,21 +515,8 @@ templ albumFilesTable(files []FileRow) {
 	if len(files) == 0 {
 		@emptyNote("No files on disk.", "rounded-md border border-border py-3", templ.Attributes{"data-album-files": "0"})
 	} else {
-		<div class="rounded-md border border-border" data-album-files={ fmt.Sprint(len(files)) }>
-			@table.Table() {
-				@table.Header() {
-					@table.Row() {
-						@FileHeads(commonv1.MediaKindAlbum)
-					}
-				}
-				@table.Body() {
-					for _, f := range files {
-						@table.Row(table.RowProps{Attributes: templ.Attributes{"data-file": f.Name}}) {
-							@FileCells(f)
-						}
-					}
-				}
-			}
+		<div data-album-files={ fmt.Sprint(len(files)) }>
+			@FileList(files)
 		</div>
 	}
 }

@@ -202,9 +202,12 @@ func TestMoviePageHeroReadsTheGatheredMetadata(t *testing.T) {
 	requireTag(t, heroBody, `src="/static/providers/imdb.svg"`, `alt="IMDb"`)
 	require.NotContains(t, heroBody, "lucide-external-link", "a provider link shows its logo")
 
+	// The facts are the page's Information section (2026-11-28), the
+	// genres the hero's meta line.
 	fact := func(name string) string {
-		return section(t, heroBody, `data-fact="`+name+`"`)
+		return section(t, body, `data-fact="`+name+`"`)
 	}
+	requireTag(t, body, `data-section="information"`)
 	require.Contains(t, fact("path"), nervePath)
 	require.Contains(t, fact("status"), "Downloaded")
 	requireTag(t, fact("status"), `data-status="downloaded"`, `bg-emerald-500`)
@@ -223,9 +226,7 @@ func TestMoviePageToolbarHasRadarrsActions(t *testing.T) {
 	srv, _ := movieFixture(t, false)
 	body := detailPage(t, srv, "/library/default/movie/nerve")
 	bar := section(t, body, `data-toolbar`)
-	factsAt := strings.Index(bar, `<dl`)
-	require.GreaterOrEqual(t, factsAt, 0, "the actions sit in the hero, above its facts")
-	bar = bar[:factsAt]
+	bar = beforeFacts(t, bar)
 
 	// The bar is a row of circle buttons in the hero (owner, 2026-11-17,
 	// after the Plex apps; one joined button group under the top bar from
@@ -267,32 +268,31 @@ func TestMoviePageListsFilesExtrasAndTitles(t *testing.T) {
 	body := detailPage(t, srv, "/library/default/movie/nerve")
 
 	files := section(t, body, `data-section="files"`)
-	require.Contains(t, files, `data-slot="table"`, "the files are a table")
-	for _, head := range []string{"Relative Path", "Video Codec", "Audio Info", "Size", "Languages", "Quality", "Release Group", "Formats"} {
-		require.Contains(t, files, ">"+head+"<", "column %s", head)
-	}
+	// The files are a list of rows (2026-11-28): the name, the size, one
+	// "·"-joined spec line, the custom formats as badges.
+	require.Contains(t, files, `data-file-list`, "the files are a list")
 	row := section(t, files, `data-file="nerve-file"`)
 	require.Contains(t, row, "Nerve (2016) {tmdb-328387} - [Bluray-1080p Proper][DTS 5.1][x264]-DRONES.mkv", "the path is relative to the movie's folder")
 	require.NotContains(t, row, nervePath+"/")
-	require.Contains(t, row, ">h264<")
+	require.Contains(t, row, ">H.264<")
 	require.Contains(t, row, "DTS - 5.1")
 	require.Contains(t, row, "7.69 GiB")
-	require.Regexp(t, regexp.MustCompile(`data-slot="badge"[^>]*>[^<]*English`), row)
-	require.Regexp(t, regexp.MustCompile(`data-slot="badge"[^>]*>[^<]*Bluray-1080p`), row)
+	require.Contains(t, row, `data-cell="language">English<`)
+	require.Contains(t, row, `data-cell="quality">Bluray-1080p<`)
 	require.Contains(t, row, ">DRONES<")
 	require.Regexp(t, regexp.MustCompile(`data-slot="badge"[^>]*>[^<]*DTS<`), row)
 	require.Regexp(t, regexp.MustCompile(`data-slot="badge"[^>]*>[^<]*Repack/Proper`), row)
 	require.Contains(t, row, "-9995")
 
 	extras := section(t, body, `data-section="extras"`)
-	require.Contains(t, extras, `data-slot="table"`)
 	extra := section(t, extras, `data-extra=`)
 	require.Contains(t, extra, "Nerve (2016) {tmdb-328387}.en.srt")
 	require.Contains(t, extra, "Subtitle")
 	require.Contains(t, extra, ">en<")
 
 	titles := section(t, body, `data-section="titles"`)
-	require.Contains(t, titles, `data-slot="table"`)
+	require.Contains(t, titles, "Also Known As", "the titles are a disclosure")
+	requireTag(t, titles, `dir="auto"`)
 	require.Contains(t, titles, ">NePBB<")
 	require.Contains(t, titles, "Nerve : Voyeur ou Joueur?")
 
@@ -320,7 +320,7 @@ func TestMoviePageListsTheFilesSubtitlesAndItsTranscode(t *testing.T) {
 	srv, _ := movieFixture(t, false)
 	body := detailPage(t, srv, "/library/default/movie/nerve")
 	sub := section(t, body, `data-section="subtitles"`)
-	require.Contains(t, sub, ">Wanted<", "the block's phase")
+	require.Contains(t, sub, ">Wanted<", "the block's phase, in words")
 	en := subtitleRow(t, sub, "en")
 	require.Contains(t, en, ">downloaded<")
 	require.Contains(t, en, "92/100")

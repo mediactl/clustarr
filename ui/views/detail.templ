@@ -22,14 +22,16 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"slices"
 	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
 	"github.com/mediactl/clustarr/ui/components/empty"
 	"github.com/mediactl/clustarr/ui/components/icon"
-	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/components/popover"
 	"github.com/mediactl/clustarr/ui/components/utils"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -285,7 +287,7 @@ func DetailPath(li projection.LibraryItem) string { return libraryDetailPath(li)
 
 // LibraryDetail is a movie's (or any other standalone item's) page.
 templ LibraryDetail(d Detail) {
-	@Shell(Chrome{Title: d.Item.Title, Crumbs: itemCrumbs(d.Item), Tab: d.Item.Tab}) {
+	@Shell(Chrome{Title: d.Item.Title, Crumbs: itemCrumbs(d.Item), Tab: d.Item.Tab, Prev: d.Prev, Next: d.Next}) {
 		@hero(d)
 		if d.ShowFiles {
 			@filesSection(d)
@@ -293,6 +295,7 @@ templ LibraryDetail(d Detail) {
 			@subtitlesSection(d)
 		}
 		@titlesSection(d)
+		@informationSection(d)
 		if d.Item.Kind == commonv1.MediaKindMovie {
 			<div id="movie-modal"></div>
 		}
@@ -364,14 +367,76 @@ templ itemToolbar(d Detail) {
 // Delete only for a deletable kind with no delete pending. A page's region
 // for the modal is its own to render. The slots are joined with one space
 // each, as the bar's buttons always rendered, an empty slot's included.
+//
+// Since 2026-11-28 (the Liquid Glass redesign, after the Music and TV
+// apps) the bar is one line that never wraps: the item's one primary action
+// as a labelled prominent capsule -- Search while the item lacks its file
+// or is below its cutoff, Refresh otherwise (primaryAction) -- the
+// interactive search as a clear-glass circle, and every other action in a
+// "…" popover of the same buttons and forms, Delete last.
 func ItemActions(d Detail, actions []Action) templ.Component {
-	slots := make([]templ.Component, 0, len(actions))
+	primary := primaryAction(d, actions)
+	var face, circles, more []templ.Component
 	for _, a := range actions {
-		slots = append(slots, itemAction(d, a))
+		c := itemAction(d, a)
+		switch {
+		case a == primary:
+			face = append(face, c)
+		case a == ActionInteractive:
+			circles = append(circles, c)
+		default:
+			more = append(more, c)
+		}
 	}
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		return actionBar().Render(templ.WithChildren(ctx, joined(slots)), w)
+		return actionBar().Render(templ.WithChildren(ctx, actionRow(d.Item.Ref.Name, joined(face), joined(circles), joined(more), len(more) > 0)), w)
 	})
+}
+
+// primaryAction is the bar's prominent action: Search while the item is
+// missing its file or below its cutoff, else Refresh; whichever of the two
+// the page's bar has.
+func primaryAction(d Detail, actions []Action) Action {
+	want := ActionRefresh
+	switch projection.LibraryStatus(d.Item) {
+	case "missing", "cutoff-unmet":
+		want = ActionSearch
+	}
+	if slices.Contains(actions, want) {
+		return want
+	}
+	for _, a := range []Action{ActionRefresh, ActionSearch} {
+		if slices.Contains(actions, a) {
+			return a
+		}
+	}
+	return ""
+}
+
+// actionRow lays the bar's parts out: the primary capsule, the circles and
+// the "…" popover, each marked (data-act) for the theme's shapes.
+templ actionRow(name string, face, circles, more templ.Component, hasMore bool) {
+	<div data-act="primary" class="contents">
+		@face
+	</div>
+	<div data-act="circle" class="contents">
+		@circles
+	</div>
+	if hasMore {
+		@popover.Popover(popover.Props{ID: "more-" + name}) {
+			@button.Button(button.Props{
+				Variant:    button.VariantGhost,
+				Class:      actionButtonClass,
+				Attributes: utils.MergeAttributes(popover.Trigger(ctx), templ.Attributes{"data-act-more": true, "aria-label": "More actions", "title": "More"}),
+			}) {
+				@icon.Icon("ellipsis")()
+				<span>More</span>
+			}
+			@popover.Content(popover.ContentProps{Align: popover.AlignStart, SideOffset: 8, Class: "w-64 gap-0.5 p-1.5", Attributes: templ.Attributes{"data-act-menu": true}}) {
+				@more
+			}
+		}
+	}
 }
 
 // itemAction is one of the bar's slots: the action's button (and its
@@ -498,7 +563,7 @@ templ hero(d Detail) {
 			@heroArt(d.Backdrop)
 			@heroBanner(d.Backdrop, d.Logo, li.Title)
 			<div class={ "relative flex flex-col gap-6 p-4 @2xl/hero:flex-row @2xl/hero:gap-10 @2xl/hero:p-8", templ.KV("@2xl/hero:pt-24", d.Backdrop != "") }>
-				<div class={ "w-40 shrink-0 @2xl/hero:w-56", templ.KV("hidden @5xl/hero:block", d.Backdrop != "") }>
+				<div class={ "w-40 shrink-0 @2xl/hero:w-56", templ.KV("hidden", d.Backdrop != "") }>
 					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
 						@poster(li.Poster, li.Title, li.ArtKey)
 					</div>
@@ -512,9 +577,9 @@ templ hero(d Detail) {
 							// with no logo; a phone's is in its banner. The heading
 							// stays for a screen reader throughout.
 							if d.Logo != "" {
-								<img data-hero-logo src={ templ.URL(d.Logo) } alt={ li.Title } class="hidden max-h-28 max-w-[min(28rem,80%)] object-contain object-left drop-shadow-[0_2px_14px_rgba(0,0,0,0.7)] @2xl/hero:block @5xl/hero:hidden"/>
+								<img data-hero-logo src={ templ.URL(d.Logo) } alt={ li.Title } class="hidden max-h-36 max-w-[min(26rem,80%)] object-contain object-left drop-shadow-[0_2px_14px_rgba(0,0,0,0.7)] @2xl/hero:block"/>
 							}
-							<h1 class={ "line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl", templ.KV("@max-2xl/hero:sr-only", d.Backdrop != "" && d.Logo == ""), templ.KV("sr-only @5xl/hero:not-sr-only", d.Logo != "") }>{ li.Title }</h1>
+							<h1 class={ "line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl", templ.KV("@max-2xl/hero:sr-only", d.Backdrop != "" && d.Logo == ""), templ.KV("sr-only", d.Logo != "") }>{ li.Title }</h1>
 						</div>
 					</div>
 					// The meta line, in the Plex apps' order: year, runtime,
@@ -540,77 +605,83 @@ templ hero(d Detail) {
 					<div data-hero-marks class="mt-3 flex flex-wrap items-center gap-3">
 						@monitorBookmark(li)
 						@providerLinks(d.Links)
-						// The previous and next items: at the row's end on a
-						// phone, at the hero's top right from a tablet up.
-						<div class={ "ml-auto", templ.KV("@2xl/hero:absolute @2xl/hero:top-8 @2xl/hero:right-8", d.Backdrop != "") }>
-							@neighbours(d)
-						</div>
 					</div>
 					// The item's actions, under the title's lines.
 					<div class="mt-5">
 						@itemToolbar(d)
 					</div>
 					if d.Overview != "" {
-						<p data-overview class="mt-5 max-w-3xl text-base leading-relaxed">{ d.Overview }</p>
+						<div class="mt-5 max-w-[68ch]" data-clamp>
+							<p data-overview class="line-clamp-3 text-base leading-relaxed">{ d.Overview }</p>
+							<button type="button" data-clamp-more class="mt-1 text-subheadline font-semibold text-tint">More</button>
+						</div>
 					}
-					<dl class="mt-6 grid max-w-3xl grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-8 gap-y-2.5 text-base">
-						if d.Path != "" {
-							@fact("path", "Path") {
-								<span class="break-all">{ d.Path }</span>
-							}
-						}
-						if d.ImageSet != nil {
-							@fact("imageset", "Images") {
-								if d.ImageSet.Href != "" {
-									<a href={ templ.URL(d.ImageSet.Href) } target="_blank" rel="noreferrer" class="hover:text-foreground" data-imageset-source={ imageSetSource(d.ImageSet) }>{ d.ImageSet.Label }</a>
-								} else {
-									<span data-imageset-source={ imageSetSource(d.ImageSet) }>{ d.ImageSet.Label }</span>
-								}
-							}
-						}
-						@fact("status", "Status") {
-							<span class="flex items-center gap-2">
-								<span data-status={ projection.LibraryStatus(li) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(projection.LibraryStatus(li)) }></span>
-								{ statusLabel(li) }
-							</span>
-							if li.DeleteError != "" {
-								@deleteRetry(d)
-							}
-							if li.DeleteMode != "" {
-								@deleteCancel(d)
-							}
-						}
-						if li.QualityProfileRef != "" {
-							@fact("profile", "Quality Profile") {
-								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) {
-									{ li.QualityProfileRef }
-								}
-							}
-						}
-						if size := heroSize(d); size > 0 {
-							@fact("size", "Size") {
-								{ formatBytes(size) }
-							}
-						}
-						if d.Language != "" {
-							@fact("language", "Original Language") {
-								{ d.Language }
-							}
-						}
-						if d.Audio.Text != "" {
-							@fact("audio", "Audio") {
-								@audioBadge(d.Audio)
-							}
-						}
-						if d.Network != "" {
-							@fact("network", "Network") {
-								{ d.Network }
-							}
-						}
-					</dl>
 				</div>
 			</div>
 		</div>
+	</section>
+}
+
+// informationSection is the item's facts at the foot of its page (2026-11-28,
+// the Liquid Glass redesign, after the TV app's Information): a grid of
+// labelled values, the path across the whole row.
+templ informationSection(d Detail) {
+	{{ li := d.Item }}
+	<section data-section="information" class="mt-(--section-gap)">
+		<h2 data-section-header>Information</h2>
+		<dl data-info-grid>
+			if d.Path != "" {
+				@fact("path", "Path") {
+					<span class="break-all">{ d.Path }</span>
+				}
+			}
+			if d.ImageSet != nil {
+				@fact("imageset", "Images") {
+					if d.ImageSet.Href != "" {
+						<a href={ templ.URL(d.ImageSet.Href) } target="_blank" rel="noreferrer" class="hover:text-foreground" data-imageset-source={ imageSetSource(d.ImageSet) }>{ d.ImageSet.Label }</a>
+					} else {
+						<span data-imageset-source={ imageSetSource(d.ImageSet) }>{ d.ImageSet.Label }</span>
+					}
+				}
+			}
+			@fact("status", "Status") {
+				<span class="flex items-center gap-2">
+					<span data-status={ projection.LibraryStatus(li) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(projection.LibraryStatus(li)) }></span>
+					{ statusLabel(li) }
+				</span>
+				if li.DeleteError != "" {
+					@deleteRetry(d)
+				}
+				if li.DeleteMode != "" {
+					@deleteCancel(d)
+				}
+			}
+			if li.QualityProfileRef != "" {
+				@fact("profile", "Quality Profile") {
+					{ li.QualityProfileRef }
+				}
+			}
+			if size := heroSize(d); size > 0 {
+				@fact("size", "Size") {
+					{ formatBytes(size) }
+				}
+			}
+			if d.Language != "" {
+				@fact("language", "Original Language") {
+					{ d.Language }
+				}
+			}
+			if d.Audio.Text != "" {
+				@fact("audio", "Audio") {
+					@audioBadge(d.Audio)
+				}
+			}
+			if d.Network != "" {
+				@fact("network", "Network") {
+					{ d.Network }
+				}
+			}
+		</dl>
 	</section>
 }
 
@@ -655,25 +726,6 @@ func bookmarkLabel(monitored bool) string {
 		return "Unmonitor"
 	}
 	return "Monitor"
-}
-
-// neighbours are Radarr's previous and next arrows: the items either side
-// of this one on its tab.
-templ neighbours(d Detail) {
-	if d.Prev != "" || d.Next != "" {
-		<div class="flex shrink-0 gap-2">
-			if d.Prev != "" {
-				@button.Button(button.Props{Href: d.Prev, Variant: button.VariantSecondary, Size: button.SizeIcon, Class: "rounded-full bg-black/40 text-white backdrop-blur-md hover:bg-black/55 dark:bg-black/40 dark:hover:bg-black/55", Attributes: templ.Attributes{"data-nav": "prev", "aria-label": "Previous"}}) {
-					@icon.Icon("arrow-left")()
-				}
-			}
-			if d.Next != "" {
-				@button.Button(button.Props{Href: d.Next, Variant: button.VariantSecondary, Size: button.SizeIcon, Class: "rounded-full bg-black/40 text-white backdrop-blur-md hover:bg-black/55 dark:bg-black/40 dark:hover:bg-black/55", Attributes: templ.Attributes{"data-nav": "next", "aria-label": "Next"}}) {
-					@icon.Icon("arrow-right")()
-				}
-			}
-		</div>
-	}
 }
 
 // statusLabel is Radarr's Status fact: the file's state in words.
@@ -764,7 +816,7 @@ templ emptyNote(text, class string, attrs templ.Attributes) {
 }
 
 templ sectionTitle(title string) {
-	<h2 class="mb-3 border-b border-border pb-2 text-2xl font-light">{ title }</h2>
+	<h2 data-section-header>{ title }</h2>
 }
 
 // filesSection is Radarr's Files table: the movie's file as import
@@ -777,24 +829,9 @@ templ filesSection(d Detail) {
 	<section data-section="files" class="mb-8">
 		@sectionTitle("Files")
 		if len(d.Files) == 0 {
-			@emptyNote("No file on disk.", "panel rounded-xl border border-border bg-card", nil)
+			@emptyNote("No file on disk.", "panel px-(--platter-pad) py-3 text-label-2", nil)
 		} else {
-			<div class="panel rounded-xl border border-border bg-card">
-				@table.Table() {
-					@table.Header() {
-						@table.Row() {
-							@FileHeads(FilesKind(d.Files))
-						}
-					}
-					@table.Body() {
-						for _, f := range d.Files {
-							@table.Row(table.RowProps{Attributes: templ.Attributes{"data-file": f.Name}}) {
-								@FileCells(f)
-							}
-						}
-					}
-				}
-			</div>
+			@FileList(d.Files)
 		}
 	</section>
 }
@@ -802,114 +839,68 @@ templ filesSection(d Detail) {
 // extrasSection is Radarr's extra files: the sidecars beside the media
 // file, or its "No extra files to manage."
 templ extrasSection(d Detail) {
-	<section data-section="extras" class="mb-8">
+	<section data-section="extras" class="-mt-(--section-gap) pt-2">
 		if len(d.Extras) == 0 {
-			@empty.Empty(empty.Props{Class: "panel rounded-xl border border-border bg-card py-6"}) {
-				@empty.Header() {
-					@empty.Title() {
-						{ "No extra files to manage." }
-					}
-				}
-			}
+			<p data-extras-none class="px-1 text-footnote text-label-2">No extra files to manage.</p>
 		} else {
-			<div class="panel rounded-xl border border-border bg-card">
-				@table.Table() {
-					@table.Header() {
-						@table.Row() {
-							@table.Head() {
-								{ "Relative Path" }
-							}
-							@table.Head() {
-								{ "Type" }
-							}
-							@table.Head() {
-								{ "Language" }
-							}
-						}
-					}
-					@table.Body() {
-						for _, e := range d.Extras {
-							@table.Row(table.RowProps{Attributes: templ.Attributes{"data-extra": e.Path}}) {
-								@table.Cell(table.CellProps{Class: "break-all whitespace-normal"}) {
-									{ e.Path }
-								}
-								@table.Cell() {
-									{ e.Kind }
-								}
-								@table.Cell() {
-									{ e.Language }
-								}
-							}
-						}
-					}
+			<div class="panel overflow-hidden">
+				for _, e := range d.Extras {
+					{{ stem, tail := splitTail(e.Path, 14) }}
+					<div data-extra={ e.Path } class="flex items-center gap-3 px-(--platter-pad) py-2.5">
+						<span data-icon-tile="indigo" class="shrink-0">
+							@icon.Icon("captions")()
+						</span>
+						<div class="min-w-0 flex-1">
+							<div class="flex min-w-0 text-subheadline text-label-1" title={ e.Path }>
+								<span class="truncate">{ stem }</span>
+								<span class="shrink-0 whitespace-pre">{ tail }</span>
+							</div>
+							<div class="text-footnote text-label-2"><span>{ e.Kind }</span> · <span>{ e.Language }</span></div>
+						</div>
+					</div>
 				}
 			</div>
 		}
 	</section>
 }
 
-// subtitlesSection is the file's status.subtitles: the phase, then one row
-// per language (loop spec §6.9). Forcing a search is
+// subtitlesSection is the file's status.subtitles (loop spec §6.9): the
+// phase in words, then a row per language -- its state, score and provider,
+// the next search, the last error. Forcing a search is
 // `kubectl annotate mediafile <name> subtitle.clustarr.io/search=$(date +%s)`;
 // the ui offers no action for it (§9 D18).
 templ subtitlesSection(d Detail) {
 	if d.SubtitlesPhase != "" {
-		<section data-section="subtitles" class="mb-8">
+		<section data-section="subtitles">
 			@sectionTitle("Subtitles")
-			<p class="mb-2 text-sm">
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
-					{ d.SubtitlesPhase }
-				}
+			<p data-subtitles-phase class="mb-2 text-subheadline text-label-2">
+				<span data-phase={ d.SubtitlesPhase }>{ humanize(d.SubtitlesPhase) }</span>
 			</p>
 			if len(d.Subtitles) > 0 {
-				<div class="panel rounded-xl border border-border bg-card">
-					@table.Table() {
-						@table.Header() {
-							@table.Row() {
-								@table.Head() {
-									{ "Language" }
+				<div class="panel overflow-hidden">
+					for _, s := range d.Subtitles {
+						<div data-subtitle={ s.LangKey } class="flex items-start gap-3 px-(--platter-pad) py-2.5">
+							<span class="w-10 shrink-0 pt-0.5 text-subheadline font-semibold text-label-1 uppercase">{ s.LangKey }</span>
+							<div class="min-w-0 flex-1">
+								<div class="flex flex-wrap gap-x-1.5 text-subheadline text-label-1">
+									<span>{ s.State }</span>
+									if s.Score != "" {
+										<span aria-hidden="true" class="text-label-2">·</span>
+										<span class="text-label-2 tabular-nums">{ s.Score }</span>
+									}
+									if s.Provider != "" {
+										<span aria-hidden="true" class="text-label-2">·</span>
+										<span class="text-label-2">{ s.Provider }</span>
+									}
+								</div>
+								if s.LastError != "" {
+									<p class="text-footnote break-words text-red-300">{ s.LastError }</p>
 								}
-								@table.Head() {
-									{ "State" }
-								}
-								@table.Head() {
-									{ "Score" }
-								}
-								@table.Head() {
-									{ "Provider" }
-								}
-								@table.Head() {
-									{ "Next search" }
-								}
-								@table.Head() {
-									{ "Last error" }
-								}
+							</div>
+							if s.NextSearch != "" {
+								<span class="shrink-0 text-footnote text-label-2 tabular-nums">{ s.NextSearch }</span>
 							}
-						}
-						@table.Body() {
-							for _, s := range d.Subtitles {
-								@table.Row(table.RowProps{Attributes: templ.Attributes{"data-subtitle": s.LangKey}}) {
-									@table.Cell() {
-										{ s.LangKey }
-									}
-									@table.Cell() {
-										{ s.State }
-									}
-									@table.Cell() {
-										{ s.Score }
-									}
-									@table.Cell() {
-										{ s.Provider }
-									}
-									@table.Cell() {
-										{ s.NextSearch }
-									}
-									@table.Cell(table.CellProps{Class: "max-w-md break-words whitespace-normal text-xs text-muted-foreground"}) {
-										{ s.LastError }
-									}
-								}
-							}
-						}
+						</div>
 					}
 				</div>
 			}
@@ -917,34 +908,46 @@ templ subtitlesSection(d Detail) {
 	}
 }
 
-// titlesSection is Radarr's Titles table: the alternative titles the
-// metadata lists, when it lists any.
+// titlesSection is the alternative titles the metadata lists, behind an
+// "Also Known As" disclosure (2026-11-28; Radarr's always-open Titles table
+// until then): a title in any script sets its own direction.
 templ titlesSection(d Detail) {
 	if len(d.AltTitles) > 0 {
-		<section data-section="titles" class="mb-8">
-			@sectionTitle("Titles")
-			<div class="panel rounded-xl border border-border bg-card">
-				@table.Table() {
-					@table.Header() {
-						@table.Row() {
-							@table.Head() {
-								{ "Alternative Title" }
-							}
-						}
-					}
-					@table.Body() {
+		<section data-section="titles">
+			@collapsible.Collapsible(collapsible.Props{ID: "titles-" + d.Item.Ref.Name}) {
+				<button type="button" data-disclosure class="flex w-full items-center gap-2 text-left" { collapsible.Trigger(ctx)... }>
+					<h2 data-section-header class="mb-0">Also Known As</h2>
+					<span class="text-title-3 font-normal text-label-2 tabular-nums">{ fmt.Sprint(len(d.AltTitles)) }</span>
+					@icon.Icon("chevron-right")(icon.Props{Class: "ml-1 size-5 text-label-2 transition-transform"})
+				</button>
+				@collapsible.Content() {
+					<ul data-alt-titles class="mt-3 columns-1 gap-6 text-subheadline text-label-1 @2xl/page:columns-2 @5xl/page:columns-3">
 						for _, title := range d.AltTitles {
-							@table.Row() {
-								@table.Cell() {
-									{ title }
-								}
-							}
+							<li dir="auto" class="break-inside-avoid py-1 [unicode-bidi:plaintext]">{ title }</li>
 						}
-					}
+					</ul>
 				}
-			</div>
+			}
 		</section>
 	}
+}
+
+// humanize writes an enum or a CRD token in words: "NotWanted" is "Not
+// wanted", "logOnly" "Log only".
+func humanize(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			b.WriteByte(' ')
+			b.WriteRune(r + ('a' - 'A'))
+			continue
+		}
+		if i == 0 && r >= 'a' && r <= 'z' {
+			r -= 'a' - 'A'
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // artKeyAs is li's image key for type t: its poster key, "<kind>/<uid>/poster",

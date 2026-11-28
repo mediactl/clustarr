@@ -138,8 +138,9 @@ func TestItemActionsComposeByName(t *testing.T) {
 	for _, m := range actions {
 		names = append(names, m[1])
 	}
-	require.Equal(t, []string{"refresh-metadata", "search-now", "audiobook-interactive-search", "rename-dry-run", "rename-apply", "delete", "delete-confirm"}, names,
-		"in the order asked; no Images for an audiobook (the dialog knows movies and series), Delete (its trigger and its dialog's confirm) for a deletable kind")
+	require.Equal(t, []string{"search-now", "audiobook-interactive-search", "refresh-metadata", "rename-dry-run", "rename-apply", "delete", "delete-confirm"}, names,
+		"the primary action first (Search, the audiobook has no file), the interactive search's circle, then the rest in the order asked; "+
+			"no Images for an audiobook (the dialog knows movies and series), Delete (its trigger and its dialog's confirm) for a deletable kind")
 	require.Contains(t, html, `title="Refresh &amp; Scan"`)
 	require.Contains(t, html, `title="Search Audiobook"`)
 	require.Contains(t, html, `action="/library/media/audiobook/dune/search/interactive"`)
@@ -156,7 +157,7 @@ func TestItemActionsComposeByName(t *testing.T) {
 	for _, m := range regexp.MustCompile(`data-action="([^"]+)"`).FindAllStringSubmatch(html, -1) {
 		names = append(names, m[1])
 	}
-	require.Equal(t, []string{"issue-interactive-search", "refresh-metadata"}, names)
+	require.Equal(t, []string{"refresh-metadata", "issue-interactive-search"}, names, "the primary action (Refresh, the only one of the two asked) first")
 	require.Contains(t, html, `<span>Refresh</span>`)
 	require.NotContains(t, html, `Refresh &amp; Scan`, "no folder, no scan; and a title equal to the word is dropped (actionTitle)")
 	require.Contains(t, html, `hx-target="#issue-modal"`)

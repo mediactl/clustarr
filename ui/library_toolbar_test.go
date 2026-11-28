@@ -490,6 +490,9 @@ func toolbarOf(t *testing.T, body string) string {
 func beforeFacts(t *testing.T, bar string) string {
 	t.Helper()
 	facts := strings.Index(bar, `<dl`)
-	require.GreaterOrEqual(t, facts, 0, "the actions sit in the hero, above its facts")
+	if facts < 0 {
+		// The facts are the page's Information section (2026-11-28).
+		return bar
+	}
 	return bar[:facts]
 }

@@ -47,8 +47,13 @@ func TestMovieToolbarOpensRadarrsInteractiveSearch(t *testing.T) {
 	require.Contains(t, bar, `hx-post="/library/default/movie/nerve/search/interactive"`)
 	require.Contains(t, bar, `hx-target="#movie-modal"`)
 	require.Contains(t, bar, `action="/library/default/movie/nerve/search/interactive"`, "a form post without JavaScript lands on the panel's page")
-	require.Less(t, strings.Index(bar, `data-action="search-now"`), strings.Index(bar, `data-action="movie-interactive-search"`),
-		"Interactive Search follows Search Movie, as in Radarr")
+	// The bar (2026-11-28): the primary action -- Refresh for a movie on
+	// disk -- then Interactive Search as a circle, then the "…" menu, which
+	// holds Search Movie.
+	require.Less(t, strings.Index(bar, `data-act="primary"`), strings.Index(bar, `data-action="movie-interactive-search"`))
+	require.Less(t, strings.Index(bar, `data-action="movie-interactive-search"`), strings.Index(bar, `data-act-menu`),
+		"Interactive Search is a face-level circle, before the menu")
+	require.Greater(t, strings.Index(bar, `data-action="search-now"`), strings.Index(bar, `data-act-menu`), "Search Movie is in the menu")
 	require.Contains(t, page, `id="movie-modal"`)
 
 	rec := postForm(t, srv, "/library/default/movie/nerve/search/interactive", url.Values{}, true)

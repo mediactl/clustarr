@@ -39,7 +39,7 @@ import (
 // season's interactive search once one is opened, and
 // #action-status says how an episode's automatic search went.
 templ SeriesDetail(d Detail, seasons []SeasonRow) {
-	@Shell(Chrome{Title: d.Item.Title, Crumbs: itemCrumbs(d.Item), Tab: d.Item.Tab}) {
+	@Shell(Chrome{Title: d.Item.Title, Crumbs: itemCrumbs(d.Item), Tab: d.Item.Tab, Prev: d.Prev, Next: d.Next}) {
 		@selectionBar(SelectionBar{Action: libraryActionURL(d.Item, "rows/bulk"), Verbs: RowVerbs()})
 		@hero(d)
 		<div class="mt-6 space-y-4" data-seasons={ fmt.Sprint(len(seasons)) }>
@@ -50,6 +50,7 @@ templ SeriesDetail(d Detail, seasons []SeasonRow) {
 				@SeasonComponent(season)
 			}
 		</div>
+		@informationSection(d)
 		@episodeRegions()
 	}
 }

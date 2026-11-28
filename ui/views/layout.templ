@@ -54,6 +54,11 @@ type Chrome struct {
 	// Activity is the current Activity page's path, which the sidebar's
 	// Activity sub-menu marks; "" off the Activity section.
 	Activity string
+	// Prev and Next are an item page's neighbours on its tab, which the
+	// toolbar steps through (one up/down capsule, as Mail and Finder step
+	// through a list; Radarr's arrows in the hero until 2026-11-28).
+	Prev string
+	Next string
 	// HideScrollbar hides the document's native scrollbar (data-scrollbar
 	// on <html>, app.css): the library, where the A-Z strip is the only
 	// thing on the right edge, as in Sonarr. ui/static/jump.js keeps the
@@ -532,6 +537,9 @@ templ pageToolbar(c Chrome) {
 			<div data-inline-title class="min-w-0 truncate text-headline text-label-1" aria-hidden="true">{ c.pageName() }</div>
 		</div>
 		<div data-page-actions class="flex shrink-0 items-center justify-end gap-2">
+			if c.Prev != "" || c.Next != "" {
+				@neighbours(c.Prev, c.Next)
+			}
 			if c.Title == "Dashboard" {
 				@button.Button(button.Props{
 					Href:       settingsEntry.Href,
@@ -548,6 +556,29 @@ templ pageToolbar(c Chrome) {
 			}
 		</div>
 	</header>
+}
+
+// neighbours is an item page's previous and next items as one joined glass
+// capsule of two glyphs, up and down; a side with no item is disabled.
+templ neighbours(prev, next string) {
+	<div data-neighbours class="glass flex h-[2.125rem] items-center rounded-full p-0.5 max-md:hidden">
+		@button.Button(button.Props{Href: prev, Disabled: prev == "", Variant: button.VariantGhost, Size: button.SizeIconSm, Class: "rounded-full", Attributes: navSide("prev", prev, "Previous")}) {
+			@icon.Icon("chevron-up")()
+		}
+		<span class="h-4 w-px bg-white/20" aria-hidden="true"></span>
+		@button.Button(button.Props{Href: next, Disabled: next == "", Variant: button.VariantGhost, Size: button.SizeIconSm, Class: "rounded-full", Attributes: navSide("next", next, "Next")}) {
+			@icon.Icon("chevron-down")()
+		}
+	</div>
+}
+
+// navSide marks a neighbour button: data-nav only when the side has an item.
+func navSide(side, href, label string) templ.Attributes {
+	a := templ.Attributes{"aria-label": label, "title": label}
+	if href != "" {
+		a["data-nav"] = side
+	}
+	return a
 }
 
 // sectionStrip is a section's sibling pages on a phone and a tablet (the

@@ -22,6 +22,7 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/table"
 )
 
@@ -214,4 +215,144 @@ func pagesLabel(pages int32) string {
 		return ""
 	}
 	return fmt.Sprint(pages)
+}
+
+// FileList is an item's files as a list of rows (2026-11-28, the Liquid
+// Glass redesign; the Files table until then): one platter, a row a file
+// -- its glyph, its name middle-truncated so the extension and the release
+// tag stay in view, its size, then one line of what it is joined with
+// " · " (the kind's own cells, each still carrying data-cell), its custom
+// formats as quiet badges, its transcode and its markers.
+templ FileList(files []FileRow) {
+	<div data-file-list class="panel overflow-hidden">
+		for _, f := range files {
+			@fileItem(f)
+		}
+	</div>
+}
+
+templ fileItem(f FileRow) {
+	{{ stem, tail := splitTail(f.RelativePath, 18) }}
+	<div data-file={ f.Name } data-file-row class="flex gap-3 px-(--platter-pad) py-3">
+		<span data-icon-tile="gray" class="mt-0.5 shrink-0">
+			@icon.Icon(fileGlyph(f.Kind))()
+		</span>
+		<div class="min-w-0 flex-1">
+			<div class="flex items-baseline gap-3">
+				<span data-file-name class="flex min-w-0 flex-1 text-body text-label-1" title={ f.RelativePath }>
+					<span class="truncate">{ stem }</span>
+					<span class="shrink-0 whitespace-pre">{ tail }</span>
+				</span>
+				if f.SizeBytes > 0 {
+					<span class="shrink-0 text-subheadline text-label-2 tabular-nums">{ formatBytes(f.SizeBytes) }</span>
+				}
+			</div>
+			<div data-file-spec class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-footnote text-label-2">
+				@specParts(fileSpec(f))
+			</div>
+			if len(f.Formats) > 0 || f.Transcode != "" {
+				<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+					for _, v := range f.Formats {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+							{ v }
+						}
+					}
+					if f.Transcode != "" {
+						<span data-file-transcode class="ml-auto text-footnote text-label-2">{ f.Transcode }</span>
+					}
+				</div>
+			}
+			if f.Markers != "" {
+				<div data-file-markers class="mt-1 text-footnote text-label-2">{ f.Markers }</div>
+			}
+		</div>
+	</div>
+}
+
+// specPart is one value of a file's spec line, with the data-cell it
+// carried as a table cell.
+type specPart struct {
+	Cell  string
+	Value string
+}
+
+// fileSpec is a file's spec line for its kind: the video file's codec,
+// audio, quality, languages and release group; the audio file's codec,
+// bitrate and sample rate, then its quality; the book's format and pages.
+// The score closes it.
+func fileSpec(f FileRow) []specPart {
+	var out []specPart
+	add := func(cell, v string) {
+		if v != "" {
+			out = append(out, specPart{cell, v})
+		}
+	}
+	switch columnsFor(f.Kind) {
+	case audioColumns:
+		add("codec", f.AudioCodec)
+		add("bitrate", bitrateLabel(f.BitrateKbps))
+		add("sampleRate", sampleRateLabel(f.SampleRateHz, f.BitDepth))
+		add("quality", f.Quality)
+	case bookColumns:
+		add("format", f.Format)
+		add("pages", pagesLabel(f.Pages))
+		add("quality", f.Quality)
+	default:
+		add("videoCodec", upperCodec(f.VideoCodec))
+		add("audio", f.Audio)
+		add("quality", f.Quality)
+		for _, l := range f.Languages {
+			add("language", l)
+		}
+	}
+	add("releaseGroup", f.ReleaseGroup)
+	if f.Score != 0 {
+		add("score", fmt.Sprintf("Score %d", f.Score))
+	}
+	return out
+}
+
+templ specParts(parts []specPart) {
+	for i, p := range parts {
+		if i > 0 {
+			<span aria-hidden="true">·</span>
+		}
+		<span data-cell={ p.Cell }>{ p.Value }</span>
+	}
+}
+
+// upperCodec writes a codec as Apple's apps do (HEVC, H.264, AV1).
+func upperCodec(c string) string {
+	switch c {
+	case "hevc", "h265", "x265":
+		return "HEVC"
+	case "h264", "avc", "x264":
+		return "H.264"
+	case "av1":
+		return "AV1"
+	case "vp9":
+		return "VP9"
+	}
+	return c
+}
+
+// fileGlyph is a file's glyph by its kind.
+func fileGlyph(kind commonv1.MediaKind) string {
+	switch columnsFor(kind) {
+	case audioColumns:
+		return "file-music"
+	case bookColumns:
+		return "book-open"
+	}
+	return "film"
+}
+
+// splitTail splits s for a middle truncation: everything but its last n
+// characters, which stay in view, and those.
+func splitTail(s string, n int) (string, string) {
+	r := []rune(s)
+	if len(r) <= n+4 {
+		return s, ""
+	}
+	return string(r[:len(r)-n]), string(r[len(r)-n:])
 }

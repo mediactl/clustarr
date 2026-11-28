@@ -102,8 +102,6 @@ func TestIssuePageShowsWhatTheEpisodePageShows(t *testing.T) {
 	require.NotContains(t, files, "/data/comics/Saga (2012)/Saga 001 (2012).cbz")
 	require.Regexp(t, `data-cell="format"[\s\S]*?>CBZ<`, files)
 	require.Regexp(t, `data-cell="pages"[^>]*>44<`, files)
-	require.Contains(t, files, ">Format<")
-	require.Contains(t, files, ">Pages<")
 	require.NotContains(t, files, ">Video Codec<", "an issue's file has no video columns")
 	require.Contains(t, files, "Zone-Empire")
 

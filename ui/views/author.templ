@@ -61,7 +61,7 @@ func AuthorXActions() []Action {
 
 // AuthorXPage is an author's page.
 templ AuthorXPage(v AuthorXView) {
-	@Shell(Chrome{Title: v.Item.Title, Crumbs: itemCrumbs(v.Item), Tab: v.Item.Tab}) {
+	@Shell(Chrome{Title: v.Item.Title, Crumbs: itemCrumbs(v.Item), Tab: v.Item.Tab, Prev: v.Detail.Prev, Next: v.Detail.Next}) {
 		@selectionBar(SelectionBar{Action: libraryActionURL(v.Item, "rows/bulk"), Verbs: RowVerbs()})
 		@authorXHero(v)
 		@card.Card(card.Props{Class: "mt-6 gap-0 py-0", Attributes: templ.Attributes{"data-author-books": fmt.Sprint(len(v.Books))}}) {
@@ -117,7 +117,6 @@ templ authorXHero(v AuthorXView) {
 							@monitorBookmark(li)
 							<h1 class="line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl">{ li.Title }</h1>
 						</div>
-						@neighbours(v.Detail)
 					</div>
 					<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
 						if v.Born != "" {
