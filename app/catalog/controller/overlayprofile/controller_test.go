@@ -67,14 +67,32 @@ func TestStatusHashChangesWithEveryRenderField(t *testing.T) {
 		"Kinds": func(s *catalogv1alpha1.OverlayProfileSpec) { s.Kinds = []commonv1.MediaKind{commonv1.MediaKindMovie} },
 		"Anime": func(s *catalogv1alpha1.OverlayProfileSpec) { s.Anime = catalogv1alpha1.OverlayAnimeOnly },
 	}
+	// A third kind: what the compact rendition alone is drawn from (the
+	// compact-posters design, 2026-11-27). It must not move status.hash,
+	// which the regular poster is redrawn by -- a profile gaining a compact
+	// geometry would redraw every regular overlay under a new digest, and
+	// Plex would refresh the library. The compact rendition has a digest of
+	// its own (overlayplan.Want.WithCompact).
+	compact := map[string]func(*catalogv1alpha1.OverlayProfileSpec){
+		"CompactGeometry": func(s *catalogv1alpha1.OverlayProfileSpec) {
+			width := int32(40)
+			s.CompactGeometry = &catalogv1alpha1.OverlayGeometry{WidthPercent: &width}
+		},
+	}
 	st := reflect.TypeOf(catalogv1alpha1.OverlayProfileSpec{})
 	for i := range st.NumField() {
 		name := st.Field(i).Name
 		_, sel := selection[name]
-		assert.True(t, render[name] || sel, "OverlayProfileSpec.%s is neither a render nor a selection field: classify it", name)
+		_, cmp := compact[name]
+		assert.True(t, render[name] || sel || cmp, "OverlayProfileSpec.%s is neither a render, a selection nor a compact field: classify it", name)
 	}
 
 	base := overlayprofile.Hash(catalogv1alpha1.OverlayProfileSpec{})
+	for name, set := range compact {
+		var s catalogv1alpha1.OverlayProfileSpec
+		set(&s)
+		assert.Equal(t, base, overlayprofile.Hash(s), "%s is the compact rendition's, not the regular poster's", name)
+	}
 	for name, set := range selection {
 		var s catalogv1alpha1.OverlayProfileSpec
 		set(&s)
