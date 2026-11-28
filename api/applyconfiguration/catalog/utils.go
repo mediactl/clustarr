@@ -87,6 +87,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.AuthorSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AuthorStatus"):
 		return &catalogv1alpha1.AuthorStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("BacklogIndexer"):
+		return &catalogv1alpha1.BacklogIndexerApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("BacklogQueueSpec"):
 		return &catalogv1alpha1.BacklogQueueSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("BacklogQueueStatus"):

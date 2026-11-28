@@ -1165,6 +1165,15 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: previousReleaseDate
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogIndexer
+  map:
+    fields:
+    - name: fingerprint
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogQueueSpec
   map:
     fields:
@@ -1263,6 +1272,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: cutoffUnmet
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogQueueStatus
+    - name: indexers
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogIndexer
+          elementRelationship: atomic
     - name: lastCycleAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -1281,6 +1296,12 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BacklogSearchUnit
           elementRelationship: atomic
+    - name: searchChangedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: searchVersion
+      type:
+        scalar: numeric
     - name: searchesLastHour
       type:
         scalar: numeric

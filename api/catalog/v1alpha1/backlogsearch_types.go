@@ -210,6 +210,20 @@ type BacklogSearchUnit struct {
 	At metav1.Time `json:"at"`
 }
 
+// MaxBacklogIndexers is status.indexers' MaxItems.
+const MaxBacklogIndexers = 64
+
+// BacklogIndexer is one indexer automatic searches ask, as a cycle read it.
+type BacklogIndexer struct {
+	// Name is the Indexer's.
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+	// Fingerprint is a digest of the Indexer's identity and of the settings
+	// that decide what a search of it returns.
+	// +kubebuilder:validation:MaxLength=64
+	Fingerprint string `json:"fingerprint"`
+}
+
 // BacklogSearchStatus describes the observed state of BacklogSearch.
 type BacklogSearchStatus struct {
 	// ObservedGeneration is the generation of the spec this status reflects.
@@ -251,6 +265,27 @@ type BacklogSearchStatus struct {
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=100
 	Recent []BacklogSearchUnit `json:"recent,omitempty"`
+
+	// SearchChangedAt is when the search last changed: an indexer automatic
+	// searches ask was added or its search settings were edited, or a build
+	// that searches differently took over (searchVersion). An item last
+	// searched before it is due again whatever its queue's cooldown; the
+	// queues' perCycle and hourlyLimit still pace the searches.
+	// +optional
+	SearchChangedAt *metav1.Time `json:"searchChangedAt,omitempty"`
+
+	// SearchVersion is the search version of the build that ran the last
+	// cycle.
+	// +optional
+	SearchVersion int32 `json:"searchVersion,omitempty"`
+
+	// Indexers are the indexers automatic searches ask, as the last cycle
+	// read them: one new here, or one whose fingerprint differs, moves
+	// searchChangedAt.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=64
+	Indexers []BacklogIndexer `json:"indexers,omitempty"`
 }
 
 // +kubebuilder:object:root=true

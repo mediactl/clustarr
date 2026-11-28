@@ -28,6 +28,9 @@ package backlogsearch
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -45,6 +48,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/backlog"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/itemread"
@@ -167,6 +171,9 @@ func (r *Reconciler) cycle(ctx context.Context, bs *catalogv1alpha1.BacklogSearc
 	if err != nil {
 		return nil, err
 	}
+	if err := r.observeSearch(ctx, bs, st, now); err != nil {
+		return nil, err
+	}
 	used := lastHour(st.Recent, now)
 	cfg := backlog.Config{
 		Queues: map[schema.SearchReason]backlog.Queue{
@@ -175,6 +182,9 @@ func (r *Reconciler) cycle(ctx context.Context, bs *catalogv1alpha1.BacklogSearc
 		},
 		Room:         max(int(bs.Spec.HourlyLimitOrDefault())-used, 0),
 		SeasonSearch: bs.Spec.SeasonSearchOrDefault(),
+	}
+	if st.SearchChangedAt != nil {
+		cfg.SearchChanged = st.SearchChangedAt.Time
 	}
 	units, counts := backlog.Select(cands, cfg, now)
 
@@ -224,6 +234,116 @@ func (r *Reconciler) cycle(ctx context.Context, bs *catalogv1alpha1.BacklogSearc
 		metrics.BacklogItems.WithLabelValues(string(reason), "due").Set(float64(c.Due))
 	}
 	return units, nil
+}
+
+// observeSearch reads what a search is now -- the indexers automatic
+// searches ask, each with a fingerprint of the settings that decide what it
+// returns, and the build's backlog.SearchVersion -- and moves
+// st.SearchChangedAt to now when an indexer is new or its fingerprint
+// differs from the last cycle's, or the version rose. An item last searched
+// before that is due whatever its cooldown (backlog.Config.SearchChanged):
+// its search asked fewer indexers, or asked or judged them another way
+// (owner, 2026-11-27: "Adding additional indexers or changing the way
+// indexers are searched should trigger re-search similar to what we do
+// with schemas and metadata"; two anime indexers had been added that day,
+// every missing episode of Sket Dance had an approved release on one of
+// them, and none was due a search for a week). An indexer removed, disabled
+// or taken out of automatic search changes nothing: what is left was asked
+// before.
+//
+// A backlog that has never recorded its indexers takes the newest one's
+// creation for the change, not now: nothing says the items searched since
+// then missed anything.
+func (r *Reconciler) observeSearch(ctx context.Context, bs *catalogv1alpha1.BacklogSearch, st *catalogv1alpha1.BacklogSearchStatus, now time.Time) error {
+	var l indexv1alpha1.IndexerList
+	if err := r.Client.List(ctx, &l, client.InNamespace(bs.Namespace)); err != nil {
+		return fmt.Errorf("backlogsearch: list indexers: %w", err)
+	}
+	var (
+		cur    []catalogv1alpha1.BacklogIndexer
+		newest time.Time
+	)
+	for i := range l.Items {
+		idx := &l.Items[i]
+		if idx.DeletionTimestamp != nil || !ptr.Deref(idx.Spec.Enabled, true) || !ptr.Deref(idx.Spec.EnableAutomaticSearch, true) {
+			continue
+		}
+		cur = append(cur, catalogv1alpha1.BacklogIndexer{Name: idx.Name, Fingerprint: indexerFingerprint(idx)})
+		if t := idx.CreationTimestamp.Time; t.After(newest) {
+			newest = t
+		}
+	}
+	slices.SortFunc(cur, func(a, b catalogv1alpha1.BacklogIndexer) int { return cmp.Compare(a.Name, b.Name) })
+	if len(cur) > catalogv1alpha1.MaxBacklogIndexers {
+		cur = cur[:catalogv1alpha1.MaxBacklogIndexers]
+	}
+
+	first := st.SearchVersion == 0 && st.SearchChangedAt == nil && len(st.Indexers) == 0
+	prev := make(map[string]string, len(st.Indexers))
+	for _, p := range st.Indexers {
+		prev[p.Name] = p.Fingerprint
+	}
+	var changed []string
+	for _, c := range cur {
+		if fp, ok := prev[c.Name]; !ok || fp != c.Fingerprint {
+			changed = append(changed, c.Name)
+		}
+	}
+	switch {
+	case first:
+		if !newest.IsZero() {
+			t := metav1.NewTime(newest.UTC().Truncate(time.Second))
+			st.SearchChangedAt = &t
+		}
+	case len(changed) > 0 || st.SearchVersion < backlog.SearchVersion:
+		t := metav1.NewTime(now.UTC().Truncate(time.Second))
+		st.SearchChangedAt = &t
+		logging.FromContext(ctx).Info("backlog search: the search changed; every item last searched before now is due again",
+			"indexers", changed, "searchVersion", backlog.SearchVersion, "was", st.SearchVersion)
+	}
+	st.Indexers, st.SearchVersion = cur, backlog.SearchVersion
+	return nil
+}
+
+// indexerFingerprint digests what decides which releases a search of idx
+// returns: which indexer it is (its uid: one deleted and made again is
+// new), where and how it is asked, with what credentials, for which
+// categories and for which items. How often and how fast it is asked, its
+// feed, its priority among equals and what happens to a grab are not part
+// of it.
+func indexerFingerprint(idx *indexv1alpha1.Indexer) string {
+	s := &idx.Spec
+	b, err := json.Marshal(struct {
+		UID             string
+		Definition      *string
+		DefinitionRef   *string
+		Generic         *indexv1alpha1.GenericNewznab
+		BaseURL         string
+		Settings        map[string]string
+		Secret          string
+		Categories      []int32
+		AnimeCategories []int32
+		AnimeStandard   bool
+		AnimeOnly       bool
+		MinimumSeeders  *int32
+		Tags            []string
+	}{
+		UID: string(idx.UID), Definition: s.Definition, DefinitionRef: s.DefinitionRef, Generic: s.Generic, BaseURL: s.BaseURL,
+		Settings: s.Settings, Secret: secretName(s), Categories: s.Categories, AnimeCategories: s.AnimeCategories,
+		AnimeStandard: s.AnimeStandardFormatSearch, AnimeOnly: s.AnimeOnly, MinimumSeeders: s.MinimumSeeders, Tags: s.Tags,
+	})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:8])
+}
+
+func secretName(s *indexv1alpha1.IndexerSpec) string {
+	if s.SecretRef == nil {
+		return ""
+	}
+	return s.SecretRef.Name
 }
 
 // searchedKinds are the kinds a backlog searches, in the order a cycle lists
@@ -481,6 +601,15 @@ func (r *Reconciler) apply(ctx context.Context, bs *catalogv1alpha1.BacklogSearc
 		}
 		sac.WithRecent(uac)
 	}
+	if st.SearchChangedAt != nil {
+		sac.WithSearchChangedAt(*st.SearchChangedAt)
+	}
+	if st.SearchVersion != 0 {
+		sac.WithSearchVersion(st.SearchVersion)
+	}
+	for _, i := range st.Indexers {
+		sac.WithIndexers(catalogac.BacklogIndexer().WithName(i.Name).WithFingerprint(i.Fingerprint))
+	}
 	ac := catalogac.BacklogSearch(bs.Name, bs.Namespace).WithStatus(sac)
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogBacklog, ac); err != nil {
 		return fmt.Errorf("backlogsearch: status of %s: %w", bs.Name, err)
@@ -499,6 +628,7 @@ func queueAC(q *catalogv1alpha1.BacklogQueueStatus) *catalogac.BacklogQueueStatu
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=backlogsearches,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=backlogsearches/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;comics;artists;authors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
 
 // SetupWithManager registers the controller. A status write changes no
 // generation, so it does not wake the controller; its RequeueAfter is the

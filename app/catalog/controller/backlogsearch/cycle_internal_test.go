@@ -33,6 +33,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/backlog"
 	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -71,6 +72,7 @@ func newReconciler(t *testing.T, objs ...client.Object) *Reconciler {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	require.NoError(t, catalogv1alpha1.AddToScheme(scheme))
+	require.NoError(t, indexv1alpha1.AddToScheme(scheme))
 	b := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...)
 	for _, o := range []client.Object{
 		&catalogv1alpha1.Movie{}, &catalogv1alpha1.Episode{}, &catalogv1alpha1.Album{},
@@ -190,4 +192,88 @@ func TestAKindsListLimitsTheBacklog(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cands, 1)
 	assert.Equal(t, schema.ItemRef{Kind: "Episode", Ref: schema.Ref{Namespace: ns, Name: "show-s01e01", UID: "uid-show-s01e01"}}, cands[0].Item)
+}
+
+func indexer(name string, created time.Time, edit func(*indexv1alpha1.IndexerSpec)) *indexv1alpha1.Indexer {
+	i := &indexv1alpha1.Indexer{ObjectMeta: metav1.ObjectMeta{
+		Namespace: ns, Name: name, UID: types.UID("uid-" + name), CreationTimestamp: metav1.NewTime(created),
+	}}
+	i.Spec.BaseURL = "https://" + name + ".example"
+	if edit != nil {
+		edit(&i.Spec)
+	}
+	return i
+}
+
+// A missing item searched a day ago is not due for a week -- unless the
+// search has changed since: an indexer added after that search makes it due
+// at once (owner, 2026-11-27: "Adding additional indexers or changing the
+// way indexers are searched should trigger re-search"; on talos every
+// missing episode of Sket Dance had an approved release on an indexer added
+// 16 hours after its last search, and none was due until 12-04). An item
+// searched after the indexer was added keeps its cooldown.
+func TestAnIndexerAddedSinceAnItemsLastSearchMakesItDue(t *testing.T) {
+	before, after := at(24*time.Hour), at(2*time.Hour)
+	r := newReconciler(t,
+		movie("searched-before", catalogv1alpha1.MoviePhaseWanted, before, searched(24*time.Hour)),
+		movie("searched-after", catalogv1alpha1.MoviePhaseWanted, after, searched(2*time.Hour)),
+		indexer("old", now.Add(-90*24*time.Hour), nil),
+		indexer("added", now.Add(-8*time.Hour), nil),
+		indexer("interactive-only", now.Add(-time.Hour), func(s *indexv1alpha1.IndexerSpec) { s.EnableAutomaticSearch = ptr.To(false) }),
+	)
+	bs := &catalogv1alpha1.BacklogSearch{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "default", Generation: 1}}
+	st := &catalogv1alpha1.BacklogSearchStatus{}
+
+	_, err := r.cycle(context.Background(), bs, st, now)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Movie/searched-before"}, drain(r.Book))
+	require.NotNil(t, st.SearchChangedAt)
+	assert.Equal(t, now.Add(-8*time.Hour), st.SearchChangedAt.Time,
+		"a backlog's first reading takes the newest indexer's creation, and one automatic searches do not ask is no part of it")
+	require.Len(t, st.Indexers, 2)
+	assert.Equal(t, "added", st.Indexers[0].Name)
+	assert.Equal(t, backlog.SearchVersion, st.SearchVersion)
+}
+
+// Once the indexers are recorded, a cycle that finds them as they were
+// changes nothing; one that finds an indexer's search settings edited, a
+// new indexer, or a build with a higher search version moves the change to
+// now, and one that finds an indexer gone, or only its pace edited, does
+// not.
+func TestTheSearchChangesWithItsIndexersAndItsVersion(t *testing.T) {
+	old := now.Add(-90 * 24 * time.Hour)
+	bs := &catalogv1alpha1.BacklogSearch{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "default", Generation: 1}}
+	record := func(objs ...client.Object) *catalogv1alpha1.BacklogSearchStatus {
+		st := &catalogv1alpha1.BacklogSearchStatus{}
+		require.NoError(t, newReconciler(t, objs...).observeSearch(context.Background(), bs, st, now.Add(-time.Hour)))
+		require.Equal(t, old, st.SearchChangedAt.Time)
+		return st
+	}
+	a, b := indexer("a", old, nil), indexer("b", old, nil)
+	for name, tc := range map[string]struct {
+		then    []client.Object
+		version int32
+		moved   bool
+	}{
+		"as they were":      {[]client.Object{a, b}, backlog.SearchVersion, false},
+		"one gone":          {[]client.Object{a}, backlog.SearchVersion, false},
+		"one added":         {[]client.Object{a, b, indexer("c", now, nil)}, backlog.SearchVersion, true},
+		"categories edited": {[]client.Object{a, indexer("b", old, func(s *indexv1alpha1.IndexerSpec) { s.Categories = []int32{5070} })}, backlog.SearchVersion, true},
+		"kept to anime":     {[]client.Object{a, indexer("b", old, func(s *indexv1alpha1.IndexerSpec) { s.AnimeOnly = true })}, backlog.SearchVersion, true},
+		"only its pace":     {[]client.Object{a, indexer("b", old, func(s *indexv1alpha1.IndexerSpec) { s.Priority = 9; s.RssInterval = metav1.Duration{Duration: time.Hour} })}, backlog.SearchVersion, false},
+		"an older build's":  {[]client.Object{a, b}, backlog.SearchVersion - 1, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := record(a, b)
+			st.SearchVersion = tc.version
+			require.NoError(t, newReconciler(t, tc.then...).observeSearch(context.Background(), bs, st, now))
+			if tc.moved {
+				assert.Equal(t, now, st.SearchChangedAt.Time)
+			} else {
+				assert.Equal(t, old, st.SearchChangedAt.Time)
+			}
+			assert.Equal(t, backlog.SearchVersion, st.SearchVersion)
+			assert.Len(t, st.Indexers, len(tc.then))
+		})
+	}
 }

@@ -50,6 +50,16 @@ type Candidate struct {
 	Season *int32
 }
 
+// SearchVersion is the search as this build runs it. Raise it with a change
+// to how indexers are asked or how their answers are judged that can turn
+// up a release an earlier search of the same item missed -- a query an
+// indexer was not sent before, a title the parser newly reads, a rule that
+// refused what it should have taken. A backlog's first cycle on a build
+// with a higher version makes every item last searched before it due again
+// (Config.SearchChanged), as a raised probe or metadata schema version has
+// its files and items read again.
+const SearchVersion int32 = 1
+
 // Queue is one queue's settings.
 type Queue struct {
 	PerCycle int
@@ -64,6 +74,13 @@ type Config struct {
 	Room int
 	// SeasonSearch takes two or more due episodes of a season as one unit.
 	SeasonSearch bool
+	// SearchChanged is when the search last changed: an indexer automatic
+	// searches ask was added or its search settings edited, or the build's
+	// SearchVersion rose (BacklogSearch's status.searchChangedAt). An item
+	// last searched before it is due whatever its queue's cooldown: that
+	// search could not have found what the change brings. Zero is never.
+	// The queues' perCycle and the hour's room still pace what is started.
+	SearchChanged time.Time
 }
 
 // Unit is one search a cycle starts: an item, or a season of a series.
@@ -86,7 +103,9 @@ type Counts struct {
 
 // Select is a cycle's choice (design §"What it is"): per queue, missing
 // first, the due candidates -- past the queue's cooldown since their last
-// live search, and holding no grant of an earlier cycle (Candidate.Granted)
+// live search or last searched before the search changed
+// (Config.SearchChanged), and holding no grant of an earlier cycle
+// (Candidate.Granted)
 // -- oldest last live search first, up to the queue's perCycle
 // and the hour's room in all. With SeasonSearch an Episode due beside
 // another due episode of its season (not the specials) is taken with every
@@ -102,7 +121,7 @@ func Select(cands []Candidate, cfg Config, now time.Time) ([]Unit, map[schema.Se
 		}
 		n := counts[c.Reason]
 		n.Candidates++
-		if !c.Granted && (c.LastLive == nil || now.Sub(*c.LastLive) >= q.Cooldown) {
+		if !c.Granted && (c.LastLive == nil || now.Sub(*c.LastLive) >= q.Cooldown || c.LastLive.Before(cfg.SearchChanged)) {
 			n.Due++
 			due[c.Reason] = append(due[c.Reason], i)
 			if c.LastLive != nil && (n.OldestLive == nil || c.LastLive.Before(*n.OldestLive)) {

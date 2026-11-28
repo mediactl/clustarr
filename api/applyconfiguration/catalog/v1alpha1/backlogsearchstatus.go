@@ -46,6 +46,19 @@ type BacklogSearchStatusApplyConfiguration struct {
 	SearchesLastHour *int32 `json:"searchesLastHour,omitempty"`
 	// Recent are the latest backlog searches, newest first.
 	Recent []BacklogSearchUnitApplyConfiguration `json:"recent,omitempty"`
+	// SearchChangedAt is when the search last changed: an indexer automatic
+	// searches ask was added or its search settings were edited, or a build
+	// that searches differently took over (searchVersion). An item last
+	// searched before it is due again whatever its queue's cooldown; the
+	// queues' perCycle and hourlyLimit still pace the searches.
+	SearchChangedAt *metav1.Time `json:"searchChangedAt,omitempty"`
+	// SearchVersion is the search version of the build that ran the last
+	// cycle.
+	SearchVersion *int32 `json:"searchVersion,omitempty"`
+	// Indexers are the indexers automatic searches ask, as the last cycle
+	// read them: one new here, or one whose fingerprint differs, moves
+	// searchChangedAt.
+	Indexers []BacklogIndexerApplyConfiguration `json:"indexers,omitempty"`
 }
 
 // BacklogSearchStatusApplyConfiguration constructs a declarative configuration of the BacklogSearchStatus type for use with
@@ -124,6 +137,35 @@ func (b *BacklogSearchStatusApplyConfiguration) WithRecent(values ...*BacklogSea
 			panic("nil value passed to WithRecent")
 		}
 		b.Recent = append(b.Recent, *values[i])
+	}
+	return b
+}
+
+// WithSearchChangedAt sets the SearchChangedAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SearchChangedAt field is set to the value of the last call.
+func (b *BacklogSearchStatusApplyConfiguration) WithSearchChangedAt(value metav1.Time) *BacklogSearchStatusApplyConfiguration {
+	b.SearchChangedAt = &value
+	return b
+}
+
+// WithSearchVersion sets the SearchVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SearchVersion field is set to the value of the last call.
+func (b *BacklogSearchStatusApplyConfiguration) WithSearchVersion(value int32) *BacklogSearchStatusApplyConfiguration {
+	b.SearchVersion = &value
+	return b
+}
+
+// WithIndexers adds the given value to the Indexers field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Indexers field.
+func (b *BacklogSearchStatusApplyConfiguration) WithIndexers(values ...*BacklogIndexerApplyConfiguration) *BacklogSearchStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithIndexers")
+		}
+		b.Indexers = append(b.Indexers, *values[i])
 	}
 	return b
 }

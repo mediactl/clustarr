@@ -724,6 +724,30 @@ recorded here.
   `lifecycle.MaxEntryMessage` (1024) when it renders the grab entry: any string
   an engine reports must be clamped at the `pkg/download` boundary and again
   where the manager writes it into a bounded CRD field, never trusted.
+- **A backlog item was due a search only when its cooldown ran out, however
+  the search had changed since (2026-11-27, owner: "Adding additional
+  indexers or changing the way indexers are searched should trigger
+  re-search similar to what we do with schemas and metadata").** Two anime
+  indexers were added that day and a dozen search and parse fixes rolled;
+  of 270 missing anime episodes most had an approved release in a look-only
+  search (all 51 of Sket Dance on amenzb, 181 approvals for D.Gray-man
+  Hallow's 12), and none was due until 12-04, the missing queue's 7 days
+  after searches made hours before the indexers existed. Now a cycle
+  records the indexers automatic searches ask
+  (`BacklogSearch.status.indexers[]`: name and a fingerprint of the
+  indexer's uid, definition, base URL, settings, secret name, categories,
+  anime switches, minimum seeders and tags -- not its priority, feed, pace
+  or grab settings) and the build's `backlog.SearchVersion`
+  (`status.searchVersion`); an indexer new to the list, a fingerprint that
+  differs or a higher version sets `status.searchChangedAt` to now, and an
+  item whose last live search is older than that is due whatever its
+  cooldown (`backlog.Config.SearchChanged`). `perCycle` and `hourlyLimit`
+  still pace it, so 730 missing items drain as season units over hours,
+  not at once. An indexer removed or disabled changes nothing. A backlog's
+  first reading takes the newest indexer's creation time, not now.
+  **Raise `backlog.SearchVersion` with any change to how indexers are
+  asked or how their answers are judged that can turn up a release an
+  earlier search missed**; a fix that only refuses more needs none.
 - **A reply was one NATS message, and a season pack's .nzb does not fit
   one however it is compressed (2026-11-27, owner: "This one seems fixable
   - find a solution", "I'm guessing we can raise this?").** Three One

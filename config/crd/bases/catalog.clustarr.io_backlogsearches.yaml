@@ -243,6 +243,32 @@ spec:
                 - candidates
                 - due
                 type: object
+              indexers:
+                description: |-
+                  Indexers are the indexers automatic searches ask, as the last cycle
+                  read them: one new here, or one whose fingerprint differs, moves
+                  searchChangedAt.
+                items:
+                  description: BacklogIndexer is one indexer automatic searches ask,
+                    as a cycle read it.
+                  properties:
+                    fingerprint:
+                      description: |-
+                        Fingerprint is a digest of the Indexer's identity and of the settings
+                        that decide what a search of it returns.
+                      maxLength: 64
+                      type: string
+                    name:
+                      description: Name is the Indexer's.
+                      maxLength: 253
+                      type: string
+                  required:
+                  - fingerprint
+                  - name
+                  type: object
+                maxItems: 64
+                type: array
+                x-kubernetes-list-type: atomic
               lastCycleAt:
                 description: LastCycleAt is when the last cycle ran.
                 format: date-time
@@ -334,6 +360,21 @@ spec:
                 maxItems: 100
                 type: array
                 x-kubernetes-list-type: atomic
+              searchChangedAt:
+                description: |-
+                  SearchChangedAt is when the search last changed: an indexer automatic
+                  searches ask was added or its search settings were edited, or a build
+                  that searches differently took over (searchVersion). An item last
+                  searched before it is due again whatever its queue's cooldown; the
+                  queues' perCycle and hourlyLimit still pace the searches.
+                format: date-time
+                type: string
+              searchVersion:
+                description: |-
+                  SearchVersion is the search version of the build that ran the last
+                  cycle.
+                format: int32
+                type: integer
               searchesLastHour:
                 description: |-
                   SearchesLastHour counts the backlog searches started in the hour
