@@ -476,3 +476,92 @@ func TestMatch_AnimeAbsoluteAndSceneNumbering(t *testing.T) {
 		assert.Equal(t, []string{"ika-musume-s01e13", "ika-musume-s01e14"}, refs[0].Keys)
 	})
 }
+
+// TestMatch_AnimeSeasonOneCountsThroughTheSeries: an anime release that
+// counts through the series under season 1 -- a streaming service's one
+// season for the whole run, "One.Piece.S01E1157" -- is the episode holding
+// that absolute number, where season 1 has no such episode. It matched
+// nothing, so no such release was ever taken from a feed (2026-11-28). A
+// number season 1 has stays season 1's, a special is not in the count, and
+// a series that is not anime is read as written.
+func TestMatch_AnimeSeasonOneCountsThroughTheSeries(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(t)
+	c := mgr.GetClient()
+	ns := newNamespace(t, ctx, c)
+
+	places := []struct{ season, number, absolute int32 }{
+		{0, 1, 5},
+		{1, 1, 1},
+		{1, 2, 2},
+		{2, 1, 3},
+		{2, 2, 4},
+		{2, 3, 5},
+		// Two regular episodes under one number: nothing says which.
+		{3, 1, 6},
+		{3, 2, 6},
+	}
+	for _, s := range []struct {
+		name string
+		tvdb int64
+		kind catalogv1alpha1.SeriesType
+	}{{"long-run", 81797, catalogv1alpha1.SeriesTypeAnime}, {"plain-run", 81798, catalogv1alpha1.SeriesTypeStandard}} {
+		series := createSeries(t, ctx, c, ns, s.name, s.tvdb, s.name, 1999)
+		typed := series.DeepCopy()
+		typed.Spec.SeriesType = s.kind
+		require.NoError(t, c.Patch(ctx, typed, client.MergeFrom(series)))
+		for _, p := range places {
+			setAbsolute(t, ctx, c, ns, createEpisode(t, ctx, c, ns, s.name, p.season, p.number, nil), p.absolute)
+		}
+	}
+	numbered := func(tvdb string, episodes ...int32) schema.Release {
+		return schema.Release{
+			Info:        commonv1.ReleaseInfo{GUID: "g", Protocol: commonv1.ProtocolTorrent, IDs: map[string]string{commonv1.IDKeyTVDB: tvdb}},
+			ParsedTitle: "Long Run", Kind: commonv1.MediaKindEpisode,
+			Seasons: []int32{1}, Episodes: episodes, FetchedAt: relNow,
+		}
+	}
+	names := func(refs []commonv1.MediaRef) []string {
+		var out []string
+		for _, r := range refs {
+			if len(r.Keys) > 0 {
+				out = append(out, r.Keys...)
+				continue
+			}
+			out = append(out, r.Name)
+		}
+		return out
+	}
+	eventually(t, 10*time.Second, "the series types, the absolute index and every episode to populate", func() bool {
+		for _, tvdb := range []string{"81797", "81798"} {
+			for _, a := range []int32{1, 2, 3, 4} {
+				abs := numbered(tvdb)
+				abs.Seasons, abs.Absolute = nil, []int32{a}
+				if refs, err := rssmatcher.Match(ctx, c, ns, abs); err != nil || len(refs) != 1 {
+					return false
+				}
+			}
+		}
+		var s catalogv1alpha1.Series
+		return c.Get(ctx, client.ObjectKey{Namespace: ns, Name: "long-run"}, &s) == nil && s.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
+	})
+
+	for _, tc := range []struct {
+		name string
+		rel  schema.Release
+		want []string
+	}{
+		{"a number season 1 lacks is the count's", numbered("81797", 5), []string{"long-run-s02e03"}},
+		{"a number season 1 has is season 1's", numbered("81797", 2), []string{"long-run-s01e02"}},
+		{"each number by itself", numbered("81797", 2, 3), []string{"long-run-s01e02", "long-run-s02e01"}},
+		{"a number no episode holds", numbered("81797", 9), nil},
+		{"a number two episodes hold", numbered("81797", 6), nil},
+		{"a series that is not anime is read as written", numbered("81798", 5), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			refs, err := rssmatcher.Match(ctx, c, ns, tc.rel)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, names(refs))
+		})
+	}
+}

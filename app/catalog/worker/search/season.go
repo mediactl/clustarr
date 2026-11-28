@@ -122,6 +122,7 @@ func (w *Worker) snapshotSeason(ctx context.Context, ns string, ref commonv1.Med
 	snap.Target.Identity = EpisodeIdentity(&s, eps...)
 	snap.Target.Identity.Season = int(season)
 	snap.Target.Identity.SceneMappings, snap.Target.Identity.SceneSeasonNames = SceneReadings(ctx, w.Client, w.SceneMaps, &s, scene)
+	snap.Target.Identity.Numbering = SeriesNumbering(ctx, w.Client, &s)
 	if md := s.Status.Metadata; md != nil {
 		// What a text indexer is asked beside the title: one page of a
 		// franchise's title holds none of one season's packs.

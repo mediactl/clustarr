@@ -34,8 +34,9 @@ import (
 // MatchDownloaded attributes a downloaded file's (or its release's)
 // numbering to the series' episodes as the grab read it: through the
 // series' numbering (decision.CoverageFor over id -- its scene table, its
-// scene season names, the numbers a broadcast's release lists, an
-// episode's own title) when the name carries one season's episode numbers
+// scene season names, an anime's own count through its episodes, the
+// numbers a broadcast's release lists, an episode's own title) when the
+// name carries one season's episode numbers
 // and id or the name has anything to read them through, or an anime's
 // number under a title that names its season ("Show S2 - 01"), and as
 // MatchEpisodes does otherwise -- an anime's absolute number, an air date,
@@ -44,7 +45,7 @@ func MatchDownloaded(
 	p *release.ParsedRelease, seriesType catalogv1alpha1.SeriesType, cands []EpisodeCandidate, id decision.Identity,
 ) (eps []EpisodeCandidate, reason string) {
 	absolute := len(p.Absolute) > 0 && seriesType == catalogv1alpha1.SeriesTypeAnime
-	read := len(id.SceneMappings) > 0 || len(id.SceneSeasonNames) > 0 || len(p.ListedEpisodes) > 0
+	read := len(id.SceneMappings) > 0 || len(id.SceneSeasonNames) > 0 || len(id.Numbering) > 0 || len(p.ListedEpisodes) > 0
 	if len(p.Episodes) > 0 && len(p.Seasons) == 1 && !p.FullSeason && !absolute && read {
 		if eps, ok := candidatesAt(decision.CoverageFor(p, id).Episodes, cands); ok {
 			return eps, ""
@@ -268,6 +269,9 @@ func EpisodeFileRef(eps []EpisodeCandidate) commonv1.MediaRef {
 //   - A season/episode pair is matched against the official numbering and,
 //     when that misses, against the scene numbering as a whole: the file
 //     is read in one numbering or the other, never a mix.
+//   - On an anime series, a season 1 pair neither numbering has is read as
+//     counting through the series (countedThrough): "One.Piece.S01E1157"
+//     is the episode whose absolute number is 1157.
 //
 // Every number must match exactly one episode; a number two episodes share
 // is ambiguous, and reported rather than resolved.
@@ -287,6 +291,11 @@ func MatchEpisodes(p *release.ParsedRelease, seriesType catalogv1alpha1.SeriesTy
 			return c.SceneSeason != nil && c.SceneNumber != nil && int(*c.SceneSeason) == season && int(*c.SceneNumber) == n
 		}
 		eps, reason = matchNumbers(p.Episodes, cands, official, scene, fmt.Sprintf("S%02dE%%02d", season))
+		if reason != "" && season == 1 && seriesType == catalogv1alpha1.SeriesTypeAnime {
+			if counted, ok := countedThrough(p.Episodes, cands); ok {
+				eps, reason = counted, ""
+			}
+		}
 	case p.AirDate != nil:
 		date := p.AirDate.UTC().Format("2006-01-02")
 		var hits []EpisodeCandidate
@@ -319,6 +328,45 @@ func MatchEpisodes(p *release.ParsedRelease, seriesType catalogv1alpha1.SeriesTy
 		return a.Number - b.Number
 	})
 	return slices.CompactFunc(eps, func(a, b EpisodeCandidate) bool { return a.Name == b.Name }), ""
+}
+
+// countedThrough reads season 1 numbers that count through the whole series
+// -- a streaming service's one season for a long-running anime, kept by
+// the groups that take its files ("One.Piece.S01E1157", TVDB's S23E02) --
+// as pkg/decision's identity check reads them for the grab
+// (sceneIndex.countedThrough): a number season 1 has is season 1's, and one
+// it lacks is the one regular episode holding it as its absolute number.
+// ok is false when any number is neither; nothing is guessed between two
+// episodes that share one.
+//
+// Before this such a file named an episode the series does not have, in the
+// importer and the scanner alike (2026-11-28).
+func countedThrough(numbers []int, cands []EpisodeCandidate) ([]EpisodeCandidate, bool) {
+	out := make([]EpisodeCandidate, 0, len(numbers))
+	for _, n := range numbers {
+		if n < 1 {
+			return nil, false // 0 is "no absolute number", not one to look up
+		}
+		if i := slices.IndexFunc(cands, func(c EpisodeCandidate) bool { return c.Season == 1 && c.Number == n }); i >= 0 {
+			out = append(out, cands[i])
+			continue
+		}
+		at := -1
+		for i, c := range cands {
+			if c.Season < 1 || c.Absolute != n {
+				continue
+			}
+			if at >= 0 {
+				return nil, false
+			}
+			at = i
+		}
+		if at < 0 {
+			return nil, false
+		}
+		out = append(out, cands[at])
+	}
+	return out, len(out) > 0
 }
 
 // matchNumbers maps every one of numbers onto exactly one candidate, first

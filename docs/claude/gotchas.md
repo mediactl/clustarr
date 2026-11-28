@@ -2742,6 +2742,42 @@ recorded here.
   which is also one of the series' own alternate titles) is still counted
   through the series there.
 
+- **On an anime series a season 1 number the season lacks is the series'
+  absolute number (2026-11-28).** Owner: "Fix issues with One Piece not
+  matching episodes against releases with absolute episode naming ... that
+  release is exactly the one we want but we don't match it". A streaming
+  service lists a long-running anime as one season, and the groups that
+  take its files keep the name: "One.Piece.S01E1157.Nami.in.a.Fix...1080p.
+  CR.WEB-DL.DUAL.AAC2.0.H.264-VARYG" is TVDB's S23E02, absolute 1157. The
+  name carries no bare absolute number, only the pair, TheXEM does not map
+  One Piece (`no show with the tvdb_id 81797`), and season 1 has eight
+  episodes, so the pair named an episode the series does not have:
+  "WrongItem: release is S01E1157, the item is S23E02, absolute [1157]" on
+  the one dual-audio release of the episode. Now the number is the episode
+  holding it as its absolute, only where it can mean nothing else: the
+  series is anime, the release's season is 1 (after its title's scene
+  season), no scene row has the pair, season 1 has no such episode, and
+  exactly ONE regular episode holds the number. A number season 1 has is
+  season 1's (the two agree wherever the count starts at the first
+  episode; where it does not, the name says season 1), a special is not in
+  the count (TVDB gives One Piece's crossover special 590 and the other 62
+  the number 0), and a number two episodes share, or none holds, is left
+  as written. Three readers, kept alike: `pkg/decision`'s
+  `sceneIndex.countedThrough` over `Identity.Numbering` (the whole series'
+  episodes, set by `search.SeriesNumbering` for an anime series: one List
+  per season of `status.seasons`, so a search of One Piece reads 1,180
+  Episodes), which the search, the season search (`Decision.Coverage` then
+  names S23E02, what the planner and the season's controller read), the
+  RSS check and the importer's `CoverageFor` all go through; `rssmatcher`'s
+  `countedEpisode`, by the series-absolute index; and `fileimport`'s
+  `countedThrough` inside `MatchEpisodes`, for the scanner. Guards:
+  `TestASeasonOneNumberCountsThroughTheSeries`,
+  `TestWorkerReadsASeasonOneNumberThroughAnAnimesCount`,
+  `TestMatch_AnimeSeasonOneCountsThroughTheSeries`,
+  `TestAFileCountingThroughTheSeriesUnderSeasonOne`. Sonarr has no such
+  reading (`GetStandardEpisodes` looks the pair up and logs "Unable to
+  find"); it relies on TheXEM, which has no row here.
+
 - **A file takes the quality its download's release title names even when
   no release pattern reads that title (2026-11-27, owner: "We know the
   quality from the release title").** `fileimport.fillFromRelease` gave a

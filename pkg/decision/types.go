@@ -247,6 +247,19 @@ type Identity struct {
 	// every season number as written. A name with Season 0 is one the scene
 	// uses for every season: one of the series' own titles, and no season's.
 	SceneSeasonNames []SceneSeasonName
+	// Numbering is the SERIES' own numbering of its episodes: every episode
+	// of its regular seasons, each with its absolute number where the
+	// catalog has one. Set for an anime series only; nil reads every season
+	// 1 number as written.
+	//
+	// It is what tells a release that counts through the series under
+	// season 1 ("One.Piece.S01E1157", a streaming service's one season for
+	// the whole run) from a release of season 1: a season 1 number no
+	// episode of season 1 has is the absolute number, when one episode
+	// holds it (sceneIndex.countedThrough). Like SceneMappings it is the
+	// whole series' and not only the target's, so a number that is another
+	// episode's is read as that episode.
+	Numbering []EpisodeNumbering
 	// IDQueryIndexers names (by ReleaseInfo.IndexerRef) the indexers whose
 	// query for THIS search was keyed by one of the item's ids
 	// (schema.SearchQueryModeID), i.e. the indexer matched the id server-side.

@@ -80,6 +80,11 @@ type sceneIndex struct {
 	// (Identity.Titles, and its scene names for every season at once),
 	// empty when the identity carries none: see places.
 	ownTitles map[string]struct{}
+	// numbered is every place the series has an episode at, and counted its
+	// regular episodes under their absolute numbers (Identity.Numbering);
+	// both empty when the identity carries no numbering: see countedThrough.
+	numbered map[seasonEpisode]bool
+	counted  map[int][]seasonEpisode
 }
 
 // newIdentitySceneIndex is an Identity's scene table and scene season
@@ -87,6 +92,7 @@ type sceneIndex struct {
 func newIdentitySceneIndex(id Identity) sceneIndex {
 	idx := newSceneIndex(id.SceneMappings)
 	idx.addSeasonNames(id.SceneSeasonNames)
+	idx.addNumbering(id.Numbering)
 	if len(id.Titles) > 0 {
 		idx.ownTitles = targetTitleKeys(common.MediaKindEpisode, id)
 		for _, n := range id.SceneSeasonNames {
@@ -96,6 +102,57 @@ func newIdentitySceneIndex(id Identity) sceneIndex {
 		}
 	}
 	return idx
+}
+
+// addNumbering keys the series' own episodes (Identity.Numbering). A
+// special has no place in the count through the series: TVDB gives some an
+// absolute number of their own, and One Piece's 62 others the number 0.
+func (idx *sceneIndex) addNumbering(eps []EpisodeNumbering) {
+	if len(eps) == 0 {
+		return
+	}
+	idx.numbered = make(map[seasonEpisode]bool, len(eps))
+	idx.counted = make(map[int][]seasonEpisode, len(eps))
+	for _, e := range eps {
+		at := seasonEpisode{e.Season, e.Episode}
+		if idx.numbered[at] {
+			continue
+		}
+		idx.numbered[at] = true
+		if e.Season >= 1 && e.Absolute > 0 {
+			idx.counted[e.Absolute] = append(idx.counted[e.Absolute], at)
+		}
+	}
+}
+
+// countedThrough is the episode a release's season 1 number names when the
+// release counts through the whole series under season 1: a streaming
+// service that lists a long-running anime as one season numbers its
+// thousandth episode "S01E1000", and the groups that take its files keep
+// the name ("One.Piece.S01E1157.Nami.in.a.Fix...1080p.CR.WEB-DL.DUAL...
+// -VARYG" is TVDB's S23E02, absolute 1157). season is the season the
+// release's number is read in, after its title (sceneSeason).
+//
+// It answers only where the number can mean nothing else: the series'
+// numbering is known, season 1 has no such episode, and exactly one
+// regular episode holds the number as its absolute. A number season 1 does
+// have is season 1's -- the two agree wherever the absolute count starts
+// at the first episode, and where they do not, the name says season 1. A
+// number no episode holds, or two do, is left as written.
+//
+// Before this the number was only ever season 1's, so every such release
+// was refused as the wrong item: "release is S01E1157, the item is S23E02,
+// absolute [1157]" on the one dual-audio release of that episode (talos,
+// 2026-11-28).
+func (idx sceneIndex) countedThrough(season, e int) (seasonEpisode, bool) {
+	if season != 1 || len(idx.numbered) == 0 || idx.numbered[seasonEpisode{1, e}] {
+		return seasonEpisode{}, false
+	}
+	at := idx.counted[e]
+	if len(at) != 1 {
+		return seasonEpisode{}, false
+	}
+	return at[0], true
 }
 
 // places reports whether a bare number under p's title can be placed in the
@@ -366,6 +423,7 @@ type coverage struct {
 	fullSeasons map[int]bool // a pack of the season, read literally
 	absolutes   map[int]bool
 	mapped      []EpisodeNumbering // every TVDB episode a scene lookup produced, for messages
+	counted     []EpisodeNumbering // every episode a season 1 number named by the series' count, for messages
 	// unplaced is set when the release's bare numbers were left out because
 	// its title places them nowhere in the series (sceneIndex.places).
 	unplaced bool
@@ -414,6 +472,12 @@ type coverage struct {
 //     literally ("S02E07.Daten.City.President", TVDB's S02E07) is numbered
 //     by TVDB: the scene row for episode 7, the broadcast holding TVDB's
 //     episodes 14 and 15, is not it.
+//
+// And one for a release that counts through the series under season 1
+// ("One.Piece.S01E1157"): a season 1 number with no scene row that no
+// episode of season 1 has is the episode holding it as its absolute number
+// (sceneIndex.countedThrough), where the identity carries the series'
+// numbering.
 func releaseCoverage(p *release.ParsedRelease, scene sceneIndex) coverage {
 	c := coverage{pairs: map[seasonEpisode]bool{}, fullSeasons: map[int]bool{}, absolutes: map[int]bool{}}
 	if p.FullSeason {
@@ -445,6 +509,11 @@ func releaseCoverage(p *release.ParsedRelease, scene sceneIndex) coverage {
 				case len(eps) > 0:
 					c.addMapped(eps...)
 				default:
+					if at, ok := scene.countedThrough(s, e); ok {
+						c.pairs[at] = true
+						c.counted = append(c.counted, EpisodeNumbering{Season: at.season, Episode: at.episode})
+						continue
+					}
 					c.pairs[seasonEpisode{s, e}] = true
 				}
 			}
@@ -640,22 +709,33 @@ func CoverageFor(p *release.ParsedRelease, id Identity) Coverage {
 
 // describeMapping is the suffix a rejection message carries when a scene
 // lookup changed what the release's numbering means: " (scene numbering;
-// TVDB S01E18)". Empty when nothing was mapped.
+// TVDB S01E18)", and " (counted through the series; S23E02)" when a season
+// 1 number was read as the series' absolute (countedThrough). Empty when
+// the numbers were read as written.
 func (c coverage) describeMapping() string {
-	if len(c.mapped) == 0 {
-		return ""
+	var out string
+	if len(c.mapped) > 0 {
+		out += " (scene numbering; TVDB " + describeEpisodes(c.mapped) + ")"
 	}
+	if len(c.counted) > 0 {
+		out += " (counted through the series; " + describeEpisodes(c.counted) + ")"
+	}
+	return out
+}
+
+// describeEpisodes lists the first few of eps as "S01E18, S01E19 and 9 more".
+func describeEpisodes(eps []EpisodeNumbering) string {
 	const shown = 4
 	parts := make([]string, 0, shown)
-	for i, e := range c.mapped {
+	for i, e := range eps {
 		if i == shown {
 			break
 		}
 		parts = append(parts, fmt.Sprintf("S%02dE%02d", e.Season, e.Episode))
 	}
 	s := strings.Join(parts, ", ")
-	if n := len(c.mapped) - shown; n > 0 {
+	if n := len(eps) - shown; n > 0 {
 		s += fmt.Sprintf(" and %d more", n)
 	}
-	return " (scene numbering; TVDB " + s + ")"
+	return s
 }

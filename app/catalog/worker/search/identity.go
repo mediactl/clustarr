@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strconv"
 
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -200,6 +201,45 @@ func SceneReadings(
 		out[i].Title = titles[place{out[i].TVDB.Season, out[i].TVDB.Episode}]
 	}
 	return out, names
+}
+
+// SeriesNumbering is the decision.Identity.Numbering of an anime series:
+// every episode of its regular seasons at its place and under its absolute
+// number, read a season at a time. It is what lets the identity check read
+// a release that counts through the series under season 1
+// ("One.Piece.S01E1157") as the episode holding that absolute number
+// (decision's countedThrough). Exported for the RSS matcher, which must
+// read such a release as the search does.
+//
+// Nil for a series that is not anime, and when the episodes cannot be
+// listed, which is logged: every season 1 number is then read as written,
+// as before, never refused for it.
+func SeriesNumbering(ctx context.Context, c client.Reader, s *catalogv1alpha1.Series) []decision.EpisodeNumbering {
+	if c == nil || s == nil || s.Spec.SeriesType != catalogv1alpha1.SeriesTypeAnime {
+		return nil
+	}
+	var out []decision.EpisodeNumbering
+	for _, season := range s.Status.Seasons {
+		if season.Number < 1 || season.EpisodeCount == 0 {
+			continue
+		}
+		var list catalogv1alpha1.EpisodeList
+		if err := c.List(ctx, &list, client.InNamespace(s.Namespace),
+			client.MatchingFields{titleindex.IndexEpisodeSeriesSeason: titleindex.SeasonKey(s.Name, season.Number)}); err != nil {
+			logging.FromContext(ctx).Warn("search: the series' episodes are unavailable; a season 1 number is read as written, never as the series' absolute",
+				"series", s.Name, "season", season.Number, "err", err)
+			return nil
+		}
+		for i := range list.Items {
+			ep := &list.Items[i]
+			out = append(out, decision.EpisodeNumbering{
+				Season:   int(ep.Spec.SeasonNumber),
+				Episode:  int(ep.Spec.EpisodeNumber),
+				Absolute: int(ptr.Deref(ep.Status.AbsoluteNumber, 0)),
+			})
+		}
+	}
+	return out
 }
 
 // searchNumbering is the season, episode and absolute number a search for e

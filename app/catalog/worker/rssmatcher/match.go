@@ -20,6 +20,7 @@ package rssmatcher
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -140,7 +141,7 @@ func matchSeries(ctx context.Context, c client.Client, namespace string, rel sch
 		if !ptr.Deref(s.Spec.Monitored, true) {
 			continue
 		}
-		episodes, err := episodesFor(ctx, c, namespace, s.Name, rel, scenes.table(ctx, s.Spec.TvdbID))
+		episodes, err := episodesFor(ctx, c, namespace, s, rel, scenes.table(ctx, s.Spec.TvdbID))
 		if err != nil {
 			return nil, err
 		}
@@ -169,23 +170,27 @@ func matchSeries(ctx context.Context, c client.Client, namespace string, rel sch
 // check as the wrong item, and one matched to nothing would never reach it.
 //
 // A release numbered only absolutely -- most anime -- is matched through the
-// episodes' absolute numbers.
+// episodes' absolute numbers. So is an anime release that counts through
+// the series under season 1 ("One.Piece.S01E1157"), for each number season
+// 1 has no episode of (countedEpisode).
 //
 // A multi-season pack is deliberately NOT matched: §8.2's grab takes one lease
 // per episode and creates one Download for the lot, and a pack spanning
 // seasons is a large, rarely-wanted grab that the interactive search path
 // should own. Sonarr treats them the same way.
-func episodesFor(ctx context.Context, c client.Client, namespace, seriesName string, rel schema.Release, table []decision.SceneMapping) ([]string, error) {
+func episodesFor(ctx context.Context, c client.Client, namespace string, s *catalogv1alpha1.Series, rel schema.Release, table []decision.SceneMapping) ([]string, error) {
 	if rel.MultiSeason || len(rel.Seasons) > 1 {
 		return nil, nil
 	}
+	seriesName := s.Name
 	scene := newSceneIndex(table)
+	anime := s.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
 
 	var eps []*catalogv1alpha1.Episode
 	var err error
 	switch {
 	case len(rel.Seasons) == 1:
-		eps, err = seasonEpisodes(ctx, c, namespace, seriesName, rel, scene)
+		eps, err = seasonEpisodes(ctx, c, namespace, seriesName, rel, scene, anime)
 	case len(rel.Absolute) > 0:
 		eps, err = absoluteEpisodes(ctx, c, namespace, seriesName, rel.Absolute, scene)
 	}
@@ -210,8 +215,12 @@ func episodesFor(ctx context.Context, c client.Client, namespace, seriesName str
 }
 
 // seasonEpisodes resolves a release that names one season: a full-season
-// pack, SxxEyy episodes, or a daily air date.
-func seasonEpisodes(ctx context.Context, c client.Client, namespace, seriesName string, rel schema.Release, scene sceneIndex) ([]*catalogv1alpha1.Episode, error) {
+// pack, SxxEyy episodes, or a daily air date. anime is whether the series
+// is an anime one: only there is a season 1 number the season lacks read
+// as the series' absolute (countedEpisode).
+func seasonEpisodes(
+	ctx context.Context, c client.Client, namespace, seriesName string, rel schema.Release, scene sceneIndex, anime bool,
+) ([]*catalogv1alpha1.Episode, error) {
 	season := rel.Seasons[0]
 	switch {
 	case rel.FullSeason:
@@ -222,15 +231,37 @@ func seasonEpisodes(ctx context.Context, c client.Client, namespace, seriesName 
 		// knows about.
 		return listSeason(ctx, c, namespace, seriesName, season)
 	case len(rel.Episodes) > 0:
-		var pairs []seasonEpisode
+		var (
+			pairs   []seasonEpisode
+			written []int32
+		)
 		for _, e := range rel.Episodes {
 			if mapped := scene.byEpisode[seasonEpisode{season, e}]; len(mapped) > 0 {
 				pairs = append(pairs, mapped...)
 				continue
 			}
 			pairs = append(pairs, seasonEpisode{season, e})
+			written = append(written, e)
 		}
-		return pairEpisodes(ctx, c, namespace, seriesName, pairs)
+		out, err := pairEpisodes(ctx, c, namespace, seriesName, pairs)
+		if err != nil || season != 1 || !anime {
+			return out, err
+		}
+		for _, e := range written {
+			if slices.ContainsFunc(out, func(ep *catalogv1alpha1.Episode) bool {
+				return ep.Spec.SeasonNumber == 1 && ep.Spec.EpisodeNumber == e
+			}) {
+				continue
+			}
+			ep, err := countedEpisode(ctx, c, namespace, seriesName, e)
+			if err != nil {
+				return nil, err
+			}
+			if ep != nil {
+				out = append(out, ep)
+			}
+		}
+		return out, nil
 	case rel.AirDate != nil:
 		// A daily series names its episodes by date, not number.
 		all, err := listSeason(ctx, c, namespace, seriesName, season)
@@ -249,6 +280,36 @@ func seasonEpisodes(ctx context.Context, c client.Client, namespace, seriesName 
 		// season is not something to guess at.
 		return nil, nil
 	}
+}
+
+// countedEpisode is the episode a season 1 number names on an anime series
+// when season 1 has no such episode: the one regular episode holding the
+// number as its absolute, nil when none or several do. It is pkg/decision's
+// countedThrough, asked of the objects: a release that counts through the
+// series under season 1 ("One.Piece.S01E1157", TVDB's S23E02) matched
+// nothing, so no such release was ever taken from a feed (2026-11-28).
+func countedEpisode(ctx context.Context, c client.Client, namespace, seriesName string, n int32) (*catalogv1alpha1.Episode, error) {
+	if n < 1 {
+		return nil, nil // 0 is "no absolute number", not one to look up
+	}
+	var list catalogv1alpha1.EpisodeList
+	if err := c.List(ctx, &list,
+		client.InNamespace(namespace),
+		client.MatchingFields{IndexEpisodeSeriesAbsolute: absoluteKey(seriesName, n)},
+	); err != nil {
+		return nil, fmt.Errorf("rssmatcher: list episodes of %s by absolute number %d: %w", seriesName, n, err)
+	}
+	var found *catalogv1alpha1.Episode
+	for i := range list.Items {
+		if list.Items[i].Spec.SeasonNumber < 1 {
+			continue // a special has no place in the count
+		}
+		if found != nil {
+			return nil, nil
+		}
+		found = &list.Items[i]
+	}
+	return found, nil
 }
 
 // absoluteEpisodes resolves a release numbered only absolutely.

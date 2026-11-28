@@ -138,6 +138,10 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 		// was not asked for anything, and a pack that covers the episodes
 		// it was matched to is exactly what it may grab.
 		st.identity.SceneMappings = scenes.table(ctx, s.Spec.TvdbID)
+		// And the series' own numbering, so a release the matcher read as
+		// counting through the series under season 1 (countedEpisode) is
+		// read the same way by the check.
+		st.identity.Numbering = search.SeriesNumbering(ctx, c, &s)
 		st.qualityProfile = s.Spec.QualityProfileRef
 		st.dub = dubs.From(ctx).Series(&s)
 		st.monitored = st.monitored && ptr.Deref(s.Spec.Monitored, true)

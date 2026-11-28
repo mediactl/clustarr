@@ -157,8 +157,19 @@ func (w *Worker) resolveSeries(ctx context.Context, ns string, target importtarg
 // Stocking with Garterbelt, where import held four such downloads against
 // the episode already there). TheXEM unavailable is logged and reads every
 // number literally, as the search does.
+//
+// An anime series' own numbering goes with it (search.SeriesNumbering), so
+// a release that counts through the series under season 1
+// ("One.Piece.S01E1157") is filed as the episode it was grabbed for.
 func (w *Worker) seriesNumbering(ctx context.Context, s *catalogv1alpha1.Series, episodes []EpisodeCandidate) decision.Identity {
 	var id decision.Identity
+	if s.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime {
+		for _, e := range episodes {
+			if e.Season >= 1 {
+				id.Numbering = append(id.Numbering, decision.EpisodeNumbering{Season: e.Season, Episode: e.Number, Absolute: e.Absolute})
+			}
+		}
+	}
 	if w.SceneMaps == nil || s.Spec.TvdbID == 0 {
 		return id
 	}
