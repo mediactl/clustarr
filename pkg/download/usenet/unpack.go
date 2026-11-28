@@ -121,6 +121,26 @@ func (c countingReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
+// holesKey marks a context whose archives are known to have holes.
+type holesKey struct{}
+
+// withHoles marks ctx for the unpack of a download assembled a few articles
+// short (job.fewMissing): its archives' checksums cannot hold, so an entry
+// is written whole and its checksum's failure is not the unpack's. The
+// importer's probe judges what comes out.
+func withHoles(ctx context.Context) context.Context { return context.WithValue(ctx, holesKey{}, true) }
+
+// hasHoles reports a context marked by withHoles.
+func hasHoles(ctx context.Context) bool { v, _ := ctx.Value(holesKey{}).(bool); return v }
+
+// checksumFailed reports an archive entry read to its end whose checksum did
+// not hold: every byte of it was handed over before the error. sevenzip's
+// error is not exported.
+func checksumFailed(err error) bool {
+	return errors.Is(err, rardecode.ErrBadFileChecksum) || errors.Is(err, zip.ErrChecksum) ||
+		(err != nil && strings.Contains(err.Error(), "sevenzip: checksum error"))
+}
+
 // unpackArchives extracts every archive set in srcDir into dstDir, counting
 // the bytes it writes into progress, and then every archive those held
 // (unpackNested), to maxNestedUnpack levels.
@@ -297,6 +317,9 @@ func unpackRar(ctx context.Context, src, dst, password string, progress *unpackP
 	if password != "" {
 		opts = append(opts, rardecode.Password(password))
 	}
+	if hasHoles(ctx) {
+		opts = append(opts, rardecode.SkipCheck)
+	}
 	rc, err := rardecode.OpenReader(src, opts...)
 	if err != nil {
 		if errors.Is(err, rardecode.ErrBadPassword) {
@@ -328,7 +351,7 @@ func unpackRar(ctx context.Context, src, dst, password string, progress *unpackP
 		if (hdr.Encrypted || hdr.HeaderEncrypted) && password == "" {
 			return written, fmt.Errorf("%w: %s holds encrypted entry %q", ErrEncrypted, filepath.Base(src), hdr.Name)
 		}
-		if err := writeArchiveEntry(dst, hdr.Name, rc, progress); err != nil {
+		if err := writeArchiveEntry(ctx, dst, hdr.Name, rc, progress); err != nil {
 			if errors.Is(err, rardecode.ErrBadPassword) {
 				return written, fmt.Errorf("%w: %s: %w", ErrEncrypted, filepath.Base(src), err)
 			}
@@ -372,7 +395,7 @@ func unpack7z(ctx context.Context, src, dst, password string, progress *unpackPr
 		if err != nil {
 			return written, fmt.Errorf("usenet: open 7z entry %q: %w", f.Name, err)
 		}
-		err = writeArchiveEntry(dst, f.Name, r, progress)
+		err = writeArchiveEntry(ctx, dst, f.Name, r, progress)
 		_ = r.Close()
 		if err != nil {
 			return written, err
@@ -407,7 +430,7 @@ func unpackZip(ctx context.Context, src, dst string, progress *unpackProgress) (
 		if err != nil {
 			return written, fmt.Errorf("usenet: open zip entry %q: %w", f.Name, err)
 		}
-		err = writeArchiveEntry(dst, f.Name, r, progress)
+		err = writeArchiveEntry(ctx, dst, f.Name, r, progress)
 		_ = r.Close()
 		if err != nil {
 			return written, err
@@ -418,8 +441,9 @@ func unpackZip(ctx context.Context, src, dst string, progress *unpackProgress) (
 }
 
 // writeArchiveEntry writes one entry under dst, refusing any name that would
-// land outside it, and counts what it writes into progress.
-func writeArchiveEntry(dst, name string, r io.Reader, progress *unpackProgress) error {
+// land outside it, and counts what it writes into progress. Under withHoles
+// an entry whose checksum fails at its end is kept as written.
+func writeArchiveEntry(ctx context.Context, dst, name string, r io.Reader, progress *unpackProgress) error {
 	target, err := safeJoin(dst, name)
 	if err != nil {
 		return err
@@ -432,6 +456,12 @@ func writeArchiveEntry(dst, name string, r io.Reader, progress *unpackProgress) 
 		return fmt.Errorf("usenet: create %s: %w", target, err)
 	}
 	if _, err := io.Copy(f, countingReader{r: r, p: progress}); err != nil {
+		if hasHoles(ctx) && checksumFailed(err) {
+			logging.FromContext(ctx).WarnContext(ctx,
+				"usenet: an archive entry's checksum does not hold; kept as written, the download is a few articles short",
+				"entry", name)
+			return f.Close()
+		}
 		_ = f.Close()
 		return fmt.Errorf("usenet: write %s: %w", target, err)
 	}

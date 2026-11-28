@@ -1372,22 +1372,45 @@ func (j *job) postProcess(ctx context.Context) error {
 
 	content := j.contentDir()
 	j.renameObfuscated(ctx)
+	// whole: par2 made the set whole, or an archive nothing is missing from
+	// judges itself. Otherwise a download a handful of articles short is
+	// assembled with its holes (fewMissing).
+	whole := false
 	if j.client.cfg.PostProcess.Par2 {
-		if err := j.repair(ctx); err != nil {
+		err := j.repair(ctx)
+		switch {
+		case err == nil:
+			whole = par2IndexFile(j.nzb.Files) != ""
+		case errors.Is(err, ErrRepairFailed) && j.client.cfg.PostProcess.Unpack &&
+			len(archiveEntryPoints(j.nzb.Files)) > 0 && !j.failedInsideArchive():
 			// par2 could not repair, but if every missing article is outside
 			// the archive set the archive is whole and its own checksums can
 			// judge it: an nfo, a sample or a par2 volume with a hole is not
 			// a reason to throw away 10 GB of intact rar (udl continues to
 			// extraction on any repair failure; this is the safe form).
-			if errors.Is(err, ErrRepairFailed) && j.client.cfg.PostProcess.Unpack &&
-				len(archiveEntryPoints(j.nzb.Files)) > 0 && !j.failedInsideArchive() {
-				logging.FromContext(ctx).WarnContext(ctx,
-					"usenet: par2 could not repair, but no missing article is inside the archive set; letting the archive's checksums judge",
-					"download", j.id, "err", err)
-			} else {
-				return err
-			}
+			whole = true
+			logging.FromContext(ctx).WarnContext(ctx,
+				"usenet: par2 could not repair, but no missing article is inside the archive set; letting the archive's checksums judge",
+				"download", j.id, "err", err)
+		case errors.Is(err, ErrRepairFailed) && j.fewMissing():
+			// The set's recovery data does not cover a handful of missing
+			// articles: assembled as it is, not thrown away.
+			logging.FromContext(ctx).WarnContext(ctx,
+				"usenet: par2 could not repair a download a few articles short; assembling it as it is",
+				"download", j.id, "err", err)
+		default:
+			return err
 		}
+	}
+	holed := !whole && j.fewMissing()
+	if holed {
+		// Nothing made the content whole and little of it is missing: it is
+		// published with its holes, an archive is opened without its
+		// checksums, and the importer's probe judges each file.
+		logging.FromContext(ctx).WarnContext(ctx,
+			"usenet: assembling with a few articles missing; the importer judges the files",
+			"download", j.id, "missing", j.failedArticles(), "total", j.nzb.TotalSegments, "files", j.holedFiles())
+		ctx = withHoles(ctx)
 	}
 
 	if err := j.verifyContent(); err != nil {

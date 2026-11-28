@@ -1244,9 +1244,21 @@ func (j *job) verdictBreached() bool {
 // acceptable when par2 can repair them or an archive's own checksums will
 // judge the result. Bare content with holes would otherwise be published
 // as if whole, and the library would keep a damaged file.
+//
+// A handful of them is let through (fewMissing): the download is assembled
+// and published with its holes, and the importer's probe judges each file,
+// which forgives a second or two missing from a long one and refuses a file
+// it cannot play. On talos (2026-11-27) a 76 GB season of 49 episodes was
+// failed and blocked for one article of 103,312, and a 79 GB one for four of
+// 107,066, every server and the backup asked; owner: "For a few missing
+// articles, we can likely force assembly and unpack anyway with 99.9%
+// success."
 func (j *job) unverifiableGate(ctx context.Context) error {
 	failed := j.failedArticles()
 	if failed == 0 || j.nzb.par2Bytes() > 0 || len(archiveEntryPoints(j.nzb.Files)) > 0 {
+		return nil
+	}
+	if j.fewMissing() {
 		return nil
 	}
 	j.mu.Lock()
@@ -1254,6 +1266,36 @@ func (j *job) unverifiableGate(ctx context.Context) error {
 	j.mu.Unlock()
 	return j.breach(ctx, fmt.Sprintf("health %d%%: %d of %d articles missing, with no par2 to repair them and no archive to verify the result%s",
 		j.healthPercent(), failed, j.nzb.TotalSegments, j.nzb.unlistedNote()), last)
+}
+
+// fewMissing reports a download that ended a handful of articles short:
+// some, no more than maxBadArticles -- the count the health verdict already
+// ignores -- and no more than one in a thousand of the download, since five
+// articles are nothing of a season and most of a sample. Such a download is
+// assembled as it is when nothing can make it whole -- no par2, or par2 that
+// could not repair it -- rather than thrown away (unverifiableGate,
+// postProcess).
+func (j *job) fewMissing() bool {
+	n := j.failedArticles()
+	return n > 0 && n <= maxBadArticles && n*fewMissingShare <= j.nzb.TotalSegments
+}
+
+// fewMissingShare is the share of a download fewMissing lets go missing, as
+// one article in this many.
+const fewMissingShare = 1000
+
+// holedFiles names the files that still lack an article, for the line a
+// download published with holes leaves.
+func (j *job) holedFiles() []string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	var out []string
+	for i := range j.failedSegs {
+		if j.failedSegs[i].count() > 0 || j.nzb.Files[i].Unlisted > 0 {
+			out = append(out, j.nzb.Files[i].Name)
+		}
+	}
+	return out
 }
 
 // breach applies [Config.HealthAction] to a health-floor breach described by
