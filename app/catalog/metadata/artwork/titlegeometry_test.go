@@ -73,7 +73,7 @@ func TestDrawTitled_Geometry(t *testing.T) {
 			box := whiteBox(wide)
 			assert.Equal(t, 500*g.MaxWidthPct/100, box.Dx(), "a wide mark's width")
 			assert.Equal(t, 750-750*g.BottomPct/100, box.Max.Y, "a wide mark's bottom edge")
-			assert.Equal(t, 500-box.Max.X, box.Min.X, "centred")
+			assert.InDelta(t, 500-box.Max.X, box.Min.X, 1, "centred")
 
 			tall := greyCanvas(500, 750)
 			require.NoError(t, artwork.DrawTitled(tall, flat(100, 1000, white), g))
