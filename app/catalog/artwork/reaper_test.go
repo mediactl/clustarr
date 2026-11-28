@@ -20,12 +20,12 @@ package artwork_test
 import (
 	"context"
 	"errors"
-	dto "github.com/prometheus/client_model/go"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
