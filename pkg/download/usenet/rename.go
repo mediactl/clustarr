@@ -488,6 +488,17 @@ func (j *job) renameObfuscated(ctx context.Context) {
 				plan = append(plan, plannedRename{i: i, to: want})
 			}
 		}
+		// Several files that are each one file of the set are that file
+		// posted in pieces (splitPlan): they keep their names, and par2
+		// builds the file from them.
+		plan, parts := splitPlan(plan)
+		if len(parts) > 0 {
+			damaged = true
+			j.mu.Lock()
+			j.splitParts = parts
+			j.mu.Unlock()
+			log.InfoContext(ctx, "usenet: the post carries a file in pieces; par2 joins it", "download", j.id, "pieces", len(parts))
+		}
 		if damaged {
 			j.mu.Lock()
 			j.damagedHead = true
@@ -506,8 +517,12 @@ func (j *job) renameObfuscated(ctx context.Context) {
 	for _, n := range j.par2Names {
 		inSet[n] = true
 	}
+	parts := j.splitParts
 	j.mu.Unlock()
 	for i, f := range j.nzb.Files {
+		if _, piece := parts[i]; piece {
+			continue // a piece of a file par2 joins keeps its name
+		}
 		// A name the par2 set records is the file's name whatever it ends
 		// in: given another, par2 no longer finds it, rebuilds or renames it
 		// back, and the job's list names a file that is gone.
@@ -607,6 +622,63 @@ func (j *job) renameStrayVolumes(ctx context.Context) int {
 type plannedRename struct {
 	i  int
 	to string
+}
+
+// splitPlan takes out of plan the files that are pieces of one file: two or
+// more planned for the same name of the set. A file posted in pieces --
+// "Show - 19 [720p].mkv.001" to ".007", cut at a size, with a par2 set made
+// of the whole file -- has every piece match that file, the first by its
+// start and the rest by a slice. Renamed, the first took the file's name,
+// the others collided with it, par2 then built the whole file over the
+// first piece, and the job failed "scratch files are gone or altered: ...
+// .mkv is 336575388 bytes, its yEnc header declared 52480000" (talos,
+// 2026-11-28, every such episode from two anime indexers). The pieces keep
+// their names instead (parts: file index to the name they are pieces of),
+// par2 joins them, and dropJoinedPieces removes them once it has.
+func splitPlan(plan []plannedRename) (kept []plannedRename, parts map[int]string) {
+	n := map[string]int{}
+	for _, p := range plan {
+		n[p.to]++
+	}
+	for _, p := range plan {
+		if n[p.to] < 2 {
+			kept = append(kept, p)
+			continue
+		}
+		if parts == nil {
+			parts = map[int]string{}
+		}
+		parts[p.i] = p.to
+	}
+	return kept, parts
+}
+
+// dropJoinedPieces removes the pieces of every file par2 has built whole
+// (splitPlan), after a repair: the file is on disk under the set's name,
+// verified by par2, and adoptRepairedSet has put it on the job's list. A
+// piece whose file par2 did not build stays, for the import to judge.
+func (j *job) dropJoinedPieces(ctx context.Context) error {
+	dir := j.contentDir()
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	removed := 0
+	for i, target := range j.splitParts {
+		st, err := os.Lstat(filepath.Join(dir, safeName(target)))
+		if err != nil || !st.Mode().IsRegular() || i >= len(j.nzb.Files) {
+			continue
+		}
+		if err := fsops.SafeRemove(ctx, dir, safeName(j.nzb.Files[i].Name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if i < len(j.sizes) {
+			j.sizes[i] = 0 // gone on purpose: verifyContent does not look for it
+		}
+		removed++
+	}
+	if removed > 0 {
+		logging.FromContext(ctx).InfoContext(ctx, "usenet: removed the pieces of a file par2 joined", "download", j.id, "pieces", removed)
+	}
+	return nil
 }
 
 // renamingSuffix marks a file moved aside by renameSet until its name frees.

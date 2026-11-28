@@ -99,3 +99,84 @@ func TestAFileThePar2SetNamesIsGivenNoExtension(t *testing.T) {
 		require.NotEqual(t, "payload.001.mkv", f.Name)
 	}
 }
+
+// A file posted in pieces -- "Show - 19 [720p].mkv.001" and on, cut at a
+// size, with a par2 set made of the whole file -- is joined by par2 and
+// published as that file. Every piece matched the file's name in the set,
+// the first took it, the rest collided, par2 built the whole file over the
+// first piece, and the job failed "scratch files are gone or altered: ...
+// .mkv is 336575388 bytes, its yEnc header declared 52480000" (talos,
+// 2026-11-28).
+func TestAFilePostedInPiecesIsJoinedByPar2(t *testing.T) {
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}, Repairer: libraryRepairer(t)})
+
+	work := t.TempDir()
+	const name = "[HorribleSubs] Some Show - 19 [720p].mkv"
+	data := make([]byte, 600<<10)
+	_, _ = rand.New(rand.NewSource(19)).Read(data)
+	require.NoError(t, os.WriteFile(filepath.Join(work, name), data, 0o644))
+	par2test.CreateSet(t, work, name+".par2", []string{name}, 60, 10, 1)
+	par2, err := filepath.Glob(filepath.Join(work, "*.par2"))
+	require.NoError(t, err)
+
+	pieces := []string{"Some.Show-19.[720p] [720p].mkv.001", "Some.Show-19.[720p] [720p].mkv.002", "Some.Show-19.[720p] [720p].mkv.003"}
+	names := append([]string(nil), pieces...)
+	for _, p := range par2 {
+		names = append(names, filepath.Base(p))
+	}
+	nzb := nzbWith(t, "", names...)
+	parsed, err := parseNZB(nzb, defaultMaxNZBBytes)
+	require.NoError(t, err)
+	j := c.newJob("job1", "download-1", "tv", filepath.Join(c.cfg.ScratchDir, "tv", "job1"), parsed)
+	require.NoError(t, os.MkdirAll(j.contentDir(), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(j.dir, nzbName), nzb, 0o644))
+	const cut = 200 << 10
+	for i, p := range pieces {
+		require.NoError(t, os.WriteFile(filepath.Join(j.contentDir(), p), data[i*cut:(i+1)*cut], 0o644))
+		j.sizes[i] = cut // what each piece's yEnc header declared
+	}
+	for _, p := range par2 {
+		require.NoError(t, os.Rename(p, filepath.Join(j.contentDir(), filepath.Base(p))))
+	}
+
+	j.renameObfuscated(context.Background())
+	for _, p := range pieces {
+		_, err := os.Stat(filepath.Join(j.contentDir(), p))
+		require.NoError(t, err, "a piece keeps its name: %s", p)
+	}
+	require.Len(t, j.splitParts, 3)
+
+	require.NoError(t, j.repair(context.Background()))
+	got, err := os.ReadFile(filepath.Join(j.contentDir(), name))
+	require.NoError(t, err)
+	require.Equal(t, data, got, "par2 built the whole file")
+	for _, p := range pieces {
+		_, err := os.Stat(filepath.Join(j.contentDir(), p))
+		require.True(t, os.IsNotExist(err), "the pieces are gone: %s", p)
+	}
+	require.NoError(t, j.verifyContent(), "nothing is missed and nothing is the wrong size")
+}
+
+// A par2 file is not held to the size it declared: the engine removes the
+// par2 files once the content is whole, and a job run again after a
+// restart finds them recreated empty. Six downloads failed at one engine
+// start as "...vol-01.par2 is 0 bytes, its yEnc header declared 4716"
+// (talos, 2026-11-28). A content file of the wrong size is still refused.
+func TestAPar2FileIsNotHeldToItsDeclaredSize(t *testing.T) {
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}})
+	nzb := nzbWith(t, "", "Show.S01E01.mkv", "Show.S01E01.par2", "Show.S01E01.vol-01.par2")
+	parsed, err := parseNZB(nzb, defaultMaxNZBBytes)
+	require.NoError(t, err)
+	j := c.newJob("job1", "download-1", "tv", filepath.Join(c.cfg.ScratchDir, "tv", "job1"), parsed)
+	require.NoError(t, os.MkdirAll(j.contentDir(), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(j.contentDir(), "Show.S01E01.mkv"), make([]byte, 5000), 0o644))
+	for _, p := range []string{"Show.S01E01.par2", "Show.S01E01.vol-01.par2"} {
+		require.NoError(t, os.WriteFile(filepath.Join(j.contentDir(), p), nil, 0o644))
+	}
+	j.sizes[0], j.sizes[1], j.sizes[2] = 5000, 6308, 4716
+
+	require.NoError(t, j.verifyContent())
+
+	require.NoError(t, os.WriteFile(filepath.Join(j.contentDir(), "Show.S01E01.mkv"), make([]byte, 10), 0o644))
+	require.ErrorIs(t, j.verifyContent(), ErrScratchLost)
+}

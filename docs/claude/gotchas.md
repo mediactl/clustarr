@@ -818,6 +818,29 @@ recorded here.
   (`matroskaTitle`, the container title the import reads). Anything it
   cannot read whole is let through to the rename step and the import, as
   before. A lone hashed file still takes the job's name.
+- **Two more ways to "the transfer's scratch files are gone or altered",
+  both met on the first usenet-only searches of eight anime series
+  (2026-11-28, after the owner's "Cancel the existing stalled/slow torrents
+  and block the releases - these should be forced to usenet").** A file
+  posted in pieces -- `Show - 19 [720p].mkv.001` to `.007`, cut at
+  52,480,000 bytes, with a par2 set made of the whole file, the usual
+  shape of an episode on the two anime indexers -- had every piece match
+  that file's name in the set (the first by its start, the rest by a
+  slice): the first took the name, six "rename collides with an existing
+  file", par2 then built the whole file over the first piece, and
+  `verifyContent` found `...mkv is 336575388 bytes, its yEnc header
+  declared 52480000`. Now `splitPlan` leaves files planned for one name
+  as they are (`job.splitParts`), par2 joins them (the run is forced as
+  for a damaged start), `adoptRepairedSet` lists the file and
+  `dropJoinedPieces` removes the pieces. And an engine restart failed
+  every job that was publishing: its par2 files were already cleaned up,
+  the transfer run again recreated them empty, and `verifyContent` held
+  them to their size (`...vol-01.par2 is 0 bytes, its yEnc header declared
+  4716`, six downloads at one start). A par2 file is no longer held to its
+  size; the content is. Both were `writeError`, a local fault: held two
+  hours unblocked, then the same release again. Tests:
+  `TestAFilePostedInPiecesIsJoinedByPar2` (real par2, falsified),
+  `TestAPar2FileIsNotHeldToItsDeclaredSize`.
 - **A reply was one NATS message, and a season pack's .nzb does not fit
   one however it is compressed (2026-11-27, owner: "This one seems fixable
   - find a solution", "I'm guessing we can raise this?").** Three One

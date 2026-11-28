@@ -628,6 +628,10 @@ type job struct {
 	// not what the par2 set records for it, so repair's quick check, which
 	// trusts the articles' CRCs, does not skip par2.
 	damagedHead bool
+	// splitParts are the files that are pieces of one file of the par2 set,
+	// by index, with the name of that file (rename.go, splitPlan). Guarded
+	// by mu; not kept in the manifest: a restart reads the set again.
+	splitParts map[int]string
 
 	done       []bitset
 	failedSegs []bitset
@@ -1509,6 +1513,16 @@ func (j *job) verifyContent() error {
 		if size <= 0 || j.failedSegs[i].count() > 0 || j.nzb.Files[i].Unlisted > 0 {
 			continue
 		}
+		// A par2 file is the engine's own to remove once the content is
+		// whole (cleanupAfterUnpack), and it is gone when a job that was
+		// publishing is run again after a restart: the transfer recreates
+		// it empty, and held to its size the job failed "...vol-01.par2 is
+		// 0 bytes, its yEnc header declared 4716", six downloads at one
+		// engine start (talos, 2026-11-28). What must be the size it
+		// declared is the content.
+		if k := j.nzb.Files[i].Kind; k == kindPar2Index || k == kindPar2Volume {
+			continue
+		}
 		wants = append(wants, want{safeName(j.nzb.Files[i].Name), size})
 	}
 	j.mu.Unlock()
@@ -1586,7 +1600,10 @@ func (j *job) repair(ctx context.Context) error {
 	if err := removePar2Backups(ctx, j.contentDir(), j.nzb.Files); err != nil {
 		return err
 	}
-	return j.adoptRepairedSet(ctx)
+	if err := j.adoptRepairedSet(ctx); err != nil {
+		return err
+	}
+	return j.dropJoinedPieces(ctx)
 }
 
 // runPar2 runs par2 on the set entered at index, bytes of content, under
