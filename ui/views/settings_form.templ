@@ -13,7 +13,9 @@ import (
 	"github.com/mediactl/clustarr/ui/components/field"
 	"github.com/mediactl/clustarr/ui/components/input"
 	selectcomp "github.com/mediactl/clustarr/ui/components/select"
+	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
 	"github.com/mediactl/clustarr/ui/components/textarea"
+	"github.com/mediactl/clustarr/ui/components/utils"
 	"github.com/mediactl/clustarr/ui/forms"
 )
 
@@ -117,7 +119,7 @@ templ SettingsDialogForm(p FormPage) {
 		@card.Card(card.Props{Attributes: templ.Attributes{"data-section": "Object"}}) {
 			@card.Header() {
 				@card.Title() {
-					{ strings.ToUpper(p.Form.Kind.Singular[:1]) + p.Form.Kind.Singular[1:] }
+					General
 				}
 			}
 			@card.Content() {
@@ -378,15 +380,17 @@ templ formControl(c forms.Control) {
 				@fieldHelp(c)
 			}
 		case forms.ControlCheckbox:
-			@field.Field(field.Props{Orientation: field.OrientationHorizontal, Class: "@xl/modal:pt-6", Attributes: fieldAttrs(c.When)}) {
+			// A boolean is a switch (2026-11-28, the Liquid Glass redesign):
+			// its label and help leading, the switch trailing.
+			@field.Field(field.Props{Orientation: field.OrientationHorizontal, Class: "items-center", Attributes: utils.MergeAttributes(fieldAttrs(c.When), templ.Attributes{"data-switch-row": true})}) {
 				<input type="hidden" name={ c.Name } value="false"/>
-				@checkbox.Checkbox(checkbox.Props{ID: controlID(c.Name), Name: c.Name, Value: "true", Checked: &c.Checked, Disabled: c.ReadOnly})
 				@field.Content() {
 					@field.Label(field.LabelProps{For: controlID(c.Name)}) {
 						{ c.Label }
 					}
 					@fieldHelp(c)
 				}
+				@switchcomp.Switch(switchcomp.Props{ID: controlID(c.Name), Name: c.Name, Value: "true", DefaultChecked: c.Checked, Disabled: c.ReadOnly})
 			}
 		case forms.ControlSelect:
 			@field.Field(field.Props{Class: wide(c), Attributes: fieldAttrs(c.When)}) {
@@ -507,11 +511,30 @@ templ fieldLabel(c forms.Control, target string) {
 }
 
 templ fieldHelp(c forms.Control) {
-	if c.Help != "" {
+	if h := cleanHelp(c.Label, c.Help); h != "" {
 		@field.Description() {
-			{ c.Help }
+			{ h }
 		}
 	}
+}
+
+// cleanHelp is a field's help as the sheet shows it: none when it only
+// restates the label ("BaseURL is the indexer's base URL."), and without a
+// dangling ", e.g." the schema's description was cut at.
+func cleanHelp(label, help string) string {
+	help = strings.TrimSpace(help)
+	for _, cut := range []string{", e.g.", " e.g.", ", e.g", " e.g"} {
+		help = strings.TrimSuffix(help, cut)
+	}
+	if help != "" && !strings.HasSuffix(help, ".") {
+		help += "."
+	}
+	squash := func(s string) string { return strings.ToLower(strings.ReplaceAll(s, " ", "")) }
+	first, _, _ := strings.Cut(help, " ")
+	if len(help) < 64 && squash(first) == squash(label) {
+		return ""
+	}
+	return help
 }
 
 // rowsControl renders an array of objects: a row per element, each with

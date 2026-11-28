@@ -116,39 +116,44 @@ func (p FormDialogProps) contentAttrs() templ.Attributes {
 // asking when Guard is set and the form changed.
 templ FormDialog(p FormDialogProps) {
 	@dialog.Dialog(dialog.Props{ID: ModalDialogID, DefaultOpen: true, DisablePointerDismissal: true}) {
-		@dialog.Content(dialog.ContentProps{Attributes: p.contentAttrs()}) {
+		@dialog.Content(dialog.ContentProps{HideCloseButton: true, Attributes: p.contentAttrs()}) {
+			// The sheet's navigation bar (2026-11-28, the Liquid Glass
+			// redesign, after iOS's form sheets): Cancel, the title, Save.
 			@dialog.Header() {
-				@dialog.Title() {
-					{ p.Title }
-				}
+				<div data-sheet-bar class="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+					@button.Button(button.Props{Variant: button.VariantGhost, Class: "justify-self-start px-2 text-tint hover:bg-transparent hover:opacity-80", Attributes: dialog.CloseFor(ModalDialogID)}) {
+						if p.HideSubmit {
+							Close
+						} else {
+							Cancel
+						}
+					}
+					@dialog.Title(dialog.TitleProps{Class: "min-w-0 truncate text-center"}) {
+						{ p.Title }
+					}
+					if !p.HideSubmit {
+						@button.Button(button.Props{Type: button.TypeSubmit, Form: p.FormID, Class: "justify-self-end", Attributes: p.SubmitAttrs}) {
+							{ p.submit() }
+						}
+					} else {
+						<span></span>
+					}
+				</div>
 				if p.Description != "" {
-					@dialog.Description(dialog.DescriptionProps{Class: "line-clamp-2"}) {
+					@dialog.Description(dialog.DescriptionProps{Class: "line-clamp-2 text-center"}) {
 						{ p.Description }
 					}
 				}
 			}
 			<div data-modal-body>
 				{ children... }
-			</div>
-			@dialog.Footer() {
+				// Delete is the sheet's last row, on its own, in red.
 				if p.Extra != nil {
-					<div data-modal-extra>
+					<div data-modal-extra data-modal-danger>
 						@p.Extra
 					</div>
 				}
-				@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.CloseFor(ModalDialogID)}) {
-					if p.HideSubmit {
-						Close
-					} else {
-						Cancel
-					}
-				}
-				if !p.HideSubmit {
-					@button.Button(button.Props{Type: button.TypeSubmit, Form: p.FormID, Attributes: p.SubmitAttrs}) {
-						{ p.submit() }
-					}
-				}
-			}
+			</div>
 		}
 	}
 }
