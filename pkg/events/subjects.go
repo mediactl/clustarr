@@ -206,8 +206,13 @@ const (
 // named by ArtworkKey, but the same NATS bucket-name rule applies: no dots.
 const BucketArtwork = "clustarr-artwork"
 
-// ArtworkMaxBytes is the artwork bucket's byte limit, spec §B.2.
-const ArtworkMaxBytes int64 = 5 * GiB
+// ArtworkMaxBytes is the artwork bucket's byte limit, spec §B.2: 8 GiB since
+// 2026-11-28, when talos's bucket was 3.2 GiB of the 5 it had and had doubled
+// in ten days (the anime library, music's covers and discs). The bucket
+// refuses a write it has no room for, and the reaper is what keeps it small;
+// the maintenance loop reports a bucket nearly full
+// (ObjectStoreNearlyFull) long before that.
+const ArtworkMaxBytes int64 = 8 * GiB
 
 // BucketSegments holds each MediaFile's raw segment analysis, keyed by its
 // UID through KVKeyToken.
@@ -221,9 +226,37 @@ const ObjectStoreFingerprints = "clustarr-fingerprints"
 // of up to 3 MB is at most 3 chunks (ADR-0020 §5).
 const ArtworkChunkSize uint32 = 1 << 20
 
-// FingerprintsMaxBytes bounds ObjectStoreFingerprints: about 20 KB per
-// window, so room for some 25,000 files.
-const FingerprintsMaxBytes int64 = 1 * GiB
+// FingerprintsMaxBytes bounds ObjectStoreFingerprints: about 12 KB per
+// window and two windows a file, so room for some 80,000 files. The bound is
+// not what keeps the store in it: the maintenance loop removes the
+// fingerprints of files the library no longer has and, the store being a
+// cache (ObjectStoreSpec.Cache), the oldest ones when it is nearly full.
+const FingerprintsMaxBytes int64 = 2 * GiB
+
+// BucketPayloads holds the .nzb bodies the index agent fetched for a grab,
+// gzipped, each under PayloadKey: a release asked for again -- an engine that
+// restarted, a reply that was lost, a retry -- is answered from here and the
+// indexer is not asked twice (nzb-life refuses a second fetch of one NZB for
+// 24 hours). Only .nzb bodies: a .torrent carries its tracker's passkey and
+// is never kept. The index agent writes and reads it alone.
+const BucketPayloads = "clustarr-payloads"
+
+// PayloadsMaxBytes bounds BucketPayloads: an .nzb is about 125 KB a gigabyte
+// of release and gzips to about half, so room for some 15 TB of grabs inside
+// PayloadsMaxAge. A cache: the oldest go first when it is nearly full.
+const PayloadsMaxBytes int64 = 1 * GiB
+
+// PayloadsMaxAge is how long a fetched .nzb is kept: past any indexer's
+// per-release cooldown (24 hours at nzb-life) and a retry's back-off.
+const PayloadsMaxAge = 3 * 24 * time.Hour
+
+// PayloadsKeyScheme is BucketPayloads's key scheme, recorded in the bucket's
+// metadata.
+const PayloadsKeyScheme = "nzb/<indexer uid>/<sha256(guid)[:32]>"
+
+// PayloadsMetaVersion is the version of the metadata set every
+// BucketPayloads object carries (ADR-0021 §2).
+const PayloadsMetaVersion = "1"
 
 // BucketLiveTV holds the Live TV tuner's objects (spec 2026-10-07 §5.4;
 // names and shapes in pkg/iptv/livetvstore): each provider's playlist (its

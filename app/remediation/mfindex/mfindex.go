@@ -23,6 +23,7 @@ package mfindex
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -51,8 +52,14 @@ const Subtitles = "remediation.mediafile.subtitles"
 // manager's start).
 const MediaKind = "remediation.mediafile.kind"
 
+// ProbeHash indexes a MediaFile by status.probeHash and every
+// status.formerProbeHashes entry: the object-store maintenance loop asks
+// through it whether a stored fingerprint is still some file's
+// (fingerprintmeta.ReapStore), as keys, without decoding a file.
+const ProbeHash = "remediation.mediafile.probehash"
+
 // Register registers the loop's MediaFile indexes on idx: UID, Item,
-// DownloadRef, Subtitles and MediaKind. A
+// DownloadRef, Subtitles, MediaKind and ProbeHash. A
 // second registration on one cache is an "indexer conflict", so only
 // remediation.RegisterIndexes calls it in a process, and tests that run a
 // reader without the loop.
@@ -89,7 +96,29 @@ func Register(ctx context.Context, idx client.FieldIndexer) error {
 	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, MediaKind, MediaKindValues); err != nil {
 		return fmt.Errorf("mfindex: register %s: %w", MediaKind, err)
 	}
+	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, ProbeHash, ProbeHashValues); err != nil {
+		return fmt.Errorf("mfindex: register %s: %w", ProbeHash, err)
+	}
 	return nil
+}
+
+// ProbeHashValues is ProbeHash's extractor: the probe hash the file has and
+// the ones it had.
+func ProbeHashValues(o client.Object) []string {
+	mf, ok := o.(*catalogv1alpha1.MediaFile)
+	if !ok {
+		return nil
+	}
+	var out []string
+	if mf.Status.ProbeHash != "" {
+		out = append(out, mf.Status.ProbeHash)
+	}
+	for _, h := range mf.Status.FormerProbeHashes {
+		if h != "" && !slices.Contains(out, h) {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // MediaKindValues is MediaKind's extractor: the file's spec.mediaRef.kind.

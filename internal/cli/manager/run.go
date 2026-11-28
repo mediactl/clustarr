@@ -27,6 +27,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/autoscale"
@@ -386,7 +387,7 @@ func register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options, 
 	// The object-store maintenance loop (ADR-0020 §5): leader-only, the
 	// orphan purge over every object store of the topology on the artwork
 	// reaper's cadence and grace.
-	if err := mgr.Add(objectStoreMaintenance(bus, o)); err != nil {
+	if err := mgr.Add(objectStoreMaintenance(bus, mgr.GetClient(), o)); err != nil {
 		return nil, fmt.Errorf("manager: add the object-store maintenance loop: %w", err)
 	}
 	type step struct {
@@ -492,11 +493,13 @@ func register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options, 
 // over o's topology; a bus that is not an ObjectStoreAdmin purges nothing.
 // Its audits backfill each store's metadata (ADR-0021 §3): the artwork
 // store's is the item keys' (ADR-0019 D13), the fingerprint store's is this
-// loop's.
-func objectStoreMaintenance(bus events.Bus, o Options) *maintenance.ObjectStores {
+// loop's. Its fill check covers every store, and its one reap is the
+// fingerprint store's: the fingerprints no MediaFile's probe hash names.
+func objectStoreMaintenance(bus events.Bus, c client.Reader, o Options) *maintenance.ObjectStores {
 	m := &maintenance.ObjectStores{
 		Topology: o.BusTopology(),
 		LastRun:  &lastrun.Mark{KV: bus.KV(events.BucketMaintenance), Key: "object-stores"},
+		Stores:   bus.ObjectStore,
 	}
 	if admin, ok := bus.(events.ObjectStoreAdmin); ok {
 		m.Admin = admin
@@ -507,6 +510,12 @@ func objectStoreMaintenance(bus events.Bus, o Options) *maintenance.ObjectStores
 		Name: events.ObjectStoreFingerprints,
 		Run: func(ctx context.Context) (int, error) {
 			return fingerprintmeta.BackfillStore(ctx, fingerprints, writtenBy)
+		},
+	})
+	m.Reaps = append(m.Reaps, maintenance.Reap{
+		Name: events.ObjectStoreFingerprints,
+		Run: func(ctx context.Context, grace time.Duration) (int, error) {
+			return fingerprintmeta.ReapStore(ctx, fingerprints, fingerprintReferenced(c), grace, time.Now())
 		},
 	})
 	return m

@@ -102,6 +102,10 @@ func Run(ctx context.Context, o Options) error {
 		metricsFailed = serveMetrics(ctx, o.MetricsBindAddress)
 	}
 
+	if o.PprofBindAddress != "" {
+		servePprof(ctx, o.PprofBindAddress)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

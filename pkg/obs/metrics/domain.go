@@ -337,6 +337,40 @@ var (
 		"bucket",
 	)
 
+	// ObjectStoreBytes and ObjectStoreMaxBytes are each object store's size
+	// and byte limit as the broker holds them, read by the manager's
+	// maintenance loop: a store at its limit refuses every write.
+	ObjectStoreBytes = newGaugeVec(
+		"clustarr_object_store_bytes",
+		"Size of each object store's stream, in bytes.",
+		"bucket",
+	)
+	ObjectStoreMaxBytes = newGaugeVec(
+		"clustarr_object_store_max_bytes",
+		"Byte limit of each object store's stream; 0 is none.",
+		"bucket",
+	)
+
+	// ObjectsEvictedTotal counts the objects the maintenance loop deleted
+	// from a store, by bucket and why: reason is "capacity" (a cache store
+	// nearly full gave up its oldest) or "unreferenced" (nothing the library
+	// holds names it any more).
+	ObjectsEvictedTotal = newCounterVec(
+		"clustarr_objects_evicted_total",
+		"Total objects the maintenance loop deleted from an object store, by bucket and reason.",
+		"bucket", "reason",
+	)
+
+	// ObjectPutErrorsTotal counts failed object-store writes, by bucket and
+	// reason: "full" (the bucket at its byte limit), "timeout" (an
+	// acknowledgement or the caller out of time) or "other". Recorded by
+	// whichever process wrote.
+	ObjectPutErrorsTotal = newCounterVec(
+		"clustarr_object_put_errors_total",
+		"Total failed object-store writes, by bucket and reason.",
+		"bucket", "reason",
+	)
+
 	// ObjectOrphanBytesPurgedTotal counts the bytes those purges freed
 	// (estimated from each subject's last chunk), by bucket.
 	ObjectOrphanBytesPurgedTotal = newCounterVec(

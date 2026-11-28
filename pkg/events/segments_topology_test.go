@@ -92,7 +92,8 @@ func TestSegmentsTopology(t *testing.T) {
 	}
 	require.NotNil(t, store, ObjectStoreFingerprints)
 	assert.Equal(t, StorageFile, store.Storage)
-	assert.EqualValues(t, GiB, store.MaxBytes)
+	assert.EqualValues(t, 2*GiB, store.MaxBytes)
+	assert.True(t, store.Cache, "a cache: evicted when nearly full, never left refusing writes at its limit")
 	assert.Equal(t, 90*24*time.Hour, store.MaxAge)
 	assert.Equal(t, 90*24*time.Hour, ObjectStoreConfig(*store).TTL, "Ensure creates it with the age limit")
 }

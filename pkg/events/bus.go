@@ -616,6 +616,9 @@ type ObjectStoreStatus struct {
 	Created time.Time
 	// Bytes is the stream's size, chunks and metas together.
 	Bytes uint64
+	// MaxBytes is the stream's byte limit as the broker holds it, 0 for
+	// none: a bucket at it refuses every write (ErrObjectStoreFull).
+	MaxBytes uint64
 }
 
 // ObjectStore is a single bucket of the broker's object store, spec §B.1.
@@ -671,6 +674,10 @@ type ObjectStore interface {
 // ErrObjectNotFound is returned by ObjectStore.Get and ObjectStore.Info for a
 // missing object.
 var ErrObjectNotFound = errors.New("events: object not found")
+
+// ErrObjectStoreFull is returned by ObjectStore.Put when the bucket has no
+// room for the object: its stream is at its byte limit and discards new.
+var ErrObjectStoreFull = errors.New("events: object store is full")
 
 // ObjectStoreAdmin is implemented by both buses (artwork design §B.1 and §B.5
 // as amended 2026-10-07); membus has no chunks and purges nothing.

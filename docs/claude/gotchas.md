@@ -1840,6 +1840,74 @@ recorded here.
   until the watch is open (2 minutes), and `objindex` waits at least 10 s
   after a watch that ended before its replay. The first Ensure fills each
   index with one read of its bucket.
+- **An object store at its byte limit refuses every write, and nothing said
+  so (2026-11-28; owner: "Keep the jetstream object store design for now
+  and design your fixes around that. Design and implement iron clad fixes
+  for all issues you identified").** A bucket's stream discards new. talos's
+  `clustarr-fingerprints` stood at 1,073,741,677 of 1,073,741,824 bytes:
+  every fingerprint write refused, and ignored, since the worker treats the
+  store as a cache. Three quarters of it was garbage: of 42,580 probe hashes
+  stored, 6,675 were a file's, 4,449 a hash a file had had, and 31,456 no
+  file's at all, while 28,134 files had none. A probe hash is
+  sha1(path|size|mtime), so every rename, move and transcode strands the
+  fingerprints under the old one, and only the 90-day `MaxAge` ever removed
+  them. Four things hold it now.
+  - **The reap** (`fingerprintmeta.ReapStore`, a `maintenance.Reap` on every
+    sweep): a fingerprint whose probe hash no MediaFile has or had
+    (`mfindex.ProbeHash`, asked as keys through `rowcache.Keys`, never a list
+    of every file: that decodes every row), one of an old
+    `FingerprintVersion`, or a name that is no key, is deleted once older
+    than the sweep's grace. A lookup that fails deletes nothing, and a store
+    of 20 hashes or more none of which is referenced is refused
+    (`ErrNoRefs`): that is a lookup answering nothing, not a library.
+  - **Eviction** (`ObjectStoreSpec.Cache`, `maintenance.CheckFill`): every
+    10 minutes each store's size is read against the limit the broker holds
+    (`ObjectStoreStatus.MaxBytes`); a cache store at 85%
+    (`events.ObjectStoreNearlyFull`) gives up its oldest-written objects down
+    to 70%. Fingerprints and payloads are caches; artwork and Live TV are
+    not, and are only logged ("nearly full", again every hour), since an
+    eviction there takes an image or a guide a page is showing. Not
+    JetStream's own discard-old: it drops messages, not objects, and an
+    object's chunks are older than a record `SetMeta` wrote again, so it
+    leaves records with no content.
+  - **It is seen**: `clustarr_object_store_bytes` and `_max_bytes`,
+    `clustarr_objects_evicted_total{reason}`, and
+    `clustarr_object_put_errors_total{bucket,reason}` from every writer; a
+    refused write is `events.ErrObjectStoreFull` (the broker's "maximum
+    bytes exceeded", which has no error code of its own).
+  - **Room**: fingerprints 2 GiB (some 80,000 files at 12 KB a window),
+    artwork 8 GiB (it was 3.2 of 5 and had doubled in ten days; 1.2 GB of
+    it is disc art and 0.6 GB clearart). The servers' `max_file_store` is
+    30Gi and the streams reserved 20.4 GB of it before this; it is about
+    25.4 GB with the payload store below. A new bucket or a higher limit
+    has to fit under that, or Ensure fails for every stream.
+- **A fetched .nzb is kept, so a release is fetched from its indexer once
+  (2026-11-28, same ask).** Every payload request reached the indexer:
+  nothing held what the last fetch brought, and a fetch is a grab whatever
+  becomes of its reply (lost in transit, too large, an engine that
+  restarted or lost the transfer), so the next one met nzb-life's 24-hour
+  per-NZB 429. The index agent now stores each fetched .nzb, gzipped, in
+  the object store `clustarr-payloads` (1 GiB, three days, a cache) under
+  `nzb/<indexer uid>/<sha256(guid)[:32]>` and answers a release it holds
+  before anything else (`app/indexer/download/kept.go`; metric result
+  `kept`): no pause, limit or cooldown applies, since the indexer is not
+  asked. Only an .nzb: a .torrent carries its tracker's passkey and the
+  bucket is readable by every bus client. The name never holds the GUID,
+  which is often the download URL with its key. A kept object that does
+  not read back as an .nzb is removed and the indexer asked.
+- **The ui serves `net/http/pprof` on `127.0.0.1:6060`
+  (`--pprof-bind-address`), as the manager does** (2026-11-28: a ui at
+  750 MB of heap, 953 MB resident, could not be asked what held it; its
+  artwork byte cache is capped at 64 MiB and `/art` had served four
+  requests in 2.5 hours, so that is not it). `kubectl port-forward
+  pod/<ui> 6060`, then `/debug/pprof/heap`.
+- **`%w (%v)` in natsbus's object reader is on purpose.** A formatting
+  commit (73a418fd) turned it into `%w (%w)`, which put nats.go's private
+  `ErrTimeout` back into the chain a caller matches and failed
+  `TestObjectReaderReportsTheCallersDeadline` on main; the lines carry
+  `//nolint:errorlint` now. The same commit did it to
+  `pkg/par2child/exec.go` and two lines of `ui/livetv_channels.go`, which
+  were left as they are.
 - **A failed object `Put` can leave a record with no content, and a record
   alone is not the object** (2026-11-27; owner, of the series Beef:
   "has no image", then "Repair the 31 now ... Afterwards, stop it

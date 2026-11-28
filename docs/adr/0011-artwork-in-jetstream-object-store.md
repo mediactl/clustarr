@@ -179,3 +179,18 @@ download. This decision's reasons against hot-linking were the browser's:
 viewers' addresses, mixed content, provider rate limits on page loads. A
 Plex server fetching an image is not a viewer. The ui's own pages are
 unchanged.
+
+## Note (2026-11-28): the cap, and the revisit trigger it named
+
+The revisit trigger "the artwork bucket approaching `ArtworkMaxBytes` in a
+real deployment" fired: talos's bucket was 3.2 GiB of 5 and had doubled in
+ten days (the anime library, music's covers and discs). The owner looked at
+moving the object stores to an S3 service and kept this design ("Keep the
+jetstream object store design for now and design your fixes around that").
+The reaper had no gap (3.21 GiB of live objects in a 3.24 GiB stream), so
+the cap is raised: `ArtworkMaxBytes` is 8 GiB. The bucket is not a cache
+that may be thinned (`ObjectStoreSpec.Cache` is false: an eviction would
+take an image a page is showing), so the maintenance loop reports it at 85%
+of the cap, and `clustarr_object_store_bytes` and
+`clustarr_object_put_errors_total{reason="full"}` say when it is there.
+`docs/claude/gotchas.md`, "An object store at its byte limit ...".

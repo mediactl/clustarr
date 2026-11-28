@@ -334,7 +334,9 @@ func (o *objectHandle) Status(ctx context.Context) (events.ObjectStoreStatus, er
 	for _, obj := range b.objects {
 		size += uint64(len(obj.data))
 	}
-	return events.ObjectStoreStatus{Bucket: o.name, Created: b.created, Bytes: size}, nil
+	return events.ObjectStoreStatus{
+		Bucket: o.name, Created: b.created, Bytes: size, MaxBytes: uint64(max(b.spec.MaxBytes, 0)),
+	}, nil
 }
 
 var _ events.ObjectStoreAdmin = (*Bus)(nil)

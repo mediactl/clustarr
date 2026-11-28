@@ -30,6 +30,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/lastrun"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -41,6 +42,15 @@ type Audit struct {
 	// Name labels the audit in logs: the store it audits.
 	Name string
 	Run  func(ctx context.Context) (changed int, err error)
+}
+
+// Reap is one object store's reap of the objects nothing the library holds
+// names any more, run on every sweep after the audits; grace is the sweep's.
+// It returns how many objects it deleted.
+type Reap struct {
+	// Name is the store it reaps: the log's label and the metric's bucket.
+	Name string
+	Run  func(ctx context.Context, grace time.Duration) (removed int, err error)
 }
 
 // ObjectStores is the manager's object-store maintenance loop (ADR-0020 §5):
@@ -55,6 +65,14 @@ type ObjectStores struct {
 	Topology events.Topology
 	// Audits run after the purge, each on its own store.
 	Audits []Audit
+	// Reaps run after the audits, each on its own store.
+	Reaps []Reap
+	// Stores binds a store of Topology by name, for the fill check
+	// (fill.go); nil checks nothing.
+	Stores func(bucket string) events.ObjectStore
+	// FillInterval is how often every store's size is read against its
+	// limit; it defaults to DefaultFillInterval.
+	FillInterval time.Duration
 	// Interval defaults to artwork.DefaultReapInterval, Grace to
 	// artwork.DefaultReapGrace: a Put's chunks precede its meta, and the
 	// grace covers one in progress.
@@ -63,6 +81,8 @@ type ObjectStores struct {
 	// that restarts waits out the rest of the Interval before its first
 	// sweep; nil sweeps at every start.
 	LastRun *lastrun.Mark
+
+	fill fillState
 }
 
 // NeedLeaderElection makes the loop a cluster singleton: the stores are
@@ -79,6 +99,10 @@ func (m *ObjectStores) Start(ctx context.Context) error {
 	if interval <= 0 {
 		interval = artwork.DefaultReapInterval
 	}
+	// The fill check has its own, shorter cadence and does not wait for
+	// the sweep's: a store that fills between two sweeps is evicted, or
+	// reported, within one FillInterval.
+	go m.fillLoop(ctx)
 	if wait := m.LastRun.Wait(ctx, time.Now(), interval); wait > 0 {
 		logging.FromContext(ctx).Info("maintenance: the object stores were swept within the interval; waiting",
 			"next", wait.Round(time.Second).String())
@@ -140,6 +164,19 @@ func (m *ObjectStores) Sweep(ctx context.Context) error {
 		}
 		if n > 0 {
 			log.Info("maintenance: backfilled object metadata", "store", a.Name, "objects", n)
+		}
+	}
+	for _, r := range m.Reaps {
+		if r.Run == nil {
+			continue
+		}
+		n, err := r.Run(ctx, grace)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("maintenance: reap %s: %w", r.Name, err))
+		}
+		if n > 0 {
+			metrics.ObjectsEvictedTotal.WithLabelValues(r.Name, EvictUnreferenced).Add(float64(n))
+			log.Info("maintenance: reaped objects nothing names any more", "store", r.Name, "objects", n)
 		}
 	}
 	err := errors.Join(errs...)

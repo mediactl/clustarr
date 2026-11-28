@@ -32,6 +32,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/segments"
@@ -180,6 +181,94 @@ func BackfillStore(ctx context.Context, store events.ObjectStore, writtenBy stri
 				continue
 			}
 			errs = append(errs, fmt.Errorf("fingerprintmeta: backfill %s: %w", o.Name, err))
+			continue
+		}
+		n++
+	}
+	return n, errors.Join(errs...)
+}
+
+// Referenced reports whether a file of the library has, or had, probeHash
+// (a probe hash names the file's path, so a rename, a move or a transcode
+// gives it a new one, and its status remembers the ones before).
+type Referenced func(ctx context.Context, probeHash string) (bool, error)
+
+// ErrNoRefs is ReapStore's refusal to reap a store none of whose fingerprints
+// is any file's: that is a lookup that answers nothing, not a library.
+var ErrNoRefs = errors.New("fingerprintmeta: no stored fingerprint is any file's; nothing is reaped")
+
+// reapGuardHashes is how many probe hashes a store must hold before none of
+// them being referenced is refused as a broken lookup.
+const reapGuardHashes = 20
+
+// maxReapErrors is how many failed deletes end a reap: a store that refuses
+// one after another is not answering.
+const maxReapErrors = 20
+
+// ReapStore deletes the fingerprints nothing reads any more, and returns how
+// many (talos, 2026-11-28: of 42,580 probe hashes in a store standing at its
+// byte limit and refusing every write, 31,456 were no file's, current or
+// former, while 28,134 files had none). Two kinds, each only once it is older
+// than grace, which covers a fingerprint written for a file whose status the
+// lookup does not show yet:
+//
+//   - one whose probe hash no file has or had: the file was deleted, or
+//     renamed, moved or transcoded more often than its status remembers;
+//   - one of a version the analyzer no longer reads, or under a name that is
+//     no fingerprint key.
+//
+// A fingerprint is a cache entry, recomputed from the file in seconds, so a
+// wrong delete costs one decode. Two things are refused all the same: a
+// lookup that fails (nothing is deleted on a guess), and a store of
+// reapGuardHashes or more hashes none of which is referenced (ErrNoRefs).
+func ReapStore(ctx context.Context, store events.ObjectStore, referenced Referenced, grace time.Duration, now time.Time) (int, error) {
+	objects, err := store.List(ctx, "")
+	if err != nil {
+		return 0, fmt.Errorf("fingerprintmeta: list fingerprints: %w", err)
+	}
+	// Each hash is asked once, whatever its windows.
+	kept := map[string]bool{}
+	var stale []string
+	for _, o := range objects {
+		h, _, v, ok := ParseKey(o.Name)
+		current := ok && v == segments.FingerprintVersion
+		if current {
+			if _, asked := kept[h]; !asked {
+				if kept[h], err = referenced(ctx, h); err != nil {
+					return 0, fmt.Errorf("fingerprintmeta: look up probe hash %s: %w", h, err)
+				}
+			}
+			if kept[h] {
+				continue
+			}
+		}
+		if now.Sub(o.ModTime) >= grace {
+			stale = append(stale, o.Name)
+		}
+	}
+	some := false
+	for _, k := range kept {
+		some = some || k
+	}
+	if len(kept) >= reapGuardHashes && !some {
+		return 0, ErrNoRefs
+	}
+	var (
+		n    int
+		errs []error
+	)
+	for _, name := range stale {
+		if err := ctx.Err(); err != nil {
+			return n, errors.Join(append(errs, err)...)
+		}
+		if err := store.Delete(ctx, name); err != nil {
+			if errors.Is(err, events.ErrObjectNotFound) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("fingerprintmeta: reap %s: %w", name, err))
+			if len(errs) >= maxReapErrors {
+				break
+			}
 			continue
 		}
 		n++

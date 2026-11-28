@@ -624,8 +624,22 @@ func TestDefaultObjectStoreIsArtwork(t *testing.T) {
 	for _, o := range top.ObjectStores {
 		names[o.Name] = o
 	}
-	if len(names) != 3 {
-		t.Fatalf("ObjectStores = %+v, want artwork, fingerprints and livetv", top.ObjectStores)
+	if len(names) != 4 {
+		t.Fatalf("ObjectStores = %+v, want artwork, fingerprints, livetv and payloads", top.ObjectStores)
+	}
+	// The fetched .nzb bodies: a cache that ages out, and nothing but the
+	// index agent's.
+	pl, ok := names[events.BucketPayloads]
+	if !ok || pl.Storage != events.StorageFile || pl.MaxBytes != events.PayloadsMaxBytes ||
+		pl.MaxAge != events.PayloadsMaxAge || !pl.Cache || !pl.MetaIndex {
+		t.Errorf("%s = %+v, want a file-backed cache of %d bytes that ages out after %s",
+			events.BucketPayloads, pl, events.PayloadsMaxBytes, events.PayloadsMaxAge)
+	}
+	// Only a store whose objects can be made again from the library is
+	// evicted: artwork and Live TV are reported when nearly full, never
+	// thinned.
+	if names[events.BucketArtwork].Cache || names[events.BucketLiveTV].Cache {
+		t.Errorf("artwork and Live TV are not caches: an eviction would take images and guides a page is showing")
 	}
 	lt, ok := names[events.BucketLiveTV]
 	if !ok {

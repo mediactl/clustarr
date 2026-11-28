@@ -102,6 +102,11 @@ type Service struct {
 	// details page, so the fallback would hand grab an HTML page.
 	Definitions FetcherFor
 
+	// Payloads keeps each fetched .nzb (events.BucketPayloads), and answers
+	// a release asked for again without the indexer (kept.go). nil keeps
+	// nothing.
+	Payloads events.ObjectStore
+
 	// Now is the clock. nil means time.Now.
 	Now func() time.Time
 
@@ -211,6 +216,13 @@ func (s *Service) fetchAndCount(
 		"indexer", idx.Name, "namespace", idx.Namespace,
 		"guid", truncate(redactRawURL(req.GUID), maxGUIDLogChars))
 
+	// A release fetched before is answered from what that fetch left: the
+	// indexer is not asked, so nothing below -- its pauses, its limit, its
+	// per-release cooldown -- applies.
+	if resp, ok := s.keptPayload(ctx, idx.UID, req.GUID, log); ok {
+		return resp, resultKept, label
+	}
+
 	// spec.limits.grabLimit IS checked, and before the indexer is asked: the
 	// reservation is the grab. A GUID already in the window -- catalog
 	// reserves its grab before it creates the Download that leads here --
@@ -300,6 +312,7 @@ func (s *Service) fetchAndCount(
 	case grabbed:
 		s.clearGrabPause(ctx, &idx, log)
 		s.clearReleasePause(ctx, &idx, req.GUID, log)
+		s.keepPayload(ctx, idx.UID, req.GUID, resp, log)
 	}
 	return resp, result, label
 }

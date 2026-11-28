@@ -79,6 +79,9 @@ func registerWorkers(
 		Bus:         bus,
 		Fetch:       genericFetcherFor(c, cc),
 		Definitions: cc.DefinitionFetcherFor,
+		// A fetched .nzb is kept, so a release asked for again -- a lost
+		// reply, a restarted engine -- is not fetched from its indexer twice.
+		Payloads: bus.ObjectStore(events.BucketPayloads),
 	}
 	q := &query.Service{Store: store}
 	bl := &blocklist.Service{Store: store}

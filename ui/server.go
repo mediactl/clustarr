@@ -141,6 +141,11 @@ type Options struct {
 	// by hand gets.
 	MetricsBindAddress string
 
+	// PprofBindAddress is the address net/http/pprof is served on
+	// (`--pprof-bind-address`, DefaultPprofBindAddress from the command).
+	// Empty serves none, which is what a test building Options by hand gets.
+	PprofBindAddress string
+
 	// AuthMode is the authentication mode the operator chose (`--auth-mode`
 	// on `ui` (cmd/ui), the chart's
 	// `ui.auth.mode`). It has no default: [Validate] refuses an empty or

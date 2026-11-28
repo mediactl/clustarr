@@ -86,6 +86,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	var artCacheBytes int64
 	var metricsURL string
 	var metricsBindAddress string
+	var pprofBindAddress string
 
 	fs := root.Flags()
 	fs.StringVar(&bindAddress, "bind-address", ui.DefaultBindAddress,
@@ -94,6 +95,9 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.StringVar(&metricsBindAddress, "metrics-bind-address", ui.DefaultMetricsBindAddress,
 		"Address /metrics is served on, plain HTTP, apart from --bind-address: the ui's request "+
 			"series (clustarr_ui_http_*) with the Go runtime's and the process's. Empty serves none.")
+	fs.StringVar(&pprofBindAddress, "pprof-bind-address", ui.DefaultPprofBindAddress,
+		"Address net/http/pprof is served on, apart from --bind-address: loopback by default, "+
+			"reached through kubectl port-forward. Empty serves none.")
 	fs.StringVar(&authMode, "auth-mode", "",
 		"Authentication mode, chosen explicitly: ui refuses to serve without one. The only mode is "+
 			"anonymous, which serves every request without a login and must sit behind ingress "+
@@ -169,6 +173,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		return run(ctx, ui.Options{
 			BindAddress:          bindAddress,
 			MetricsBindAddress:   metricsBindAddress,
+			PprofBindAddress:     pprofBindAddress,
 			AuthMode:             ui.AuthMode(authMode),
 			Reader:               reader,
 			WaitForSync:          waitForSync,

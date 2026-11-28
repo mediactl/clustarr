@@ -330,7 +330,26 @@ type ObjectStoreSpec struct {
 	// finds it missing, older than its bucket or behind it reads the
 	// bucket itself. membus ignores it.
 	MetaIndex bool
+	// Cache marks a store whose every object can be made again from what
+	// the library holds: the maintenance loop deletes its oldest-written
+	// objects when it is nearly full (ObjectStoreNearlyFull down to
+	// ObjectStoreEvictTo), so a write is not refused for room. A bucket's
+	// stream discards new, and JetStream's own discard-old would not do:
+	// it drops messages, not objects, and an object's chunks are older
+	// than a record SetMeta wrote again, so it would leave records with no
+	// content. A store that is not a cache is only reported when nearly
+	// full. talos, 2026-11-28: the fingerprint store had stood at its
+	// limit, refusing every write, since it filled.
+	Cache bool
 }
+
+// ObjectStoreNearlyFull is the share of its MaxBytes at which an object
+// store is reported, and a Cache store evicted; ObjectStoreEvictTo is the
+// share an eviction brings it down to.
+const (
+	ObjectStoreNearlyFull = 0.85
+	ObjectStoreEvictTo    = 0.70
+)
 
 // ObjectStoreStream is the JetStream stream an object-store bucket lives in.
 func ObjectStoreStream(bucket string) string { return "OBJ_" + bucket }
@@ -1327,9 +1346,10 @@ func defaultObjectStores() []ObjectStoreSpec {
 			MaxBytes:    FingerprintsMaxBytes,
 			MaxAge:      90 * 24 * time.Hour,
 			Replicas:    3,
-			// The maintenance sweep lists it for the orphan purge and the
-			// metadata audit.
+			// The maintenance sweep lists it for the orphan purge, the
+			// metadata audit and the reap of fingerprints no file has.
 			MetaIndex: true,
+			Cache:     true,
 			Metadata: map[string]string{
 				BucketMetaKeyKeyScheme: FingerprintKeyScheme,
 				ObjectMetaKeyVersion:   FingerprintMetaVersion,
@@ -1364,6 +1384,24 @@ func defaultObjectStores() []ObjectStoreSpec {
 			Metadata: map[string]string{
 				BucketMetaKeyKeyScheme: LiveTVKeyScheme,
 				ObjectMetaKeyVersion:   LiveTVMetaVersion,
+			},
+		},
+		{
+			// The .nzb bodies fetched for grabs: fetched again from the
+			// indexer when lost, at the cost of a grab against it.
+			Name:        BucketPayloads,
+			Description: "Fetched .nzb bodies, so a release is fetched from its indexer once",
+			Storage:     StorageFile,
+			MaxBytes:    PayloadsMaxBytes,
+			MaxAge:      PayloadsMaxAge,
+			Replicas:    3,
+			// A season pack's .nzb is tens of MB: 1 MiB chunks, as artwork.
+			ChunkSize: ArtworkChunkSize,
+			MetaIndex: true, // the orphan purge and an eviction list it
+			Cache:     true,
+			Metadata: map[string]string{
+				BucketMetaKeyKeyScheme: PayloadsKeyScheme,
+				ObjectMetaKeyVersion:   PayloadsMetaVersion,
 			},
 		},
 	}

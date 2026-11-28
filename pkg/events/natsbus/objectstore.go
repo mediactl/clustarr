@@ -134,7 +134,36 @@ func objectError(op, bucket, name string, err error) error {
 	if errors.Is(err, jetstream.ErrBucketNotFound) {
 		return fmt.Errorf("natsbus: %s %s: %w", op, bucket, events.ErrBucketNotFound)
 	}
+	if isStoreFull(err) {
+		return fmt.Errorf("natsbus: %s %s/%s: %w (%v)", op, bucket, name, events.ErrObjectStoreFull, err) //nolint:errorlint // the broker's words, not its error, as a read's
+	}
 	return fmt.Errorf("natsbus: %s %s/%s: %w", op, bucket, name, err)
+}
+
+// isStoreFull reports whether err is a stream at its byte limit refusing a
+// message: the server's store error, which reaches a publisher as an API
+// error whose description is the store's own words ("maximum bytes
+// exceeded", nats-server's ErrMaxBytes; JSStreamStoreFailedF carries no code
+// of its own for it), or nats.go's check of one message against the limit.
+func isStoreFull(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, jetstream.ErrMaxBytesExceeded) || strings.Contains(err.Error(), "maximum bytes exceeded")
+}
+
+// putFailure is the reason label of a failed Put
+// (clustarr_object_put_errors_total): the bucket full, an acknowledgement or
+// the caller's context out of time, or anything else.
+func putFailure(err error) string {
+	switch {
+	case isStoreFull(err):
+		return "full"
+	case isReadTimeout(err), errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return "timeout"
+	default:
+		return "other"
+	}
 }
 
 // objectDigestHex converts JetStream's "SHA-256=<base64url>" digest form
@@ -246,10 +275,12 @@ func (r *objectReader) Read(p []byte) (int, error) {
 		return n, err
 	}
 	if cerr := r.ctx.Err(); cerr != nil {
-		return n, fmt.Errorf("natsbus: read %s/%s: %w (%w)", r.bucket, r.name, cerr, err)
+		// %v on purpose: nats.go's own error stays in the message and out
+		// of the chain (a formatter's %w put it back, 73a418fd).
+		return n, fmt.Errorf("natsbus: read %s/%s: %w (%v)", r.bucket, r.name, cerr, err) //nolint:errorlint // see above
 	}
 	if d, ok := r.ctx.Deadline(); ok && isReadTimeout(err) && !time.Now().Before(d) {
-		return n, fmt.Errorf("natsbus: read %s/%s: %w (%w)", r.bucket, r.name, context.DeadlineExceeded, err)
+		return n, fmt.Errorf("natsbus: read %s/%s: %w (%v)", r.bucket, r.name, context.DeadlineExceeded, err) //nolint:errorlint // as above
 	}
 	return n, objectError("read", r.bucket, r.name, err)
 }
@@ -290,6 +321,7 @@ func (o *objectHandle) Put(ctx context.Context, name string, r io.Reader,
 	}
 	info, err := store.Put(ctx, jm, r)
 	if err != nil {
+		metrics.ObjectPutErrorsTotal.WithLabelValues(o.name, putFailure(err)).Inc()
 		o.dropHollowAfterPut(ctx, store, name)
 		return events.ObjectInfo{}, objectError("put", o.name, name, err)
 	}
@@ -555,6 +587,7 @@ func (o *objectHandle) Status(ctx context.Context) (events.ObjectStoreStatus, er
 	// one implementation does.
 	if bs, ok := st.(*jetstream.ObjectBucketStatus); ok && bs.StreamInfo() != nil {
 		out.Created = bs.StreamInfo().Created
+		out.MaxBytes = uint64(max(bs.StreamInfo().Config.MaxBytes, 0))
 	}
 	return out, nil
 }

@@ -115,7 +115,7 @@ func TestManagerFieldIndexes(t *testing.T) {
 	want := map[string][]string{
 		"MediaFile": {
 			"remediation.mediafile.uid", "remediation.mediafile.item", "remediation.mediafile.downloadref",
-			"remediation.mediafile.subtitles", "remediation.mediafile.kind", "remediation.mediafile.subtitleProfile", "remediation.mediafile.transcodeProfile",
+			"remediation.mediafile.subtitles", "remediation.mediafile.kind", "remediation.mediafile.probehash", "remediation.mediafile.subtitleProfile", "remediation.mediafile.transcodeProfile",
 		},
 		"Movie": {
 			".spec.qualityProfileRef", "mediafile.clustarr.io/movie-rootfolder", "remediation.item.download",
