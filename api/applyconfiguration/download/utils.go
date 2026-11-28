@@ -33,18 +33,28 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=download.clustarr.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithKind("BandwidthSpec"):
+		return &downloadv1alpha1.BandwidthSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ConnectionPool"):
+		return &downloadv1alpha1.ConnectionPoolApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DownloadClient"):
 		return &downloadv1alpha1.DownloadClientApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DownloadClientSpec"):
 		return &downloadv1alpha1.DownloadClientSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DownloadClientStatus"):
 		return &downloadv1alpha1.DownloadClientStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("EngineAutoscale"):
+		return &downloadv1alpha1.EngineAutoscaleApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("EngineBudgetStatus"):
+		return &downloadv1alpha1.EngineBudgetStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EngineStatus"):
 		return &downloadv1alpha1.EngineStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NNTPProvider"):
 		return &downloadv1alpha1.NNTPProviderApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PostProcessSpec"):
 		return &downloadv1alpha1.PostProcessSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ProviderQuotaStatus"):
+		return &downloadv1alpha1.ProviderQuotaStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ScratchSpec"):
 		return &downloadv1alpha1.ScratchSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TorrentProxy"):

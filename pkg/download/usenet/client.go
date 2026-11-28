@@ -52,6 +52,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/time/rate"
 	"os"
 	"path/filepath"
 	"sort"
@@ -207,6 +208,20 @@ type Config struct {
 	// their post-processing slot. Zero means [defaultMaxPublish].
 	MaxPublish int
 
+	// GrowGrants makes a transfer's grant work-conserving (spec 2026-11-27
+	// §10.5): it asks for the pod's whole budget on its server divided
+	// among the transfers running there, and is resized at every renewal,
+	// so a short queue uses the connections a full one would. Off, a
+	// transfer holds its server's static share of a slot for its whole
+	// life.
+	GrowGrants bool
+
+	// Limiter bounds the bytes per second the client reads from its
+	// providers, every connection together: the engine's bandwidth budget
+	// (spec 2026-11-27 §5.3). The caller owns it and may change its rate
+	// while the client runs; nil is no bound.
+	Limiter *rate.Limiter
+
 	// ScratchBudget is the bytes of ScratchDir the started jobs may need at
 	// once (scratch.go): a job starts its transfer only while its peak --
 	// [job.scratchNeed], its articles and their unpacked copy plus headroom
@@ -271,12 +286,26 @@ type Client struct {
 
 	workers int
 
-	// maxActive is Config.MaxActive with its default applied; the client
-	// lock guards slots, the jobs holding a transfer slot (priority.go).
-	maxActive int
-	// shares is each primary's share per transfer ([primaryShares]), and
-	// budgets what transfers may hold of it ([transferBudgets]).
-	shares, budgets map[string]int
+	// maxActive is how many jobs transfer at once: Config.MaxActive with
+	// its default applied (maxActiveCap), or fewer under an engine budget
+	// ([Client.SetBudget]); the client lock guards slots, the jobs holding
+	// a transfer slot (priority.go).
+	maxActive    atomic.Int32
+	maxActiveCap int
+	// shares is each primary's share per transfer ([primaryShares]) at
+	// maxActive, and budgets what transfers may hold of it
+	// ([transferBudgets]).
+	shares  atomic.Pointer[map[string]int]
+	budgets map[string]int
+	// members is the pod's standing on its accounts, and rebalanceKick
+	// asks the renewal loop to write it and resize the grants now
+	// (fleet.go).
+	members       membership
+	rebalanceKick chan struct{}
+	// parkCh is closed when a transfer gives connections back by
+	// shrinking ([Client.parkSignal]).
+	parkMu sync.Mutex
+	parkCh chan struct{}
 	// post holds one token per job verifying, repairing, unpacking or
 	// publishing: Config.MaxPostProcess of them.
 	post chan struct{}
@@ -404,37 +433,49 @@ func New(cfg Config) (download.Client, error) {
 		cfg.GrantRenewInterval = defaultGrantRenewInterval
 	}
 	shares := primaryShares(cfg.Providers, maxActive)
+	budgets := transferBudgets(cfg.Providers)
 	workers := cfg.Workers
 	if workers <= 0 {
 		// One goroutine per connection the largest grant could carry; the
-		// grant's limiter (grant.go) bounds how many fetch at once.
-		for _, n := range shares {
+		// grant's limiter (grant.go) bounds how many fetch at once. A
+		// grant that grows may carry a primary's whole budget.
+		largest := shares
+		if cfg.GrowGrants {
+			largest = budgets
+		}
+		for _, n := range largest {
 			workers = max(workers, n)
 		}
 		workers = max(workers, 1)
 	}
 	c := &Client{
-		cfg:          cfg,
-		freeBytes:    freeBytes,
-		pool:         pool,
-		repairer:     cfg.Repairer,
-		baseCtx:      context.Background(),
-		workers:      workers,
-		maxActive:    maxActive,
-		shares:       shares,
-		budgets:      transferBudgets(cfg.Providers),
-		post:         make(chan struct{}, maxPost),
-		publish:      make(chan struct{}, maxPublish),
-		publishLarge: make(chan struct{}, max(1, maxPublish-1)),
-		jobs:         map[string]*job{},
-		slots:        map[*job]struct{}{},
-		scratch:      map[*job]int64{},
-		ledger:       cfg.Ledger,
-		holder:       cfg.Holder,
-		stopRenew:    make(chan struct{}),
-		kick:         make(chan struct{}, 1),
-		waiting:      map[*job]chan struct{}{},
-		stopQueue:    make(chan struct{}),
+		cfg:           cfg,
+		freeBytes:     freeBytes,
+		pool:          pool,
+		repairer:      cfg.Repairer,
+		baseCtx:       context.Background(),
+		workers:       workers,
+		maxActiveCap:  maxActive,
+		budgets:       budgets,
+		members:       membership{weight: defaultWeight, others: map[string]int64{}},
+		rebalanceKick: make(chan struct{}, 1),
+		post:          make(chan struct{}, maxPost),
+		publish:       make(chan struct{}, maxPublish),
+		publishLarge:  make(chan struct{}, max(1, maxPublish-1)),
+		jobs:          map[string]*job{},
+		slots:         map[*job]struct{}{},
+		scratch:       map[*job]int64{},
+		ledger:        cfg.Ledger,
+		holder:        cfg.Holder,
+		stopRenew:     make(chan struct{}),
+		kick:          make(chan struct{}, 1),
+		waiting:       map[*job]chan struct{}{},
+		stopQueue:     make(chan struct{}),
+	}
+	c.maxActive.Store(int32(maxActive))
+	c.shares.Store(&shares)
+	for _, sp := range pool.servers {
+		sp.limiter = cfg.Limiter
 	}
 	if c.repairer == nil {
 		c.repairer = noRepairer{}
@@ -442,6 +483,9 @@ func New(cfg Config) (download.Client, error) {
 	if cfg.BaseContext != nil {
 		c.baseCtx = context.WithoutCancel(cfg.BaseContext)
 	}
+	// The quota counts every pod has written, before a job asks a metered
+	// provider for anything.
+	c.syncUsage(c.baseCtx)
 	if err := c.reattach(); err != nil {
 		pool.Close()
 		return nil, err
@@ -551,8 +595,12 @@ type job struct {
 	// ([job.takeGrant]); grant, under mu, is the transfer's live grant and
 	// limiter bounds the fetch workers to it (grant.go).
 	waitingGrant atomic.Bool
-	grant        *grant
-	limiter      *connLimiter
+	// wantsTransferGrant is true while the grant it is parked for is the
+	// transfer's own, not a chase's: the pod's other transfers then give
+	// way ([Client.rebalance]).
+	wantsTransferGrant atomic.Bool
+	grant              *grant
+	limiter            *connLimiter
 	// grantMu serialises ensureGrant, so workers that find no grant
 	// together take one between them rather than one each.
 	grantMu sync.Mutex
@@ -1797,7 +1845,7 @@ func (j *job) item() download.Item {
 		message = j.client.scratchWaitMessage(j)
 	case j.waitingSlot.Load() && status == download.StatusDownloading:
 		status = download.StatusQueued
-		message = fmt.Sprintf("waiting for a free transfer slot (%d at once)", j.client.maxActive)
+		message = fmt.Sprintf("waiting for a free transfer slot (%d at once)", j.client.maxActive.Load())
 	case j.waitingGrant.Load() && j.stage == commonv1alpha1.DownloadStageTransferring:
 		// Parked for connections: takeGrant wrote the message.
 		status = download.StatusQueued
@@ -2168,6 +2216,8 @@ func (c *Client) Close() error {
 		for _, j := range jobs {
 			j.giveGrant(ctx)
 		}
+		// What was read since the last renewal counts against the quotas.
+		c.syncUsage(ctx)
 		c.pool.Close()
 	})
 	return nil
@@ -2206,6 +2256,27 @@ func ProviderFromSpec(p downloadv1alpha1.NNTPProvider, username, password string
 	}
 	if p.QuotaBytes != nil {
 		prov.QuotaBytes = *p.QuotaBytes
+	}
+	prov.QuotaPeriod = QuotaPeriod(p.QuotaPeriod)
+	return prov
+}
+
+// PooledProviderFromSpec is [ProviderFromSpec] for a provider of us, with
+// its connection pool resolved: a provider naming a pool shares the pool's
+// connections, and its own connections, when unset, are the whole pool.
+func PooledProviderFromSpec(us *downloadv1alpha1.UsenetSpec, p downloadv1alpha1.NNTPProvider, username, password string) Provider {
+	prov := ProviderFromSpec(p, username, password)
+	if p.Pool == "" {
+		return prov
+	}
+	for _, cp := range us.ConnectionPools {
+		if cp.Name != p.Pool {
+			continue
+		}
+		prov.Pool, prov.PoolConnections = cp.Name, int(cp.Connections)
+		if p.Connections <= 0 || int(p.Connections) > prov.PoolConnections {
+			prov.Connections = prov.PoolConnections
+		}
 	}
 	return prov
 }

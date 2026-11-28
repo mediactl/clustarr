@@ -109,7 +109,7 @@ var domainFlags = map[string][]string{
 	"index-dsn":             {"index"},
 	"facade-bind-address":   {"index"},
 	"facade-api-key-secret": {"index"},
-	"download-client":       {"torrent-engine"},
+	"download-client":       {"torrent-engine", "usenet-engine"},
 	"engine":                {"torrent-engine", "usenet-engine"},
 	"scratch-dir":           {"torrent-engine", "usenet-engine"},
 	"publish-dir":           {"usenet-engine"},

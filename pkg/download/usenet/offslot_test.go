@@ -74,7 +74,8 @@ func TestAChasingJobLeavesItsTransferSlotToTheNext(t *testing.T) {
 // lock. Every fetch worker asks before every batch, and on talos (2026-10-28)
 // 92 of 115 of them sat behind about 700 queued jobs polling that lock.
 func TestASlotHoldersTurnCheckTakesNoClientLock(t *testing.T) {
-	c := &Client{jobs: map[string]*job{}, slots: map[*job]struct{}{}, scratch: map[*job]int64{}, maxActive: 1}
+	c := &Client{jobs: map[string]*job{}, slots: map[*job]struct{}{}, scratch: map[*job]int64{}}
+	c.maxActive.Store(1)
 	j := &job{client: c, id: "holder"}
 	c.jobs[j.id] = j
 	c.mu.Lock()

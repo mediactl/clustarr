@@ -74,6 +74,11 @@ type Stage struct {
 	// groupsObserved are the entries whose inspected files observeGroup
 	// has recorded (the bucket dedupes too, across restarts).
 	groupsObserved sync.Map
+	// slotBook and slotWake are late binding's (slots.go): the waiters for
+	// a transfer slot across owners, and the source a freed slot wakes
+	// them through.
+	slotBook *slotBook
+	slotWake *wakeSource
 }
 
 var (
@@ -97,6 +102,8 @@ func New(o Options) *Stage {
 		issued:    newCommandBook(),
 		unclaimed: NewUnclaimed(),
 		boots:     newBootBook(),
+		slotBook:  newSlotBook(),
+		slotWake:  &wakeSource{},
 
 		importsPublished: newImportBook(),
 	}
@@ -146,7 +153,11 @@ func (s *Stage) Plan(ctx context.Context, _ *remediation.Env, v *remediation.Ite
 	if err := s.importDecisions(ctx, ow, &lv); err != nil {
 		return remediation.ItemResult{}, remediation.Transient(err)
 	}
+	if err := s.slots(ctx, ow, &lv); err != nil {
+		return remediation.ItemResult{}, remediation.Transient(err)
+	}
 	plan := lifecycle.Decide(lv)
+	s.slotsAfter(ow, &lv, plan)
 	s.issued.set(plan.Issued)
 	res := s.result(ctx, ow, lv, plan)
 	if ow.kind == commonv1.MediaKindMovie {

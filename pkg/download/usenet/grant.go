@@ -81,6 +81,15 @@ func newConnLimiter() *connLimiter {
 	return l
 }
 
+// resize changes the bound of a standing grant without ending it: a worker
+// already fetching finishes its batch, and no more start than n allows.
+func (l *connLimiter) resize(n int) {
+	l.mu.Lock()
+	l.n = n
+	l.mu.Unlock()
+	l.cond.Broadcast()
+}
+
 func (l *connLimiter) set(n int) {
 	l.mu.Lock()
 	l.n = n
@@ -153,6 +162,7 @@ func (j *job) takeGrant(ctx context.Context, candidates []string, suffix string,
 	log := logging.FromContext(ctx)
 	parked := false
 	defer j.waitingGrant.Store(false)
+	defer j.wantsTransferGrant.Store(false)
 	for {
 		if j.paused.Load() || j.client.outranked(j) {
 			return grant{}, errTurnLost
@@ -189,7 +199,7 @@ func (j *job) takeGrant(ctx context.Context, candidates []string, suffix string,
 			if j.status == download.StatusQueued {
 				j.status = download.StatusDownloading
 			}
-			j.message = fmt.Sprintf("transferring on %s (%d connections)", g.Server, g.Connections)
+			j.message = grantMessageOf(g.Server, g.Connections)
 			j.grantMessage = j.message
 			j.mu.Unlock()
 			if parked {
@@ -201,13 +211,23 @@ func (j *job) takeGrant(ctx context.Context, candidates []string, suffix string,
 			parked = true
 			log.InfoContext(ctx, "usenet: no primary server has free connections; waiting", "download", j.id, "servers", waits)
 		}
+		j.wantsTransferGrant.Store(suffix == "")
 		j.waitingGrant.Store(true)
 		j.mu.Lock()
 		j.status = download.StatusQueued
 		j.message = "waiting for usenet connections (" + waits + ")"
 		j.mu.Unlock()
-		if err := sleepCtx(ctx, ledgerPollInterval); err != nil {
-			return grant{}, err
+		woken := j.client.parkSignal()
+		if suffix == "" {
+			// The pod's other transfers give way at once, not at the next
+			// renewal, and say so when they have.
+			j.client.kickRebalance()
+		}
+		select {
+		case <-ctx.Done():
+			return grant{}, ctx.Err()
+		case <-woken:
+		case <-time.After(ledgerPollInterval):
 		}
 	}
 }
@@ -235,34 +255,32 @@ func (j *job) tryTakeEach(ctx context.Context, candidates []string, suffix strin
 	c := j.client
 	var full []string
 	now := time.Now()
+	transfer := suffix == ""
+	c.joined(ctx)
+	var on map[string]int
+	if transfer && c.cfg.GrowGrants {
+		on, _ = c.transfersOn()
+	}
 	for _, name := range candidates {
 		p, ok := c.pool.Provider(name)
 		if !ok || !c.pool.Available(name, now) {
 			continue
 		}
 		askable = true
-		limit := max(p.Connections, 1)
-		want, ok := c.shares[name]
-		if !ok {
-			// A backup, asked for a chase.
-			want = share(limit, c.maxActive)
-		}
+		limit := p.AccountLimit()
+		want := c.want(p, transfer, on[name]+1)
 		least := min
 		if least == 0 {
 			least = want
 		}
-		// A transfer is held to the primary's budget; a chase may take
-		// what is left above it.
-		take := limit
-		if b, ok := c.budgets[name]; ok && suffix == "" {
-			take = b
-		}
-		n, err := c.ledger.Take(ctx, p.Account(), take, Grant{Holder: j.holder() + suffix, Server: name}, want, least)
+		ask := c.ask(p, j.holder()+suffix, transfer)
+		n, err := c.ledger.Take(ctx, p.Account(), limit, ask, want, least)
 		if err != nil {
 			return grant{}, "", true, fmt.Errorf("usenet: take connections on %s: %w", name, err)
 		}
 		if n > 0 {
-			return grant{Grant: Grant{Holder: j.holder() + suffix, Server: name, Connections: n}, Account: p.Account()}, "", true, nil
+			ask.Connections = n
+			return grant{Grant: ask, Account: p.Account()}, "", true, nil
 		}
 		held, err := c.ledger.Held(ctx, p.Account())
 		if err != nil {
@@ -271,6 +289,11 @@ func (j *job) tryTakeEach(ctx context.Context, candidates []string, suffix strin
 		full = append(full, fmt.Sprintf("%s %d/%d in use", name, held, limit))
 	}
 	return grant{}, strings.Join(full, ", "), askable, nil
+}
+
+// grantMessageOf is the status message of a transfer under a grant.
+func grantMessageOf(server string, connections int) string {
+	return fmt.Sprintf("transferring on %s (%d connections)", server, connections)
 }
 
 // giveGrant returns the job's transfer grant, if any, and closes the
@@ -330,6 +353,13 @@ func (j *job) ensureGrant(ctx context.Context) error {
 	if preferred != "" {
 		candidates = append([]string{preferred}, slices.DeleteFunc(candidates, func(n string) bool { return n == preferred })...)
 	}
+	// A pool's backup stands in while none of the pool's primaries can be
+	// asked (fleet.go), unless the transfer already left it.
+	for _, name := range j.client.standIns(time.Now()) {
+		if !j.lacks(name) && !slices.Contains(candidates, name) {
+			candidates = append(candidates, name)
+		}
+	}
 	_, err := j.takeGrant(ctx, candidates, "", 1)
 	return err
 }
@@ -387,14 +417,34 @@ func (c *Client) renewLoop(stop <-chan struct{}) {
 	defer c.wg.Done()
 	t := time.NewTicker(c.cfg.GrantRenewInterval)
 	defer t.Stop()
+	var lastKick time.Time
 	for {
 		select {
 		case <-stop:
 			return
+		case <-c.rebalanceKick:
+			// A parked transfer or a new budget: the pod's share and its
+			// grants' sizes now, at most once a second.
+			if wait := time.Second - time.Since(lastKick); wait > 0 {
+				select {
+				case <-stop:
+					return
+				case <-time.After(wait):
+				}
+			}
+			lastKick = time.Now()
+			ctx, cancel := context.WithTimeout(c.baseCtx, c.cfg.GrantRenewInterval)
+			c.join(ctx)
+			c.rebalance(ctx)
+			cancel()
+			continue
 		case <-t.C:
 		}
 		ctx, cancel := context.WithTimeout(c.baseCtx, c.cfg.GrantRenewInterval)
 		lost, err := c.ledger.Renew(ctx)
+		c.join(ctx)
+		c.rebalance(ctx)
+		c.syncUsage(ctx)
 		cancel()
 		// Holders reported lost beside an error are lost all the same: a
 		// Renew that lost one account's grants and then could not read

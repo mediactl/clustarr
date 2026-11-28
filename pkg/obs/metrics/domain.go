@@ -101,6 +101,27 @@ var (
 	)
 )
 
+// Usenet engine fleet telemetry (spec 2026-11-27 §5.3), recorded by each
+// usenet engine. The labels are the DownloadClient and the engine
+// ("<client>-<ordinal>"): operator-named objects, a handful of each.
+var (
+	// UsenetConnectionsHeld is the provider connections an engine's
+	// transfers hold in the shared ledger.
+	UsenetConnectionsHeld = newGaugeVec(
+		"clustarr_usenet_connections_held",
+		"Provider connections the usenet engine's transfers hold in the shared ledger, by client and engine.",
+		"client", "engine",
+	)
+
+	// UsenetEngineBudget is the download rate an engine holds itself to,
+	// in bits per second; 0 with no budget.
+	UsenetEngineBudget = newGaugeVec(
+		"clustarr_usenet_engine_budget_bits_per_second",
+		"Bandwidth budget the usenet engine holds itself to in bits per second (0: none), by client and engine.",
+		"client", "engine",
+	)
+)
+
 // Import telemetry, used by import.
 var (
 	// ImportFilesTotal counts files that entered the library, by kind

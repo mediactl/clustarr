@@ -133,7 +133,7 @@ func (o Options) Validate() error {
 		}
 	case "usenet-engine":
 		if o.Engine == "" {
-			errs = append(errs, errors.New("--domain usenet-engine needs --engine"))
+			errs = append(errs, errors.New("--domain usenet-engine needs exactly one of --engine or --download-client"))
 		}
 		if o.ScratchDir == "" {
 			errs = append(errs, errors.New("--domain usenet-engine needs --scratch-dir"))

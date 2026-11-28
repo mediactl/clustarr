@@ -116,7 +116,9 @@ func TestForSingleNodeFitsTheMemoryCeiling(t *testing.T) {
 // bucket (loop spec 2026-10-06 §4.3, ADR-0019 §4.3): it holds the only copy
 // of a worker's answer or an agent's report. And the import exclusions
 // (2026-10-16): the owner's decisions, re-synced only when their controller
-// next reconciles.
+// next reconciles. And the usenet quota counts and the engines' bandwidth
+// budgets (2026-11-28): a block account's count is the only record of what
+// is left of it, and an engine whose budget vanished would run unbounded.
 func TestForSingleNodeKeepsDurableBucketsOnFile(t *testing.T) {
 	durable := map[string]bool{
 		BucketMetadataExtended: true, BucketSegments: true, BucketPlexExtras: true, BucketProbes: true,
@@ -124,7 +126,7 @@ func TestForSingleNodeKeepsDurableBucketsOnFile(t *testing.T) {
 		BucketTransfers: true, BucketEngines: true, BucketImports: true, BucketSearches: true,
 		BucketItemMetadata: true, BucketIndexerHealth: true, BucketImportExclusions: true, BucketReleaseGroups: true,
 		BucketMediux: true, BucketImageSets: true, BucketMALDubs: true, BucketNFO: true,
-		BucketTrailers: true,
+		BucketTrailers: true, BucketUsenetUsage: true, BucketEngineBudgets: true,
 	}
 	for _, b := range Default().ForSingleNode().Buckets {
 		want := StorageMemory

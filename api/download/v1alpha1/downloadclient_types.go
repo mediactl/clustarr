@@ -39,6 +39,23 @@ const (
 	// engine's SOCKS5 proxy refuses UDP ASSOCIATE, so the DHT, uTP and UDP
 	// trackers are off (ADR-0019 §6.7, §7.7), from the engine records.
 	DownloadClientConditionProxyUDPUnavailable = "ProxyUDPUnavailable"
+	// DownloadClientConditionQuotaOK is False when a metered usenet
+	// provider has used nine tenths of its quotaBytes or more.
+	DownloadClientConditionQuotaOK = "QuotaOK"
+)
+
+// Node annotations the DownloadClient controller reads for an engine's
+// bandwidth budget (spec.usenet.bandwidth); each is a quantity in bits per
+// second.
+const (
+	// NodeLinkSpeedAnnotation is the node's link ("2500M").
+	NodeLinkSpeedAnnotation = "download.clustarr.io/link-speed"
+	// NodeBandwidthRequestAnnotation is what an engine on the node is
+	// always given, in place of bandwidth.requestPercent of the link.
+	NodeBandwidthRequestAnnotation = "download.clustarr.io/bandwidth-request"
+	// NodeBandwidthLimitAnnotation is what an engine on the node never
+	// exceeds, in place of bandwidth.limitPercent of the link.
+	NodeBandwidthLimitAnnotation = "download.clustarr.io/bandwidth-limit"
 )
 
 // HealthAction is what a usenet client does with a download whose article
@@ -298,12 +315,24 @@ type NNTPProvider struct {
 	TLS *bool `json:"tls,omitempty"`
 
 	// Connections is the maximum number of simultaneous connections allowed by
-	// the provider's plan.
+	// the provider's plan. Unset means 8, or, for a provider that names a
+	// pool, the whole pool: there it is the most this one host may hold of
+	// the pool's connections.
 	// +optional
-	// +kubebuilder:default=8
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=256
 	Connections int32 `json:"connections,omitempty"`
+
+	// Pool names an entry of spec.usenet.connectionPools whose connections
+	// this provider draws from together with every other provider naming
+	// it: one account's hosts (a provider's regional servers) under the
+	// one cap its plan states. Every engine pod, and every DownloadClient
+	// naming the pool on the same login, shares it. A backup in a pool
+	// stands in for the pool's primaries while none of them can be
+	// reached, carrying whole transfers as a primary does.
+	// +optional
+	// +kubebuilder:validation:MaxLength=63
+	Pool string `json:"pool,omitempty"`
 
 	// SecretRef names a Secret in the same namespace holding the provider
 	// credentials. Recognised keys: username, password. The engine reads it
@@ -326,11 +355,111 @@ type NNTPProvider struct {
 	// +kubebuilder:validation:Maximum=50
 	Priority int32 `json:"priority,omitempty"`
 
-	// QuotaBytes is the monthly transfer allowance of the provider's plan.
-	// Unset means unmetered.
+	// QuotaBytes is the transfer allowance of the provider's plan, counted
+	// per account across every engine pod and across restarts. Unset means
+	// unmetered.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	QuotaBytes *int64 `json:"quotaBytes,omitempty"`
+
+	// QuotaPeriod is when quotaBytes starts again: Month (the calendar
+	// month, UTC; the default) or Never (a block account, counted until it
+	// is spent).
+	// +optional
+	// +kubebuilder:default=Month
+	QuotaPeriod QuotaPeriod `json:"quotaPeriod,omitempty"`
+}
+
+// QuotaPeriod is when a provider's quotaBytes starts again.
+// +kubebuilder:validation:Enum=Month;Never
+type QuotaPeriod string
+
+const (
+	// QuotaPeriodMonth resets the count when the calendar month turns (UTC).
+	QuotaPeriodMonth QuotaPeriod = "Month"
+	// QuotaPeriodNever never resets it: a block account.
+	QuotaPeriodNever QuotaPeriod = "Never"
+)
+
+// ConnectionPool is one connection budget several providers share
+// (NNTPProvider.pool): the plan's cap across an account's hosts.
+type ConnectionPool struct {
+	// Name is what a provider's pool field names.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+
+	// Connections is the most the pool's providers may hold together, on
+	// every engine pod at once.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=1024
+	Connections int32 `json:"connections"`
+}
+
+// BandwidthSpec budgets what a usenet client's engines download at once
+// (spec 2026-11-27 §5). Every rate is in bits per second ("250M", "2500M",
+// "4G"). An engine's node states its link in the annotation
+// download.clustarr.io/link-speed, and may state its own request and limit
+// in download.clustarr.io/bandwidth-request and
+// download.clustarr.io/bandwidth-limit; the percentages here apply where a
+// node states none.
+type BandwidthSpec struct {
+	// DefaultLinkSpeed is the link of a node with no link-speed annotation.
+	// Unset means 1G.
+	// +optional
+	DefaultLinkSpeed *resource.Quantity `json:"defaultLinkSpeed,omitempty"`
+
+	// RequestPercent is the share of its node's link an engine is always
+	// given.
+	// +optional
+	// +kubebuilder:default=25
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	RequestPercent int32 `json:"requestPercent,omitempty"`
+
+	// LimitPercent is the share of its node's link an engine never
+	// exceeds.
+	// +optional
+	// +kubebuilder:default=50
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	LimitPercent int32 `json:"limitPercent,omitempty"`
+
+	// Total caps the engines' budgets together: the public link's share
+	// downloads may use. Unset means no cap.
+	// +optional
+	Total *resource.Quantity `json:"total,omitempty"`
+
+	// PerTransfer is the rate one transfer is planned at: an engine runs
+	// its budget over perTransfer transfers at once, at least one and at
+	// most maxActive. Unset means 250M.
+	// +optional
+	PerTransfer *resource.Quantity `json:"perTransfer,omitempty"`
+}
+
+// EngineAutoscale lets the controller set a usenet client's engine count
+// from its backlog instead of spec.replicas (spec 2026-11-27 §8): one more
+// engine while downloads wait for a transfer slot and every engine is
+// full, and the highest ordinal drained and removed once the others can
+// carry what is left.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.minReplicas) || self.minReplicas <= self.maxReplicas",message="autoscale.minReplicas must not exceed maxReplicas"
+type EngineAutoscale struct {
+	// MinReplicas is the fewest engines kept; 0 lets an idle client run
+	// none.
+	// +optional
+	// +kubebuilder:default=1
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=64
+	MinReplicas *int32 `json:"minReplicas,omitempty"`
+
+	// MaxReplicas is the most engines run, one a node.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=64
+	MaxReplicas int32 `json:"maxReplicas"`
 }
 
 // PostProcessSpec controls what the usenet engine does with a completed
@@ -430,7 +559,31 @@ type ScratchSpec struct {
 
 // UsenetSpec configures the NNTP engine. It applies only when spec.protocol
 // is usenet.
+//
+// +kubebuilder:validation:XValidation:rule="self.providers.all(p, !has(p.pool) || (has(self.connectionPools) && self.connectionPools.exists(c, c.name == p.pool)))",message="a provider's pool must name an entry of connectionPools"
 type UsenetSpec struct {
+	// ConnectionPools are connection budgets several providers share: an
+	// account whose plan caps its hosts together (NNTPProvider.pool). The
+	// pool's providers must share one secretRef; the controller refuses a
+	// pool that mixes logins.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
+	ConnectionPools []ConnectionPool `json:"connectionPools,omitempty"`
+
+	// Bandwidth budgets the engines' download rate by their nodes' links.
+	// Unset means no budget: an engine runs maxActive transfers as fast as
+	// its providers allow. Setting it also assigns a download to an engine
+	// only when the engine has a transfer slot for it.
+	// +optional
+	Bandwidth *BandwidthSpec `json:"bandwidth,omitempty"`
+
+	// Autoscale sets the engine count from the backlog; unset means
+	// spec.replicas, fixed.
+	// +optional
+	Autoscale *EngineAutoscale `json:"autoscale,omitempty"`
+
 	// Providers lists the NNTP servers the engine may use. At least one
 	// non-backup provider is required.
 	// +required
@@ -525,7 +678,7 @@ type UsenetSpec struct {
 // of torrent or usenet is set, selected by protocol.
 //
 // +kubebuilder:validation:XValidation:rule="self.protocol == 'torrent' ? (has(self.torrent) && !has(self.usenet)) : (has(self.usenet) && !has(self.torrent))",message="torrent must be set for protocol torrent and usenet for protocol usenet, never both"
-// +kubebuilder:validation:XValidation:rule="self.protocol != 'usenet' || !has(self.replicas) || self.replicas == 1",message="usenet clients must have replicas == 1 in v1alpha1"
+// +kubebuilder:validation:XValidation:rule="!has(self.usenet) || !has(self.usenet.scratch) || !(has(self.usenet.scratch.volumeName) || has(self.usenet.scratch.existingClaim)) || ((!has(self.replicas) || self.replicas == 1) && !has(self.usenet.autoscale))",message="usenet.scratch.volumeName and existingClaim are one claim, so they need replicas == 1 and no autoscale"
 // +kubebuilder:validation:XValidation:rule="!has(self.torrent) || !has(self.torrent.scratch) || !has(self.torrent.scratch.volumeName) || !has(self.replicas) || self.replicas == 1",message="torrent.scratch.volumeName binds one claim to one volume, so it needs replicas == 1"
 type DownloadClientSpec struct {
 	// Protocol selects which engine this client runs. It is immutable: change
@@ -550,8 +703,8 @@ type DownloadClientSpec struct {
 
 	// Replicas is the number of engine shards, backing a StatefulSet owned by
 	// this client. Each grab is pinned to one ordinal for its lifetime (its
-	// entry's engine). Usenet clients are limited to one replica in
-	// v1alpha1.
+	// entry's engine). Usenet engines run one a node; with
+	// usenet.autoscale the controller sets the count and this is ignored.
 	// +optional
 	// +kubebuilder:default=1
 	// +kubebuilder:validation:Minimum=1
@@ -604,6 +757,66 @@ type EngineStatus struct {
 	// ReadyReplicas is the number of engine replicas that are ready.
 	// +optional
 	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
+
+	// DesiredReplicas is the engine count the controller renders:
+	// spec.replicas, or usenet.autoscale's answer.
+	// +optional
+	DesiredReplicas *int32 `json:"desiredReplicas,omitempty"`
+
+	// Draining is the ordinal usenet.autoscale is emptying before it
+	// removes it: it is given no new download.
+	// +optional
+	Draining *int32 `json:"draining,omitempty"`
+
+	// Waiting is how many downloads wait for a free transfer slot on this
+	// client's engines.
+	// +optional
+	Waiting int32 `json:"waiting,omitempty"`
+}
+
+// ProviderQuotaStatus is one metered usenet provider's use of its quota.
+type ProviderQuotaStatus struct {
+	// Name is the provider's name.
+	// +required
+	Name string `json:"name"`
+
+	// UsedBytes is what every engine has read from the provider's account
+	// in the current period.
+	// +optional
+	UsedBytes int64 `json:"usedBytes,omitempty"`
+
+	// QuotaBytes is the provider's quotaBytes.
+	// +optional
+	QuotaBytes int64 `json:"quotaBytes,omitempty"`
+
+	// PeriodStart is when the current period began.
+	// +optional
+	PeriodStart *metav1.Time `json:"periodStart,omitempty"`
+}
+
+// EngineBudgetStatus is one engine's bandwidth budget
+// (spec.usenet.bandwidth).
+type EngineBudgetStatus struct {
+	// Engine is "<client>-<ordinal>".
+	// +required
+	Engine string `json:"engine"`
+
+	// Node is the node the engine runs on.
+	// +optional
+	Node string `json:"node,omitempty"`
+
+	// BudgetBps is the rate the engine holds itself to, in bits per
+	// second.
+	// +optional
+	BudgetBps int64 `json:"budgetBps,omitempty"`
+
+	// Transfers is how many transfers the engine runs at once under it.
+	// +optional
+	Transfers int32 `json:"transfers,omitempty"`
+
+	// RateBps is the rate the engine last measured, in bits per second.
+	// +optional
+	RateBps int64 `json:"rateBps,omitempty"`
 }
 
 // DownloadClientStatus defines the observed state of DownloadClient.
@@ -646,12 +859,27 @@ type DownloadClientStatus struct {
 	// +optional
 	UnidentifiedTransfers int32 `json:"unidentifiedTransfers,omitempty"`
 
+	// Quotas reports each metered usenet provider's use of its quotaBytes.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=32
+	Quotas []ProviderQuotaStatus `json:"quotas,omitempty"`
+
+	// Budgets reports each usenet engine's bandwidth budget.
+	// +optional
+	// +listType=map
+	// +listMapKey=engine
+	// +kubebuilder:validation:MaxItems=64
+	Budgets []EngineBudgetStatus `json:"budgets,omitempty"`
+
 	// ResyncSeq is the last resync the controller asked its engines for after
 	// clustarr-transfers was recreated (ADR-0019 §6.7, "Resync").
 	// +optional
 	ResyncSeq int64 `json:"resyncSeq,omitempty"`
 
-	// Conditions holds Ready, EngineReady and DiskSpaceOK.
+	// Conditions holds Ready, EngineReady, DiskSpaceOK, ProxyUDPUnavailable
+	// and QuotaOK.
 	// +optional
 	// +listType=map
 	// +listMapKey=type

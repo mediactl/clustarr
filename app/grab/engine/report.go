@@ -34,6 +34,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
@@ -74,6 +75,19 @@ type Reporter struct {
 	Proxy func() string
 	// Free reports the scratch and publish directories' free bytes.
 	Free func() (scratch, publish int64)
+	// Node is the node the engine runs on, for its record.
+	Node string
+	// WireBytes is every byte the engine has read from its providers since
+	// it started, for the record's rate; nil records none.
+	WireBytes func() int64
+	// BudgetSeq is the bandwidth budget the engine last applied; nil is 0.
+	BudgetSeq func() int64
+	// Protocol labels the engine's download metrics ("torrent", "usenet");
+	// "" records none. ConnectionsHeld is the provider connections its
+	// transfers hold, for clustarr_usenet_connections_held; nil records
+	// none.
+	Protocol        string
+	ConnectionsHeld func() int
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 
@@ -86,6 +100,9 @@ type Reporter struct {
 	reattached  bool
 	ready       atomic.Bool
 	engineSeq   int64
+	// rateBytes and rateAt are WireBytes at the last engine record.
+	rateBytes int64
+	rateAt    time.Time
 }
 
 // reported is what the reporter last wrote for one entry.
@@ -407,6 +424,21 @@ func (r *Reporter) writeEngine(ctx context.Context) error {
 		RecordHeader: schema.RecordHeader{Item: &r.Client, Sub: strconv.Itoa(int(r.Ordinal)), Seq: seq, State: schema.TransferStatePresent},
 		Client:       r.Client.Name, Ordinal: r.Ordinal, Pod: r.Pod, BootID: r.BootID, Version: r.Version,
 		Ready: r.reattached, Reattached: r.reattached, ResyncSeq: r.resyncSeq, At: now,
+		Node: r.Node,
+	}
+	if r.WireBytes != nil {
+		read := r.WireBytes()
+		if span := now.Sub(r.rateAt); !r.rateAt.IsZero() && span >= time.Second {
+			rec.DownRateBytesPerSec = max(read-r.rateBytes, 0) * int64(time.Second) / int64(span)
+		}
+		if r.Protocol != "" {
+			metrics.DownloadBytesTotal.WithLabelValues(r.Protocol, r.Client.Name).Add(float64(max(read-r.rateBytes, 0)))
+			metrics.DownloadSpeedBytes.WithLabelValues(r.Protocol, r.Client.Name).Set(float64(rec.DownRateBytesPerSec))
+		}
+		r.rateBytes, r.rateAt = read, now
+	}
+	if r.BudgetSeq != nil {
+		rec.BudgetSeq = r.BudgetSeq()
 	}
 	r.mu.Unlock()
 	for _, h := range held {
@@ -426,6 +458,12 @@ func (r *Reporter) writeEngine(ctx context.Context) error {
 				})
 			}
 		}
+	}
+	if r.Protocol != "" {
+		metrics.DownloadsActive.WithLabelValues(r.Protocol, r.Client.Name).Set(float64(rec.Active))
+	}
+	if r.ConnectionsHeld != nil {
+		metrics.UsenetConnectionsHeld.WithLabelValues(r.Client.Name, r.Engine).Set(float64(r.ConnectionsHeld()))
 	}
 	if r.Free != nil {
 		rec.ScratchFreeBytes, rec.PublishFreeBytes = r.Free()

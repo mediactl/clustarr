@@ -19,7 +19,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -108,8 +107,8 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			"exists, re-reading it every 30s. The facade never serves without a key. "+
 			"Defaults to $"+cli.EnvFacadeAPIKeySecret+". Domain index.")
 	fs.StringVar(&d.DownloadClient, "download-client", d.DownloadClient,
-		"The DownloadClient this torrent engine replica serves; its \"<client>-<ordinal>\" identity comes "+
-			"from $POD_NAME (else the hostname), which must be \"<client>-engine-<N>\". Domain torrent-engine.")
+		"The DownloadClient this engine replica serves; its \"<client>-<ordinal>\" identity comes "+
+			"from $POD_NAME (else the hostname), which must be \"<client>-engine-<N>\". Domains torrent-engine and usenet-engine.")
 	fs.StringVar(&d.Engine, "engine", d.Engine,
 		"This engine's identity, \"<client>-<ordinal>\". Domains torrent-engine (or --download-client) and usenet-engine.")
 	fs.StringVar(&d.ScratchDir, "scratch-dir", d.ScratchDir,
@@ -138,9 +137,9 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 				return fmt.Errorf("--%s is only meaningful with --domain %s", f, orList(domainFlags[f]))
 			}
 		}
-		if o.Domain == "torrent-engine" {
+		if o.Domain == "torrent-engine" || o.Domain == "usenet-engine" {
 			if (o.Engine == "") == (o.DownloadClient == "") {
-				return errors.New("--domain torrent-engine needs exactly one of --engine or --download-client")
+				return fmt.Errorf("--domain %s needs exactly one of --engine or --download-client", o.Domain)
 			}
 			if o.DownloadClient != "" {
 				pod, err := torrentagent.PodName(os.Getenv, os.Hostname)

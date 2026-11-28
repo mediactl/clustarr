@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
@@ -143,7 +144,7 @@ func TestReconcileTorrentClientCreatesStatefulSet(t *testing.T) {
 	require.False(t, k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionReady))
 }
 
-func TestReconcileUsenetClientCreatesDeployment(t *testing.T) {
+func TestReconcileUsenetClientCreatesStatefulSet(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 
@@ -166,9 +167,10 @@ func TestReconcileUsenetClientCreatesDeployment(t *testing.T) {
 	engineFreeBytes(t, r, dc, 50<<30)
 	reconcileOK(t, r, "default", "sab")
 
-	var dep appsv1.Deployment
+	var dep appsv1.StatefulSet
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "sab-engine"}, &dep))
 	require.Equal(t, int32(1), *dep.Spec.Replicas)
+	require.Equal(t, appsv1.ParallelPodManagement, dep.Spec.PodManagementPolicy)
 	var volumes []string
 	for _, v := range dep.Spec.Template.Spec.Volumes {
 		volumes = append(volumes, v.Name)
@@ -179,6 +181,71 @@ func TestReconcileUsenetClientCreatesDeployment(t *testing.T) {
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "sab"}, &got))
 	require.NotNil(t, got.Status.Engine)
 	require.Equal(t, "sab-engine", got.Status.Engine.WorkloadRef)
+	require.NotNil(t, got.Status.Engine.DesiredReplicas)
+	require.Equal(t, int32(1), *got.Status.Engine.DesiredReplicas)
+	require.Nil(t, got.Status.Engine.Draining)
+	require.Empty(t, got.Status.Budgets, "a client with no bandwidth budget reports none")
+}
+
+// A usenet engine that ran as a Deployment before it was a StatefulSet is
+// stopped first: the StatefulSet is applied only once the Deployment is
+// gone, so two engines never run under one identity on one working area.
+func TestAUsenetDeploymentIsRetiredBeforeTheStatefulSet(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+
+	dc := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "old", Namespace: "default"},
+		Spec: downloadv1alpha1.DownloadClientSpec{
+			Protocol: commonv1alpha1.ProtocolUsenet,
+			Replicas: 1,
+			Usenet: &downloadv1alpha1.UsenetSpec{
+				Providers: []downloadv1alpha1.NNTPProvider{{
+					Name: "primary", Host: "news.example.com",
+					SecretRef: corev1.LocalObjectReference{Name: "nntp-creds"},
+				}},
+			},
+		},
+	}
+	require.NoError(t, c.Create(ctx, dc))
+	labels := map[string]string{"app": "old-engine"}
+	// A finalizer stands in for the pod the Deployment still has: envtest
+	// runs no garbage collector, so a foreground delete would otherwise
+	// never finish, and one that finished at once would prove nothing.
+	legacy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "old-engine", Namespace: "default", Finalizers: []string{"test.clustarr.io/pod-running"}},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "engine", Image: "img"}}},
+			},
+		},
+	}
+	require.NoError(t, c.Create(ctx, legacy))
+
+	r := downloadclient.NewReconciler(c, events.NewFakeRecorder(10), "/data", "/scratch", "ghcr.io/x/engine:dev")
+	engineFreeBytes(t, r, dc, 50<<30)
+	reconcileOK(t, r, "default", "old")
+
+	key := types.NamespacedName{Namespace: "default", Name: "old-engine"}
+	var dep appsv1.Deployment
+	require.NoError(t, c.Get(ctx, key, &dep))
+	require.NotNil(t, dep.DeletionTimestamp, "the Deployment is being deleted")
+	var sts appsv1.StatefulSet
+	require.True(t, apierrors.IsNotFound(c.Get(ctx, key, &sts)), "no StatefulSet while the Deployment's pod may still run")
+
+	// Still there on the next pass: still no StatefulSet.
+	reconcileOK(t, r, "default", "old")
+	require.True(t, apierrors.IsNotFound(c.Get(ctx, key, &sts)))
+
+	// The pod stopped: the Deployment goes, and the StatefulSet is applied.
+	require.NoError(t, c.Get(ctx, key, &dep))
+	dep.Finalizers = nil
+	require.NoError(t, c.Update(ctx, &dep))
+	require.Eventually(t, func() bool { return apierrors.IsNotFound(c.Get(ctx, key, &dep)) }, 10*time.Second, 20*time.Millisecond)
+	reconcileOK(t, r, "default", "old")
+	require.NoError(t, c.Get(ctx, key, &sts))
 }
 
 // TestAnExistingEngineWorkloadGainsThePodSecurity starts from an engine

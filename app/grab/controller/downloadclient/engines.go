@@ -231,12 +231,12 @@ func (r *Reconciler) sweepDurables(ctx context.Context, namespace, clientName st
 
 // publishResync publishes the resync command at seq to every engine whose
 // record has not reached it; it reports whether one is still pending.
-func (r *Reconciler) publishResync(ctx context.Context, dc *downloadv1alpha1.DownloadClient, es engineState, seq int64, now time.Time) bool {
+func (r *Reconciler) publishResync(ctx context.Context, dc *downloadv1alpha1.DownloadClient, replicas int32, es engineState, seq int64, now time.Time) bool {
 	if seq == 0 || r.Bus == nil {
 		return false
 	}
 	pending := false
-	for o := range max(dc.Spec.Replicas, 1) {
+	for o := range max(replicas, 1) {
 		if rec, ok := es.records[o]; ok && rec.ResyncSeq >= seq {
 			continue
 		}

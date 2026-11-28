@@ -88,4 +88,15 @@ func TestEngineArgvParses(t *testing.T) {
 	assert.Equal(t, "my-nzb-0", o.Engine)
 	assert.Equal(t, "/data/usenet/incomplete", o.ScratchDir)
 	assert.Empty(t, o.PublishDir, "empty publishes under --data-dir")
+
+	// A fleet's engine reads its ordinal from its StatefulSet pod's name,
+	// and works in a directory of its own, which the kubelet names.
+	fleet := scratchUsenet.DeepCopy()
+	fleet.Spec.Replicas = 4
+	t.Setenv("POD_NAME", "my-nzb-engine-3")
+	_, args = downloadclient.EngineCommand(fleet, "/data", "/scratch")
+	o, err = parse(t, args...)
+	require.NoError(t, err, "agent %v", args)
+	assert.Equal(t, "my-nzb-3", o.Engine)
+	assert.Equal(t, "/data/usenet/incomplete/$(POD_NAME)", o.ScratchDir)
 }

@@ -165,6 +165,7 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		Engine: o.Engine, Pod: pod,
 		Proxy:      func() string { return proxyUDP.Load().(string) },
 		ScratchDir: scratchDir, PublishDir: torrentDataDir,
+		Protocol: "torrent",
 	})
 	if err != nil {
 		_ = rawClient.Close()

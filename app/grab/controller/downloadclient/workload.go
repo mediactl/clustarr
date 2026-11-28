@@ -290,7 +290,7 @@ func engineEnv(rt EngineRuntime) []*corev1ac.EnvVarApplyConfiguration {
 }
 
 // engineWorkloadName is spec §6.3's `<downloadclient>-engine` naming: the
-// StatefulSet (torrent) or Deployment (usenet) a DownloadClient owns.
+// StatefulSet a DownloadClient owns.
 //
 // It does not guard against the 63-character DNS label limit a StatefulSet's
 // pod names ("<name>-<ordinal>") must fit. Kubernetes' own object-name
@@ -333,6 +333,22 @@ func torrentReplicas(dc *downloadv1alpha1.DownloadClient) int32 {
 		return 1
 	}
 	return dc.Spec.Replicas
+}
+
+// usenetFleet reports a usenet client that may run more than one engine:
+// spec.replicas above one, or usenet.autoscale. Its engines each need a
+// working area of their own; a single engine keeps the one it has always
+// had, whatever its placement.
+func usenetFleet(dc *downloadv1alpha1.DownloadClient) bool {
+	return dc.Spec.Usenet != nil && (dc.Spec.Replicas > 1 || dc.Spec.Usenet.Autoscale != nil)
+}
+
+// lateBinding reports a usenet client whose downloads are assigned to an
+// engine only when it has a transfer slot for them (spec 2026-11-27 §7): a
+// fleet, or one with a bandwidth budget. A single engine without one is
+// handed every download at once and queues them itself, as before.
+func lateBinding(dc *downloadv1alpha1.DownloadClient) bool {
+	return dc.Spec.Usenet != nil && (usenetFleet(dc) || dc.Spec.Usenet.Bandwidth != nil)
 }
 
 // resourceRequirementsAC renders a native corev1.ResourceRequirements (the
@@ -494,8 +510,9 @@ func engineConfigHash(dc *downloadv1alpha1.DownloadClient, secrets map[string]st
 //     listenPort, enableDHT, stallTimeout -- or not read yet, and a field
 //     added later rolls the engine until someone decides otherwise, which is
 //     the safe default.
-//   - usenet: all of spec.usenet (providers, post-processing, pre-check, the
-//     health floor and action, propagationDelay, downloadTimeout) and
+//   - usenet: spec.usenet (providers and their connection pools,
+//     post-processing, pre-check, the health floor and action,
+//     propagationDelay, downloadTimeout), less bandwidth and autoscale, and
 //     spec.categories, which the usenet engine resolves once at construction.
 //
 // The usenet providers' Secrets, and the torrent proxy's, are read at start too, so their data is in
@@ -518,11 +535,17 @@ func engineStartConfig(dc *downloadv1alpha1.DownloadClient, secrets map[string]s
 			Secrets map[string]string             `json:"secrets,omitempty"`
 		}{t, secrets}
 	case dc.Spec.Usenet != nil:
+		// The bandwidth budget and the engine count are the controller's:
+		// an engine is told its budget while it runs and never reads
+		// either, so changing one restarts nothing.
+		u := dc.Spec.Usenet.DeepCopy()
+		u.Bandwidth = nil
+		u.Autoscale = nil
 		return struct {
 			Usenet     *downloadv1alpha1.UsenetSpec `json:"usenet"`
 			Categories map[string]string            `json:"categories,omitempty"`
 			Secrets    map[string]string            `json:"secrets,omitempty"`
-		}{dc.Spec.Usenet, dc.Spec.Categories, secrets}
+		}{u, dc.Spec.Categories, secrets}
 	default:
 		return struct{}{}
 	}
@@ -532,7 +555,8 @@ func engineStartConfig(dc *downloadv1alpha1.DownloadClient, secrets map[string]s
 // binary with one --domain, no shell. A torrent pod names its DownloadClient
 // and derives its "<client>-<ordinal>" from $POD_NAME in Go
 // (torrent.EngineIdentity), because a StatefulSet pod's ordinal is knowable
-// only at the pod's own runtime; a usenet engine is always ordinal 0 (CEL).
+// only at the pod's own runtime; a usenet fleet's engines do the same, and
+// a usenet client's one engine is named ordinal 0 outright.
 // Neither image has an ENTRYPOINT, so the container names its binary.
 // cmd/agent's engine_argv_test parses exactly this output; the containers
 // add EngineRuntime's metrics flag.
@@ -550,7 +574,14 @@ func EngineCommand(dc *downloadv1alpha1.DownloadClient, dataDir, scratchDir stri
 		return command, args
 	}
 	scratch, publish := engineDirs(dc, scratchDir)
-	args = []string{"--domain=usenet-engine", "--engine=" + dc.Name + "-0", "--data-dir=" + dataDir, "--scratch-dir=" + scratch}
+	// One engine is ordinal 0 and is told so, as it always was: an engine
+	// image a release behind the manager still starts. A fleet's engines
+	// read their ordinal from $POD_NAME.
+	identity := "--engine=" + dc.Name + "-0"
+	if usenetFleet(dc) {
+		identity = "--download-client=" + dc.Name
+	}
+	args = []string{"--domain=usenet-engine", identity, "--data-dir=" + dataDir, "--scratch-dir=" + scratch}
 	if publish != "" {
 		args = append(args, "--publish-dir="+publish)
 	}
@@ -623,16 +654,16 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scrat
 		WithVolumeMounts(mounts...)
 }
 
-// usenetContainer builds the usenet engine's container. Usenet clients are
-// capped at spec.replicas==1 by DownloadClientSpec's own CEL rule, so the
-// engine identity is always ordinal 0; the argv is [EngineCommand]'s.
+// usenetContainer builds the usenet engine's container. Its argv is
+// [EngineCommand]'s; NODE_NAME is how the engine names its node in its
+// record, for the bandwidth budget the controller reads off that node.
 func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratchDir string, rt EngineRuntime) *corev1ac.ContainerApplyConfiguration {
 	scratch, _ := engineDirs(dc, scratchDir)
 	cmd, args := EngineCommand(dc, dataDir, scratchDir)
 	mounts := []*corev1ac.VolumeMountApplyConfiguration{
 		corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir),
 	}
-	if scratchVolume(dc) != nil {
+	if scratchVolume(dc) != nil || scratchPerReplica(dc) {
 		mounts = append(mounts, corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratch))
 	}
 	mounts = append(mounts, corev1ac.VolumeMount().WithName(tmpVolumeName).WithMountPath(tmpDir))
@@ -647,7 +678,8 @@ func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratc
 		WithCommand(cmd...).
 		WithArgs(args...).
 		WithPorts(metricsPort).
-		WithEnv(engineEnv(rt)...).
+		WithEnv(append(engineEnv(rt), corev1ac.EnvVar().WithName("NODE_NAME").WithValueFrom(corev1ac.EnvVarSource().
+			WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("spec.nodeName"))))...).
 		WithResources(resourceRequirementsAC(rr)).
 		WithSecurityContext(containerSecurityContextAC()).
 		WithVolumeMounts(mounts...)
@@ -661,6 +693,12 @@ func engineDirs(dc *downloadv1alpha1.DownloadClient, scratchDir string) (scratch
 	if dc.Spec.Usenet != nil {
 		if dc.Spec.Usenet.Scratch != nil && dc.Spec.Usenet.Scratch.Path != "" {
 			scratch = dc.Spec.Usenet.Scratch.Path
+			if usenetFleet(dc) {
+				// A directory an engine on the shared volume: the kubelet
+				// expands $(POD_NAME) from the container's environment, so
+				// an engine re-attaches its own transfers and no other's.
+				scratch = filepath.Join(scratch, "$(POD_NAME)")
+			}
 		}
 		publish = dc.Spec.Usenet.PublishDir
 	}
@@ -738,7 +776,7 @@ func scratchSpec(dc *downloadv1alpha1.DownloadClient) *downloadv1alpha1.ScratchS
 // leave all but one unschedulable.
 func scratchPerReplica(dc *downloadv1alpha1.DownloadClient) bool {
 	sc := scratchSpec(dc)
-	return dc.Spec.Torrent != nil && sc != nil && sc.Path == "" && sc.ExistingClaim == "" &&
+	return (dc.Spec.Torrent != nil || usenetFleet(dc)) && sc != nil && sc.Path == "" && sc.ExistingClaim == "" &&
 		sc.StorageClassName != nil && sc.VolumeName == ""
 }
 
@@ -750,7 +788,7 @@ func scratchPerReplica(dc *downloadv1alpha1.DownloadClient) bool {
 // on any other signal.
 func scratchVolume(dc *downloadv1alpha1.DownloadClient) *corev1ac.VolumeApplyConfiguration {
 	sc := scratchSpec(dc)
-	if dc.Spec.Torrent != nil && (sc == nil || scratchPerReplica(dc)) {
+	if (dc.Spec.Torrent != nil && sc == nil) || scratchPerReplica(dc) {
 		// No working area, or one the StatefulSet's claim template supplies.
 		return nil
 	}
@@ -826,12 +864,42 @@ func buildScratchPVC(dc *downloadv1alpha1.DownloadClient, owner *metav1ac.OwnerR
 // volumeClaimTemplates for a storage class ([scratchPerReplica]), else the
 // volume [scratchVolume] renders.
 func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, scratchDir, dataClaimName string, rt EngineRuntime, secrets map[string]string, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.StatefulSetApplyConfiguration {
+	return buildEngineStatefulSet(dc, torrentReplicas(dc), name, image, dataDir, scratchDir, dataClaimName, rt, secrets, owner)
+}
+
+// buildEngineStatefulSet renders either protocol's StatefulSet at replicas.
+//
+// A usenet engine is a StatefulSet for what a torrent engine is one (spec
+// 2026-11-27 §6.1): the ordinal is the engine's identity, its durable's and
+// its working area's, so a pod that comes back finds its unacked commands
+// and its manifests, and no other pod can. Its pods start and stop
+// together (Parallel: nothing orders them), one a node (a required
+// anti-affinity: two engines on one link would share what the bandwidth
+// budget gives each), and a roll deletes a pod before it makes the next,
+// so two engines never run under one identity.
+func buildEngineStatefulSet(dc *downloadv1alpha1.DownloadClient, replicas int32, name, image, dataDir, scratchDir, dataClaimName string, rt EngineRuntime, secrets map[string]string, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.StatefulSetApplyConfiguration {
 	labels := selectorLabels(dc)
-	container := torrentContainer(dc, image, dataDir, scratchDir, rt)
+	var container *corev1ac.ContainerApplyConfiguration
+	if dc.Spec.Usenet != nil {
+		container = usenetContainer(dc, image, dataDir, scratchDir, rt)
+	} else {
+		container = torrentContainer(dc, image, dataDir, scratchDir, rt)
+	}
+	pod := podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))
 	spec := appsv1ac.StatefulSetSpec().
-		WithReplicas(torrentReplicas(dc)).
-		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(engineConfigHash(dc, secrets), image, labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
+		WithReplicas(replicas).
+		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels))
+	if dc.Spec.Usenet != nil {
+		if pod.Affinity == nil {
+			pod.WithAffinity(corev1ac.Affinity())
+		}
+		pod.Affinity.WithPodAntiAffinity(corev1ac.PodAntiAffinity().
+			WithRequiredDuringSchedulingIgnoredDuringExecution(corev1ac.PodAffinityTerm().
+				WithTopologyKey(corev1.LabelHostname).
+				WithLabelSelector(metav1ac.LabelSelector().WithMatchLabels(labels))))
+		spec = spec.WithPodManagementPolicy(appsv1.ParallelPodManagement)
+	}
+	spec = spec.WithTemplate(podTemplateAC(engineConfigHash(dc, secrets), image, labels, pod))
 	if scratchPerReplica(dc) {
 		sc := scratchSpec(dc)
 		modes := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
@@ -849,36 +917,6 @@ func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir,
 	}
 
 	return appsv1ac.StatefulSet(name, dc.Namespace).
-		WithLabels(labels).
-		WithOwnerReferences(owner).
-		WithSpec(spec)
-}
-
-// buildDeployment renders the usenet engine's Deployment: always one replica
-// (DownloadClientSpec's CEL rule enforces spec.replicas==1 for usenet), mounting
-// /data and a scratch volume, running [usenetContainer].
-//
-// Its strategy is Recreate. The default RollingUpdate surges a second pod
-// before stopping the first, and two usenet engines under one --engine
-// identity would both reconcile the same Downloads -- each re-adding every
-// job to its own scratch area, fetching the same articles twice against the
-// providers' connection limits and quotas -- while a scratch PVC, which is
-// ReadWriteOnce, leaves the surge pod unschedulable on another node and the
-// rollout stuck. A roll is routine now that a config change triggers one
-// ([EngineConfigHashAnnotation]), so the old engine stops first.
-//
-// secrets is the digest of each provider Secret ([Reconciler.secretDigests]),
-// folded into the config hash so a rotated credential rolls the engine too.
-func buildDeployment(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, scratchDir, dataClaimName string, rt EngineRuntime, secrets map[string]string, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.DeploymentApplyConfiguration {
-	labels := selectorLabels(dc)
-	container := usenetContainer(dc, image, dataDir, scratchDir, rt)
-	spec := appsv1ac.DeploymentSpec().
-		WithReplicas(1).
-		WithStrategy(appsv1ac.DeploymentStrategy().WithType(appsv1.RecreateDeploymentStrategyType)).
-		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(engineConfigHash(dc, secrets), image, labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
-
-	return appsv1ac.Deployment(name, dc.Namespace).
 		WithLabels(labels).
 		WithOwnerReferences(owner).
 		WithSpec(spec)

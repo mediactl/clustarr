@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package usenet is the agent's usenet-engine domain (spec §3.5.3): the
-// Deployment's embedded usenet pipeline (NNTP pools, yEnc assembly, PAR2
+// engine pod's embedded usenet pipeline (NNTP pools, yEnc assembly, PAR2
 // repair and extraction), its command handler, its transfer and engine
 // records, and its progress publisher (ADR-0019 §6.7). It reads its
 // DownloadClient and provider Secrets at start and writes no Kubernetes
@@ -35,6 +35,7 @@ import (
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	"github.com/mediactl/clustarr/app/grab/engine"
 	usenetengine "github.com/mediactl/clustarr/app/grab/engine/usenet"
+	usenetclient "github.com/mediactl/clustarr/pkg/download/usenet"
 	"github.com/mediactl/clustarr/pkg/download/usenet/kvledger"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -86,13 +87,36 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 	if err != nil {
 		return catalogagent.Registration{}, err
 	}
+	limiter := usenetengine.NewLimiter()
 	cl, dc, err := usenetengine.BuildClient(ctx, direct, o.Namespace, o.Client, o.DataDir, o.ScratchDir, o.PublishDir,
 		usenetengine.ClientOptions{
-			Ledger: kvledger.New(bus.KV(events.BucketUsenetConnections), os.Getenv("POD_NAME"), 0),
-			Holder: o.Engine,
+			Ledger: kvledger.New(bus.KV(events.BucketUsenetConnections), os.Getenv("POD_NAME"), 0).
+				WithUsage(bus.KV(events.BucketUsenetUsage)),
+			Holder:  o.Engine,
+			Limiter: limiter,
 		})
 	if err != nil {
 		return catalogagent.Registration{}, fmt.Errorf("grab: build usenet client: %w", err)
+	}
+	budgeted, ok := cl.(usenetclient.Budgeted)
+	if !ok {
+		_ = cl.Close()
+		return catalogagent.Registration{}, errors.New("usenet engine: the client takes no budget")
+	}
+	_, ordinal, err := engine.SplitEngine(o.Engine)
+	if err != nil {
+		_ = cl.Close()
+		return catalogagent.Registration{}, err
+	}
+	// The engine's bandwidth budget (spec 2026-11-27 §5): the manager
+	// writes it, this pod applies it.
+	budget := &usenetengine.BudgetApplier{
+		KV: bus.KV(events.BucketEngineBudgets), Key: events.EngineBudgetKey(dc.Name, ordinal),
+		Client: budgeted, Limiter: limiter, ClientName: dc.Name, Engine: o.Engine,
+	}
+	if err := mgr.Add(budget); err != nil {
+		_ = cl.Close()
+		return catalogagent.Registration{}, fmt.Errorf("usenet engine: add the budget watch: %w", err)
 	}
 
 	publish := o.PublishDir
@@ -105,6 +129,8 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		Client: schema.Ref{Namespace: dc.Namespace, Name: dc.Name, UID: string(dc.UID)},
 		Engine: o.Engine, Pod: os.Getenv("POD_NAME"),
 		ScratchDir: o.ScratchDir, PublishDir: publish,
+		Node: os.Getenv("NODE_NAME"), WireBytes: budgeted.WireBytes, BudgetSeq: budget.Seq,
+		Protocol: "usenet", ConnectionsHeld: budgeted.ConnectionsHeld,
 	})
 	if err != nil {
 		_ = cl.Close()

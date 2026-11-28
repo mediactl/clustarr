@@ -49,6 +49,12 @@ type Client struct {
 	Categories map[string]string
 	// ResyncSeq is status.resyncSeq: the resync the controller last asked.
 	ResyncSeq int64
+	// LateBinding assigns a grab to an engine only when it has a transfer
+	// slot for it (spec 2026-11-27 §7): a usenet client with a bandwidth
+	// budget or more than one engine. MaxActive is then an engine's slots
+	// when its Engine states none.
+	LateBinding bool
+	MaxActive   int32
 }
 
 // Engine is an engine instance, from its record.
@@ -65,6 +71,14 @@ type Engine struct {
 	At time.Time
 	// ReattachedAt is when this bootID first reported reattached.
 	ReattachedAt time.Time
+	// The transfer slots of a late-binding client's engine: Transfers is
+	// how many transfers it runs at once (its bandwidth budget's, else 0:
+	// the client's MaxActive), Pinned how many grabs hold one now -- the
+	// manager's own count of what it assigned, not the engine's report --
+	// and Draining an engine being emptied before it is removed, which is
+	// given nothing new.
+	Transfers, Pinned int32
+	Draining          bool
 }
 
 // Transfer is one transfer record and its KV revision.
@@ -192,6 +206,11 @@ type View struct {
 	StillWants func(schema.TransferClaim) (bool, string)
 	// IndexerClient is each Indexer's spec.downloadClientRef.
 	IndexerClient map[string]string
+	// Ahead is how many grabs wait for a transfer slot ahead of each of
+	// this owner's Pending entries, by entry uid: the higher priority
+	// class first, then the longest waiting, across every owner (the
+	// stage's slot book). Absent is none.
+	Ahead map[types.UID]int
 }
 
 // Command is one engine command the plan owes. Subject and MsgID are the

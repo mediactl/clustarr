@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 
+	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -117,6 +118,10 @@ func LoadDownloadClient(ctx context.Context, c client.Client, namespace, name st
 type ClientOptions struct {
 	Ledger usenetclient.Ledger
 	Holder string
+	// Limiter bounds the bytes per second the client reads: the engine's
+	// bandwidth budget, which the engine sets while it runs. nil is no
+	// bound.
+	Limiter *rate.Limiter
 }
 
 // BuildConfig resolves dc's UsenetSpec -- every provider's Secret via
@@ -133,7 +138,7 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 		if err != nil {
 			return usenetclient.Config{}, fmt.Errorf("usenetengine: provider %q: %w", p.Name, err)
 		}
-		providers = append(providers, usenetclient.ProviderFromSpec(p, string(data["username"]), string(data["password"])))
+		providers = append(providers, usenetclient.PooledProviderFromSpec(us, p, string(data["username"]), string(data["password"])))
 	}
 
 	cfg := usenetclient.Config{
@@ -149,6 +154,10 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 		ScratchBudget: scratchBudget(us.Scratch),
 		Ledger:        o.Ledger,
 		Holder:        o.Holder,
+		Limiter:       o.Limiter,
+		// A transfer uses what its server has free, not a fixed share of a
+		// slot (spec 2026-11-27 §10.5).
+		GrowGrants: true,
 	}
 	if us.PropagationDelay != nil {
 		cfg.PropagationDelay = us.PropagationDelay.Duration

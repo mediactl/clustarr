@@ -77,8 +77,9 @@ const (
 	ReasonInvalidSpec = "InvalidSpec"
 )
 
-// Reconciler stands up a DownloadClient's engine workload -- a StatefulSet for
-// protocol=torrent, a Deployment for protocol=usenet -- and reports
+// Reconciler stands up a DownloadClient's engine workload -- a StatefulSet
+// for either protocol, with the usenet fleet's budgets and engine count
+// (fleet.go) -- and reports
 // DiskSpaceOK, EngineReady and the Ready roll-up. Field manager: k8s.ManagerGrab
 // only.
 type Reconciler struct {
@@ -153,6 +154,10 @@ type Reconciler struct {
 	removalsIssued map[string]bool
 	ensured        map[string]bool
 	resyncWanted   map[types.NamespacedName]bool
+	// The fleet's books (fleet.go): the budget last written per engine,
+	// and since when a draining ordinal has held nothing.
+	budgetsWritten map[string]budgetOf
+	drainIdleSince map[types.NamespacedName]time.Time
 }
 
 const DefaultDataClaimName = "clustarr-data"
@@ -217,16 +222,36 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	var desiredReplicas, replicas, readyReplicas int32
 	specErr := validateEngineDirs(&dc, r.DataDir)
 	if specErr == nil {
-		desiredReplicas, replicas, readyReplicas, err = r.reconcileWorkload(ctx, &dc, workloadName, ownerRef)
+		specErr = validatePools(&dc)
+	}
+	now := r.now()
+	// The fleet (fleet.go): the engine count, the ordinal being drained
+	// and each engine's bandwidth budget, from the records of the engines
+	// rendered now. For a torrent client it is spec.replicas and nothing
+	// else.
+	fs := fleetState{replicas: torrentReplicas(&dc)}
+	if dc.Spec.Usenet != nil {
+		before, err := r.engineRecords(ctx, &dc, currentReplicas(&dc))
+		if err != nil {
+			log.Error("read engine records", "err", err)
+			return ctrl.Result{}, err
+		}
+		if fs, err = r.fleet(ctx, &dc, before, now); err != nil {
+			log.Error("plan the engine fleet", "err", err)
+			return ctrl.Result{}, err
+		}
+	}
+	if specErr == nil {
+		desiredReplicas, replicas, readyReplicas, err = r.reconcileWorkload(ctx, &dc, workloadName, fs.replicas, ownerRef)
 		if err != nil {
 			log.Error("reconcile engine workload", "err", err)
 			return ctrl.Result{}, err
 		}
 	} else {
-		desiredReplicas = 1
+		desiredReplicas = fs.replicas
 	}
+	r.writeBudgets(ctx, &dc, fs, now)
 
-	now := r.now()
 	// The per-engine durables (§5.1): one per rendered ordinal, ensured by
 	// the manager; a scaled-away ordinal's goes once nothing is pinned to it.
 	if err := r.reconcileDurables(ctx, &dc, desiredReplicas); err != nil {
@@ -255,9 +280,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	freeOK := es.reported > 0 && es.freeBytes >= r.minFreeBytes()
 	setDiskSpaceCondition(&dc, &conditions, freeOK, es.freeBytes, r.minFreeBytes(), es.freeErr())
 	fresh := es.freshReady == desiredReplicas
-	engineReady := specErr == nil && desiredReplicas > 0 && replicas == desiredReplicas && readyReplicas == desiredReplicas && fresh
+	// An autoscaled client at no engines is ready: it has nothing to run.
+	idleFleet := desiredReplicas == 0 && autoscaleOf(&dc) != nil
+	if idleFleet {
+		freeOK = true
+	}
+	engineReady := specErr == nil && (desiredReplicas > 0 || idleFleet) && replicas == desiredReplicas && readyReplicas == desiredReplicas && fresh
 	setEngineReadyCondition(&dc, &conditions, engineReady, replicas, readyReplicas, desiredReplicas, es.freshReady)
 	r.setProxyCondition(&dc, &conditions, es.proxyUnavailable)
+	quotas, quotaWarn := r.quotas(ctx, &dc)
+	setQuotaCondition(&dc, &conditions, len(quotas) > 0, quotaWarn)
 	ready := freeOK && engineReady
 	reason, message := k8s.ReasonReconciled, "engine ready and disk space above minFreeBytes"
 	if !ready {
@@ -274,12 +306,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		r.Recorder.Eventf(&dc, nil, "Warning", reason, "Reconcile", message)
 	}
 
+	engine := downloadac.EngineStatus().
+		WithWorkloadRef(workloadName).
+		WithReplicas(replicas).
+		WithReadyReplicas(readyReplicas).
+		WithDesiredReplicas(desiredReplicas)
+	if fs.draining != nil {
+		engine = engine.WithDraining(*fs.draining)
+	}
+	if fs.waiting > 0 {
+		engine = engine.WithWaiting(fs.waiting)
+	}
 	st := downloadac.DownloadClientStatus().
 		WithObservedGeneration(dc.Generation).
-		WithEngine(downloadac.EngineStatus().
-			WithWorkloadRef(workloadName).
-			WithReplicas(replicas).
-			WithReadyReplicas(readyReplicas)).
+		WithEngine(engine).
+		WithQuotas(quotas...).
+		WithBudgets(budgetStatus(&dc, fs, es)...).
 		WithActive(es.active).
 		WithQueued(es.queued).
 		WithSeeding(es.seeding).
@@ -301,51 +343,26 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 
 	// After the apply: the resync commands, then the unidentified removals.
-	pending := r.publishResync(ctx, &dc, es, resyncSeq, now)
+	pending := r.publishResync(ctx, &dc, desiredReplicas, es, resyncSeq, now)
 	r.removeUnidentified(ctx, &dc, es, now)
 	if pending {
 		return ctrl.Result{RequeueAfter: resyncRepublish}, nil
 	}
+	if lateBinding(&dc) {
+		return ctrl.Result{RequeueAfter: fleetInterval}, nil
+	}
 	return ctrl.Result{RequeueAfter: recheckInterval}, nil
 }
 
-var recreateStrategyPatch = []byte(`{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}`)
-
-// migrateToRecreate moves a usenet engine Deployment created before
-// buildDeployment set the Recreate strategy onto it, once, ahead of the
-// apply. Server-side apply cannot do this itself: the old Deployment carries
-// the apiserver's defaulted rollingUpdate block, which no field manager owns
-// and an apply therefore never removes, and the apiserver rejects a Recreate
-// Deployment that still has one -- so the apply would fail on every reconcile
-// from then on. A merge patch can say "rollingUpdate: null"; an apply
-// configuration cannot. A Deployment that is absent or already Recreate is
-// left alone, so this costs one cached Get in the steady state.
-func (r *Reconciler) migrateToRecreate(ctx context.Context, namespace, name string) error {
-	var live appsv1.Deployment
-	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &live); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return fmt.Errorf("downloadclient: get Deployment %s: %w", name, err)
-	}
-	if live.Spec.Strategy.Type == appsv1.RecreateDeploymentStrategyType {
-		return nil
-	}
-	if err := r.Client.Patch(ctx, &live, client.RawPatch(types.MergePatchType, recreateStrategyPatch),
-		client.FieldOwner(string(k8s.ManagerGrab))); err != nil {
-		return fmt.Errorf("downloadclient: move Deployment %s to the Recreate strategy: %w", name, err)
-	}
-	return nil
-}
-
-// reconcileWorkload applies the StatefulSet (torrent) or Deployment (usenet)
-// the DownloadClient describes and reads back its live replica counts. It
-// returns the desired replica count alongside the two observed ones so the
-// caller can compute EngineReady without a second round trip.
+// reconcileWorkload applies the StatefulSet the DownloadClient describes,
+// at want replicas, and reads back its live replica counts. It returns the
+// desired replica count alongside the two observed ones so the caller can
+// compute EngineReady without a second round trip.
 func (r *Reconciler) reconcileWorkload(
 	ctx context.Context,
 	dc *downloadv1alpha1.DownloadClient,
 	workloadName string,
+	want int32,
 	ownerRef *metav1ac.OwnerReferenceApplyConfiguration,
 ) (desired, replicas, readyReplicas int32, err error) {
 	switch dc.Spec.Protocol {
@@ -379,14 +396,21 @@ func (r *Reconciler) reconcileWorkload(
 		return torrentReplicas(dc), live.Status.Replicas, live.Status.ReadyReplicas, nil
 
 	case commonv1alpha1.ProtocolUsenet:
+		// The Deployment the engine ran as before it was a StatefulSet
+		// stops first: both would run under one identity, on one working
+		// area.
+		gone, err := r.retireDeployment(ctx, dc.Namespace, workloadName)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		if !gone {
+			return want, 0, 0, nil
+		}
 		if needsScratchClaim(dc) {
 			pvc := buildScratchPVC(dc, ownerRef)
 			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrab, pvc); err != nil {
 				return 0, 0, 0, fmt.Errorf("downloadclient: apply scratch PVC for %s: %w", dc.Name, err)
 			}
-		}
-		if err := r.migrateToRecreate(ctx, dc.Namespace, workloadName); err != nil {
-			return 0, 0, 0, err
 		}
 		// Before the apply, and a read failure aborts it: applying without
 		// the digests would change the hash and restart the engine for a
@@ -395,18 +419,21 @@ func (r *Reconciler) reconcileWorkload(
 		if err != nil {
 			return 0, 0, 0, err
 		}
-		dep := buildDeployment(dc, workloadName, r.EngineImage, r.DataDir, r.ScratchDir, r.DataClaimName, r.Engine, secrets, ownerRef)
-		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrab, dep); err != nil {
-			return 0, 0, 0, fmt.Errorf("downloadclient: apply Deployment %s: %w", workloadName, err)
+		sts := buildEngineStatefulSet(dc, want, workloadName, r.EngineImage, r.DataDir, r.ScratchDir, r.DataClaimName, r.Engine, secrets, ownerRef)
+		if err := r.replaceForClaimTemplates(ctx, dc.Namespace, workloadName, sts); err != nil {
+			return 0, 0, 0, err
 		}
-		var live appsv1.Deployment
+		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrab, sts); err != nil {
+			return 0, 0, 0, fmt.Errorf("downloadclient: apply StatefulSet %s: %w", workloadName, err)
+		}
+		var live appsv1.StatefulSet
 		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: dc.Namespace, Name: workloadName}, &live); err != nil {
 			if apierrors.IsNotFound(err) {
-				return 1, 0, 0, nil
+				return want, 0, 0, nil
 			}
-			return 0, 0, 0, fmt.Errorf("downloadclient: get Deployment %s: %w", workloadName, err)
+			return 0, 0, 0, fmt.Errorf("downloadclient: get StatefulSet %s: %w", workloadName, err)
 		}
-		return 1, live.Status.Replicas, live.Status.ReadyReplicas, nil
+		return want, live.Status.Replicas, live.Status.ReadyReplicas, nil
 
 	default:
 		// DownloadClientSpec's own CEL rule requires exactly one of torrent or

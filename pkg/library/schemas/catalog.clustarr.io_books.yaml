@@ -449,7 +449,7 @@ spec:
                             reason:
                               description: |-
                                 Reason when waiting or retrying: Budget, Paced, NoAgent,
-                                NoCapableAgent, EngineNotReady, Rebuilding, Nak.
+                                NoCapableAgent, EngineNotReady, NoSlot, Rebuilding, Nak.
                               maxLength: 64
                               type: string
                             state:
@@ -627,7 +627,7 @@ spec:
                                 reason:
                                   description: |-
                                     Reason when waiting or retrying: Budget, Paced, NoAgent,
-                                    NoCapableAgent, EngineNotReady, Rebuilding, Nak.
+                                    NoCapableAgent, EngineNotReady, NoSlot, Rebuilding, Nak.
                                   maxLength: 64
                                   type: string
                                 state:
@@ -1788,7 +1788,7 @@ spec:
                       reason:
                         description: |-
                           Reason when waiting or retrying: Budget, Paced, NoAgent,
-                          NoCapableAgent, EngineNotReady, Rebuilding, Nak.
+                          NoCapableAgent, EngineNotReady, NoSlot, Rebuilding, Nak.
                         maxLength: 64
                         type: string
                       state:

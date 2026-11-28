@@ -233,7 +233,7 @@ func (c *Client) queueLoop(stop <-chan struct{}) {
 func (c *Client) fillSlots() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.slots) >= c.maxActive || len(c.waiting) == 0 {
+	if len(c.slots) >= int(c.maxActive.Load()) || len(c.waiting) == 0 {
 		return
 	}
 	queue := make([]*job, 0, len(c.waiting))
@@ -260,7 +260,7 @@ func (c *Client) fillSlots() {
 		}
 	}
 	for _, j := range queue {
-		if len(c.slots) >= c.maxActive {
+		if len(c.slots) >= int(c.maxActive.Load()) {
 			return
 		}
 		c.queueLooks.Add(1)

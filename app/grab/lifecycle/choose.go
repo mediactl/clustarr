@@ -60,12 +60,10 @@ func EngineName(client string, ordinal int32) string {
 // ChooseOrdinal picks the engine instance of c for a grab (§5.1): among the
 // Ready instances with a fresh record, the fewest active + queued, ties
 // broken by names.HashOrdinal(replicas, infoHash, guid). A usenet client
-// has ordinal 0. false when no instance is Ready.
+// of several engines is assigned the same way unless it binds late
+// ([ChooseSlot]). false when no instance is Ready.
 func ChooseOrdinal(c Client, engines map[string]Engine, infoHash, guid string, now time.Time) (int32, bool) {
 	replicas := max(c.Replicas, 1)
-	if c.Protocol == commonv1.ProtocolUsenet {
-		replicas = 1
-	}
 	hashed := names.HashOrdinal(replicas, infoHash, guid)
 	var (
 		best     int32 = -1
@@ -85,6 +83,58 @@ func ChooseOrdinal(c Client, engines map[string]Engine, infoHash, guid string, n
 		}
 	}
 	return best, best >= 0
+}
+
+// SlotLookAhead is how many grabs beyond its transfer slots a late-binding
+// client's engine is given, so its next .nzb is fetched and parsed before
+// a slot frees.
+const SlotLookAhead = 2
+
+// Slots is how many grabs an engine of c may hold at once: its transfers
+// (its budget's, else the client's maxActive) and the look-ahead.
+func Slots(c Client, e Engine) int32 {
+	t := e.Transfers
+	if t <= 0 {
+		t = max(c.MaxActive, 1)
+	}
+	return t + SlotLookAhead
+}
+
+// ChooseSlot picks the engine instance of a late-binding client for a grab
+// (spec 2026-11-27 §7): among the Ready instances that are not draining
+// and hold fewer grabs than their slots, the one with the lowest share of
+// its transfers in use, ties to the lowest ordinal -- so engines fill by
+// fraction, the small ones are full first, and the rest go to the large.
+// ahead is how many grabs wait before this one: it is assigned only when
+// the engines together have a free slot past those. ready reports whether
+// any instance was Ready at all, for the message of a grab left waiting.
+func ChooseSlot(c Client, engines map[string]Engine, ahead int, now time.Time) (ordinal int32, ok, ready bool) {
+	var (
+		best      int32 = -1
+		bestE     Engine
+		bestSlots int32
+		free      int
+	)
+	for o := range max(c.Replicas, 0) {
+		e, found := engines[EngineName(c.Name, o)]
+		if !found || !engineReady(e, now) {
+			continue
+		}
+		ready = true
+		slots := Slots(c, e)
+		if e.Draining || e.Pinned >= slots {
+			continue
+		}
+		free += int(slots - e.Pinned)
+		// Pinned/slots compared without dividing.
+		if best < 0 || int64(e.Pinned)*int64(bestSlots) < int64(bestE.Pinned)*int64(slots) {
+			best, bestE, bestSlots = o, e, slots
+		}
+	}
+	if best < 0 || free <= ahead {
+		return 0, false, ready
+	}
+	return best, true, ready
 }
 
 // engineReady reports an engine Ready on a fresh record.

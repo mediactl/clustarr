@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
@@ -35,6 +36,42 @@ const enginePrefix = "engine:"
 
 // EngineValue is the index value of an entry pinned to engine.
 func EngineValue(engine string) string { return enginePrefix + engine }
+
+// slotWaitPrefix marks the index values naming a DownloadClient whose
+// engines an entry waits for a transfer slot on.
+const slotWaitPrefix = "slotwait:"
+
+// SlotWaitValue is the index value of an owner with an entry waiting for a
+// free transfer slot on client's engines.
+func SlotWaitValue(client string) string { return slotWaitPrefix + client }
+
+// WaitsForSlot reports an entry that is Pending on a chosen DownloadClient
+// because none of its engines has a free transfer slot (spec 2026-11-27
+// §7): lifecycle's pending sets exactly this.
+func WaitsForSlot(e *catalogv1alpha1.DownloadEntry) bool {
+	return e.Client != "" && e.Engine == "" && (e.Phase == "" || e.Phase == commonv1.DownloadPhasePending) &&
+		e.Dispatch.Delivery != nil && e.Dispatch.Delivery.Reason == catalogv1alpha1.DeliveryReasonNoSlot
+}
+
+// HoldsSlot reports an entry that occupies one of its engine's transfer
+// slots: assigned to it and not past its transfer. A paused entry holds
+// none (the engine passes it over), and neither does one verifying,
+// repairing, unpacking or publishing.
+func HoldsSlot(e *catalogv1alpha1.DownloadEntry) bool {
+	if e.Engine == "" {
+		return false
+	}
+	switch e.Phase {
+	case commonv1.DownloadPhaseAssigned, commonv1.DownloadPhaseQueued, commonv1.DownloadPhaseDownloading:
+	default:
+		return false
+	}
+	switch e.Stage {
+	case "", commonv1.DownloadStageFetchingMetadata, commonv1.DownloadStageTransferring:
+		return true
+	}
+	return false
+}
 
 // owner is one owner kind: its Kind, an empty object, an empty list, and how
 // to reach its entries.
@@ -189,6 +226,9 @@ func values(entries func(client.Object) []catalogv1alpha1.DownloadEntry) client.
 			if es[i].Engine != "" {
 				add(EngineValue(es[i].Engine))
 			}
+			if WaitsForSlot(&es[i]) {
+				add(SlotWaitValue(es[i].Client))
+			}
 		}
 		return out
 	}
@@ -235,6 +275,54 @@ func PinnedTo(ctx context.Context, r client.Reader, namespace, engine string) ([
 			return nil, err
 		}
 		out = append(out, refs...)
+	}
+	return out, nil
+}
+
+// OwnedEntry is one entry and the owner holding it.
+type OwnedEntry struct {
+	Owner schema.ItemRef
+	Entry catalogv1alpha1.DownloadEntry
+}
+
+// SlotHolders lists the entries in namespace that hold one of engine's
+// transfer slots ([HoldsSlot]).
+func SlotHolders(ctx context.Context, r client.Reader, namespace, engine string) ([]OwnedEntry, error) {
+	return entries(ctx, r, namespace, EngineValue(engine), func(e *catalogv1alpha1.DownloadEntry) bool {
+		return e.Engine == engine && HoldsSlot(e)
+	})
+}
+
+// SlotWaiters lists the entries in namespace waiting for a free transfer
+// slot on client's engines ([WaitsForSlot]).
+func SlotWaiters(ctx context.Context, r client.Reader, namespace, client string) ([]OwnedEntry, error) {
+	return entries(ctx, r, namespace, SlotWaitValue(client), func(e *catalogv1alpha1.DownloadEntry) bool {
+		return e.Client == client && WaitsForSlot(e)
+	})
+}
+
+// entries lists the entries keep accepts among the owners indexed under
+// value.
+func entries(ctx context.Context, r client.Reader, namespace, value string, keep func(*catalogv1alpha1.DownloadEntry) bool) ([]OwnedEntry, error) {
+	var out []OwnedEntry
+	for _, ow := range owners {
+		l := ow.list()
+		opts := []client.ListOption{client.MatchingFields{Item: value}}
+		if namespace != "" {
+			opts = append(opts, client.InNamespace(namespace))
+		}
+		if err := r.List(ctx, l, opts...); err != nil {
+			return nil, fmt.Errorf("dlindex: list %s: %w", ow.kind, err)
+		}
+		for _, o := range ow.items(l) {
+			ref := schema.ItemRef{Kind: ow.kind, Ref: schema.Ref{Namespace: o.GetNamespace(), Name: o.GetName(), UID: string(o.GetUID())}}
+			es := ow.entries(o)
+			for i := range es {
+				if keep(&es[i]) {
+					out = append(out, OwnedEntry{Owner: ref, Entry: es[i]})
+				}
+			}
+		}
 	}
 	return out, nil
 }

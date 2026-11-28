@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/time/rate"
 	"io"
 	"slices"
 	"sync"
@@ -135,10 +136,21 @@ type Provider struct {
 	Priority int32
 
 	// QuotaBytes is the plan's transfer allowance. Zero means unmetered. Once
-	// the pool has read that many wire bytes from the provider it is skipped
-	// as if it were down, which is the difference between a block account
-	// that lasts a month and one that lasts a week.
+	// that many wire bytes have been read from the provider's account -- by
+	// every pod, counted in the [Ledger] -- it is skipped as if it were
+	// down, which is the difference between a block account that lasts a
+	// month and one that lasts a week.
 	QuotaBytes int64
+
+	// QuotaPeriod is when the allowance starts again; "" is [QuotaMonth].
+	QuotaPeriod QuotaPeriod
+
+	// Pool names the connection pool this provider shares with the other
+	// hosts of its account, and PoolConnections is the pool's cap; then
+	// Connections is the most this one host may hold of it. "" is a
+	// provider on its own.
+	Pool            string
+	PoolConnections int
 }
 
 // Result is the outcome of fetching one article in a batch.
@@ -203,8 +215,18 @@ type serverPool struct {
 	idle   []*conn
 	closed bool
 
+	// used is the wire bytes this process has read from the provider;
+	// reported the part of it already added to the account's quota count
+	// in the ledger, and counted that count as last read: every pod's
+	// bytes in the current period ([Client.syncUsage]).
 	used       atomic.Int64
+	reported   atomic.Int64
+	counted    atomic.Int64
 	penaltyEnd atomic.Int64 // unix nanos
+
+	// limiter bounds the bytes per second read from every server together
+	// ([Config.Limiter]); nil is no bound. Set before the first fetch.
+	limiter *rate.Limiter
 
 	connectTimeout time.Duration
 	ioTimeout      time.Duration
@@ -225,8 +247,14 @@ func newServerPool(p Provider, connectTimeout, ioTimeout time.Duration, maxArtic
 	}
 }
 
+// quotaUsed is what has been read from the provider's account in its
+// quota period: the ledger's count, and what this process has read since.
+func (s *serverPool) quotaUsed() int64 {
+	return s.counted.Load() + s.used.Load() - s.reported.Load()
+}
+
 func (s *serverPool) available(now time.Time) bool {
-	if s.p.QuotaBytes > 0 && s.used.Load() >= s.p.QuotaBytes {
+	if s.p.QuotaBytes > 0 && s.quotaUsed() >= s.p.QuotaBytes {
 		return false
 	}
 	return s.penaltyEnd.Load() <= now.UnixNano()
@@ -246,6 +274,9 @@ func (s *serverPool) penalise(d time.Duration) {
 
 func (s *serverPool) stats() ServerStats {
 	used := s.used.Load()
+	if s.p.QuotaBytes > 0 {
+		used = s.quotaUsed()
+	}
 	return ServerStats{
 		Name:       s.p.Name,
 		Backup:     s.p.Backup,
@@ -316,14 +347,44 @@ func (s *serverPool) withConn(ctx context.Context, fn func(*conn) error) error {
 
 	before := c.wireBytes
 	err := fn(c)
-	s.used.Add(c.wireBytes - before)
+	read := c.wireBytes - before
+	s.used.Add(read)
 
 	if c.broken {
 		c.close()
 	} else {
 		s.putIdle(c)
 	}
+	// The bandwidth budget is paid after the exchange, with the provider's
+	// connection slot still held: waiting inside it would run down the
+	// exchange's own deadline, and a slot that waits is one that does not
+	// fetch, which is the back-pressure wanted.
+	if terr := throttle(ctx, s.limiter, read); terr != nil && err == nil {
+		err = terr
+	}
 	return err
+}
+
+// throttle waits until lim allows n more bytes, in pieces no larger than
+// its burst; nil is no bound.
+func throttle(ctx context.Context, lim *rate.Limiter, n int64) error {
+	if lim == nil || n <= 0 {
+		return nil
+	}
+	burst := int64(max(lim.Burst(), 1))
+	for n > 0 {
+		k := min(n, burst)
+		if err := lim.WaitN(ctx, int(k)); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			// A wait longer than ctx's deadline allows: the caller's
+			// exchange is done, so the debt is dropped rather than failed.
+			return nil
+		}
+		n -= k
+	}
+	return nil
 }
 
 func (s *serverPool) close() {

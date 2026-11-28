@@ -149,3 +149,13 @@ const (
 func nextSeq(recordSeq, statusSeq int64, now time.Time) int64 {
 	return max(recordSeq+1, statusSeq+1, now.UnixMilli())
 }
+
+// How soon a grab waiting for a transfer slot looks again (spec 2026-11-27
+// §7): the first SlotRecheckHeadSize of the queue every SlotRecheckHead,
+// the rest every SlotRecheckTail. A freed slot wakes the head at once; the
+// recheck is for what nothing announces (a budget raised, an engine added).
+const (
+	SlotRecheckHead     = time.Minute
+	SlotRecheckTail     = 10 * time.Minute
+	SlotRecheckHeadSize = 8
+)

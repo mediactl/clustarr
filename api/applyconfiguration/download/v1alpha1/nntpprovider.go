@@ -20,6 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -38,8 +39,18 @@ type NNTPProviderApplyConfiguration struct {
 	// TLS enables implicit TLS on the connection.
 	TLS *bool `json:"tls,omitempty"`
 	// Connections is the maximum number of simultaneous connections allowed by
-	// the provider's plan.
+	// the provider's plan. Unset means 8, or, for a provider that names a
+	// pool, the whole pool: there it is the most this one host may hold of
+	// the pool's connections.
 	Connections *int32 `json:"connections,omitempty"`
+	// Pool names an entry of spec.usenet.connectionPools whose connections
+	// this provider draws from together with every other provider naming
+	// it: one account's hosts (a provider's regional servers) under the
+	// one cap its plan states. Every engine pod, and every DownloadClient
+	// naming the pool on the same login, shares it. A backup in a pool
+	// stands in for the pool's primaries while none of them can be
+	// reached, carrying whole transfers as a primary does.
+	Pool *string `json:"pool,omitempty"`
 	// SecretRef names a Secret in the same namespace holding the provider
 	// credentials. Recognised keys: username, password. The engine reads it
 	// at start, so a change to its data restarts the engine at the
@@ -52,9 +63,14 @@ type NNTPProviderApplyConfiguration struct {
 	Backup *bool `json:"backup,omitempty"`
 	// Priority orders providers of the same class; lower wins.
 	Priority *int32 `json:"priority,omitempty"`
-	// QuotaBytes is the monthly transfer allowance of the provider's plan.
-	// Unset means unmetered.
+	// QuotaBytes is the transfer allowance of the provider's plan, counted
+	// per account across every engine pod and across restarts. Unset means
+	// unmetered.
 	QuotaBytes *int64 `json:"quotaBytes,omitempty"`
+	// QuotaPeriod is when quotaBytes starts again: Month (the calendar
+	// month, UTC; the default) or Never (a block account, counted until it
+	// is spent).
+	QuotaPeriod *downloadv1alpha1.QuotaPeriod `json:"quotaPeriod,omitempty"`
 }
 
 // NNTPProviderApplyConfiguration constructs a declarative configuration of the NNTPProvider type for use with
@@ -103,6 +119,14 @@ func (b *NNTPProviderApplyConfiguration) WithConnections(value int32) *NNTPProvi
 	return b
 }
 
+// WithPool sets the Pool field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Pool field is set to the value of the last call.
+func (b *NNTPProviderApplyConfiguration) WithPool(value string) *NNTPProviderApplyConfiguration {
+	b.Pool = &value
+	return b
+}
+
 // WithSecretRef sets the SecretRef field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the SecretRef field is set to the value of the last call.
@@ -132,5 +156,13 @@ func (b *NNTPProviderApplyConfiguration) WithPriority(value int32) *NNTPProvider
 // If called multiple times, the QuotaBytes field is set to the value of the last call.
 func (b *NNTPProviderApplyConfiguration) WithQuotaBytes(value int64) *NNTPProviderApplyConfiguration {
 	b.QuotaBytes = &value
+	return b
+}
+
+// WithQuotaPeriod sets the QuotaPeriod field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the QuotaPeriod field is set to the value of the last call.
+func (b *NNTPProviderApplyConfiguration) WithQuotaPeriod(value downloadv1alpha1.QuotaPeriod) *NNTPProviderApplyConfiguration {
+	b.QuotaPeriod = &value
 	return b
 }

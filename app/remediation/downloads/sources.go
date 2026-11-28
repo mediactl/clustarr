@@ -46,6 +46,8 @@ import (
 //   - clustarr-engines: an engine's new boot wakes every owner with an
 //     entry pinned to that engine, which republishes desired state (the
 //     resync, §6.7).
+//   - slots/wake: a grab that stopped holding a transfer slot wakes the
+//     head of its client's queue of waiters (slots.go).
 func (s *Stage) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	reader := mgr.GetClient()
 	transfers := recordsource.NewItems(s.o.Bus, events.BucketTransfers, func(item schema.ItemRef, value []byte) []remediation.Key {
@@ -97,6 +99,7 @@ func (s *Stage) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 		{Name: "S28/" + events.BucketImports, Raw: imports},
 		{Name: "engines/" + events.BucketEngines, Raw: engines},
 		{Name: "seed/" + events.BucketTransfers, Raw: seedSource{s: s}},
+		{Name: "slots/wake", Raw: s.slotWake},
 	}, nil
 }
 

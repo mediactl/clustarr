@@ -754,11 +754,15 @@ func TestChooseOrdinalBalancesThenHashes(t *testing.T) {
 	_, ok = lifecycle.ChooseOrdinal(c, notReady, infoHash, guid, now)
 	assert.False(t, ok)
 
+	// A usenet client of several engines that does not bind late is
+	// balanced as a torrent client is (the fleet, 2026-11-28).
 	u := lifecycle.Client{Name: "sab", Protocol: commonv1.ProtocolUsenet, Enabled: true, Replicas: 3}
-	ue := map[string]lifecycle.Engine{"sab-0": engine("sab", 0), "sab-1": engine("sab", 1)}
+	busy := engine("sab", 0)
+	busy.Active = 3
+	ue := map[string]lifecycle.Engine{"sab-0": busy, "sab-1": engine("sab", 1)}
 	o, ok = lifecycle.ChooseOrdinal(u, ue, "", "g", now)
 	require.True(t, ok)
-	assert.Equal(t, int32(0), o, "a usenet client has ordinal 0")
+	assert.Equal(t, int32(1), o, "a usenet client's grab goes to its least loaded engine")
 }
 
 // TestScopeByReason is §6.14's table plus timeout (R21).

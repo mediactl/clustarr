@@ -90,7 +90,7 @@ func TestDomainFlagsNeedTheirDomain(t *testing.T) {
 		{[]string{"--domain=catalog", "--data-dir=/data"}, "--data-dir is only meaningful with --domain import, caption, torrent-engine, usenet-engine or trailers"},
 		{[]string{"--domain=torrent-engine", "--engine=sab-0", "--publish-dir=/data/x"}, "--publish-dir is only meaningful with --domain usenet-engine"},
 		{[]string{"--domain=caption", "--sample-max-bytes=0"}, "--sample-max-bytes is only meaningful with --domain import"},
-		{[]string{"--domain=index", "--download-client=sab"}, "--download-client is only meaningful with --domain torrent-engine"},
+		{[]string{"--domain=index", "--download-client=sab"}, "--download-client is only meaningful with --domain torrent-engine or usenet-engine"},
 	} {
 		_, err := parse(t, tc.args...)
 		assert.EqualError(t, err, tc.want, "%v", tc.args)
@@ -101,8 +101,8 @@ func TestDomainFlagsNeedTheirDomain(t *testing.T) {
 }
 
 // TestEngineDomainsNeedAnIdentity: an engine serves one "<client>-<ordinal>"
-// identity, given as --engine or, for a torrent StatefulSet replica, derived
-// from --download-client and $POD_NAME (§3.5.5).
+// identity, given as --engine or, for a StatefulSet replica of either
+// protocol, derived from --download-client and $POD_NAME (§3.5.5).
 func TestEngineDomainsNeedAnIdentity(t *testing.T) {
 	_, err := parse(t, "--domain=torrent-engine")
 	require.ErrorContains(t, err, "exactly one of --engine or --download-client")
@@ -118,8 +118,16 @@ func TestEngineDomainsNeedAnIdentity(t *testing.T) {
 	_, err = parse(t, "--domain=torrent-engine", "--download-client=sab")
 	require.ErrorContains(t, err, "is not a replica")
 
+	// A usenet engine is a StatefulSet replica too (the fleet, 2026-11-28).
 	_, err = parse(t, "--domain=usenet-engine", "--scratch-dir=/scratch")
-	require.ErrorContains(t, err, "--domain usenet-engine needs --engine")
+	require.ErrorContains(t, err, "--domain usenet-engine needs exactly one of --engine or --download-client")
+	t.Setenv("POD_NAME", "nzb-engine-1")
+	o, err = parse(t, "--domain=usenet-engine", "--download-client=nzb", "--scratch-dir=/scratch")
+	require.NoError(t, err)
+	assert.Equal(t, "nzb-1", o.Engine)
+	t.Setenv("POD_NAME", "nzb-engine-6c9f7d-abcde")
+	_, err = parse(t, "--domain=usenet-engine", "--download-client=nzb", "--scratch-dir=/scratch")
+	require.ErrorContains(t, err, "is not a replica", "a Deployment's pod name is no identity")
 	_, err = parse(t, "--domain=usenet-engine", "--engine=nzb-0", "--scratch-dir=")
 	require.ErrorContains(t, err, "--scratch-dir")
 }

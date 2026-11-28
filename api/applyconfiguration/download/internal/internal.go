@@ -57,6 +57,35 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: seedTime
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
+- name: com.github.mediactl.clustarr.api.download.v1alpha1.BandwidthSpec
+  map:
+    fields:
+    - name: defaultLinkSpeed
+      type:
+        namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: limitPercent
+      type:
+        scalar: numeric
+      default: 50
+    - name: perTransfer
+      type:
+        namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: requestPercent
+      type:
+        scalar: numeric
+      default: 25
+    - name: total
+      type:
+        namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+- name: com.github.mediactl.clustarr.api.download.v1alpha1.ConnectionPool
+  map:
+    fields:
+    - name: connections
+      type:
+        scalar: numeric
+    - name: name
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadClient
   map:
     fields:
@@ -142,6 +171,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: active
       type:
         scalar: numeric
+    - name: budgets
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.download.v1alpha1.EngineBudgetStatus
+          elementRelationship: associative
+          keys:
+          - engine
     - name: conditions
       type:
         list:
@@ -165,6 +202,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: queued
       type:
         scalar: numeric
+    - name: quotas
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.download.v1alpha1.ProviderQuotaStatus
+          elementRelationship: associative
+          keys:
+          - name
     - name: resyncSeq
       type:
         scalar: numeric
@@ -177,13 +222,50 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: uploadRateBps
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.download.v1alpha1.EngineAutoscale
+  map:
+    fields:
+    - name: maxReplicas
+      type:
+        scalar: numeric
+    - name: minReplicas
+      type:
+        scalar: numeric
+      default: 1
+- name: com.github.mediactl.clustarr.api.download.v1alpha1.EngineBudgetStatus
+  map:
+    fields:
+    - name: budgetBps
+      type:
+        scalar: numeric
+    - name: engine
+      type:
+        scalar: string
+    - name: node
+      type:
+        scalar: string
+    - name: rateBps
+      type:
+        scalar: numeric
+    - name: transfers
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.EngineStatus
   map:
     fields:
+    - name: desiredReplicas
+      type:
+        scalar: numeric
+    - name: draining
+      type:
+        scalar: numeric
     - name: readyReplicas
       type:
         scalar: numeric
     - name: replicas
+      type:
+        scalar: numeric
+    - name: waiting
       type:
         scalar: numeric
     - name: workloadRef
@@ -200,11 +282,13 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: connections
       type:
         scalar: numeric
-      default: 8
     - name: host
       type:
         scalar: string
     - name: name
+      type:
+        scalar: string
+    - name: pool
       type:
         scalar: string
     - name: port
@@ -218,6 +302,10 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: quotaBytes
       type:
         scalar: numeric
+    - name: quotaPeriod
+      type:
+        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.QuotaPeriod
+      default: Month
     - name: secretRef
       type:
         namedType: io.k8s.api.core.v1.LocalObjectReference
@@ -246,6 +334,23 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: boolean
       default: true
+- name: com.github.mediactl.clustarr.api.download.v1alpha1.ProviderQuotaStatus
+  map:
+    fields:
+    - name: name
+      type:
+        scalar: string
+    - name: periodStart
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: quotaBytes
+      type:
+        scalar: numeric
+    - name: usedBytes
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.download.v1alpha1.QuotaPeriod
+  scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.ScratchSpec
   map:
     fields:
@@ -372,6 +477,20 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: numeric
       default: 90
+    - name: autoscale
+      type:
+        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.EngineAutoscale
+    - name: bandwidth
+      type:
+        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.BandwidthSpec
+    - name: connectionPools
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.download.v1alpha1.ConnectionPool
+          elementRelationship: associative
+          keys:
+          - name
     - name: downloadTimeout
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration

@@ -51,10 +51,16 @@ var errContended = errors.New("kvledger: the account entry kept changing")
 
 // Ledger is the KV-backed usenet.Ledger for one pod.
 type Ledger struct {
-	kv  events.KV
-	pod string
-	ttl time.Duration
-	now func() time.Time
+	kv events.KV
+	// usage is the durable bucket the quota counts live in
+	// (clustarr-usenet-usage); nil counts in this process alone.
+	usage events.KV
+	pod   string
+	ttl   time.Duration
+	now   func() time.Time
+
+	localMu sync.Mutex
+	local   map[string]usenet.Usage
 
 	mu sync.Mutex
 	// mine is every grant this pod holds, by account then holder, for
@@ -71,7 +77,15 @@ func New(kv events.KV, pod string, ttl time.Duration) *Ledger {
 	if ttl <= 0 {
 		ttl = DefaultTTL
 	}
-	return &Ledger{kv: kv, pod: pod, ttl: ttl, now: time.Now, mine: map[string]map[string]usenet.Grant{}}
+	return &Ledger{kv: kv, pod: pod, ttl: ttl, now: time.Now, mine: map[string]map[string]usenet.Grant{}, local: map[string]usenet.Usage{}}
+}
+
+// WithUsage keeps the quota counts in usage (clustarr-usenet-usage, a
+// durable bucket: a count must outlive a bus restart, which the grants
+// need not).
+func (l *Ledger) WithUsage(usage events.KV) *Ledger {
+	l.usage = usage
+	return l
 }
 
 // Take implements usenet.Ledger.
@@ -83,7 +97,7 @@ func (l *Ledger) Take(ctx context.Context, account string, limit int, g usenet.G
 			got = a.Grants[i].Connections
 			return false
 		}
-		got = decide(limit, want, floor, held(a.Grants, ""))
+		got = usenet.Decide(usenet.GrantRoom(a.Grants, g, limit), want, floor)
 		if got == 0 {
 			return false
 		}
@@ -137,6 +151,106 @@ func (l *Ledger) Give(ctx context.Context, account, holder string) error {
 	})
 }
 
+// Resize implements usenet.Ledger.
+func (l *Ledger) Resize(ctx context.Context, account string, limit int, g usenet.Grant, want int) (int, error) {
+	g.Pod = l.pod
+	var got int
+	var kept usenet.Grant
+	err := l.swap(ctx, account, func(a *usenet.Account, _ time.Time) bool {
+		got = 0
+		i := slices.IndexFunc(a.Grants, func(x usenet.Grant) bool { return x.Holder == g.Holder })
+		if i < 0 {
+			return false
+		}
+		cur := &a.Grants[i]
+		before := *cur
+		cur.Limit, cur.HostLimit, cur.PodLimit = limit, g.HostLimit, g.PodLimit
+		cur.Connections = usenet.Resized(cur.Connections, want, usenet.GrantRoom(a.Grants, *cur, limit))
+		got, kept = cur.Connections, *cur
+		return *cur != before
+	})
+	if err != nil {
+		return 0, err
+	}
+	if got > 0 && l.stillMine(account, g.Holder) {
+		l.remember(account, kept)
+	}
+	return got, nil
+}
+
+// Join implements usenet.Ledger: this pod's weight is written beside the
+// grants with the grants' own life, so a pod that stops renewing stops
+// counting.
+func (l *Ledger) Join(ctx context.Context, account string, weight int64) (int64, error) {
+	var total int64
+	err := l.swap(ctx, account, func(a *usenet.Account, now time.Time) bool {
+		if a.Members == nil {
+			a.Members = map[string]usenet.Member{}
+		}
+		a.Members[l.pod] = usenet.Member{Weight: weight, Expires: now.Add(l.ttl)}
+		total = 0
+		for _, m := range a.Members {
+			total += m.Weight
+		}
+		return true
+	})
+	return total, err
+}
+
+// Use implements usenet.Ledger: the count is one entry per account in the
+// usage bucket, added to under compare-and-swap.
+func (l *Ledger) Use(ctx context.Context, account string, period usenet.QuotaPeriod, bytes int64) (usenet.Usage, error) {
+	if l.usage == nil {
+		l.localMu.Lock()
+		defer l.localMu.Unlock()
+		u := usenet.UsageAfter(l.local[account], period, bytes, l.now())
+		l.local[account] = u
+		return u, nil
+	}
+	key := events.UsenetUsageKey(account)
+	for try := 0; try < maxTries; try++ {
+		var (
+			u   usenet.Usage
+			rev uint64
+		)
+		e, err := l.usage.Get(ctx, key)
+		switch {
+		case errors.Is(err, events.ErrKeyNotFound):
+		case err != nil:
+			return usenet.Usage{}, fmt.Errorf("kvledger: read usage of %s: %w", account, err)
+		default:
+			rev = e.Revision
+			if len(e.Value) > 0 {
+				if err := json.Unmarshal(e.Value, &u); err != nil {
+					return usenet.Usage{}, fmt.Errorf("kvledger: decode usage of %s: %w", account, err)
+				}
+			}
+		}
+		next := usenet.UsageAfter(u, period, bytes, l.now())
+		if next == u && rev != 0 {
+			return next, nil
+		}
+		val, err := json.Marshal(next)
+		if err != nil {
+			return usenet.Usage{}, fmt.Errorf("kvledger: encode usage of %s: %w", account, err)
+		}
+		if rev == 0 {
+			_, err = l.usage.Create(ctx, key, val)
+		} else {
+			_, err = l.usage.Update(ctx, key, val, rev)
+		}
+		switch {
+		case err == nil:
+			return next, nil
+		case errors.Is(err, events.ErrKeyExists), errors.Is(err, events.ErrRevisionMismatch), errors.Is(err, events.ErrKeyNotFound):
+			continue
+		default:
+			return usenet.Usage{}, fmt.Errorf("kvledger: write usage of %s: %w", account, err)
+		}
+	}
+	return usenet.Usage{}, fmt.Errorf("%w: usage of %s", errContended, account)
+}
+
 // Held implements usenet.Ledger.
 func (l *Ledger) Held(ctx context.Context, account string) (int, error) {
 	a, _, err := l.read(ctx, account)
@@ -182,7 +296,7 @@ func (l *Ledger) Renew(ctx context.Context) ([]string, error) {
 				case !l.stillMine(account, m.Holder):
 					// Given back while this swap was in flight: not ours to
 					// put back.
-				case held(a.Grants, "")+m.Connections <= m.Limit:
+				case usenet.GrantRoom(a.Grants, m, m.Limit) >= m.Connections:
 					m.Expires = now.Add(l.ttl)
 					a.Grants = append(a.Grants, m)
 					changed = true
@@ -236,6 +350,12 @@ func (l *Ledger) swap(ctx context.Context, account string, fn func(*usenet.Accou
 		kept := prune(a.Grants, now)
 		pruned := len(kept) != len(a.Grants)
 		a.Grants = kept
+		for pod, m := range a.Members {
+			if !m.Expires.After(now) {
+				delete(a.Members, pod)
+				pruned = true
+			}
+		}
 		if !fn(&a, now) && !pruned {
 			return nil
 		}
@@ -276,16 +396,6 @@ func held(grants []usenet.Grant, except string) int {
 		if g.Holder != except {
 			n += g.Connections
 		}
-	}
-	return n
-}
-
-// decide is usenet's rule, restated: the free connections under limit,
-// capped at want, or nothing when fewer than min are free.
-func decide(limit, want, floor, used int) int {
-	n := min(limit-used, want)
-	if n < max(floor, 1) {
-		return 0
 	}
 	return n
 }

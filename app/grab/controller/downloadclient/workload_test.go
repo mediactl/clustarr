@@ -142,9 +142,9 @@ func TestBuildStatefulSetDefaultsListenPort(t *testing.T) {
 	assert.Equal(t, int32(defaultListenPort), *portNamed(t, c, "peer").ContainerPort)
 }
 
-func TestBuildDeploymentShape(t *testing.T) {
+func TestBuildUsenetStatefulSetShape(t *testing.T) {
 	dc := usenetClient("nzb")
-	dep := buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
+	dep := buildUsenetStatefulSet(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
 
 	require.NotNil(t, dep.Spec.Replicas)
 	assert.Equal(t, int32(1), *dep.Spec.Replicas)
@@ -196,7 +196,7 @@ func TestScratchPathOnTheDataMountMountsNoScratchVolume(t *testing.T) {
 	assert.Nil(t, scratchVolume(dc))
 	assert.False(t, needsScratchClaim(dc))
 
-	dep := buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
+	dep := buildUsenetStatefulSet(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
 	c := dep.Spec.Template.Spec.Containers[0]
 	assert.Equal(t, []string{binpath.Agent}, c.Command)
 	assert.Equal(t, []string{
@@ -342,7 +342,7 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 	usenet.Spec.Resources.Limits = corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")}
 
 	sts := buildStatefulSet(torrent, "sab-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
-	dep := buildDeployment(usenet, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+	dep := buildUsenetStatefulSet(usenet, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 
 	for name, spec := range map[string]*corev1ac.PodSpecApplyConfiguration{
 		"torrent": sts.Spec.Template.Spec,
@@ -352,12 +352,18 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 			require.NotNil(t, spec.ServiceAccountName, "the engine pod names no ServiceAccount")
 			assert.Equal(t, rt.ServiceAccountName, *spec.ServiceAccountName)
 			c := spec.Containers[0]
-			assert.Equal(t, map[string]string{
+			want := map[string]string{
 				"POD_NAMESPACE": "fieldRef:metadata.namespace",
 				"POD_NAME":      "fieldRef:metadata.name",
 				"NATS_URL":      rt.NATSURL,
 				"UMASK":         "002",
-			}, envOf(c.Env))
+			}
+			if name == "usenet" {
+				// The usenet engine names its node in its record, for its
+				// bandwidth budget.
+				want["NODE_NAME"] = "fieldRef:spec.nodeName"
+			}
+			assert.Equal(t, want, envOf(c.Env))
 			assert.NotContains(t, strings.Join(append(c.Command, c.Args...), " "), "nats-single-node")
 		})
 	}
@@ -388,7 +394,7 @@ func TestEnginesDeclareTheirMetricsPortAndFollowMetricsSecure(t *testing.T) {
 	for _, plain := range []bool{false, true} {
 		rt := EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount, PlainMetrics: plain}
 		sts := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
-		dep := buildDeployment(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+		dep := buildUsenetStatefulSet(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 		for name, c := range map[string]corev1ac.ContainerApplyConfiguration{
 			"torrent": sts.Spec.Template.Spec.Containers[0],
 			"usenet":  dep.Spec.Template.Spec.Containers[0],
@@ -443,7 +449,7 @@ func TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault(t *testing.T) {
 	usenet := func(rt EngineRuntime, rr corev1.ResourceRequirements) *corev1ac.PodSpecApplyConfiguration {
 		dc := usenetClient("nzb")
 		dc.Spec.Resources = rr
-		return buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef()).Spec.Template.Spec
+		return buildUsenetStatefulSet(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef()).Spec.Template.Spec
 	}
 	torrent := func(rt EngineRuntime, rr corev1.ResourceRequirements) *corev1ac.PodSpecApplyConfiguration {
 		dc := torrentClient("qbt", 1)
@@ -667,7 +673,7 @@ func TestClaimTemplatesChanged(t *testing.T) {
 func TestRuntimePodsMountTheLoggingConfigOptionally(t *testing.T) {
 	rt := EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount, LoggingConfigMap: "clustarr-logging"}
 	sts := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
-	dep := buildDeployment(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+	dep := buildUsenetStatefulSet(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 	for name, spec := range map[string]*corev1ac.PodSpecApplyConfiguration{"torrent": sts.Spec.Template.Spec, "usenet": dep.Spec.Template.Spec} {
 		t.Run(name, func(t *testing.T) {
 			var vol *corev1ac.VolumeApplyConfiguration
@@ -708,7 +714,7 @@ func TestRuntimePodsCarryTheRecommendedLabels(t *testing.T) {
 	rt := EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}
 	const image = "ghcr.io/mediactl/clustarr/native:sha-abc123"
 	sts := buildStatefulSet(torrentClient("sab", 1), "sab-engine", image, "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
-	dep := buildDeployment(usenetClient("nzb"), "nzb-engine", image, "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+	dep := buildUsenetStatefulSet(usenetClient("nzb"), "nzb-engine", image, "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 	for name, tpl := range map[string]*corev1ac.PodTemplateSpecApplyConfiguration{"torrent": sts.Spec.Template, "usenet": dep.Spec.Template} {
 		assert.Equal(t, "clustarr", tpl.Labels["app.kubernetes.io/name"], name)
 		assert.Equal(t, componentEngine, tpl.Labels[labelComponent], name)

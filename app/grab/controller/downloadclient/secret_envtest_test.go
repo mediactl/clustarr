@@ -50,7 +50,7 @@ func usenetClientWithSecret(name, secret string) *downloadv1alpha1.DownloadClien
 
 func deploymentHash(t *testing.T, c client.Client, name string) string {
 	t.Helper()
-	return templateHash(t, c, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: name}})
+	return templateHash(t, c, &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: name}})
 }
 
 func rotate(t *testing.T, c client.Client, name, password string) {
@@ -121,7 +121,7 @@ func TestAProviderSecretAppearingRollsTheEngine(t *testing.T) {
 	after := deploymentHash(t, c, "late-engine")
 	assert.NotEqual(t, before, after)
 
-	var d appsv1.Deployment
+	var d appsv1.StatefulSet
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: "default", Name: "late-engine"}, &d))
 	for k, v := range d.Spec.Template.Annotations {
 		assert.NotContains(t, v, "hunter2", "annotation %s carries the credential", k)

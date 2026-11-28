@@ -73,8 +73,35 @@ func (d *decider) pending(e *catalogv1alpha1.DownloadEntry) bool {
 		d.at(d.now.Add(time.Minute))
 		return true
 	}
-	ordinal, ok := ChooseOrdinal(c, d.v.Engines, e.Release.InfoHash, e.Release.GUID, d.now)
-	if !ok {
+	var ordinal int32
+	if c.LateBinding {
+		// The grab waits, unassigned, for an engine with a transfer slot
+		// (spec 2026-11-27 §7); its client is named now so the fleet
+		// controller counts it among that client's waiters.
+		ahead := d.v.Ahead[types.UID(e.UID)]
+		var ready bool
+		ordinal, ok, ready = ChooseSlot(c, d.v.Engines, ahead, d.now)
+		if !ok {
+			e.Client = c.Name
+			e.Message = clampString(fmt.Sprintf("waiting for a free transfer slot on DownloadClient %s", c.Name), MaxEntryMessage)
+			if !ready {
+				e.Message = clampString(fmt.Sprintf("waiting for an engine of DownloadClient %s to be ready", c.Name), MaxEntryMessage)
+			}
+			d.waiting(e, catalogv1alpha1.DeliveryReasonNoSlot, e.Message)
+			// The head of the queue looks again soon; the rest are woken
+			// when a slot frees and otherwise look rarely.
+			again := SlotRecheckTail
+			if ahead < SlotRecheckHeadSize {
+				again = SlotRecheckHead
+			}
+			d.at(d.now.Add(again))
+			return true
+		}
+		name := EngineName(c.Name, ordinal)
+		eng := d.v.Engines[name]
+		eng.Pinned++
+		d.v.Engines[name] = eng
+	} else if ordinal, ok = ChooseOrdinal(c, d.v.Engines, e.Release.InfoHash, e.Release.GUID, d.now); !ok {
 		e.Message = clampString(fmt.Sprintf("waiting for an engine of DownloadClient %s to be ready", c.Name), MaxEntryMessage)
 		d.waiting(e, catalogv1alpha1.DeliveryReasonEngineNotReady, e.Message)
 		d.at(d.now.Add(RepublishEvery))

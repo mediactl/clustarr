@@ -32,7 +32,7 @@ import (
 type DeliveryStateApplyConfiguration struct {
 	State *catalogv1alpha1.DeliveryPhase `json:"state,omitempty"`
 	// Reason when waiting or retrying: Budget, Paced, NoAgent,
-	// NoCapableAgent, EngineNotReady, Rebuilding, Nak.
+	// NoCapableAgent, EngineNotReady, NoSlot, Rebuilding, Nak.
 	Reason  *string `json:"reason,omitempty"`
 	Message *string `json:"message,omitempty"`
 	// Attempts is the deliveries count of the last nak the manager recorded.

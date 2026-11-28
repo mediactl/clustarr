@@ -41,8 +41,8 @@ type DownloadClientSpecApplyConfiguration struct {
 	Priority *int32 `json:"priority,omitempty"`
 	// Replicas is the number of engine shards, backing a StatefulSet owned by
 	// this client. Each grab is pinned to one ordinal for its lifetime (its
-	// entry's engine). Usenet clients are limited to one replica in
-	// v1alpha1.
+	// entry's engine). Usenet engines run one a node; with
+	// usenet.autoscale the controller sets the count and this is ignored.
 	Replicas *int32 `json:"replicas,omitempty"`
 	// Categories maps a media kind to the subdirectory downloads of that kind
 	// are written to. A kind with no entry uses the kind's own name.

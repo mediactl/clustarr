@@ -160,29 +160,19 @@ func (e *dcEnv) get(name string) *downloadv1alpha1.DownloadClient {
 	return &dc
 }
 
-// readyWorkload sets the engine StatefulSet's (or Deployment's) status as
+// readyWorkload sets the engine StatefulSet's status as
 // its controller would: n replicas, all ready. envtest runs no workload
 // controller; the write goes under a manager PatchStatus accepts, which owns
 // nothing else of the workload's status.
 func (e *dcEnv) readyWorkload(dc *downloadv1alpha1.DownloadClient, n int32) {
 	e.t.Helper()
 	name := engineWorkloadName(dc.Name)
-	if dc.Spec.Torrent != nil {
-		_, err := k8s.PatchStatus(e.ctx, e.api, k8s.ManagerGrab,
-			appsv1ac.StatefulSet(name, testNS).WithStatus(appsv1ac.StatefulSetStatus().WithReplicas(n).WithReadyReplicas(n)))
-		require.NoError(e.t, err)
-		require.Eventually(e.t, func() bool {
-			var s appsv1.StatefulSet
-			return e.c.Get(e.ctx, types.NamespacedName{Namespace: testNS, Name: name}, &s) == nil && s.Status.ReadyReplicas == n
-		}, 10*time.Second, 10*time.Millisecond)
-		return
-	}
 	_, err := k8s.PatchStatus(e.ctx, e.api, k8s.ManagerGrab,
-		appsv1ac.Deployment(name, testNS).WithStatus(appsv1ac.DeploymentStatus().WithReplicas(n).WithReadyReplicas(n)))
+		appsv1ac.StatefulSet(name, testNS).WithStatus(appsv1ac.StatefulSetStatus().WithReplicas(n).WithReadyReplicas(n)))
 	require.NoError(e.t, err)
 	require.Eventually(e.t, func() bool {
-		var d appsv1.Deployment
-		return e.c.Get(e.ctx, types.NamespacedName{Namespace: testNS, Name: name}, &d) == nil && d.Status.ReadyReplicas == n
+		var s appsv1.StatefulSet
+		return e.c.Get(e.ctx, types.NamespacedName{Namespace: testNS, Name: name}, &s) == nil && s.Status.ReadyReplicas == n
 	}, 10*time.Second, 10*time.Millisecond)
 }
 

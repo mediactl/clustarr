@@ -173,6 +173,7 @@ func (s *Stage) gather(ctx context.Context, ow owner, now time.Time) (lifecycle.
 			}
 		}
 	}
+	s.engineSlots(ctx, ns, v.Engines)
 
 	var idxs indexv1alpha1.IndexerList
 	if err := s.o.Reader.List(ctx, &idxs, client.InNamespace(ns)); err != nil {
@@ -220,6 +221,17 @@ func (s *Stage) clients(ctx context.Context, ns string) ([]lifecycle.Client, err
 			c.Seed = t.Seed
 		}
 		if u := dc.Spec.Usenet; u != nil {
+			// The fleet (spec 2026-11-27): the engine count is the
+			// controller's under autoscale, and a client with a budget or
+			// several engines binds late.
+			if e := dc.Status.Engine; u.Autoscale != nil && e != nil && e.DesiredReplicas != nil {
+				c.Replicas = *e.DesiredReplicas
+			}
+			c.LateBinding = dc.Spec.Replicas > 1 || u.Autoscale != nil || u.Bandwidth != nil
+			c.MaxActive = 2
+			if u.MaxActive != nil {
+				c.MaxActive = *u.MaxActive
+			}
 			c.HealthAction = u.HealthAction
 			if u.StallTimeout != nil {
 				c.StallTimeout = u.StallTimeout.Duration
@@ -251,6 +263,31 @@ func (s *Stage) engine(ctx context.Context, c lifecycle.Client, ordinal int32, e
 		ReattachedAt: s.boots.reattachedAt(name, rec.BootID),
 	}
 	return nil
+}
+
+// engineSlots fills each usenet engine's transfer slots and draining mark
+// from its DownloadClient's status, which the fleet controller writes.
+func (s *Stage) engineSlots(ctx context.Context, ns string, engines map[string]lifecycle.Engine) {
+	var list downloadv1alpha1.DownloadClientList
+	if err := s.o.Reader.List(ctx, &list, client.InNamespace(ns)); err != nil {
+		return
+	}
+	for i := range list.Items {
+		dc := &list.Items[i]
+		for _, b := range dc.Status.Budgets {
+			if e, ok := engines[b.Engine]; ok {
+				e.Transfers = b.Transfers
+				engines[b.Engine] = e
+			}
+		}
+		if st := dc.Status.Engine; st != nil && st.Draining != nil {
+			name := lifecycle.EngineName(dc.Name, *st.Draining)
+			if e, ok := engines[name]; ok {
+				e.Draining = true
+				engines[name] = e
+			}
+		}
+	}
 }
 
 // covered fills each entry's covered items and their last search dispatch

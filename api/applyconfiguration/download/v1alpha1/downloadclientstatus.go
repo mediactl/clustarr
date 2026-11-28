@@ -48,10 +48,15 @@ type DownloadClientStatusApplyConfiguration struct {
 	// UnidentifiedTransfers counts transfers the engines hold with no claim
 	// (ADR-0019 §6.7), from the engine records.
 	UnidentifiedTransfers *int32 `json:"unidentifiedTransfers,omitempty"`
+	// Quotas reports each metered usenet provider's use of its quotaBytes.
+	Quotas []ProviderQuotaStatusApplyConfiguration `json:"quotas,omitempty"`
+	// Budgets reports each usenet engine's bandwidth budget.
+	Budgets []EngineBudgetStatusApplyConfiguration `json:"budgets,omitempty"`
 	// ResyncSeq is the last resync the controller asked its engines for after
 	// clustarr-transfers was recreated (ADR-0019 §6.7, "Resync").
 	ResyncSeq *int64 `json:"resyncSeq,omitempty"`
-	// Conditions holds Ready, EngineReady and DiskSpaceOK.
+	// Conditions holds Ready, EngineReady, DiskSpaceOK, ProxyUDPUnavailable
+	// and QuotaOK.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 }
 
@@ -130,6 +135,32 @@ func (b *DownloadClientStatusApplyConfiguration) WithFreeBytes(value int64) *Dow
 // If called multiple times, the UnidentifiedTransfers field is set to the value of the last call.
 func (b *DownloadClientStatusApplyConfiguration) WithUnidentifiedTransfers(value int32) *DownloadClientStatusApplyConfiguration {
 	b.UnidentifiedTransfers = &value
+	return b
+}
+
+// WithQuotas adds the given value to the Quotas field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Quotas field.
+func (b *DownloadClientStatusApplyConfiguration) WithQuotas(values ...*ProviderQuotaStatusApplyConfiguration) *DownloadClientStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithQuotas")
+		}
+		b.Quotas = append(b.Quotas, *values[i])
+	}
+	return b
+}
+
+// WithBudgets adds the given value to the Budgets field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Budgets field.
+func (b *DownloadClientStatusApplyConfiguration) WithBudgets(values ...*EngineBudgetStatusApplyConfiguration) *DownloadClientStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithBudgets")
+		}
+		b.Budgets = append(b.Budgets, *values[i])
+	}
 	return b
 }
 

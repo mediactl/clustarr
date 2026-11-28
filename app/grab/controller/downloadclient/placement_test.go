@@ -39,7 +39,7 @@ func TestEnginePodCarriesTheWorkerPlacement(t *testing.T) {
 	dc := usenetClient("nzb")
 	dc.Spec.NodeSelector = map[string]string{"kubernetes.io/hostname": "talos-b8-ae-ed-76-79-61"}
 
-	dep := buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data",
+	dep := buildUsenetStatefulSet(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data",
 		EngineRuntime{WorkerPlacement: workers}, nil, fakeOwnerRef())
 
 	spec := dep.Spec.Template.Spec
@@ -52,8 +52,14 @@ func TestEnginePodCarriesTheWorkerPlacement(t *testing.T) {
 	assert.Equal(t, []string{"amd64"}, terms[0].MatchExpressions[1].Values)
 }
 
-func TestEnginePodWithoutAWorkerPlacementHasNoAffinity(t *testing.T) {
-	dep := buildDeployment(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data",
+// Without a worker placement an engine pod has no node affinity. A usenet
+// engine still carries its own anti-affinity: one engine a node.
+func TestEnginePodWithoutAWorkerPlacementHasNoNodeAffinity(t *testing.T) {
+	dep := buildUsenetStatefulSet(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data",
 		EngineRuntime{}, nil, fakeOwnerRef())
-	assert.Nil(t, dep.Spec.Template.Spec.Affinity)
+	require.NotNil(t, dep.Spec.Template.Spec.Affinity)
+	assert.Nil(t, dep.Spec.Template.Spec.Affinity.NodeAffinity)
+	sts := buildStatefulSet(torrentClient("qbt", 1), "qbt-engine", "img", "/data", "/scratch", "clustarr-data",
+		EngineRuntime{}, nil, fakeOwnerRef())
+	assert.Nil(t, sts.Spec.Template.Spec.Affinity)
 }

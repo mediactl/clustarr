@@ -30,6 +30,19 @@ import (
 // UsenetSpec configures the NNTP engine. It applies only when spec.protocol
 // is usenet.
 type UsenetSpecApplyConfiguration struct {
+	// ConnectionPools are connection budgets several providers share: an
+	// account whose plan caps its hosts together (NNTPProvider.pool). The
+	// pool's providers must share one secretRef; the controller refuses a
+	// pool that mixes logins.
+	ConnectionPools []ConnectionPoolApplyConfiguration `json:"connectionPools,omitempty"`
+	// Bandwidth budgets the engines' download rate by their nodes' links.
+	// Unset means no budget: an engine runs maxActive transfers as fast as
+	// its providers allow. Setting it also assigns a download to an engine
+	// only when the engine has a transfer slot for it.
+	Bandwidth *BandwidthSpecApplyConfiguration `json:"bandwidth,omitempty"`
+	// Autoscale sets the engine count from the backlog; unset means
+	// spec.replicas, fixed.
+	Autoscale *EngineAutoscaleApplyConfiguration `json:"autoscale,omitempty"`
 	// Providers lists the NNTP servers the engine may use. At least one
 	// non-backup provider is required.
 	Providers []NNTPProviderApplyConfiguration `json:"providers,omitempty"`
@@ -87,6 +100,35 @@ type UsenetSpecApplyConfiguration struct {
 // apply.
 func UsenetSpec() *UsenetSpecApplyConfiguration {
 	return &UsenetSpecApplyConfiguration{}
+}
+
+// WithConnectionPools adds the given value to the ConnectionPools field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ConnectionPools field.
+func (b *UsenetSpecApplyConfiguration) WithConnectionPools(values ...*ConnectionPoolApplyConfiguration) *UsenetSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithConnectionPools")
+		}
+		b.ConnectionPools = append(b.ConnectionPools, *values[i])
+	}
+	return b
+}
+
+// WithBandwidth sets the Bandwidth field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Bandwidth field is set to the value of the last call.
+func (b *UsenetSpecApplyConfiguration) WithBandwidth(value *BandwidthSpecApplyConfiguration) *UsenetSpecApplyConfiguration {
+	b.Bandwidth = value
+	return b
+}
+
+// WithAutoscale sets the Autoscale field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Autoscale field is set to the value of the last call.
+func (b *UsenetSpecApplyConfiguration) WithAutoscale(value *EngineAutoscaleApplyConfiguration) *UsenetSpecApplyConfiguration {
+	b.Autoscale = value
+	return b
 }
 
 // WithProviders adds the given value to the Providers field in the declarative configuration

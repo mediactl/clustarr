@@ -91,6 +91,9 @@ const (
 	DeliveryReasonNoCapableAgent = "NoCapableAgent"
 	// DeliveryReasonEngineNotReady means the entry's engine is not ready.
 	DeliveryReasonEngineNotReady = "EngineNotReady"
+	// DeliveryReasonNoSlot means no engine of the entry's DownloadClient
+	// has a free transfer slot (spec 2026-11-27 §7).
+	DeliveryReasonNoSlot = "NoSlot"
 	// DeliveryReasonRebuilding means the dispatch ledger is still being
 	// rebuilt from status after a leader change.
 	DeliveryReasonRebuilding = "Rebuilding"
@@ -103,7 +106,7 @@ const (
 type DeliveryState struct {
 	State DeliveryPhase `json:"state"`
 	// Reason when waiting or retrying: Budget, Paced, NoAgent,
-	// NoCapableAgent, EngineNotReady, Rebuilding, Nak.
+	// NoCapableAgent, EngineNotReady, NoSlot, Rebuilding, Nak.
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
 	Reason string `json:"reason,omitempty"`

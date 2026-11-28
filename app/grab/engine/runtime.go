@@ -53,6 +53,16 @@ type RuntimeOptions struct {
 	// ScratchDir and PublishDir are statfs'd for the engine record's free
 	// bytes.
 	ScratchDir, PublishDir string
+	// Node is the node the engine runs on ($NODE_NAME).
+	Node string
+	// WireBytes and BudgetSeq are the reporter's (Reporter.WireBytes,
+	// Reporter.BudgetSeq); nil reports neither.
+	WireBytes func() int64
+	BudgetSeq func() int64
+	// Protocol and ConnectionsHeld are the reporter's metrics inputs
+	// (Reporter.Protocol, Reporter.ConnectionsHeld).
+	Protocol        string
+	ConnectionsHeld func() int
 }
 
 // Runtime is one engine instance's reporter, command handler and progress
@@ -91,6 +101,10 @@ func NewRuntime(bus events.Bus, t Transfers, o RuntimeOptions) (*Runtime, error)
 		Version:   version.String(),
 		Proxy:     o.Proxy,
 		Free:      free,
+		Node:      o.Node,
+		WireBytes: o.WireBytes,
+		BudgetSeq: o.BudgetSeq,
+		Protocol:  o.Protocol, ConnectionsHeld: o.ConnectionsHeld,
 	}
 	return &Runtime{
 		Reporter: rep,

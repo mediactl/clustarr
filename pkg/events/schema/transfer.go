@@ -287,6 +287,15 @@ type EngineRecord struct {
 	Seeding          int32 `json:"seeding,omitempty"`
 	ScratchFreeBytes int64 `json:"scratchFreeBytes,omitempty"`
 	PublishFreeBytes int64 `json:"publishFreeBytes,omitempty"`
+	// Node is the node the engine runs on ($NODE_NAME), for the bandwidth
+	// budget the controller reads off that node; "" when it was not told.
+	Node string `json:"node,omitempty"`
+	// DownRateBytesPerSec is what the engine read from its providers per
+	// second since its last record.
+	DownRateBytesPerSec int64 `json:"downRateBytesPerSec,omitempty"`
+	// BudgetSeq is the bandwidth budget the engine last applied
+	// (EngineBudget.Seq); 0 when it runs without one.
+	BudgetSeq int64 `json:"budgetSeq,omitempty"`
 	// ProxyUDP is ProxyUDPAvailable, ProxyUDPUnavailable or
 	// ProxyUDPNotApplicable.
 	ProxyUDP string `json:"proxyUDP,omitempty"`
@@ -299,3 +308,22 @@ type EngineRecord struct {
 
 // Schema implements Payload and is RecordHeader.Schema on every value.
 func (EngineRecord) Schema() string { return "download.Engine.v1" }
+
+// EngineBudget is one usenet engine's bandwidth budget (spec 2026-11-27
+// §5.2), written by the DownloadClient controller to
+// clustarr-engine-budgets under events.EngineBudgetKey and watched by the
+// engine. An engine with none runs unbounded, on its client's maxActive.
+type EngineBudget struct {
+	// BitsPerSecond is the rate the engine holds itself to; 0 is no bound.
+	BitsPerSecond int64 `json:"bitsPerSecond,omitempty"`
+	// LimitBitsPerSecond is the most the engine's node allows it.
+	LimitBitsPerSecond int64 `json:"limitBitsPerSecond,omitempty"`
+	// Transfers is how many transfers the engine runs at once.
+	Transfers int32 `json:"transfers,omitempty"`
+	// Weight is the engine's claim on every provider account among the
+	// engines sharing it.
+	Weight int64 `json:"weight,omitempty"`
+	// Seq orders budgets; an engine applies the highest it has seen.
+	Seq int64     `json:"seq"`
+	At  time.Time `json:"at"`
+}

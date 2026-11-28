@@ -31,6 +31,15 @@ type EngineStatusApplyConfiguration struct {
 	Replicas *int32 `json:"replicas,omitempty"`
 	// ReadyReplicas is the number of engine replicas that are ready.
 	ReadyReplicas *int32 `json:"readyReplicas,omitempty"`
+	// DesiredReplicas is the engine count the controller renders:
+	// spec.replicas, or usenet.autoscale's answer.
+	DesiredReplicas *int32 `json:"desiredReplicas,omitempty"`
+	// Draining is the ordinal usenet.autoscale is emptying before it
+	// removes it: it is given no new download.
+	Draining *int32 `json:"draining,omitempty"`
+	// Waiting is how many downloads wait for a free transfer slot on this
+	// client's engines.
+	Waiting *int32 `json:"waiting,omitempty"`
 }
 
 // EngineStatusApplyConfiguration constructs a declarative configuration of the EngineStatus type for use with
@@ -60,5 +69,29 @@ func (b *EngineStatusApplyConfiguration) WithReplicas(value int32) *EngineStatus
 // If called multiple times, the ReadyReplicas field is set to the value of the last call.
 func (b *EngineStatusApplyConfiguration) WithReadyReplicas(value int32) *EngineStatusApplyConfiguration {
 	b.ReadyReplicas = &value
+	return b
+}
+
+// WithDesiredReplicas sets the DesiredReplicas field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DesiredReplicas field is set to the value of the last call.
+func (b *EngineStatusApplyConfiguration) WithDesiredReplicas(value int32) *EngineStatusApplyConfiguration {
+	b.DesiredReplicas = &value
+	return b
+}
+
+// WithDraining sets the Draining field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Draining field is set to the value of the last call.
+func (b *EngineStatusApplyConfiguration) WithDraining(value int32) *EngineStatusApplyConfiguration {
+	b.Draining = &value
+	return b
+}
+
+// WithWaiting sets the Waiting field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Waiting field is set to the value of the last call.
+func (b *EngineStatusApplyConfiguration) WithWaiting(value int32) *EngineStatusApplyConfiguration {
+	b.Waiting = &value
 	return b
 }

@@ -119,8 +119,8 @@ spec:
                 description: |-
                   Replicas is the number of engine shards, backing a StatefulSet owned by
                   this client. Each grab is pinned to one ordinal for its lifetime (its
-                  entry's engine). Usenet clients are limited to one replica in
-                  v1alpha1.
+                  entry's engine). Usenet engines run one a node; with
+                  usenet.autoscale the controller sets the count and this is ignored.
                 format: int32
                 maximum: 64
                 minimum: 1
@@ -550,6 +550,119 @@ spec:
                     maximum: 100
                     minimum: 0
                     type: integer
+                  autoscale:
+                    description: |-
+                      Autoscale sets the engine count from the backlog; unset means
+                      spec.replicas, fixed.
+                    properties:
+                      maxReplicas:
+                        description: MaxReplicas is the most engines run, one a node.
+                        format: int32
+                        maximum: 64
+                        minimum: 1
+                        type: integer
+                      minReplicas:
+                        default: 1
+                        description: |-
+                          MinReplicas is the fewest engines kept; 0 lets an idle client run
+                          none.
+                        format: int32
+                        maximum: 64
+                        minimum: 0
+                        type: integer
+                    required:
+                    - maxReplicas
+                    type: object
+                    x-kubernetes-validations:
+                    - message: autoscale.minReplicas must not exceed maxReplicas
+                      rule: '!has(self.minReplicas) || self.minReplicas <= self.maxReplicas'
+                  bandwidth:
+                    description: |-
+                      Bandwidth budgets the engines' download rate by their nodes' links.
+                      Unset means no budget: an engine runs maxActive transfers as fast as
+                      its providers allow. Setting it also assigns a download to an engine
+                      only when the engine has a transfer slot for it.
+                    properties:
+                      defaultLinkSpeed:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: |-
+                          DefaultLinkSpeed is the link of a node with no link-speed annotation.
+                          Unset means 1G.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      limitPercent:
+                        default: 50
+                        description: |-
+                          LimitPercent is the share of its node's link an engine never
+                          exceeds.
+                        format: int32
+                        maximum: 100
+                        minimum: 1
+                        type: integer
+                      perTransfer:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: |-
+                          PerTransfer is the rate one transfer is planned at: an engine runs
+                          its budget over perTransfer transfers at once, at least one and at
+                          most maxActive. Unset means 250M.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      requestPercent:
+                        default: 25
+                        description: |-
+                          RequestPercent is the share of its node's link an engine is always
+                          given.
+                        format: int32
+                        maximum: 100
+                        minimum: 1
+                        type: integer
+                      total:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: |-
+                          Total caps the engines' budgets together: the public link's share
+                          downloads may use. Unset means no cap.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  connectionPools:
+                    description: |-
+                      ConnectionPools are connection budgets several providers share: an
+                      account whose plan caps its hosts together (NNTPProvider.pool). The
+                      pool's providers must share one secretRef; the controller refuses a
+                      pool that mixes logins.
+                    items:
+                      description: |-
+                        ConnectionPool is one connection budget several providers share
+                        (NNTPProvider.pool): the plan's cap across an account's hosts.
+                      properties:
+                        connections:
+                          description: |-
+                            Connections is the most the pool's providers may hold together, on
+                            every engine pod at once.
+                          format: int32
+                          maximum: 1024
+                          minimum: 1
+                          type: integer
+                        name:
+                          description: Name is what a provider's pool field names.
+                          maxLength: 63
+                          minLength: 1
+                          type: string
+                      required:
+                      - connections
+                      - name
+                      type: object
+                    maxItems: 8
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
                   downloadTimeout:
                     description: |-
                       DownloadTimeout is how long a usenet download may take, from when it
@@ -643,10 +756,11 @@ spec:
                             primary providers could not supply, never for the bulk of a download.
                           type: boolean
                         connections:
-                          default: 8
                           description: |-
                             Connections is the maximum number of simultaneous connections allowed by
-                            the provider's plan.
+                            the provider's plan. Unset means 8, or, for a provider that names a
+                            pool, the whole pool: there it is the most this one host may hold of
+                            the pool's connections.
                           format: int32
                           maximum: 256
                           minimum: 1
@@ -660,6 +774,17 @@ spec:
                             and keys the list.
                           maxLength: 63
                           minLength: 1
+                          type: string
+                        pool:
+                          description: |-
+                            Pool names an entry of spec.usenet.connectionPools whose connections
+                            this provider draws from together with every other provider naming
+                            it: one account's hosts (a provider's regional servers) under the
+                            one cap its plan states. Every engine pod, and every DownloadClient
+                            naming the pool on the same login, shares it. A backup in a pool
+                            stands in for the pool's primaries while none of them can be
+                            reached, carrying whole transfers as a primary does.
+                          maxLength: 63
                           type: string
                         port:
                           default: 563
@@ -678,11 +803,22 @@ spec:
                           type: integer
                         quotaBytes:
                           description: |-
-                            QuotaBytes is the monthly transfer allowance of the provider's plan.
-                            Unset means unmetered.
+                            QuotaBytes is the transfer allowance of the provider's plan, counted
+                            per account across every engine pod and across restarts. Unset means
+                            unmetered.
                           format: int64
                           minimum: 0
                           type: integer
+                        quotaPeriod:
+                          default: Month
+                          description: |-
+                            QuotaPeriod is when quotaBytes starts again: Month (the calendar
+                            month, UTC; the default) or Never (a block account, counted until it
+                            is spent).
+                          enum:
+                          - Month
+                          - Never
+                          type: string
                         secretRef:
                           description: |-
                             SecretRef names a Secret in the same namespace holding the provider
@@ -812,6 +948,10 @@ spec:
                 required:
                 - providers
                 type: object
+                x-kubernetes-validations:
+                - message: a provider's pool must name an entry of connectionPools
+                  rule: self.providers.all(p, !has(p.pool) || (has(self.connectionPools)
+                    && self.connectionPools.exists(c, c.name == p.pool)))
             required:
             - protocol
             type: object
@@ -820,9 +960,11 @@ spec:
                 usenet, never both
               rule: 'self.protocol == ''torrent'' ? (has(self.torrent) && !has(self.usenet))
                 : (has(self.usenet) && !has(self.torrent))'
-            - message: usenet clients must have replicas == 1 in v1alpha1
-              rule: self.protocol != 'usenet' || !has(self.replicas) || self.replicas
-                == 1
+            - message: usenet.scratch.volumeName and existingClaim are one claim,
+                so they need replicas == 1 and no autoscale
+              rule: '!has(self.usenet) || !has(self.usenet.scratch) || !(has(self.usenet.scratch.volumeName)
+                || has(self.usenet.scratch.existingClaim)) || ((!has(self.replicas)
+                || self.replicas == 1) && !has(self.usenet.autoscale))'
             - message: torrent.scratch.volumeName binds one claim to one volume, so
                 it needs replicas == 1
               rule: '!has(self.torrent) || !has(self.torrent.scratch) || !has(self.torrent.scratch.volumeName)
@@ -835,8 +977,47 @@ spec:
                   on this client.
                 format: int32
                 type: integer
+              budgets:
+                description: Budgets reports each usenet engine's bandwidth budget.
+                items:
+                  description: |-
+                    EngineBudgetStatus is one engine's bandwidth budget
+                    (spec.usenet.bandwidth).
+                  properties:
+                    budgetBps:
+                      description: |-
+                        BudgetBps is the rate the engine holds itself to, in bits per
+                        second.
+                      format: int64
+                      type: integer
+                    engine:
+                      description: Engine is "<client>-<ordinal>".
+                      type: string
+                    node:
+                      description: Node is the node the engine runs on.
+                      type: string
+                    rateBps:
+                      description: RateBps is the rate the engine last measured, in
+                        bits per second.
+                      format: int64
+                      type: integer
+                    transfers:
+                      description: Transfers is how many transfers the engine runs
+                        at once under it.
+                      format: int32
+                      type: integer
+                  required:
+                  - engine
+                  type: object
+                maxItems: 64
+                type: array
+                x-kubernetes-list-map-keys:
+                - engine
+                x-kubernetes-list-type: map
               conditions:
-                description: Conditions holds Ready, EngineReady and DiskSpaceOK.
+                description: |-
+                  Conditions holds Ready, EngineReady, DiskSpaceOK, ProxyUDPUnavailable
+                  and QuotaOK.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -904,6 +1085,18 @@ spec:
               engine:
                 description: Engine reports the StatefulSet backing this client.
                 properties:
+                  desiredReplicas:
+                    description: |-
+                      DesiredReplicas is the engine count the controller renders:
+                      spec.replicas, or usenet.autoscale's answer.
+                    format: int32
+                    type: integer
+                  draining:
+                    description: |-
+                      Draining is the ordinal usenet.autoscale is emptying before it
+                      removes it: it is given no new download.
+                    format: int32
+                    type: integer
                   readyReplicas:
                     description: ReadyReplicas is the number of engine replicas that
                       are ready.
@@ -912,6 +1105,12 @@ spec:
                   replicas:
                     description: Replicas is the number of engine replicas that currently
                       exist.
+                    format: int32
+                    type: integer
+                  waiting:
+                    description: |-
+                      Waiting is how many downloads wait for a free transfer slot on this
+                      client's engines.
                     format: int32
                     type: integer
                   workloadRef:
@@ -936,6 +1135,38 @@ spec:
                   transferring.
                 format: int32
                 type: integer
+              quotas:
+                description: Quotas reports each metered usenet provider's use of
+                  its quotaBytes.
+                items:
+                  description: ProviderQuotaStatus is one metered usenet provider's
+                    use of its quota.
+                  properties:
+                    name:
+                      description: Name is the provider's name.
+                      type: string
+                    periodStart:
+                      description: PeriodStart is when the current period began.
+                      format: date-time
+                      type: string
+                    quotaBytes:
+                      description: QuotaBytes is the provider's quotaBytes.
+                      format: int64
+                      type: integer
+                    usedBytes:
+                      description: |-
+                        UsedBytes is what every engine has read from the provider's account
+                        in the current period.
+                      format: int64
+                      type: integer
+                  required:
+                  - name
+                  type: object
+                maxItems: 32
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               resyncSeq:
                 description: |-
                   ResyncSeq is the last resync the controller asked its engines for after

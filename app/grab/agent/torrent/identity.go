@@ -31,7 +31,7 @@ import (
 func EngineIdentity(client, podName string) (string, error) {
 	n, ok := strings.CutPrefix(podName, client+"-engine-")
 	if client == "" || !ok || n == "" || strings.Trim(n, "0123456789") != "" {
-		return "", fmt.Errorf("torrent engine: pod %q is not a replica of DownloadClient %q's StatefulSet (%s-engine-<N>)",
+		return "", fmt.Errorf("engine: pod %q is not a replica of DownloadClient %q's StatefulSet (%s-engine-<N>)",
 			podName, client, client)
 	}
 	return client + "-" + n, nil
