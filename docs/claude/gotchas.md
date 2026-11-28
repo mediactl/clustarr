@@ -748,6 +748,34 @@ recorded here.
   **Raise `backlog.SearchVersion` with any change to how indexers are
   asked or how their answers are judged that can turn up a release an
   earlier search missed**; a fix that only refuses more needs none.
+- **A 7-Zip archive posted in parts was renamed out from under its par2
+  set: the cause of "the transfer's scratch files are gone or altered"
+  (found 2026-11-28; the failure had been open since October).** A post of
+  `GiDY8v0wuYowRRaQ.7z.001` and on (a film, obfuscated) was content to
+  `classify`, so the magic-bytes step read the first part's 7z signature
+  and named it `...7z.001.7z`; par2, whose set records `...7z.001`,
+  repaired and put the name back; `adoptRepairedSet` added the set's name
+  beside the list's stale one; and `verifyContent` then stat'ed
+  `...7z.001.7z`: `writeError`, a local fault, the download thrown away.
+  Now `x.7z.NNN` is an archive (`split7zRE`): it keeps its names, its
+  first part is the set's entry point, sevenzip opens every part after a
+  name ending `.001`, and the set is cleaned up as one. And no file whose
+  name the par2 set records is renamed by its magic bytes, whatever it
+  ends in. Tests: `TestA7zArchiveInPartsKeepsItsNamesAndIsUnpacked` (a
+  real archive, `test/data/usenet/show.7z`, cut in three),
+  `TestAFileThePar2SetNamesIsGivenNoExtension` (falsified).
+- **One folder the recycle sweep could not remove stopped it for five
+  weeks (found 2026-11-28).** `fsops.SweepRecycleBin` returned at the first
+  day's folder that failed; on talos a file under
+  `/data/.recycle/2026-10-22/cyberpunk-edgerunners-s01-dolby-vision-p5/`
+  answered "permission denied" (a download recycled whole keeps its
+  folders' modes, and a folder without its owner's write bit cannot be
+  emptied), so every sweep since ended there, no later day was ever
+  removed, and `import.RecycleSweepTask` was dead-lettered twice an hour.
+  Now a folder that cannot be removed is passed (the error at the end
+  names the first and counts the rest), and a permission error has every
+  directory of the tree given its owner's rwx and the removal tried again
+  (`removeAllOwned`). A tree another uid owns still fails, by name.
 - **A reply was one NATS message, and a season pack's .nzb does not fit
   one however it is compressed (2026-11-27, owner: "This one seems fixable
   - find a solution", "I'm guessing we can raise this?").** Three One

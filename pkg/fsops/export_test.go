@@ -24,3 +24,11 @@ func SetCopyChunkForTest(n int) func() {
 	copyChunk = n
 	return func() { copyChunk = old }
 }
+
+// RemoveAllForTest replaces the recycle sweep's os.RemoveAll and returns
+// the restore.
+func RemoveAllForTest(f func(string) error) func() {
+	old := removeAllFunc
+	removeAllFunc = f
+	return func() { removeAllFunc = old }
+}

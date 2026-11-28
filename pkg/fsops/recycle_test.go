@@ -21,9 +21,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
@@ -232,4 +234,55 @@ func TestSweepRecycleBinKeepsADayUntilItsLastFileIsRetentionOld(t *testing.T) {
 	removed, err = fsops.SweepRecycleBin(context.Background(), root, retention, time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC))
 	require.NoError(t, err)
 	require.Equal(t, 1, removed, "the whole day is")
+}
+
+// A day's folder that cannot be removed does not hold up the days after it,
+// and a folder left without its owner's write bit is removed all the same.
+// On talos one file under 2026-10-22 ("permission denied") stopped every
+// sweep at that folder for five weeks: nothing recycled after it was ever
+// removed (found 2026-11-28).
+func TestSweepRecycleBinPassesAFolderItCannotRemove(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root removes anything")
+	}
+	root := t.TempDir()
+	now := time.Date(2026, 11, 28, 0, 0, 0, 0, time.UTC)
+	mk := func(day, sub string, mode os.FileMode) string {
+		dir := filepath.Join(root, day, sub)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "episode.mkv"), []byte("x"), 0o644))
+		require.NoError(t, os.Chmod(dir, mode))
+		return dir
+	}
+	// A recycled download whose folder lost its write bit: removable once
+	// the bit is back.
+	mk("2026-10-22", "cyberpunk-edgerunners-s01", 0o555)
+	mk("2026-10-23", "show", 0o755)
+	mk("2026-10-24", "show", 0o755)
+
+	removed, err := fsops.SweepRecycleBin(context.Background(), root, 7*24*time.Hour, now)
+	require.NoError(t, err)
+	assert.Equal(t, 3, removed)
+	left, err := os.ReadDir(root)
+	require.NoError(t, err)
+	assert.Empty(t, left)
+
+	// A folder that stays unremovable (here: its parent is made read-only
+	// after the fact, as another owner's would be) is reported, and the
+	// later days go.
+	stuck := mk("2026-10-22", "theirs", 0o755)
+	mk("2026-10-23", "show", 0o755)
+	origRemove := fsops.RemoveAllForTest(func(p string) error {
+		if strings.HasPrefix(stuck, p) {
+			return &os.PathError{Op: "unlinkat", Path: stuck, Err: os.ErrPermission}
+		}
+		return os.RemoveAll(p)
+	})
+	defer origRemove()
+	removed, err = fsops.SweepRecycleBin(context.Background(), root, 7*24*time.Hour, now)
+	require.ErrorIs(t, err, os.ErrPermission)
+	assert.Contains(t, err.Error(), "2026-10-22")
+	assert.Equal(t, 1, removed, "the day after the stuck one is removed")
+	_, statErr := os.Stat(filepath.Join(root, "2026-10-23"))
+	assert.True(t, os.IsNotExist(statErr))
 }

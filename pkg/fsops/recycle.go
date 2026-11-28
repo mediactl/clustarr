@@ -19,7 +19,9 @@ package fsops
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,6 +121,15 @@ func recycleDest(root, path string) (string, error) {
 // subdirectory name that does not parse as yyyy-mm-dd is left alone
 // rather than guessed at, per amendment §A1.5's never-guess rule.
 //
+// A day's folder that cannot be removed does not stop the sweep: the days
+// after it are removed all the same, and the error returned at the end
+// names the first that was left and how many were. A folder a recycled
+// download left without its owner's write bit is given it and removed
+// (removeAllOwned). On talos one file under 2026-10-22, "permission
+// denied", failed every sweep from then on at that folder, so nothing
+// recycled after it was ever removed and the task was dead-lettered twice
+// an hour (found 2026-11-28).
+//
 // ctx is checked once before reading root and once per directory entry,
 // so a large bin stops promptly on cancellation instead of finishing the
 // whole sweep; the returned error wraps ctx's error so
@@ -139,6 +150,10 @@ func SweepRecycleBin(ctx context.Context, root string, retention time.Duration, 
 
 	cutoff := now.Add(-retention)
 	removed := 0
+	var (
+		left     int
+		firstErr error
+	)
 	for _, e := range entries {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return removed, fmt.Errorf("fsops: sweep recycle bin %s: %w", root, ctxErr)
@@ -151,11 +166,42 @@ func SweepRecycleBin(ctx context.Context, root string, retention time.Duration, 
 			continue // not one of ours; never guess, leave it alone
 		}
 		if !day.AddDate(0, 0, 1).After(cutoff) {
-			if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
-				return removed, fmt.Errorf("fsops: remove %s: %w", e.Name(), err)
+			if err := removeAllOwned(filepath.Join(root, e.Name())); err != nil {
+				if left++; firstErr == nil {
+					firstErr = fmt.Errorf("fsops: remove %s: %w", e.Name(), err)
+				}
+				continue
 			}
 			removed++
 		}
 	}
-	return removed, nil
+	if left > 1 {
+		return removed, fmt.Errorf("%w (and %d more folders were left)", firstErr, left-1)
+	}
+	return removed, firstErr
 }
+
+// removeAllOwned is os.RemoveAll for a tree that may hold directories
+// without their owner's write bit, which unlinking their entries needs: a
+// download recycled whole keeps the modes its client gave it. On a
+// permission error every directory of the tree is given rwx for its owner
+// (what `go clean -modcache` does for the module cache) and the removal is
+// tried once more. A tree another user owns still fails, with that error.
+func removeAllOwned(path string) error {
+	err := removeAllFunc(path)
+	if err == nil || !errors.Is(err, fs.ErrPermission) {
+		return err
+	}
+	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, werr error) error {
+		if werr == nil && d.IsDir() {
+			if info, ierr := d.Info(); ierr == nil && info.Mode().Perm()&0o700 != 0o700 {
+				_ = os.Chmod(p, info.Mode().Perm()|0o700)
+			}
+		}
+		return nil
+	})
+	return removeAllFunc(path)
+}
+
+// removeAllFunc is os.RemoveAll, a seam for a tree no chmod makes removable.
+var removeAllFunc = os.RemoveAll

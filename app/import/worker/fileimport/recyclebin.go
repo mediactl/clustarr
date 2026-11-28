@@ -165,8 +165,9 @@ func (s *RecycleSweeper) SweepOnce(ctx context.Context) error {
 		}
 		removed, err := fsops.SweepRecycleBin(ctx, b.path, time.Duration(b.retention)*24*time.Hour, now)
 		if err != nil {
+			// The sweep removed what it could before reporting what it
+			// could not, so the days it did empty are still logged.
 			errs = append(errs, fmt.Errorf("sweep %s: %w", b.path, err))
-			continue
 		}
 		if removed > 0 {
 			log.Info("fileimport: emptied expired days from a recycle bin", "bin", b.path, "removed", removed,
