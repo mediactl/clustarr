@@ -87,7 +87,10 @@ func TestABareNumberUnderATitleTheSeriesDoesNotKnowIsPlacedNowhere(t *testing.T)
 	}{
 		// The two the owner found among S01E02's approved results.
 		{title: "[Erai-raws] JoJo no Kimyou na Bouken - Stone Ocean Part 2 - 01 ~ 12 [1080p][Multiple Subtitle] [ENG][PT-BR][SPA-LA][SPA][ARA][FRE][GER][ITA][RUS][JPN][POR][POL][DUT][NOB][FIN][TUR][SWE][GRE][HEB][RUM]", unplaced: true},
-		{title: "[KaiDubs] JoJo's Bizarre Adventure: Golden Wind (Part 5) - 02 [1080p] [English Dub] [CC] [AS-DL] [401D6E42]", unplaced: true},
+		// The second, "... Golden Wind (Part 5)", is also "... Golden Wind"
+		// (release.withSecondNames), season 4's scene name: placed there,
+		// not in season 1 and no longer nowhere.
+		{title: "[KaiDubs] JoJo's Bizarre Adventure: Golden Wind (Part 5) - 02 [1080p] [English Dub] [CC] [AS-DL] [401D6E42]", want: []SeasonEpisode{{4, 2}}},
 		// The series' own titles are its first season.
 		{title: "[Judas] JoJo no Kimyou na Bouken - 02 [BD 1080p][HEVC x265 10bit][Dual-Audio]", want: []SeasonEpisode{{1, 2}}},
 		{title: "[Group] JoJo's Bizarre Adventure - 02 [1080p]", want: []SeasonEpisode{{1, 2}}},
@@ -128,19 +131,20 @@ func TestAnEpisodeRefusesAReleaseOfAnotherPartOfItsSeries(t *testing.T) {
 		require.NoError(t, err)
 		return identityRejection(target, idx, p, common.ReleaseInfo{Title: title, IndexerRef: "amenzb"})
 	}
+	r := check("[Erai-raws] JoJo no Kimyou na Bouken - Stone Ocean Part 2 - 01 ~ 12 [1080p][Multiple Subtitle] [ENG][PT-BR]")
+	require.NotNil(t, r)
+	assert.True(t, strings.HasPrefix(r.Reason, ReasonUnknownItem.Code+":"), r.Reason)
+	assert.Contains(t, r.Reason, "neither the series' own nor one of its seasons' scene names")
+	// A later season's release under that season's name is the wrong item,
+	// written plainly or with the part in parentheses after it.
 	for _, title := range []string{
-		"[Erai-raws] JoJo no Kimyou na Bouken - Stone Ocean Part 2 - 01 ~ 12 [1080p][Multiple Subtitle] [ENG][PT-BR]",
+		"[KaiDubs] JoJo's Bizarre Adventure - Golden Wind - 02 [1080p] [English Dub]",
 		"[KaiDubs] JoJo's Bizarre Adventure: Golden Wind (Part 5) - 02 [1080p] [English Dub] [CC] [AS-DL] [401D6E42]",
 	} {
 		r := check(title)
 		require.NotNil(t, r, title)
-		assert.True(t, strings.HasPrefix(r.Reason, ReasonUnknownItem.Code+":"), r.Reason)
-		assert.Contains(t, r.Reason, "neither the series' own nor one of its seasons' scene names", title)
+		assert.True(t, strings.HasPrefix(r.Reason, ReasonWrongItem.Code+":"), r.Reason)
 	}
-	// A later season's release under that season's name is the wrong item.
-	r := check("[KaiDubs] JoJo's Bizarre Adventure - Golden Wind - 02 [1080p] [English Dub]")
-	require.NotNil(t, r)
-	assert.True(t, strings.HasPrefix(r.Reason, ReasonWrongItem.Code+":"), r.Reason)
 	// Its own.
 	assert.Nil(t, check("[Judas] JoJo no Kimyou na Bouken - 02 [BD 1080p][HEVC x265 10bit][Dual-Audio]"))
 	assert.Nil(t, check("JoJos.Bizarre.Adventure.S01E02.A.Letter.from.the.Past.1080p.BluRay.10bit.x265-GRP"))

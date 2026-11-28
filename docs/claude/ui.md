@@ -1217,6 +1217,57 @@ back is judged by the search's identity like any release. Cost: up to four
 more queries of each text indexer per anime season search, at its
 `requestDelay`. A standard series is unchanged: its season goes on the
 wire as a parameter.
+**An indexer's id does not carry a release whose title names something
+else (owner, 2026-11-27: "This obviously needs fixing and warrants a deep
+investigation into how we search and filter. I've been seeing many random
+and incorrect responses, some of which are even getting approved as
+releases").** Two things skip the title check for a series' release: the
+release carries the series' tvdb id, or its indexer answered a query for it
+(`Identity.IDQueryIndexers`). Both are the indexer's catalogue speaking,
+and it is sometimes wrong: the 22 best-ranked answers for Lupin III's
+third season were the live-action "Lupin" (Netflix, 2021), which amenzb
+files under the anime's tvdb, tmdb and imdb ids, and 17 of Unlimited
+Psychic Squad's were Takopi's Original Sin. The sample behind the rule: 20
+look-only season searches of random monitored anime series (the tv half
+of the sample never folded: see the manager's CPU below), 3,482
+candidates, 3,016 approved; 318 approvals had a title matching none
+of the series' titles or TheXEM names, 276 of them the series under a name
+the titles do not list (a year, a season marker or a group left in the
+title; "Romaji (English)"; an unlisted romanisation) and 42 another show,
+every one from amenzb with the id carried. `decision.vouchContradiction`
+now holds an id to the title, word by word against every name the series
+has (titles and scene season names): a title that is a name, holds one
+whole, is one less a year or a country, or shares a word with one without
+being its start, is believed; one that is only the start of a name
+("Lupin" of "Lupin III": what follows a name's start is what tells a
+sequel or a namesake from it) or shares no word with any is `WrongItem`.
+Replayed over the sample it refuses the 42 and nothing else. A title in
+another script has nothing to compare and keeps the id; a movie is left to
+its ids and year. The cost: a release named only by the first words of a
+long title, or by a romanisation unlike every listed name, was carried by
+the id and is refused now; the name belongs in the series' titles.
+**An episode's title carries its second name**
+(`release.withSecondNames`): "[Group] Romaji (English) - 25", or either
+side of a bar, as a pack's already did (`animeTitles`). Of the 53 releases
+the sample refused for their title, all from the one text-query indexer
+(nyaasi), 40 were the series under such a name; 33 match now, and the 20
+left are 17 right refusals (Detective Conan, Magia Record, Lupin's films)
+and 3 forms not read ("A - B", "[v2] A", a trailing "1"). A release with
+several names is numbered under the one that is a season's scene name
+(`sceneIndex.namingTitle`), the same one that places it: "[KaiDubs] JoJo's
+Bizarre Adventure: Golden Wind (Part 5) - 02" is also "... Golden Wind",
+so it is season 4's second episode, where the day before it was placed
+nowhere and, before that, approved for S01E02. Other findings
+of that pass, not changed: the manager spent 63% of its CPU decoding rows
+(`rowcache.(*codec).decodeInto`, half of it under the item reconciler's
+search stage) at its 750m limit, so 30 interactive searches answered by
+the agents in seconds were still unfolded 30 minutes later and titles
+timed out being read; and "DUAL" on a series whose original language is
+Japanese is read as Japanese and English, which ranked the live-action
+releases first. Tests: `TestAnIndexersIDDoesNotCarryATitleThatNamesSomethingElse`,
+`TestAnIndexersIDStillCarriesANameTheTitlesDoNotList`,
+`TestAnEpisodesTitleCarriesItsSecondName` (the first falsified).
+
 **A bare number under a title the series does not know is placed nowhere
 (owner, 2026-11-27: "that's season 5 --- definitely should not be an
 approved S01E02 release!", "Ensure that only the correct season is

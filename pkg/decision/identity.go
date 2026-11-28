@@ -19,6 +19,8 @@ package decision
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -221,14 +223,14 @@ func itemRejection(kind common.MediaKind, id Identity, want, namesakes map[strin
 		return &r
 	}
 	if matched {
-		return nil
+		return vouchContradiction(kind, id, parsed, rel)
 	}
 
 	if rel.IndexerRef != "" && id.IDQueryIndexers[rel.IndexerRef] {
 		if kind == common.MediaKindMovie {
 			return movieYearRejection(id, parsed.Year)
 		}
-		return nil
+		return vouchContradiction(kind, id, parsed, rel)
 	}
 
 	got := releaseTitleKeys(parsed)
@@ -275,6 +277,189 @@ func itemRejection(kind common.MediaKind, id Identity, want, namesakes map[strin
 	r := newRejection(ReasonWrongItem, "title %q matches none of the item's %d known title(s) (primary %q)",
 		parsed.Title, len(id.Titles), id.Titles[0])
 	return &r
+}
+
+// vouchContradiction refuses a series' release that an indexer files under
+// the series' id -- by carrying it, or by answering a query for it -- when
+// the release's own title names something else.
+//
+// An indexer's id is its catalogue's opinion, and the title check is skipped
+// on the strength of it because a release is often named by something the
+// item's titles do not list: a romanised name, a name with the year or a
+// season marker or the group left in it. But the opinion is sometimes wrong,
+// and then nothing else looked: on talos (2026-11-27) the 22 best-ranked
+// answers for Lupin III's third season were the live-action "Lupin"
+// (Netflix, 2021) -- "Lupin.S03E05.1080p.NF.WEB-DL.DUAL..." filed under the
+// anime's tvdb, tmdb and imdb ids alike -- and 17 of Unlimited Psychic
+// Squad's were "Takopi's Original Sin". In a sample of 20 season searches,
+// 318 of 3,016 approvals had a title matching none the item is known by,
+// and 44 of those were another show, every one from one indexer. Owner:
+// "This obviously needs fixing and warrants a deep investigation into how
+// we search and filter. I've been seeing many random and incorrect
+// responses, some of which are even getting approved as releases."
+//
+// So the id stands in for the title only while the title does not speak
+// against it. Each of the release's titles is compared, word by word, with
+// every name the series has (its titles and its seasons' scene names):
+//
+//   - it is a name, or holds one whole ("Lupin III S3", "Puella Magi Madoka
+//     Magica 2011", "[Judas] Onii-chan wa Oshimai! (ONIMAI ...)"), or is a
+//     name less a year or a country: the id is believed;
+//   - it shares a word with a name without being the start of it ("The
+//     Unlimited - Hyoubu Kyousuke" for Unlimited Psychic Squad): believed,
+//     this is the unlisted name the id is there for;
+//   - it is only the start of a name ("Lupin" of "Lupin III"): it names the
+//     shorter thing -- what follows a name's start is what tells a sequel,
+//     a spin-off or a namesake from it -- and is refused;
+//   - it shares no word with any name: refused.
+//
+// A title with nothing to compare (another script) cannot speak against
+// the id. The cost is a release named by the first words of a long title
+// alone, or by a name in no word like any the series lists, which is now
+// refused where the id used to carry it; such a name belongs in the
+// series' titles. A movie is left to its ids and its year.
+func vouchContradiction(kind common.MediaKind, id Identity, parsed *release.ParsedRelease, rel common.ReleaseInfo) *common.Rejection {
+	if kind == common.MediaKindMovie {
+		return nil
+	}
+	var names [][]string
+	for _, t := range id.Titles {
+		if k := titleTokens(t); len(k) > 0 {
+			names = append(names, k)
+		}
+	}
+	for _, n := range id.SceneSeasonNames {
+		if k := titleTokens(n.Title); len(k) > 0 {
+			names = append(names, k)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	titles := parsed.Titles
+	if len(titles) == 0 {
+		titles = []string{parsed.Title}
+	}
+	start := ""
+	for _, t := range titles {
+		got := withoutYears(titleTokens(t))
+		if len(got) == 0 {
+			return nil
+		}
+		switch titleRelation(got, names) {
+		case titleAgrees:
+			return nil
+		case titleStartsName:
+			start = t
+		}
+	}
+	by := "carries one of the item's ids"
+	if rel.IndexerRef != "" && id.IDQueryIndexers[rel.IndexerRef] {
+		by = "answered a query for the item's id"
+	}
+	primary := ""
+	if len(id.Titles) > 0 {
+		primary = id.Titles[0]
+	}
+	var r common.Rejection
+	if start != "" {
+		r = newRejection(ReasonWrongItem,
+			"title %q is only the start of one of the item's names (primary %q), so it names something else; the release %s, which its title contradicts",
+			start, primary, by)
+	} else {
+		r = newRejection(ReasonWrongItem,
+			"title %q has no word in common with any of the item's names (primary %q); the release %s, which its title contradicts",
+			parsed.Title, primary, by)
+	}
+	return &r
+}
+
+// A release title's relation to the names an item has (vouchContradiction).
+const (
+	titleUnrelated = iota
+	titleStartsName
+	titleAgrees
+)
+
+// titleRelation compares got, one title's words, with every name's.
+func titleRelation(got []string, names [][]string) int {
+	rel := titleUnrelated
+	for _, name := range names {
+		switch {
+		case containsRun(got, name):
+			return titleAgrees // the title is the name, or holds it whole
+		case len(got) < len(name) && slices.Equal(name[:len(got)], got):
+			if onlyDisambiguates(name[len(got):]) {
+				return titleAgrees
+			}
+			rel = max(rel, titleStartsName)
+		case sharesWord(got, name):
+			return titleAgrees
+		}
+	}
+	return rel
+}
+
+// withoutYears is a title's words less the years after its first, alone or
+// run together: "Lupin (2021-2023)" is "Lupin", and says no more of whose
+// it is.
+func withoutYears(words []string) []string {
+	out := words[:0:0]
+	for i, w := range words {
+		if i > 0 && len(w) >= 4 && strings.Trim(w, "0123456789") == "" {
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+func isYear(w string) bool {
+	y, err := strconv.Atoi(w)
+	return err == nil && len(w) == 4 && y >= 1900 && y < 2100
+}
+
+// containsRun reports whether run occurs in s as consecutive words.
+func containsRun(s, run []string) bool {
+	for i := 0; i+len(run) <= len(s); i++ {
+		if slices.Equal(s[i:i+len(run)], run) {
+			return true
+		}
+	}
+	return false
+}
+
+// disambiguators are the words a catalogue adds to a title to tell two
+// series of one name apart, beside a year: a release of the series rarely
+// carries them.
+var disambiguators = map[string]bool{"us": true, "uk": true, "au": true, "nz": true, "ca": true, "jp": true, "kr": true, "tv": true}
+
+// onlyDisambiguates reports whether rest, what a name has beyond a title,
+// is only a year or a country: "Kingdom" for "Kingdom (2019)".
+func onlyDisambiguates(rest []string) bool {
+	for _, w := range rest {
+		if isYear(w) {
+			continue
+		}
+		if !disambiguators[w] {
+			return false
+		}
+	}
+	return true
+}
+
+// sharesWord reports whether a and b have a word in common that is not a
+// number: a season or part number says nothing of whose it is.
+func sharesWord(a, b []string) bool {
+	for _, w := range a {
+		if _, err := strconv.Atoi(w); err == nil {
+			continue
+		}
+		if slices.Contains(b, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // namesakeKind names the library kind a namesake is: an episode's is its
@@ -405,7 +590,10 @@ var romanNumerals = map[string]string{
 // dropped, roman numerals folded, and the spaces removed -- Radarr's clean
 // titles carry none, which is what makes "Spider-Man" and "Spiderman" agree.
 // "" means the title has nothing comparable in it.
-func titleKey(s string) string {
+func titleKey(s string) string { return strings.Join(titleTokens(s), "") }
+
+// titleTokens are the words titleKey joins.
+func titleTokens(s string) []string {
 	fields := strings.Fields(release.CleanTitle(umlauts.Replace(s)))
 	kept := make([]string, 0, len(fields))
 	for _, f := range fields {
@@ -422,7 +610,7 @@ func titleKey(s string) string {
 		// "A" or "The" alone could be): keep it rather than erase it.
 		kept = fields
 	}
-	return strings.Join(kept, "")
+	return kept
 }
 
 // targetTitleKeys keys every title the item is known by. A series is also

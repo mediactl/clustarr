@@ -205,6 +205,26 @@ func (idx sceneIndex) namedSeason(title string) int {
 	return idx.spelledNames[spelledKey(title)]
 }
 
+// namingTitle is the one of p's titles that says which season p is of: its
+// primary title when that is one of the series' season names, else the
+// first of its other names that is ("[KaiDubs] JoJo's Bizarre Adventure:
+// Golden Wind (Part 5) - 02" is also "JoJo's Bizarre Adventure: Golden
+// Wind", season 4's name), else the primary. Every reading of a season from
+// a title goes through it, so a release placed by one of its names
+// (places) is numbered under that same name and not as the series' first
+// season.
+func (idx sceneIndex) namingTitle(p *release.ParsedRelease) string {
+	if idx.namedSeason(p.Title) > 0 {
+		return p.Title
+	}
+	for _, t := range p.Titles {
+		if idx.namedSeason(t) > 0 {
+			return t
+		}
+	}
+	return p.Title
+}
+
 // namesSeasons reports whether the series has scene names for its seasons.
 func (idx sceneIndex) namesSeasons() bool {
 	return len(idx.seasonNames) > 0 || len(idx.spelledNames) > 0
@@ -236,7 +256,7 @@ func NamedSeason(p *release.ParsedRelease, id Identity) int {
 	}
 	var idx sceneIndex
 	idx.addSeasonNames(id.SceneSeasonNames)
-	if n := idx.namedSeason(p.Title); n > 1 {
+	if n := idx.namedSeason(idx.namingTitle(p)); n > 1 {
 		return n
 	}
 	return 0
@@ -398,7 +418,7 @@ func releaseCoverage(p *release.ParsedRelease, scene sceneIndex) coverage {
 	c := coverage{pairs: map[seasonEpisode]bool{}, fullSeasons: map[int]bool{}, absolutes: map[int]bool{}}
 	if p.FullSeason {
 		for _, s := range p.Seasons {
-			s = scene.sceneSeason(p.Title, s)
+			s = scene.sceneSeason(scene.namingTitle(p), s)
 			if eps := scene.bySeason[s]; len(eps) > 0 {
 				c.addMapped(eps...)
 				continue
@@ -407,7 +427,7 @@ func releaseCoverage(p *release.ParsedRelease, scene sceneIndex) coverage {
 		}
 	} else {
 		for _, s := range p.Seasons {
-			s = scene.sceneSeason(p.Title, s)
+			s = scene.sceneSeason(scene.namingTitle(p), s)
 			for _, e := range p.Episodes {
 				eps := scene.byEpisode[seasonEpisode{s, e}]
 				switch {
@@ -439,7 +459,7 @@ func releaseCoverage(p *release.ParsedRelease, scene sceneIndex) coverage {
 			c.unplaced = true
 			continue
 		}
-		if eps := scene.absolute(p.Title, a); len(eps) > 0 {
+		if eps := scene.absolute(scene.namingTitle(p), a); len(eps) > 0 {
 			c.addMapped(eps...)
 			continue
 		}
@@ -468,7 +488,7 @@ func releaseCoverage(p *release.ParsedRelease, scene sceneIndex) coverage {
 // pack's "Pop Team Epic S2 - 01" was filed at import as S01E01 and held
 // against the file there (talos, 2026-11-27).
 func (c *coverage) addTitleSeason(p *release.ParsedRelease, scene sceneIndex, a int) bool {
-	season := scene.sceneSeason(p.Title, 1)
+	season := scene.sceneSeason(scene.namingTitle(p), 1)
 	if season == 1 {
 		season = p.TitleSeason
 	}

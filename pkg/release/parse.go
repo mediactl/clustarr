@@ -119,8 +119,35 @@ func parseOnce(title string, o Options) (*ParsedRelease, error) {
 	if len(p.Titles) == 0 {
 		p.Titles = buildTitles(p.Title, stripped)
 		p.Title = p.Titles[0]
+		if kind == commonv1.MediaKindEpisode || kind == commonv1.MediaKindSeries {
+			p.Titles = withSecondNames(p.Titles)
+		}
 	}
 	return p, nil
+}
+
+// withSecondNames adds, to an episode's titles, the other names each one
+// writes out as a pack's does (animeTitles): each side of a " | ", and the
+// name outside and the name inside one parenthesis. An anime release is
+// often titled by its romanised name with the English one in parentheses,
+// "[Passerby] Nanatsu no Taizai: Mokushiroku no Yonkishi (The Seven Deadly
+// Sins: Four Knights of the Apocalypse) - 25 [BD926B26].mkv", and read as
+// one title it matched neither: of 53 releases a sample of 20 season
+// searches refused for their title, 40 were the series under such a name
+// (talos, 2026-11-27). A second name of under three characters or all
+// digits -- "(US)", "(2019)" -- is no name.
+func withSecondNames(titles []string) []string {
+	out := append([]string(nil), titles...)
+	for _, t := range titles {
+		for _, alt := range animeTitles(t)[1:] {
+			alt = strings.TrimSpace(alt)
+			if len(alt) < 3 || strings.Trim(alt, "0123456789") == "" || slicesContainsFold(out, alt) {
+				continue
+			}
+			out = append(out, alt)
+		}
+	}
+	return out
 }
 
 // resolveKind is Parse's own kind-resolution idiom (o.Kind, or

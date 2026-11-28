@@ -260,8 +260,11 @@ func TestTheSearchChangesWithItsIndexersAndItsVersion(t *testing.T) {
 		"one added":         {[]client.Object{a, b, indexer("c", now, nil)}, backlog.SearchVersion, true},
 		"categories edited": {[]client.Object{a, indexer("b", old, func(s *indexv1alpha1.IndexerSpec) { s.Categories = []int32{5070} })}, backlog.SearchVersion, true},
 		"kept to anime":     {[]client.Object{a, indexer("b", old, func(s *indexv1alpha1.IndexerSpec) { s.AnimeOnly = true })}, backlog.SearchVersion, true},
-		"only its pace":     {[]client.Object{a, indexer("b", old, func(s *indexv1alpha1.IndexerSpec) { s.Priority = 9; s.RssInterval = metav1.Duration{Duration: time.Hour} })}, backlog.SearchVersion, false},
-		"an older build's":  {[]client.Object{a, b}, backlog.SearchVersion - 1, true},
+		"only its pace": {[]client.Object{a, indexer("b", old, func(s *indexv1alpha1.IndexerSpec) {
+			s.Priority = 9
+			s.RssInterval = metav1.Duration{Duration: time.Hour}
+		})}, backlog.SearchVersion, false},
+		"an older build's": {[]client.Object{a, b}, backlog.SearchVersion - 1, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			st := record(a, b)
