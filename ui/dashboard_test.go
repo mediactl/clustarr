@@ -152,7 +152,8 @@ func TestTheSummaryRefreshesAlone(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	assert.True(t, strings.HasPrefix(strings.TrimSpace(body), `<div id="dashboard-live-downloads"`), "a fragment, not a page")
+	assert.True(t, strings.HasPrefix(strings.TrimSpace(body), `<p id="dashboard-status"`), "a fragment, not a page: the status line first")
+	assert.Regexp(t, `<div id="dashboard-tiles"[^>]*hx-swap-oob="morph"`, body, "the summary tiles, out of band")
 	for _, group := range []string{"downloads", "transcodes"} {
 		assert.Regexp(t, `<div id="dashboard-live-`+group+`" class="contents" hx-swap-oob="morph">`, body, "each section's live cards, out of band and morphed, so focus, hover and a bar's motion survive the poll")
 	}

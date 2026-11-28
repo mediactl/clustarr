@@ -1487,19 +1487,6 @@ html[data-cq] [data-shell-page] {
 [data-slot="tabs-trigger"]::after {
   display: none;
 }
-/* The Dashboard's tabbed card headers are tiles, not segments (until its
-   redesign): their own height, nothing clipped. */
-[data-dashboard-tabs] [data-slot="tabs-list"] {
-  height: auto;
-  overflow: visible;
-  background: none;
-  padding: 0;
-  border-radius: 0;
-}
-[data-dashboard-tabs] [data-slot="tabs-trigger"] {
-  height: auto;
-  border-radius: var(--radius-lg);
-}
 [data-slot="tabs-trigger"]:focus-visible,
 [data-slot="toggle-group-item"]:focus-visible {
   outline: 2px solid var(--tint);
@@ -2455,7 +2442,8 @@ html[data-library-details="shown"] [data-card-details] {
     animation-iteration-count: infinite !important;
   }
   .scroll-fade-x {
-    animation-duration: auto !important;
+    animation: none !important;
+    mask-image: none !important;
   }
   :is([data-slot="button"], .group\/button):active,
   [data-library-grid] [data-slot="item"],

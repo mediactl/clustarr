@@ -20,12 +20,14 @@ package views
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/card"
 	"github.com/mediactl/clustarr/ui/components/chart"
+	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/pagination"
 	"github.com/mediactl/clustarr/ui/components/progress"
 	"github.com/mediactl/clustarr/ui/components/separator"
@@ -154,20 +156,24 @@ templ Dashboard(v DashboardView) {
 		// between cards, so the hierarchy reads in the spacing (owner,
 		// 2026-11-04: "based on swiss design principles and proportions";
 		// 3rem was "too much").
-		<div class="mb-6 flex items-center justify-between gap-4 sm:mb-8">
-			<h1 class="text-2xl font-semibold tracking-tight">Dashboard</h1>
+		<div data-page-header class="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+			<div class="min-w-0">
+				<h1>Dashboard</h1>
+				@dashboardStatus(v.Summary, false)
+			</div>
 			if v.Charts.Configured {
 				@rangePicker(v.Charts, false)
 			}
 		</div>
+		@dashboardTiles(v.Summary, false)
 		<div id="dashboard-summary-poller" data-list-poller hidden hx-get="/dashboard/summary" hx-trigger={ pollTrigger(SummaryRefresh) + ", dashboard:page" } hx-swap="none"></div>
 		if v.Charts.Configured {
 			@chartsPoller(v.Charts, false)
 		}
-		<div class="space-y-8">
+		<div class="grid gap-x-4 gap-y-8 @5xl/page:grid-cols-2">
 			for _, sec := range dashboardSections {
 				if sec.Live || v.Charts.Has(sec.Key) {
-					<section data-dashboard-section={ sec.Key } class="space-y-3">
+					<section data-dashboard-section={ sec.Key } class={ "min-w-0 space-y-3", templ.KV("col-span-full", !sec.Live || v.Charts.Configured) }>
 						// A live section's card carries its title; a section of
 						// charts alone is headed.
 						if !sec.Live {
@@ -183,16 +189,9 @@ templ Dashboard(v DashboardView) {
 				}
 			}
 			if !v.Charts.Configured {
-				@card.Card() {
-					@card.Header() {
-						@card.Title() {
-							Metrics are not configured
-						}
-						@card.Description() {
-							Give the ui a Prometheus-compatible API with --metrics-url (the chart's ui.metrics.url), e.g. Mimir's http://mimir.observability.svc:8080/prometheus, to chart clustarr's and Plex's metrics here.
-						}
-					}
-				}
+				<p data-metrics-note class="col-span-full text-callout text-label-2" title="Give the ui a Prometheus-compatible API with --metrics-url (the chart's ui.metrics.url), e.g. Mimir's http://mimir.observability.svc:8080/prometheus">
+					Metrics are not configured: charts need a Prometheus-compatible API (<code class="font-mono text-footnote">ui.metrics.url</code>).
+				</p>
 			}
 		</div>
 	}
@@ -201,6 +200,8 @@ templ Dashboard(v DashboardView) {
 // DashboardSummary is GET /dashboard/summary: every live group, out of
 // band.
 templ DashboardSummary(v DashboardSummaryView) {
+	@dashboardStatus(v, true)
+	@dashboardTiles(v, true)
 	for _, sec := range dashboardSections {
 		if sec.Live {
 			@liveGroup(sec.Key, v, true)
@@ -320,7 +321,7 @@ const sectionTabStripeClass = "absolute inset-x-0 bottom-0 h-1 opacity-40 transi
 // sectionCardSpan is a section card's width in its section's grid: half a
 // wide screen's row, a section's two cards side by side, and the whole row
 // below xl (owner, 2026-11-04).
-const sectionCardSpan = "col-span-full xl:col-span-4"
+const sectionCardSpan = "col-span-full"
 
 // sectionCard is a section's tabbed card (owner, 2026-11-04, after
 // shadcn's "Bar Chart - Interactive"): the title and its one-line
@@ -334,41 +335,122 @@ const sectionCardSpan = "col-span-full xl:col-span-4"
 templ sectionCard(key, title, description, href string, tabList []statTab, selected string) {
 	@card.Card(card.Props{Class: sectionCardSpan + " gap-0 py-0", Attributes: templ.Attributes{"data-section-card": key}}) {
 		@tabs.Tabs(tabs.Props{ID: "dashboard-tabs-" + key, DefaultValue: selected, Class: "@container gap-0", Attributes: templ.Attributes{"data-dashboard-tabs": key}}) {
-			<div class="flex flex-col items-stretch border-b border-border sm:flex-row">
-				<div class="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-4 py-3 sm:px-6">
+			<div class="flex flex-col gap-3 px-(--card-spacing) pt-(--card-spacing) pb-3">
+				<div class="flex items-baseline justify-between gap-3">
+					<h2 class="truncate text-headline text-label-1" title={ description }>{ title }</h2>
 					if href != "" {
-						<a href={ templ.SafeURL(href) } class="truncate font-semibold leading-snug hover:underline">{ title }</a>
-					} else {
-						<span class="truncate font-semibold leading-snug">{ title }</span>
+						<a href={ templ.SafeURL(href) } data-see-all class="shrink-0 text-subheadline font-medium text-tint hover:opacity-80">See All</a>
 					}
-					<p class="truncate text-sm text-muted-foreground" title={ description }>{ description }</p>
 				</div>
-				@tabs.List(tabs.ListProps{Class: "flex h-auto w-full items-stretch justify-start overflow-x-auto overflow-y-hidden rounded-none border-t border-border bg-transparent p-0 [scrollbar-width:none] group-data-horizontal/tabs:h-auto sm:w-auto sm:overflow-visible sm:border-t-0"}) {
+				@tabs.List(tabs.ListProps{Class: "scroll-fade-x self-start"}) {
 					for _, t := range tabList {
-						@tabs.Trigger(tabs.TriggerProps{Value: t.Value, Class: sectionTabClass, Attributes: templ.Attributes{"data-stat": t.Label, "data-count": t.figure()}}) {
-							// The tab's colour is a line along its bottom edge; a
-							// chart of several series has no one colour, and a
-							// neutral line keeps the tabs alike.
-							if t.Color != "" {
-								<span data-stripe class={ sectionTabStripeClass + " " + t.Color } aria-hidden="true"></span>
-							} else if t.Swatch != "" {
-								<span data-stripe class={ sectionTabStripeClass } style={ templ.SafeCSS("background-color: " + t.Swatch + ";") } aria-hidden="true"></span>
-							} else {
-								<span data-stripe class={ sectionTabStripeClass + " bg-muted-foreground" } aria-hidden="true"></span>
-							}
-							<span class="text-[11px] font-normal text-muted-foreground sm:text-xs">{ t.Label }</span>
-							<span class="text-lg font-bold leading-none tabular-nums sm:text-xl xl:text-2xl">{ t.figure() }</span>
+						@tabs.Trigger(tabs.TriggerProps{Value: t.Value, Class: "gap-1.5", Attributes: templ.Attributes{"data-stat": t.Label, "data-count": t.figure()}}) {
+							<span>{ t.Label }</span>
+							<span data-count-text class={ "font-medium tabular-nums " + tabCountTone(t) }>{ t.figure() }</span>
 						}
 					}
 				}
 			</div>
 			for _, t := range tabList {
-				@tabs.Content(tabs.ContentProps{Value: t.Value, Class: "px-6 py-4", Attributes: templ.Attributes{"data-list": key + "-" + t.Value}}) {
+				@tabs.Content(tabs.ContentProps{Value: t.Value, Class: "px-(--card-spacing) pb-(--card-spacing)", Attributes: templ.Attributes{"data-list": key + "-" + t.Value}}) {
 					@t.Body
 				}
 			}
 		}
 	}
+}
+
+// tabCountTone colours a tab's count: a failure count above zero red, any
+// other quiet.
+func tabCountTone(t statTab) string {
+	if t.Value == "failed" && t.N > 0 {
+		return "text-red-300"
+	}
+	return "text-label-2"
+}
+
+// dashboardStatus is the Dashboard's subtitle, what is happening now in a
+// sentence ("1 downloading · 2 transcoding · 686 subtitles wanted"), live.
+templ dashboardStatus(v DashboardSummaryView, oob bool) {
+	<p
+		id="dashboard-status"
+		data-page-subtitle
+		class="text-subheadline text-label-2"
+		if oob {
+			hx-swap-oob="morph"
+		}
+	>{ statusSentence(v.Summary) }</p>
+}
+
+func statusSentence(d projection.Dashboard) string {
+	var parts []string
+	if n := d.Downloads.Active.Total; n > 0 {
+		parts = append(parts, thousands(n)+" downloading")
+	}
+	if n := d.Transcodes.Running.Total; n > 0 {
+		parts = append(parts, thousands(n)+" transcoding")
+	}
+	if n := d.Subtitles.Wanted.Total; n > 0 {
+		parts = append(parts, thousands(n)+" subtitles wanted")
+	}
+	if len(parts) == 0 {
+		return "All caught up"
+	}
+	return strings.Join(parts, " · ")
+}
+
+// dashTile is one of the Dashboard's summary tiles: a page, its glyph, the
+// one number that matters there and a line of the rest.
+type dashTile struct {
+	Key, Label, Href, Icon, Tile string
+	N                            int
+	Detail                       string
+	Failed                       int
+}
+
+func dashTiles(d projection.Dashboard) []dashTile {
+	return []dashTile{
+		{"downloads", "Downloading", "/activity/downloads", "download", "green", d.Downloads.Active.Total,
+			thousands(d.Downloads.Pending.Total) + " queued", d.Downloads.Failed.Total},
+		{"transcodes", "Transcoding", "/activity/transcodes", "wand-sparkles", "pink", d.Transcodes.Running.Total,
+			thousands(d.Transcodes.Pending.Total) + " pending", d.Transcodes.Failed.Total},
+		{"subtitles", "Subtitles Wanted", "/activity/subtitles", "captions", "indigo", d.Subtitles.Wanted.Total,
+			thousands(d.Subtitles.Searching.Total) + " searching", d.Subtitles.Failed.Total},
+		{"markers", "Markers Pending", "/activity/markers", "milestone", "orange", d.Markers.Pending.Total,
+			thousands(d.Markers.Found.Total) + " found", d.Markers.Error.Total},
+	}
+}
+
+// dashboardTiles are the summary tiles, four across on a desktop and two
+// on a phone or a tablet, each a link to its Activity page; live.
+templ dashboardTiles(v DashboardSummaryView, oob bool) {
+	<div
+		id="dashboard-tiles"
+		data-dashboard-tiles
+		class="mb-(--section-gap) grid grid-cols-2 gap-3 @4xl/page:grid-cols-4"
+		if oob {
+			hx-swap-oob="morph"
+		}
+	>
+		for _, t := range dashTiles(v.Summary) {
+			<a href={ templ.SafeURL(t.Href) } data-tile={ t.Key } class="panel flex flex-col gap-2 p-(--platter-pad) transition-colors hover:bg-[var(--platter-hover)]">
+				<span class="flex items-center gap-2 text-footnote font-semibold text-label-2">
+					<span data-icon-tile={ t.Tile } class="size-6! rounded-md! [&_svg]:size-3.5!">
+						@icon.Icon(t.Icon)()
+					</span>
+					{ t.Label }
+				</span>
+				<span class="font-rounded text-title-1 text-label-1 tabular-nums">{ thousands(t.N) }</span>
+				<span class="text-footnote text-label-2">
+					{ t.Detail }
+					if t.Failed > 0 {
+						<span aria-hidden="true"> · </span>
+						<span class="text-red-300">{ thousands(t.Failed) } failed</span>
+					}
+				</span>
+			</a>
+		}
+	</div>
 }
 
 // downloadRows is a download tab's content, list naming it for the pages
