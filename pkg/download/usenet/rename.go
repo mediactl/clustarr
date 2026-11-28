@@ -501,8 +501,17 @@ func (j *job) renameObfuscated(ctx context.Context) {
 		j.mu.Unlock()
 	}
 	renamed += j.renameStrayVolumes(ctx)
+	j.mu.Lock()
+	inSet := make(map[string]bool, len(j.par2Names))
+	for _, n := range j.par2Names {
+		inSet[n] = true
+	}
+	j.mu.Unlock()
 	for i, f := range j.nzb.Files {
-		if hasUsableExtension(f.Name) {
+		// A name the par2 set records is the file's name whatever it ends
+		// in: given another, par2 no longer finds it, rebuilds or renames it
+		// back, and the job's list names a file that is gone.
+		if hasUsableExtension(f.Name) || inSet[f.Name] {
 			continue
 		}
 		if ext := sniffExtension(filepath.Join(dir, safeName(f.Name))); ext != "" {

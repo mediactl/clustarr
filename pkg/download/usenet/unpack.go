@@ -188,6 +188,10 @@ func unpackArchives(
 // extractArchive extracts the archive set whose first volume is src, named
 // name, into dst.
 func extractArchive(ctx context.Context, name, src, dst, password string, progress *unpackProgress) (int, error) {
+	if split7zRE.MatchString(name) {
+		// sevenzip opens every part after a name ending in ".001".
+		return unpack7z(ctx, src, dst, password, progress)
+	}
 	switch strings.ToLower(path.Ext(name)) {
 	case ".7z":
 		return unpack7z(ctx, src, dst, password, progress)
@@ -258,6 +262,9 @@ func archiveSetStem(name string) (stem string, ok bool) {
 	if m := rarVolumeRE.FindStringSubmatch(name); m != nil {
 		return m[1], true
 	}
+	if m := split7zRE.FindStringSubmatch(name); m != nil {
+		return m[1], true
+	}
 	lower := strings.ToLower(name)
 	for _, ext := range []string{".rar", ".7z", ".zip"} {
 		if strings.HasSuffix(lower, ext) {
@@ -301,6 +308,8 @@ func archiveEntryPoints(files []nzbFile) []string {
 		switch {
 		case strings.HasSuffix(lower, ".7z"), strings.HasSuffix(lower, ".zip"):
 			out = append(out, f.Name)
+		case strings.HasSuffix(lower, ".7z.001"):
+			out = append(out, f.Name) // the first part of a 7-Zip archive in parts
 		case isFirstRarVolume(lower):
 			out = append(out, f.Name)
 		default:

@@ -306,6 +306,11 @@ var nameExtensionRE = regexp.MustCompile(`\.[A-Za-z0-9]{2,4}$`)
 // extension.
 var subjectFileNameRE = regexp.MustCompile(`\b([\p{L}\p{N}_\-+()' .,]+(?:\[[\p{L}\p{N}_\-+()' .,]*\][\p{L}\p{N}_\-+()' .,]*)*\.[A-Za-z0-9]{2,4})\b`)
 
+// split7zRE is a volume of a 7-Zip archive split in parts: "x.7z.001" and
+// on. The parts are the archive's bytes cut at a size, so only the first
+// opens with the 7z signature.
+var split7zRE = regexp.MustCompile(`(?i)^(.*)\.7z\.(\d{3})$`)
+
 func classify(name string) fileKind {
 	lower := strings.ToLower(name)
 	switch {
@@ -314,6 +319,13 @@ func classify(name string) fileKind {
 	case strings.HasSuffix(lower, ".par2"):
 		return kindPar2Index
 	case strings.HasSuffix(lower, ".rar"), strings.HasSuffix(lower, ".7z"), strings.HasSuffix(lower, ".zip"):
+		return kindArchive
+	case split7zRE.MatchString(lower):
+		// name.7z.001 / name.7z.002: a 7-Zip archive in parts. Read as
+		// content, the first part was given a second ".7z" by its magic
+		// bytes, par2 put the name its set records back, and the job
+		// failed as "scratch files are gone or altered" (talos,
+		// 2026-11-28, and the cause of that failure since October).
 		return kindArchive
 	case rarVolumeRE.MatchString(lower):
 		// name.r00 / name.r01 -- the old multi-volume scheme.
