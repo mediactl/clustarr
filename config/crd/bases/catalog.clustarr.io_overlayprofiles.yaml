@@ -114,6 +114,71 @@ spec:
                 x-kubernetes-list-map-keys:
                 - source
                 x-kubernetes-list-type: map
+              compactGeometry:
+                description: |-
+                  CompactGeometry overrides the badge stack's size on the compact
+                  rendition: the second poster drawn for a client that shows it small,
+                  where a badge sized for the full poster is too small to read. A field
+                  unset here is, for widthPercent and scorePercent, the larger of the
+                  compact default (28 and 31) and Geometry's value, and for every other
+                  field Geometry's value. It changes nothing about the regular poster.
+                properties:
+                  logoPercent:
+                    description: |-
+                      LogoPercent is the provider logo's width, as a percentage of the
+                      badge's box width; the logo sits above the score, the pair centred in
+                      the box. Unset means 60 (LogoPercentOrDefault,
+                      DefaultOverlayLogoPercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  opacityPercent:
+                    description: |-
+                      OpacityPercent is the opacity of the badges' black background. Unset
+                      means 80, Plex's (OpacityPercentOrDefault, DefaultOverlayOpacityPercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  paddingPercent:
+                    description: |-
+                      PaddingPercent is the padding inside each badge, as a percentage of
+                      poster width. Unset means 2 (PaddingPercentOrDefault,
+                      DefaultOverlayPaddingPercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  radiusPercent:
+                    description: |-
+                      RadiusPercent is the radius of each badge's one rounded corner, the
+                      one diagonally opposite Corner, as a percentage of poster width.
+                      Unset means 2 (RadiusPercentOrDefault, DefaultOverlayRadiusPercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  scorePercent:
+                    description: |-
+                      ScorePercent is the score text's cap height, as a percentage of the
+                      badge's box height. Unset means 27, the height of Plex's episode count
+                      on its box (ScorePercentOrDefault, DefaultOverlayScorePercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  widthPercent:
+                    description: |-
+                      WidthPercent is the badge stack's width, as a percentage of poster
+                      width; each badge's height follows at the aspect of Plex's
+                      episode-count box (237:207). Unset means 19, which reproduces that box
+                      (WidthPercentOrDefault, DefaultOverlayWidthPercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                type: object
               corner:
                 default: bottomRight
                 description: Corner is where the badge stack is anchored.

@@ -171,6 +171,17 @@ func TestInputsDigest(t *testing.T) {
 // renderer learns an overlay is stale is its Clustarr-Rendered-From no
 // longer matching. InputsDigest is the current version's; bumping
 // RenderVersion changes every digest.
+// The compact rendition's geometry is not part of what the regular poster is
+// drawn from: setting it must not move status.overlay.profileHash, or every
+// regular overlay would be redrawn under a new digest.
+func TestProfileHash_IgnoresCompactGeometry(t *testing.T) {
+	p := profile("ovp", "ns", nil, catalogv1alpha1.RatingSourceMetacritic)
+	before := overlayplan.ProfileHash(p.Spec)
+	width := int32(40)
+	p.Spec.CompactGeometry = &catalogv1alpha1.OverlayGeometry{WidthPercent: &width}
+	assert.Equal(t, before, overlayplan.ProfileHash(p.Spec))
+}
+
 func TestRenderVersionMovesTheDigest(t *testing.T) {
 	ratings := []catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 781}}
 	current := overlayplan.InputsDigest("orig", "hash", ratings, false)

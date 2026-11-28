@@ -134,3 +134,47 @@ func TestTemplateHashChangesWithEveryField(t *testing.T) {
 		seen[h] = true
 	}
 }
+
+// --- CompactTemplateSpec ----------------------------------------------------
+
+func TestCompactTemplateSpec(t *testing.T) {
+	i32 := func(v int32) *int32 { return &v }
+	spec := catalogv1alpha1.OverlayProfileSpec{
+		Corner:   catalogv1alpha1.OverlayCornerTopLeft,
+		Geometry: &catalogv1alpha1.OverlayGeometry{OpacityPercent: i32(60), WidthPercent: i32(22)},
+	}
+	got := CompactTemplateSpec(spec)
+	// Width and score take the compact defaults, not the regular 22 and 27.
+	require.Equal(t, int(catalogv1alpha1.DefaultOverlayCompactWidthPercent), got.WidthPct)
+	require.Equal(t, int(catalogv1alpha1.DefaultOverlayCompactScorePercent), got.ScorePct)
+	require.Greater(t, got.WidthPct, 22)
+	// Everything else is the profile's own.
+	require.Equal(t, 60, got.OpacityPct)
+	require.Equal(t, CornerTopLeft, got.Corner)
+	regular := TemplateSpec(spec)
+	require.Equal(t, regular.RadiusPct, got.RadiusPct)
+	require.Equal(t, regular.PaddingPct, got.PaddingPct)
+	require.Equal(t, regular.LogoPct, got.LogoPct)
+
+	// compactGeometry wins, field by field.
+	spec.CompactGeometry = &catalogv1alpha1.OverlayGeometry{WidthPercent: i32(33), RadiusPercent: i32(4)}
+	got = CompactTemplateSpec(spec)
+	require.Equal(t, 33, got.WidthPct)
+	require.Equal(t, 4, got.RadiusPct)
+	require.Equal(t, int(catalogv1alpha1.DefaultOverlayCompactScorePercent), got.ScorePct)
+	require.Equal(t, 60, got.OpacityPct)
+
+	// A profile whose regular badge is already wider than the compact
+	// default keeps that width: the compact rendition is never the smaller.
+	wide := catalogv1alpha1.OverlayProfileSpec{Geometry: &catalogv1alpha1.OverlayGeometry{WidthPercent: i32(40), ScorePercent: i32(45)}}
+	got = CompactTemplateSpec(wide)
+	require.Equal(t, 40, got.WidthPct)
+	require.Equal(t, 45, got.ScorePct)
+
+	// No geometry at all: the compact defaults over the regular ones.
+	got = CompactTemplateSpec(catalogv1alpha1.OverlayProfileSpec{})
+	want := DefaultTemplate()
+	want.WidthPct = int(catalogv1alpha1.DefaultOverlayCompactWidthPercent)
+	want.ScorePct = int(catalogv1alpha1.DefaultOverlayCompactScorePercent)
+	require.Equal(t, want, got)
+}

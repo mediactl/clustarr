@@ -123,6 +123,40 @@ func TemplateSpec(spec catalogv1alpha1.OverlayProfileSpec) Template {
 	}
 }
 
+// CompactTemplateSpec is the Template of the compact rendition: the poster
+// drawn a second time for a client that shows it small. Each field is
+// spec.CompactGeometry's when that sets it. Unset, the width and the score
+// are the larger of the compact default
+// (catalogv1alpha1.DefaultOverlayCompact*Percent) and what TemplateSpec
+// gives, so the compact badge is never the smaller of the two; every other
+// field, and the corner, is TemplateSpec's, so a profile's own radius,
+// padding, logo and opacity carry over.
+func CompactTemplateSpec(spec catalogv1alpha1.OverlayProfileSpec) Template {
+	t := TemplateSpec(spec)
+	t.WidthPct = max(t.WidthPct, int(catalogv1alpha1.DefaultOverlayCompactWidthPercent))
+	t.ScorePct = max(t.ScorePct, int(catalogv1alpha1.DefaultOverlayCompactScorePercent))
+	g := spec.CompactGeometry
+	if g == nil {
+		return t
+	}
+	for _, f := range []struct {
+		set *int32
+		to  *int
+	}{
+		{g.WidthPercent, &t.WidthPct},
+		{g.RadiusPercent, &t.RadiusPct},
+		{g.PaddingPercent, &t.PaddingPct},
+		{g.LogoPercent, &t.LogoPct},
+		{g.ScorePercent, &t.ScorePct},
+		{g.OpacityPercent, &t.OpacityPct},
+	} {
+		if f.set != nil {
+			*f.to = int(*f.set)
+		}
+	}
+	return t
+}
+
 // cornerFromSpec maps OverlayProfileSpec.Corner to a Corner. Corner carries
 // +kubebuilder:default=bottomRight, which only reaches a value the
 // apiserver has defaulted: a Go-built spec's zero value is "", not

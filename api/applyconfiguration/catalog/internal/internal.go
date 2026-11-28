@@ -4353,6 +4353,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - source
+    - name: compactGeometry
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayGeometry
     - name: corner
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayCorner

@@ -167,6 +167,15 @@ type OverlayProfileSpec struct {
 	// Geometry overrides the badge stack's size and position.
 	// +optional
 	Geometry *OverlayGeometry `json:"geometry,omitempty"`
+
+	// CompactGeometry overrides the badge stack's size on the compact
+	// rendition: the second poster drawn for a client that shows it small,
+	// where a badge sized for the full poster is too small to read. A field
+	// unset here is, for widthPercent and scorePercent, the larger of the
+	// compact default (28 and 31) and Geometry's value, and for every other
+	// field Geometry's value. It changes nothing about the regular poster.
+	// +optional
+	CompactGeometry *OverlayGeometry `json:"compactGeometry,omitempty"`
 }
 
 // OverlayProfileStatus describes the observed state of OverlayProfile.

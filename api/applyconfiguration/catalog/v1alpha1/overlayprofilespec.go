@@ -58,6 +58,13 @@ type OverlayProfileSpecApplyConfiguration struct {
 	Corner *catalogv1alpha1.OverlayCorner `json:"corner,omitempty"`
 	// Geometry overrides the badge stack's size and position.
 	Geometry *OverlayGeometryApplyConfiguration `json:"geometry,omitempty"`
+	// CompactGeometry overrides the badge stack's size on the compact
+	// rendition: the second poster drawn for a client that shows it small,
+	// where a badge sized for the full poster is too small to read. A field
+	// unset here is, for widthPercent and scorePercent, the larger of the
+	// compact default (28 and 31) and Geometry's value, and for every other
+	// field Geometry's value. It changes nothing about the regular poster.
+	CompactGeometry *OverlayGeometryApplyConfiguration `json:"compactGeometry,omitempty"`
 }
 
 // OverlayProfileSpecApplyConfiguration constructs a declarative configuration of the OverlayProfileSpec type for use with
@@ -118,5 +125,13 @@ func (b *OverlayProfileSpecApplyConfiguration) WithCorner(value catalogv1alpha1.
 // If called multiple times, the Geometry field is set to the value of the last call.
 func (b *OverlayProfileSpecApplyConfiguration) WithGeometry(value *OverlayGeometryApplyConfiguration) *OverlayProfileSpecApplyConfiguration {
 	b.Geometry = value
+	return b
+}
+
+// WithCompactGeometry sets the CompactGeometry field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CompactGeometry field is set to the value of the last call.
+func (b *OverlayProfileSpecApplyConfiguration) WithCompactGeometry(value *OverlayGeometryApplyConfiguration) *OverlayProfileSpecApplyConfiguration {
+	b.CompactGeometry = value
 	return b
 }

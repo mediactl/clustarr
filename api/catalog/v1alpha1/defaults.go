@@ -78,6 +78,14 @@ const (
 	DefaultOverlayScorePercent int32 = 27
 	// DefaultOverlayOpacityPercent mirrors OverlayGeometry.opacityPercent's default.
 	DefaultOverlayOpacityPercent int32 = 80
+	// DefaultOverlayCompactWidthPercent is the badge stack's width on the
+	// compact rendition when OverlayProfileSpec.compactGeometry does not
+	// set one: the width of Plex's episode-count box on a phone's library
+	// grid (measured 27 to 30 on the owner's screenshot, 2026-11-27).
+	DefaultOverlayCompactWidthPercent int32 = 28
+	// DefaultOverlayCompactScorePercent is the score's cap height on the
+	// compact rendition (percentage of the badge's box height).
+	DefaultOverlayCompactScorePercent int32 = 31
 )
 
 // WidthPercentOrDefault is geometry.widthPercent; a nil geometry or a nil
