@@ -797,6 +797,27 @@ recorded here.
   of which there is one fewer (`Client.publishLarge`), so one token is
   always a small download's and the large copies go one at a time, which
   the NAS's write rate made of them anyway.
+- **A pack that nothing names is refused when its first articles arrive,
+  not after the whole of it (2026-11-28, owner: "Design and implement
+  fixes for all identified blockers/bugs as well as the smaller items").**
+  `One.Piece.S14.1080p.CR.WEB-DL.DUAL...-Kitsune` (56 GB, 34 episodes)
+  came down whole as `0101688cc115e016dcbeabe25daf4f0c.mkv` and 33 more
+  and was held at import for a day ("is a hash, not a name"), as
+  Higurashi's two seasons were on 2026-11-25: the uploader hashed the
+  names before making the par2 set, and the files carry no title. Nothing
+  can say which file is which episode -- not the import, not a person
+  (one target a download) -- so the fix is not to fetch it:
+  `job.unnameableGate` runs once `fetchFirstArticles` has every file's
+  first article on disk, and fails the download `importRejected`
+  (`ErrUnnameable`: blocked for the item, the next release searched) when
+  two or more files of an episode's size (50 MiB) are named by a hash in
+  the NZB and on the wire (`hashName`: a hash for certain, not merely a
+  name unlike words), there is no archive, the par2 set -- read whole from
+  what has arrived, its index being one article -- records hashes too or
+  there is none, and no file's first megabyte holds a Matroska title
+  (`matroskaTitle`, the container title the import reads). Anything it
+  cannot read whole is let through to the rename step and the import, as
+  before. A lone hashed file still takes the job's name.
 - **A reply was one NATS message, and a season pack's .nzb does not fit
   one however it is compressed (2026-11-27, owner: "This one seems fixable
   - find a solution", "I'm guessing we can raise this?").** Three One

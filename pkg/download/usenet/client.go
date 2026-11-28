@@ -1205,6 +1205,10 @@ func failureReason(ctx context.Context, err error) commonv1alpha1.DownloadFailur
 		return commonv1alpha1.DownloadFailureTimeout
 	case errors.Is(err, ErrEncrypted):
 		return commonv1alpha1.DownloadFailureEncrypted
+	case errors.Is(err, ErrUnnameable):
+		// The release's fault, and the import's verdict given early: the
+		// files could not have been attributed.
+		return commonv1alpha1.DownloadFailureImportRejected
 	case errors.Is(err, ErrStalled):
 		return commonv1alpha1.DownloadFailureStalled
 	case errors.Is(err, ErrUnrecoverable), errors.Is(err, ErrArticleMissing), errors.Is(err, ErrRepairFailed):

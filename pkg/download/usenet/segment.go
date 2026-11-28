@@ -279,6 +279,11 @@ func (j *job) transfer(ctx context.Context) error {
 			return err
 		}
 	}
+	// With every file's first article here, a pack nothing names is known
+	// for one before the rest of it is fetched (unnameable.go).
+	if err := j.unnameableGate(); err != nil {
+		return err
+	}
 
 	// A pass starts from what is not done: nothing waits from the last one.
 	j.mu.Lock()
