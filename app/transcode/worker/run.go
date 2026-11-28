@@ -403,12 +403,12 @@ func (r *runner) run(ctx context.Context) error {
 		return err
 	}
 	policy := jobspec.MaxOutputToSourcePercent(r.t.Profile.Spec.Policy)
-	if limit := sizeLimit(policy, sourceCodec(info)); outputTooLarge(job.plan, limit, report.SizeBytes, st.Size()) {
+	if limit := sizeLimit(policy, job.keep == nil); outputTooLarge(job.plan, limit, report.SizeBytes, st.Size()) {
 		removePart(ctx, job.part)
 		pct := sizePercent(report.SizeBytes, st.Size())
 		over := fmt.Sprintf("policy.maxOutputToSourcePercent %d", limit)
 		if limit != policy {
-			over = fmt.Sprintf("the %d%% an AV1 source may reach", limit)
+			over = fmt.Sprintf("the %d%% an encode the file needs to play may reach", limit)
 		}
 		if job.keep == nil {
 			return verifyFailed("transcode worker: output is %d%% of the source, above %s", pct, over)
@@ -908,31 +908,35 @@ func outputTooLarge(plan standard.Result, limit int32, out, src int64) bool {
 	return plan.Decision == standard.DecisionEncode && limit > 0 && out*100 > src*int64(limit)
 }
 
-// AV1LimitPercent is the most an encode of an AV1 source may come out, as a
-// percentage of it, however far below policy.maxOutputToSourcePercent sits
-// (owner, 2026-11-03): AV1 spends some 25-30% fewer bits than HEVC at one
-// quality, so the standard's HEVC of a lean AV1 encode lands at 100-105%
-// of it (Attack on Titan's fourth season, 1 Mbps AV1 10-bit, failed every
-// attempt at 100), and such an encode is for playability -- Plex here
-// transcodes no video, and many clients decode no AV1 -- not size. Past it
-// the encode is still refused as a runaway.
-const AV1LimitPercent = 150
+// RequiredEncodeLimitPercent is the most an encode the file needs to play
+// may come out, as a percentage of its source, however far below
+// policy.maxOutputToSourcePercent sits. The policy's limit is for an encode
+// made only to save space: 8-bit SDR H.264, which plays as it is, so an
+// encode no smaller than it is dropped for a copy of its video
+// (standard.KeepVideo), and 8-bit HEVC is copied from the start. Every
+// other encode -- a release's 10-bit HEVC, AV1, Hi10P or HDR H.264, a
+// cropped picture -- has no such copy: the file cannot stay as it is,
+// because Plex here transcodes no video, and what it costs in size is
+// secondary (owner, 2026-11-27: "We shouldn't worry too much about the size
+// cap - instead, we should determine which type is being transcoded, if
+// it's 1:1 like HEVC 8-bit, we can copy the video stream. If it's another
+// compressed codec, we can still go through with the transcode but can be
+// more liberal about the output size"). On talos 131 files, every one a
+// lean 10-bit HEVC encode of about 1.2 Mbps, had failed at the policy's
+// 100%: 97 of them at 100-123%, the largest at 291%. It was 150% for AV1
+// alone (owner, 2026-11-03: Attack on Titan's fourth season, 1 Mbps AV1
+// 10-bit, at 100-105%). Past it the encode is still refused as a runaway;
+// policy.maxVideoBitrateKbps bounds its size besides.
+const RequiredEncodeLimitPercent = 300
 
-// sizeLimit is the output limit for a source whose video is codec: the
-// policy's, raised to AV1LimitPercent for AV1; 0 stays no limit.
-func sizeLimit(policy int32, codec string) int32 {
-	if policy > 0 && codec == "av1" {
-		return max(policy, AV1LimitPercent)
+// sizeLimit is the output limit of an encode: the policy's, raised to
+// RequiredEncodeLimitPercent for one the file needs to play (required: it
+// has no kept form, encodeJob.keep); 0 stays no limit.
+func sizeLimit(policy int32, required bool) int32 {
+	if policy > 0 && required {
+		return max(policy, RequiredEncodeLimitPercent)
 	}
 	return policy
-}
-
-// sourceCodec is the codec of info's first video stream, "" with none.
-func sourceCodec(info transcode.MediaInfo) string {
-	if len(info.Video) == 0 {
-		return ""
-	}
-	return info.Video[0].Codec
 }
 
 func sizePercent(out, src int64) int32 {

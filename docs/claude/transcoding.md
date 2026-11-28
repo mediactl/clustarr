@@ -331,11 +331,24 @@ three Mister Rogers episodes, and now show WrongLanguage. Tests:
 `TestASingleUntaggedTrackIsTheRecordedLanguage` (both falsified).
 The size limit
 holds an encode only: a remux adds the AAC 2.0 companion, so it is a little
-larger by design (`worker.outputTooLarge`), and an encode of an AV1
-source may run to 150% (`worker.AV1LimitPercent`, owner, 2026-11-03): the
-standard's HEVC of a lean AV1 encode lands at 100-105% of it (Attack on
-Titan's fourth season failed every attempt at 100), and is made for
-playability, since Plex here transcodes no video. **An encode made only
+larger by design (`worker.outputTooLarge`), and **an encode the file needs
+to play may run to 300% of its source**
+(`worker.RequiredEncodeLimitPercent`; owner, 2026-11-27: "We shouldn't
+worry too much about the size cap - instead, we should determine which
+type is being transcoded, if it's 1:1 like HEVC 8-bit, we can copy the
+video stream. If it's another compressed codec, we can still go through
+with the transcode but can be more liberal about the output size"). The
+policy's limit is for an encode made only to save space, which has a copy
+to fall back on (below; 8-bit HEVC is copied from the start); every other
+encode -- a release's 10-bit HEVC, AV1, Hi10P or HDR H.264, a cropped
+picture -- has none (`encodeJob.keep` is nil), the file cannot stay as it
+is since Plex here transcodes no video, and
+`policy.maxVideoBitrateKbps` bounds its size besides. On talos 131 files
+had failed at the policy's 100%, every one a lean 10-bit HEVC encode of
+about 1.2 Mbps: 97 at 100-123%, the largest at 291%. It was 150% for AV1
+alone from 2026-11-03 (`worker.AV1LimitPercent`: Attack on Titan's fourth
+season at 100-105%). A Failed verdict of the current profile hash stays
+until `transcode.clustarr.io/retry`. **An encode made only
 to save space that saves none keeps its video** (owner, 2026-11-15:
 `standard.KeepVideo`): when the encode of 8-bit SDR H.264 -- what
 `policy.keepCodecs: [h264]` would copy -- comes out over the limit, the

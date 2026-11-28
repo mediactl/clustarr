@@ -127,9 +127,13 @@ func TestAnH264EncodeNoSmallerThanItsSourceIsReplacedByARemux(t *testing.T) {
 	}
 }
 
-// An encode that fits is the output, with no remux; and an encode made for
-// playability -- here Hi10P, which many players cannot decode -- that comes
-// out larger still fails, as it did before.
+// An encode that fits is the output, with no remux; and an encode the file
+// needs to play -- here 10-bit video, which has no kept form -- that comes
+// out larger than its source is the output too, up to
+// RequiredEncodeLimitPercent (owner, 2026-11-27: "If it's another compressed
+// codec, we can still go through with the transcode but can be more liberal
+// about the output size"; 131 lean 10-bit HEVC files had failed at 100-291%
+// of their sources). Past that it is refused as a runaway, as it was.
 func TestOnlyAnOversizedSpaceSavingEncodeIsKept(t *testing.T) {
 	src := len("the original, byte for byte")
 	c, eng := keepCase(t, sdr1080Reading, src-10, src-5)
@@ -141,9 +145,18 @@ func TestOnlyAnOversizedSpaceSavingEncodeIsKept(t *testing.T) {
 	hi10p := func(path string) (*commonv1alpha1.MediaInfo, *mediainfo.Raw) { return uhdReading(path, "sdr") }
 	c, eng = keepCase(t, hi10p, src*2, src-5)
 	out = c.processWith(t, eng)
+	require.Equal(t, ExitOK, out.Code, "%+v", out.Err)
+	assert.Len(t, eng.plans, 1, "the encode is the output: there is no remux of video that does not play")
+	assert.Nil(t, out.Result.KeptVideo)
+	got, err := os.ReadFile(c.local)
+	require.NoError(t, err)
+	assert.Len(t, got, src*2, "the encode replaced the source at twice its size")
+
+	c, eng = keepCase(t, hi10p, src*4, src-5)
+	out = c.processWith(t, eng)
 	assert.Equal(t, ExitVerifyFailed, out.Code, "%+v", out.Err)
 	assert.Len(t, eng.plans, 1, "no remux")
 	require.Error(t, out.Err)
-	assert.Contains(t, out.Err.Error(), "output is 200% of the source, above policy.maxOutputToSourcePercent 100")
+	assert.Contains(t, out.Err.Error(), "output is 400% of the source, above the 300% an encode the file needs to play may reach")
 	c.requireSourceUntouched(t)
 }
