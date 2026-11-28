@@ -472,8 +472,10 @@ the same:
 | §5.3 rate "bytes/s over 10 s" | the average since the engine's last record (60 s) | the record's own cadence |
 | §6.1 per-engine scratch for every usenet client | only for a fleet: `storageClassName` gives a claim per ordinal, `path` gives `<path>/$(POD_NAME)`; one engine keeps `<client>-scratch` or its path as it was | the owner's single pod must not move |
 | §6.2 weight zero "while it has no transfer running or waiting" | zero while no job holds or waits for a transfer slot | the client's own notion of work |
-| §7 slots book in `app/dispatch` | the stage's own book (`app/remediation/downloads/slots.go`), with the counts read from the cache through `dlindex` (`SlotHolders`, `SlotWaiters`) | the DownloadClient controller and the stage are wired apart; the index gives both the same count without a shared object |
-| §7 book "rebuilt from `status.downloads[]` at start" | each owner's first pass files its waiters, by their `grabbedAt` | no separate seed; until every owner has passed, order is approximate |
+| §7 slots book in `app/dispatch` | no book: the queue is status. A waiter is an entry Pending on its client with delivery reason `NoSlot`; its place is its priority class and its `grabbedAt`, set when it first waits. Both the stage and the controller read it through `dlindex` (`SlotWaiters`, `SlotHolders`). Only this leader's last minute of assignments is kept in memory | the architect's review (§15): a book seeded by every owner's first pass and kept alive by rechecks does not survive ADR-0025, which removes the pass of every owner at start |
+| §7 a waiter "is woken when one frees" | a grab that stops holding a slot wakes the next four waiters; every engine record wakes them too; a waiter sets no timer | the review: a recheck per waiter grows with the queue |
+| §5.2 budgets "every 15 s and on any change" | on change only: the engines' records, a node's three annotations, and a signal from the downloads stage when a client's waiters or holders change (`downloadclient.Wake`). A drain alone has a due time | the review: no timer does work that a change can announce |
+| §4.4 status reports used bytes | in steps of a hundredth of the quota, at least 1 GiB; `QuotaOK` is judged on the exact count | the review: the live figure is a metric, and status should not be rewritten at every reconcile |
 | §8 scale-down "nothing pinned for 10 minutes" | the highest ordinal drains when the engines below it have slots for everything pinned anywhere, and goes once *no entry at all* is pinned to it for 10 minutes | a grab past its transfer still unpacks and publishes from that engine's disk |
 | §10.5 a transfer holds grants on several primaries | **not built** | the fetch path scopes a transfer to one server; a limiter per server is its own piece of work |
 | §5.4 other traffic on the node | **not built** | the owner has not chosen between the two options |
@@ -507,3 +509,131 @@ the same:
 **Owed.** An e2e scenario (two engines on two kind nodes, one killed
 mid-transfer); the talos runbook for a second engine; phase 5's second half;
 the settings form's new groups checked in a browser.
+
+## 14. Keeping the .nzb from selection (reviewed and decided, not built)
+
+The owner, 2026-11-28, answering §12's question 4: "When a release is
+selected and we will download the NZB, the NZB should be stored somewhere
+with persistence in case crashes happen or bugs prevent the first attempt
+from succeeding when we suspect everything is fine with the release."
+
+**Today.**
+
+- The .nzb is fetched when the engine handles the add command: an
+  `indexerDownload` source through `rpc.index.download`, an `nzbURL` source
+  by the engine's own HTTP GET (`app/grab/engine/usenet/payload.go`).
+- The index agent keeps what it fetched in the object store
+  `clustarr-payloads` (file storage, 3 replicas, 1 GiB, a cache evicted
+  oldest first, `MaxAge` 3 days; key `nzb/<indexer uid>/<sha256(guid)[:32]>`;
+  `app/indexer/download/kept.go`). A direct `nzbURL` fetch is kept nowhere.
+- The engine writes it to `<scratch>/<category>/<id>/source.nzb`; that copy
+  goes with the job when the job is removed, and with the disk when the
+  disk is lost.
+- With late binding (§7) the fetch moves from the grab to the assignment,
+  possibly hours later.
+
+**The design, as the architect's review left it (§15).**
+
+1. **Fetch when the entry is added**, not while a delay profile still
+   holds the release: the manager owes a prefetch beside the entry; the
+   index agent fetches (the indexer's limiter and keys stay with it; a
+   plain GET for an `nzbURL`) and answers in a record with the digest and
+   size, no body on the bus. A late-binding entry is not assigned before
+   its payload is stored; a prefetch the indexer refuses fails the entry
+   at once.
+2. **One file per entry on the shared data volume**:
+   `payloads/<entry uid>.nzb`, written tmp, fsync, rename, its digest
+   checked on read. Named by the entry, not by content: one writer, one
+   reader, one lifetime. Not the engine's scratch, so it survives a lost
+   engine disk. `clustarr-payloads` is not widened: a store evicted oldest
+   first cannot hold a pin.
+3. **The entry is the pin and the index.** `status.downloads[]` gains
+   `payload {digest, size, fetchedAt}` on the entry type all six owner
+   kinds share; the manager writes it when the fetcher's record reports
+   it. Dropping the entry deletes the file, as an effect of that removal;
+   one rare, paced audit of the directory catches what was missed. A key
+   derived from indexer and guid is not enough: a newznab .nzb is not
+   byte-stable across fetches, so the entry says which bytes it took.
+4. **The engine reads the file.** A pinned file that is missing is a
+   counted fault, not a quiet second fetch from the indexer.
+5. **A retry that spends no grab**, for a failure that is not the
+   release's: an engine crash, a lost working area, `writeError`,
+   `diskFull`, a connection or login failure, a spent quota, a panic.
+   Articles missing on every provider is the release's. Retries are
+   capped, with the attempt count and the next try's due time kept on the
+   entry, never in memory.
+6. **Torrents: no.** A .torrent carries its tracker's passkey.
+
+**Decided by the architect, at the owner's word ("Ask the architect all 3
+of those", 2026-11-28).**
+
+*Who writes the file: the import agent.* The index agent parses untrusted
+indexer content and is the one replica serving every search and feed; a
+mount of the NFS data volume there would give it write access beside the
+library and put a hard-mount stall inside the search path.
+
+- The manager publishes one new work task on the import domain's existing
+  work stream (`payload`, keyed by entry uid).
+- The import agent asks `rpc.index.download` for an indexer source, so the
+  indexer's keys, limiter and proxy stay with the index agent; that call
+  already leaves the payload in `clustarr-payloads` and answers with its
+  key, so it needs no new flag. For an `nzbURL` source the import agent
+  does the capped GET itself, as the engine does today.
+- It reads the object from `clustarr-payloads`, writes the file through
+  `pkg/fsops` under the squashed uid it already runs as, and answers with
+  a record `{digest, size, fetchedAt}` in `clustarr-imports`, under its own
+  key per entry uid beside the inspect and execute records: same writer,
+  same reader, and the record source that already wakes the owner.
+- `clustarr-payloads` stays a cache evicted oldest first; it holds the
+  object only for the seconds the copy takes.
+
+*Retries from the stored .nzb.*
+
+| Question | Decision |
+| --- | --- |
+| Which failures | today's local faults (`diskFull`, `writeError`), and an engine crash or a lost working area with the release not at fault |
+| Not a retry case | a connection failure, a login failure or a spent quota should not fail an entry at all: the transfer waits. Where that ends today as `stalled` or `timeout`, which blocklist, the engine needs a reason that is not the release's (`providersUnavailable`): a separate fix |
+| Free retries | 3: one for a crash or an OOM, one for a recurrence after the cause was cleared, one of margin. A fault that recurs on three fresh attempts is deterministic |
+| Back-off | 10 minutes, 30 minutes, 2 hours |
+| After the third | `Failed` with the local reason, as today: no blocklist, visible to a person |
+| A different engine | preferred, never required: `ChooseSlot` breaks ties away from the engine that failed and never waits for another |
+| Where the state lives | `status.downloads[].retry {attempts (max 3), nextAttemptAt, lastReason}`; `nextAttemptAt` is also the owner's due time, so a restart keeps it |
+| Phase between attempts | `Pending` with the reason `RetryWait`, not `Failed`, which would start the search for another release |
+
+`SlotWaiters` leaves a `RetryWait` entry out until its `nextAttemptAt` has
+passed; it then rejoins the queue at its original `grabbedAt`. The stored
+file stays until the entry is dropped.
+
+## 15. The architect's review (2026-11-28)
+
+The owner asked for the design to be reviewed by the principal architect
+agent (a subagent of session clustarr-10), measured against ADR-0025's
+(`docs/adr/0025-manager-work-proportional-to-change.md`, Proposed at the
+time of the review and Accepted by the owner later the same day): every
+pass resumable, each key with its own due time, no
+timer doing whole-library work, derived state kept up to date rather than
+rebuilt by scans.
+
+- **§14:** the shape is right; its answers are §14 as it now stands.
+- **§13, stands as built:** the StatefulSet, `retireDeployment`, the
+  ledger, the budgets and the limiter; the two small KV buckets; the
+  membership writes (they grow with engines times accounts, not with the
+  library).
+- **§13, changed before deploy** (done, after 0584ff27): the 15 s fleet
+  interval, the quota figure in status, and the slot waiters' book and
+  rechecks, as the table in §13 now says. Also: an idle engine writes no
+  membership, and a quota count is written only when bytes were read.
+- **Its second round, on the follow-up:** fit to commit as it stood. Then,
+  before deploy: wake the waiters on an engine record only when it shows
+  room that was not there (done: `slotBook.roomChanged`); skip a status
+  apply that changes nothing (done: `statusUnchanged`, and `freeBytes` in
+  status moves by the gibibyte); the queue tests seen to fail with their
+  rule reverted (done: the order by class, and the freed slot's wake);
+  **and a proof on kind, which does not exist yet**: two engines with one
+  killed mid-transfer, and a waiter woken when a slot frees.
+- **Left for ADR-0025's wave 5** (clustarr-10, 2026-11-28: not owed
+  now): `dlindex.SlotHolders` and `SlotWaiters` read the cache's index.
+  Under that ADR the library kinds
+  (Album, Book, Audiobook) have no in-memory informer, so those owners'
+  counts need a SQL path; Movie and Series keep theirs. Both functions
+  are the one place that would change.

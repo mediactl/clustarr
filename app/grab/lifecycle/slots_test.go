@@ -19,9 +19,11 @@ package lifecycle_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -153,7 +155,6 @@ func TestALateBindingGrabWaitsForASlot(t *testing.T) {
 	assert.Equal(t, catalogv1alpha1.DeliveryReasonNoSlot, second.Dispatch.Delivery.Reason)
 	assert.Contains(t, second.Message, "waiting for a free transfer slot")
 	require.Len(t, p.Commands, 1, "only the assigned grab is commanded")
-	assert.Equal(t, now.Add(lifecycle.SlotRecheckHead), p.Due, "the head of the queue looks again soon")
 
 	// The same view without late binding assigns both at once, as a single
 	// engine always has.
@@ -164,16 +165,29 @@ func TestALateBindingGrabWaitsForASlot(t *testing.T) {
 }
 
 // A grab with others waiting ahead of it across owners does not take a
-// slot out of turn, and far down the queue it looks again rarely.
+// slot out of turn. It sets no timer of its own -- a freed slot and the
+// engines' records wake the head of the queue -- and its place is the time
+// its release was chosen, kept on the entry.
 func TestALateBindingGrabKeepsItsPlaceInTheQueue(t *testing.T) {
 	v := view(nil)
 	v.Clients = []lifecycle.Client{lateClient(1)}
 	v.Engines = map[string]lifecycle.Engine{"sab-0": slotEngine(0, 8, 9)} // one slot free
-	v.NewEntries = []catalogv1alpha1.DownloadEntry{pendingUsenet("u1")}
+	fresh := pendingUsenet("u1")
+	fresh.GrabbedAt = metav1.Time{}
+	v.NewEntries = []catalogv1alpha1.DownloadEntry{fresh}
 	v.Ahead = map[types.UID]int{"u1": 40}
 	p := lifecycle.Decide(v)
-	assert.Equal(t, commonv1.DownloadPhasePending, entryByUID(t, p, "u1").Phase)
-	assert.Equal(t, now.Add(lifecycle.SlotRecheckTail), p.Due)
+	waiting := entryByUID(t, p, "u1")
+	assert.Equal(t, commonv1.DownloadPhasePending, waiting.Phase)
+	assert.True(t, p.Due.IsZero(), "a waiter's passes do not grow with the queue: it is woken, it does not poll")
+	assert.Equal(t, now, waiting.GrabbedAt.Time, "its place in the queue is when its release was chosen")
+
+	// The next pass keeps that place.
+	v.NewEntries, v.Stored = nil, []catalogv1alpha1.DownloadEntry{waiting}
+	v.Now = now.Add(time.Hour)
+	again := entryByUID(t, lifecycle.Decide(v), "u1")
+	assert.Equal(t, now, again.GrabbedAt.Time)
+	v.Now, v.Stored, v.NewEntries = now, nil, []catalogv1alpha1.DownloadEntry{fresh}
 
 	v.Ahead = map[types.UID]int{"u1": 0}
 	p = lifecycle.Decide(v)

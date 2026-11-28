@@ -54,6 +54,11 @@ type Options struct {
 	Recorder  func(string) k8sevents.EventRecorder
 	// Clock is the stage's clock; nil is time.Now.
 	Clock func() time.Time
+	// ClientWake wakes a DownloadClient's controller (namespace, name)
+	// when the grabs waiting for or holding its engines' transfer slots
+	// change: its budgets and engine count follow them (slots.go). nil
+	// wakes nothing, and the controller's own recheck finds the change.
+	ClientWake func(namespace, name string)
 }
 
 // Stage is the downloads item stage (remediation.ItemStage, Watcher and
@@ -157,7 +162,7 @@ func (s *Stage) Plan(ctx context.Context, _ *remediation.Env, v *remediation.Ite
 		return remediation.ItemResult{}, remediation.Transient(err)
 	}
 	plan := lifecycle.Decide(lv)
-	s.slotsAfter(ow, &lv, plan)
+	s.slotsAfter(ctx, ow, &lv, plan)
 	s.issued.set(plan.Issued)
 	res := s.result(ctx, ow, lv, plan)
 	if ow.kind == commonv1.MediaKindMovie {

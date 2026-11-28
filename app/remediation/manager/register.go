@@ -124,6 +124,11 @@ type Options struct {
 	// subtitles profile or phase changes. internal/cli/manager hands the
 	// caption manager the same Wake.
 	SubtitleProfileWake func()
+	// DownloadClientWake wakes a DownloadClient's controller (namespace,
+	// name) when the grabs waiting for or holding its engines' transfer
+	// slots change (downloads.Options.ClientWake); internal/cli/manager
+	// passes the grab controller's Wake. nil wakes nothing.
+	DownloadClientWake func(namespace, name string)
 
 	// GraftPool is the cpu pool's pod template a standalone graft Job runs
 	// on (loop spec §4.12): the transcode manager's pool configuration
@@ -237,6 +242,7 @@ func Stages(d Deps) []remediation.ItemStage {
 		downloads.New(downloads.Options{
 			Reader: d.Manager.GetClient(), APIReader: d.Manager.GetAPIReader(), Bus: d.Env.Bus,
 			Dispatch: d.Options.Dispatch, Book: d.Options.Book, Recorder: recorder,
+			ClientWake: d.Options.DownloadClientWake,
 		}),
 		// The search planner (ADR-0019 §7.3, A4.2).
 		searchstage.New(searchstage.Options{

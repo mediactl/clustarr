@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package downloadclient
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -105,7 +107,7 @@ func TestAUsenetFleetIsBudgetedFromItsNodes(t *testing.T) {
 	dc = e.client(dc)
 
 	res := e.reconcile("nzb")
-	assert.Equal(t, fleetInterval, res.RequeueAfter, "a budgeted client is reconciled often: its budgets follow which engines are busy")
+	assert.Equal(t, recheckInterval, res.RequeueAfter, "a budgeted client has no timer of its own: its engines' records, its nodes and the downloads stage wake it")
 	require.Equal(t, int32(2), e.statefulSetReplicas("nzb"))
 	e.readyWorkload(dc, 2)
 	e.record(dc, 0, func(r *schema.EngineRecord) { r.Node, r.Active, r.DownRateBytesPerSec = "big", 3, 100_000_000 })
@@ -124,6 +126,25 @@ func TestAUsenetFleetIsBudgetedFromItsNodes(t *testing.T) {
 	b1, ok := e.budget("nzb", 1)
 	require.True(t, ok)
 	assert.Equal(t, int64(500), b1.Weight)
+
+	// A reconcile that finds nothing changed sends no status: an engine's
+	// record wakes one every minute, and that must cost the apiserver
+	// nothing.
+	stored := e.get("nzb").ResourceVersion
+	require.Eventually(t, func() bool {
+		var c downloadv1alpha1.DownloadClient
+		return e.c.Get(e.ctx, client.ObjectKeyFromObject(dc), &c) == nil && c.ResourceVersion == stored
+	}, 10*time.Second, 10*time.Millisecond, "the cache holds the status just written")
+	counted := &statusCounter{Client: e.r.Client}
+	e.r.Client = counted
+	e.reconcile("nzb")
+	assert.Zero(t, counted.applies, "an unchanged status was applied again")
+	e.record(dc, 0, func(r *schema.EngineRecord) { r.Node, r.Active, r.DownRateBytesPerSec = "big", 4, 100_000_000 })
+	e.reconcile("nzb")
+	assert.Equal(t, 1, counted.applies, "a status that changed is applied")
+	e.r.Client = counted.Client
+	e.record(dc, 0, func(r *schema.EngineRecord) { r.Node, r.Active, r.DownRateBytesPerSec = "big", 3, 100_000_000 })
+	e.reconcile("nzb")
 
 	// An engine with nothing to do falls back to its request, and the
 	// budget is written again only because it changed.
@@ -304,4 +325,24 @@ func TestTheAPIValidatesAFleet(t *testing.T) {
 	require.NoError(t, e.api.Get(e.ctx, types.NamespacedName{Namespace: testNS, Name: "pooled"}, &got))
 	assert.Zero(t, got.Spec.Usenet.Providers[0].Connections)
 	assert.Equal(t, downloadv1alpha1.QuotaPeriodMonth, got.Spec.Usenet.Providers[0].QuotaPeriod)
+}
+
+// statusCounter counts the status applies a client sends.
+type statusCounter struct {
+	client.Client
+	applies int
+}
+
+func (c *statusCounter) Status() client.SubResourceWriter {
+	return &countingStatus{SubResourceWriter: c.Client.Status(), n: &c.applies}
+}
+
+type countingStatus struct {
+	client.SubResourceWriter
+	n *int
+}
+
+func (s *countingStatus) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	*s.n++
+	return s.SubResourceWriter.Apply(ctx, obj, opts...)
 }

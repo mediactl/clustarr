@@ -641,7 +641,14 @@ one keeps one engine that is told every download at once, as before; what
 changes for it at the next roll is that its Deployment is replaced by a
 StatefulSet of one (the controller stops the Deployment first), that a
 transfer's connection grant grows into what its server has free, and that
-quota counts survive restarts. No e2e scenario exists for it yet.
+quota counts survive restarts. No e2e scenario exists for it yet, and the
+architect's review (the spec's §15) makes a kind proof the condition of its
+deploy: two engines with one killed mid-transfer, and a waiter woken when a
+slot frees. A talos roll that carries it needs the DownloadClient CRD
+applied first and the chart's manager role of that commit (`delete` on
+Deployments); on 2026-11-28 a roll of main's head was stopped for lacking
+both. Keeping each .nzb from selection (the spec's §14) is decided and not
+built.
 
 **Compact posters (2026-11-28), the clustarr half built, not deployed, not
 proven on kind.** Design: `docs/superpowers/specs/2026-11-27-compact-posters-design.md`;

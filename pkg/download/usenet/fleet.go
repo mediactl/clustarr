@@ -73,8 +73,9 @@ var _ Budgeted = (*Client)(nil)
 type membership struct {
 	mu     sync.Mutex
 	weight int64
-	// busy is what the last Join wrote: the weight, or zero.
-	busy bool
+	// busy is what the last Join wrote: the weight, or zero. joined is
+	// false until the first Join.
+	busy, joined bool
 	// others is every other live member's weight per account at the last
 	// Join.
 	others map[string]int64
@@ -160,7 +161,13 @@ func (c *Client) join(ctx context.Context) {
 	busy := c.hasWork()
 	c.members.mu.Lock()
 	w := c.members.weight
+	idle := c.members.joined && !c.members.busy
 	c.members.mu.Unlock()
+	if !busy && idle {
+		// Already written as zero, and a zero that lapses counts the same:
+		// an idle engine writes nothing.
+		return
+	}
 	written := w
 	if !busy {
 		written = 0
@@ -176,7 +183,7 @@ func (c *Client) join(ctx context.Context) {
 		c.members.mu.Unlock()
 	}
 	c.members.mu.Lock()
-	c.members.busy = busy
+	c.members.busy, c.members.joined = busy, true
 	c.members.mu.Unlock()
 }
 

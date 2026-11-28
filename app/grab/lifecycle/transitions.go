@@ -88,13 +88,14 @@ func (d *decider) pending(e *catalogv1alpha1.DownloadEntry) bool {
 				e.Message = clampString(fmt.Sprintf("waiting for an engine of DownloadClient %s to be ready", c.Name), MaxEntryMessage)
 			}
 			d.waiting(e, catalogv1alpha1.DeliveryReasonNoSlot, e.Message)
-			// The head of the queue looks again soon; the rest are woken
-			// when a slot frees and otherwise look rarely.
-			again := SlotRecheckTail
-			if ahead < SlotRecheckHeadSize {
-				again = SlotRecheckHead
+			// Its place in the queue is when its release was chosen, kept
+			// on the entry: the queue is read from status, by any leader.
+			// It sets no timer: a freed slot and each engine's record wake
+			// the head of the queue (the stage's slots.go), so a waiter's
+			// passes do not grow with the queue.
+			if e.GrabbedAt.IsZero() {
+				e.GrabbedAt = metav1.NewTime(d.now)
 			}
-			d.at(d.now.Add(again))
 			return true
 		}
 		name := EngineName(c.Name, ordinal)

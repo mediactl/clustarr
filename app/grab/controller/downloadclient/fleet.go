@@ -50,12 +50,17 @@ import (
 // usenet.bandwidth, usenet.autoscale and replicas above one runs the one
 // engine it always has, and nothing here changes what it is told.
 const (
-	// fleetInterval is how often a client with a budget or a fleet is
-	// reconciled: its budgets follow which engines are busy.
-	fleetInterval = 15 * time.Second
 	// drainIdle is how long the draining ordinal holds nothing before it
-	// is removed.
+	// is removed, and drainLook how soon a draining ordinal that still
+	// holds something is looked at again: a grab past its transfer leaves
+	// it when its entry is dropped, which wakes nothing here.
 	drainIdle = 10 * time.Minute
+	drainLook = time.Minute
+	// quotaStepBytes is the least step a quota's used bytes move by in
+	// status (else a hundredth of the quota): status is written when
+	// something a person would act on changed, and the live figure is the
+	// engines' metrics.
+	quotaStepBytes = 1 << 30
 	// quotaWarnPercent is the share of a quota used at which QuotaOK turns
 	// False.
 	quotaWarnPercent = 90
@@ -251,6 +256,9 @@ type fleetState struct {
 	// usenet.bandwidth; nodes each ordinal's node, from its record.
 	budgets map[int32]budgetOf
 	nodes   map[int32]string
+	// due is how soon the fleet needs another look for a reason nothing
+	// announces: a drain's grace running out. Zero is none.
+	due time.Duration
 }
 
 // fixedReplicas is spec.replicas, floored at one.
@@ -402,6 +410,13 @@ func (r *Reconciler) fleet(ctx context.Context, dc *downloadv1alpha1.DownloadCli
 		ready:    es.freshReady >= current,
 		draining: draining, idleFor: idleFor,
 	})
+	switch {
+	case fs.draining == nil:
+	case drainingHolds > 0 || draining == nil:
+		fs.due = drainLook
+	default:
+		fs.due = max(drainIdle-idleFor, time.Second)
+	}
 	if fs.replicas != current {
 		r.mu.Lock()
 		delete(r.drainIdleSince, key)
@@ -522,7 +537,8 @@ func budgetStatus(dc *downloadv1alpha1.DownloadClient, fs fleetState, es engineS
 
 // quotas reads each metered provider's use of its quota from
 // clustarr-usenet-usage (the engines' count, every pod's together), and
-// reports whether every one is under quotaWarnPercent. A provider whose
+// reports whether every one is under quotaWarnPercent (judged on the exact
+// count; the reported one moves in steps, [quotaStep]). A provider whose
 // Secret or count cannot be read is left out: its last status goes with
 // it, which says nothing is known.
 func (r *Reconciler) quotas(ctx context.Context, dc *downloadv1alpha1.DownloadClient) ([]*downloadac.ProviderQuotaStatusApplyConfiguration, string) {
@@ -550,7 +566,7 @@ func (r *Reconciler) quotas(ctx context.Context, dc *downloadv1alpha1.DownloadCl
 			logging.FromContext(ctx).Warn("downloadclient: read a provider's quota count", "provider", p.Name, "err", err)
 			continue
 		}
-		st := downloadac.ProviderQuotaStatus().WithName(p.Name).WithUsedBytes(u.Bytes).WithQuotaBytes(*p.QuotaBytes)
+		st := downloadac.ProviderQuotaStatus().WithName(p.Name).WithUsedBytes(quotaStep(u.Bytes, *p.QuotaBytes)).WithQuotaBytes(*p.QuotaBytes)
 		if !u.PeriodStart.IsZero() {
 			st = st.WithPeriodStart(metav1.NewTime(u.PeriodStart))
 		}
@@ -560,6 +576,14 @@ func (r *Reconciler) quotas(ctx context.Context, dc *downloadv1alpha1.DownloadCl
 		}
 	}
 	return out, warn
+}
+
+// quotaStep is used as status reports it: rounded down to a hundredth of
+// the quota, at least quotaStepBytes, so a download in progress does not
+// rewrite status at every reconcile.
+func quotaStep(used, quota int64) int64 {
+	step := max(quota/100, int64(quotaStepBytes))
+	return used / step * step
 }
 
 // setQuotaCondition sets QuotaOK for a client with a metered provider, and

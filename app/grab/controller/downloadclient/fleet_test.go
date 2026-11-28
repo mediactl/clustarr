@@ -27,9 +27,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 const (
@@ -252,4 +258,82 @@ func TestLateBindingIsOptIn(t *testing.T) {
 	assert.True(t, lateBinding(dc))
 	assert.True(t, usenetFleet(dc))
 	assert.False(t, lateBinding(torrentClient("qbt", 3)))
+}
+
+// Status reports a quota's use in steps, so a download in progress does
+// not rewrite it at every reconcile: a hundredth of the quota, never finer
+// than a gibibyte.
+func TestQuotaUseIsReportedInSteps(t *testing.T) {
+	const gib = int64(1) << 30
+	assert.Equal(t, int64(0), quotaStep(gib-1, 300*gib))
+	assert.Equal(t, 3*gib, quotaStep(5*gib, 300*gib), "a hundredth of 300 GiB is 3 GiB")
+	assert.Equal(t, 297*gib, quotaStep(299*gib, 300*gib))
+	assert.Equal(t, 4*gib, quotaStep(4*gib+gib/2, 10*gib), "a small quota moves by the gibibyte")
+}
+
+// The downloads stage's signal reaches the controller's queue once it has
+// started, and is nothing before that or on a nil Wake.
+func TestTheWakeEnqueuesTheClient(t *testing.T) {
+	var none *Wake
+	none.Signal("media", "nzb")
+	w := NewWake()
+	w.Signal("media", "early")
+	q := &requestQueue{}
+	require.NoError(t, w.Start(t.Context(), q))
+	w.Signal("media", "nzb")
+	assert.Equal(t, []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: "media", Name: "nzb"}}}, q.added)
+}
+
+type requestQueue struct {
+	workqueue.TypedRateLimitingInterface[reconcile.Request]
+	added []reconcile.Request
+}
+
+func (q *requestQueue) Add(r reconcile.Request) { q.added = append(q.added, r) }
+
+// Only a node's bandwidth annotations wake the clients it budgets: its
+// status, which changes every few minutes, does not.
+func TestOnlyANodesBandwidthAnnotationsWake(t *testing.T) {
+	p := nodeBandwidthChanged()
+	plain := node(nil)
+	fast := node(map[string]string{downloadv1alpha1.NodeLinkSpeedAnnotation: "2500M"})
+	faster := node(map[string]string{downloadv1alpha1.NodeLinkSpeedAnnotation: "10G"})
+	heartbeat := fast.DeepCopy()
+	heartbeat.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
+	other := node(map[string]string{"example.com/unrelated": "x"})
+
+	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: fast, ObjectNew: heartbeat}))
+	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: plain, ObjectNew: other}))
+	assert.True(t, p.Update(event.UpdateEvent{ObjectOld: fast, ObjectNew: faster}))
+	assert.True(t, p.Update(event.UpdateEvent{ObjectOld: plain, ObjectNew: fast}))
+	assert.True(t, p.Create(event.CreateEvent{Object: fast}))
+	assert.False(t, p.Create(event.CreateEvent{Object: plain}))
+	assert.True(t, p.Delete(event.DeleteEvent{Object: fast}))
+}
+
+// A status that says what the stored one says is not applied again: an
+// engine's record wakes the reconcile every minute, and that wake must cost
+// the apiserver nothing. A nil and an empty list are one; any field that
+// differs is a change.
+func TestAnUnchangedStatusIsNotApplied(t *testing.T) {
+	at := metav1.NewTime(time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC))
+	have := &downloadv1alpha1.DownloadClientStatus{
+		ObservedGeneration: 3,
+		Engine:             &downloadv1alpha1.EngineStatus{WorkloadRef: "nzb-engine", Replicas: 1, ReadyReplicas: 1, DesiredReplicas: ptr.To(int32(1))},
+		Active:             2, FreeBytes: 50 << 30,
+		Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue, Reason: "Reconciled", Message: "ok", LastTransitionTime: at, ObservedGeneration: 3}},
+		Budgets:    []downloadv1alpha1.EngineBudgetStatus{},
+	}
+	want := func() *downloadac.DownloadClientStatusApplyConfiguration {
+		return downloadac.DownloadClientStatus().
+			WithObservedGeneration(3).
+			WithEngine(downloadac.EngineStatus().WithWorkloadRef("nzb-engine").WithReplicas(1).WithReadyReplicas(1).WithDesiredReplicas(1)).
+			WithActive(2).WithQueued(0).WithFreeBytes(50 << 30).
+			WithConditions(k8s.ConditionACs(have.Conditions)...)
+	}
+	assert.True(t, statusUnchanged(want(), have))
+	assert.False(t, statusUnchanged(want().WithActive(3), have))
+	assert.False(t, statusUnchanged(want().WithEngine(downloadac.EngineStatus().WithWorkloadRef("nzb-engine").WithReplicas(1).WithReadyReplicas(1).WithDesiredReplicas(2)), have))
+	assert.False(t, statusUnchanged(want().WithBudgets(downloadac.EngineBudgetStatus().WithEngine("nzb-0").WithTransfers(2)), have))
+	assert.False(t, statusUnchanged(want(), &downloadv1alpha1.DownloadClientStatus{}), "nothing stored yet")
 }

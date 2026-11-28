@@ -25,6 +25,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	crsource "sigs.k8s.io/controller-runtime/pkg/source"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -32,56 +33,51 @@ import (
 	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/remediation/dlindex"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // Late binding (spec 2026-11-27 §7): a grab on a usenet client with a
 // bandwidth budget or several engines is assigned only when an engine has
 // a transfer slot for it, in the order the engines themselves would run
-// them: the higher priority class first, then the longest waiting. The
-// order spans owners, which one owner's pass cannot see, so the stage
-// keeps a book of the waiters; and a slot is counted from the manager's
-// own assignments, the cache's and the ones this leader made a moment ago,
-// never from the engine's report.
+// them: the higher priority class first, then the earliest chosen.
+//
+// The queue is status, not a book (architect's review, 2026-11-28, against
+// ADR-0025's direction): a waiter is an entry that is Pending on its client
+// with the NoSlot reason, its place its priority class and its grabbedAt,
+// and both are read through dlindex, so any leader sees the same queue
+// without every owner having passed first. Nothing polls: a grab that
+// stops holding a slot wakes the next waiters in line, an engine's record
+// wakes them when it shows room that was not there (a budget raised, an
+// engine added or ready, fewer transfers), and a change to the queue or the
+// holders wakes the DownloadClient controller, whose budgets and engine
+// count follow them. A waiter's passes therefore do not grow
+// with the queue.
+//
+// The one thing kept in memory is the assignments this leader made a
+// moment ago, which count towards their engine until the cache shows them:
+// a slot is counted from the manager's own assignments, never from the
+// engine's report.
 const (
 	// slotAssignedFor is how long an assignment this leader made counts
 	// towards its engine before the cache alone is believed.
 	slotAssignedFor = time.Minute
-	// slotWaiterFor is how long a waiter stays in the book without its
-	// owner's pass naming it again: every waiter is passed at least every
-	// lifecycle.SlotRecheckTail.
-	slotWaiterFor = 3 * lifecycle.SlotRecheckTail
-	// slotWake is how many waiters a freed slot wakes, and slotWakeAfter
-	// how long after: the pass that freed it writes its status first.
+	// slotWake is how many waiters a freed slot or an engine's new room
+	// wakes, and slotWakeAfter how long after a freed slot: the pass that
+	// freed it writes its status first.
 	slotWake      = 4
 	slotWakeAfter = 2 * time.Second
 )
 
 // slotWaiter is one grab waiting for a transfer slot.
 type slotWaiter struct {
-	uid       types.UID
-	owner     remediation.Key
-	namespace string
-	client    string
-	rank      int
-	since     time.Time
-	seen      time.Time
+	uid   types.UID
+	owner remediation.Key
+	rank  int
+	since time.Time
 }
 
-// slotBook is the stage's leader-local book of slot waiters and of its own
-// recent assignments. Lost with the leader: each owner's first pass files
-// its waiters again, in the order their grabs were made.
-type slotBook struct {
-	mu       sync.Mutex
-	waiters  map[types.UID]slotWaiter
-	assigned map[string]map[types.UID]time.Time // engine → entry → when
-}
-
-func newSlotBook() *slotBook {
-	return &slotBook{waiters: map[types.UID]slotWaiter{}, assigned: map[string]map[types.UID]time.Time{}}
-}
-
-// before orders two waiters: the higher class, then the longer wait, then
-// the uid.
+// before orders two waiters: the higher class, then the earlier chosen,
+// then the uid.
 func (a slotWaiter) before(b slotWaiter) bool {
 	if a.rank != b.rank {
 		return a.rank > b.rank
@@ -92,73 +88,38 @@ func (a slotWaiter) before(b slotWaiter) bool {
 	return a.uid < b.uid
 }
 
-// sync files owner's waiters as they are now and drops the ones it no
-// longer has, and any waiter not seen for slotWaiterFor.
-func (b *slotBook) sync(owner remediation.Key, waiting []slotWaiter, now time.Time) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	keep := map[types.UID]bool{}
-	for _, w := range waiting {
-		keep[w.uid] = true
-		if cur, ok := b.waiters[w.uid]; ok {
-			// The first wait stands: a pass does not move a grab back.
-			w.since = cur.since
-		}
-		w.seen = now
-		b.waiters[w.uid] = w
-	}
-	for uid, w := range b.waiters {
-		if (w.owner == owner && !keep[uid]) || now.Sub(w.seen) > slotWaiterFor {
-			delete(b.waiters, uid)
-		}
-	}
+// slotBook is this leader's recent assignments, by engine, and what each
+// engine last reported. Lost with the leader, which costs nothing past
+// slotAssignedFor and one wake an engine.
+type slotBook struct {
+	mu       sync.Mutex
+	assigned map[string]map[types.UID]time.Time // engine → entry → when
+	reported map[string]engineReport
 }
 
-// ahead counts the waiters of w's client in front of it.
-func (b *slotBook) ahead(w slotWaiter) int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if cur, ok := b.waiters[w.uid]; ok {
-		w.since = cur.since
-	}
-	n := 0
-	for uid, o := range b.waiters {
-		if uid != w.uid && o.namespace == w.namespace && o.client == w.client && o.before(w) {
-			n++
-		}
-	}
-	return n
+// engineReport is the part of an engine record a waiter cares about.
+type engineReport struct {
+	ready     bool
+	budgetSeq int64
+	// load is the transfers the engine runs and queues.
+	load int32
 }
 
-// head lists the owners of the first n waiters of client.
-func (b *slotBook) head(namespace, client string, n int) []remediation.Key {
+func newSlotBook() *slotBook {
+	return &slotBook{assigned: map[string]map[types.UID]time.Time{}, reported: map[string]engineReport{}}
+}
+
+// roomChanged records an engine's report and tells whether it may have
+// made room for a waiter: the first report this leader sees, an engine
+// that became ready, a new budget, or fewer transfers than it last
+// reported. A record that says the same as the last one -- an engine
+// writes one a minute -- wakes nobody.
+func (b *slotBook) roomChanged(engine string, r engineReport) bool {
 	b.mu.Lock()
-	ws := make([]slotWaiter, 0, len(b.waiters))
-	for _, w := range b.waiters {
-		if w.namespace == namespace && w.client == client {
-			ws = append(ws, w)
-		}
-	}
-	b.mu.Unlock()
-	slices.SortFunc(ws, func(a, c slotWaiter) int {
-		switch {
-		case a.before(c):
-			return -1
-		case c.before(a):
-			return 1
-		}
-		return 0
-	})
-	var out []remediation.Key
-	for _, w := range ws {
-		if len(out) == n {
-			break
-		}
-		if !slices.Contains(out, w.owner) {
-			out = append(out, w.owner)
-		}
-	}
-	return out
+	defer b.mu.Unlock()
+	last, seen := b.reported[engine]
+	b.reported[engine] = r
+	return !seen || (r.ready && !last.ready) || r.budgetSeq != last.budgetSeq || r.load < last.load
 }
 
 // assign records that this leader pinned uid to engine at now.
@@ -169,7 +130,6 @@ func (b *slotBook) assign(engine string, uid types.UID, now time.Time) {
 		b.assigned[engine] = map[types.UID]time.Time{}
 	}
 	b.assigned[engine][uid] = now
-	delete(b.waiters, uid)
 }
 
 // recent lists the entries this leader pinned to engine within
@@ -184,6 +144,51 @@ func (b *slotBook) recent(engine string, now time.Time) []types.UID {
 			continue
 		}
 		out = append(out, uid)
+	}
+	return out
+}
+
+// queue is client's waiters in namespace, in order, read from status
+// through the cache's index.
+func queue(ctx context.Context, r client.Reader, namespace, clientName string) ([]slotWaiter, error) {
+	owned, err := dlindex.SlotWaiters(ctx, r, namespace, clientName)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]slotWaiter, 0, len(owned))
+	for i := range owned {
+		k, ok := ownerKeyOf(owned[i].Owner)
+		if !ok {
+			continue
+		}
+		e := &owned[i].Entry
+		out = append(out, slotWaiter{
+			uid: types.UID(e.UID), owner: k, since: e.GrabbedAt.Time,
+			rank: priorityRank(lifecycle.ParseIntents(owned[i].Annotations).Priority[e.ID]),
+		})
+	}
+	slices.SortFunc(out, func(a, b slotWaiter) int {
+		switch {
+		case a.before(b):
+			return -1
+		case b.before(a):
+			return 1
+		}
+		return 0
+	})
+	return out, nil
+}
+
+// head is the owners of the first n waiters of q, each once.
+func head(q []slotWaiter, n int) []remediation.Key {
+	var out []remediation.Key
+	for _, w := range q {
+		if len(out) == n {
+			break
+		}
+		if !slices.Contains(out, w.owner) {
+			out = append(out, w.owner)
+		}
 	}
 	return out
 }
@@ -215,17 +220,15 @@ func lateClients(v *lifecycle.View) map[string]lifecycle.Client {
 	return out
 }
 
-// waiterOf is e as a slot waiter of client.
-func waiterOf(ow owner, v *lifecycle.View, e *catalogv1alpha1.DownloadEntry, client string) slotWaiter {
+// waiterOf is e, of owner ow, as a slot waiter: a grab not yet chosen a
+// time stands from now.
+func waiterOf(ow owner, v *lifecycle.View, e *catalogv1alpha1.DownloadEntry) slotWaiter {
 	since := e.GrabbedAt.Time
 	if since.IsZero() {
 		since = v.Now
 	}
 	k, _ := ownerKeyOf(ow.ref)
-	return slotWaiter{
-		uid: types.UID(e.UID), owner: k, namespace: ow.ref.Namespace, client: client,
-		rank: priorityRank(v.Intents.Priority[e.ID]), since: since,
-	}
+	return slotWaiter{uid: types.UID(e.UID), owner: k, rank: priorityRank(v.Intents.Priority[e.ID]), since: since}
 }
 
 // slots fills what lifecycle needs to bind an owner's Pending entries late:
@@ -274,6 +277,7 @@ func (s *Stage) slots(ctx context.Context, ow owner, v *lifecycle.View) error {
 		}
 	}
 	v.Ahead = map[types.UID]int{}
+	queues := map[string][]slotWaiter{}
 	for _, e := range pending {
 		// The client lifecycle will choose: the entry's own when it has
 		// one, else the protocol's first.
@@ -285,54 +289,99 @@ func (s *Stage) slots(ctx context.Context, ow owner, v *lifecycle.View) error {
 			}
 			c = chosen
 		}
-		v.Ahead[types.UID(e.UID)] = s.slotBook.ahead(waiterOf(ow, v, e, c.Name))
+		q, ok := queues[c.Name]
+		if !ok {
+			var err error
+			if q, err = queue(ctx, s.o.Reader, ow.ref.Namespace, c.Name); err != nil {
+				return err
+			}
+			queues[c.Name] = q
+		}
+		me := waiterOf(ow, v, e)
+		n := 0
+		for _, w := range q {
+			if w.uid != me.uid && w.before(me) {
+				n++
+			}
+		}
+		v.Ahead[types.UID(e.UID)] = n
 	}
 	return nil
 }
 
-// slotsAfter files what one owner's plan did to the slots: its waiters as
-// they now stand, the assignments just made, and, when one of its grabs
-// stopped holding a slot, a wake for the head of that client's queue.
-func (s *Stage) slotsAfter(ow owner, v *lifecycle.View, plan lifecycle.Plan) {
+// slotsAfter acts on what one owner's plan did to the slots: the
+// assignments just made count towards their engines at once; a grab that
+// stopped holding a slot wakes the next waiters in line; and any change to
+// a client's waiters or holders wakes its DownloadClient, whose budgets
+// and engine count follow them.
+func (s *Stage) slotsAfter(ctx context.Context, ow owner, v *lifecycle.View, plan lifecycle.Plan) {
 	late := lateClients(v)
 	if len(late) == 0 {
 		return
+	}
+	// What each entry was and is: waiting, holding, or neither.
+	const (
+		neither = iota
+		waiting
+		holding
+	)
+	state := func(e *catalogv1alpha1.DownloadEntry) int {
+		switch {
+		case dlindex.WaitsForSlot(e):
+			return waiting
+		case dlindex.HoldsSlot(e):
+			return holding
+		}
+		return neither
 	}
 	before := map[string]*catalogv1alpha1.DownloadEntry{}
 	for i := range v.Stored {
 		before[v.Stored[i].UID] = &v.Stored[i]
 	}
-	after := map[string]*catalogv1alpha1.DownloadEntry{}
-	var waiting []slotWaiter
+	changed, freed := map[string]bool{}, map[string]bool{}
+	seen := map[string]bool{}
 	for i := range plan.Entries {
 		e := &plan.Entries[i]
-		after[e.UID] = e
+		seen[e.UID] = true
+		was, had := before[e.UID]
 		if _, ok := late[e.Client]; !ok {
 			continue
 		}
-		switch {
-		case dlindex.WaitsForSlot(e):
-			waiting = append(waiting, waiterOf(ow, v, e, e.Client))
-		case e.Engine != "":
-			if was, ok := before[e.UID]; !ok || was.Engine == "" {
-				s.slotBook.assign(e.Engine, types.UID(e.UID), v.Now)
+		if e.Engine != "" && (!had || was.Engine == "") {
+			s.slotBook.assign(e.Engine, types.UID(e.UID), v.Now)
+		}
+		old := neither
+		if had {
+			old = state(was)
+		}
+		if now := state(e); now != old {
+			changed[e.Client] = true
+			if old == holding {
+				freed[e.Client] = true
 			}
 		}
 	}
-	k, _ := ownerKeyOf(ow.ref)
-	s.slotBook.sync(k, waiting, v.Now)
-
-	freed := map[string]bool{}
 	for uid, was := range before {
-		if _, ok := late[was.Client]; !ok || !dlindex.HoldsSlot(was) {
-			continue
-		}
-		if now, ok := after[uid]; !ok || !dlindex.HoldsSlot(now) {
-			freed[was.Client] = true
+		if _, ok := late[was.Client]; ok && !seen[uid] && state(was) != neither {
+			changed[was.Client] = true
+			if state(was) == holding {
+				freed[was.Client] = true
+			}
 		}
 	}
+	ns := ow.ref.Namespace
 	for c := range freed {
-		s.slotWake.add(s.slotBook.head(ow.ref.Namespace, c, slotWake), slotWakeAfter)
+		q, err := queue(ctx, s.o.Reader, ns, c)
+		if err != nil {
+			logging.FromContext(ctx).Warn("downloads: the waiters of a freed transfer slot", "client", c, "err", err)
+			continue
+		}
+		s.slotWake.add(head(q, slotWake), slotWakeAfter)
+	}
+	if s.o.ClientWake != nil {
+		for c := range changed {
+			s.o.ClientWake(ns, c)
+		}
 	}
 }
 

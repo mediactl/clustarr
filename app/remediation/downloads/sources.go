@@ -47,7 +47,8 @@ import (
 //     entry pinned to that engine, which republishes desired state (the
 //     resync, §6.7).
 //   - slots/wake: a grab that stopped holding a transfer slot wakes the
-//     head of its client's queue of waiters (slots.go).
+//     head of its client's queue of waiters (slots.go); an engine
+//     record that shows new room wakes that head too.
 func (s *Stage) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	reader := mgr.GetClient()
 	transfers := recordsource.NewItems(s.o.Bus, events.BucketTransfers, func(item schema.ItemRef, value []byte) []remediation.Key {
@@ -78,17 +79,27 @@ func (s *Stage) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 			return nil
 		}
 		name := rec.Client + "-" + strconv.Itoa(int(rec.Ordinal))
+		// A record that shows room that was not there wakes the first
+		// grabs waiting for a slot on its client: a budget raised, an
+		// engine added or ready, fewer transfers. A few waiters, however
+		// long the queue; and an engine's minute-by-minute record that
+		// says nothing new wakes none.
+		var keys []remediation.Key
+		if s.slotBook.roomChanged(name, engineReport{ready: rec.Ready, budgetSeq: rec.BudgetSeq, load: rec.Active + rec.Queued}) {
+			if q, err := queue(context.Background(), reader, item.Namespace, rec.Client); err == nil {
+				keys = head(q, slotWake)
+			}
+		}
 		if !s.boots.see(name, rec.BootID, rec.Reattached, rec.At) {
-			return nil
+			return keys
 		}
 		owners, err := dlindex.PinnedTo(context.Background(), reader, item.Namespace, name)
 		if err != nil {
 			logging.FromContext(context.Background()).Warn("downloads: owners pinned to a rebooted engine", "engine", name, "err", err)
-			return nil
+			return keys
 		}
-		keys := make([]remediation.Key, 0, len(owners))
 		for _, o := range owners {
-			if k, ok := ownerKeyOf(o); ok {
+			if k, ok := ownerKeyOf(o); ok && !containsKey(keys, k) {
 				keys = append(keys, k)
 			}
 		}

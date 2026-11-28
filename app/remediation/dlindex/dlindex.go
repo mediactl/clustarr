@@ -279,10 +279,13 @@ func PinnedTo(ctx context.Context, r client.Reader, namespace, engine string) ([
 	return out, nil
 }
 
-// OwnedEntry is one entry and the owner holding it.
+// OwnedEntry is one entry and the owner holding it, with the owner's
+// annotations: its standing download intents (a grab's priority class) are
+// read from them.
 type OwnedEntry struct {
-	Owner schema.ItemRef
-	Entry catalogv1alpha1.DownloadEntry
+	Owner       schema.ItemRef
+	Annotations map[string]string
+	Entry       catalogv1alpha1.DownloadEntry
 }
 
 // SlotHolders lists the entries in namespace that hold one of engine's
@@ -319,7 +322,7 @@ func entries(ctx context.Context, r client.Reader, namespace, value string, keep
 			es := ow.entries(o)
 			for i := range es {
 				if keep(&es[i]) {
-					out = append(out, OwnedEntry{Owner: ref, Entry: es[i]})
+					out = append(out, OwnedEntry{Owner: ref, Annotations: o.GetAnnotations(), Entry: es[i]})
 				}
 			}
 		}

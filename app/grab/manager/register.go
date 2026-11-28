@@ -72,6 +72,10 @@ type Options struct {
 	// LoggingConfigMap is the logging ConfigMap every engine pod mounts
 	// optionally (--logging-configmap; downloadclient.EngineRuntime).
 	LoggingConfigMap string
+	// ClientWake is what the downloads stage signals when a client's slot
+	// waiters or holders change; internal/cli/manager hands the same one
+	// to the remediation loop. nil is no such wake.
+	ClientWake *downloadclient.Wake
 }
 
 // Cache contributions: none beyond today's Secret DisableFor, which the
@@ -103,6 +107,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 	dcReconciler.Engines = records.NewReader(bus.KV(events.BucketEngines), agentrecords.Engines())
 	dcReconciler.EngineRecorder = mgr.GetEventRecorder(lifecycle.RecorderGrabEngine)
+	dcReconciler.Wake = o.ClientWake
 	if err := dcReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("grab: downloadclient: %w", err)
 	}

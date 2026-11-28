@@ -39,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/searchplan"
 	historyworker "github.com/mediactl/clustarr/app/catalog/worker/history"
 	"github.com/mediactl/clustarr/app/dispatch"
+	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 	grabmanager "github.com/mediactl/clustarr/app/grab/manager"
 	importmanager "github.com/mediactl/clustarr/app/import/manager"
 	"github.com/mediactl/clustarr/app/import/manager/scanapply"
@@ -398,6 +399,10 @@ func register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options, 
 	// The loop signals the slim SubtitleProfile reconciler through one Wake
 	// (loop spec §2.13): caption registers it, the loop calls Signal.
 	wake := subtitleprofile.NewWake(subtitleprofile.WakeDebounce)
+	// The downloads stage wakes a DownloadClient's controller when the
+	// grabs waiting for or holding its transfer slots change (the usenet
+	// fleet, spec 2026-11-27 §13).
+	clientWake := downloadclient.NewWake()
 	// The transcode admission ledger (loop spec §5.5), built once: the loop
 	// observes into it and takes grants from it, transcode-admission
 	// rebuilds and passes it, and the slim TranscodeProfile reconciler
@@ -422,7 +427,9 @@ func register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options, 
 			})
 		}},
 		{"grab", func() error {
-			return grabmanager.Register(mgr, bus, grabOptions(o))
+			opts := grabOptions(o)
+			opts.ClientWake = clientWake
+			return grabmanager.Register(mgr, bus, opts)
 		}},
 		{"transcode", func() error {
 			return transcodemanager.Register(mgr, bus, transcodeOptions(o, ledger))
@@ -446,6 +453,7 @@ func register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options, 
 				Backlog:             p.backlog,
 				Dubs:                p.dubs,
 				SubtitleProfileWake: wake.Signal,
+				DownloadClientWake:  clientWake.Signal,
 				Ledger:              ledger,
 				// A standalone graft Job runs on the cpu pool's pod template
 				// (loop spec §4.12): the transcode manager's own.

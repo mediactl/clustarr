@@ -24,6 +24,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -31,6 +32,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
@@ -60,6 +63,29 @@ import (
 // is a live filesystem fact that can change with nothing in the cluster telling
 // this controller so.
 const recheckInterval = 5 * time.Minute
+
+// freeStepBytes is the step status.freeBytes moves by.
+const freeStepBytes = 1 << 30
+
+// statusUnchanged reports that want, the status this reconcile would
+// apply, says what have, the stored one, already says. Both are compared
+// as the API type, so a nil and an empty list are one.
+func statusUnchanged(want *downloadac.DownloadClientStatusApplyConfiguration, have *downloadv1alpha1.DownloadClientStatus) bool {
+	norm := func(v any) (downloadv1alpha1.DownloadClientStatus, bool) {
+		var out downloadv1alpha1.DownloadClientStatus
+		raw, err := json.Marshal(v)
+		if err != nil || json.Unmarshal(raw, &out) != nil {
+			return out, false
+		}
+		return out, true
+	}
+	w, ok := norm(want)
+	if !ok {
+		return false
+	}
+	h, ok := norm(have)
+	return ok && apiequality.Semantic.DeepEqual(w, h)
+}
 
 // Reason tokens local to DownloadClient; see pkg/k8s.Reason* for the shared
 // set this reuses.
@@ -142,6 +168,10 @@ type Reconciler struct {
 	// them: ProxyUDPUnavailable and UnidentifiedTransferRemoved, as
 	// grab-engine (ADR-0019 §7.7). nil uses Recorder.
 	EngineRecorder events.EventRecorder
+
+	// Wake is signalled by the downloads stage when a client's slot
+	// waiters or holders change (wake.go); nil is no such wake.
+	Wake *Wake
 
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
@@ -278,7 +308,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	conditions := append([]metav1.Condition(nil), dc.Status.Conditions...)
 	freeOK := es.reported > 0 && es.freeBytes >= r.minFreeBytes()
-	setDiskSpaceCondition(&dc, &conditions, freeOK, es.freeBytes, r.minFreeBytes(), es.freeErr())
+	// Status says the free space to the gibibyte: the exact figure moves
+	// with every article written and would rewrite status at every record.
+	reportedFree := es.freeBytes / freeStepBytes * freeStepBytes
+	setDiskSpaceCondition(&dc, &conditions, freeOK, reportedFree, r.minFreeBytes(), es.freeErr())
 	fresh := es.freshReady == desiredReplicas
 	// An autoscaled client at no engines is ready: it has nothing to run.
 	idleFleet := desiredReplicas == 0 && autoscaleOf(&dc) != nil
@@ -325,16 +358,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		WithActive(es.active).
 		WithQueued(es.queued).
 		WithSeeding(es.seeding).
-		WithFreeBytes(es.freeBytes).
+		WithFreeBytes(reportedFree).
 		WithUnidentifiedTransfers(es.unidentified).
 		WithConditions(k8s.ConditionACs(conditions)...)
 	if resyncSeq != 0 {
 		st = st.WithResyncSeq(resyncSeq)
 	}
-	ac := downloadac.DownloadClient(dc.Name, dc.Namespace).WithStatus(st)
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerGrab, ac); err != nil {
-		log.Error("patch status", "err", err)
-		return ctrl.Result{}, err
+	// An engine writes its record every minute, and each one wakes this
+	// reconcile: a status that says what the stored one says is not sent,
+	// so the wake costs the apiserver nothing (ADR-0025).
+	if !statusUnchanged(st, &dc.Status) {
+		ac := downloadac.DownloadClient(dc.Name, dc.Namespace).WithStatus(st)
+		if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerGrab, ac); err != nil {
+			log.Error("patch status", "err", err)
+			return ctrl.Result{}, err
+		}
 	}
 	if wanted {
 		r.mu.Lock()
@@ -348,8 +386,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if pending {
 		return ctrl.Result{RequeueAfter: resyncRepublish}, nil
 	}
-	if lateBinding(&dc) {
-		return ctrl.Result{RequeueAfter: fleetInterval}, nil
+	// A drain has a next due of its own: the ordinal's grace, or a look
+	// at whether it is empty yet. Everything else about a fleet is woken
+	// by what changes (wake.go).
+	if fs.due > 0 && fs.due < recheckInterval {
+		return ctrl.Result{RequeueAfter: fs.due}, nil
 	}
 	return ctrl.Result{RequeueAfter: recheckInterval}, nil
 }
@@ -576,6 +617,13 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		b = b.WatchesRawSource(EngineRecordSource(r.Bus)).
 			WatchesRawSource(r.transfersRecreated(mgr.GetClient()))
 	}
+	if r.Wake != nil {
+		b = b.WatchesRawSource(r.Wake)
+	}
+	b = b.Watches(&corev1.Node{}, handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
+		n, _ := o.(*corev1.Node)
+		return r.budgetedClients(ctx, n)
+	}), builder.WithPredicates(nodeBandwidthChanged()))
 	return b.WithOptions(controller.Options{ReconciliationTimeout: 5 * time.Minute}).Complete(r)
 }
 
