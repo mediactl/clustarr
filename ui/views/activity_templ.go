@@ -708,8 +708,8 @@ func activityPager(section, tab string, pg ListPage) templ.Component {
 const (
 	activityGrid        = "grid grid-cols-[minmax(0,1fr)_auto] @3xl/activity:grid-cols-[minmax(0,1fr)_minmax(0,20rem)_auto]"
 	activityGridActions = "grid grid-cols-[minmax(0,1fr)_auto] @3xl/activity:grid-cols-[minmax(0,1fr)_minmax(0,20rem)_auto_auto]"
-	activityRowClass    = "col-span-full grid grid-cols-subgrid items-center gap-x-4 gap-y-1.5 border-b border-border px-4 py-2.5 last:border-b-0 hover:bg-muted/30"
-	activityHeadClass   = "col-span-full hidden grid-cols-subgrid items-center gap-x-4 border-b border-border px-4 py-2 text-xs font-medium text-muted-foreground @3xl/activity:grid"
+	activityRowClass    = "col-span-full grid grid-cols-subgrid items-center gap-x-4 gap-y-1.5 border-b border-border px-(--platter-pad) py-3 last:border-b-0 hover:bg-[var(--hover)]"
+	activityHeadClass   = "sr-only"
 )
 
 // activityList is a tab's list: a card holding the grid, headed from 48rem

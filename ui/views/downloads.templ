@@ -160,17 +160,18 @@ templ downloadClientCard(c downloadv1.DownloadClient) {
 		},
 	}) {
 		@item.Content() {
-			@item.Title() {
+			@item.Title(item.TitleProps{Class: "text-headline"}) {
 				{ c.Name }
 			}
-			<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-4">
-				<span>{ fmt.Sprintf("active %d", c.Status.Active) }</span>
-				<span>{ fmt.Sprintf("queued %d", c.Status.Queued) }</span>
+			// The stat strip (2026-11-28): a value over its label, aligned.
+			<dl data-client-stats class="mt-2 grid grid-cols-4 gap-x-3">
+				@clientStat("Active", fmt.Sprint(c.Status.Active))
+				@clientStat("Queued", fmt.Sprint(c.Status.Queued))
 				if c.Spec.Protocol == commonv1.ProtocolTorrent {
-					<span>{ fmt.Sprintf("seeding %d", c.Status.Seeding) }</span>
+					@clientStat("Seeding", fmt.Sprint(c.Status.Seeding))
 				}
-				<span>{ fmt.Sprintf("free %s", formatBytes(c.Status.FreeBytes)) }</span>
-			</div>
+				@clientStat("Free", formatBytes(c.Status.FreeBytes))
+			</dl>
 			if c.Status.Engine != nil {
 				@item.Description() {
 					{ fmt.Sprintf("engine %d/%d ready", c.Status.Engine.ReadyReplicas, c.Status.Engine.Replicas) }
@@ -188,6 +189,14 @@ templ downloadClientCard(c downloadv1.DownloadClient) {
 			}
 		}
 	}
+}
+
+// clientStat is one cell of a client's stat strip.
+templ clientStat(label, value string) {
+	<div class="flex min-w-0 flex-col">
+		<dd class="order-1 truncate text-title-3 font-semibold text-label-1 tabular-nums">{ value }</dd>
+		<dt class="order-2 text-footnote text-label-2">{ label }</dt>
+	</div>
 }
 
 // downloadTitle is the entry's release title, else its id.
