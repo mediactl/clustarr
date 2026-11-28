@@ -138,7 +138,7 @@ func Settings(
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1 class=\"mb-6\">Settings</h1><div class=\"mx-auto max-w-5xl space-y-7\" data-settings-sections><h2 data-group-header class=\"-mb-5\">Library</h2><div data-settings-group>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1 class=\"mx-auto mb-6 max-w-5xl\">Settings</h1><div class=\"mx-auto max-w-5xl space-y-7\" data-settings-sections><h2 data-group-header class=\"-mb-5\">Library</h2><div data-settings-group>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
