@@ -22,8 +22,10 @@ import "bytes"
 // tsIndex reads an upstream's MPEG-TS packets as they are written, for where
 // a new viewer may start: the latest PAT and PMT packets, and the first
 // packet of the latest video keyframe -- an access unit carrying its
-// parameter sets, which a decoder can begin at. It indexes nothing once a
-// packet lacks its sync byte, until reset at the next connection.
+// parameter sets, which a decoder can begin at. It also collects every
+// keyframe and every program clock reference since its owner last drained
+// them (keys, pcrs), for the pacer. It indexes nothing once a packet lacks
+// its sync byte, until reset at the next connection.
 type tsIndex struct {
 	pkt    [packetSize]byte
 	filled int   // bytes of pkt so far
@@ -32,16 +34,34 @@ type tsIndex struct {
 
 	pmtPID   int // -1 until a PAT names one
 	videoPID int // -1 until the PMT names one
+	pcrPID   int // -1 until the PMT names one
 	codec    byte
 	pat, pmt []byte
 	key      int64 // the latest keyframe's position, -1 when none
 	// pts is the latest video PES's presentation time (90 kHz ticks, 33
 	// bits), -1 until one is seen; keyPTS the latest keyframe's.
 	pts, keyPTS int64
+	// keys and pcrs are the keyframes and PCRs indexed since the owner
+	// last drained them.
+	keys []keyMark
+	pcrs []pcrMark
+}
+
+// keyMark is a keyframe's position and the tables a viewer starting there
+// is sent first.
+type keyMark struct {
+	pos      int64
+	pat, pmt []byte
+}
+
+// pcrMark is a program clock reference: its packet's position and its base
+// (90 kHz, 33 bits; the 27 MHz extension is dropped).
+type pcrMark struct {
+	pos, base int64
 }
 
 func newTSIndex(at int64) tsIndex {
-	return tsIndex{pos: at, pmtPID: -1, videoPID: -1, key: -1, pts: -1, keyPTS: -1}
+	return tsIndex{pos: at, pmtPID: -1, videoPID: -1, pcrPID: -1, key: -1, pts: -1, keyPTS: -1}
 }
 
 // write reads p, which continues the stream at the index's position.
@@ -69,6 +89,11 @@ func (x *tsIndex) packet(p []byte) bool {
 		return false
 	}
 	pid := int(p[1]&0x1f)<<8 | int(p[2])
+	if pid == x.pcrPID {
+		if base, ok := pcrBase(p); ok {
+			x.pcrs = append(x.pcrs, pcrMark{pos: x.pos, base: base})
+		}
+	}
 	start := p[1]&0x40 != 0
 	if !start || (pid != 0 && pid != x.pmtPID && pid != x.videoPID) {
 		return false
@@ -91,6 +116,7 @@ func (x *tsIndex) packet(p []byte) bool {
 	case x.pmtPID:
 		if video, codec, ok := pmtVideo(payload); ok {
 			x.videoPID, x.codec, x.pmt = video, codec, bytes.Clone(p)
+			x.pcrPID = pmtPCRPID(payload)
 		}
 	case x.videoPID:
 		if pts, ok := pesPTS(payload); ok {
@@ -98,6 +124,7 @@ func (x *tsIndex) packet(p []byte) bool {
 		}
 		if keyframe(x.codec, pesData(payload), rai) {
 			x.key, x.keyPTS = x.pos, x.pts
+			x.keys = append(x.keys, keyMark{pos: x.pos, pat: x.pat, pmt: x.pmt})
 			return true
 		}
 	}
@@ -169,6 +196,29 @@ func pmtVideo(payload []byte) (int, byte, bool) {
 		}
 	}
 	return 0, 0, false
+}
+
+// pmtPCRPID is the PID the program's clock references ride on, or -1 for
+// none (0x1fff).
+func pmtPCRPID(payload []byte) int {
+	s := psiSection(payload, 0x02)
+	if len(s) < 12 {
+		return -1
+	}
+	if pid := int(s[8]&0x1f)<<8 | int(s[9]); pid != 0x1fff {
+		return pid
+	}
+	return -1
+}
+
+// pcrBase is the PCR a packet's adaptation field carries, if any: its
+// 33-bit base on the 90 kHz clock.
+func pcrBase(p []byte) (int64, bool) {
+	if p[3]&0x20 == 0 || p[4] < 7 || p[5]&0x10 == 0 {
+		return 0, false
+	}
+	b := p[6:11]
+	return int64(b[0])<<25 | int64(b[1])<<17 | int64(b[2])<<9 | int64(b[3])<<1 | int64(b[4]>>7), true
 }
 
 // pesData is the elementary stream data in a PES packet's first TS packet.

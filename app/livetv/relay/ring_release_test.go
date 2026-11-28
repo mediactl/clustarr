@@ -40,17 +40,17 @@ func TestTheRingReleasesItsBufferAfterItsLastViewerLeaves(t *testing.T) {
 
 	// The viewer drains what was written, then reads the close.
 	buf := make([]byte, 512)
-	n, err := r.Read(t.Context(), &cur, buf)
+	n, err := r.Read(t.Context(), cur, buf)
 	require.NoError(t, err)
 	assert.Equal(t, 376, n)
-	_, err = r.Read(t.Context(), &cur, buf)
+	_, err = r.Read(t.Context(), cur, buf)
 	assert.ErrorIs(t, err, io.EOF)
 
-	r.Leave()
+	r.Leave(cur)
 	assert.True(t, r.released(), "the last viewer left a closed ring")
 	r.Write(make([]byte, 188))
 	assert.Equal(t, int64(376), r.Total(), "a write after the release is dropped")
-	_, err = r.Read(t.Context(), &cur, buf)
+	_, err = r.Read(t.Context(), cur, buf)
 	assert.ErrorIs(t, err, io.EOF, "a late reader gets the close")
 	assert.Equal(t, 4096, r.size())
 }

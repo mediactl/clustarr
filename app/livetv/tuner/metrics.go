@@ -44,6 +44,9 @@ var (
 	viewersDropped = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "clustarr_livetv_viewers_dropped_total", Help: "Viewers cut off for falling a whole stream buffer behind their upstream, per provider.",
 	}, []string{"provider"})
+	streamsDry = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "clustarr_livetv_streams_dry_total", Help: "Times a watched stream's held-back cushion ran out before its upstream sent more, per provider.",
+	}, []string{"provider"})
 	upstreamFirstByte = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name: "clustarr_livetv_upstream_first_byte_seconds", Help: "Time from a stream's upstream request to its first byte, per provider.",
 		Buckets: prometheus.ExponentialBuckets(0.1, 2, 9),
@@ -65,7 +68,7 @@ var (
 
 func registerMetrics() {
 	metricsOnce.Do(func() {
-		ctrlmetrics.Registry.MustRegister(tunersInUse, viewers, streamBytes, upstreamErrors, viewersDropped, upstreamFirstByte, fetchDuration, gridCalls, gridHold)
+		ctrlmetrics.Registry.MustRegister(tunersInUse, viewers, streamBytes, upstreamErrors, viewersDropped, streamsDry, upstreamFirstByte, fetchDuration, gridCalls, gridHold)
 	})
 }
 
@@ -77,6 +80,7 @@ func forgetMetrics(key types.NamespacedName) {
 	streamBytes.DeletePartialMatch(l)
 	upstreamErrors.DeletePartialMatch(l)
 	viewersDropped.DeletePartialMatch(l)
+	streamsDry.DeletePartialMatch(l)
 	upstreamFirstByte.DeletePartialMatch(l)
 	fetchDuration.DeletePartialMatch(l)
 	gridCalls.DeletePartialMatch(l)

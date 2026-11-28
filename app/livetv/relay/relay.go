@@ -21,8 +21,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // never waited for; an upstream that fails mid-stream is reopened; the last
 // viewer leaving keeps the upstream open for Linger, then frees the tuner.
 // With every tuner streaming, the newest tune takes a tuner: an unwatched
-// stream's, else the one whose viewer joined longest ago. It is xTeVe's own
-// buffer, without the ffmpeg and VLC options.
+// stream's, else the one whose viewer joined longest ago. Viewers get a
+// stream in real time by its own clock, Hold behind its upstream, however
+// the upstream bursts (pacer). It is xTeVe's own buffer, without the
+// ffmpeg and VLC options.
 package relay
 
 import (
@@ -81,9 +83,22 @@ type Options struct {
 	// until PMS's recorder (30 s) or the conversion (30 s) gave the
 	// session up (talos, 2026-11-04 02:16Z, "input stalled").
 	StallTimeout time.Duration
+	// MediaStallTimeout is how long an open upstream that has shown PCRs
+	// may send bytes without one before it is reopened, as a stalled one
+	// is. Default 25s. tvload.win's CDN fills the silences between its
+	// segments with null packets (2026-11-27), so StallTimeout never sees
+	// a CDN that keeps padding with no media behind it; its silences ran
+	// to 21 s, and 25 s with a reopen's 3 s fits the 30 s DefaultHold.
+	MediaStallTimeout time.Duration
 	// Reclaim is how long a channel whose watched stream a newer tune took
 	// may not take a watched stream's tuner in turn. Default 10s.
 	Reclaim time.Duration
+	// Hold is how much of a stream's media is held back behind the newest
+	// its upstream sent, and released to the viewers in real time by the
+	// stream's clock (pacer): the cushion that hides the gaps between an
+	// upstream's bursts, and the latency it adds. Default DefaultHold;
+	// negative passes bytes as they come.
+	Hold time.Duration
 	// UserAgent is sent upstream.
 	UserAgent string
 	// Language is the ISO 639-2 code every stream's audio and subtitle
@@ -97,6 +112,9 @@ type Options struct {
 	// OnDropped is told each viewer cut off for falling a whole buffer
 	// behind its upstream.
 	OnDropped func()
+	// OnDry is told each time a watched stream's cushion runs out: the
+	// release caught up with its upstream, and its viewers wait.
+	OnDry func()
 	// OnBytes is told each chunk of upstream bytes relayed.
 	OnBytes func(n int)
 	// OnFirstByte is told how long each upstream connection took to its
@@ -162,8 +180,17 @@ func New(o Options) *Relay {
 	if o.StallTimeout <= 0 {
 		o.StallTimeout = 15 * time.Second
 	}
+	if o.MediaStallTimeout <= 0 {
+		o.MediaStallTimeout = 25 * time.Second
+	}
 	if o.Reclaim <= 0 {
 		o.Reclaim = 10 * time.Second
+	}
+	switch {
+	case o.Hold == 0:
+		o.Hold = DefaultHold
+	case o.Hold < 0:
+		o.Hold = 0
 	}
 	return &Relay{o: o, streams: map[string]*stream{}, taken: map[string]time.Time{}, tuners: o.Tuners, buffer: o.Buffer, linger: o.Linger, userAgent: o.UserAgent, language: o.Language}
 }
@@ -294,6 +321,12 @@ func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, ups
 		s.ring.onSplice = func(dropped int64, aligned bool) {
 			logging.FromContext(ctx).Info("livetv: upstream reopened and spliced", "channel", channel, "droppedBytes", dropped, "aligned", aligned)
 		}
+		s.ring.setHold(r.o.Hold, func() {
+			logging.FromContext(ctx).Info("livetv: stream ran dry; its viewers wait for the upstream", "channel", channel)
+			if r.o.OnDry != nil {
+				r.o.OnDry()
+			}
+		})
 		r.streams[channel] = s
 		r.inUse++
 		inUse := r.inUse
@@ -338,7 +371,7 @@ func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, ups
 	failed := s.failed
 	r.mu.Unlock()
 	cur, tables := s.ring.Join()
-	defer s.ring.Leave()
+	defer s.ring.Leave(cur)
 	if failed != "" && s.ring.Total() == 0 {
 		http.Error(w, "upstream: "+failed, http.StatusBadGateway)
 		return
@@ -354,7 +387,7 @@ func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, ups
 	}
 	buf := make([]byte, 64<<10)
 	for {
-		n, err := s.ring.Read(req.Context(), &cur, buf)
+		n, err := s.ring.Read(req.Context(), cur, buf)
 		if n > 0 {
 			_ = rc.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if _, werr := w.Write(buf[:n]); werr != nil {
@@ -512,8 +545,30 @@ func (r *Relay) pump(ctx context.Context, s *stream, upstream string) {
 	}
 }
 
-// errStalled ends an upstream connection that sent nothing for StallTimeout.
-var errStalled = errors.New("relay: upstream stalled")
+// watchMedia ends the connection ctx belongs to once s has had no PCR for
+// MediaStallTimeout, checking a few times a timeout; it returns with ctx.
+func (r *Relay) watchMedia(ctx context.Context, s *stream, cancel context.CancelCauseFunc) {
+	t := time.NewTicker(max(r.o.MediaStallTimeout/10, 10*time.Millisecond))
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			if silent, ok := s.ring.mediaSilence(now); ok && silent > r.o.MediaStallTimeout {
+				cancel(errNoMedia)
+				return
+			}
+		}
+	}
+}
+
+// errStalled ends an upstream connection that sent nothing for
+// StallTimeout; errNoMedia one that sent no PCR for MediaStallTimeout.
+var (
+	errStalled = errors.New("relay: upstream stalled")
+	errNoMedia = errors.New("relay: upstream sends no media")
+)
 
 // fetch copies one upstream connection into s's ring. It returns the reason
 // the connection ended, whether that is final (an HLS answer), and whether
@@ -562,6 +617,7 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 	lastByte := time.Now()
 	stall := time.AfterFunc(r.o.StallTimeout, func() { cancel(errStalled) })
 	defer stall.Stop()
+	go r.watchMedia(ctx, s, cancel)
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
@@ -588,6 +644,11 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 		if err != nil {
 			if errors.Is(context.Cause(ctx), errStalled) {
 				log.Warn("livetv: upstream stalled; reopening", "channel", s.channel, "silentFor", time.Since(lastByte))
+				return ReasonTimeout, false, delivered
+			}
+			if errors.Is(context.Cause(ctx), errNoMedia) {
+				silent, _ := s.ring.mediaSilence(time.Now())
+				log.Warn("livetv: upstream sends no media; reopening", "channel", s.channel, "noMediaFor", silent)
 				return ReasonTimeout, false, delivered
 			}
 			return ReasonEOF, false, delivered

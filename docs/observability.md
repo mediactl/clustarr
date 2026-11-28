@@ -198,6 +198,17 @@ The tuner's Plex grid fetch loop (`app/livetv/tuner/grids.go`,
 | `clustarr_livetv_grid_calls_total` | counter | `provider`, `result` (`ok`, `held`, `error`, `empty`) | manager (the Live TV tuner, leader only) | Grid requests to Plex's guide service by outcome: `ok` stored a grid, `empty` (or a 404) left the channel on its next source, `held` was a 429 that held the provider's grids, `error` a failed request or store. About one `ok` per paired station a day; a steady `error` or `held` rate means channels are falling back to XMLTV. | `sum by (provider, result) (increase(clustarr_livetv_grid_calls_total[1d]))` |
 | `clustarr_livetv_grid_hold_seconds` | gauge | `provider` | manager (the Live TV tuner, leader only) | Seconds left of the hold the guide service's last 429 set (max of its Retry-After and a minute); 0 when none holds. | `max by (provider) (clustarr_livetv_grid_hold_seconds) > 0` |
 
+### Live TV stream pacing (2026-11-27)
+
+The relay (`app/livetv/relay/pace.go`) holds each stream `relay.DefaultHold` (30 s) behind its
+upstream and releases it to Plex in real time by the stream's PCR, so the gaps between the
+provider's segment bursts never reach PMS. Registered by the tuner like the grid metrics, so
+only the leader's `/metrics` carries it.
+
+| Metric | Type | Labels | Recorded by | What it signals | Example query |
+|---|---|---|---|---|---|
+| `clustarr_livetv_streams_dry_total` | counter | `provider` | manager (the Live TV tuner, leader only) | A watched stream's held-back cushion ran out before its upstream sent more, so its viewers waited: the sputter the hold exists to hide. Counted once per drought, never at a stream's start. A steady rate means the provider's silences outlast the hold. | `sum by (provider) (increase(clustarr_livetv_streams_dry_total[1d]))` |
+
 ### The ui's requests (2026-11-26)
 
 The ui's request series (`ui/httpmetrics.go`), on the ui's own default registry beside the Go

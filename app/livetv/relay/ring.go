@@ -21,7 +21,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"sync"
+	"time"
 
 	"github.com/mediactl/clustarr/pkg/offheap"
 )
@@ -35,25 +37,37 @@ const packetSize = 188
 var errSlow = errors.New("relay: viewer fell a buffer behind")
 
 // ring is one channel's fan-out buffer: the upstream writes, every viewer
-// reads at its own cursor, and the writer never waits for a reader.
+// reads at its own cursor, and the writer never waits for a reader. A
+// paced ring (setHold) lets viewers read only up to its release point,
+// which its pacer moves at real time by the stream's clock.
 //
 // The buffer is mapped outside the Go heap (pkg/offheap): at 64 MiB a
 // channel it was a fifth of the manager's live heap on talos (2026-11-03),
 // and under GOGC a fifth of the headroom the collector kept beside it. It
 // goes back to the kernel once the ring is closed and its last viewer has
 // left (Leave), never at a collector's cycle; a viewer still draining a
-// closed ring keeps it mapped.
+// closed ring keeps it mapped. While it streams, only what a viewer may
+// still read stays resident (trimLocked): the pages behind the slowest
+// viewer and behind where a new one would start are given back as the
+// stream moves on (owner, 2026-11-27: "minimize the buffer retained as
+// much as possible making it ephemeral outside a failure correction
+// timeframe"), so a paced ring holds its hold and a GOP, not its capacity;
+// the capacity is the cap a slow first viewer reading the opening backlog
+// may fill.
 type ring struct {
 	mu       sync.Mutex
 	buf      []byte // nil once released
 	capacity int
-	mapped   bool          // buf is offheap's, not the heap's
-	viewers  int           // between Join and Leave
-	written  int64         // total bytes ever written
-	align    int64         // where the current upstream connection began
-	index    tsIndex       // the current connection's tables and keyframes
-	notify   chan struct{} // closed and replaced on every write
-	err      error         // set by close
+	mapped   bool                 // buf is offheap's, not the heap's
+	readers  map[*reader]struct{} // between Join and Leave
+	written  int64                // total bytes ever written
+	// trimmed is how far the buffer's pages have been given back: no
+	// byte before it is resident or readable.
+	trimmed int64
+	align   int64         // where the current upstream connection began
+	index   tsIndex       // the current connection's tables and keyframes
+	notify  chan struct{} // closed and replaced on every write
+	err     error         // set by close
 	// lastPTS is the latest video presentation time any connection has
 	// delivered (-1 for none), what a reopened connection catches up to.
 	lastPTS int64
@@ -61,6 +75,29 @@ type ring struct {
 	// until they pass lastPTS (catchUp); onSplice is told how that ended.
 	catch    *catchUp
 	onSplice func(dropped int64, aligned bool)
+	// pace moves the release point, how far viewers may read; keys are
+	// the keyframes still in the buffer, oldest first, across
+	// connections, where a viewer may start behind the release point.
+	pace  pacer
+	keys  []keyMark
+	now   func() time.Time
+	onDry func()
+	// mediaAt is when the current connection last delivered a PCR, stored
+	// or caught up; zero until a stream has shown one (mediaSilence).
+	mediaAt time.Time
+}
+
+// maxKeys bounds a ring's keyframe history: a GOP of half a second keeps
+// two minutes, more than any hold.
+const maxKeys = 256
+
+// trimChunk is the least a trim gives back, so a stream makes about one
+// madvise call a second, not one a write.
+const trimChunk = 1 << 20
+
+// reader is one viewer's place in a ring, from its Join to its Leave.
+type reader struct {
+	pos int64 // the next byte it reads
 }
 
 // catchUp drops a reopened upstream connection's bytes until a keyframe
@@ -90,7 +127,7 @@ type catchUp struct {
 const catchUpProbe = 1 << 20
 
 func newRing(size int) *ring {
-	r := &ring{capacity: size, index: newTSIndex(0), notify: make(chan struct{}), lastPTS: -1}
+	r := &ring{capacity: size, readers: map[*reader]struct{}{}, index: newTSIndex(0), notify: make(chan struct{}), lastPTS: -1, pace: newPacer(0), now: time.Now}
 	if buf, err := offheap.Map(size); err == nil {
 		r.buf, r.mapped = buf, true
 	} else {
@@ -98,6 +135,22 @@ func newRing(size int) *ring {
 		r.buf = make([]byte, size)
 	}
 	return r
+}
+
+// setHold paces the ring: viewers read up to hold behind the newest PCR,
+// released at real time (pacer). onDry is told each time the release
+// catches up with the upstream while a viewer reads. Set before the first
+// write.
+func (r *ring) setHold(hold time.Duration, onDry func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pace = newPacer(hold)
+	r.onDry = onDry
+	r.pace.ranDry = func() {
+		if len(r.readers) > 0 && r.onDry != nil {
+			r.onDry() // r.mu is held: it must not call the ring
+		}
+	}
 }
 
 // Write appends p, overwriting the oldest bytes, and wakes every reader. A
@@ -124,6 +177,14 @@ func (r *ring) appendLocked(p []byte) {
 	if r.index.pts >= 0 {
 		r.lastPTS = r.index.pts
 	}
+	if len(r.index.pcrs) > 0 {
+		r.mediaAt = r.now()
+	}
+	for _, m := range r.index.pcrs {
+		r.pace.pcr(m.pos, m.base)
+	}
+	r.keys = append(r.keys, r.index.keys...)
+	r.index.pcrs, r.index.keys = r.index.pcrs[:0], r.index.keys[:0]
 	size := int64(len(r.buf))
 	for len(p) > 0 {
 		off := r.written % size
@@ -131,8 +192,64 @@ func (r *ring) appendLocked(p []byte) {
 		r.written += int64(n)
 		p = p[n:]
 	}
+	gone := 0
+	for gone < len(r.keys) && (r.written-r.keys[gone].pos > size || len(r.keys)-gone > maxKeys) {
+		gone++
+	}
+	r.keys = append(r.keys[:0], r.keys[gone:]...)
+	if r.index.lost {
+		// A connection that lost sync is no place to start.
+		for len(r.keys) > 0 && r.keys[len(r.keys)-1].pos >= r.align {
+			r.keys = r.keys[:len(r.keys)-1]
+		}
+	}
+	r.advanceLocked(r.now())
 	close(r.notify)
 	r.notify = make(chan struct{})
+}
+
+// advanceLocked moves the release point to now, gives back what no viewer
+// can read any more, and returns the release point: all that is written
+// once the ring is closed, so its viewers drain at once; never so far back
+// that half the ring's bytes are held. r.mu is held.
+func (r *ring) advanceLocked(now time.Time) int64 {
+	if r.err != nil {
+		return r.written
+	}
+	rel := r.pace.release(now, r.written, r.written-int64(r.capacity)/2)
+	r.trimLocked(rel)
+	return rel
+}
+
+// trimLocked gives the buffer's pages back to the kernel up to the oldest
+// byte any viewer may still read: the slowest viewer's next byte, or where
+// a viewer joining now would start (startLocked), whichever is earlier.
+// Only a mapped buffer whose size is whole pages is trimmed, so stream
+// positions and buffer offsets share page boundaries. r.mu is held.
+func (r *ring) trimLocked(rel int64) {
+	page := int64(os.Getpagesize())
+	size := int64(len(r.buf))
+	if !r.mapped || size%page != 0 {
+		return
+	}
+	floor, _ := r.startLocked(rel)
+	for v := range r.readers {
+		floor = min(floor, v.pos)
+	}
+	floor &^= page - 1
+	from := max(r.trimmed, r.written-size)
+	if floor-from < trimChunk {
+		return
+	}
+	for from < floor {
+		off := from % size
+		n := min(floor-from, size-off)
+		if err := offheap.Discard(r.buf, int(off), int(n)); err != nil {
+			return // kept resident, as before trimming
+		}
+		from += n
+	}
+	r.trimmed = floor
 }
 
 // catchLocked feeds p to the catch-up and returns what of it is to be
@@ -151,6 +268,10 @@ func (r *ring) catchLocked(p []byte) []byte {
 		c.filled = 0
 		pkt := c.pkt[:]
 		key := !c.index.lost && c.index.packet(pkt)
+		if len(c.index.pcrs) > 0 {
+			r.mediaAt = r.now() // a replay is media too: the connection lives
+		}
+		c.index.keys, c.index.pcrs = c.index.keys[:0], c.index.pcrs[:0] // nothing dropped is paced
 		c.index.pos += packetSize
 		switch {
 		case key && (c.lapsed || c.index.keyPTS < 0 || ptsAhead(c.index.keyPTS, c.lastPTS)):
@@ -195,12 +316,26 @@ func (r *ring) Total() int64 {
 // before, the new connection is caught up to it first (catchUp).
 func (r *ring) Realign() {
 	r.mu.Lock()
+	if !r.mediaAt.IsZero() {
+		r.mediaAt = r.now() // the new connection's silence starts now
+	}
 	r.align = r.written
 	r.index = newTSIndex(r.written)
 	if r.lastPTS >= 0 && r.buf != nil {
 		r.catch = &catchUp{index: newTSIndex(0), lastPTS: r.lastPTS, budget: int64(r.capacity)}
 	}
 	r.mu.Unlock()
+}
+
+// mediaSilence is how long the current connection has delivered no PCR,
+// and whether the stream has shown any to judge by.
+func (r *ring) mediaSilence(now time.Time) (time.Duration, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.mediaAt.IsZero() {
+		return 0, false
+	}
+	return now.Sub(r.mediaAt), true
 }
 
 // connectionStart is how far into a connection a new viewer still starts
@@ -211,42 +346,74 @@ const connectionStart = 1 << 20
 // counts the viewer until its Leave. A viewer starts where a decoder can
 // (talos, 2026-10-21: one that started at the newest packet began mid-GOP,
 // so PMS discarded everything up to the next keyframe, and the first viewer
-// missed the tables and keyframe a provider opens its stream with):
+// missed the tables and keyframe a provider opens its stream with), and no
+// later than the release point, so it shares the cushion the others have
+// (pacer: one that started at the newest keyframe would get every gap in
+// the upstream as its own):
 //   - near the connection's start, at its first byte, so the provider's
 //     opening burst is the viewer's whole;
-//   - else at the latest keyframe, after copies of the latest PAT and PMT,
-//     when it is no more than half the ring back;
-//   - else at the newest packet boundary.
-func (r *ring) Join() (int64, []byte) {
+//   - else at the latest keyframe released, after copies of the PAT and
+//     PMT before it, when it is no more than half the ring back and not
+//     before the current connection -- unless the release point is itself
+//     still in an earlier one, as it is for a hold after a reopen;
+//   - else at the newest packet boundary released.
+func (r *ring) Join() (*reader, []byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.viewers++
+	pos, k := r.startLocked(r.advanceLocked(r.now()))
+	v := &reader{pos: pos}
+	r.readers[v] = struct{}{}
+	if k == nil {
+		return v, nil
+	}
+	return v, append(bytes.Clone(k.pat), k.pmt...)
+}
+
+// startLocked is where a viewer joining at the release point rel starts,
+// and the keyframe whose tables it is sent first, if it starts at one
+// (Join). r.mu is held.
+func (r *ring) startLocked(rel int64) (int64, *keyMark) {
 	half := int64(r.capacity) / 2
-	if r.written-r.align <= min(connectionStart, half) {
+	if r.written-r.align <= min(connectionStart, half) && rel >= r.align {
 		return r.align, nil
 	}
-	if k := r.index.key; k >= 0 && r.written-k <= half {
-		return k, append(bytes.Clone(r.index.pat), r.index.pmt...)
+	floor := r.align
+	if rel < r.align {
+		floor = 0
+	}
+	for i := len(r.keys) - 1; i >= 0; i-- {
+		k := &r.keys[i]
+		if k.pos > rel {
+			continue
+		}
+		if k.pos >= floor && r.written-k.pos <= half {
+			return k.pos, &r.keys[i]
+		}
+		break
+	}
+	if rel < r.written {
+		return rel, nil // a PCR packet's start
 	}
 	return r.written - (r.written-r.align)%packetSize, nil
 }
 
 // Leave ends a viewer's reads. The last viewer of a closed ring releases
 // its buffer.
-func (r *ring) Leave() {
+func (r *ring) Leave(v *reader) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.viewers--
-	if r.viewers <= 0 && r.err != nil {
+	delete(r.readers, v)
+	if len(r.readers) == 0 && r.err != nil {
 		r.releaseLocked()
 	}
 }
 
-// Read copies the bytes after *cur into p and advances *cur, waiting for a
-// write when there are none. It returns errSlow when *cur's bytes are gone,
-// the close error once the ring is closed and drained (or released), or
-// ctx's error.
-func (r *ring) Read(ctx context.Context, cur *int64, p []byte) (int, error) {
+// Read copies v's next bytes into p and moves v past them, waiting for a
+// write, or for the release point to move, when there are none. It returns
+// errSlow when v's bytes are gone, the close error once the ring is closed
+// and drained (or released), or ctx's error.
+func (r *ring) Read(ctx context.Context, v *reader, p []byte) (int, error) {
+	cur := &v.pos
 	for {
 		r.mu.Lock()
 		if r.buf == nil {
@@ -255,11 +422,12 @@ func (r *ring) Read(ctx context.Context, cur *int64, p []byte) (int, error) {
 			return 0, err
 		}
 		size := int64(len(r.buf))
-		if r.written-*cur > size {
+		if r.written-*cur > size || *cur < r.trimmed {
 			r.mu.Unlock()
 			return 0, errSlow
 		}
-		if avail := r.written - *cur; avail > 0 {
+		now := r.now()
+		if avail := r.advanceLocked(now) - *cur; avail > 0 {
 			n := int(min(int64(len(p)), avail))
 			off := int(*cur % size)
 			c := copy(p[:n], r.buf[off:])
@@ -276,9 +444,17 @@ func (r *ring) Read(ctx context.Context, cur *int64, p []byte) (int, error) {
 			return 0, err
 		}
 		wait := r.notify
+		due, timed := r.pace.due()
 		r.mu.Unlock()
+		var tick <-chan time.Time
+		if timed {
+			t := time.NewTimer(max(due.Sub(now), 0))
+			tick = t.C
+			defer t.Stop()
+		}
 		select {
 		case <-wait:
+		case <-tick:
 		case <-ctx.Done():
 			return 0, ctx.Err()
 		}
@@ -295,7 +471,7 @@ func (r *ring) close(err error) {
 		close(r.notify)
 		r.notify = make(chan struct{})
 	}
-	if r.viewers <= 0 {
+	if len(r.readers) == 0 {
 		r.releaseLocked()
 	}
 }

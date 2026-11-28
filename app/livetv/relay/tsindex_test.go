@@ -127,7 +127,7 @@ func TestJoinNearTheConnectionsStartIsItsFirstByte(t *testing.T) {
 
 	cur, tables := r.Join()
 
-	assert.Equal(t, int64(0), cur, "a first viewer misses none of the connection")
+	assert.Equal(t, int64(0), cur.pos, "a first viewer misses none of the connection")
 	assert.Nil(t, tables)
 }
 
@@ -138,7 +138,7 @@ func TestJoinStartsAtTheLatestKeyframeAfterTheTables(t *testing.T) {
 
 	cur, tables := r.Join()
 
-	assert.Equal(t, int64(len(head)), cur, "the latest keyframe's packet")
+	assert.Equal(t, int64(len(head)), cur.pos, "the latest keyframe's packet")
 	assert.Equal(t, cat(patPacket(), pmtPacket(0x1b)), tables)
 }
 
@@ -159,7 +159,7 @@ func TestJoinFindsEachCodecsKeyframes(t *testing.T) {
 
 			cur, tables := r.Join()
 
-			assert.Equal(t, int64(len(head)), cur)
+			assert.Equal(t, int64(len(head)), cur.pos)
 			assert.Equal(t, cat(patPacket(), pmtPacket(tc.streamType)), tables)
 		})
 	}
@@ -172,7 +172,7 @@ func TestJoinWellPastTheConnectionWithoutAKeyframeIsTheNewestPacket(t *testing.T
 
 	cur, tables := r.Join()
 
-	assert.Equal(t, int64(len(b)), cur)
+	assert.Equal(t, int64(len(b)), cur.pos)
 	assert.Nil(t, tables)
 }
 
@@ -183,7 +183,7 @@ func TestJoinIgnoresAKeyframeHalfABufferBack(t *testing.T) {
 
 	cur, tables := r.Join()
 
-	assert.Equal(t, int64(len(b)), cur, "the newest packet: the keyframe is too far back to read safely")
+	assert.Equal(t, int64(len(b)), cur.pos, "the newest packet: the keyframe is too far back to read safely")
 	assert.Nil(t, tables)
 }
 
@@ -196,7 +196,7 @@ func TestJoinNeverStartsBeforeAReopenedConnection(t *testing.T) {
 
 	cur, tables := r.Join()
 
-	assert.Equal(t, int64(len(first)), cur, "the reopened connection's first byte")
+	assert.Equal(t, int64(len(first)), cur.pos, "the reopened connection's first byte")
 	assert.Nil(t, tables)
 
 	// The frame and the fill above were the reopened connection's replay
@@ -205,7 +205,7 @@ func TestJoinNeverStartsBeforeAReopenedConnection(t *testing.T) {
 	// the ring resumes, behind copies of its tables.
 	writeChunked(r, cat(patPacket(), pmtPacket(0x1b), keyAt(3000), fill(testVideoPID, connectionStart/packetSize+1)))
 	cur, tables = r.Join()
-	assert.Equal(t, int64(len(first)+2*packetSize), cur, "its own keyframe, after the tables")
+	assert.Equal(t, int64(len(first)+2*packetSize), cur.pos, "its own keyframe, after the tables")
 	assert.Equal(t, cat(patPacket(), pmtPacket(0x1b)), tables)
 }
 
@@ -216,7 +216,7 @@ func TestAStreamThatLosesSyncIsNoLongerIndexed(t *testing.T) {
 
 	cur, tables := r.Join()
 
-	assert.Equal(t, int64(len(b)-(len(b)%packetSize)), cur, "the newest packet, as for a stream with no keyframe")
+	assert.Equal(t, int64(len(b)-(len(b)%packetSize)), cur.pos, "the newest packet, as for a stream with no keyframe")
 	assert.Nil(t, tables)
 }
 
@@ -227,7 +227,7 @@ func TestAFrameWithoutParameterSetsIsNoKeyframe(t *testing.T) {
 
 	cur, tables := r.Join()
 
-	assert.Equal(t, int64(len(b)), cur, "a random-access flag on a slice alone is not a start")
+	assert.Equal(t, int64(len(b)), cur.pos, "a random-access flag on a slice alone is not a start")
 	assert.Nil(t, tables)
 }
 

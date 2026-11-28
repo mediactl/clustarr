@@ -33,7 +33,7 @@ func TestRingReaderWaitsThenReads(t *testing.T) {
 	got := make(chan []byte)
 	go func() {
 		p := make([]byte, 8)
-		n, err := r.Read(context.Background(), &cur, p)
+		n, err := r.Read(context.Background(), cur, p)
 		assert.NoError(t, err)
 		got <- p[:n]
 	}()
@@ -44,23 +44,23 @@ func TestRingReaderWaitsThenReads(t *testing.T) {
 
 func TestRingReadsAcrossTheWrap(t *testing.T) {
 	r := newRing(8)
-	cur := int64(0)
+	cur := &reader{}
 	r.Write([]byte("abcdef"))
 	p := make([]byte, 6)
-	n, err := r.Read(context.Background(), &cur, p)
+	n, err := r.Read(context.Background(), cur, p)
 	require.NoError(t, err)
 	assert.Equal(t, "abcdef", string(p[:n]))
 	r.Write([]byte("ghijkl")) // wraps
-	n, err = r.Read(context.Background(), &cur, p)
+	n, err = r.Read(context.Background(), cur, p)
 	require.NoError(t, err)
 	assert.Equal(t, "ghijkl", string(p[:n]))
 }
 
 func TestRingReaderTooFarBehindGetsErrSlow(t *testing.T) {
 	r := newRing(8)
-	cur := int64(0)
+	cur := &reader{}
 	r.Write([]byte("0123456789"))
-	_, err := r.Read(context.Background(), &cur, make([]byte, 4))
+	_, err := r.Read(context.Background(), cur, make([]byte, 4))
 	assert.ErrorIs(t, err, errSlow)
 }
 
@@ -69,7 +69,7 @@ func TestRingCloseEndsReaders(t *testing.T) {
 	cur, _ := r.Join()
 	done := make(chan error)
 	go func() {
-		_, err := r.Read(context.Background(), &cur, make([]byte, 4))
+		_, err := r.Read(context.Background(), cur, make([]byte, 4))
 		done <- err
 	}()
 	r.close(io.EOF)
@@ -80,18 +80,18 @@ func TestRingJoinIsAPacketBoundaryFromTheAlignment(t *testing.T) {
 	r := newRing(4 * connectionStart)
 	r.Write(make([]byte, 400)) // 2 packets and 24 bytes, but no keyframe
 	cur, _ := r.Join()
-	assert.Equal(t, int64(0), cur, "the connection's first byte")
+	assert.Equal(t, int64(0), cur.pos, "the connection's first byte")
 	r.Write(make([]byte, connectionStart))
 	cur, _ = r.Join()
-	assert.Equal(t, int64(400+connectionStart-(400+connectionStart)%packetSize), cur, "past the start, the newest packet")
+	assert.Equal(t, int64(400+connectionStart-(400+connectionStart)%packetSize), cur.pos, "past the start, the newest packet")
 	r.Realign() // a reopened upstream starts a new packet here
 	at := int64(400 + connectionStart)
 	r.Write(make([]byte, 200))
 	cur, _ = r.Join()
-	assert.Equal(t, at, cur)
+	assert.Equal(t, at, cur.pos)
 	r.Write(make([]byte, connectionStart))
 	cur, _ = r.Join()
-	assert.Equal(t, at+int64(200+connectionStart)-int64(200+connectionStart)%packetSize, cur)
+	assert.Equal(t, at+int64(200+connectionStart)-int64(200+connectionStart)%packetSize, cur.pos)
 }
 
 func TestRingReadHonoursTheContext(t *testing.T) {
@@ -99,6 +99,6 @@ func TestRingReadHonoursTheContext(t *testing.T) {
 	cur, _ := r.Join()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := r.Read(ctx, &cur, make([]byte, 4))
+	_, err := r.Read(ctx, cur, make([]byte, 4))
 	assert.ErrorIs(t, err, context.Canceled)
 }

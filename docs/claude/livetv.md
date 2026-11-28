@@ -185,6 +185,69 @@ cutter drops a packet whose decode time is not past its stream's last
 instead of failing the job (its `pkg/video/pipeline/cut.go`), the belt
 under this.
 
+**Streams are paced: held 30 s behind the upstream and released in real
+time** (2026-11-27, owner: "the server sends a backlog at connect and then
+chunks every ~10 s. This behavior is very noticeable on the Plex server.
+Can we mitigate the sputtering and create a more reliable, stable streaming
+connection for Plex to consume?"). tvload.win's CDN (CDN77, a 302 from the
+panel) sends a stream as whole HLS segments of about 10 s, each in under a
+second, with up to 21 s of no media between them; bytes still trickle in the
+silences, so the longest byte gap was 6.2 s while the media fell 23 s behind
+the wall clock at worst (three minutes of CNN, two captures, PCR continuous
+throughout). The relay wrote every byte to its viewers as it came, so PMS
+sat at the live edge of what it had and stalled at every silence; a viewer
+joining a warm channel started at the newest keyframe with nothing in hand.
+Now each ring has a release point (`relay/pace.go`, `pacer`): viewers read
+only up to it, and it moves at real time by the stream's PCR (the PMT's PCR
+PID, `tsIndex.pcrs`, thinned to one mark per 100 ms), never more than
+`relay.Options.Hold` (`DefaultHold`, 30 s) behind the newest PCR and never
+past it. So the opening backlog fills the cushion at once (its part beyond
+the hold goes out at once, as before), the clock drains the cushion while
+the upstream is silent, and each segment refills it; a clock that reaches
+the newest PCR waits there and paces the next burst from its arrival. A
+replay of the captured timeline ran dry five times with a 20 s hold, never
+with 25 s (1.9 s left at worst), and kept 6.9 s with 30 s, which is also the
+owner's figure ("Something like 30sec or however long is needed to correct
+for upstream stuttering, reconnections"). The cost is 30 s of latency behind
+the provider's own live edge. A PCR step back or of more than 2 s is a
+discontinuity and paces as no time; a stream without PCRs, or `Hold < 0`,
+passes through as it comes. A viewer joins at the latest keyframe at or
+before the release point, so it shares the cushion; right after a reopen,
+while the release point is still in the earlier connection, it may start at
+that connection's keyframes (`ring.keys` spans connections) rather than wait
+out the hold. A closed ring releases everything at once. A drought with a
+viewer attached logs "livetv: stream ran dry; its viewers wait for the
+upstream" and counts `clustarr_livetv_streams_dry_total`. Proven by
+`TestABurstyUpstreamReachesItsViewerSteadily` (600 ms silences reach the
+viewer unpaced, under 350 ms gaps paced), not yet on talos.
+
+**Only the correction window stays resident** (owner, 2026-11-27: "can we
+minimize the buffer retained as much as possible making it ephemeral
+outside a failure correction timeframe"). A ring's buffer was resident in
+full once the writer had wrapped it (64 MiB after about 100 s of a 5 Mbit/s
+stream). Now `ring.trimLocked` gives its pages back (`offheap.Discard`,
+`MADV_DONTNEED`, at least 1 MiB at a time) up to the oldest byte a viewer may
+still read: the slowest viewer's next byte (viewers are `*reader` handles
+from `Join` to `Leave`), or where a viewer joining now would start, whichever
+is earlier. A paced stream so holds its hold and a GOP (about 17 MB at
+4.5 Mbit/s); the capacity, `spec.stream.buffer`, is the cap a slow first
+viewer reading the opening backlog may fill, and a viewer that falls a whole
+buffer behind is cut off as before. Only a mapped buffer of whole pages is
+trimmed.
+
+**A connection that pads without media is reopened** (2026-11-27). The
+CDN fills the silences between segments with null packets (PID 0x1fff: 162
+of them in one minute's silences, with a few segment-tail packets), so
+`StallTimeout`, which counts bytes, never sees a connection that keeps
+padding with no media behind it, and the paced viewers would drain the
+cushion and then starve until PMS's own 30 s timeout. `ring.mediaAt` is when
+the current connection last delivered a PCR (stored, or replayed during a
+catch-up), and `Relay.watchMedia` drops a connection silent for
+`Options.MediaStallTimeout` (25 s, past the 21 s silences seen; with a
+reopen's 3 s it fits the 30 s hold) and reopens it as a stalled one
+("livetv: upstream sends no media; reopening", reason `timeout`). A stream
+that never showed a PCR is never judged. `TestAnUpstreamPaddingWithoutMediaIsReopened`.
+
 discover.json advertises three tuners more than `tuners`
 (`tuner.SpareTuners`). The reason: on 2026-10-20 a grab PMS never ended held
 the one tuner for hours while the relay streamed nothing, and every tune
@@ -206,7 +269,8 @@ while every other manager port stays open (`clustarr.managerPorts`; held by
 kustomize's policy is `config/livetv`, outside `config/manager`, whose
 `includeSelectors` labels would add clustarr's labels to the peer and admit
 no Plex pod. The manager's memory default carries 128Mi for the stream
-buffers, which live outside the Go heap (`pkg/offheap`, 2026-11-03: one
+buffers (the cap: since 2026-11-27 only the correction window is resident,
+above), which live outside the Go heap (`pkg/offheap`, 2026-11-03: one
 64 MiB ring was a fifth of the manager's live heap and of its GC
 headroom) and go back to the kernel once a ring is closed and its last
 viewer has left.

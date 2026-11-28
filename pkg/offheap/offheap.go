@@ -30,6 +30,7 @@ package offheap
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"golang.org/x/sys/unix"
 )
@@ -49,6 +50,22 @@ func Map(n int) ([]byte, error) {
 		return nil, fmt.Errorf("offheap: map %d bytes: %w", n, err)
 	}
 	return b, nil
+}
+
+// Discard gives the whole pages of b[off:off+n] back to the kernel while
+// the mapping stays: they read as zeroes, and come back on the next
+// write. b is a buffer [Map] gave; a partial page at either end is kept.
+func Discard(b []byte, off, n int) error {
+	page := os.Getpagesize()
+	lo := (off + page - 1) / page * page
+	hi := min(off+n, len(b)) / page * page
+	if off < 0 || n < 0 || lo >= hi {
+		return nil
+	}
+	if err := unix.Madvise(b[lo:hi], unix.MADV_DONTNEED); err != nil {
+		return fmt.Errorf("offheap: discard %d bytes: %w", hi-lo, err)
+	}
+	return nil
 }
 
 // Unmap returns a buffer [Map] gave to the kernel. It takes the slice Map

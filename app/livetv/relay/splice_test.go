@@ -102,9 +102,9 @@ func TestAReopenedConnectionsReplayedBacklogIsDropped(t *testing.T) {
 
 	assert.Equal(t, int64(len(backlog)), dropped, "everything up to the first keyframe past 12000")
 	assert.True(t, aligned)
-	cur := int64(len(first))
-	got := make([]byte, int(r.Total()-cur))
-	n, err := r.Read(context.Background(), &cur, got)
+	cur := &reader{pos: int64(len(first))}
+	got := make([]byte, int(r.Total()-cur.pos))
+	n, err := r.Read(context.Background(), cur, got)
 	require.NoError(t, err)
 	assert.Equal(t, cat(patPacket(), pmtPacket(0x1b), live), got[:n], "the tables, then the stream from the keyframe at 15000")
 	assert.Equal(t, int64(18000), r.lastPTS)
@@ -141,9 +141,9 @@ func TestAReopenedConnectionThatNeverPassesTheLastTimeSplicesAtTheBudget(t *test
 	// 16 packets dropped spend the budget, the 17th marks it spent, the
 	// 18th (a keyframe) splices: the tables, it, and the 4 after it.
 	assert.Equal(t, int64(7*packetSize), r.Total()-r.align)
-	cur := r.align
+	cur := &reader{pos: r.align}
 	got := make([]byte, 3*packetSize)
-	_, err := r.Read(context.Background(), &cur, got)
+	_, err := r.Read(context.Background(), cur, got)
 	require.NoError(t, err)
 	assert.Equal(t, cat(patPacket(), pmtPacket(0x1b), keyAt(3000)), got, "the tables first, then the keyframe")
 }

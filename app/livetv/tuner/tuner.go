@@ -322,6 +322,7 @@ func (t *Tuner) Apply(c Config) {
 			OnChange:  func(inUse int) { t.tunersChanged(p, inUse) },
 			OnError:   func(reason string) { upstreamErrors.WithLabelValues(label(key), reason).Inc() },
 			OnDropped: func() { viewersDropped.WithLabelValues(label(key)).Inc() },
+			OnDry:     func() { streamsDry.WithLabelValues(label(key)).Inc() },
 			OnBytes:   func(n int) { streamBytes.WithLabelValues(label(key)).Add(float64(n)) },
 			OnFirstByte: func(d time.Duration) {
 				upstreamFirstByte.WithLabelValues(label(key)).Observe(d.Seconds())

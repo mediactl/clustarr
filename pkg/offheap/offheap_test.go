@@ -54,3 +54,26 @@ func TestMapRefusesNoBytesAndUnmapTakesNil(t *testing.T) {
 	assert.ErrorIs(t, err, ErrSize)
 	assert.NoError(t, Unmap(nil))
 }
+
+// Discarded pages read as zeroes and take writes again; a partial page at
+// either end of the range keeps its bytes.
+func TestDiscardGivesBackWholePagesOnly(t *testing.T) {
+	page := os.Getpagesize()
+	b, err := Map(4 * page)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = Unmap(b) })
+	for i := range b {
+		b[i] = 0xab
+	}
+
+	require.NoError(t, Discard(b, page/2, 2*page)) // only page 1 is whole
+
+	assert.EqualValues(t, 0xab, b[page-1], "the partial first page is kept")
+	assert.Zero(t, b[page], "the whole page is discarded")
+	assert.Zero(t, b[2*page-1])
+	assert.EqualValues(t, 0xab, b[2*page], "the partial last page is kept")
+	b[page] = 1
+	assert.EqualValues(t, 1, b[page], "a discarded page takes writes")
+	assert.NoError(t, Discard(b, 0, page-1), "less than a page is nothing to do")
+	assert.EqualValues(t, 0xab, b[0])
+}
