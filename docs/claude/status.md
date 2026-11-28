@@ -659,6 +659,16 @@ gets one render task for its compact overlay; no regular poster changes
 digest, so Plex refreshes nothing; the OverlayProfile CRD is applied by hand
 on talos before the roll. The other half is cluster-plex's: `observe` is
 built there (`plex.compactPosters.mode`, chart 0.6.13), `serve` is not.
+**`observe` is live on talos since 2026-11-28 10:52Z** (cluster-plex image
+058c060 with shim .62 and the stuck-thumb pass, Helm rev 317): the proxy
+keeps chart 0.6.19, because a chart version change rolls the manager and
+every agent (`helm.sh/chart` is in their pod templates), so the mode is two
+hand-set lines in the `plex-config` ConfigMap that every Helm run removes
+(the value is in the proxy's valuesTemplate and takes over with chart
+0.6.20, published, at the next shared roll). 6966b73, the first image
+rolled, panicked on its first ratings pass (a nil clock in the poster pass)
+and was rolled back after one crash. The clustarr half is not deployed, so
+every poster request counts as `unpaired`.
 `make test` and `make e2e` have not been run on it; the e2e cluster fetches
 no artwork, so its scenario (`plex_test.go`, step 3b) proves the two routes
 answer, not a drawn poster. Known red beside it:
