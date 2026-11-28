@@ -2012,9 +2012,9 @@ func cleanHelp(label, help string) string {
 	if help != "" && !strings.HasSuffix(help, ".") {
 		help += "."
 	}
-	squash := func(s string) string { return strings.ToLower(strings.ReplaceAll(s, " ", "")) }
+	fold := func(s string) string { return strings.ToLower(strings.ReplaceAll(s, " ", "")) }
 	first, _, _ := strings.Cut(help, " ")
-	if len(help) < 64 && squash(first) == squash(label) {
+	if len(help) < 64 && fold(first) == fold(label) {
 		return ""
 	}
 	return help
