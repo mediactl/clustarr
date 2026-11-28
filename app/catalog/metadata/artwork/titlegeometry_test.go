@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 )
 
@@ -88,6 +89,16 @@ func TestDrawTitled_Geometry(t *testing.T) {
 	assert.Equal(t, artwork.TitleGeometry{MaxWidthPct: 78, MaxHeightPct: 24, BottomPct: 5}, artwork.RegularTitle)
 	assert.Greater(t, artwork.CompactTitle.MaxWidthPct, artwork.RegularTitle.MaxWidthPct)
 	assert.Greater(t, artwork.CompactTitle.MaxHeightPct, artwork.RegularTitle.MaxHeightPct)
+}
+
+// The compact title's box and its version move together: a stored compact
+// poster records CompactTitleVersion (Source.CompactMark), and one drawn
+// with other numbers under the same version is never fetched again. Change
+// the numbers here only with the version.
+func TestTheCompactTitleBoxIsItsVersions(t *testing.T) {
+	assert.Equal(t, "1", catalogartwork.CompactTitleVersion)
+	assert.Equal(t, artwork.TitleGeometry{MaxWidthPct: 90, MaxHeightPct: 32, BottomPct: 5}, artwork.CompactTitle,
+		"raise catalogartwork.CompactTitleVersion with these")
 }
 
 // The regular title is drawn as it was before the geometry became a value:

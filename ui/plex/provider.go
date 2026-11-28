@@ -96,11 +96,12 @@ type Options struct {
 	// Nil asks for none.
 	ArtContentType func(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType) string
 
-	// Compact is the digest of the compact rendition /art serves for a
-	// movie's or a series' poster (?size=compact), false when it has none:
-	// what the pairing list (CompactPostersPath) is built from. Nil lists
-	// nothing.
-	Compact func(kind commonv1.MediaKind, uid types.UID) (digest string, ok bool)
+	// Compact is the digest of the compact twin of a movie's or a series'
+	// poster, false when it has none: the compact overlay when overlaid
+	// (the poster Plex holds is the overlay), else the compact poster. It
+	// is what the pairing list (CompactPostersPath) is built from. Nil
+	// lists nothing.
+	Compact func(kind commonv1.MediaKind, uid types.UID, overlaid bool) (digest string, ok bool)
 
 	// MusicProvider also serves the music and audiobook roots, /plex/music
 	// and /plex/audiobooks (`--plex-music-provider`; 2026-11-10 design

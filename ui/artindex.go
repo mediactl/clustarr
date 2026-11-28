@@ -111,16 +111,28 @@ func (s *Server) chooseArt(ctx context.Context, kind commonv1.MediaKind, uid typ
 	return plainKey, artEntryOf(info), nil
 }
 
-// compactArt is the digest of the compact rendition /art serves for
-// kind/uid's poster, from the index alone: ok false when the item has none,
-// or while the index is not synced (the pairing list then names nothing,
-// which is the safe side).
-func (s *Server) compactArt(kind commonv1.MediaKind, uid types.UID) (digest string, ok bool) {
+// compactArt is the digest of the compact twin of kind/uid's poster, from
+// the index alone: the compact overlay when the poster Plex holds is the
+// overlay (overlaid), else the compact poster. ok false when the item has
+// no such object, when /art could not read it lately, or while the index is
+// not synced: the pairing list then names nothing for it, which is the safe
+// side. It is narrower than what /art?size=compact answers, which falls
+// back from a compact overlay to the compact poster: the list never pairs
+// a poster that carries a badge with a twin that carries none.
+func (s *Server) compactArt(kind commonv1.MediaKind, uid types.UID, overlaid bool) (digest string, ok bool) {
 	if s.artIndex == nil || !s.artIndex.Synced() {
 		return "", false
 	}
-	_, e, err := s.chooseArt(context.Background(), kind, uid, catalogv1.ImageTypePoster, artSizeCompact)
-	if err != nil {
+	rendered, plain, ok := artVariants(kind, catalogv1.ImageTypePoster, artSizeCompact)
+	if !ok {
+		return "", false
+	}
+	variant := plain
+	if overlaid {
+		variant = rendered
+	}
+	e, ok := s.artIndex.Lookup(events.ArtworkKey(kind, uid, string(catalogv1.ImageTypePoster), variant))
+	if !ok || s.artUnreadable.has(e.Digest, s.now()) {
 		return "", false
 	}
 	return e.Digest, true

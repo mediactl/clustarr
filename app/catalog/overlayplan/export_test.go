@@ -20,3 +20,9 @@ package overlayplan
 // InputsDigestAt is InputsDigest under an explicit renderer version, so a
 // test can prove a RenderVersion bump moves every digest.
 var InputsDigestAt = inputsDigest
+
+// WithCompactAt is WithCompact under explicit renderer versions, so a test
+// can show that bumping either redraws the compact rendition.
+func (w Want) WithCompactAt(render, compact int, it Item, compactDigest string) Want {
+	return w.withCompact(render, compact, it, compactDigest)
+}

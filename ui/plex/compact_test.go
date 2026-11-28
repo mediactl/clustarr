@@ -53,8 +53,12 @@ func compactHandler(t *testing.T, compact map[string]string, webp map[types.UID]
 		Index: func(ctx context.Context) (*projection.Index, error) {
 			return projection.BuildIndex(ctx, c)
 		},
-		Compact: func(kind commonv1.MediaKind, uid types.UID) (string, bool) {
-			d, ok := compact[string(kind)+"/"+string(uid)]
+		Compact: func(kind commonv1.MediaKind, uid types.UID, overlaid bool) (string, bool) {
+			key := string(kind) + "/" + string(uid)
+			if !overlaid {
+				key += "/plain"
+			}
+			d, ok := compact[key]
 			return d, ok
 		},
 		ArtContentType: func(_ commonv1.MediaKind, uid types.UID, _ catalogv1.ImageType) string {
@@ -114,9 +118,9 @@ func TestCompactPostersPairsThePosterPlexWasHandedWithItsTwin(t *testing.T) {
 		objs = append(objs, e)
 	}
 	compact := map[string]string{
-		"movie/" + string(movie.UID):   "cmp-movie",
-		"series/" + string(series.UID): "cmp-series",
-		"movie/" + string(webp.UID):    "cmp-webp",
+		"movie/" + string(movie.UID):              "cmp-movie",
+		"series/" + string(series.UID) + "/plain": "cmp-series",
+		"movie/" + string(webp.UID):               "cmp-webp",
 	}
 	if len(episodes) > 0 {
 		compact["episode/"+string(episodes[0].UID)] = "stray"
@@ -165,12 +169,25 @@ func TestCompactPostersPairsThePosterPlexWasHandedWithItsTwin(t *testing.T) {
 	assert.Equal(t, etag, cond.Header().Get("ETag"))
 }
 
+// A poster is paired with the twin of its own kind: the overlay Plex holds
+// with the compact overlay, an original with the compact poster. An
+// overlaid poster whose compact overlay is not drawn yet (the first roll,
+// or a base that cannot be drawn on) is not listed, since its compact
+// poster alone would show a phone the poster without its rating badge.
+func TestCompactPostersNeverPairsABadgedPosterWithABadgelessTwin(t *testing.T) {
+	movie := fixtureMovie() // has status.overlay
+	h := compactHandler(t, map[string]string{"movie/" + string(movie.UID) + "/plain": "titled-only"}, nil, movie)
+	rec, pairs := compactPosters(t, h)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, pairs, "%s", rec.Body.String())
+}
+
 // With no compact lookup (a ui with no artwork store) or no external URL
 // the list is empty, not an error: the proxy then pairs nothing.
 func TestCompactPostersIsEmptyWithoutALookupOrAnExternalURL(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(fixtureMovie()).Build()
 	index := func(ctx context.Context) (*projection.Index, error) { return projection.BuildIndex(ctx, c) }
-	always := func(commonv1.MediaKind, types.UID) (string, bool) { return "d", true }
+	always := func(commonv1.MediaKind, types.UID, bool) (string, bool) { return "d", true }
 	for name, opts := range map[string]plex.Options{
 		"no lookup":       {ExternalURL: "https://plex.example", Index: index},
 		"no external URL": {Index: index, Compact: always},

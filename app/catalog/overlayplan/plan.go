@@ -300,8 +300,10 @@ func inputsDigest(version int, originalDigest, profileHash string, ratings []cat
 
 // CompactRenderVersion is the renderer's own input to the compact
 // rendition's digest, as RenderVersion is to the regular one's: a change to
-// how the compact rendition is drawn from the same inputs bumps it, and
-// every stored one is drawn again. It never moves a regular overlay.
+// how the compact rendition alone is drawn from the same inputs bumps it,
+// and every stored one is drawn again. It never moves a regular overlay. A
+// change to the renderer both share bumps RenderVersion, which the compact
+// digest carries too.
 const CompactRenderVersion = 1
 
 // Compact is the compact rendition an item's overlay has beside the regular
@@ -313,8 +315,9 @@ type Compact struct {
 	// events.ArtworkVariantCompact or events.ArtworkVariantOriginal.
 	BaseVariant, BaseDigest string
 	// InputsDigest is what the rendition is drawn from, the stored
-	// object's Clustarr-Rendered-From: CompactRenderVersion, the base, the
-	// compact template, the ratings and the dub mark.
+	// object's Clustarr-Rendered-From: CompactRenderVersion and
+	// RenderVersion, the base, the compact template, the badges, the
+	// ratings and the dub mark.
 	InputsDigest string
 }
 
@@ -323,6 +326,10 @@ type Compact struct {
 // wants no overlay wants no compact one and is returned as it is. Nothing
 // the regular overlay is identified by changes.
 func (w Want) WithCompact(it Item, compactDigest string) Want {
+	return w.withCompact(RenderVersion, CompactRenderVersion, it, compactDigest)
+}
+
+func (w Want) withCompact(render, compact int, it Item, compactDigest string) Want {
 	if w.Profile == nil {
 		return w
 	}
@@ -333,7 +340,9 @@ func (w Want) WithCompact(it Item, compactDigest string) Want {
 	sorted := append([]catalogv1alpha1.Rating(nil), it.Ratings...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Source < sorted[j].Source })
 	var b strings.Builder
-	fmt.Fprintf(&b, "compact=%d\nbase=%s:%s\ntemplate=%s\n", CompactRenderVersion, c.BaseVariant, c.BaseDigest,
+	// RenderVersion too: one renderer draws both renditions, so a change
+	// to it redraws this one with the regular one.
+	fmt.Fprintf(&b, "compact=%d\nrender=%d\nbase=%s:%s\ntemplate=%s\n", compact, render, c.BaseVariant, c.BaseDigest,
 		overlay.TemplateHash(overlay.CompactTemplateSpec(w.Profile.Spec)))
 	// Which badges, in the profile's order: the regular digest carries
 	// this through the profile hash, which the compact one does not read.

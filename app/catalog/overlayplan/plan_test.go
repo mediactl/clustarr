@@ -229,6 +229,23 @@ func TestWithCompact(t *testing.T) {
 	assert.NotEqual(t, onCompact.Compact.InputsDigest, wd.WithCompact(dubbed, "cmp").Compact.InputsDigest)
 }
 
+// Both renditions are drawn by one renderer: a change to it (RenderVersion)
+// redraws the compact one too, and the compact one's own version redraws it
+// alone.
+func TestTheRendererVersionsMoveTheCompactDigest(t *testing.T) {
+	crit := map[string]string{"overlay": "critics"}
+	rated := catalogv1alpha1.Rating{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 781}
+	p := profile("critics", "films", crit, catalogv1alpha1.RatingSourceTMDB)
+	it := movieItem("films", crit, rated)
+	w := overlayplan.Plan(it, []catalogv1alpha1.OverlayProfile{p}, "orig")
+	current := w.WithCompact(it, "cmp").Compact.InputsDigest
+	assert.Equal(t, current, w.WithCompactAt(overlayplan.RenderVersion, overlayplan.CompactRenderVersion, it, "cmp").Compact.InputsDigest)
+	assert.NotEqual(t, current, w.WithCompactAt(overlayplan.RenderVersion+1, overlayplan.CompactRenderVersion, it, "cmp").Compact.InputsDigest,
+		"a bumped RenderVersion redraws the compact rendition")
+	assert.NotEqual(t, current, w.WithCompactAt(overlayplan.RenderVersion, overlayplan.CompactRenderVersion+1, it, "cmp").Compact.InputsDigest,
+		"a bumped CompactRenderVersion redraws it")
+}
+
 func TestRenderVersionMovesTheDigest(t *testing.T) {
 	ratings := []catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 781}}
 	current := overlayplan.InputsDigest("orig", "hash", ratings, false)

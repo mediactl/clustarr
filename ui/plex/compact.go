@@ -64,7 +64,10 @@ func (h *handler) handleCompactPosters(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		add := func(af artworkFor) {
-			digest, ok := h.opts.Compact(af.kind, af.uid)
+			// Like with like: the overlay Plex holds pairs with the
+			// compact overlay alone. Its compact poster would show a
+			// small poster without the rating badge the large one has.
+			digest, ok := h.opts.Compact(af.kind, af.uid, af.overlay != nil)
 			if !ok {
 				return
 			}
