@@ -1,15 +1,17 @@
 # ADR-0025: The manager works in proportion to what changed: reconciliation resumes, the library is queried, one pacer audits, and the data plane leaves the control plane
 
-**Status:** Proposed, 2026-11-28 (owner: "properly analyze the manager's CPU and memory usage
+**Status:** Accepted, 2026-11-28 (owner: "properly analyze the manager's CPU and memory usage
 via profiling and determine where the peak usage, sustained load, etc are coming from.
 Ideally, we would come up with a design that doesn't need a giant startup burst or any
 periodic bursts since we can control for these types of events via proper systems design";
 "Historically, we've sacrificed CPU for memory or vice versa, and it seems like both are now
-evenly inefficient"; and of restarts, "review the NATS.io guidance/docs to determine if it
-has a pattern for restarts"). Design, with the measurements, the cursor for each input and
-the waves: `docs/superpowers/specs/2026-11-28-manager-load-design.md`. Nothing here is built.
-Each wave becomes its own design and is proven on kind before it is deployed; the records it
-amends are amended when that wave is accepted, not now.
+evenly inefficient"; of restarts, "review the NATS.io guidance/docs to determine if it has a
+pattern for restarts"; then "Approve the ADR so far - begin implementation and have the
+Principal architect agent review each set of changes"). Design, with the measurements, the
+cursor for each input and the waves:
+`docs/superpowers/specs/2026-11-28-manager-load-design.md`. Accepted with nothing built: each
+wave is reviewed before it is deployed and measured against the acceptance table after, and
+the records a wave amends are amended when that wave lands, not before.
 
 ## Context
 
