@@ -71,7 +71,7 @@ templ albumToolbar(v AlbumView) {
 			actionForm("rename-"+name, libraryActionURL(v.Artist, "rename"), []Field{{"return", here}, {"rename", "apply"}}, "file-symlink", "Rename", "Rename the artist's files", "rename-apply", nil)) }}
 	}
 	{{ rest = append(rest, itemAction(v.Detail, ActionEdit), itemAction(v.Detail, ActionDelete)) }}
-	@actionSet(name, !v.Row.HasFile || v.Row.Status.Warn,
+	@actionSet(name, !v.Row.HasFile || v.Row.Status.Warn, albumBookmark(v.Row),
 		actionForm("refresh-"+name, v.Row.RefreshURL(), []Field{{"return", here}}, "refresh-cw", "Refresh", "Refresh Album", "refresh-metadata", nil),
 		actionForm("search-"+name, v.Row.SearchURL(), []Field{{"return", here}}, "search", "Search", "Search Album", "search-now", nil),
 		actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "album-interactive-search",
@@ -127,7 +127,7 @@ templ albumHero(v AlbumView) {
 							<h1 class="line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl">{ a.DisplayTitle() }</h1>
 						</div>
 					</div>
-					<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
+					<div data-hero-sub class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
 						<a href={ templ.URL(libraryDetailPath(ar)) } data-artist-link class="font-medium hover:underline">{ ar.Title }</a>
 						if v.ArtistCredit != "" {
 							<span class="text-muted-foreground" data-artist-credit>{ "(" + v.ArtistCredit + ")" }</span>
@@ -137,7 +137,7 @@ templ albumHero(v AlbumView) {
 							<span class="text-muted-foreground" data-album-disambiguation>{ a.Disambiguation }</span>
 						}
 					</div>
-					<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+					<div data-hero-meta class="mt-3 flex flex-wrap items-center gap-y-1 text-muted-foreground">
 						if a.TypeLabel() != "" {
 							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base", Attributes: templ.Attributes{"data-album-type": a.Type}}) {
 								{ a.TypeLabel() }

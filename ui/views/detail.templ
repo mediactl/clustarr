@@ -387,7 +387,7 @@ func ItemActions(d Detail, actions []Action) templ.Component {
 		}
 	}
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		return actionBar().Render(templ.WithChildren(ctx, actionRow(d.Item.Ref.Name, primary == ActionSearch, joined(face), joined(circles), joined(more), len(more) > 0)), w)
+		return actionBar().Render(templ.WithChildren(ctx, actionRow(d.Item.Ref.Name, primary == ActionSearch, joined(face), joined(append(circles, monitorBookmark(d.Item))), joined(more), len(more) > 0)), w)
 	})
 }
 
@@ -395,14 +395,14 @@ func ItemActions(d Detail, actions []Action) templ.Component {
 // issue): search the primary action while the item is wanted, else
 // refresh; the interactive search a circle; the other of the two and the
 // rest in the "…" popover.
-func actionSet(name string, wanted bool, refresh, search, interactive templ.Component, rest ...templ.Component) templ.Component {
+func actionSet(name string, wanted bool, monitor, refresh, search, interactive templ.Component, rest ...templ.Component) templ.Component {
 	face, other := refresh, search
 	if wanted {
 		face, other = search, refresh
 	}
 	more := append([]templ.Component{other}, rest...)
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		return actionBar().Render(templ.WithChildren(ctx, actionRow(name, wanted, face, interactive, joined(more), true)), w)
+		return actionBar().Render(templ.WithChildren(ctx, actionRow(name, wanted, face, joined([]templ.Component{interactive, monitor}), joined(more), true)), w)
 	})
 }
 
@@ -599,12 +599,12 @@ templ hero(d Detail) {
 							if d.Logo != "" {
 								<img data-hero-logo src={ templ.URL(d.Logo) } alt={ li.Title } class="hidden max-h-36 max-w-[min(26rem,80%)] object-contain object-left drop-shadow-[0_2px_14px_rgba(0,0,0,0.7)] @2xl/hero:block"/>
 							}
-							<h1 class={ "line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl", templ.KV("@max-2xl/hero:sr-only", d.Backdrop != "" && d.Logo == ""), templ.KV("sr-only", d.Logo != "") }>{ li.Title }</h1>
+							<h1 data-display class={ "line-clamp-3 min-w-0 pb-1 text-3xl leading-tight font-bold tracking-tight text-balance wrap-anywhere @2xl/hero:text-4xl @5xl/hero:text-5xl", templ.KV("@max-2xl/hero:sr-only", d.Backdrop != "" && d.Logo == ""), templ.KV("sr-only", d.Logo != "") }>{ li.Title }</h1>
 						</div>
 					</div>
 					// The meta line, in the Plex apps' order: year, runtime,
 					// genres, then the certification.
-					<div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-muted-foreground">
+					<div data-hero-meta class="mt-3 flex flex-wrap items-center gap-y-1 text-muted-foreground">
 						if li.Year > 0 {
 							<span>{ fmt.Sprint(li.Year) }</span>
 						}

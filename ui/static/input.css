@@ -2081,12 +2081,53 @@ section[data-section] + section[data-section] {
   filter: none;
   opacity: 1;
 }
-/* A hero's title in type (no logo): the Display style. */
+/* A hero's title in type: a movie's or a series' with no logo the Display
+   style, an album's, a book's or an episode's Title 1. */
 [data-hero] h1:not(.sr-only) {
+  font-size: var(--fs-title-1);
+  line-height: var(--lh-title-1);
+  letter-spacing: var(--ls-title-1);
+  font-weight: 700;
+}
+[data-hero] h1[data-display]:not(.sr-only) {
   font-size: var(--text-display);
   line-height: 1.05;
   letter-spacing: var(--ls-display);
   font-weight: 800;
+}
+/* A hero's metadata: one Callout line, its parts joined with " · ". */
+[data-hero-meta] {
+  column-gap: 0;
+  font-size: var(--fs-callout);
+  line-height: var(--lh-callout);
+  color: rgba(255, 255, 255, 0.75);
+}
+[data-hero-meta] > :not(:first-child):not([data-provider-link], :has([data-provider-link]), [data-slot="badge"])::before {
+  content: "·";
+  margin-inline: 0.4em;
+  color: var(--label-2);
+}
+[data-hero-meta] > :is([data-slot="badge"], [data-provider-link], :has([data-provider-link])) {
+  margin-left: 0.5rem;
+}
+/* The line under a title (an album's artist, an episode's series): Title 3,
+   its link the tint. */
+[data-hero-sub] {
+  font-size: var(--fs-title-3);
+  line-height: var(--lh-title-3);
+  font-weight: 600;
+}
+[data-hero-sub] a {
+  color: var(--tint);
+}
+[data-hero-sub] a:hover {
+  opacity: 0.8;
+  text-decoration: none;
+}
+/* Monitor is a circle of the action row; the bookmark beside the title goes. */
+[data-hero]:has([data-action-bar] [data-act="circle"] [data-action="set-monitored"])
+  [data-action="set-monitored"]:not([data-action-bar] *) {
+  display: none;
 }
 
 /* The files platter: a file a row, its sidecars and subtitles nested

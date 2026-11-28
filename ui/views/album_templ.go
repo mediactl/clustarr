@@ -172,7 +172,7 @@ func albumToolbar(v AlbumView) templ.Component {
 				actionForm("rename-"+name, libraryActionURL(v.Artist, "rename"), []Field{{"return", here}, {"rename", "apply"}}, "file-symlink", "Rename", "Rename the artist's files", "rename-apply", nil))
 		}
 		rest = append(rest, itemAction(v.Detail, ActionEdit), itemAction(v.Detail, ActionDelete))
-		templ_7745c5c3_Err = actionSet(name, !v.Row.HasFile || v.Row.Status.Warn,
+		templ_7745c5c3_Err = actionSet(name, !v.Row.HasFile || v.Row.Status.Warn, albumBookmark(v.Row),
 			actionForm("refresh-"+name, v.Row.RefreshURL(), []Field{{"return", here}}, "refresh-cw", "Refresh", "Refresh Album", "refresh-metadata", nil),
 			actionForm("search-"+name, v.Row.SearchURL(), []Field{{"return", here}}, "search", "Search", "Search Album", "search-now", nil),
 			actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "album-interactive-search",
@@ -451,7 +451,7 @@ func albumHero(v AlbumView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</h1></div></div><div class=\"mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl\"><a href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</h1></div></div><div data-hero-sub class=\"mt-1 flex flex-wrap items-center gap-x-2 gap-y-1\"><a href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -519,7 +519,7 @@ func albumHero(v AlbumView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</div><div class=\"mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</div><div data-hero-meta class=\"mt-3 flex flex-wrap items-center gap-y-1 text-muted-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

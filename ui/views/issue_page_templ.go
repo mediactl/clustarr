@@ -175,7 +175,7 @@ func issueToolbar(v IssueView) templ.Component {
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
 		name, here := v.Row.Name, v.Row.URL()
-		templ_7745c5c3_Err = actionSet(name, !v.Row.HasFile || v.Row.Status.Warn,
+		templ_7745c5c3_Err = actionSet(name, !v.Row.HasFile || v.Row.Status.Warn, issueBookmark(v.Row),
 			actionForm("refresh-"+name, libraryActionURL(v.Item, "refresh"), []Field{{"return", here}, {"scan", "true"}}, "refresh-cw", "Refresh", "Refresh & Scan Comic", "refresh-metadata", nil),
 			actionForm("search-"+name, v.Row.SearchURL(), []Field{{"return", here}}, "search", "Search", "Search Issue", "search-now", nil),
 			actionForm("interactive-search-"+name, v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive", "Interactive Search", "issue-interactive-search",
@@ -444,7 +444,7 @@ func issueHero(v IssueView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</h1></div></div><div class=\"mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl\"><a href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</h1></div></div><div data-hero-sub class=\"mt-1 flex flex-wrap items-center gap-x-2 gap-y-1\"><a href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -483,7 +483,7 @@ func issueHero(v IssueView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</span></div><div class=\"mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</span></div><div data-hero-meta class=\"mt-3 flex flex-wrap items-center gap-y-1 text-muted-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

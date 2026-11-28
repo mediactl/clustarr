@@ -244,7 +244,8 @@ func TestMoviePageToolbarHasRadarrsActions(t *testing.T) {
 	requireTag(t, bar, `data-action="search-now"`, `data-slot="button"`, `data-toolbar-button`, `form="search-nerve"`, `title="Search Movie"`)
 	require.Regexp(t, `>\s*Search\s*<`, bar)
 	require.NotContains(t, bar, `data-action="rescan"`, "the RootFolder rescan is the library page's, not the movie's")
-	require.NotContains(t, bar, `data-action="set-monitored"`, "monitoring is the bookmark on the title")
+	requireTag(t, bar, `data-action="set-monitored"`, `type="submit"`)
+	require.Less(t, strings.Index(bar, `data-action="set-monitored"`), strings.Index(bar, `data-act-menu`), "monitoring is a circle of the action row (2026-11-28)")
 	require.Contains(t, bar, `<svg`, "every toolbar button has its icon")
 	require.NotContains(t, bar, `data-slot="menubar"`, "an item page's bar has no menus")
 

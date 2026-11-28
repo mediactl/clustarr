@@ -722,7 +722,7 @@ func ItemActions(d Detail, actions []Action) templ.Component {
 		}
 	}
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		return actionBar().Render(templ.WithChildren(ctx, actionRow(d.Item.Ref.Name, primary == ActionSearch, joined(face), joined(circles), joined(more), len(more) > 0)), w)
+		return actionBar().Render(templ.WithChildren(ctx, actionRow(d.Item.Ref.Name, primary == ActionSearch, joined(face), joined(append(circles, monitorBookmark(d.Item))), joined(more), len(more) > 0)), w)
 	})
 }
 
@@ -730,14 +730,14 @@ func ItemActions(d Detail, actions []Action) templ.Component {
 // issue): search the primary action while the item is wanted, else
 // refresh; the interactive search a circle; the other of the two and the
 // rest in the "…" popover.
-func actionSet(name string, wanted bool, refresh, search, interactive templ.Component, rest ...templ.Component) templ.Component {
+func actionSet(name string, wanted bool, monitor, refresh, search, interactive templ.Component, rest ...templ.Component) templ.Component {
 	face, other := refresh, search
 	if wanted {
 		face, other = search, refresh
 	}
 	more := append([]templ.Component{other}, rest...)
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		return actionBar().Render(templ.WithChildren(ctx, actionRow(name, wanted, face, interactive, joined(more), true)), w)
+		return actionBar().Render(templ.WithChildren(ctx, actionRow(name, wanted, face, joined([]templ.Component{interactive, monitor}), joined(more), true)), w)
 	})
 }
 
@@ -1380,7 +1380,7 @@ func hero(d Detail) templ.Component {
 			templ_7745c5c3_ElementWriter := templ_7745c5c3_Buffer
 			templ_7745c5c3_Buffer := templ.GetBuffer()
 			var templ_7745c5c3_ElementScripts []templ.ComponentScript
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "<h1 class=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "<h1 data-display class=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1419,13 +1419,13 @@ func hero(d Detail) templ.Component {
 		var templ_7745c5c3_Var45 string
 		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(li.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/detail.templ`, Line: 602, Col: 276}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/detail.templ`, Line: 602, Col: 289}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "</h1></div></div><div class=\"mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-muted-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "</h1></div></div><div data-hero-meta class=\"mt-3 flex flex-wrap items-center gap-y-1 text-muted-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
