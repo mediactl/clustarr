@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -88,6 +89,10 @@ type Collector struct {
 	// kind it fails for is logged; its deletes are then collected at the
 	// next start's sweep.
 	Watch func(ctx context.Context, gvk schema.GroupVersionKind) error
+	// RetryBackoff is the wait before a failed sweep or collection is tried
+	// again, doubling to collectRetryMax while it keeps failing; zero is
+	// collectRetryBase.
+	RetryBackoff time.Duration
 
 	mu        sync.Mutex
 	pending   map[owner]bool
@@ -112,8 +117,18 @@ const (
 	checkStore     = "store"
 )
 
+// A failed sweep or collection is tried again after collectRetryBase,
+// doubling to collectRetryMax. Nothing else would: there is no timer, and
+// the next report may be weeks away once restarts are rare, so a start
+// sweep that met an apiserver or database error in the start it ran in
+// would leave what was deleted while no manager ran until the next start.
+const (
+	collectRetryBase = 30 * time.Second
+	collectRetryMax  = 10 * time.Minute
+)
+
 // Run sweeps once, then collects for each deleted owner as it is reported,
-// until ctx ends.
+// until ctx ends. What fails is owed until it succeeds.
 func (c *Collector) Run(ctx context.Context) error {
 	ctx = logging.Subsystem(ctx, "library.collect")
 	log := logging.FromContext(ctx)
@@ -126,6 +141,14 @@ func (c *Collector) Run(ctx context.Context) error {
 			}
 		}
 	}
+	base := c.RetryBackoff
+	if base <= 0 {
+		base = collectRetryBase
+	}
+	backoff := base
+	timer := time.NewTimer(time.Hour)
+	timer.Stop()
+	defer timer.Stop()
 	sweep := true
 	for {
 		var (
@@ -137,19 +160,41 @@ func (c *Collector) Run(ctx context.Context) error {
 		} else {
 			n, err = c.collectPending(ctx)
 		}
-		if err != nil && ctx.Err() == nil {
-			log.Warn("collecting the library objects whose owners are gone failed; it is tried again at the next report or start", "err", err)
-		} else if n > 0 {
-			log.Info("deleted the library objects whose owners are gone", "objects", n)
+		if ctx.Err() != nil {
+			return nil
+		}
+		// retry fires when what just failed is to be tried again; nil, it
+		// never does, and Run waits for a report.
+		var retry <-chan time.Time
+		switch {
+		case err != nil:
+			if sweep {
+				// A sweep that failed is owed until one succeeds. A failed
+				// collection kept its owners pending itself.
+				c.mu.Lock()
+				c.sweepOwed = true
+				c.mu.Unlock()
+			}
+			log.Warn("collecting the library objects whose owners are gone failed; it is tried again", "err", err, "in", backoff.String())
+			timer.Reset(backoff)
+			retry = timer.C
+			backoff = min(2*backoff, max(base, collectRetryMax))
+		default:
+			backoff = base
+			if n > 0 {
+				log.Info("deleted the library objects whose owners are gone", "objects", n)
+			}
 		}
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-signal:
-			c.mu.Lock()
-			sweep, c.sweepOwed = c.sweepOwed, false
-			c.mu.Unlock()
+			timer.Stop() // the wake does what the retry would have
+		case <-retry:
 		}
+		c.mu.Lock()
+		sweep, c.sweepOwed = c.sweepOwed, false
+		c.mu.Unlock()
 	}
 }
 

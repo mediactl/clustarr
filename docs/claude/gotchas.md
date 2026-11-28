@@ -860,14 +860,23 @@ recorded here.
   for the listed kinds alone: a cached read of any other kind would start
   an informer of it. The delete is held to the row's version as well as
   its uid, because a parent deleted and made again under its name adopts
-  its children in place within the second the delete is reported. Still
-  owed: a GIN index for the `ownerReferences @>` lookup (one Series delete
+  its children in place within the second the delete is reported. A sweep
+  or collection that fails is tried again by itself after 30 seconds,
+  doubling to 10 minutes, and a failed sweep stays owed until one succeeds:
+  with no timer nothing else would retry it. Still owed: a GIN index for the `ownerReferences @>` lookup (one Series delete
   scans the episode table). Metrics `clustarr_library_collect_*`. Tests:
   `TestTheCollectorWorksFromWhatChanged` (falsified three ways),
   `TestOwnerEventsReportEveryWayAnOwnerGoes`. The same commit stops the
   Cardigann loader re-applying a definition already in place (752 applies
   per leader start) and adds `clustarr_item_applies_total` (`applied` in
   the passes counter never meant written) and the Live TV render counters.
+  Four tests were already red on main that day and are not this change's
+  (checked on an unmodified copy of HEAD): `internal/cli/manager`'s
+  `TestManagerFieldIndexes` and `TestRegisterWiresAutoscaleByTheFlag`
+  (stale expectations), `movie`'s `TestMovieReconcilerRealController` and
+  `metadatarefresh`'s `TestRefresherPublishesAForcedTaskAndConsumesTheAnnotation`.
+  A red test in the package that wires the manager hides the next
+  regression there; they are owed a fix.
 - **An NZB can list two different files under one name, and both were
   written to one path (2026-11-28, owner: "Ensure it's rolled", after which
   the same message came back in a third shape).** An indexer's listing of

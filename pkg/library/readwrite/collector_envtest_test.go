@@ -187,6 +187,19 @@ func (r *meddlingReader) Get(ctx context.Context, key client.ObjectKey, obj clie
 	return r.Reader.Get(ctx, key, obj, opts...)
 }
 
+// failingOnce fails the first Get sent through it.
+type failingOnce struct {
+	client.Reader
+	failed atomic.Bool
+}
+
+func (r *failingOnce) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if r.failed.CompareAndSwap(false, true) {
+		return apierrors.NewServiceUnavailable("the apiserver is starting")
+	}
+	return r.Reader.Get(ctx, key, obj, opts...)
+}
+
 // TestTheCollectorWorksFromWhatChanged is ADR-0025's part 4 for the
 // collector. It read every owned row each 30 seconds and asked the
 // apiserver for each distinct owner by name: 24 GETs a second on talos for
@@ -356,6 +369,26 @@ func TestTheCollectorWorksFromWhatChanged(t *testing.T) {
 		"its other owner is there by the cache, with no question")
 	stopTwo()
 	<-twoDone
+
+	t.Log("a sweep that fails is tried again by itself: nothing else would, with no timer and no report")
+	// The start sweep is the one that collects what was deleted while no
+	// manager ran, and it runs in the start, when an apiserver or database
+	// error is likeliest.
+	orphaned := comic("east-of-west")
+	issueOf("east-of-west-1", orphaned)
+	require.NoError(t, c.Delete(ctx, orphaned))
+	flaky := &failingOnce{Reader: api}
+	retrying := &readwrite.Collector{Store: st, Owners: flaky, RetryBackoff: 50 * time.Millisecond}
+	retryCtx, stopRetry := context.WithCancel(ctx)
+	retryDone := make(chan struct{})
+	go func() {
+		defer close(retryDone)
+		_ = retrying.Run(retryCtx)
+	}()
+	require.Eventually(t, func() bool { return gone("east-of-west-1") }, 10*time.Second, 20*time.Millisecond)
+	require.True(t, flaky.failed.Load(), "the first sweep met the error")
+	stopRetry()
+	<-retryDone
 
 	t.Log("an object adopted by a new owner between the read and the delete is left")
 	// crossover-1's second owner goes too, so both are gone when its rows
