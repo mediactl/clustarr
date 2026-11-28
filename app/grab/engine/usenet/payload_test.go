@@ -103,6 +103,34 @@ func TestResolveCapsResponseSize(t *testing.T) {
 	_, err := r.Resolve(t.Context(), "media", commonv1.DownloadSource{NZBURL: &url})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, usenetengine.ErrPayloadTooLarge)
+	// Over the cap now is over the cap at every fetch, and every fetch is a
+	// download to the indexer: the payload is unavailable, not retried.
+	assert.ErrorIs(t, err, engine.ErrPayloadUnavailable)
+}
+
+// A payload index names as too large, and one that inflates past the
+// engine's own cap, are the release's fault like a release that is gone.
+// Retried, three One Piece season packs were fetched until nzb-life refused
+// them for a day, their 375 episodes held as downloading (2026-11-27).
+func TestResolveIndexerDownloadIsUnavailableWhenThePayloadIsTooLarge(t *testing.T) {
+	src := commonv1.DownloadSource{
+		IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "nzb-life", GUID: "abc123"},
+	}
+	big := schema.DownloadResponse{Bytes: bytes.Repeat([]byte("<segment>x@y</segment>\n"), 100_000)}.ForWire()
+	require.Equal(t, schema.DownloadEncodingGzip, big.Encoding)
+	for name, tc := range map[string]struct {
+		resp schema.DownloadResponse
+		max  int64
+	}{
+		"index says so":         {schema.DownloadResponse{Error: "index: schema: download payload too large: 9 bytes on the wire, over 8", TooLarge: true}, 0},
+		"inflates past the cap": {big, 1 << 10},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := &usenetengine.Resolver{RPC: &fakeRequester{resp: tc.resp}, MaxBytes: tc.max}
+			_, err := r.Resolve(t.Context(), "media", src)
+			require.ErrorIs(t, err, engine.ErrPayloadUnavailable)
+		})
+	}
 }
 
 func TestResolveIndexerDownloadUsesBytes(t *testing.T) {

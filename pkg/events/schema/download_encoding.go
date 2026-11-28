@@ -29,13 +29,16 @@ import (
 const DownloadEncodingGzip = "gzip"
 
 // MaxDownloadWireBytes is the most DownloadResponse.Bytes may carry on the
-// wire, compressed or not: 5.75 MiB, which base64 makes about 7.67 MiB and
-// leaves over 256 KiB of the broker's 8Mi max_payload for the envelope and
-// headers (natsbus.TestAFullDownloadWireBudgetFitsTheBrokersMaxPayload sends
-// it through a real server; 6.25 MiB is refused). At gzip's ~4.3x on an
-// .nzb that is about a 25 MiB .nzb, a ~180 GB release. zstd would add ~9%
-// in Go (measured 2026-09-30), not worth a second codec.
-const MaxDownloadWireBytes = 23 << 18
+// wire, compressed or not: 32 MiB, which base64 makes about 42.7 MiB of the
+// 64 MiB a reply may span (events.MaxReplyBytes). The reply crosses the
+// broker in parts of half its 8Mi max_payload
+// (natsbus.TestAFullDownloadWireBudgetCrossesTheBrokerInParts sends it
+// through a real server). It was one message's room, 5.75 MiB, until
+// 2026-11-27: an .nzb is mostly message-ids, which do not compress, so a
+// 153 GB season pack's gzipped to 6.14 MB and was refused, and its 302 GB
+// neighbour's would be 12. A 64 MiB .nzb, the most index reads
+// (app/indexer/download.MaxPayloadBytes), gzips to about 16.
+const MaxDownloadWireBytes = 32 << 20
 
 // downloadCompressAbove is the body size ForWire starts compressing at: a
 // .torrent or a small .nzb is sent as it is.
@@ -49,7 +52,8 @@ var ErrDownloadPayloadTooLarge = errors.New("schema: download payload too large"
 // downloadCompressAbove gzipped, since an .nzb is XML that compresses about
 // four times and a large 1080p encode's is over the inline budget as it is
 // (The Godfather, 2026-09-30); and a body still over MaxDownloadWireBytes
-// refused as an Error, which the broker would otherwise drop.
+// refused as an Error that says so (TooLarge): asking again would fetch the
+// same bytes.
 func (r DownloadResponse) ForWire() DownloadResponse {
 	if r.Encoding != "" || len(r.Bytes) <= downloadCompressAbove {
 		return r.fitsWire()
@@ -68,7 +72,7 @@ func (r DownloadResponse) ForWire() DownloadResponse {
 
 func (r DownloadResponse) fitsWire() DownloadResponse {
 	if len(r.Bytes) > MaxDownloadWireBytes {
-		return DownloadResponse{Error: fmt.Sprintf("index: %v: %d bytes on the wire, over %d",
+		return DownloadResponse{TooLarge: true, Error: fmt.Sprintf("index: %v: %d bytes on the wire, over %d",
 			ErrDownloadPayloadTooLarge, len(r.Bytes), MaxDownloadWireBytes)}
 	}
 	return r

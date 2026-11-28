@@ -57,7 +57,6 @@ func TestDownloadResponseRoundTripsALargeNZBCompressed(t *testing.T) {
 	require.LessOrEqual(t, len(wire.Bytes), MaxDownloadWireBytes)
 	msg, err := json.Marshal(wire)
 	require.NoError(t, err)
-	require.Less(t, len(msg), 8<<20, "the reply must fit the broker's 8Mi max_payload")
 
 	var got DownloadResponse
 	require.NoError(t, json.Unmarshal(msg, &got))
@@ -76,9 +75,26 @@ func TestDownloadResponseLeavesASmallBodyAsItIs(t *testing.T) {
 	require.Equal(t, body, payload)
 }
 
+// A season pack's .nzb crosses: one that gzips to more than the 6.03 MB one
+// bus message held, as a 153 GB pack's did at 6.14, and the 38.2 MB one of a
+// 302 GB pack, which was over index's 32 MiB cap (talos, 2026-11-27, three
+// One Piece packs and their 375 episodes).
+func TestDownloadResponseCarriesASeasonPacksNZB(t *testing.T) {
+	for _, size := range []int{26 << 20, 38_221_213} {
+		body := nzbOfSize(size)
+		wire := DownloadResponse{Bytes: body, ContentType: "application/x-nzb"}.ForWire()
+		require.Empty(t, wire.Error, "an .nzb of %d bytes", size)
+		require.False(t, wire.TooLarge)
+		require.Greater(t, len(wire.Bytes), 23<<18, "the fixture must be over the old one-message budget")
+		payload, err := wire.Payload(64 << 20)
+		require.NoError(t, err)
+		require.Equal(t, body, payload)
+	}
+}
+
 // A body that is still over the wire budget once compressed is refused in
-// the reply, never sent: the broker would drop it and the engine would wait
-// out its deadline.
+// the reply, never sent, and the refusal says the payload is too large: an
+// engine that asked again would be sent the same bytes.
 func TestDownloadResponseRefusesABodyThatDoesNotCompressUnderTheBudget(t *testing.T) {
 	body := make([]byte, MaxDownloadWireBytes+1)
 	r := rand.New(rand.NewPCG(3, 4))
@@ -87,6 +103,7 @@ func TestDownloadResponseRefusesABodyThatDoesNotCompressUnderTheBudget(t *testin
 	}
 	wire := DownloadResponse{Bytes: body, ContentType: "application/x-bittorrent"}.ForWire()
 	require.Contains(t, wire.Error, "too large")
+	require.True(t, wire.TooLarge)
 	require.Empty(t, wire.Bytes)
 	require.Empty(t, wire.ContentType)
 }
@@ -108,14 +125,13 @@ func TestDownloadResponsePayloadRefusesAnUnknownEncoding(t *testing.T) {
 	require.ErrorContains(t, err, `encoding "br"`)
 }
 
-// The wire budget still fits one NATS message after base64 and the
-// envelope, as app/indexer/download's inline cap did before.
-// It uses most of that room -- about 25 MiB of .nzb at gzip's 4.3x -- with
-// a margin kept for the envelope and headers; natsbus's
-// TestAFullDownloadWireBudgetFitsTheBrokersMaxPayload proves it on a real
-// server.
-func TestMaxDownloadWireBytesFitsOneNATSMessage(t *testing.T) {
-	const brokerMaxPayload, margin = 8 << 20, 256 << 10
-	require.LessOrEqual(t, base64.StdEncoding.EncodedLen(MaxDownloadWireBytes)+margin, brokerMaxPayload)
-	require.GreaterOrEqual(t, MaxDownloadWireBytes, 23<<18, "at least 5.75 MiB: the broker's room, not the old 4 MiB")
+// The wire budget fits the most a reply may span (events.MaxReplyBytes,
+// 64 MiB, which this package cannot import) after base64 and the envelope:
+// the reply crosses the broker in parts, and natsbus's
+// TestAFullDownloadWireBudgetCrossesTheBrokerInParts proves it on a real
+// server. It is no less than a 64 MiB .nzb gzips to, about 16 MiB.
+func TestMaxDownloadWireBytesFitsAReplyInParts(t *testing.T) {
+	const maxReplyBytes, margin = 64 << 20, 256 << 10
+	require.LessOrEqual(t, base64.StdEncoding.EncodedLen(MaxDownloadWireBytes)+margin, maxReplyBytes)
+	require.GreaterOrEqual(t, MaxDownloadWireBytes, 16<<20)
 }

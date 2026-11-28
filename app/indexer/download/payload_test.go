@@ -33,16 +33,17 @@ import (
 // would fail AFTER the fetch, having already spent a possibly one-shot
 // download link.
 // The raw cap is the usenet engine's own, not the broker's: the reply
-// crosses the bus gzipped (schema.DownloadResponse.ForWire), whose wire
-// budget schema.TestMaxDownloadWireBytesFitsOneNATSMessage holds to the
-// broker. The Godfather's .nzb was over the old 4 MiB inline cap
-// (2026-09-30).
+// crosses the bus gzipped (schema.DownloadResponse.ForWire) and, over one
+// message's room, in parts; schema.TestMaxDownloadWireBytesFitsAReplyInParts
+// holds its wire budget to what a reply may span. The Godfather's .nzb was
+// over the old 4 MiB inline cap (2026-09-30), and a 302 GB season pack's
+// over the 32 MiB one (2026-11-27).
 func TestReadPayloadAcceptsALargeNZB(t *testing.T) {
 	body := bytes.Repeat([]byte("n"), 5<<20)
 	got, err := readPayload(io.NopCloser(bytes.NewReader(body)))
 	require.NoError(t, err)
 	require.Len(t, got, 5<<20)
-	require.Equal(t, 32<<20, MaxPayloadBytes, "the usenet engine's cap on a resolved .nzb")
+	require.Equal(t, 64<<20, MaxPayloadBytes, "the usenet engine's cap on a resolved .nzb")
 }
 
 // TestBrokerMaxPayloadIsStillEightMebibytes reads the broker's own config, so

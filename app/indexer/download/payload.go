@@ -28,15 +28,17 @@ import (
 // MaxPayloadBytes bounds a proxied .torrent/.nzb body: the usenet engine's
 // own cap on a resolved .nzb. It is not the broker's budget. The bus reply
 // gzips a body over 1 MiB (schema.DownloadResponse.ForWire, applied by
-// app/indexer/search's responder) and refuses one still over
-// schema.MaxDownloadWireBytes compressed; the Torznab facade serves the raw
-// body over HTTP. It was 4 MiB inline until 2026-09-30, when The
-// Godfather's 1080p .nzb went over it -- .nzb size grows with the release,
-// about 3.8 MB for 28 GB, so it was never only the pathological ones.
+// app/indexer/search's responder), crosses in parts when it is over one
+// message's room, and refuses one still over schema.MaxDownloadWireBytes
+// compressed; the Torznab facade serves the raw body over HTTP. It was 4 MiB
+// inline until 2026-09-30, when The Godfather's 1080p .nzb went over it --
+// .nzb size grows with the release, about 3.8 MB for 28 GB, so it was never
+// only the pathological ones -- and 32 MiB until 2026-11-27, when a 302 GB
+// season pack's was 38.2 MB. 64 MiB is a release of about 500 GB.
 //
 // This is deliberately NOT pkg/torznab's maxResponseBodyBytes (8 MiB): that
 // cap bounds an XML document that is parsed and discarded.
-const MaxPayloadBytes = 32 << 20
+const MaxPayloadBytes = 64 << 20
 
 // ErrResponseTooLarge follows the pkg/torznab convention (client.go:176): a
 // package-level max, an io.LimitReader(body, max+1) and a sentinel, so

@@ -737,14 +737,21 @@ func (b *Bus) respond(ctx context.Context, gate *events.ServeGate, subject strin
 		respondError(m, events.ServiceErrorFailed, events.OneLine(err))
 		return
 	}
-	if err := m.Respond(data); err != nil {
+	// A reply over one message's room crosses in parts (parts.go).
+	if b.fitsOneMessage(len(data)) {
+		err = m.Respond(data)
+	} else {
+		err = b.respondInParts(ctx, m, data)
+	}
+	if err != nil {
 		// The connection refused to send the reply -- nats.ErrMaxPayload
-		// when the body is over the server's max_payload -- and the
-		// requester would otherwise wait out its whole deadline with
-		// nothing to say why (2026-09-24: a 1.3 MB .nzb against the
-		// Helm chart's 1 MiB default stranded every usenet grab as
-		// "context deadline exceeded"). A header-only error reply always
-		// fits, so the requester fails at once and names the cause.
+		// when the body is over the server's max_payload, or over
+		// events.MaxReplyBytes in parts -- and the requester would
+		// otherwise wait out its whole deadline with nothing to say why
+		// (2026-09-24: a 1.3 MB .nzb against the Helm chart's 1 MiB
+		// default stranded every usenet grab as "context deadline
+		// exceeded"). A header-only error reply always fits, so the
+		// requester fails at once and names the cause.
 		logging.FromContext(ctx).Error("bus: reply not sent",
 			"subject", subject, "bytes", len(data), "err", err)
 		respondError(m, events.ServiceErrorFailed, events.OneLine(
@@ -752,7 +759,8 @@ func (b *Bus) respond(ctx context.Context, gate *events.ServeGate, subject strin
 	}
 }
 
-// Request sends in to subject and decodes the single reply into out.
+// Request sends in to subject and decodes the reply into out: one message,
+// or the parts of one too large for that (parts.go).
 //
 // The request runs BeforePublish, exactly like Publish: a hook that stamps a
 // trace (tracing.Inject) puts it in the wire request's HeaderTrace, and
@@ -822,14 +830,19 @@ func (b *Bus) Request(ctx context.Context, subject string, in, out any) (err err
 		return fmt.Errorf("natsbus: %s: %w", subject,
 			&events.ResponderError{Code: code, Message: msg})
 	}
+	// A reply too large for one message arrives in parts (parts.go).
+	body, err := b.collectParts(ctx, reply)
+	if err != nil {
+		return fmt.Errorf("natsbus: reply from %s: %w", subject, err)
+	}
 	switch v := out.(type) {
 	case nil:
 		return nil
 	case *[]byte:
-		*v = reply.Data
+		*v = body
 		return nil
 	default:
-		if err := json.Unmarshal(reply.Data, out); err != nil {
+		if err := json.Unmarshal(body, out); err != nil {
 			return fmt.Errorf("natsbus: decode reply from %s: %w", subject, err)
 		}
 		return nil

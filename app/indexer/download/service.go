@@ -544,7 +544,9 @@ func (s *Service) classify(
 			// No Content-Length, so this was only discovered mid-read. The
 			// link may already be spent, which is why this is an Error and
 			// not a RedirectURL.
-			return fail(f.Scrub, "index: %v", err), resultTooLarge
+			resp := fail(f.Scrub, "index: %v", err)
+			resp.TooLarge = true
+			return resp, resultTooLarge
 		}
 		return fail(f.Scrub, "index: read payload: %v", cardigann.RedactErr(err)), resultInvalidPayload
 	}

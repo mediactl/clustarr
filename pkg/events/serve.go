@@ -77,6 +77,13 @@ const (
 	ServiceErrorBusy = 503
 )
 
+// MaxReplyBytes is the most one reply may carry. A reply over one message's
+// room crosses in parts (natsbus, "A reply in parts"), each asked for by its
+// reader, and this bounds what a requester will assemble: 64 MiB, eight
+// times the servers' max_payload, which a 64 MiB .nzb's gzipped answer to
+// rpc.index.download fits several times over.
+const MaxReplyBytes = 64 << 20
+
 // DefaultServeConcurrency is how many handlers one Serve runs at once when
 // ServeLimits leaves Concurrency unset. Sixteen matches the most any one
 // caller runs at once (catalog's search consumers); handlers are I/O

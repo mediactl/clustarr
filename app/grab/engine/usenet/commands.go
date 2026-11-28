@@ -210,10 +210,11 @@ func (t *Transfers) add(ctx context.Context, cmd schema.EngineCommand) (string, 
 		Priority: cmd.Priority,
 		Imported: cmd.Imported,
 	})
-	if errors.Is(err, usenetclient.ErrEmptyNZB) {
-		// An NZB with no articles never downloads: the release's fault.
-		// Retried, each fetch was another download to the indexer, and
-		// nzb-life then refused the release for 24 h, five days running
+	if errors.Is(err, usenetclient.ErrEmptyNZB) || errors.Is(err, usenetclient.ErrPayloadTooLarge) {
+		// An NZB with no articles never downloads, and one over the
+		// client's size limit is over it at every fetch: the release's
+		// fault. Retried, each fetch was another download to the indexer,
+		// and nzb-life then refused the release for 24 h, five days running
 		// (2026-10-21).
 		return "", fmt.Errorf("%w: %w", engine.ErrPayloadUnavailable, err)
 	}

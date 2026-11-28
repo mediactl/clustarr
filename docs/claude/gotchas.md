@@ -687,7 +687,8 @@ recorded here.
   hit it. The bus reply now gzips a body over 1 MiB
   (`schema.DownloadResponse.ForWire`, `encoding: gzip`; NZB XML compresses
   about four times), refuses one still over `schema.MaxDownloadWireBytes`
-  (5.75 MiB) compressed, and both engines read it through
+  (5.75 MiB then; a reply crosses in parts since 2026-11-27, see "A reply
+  was one NATS message") compressed, and both engines read it through
   `DownloadResponse.Payload`; index reads up to 32 MiB raw, the usenet
   engine's own cap. A real-server test holds the budget to the broker's
   8Mi, envelope included.
@@ -723,6 +724,78 @@ recorded here.
   `lifecycle.MaxEntryMessage` (1024) when it renders the grab entry: any string
   an engine reports must be clamped at the `pkg/download` boundary and again
   where the manager writes it into a bounded CRD field, never trusted.
+- **A reply was one NATS message, and a season pack's .nzb does not fit
+  one however it is compressed (2026-11-27, owner: "This one seems fixable
+  - find a solution", "I'm guessing we can raise this?").** Three One
+  Piece season packs from nzb-life (S13 153 GB, S17 182 GB, S21 302 GB:
+  375 episodes) sat `Assigned` for a day. An .nzb is mostly message-ids,
+  which are random: S13's gzipped to 6,142,018 bytes against
+  `schema.MaxDownloadWireBytes` (6,029,312: the broker's 8Mi
+  `max_payload` less base64's third and the envelope), and S21's is
+  38.2 MB raw, over index's and the engine's 32 MiB caps. The engine
+  retried "payload too large" on 30 s, 1 min, 2 min, each retry a new
+  fetch, and nzb-life answered the fourth with its per-release 24-hour
+  429, so the entry then read "the engine holds no transfer for this
+  entry; adding it again" and held its episodes as downloading. Now a
+  reply over one message's room crosses in parts
+  (`pkg/events/natsbus/parts.go`: the first part carries
+  `Clustarr-Reply-Parts`/`-Bytes`/`-More`, and the requester asks the
+  responder's own subject for each further part by number, so nothing is
+  pushed and `Request`/`Serve` callers see one reply), up to
+  `events.MaxReplyBytes` (64 MiB); the three .nzb caps are 64 MiB
+  (`app/indexer/download.MaxPayloadBytes`, the usenet resolver's,
+  `pkg/download/usenet`'s), a release of about 500 GB; and a payload that
+  is still too large is `payloadUnavailable` (`DownloadResponse.TooLarge`,
+  the resolver's and the client's own cap errors), blocked and searched
+  past, never fetched again. Both ends of an RPC must run the build: an
+  older requester reads the first part as the whole reply (only for
+  replies that did not cross at all before). Raising `max_payload` was not
+  the fix: NATS takes 64 MB at most, every connection's buffers grow with
+  it, and the servers here already stall on large messages.
+- **A download a handful of articles short, with nothing to repair it, was
+  thrown away whole (2026-11-27, owner: "For a few missing articles, we
+  can likely force assembly and unpack anyway with 99.9% success").**
+  `One.Piece.S16...Kitsune-xpost` (76 GB, 49 episodes, no par2) failed
+  and was blocked for 1 article of 103,312, and a 79 GB Fate/kaleid
+  remux for 4 of 107,066, every primary and the backup asked
+  (`unverifiableGate`: bare content with a hole had nothing to judge it).
+  Now `job.fewMissing` -- some, no more than `maxBadArticles` (5), and no
+  more than one article in a thousand of the download -- lets such a
+  download through: bare files are published with the hole where the
+  article was, par2 that cannot repair is passed, and an archive is opened
+  without its checksums (`withHoles`: rardecode's `SkipCheck`, a zip's or
+  7z's checksum error at an entry's end kept as written). The importer's
+  probe is the judge of each file (a few seconds missing from a long file
+  are tolerated, 67d7baf0; a file that does not play is refused and its
+  episode searched again), so 48 whole episodes are no longer lost for one
+  article. One of four articles is still a failure (the share), and so are
+  six of a hundred thousand (the count). The owner's other two points
+  were already so since 158194b5 that afternoon: a chase asks the backup
+  (`frugal-bonus`, `providers[].backup`) last, inside the one download,
+  for the articles every primary refused, and `overBackupShare` keeps it
+  from carrying a download; a backup never holds a transfer's primary
+  grant.
+- **An audio donor stayed under the root folder its series had when it
+  was imported, and the graft refused it (2026-11-27, owner: "Fix these
+  items - moving them into the new root").** An item records its donor at
+  `status.audio.donor.path`, `<root>/.clustarr/donors/<item uid>/...`; a
+  Series moved to another root folder takes its files along
+  (`app/remediation/rename`'s relocation) and nothing took the donors. On
+  talos 31 grafts of eight series moved from `tv` to `anime` (Log Horizon
+  S2 18, The World God Only Knows S2 5) failed with `InvalidTask: donor:
+  /data/media/tv/.clustarr/donors/... is outside root folder
+  /data/media/anime` on every backoff, 35 Jobs an hour. Now the planner
+  names the donor where it lies under the file's root folder
+  (`grafttask.DonorUnder`, `Task.PlaceDonor`; the recorded path is left as
+  the import wrote it and rides in `Task.DonorFrom`), and the graft worker
+  moves every file of the item's donor folder there before it reads one
+  (`settleDonor`: only where nothing stands yet, so a move cut short is
+  finished by the next graft). The record's inputs keep the recorded path,
+  so the attempt's identity does not change. Not done: the import's
+  removal of a superseded donor still reads the recorded path, so after a
+  move the older donor stays under the new root until the item is deleted
+  (`librarydelete` removes the item's donor folder under the current
+  root).
 - **A post can carry a par2 set per file, and the engine read every job
   as one set (2026-11-27, owner: "investigate it", then "Yes to both").**
   `[pcela] Gargantia on the Verdurous Planet (2013) S01` (98.6 GB): 13

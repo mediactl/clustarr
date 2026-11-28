@@ -412,6 +412,13 @@ type DownloadResponse struct {
 	// good releases on talos when every Error read as gone (2026-10-15).
 	Gone bool `json:"gone,omitempty"`
 
+	// TooLarge, beside an Error, says the payload is there and is larger
+	// than index reads or the bus carries. Asking again fetches the same
+	// bytes, and every asking is a download to the indexer (nzb-life then
+	// refuses the release for a day), so an engine reads it as
+	// payloadUnavailable too: the release is blocked and searched past.
+	TooLarge bool `json:"tooLarge,omitempty"`
+
 	// RetryAt, beside an Error, is when the indexer may be asked again:
 	// its grab limit's window, or the pause a 429 it answered set
 	// (app/indexer/limits.PauseGrabs). An engine waits until then rather

@@ -56,3 +56,24 @@ func TestAnNZBWithNoArticlesIsThePayloadUnavailable(t *testing.T) {
 	require.ErrorIs(t, err, engine.ErrPayloadUnavailable)
 	require.ErrorIs(t, err, usenet.ErrEmptyNZB)
 }
+
+// An .nzb over the client's size limit is over it at every fetch: the same
+// verdict, for the same reason.
+func TestAnNZBOverTheClientsLimitIsThePayloadUnavailable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"></nzb>`))
+	}))
+	defer srv.Close()
+	fc := newFakeDownloadClient()
+	fc.addErr = fmt.Errorf("usenet: add: %w", usenet.ErrPayloadTooLarge)
+	tr := &usenetengine.Transfers{Client: fc, Resolver: &usenetengine.Resolver{}}
+	url := srv.URL
+	cmd := schema.EngineCommand{
+		Seq: 3, Desired: schema.EngineDesiredPresent, Entry: schema.EntryRef{ID: "one-piece-s21", UID: "uid-s21"},
+		Owner:  schema.ItemRef{Kind: "Series", Ref: schema.Ref{Namespace: "media", Name: "one-piece"}},
+		Source: &commonv1.DownloadSource{NZBURL: &url},
+	}
+	_, err := tr.Apply(t.Context(), cmd, nil)
+	require.ErrorIs(t, err, engine.ErrPayloadUnavailable)
+	require.ErrorIs(t, err, usenet.ErrPayloadTooLarge)
+}

@@ -41,9 +41,10 @@ var ErrPayloadTooLarge = errors.New("usenet: nzb payload exceeds the size limit"
 var ErrEmptyNZB = errors.New("usenet: nzb contains no articles")
 
 // defaultMaxNZBBytes caps a .nzb body. A 100GB release with 700KiB segments is
-// about 140,000 segments, roughly 15MB of XML; 32MiB is generous and still
-// bounded.
-const defaultMaxNZBBytes = 32 << 20
+// about 140,000 segments, roughly 12.5MB of XML; a 302 GB season pack's was
+// 38.2 MB (2026-11-27), so the cap is 64MiB, a release of about 500 GB, and
+// still bounded.
+const defaultMaxNZBBytes = 64 << 20
 
 // fileKind classifies one file inside an NZB. The pipeline branches on it:
 // par2 files drive repair, archives drive extraction, and everything else is

@@ -142,8 +142,9 @@ func resolveSource(ctx context.Context, httpClient *http.Client, resolver Indexe
 		if err != nil {
 			return resolved{}, fmt.Errorf("torrent: resolve indexerDownload: %w", err)
 		}
-		if resp.Error != "" && resp.Gone {
-			// The indexer said the release is gone (ADR-0019 §6.7).
+		if resp.Error != "" && (resp.Gone || resp.TooLarge) {
+			// The indexer said the release is gone (ADR-0019 §6.7), or its
+			// payload is over what index reads or the bus carries.
 			return resolved{}, fmt.Errorf("%w: torrent: indexer resolve failed: %s", engine.ErrPayloadUnavailable, resp.Error)
 		}
 		if resp.Error != "" && resp.RetryAt != nil {

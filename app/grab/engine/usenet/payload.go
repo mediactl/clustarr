@@ -31,10 +31,11 @@ import (
 	"github.com/mediactl/clustarr/pkg/redact"
 )
 
-// defaultMaxPayloadBytes caps one resolved .nzb body. Real posts are XML text
-// a few hundred KB even for a multi-hour season pack; 32MiB is generous
-// headroom without leaving the cap effectively unbounded.
-const defaultMaxPayloadBytes = 32 << 20
+// defaultMaxPayloadBytes caps one resolved .nzb body: what index reads
+// (app/indexer/download.MaxPayloadBytes). An .nzb grows with its release,
+// about 125 KB a gigabyte, so 64 MiB is a release of about 500 GB; a 302 GB
+// season pack's was 38.2 MB (2026-11-27).
+const defaultMaxPayloadBytes = 64 << 20
 
 // ErrUnsupportedSource is returned when a Download's spec.source carries no
 // payload a usenet engine can fetch: a bare magnet or .torrent URL, or an
@@ -43,7 +44,8 @@ const defaultMaxPayloadBytes = 32 << 20
 var ErrUnsupportedSource = errors.New("usenetengine: download source has no usenet-fetchable payload")
 
 // ErrPayloadTooLarge is returned when a fetched body exceeds the resolver's
-// configured maximum.
+// configured maximum. Resolve answers it as engine.ErrPayloadUnavailable:
+// the next fetch would be as large, and each is a download to the indexer.
 var ErrPayloadTooLarge = errors.New("usenetengine: fetched payload exceeds the configured maximum")
 
 // Resolver turns a Download's spec.source into the raw .nzb bytes
@@ -87,14 +89,26 @@ func (r *Resolver) maxBytes() int64 {
 // Resolve returns the .nzb bytes for src, a Download in namespace ns's
 // spec.source.
 func (r *Resolver) Resolve(ctx context.Context, ns string, src commonv1.DownloadSource) ([]byte, error) {
+	var (
+		b   []byte
+		err error
+	)
 	switch {
 	case src.NZBURL != nil && *src.NZBURL != "":
-		return r.fetchURL(ctx, *src.NZBURL)
+		b, err = r.fetchURL(ctx, *src.NZBURL)
 	case src.IndexerDownload != nil:
-		return r.resolveIndexer(ctx, ns, *src.IndexerDownload)
+		b, err = r.resolveIndexer(ctx, ns, *src.IndexerDownload)
 	default:
 		return nil, fmt.Errorf("%w: spec.source carries %s", ErrUnsupportedSource, sourceMember(src))
 	}
+	if errors.Is(err, ErrPayloadTooLarge) || errors.Is(err, schema.ErrDownloadPayloadTooLarge) {
+		// A payload over the cap is over it at every fetch. Retried, each
+		// fetch was another download to the indexer, which then refused the
+		// release for a day and the entry held its episodes meanwhile
+		// (three One Piece season packs, 375 episodes, 2026-11-27).
+		return nil, fmt.Errorf("%w: %w", engine.ErrPayloadUnavailable, err)
+	}
+	return b, err
 }
 
 // sourceMember names which DownloadSource member is set, for an error
@@ -136,8 +150,10 @@ func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id commonv1.In
 			events.DescribeRequestError(events.RPCIndexDownload, err))
 	}
 	switch {
-	case resp.Error != "" && resp.Gone:
-		// The indexer said the release is gone (ADR-0019 §6.7).
+	case resp.Error != "" && (resp.Gone || resp.TooLarge):
+		// The indexer said the release is gone (ADR-0019 §6.7), or its
+		// payload is larger than index reads or the bus carries, which it
+		// will be at every asking (DownloadResponse.TooLarge).
 		return nil, fmt.Errorf("%w: usenetengine: index: %s", engine.ErrPayloadUnavailable, resp.Error)
 	case resp.Error != "" && resp.RetryAt != nil:
 		// index named when the indexer may be asked again (its grab limit,
