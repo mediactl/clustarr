@@ -228,4 +228,28 @@ Until the guard lands, review holds the invariant; drop the mark when it does.
   (`pkg/events/objindex`). The reaper (the manager's, leader-only) is the only
   code that deletes both; the manager's object-store maintenance loop
   (`app/maintenance`, ADR-0020 §5) purges orphan chunks in every store.
+  **Each writer has a compact variant beside its regular one** (the
+  compact-posters design, 2026-11-27; owner, 2026-11-28: "Approve the
+  design"): `compact` is the metadata gateway's, the twin of a titled
+  `original` with the logo in the larger box, drawn in the fetch that draws
+  the original and stored before it, and deleted with a poster that is no
+  longer titled or is dropped; `overlay-compact` is the renderer's, the same
+  badges in the profile's compact geometry (`spec.compactGeometry`,
+  `overlay.CompactTemplateSpec`), drawn on `compact` when the item has one
+  and on `original` when not, in the render task that settles `overlay`, and
+  cleared with it. `events.KnownArtworkVariant` is the one enumeration.
+  What must hold: **a regular `original` or `overlay` keeps its bytes for
+  the same inputs** -- the compact draw is on a copy of the canvas
+  (`TestFetchTitled_StoresCompactAndLeavesOriginalAlone` pins the digest,
+  `TestDrawTitled_RegularUnchanged` the pixels), `TitleVersion`,
+  `RenderVersion`, `InputsDigest`, `ProfileHash` and `status.overlay` do not
+  see the compact rendition (its own versions are `CompactTitleVersion` and
+  `overlayplan.CompactRenderVersion`, its own digest
+  `overlayplan.Compact.InputsDigest`), since a new regular digest is a new
+  poster URL and Plex refreshes the item. No status field records a compact
+  object: the plan fetches a titled poster whose twin's mark is not its
+  source's (`Source.CompactMark`), and the overlay stage asks for a render
+  when the compact overlay's `Clustarr-Rendered-From` is not the plan's.
+  The ui's pages never show one and raise no art event for one
+  (`TestACompactObjectRaisesNoArtEvent`).
 

@@ -787,6 +787,19 @@ that big). So, since 2026-10-26:
 - a movie's or show's poster, background and logo, and a season's
   fallback to them, stay the ui's `/art` URLs, the poster overlay-first,
   which PMS downloads, so the rating-badge overlay reaches Plex;
+- **the compact rendition is served beside it and never instead of it**
+  (the compact-posters design, 2026-11-27): `/art/<kind>/<uid>/poster?size=compact`
+  answers a movie's or a series' compact overlay, else its compact poster,
+  else **404** -- never the regular poster, and 404 for any other `size`,
+  type or kind (`chooseArt`, `artVariants`), because the proxy in the Plex
+  pod takes a 404 to mean "let Plex serve what it holds". `/art` scales
+  nothing. `GET /plex/compact-posters` (`ui/plex/compact.go`) is the
+  pairing list that proxy reads: for each movie and series with a compact
+  rendition, the poster URL the provider hands Plex **exactly as handed**
+  (built by `artworkFor.url`, the `:443` and `&nowebp=1` included: Plex
+  names its stored poster by that URL's SHA-1) and the twin's path with
+  its digest in `?v`; sorted, no title, ETag and 304. A ui whose artwork
+  index is not synced lists nothing;
 - a match result (`POST .../matches`) carries them by the artwork entry's
   `sourceURL` instead (`urls.sourced`, `artworkFor.url`), because PMS makes
   a match result's thumb the item's and selects a refresh's download only

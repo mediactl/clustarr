@@ -630,6 +630,38 @@ at 31 of 41 scenarios on the owner's word (13 passed; commit b7625e55 lists
 the failures and which of them were read); no scenario has run since with
 the fixes, so the suite is still owed.
 
+**The usenet engine fleet (2026-11-28), built, not deployed, not proven on
+kind.** Design and as-built record:
+`docs/superpowers/specs/2026-11-27-usenet-engine-fleet-design.md` (§13 is what
+was built and what was not). Connection pools across an account's hosts with
+quotas counted in the ledger, the usenet engine as a StatefulSet, per-node
+bandwidth budgets, late binding and controller-set replicas. A usenet client
+that sets none of `usenet.bandwidth`, `usenet.autoscale` and `replicas` above
+one keeps one engine that is told every download at once, as before; what
+changes for it at the next roll is that its Deployment is replaced by a
+StatefulSet of one (the controller stops the Deployment first), that a
+transfer's connection grant grows into what its server has free, and that
+quota counts survive restarts. No e2e scenario exists for it yet.
+
+**Compact posters (2026-11-28), the clustarr half built, not deployed, not
+proven on kind.** Design: `docs/superpowers/specs/2026-11-27-compact-posters-design.md`;
+plan: `docs/superpowers/plans/2026-11-28-compact-posters-clustarr.md`. Two
+more artwork variants (`compact`, `overlay-compact`), `OverlayProfile`'s
+`spec.compactGeometry`, `/art?size=compact`, `/plex/compact-posters`,
+`hack/compactmock`. The compact sizes are the starting ones (badge 28/31,
+title 90 x 32) until the owner settles them on the mock sheet. What the first
+roll costs: every titled poster is fetched once more (the fetch plan's hash
+changed, and the fetch now draws the twin) and every item with an overlay
+gets one render task for its compact overlay; no regular poster changes
+digest, so Plex refreshes nothing; the OverlayProfile CRD is applied by hand
+on talos before the roll. The other half is cluster-plex's: `observe` is
+built there (`plex.compactPosters.mode`, chart 0.6.13), `serve` is not.
+`make test` and `make e2e` have not been run on it; the e2e cluster fetches
+no artwork, so its scenario (`plex_test.go`, step 3b) proves the two routes
+answer, not a drawn poster. Known red beside it:
+`TestProfilesAreReadUncached` (`app/catalog/worker/artwork`) fails on the
+commit before this work too.
+
 **Nothing is finished until it is proven end to end on a kind cluster.** Every
 phase from C onward lands its milestone's scenarios in `test/e2e` (real CRs,
 real controllers, real NATS, real files under `/data`, in-cluster fixture

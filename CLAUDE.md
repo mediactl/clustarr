@@ -127,8 +127,9 @@ Full text and guard tests: `docs/claude/invariants.md`.
 - **The UI never writes status** and owns no CRD; every write is a spec patch or
   create in `ui/actions` (`TestUINeverWrites`); it holds a bus connection for reads
   plus three metadata requests only; `cmd/manager` and `cmd/ui` never link ffgo or purego.
-- **Artwork objects have two writers split by variant** (`original`: metadata
-  gateway; `overlay`: renderer); no object links.
+- **Artwork objects have two writers split by variant** (`original` and its
+  twin `compact`: metadata gateway; `overlay` and `overlay-compact`: renderer);
+  no object links. A regular poster's bytes never change for the compact one.
 
 ## Commands
 

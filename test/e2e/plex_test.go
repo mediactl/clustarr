@@ -185,6 +185,45 @@ func TestPlexProvider(t *testing.T) {
 	md := metaResp.MediaContainer.Metadata[0]
 	require.Equal(t, "Inception", md.Title)
 
+	// --- 3b. The compact posters' two routes (the compact-posters design,
+	// 2026-11-27 §5.3) answer in a real deployment: the pairing list is a
+	// JSON list, and every twin it names is an image /art serves at
+	// ?size=compact. This cluster fetches no artwork (the artwork leg
+	// below says why), so the list is usually empty and the movie has no
+	// compact rendition -- which /art must answer with 404, never with the
+	// regular poster and never with a server error.
+	var pairing struct {
+		Posters []struct {
+			URL     string `json:"url"`
+			Compact string `json:"compact"`
+		} `json:"posters"`
+	}
+	status, err = plexGetJSON(ctx, client, base+"/plex/compact-posters", nil, &pairing)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status, "GET /plex/compact-posters")
+	require.NotNil(t, pairing.Posters, "the list is an array, empty when nothing has a compact rendition")
+	for _, pair := range pairing.Posters {
+		require.True(t, strings.HasPrefix(pair.Compact, "/art/"), "a twin is a path under /art: %q", pair.Compact)
+		require.Contains(t, pair.Compact, "size=compact")
+		twin, err := http.NewRequestWithContext(ctx, http.MethodGet, base+pair.Compact, nil)
+		require.NoError(t, err)
+		twinResp, err := client.Do(twin)
+		require.NoError(t, err)
+		_, _ = io.Copy(io.Discard, twinResp.Body)
+		_ = twinResp.Body.Close()
+		require.Equal(t, http.StatusOK, twinResp.StatusCode, "GET %s", pair.Compact)
+		require.True(t, strings.HasPrefix(twinResp.Header.Get("Content-Type"), "image/"), "GET %s", pair.Compact)
+	}
+	compactReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		base+"/art/movie/"+string(liveMovie.UID)+"/poster?size=compact", nil)
+	require.NoError(t, err)
+	compactResp, err := client.Do(compactReq)
+	require.NoError(t, err)
+	_, _ = io.Copy(io.Discard, compactResp.Body)
+	_ = compactResp.Body.Close()
+	require.Contains(t, []int{http.StatusOK, http.StatusNotFound}, compactResp.StatusCode,
+		"a movie's compact poster is an image or not found")
+
 	// --- 4. The artwork leg: buildImages/thumbAndArt (ui/plex/images.go)
 	// omit thumb entirely -- never blank it (spec §D.5) -- until
 	// catalog's artwork Fetcher has actually recorded an ArtworkEntry
