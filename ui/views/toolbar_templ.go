@@ -78,12 +78,14 @@ import (
 // An item page's actions (actionBar) are the other shape: icon-only
 // circles inside the hero.
 
-// toolbarButtonClass is one button of a toolbar group: the icon beside its
+// toolbarButtonClass is one button of a toolbar group, a 36px circle in the
+// group's glass capsule with its word for a screen reader (2026-11-28; until
+// then the icon beside its
 // word at shadcn's large height, lit by white on the glass rather than the
 // theme's muted fill. Below 576px of bar (its own width, a container
 // query) the word is screen-reader only and the button 44px square, so
 // both groups fit a phone.
-const toolbarButtonClass = "h-10 gap-2 border-0 px-4 text-sm font-medium text-foreground/85 shadow-none hover:bg-white/10 hover:text-foreground aria-expanded:bg-white/15 aria-expanded:text-foreground aria-pressed:bg-white/15 dark:hover:bg-white/10 [&_svg]:size-4 @max-xl/bar:w-11 @max-xl/bar:gap-0 @max-xl/bar:px-0 @max-xl/bar:[&>span]:sr-only"
+const toolbarButtonClass = "size-9 gap-0 rounded-full border-0 p-0 text-label-1 shadow-none hover:bg-white/10 aria-expanded:bg-white/15 dark:hover:bg-white/10 [&_svg]:size-[18px] [&>span]:sr-only"
 
 // Field is one hidden input of a toolbar action's form.
 type Field struct {
@@ -91,11 +93,9 @@ type Field struct {
 	Value string
 }
 
-// toolbar is the row: the bare menubar, sticky half a rem beneath the top
-// bar at a fixed height (h-12, which the library's A-Z bar and its
-// selection bar count on), its groups pushed to the edges. It hides while
-// the library is selecting, when the selection bar takes its place.
-// attrs land on the row, beside data-toolbar.
+// toolbar is a page's action row: the bare menubar, which the theme pins
+// into the page's toolbar (input.css). attrs land on the row, beside
+// data-toolbar.
 func toolbar(attrs templ.Attributes) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -133,7 +133,7 @@ func toolbar(attrs templ.Attributes) templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = menubar.Menubar(menubar.Props{
-			Class:      "@container/bar sticky top-(--bar-top) z-20 mb-3 flex h-12 items-center justify-between gap-2 rounded-none border-0 bg-transparent p-0 shadow-none group-data-selecting/library:hidden",
+			Class:      "@container/bar flex items-center gap-2 rounded-none border-0 bg-transparent p-0 shadow-none",
 			Attributes: toolbarAttrs(attrs),
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {

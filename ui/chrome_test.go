@@ -167,8 +167,9 @@ func TestLibraryPageHasSidebarRowsASectionStripAndAJumpBar(t *testing.T) {
 	require.NotContains(t, body, `data-slot="breadcrumb"`)
 	// On a tab the sidebar's search is the tab's.
 	requireTag(t, body, `data-find-input`, `hx-get="/library/tv/find"`, `placeholder="Search TV…"`)
-	// The tab offers Add.
-	requireTag(t, body, `data-nav="add-new"`, `group/button`)
+	// The tab offers its own Add among its actions, not the every-library menu.
+	requireTag(t, body, `data-action="add-new"`, `href="/library/tv/add"`, `group/button`)
+	require.NotContains(t, body, `data-nav="add-new"`)
 
 	activeAttr := regexp.MustCompile(`\sdata-active(\s|>)`)
 	sidebarHTML := body[strings.Index(body, `data-slot="sidebar-wrapper"`):strings.Index(body, `data-slot="sidebar-inset"`)]

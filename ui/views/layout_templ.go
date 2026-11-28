@@ -307,10 +307,10 @@ func (c Chrome) pageName() string {
 	return c.Title
 }
 
-// addHere reports whether the page offers Add: the Dashboard and the
-// libraries' own pages.
+// addHere reports whether the toolbar offers the every-library Add menu:
+// the Dashboard's (a library page has its own Add among its actions).
 func (c Chrome) addHere() bool {
-	return c.Title == "Dashboard" || (c.Tab != "" && c.Title == "Library")
+	return c.Title == "Dashboard"
 }
 
 // strip is a section page's sibling pages, the section strip.
@@ -1126,7 +1126,7 @@ func sectionStrip(c Chrome) templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "<nav data-section-strip aria-label=\"Pages\" class=\"px-(--page-gutter) pt-1 pb-2 lg:hidden\"><div data-slot=\"tabs-list\" class=\"scroll-fade-x\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "<nav data-section-strip aria-label=\"Pages\" class=\"flex h-12 items-center px-(--page-gutter) lg:hidden\"><div data-slot=\"tabs-list\" class=\"scroll-fade-x\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

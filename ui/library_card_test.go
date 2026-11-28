@@ -116,7 +116,7 @@ func TestLibraryCardsFollowRadarrsPosterGrid(t *testing.T) {
 	require.NotContains(t, grid, `data-slot="tooltip-content"`, "no card renders a tooltip of its own")
 	require.NotContains(t, grid, `data-templ-tooltip-trigger`, "no card's link is a trigger until it is hovered")
 
-	requireTag(t, body, `data-status="downloaded"`, `bg-emerald-500`)
+	requireTag(t, body, `data-status="downloaded"`, `data-tone="ok"`)
 	at = strings.Index(body, `data-status="downloaded"`)
 	require.GreaterOrEqual(t, at, 0)
 	footer := body[at:]
@@ -130,29 +130,30 @@ func TestLibraryCardsFollowRadarrsPosterGrid(t *testing.T) {
 	require.Contains(t, heatCard, `data-poster="none"`)
 	require.NotContains(t, body, `alt="Heat"`, "no art means no image tag, a placeholder with the title instead")
 	require.Regexp(t, regexp.MustCompile(`data-slot="aspect-ratio"[^>]*>\s*<div[^>]*>[^<]*Heat`), body, "the placeholder names the film")
-	requireTag(t, body, `data-status="missing"`, `bg-red-500`)
-	requireTag(t, body, `data-status="unmonitored"`, `bg-slate-500`)
+	requireTag(t, body, `data-status="missing"`, `data-tone="missing"`)
+	requireTag(t, body, `data-status="unmonitored"`, `data-tone="idle"`)
 	require.Contains(t, body, ">Unmonitored<")
 }
 
-// TestLibraryStripeColourFollowsState pins Radarr's stripe semantics on
-// the card: on disk is green, on disk below the cutoff is amber, in
-// flight is blue, missing and monitored is red, and unmonitored with
-// nothing on disk is gray.
+// TestLibraryStripeColourFollowsState pins the card's status semantics
+// (Radarr's stripe until 2026-11-28; a poster shows its status only when
+// something is the matter since): on disk is ok, on disk below the cutoff
+// a warning, in flight busy, monitored with nothing on disk missing, and
+// unmonitored with nothing on disk idle.
 func TestLibraryStripeColourFollowsState(t *testing.T) {
 	for name, tc := range map[string]struct {
 		item   projection.LibraryItem
 		status string
 		class  string
 	}{
-		"on disk":            {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "Imported"}, "downloaded", "bg-emerald-500"},
-		"transcoded":         {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "Transcoded"}, "downloaded", "bg-emerald-500"},
-		"cutoff unmet":       {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "CutoffUnmet"}, "cutoff-unmet", "bg-amber-500"},
-		"cutoff unevaluated": {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "CutoffUnevaluated"}, "cutoff-unmet", "bg-amber-500"},
-		"downloading":        {projection.LibraryItem{Monitored: true, Phase: "Downloading"}, "downloading", "bg-sky-500"},
-		"delayed":            {projection.LibraryItem{Monitored: true, Phase: "Delayed"}, "downloading", "bg-sky-500"},
-		"missing":            {projection.LibraryItem{Monitored: true, Phase: "Wanted"}, "missing", "bg-red-500"},
-		"unmonitored":        {projection.LibraryItem{Monitored: false, Phase: "Unmonitored"}, "unmonitored", "bg-slate-500"},
+		"on disk":            {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "Imported"}, "downloaded", `data-tone="ok"`},
+		"transcoded":         {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "Transcoded"}, "downloaded", `data-tone="ok"`},
+		"cutoff unmet":       {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "CutoffUnmet"}, "cutoff-unmet", `data-tone="warn"`},
+		"cutoff unevaluated": {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "CutoffUnevaluated"}, "cutoff-unmet", `data-tone="warn"`},
+		"downloading":        {projection.LibraryItem{Monitored: true, Phase: "Downloading"}, "downloading", `data-tone="busy"`},
+		"delayed":            {projection.LibraryItem{Monitored: true, Phase: "Delayed"}, "downloading", `data-tone="busy"`},
+		"missing":            {projection.LibraryItem{Monitored: true, Phase: "Wanted"}, "missing", `data-tone="missing"`},
+		"unmonitored":        {projection.LibraryItem{Monitored: false, Phase: "Unmonitored"}, "unmonitored", `data-tone="idle"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			it := tc.item

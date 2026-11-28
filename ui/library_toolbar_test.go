@@ -129,52 +129,55 @@ func TestLibraryToolbarHasRescanSortAndFilter(t *testing.T) {
 	requireTag(t, bar, `data-tab="movies"`, `action="/library/rescan"`, `method="post"`)
 	requireTag(t, bar, `name="tab"`, `value="movies"`)
 	requireTag(t, bar, `name="return"`, `value="/library/movies"`)
-	rescan := requireTag(t, bar, `data-action="rescan"`, `data-slot="button"`, `type="submit"`)
+	rescan := requireTag(t, bar, `data-action="rescan"`, `type="submit"`)
 	require.NotRegexp(t, regexp.MustCompile(`\sdisabled(\s|>)`), rescan, "a RootFolder of the tab's kind exists")
-	require.Regexp(t, regexp.MustCompile(`(?s)data-action="rescan"[^>]*>.*?<span>Rescan</span>`), bar, "the label is plain Rescan")
+	// Its press is the Options menu's Rescan Library (2026-11-28), which
+	// submits the form.
+	requireTag(t, bar, `data-menu-action="rescan"`, `data-submit-form="library-rescan"`, `data-slot="menubar-item"`)
+	require.Contains(t, bar, `Rescan Library`)
 
-	// Add New (2026-09-29): the page's own search-and-add, a link.
-	requireTag(t, bar, `data-action="add-new"`, `href="/library/movies/add"`, `data-slot="button"`)
-	require.Regexp(t, regexp.MustCompile(`(?s)data-action="add-new"[^>]*>.*?<span>Add New</span>`), bar)
+	// Add New (2026-09-29): the page's own search-and-add, a link, drawn as
+	// a prominent "+" circle since 2026-11-28.
+	requireTag(t, bar, `data-action="add-new"`, `href="/library/movies/add"`, `group/button`, `aria-label="Add a new movie"`, `bg-primary`)
 
 	// The toolbar is shadcn's menubar (2026-10-06), its view menus the
-	// menubar's own: Options, Sort and Filter, in Sonarr's order.
+	// menubar's own: Filter, Sort and Options (the "…"), Apple's order.
 	require.Contains(t, toolbar, `data-slot="menubar"`)
 	require.Contains(t, toolbar, `role="menubar"`)
 	require.Equal(t, 3, strings.Count(bar, `data-slot="menubar-trigger"`), "an Options, a Sort and a Filter trigger")
 	options, sortAt, filter := strings.Index(bar, `data-toolbar-menu="Options"`), strings.Index(bar, `data-toolbar-menu="Sort"`), strings.Index(bar, `data-toolbar-menu="Filter"`)
-	require.True(t, options >= 0 && options < sortAt && sortAt < filter, "Options, Sort, Filter: %d %d %d", options, sortAt, filter)
+	require.True(t, filter >= 0 && filter < sortAt && sortAt < options, "Filter, Sort, Options: %d %d %d", filter, sortAt, options)
 	requireTag(t, bar, `data-toolbar-menu="Sort"`, `data-slot="menubar-trigger"`)
 	// Options are the reader's own: the poster size, medium by default,
-	// and the details under each poster, on.
+	// and the details under each poster, off (2026-11-28).
 	for _, sz := range views.PosterSizes {
 		requireTag(t, bar, `data-poster-size="`+sz.Key+`"`, `data-slot="menubar-radio-item"`, `data-width="`+sz.Width+`"`)
 	}
 	requireTag(t, bar, `data-poster-size="medium"`, `aria-checked="true"`)
-	requireTag(t, bar, `data-library-option="details"`, `data-slot="menubar-checkbox-item"`, `aria-checked="true"`)
+	requireTag(t, bar, `data-library-option="details"`, `data-slot="menubar-checkbox-item"`, `aria-checked="false"`)
 
-	// The mass editor (2026-10-06, after Sonarr's): Select turns it on, and
-	// the selection bar, which takes the toolbar's place, has Select All.
+	// The mass editor (2026-10-06, after Sonarr's): Select turns it on
+	// (reading Done while it is), and the floating selection bar has
+	// Select All.
 	requireTag(t, bar, `data-action="select-toggle"`, `data-slot="toggle"`, `aria-pressed="false"`)
-	require.Regexp(t, regexp.MustCompile(`(?s)data-action="select-toggle"[^>]*>.*?<span>Select</span>`), bar)
+	require.Regexp(t, regexp.MustCompile(`(?s)data-action="select-toggle"[^>]*>.*?>Select</span>.*?>Done</span>`), bar)
 	require.NotContains(t, toolbarOf(t, body), `data-action="select-all"`, "Select All is the selection bar's")
 	requireTag(t, bar, `data-action="select-all"`, `data-slot="button"`)
 
-	// The row is two rounded button groups with separators (owner,
-	// 2026-11-17), the docs' pill: the page's actions at the left, its
-	// view menus at the right, a separator between each pair of buttons.
+	// The row is one trailing set (2026-11-28, the Liquid Glass redesign):
+	// Select, then the view menus in one glass group with a separator
+	// between each pair, then Add.
 	row := toolbarOf(t, body)
-	require.Equal(t, 2, strings.Count(row, `data-slot="button-group"`), "an actions group and a view group")
-	require.Equal(t, 4, strings.Count(row, `data-slot="button-group-separator"`), "a separator between each pair of buttons")
-	actions := requireTag(t, row, `data-toolbar-group="Library actions"`, `data-slot="button-group"`, `role="group"`, `aria-label="Library actions"`)
-	require.Contains(t, actions, "[--radius:9999rem]", "the docs' rounded group")
-	require.Contains(t, actions, "glass-pill", "the group is the glass; no panel stands behind the row")
-	view := strings.Index(row, `data-toolbar-group="View"`)
-	require.Less(t, strings.Index(row, `data-action="select-toggle"`), view, "the actions come first, at the left")
-	require.Less(t, view, strings.Index(row, `data-toolbar-menu="Options"`), "the menus are the View group's, at the right")
-	require.Contains(t, tagWith(t, body, `data-toolbar`), "justify-between", "the groups are pushed to the row's edges")
+	require.Equal(t, 1, strings.Count(row, `data-slot="button-group"`), "one view group")
+	require.Equal(t, 2, strings.Count(row, `data-slot="button-group-separator"`), "a separator between each pair of buttons")
+	view := requireTag(t, row, `data-toolbar-group="View"`, `data-slot="button-group"`, `role="group"`, `aria-label="View"`)
+	require.Contains(t, view, "glass-pill", "the group is the glass; no panel stands behind the row")
+	viewAt := strings.Index(row, `data-toolbar-group="View"`)
+	require.Less(t, strings.Index(row, `data-action="select-toggle"`), viewAt, "Select comes first")
+	require.Less(t, viewAt, strings.Index(row, `data-action="add-new"`), "Add comes last")
 	require.NotContains(t, tagWith(t, body, `data-toolbar`), "glass-bar")
-	// Unfiltered, the line under the row is the tab's count alone.
+	// The page's large title and its count, under the row.
+	require.Regexp(t, regexp.MustCompile(`<h1[^>]*>Movies</h1>`), bar)
 	require.Regexp(t, regexp.MustCompile(`data-filter-count[^>]*title="120 titles"[^>]*>120<`), bar)
 	require.NotContains(t, bar, `data-filter-actions`)
 
@@ -276,17 +279,17 @@ func TestLibraryCustomFilterRidesTheURL(t *testing.T) {
 	body := get("/library/movies?f=year:gte:1990&f=profile:in:uhd%7Chd")
 	require.Equal(t, []string{"arrival", "dune", "heat"}, refsInOrder(body))
 	requireTag(t, body, `data-filter-chips`)
-	// The line under the toolbar (owner, 2026-11-17): the filter's actions
-	// as a button group first, then the bare count, then the chips.
+	// The count is the page's subtitle ("3 movies", its title "3 of 5");
+	// the line under it (owner, 2026-11-17) is the filter's actions as a
+	// button group, then the chips.
+	require.Regexp(t, regexp.MustCompile(`data-filter-count[^>]*title="3 of 5"[^>]*>3<`), body, "the count shown")
 	line := body[strings.Index(body, `data-view-bar`):strings.Index(body, `id="library-rows"`)]
 	group := requireTag(t, line, `data-filter-actions`, `data-slot="button-group"`, `aria-label="Current filter"`)
 	require.Contains(t, group, "[--radius:9999rem]")
 	require.Equal(t, 2, strings.Count(line, `data-slot="button-group-separator"`), "Edit, Save and Clear, a separator between each pair")
-	require.Regexp(t, regexp.MustCompile(`data-filter-count[^>]*title="3 of 5"[^>]*>3<`), line, "just the number, as Plex writes it")
-	groupAt, countAt, chipsAt := strings.Index(line, `data-filter-actions`), strings.Index(line, `data-filter-count`), strings.Index(line, `data-filter-chips`)
-	require.Less(t, groupAt, countAt, "the group is first")
-	require.Less(t, countAt, chipsAt, "the chips follow the count")
-	require.Less(t, strings.Index(line, `data-filter-clear`), countAt, "Clear is in the group")
+	groupAt, chipsAt := strings.Index(line, `data-filter-actions`), strings.Index(line, `data-filter-chips`)
+	require.Less(t, groupAt, chipsAt, "the chips follow the group")
+	require.Less(t, strings.Index(line, `data-filter-clear`), chipsAt, "Clear is in the group")
 	requireTag(t, body, `data-filter-chip="Year greater than or equal 1990"`)
 	requireTag(t, body, `data-filter-chip="Quality Profile is uhd, hd"`)
 	// A chip's x removes that row and keeps the other.

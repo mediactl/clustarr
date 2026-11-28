@@ -100,7 +100,7 @@ const (
 // and drops cards), then the filter itself, one chip a condition, whose x
 // removes that one. An unfiltered tab's line is the number alone.
 templ viewBar(tb LibraryToolbar) {
-	<div data-view-bar class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+	<div data-view-bar class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 empty:hidden">
 		if tb.Filtered {
 			@buttongroup.ButtonGroup(buttongroup.Props{Class: toolbarGroupClass, Attributes: templ.Attributes{"aria-label": "Current filter", "data-filter-actions": true}}) {
 				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: filterActionClass, Attributes: templ.Attributes{"data-open-dialog": filterDialogID}}) {
@@ -119,7 +119,6 @@ templ viewBar(tb LibraryToolbar) {
 				}
 			}
 		}
-		<span data-filter-count class="text-[15px] leading-8 font-semibold text-muted-foreground tabular-nums" title={ countTitle(tb) }>{ fmt.Sprint(tb.Shown) }</span>
 		if tb.Filtered {
 			<div data-filter-chips class="flex flex-wrap items-center gap-2">
 				for _, c := range tb.Chips {

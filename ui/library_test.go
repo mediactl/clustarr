@@ -114,9 +114,8 @@ func TestLibraryPageShowsAnUnevaluatedCutoffAsAWarning(t *testing.T) {
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
 		require.Equal(t, http.StatusOK, rec.Code)
-		// The card's stripe carries the warning colour (design 2026-09-24,
-		// after Radarr): an item on disk below its cutoff is amber.
-		requireTag(t, rec.Body.String(), `data-status="cutoff-unmet"`, "bg-amber-500")
+		// The card's status is a warning: an item on disk below its cutoff.
+		requireTag(t, rec.Body.String(), `data-status="cutoff-unmet"`, `data-tone="warn"`)
 	}
 }
 
@@ -137,9 +136,8 @@ func TestLibraryPageShowsTranscodedAsDone(t *testing.T) {
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
 		require.Equal(t, http.StatusOK, rec.Code)
 		require.Contains(t, rec.Body.String(), `data-phase="`+phase+`"`)
-		// The card's stripe carries the done colour (design 2026-09-24,
-		// after Radarr): an item on disk at its cutoff is green.
-		requireTag(t, rec.Body.String(), `data-status="downloaded"`, "bg-emerald-500")
+		// The card's status is done: an item on disk at its cutoff.
+		requireTag(t, rec.Body.String(), `data-status="downloaded"`, `data-tone="ok"`)
 	}
 }
 

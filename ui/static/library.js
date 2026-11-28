@@ -371,8 +371,8 @@
     if (empty) empty.hidden = m.entries.length > 0;
     if (rows) rows.setAttribute("data-total", String(m.entries.length));
     document.querySelectorAll("[data-filter-count]").forEach(function (el) {
-      // The number alone, as Plex writes it; the tab's size is its title.
-      el.textContent = String(m.entries.length);
+      // The number with its separators; the tab's size is its title.
+      el.textContent = m.entries.length.toLocaleString("en-US");
       el.title = m.entries.length === m.total ? m.total + " titles" : m.entries.length + " of " + m.total;
     });
     render();
@@ -573,15 +573,17 @@
       setChecked(other, other === item);
     });
   }
+  // The details are off unless the reader turned them on (2026-11-28, the
+  // Liquid Glass redesign: a card is its art, title and year).
   function applyDetails(show) {
-    if (show) document.documentElement.removeAttribute("data-library-details");
-    else document.documentElement.setAttribute("data-library-details", "hidden");
+    if (show) document.documentElement.setAttribute("data-library-details", "shown");
+    else document.documentElement.removeAttribute("data-library-details");
     setChecked(document.querySelector('[data-library-option="details"]'), show);
   }
   function applyOptions() {
     var size = stored(SIZE_KEY);
     if (size) applySize(size);
-    applyDetails(stored(DETAILS_KEY) !== "hidden");
+    applyDetails(stored(DETAILS_KEY) === "shown");
   }
 
   document.addEventListener("menubar-value-change", function (e) {
@@ -595,6 +597,14 @@
     if (!item || !e.detail) return;
     store(DETAILS_KEY, e.detail.checked ? "shown" : "hidden");
     applyDetails(e.detail.checked);
+  });
+
+  // A menu item that submits a form (the Options menu's Rescan Library).
+  document.addEventListener("click", function (e) {
+    var item = e.target.closest && e.target.closest("[data-submit-form]");
+    if (!item || item.hasAttribute("data-disabled") || item.getAttribute("aria-disabled") === "true") return;
+    var form = document.getElementById(item.getAttribute("data-submit-form"));
+    if (form && form.requestSubmit) form.requestSubmit();
   });
 
   document.addEventListener("htmx:afterSettle", applyOptions);

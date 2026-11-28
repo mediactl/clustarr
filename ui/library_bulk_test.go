@@ -154,12 +154,12 @@ func TestLibraryPageHasTheMassEditor(t *testing.T) {
 	body := rec.Body.String()
 
 	requireTag(t, body, `id="library-page"`, `group/library`, `data-tab="movies"`)
-	// The selection bar takes the toolbar's place while the page is
-	// selecting (Plex Web's selection screen): the toolbar hides, the bar
-	// shows, both sticky at the same top.
-	bar := requireTag(t, body, `data-bulk-bar`, "sticky", "top-(--bar-top)", "hidden", "group-data-selecting/library:flex")
+	// The selection bar floats at the foot of the window while the page is
+	// selecting (2026-11-28, the Liquid Glass redesign, after Photos and
+	// Files); the toolbar stays, its Select reading Done.
+	bar := requireTag(t, body, `data-bulk-bar`, "fixed", "bottom-6", "hidden", "group-data-selecting/library:flex")
 	require.NotEmpty(t, bar)
-	requireTag(t, body, `data-slot="menubar"`, "group-data-selecting/library:hidden")
+	require.NotContains(t, tagWith(t, body, `data-slot="menubar"`), "group-data-selecting/library:hidden")
 	require.Less(t, strings.Index(body, `data-bulk-bar`), strings.Index(body, `id="library-rows"`), "the bar is above the grid")
 	requireTag(t, body, `id="library-bulk"`, `data-bulk-form`, `action="/library/movies/bulk"`, `method="post"`)
 	for _, action := range []string{"monitor", "unmonitor", "search", "refresh"} {
