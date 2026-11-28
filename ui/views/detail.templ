@@ -786,7 +786,7 @@ func heroSize(d Detail) int64 {
 // icon in its media slot, a title and a line under it; attrs for the
 // tests.
 templ emptyState(iconName, title, description string, attrs templ.Attributes) {
-	@empty.Empty(empty.Props{Class: "py-16", Attributes: attrs}) {
+	@empty.Empty(empty.Props{Class: "py-16", Attributes: utils.MergeAttributes(templ.Attributes{"data-unavailable": true}, attrs)}) {
 		@empty.Header() {
 			@empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}) {
 				@icon.Icon(iconName)()

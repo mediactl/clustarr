@@ -47,7 +47,7 @@ func TestUnmatchedPageRendersWithoutACluster(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unmatched", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "Nothing unmatched.")
+	require.Contains(t, rec.Body.String(), "Nothing Unmatched")
 }
 
 // TestUnmatchedPageRendersEntriesWithDataAttributes proves the handler

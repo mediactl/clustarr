@@ -1823,6 +1823,17 @@ html[data-cq] [data-shell-page] {
   margin-inline: auto;
 }
 
+/* A page with nothing to show: the view centred in the room it has, its
+   glyph green when nothing is the good news. */
+[data-slot="empty"][data-unavailable] {
+  min-height: 40vh;
+  display: grid;
+  place-content: center;
+}
+[data-slot="empty"][data-tone="ok"] [data-slot="empty-icon"] {
+  color: var(--green);
+}
+
 /* Skeleton, kbd, separator, scroll area, spinner. */
 [data-slot="skeleton"] {
   background: var(--fill-4);

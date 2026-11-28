@@ -120,14 +120,14 @@ func Unmatched(p paging.Page, entries []projection.UnmatchedEntry) templ.Compone
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1 class=\"mb-4 text-2xl font-semibold tracking-tight\">Unmatched</h1><div id=\"unmatched-rows\" hx-ext=\"sse, morph\" sse-connect=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<header data-page-header class=\"mb-5\"><h1>Unmatched</h1><p data-page-subtitle class=\"text-subheadline text-label-2\">Files the scanner could not attribute</p></header><div id=\"unmatched-rows\" hx-ext=\"sse, morph\" sse-connect=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression("/events/unmatched" + p.Query(p.Number)).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 61, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 64, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {
@@ -214,7 +214,7 @@ func UnmatchedRows(entries []projection.UnmatchedEntry) templ.Component {
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
 		if len(entries) == 0 {
-			templ_7745c5c3_Err = emptyState("file-x", "Nothing unmatched.", "Every scanned file was attributed to an item.", templ.Attributes{"data-empty": "unmatched"}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = emptyState("circle-check", "Nothing Unmatched", "Every scanned file belongs to an item.", templ.Attributes{"data-empty": "unmatched", "data-tone": "ok"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -340,7 +340,7 @@ func unmatchedRow(e projection.UnmatchedEntry) templ.Component {
 					var templ_7745c5c3_Var12 string
 					templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(e.Path)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 125, Col: 12}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 128, Col: 12}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 					if templ_7745c5c3_Err != nil {
@@ -367,7 +367,7 @@ func unmatchedRow(e projection.UnmatchedEntry) templ.Component {
 					var templ_7745c5c3_Var14 string
 					templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(e.Reason)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 128, Col: 14}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 131, Col: 14}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 					if templ_7745c5c3_Err != nil {
@@ -399,7 +399,7 @@ func unmatchedRow(e projection.UnmatchedEntry) templ.Component {
 						var templ_7745c5c3_Var16 string
 						templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(strings.Join(e.Candidates, ", "))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 132, Col: 51}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 135, Col: 51}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 						if templ_7745c5c3_Err != nil {
@@ -445,7 +445,7 @@ func unmatchedRow(e projection.UnmatchedEntry) templ.Component {
 					var templ_7745c5c3_Var19 string
 					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(e.RootFolder)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 138, Col: 18}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 141, Col: 18}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 					if templ_7745c5c3_Err != nil {
@@ -552,7 +552,7 @@ func folderActions(e projection.UnmatchedEntry) templ.Component {
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templruntime.NewAttributeExpression(e.Path).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 167, Col: 111}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 170, Col: 111}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 		if templ_7745c5c3_Err != nil {
@@ -582,7 +582,7 @@ func folderActions(e projection.UnmatchedEntry) templ.Component {
 				var templ_7745c5c3_Var24 string
 				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(e.RootFolder)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 170, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 173, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 				if templ_7745c5c3_Err != nil {
@@ -607,7 +607,7 @@ func folderActions(e projection.UnmatchedEntry) templ.Component {
 				var templ_7745c5c3_Var25 string
 				templ_7745c5c3_Var25, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL("/library/" + string(e.Tab) + "/add")).ResolveURL(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 174, Col: 84}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 177, Col: 84}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
 				if templ_7745c5c3_Err != nil {
@@ -620,7 +620,7 @@ func folderActions(e projection.UnmatchedEntry) templ.Component {
 				var templ_7745c5c3_Var26 string
 				templ_7745c5c3_Var26, templ_7745c5c3_Err = templruntime.NewAttributeExpression(c.ID).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 174, Col: 109}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 177, Col: 109}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var26)
 				if templ_7745c5c3_Err != nil {
@@ -633,7 +633,7 @@ func folderActions(e projection.UnmatchedEntry) templ.Component {
 				var templ_7745c5c3_Var27 string
 				templ_7745c5c3_Var27, templ_7745c5c3_Err = templruntime.NewAttributeExpression(c.Name).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 175, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 178, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
 				if templ_7745c5c3_Err != nil {
@@ -646,7 +646,7 @@ func folderActions(e projection.UnmatchedEntry) templ.Component {
 				var templ_7745c5c3_Var28 string
 				templ_7745c5c3_Var28, templ_7745c5c3_Err = templruntime.NewAttributeExpression(c.ID).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 176, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 179, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 				if templ_7745c5c3_Err != nil {
@@ -659,7 +659,7 @@ func folderActions(e projection.UnmatchedEntry) templ.Component {
 				var templ_7745c5c3_Var29 string
 				templ_7745c5c3_Var29, templ_7745c5c3_Err = templruntime.NewAttributeExpression(e.ScanRef.Namespace + "/" + e.RootFolder).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 177, Col: 92}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 180, Col: 92}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 				if templ_7745c5c3_Err != nil {
@@ -672,7 +672,7 @@ func folderActions(e projection.UnmatchedEntry) templ.Component {
 				var templ_7745c5c3_Var30 string
 				templ_7745c5c3_Var30, templ_7745c5c3_Err = templruntime.NewAttributeExpression(e.Path).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 178, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 181, Col: 54}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var30)
 				if templ_7745c5c3_Err != nil {
@@ -690,7 +690,7 @@ func folderActions(e projection.UnmatchedEntry) templ.Component {
 					var templ_7745c5c3_Var31 string
 					templ_7745c5c3_Var31, templ_7745c5c3_Err = templruntime.NewAttributeExpression(author).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 180, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 183, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 					if templ_7745c5c3_Err != nil {
@@ -724,7 +724,7 @@ func folderActions(e projection.UnmatchedEntry) templ.Component {
 					var templ_7745c5c3_Var33 string
 					templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(string(e.Kind))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 189, Col: 29}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 192, Col: 29}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 					if templ_7745c5c3_Err != nil {
@@ -737,7 +737,7 @@ func folderActions(e projection.UnmatchedEntry) templ.Component {
 					var templ_7745c5c3_Var34 string
 					templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label())
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 189, Col: 44}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 192, Col: 44}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 					if templ_7745c5c3_Err != nil {
@@ -878,7 +878,7 @@ func manualAssignForm(e projection.UnmatchedEntry) templ.Component {
 		var templ_7745c5c3_Var37 string
 		templ_7745c5c3_Var37, templ_7745c5c3_Err = templruntime.NewAttributeExpression(e.Path).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 265, Col: 34}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 268, Col: 34}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 		if templ_7745c5c3_Err != nil {
@@ -891,7 +891,7 @@ func manualAssignForm(e projection.UnmatchedEntry) templ.Component {
 		var templ_7745c5c3_Var38 string
 		templ_7745c5c3_Var38, templ_7745c5c3_Err = templruntime.NewAttributeExpression(e.ScanRef.Namespace).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 267, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 270, Col: 67}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
 		if templ_7745c5c3_Err != nil {
@@ -904,7 +904,7 @@ func manualAssignForm(e projection.UnmatchedEntry) templ.Component {
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templruntime.NewAttributeExpression(e.RootFolder).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 268, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 271, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var39)
 		if templ_7745c5c3_Err != nil {
@@ -917,7 +917,7 @@ func manualAssignForm(e projection.UnmatchedEntry) templ.Component {
 		var templ_7745c5c3_Var40 string
 		templ_7745c5c3_Var40, templ_7745c5c3_Err = templruntime.NewAttributeExpression(e.Path).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 269, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 272, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var40)
 		if templ_7745c5c3_Err != nil {
@@ -1024,7 +1024,7 @@ func manualAssignForm(e projection.UnmatchedEntry) templ.Component {
 							var templ_7745c5c3_Var47 string
 							templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(string(kind))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 283, Col: 21}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 286, Col: 21}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 							if templ_7745c5c3_Err != nil {
@@ -1101,7 +1101,7 @@ func manualAssignForm(e projection.UnmatchedEntry) templ.Component {
 				var templ_7745c5c3_Var50 string
 				templ_7745c5c3_Var50, templ_7745c5c3_Err = templruntime.NewAttributeExpression("candidates-" + id).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 295, Col: 37}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 298, Col: 37}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var50)
 				if templ_7745c5c3_Err != nil {
@@ -1119,7 +1119,7 @@ func manualAssignForm(e projection.UnmatchedEntry) templ.Component {
 					var templ_7745c5c3_Var51 string
 					templ_7745c5c3_Var51, templ_7745c5c3_Err = templruntime.NewAttributeExpression(c).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 297, Col: 23}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 300, Col: 23}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
 					if templ_7745c5c3_Err != nil {
@@ -1326,7 +1326,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 						var templ_7745c5c3_Var61 string
 						templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(scan.Name)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 340, Col: 16}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 343, Col: 16}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 						if templ_7745c5c3_Err != nil {
@@ -1357,7 +1357,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 						var templ_7745c5c3_Var63 string
 						templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(scan.Spec.RootFolderRef)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 343, Col: 42}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 346, Col: 42}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 						if templ_7745c5c3_Err != nil {
@@ -1375,7 +1375,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 							var templ_7745c5c3_Var64 string
 							templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(scan.Spec.Subpath)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 345, Col: 28}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 348, Col: 28}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
 							if templ_7745c5c3_Err != nil {
@@ -1415,7 +1415,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 							var templ_7745c5c3_Var67 string
 							templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.JoinStringErrs(scanPhaseLabel(scan.Status.Phase))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 350, Col: 41}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 353, Col: 41}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var67))
 							if templ_7745c5c3_Err != nil {
@@ -1458,7 +1458,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 					var templ_7745c5c3_Var69 string
 					templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("files seen %d", scan.Status.FilesSeen))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 356, Col: 64}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 359, Col: 64}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
 					if templ_7745c5c3_Err != nil {
@@ -1471,7 +1471,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 					var templ_7745c5c3_Var70 string
 					templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("files matched %d", scan.Status.FilesMatched))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 357, Col: 70}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 360, Col: 70}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 					if templ_7745c5c3_Err != nil {
@@ -1484,7 +1484,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 					var templ_7745c5c3_Var71 string
 					templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("files skipped %d", scan.Status.FilesSkipped))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 358, Col: 70}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 361, Col: 70}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
 					if templ_7745c5c3_Err != nil {
@@ -1497,7 +1497,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 					var templ_7745c5c3_Var72 string
 					templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("items created %d", scan.Status.ItemsCreated))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 359, Col: 70}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 362, Col: 70}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 					if templ_7745c5c3_Err != nil {
@@ -1510,7 +1510,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 					var templ_7745c5c3_Var73 string
 					templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("items updated %d", scan.Status.ItemsUpdated))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 360, Col: 70}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 363, Col: 70}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 					if templ_7745c5c3_Err != nil {
@@ -1528,7 +1528,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 						var templ_7745c5c3_Var74 string
 						templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(progress)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 363, Col: 80}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 366, Col: 80}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 						if templ_7745c5c3_Err != nil {
@@ -1597,7 +1597,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 								var templ_7745c5c3_Var78 string
 								templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(awaiting)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 372, Col: 17}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 375, Col: 17}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 								if templ_7745c5c3_Err != nil {
@@ -1656,7 +1656,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 								var templ_7745c5c3_Var81 string
 								templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(reason)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 380, Col: 15}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 383, Col: 15}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
 								if templ_7745c5c3_Err != nil {
@@ -1683,7 +1683,7 @@ func LibraryScanDetail(scan catalogv1.LibraryScan) templ.Component {
 								var templ_7745c5c3_Var83 string
 								templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(message)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 383, Col: 16}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/unmatched.templ`, Line: 386, Col: 16}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 								if templ_7745c5c3_Err != nil {

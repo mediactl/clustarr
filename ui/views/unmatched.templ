@@ -54,7 +54,10 @@ import (
 // exactly what UnmatchedRows renders.
 templ Unmatched(p paging.Page, entries []projection.UnmatchedEntry) {
 	@Layout("Unmatched") {
-		<h1 class="mb-4 text-2xl font-semibold tracking-tight">Unmatched</h1>
+		<header data-page-header class="mb-5">
+			<h1>Unmatched</h1>
+			<p data-page-subtitle class="text-subheadline text-label-2">Files the scanner could not attribute</p>
+		</header>
 		<div
 			id="unmatched-rows"
 			hx-ext="sse, morph"
@@ -84,7 +87,7 @@ templ UnmatchedList(p paging.Page, entries []projection.UnmatchedEntry) {
 // contents.
 templ UnmatchedRows(entries []projection.UnmatchedEntry) {
 	if len(entries) == 0 {
-		@emptyState("file-x", "Nothing unmatched.", "Every scanned file was attributed to an item.", templ.Attributes{"data-empty": "unmatched"})
+		@emptyState("circle-check", "Nothing Unmatched", "Every scanned file belongs to an item.", templ.Attributes{"data-empty": "unmatched", "data-tone": "ok"})
 	}
 	@item.Group(item.GroupProps{Class: "gap-3"}) {
 		for _, e := range entries {

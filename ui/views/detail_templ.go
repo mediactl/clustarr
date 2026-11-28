@@ -2329,7 +2329,7 @@ func emptyState(iconName, title, description string, attrs templ.Attributes) tem
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = empty.Empty(empty.Props{Class: "py-16", Attributes: attrs}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var84), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = empty.Empty(empty.Props{Class: "py-16", Attributes: utils.MergeAttributes(templ.Attributes{"data-unavailable": true}, attrs)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var84), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
