@@ -27,16 +27,17 @@ import (
 	"github.com/mediactl/clustarr/ui"
 )
 
-// TestStaticRouteServesTheOpenSansFont: the Plex theme names Open Sans
-// first in its font stack (ui/theme/plex.json), and shadcn-templ leaves
-// loading the face to us. The face is self-hosted -- the latin and
-// latin-ext variable woff2 subsets, embedded and served under
-// /static/fonts -- rather than linked from Google Fonts, so a page never
-// fetches from a third party for its text, and the stylesheet declares
-// the @font-face rules that point at them.
-func TestStaticRouteServesTheOpenSansFont(t *testing.T) {
+// TestStaticRouteServesTheInterFont: the theme sets SF on Apple devices
+// (-apple-system) and Inter everywhere else (ui/theme/plex.json, the
+// Liquid Glass redesign of 2026-11-28), and shadcn-templ leaves loading the
+// face to us. Inter is self-hosted -- the latin and latin-ext variable
+// woff2 subsets, embedded and served under /static/fonts -- rather than
+// linked from Google Fonts, so a page never fetches from a third party for
+// its text, and the stylesheet declares the @font-face rules that point at
+// them.
+func TestStaticRouteServesTheInterFont(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
-	for _, name := range []string{"open-sans-latin.woff2", "open-sans-latin-ext.woff2"} {
+	for _, name := range []string{"inter-latin.woff2", "inter-latin-ext.woff2"} {
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/fonts/"+name, nil))
 		require.Equal(t, http.StatusOK, rec.Code, "GET /static/fonts/%s", name)
@@ -50,8 +51,8 @@ func TestStaticRouteServesTheOpenSansFont(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	css := rec.Body.String()
 	require.Contains(t, css, "@font-face")
-	require.Contains(t, css, `font-family:"Open Sans"`)
-	require.Contains(t, css, "/static/fonts/open-sans-latin.woff2")
-	require.Contains(t, css, "/static/fonts/open-sans-latin-ext.woff2")
+	require.Contains(t, css, `font-family:Inter`)
+	require.Contains(t, css, "/static/fonts/inter-latin.woff2")
+	require.Contains(t, css, "/static/fonts/inter-latin-ext.woff2")
 	require.Contains(t, css, "unicode-range", "each subset declares its range so a page loads only what it uses")
 }

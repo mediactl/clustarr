@@ -24,8 +24,8 @@ import (
 	"github.com/mediactl/clustarr/ui/views"
 )
 
-// navGroupKeys are the sidebar groups a reader can close (views' navTree).
-var navGroupKeys = map[string]bool{"library": true, "livetv": true, "activity": true}
+// navGroupKeys are the sidebar sections a reader can close (views' navSections).
+var navGroupKeys = map[string]bool{"library": true, "plex": true, "livetv": true, "activity": true, "health": true}
 
 // withShellState reads the shell's two cookies into the request's context
 // for views.Shell: sidebar_state, which the sidebar component writes

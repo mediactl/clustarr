@@ -151,7 +151,7 @@ func rfc3339(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
 // LiveTVGuide is the TV Guide page.
 templ LiveTVGuide(p GuidePage) {
-	@liveTVPage("TV Guide", "/livetv/guide", nil) {
+	@liveTVPage("Guide", "/livetv/guide", nil) {
 		// The filter redraws the guide alone (#guide-body), never itself
 		// (2026-11-17): a swap that replaced the form took the search box
 		// with it, so what was typed while a request was out was thrown

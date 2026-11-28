@@ -67,8 +67,7 @@
       left = 8;
       w = vw - 16;
     }
-    var bar = document.querySelector("[data-topbar]");
-    var top = Math.max(r.bottom, bar ? bar.getBoundingClientRect().bottom : 0) + 4;
+    var top = r.bottom + 6;
     var vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     p.results.style.top = top + "px";
     p.results.style.left = left + "px";
@@ -82,26 +81,29 @@
     p.input.removeAttribute("aria-activedescendant");
   }
 
-  // The phone's search (below md the box is an icon in the top bar): the
-  // icon opens the box over the bar and focuses it in the same gesture (iOS
-  // raises the keyboard only inside one); Cancel, Escape on an empty box
-  // and a page swap put the bar back.
-  function bar() {
-    return document.querySelector("[data-topbar]");
+  // The search lives in the sidebar (the Liquid Glass shell, 2026-11-28):
+  // where the sidebar is hidden -- a tablet's overlay, a phone's sheet, a
+  // desktop that hid it -- a search button opens it and focuses the box in
+  // the same gesture (iOS raises the keyboard only inside one).
+  function input() {
+    return document.querySelector("#header-find [data-find-input]");
   }
   function openPhone() {
-    var b = bar();
-    if (!b) return null;
-    b.setAttribute("data-find-open", "");
-    var input = b.querySelector("[data-find-input]");
-    if (input) input.focus();
-    return input;
+    var i = input();
+    if (!i) return null;
+    if (i.offsetParent === null || i.getBoundingClientRect().right <= 0) {
+      var t = document.querySelector('[data-templ-sidebar-trigger="app-sidebar"]');
+      if (t) t.click();
+    }
+    i.focus();
+    setTimeout(function () {
+      i.focus();
+    }, 260);
+    return i;
   }
   function closePhone() {
-    var b = bar();
-    if (!b || !b.hasAttribute("data-find-open")) return;
-    b.removeAttribute("data-find-open");
-    var p = parts(b.querySelector("[data-find]"));
+    var i = input();
+    var p = i ? parts(i) : null;
     if (p) close(p);
   }
 
@@ -188,13 +190,10 @@
     var a = document.activeElement;
     if (a && (a.matches("input, textarea, select") || a.isContentEditable)) return;
     if (document.querySelector('[role="dialog"]:not([hidden]), [role="alertdialog"]:not([hidden])')) return;
-    var input = document.querySelector("[data-topbar] [data-find-input]");
-    if (!input) return;
+    var box = input();
+    if (!box) return;
     e.preventDefault();
-    if (input.offsetParent === null) input = openPhone();
-    if (input) {
-      input.focus();
-      input.select();
-    }
+    box = openPhone();
+    if (box) box.select();
   });
 })();

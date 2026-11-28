@@ -58,4 +58,73 @@
     var body = document.getElementById("page-body");
     if (body) body.focus({ preventScroll: true });
   });
+
+  // The Liquid Glass shell (2026-11-28). html[data-scrolled] fades the
+  // scroll-edge layer in under the toolbar once the page has moved;
+  // html[data-title-collapsed] shows the page's name in the toolbar once its
+  // large title (the page's first h1) has scrolled under the bar.
+  var root = document.documentElement;
+  function onScroll() {
+    root.toggleAttribute("data-scrolled", window.scrollY > 4);
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+  var titleObserver = null;
+  function watchTitle() {
+    if (titleObserver) titleObserver.disconnect();
+    root.removeAttribute("data-title-collapsed");
+    var h = document.querySelector("[data-shell-page] h1");
+    if (!h || !("IntersectionObserver" in window)) return;
+    var bar = document.querySelector("[data-topbar]");
+    var top = bar ? bar.getBoundingClientRect().height : 52;
+    titleObserver = new IntersectionObserver(
+      function (entries) {
+        var e = entries[0];
+        root.toggleAttribute("data-title-collapsed", !e.isIntersecting && e.boundingClientRect.top < top);
+      },
+      { rootMargin: "-" + top + "px 0px 0px 0px" },
+    );
+    titleObserver.observe(h);
+  }
+  watchTitle();
+  document.addEventListener("htmx:afterSettle", function (e) {
+    if (e.detail && e.detail.target && e.detail.target.id === "page-body") watchTitle();
+  });
+
+  // From 768 to 1023px the sidebar is an overlay: a press outside it or a
+  // navigation from it hides it again, and opening or hiding it there does
+  // not change what a wider window remembers (sidebar_state).
+  var TABLET = "(min-width: 768px) and (max-width: 1023.98px)";
+  function sidebarEl() {
+    return document.querySelector('[data-templ-sidebar-id="app-sidebar"]');
+  }
+  function hideOverlay() {
+    var sb = sidebarEl();
+    if (!sb || sb.getAttribute("data-state") !== "expanded") return;
+    var t = document.querySelector('[data-templ-sidebar-trigger="app-sidebar"]');
+    if (t) t.click();
+  }
+  var savedState = null;
+  document.addEventListener(
+    "click",
+    function (e) {
+      if (!matchMedia(TABLET).matches) return;
+      var t = e.target.closest ? e.target : null;
+      if (!t) return;
+      if (t.closest("[data-templ-sidebar-trigger]")) {
+        savedState = cookie("sidebar_state");
+        setTimeout(function () {
+          if (savedState !== null) setCookie("sidebar_state", savedState);
+        }, 0);
+        return;
+      }
+      if (t.closest('[data-slot="sidebar-container"], [data-find-open-button], [data-slot="dropdown-menu-content"], #library-find-results')) return;
+      hideOverlay();
+    },
+    true,
+  );
+  document.addEventListener("htmx:afterSettle", function (e) {
+    if (!matchMedia(TABLET).matches) return;
+    if (e.detail && e.detail.target && e.detail.target.id === "page-body") hideOverlay();
+  });
 })();

@@ -1168,13 +1168,13 @@ func stateBadge(label, tone string) templ.Component {
 }
 
 // stateTone is a transcode's, a subtitle's or a marker's state badge's
-// colour, by what the state means, as downloadPhaseTone is a grab's.
+// colour, by what the state means, as downloadPhaseTone is a grab's. A
+// state that is waiting -- wanted, not found yet, skipped -- is quiet gray
+// (2026-11-28, the Liquid Glass redesign: only an exception is coloured).
 func stateTone(state string) string {
 	switch state {
 	case "Failed", "Error", "Blocked":
 		return "bg-red-500/20 text-red-300"
-	case "Skipped", "NotFound", "None", "Wanted":
-		return "bg-amber-500/20 text-amber-300"
 	case "Completed", "Satisfied", "Found", "Done":
 		return "bg-emerald-500/20 text-emerald-300"
 	case "Running", "Swapping", "Searching":

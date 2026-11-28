@@ -35,8 +35,11 @@ body:has([data-slot="dialog-content"][data-open]) [data-slot="alert-dialog-overl
 }
 [data-slot="dialog-content"][data-form-dialog="sm"] { max-width: 32rem; }
 [data-slot="dialog-content"][data-form-dialog="lg"] { max-width: 64rem; }
+/* The sheet's bars hold steady over the form scrolling between them (2026-11-28). */
 [data-form-dialog] > [data-slot="dialog-header"] {
-  flex: none; padding: 1rem 3.5rem 1rem 1.5rem; border-bottom: 1px solid var(--border);
+  flex: none; padding: 1rem 3.5rem 1rem 1.5rem; border-bottom: 0;
+  background: linear-gradient(to bottom, rgba(28, 28, 32, 0.92), rgba(28, 28, 32, 0.78));
+  box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--separator);
 }
 [data-form-dialog] > [data-slot="dialog-close"] { top: 0.75rem; right: 0.75rem; }
 [data-form-dialog] > [data-modal-body] {
@@ -47,21 +50,23 @@ body:has([data-slot="dialog-content"][data-open]) [data-slot="alert-dialog-overl
 }
 [data-form-dialog] > [data-slot="dialog-footer"] {
   flex: none; flex-direction: row; align-items: center; justify-content: flex-end; gap: 0.5rem;
-  padding: 0.75rem 1.5rem; border-top: 1px solid var(--border);
+  padding: 0.75rem 1.5rem; border-top: 0;
+  background: linear-gradient(to top, rgba(28, 28, 32, 0.94), rgba(28, 28, 32, 0.8));
+  box-shadow: inset 0 var(--hairline) 0 var(--separator);
 }
 [data-form-dialog] [data-modal-extra] { display: flex; gap: 0.5rem; margin-right: auto; }
 /* A phone: a page sheet from the bottom. sm is as tall as its content; md and lg fill the sheet, so a
    section a choice shows or hides does not move its top edge. */
 @media (max-width: 639.98px) {
   [data-slot="dialog-content"][data-form-dialog] {
-    top: auto; right: 0; bottom: 0; left: 0; translate: none;
-    width: 100%; max-width: none; max-height: calc(100dvh - 0.75rem);
-    border-radius: calc(var(--radius) * 1.4) calc(var(--radius) * 1.4) 0 0;
+    top: auto; right: 0.5rem; bottom: calc(0.5rem + env(safe-area-inset-bottom)); left: 0.5rem; translate: none;
+    width: auto; max-width: none; max-height: calc(100dvh - 3.5rem - env(safe-area-inset-top));
+    border-radius: var(--radius-3xl);
     --tw-enter-scale: 1; --tw-exit-scale: 1; --tw-enter-translate-y: 100%; --tw-exit-translate-y: 100%;
   }
   [data-slot="dialog-content"][data-form-dialog="md"],
-  [data-slot="dialog-content"][data-form-dialog="lg"] { height: calc(100dvh - 0.75rem); }
-  [data-form-dialog] > [data-slot="dialog-header"] { padding: 0.875rem 3.5rem 0.875rem 1rem; }
+  [data-slot="dialog-content"][data-form-dialog="lg"] { height: calc(100dvh - 3.5rem - env(safe-area-inset-top)); }
+  [data-form-dialog] > [data-slot="dialog-header"] { padding: 1.25rem 3.5rem 0.875rem 1rem; }
   [data-form-dialog] > [data-modal-body] { padding: 1rem; }
   [data-form-dialog] > [data-slot="dialog-footer"] { padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom)); }
 }

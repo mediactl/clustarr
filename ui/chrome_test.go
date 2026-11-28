@@ -57,6 +57,11 @@ func letteredLibrary(n int) []projection.LibraryItem {
 	return out
 }
 
+// TestLayoutHasASidebarAndTheComponentScripts: the Liquid Glass shell
+// (2026-11-28, after the Music and TV apps): a full-height floating glass
+// sidebar -- the brand, the search, sections of flat rows, Settings at its
+// foot -- a sticky toolbar in each page with no breadcrumb trail, and the
+// phone's tab bar; there is no full-width top bar.
 func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
@@ -66,79 +71,62 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 
 	require.Contains(t, body, `data-slot="sidebar"`)
 	require.Contains(t, body, `data-slot="sidebar-inset"`, "the page renders inside the sidebar's inset")
-	for _, href := range []string{"/dashboard", "/library", "/livetv", "/activity", "/unmatched", "/import-lists", "/settings"} {
-		requireTag(t, body, `href="`+href+`"`, `data-slot="sidebar-menu-button"`)
+	inset := strings.Index(body, `data-slot="sidebar-inset"`)
+	sidebarHTML := body[strings.Index(body, `data-slot="sidebar-wrapper"`):inset]
+	rows := []string{"/dashboard", "/library/collections", "/library/hubs", "/livetv/channels", "/livetv/guide", "/livetv/sources",
+		"/activity/downloads", "/activity/transcodes", "/activity/subtitles", "/activity/markers", "/unmatched", "/import-lists", "/settings"}
+	for _, tab := range projection.Tabs() {
+		rows = append(rows, "/library/"+string(tab))
 	}
+	for _, href := range rows {
+		requireTag(t, sidebarHTML, `href="`+href+`"`, `data-slot="sidebar-menu-button"`)
+	}
+	require.Equal(t, len(rows), strings.Count(sidebarHTML, `data-slot="sidebar-menu-button"`), "one row per page, no sub-menus")
+	require.NotContains(t, sidebarHTML, `data-slot="sidebar-menu-sub"`, "the rows are flat")
+	for _, label := range []string{"Library", "Plex", "Live TV", "Activity", "Library Health"} {
+		require.Regexp(t, regexp.MustCompile(`data-slot="sidebar-group-label"[^>]*>\s*`+label+`\s*<`), sidebarHTML, "the %s section's header", label)
+	}
+	require.Less(t, strings.Index(sidebarHTML, `data-slot="sidebar-content"`), strings.Index(sidebarHTML, `href="/settings"`), "Settings is at the panel's foot")
+	require.Greater(t, strings.Index(sidebarHTML, `href="/settings"`), strings.Index(sidebarHTML, `data-slot="sidebar-footer"`))
 	// The bare data-active attribute, not the data-active: variants in the
 	// class list.
 	activeAttr := regexp.MustCompile(`\sdata-active(\s|>)`)
-	require.Regexp(t, activeAttr, tagWith(t, body, `href="/unmatched"`), "the current page's entry is active")
-	require.NotRegexp(t, activeAttr, tagWith(t, body, `href="/activity"`))
+	require.Regexp(t, activeAttr, tagWith(t, sidebarHTML, `href="/unmatched"`), "the current page's row is active")
+	require.NotRegexp(t, activeAttr, tagWith(t, sidebarHTML, `href="/activity/downloads"`))
 	require.NotContains(t, body, `href="/pipeline"`, "the pipeline page is gone (owner, 2026-11-10)")
+	for _, tab := range projection.Tabs() {
+		// A section page's row swaps the page body and carries the shell's
+		// live parts out of band, so the lit row follows the swap.
+		entry := requireTag(t, sidebarHTML, `href="/library/`+string(tab)+`"`, `data-slot="sidebar-menu-button"`,
+			`hx-get="/library/`+string(tab)+`"`, `hx-push-url="true"`, `hx-select="#page-body"`, `hx-select-oob="#app-nav,#app-tabbar,#header-find"`,
+			`hx-target="#page-body"`, `hx-swap="outerHTML"`)
+		require.NotRegexp(t, activeAttr, entry, "no library row is active on the Unmatched page")
+	}
 
-	// The library's four media entries are the Library entry's sub-menu in
-	// the sidebar (2026-09-24, after shadcn's sidebar-07: MenuSub under the
-	// MenuItem), on every page; each swaps the page body through htmx so
-	// the sidebar stays put. The top bar (2026-10-06, after Sonarr's) is
-	// shadcn's navigation menu: the sidebar trigger and the breadcrumbs on
-	// the left, the search centred, the Add New menu on the right; on a
-	// page that is no library tab no sub-entry is active.
-	headerStart := strings.Index(body, "<header")
-	headerEnd := strings.Index(body, "</header>")
-	require.GreaterOrEqual(t, headerStart, 0)
-	require.Greater(t, headerEnd, headerStart)
-	header := body[headerStart:headerEnd]
-	require.NotContains(t, header, `data-slot="tabs-trigger"`, "no tab strip in the top bar")
-	require.NotContains(t, header, `hx-select="#page-body"`, "no tab links in the top bar")
-	require.Contains(t, header, `data-topbar`, "the top bar is marked for the theme and the search's phone mode")
-	trigger := strings.Index(header, `data-slot="sidebar-trigger"`)
-	crumbs := strings.Index(header, `id="page-crumbs"`)
-	find := strings.Index(header, `id="header-find"`)
-	add := strings.Index(header, `data-nav="add-new"`)
-	require.True(t, trigger >= 0 && trigger < crumbs && crumbs < find && find < add,
-		"trigger, breadcrumbs, search, Add New, left to right: %d %d %d %d", trigger, crumbs, find, add)
-	require.Greater(t, strings.Index(header[crumbs:], `data-slot="breadcrumb"`), 0, "the breadcrumbs are the top bar's")
-	// The search is shadcn's input group: the box, a search icon and the
-	// result count; off a library tab it searches the whole library.
-	group := header[find:]
+	// The search is the sidebar's: shadcn's input group, a search icon and
+	// the result count; off a library tab it searches the whole library.
+	find := strings.Index(sidebarHTML, `id="header-find"`)
+	require.Greater(t, find, 0, "the search is in the sidebar")
+	group := sidebarHTML[find:]
 	require.Contains(t, group, `data-slot="input-group"`)
 	requireTag(t, group, `data-find-input`, `data-slot="input-group-control"`, `hx-get="/library/find"`, `placeholder="Search library…"`)
 	require.Contains(t, group, `lucide-search`)
 	requireTag(t, group, `id="library-find-count"`)
-	for _, tab := range projection.Tabs() {
-		requireTag(t, header, `data-nav-add="`+string(tab)+`"`, `href="/library/`+string(tab)+`/add"`, `data-slot="dropdown-menu-item"`)
-	}
-	inset := strings.Index(body, `data-slot="sidebar-inset"`)
-	require.Greater(t, inset, 0)
-	sidebarHTML := body[:inset]
-	libraryEntry := strings.Index(sidebarHTML, `href="/library"`)
-	liveTVEntry := strings.Index(sidebarHTML, `href="/livetv"`)
-	sub := strings.Index(sidebarHTML, `data-slot="sidebar-menu-sub"`)
-	require.Greater(t, sub, libraryEntry, "the sub-menu follows the Library entry")
-	require.Less(t, sub, liveTVEntry, "the sub-menu sits inside the Library item, before Live TV")
-	requireTag(t, sidebarHTML, `data-slot="sidebar-menu-sub"`, `id="library-subnav"`)
-	require.Equal(t, len(projection.Tabs())+2+3+4, strings.Count(sidebarHTML, `data-slot="sidebar-menu-sub-button"`),
-		"one sub-entry per library tab, Collections and Hubs, Live TV's three and Activity's four")
-	// The Activity group (owner, 2026-11-10): its four pages under it.
-	activityEntry := strings.Index(sidebarHTML, `href="/activity"`)
-	activitySub := strings.Index(sidebarHTML, `id="activity-subnav"`)
-	require.Greater(t, activitySub, activityEntry, "Activity's sub-menu follows its entry")
-	for _, section := range []string{"downloads", "transcodes", "subtitles", "markers"} {
-		entry := requireTag(t, sidebarHTML[activitySub:], `href="/activity/`+section+`"`, `data-slot="sidebar-menu-sub-button"`, `hx-get="/activity/`+section+`"`)
-		require.NotRegexp(t, activeAttr, entry, "no Activity sub-entry is active on the Unmatched page")
-	}
-	for _, tab := range projection.Tabs() {
-		// hx-select-oob swaps the sub-menu itself from the response too, so
-		// the active mark follows the tab although the sidebar sits outside
-		// the swapped page body.
-		entry := requireTag(t, sidebarHTML, `href="/library/`+string(tab)+`"`, `data-slot="sidebar-menu-sub-button"`,
-			`hx-get="/library/`+string(tab)+`"`, `hx-push-url="true"`, `hx-select="#page-body"`, `hx-select-oob="#app-nav,#page-crumbs,#header-find"`,
-			`hx-target="#page-body"`, `hx-swap="outerHTML"`)
-		require.NotRegexp(t, activeAttr, entry, "no library sub-entry is active on the Unmatched page")
-	}
+
+	// No top bar, no breadcrumbs: the page's toolbar is inside its body.
+	require.NotContains(t, body, `data-slot="breadcrumb"`)
+	require.NotContains(t, body, `page-crumbs`)
 	pageBody := strings.Index(body, `id="page-body"`)
-	require.Greater(t, pageBody, headerEnd, "the page body follows the top bar")
-	require.NotContains(t, body[pageBody:], `data-slot="breadcrumb"`, "no breadcrumb row beneath the top bar")
+	require.Greater(t, pageBody, inset)
+	require.Greater(t, strings.Index(body, `data-topbar`), pageBody, "the toolbar is the page's own")
+	require.NotContains(t, body, `data-nav="add-new"`, "Add is offered only where it applies")
+
+	// The phone's tab bar: the four sections and the search.
+	tabbar := body[strings.Index(body, `id="app-tabbar"`):]
+	for _, href := range []string{"/dashboard", "/library", "/livetv", "/activity"} {
+		requireTag(t, tabbar, `href="`+href+`"`)
+	}
+	requireTag(t, tabbar, `data-find-open-button`, `aria-label="Search"`, `data-slot="button"`)
 
 	headEnd := strings.Index(body, "</head>")
 	require.GreaterOrEqual(t, headEnd, 0)
@@ -155,9 +143,19 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	for _, slot := range []string{`"navigation-menu-link"`, `"menubar"`, `scroll-area-viewport`} {
 		require.Contains(t, rec.Body.String(), slot, "the bundle lacks %s; run `shadcn-templ bundle`", slot)
 	}
+
+	// The Dashboard offers Add: a menu of every library's Add New page.
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	dash := rec.Body.String()
+	requireTag(t, dash, `data-nav="add-new"`, `group/button`)
+	for _, tab := range projection.Tabs() {
+		requireTag(t, dash, `data-nav-add="`+string(tab)+`"`, `href="/library/`+string(tab)+`/add"`, `data-slot="dropdown-menu-item"`)
+	}
 }
 
-func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
+func TestLibraryPageHasSidebarRowsASectionStripAndAJumpBar(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{
 		Library: func(context.Context) []projection.LibraryItem { return letteredLibrary(120) },
 	})
@@ -166,27 +164,29 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 
-	require.Contains(t, body, `data-slot="breadcrumb"`)
-	require.Contains(t, tagWith(t, body, `data-slot="breadcrumb-link"`), `href="/library"`)
-	require.Regexp(t, regexp.MustCompile(`data-slot="breadcrumb-link"[^>]*>[^<]*Library`), body)
-	require.Regexp(t, regexp.MustCompile(`data-slot="breadcrumb-page"[^>]*>[^<]*TV`), body, "the current tab is the breadcrumb's page")
-	// On a tab the top bar's search is the tab's.
+	require.NotContains(t, body, `data-slot="breadcrumb"`)
+	// On a tab the sidebar's search is the tab's.
 	requireTag(t, body, `data-find-input`, `hx-get="/library/tv/find"`, `placeholder="Search TV…"`)
+	// The tab offers Add.
+	requireTag(t, body, `data-nav="add-new"`, `group/button`)
 
-	require.NotContains(t, body, `data-slot="tabs-trigger"`, "the library has no tab strip; its media entries are the sidebar's")
+	activeAttr := regexp.MustCompile(`\sdata-active(\s|>)`)
+	sidebarHTML := body[strings.Index(body, `data-slot="sidebar-wrapper"`):strings.Index(body, `data-slot="sidebar-inset"`)]
+	require.Regexp(t, activeAttr, tagWith(t, sidebarHTML, `href="/library/tv"`), "the TV row is active")
+	require.NotRegexp(t, activeAttr, tagWith(t, sidebarHTML, `href="/library/movies"`))
+	// On a phone and a tablet the library's pages are a segmented strip
+	// under the toolbar; the TV segment is lit.
+	strip := body[strings.Index(body, `data-section-strip`):]
+	strip = strip[:strings.Index(strip, "</nav>")]
 	for _, tab := range projection.Tabs() {
-		requireTag(t, body, `hx-get="/library/`+string(tab)+`"`, `data-slot="sidebar-menu-sub-button"`, `href="/library/`+string(tab)+`"`,
-			`hx-push-url="true"`, `hx-select="#page-body"`, `hx-select-oob="#app-nav,#page-crumbs,#header-find"`, `hx-target="#page-body"`)
+		requireTag(t, strip, `href="/library/`+string(tab)+`"`, `data-slot="tabs-trigger"`, `hx-get="/library/`+string(tab)+`"`,
+			`hx-select-oob="#app-nav,#app-tabbar,#header-find"`, `hx-target="#page-body"`)
 	}
-	require.Less(t, strings.Index(body, `data-slot="sidebar-menu-sub-button"`), strings.Index(body, `data-slot="sidebar-inset"`), "the sub-entries are in the sidebar")
-	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/tv"`), "the TV sub-entry is active")
-	require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/movies"`))
-	// The top bar's breadcrumb links to /library too, and the bar precedes
-	// the sidebar since it spans the window (2026-10-22), so the entry is
-	// looked up in the sidebar alone.
-	sidebarHTML := body[strings.Index(body, `data-slot="sidebar-wrapper"`):]
-	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, sidebarHTML, `href="/library"`), "the Library entry is active on its tab pages")
-	require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/movies"`))
+	require.Regexp(t, activeAttr, tagWith(t, strip, `href="/library/tv"`))
+	require.NotRegexp(t, activeAttr, tagWith(t, strip, `href="/library/movies"`))
+	// The phone's tab bar lights Library.
+	tabbar := body[strings.Index(body, `id="app-tabbar"`):]
+	require.Regexp(t, activeAttr, tagWith(t, tabbar, `href="/library"`))
 
 	rec = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies?per=25", nil))
@@ -272,6 +272,9 @@ func TestTheItemsTabIsActiveOnItsPage(t *testing.T) {
 	body := rec.Body.String()
 	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/tv"`))
 	require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/movies"`))
+	// A child page's toolbar has a back button naming its parent.
+	requireTag(t, body, `data-back`, `href="/library/tv"`, `aria-label="Back to TV"`)
+	require.NotContains(t, body, `data-section-strip`, "an item's page carries no section strip")
 }
 
 // TestTheLibraryIsOnePage: a tab holds every card its view keeps (owner,
@@ -297,10 +300,9 @@ func TestTheLibraryIsOnePage(t *testing.T) {
 
 // TestLayoutCarriesTheClustarrMark: the mark (ui/static/logo.svg, derived
 // from the Servarr family mark in the theme's own palette, 2026-09-29) is
-// the page's favicon and touch icon and sits in the top bar beside the
-// wordmark (2026-10-22, after the Plex apps: the bar spans the window and
-// the sidebar hangs below it), the wordmark giving way on a narrow screen
-// while the mark stays. The sidebar carries no brand of its own.
+// the page's favicon and touch icon and heads the sidebar beside the
+// wordmark (the Liquid Glass shell, 2026-11-28: there is no top bar). The
+// toolbar's toggle shows the sidebar again once it is hidden.
 func TestLayoutCarriesTheClustarrMark(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
@@ -316,13 +318,14 @@ func TestLayoutCarriesTheClustarrMark(t *testing.T) {
 	requireTag(t, head, `href="/static/apple-touch-icon.png"`, `rel="apple-touch-icon"`)
 
 	wrapper := strings.Index(body, `data-slot="sidebar-wrapper"`)
-	require.Greater(t, wrapper, 0)
-	bar := body[headEnd:wrapper]
-	require.Less(t, strings.Index(body, "<header"), wrapper, "the top bar precedes the sidebar: it spans the window")
-	brand := tagWith(t, bar, `src="/static/logo.svg"`)
+	inset := strings.Index(body, `data-slot="sidebar-inset"`)
+	require.Greater(t, inset, wrapper)
+	require.Less(t, strings.Index(body[headEnd:], `src="/static/logo.svg"`)+headEnd, inset)
+	require.Greater(t, strings.Index(body[headEnd:], `src="/static/logo.svg"`)+headEnd, wrapper, "the brand heads the sidebar")
+	brand := tagWith(t, body[wrapper:], `src="/static/logo.svg"`)
 	require.Contains(t, brand, `alt="Clustarr"`)
-	require.Contains(t, bar, `class="hidden lg:inline">Clustarr</span>`, "the wordmark gives way on a narrow screen")
-	require.NotContains(t, body[wrapper:], `src="/static/logo.svg"`, "the sidebar carries no brand of its own")
-	requireTag(t, bar, `data-slot="sidebar-trigger"`, `data-templ-sidebar-trigger="app-sidebar"`)
+	require.Contains(t, body[wrapper:inset], `<span>Clustarr</span>`)
+	require.NotContains(t, body[inset:], `src="/static/logo.svg"`, "the page carries no brand of its own")
+	requireTag(t, body[inset:], `data-sidebar-show`, `data-templ-sidebar-trigger="app-sidebar"`)
 	requireTag(t, body[wrapper:], `data-templ-sidebar-id="app-sidebar"`)
 }

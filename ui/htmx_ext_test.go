@@ -120,9 +120,9 @@ func TestLibraryLinksPreload(t *testing.T) {
 	require.Contains(t, tagWith(t, body, `<body `), `hx-ext="preload, morph"`)
 	at := strings.Index(body, `data-ref="default/arrival"`)
 	require.Contains(t, requireTag(t, body[at:], `data-card-link`), `preload="mouseover"`)
-	subnav := body[strings.Index(body, `id="library-subnav"`):]
+	subnav := body[strings.Index(body, `id="app-nav"`):]
 	entry := requireTag(t, subnav, `hx-get="/library/movies"`)
-	require.Contains(t, entry, `preload="mouseover"`, "the Library sub-menu's entries preload: %s", entry)
+	require.Contains(t, entry, `preload="mouseover"`, "the sidebar's library rows preload: %s", entry)
 
 	require.Equal(t, "private, max-age=10", rec.Header().Get("Cache-Control"), "a library tab is cacheable for the preload")
 	require.Contains(t, rec.Header().Values("Vary"), "HX-Request", "the same URL answers htmx differently")

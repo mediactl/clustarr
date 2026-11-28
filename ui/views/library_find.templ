@@ -22,7 +22,6 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/inputgroup"
 	"github.com/mediactl/clustarr/ui/components/item"
@@ -44,7 +43,7 @@ import (
 // fixed, placed under the group by find.js.
 templ headerFind(tab projection.Tab) {
 	<div class="flex w-full items-center gap-2" data-find>
-		@inputgroup.InputGroup(inputgroup.Props{Class: "h-8 flex-1 bg-muted/40"}) {
+		@inputgroup.InputGroup(inputgroup.Props{Class: "h-8 flex-1", Attributes: templ.Attributes{"data-search-field": true}}) {
 			@inputgroup.Input(inputgroup.InputProps{
 				Type:        "search",
 				Name:        "q",
@@ -73,17 +72,8 @@ templ headerFind(tab projection.Tab) {
 				}
 			}
 		}
-		// On a phone the search opens over the bar (find.js); this closes it.
-		@button.Button(button.Props{
-			Variant:    button.VariantGhost,
-			Size:       button.SizeSm,
-			Class:      "md:hidden",
-			Attributes: templ.Attributes{"data-find-cancel": true},
-		}) {
-			Cancel
-		}
 		// The theme gives the list its glass (#library-find-results in
-		// input.css): the top bar's blur is a pseudo-element's, so this
+		// input.css): the sidebar's blur is a pseudo-element's, so this
 		// fixed list is placed against the window and frosts what is under
 		// it.
 		<div

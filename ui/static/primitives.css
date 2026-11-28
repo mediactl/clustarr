@@ -34,7 +34,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   padding: 0 0 0 calc(var(--card-spacing, 1rem) - 0.5rem);
 }
 [data-table] [data-slot="table-row"][data-state="selected"] {
-  background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+  background-color: var(--tint-fill);
 }
 @media (pointer: coarse) {
   [data-table] :is(th, td) {
@@ -42,24 +42,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   }
 }
 
-/* --- the select mark: a button role=checkbox drawn as the stock checkbox ---- */
+/* --- the select mark: a button role=checkbox drawn as Apple's selection circle */
 [data-select-box] {
   display: grid;
   place-content: center;
-  width: 1rem;
-  height: 1rem;
-  border: 1px solid var(--input);
-  border-radius: 4px;
-  background-color: color-mix(in oklab, var(--input) 30%, transparent);
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1.5px solid var(--label-3);
+  border-radius: 9999px;
+  background-color: transparent;
   transition:
-    background-color 120ms,
-    border-color 120ms;
+    background-color var(--dur-2),
+    border-color var(--dur-2);
 }
 [data-select-box]::after {
   content: "";
-  width: 0.875rem;
-  height: 0.875rem;
-  background-color: var(--primary-foreground);
+  width: 0.75rem;
+  height: 0.75rem;
+  background-color: var(--on-tint);
   opacity: 0;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
     center / contain no-repeat;
@@ -77,13 +77,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E");
 }
 
-/* --- the selection bar: the page bar's glass with a gold rim, as Plex Web's --- */
+/* --- the selection bar: regular glass, a capsule (2026-11-28) ---------------- */
 [data-selection-bar] > div,
 [data-bulk-bar] {
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 0 0 1px var(--primary),
-    var(--shadow-bar);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  border-radius: 9999px;
+  box-shadow: var(--glass-edge), var(--shadow-2);
 }
 
 /* --- a sideways scroller says which edge is cut -------------------------------- */

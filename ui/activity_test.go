@@ -85,8 +85,8 @@ func TestEveryActivityPageIsATabbedCard(t *testing.T) {
 		require.Regexp(t, `data-stat="[^"]+"[^>]*>[^<]+<span[^>]*data-slot="badge"`, body, "%s: a tab is its name and its count", section)
 		requireTag(t, body, `id="activity-poller"`, `data-list-poller`, `hx-get="/activity/`+section+`/list"`)
 		sidebar := body[strings.Index(body, `data-slot="sidebar-wrapper"`):strings.Index(body, `data-slot="sidebar-inset"`)]
-		require.Regexp(t, activeAttr, requireTag(t, sidebar, `href="/activity"`, `data-slot="sidebar-menu-button"`), "%s: the Activity entry is active", section)
-		require.Regexp(t, activeAttr, requireTag(t, sidebar, `href="/activity/`+section+`"`, `data-slot="sidebar-menu-sub-button"`), "%s: its sub-entry is active", section)
+		require.Regexp(t, activeAttr, requireTag(t, sidebar, `href="/activity/`+section+`"`, `data-slot="sidebar-menu-button"`), "%s: its row is active", section)
+		require.Regexp(t, activeAttr, tagWith(t, body[strings.Index(body, `id="app-tabbar"`):], `href="/activity"`), "%s: the tab bar lights Activity", section)
 	}
 }
 

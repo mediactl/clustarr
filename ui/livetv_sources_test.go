@@ -238,17 +238,17 @@ func TestTheLiveTVSubMenuSwapsThePageBody(t *testing.T) {
 	inset := strings.Index(body, `data-slot="sidebar-inset"`)
 	require.True(t, start > 0 && inset > start)
 	sidebarHTML := body[start:inset]
-	requireTag(t, sidebarHTML, `id="livetv-subnav"`, `data-slot="sidebar-menu-sub"`)
 	requireTag(t, sidebarHTML, `id="app-nav"`)
+	assert.Regexp(t, regexp.MustCompile(`data-slot="sidebar-group-label"[^>]*>\s*Live TV\s*<`), sidebarHTML, "Live TV is a section of the sidebar")
 	activeAttr := regexp.MustCompile(`\sdata-active(\s|>)`)
 	for _, e := range []struct{ href, label string }{
-		{"/livetv/channels", "Channels"}, {"/livetv/sources", "M3U/EPG Manager"}, {"/livetv/guide", "TV Guide"},
+		{"/livetv/channels", "Channels"}, {"/livetv/sources", "Sources"}, {"/livetv/guide", "Guide"},
 	} {
-		entry := requireTag(t, sidebarHTML, `href="`+e.href+`"`, `data-slot="sidebar-menu-sub-button"`,
+		entry := requireTag(t, sidebarHTML, `href="`+e.href+`"`, `data-slot="sidebar-menu-button"`,
 			`hx-get="`+e.href+`"`, `hx-push-url="true"`, `hx-select="#page-body"`,
-			`hx-select-oob="#app-nav,#page-crumbs,#header-find"`, `hx-target="#page-body"`, `hx-swap="outerHTML"`)
+			`hx-select-oob="#app-nav,#app-tabbar,#header-find"`, `hx-target="#page-body"`, `hx-swap="outerHTML"`)
 		// A Live TV page takes seconds to render and weighs megabytes: its
-		// entry is not fetched on hover.
+		// row is not fetched on hover.
 		assert.NotContains(t, entry, `preload=`)
 		if e.href == "/livetv/sources" {
 			assert.Regexp(t, activeAttr, entry, "the current Live TV page is marked")
@@ -257,9 +257,9 @@ func TestTheLiveTVSubMenuSwapsThePageBody(t *testing.T) {
 		}
 		assert.Contains(t, sidebarHTML, e.label)
 	}
-	assert.Regexp(t, activeAttr, tagWith(t, sidebarHTML, `href="/livetv"`), "the Live TV entry is active")
-	assert.NotRegexp(t, activeAttr, tagWith(t, sidebarHTML, `href="/library"`), "not the library's")
-	crumbs := body[strings.Index(body, `id="page-crumbs"`):strings.Index(body, `id="header-find"`)]
-	assert.Contains(t, crumbs, ">Live TV<")
-	assert.Contains(t, crumbs, "M3U/EPG Manager")
+	assert.NotRegexp(t, activeAttr, tagWith(t, sidebarHTML, `href="/library/movies"`), "not the library's")
+	assert.Regexp(t, activeAttr, tagWith(t, body[strings.Index(body, `id="app-tabbar"`):], `href="/livetv"`), "the tab bar lights Live TV")
+	title := tagWith(t, body, `data-inline-title`)
+	assert.NotEmpty(t, title)
+	assert.Contains(t, body[strings.Index(body, `data-inline-title`):], ">Sources<", "the toolbar names the page")
 }

@@ -45,7 +45,7 @@ const sourcesReturnPath = "/livetv/sources"
 // LiveTVSources is the M3U/EPG Manager (the direct-tuners and ui design
 // §5.5): each provider's playlist, its guide and its blocks.
 templ LiveTVSources(rows []projection.SourceRow) {
-	@liveTVPage("M3U/EPG Manager", "/livetv/sources", sourcesActions()) {
+	@liveTVPage("Sources", "/livetv/sources", sourcesActions()) {
 		@LiveTVSourcesTables(rows)
 	}
 }

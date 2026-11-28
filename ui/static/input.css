@@ -37,35 +37,45 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
        substrings, so those helper files must be a content path too or their
        classes silently do not exist in app.css. This also re-scans the
        generated _templ.go files, which is redundant with their .templ
-       source but harmless. */
+       source but harmless.
+
+   THE LOOK (2026-11-28, the Liquid Glass redesign; the owner: "a first
+   party offering from Apple (think apple music)", Plex-native adjacent,
+   "the themeing of these should be customized so that the design system
+   nearly writes itself"). The design of record is Apple's: navigation
+   floats as glass over content, content is artwork, type and plain
+   platters and is never glass, every control is a capsule, corners are
+   concentric, Plex Gold is the one tint. Every rule below is a token or an
+   unlayered [data-slot] rule, so each shadcn-templ component takes the look
+   as it is rendered: a view writes no glass of its own and no vendored
+   component is edited. The sections run: fonts, theme mapping, tokens,
+   materials, the shell, the components in shadcn's order, the library,
+   accessibility. */
 
 @import "tailwindcss" source(none);
 
-/* Open Sans, the face the Plex theme (../theme/plex.json) puts first in
-   --font-sans: the variable weight 400-700, latin and latin-ext subsets,
-   self-hosted from ../static/fonts (embedded by static.go, served under
-   /static/fonts) so no page fetches its text face from a third party.
-   Each rule's unicode-range is the subset's own, so a page loads only
-   the file its characters need; a script neither covers (Japanese,
-   Korean) falls through to the system faces after "Open Sans". The files
-   are the woff2 subsets Google Fonts serves for Open Sans v44, under the
+/* Inter, the face every platform without SF gets (Apple devices take SF
+   through -apple-system, first in --font-sans): the variable roman with its
+   weight and optical-size axes, latin and latin-ext subsets, self-hosted from
+   ../static/fonts (embedded by static.go, served under /static/fonts) so no
+   page fetches its text face from a third party. Each rule's unicode-range is
+   the subset's own, so a page loads only the file its characters need. The
+   files are the woff2 subsets Google Fonts serves for Inter v20, under the
    OFL (fonts/OFL.txt). */
 @font-face {
-  font-family: "Open Sans";
+  font-family: "Inter";
   font-style: normal;
-  font-weight: 400 700;
-  font-stretch: 100%;
+  font-weight: 100 900;
   font-display: swap;
-  src: url("/static/fonts/open-sans-latin-ext.woff2") format("woff2");
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  src: url("/static/fonts/inter-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
-  font-family: "Open Sans";
+  font-family: "Inter";
   font-style: normal;
-  font-weight: 400 700;
-  font-stretch: 100%;
+  font-weight: 100 900;
   font-display: swap;
-  src: url("/static/fonts/open-sans-latin.woff2") format("woff2");
+  src: url("/static/fonts/inter-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @import "./tw-animate.css";
@@ -78,8 +88,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 @source "../components/**/*.templ";
 @source "../components/**/*.go";
 
+/* --- Theme mapping --------------------------------------------------------- */
+/* Tailwind's own steps are remapped onto Apple's text styles and system
+   colours, so the vendored components and every view adopt the scale and the
+   palette untouched: text-sm is Subheadline, text-base Body, text-2xl Title 1;
+   emerald is Apple's green, sky its blue, amber its orange, slate its gray.
+   The sizes are variables, so the desktop tier (below) restates them once. */
 @theme inline {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Inter", "Hiragino Sans", "PingFang SC", "Apple SD Gothic Neo", "Noto Sans",
+    "Noto Sans CJK JP", "Noto Sans CJK SC", "Noto Sans CJK KR", "Noto Sans Arabic", "Noto Sans Hebrew",
+    "Noto Sans Devanagari", "Noto Sans Georgian", system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   --font-heading: var(--font-sans);
+  --font-rounded: ui-rounded, "SF Pro Rounded", var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -95,6 +118,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -103,13 +127,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -118,104 +135,411 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --font-sans: "Open Sans", "Noto Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
-  --radius: 0.75rem;
-  --color-destructive-foreground: var(--destructive-foreground);
+  --color-tint: var(--tint);
+  --color-label-1: var(--label-1);
+  --color-label-2: var(--label-2);
+  --color-label-3: var(--label-3);
+  --color-fill-3: var(--fill-3);
+  --color-fill-4: var(--fill-4);
+  --color-platter: var(--platter);
+  --color-separator: var(--separator);
+
+  /* The status palette, Apple dark (the views write bg-<hue>-500/20 text-<hue>-300). */
+  --color-emerald-300: #30d158;
+  --color-emerald-400: #30d158;
+  --color-emerald-500: #30d158;
+  --color-green-300: #30d158;
+  --color-green-400: #30d158;
+  --color-green-500: #30d158;
+  --color-red-300: #ff6961;
+  --color-red-400: #ff6961;
+  --color-red-500: #ff453a;
+  --color-rose-300: #ff6961;
+  --color-rose-500: #ff453a;
+  --color-sky-300: #64d2ff;
+  --color-sky-400: #409cff;
+  --color-sky-500: #0a84ff;
+  --color-blue-300: #409cff;
+  --color-blue-400: #409cff;
+  --color-blue-500: #0a84ff;
+  --color-blue-700: #0060df;
+  --color-amber-300: #ffb340;
+  --color-amber-400: #ff9f0a;
+  --color-amber-500: #ff9f0a;
+  --color-amber-600: #e08a00;
+  --color-orange-300: #ffb340;
+  --color-orange-500: #ff9f0a;
+  --color-yellow-300: #ffd60a;
+  --color-yellow-500: #ffd60a;
+  --color-violet-300: #bf5af2;
+  --color-violet-500: #bf5af2;
+  --color-purple-300: #da8fff;
+  --color-purple-500: #bf5af2;
+  --color-slate-300: #c7c7cc;
+  --color-slate-400: #aeaeb2;
+  --color-slate-500: #8e8e93;
+  --color-zinc-300: #c7c7cc;
+  --color-zinc-400: #aeaeb2;
+  --color-zinc-500: #8e8e93;
+
+  /* Concentric radii: fixed steps, not multiples of one radius. */
+  --radius-xs: 5px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+  --radius-3xl: 34px;
+  --radius-4xl: 40px;
+
+  /* Tailwind's steps as Apple's text styles. */
+  --text-xs: var(--fs-caption-1);
+  --text-xs--line-height: var(--lh-caption-1);
+  --text-sm: var(--fs-sm);
+  --text-sm--line-height: var(--lh-sm);
+  --text-base: var(--fs-body);
+  --text-base--line-height: var(--lh-body);
+  --text-lg: var(--fs-title-3);
+  --text-lg--line-height: var(--lh-title-3);
+  --text-xl: var(--fs-title-2);
+  --text-xl--line-height: var(--lh-title-2);
+  --text-2xl: var(--fs-title-1);
+  --text-2xl--line-height: var(--lh-title-1);
+  --text-3xl: var(--fs-large-title);
+  --text-3xl--line-height: var(--lh-large-title);
+  --text-4xl: 2.5rem;
+  --text-4xl--line-height: 2.75rem;
+  --text-5xl: 3.25rem;
+  --text-5xl--line-height: 3.5rem;
+
+  /* The named styles (text-large-title, text-headline, ...). */
+  --text-display: clamp(2.125rem, 2.4vw + 1.375rem, 3.5rem);
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: var(--ls-display);
+  --text-display--font-weight: 800;
+  --text-large-title: var(--fs-large-title);
+  --text-large-title--line-height: var(--lh-large-title);
+  --text-large-title--letter-spacing: var(--ls-large-title);
+  --text-large-title--font-weight: 700;
+  --text-title-1: var(--fs-title-1);
+  --text-title-1--line-height: var(--lh-title-1);
+  --text-title-1--letter-spacing: var(--ls-title-1);
+  --text-title-1--font-weight: 700;
+  --text-title-2: var(--fs-title-2);
+  --text-title-2--line-height: var(--lh-title-2);
+  --text-title-2--letter-spacing: var(--ls-title-2);
+  --text-title-2--font-weight: 700;
+  --text-title-3: var(--fs-title-3);
+  --text-title-3--line-height: var(--lh-title-3);
+  --text-title-3--letter-spacing: var(--ls-title-3);
+  --text-title-3--font-weight: 600;
+  --text-headline: var(--fs-headline);
+  --text-headline--line-height: var(--lh-headline);
+  --text-headline--letter-spacing: var(--ls-headline);
+  --text-headline--font-weight: 600;
+  --text-body: var(--fs-body);
+  --text-body--line-height: var(--lh-body);
+  --text-body--letter-spacing: var(--ls-body);
+  --text-callout: var(--fs-callout);
+  --text-callout--line-height: var(--lh-callout);
+  --text-callout--letter-spacing: var(--ls-callout);
+  --text-subheadline: var(--fs-subheadline);
+  --text-subheadline--line-height: var(--lh-subheadline);
+  --text-subheadline--letter-spacing: var(--ls-subheadline);
+  --text-footnote: var(--fs-footnote);
+  --text-footnote--line-height: var(--lh-footnote);
+  --text-footnote--letter-spacing: var(--ls-footnote);
+  --text-caption-1: var(--fs-caption-1);
+  --text-caption-1--line-height: var(--lh-caption-1);
+  --text-caption-2: var(--fs-caption-2);
+  --text-caption-2--line-height: var(--lh-caption-2);
+  --text-caption-2--font-weight: 500;
 }
 
-/* Plex's native look (2026-10-22, after the iOS, tvOS and web apps): one
-   dark canvas, every surface a translucent white laid over it -- a card, a
-   popover, the sidebar -- so artwork behind a page shows through the glass,
-   hairlines in the same white, Plex Gold for the one accent, and 12px
-   corners. The surfaces are rgba on purpose: Tailwind's opacity modifiers
-   (bg-muted/50) color-mix them like any other colour, and a panel over the
-   page backdrop (below) reads as glass instead of a grey slab. Plex has one
-   look, so the tokens are one block for :root and .dark: the layout sets
-   class="dark" on <html> so the components' dark: variants apply (an outline
-   button or a field is a faint white fill, not the opaque canvas). */
+/* --- Tokens ---------------------------------------------------------------- */
+/* One appearance, dark, as Apple's media apps and Plex's are: the layout sets
+   class="dark" on <html> so the components' dark: variants apply. */
 :root,
 .dark {
   color-scheme: dark;
-  --background: #111417;
-  --foreground: #f3f4f6;
-  --card: rgba(255, 255, 255, 0.055);
-  --card-foreground: #f3f4f6;
-  --popover: rgba(30, 33, 37, 0.82);
-  --popover-foreground: #f3f4f6;
-  --primary: #e5a00d;
-  --primary-foreground: #141414;
-  --secondary: rgba(255, 255, 255, 0.1);
-  --secondary-foreground: #f3f4f6;
-  --muted: rgba(255, 255, 255, 0.08);
-  --muted-foreground: #a7adb4;
-  --accent: rgba(255, 255, 255, 0.12);
-  --accent-foreground: #ffffff;
-  /* Only ever text, a border, a ring or a /10-/30 tint: #e5484d measured 2.3:1 as text on the canvas. */
-  --destructive: #ff9592;
-  --border: rgba(255, 255, 255, 0.1);
-  --input: rgba(255, 255, 255, 0.12);
-  --ring: #e5a00d;
-  --chart-1: #e5a00d;
-  --chart-2: #f2c94c;
-  --chart-3: #cc7b19;
-  --chart-4: #a7adb4;
-  --chart-5: #f3f4f6;
-  --radius: 0.75rem;
-  --sidebar: rgba(17, 20, 23, 0.62);
-  --sidebar-foreground: #f3f4f6;
-  --sidebar-primary: #e5a00d;
-  --sidebar-primary-foreground: #141414;
-  --sidebar-accent: rgba(255, 255, 255, 0.1);
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-ring: #e5a00d;
-  --destructive-foreground: #ffffff;
-  /* The UltraBlur: the four corner colours of the Plex apps' background
-     (iOS, tvOS), each fading toward the middle over the canvas -- dark
-     enough that text keeps its contrast. */
-  --ultrablur-top-left: #0f3a4f;
-  --ultrablur-top-right: #3b1f4f;
-  --ultrablur-bottom-right: #4a2c0c;
-  --ultrablur-bottom-left: #1a1f3f;
-  /* The glass: the blur every frosted surface shares, the lit top edge, the
-     1px rim (stronger on a floating layer), the bars' tint and the two
-     elevations. An unlayered box-shadow replaces a component's ring-* and
-     shadow-* utilities (both are box-shadows), so every glass rule below
-     states the whole stack: lit edge, rim, elevation. */
-  --glass-blur: 24px;
-  --glass-highlight: rgba(255, 255, 255, 0.06);
-  --glass-rim: rgba(255, 255, 255, 0.1);
-  --glass-rim-strong: rgba(255, 255, 255, 0.14);
-  --glass-bar: rgba(17, 20, 23, 0.55);
-  --shadow-bar: 0 12px 28px -12px rgb(0 0 0 / 0.55);
-  --shadow-float: 0 24px 48px -12px rgb(0 0 0 / 0.6);
-  /* rounded-xl: cards, bars, dialogs, the sidebar */
-  --radius-surface: calc(var(--radius) * 1.4);
 
-  /* Layout: the top bar's height, where a sticky page bar sticks under it
-     (top-14), and the page's side gutter (wider from 640px, below). */
-  --topbar-h: 3rem;
+  /* Canvas and content. A platter is content, translucent and never blurred. */
+  --canvas: #050507;
+  --platter: rgba(30, 30, 34, 0.68);
+  --platter-hover: rgba(44, 44, 50, 0.74);
+  --platter-solid: #1c1c1e;
+  --platter-solid-2: #2c2c2e;
+
+  /* Labels, Apple's dark label colours. --label-3 is placeholder and
+     disabled only, never content. */
+  --label-1: #f5f5f7;
+  --label-2: rgba(235, 235, 245, 0.62);
+  --label-3: rgba(235, 235, 245, 0.36);
+  --label-4: rgba(235, 235, 245, 0.18);
+
+  /* Fills: controls, chips, tracks. */
+  --fill-1: rgba(120, 120, 128, 0.36);
+  --fill-2: rgba(120, 120, 128, 0.32);
+  --fill-3: rgba(118, 118, 128, 0.24);
+  --fill-4: rgba(118, 118, 128, 0.18);
+  --hover: rgba(255, 255, 255, 0.06);
+  --pressed: rgba(255, 255, 255, 0.1);
+  --separator: rgba(255, 255, 255, 0.1);
+  --separator-strong: rgba(255, 255, 255, 0.18);
+  --hairline: 1px;
+
+  /* The tint: Plex Gold. It means "you can act on this" or "this is
+     selected or in progress", never a status. */
+  --tint: #e5a00d;
+  --tint-hi: #f5b42a;
+  --tint-lo: #c98a07;
+  --on-tint: #1a1200;
+  --tint-fill: rgba(229, 160, 13, 0.16);
+  --tint-ring: rgba(229, 160, 13, 0.32);
+
+  /* System colours, Apple dark. */
+  --red: #ff453a;
+  --red-text: #ff6961;
+  --orange: #ff9f0a;
+  --orange-text: #ffb340;
+  --yellow: #ffd60a;
+  --green: #30d158;
+  --mint: #63e6e2;
+  --teal: #40c8e0;
+  --cyan: #64d2ff;
+  --blue: #0a84ff;
+  --blue-text: #409cff;
+  --indigo: #5e5ce6;
+  --purple: #bf5af2;
+  --pink: #ff375f;
+  --brown: #ac8e68;
+  --gray: #8e8e93;
+
+  /* Status: exceptions in colour with a glyph or a word; the normal state is quiet. */
+  --status-ok: var(--green);
+  --status-busy: var(--blue-text);
+  --status-warn: var(--orange-text);
+  --status-fail: var(--red-text);
+  --status-idle: var(--gray);
+
+  /* shadcn's tokens, so every vendored component picks the above up. */
+  --background: var(--canvas);
+  --foreground: var(--label-1);
+  --card: var(--platter);
+  --card-foreground: var(--label-1);
+  --popover: rgba(36, 36, 42, 0.74);
+  --popover-foreground: var(--label-1);
+  --primary: var(--tint);
+  --primary-foreground: var(--on-tint);
+  --secondary: var(--fill-3);
+  --secondary-foreground: var(--label-1);
+  --muted: var(--fill-4);
+  --muted-foreground: var(--label-2);
+  --accent: rgba(255, 255, 255, 0.1);
+  --accent-foreground: var(--label-1);
+  --destructive: var(--red-text);
+  --destructive-foreground: #ffffff;
+  --border: var(--separator);
+  --input: var(--fill-3);
+  --ring: var(--tint);
+  --radius: 0.625rem;
+  --sidebar: transparent;
+  --sidebar-foreground: var(--label-1);
+  --sidebar-primary: var(--tint);
+  --sidebar-primary-foreground: var(--on-tint);
+  --sidebar-accent: rgba(255, 255, 255, 0.12);
+  --sidebar-accent-foreground: var(--label-1);
+  --sidebar-border: transparent;
+  --sidebar-ring: var(--tint);
+  --chart-1: var(--tint);
+  --chart-2: var(--blue);
+  --chart-3: var(--green);
+  --chart-4: var(--purple);
+  --chart-5: var(--gray);
+
+  /* The UltraBlur, Plex's four corner colours, as light on black at about
+     40% of the 2026-11-04 strength, so glass over it reads as glass. */
+  --ultrablur-top-left: rgba(15, 58, 79, 0.55);
+  --ultrablur-top-right: rgba(59, 31, 79, 0.5);
+  --ultrablur-bottom-right: rgba(74, 44, 12, 0.42);
+  --ultrablur-bottom-left: rgba(26, 31, 63, 0.5);
+
+  /* Liquid Glass. Regular: the navigation layer. Menu: floating lists.
+     Thick: sheets and dialogs. Clear: small controls over artwork. Lens: the
+     selected item in a glass or gray container. */
+  --glass-bg:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 55%, rgba(255, 255, 255, 0.05) 100%),
+    rgba(32, 32, 38, 0.52);
+  --glass-filter: blur(18px) saturate(1.8) brightness(0.92);
+  --glass-edge:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+  --glass-menu-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 40%), rgba(36, 36, 42, 0.74);
+  --glass-menu-filter: blur(30px) saturate(1.8);
+  --glass-thick-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 30%), rgba(28, 28, 32, 0.84);
+  --glass-thick-filter: blur(40px) saturate(1.6);
+  --glass-edge-thick: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --glass-clear-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04)), rgba(0, 0, 0, 0.22);
+  --glass-clear-filter: blur(8px) saturate(1.7) brightness(1.02);
+  --glass-edge-clear:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42), inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  --lens-bg: rgba(255, 255, 255, 0.16);
+  --lens-edge: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 3px 8px rgba(0, 0, 0, 0.14), 0 1px 1px rgba(0, 0, 0, 0.06);
+
+  /* Elevation: art and glass have it, platters do not. */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px -4px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.22), 0 10px 28px -8px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 4px 12px rgba(0, 0, 0, 0.25), 0 18px 48px -12px rgba(0, 0, 0, 0.55);
+  --shadow-4: 0 8px 24px rgba(0, 0, 0, 0.35), 0 40px 90px -20px rgba(0, 0, 0, 0.7);
+
+  /* Kept names (views and scripts read them). */
+  --glass-highlight: rgba(255, 255, 255, 0.14);
+  --shadow-bar: var(--shadow-2);
+  --radius-surface: 20px;
+  --r-poster: 10px;
+  --r-panel: 20px;
+  --r-sheet: 28px;
+
+  /* Motion. */
+  --dur-1: 100ms;
+  --dur-2: 180ms;
+  --dur-3: 280ms;
+  --dur-4: 420ms;
+  --dur-fast: var(--dur-1);
+  --dur-base: var(--dur-2);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-standard: var(--ease-out);
+  --ease-spring: linear(
+    0,
+    0.009,
+    0.035 2.1%,
+    0.141 4.4%,
+    0.723 15.5%,
+    0.938 20.7%,
+    1.017 24.7%,
+    1.051 28.8%,
+    1.055 32.2%,
+    1.039 37.6%,
+    0.998 49.5%,
+    0.991 56.7%,
+    1.002 79.6%,
+    1
+  );
+
+  /* Layout rhythm, phone first (tablet and desktop below). */
+  --topbar-h: 3.25rem;
   --bar-top: calc(var(--topbar-h) + 0.5rem);
   --page-gutter: 1rem;
+  --section-gap: 2rem;
+  --header-gap: 0.75rem;
+  --platter-pad: 1rem;
+  --row-min: 2.75rem;
 
-  /* Status: the five tones a view's badges and stripes write as palette
-     classes (ui/views' Tone), here for CSS and chart series. Gold is never
-     a status: it is action, selection, progress and focus. */
-  --status-ok: var(--color-emerald-500);
-  --status-busy: var(--color-sky-500);
-  --status-warn: var(--color-amber-500);
-  --status-fail: var(--color-red-500);
-  --status-idle: var(--color-slate-500);
-
-  /* Motion: hover and press, panels, and the one easing. */
-  --dur-fast: 120ms;
-  --dur-base: 200ms;
-  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  /* Type, the touch tier (iOS and iPadOS sizes); the desktop tier below. */
+  --fs-large-title: 2.125rem;
+  --lh-large-title: 2.5625rem;
+  --fs-title-1: 1.75rem;
+  --lh-title-1: 2.125rem;
+  --fs-title-2: 1.375rem;
+  --lh-title-2: 1.75rem;
+  --fs-title-3: 1.25rem;
+  --lh-title-3: 1.5625rem;
+  --fs-headline: 1.0625rem;
+  --lh-headline: 1.375rem;
+  --fs-body: 1.0625rem;
+  --lh-body: 1.375rem;
+  --fs-callout: 1rem;
+  --lh-callout: 1.3125rem;
+  --fs-subheadline: 0.9375rem;
+  --lh-subheadline: 1.25rem;
+  --fs-footnote: 0.8125rem;
+  --lh-footnote: 1.125rem;
+  --fs-caption-1: 0.75rem;
+  --lh-caption-1: 1rem;
+  --fs-caption-2: 0.6875rem;
+  --lh-caption-2: 0.8125rem;
+  --fs-sm: 0.9375rem;
+  --lh-sm: 1.25rem;
+  --ls-display: -0.022em;
+  --ls-large-title: -0.022em;
+  --ls-title-1: -0.021em;
+  --ls-title-2: -0.018em;
+  --ls-title-3: -0.017em;
+  --ls-headline: -0.013em;
+  --ls-body: -0.013em;
+  --ls-callout: -0.011em;
+  --ls-subheadline: -0.009em;
+  --ls-footnote: -0.003em;
 }
-@media (width >= 40rem) {
+@media (width >= 48rem) {
   :root {
     --page-gutter: 1.5rem;
+    --section-gap: 2.5rem;
+  }
+}
+@media (width >= 64rem) {
+  :root {
+    --page-gutter: 2rem;
+    --section-gap: 3rem;
+    --header-gap: 0.875rem;
+    --platter-pad: 1.25rem;
+  }
+}
+/* The desktop tier, macOS's sizes. */
+@media (pointer: fine) and (width >= 64rem) {
+  :root {
+    --fs-large-title: 1.875rem;
+    --lh-large-title: 2.25rem;
+    --fs-title-1: 1.5rem;
+    --lh-title-1: 1.875rem;
+    --fs-title-2: 1.25rem;
+    --lh-title-2: 1.5625rem;
+    --fs-title-3: 1.0625rem;
+    --lh-title-3: 1.375rem;
+    --fs-headline: 0.9375rem;
+    --lh-headline: 1.25rem;
+    --fs-body: 0.9375rem;
+    --lh-body: 1.25rem;
+    --fs-callout: 0.875rem;
+    --lh-callout: 1.1875rem;
+    --fs-subheadline: 0.8125rem;
+    --lh-subheadline: 1.125rem;
+    --fs-footnote: 0.75rem;
+    --lh-footnote: 1rem;
+    --fs-sm: 0.875rem;
+    --lh-sm: 1.25rem;
+    --ls-title-2: -0.017em;
+    --ls-title-3: -0.013em;
+    --ls-headline: -0.009em;
+    --ls-body: -0.009em;
+    --ls-callout: -0.006em;
+    --ls-subheadline: -0.003em;
+    --ls-footnote: 0em;
+    --row-min: 2.5rem;
+  }
+}
+/* Safari sets SF with its own optical tracking; Inter's is ours. */
+@supports (font: -apple-system-body) {
+  :root {
+    --ls-display: 0em;
+    --ls-large-title: 0em;
+    --ls-title-1: 0em;
+    --ls-title-2: 0em;
+    --ls-title-3: 0em;
+    --ls-headline: 0em;
+    --ls-body: 0em;
+    --ls-callout: 0em;
+    --ls-subheadline: 0em;
+    --ls-footnote: 0em;
+  }
+}
+@media (min-resolution: 2dppx) {
+  :root {
+    --hairline: 0.5px;
+    --separator: rgba(255, 255, 255, 0.16);
   }
 }
 
@@ -227,134 +551,215 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
      takes: a page's backdrop (below) sits at z-index -1 in the root
      stacking context, which paints above the canvas but below the body's
      own background, so the body must stay transparent for the art to show.
-     A page with no art of its own (the Dashboard, a library tab, Settings)
-     shows the canvas as the Plex apps' UltraBlur (owner, 2026-11-04): the
-     four --ultrablur corner colours, each a radial field fading out toward
-     the middle so they meet in a soft blend, fixed so it never scrolls
-     with the page; an item page's art lies over it. */
+     A page with no art of its own shows the UltraBlur: Plex's four corner
+     colours as light on near-black, fixed so it never scrolls with the
+     page; an item page's art lies over it. */
   html {
-    background-color: var(--background);
+    background-color: var(--canvas);
     background-image:
-      radial-gradient(circle at 0% 0%, var(--ultrablur-top-left), transparent 65%),
-      radial-gradient(circle at 100% 0%, var(--ultrablur-top-right), transparent 65%),
-      radial-gradient(circle at 100% 100%, var(--ultrablur-bottom-right), transparent 65%),
-      radial-gradient(circle at 0% 100%, var(--ultrablur-bottom-left), transparent 65%);
+      radial-gradient(120% 80% at 0% 0%, var(--ultrablur-top-left), transparent 60%),
+      radial-gradient(120% 80% at 100% 0%, var(--ultrablur-top-right), transparent 60%),
+      radial-gradient(120% 80% at 100% 100%, var(--ultrablur-bottom-right), transparent 60%),
+      radial-gradient(120% 80% at 0% 100%, var(--ultrablur-bottom-left), transparent 60%);
     background-attachment: fixed;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    letter-spacing: var(--ls-body);
   }
   body {
     @apply bg-transparent text-foreground;
   }
+  :where(h1, h2, h3, h4) {
+    text-wrap: balance;
+  }
+  :where(p) {
+    text-wrap: pretty;
+  }
+  :where(table, time, progress, [data-tabular]) {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
-/* The glass. A frosted surface is translucent (its token is rgba) and
-   blurs what is behind it: the sidebar, the top bar and a page toolbar
-   (over the page backdrop and the content scrolling under them), every
-   card and panel, and every floating layer -- dialogs, menus, popovers,
-   tooltips, selects, and the charts' tooltip, which ui/components/chart
-   draws as a bare div (.recharts-tooltip-wrapper's child) with an opaque
-   bg-background. These rules are the theme's, so every component takes
-   them without a class of its own (owner, 2026-11-04: "apply styles to the
-   shadcn/tailwind themes to universally apply glass"). The library's
-   poster cards (shadcn items, not cards) do not blur: a library page draws
-   hundreds, and the blur costs a layer each; their translucency alone
-   reads as glass over the canvas. A hairline highlight along the top edge
-   is what makes a panel look lit from above rather than merely
-   transparent. */
-[data-slot="sidebar-inner"],
-[data-slot="sheet-content"],
-[data-slot="dialog-content"],
-[data-slot="alert-dialog-content"],
-[data-slot="dropdown-menu-content"],
-[data-slot="dropdown-menu-sub-content"],
-[data-slot="menubar-content"],
-[data-slot="menubar-sub-content"],
-[data-slot="select-content"],
-[data-slot="tooltip-content"],
-[data-slot="popover-content"],
-[data-slot="toast"],
-[data-slot="card"],
-.panel,
-.recharts-tooltip-wrapper > div,
-#library-find-results,
+/* --- Materials ------------------------------------------------------------- */
+/* Glass is the navigation layer and the floating layers, never content.
+   Write only the standard backdrop-filter, mask and mask-composite:
+   Tailwind's minifier folded a pair written with -webkit-backdrop-filter into
+   the prefixed one alone, which Chrome and Firefox ignore (2026-11-04); it
+   adds the prefixes itself. A blurred element is a containing block for its
+   fixed descendants, so every floating layer is portaled to <body>. */
 .glass,
 .glass-bar,
-.glass-pill {
-  /* Only the standard property: Tailwind's minifier folds a pair written
-     with -webkit-backdrop-filter into the prefixed one alone, which Chrome
-     and Firefox ignore, so no surface blurred outside Safari until
-     2026-11-04. It adds the prefix itself where its targets need one. */
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+.glass-pill,
+[data-glass] {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-edge), var(--shadow-2);
+  border-color: transparent;
 }
-
-/* Three levels of glass (2026-11-17). An unlayered box-shadow replaces a
-   component's ring-* and shadow-* utilities, which are box-shadows too, so
-   until then the card had lost its ring, the dialogs and menus theirs and
-   the library toolbar its shadow: each rule states the whole stack. */
-
-/* 1 -- resting: cards and panels. A card in a card has nothing of the page
-   behind it, so it does not blur again. */
-[data-slot="card"] {
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 0 0 1px var(--glass-rim);
-}
-.panel {
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
-}
-[data-slot="card"] [data-slot="card"] {
-  backdrop-filter: none;
-}
-
-/* 2 -- bars: the library's toolbar and its selection bar, and a table's. */
-.glass-bar {
-  background-color: var(--glass-bar);
-  border-radius: var(--radius-surface);
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 0 0 1px var(--glass-rim),
-    var(--shadow-bar);
-}
-
-/* 2b -- a pill: a toolbar's button group, the bar's glass at the group's
-   own radius (the docs' rounded group sets --radius on it). */
-.glass-pill {
-  background-color: var(--glass-bar);
+.glass-bar,
+.glass-pill,
+[data-glass="capsule"] {
   border-radius: 9999px;
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 0 0 1px var(--glass-rim),
-    var(--shadow-bar);
+}
+[data-glass="clear"] {
+  background: var(--glass-clear-bg);
+  backdrop-filter: var(--glass-clear-filter);
+  box-shadow: var(--glass-edge-clear), var(--shadow-1);
+}
+/* Edge light: Liquid Glass catches light on the diagonal. Only on elements
+   whose markup is the shell's own (a component's ::after is the component's). */
+[data-edge-light] {
+  position: relative;
+}
+[data-edge-light]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.5),
+    rgba(255, 255, 255, 0.1) 28%,
+    rgba(255, 255, 255, 0) 50%,
+    rgba(255, 255, 255, 0.08) 72%,
+    rgba(255, 255, 255, 0.3)
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
 }
 
-/* 3 -- floating: dialogs, menus, selects, popovers, tooltips, toasts, the
-   header search's results and the charts' tooltip. */
-[data-slot="dialog-content"],
-[data-slot="alert-dialog-content"],
+/* The content platter: cards, panels, grouped lists. Translucent over the
+   canvas or the item's blurred art, which already reads as frosted, so it
+   does not blur again. */
+[data-slot="card"],
+.panel,
+[data-platter] {
+  background: var(--platter);
+  backdrop-filter: none;
+  border-color: transparent;
+  border-radius: var(--r-panel);
+  box-shadow: inset 0 0 0 var(--hairline) rgba(255, 255, 255, 0.07);
+}
+[data-slot="card"] {
+  --card-spacing: var(--platter-pad);
+}
+[data-slot="card"] [data-slot="card"],
+[data-slot="card"] .panel,
+.panel .panel {
+  background: var(--fill-4);
+  box-shadow: none;
+}
+
+/* Floating layers that carry lists of text: menu glass. */
 [data-slot="dropdown-menu-content"],
 [data-slot="dropdown-menu-sub-content"],
 [data-slot="menubar-content"],
 [data-slot="menubar-sub-content"],
 [data-slot="select-content"],
 [data-slot="popover-content"],
-[data-slot="toast"],
-[data-slot="tooltip-content"],
+[data-slot="combobox-content"],
 #library-find-results,
 .recharts-tooltip-wrapper > div {
-  background-color: var(--popover);
-  color: var(--popover-foreground);
-  border-color: var(--border);
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 0 0 1px var(--glass-rim-strong),
-    var(--shadow-float);
+  background: var(--glass-menu-bg);
+  backdrop-filter: var(--glass-menu-filter);
+  color: var(--label-1);
+  border-color: transparent;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-edge), var(--shadow-3);
 }
-/* A glass tooltip has no arrow. */
+[data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
+[data-slot="menubar-content"],
+[data-slot="select-content"] {
+  padding: 6px;
+}
+:is(
+    [data-slot="dropdown-menu-item"],
+    [data-slot="dropdown-menu-checkbox-item"],
+    [data-slot="dropdown-menu-radio-item"],
+    [data-slot="dropdown-menu-sub-trigger"],
+    [data-slot="select-item"],
+    [data-slot="menubar-item"]
+  ) {
+  min-height: 2rem;
+  border-radius: var(--radius-sm);
+  color: var(--label-1);
+}
+:is(
+    [data-slot="dropdown-menu-item"],
+    [data-slot="dropdown-menu-checkbox-item"],
+    [data-slot="dropdown-menu-radio-item"],
+    [data-slot="dropdown-menu-sub-trigger"],
+    [data-slot="select-item"],
+    [data-slot="menubar-item"]
+  ):is([data-highlighted], :focus-visible, :hover) {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--label-1);
+  outline: none;
+}
+[data-slot="dropdown-menu-item"][data-variant="destructive"],
+[data-slot="dropdown-menu-item"][data-variant="destructive"] svg {
+  color: var(--red-text);
+}
+:is([data-slot="dropdown-menu-label"], [data-slot="select-label"], [data-slot="menubar-label"]) {
+  font-size: var(--fs-caption-1);
+  line-height: var(--lh-caption-1);
+  font-weight: 600;
+  color: var(--label-2);
+}
+:is([data-slot="dropdown-menu-separator"], [data-slot="select-separator"], [data-slot="menubar-separator"]) {
+  height: var(--hairline);
+  margin: 6px 4px;
+  background: var(--separator-strong);
+}
+[data-slot="dropdown-menu-shortcut"] {
+  color: var(--label-2);
+  letter-spacing: 0.02em;
+}
+/* A menu rises out of its trigger. */
+:is([data-slot="dropdown-menu-content"], [data-slot="popover-content"], [data-slot="select-content"])[data-open] {
+  animation: menu-in var(--dur-3) var(--ease-out);
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    scale: 0.96;
+  }
+}
+
+/* The tooltip: a small glass label without an arrow. */
+[data-slot="tooltip-content"] {
+  background: var(--glass-menu-bg);
+  backdrop-filter: var(--glass-menu-filter);
+  color: var(--label-1);
+  border-color: transparent;
+  border-radius: 8px;
+  padding: 5px 9px;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  box-shadow: var(--glass-edge), var(--shadow-2);
+}
 [data-slot="tooltip-content"] > div[aria-hidden="true"] {
   display: none;
 }
-/* The rule above erased the toast's focus ring; and a toast shown while a
-   dialog is open was drawn under its overlay (both z-50, the dialog later
-   in <body>). A long message (a refused write's reason) is three lines. */
+
+/* The toast: regular glass, top centre (the viewport's position is the
+   component's), and above a dialog's overlay. */
+[data-slot="toast"] {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  color: var(--label-1);
+  border-color: transparent;
+  border-radius: 22px;
+  box-shadow: var(--glass-edge), var(--shadow-3);
+}
 [data-slot="toast"]:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
@@ -362,23 +767,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-slot="toast-viewport"] {
   z-index: 100;
 }
+[data-slot="toast-title"] {
+  font-weight: 600;
+}
 [data-slot="toast-description"] {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
   overflow-wrap: anywhere;
+  color: var(--label-2);
 }
 
-/* Every dialog fits the window (2026-11-17): 1rem off every edge at every
-   width -- a view's sm:max-w-* replaces the stock max-width and with it the
-   stock gutter, so the wide dialogs ran edge to edge between 640px and
-   their width -- no taller than the window, and scrolling inside itself: an
-   artist's Edit dialog was 1,087px tall on an 844px phone with its title,
-   close and Save out of reach, and Live TV's Links dialog 2,611px. A grid
-   child may shrink below its longest line. */
+/* --- Sheets and dialogs ---------------------------------------------------- */
+/* Thick glass, the sheet radius, Apple's dim (no blur) behind. Every dialog
+   fits the window (2026-11-17): 1rem off every edge at every width, no
+   taller than the window, scrolling inside itself; a grid child may shrink
+   below its longest line. */
 [data-slot="dialog-content"],
 [data-slot="alert-dialog-content"] {
+  background: var(--glass-thick-bg);
+  backdrop-filter: var(--glass-thick-filter);
+  color: var(--label-1);
+  border-color: transparent;
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--glass-edge-thick), var(--shadow-4);
   width: calc(100% - 2rem);
   max-height: calc(100dvh - 2rem);
   overflow-y: auto;
@@ -389,57 +802,873 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   min-width: 0;
 }
 [data-slot="dialog-title"] {
-  font-size: 1.125rem;
-  line-height: 1.5rem;
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+  letter-spacing: var(--ls-headline);
   font-weight: 600;
+}
+[data-slot="dialog-description"] {
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--label-2);
+}
+[data-slot="dialog-close"] {
+  border-radius: 9999px;
+  background: var(--fill-3);
+  color: var(--label-2);
+}
+[data-slot="dialog-overlay"],
+[data-slot="alert-dialog-overlay"],
+[data-slot="sheet-overlay"] {
+  background-color: rgba(0, 0, 0, 0.45);
+  backdrop-filter: none;
+}
+/* The alert: a compact centred card with two capsules side by side. */
+[data-slot="alert-dialog-content"] {
+  width: min(20rem, calc(100% - 3rem));
+  padding: 1.25rem 1rem 1rem;
+  text-align: center;
+}
+[data-slot="alert-dialog-header"] {
+  text-align: center;
+  place-items: center;
 }
 [data-slot="alert-dialog-title"] {
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
   font-weight: 600;
 }
-/* The sidebar floats (shadcn's floating variant, set in layout.templ):
-   a rounded glass panel standing off the window's edge and the top bar,
-   as the Plex apps' sidebar does, which collapsed to icons is a narrow
-   rounded vertical toolbar on the left. The component gives it a ring
-   and a small shadow; the hairline, the lit top edge and a deeper shadow
-   are the panel's own, and the corner is the panel corner, not the
-   component's rounded-lg. */
-[data-variant="floating"] [data-slot="sidebar-inner"] {
-  border-radius: calc(var(--radius) * 1.4);
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 0 0 1px var(--sidebar-border),
-    0 20px 40px -16px rgba(0, 0, 0, 0.6);
+[data-slot="alert-dialog-description"] {
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--label-1);
 }
-/* The top bar spans the window above the sidebar (layout.templ), so the
-   sidebar's fixed container starts under it instead of at the window's
-   top edge; 3rem is the bar's h-12. */
+[data-slot="alert-dialog-footer"] {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  background: none;
+  border: 0;
+  margin-inline: 0;
+  margin-bottom: 0;
+  padding: 0;
+}
+[data-slot="alert-dialog-footer"] > [hidden] {
+  display: none;
+}
+[data-slot="alert-dialog-footer"] :is([data-slot="button"], .group\/button) {
+  height: 2.75rem;
+  width: 100%;
+}
+[data-slot="alert-dialog-footer"] :is([data-slot="button"], .group\/button).bg-destructive\/10 {
+  background: var(--fill-2);
+  color: var(--red-text);
+}
+/* On a phone a dialog is a floating sheet from the bottom with a grabber. */
+@media (width < 40rem) {
+  [data-slot="dialog-content"] {
+    top: auto;
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: calc(0.5rem + env(safe-area-inset-bottom));
+    translate: none;
+    width: auto;
+    max-width: none;
+    max-height: calc(100dvh - 3.5rem - env(safe-area-inset-top));
+    border-radius: var(--radius-3xl);
+    animation: sheet-up var(--dur-4) var(--ease-sheet);
+  }
+  [data-slot="dialog-content"]::before {
+    content: "";
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    translate: -50% 0;
+    width: 36px;
+    height: 5px;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.28);
+    z-index: 3;
+  }
+}
+@keyframes sheet-up {
+  from {
+    translate: 0 100%;
+  }
+  to {
+    translate: 0 0;
+  }
+}
+/* A sheet is regular glass (the sidebar's sheet takes its glass from the shell's rules). */
+[data-slot="sheet-content"]:not([data-mobile="true"]) {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  border-color: transparent;
+  box-shadow: var(--glass-edge), var(--shadow-4);
+}
+
+/* --- The shell ------------------------------------------------------------ */
+/* The Liquid Glass shell (layout.templ, 2026-11-28): a full-height floating
+   glass sidebar from 1024px, the same sidebar as an overlay from 768px, a
+   floating tab bar below it; every page a sticky toolbar with the scroll
+   edge under it. A glass panel's blur sits on a pseudo-element, so the panel
+   is neither the containing block of a position:fixed descendant (the
+   search's results) nor the backdrop root of its blur. */
+[data-slot="sidebar-inner"],
+[data-mobile="true"][data-slot="sheet-content"] {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+  backdrop-filter: none;
+}
+[data-slot="sidebar-inner"]::before,
+[data-mobile="true"][data-slot="sheet-content"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-edge), var(--shadow-2);
+}
+[data-variant="floating"] [data-slot="sidebar-inner"] {
+  border: 0;
+  border-radius: var(--radius-xl);
+  box-shadow: none;
+}
 [data-slot="sidebar-container"] {
-  top: var(--topbar-h);
-  height: calc(100svh - var(--topbar-h));
+  z-index: 40;
+}
+/* The phone's sheet is the same floating panel. */
+[data-mobile="true"][data-slot="sheet-content"] {
+  top: 0.5rem;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  height: auto;
+  border: 0;
+  border-radius: var(--radius-xl);
+  box-shadow: none;
+}
+/* Rows: flat, the glyph in the tint, the lit row a quiet white fill. */
+[data-slot="sidebar-menu"] {
+  gap: 1px;
+}
+[data-slot="sidebar-menu-button"] {
+  height: 1.875rem;
+  gap: 0.625rem;
+  padding-inline: 0.625rem;
+  border-radius: var(--radius-md);
+  color: var(--label-1);
+  font-size: 0.875rem;
+}
+[data-slot="sidebar-menu-button"] svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  color: var(--tint);
+  stroke-width: 1.75;
+}
+[data-slot="sidebar-menu-button"]:hover {
+  background: var(--hover);
+}
+[data-slot="sidebar-menu-button"][data-active] {
+  background: rgba(255, 255, 255, 0.12);
+  font-weight: 600;
+}
+[data-slot="sidebar-group-label"] {
+  height: auto;
+  padding: 0.75rem 0.625rem 0.25rem;
+  font-size: 0.6875rem;
+  line-height: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--label-2);
+}
+[data-slot="sidebar-menu-badge"] {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+}
+[data-slot="sidebar-rail"] {
+  display: none;
+}
+[data-slot="sidebar"] [data-slot="sidebar-trigger"],
+[data-slot="sheet-content"] [data-templ-dialog-close] {
+  color: var(--label-2);
 }
 /* The sidebar's inset (shadcn's <main>) paints bg-background, which would
-   cover the page backdrop like the body's background above; an unlayered
-   rule outranks the utility, so the vendored component stays as the
-   registry ships it. The body's canvas shows through instead. */
+   cover the page backdrop; the body's canvas shows through instead. Nothing
+   a page renders may widen the window (owner, 2026-10-26): the inset may
+   shrink below its content's min-content width, and clip -- which unlike
+   hidden makes no scroll container, so the sticky bars keep sticking -- is
+   the backstop. */
 [data-slot="sidebar-inset"] {
   background-color: transparent;
-  /* Nothing a page renders may widen the window (owner, 2026-10-26: a
-     long series title pushed the hero's neighbour arrows off the right
-     edge and the page scrolled sideways). The inset is a flex item of the
-     sidebar wrapper with no min-width of its own, so it grew to its
-     content's min-content width -- a nowrap title still counts its whole
-     text there, truncated or not -- and nothing inside it could shrink;
-     min-width 0 lets it take the width that is left, and then the hero's
-     h1 (min-w-0 truncate) and an item's content below shrink with it.
-     Clip is the backstop, and unlike hidden it makes no scroll container,
-     so the sticky top bar and toolbar keep sticking to the viewport. */
   min-width: 0;
   overflow-x: clip;
 }
+
+/* The toolbar: no fill of its own. The scroll edge behind it fades in once
+   the page has moved, darkening and blurring what scrolls under it; the
+   page's name fades in once its large title has gone under the bar. */
+[data-topbar] {
+  background: transparent;
+  border: 0;
+}
+[data-topbar]::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 -1.25rem 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(to bottom, rgba(5, 5, 7, 0.82) 0%, rgba(5, 5, 7, 0.55) 60%, rgba(5, 5, 7, 0) 100%);
+  backdrop-filter: blur(10px) saturate(1.4);
+  mask: linear-gradient(to bottom, #000 60%, transparent 100%);
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+html[data-scrolled] [data-topbar]::before {
+  opacity: 1;
+}
+[data-inline-title] {
+  flex: 0 1 auto;
+  opacity: 0;
+  translate: 0 4px;
+  transition:
+    opacity var(--dur-3) var(--ease-out),
+    translate var(--dur-3) var(--ease-out);
+}
+html[data-title-collapsed] [data-inline-title] {
+  opacity: 1;
+  translate: 0 0;
+}
+/* An item page's hero runs up under the toolbar. */
+#page-body:has([data-hero], [data-hero-art], [data-hero-banner]) > [data-topbar] {
+  margin-bottom: calc(-1 * var(--topbar-h));
+}
+/* The sidebar's own toggle is in its header; the toolbar's shows on a
+   tablet, and on a desktop only while the sidebar is hidden. */
+@media (width >= 64rem) {
+  [data-slot="sidebar"][data-state="expanded"] ~ [data-slot="sidebar-inset"] [data-sidebar-show] {
+    display: none;
+  }
+}
+[data-sidebar-show] {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-edge), var(--shadow-2);
+}
+/* The tablet's tab bar in the toolbar: text segments, the current one the lens. */
+[data-toptabs] a {
+  color: rgba(255, 255, 255, 0.72);
+  transition:
+    background-color var(--dur-2),
+    color var(--dur-2);
+}
+[data-toptabs] a:hover {
+  color: var(--label-1);
+}
+[data-toptabs] a[data-active] {
+  background: var(--lens-bg);
+  box-shadow: var(--lens-edge);
+  color: var(--label-1);
+}
+/* From 768 to 1023px the sidebar is an overlay over the page, not beside it. */
+@media (width >= 48rem) and (width < 64rem) {
+  [data-slot="sidebar-gap"] {
+    width: 0 !important;
+  }
+  [data-slot="sidebar-container"] {
+    z-index: 50;
+  }
+}
+/* The phone's tab bar: a glass capsule of the four sections and a search
+   circle, floating over the foot of the page, which fades into it. */
+[data-tabbar] {
+  display: none;
+}
+@media (width < 48rem) {
+  [data-tabbar] {
+    position: fixed;
+    left: 1rem;
+    right: 1rem;
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    z-index: 40;
+    display: flex;
+    gap: 0.625rem;
+  }
+  [data-tabbar]::before {
+    content: "";
+    position: fixed;
+    inset: auto 0 0 0;
+    height: calc(env(safe-area-inset-bottom) + 6rem);
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(to top, rgba(5, 5, 7, 0.8), rgba(5, 5, 7, 0));
+    backdrop-filter: blur(6px);
+    mask: linear-gradient(to top, #000 50%, transparent 100%);
+  }
+  [data-tabbar] nav a {
+    color: rgba(255, 255, 255, 0.82);
+  }
+  [data-tabbar] nav a[data-active] {
+    background: var(--lens-bg);
+    box-shadow: var(--lens-edge);
+    color: var(--tint);
+  }
+  [data-tabbar] svg {
+    stroke-width: 1.75;
+  }
+  [data-shell-page] {
+    padding-bottom: calc(3.625rem + 2rem + env(safe-area-inset-bottom));
+  }
+  [data-topbar] {
+    padding-top: env(safe-area-inset-top);
+    height: calc(var(--topbar-h) + env(safe-area-inset-top));
+  }
+}
+/* A page's large title: the first heading of a page that has no hero (an
+   item page's title is its hero's). */
+[data-shell-page] h1:not([data-hero] h1, [data-slot="dialog-content"] h1) {
+  font-size: var(--fs-large-title);
+  line-height: var(--lh-large-title);
+  letter-spacing: var(--ls-large-title);
+  font-weight: 700;
+}
+/* A navigation in flight (feedback.js sets html[data-navigating] after
+   150ms, so a fast one shows nothing): a tint line along the window's top. */
+#nav-progress {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 70;
+  height: 2px;
+  background: var(--tint);
+  transform: scaleX(0);
+  transform-origin: left;
+  opacity: 0;
+  pointer-events: none;
+}
+html[data-navigating] #nav-progress {
+  opacity: 1;
+  transform: scaleX(0.85);
+  transition:
+    transform 8s cubic-bezier(0.1, 0.7, 0.1, 1),
+    opacity var(--dur-1);
+}
+/* The row pressed is lit at the press, before its page arrives. */
+[data-nav-link].htmx-request {
+  background-color: var(--sidebar-accent);
+}
+/* An action in flight: its button dims and cannot be pressed twice. */
+form.htmx-request [type="submit"],
+form.htmx-request + [form],
+:is([data-slot="button"], .group\/button).htmx-request {
+  opacity: 0.6;
+  pointer-events: none;
+}
+/* The page's query container, only where a container does not trap
+   position:fixed (the layout's boot script sets data-cq). */
+html[data-cq] [data-shell-page] {
+  container: page / inline-size;
+}
+/* The search: no native clear button; the "/" hint gives way to the
+   result count. */
+[data-slot="input-group-control"]::-webkit-search-cancel-button {
+  appearance: none;
+}
+#library-find-count:not(:empty) + [data-slot="kbd"] {
+  display: none;
+}
+#library-find-results {
+  max-height: var(--find-max-h, 70vh);
+  overflow-y: auto;
+}
+
+/* --- Components ------------------------------------------------------------ */
+
+/* Button. Every button is a capsule (an icon-only one a circle) in 600
+   weight, presses in, and shows the tint ring under the keyboard. The
+   vendored button marks no variant, so each variant is keyed on the class
+   token only it carries: .bg-primary prominent, .bg-secondary and .shadow-xs
+   (outline) gray, ghost plain, .underline-offset-4 a tinted link,
+   .bg-destructive/10 red text on a red wash. */
+:is([data-slot="button"], .group\/button) {
+  border-radius: 9999px;
+  font-weight: 600;
+  transition:
+    background-color var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out),
+    scale var(--dur-1) var(--ease-out),
+    filter var(--dur-2) var(--ease-out),
+    opacity var(--dur-2);
+}
+:is([data-slot="button"], .group\/button):active:not([aria-haspopup], [disabled]) {
+  scale: 0.96;
+}
+:is([data-slot="button"], .group\/button):focus-visible {
+  outline: 2px solid var(--tint);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+:is([data-slot="button"], .group\/button).bg-primary {
+  background: linear-gradient(180deg, var(--tint-hi), var(--tint));
+  color: var(--on-tint);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 6px 16px -6px rgba(229, 160, 13, 0.45);
+}
+:is([data-slot="button"], .group\/button).bg-primary:hover {
+  filter: brightness(1.06);
+}
+:is([data-slot="button"], .group\/button).bg-primary:active {
+  filter: brightness(0.94);
+}
+:is([data-slot="button"], .group\/button):is(.bg-secondary, .shadow-xs) {
+  background: var(--fill-3);
+  color: var(--label-1);
+  border-color: transparent;
+  box-shadow: none;
+}
+:is([data-slot="button"], .group\/button):is(.bg-secondary, .shadow-xs):is(:hover, [aria-expanded="true"]) {
+  background: var(--fill-2);
+}
+:is([data-slot="button"], .group\/button):is(.bg-secondary, .shadow-xs):active {
+  background: var(--fill-1);
+}
+:is([data-slot="button"], .group\/button).underline-offset-4 {
+  color: var(--tint);
+  font-weight: 500;
+  text-decoration: none;
+}
+:is([data-slot="button"], .group\/button).underline-offset-4:hover {
+  opacity: 0.8;
+}
+:is([data-slot="button"], .group\/button).bg-destructive\/10 {
+  background: rgba(255, 69, 58, 0.16);
+  color: var(--red-text);
+}
+:is([data-slot="button"], .group\/button).bg-destructive\/10:hover {
+  background: rgba(255, 69, 58, 0.24);
+}
+/* Desktop sizes (macOS): small 28, regular 34. */
+:is([data-slot="button"], .group\/button).h-8 {
+  height: 1.75rem;
+  padding-inline: 0.75rem;
+}
+:is([data-slot="button"], .group\/button).h-9 {
+  height: 2.125rem;
+  padding-inline: 1rem;
+}
+:is([data-slot="button"], .group\/button).h-10 {
+  height: 2.75rem;
+  padding-inline: 1.375rem;
+}
+:is([data-slot="button"], .group\/button).size-8 {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+:is([data-slot="button"], .group\/button).size-9 {
+  width: 2.125rem;
+  height: 2.125rem;
+}
+:is([data-slot="button"], .group\/button).size-10 {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+/* In the navigation layer a gray button is glass; over artwork, clear glass. */
+:is([data-toolbar], [data-page-actions], [data-tabbar], [data-selection-bar]) :is([data-slot="button"], .group\/button):is(.bg-secondary, .shadow-xs) {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-edge), var(--shadow-2);
+}
+[data-hero] :is([data-slot="button"], .group\/button):is(.bg-secondary, .shadow-xs, .rounded-full):not(.bg-primary) {
+  background: var(--glass-clear-bg);
+  backdrop-filter: var(--glass-clear-filter);
+  box-shadow: var(--glass-edge-clear), var(--shadow-1);
+  color: #fff;
+}
+[data-hero] :is([data-slot="button"], .group\/button):is(.bg-secondary, .shadow-xs, .rounded-full):not(.bg-primary):hover {
+  filter: brightness(1.12);
+}
+
+/* Button group. A toolbar's group is a glass capsule whose plain buttons
+   are capsules inside it; a toggled one takes the lens. An in-content group
+   is a joined gray capsule. */
+.glass-pill[data-slot="button-group"],
+[data-toolbar] [data-slot="button-group"].glass-pill {
+  padding: 4px;
+  gap: 2px;
+  align-items: center;
+}
+.glass-pill :is([data-slot="button"], .group\/button) {
+  border-radius: 9999px;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.glass-pill :is([data-slot="button"], .group\/button):hover {
+  background: var(--hover);
+}
+.glass-pill :is([data-slot="button"], .group\/button):is([aria-pressed="true"], [aria-expanded="true"], [data-active]) {
+  background: var(--lens-bg);
+  box-shadow: var(--lens-edge);
+}
+[data-slot="button-group-separator"] {
+  width: 1px;
+  height: 1.125rem;
+  align-self: center;
+  background: var(--separator-strong);
+  margin: 0;
+}
+[data-slot="button-group"]:not(.glass-pill) > :is([data-slot="button"], .group\/button):not(:only-child):first-child,
+[data-slot="button-group"]:not(.glass-pill) > :first-child:not(:only-child) :is([data-slot="button"], .group\/button) {
+  border-radius: 9999px 0 0 9999px;
+}
+[data-slot="button-group"]:not(.glass-pill) > :is([data-slot="button"], .group\/button):not(:only-child):last-child,
+[data-slot="button-group"]:not(.glass-pill) > :last-child:not(:only-child) :is([data-slot="button"], .group\/button) {
+  border-radius: 0 9999px 9999px 0;
+}
+
+/* Segmented control: tabs and toggle groups. A gray capsule track, the
+   selected segment the lens; too many segments scroll, never clip. */
+[data-slot="tabs-list"],
+[data-slot="toggle-group"] {
+  display: inline-flex;
+  height: 2rem;
+  padding: 2px;
+  gap: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--fill-3);
+  box-shadow: none;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+}
+[data-slot="tabs-list"]::-webkit-scrollbar,
+[data-slot="toggle-group"]::-webkit-scrollbar {
+  display: none;
+}
+[data-slot="tabs-trigger"],
+[data-slot="toggle-group-item"] {
+  height: 100%;
+  flex: 0 0 auto;
+  padding-inline: 0.875rem;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--label-1);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  scroll-snap-align: start;
+  box-shadow: none;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-3) var(--ease-out),
+    color var(--dur-2);
+}
+[data-slot="tabs-trigger"]:not([data-active]),
+[data-slot="toggle-group-item"]:not([data-state="on"], [aria-pressed="true"], [data-pressed]) {
+  color: rgba(255, 255, 255, 0.72);
+}
+[data-slot="tabs-trigger"]:hover:not([data-active]),
+[data-slot="toggle-group-item"]:hover:not([data-state="on"], [aria-pressed="true"], [data-pressed]) {
+  background: var(--hover);
+  color: var(--label-1);
+}
+[data-slot="tabs-trigger"][data-active],
+[data-slot="toggle-group-item"]:is([data-state="on"], [aria-pressed="true"], [data-pressed]) {
+  background: var(--lens-bg);
+  color: var(--label-1);
+  box-shadow: var(--lens-edge);
+  border-color: transparent;
+}
+[data-slot="tabs-trigger"]::after {
+  display: none;
+}
+[data-slot="tabs-trigger"]:focus-visible,
+[data-slot="toggle-group-item"]:focus-visible {
+  outline: 2px solid var(--tint);
+  outline-offset: -2px;
+}
+[data-slot="tabs-trigger"] [data-slot="badge"] {
+  background: none;
+  padding: 0 0 0 0.25rem;
+  height: auto;
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+  box-shadow: none;
+}
+
+/* Fields: a gray fill with no border, the tint halo when focused; a search
+   field is a capsule; a select trigger is a pop-up button. */
+:is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"], [data-slot="input-group"]) {
+  background: var(--fill-3);
+  border-color: transparent;
+  border-radius: var(--radius-md);
+  color: var(--label-1);
+  box-shadow: none;
+  transition:
+    border-color var(--dur-2),
+    box-shadow var(--dur-2),
+    background-color var(--dur-2);
+}
+:is([data-slot="input"], [data-slot="select-trigger"]):not(td *, th *) {
+  min-height: 2.125rem;
+}
+[data-slot="input-group"] [data-slot="input-group-control"],
+[data-slot="input-group"] [data-slot="input"] {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  min-height: 0;
+}
+:is([data-slot="input"], [data-slot="textarea"], [data-slot="input-group-control"])::placeholder {
+  color: var(--label-3);
+}
+:is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]):focus-visible,
+[data-slot="input-group"]:has(:focus-visible) {
+  border-color: var(--tint);
+  box-shadow: 0 0 0 3px var(--tint-ring);
+  outline: none;
+}
+[data-slot="input-group"] :focus-visible {
+  box-shadow: none;
+  outline: none;
+}
+:is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"])[aria-invalid="true"] {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(255, 69, 58, 0.28);
+}
+[data-slot="textarea"] {
+  border-radius: 12px;
+}
+[data-slot="input-group"]:has(input[type="search"]),
+[data-slot="input"][type="search"],
+[data-search-field] {
+  border-radius: 9999px;
+}
+:is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]):disabled {
+  opacity: 0.45;
+}
+
+/* Checkbox: an 18px rounded square, gold when on. */
+[data-slot="checkbox"] {
+  border-radius: var(--radius-xs);
+  border-color: var(--separator-strong);
+  background: var(--fill-3);
+}
+[data-slot="checkbox"]:is([data-checked], [aria-checked="true"], [data-state="checked"]) {
+  background: var(--tint);
+  border-color: var(--tint);
+  color: var(--on-tint);
+}
+
+/* Switch: Apple's. A white thumb always, the tint track when on, a spring. */
+[data-slot="switch"] {
+  width: 2.5rem;
+  height: 1.5rem;
+  padding: 2px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--fill-1);
+  box-shadow: none;
+  transition: background-color var(--dur-2) var(--ease-out);
+}
+[data-slot="switch"][data-checked] {
+  background: var(--tint);
+}
+[data-slot="switch-thumb"] {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, 0.15),
+    0 3px 1px rgba(0, 0, 0, 0.06),
+    0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  translate: 0 0;
+  transition:
+    translate var(--dur-3) var(--ease-spring),
+    width var(--dur-2) var(--ease-out);
+}
+[data-slot="switch-thumb"][data-checked] {
+  translate: 1rem 0;
+}
+[data-slot="switch"]:active [data-slot="switch-thumb"] {
+  width: 1.5625rem;
+}
+[data-slot="switch"]:active [data-slot="switch-thumb"][data-checked] {
+  translate: 0.6875rem 0;
+}
+[data-slot="switch"][data-size="sm"] {
+  width: 2rem;
+  height: 1.25rem;
+}
+[data-slot="switch"][data-size="sm"] [data-slot="switch-thumb"] {
+  width: 1rem;
+  height: 1rem;
+}
+[data-slot="switch"][data-size="sm"] [data-slot="switch-thumb"][data-checked] {
+  translate: 0.75rem 0;
+}
+[data-slot="switch"]:focus-visible {
+  outline: 2px solid var(--tint);
+  outline-offset: 2px;
+}
+[data-slot="switch"][data-disabled] {
+  opacity: 0.45;
+}
+
+/* Badge: a quiet capsule. It marks state, never data; the tint never fills one. */
+[data-slot="badge"] {
+  height: 1.25rem;
+  padding: 0 0.5rem;
+  gap: 0.25rem;
+  border-color: transparent;
+  border-radius: 9999px;
+  box-shadow: none;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+[data-slot="badge"]:is([data-variant="default"], [data-variant="secondary"]) {
+  background: var(--fill-2);
+  color: var(--label-1);
+}
+[data-slot="badge"]:is([data-variant="outline"], [data-variant="ghost"]) {
+  background: var(--fill-3);
+  color: var(--label-2);
+}
+[data-slot="badge"][data-variant="destructive"] {
+  background: rgba(255, 69, 58, 0.18);
+  color: var(--red-text);
+}
+[data-slot="badge"] svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+/* Card parts. */
+[data-slot="card-title"] {
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+  letter-spacing: var(--ls-headline);
+  font-weight: 600;
+}
+[data-slot="card-description"] {
+  font-size: var(--fs-subheadline);
+  line-height: var(--lh-subheadline);
+  color: var(--label-2);
+}
+[data-slot="card-footer"] {
+  border-color: transparent;
+  background: none;
+}
+
+/* Table: footnote headers, inset hairlines, tabular figures, a quiet hover. */
+[data-slot="table"] {
+  font-variant-numeric: tabular-nums;
+}
+[data-slot="table-head"] {
+  height: 2rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  color: var(--label-2);
+  text-transform: none;
+  letter-spacing: 0;
+}
+[data-slot="table-header"] [data-slot="table-row"] {
+  border: 0;
+  box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--separator);
+  background: none;
+}
+[data-slot="table-body"] [data-slot="table-row"],
+[data-slot="table-footer"] [data-slot="table-row"] {
+  border: 0;
+  background-image: linear-gradient(var(--separator), var(--separator));
+  background-size: calc(100% - var(--card-spacing, 1rem)) var(--hairline);
+  background-position: right bottom;
+  background-repeat: no-repeat;
+  transition: background-color var(--dur-2);
+}
+[data-slot="table-body"] [data-slot="table-row"]:last-child {
+  background-image: none;
+}
+[data-slot="table-body"] [data-slot="table-row"]:hover {
+  background-color: var(--hover);
+}
+[data-slot="table-row"][data-state="selected"] {
+  background-color: var(--tint-fill);
+}
+[data-slot="table-footer"] {
+  background: none;
+  border: 0;
+}
+
+/* Progress: a thin capsule track, the tint filling it. */
+[data-slot="progress-track"] {
+  border-radius: 9999px;
+  background: var(--fill-3);
+  overflow: hidden;
+}
+[data-slot="progress-indicator"] {
+  background: var(--tint);
+  border-radius: inherit;
+}
+[data-slot="progress"][data-status="done"] [data-slot="progress-indicator"] {
+  background: var(--green);
+}
+[data-slot="progress"][data-status="failed"] [data-slot="progress-indicator"] {
+  background: var(--red);
+}
+
+/* Pagination: a gray capsule, the current page the lens. */
+[data-slot="pagination-content"] {
+  background: var(--fill-3);
+  border-radius: 9999px;
+  padding: 2px;
+  gap: 0;
+}
+[data-slot="pagination-content"] :is([data-slot="button"], .group\/button),
+[data-slot="pagination-link"] {
+  min-width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  background: transparent;
+  box-shadow: none;
+  font-variant-numeric: tabular-nums;
+}
+[data-slot="pagination-content"] [aria-current="page"] {
+  background: var(--lens-bg);
+  box-shadow: var(--lens-edge);
+}
+
+/* Item rows. */
+[data-slot="item"] {
+  border-radius: var(--radius-lg);
+}
+[data-slot="item"][data-variant="outline"] {
+  border-color: transparent;
+  background: var(--platter);
+  box-shadow: inset 0 0 0 var(--hairline) rgba(255, 255, 255, 0.07);
+}
+[data-slot="item"][data-variant="muted"] {
+  background: var(--fill-4);
+}
 /* shadcn's item lays its content out as a flex column that may not shrink
-   below its longest line, so a release title or a path as long as a usenet
-   post's ran a row off the page: let it shrink, and break a word that has
-   no space to break at. */
+   below its longest line: let it shrink, and break a word that has no space
+   to break at. */
 [data-slot="item-content"] {
   min-width: 0;
 }
@@ -447,61 +1676,96 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-slot="item-description"] {
   overflow-wrap: anywhere;
 }
-/* A section card's open tab (the dashboard's tabbed cards) is a frosted
-   glass tile over the page's own UltraBlur (owner, 2026-11-04: "an
-   ultrablur variant based on the page background", then the Apple frosted
-   tile: the backdrop showing through a white frost, a bright rim all round,
-   a soft shadow beneath). The four corner colours are laid as the html
-   background lays them and fixed to the viewport as it is, so the tab
-   shows the patch of canvas behind it, at the canvas's own depth; over
-   them a thin white frost, a little denser at the top ("dim the effect
-   (darker tint)"); around them a 1px rim of light, and a shadow that lifts
-   the tile off its neighbours. The attribute rule is unlayered, so
-   it outranks the tab's own data-active utility. */
-[data-dashboard-tabs] [role="tab"][data-active] {
-  z-index: 1;
-  background-color: transparent;
-  background-image:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.04) 100%),
-    radial-gradient(circle at 0% 0%, var(--ultrablur-top-left), transparent 65%),
-    radial-gradient(circle at 100% 0%, var(--ultrablur-top-right), transparent 65%),
-    radial-gradient(circle at 100% 100%, var(--ultrablur-bottom-right), transparent 65%),
-    radial-gradient(circle at 0% 100%, var(--ultrablur-bottom-left), transparent 65%);
-  background-attachment: scroll, fixed, fixed, fixed, fixed;
-  backdrop-filter: blur(12px) saturate(1.2);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 6px 16px -6px rgba(0, 0, 0, 0.5);
+[data-slot="item-description"] {
+  color: var(--label-2);
 }
-/* The .dark pin (2026-11-17): with class="dark" on <html> the stock tab
-   recolours an inactive trigger (dark:text-muted-foreground) and gives an
-   active one dark:data-active:border-input; these tabs keep what they
-   computed without the class (measured: the open tab's border-color is
-   var(--border) at width 0, an inactive tab's colour the foreground at 60%),
-   so the settled tab above is unchanged. */
-[data-dashboard-tabs] [role="tab"][data-active] {
-  border-color: var(--border);
-}
-[data-dashboard-tabs] [role="tab"]:not([data-active]):not(:hover) {
-  color: color-mix(in oklab, var(--foreground) 60%, transparent);
-}
-[data-slot="dialog-overlay"],
-[data-slot="alert-dialog-overlay"],
-[data-slot="sheet-overlay"] {
-  background-color: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
+[data-slot="item-media"][data-variant="image"] {
+  border-radius: var(--radius-sm);
 }
 
+/* Field. */
+[data-slot="field-legend"] {
+  font-size: var(--fs-subheadline);
+  font-weight: 600;
+  color: var(--label-2);
+}
+[data-slot="field-description"] {
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-footnote);
+  color: var(--label-2);
+}
+[data-slot="field-error"] {
+  font-size: var(--fs-footnote);
+  color: var(--red-text);
+}
+
+/* Empty: Apple's ContentUnavailableView -- a large glyph, a title, a line. */
+[data-slot="empty"] {
+  border-color: transparent;
+  background: none;
+  text-align: center;
+}
+[data-slot="empty-icon"] {
+  background: none;
+  box-shadow: none;
+  color: var(--label-2);
+}
+[data-slot="empty-icon"] svg {
+  width: 2.75rem;
+  height: 2.75rem;
+  stroke-width: 1.5;
+}
+[data-slot="empty-title"] {
+  font-size: var(--fs-title-2);
+  line-height: var(--lh-title-2);
+  letter-spacing: var(--ls-title-2);
+  font-weight: 700;
+}
+[data-slot="empty-description"] {
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--label-2);
+  max-width: 36ch;
+  margin-inline: auto;
+}
+
+/* Skeleton, kbd, separator, scroll area, spinner. */
+[data-slot="skeleton"] {
+  background: var(--fill-4);
+}
+[data-slot="kbd"] {
+  height: 1.125rem;
+  min-width: 1.125rem;
+  padding: 0 0.3125rem;
+  border-radius: var(--radius-xs);
+  background: var(--fill-3);
+  color: var(--label-2);
+  font-family: var(--font-rounded);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  box-shadow: none;
+}
+[data-slot="separator"] {
+  background: var(--separator);
+}
+[data-slot="scroll-area-thumb"] {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 9999px;
+}
+[data-slot="spinner"] {
+  color: var(--label-2);
+}
+/* A disclosure's chevron turns with a spring. */
+[data-slot="collapsible-trigger"] svg {
+  transition: rotate var(--dur-3) var(--ease-spring);
+}
+
+/* --- Item pages ------------------------------------------------------------ */
 /* The page backdrop (an item's fanart, ui/views/detail.templ's hero): the
    art fills the viewport behind everything, fixed so the page scrolls over
-   it, blurred and darkened the way the Plex apps set a title's art behind
-   its details, and shaded down to the canvas so the foot of the page and
-   the sidebar's edge meet the same colour (the shade a little deeper since
-   2026-11-17: muted text over a bright fanart measured 2.9-3.2:1, now
-   5.2-7.0:1, and the art still reads). It sits below the root's content
-   (z-index -1 within the root stacking context) and above the canvas. The
-   sidebar and the top bar blur it through their glass. */
+   it, blurred and darkened, and shaded down to the canvas so the foot of
+   the page meets the same near-black. It sits below the root's content
+   (z-index -1 within the root stacking context) and above the canvas. */
 .page-backdrop {
   position: fixed;
   inset: 0;
@@ -512,7 +1776,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   object-position: center 20%;
   transform: scale(1.08);
   filter: blur(18px) saturate(1.3) brightness(0.95);
-  opacity: 0.65;
+  opacity: 0.55;
   pointer-events: none;
 }
 .page-backdrop-shade {
@@ -521,67 +1785,63 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   z-index: -1;
   pointer-events: none;
   background:
-    linear-gradient(to bottom, rgba(17, 20, 23, 0.35) 0%, rgba(17, 20, 23, 0.55) 50%, var(--background) 100%),
-    linear-gradient(to right, rgba(17, 20, 23, 0.6) 0%, rgba(17, 20, 23, 0.4) 45%, rgba(17, 20, 23, 0) 85%);
+    linear-gradient(to bottom, rgba(5, 5, 7, 0.3) 0%, rgba(5, 5, 7, 0.6) 50%, var(--canvas) 100%),
+    linear-gradient(to right, rgba(5, 5, 7, 0.6) 0%, rgba(5, 5, 7, 0.4) 45%, rgba(5, 5, 7, 0) 85%);
 }
 
-/* The poster lift (tvOS's focus): a card rises and takes a gold ring under
-   the pointer or the keyboard; nothing else on a page moves. */
+/* --- The library ----------------------------------------------------------- */
+/* A poster is art: its corner, an inner hairline so a light poster keeps its
+   edge on the dark canvas, the art's own shadow. It lifts under the pointer
+   without a ring; the keyboard's focus and a selection ring it in the tint. */
+[data-library-grid] [data-card-art] {
+  border-radius: var(--r-poster);
+  box-shadow: var(--shadow-1);
+}
 [data-library-grid] [data-slot="item"] {
   transition:
-    transform 160ms ease-out,
-    box-shadow 160ms ease-out;
+    translate var(--dur-2) var(--ease-out),
+    scale var(--dur-2) var(--ease-out);
 }
-/* The ring and the deeper shadow are the art's (the card has no surface of
-   its own since 2026-11-17): gold under the pointer, gold and thicker when
-   selected, the focus ring's under the keyboard. They are composed here,
-   not left to ring utilities, which an unlayered box-shadow would replace. */
 @media (hover: hover) {
   [data-library-grid] [data-slot="item"]:hover {
-    transform: translateY(-2px) scale(1.03);
+    translate: 0 -2px;
+    scale: 1.04;
     z-index: 5;
   }
   [data-library-grid] [data-slot="item"]:hover [data-card-art] {
-    box-shadow:
-      0 0 0 1px color-mix(in oklab, var(--primary) 70%, transparent),
-      0 16px 32px -12px rgba(0, 0, 0, 0.7);
+    box-shadow: var(--shadow-2);
   }
 }
 [data-library-grid] [data-slot="item"][data-selected] [data-card-art] {
   box-shadow:
-    0 0 0 2px var(--primary),
-    0 16px 32px -12px rgba(0, 0, 0, 0.7);
+    0 0 0 3px var(--tint),
+    var(--shadow-2);
 }
 [data-library-grid] [data-slot="item"]:has([data-card-link]:focus-visible) {
   z-index: 5;
 }
 [data-library-grid] [data-slot="item"]:has([data-card-link]:focus-visible) [data-card-art] {
   box-shadow:
-    0 0 0 2px var(--ring),
-    0 16px 32px -12px rgba(0, 0, 0, 0.7);
+    0 0 0 3px var(--tint),
+    var(--shadow-2);
 }
-@media (prefers-reduced-motion: reduce) {
-  [data-library-grid] [data-slot="item"],
-  [data-library-grid] [data-slot="item"]:hover {
-    transition: none;
-    transform: none;
-  }
+
+/* A poster card has no surface of its own: the art, then its lines. */
+[data-library-grid] [data-slot="item"] {
+  background: none;
+  box-shadow: none;
+  border-color: transparent;
 }
 
 /* The library renders every card of a tab (2026-11-10, no pages): the
-   browser lays out and paints only the ones near the screen, holding each
-   other's place at a poster's height plus the details' (auto keeps a card's
-   real size once it has been drawn). */
+   browser lays out and paints only the ones near the screen. */
 [data-library-grid] > [data-ref] {
   content-visibility: auto;
   contain-intrinsic-block-size: auto calc(var(--library-poster-width, 160px) * 1.5 + 3.5rem);
 }
 
-/* The library hides the document's native scrollbar (views.Chrome.HideScrollbar,
-   kept in step by ui/static/jump.js): the A-Z strip is the only thing on the
-   right edge, as in Radarr. Scrolling itself is untouched. */
-/* Only from 1024px, where the strip is drawn: below it the library had
-   neither a scrollbar nor the strip on a page 200,000px tall. */
+/* The library hides the document's native scrollbar from 1024px, where the
+   A-Z strip is drawn (views.Chrome.HideScrollbar, ui/static/jump.js). */
 @media (width >= 64rem) {
   html[data-scrollbar="hidden"] {
     scrollbar-width: none;
@@ -597,99 +1857,10 @@ html[data-library-details="hidden"] [data-card-details] {
   display: none;
 }
 
-/* --- The shell (2026-11-17) ---------------------------------------------- */
-/* The top bar's blur sits on a pseudo-element, so the bar itself is neither
-   the containing block of the position:fixed search results inside it nor
-   the backdrop root of their own blur: as a .glass element it was both,
-   which is why the results did not frost, widened a phone's page and were
-   cut by a landscape phone's bottom edge. */
-[data-topbar]::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
-}
-/* A navigation in flight (feedback.js sets html[data-navigating] after
-   150ms, so a fast one shows nothing): a gold line along the top bar's foot. */
-#nav-progress {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 2px;
-  background: var(--primary);
-  transform: scaleX(0);
-  transform-origin: left;
-  opacity: 0;
-  pointer-events: none;
-}
-html[data-navigating] #nav-progress {
-  opacity: 1;
-  transform: scaleX(0.85);
-  transition:
-    transform 8s cubic-bezier(0.1, 0.7, 0.1, 1),
-    opacity var(--dur-fast);
-}
-/* The entry pressed is lit at the press, before its page arrives. */
-[data-nav-link].htmx-request {
-  background-color: var(--sidebar-accent);
-}
-/* An action in flight: its button dims and cannot be pressed twice. */
-form.htmx-request [type="submit"],
-form.htmx-request + [form],
-[data-slot="button"].htmx-request {
-  opacity: 0.6;
-  pointer-events: none;
-}
-/* The page's query container, only where a container does not trap
-   position:fixed (the layout's boot script sets data-cq): page content keys
-   on the room it has, not on the window, since the sidebar takes 256px of
-   the window. Without it a page keeps its base, narrow layout. */
-html[data-cq] [data-shell-page] {
-  container: page / inline-size;
-}
-/* Sidebar groups open and close by height (the collapsible measures
-   --collapsible-panel-height). */
-[data-nav-group] > [data-slot="collapsible-content"] {
-  height: var(--collapsible-panel-height);
-  overflow: hidden;
-  transition: height var(--dur-base) ease-out;
-}
-[data-nav-group] > [data-slot="collapsible-content"]:is([data-starting-style], [data-ending-style]) {
-  height: 0;
-}
-/* An open group's row gives up its fill to its lit sub-entry: one lit row,
-   not two. */
-[data-nav-group][data-open]:has([data-slot="sidebar-menu-sub-button"][data-active])
-  > a[data-slot="sidebar-menu-button"][data-active]:not(:hover) {
-  background-color: transparent;
-}
-/* The phone's sheet is the same floating panel as the desktop sidebar. */
-[data-mobile="true"][data-slot="sheet-content"] {
-  top: 0.5rem;
-  bottom: 0.5rem;
-  left: 0.5rem;
-  height: auto;
-  border: 0;
-  border-radius: var(--radius-surface);
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 0 0 1px var(--sidebar-border),
-    0 20px 40px -16px rgb(0 0 0 / 0.6);
-}
-/* The header search: no native clear button; the "/" hint gives way to the
-   result count. */
-[data-slot="input-group-control"]::-webkit-search-cancel-button {
-  appearance: none;
-}
-#library-find-count:not(:empty) + [data-slot="kbd"] {
-  display: none;
-}
-
-/* --- Focus and selection -------------------------------------------------- */
+/* --- Focus and selection --------------------------------------------------- */
 @layer base {
   ::selection {
-    background-color: color-mix(in oklab, var(--primary) 35%, transparent);
+    background-color: color-mix(in oklab, var(--tint) 35%, transparent);
   }
   /* Bare links, summaries and tabindex targets; a component's own
      outline-none and ring outrank this layer. */
@@ -702,19 +1873,18 @@ html[data-cq] [data-shell-page] {
   }
 }
 
-/* --- Touch density -------------------------------------------------------- */
-/* A coarse pointer gets 40px controls (they were 28-32px everywhere). The
-   exclusions are by ancestor: a table's cells, a page toolbar, a card's
-   action bar, input and button groups, tab lists and the sidebar keep
-   their own sizes (five 40px buttons do not fit a phone's poster; the
-   dashboard's settled tabs are a tab list). .h-auto excludes the guide's
-   programme cells. iOS zooms the page into a focused field under 16px. */
+/* --- Touch ----------------------------------------------------------------- */
+/* A coarse pointer gets iOS's sizes: 44px controls, 17px fields (iOS zooms
+   into a field under 16px). A table's cells, a toolbar group, input and
+   button groups, tab lists and the sidebar keep their own. */
 @media (pointer: coarse) {
   [data-slot="sidebar-menu-button"]:not([data-collapsible="icon"] *) {
-    min-height: 2.5rem;
+    min-height: 2.75rem;
+    font-size: 1.0625rem;
   }
   [data-slot="sidebar-menu-sub-button"] {
-    min-height: 2.25rem;
+    min-height: 2.75rem;
+    font-size: 1.0625rem;
   }
   [data-slot="sidebar-menu-action"] {
     top: 0.625rem;
@@ -723,19 +1893,19 @@ html[data-cq] [data-shell-page] {
     display: block;
   }
   [data-slot="sidebar-trigger"] {
-    min-width: 2.5rem;
-    min-height: 2.5rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
   }
   :is(
-      [data-slot="button"],
+      :is([data-slot="button"], .group\/button),
       [data-slot="select-trigger"],
       [data-slot="dropdown-menu-trigger"],
       [data-slot="dialog-trigger"],
       [data-slot="alert-dialog-trigger"],
       [data-slot="collapsible-trigger"],
       [data-slot="input"],
-      [data-slot="pagination-link"],
-      [data-slot="toggle-group-item"]
+      [data-slot="input-group"],
+      [data-slot="pagination-link"]
     ):not(
       .h-auto,
       :where(
@@ -746,13 +1916,15 @@ html[data-cq] [data-shell-page] {
           [data-slot="input-group"],
           [data-slot="button-group"],
           [data-slot="tabs-list"],
+          [data-slot="toggle-group"],
+          [data-slot="pagination-content"],
           [data-slot="sidebar"]
         )
         *
     ) {
-    min-height: 2.5rem;
+    min-height: 2.75rem;
   }
-  :is([data-slot="button"], [data-slot="collapsible-trigger"], [data-slot="dialog-close"]):is(
+  :is(:is([data-slot="button"], .group\/button), [data-slot="collapsible-trigger"], [data-slot="dialog-close"]):is(
       .size-6,
       .size-7,
       .size-8,
@@ -769,16 +1941,66 @@ html[data-cq] [data-shell-page] {
         )
         *
     ) {
-    min-width: 2.5rem;
+    min-width: 2.75rem;
+  }
+  :is([data-slot="button"], .group\/button).h-8 {
+    height: 2.25rem;
+  }
+  :is([data-slot="button"], .group\/button).h-9 {
+    height: 2.75rem;
+  }
+  :is([data-slot="button"], .group\/button).size-8 {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+  :is([data-slot="button"], .group\/button).size-9 {
+    width: 2.75rem;
+    height: 2.75rem;
   }
   [data-slot="input"],
   [data-slot="input-group-control"],
-  [data-slot="textarea"] {
-    font-size: 1rem;
+  [data-slot="textarea"],
+  [data-slot="select-trigger"] {
+    font-size: 1.0625rem;
+  }
+  :is([data-slot="input"], [data-slot="select-trigger"], [data-slot="input-group"]):not(td *, th *) {
+    border-radius: 12px;
+  }
+  [data-slot="tabs-list"],
+  [data-slot="toggle-group"] {
+    height: 2.25rem;
+  }
+  [data-slot="tabs-trigger"],
+  [data-slot="toggle-group-item"] {
+    font-size: 0.9375rem;
+  }
+  :is([data-slot="dropdown-menu-item"], [data-slot="select-item"], [data-slot="menubar-item"]) {
+    min-height: 2.75rem;
+    font-size: 1.0625rem;
+  }
+  :is([data-slot="dropdown-menu-content"], [data-slot="select-content"]) {
+    border-radius: 18px;
+  }
+  [data-slot="switch"]:not([data-size="sm"]) {
+    width: 3.1875rem;
+    height: 1.9375rem;
+  }
+  [data-slot="switch"]:not([data-size="sm"]) [data-slot="switch-thumb"] {
+    width: 1.6875rem;
+    height: 1.6875rem;
+  }
+  [data-slot="switch"]:not([data-size="sm"]) [data-slot="switch-thumb"][data-checked] {
+    translate: 1.25rem 0;
+  }
+  [data-slot="switch"]:not([data-size="sm"]):active [data-slot="switch-thumb"] {
+    width: 2rem;
+  }
+  [data-slot="switch"]:not([data-size="sm"]):active [data-slot="switch-thumb"][data-checked] {
+    translate: 0.9375rem 0;
   }
 }
 
-/* --- Motion, short and narrow windows ------------------------------------- */
+/* --- Motion, transparency, contrast ---------------------------------------- */
 /* 1ms, not 0: the component scripts wait for animationend/transitionend. */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -794,6 +2016,35 @@ html[data-cq] [data-shell-page] {
     animation-duration: 1s !important;
     animation-iteration-count: infinite !important;
   }
+  :is([data-slot="button"], .group\/button):active,
+  [data-library-grid] [data-slot="item"],
+  [data-library-grid] [data-slot="item"]:hover {
+    scale: none;
+    translate: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-bg: var(--platter-solid);
+    --glass-menu-bg: var(--platter-solid-2);
+    --glass-thick-bg: var(--platter-solid);
+    --glass-clear-bg: var(--platter-solid-2);
+    --glass-filter: none;
+    --glass-menu-filter: none;
+    --glass-thick-filter: none;
+    --glass-clear-filter: none;
+    --platter: var(--platter-solid);
+  }
+  html {
+    background-image: none;
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --label-2: rgba(235, 235, 245, 0.8);
+    --separator: rgba(255, 255, 255, 0.3);
+    --glass-edge: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  }
 }
 /* A landscape phone: page bars scroll away instead of holding a quarter of
    its height. */
@@ -802,13 +2053,8 @@ html[data-cq] [data-shell-page] {
     position: static;
   }
 }
-@media (width < 40rem) {
-  [data-slot="card"] {
-    --card-spacing: calc(var(--spacing) * 4);
-  }
-}
 
-/* --- The shared view primitives' and the modal forms' rules --------------- */
+/* --- The shared view primitives' and the modal forms' rules ---------------- */
 /* Last, so they follow the theme's in the cascade (Tailwind inlines an
    @import that follows rules). */
 @import "./primitives.css";
