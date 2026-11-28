@@ -28,7 +28,6 @@ package tuner
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -48,7 +47,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/pkg/wgdial"
 )
 
 const (
@@ -127,8 +125,6 @@ type provider struct {
 	cfg     Config
 	relay   *relay.Relay
 	removed bool
-	// tunnels are the open egress tunnels, Config.Egress's, in its order.
-	tunnels []*wgdial.Tunnel
 
 	entries         []m3u.Entry
 	playlist        PlaylistState
@@ -337,9 +333,7 @@ func (t *Tuner) Apply(c Config) {
 	} else {
 		p.relay.Configure(effectiveTuners(c, p.account), c.Buffer, c.Linger, c.UserAgent, languageCode(c.Language))
 	}
-	if first || !reflect.DeepEqual(c.Egress, p.cfg.Egress) {
-		t.applyEgress(p, c)
-	}
+	p.relay.SetUserAgents(c.UserAgents)
 	refreshed := !first && c.Refresh != p.cfg.Refresh
 	moved := !first && (c.Type != p.cfg.Type || c.Server != p.cfg.Server || c.PlaylistURLTemplate != p.cfg.PlaylistURLTemplate ||
 		c.Username != p.cfg.Username || c.Password != p.cfg.Password)
@@ -367,41 +361,9 @@ func (t *Tuner) Apply(c Config) {
 	t.poke()
 }
 
-// applyEgress opens c.Egress's tunnels, gives the relay their dialers for
-// later streams and reopens, and closes the provider's earlier ones. A
-// tunnel that will not open is left out, logged: the relay streams one
-// channel per tunnel open, and with none one channel the default way,
-// never every tuner from one address. p.mu is held.
-func (t *Tuner) applyEgress(p *provider, c Config) {
-	log := logging.FromContext(t.base)
-	old := p.tunnels
-	p.tunnels = nil
-	var dialers []relay.Dialer
-	if e := c.Egress; e != nil {
-		for i, tc := range e.Tunnels {
-			tun, err := wgdial.Open(t.base, wgdial.Config{
-				Endpoint: e.Endpoint, PeerPublicKey: e.PublicKey, PrivateKey: tc.PrivateKey, Address: tc.Address,
-				Logf: func(format string, args ...any) {
-					log.Warn("livetv: egress tunnel", "provider", c.Key.String(), "tunnel", i+1, "detail", fmt.Sprintf(format, args...))
-				},
-			})
-			if err != nil {
-				log.Error("livetv: egress tunnel will not open", "provider", c.Key.String(), "tunnel", i+1, "address", tc.Address, "err", err)
-				continue
-			}
-			p.tunnels = append(p.tunnels, tun)
-			dialers = append(dialers, tun.DialContext)
-		}
-		log.Info("livetv: egress tunnels open", "provider", c.Key.String(), "endpoint", e.Endpoint, "open", len(p.tunnels), "configured", len(e.Tunnels))
-	}
-	p.relay.SetEgress(dialers, c.Egress != nil)
-	for _, tun := range old {
-		tun.Close()
-	}
-}
-
 // effectiveTuners is the relay's limit: the override, else the account's
-// max_connections, else 1; with egress tunnels, no more than there are.
+// max_connections, else 1; with a pool of User-Agents, no more than it
+// holds, since two streams sharing one would knock each other off.
 func effectiveTuners(c Config, a AccountState) int {
 	n := 1
 	switch {
@@ -410,8 +372,8 @@ func effectiveTuners(c Config, a AccountState) int {
 	case a.MaxConnections > 0:
 		n = a.MaxConnections
 	}
-	if e := c.Egress; e != nil {
-		n = min(n, max(len(e.Tunnels), 1))
+	if len(c.UserAgents) > 0 {
+		n = min(n, len(c.UserAgents))
 	}
 	return n
 }
@@ -432,14 +394,10 @@ func (t *Tuner) Remove(key types.NamespacedName) {
 			tm.Stop()
 		}
 	}
-	rl, tunnels := p.relay, p.tunnels
-	p.tunnels = nil
+	rl := p.relay
 	p.mu.Unlock()
 	if rl != nil {
 		rl.Close()
-	}
-	for _, tun := range tunnels {
-		tun.Close()
 	}
 	forgetMetrics(key)
 	t.o.Notify(key)
@@ -712,11 +670,7 @@ func cloneConfig(c Config) Config {
 		pc := *c.Plex
 		c.Plex = &pc
 	}
-	if c.Egress != nil {
-		ec := *c.Egress
-		ec.Tunnels = slices.Clone(ec.Tunnels)
-		c.Egress = &ec
-	}
+	c.UserAgents = slices.Clone(c.UserAgents)
 	c.Channels = slices.Clone(c.Channels)
 	for i := range c.Channels {
 		if m := c.Channels[i].Map; m != nil {

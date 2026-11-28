@@ -21,11 +21,11 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -421,75 +421,131 @@ func viewerOn(t *testing.T, r *Relay, ch, up string) io.Reader {
 	return resp.Body
 }
 
-// countingDialers are n dialers that dial directly, counting each one's
-// connections.
-func countingDialers(n int) ([]Dialer, func() []int) {
+// agentUpstream serves every channel's stream at /<channel>.ts, as
+// tsUpstream does, and records the User-Agent of each request by channel;
+// close ends a channel's current connection, as a provider dropping it.
+func agentUpstream(t *testing.T) (base string, seen func() map[string][]string, drop func(ch string)) {
 	var mu sync.Mutex
-	counts := make([]int, n)
-	ds := make([]Dialer, n)
-	for i := range ds {
-		ds[i] = func(ctx context.Context, network, address string) (net.Conn, error) {
-			mu.Lock()
-			counts[i]++
-			mu.Unlock()
-			var d net.Dialer
-			return d.DialContext(ctx, network, address)
-		}
-	}
-	return ds, func() []int {
+	agents := map[string][]string{}
+	drops := map[string]chan struct{}{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ch := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), ".ts")
+		stop := make(chan struct{})
 		mu.Lock()
-		defer mu.Unlock()
-		return slices.Clone(counts)
-	}
+		agents[ch] = append(agents[ch], r.Header.Get("User-Agent"))
+		drops[ch] = stop
+		mu.Unlock()
+		w.Header().Set("Content-Type", "video/mp2t")
+		for r.Context().Err() == nil {
+			select {
+			case <-stop:
+				return
+			case <-time.After(5 * time.Millisecond):
+			}
+			if _, err := w.Write(gop()); err != nil {
+				return
+			}
+			w.(http.Flusher).Flush()
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, func() map[string][]string {
+			mu.Lock()
+			defer mu.Unlock()
+			out := map[string][]string{}
+			for k, v := range agents {
+				out[k] = slices.Clone(v)
+			}
+			return out
+		}, func(ch string) {
+			mu.Lock()
+			defer mu.Unlock()
+			if c := drops[ch]; c != nil {
+				close(c)
+				delete(drops, ch)
+			}
+		}
 }
 
-// TestEachStreamLeavesThroughItsOwnTunnel: argon-tv allows one stream per
-// public IP (owner, 2026-11-27), and each tunnel leaves from its own.
-func TestEachStreamLeavesThroughItsOwnTunnel(t *testing.T) {
-	r := testRelay(t, Options{Hold: -1})
+var testAgents = []string{"VLC/3.0.20 LibVLC/3.0.20", "VLC/3.0.21 LibVLC/3.0.21", "VLC/3.0.18 LibVLC/3.0.18"}
+
+// TestEachStreamSendsItsOwnUserAgent: argon-tv allows one stream per public
+// IP and User-Agent (owner, 2026-11-28), so three streams from one address
+// hold only with three different ones.
+func TestEachStreamSendsItsOwnUserAgent(t *testing.T) {
+	r := testRelay(t, Options{Hold: -1, UserAgent: "clustarr"})
 	r.SetTuners(3)
-	dialers, counts := countingDialers(3)
-	r.SetEgress(dialers, true)
-	up := tsUpstream(t, 0, nil, gop())
+	r.SetUserAgents(testAgents)
+	base, seen, _ := agentUpstream(t)
 	for _, ch := range []string{"1001", "1002", "1003"} {
-		_, err := io.CopyN(io.Discard, viewerOn(t, r, ch, up), 10_000)
+		_, err := io.CopyN(io.Discard, viewerOn(t, r, ch, base+"/"+ch+".ts"), 10_000)
 		require.NoError(t, err)
 	}
-	assert.Equal(t, []int{1, 1, 1}, counts(), "three streams, three tunnels")
 
-	_, err := io.CopyN(io.Discard, viewerOn(t, r, "1004", up), 10_000)
-
-	require.NoError(t, err)
-	assert.Equal(t, []int{2, 1, 1}, counts(), "a fourth channel takes the longest-watched stream's tuner, and its tunnel")
+	assert.Equal(t, map[string][]string{"1001": {testAgents[0]}, "1002": {testAgents[1]}, "1003": {testAgents[2]}}, seen())
 	assert.Equal(t, 3, r.InUse())
 }
 
-func TestFewerTunnelsThanTunersCapTheStreams(t *testing.T) {
+// TestAFourthChannelTakesTheLongestWatchedStreamsUserAgent: the stream it
+// takes is closed before the new one opens, so the new one may send the
+// same User-Agent without knocking anything off.
+func TestAFourthChannelTakesTheLongestWatchedStreamsUserAgent(t *testing.T) {
 	r := testRelay(t, Options{Hold: -1})
 	r.SetTuners(3)
-	dialers, counts := countingDialers(2)
-	r.SetEgress(dialers, true)
-	up := tsUpstream(t, 0, nil, gop())
-	for _, ch := range []string{"1001", "1002", "1003"} {
-		_, err := io.CopyN(io.Discard, viewerOn(t, r, ch, up), 10_000)
+	r.SetUserAgents(testAgents)
+	base, seen, _ := agentUpstream(t)
+	for _, ch := range []string{"1001", "1002", "1003", "1004"} {
+		_, err := io.CopyN(io.Discard, viewerOn(t, r, ch, base+"/"+ch+".ts"), 10_000)
 		require.NoError(t, err)
 	}
 
-	assert.Equal(t, 2, r.InUse(), "never two streams through one tunnel")
-	assert.Equal(t, []int{2, 1}, counts())
+	assert.Equal(t, []string{testAgents[0]}, seen()["1004"], "1001's, watched longest ago")
+	assert.Equal(t, 3, r.InUse())
 }
 
-// TestEgressWantedButNoneOpenStreamsOneChannel: three streams the default
-// way would all leave from one address and knock each other off.
-func TestEgressWantedButNoneOpenStreamsOneChannel(t *testing.T) {
+func TestFewerUserAgentsThanTunersCapTheStreams(t *testing.T) {
 	r := testRelay(t, Options{Hold: -1})
 	r.SetTuners(3)
-	r.SetEgress(nil, true)
-	up := tsUpstream(t, 0, nil, gop())
-	for _, ch := range []string{"1001", "1002"} {
-		_, err := io.CopyN(io.Discard, viewerOn(t, r, ch, up), 10_000)
+	r.SetUserAgents(testAgents[:2])
+	base, seen, _ := agentUpstream(t)
+	for _, ch := range []string{"1001", "1002", "1003"} {
+		_, err := io.CopyN(io.Discard, viewerOn(t, r, ch, base+"/"+ch+".ts"), 10_000)
 		require.NoError(t, err)
 	}
 
-	assert.Equal(t, 1, r.InUse())
+	assert.Equal(t, 2, r.InUse(), "never two streams on one User-Agent")
+	assert.Equal(t, []string{testAgents[0]}, seen()["1003"], "the third took 1001's")
+}
+
+// TestAReopenSendsTheStreamsUserAgentAgain: a reopen with another stream's
+// User-Agent would knock that stream off.
+func TestAReopenSendsTheStreamsUserAgentAgain(t *testing.T) {
+	r := testRelay(t, Options{Hold: -1})
+	r.SetTuners(3)
+	r.SetUserAgents(testAgents)
+	base, seen, drop := agentUpstream(t)
+	for _, ch := range []string{"1001", "1002"} {
+		_, err := io.CopyN(io.Discard, viewerOn(t, r, ch, base+"/"+ch+".ts"), 10_000)
+		require.NoError(t, err)
+	}
+	body := viewerOn(t, r, "1002", base+"/1002.ts")
+	go func() { _, _ = io.Copy(io.Discard, body) }()
+
+	drop("1002")
+
+	require.Eventually(t, func() bool { return len(seen()["1002"]) == 2 }, 3*time.Second, 10*time.Millisecond, "reopened")
+	assert.Equal(t, []string{testAgents[1], testAgents[1]}, seen()["1002"])
+}
+
+func TestWithoutAPoolEveryStreamSendsTheRelaysUserAgent(t *testing.T) {
+	r := testRelay(t, Options{Hold: -1, UserAgent: "clustarr"})
+	r.SetTuners(2)
+	base, seen, _ := agentUpstream(t)
+	for _, ch := range []string{"1001", "1002"} {
+		_, err := io.CopyN(io.Discard, viewerOn(t, r, ch, base+"/"+ch+".ts"), 10_000)
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, map[string][]string{"1001": {"clustarr"}, "1002": {"clustarr"}}, seen())
+	assert.Equal(t, 2, r.InUse())
 }

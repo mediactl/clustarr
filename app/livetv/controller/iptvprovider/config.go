@@ -22,8 +22,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -39,7 +37,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
-	"github.com/mediactl/clustarr/pkg/wgdial"
 )
 
 // resolved is a provider's server and credentials, its Secrets read.
@@ -54,8 +51,6 @@ type resolved struct {
 	// is GuideSourcesReady's reason for it (SecretNotFound,
 	// SecretKeyNotFound).
 	guideToken, guideTokenError, guideTokenReason string
-	// egress is spec.stream.egress, its private keys read; nil without it.
-	egress *tuner.EgressConfig
 }
 
 // NormalizeServer is spec.server as the panel's root: a scheme (https when
@@ -106,13 +101,6 @@ func (r *Reconciler) resolve(ctx context.Context, p *clustarrv1.IPTVProvider) (r
 	if valid.Status != metav1.ConditionTrue {
 		return out, valid
 	}
-	if e := p.Spec.Stream.Egress; e != nil {
-		egress, failed := r.resolveEgress(ctx, p.Namespace, e)
-		if failed != nil {
-			return resolved{}, *failed
-		}
-		out.egress = egress
-	}
 	if g := p.Spec.PlexGuide; g != nil {
 		out.plexToken, _, out.plexTokenError = r.plexToken(ctx, p.Namespace, g.CredentialsRef)
 	}
@@ -120,57 +108,6 @@ func (r *Reconciler) resolve(ctx context.Context, p *clustarrv1.IPTVProvider) (r
 		out.guideToken, out.guideTokenReason, out.guideTokenError = r.plexToken(ctx, p.Namespace, gs.Plex.CredentialsRef)
 	}
 	return out, valid
-}
-
-// resolveEgress reads spec.stream.egress's private keys. A missing Secret
-// or key, a malformed key or address, or the same address twice is a
-// Valid=False condition naming it, never a key: streams sent out a
-// misconfigured tunnel would leave from the wrong public IP, or none.
-func (r *Reconciler) resolveEgress(ctx context.Context, namespace string, e *clustarrv1.StreamEgress) (*tuner.EgressConfig, *metav1.Condition) {
-	invalid := func(reason, format string, args ...any) (*tuner.EgressConfig, *metav1.Condition) {
-		return nil, &metav1.Condition{Type: clustarrv1.ConditionValid, Status: metav1.ConditionFalse, Reason: reason, Message: "stream.egress: " + fmt.Sprintf(format, args...)}
-	}
-	if _, _, err := net.SplitHostPort(e.Endpoint); err != nil {
-		return invalid(clustarrv1.ReasonInvalidEgress, "endpoint %q is not host:port", e.Endpoint)
-	}
-	if wgdial.ParseKey(e.PublicKey) != nil {
-		return invalid(clustarrv1.ReasonInvalidEgress, "publicKey is not a WireGuard key")
-	}
-	out := &tuner.EgressConfig{Endpoint: e.Endpoint, PublicKey: e.PublicKey}
-	seen := map[netip.Addr]bool{}
-	secrets := map[string]*corev1.Secret{}
-	for i, tun := range e.Tunnels {
-		addr, err := netip.ParseAddr(tun.Address)
-		switch {
-		case err != nil || !addr.Is4():
-			return invalid(clustarrv1.ReasonInvalidEgress, "tunnels[%d].address %q is not an IPv4 address", i, tun.Address)
-		case seen[addr]:
-			return invalid(clustarrv1.ReasonInvalidEgress, "tunnels[%d].address %s is another tunnel's too", i, addr)
-		}
-		seen[addr] = true
-		ref := tun.PrivateKeyRef
-		sec, ok := secrets[ref.Name]
-		if !ok {
-			sec = &corev1.Secret{}
-			err := r.SecretReader.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, sec)
-			switch {
-			case apierrors.IsNotFound(err):
-				return invalid(clustarrv1.ReasonSecretNotFound, "Secret %s/%s does not exist", namespace, ref.Name)
-			case err != nil:
-				return invalid(clustarrv1.ReasonSecretNotFound, "Secret %s/%s cannot be read: %v", namespace, ref.Name, err)
-			}
-			secrets[ref.Name] = sec
-		}
-		key := string(bytes.TrimSpace(sec.Data[ref.Key]))
-		switch {
-		case key == "":
-			return invalid(clustarrv1.ReasonSecretKeyNotFound, "Secret %s/%s has no key %q", namespace, ref.Name, ref.Key)
-		case wgdial.ParseKey(key) != nil:
-			return invalid(clustarrv1.ReasonInvalidEgress, "Secret %s/%s key %q is not a WireGuard private key", namespace, ref.Name, ref.Key)
-		}
-		out.Tunnels = append(out.Tunnels, tuner.EgressTunnel{Address: addr, PrivateKey: key})
-	}
-	return out, nil
 }
 
 // plexToken reads a Plex account token from a Secret key, trimmed. Without
@@ -263,7 +200,7 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res res
 		Linger:              p.Spec.Stream.LingerOrDefault(),
 		Language:            p.Spec.Stream.LanguageOrDefault(),
 		Refresh:             p.Annotations[clustarrv1.AnnotationLiveTVRefresh],
-		Egress:              res.egress,
+		UserAgents:          slices.Clone(p.Spec.Stream.UserAgents),
 	}
 	if g := p.Spec.PlexGuide; g != nil {
 		c.Plex = &tuner.PlexConfig{LineupID: g.LineupID(), Token: res.plexToken, TokenError: res.plexTokenError, Enabled: g.Enabled}
