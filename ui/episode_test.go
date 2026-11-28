@@ -186,7 +186,7 @@ func TestEpisodeRowsAreSonarrs(t *testing.T) {
 	page := getPath(t, srv, "/library/default/series/andor", false).Body.String()
 	require.Contains(t, page, `id="episode-modal"`)
 	require.Contains(t, page, `id="action-status"`)
-	requireTag(t, page, `data-season-count="1 / 6"`, `bg-red-500/20`)
+	requireTag(t, page, `data-season-count="1 / 6"`, `data-tone="missing"`)
 	require.Contains(t, page, "3.00 GiB")
 }
 

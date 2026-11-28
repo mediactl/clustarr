@@ -215,10 +215,14 @@ func TestSeriesPageListsSeasonsThatLoadTheirEpisodesLazily(t *testing.T) {
 	requireTag(t, body, `data-season="1"`, `data-monitored="true"`, `data-episodes="12"`, `data-files="8"`)
 	// The spec override wins over the rollup.
 	requireTag(t, body, `data-season="2"`, `data-monitored="false"`, `data-episodes="12"`, `data-files="0"`)
-	require.Contains(t, body, `hx-get="/library/default/series/andor/seasons/1"`)
-	require.Contains(t, body, `hx-trigger="collapsible-open-change[detail.open] once"`, "a season's episodes load on its collapsible's first open")
+	// Since 2026-11-28 a season is a row of a grouped list that opens its
+	// page (Apple's pattern; a collapsible that loaded its episodes until
+	// then): its count in words, no episode on the series' page.
+	require.Contains(t, body, `href="/library/default/series/andor/seasons/1"`)
 	require.Contains(t, body, `href="/library/default/series/andor/seasons/2"`)
-	require.NotContains(t, body, `data-episode=`, "episodes load lazily, not with the page")
+	require.Contains(t, body, `>8 of 12 episodes<`)
+	require.NotContains(t, body, `collapsible-open-change[detail.open] once`)
+	require.NotContains(t, body, `data-episode=`, "the episodes are the season page's")
 }
 
 // The season route serves the episodes component alone to htmx and a full

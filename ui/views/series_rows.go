@@ -100,6 +100,28 @@ func (r SeasonRow) CountTone() string {
 	}
 }
 
+// CountState is what the season's count means: complete, missing (a
+// monitored season short of files) or idle (unmonitored).
+func (r SeasonRow) CountState() string {
+	switch {
+	case r.Episodes > 0 && r.Files >= r.Episodes:
+		return "ok"
+	case !r.Monitored:
+		return "idle"
+	default:
+		return "missing"
+	}
+}
+
+// CountWords is the season's count in words: "9 of 9 episodes".
+func (r SeasonRow) CountWords() string {
+	noun := "episodes"
+	if r.Episodes == 1 {
+		noun = "episode"
+	}
+	return fmt.Sprintf("%d of %d %s", r.Files, r.Episodes, noun)
+}
+
 // Label is the season's heading; season 0 is the specials.
 func (r SeasonRow) Label() string {
 	if r.Number == 0 {

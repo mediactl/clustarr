@@ -42,14 +42,18 @@ templ SeriesDetail(d Detail, seasons []SeasonRow) {
 	@Shell(Chrome{Title: d.Item.Title, Crumbs: itemCrumbs(d.Item), Tab: d.Item.Tab, Prev: d.Prev, Next: d.Next}) {
 		@selectionBar(SelectionBar{Action: libraryActionURL(d.Item, "rows/bulk"), Verbs: RowVerbs()})
 		@hero(d)
-		<div class="mt-6 space-y-4" data-seasons={ fmt.Sprint(len(seasons)) }>
+		<section data-section="seasons">
+			<h2 data-section-header>Seasons <span class="font-normal text-label-2 tabular-nums">{ fmt.Sprint(len(seasons)) }</span></h2>
 			if len(seasons) == 0 {
-				@emptyNote("No seasons yet: they arrive with the series' metadata.", "", nil)
+				@emptyNote("No seasons yet: they arrive with the series' metadata.", "text-label-2", nil)
+			} else {
+				@item.Group(item.GroupProps{Attributes: templ.Attributes{"data-grouped": true, "data-seasons": fmt.Sprint(len(seasons))}}) {
+					for _, season := range seasons {
+						@SeasonComponent(season)
+					}
+				}
 			}
-			for _, season := range seasons {
-				@SeasonComponent(season)
-			}
-		</div>
+		</section>
 		@informationSection(d)
 		@episodeRegions()
 	}
@@ -77,18 +81,7 @@ templ ActionStatusRegion() {
 // links to the season's own page, so a browser without JavaScript still
 // gets there.
 templ SeasonComponent(season SeasonRow) {
-	<div class="overflow-hidden panel rounded-xl border border-border bg-card" id={ fmt.Sprintf("season-%d", season.Number) }>
-		@SeasonHeader(season)
-		@collapsible.Collapsible(collapsible.Props{
-			Class:      "border-t border-border",
-			Attributes: templ.Attributes{"hx-get": season.URL(), "hx-trigger": expandOnce, "hx-target": "find .episodes", "hx-swap": "innerHTML"},
-		}) {
-			@expandTrigger("Show episodes", "Hide episodes")
-			@collapsible.Content(collapsible.ContentProps{Class: "episodes border-t border-border text-sm text-muted-foreground"}) {
-				@loadingRows()
-			}
-		}
-	</div>
+	@SeasonHeader(season)
 }
 
 // loadingRows stands in for a table that is being fetched: three
@@ -132,9 +125,9 @@ templ expandTrigger(show, hide string) {
 // flag for the tests; a failed toggle renders its error here.
 templ SeasonHeader(season SeasonRow) {
 	@item.Item(item.Props{
-		Variant: item.VariantMuted,
-		Class:   "season-header flex-nowrap rounded-none border-0",
+		Class: "season-header flex-nowrap",
 		Attributes: templ.Attributes{
+			"id":             fmt.Sprintf("season-%d", season.Number),
 			"data-season":    fmt.Sprint(season.Number),
 			"data-monitored": fmt.Sprintf("%t", season.Monitored),
 			"data-episodes":  fmt.Sprint(season.Episodes),
@@ -153,21 +146,21 @@ templ SeasonHeader(season SeasonRow) {
 			@bookmarkToggle(season.Monitored, "set-season-monitored", true)
 		</form>
 		@item.Content() {
-			@item.Title(item.TitleProps{Class: "flex-wrap gap-x-3 gap-y-1"}) {
-				<a href={ templ.URL(season.URL()) } class="text-lg font-semibold hover:underline">{ season.Label() }</a>
+			@item.Title(item.TitleProps{Class: "flex-wrap gap-x-2 gap-y-0"}) {
+				<a href={ templ.URL(season.URL()) } class="font-semibold after:absolute after:inset-0">{ season.Label() }</a>
 				if season.Title != "" {
-					<span class="text-base font-normal text-muted-foreground" data-season-title>{ season.Title }</span>
-				}
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: season.CountTone(), Attributes: templ.Attributes{"data-season-count": season.CountLabel()}}) {
-					{ season.CountLabel() }
-				}
-				if season.SizeBytes > 0 {
-					<span class="text-xs font-normal text-muted-foreground" data-season-size>{ formatBytes(season.SizeBytes) }</span>
+					<span class="font-normal text-label-2" data-season-title>{ season.Title }</span>
 				}
 			}
-			if season.NextAiring != "" {
-				@item.Description() {
-					Next airing { season.NextAiring }
+			@item.Description(item.DescriptionProps{Class: "flex flex-wrap gap-x-1.5"}) {
+				<span data-season-count={ season.CountLabel() } data-tone={ season.CountState() }>{ season.CountWords() }</span>
+				if season.SizeBytes > 0 {
+					<span aria-hidden="true">·</span>
+					<span data-season-size>{ formatBytes(season.SizeBytes) }</span>
+				}
+				if season.NextAiring != "" {
+					<span aria-hidden="true">·</span>
+					<span>Next airing { season.NextAiring }</span>
 				}
 			}
 			@actionFailure(season.Error)
@@ -283,14 +276,42 @@ templ actionFailure(f ActionFailure) {
 	}
 }
 
+// seasonHead is a season page's header (2026-11-28, the Liquid Glass
+// redesign; the series' whole hero repeated until then): the series'
+// poster, its name as a link back, the season as the large title and a
+// line of its counts, over the series' art.
+templ seasonHead(d Detail, season SeasonRow) {
+	if d.Backdrop != "" {
+		<img data-backdrop src={ templ.URL(d.Backdrop) } alt="" loading="lazy" class="page-backdrop"/>
+		<div class="page-backdrop-shade" aria-hidden="true"></div>
+	}
+	<header data-season-head class="mb-6 flex items-end gap-5 pt-2">
+		<div class="w-28 shrink-0 overflow-hidden rounded-[10px] shadow-[var(--shadow-1)] @2xl/page:w-36">
+			@poster(d.Item.Poster, d.Item.Title, d.Item.ArtKey)
+		</div>
+		<div class="min-w-0 pb-1">
+			<a href={ templ.URL(libraryDetailPath(d.Item)) } class="text-title-3 font-semibold text-tint hover:opacity-80">{ d.Item.Title }</a>
+			<h1>{ season.Label() }</h1>
+			<p class="text-subheadline text-label-2">
+				{ season.CountWords() }
+				if season.SizeBytes > 0 {
+					{ " · " + formatBytes(season.SizeBytes) }
+				}
+			</p>
+		</div>
+	</header>
+}
+
 // SeasonPage is a season on its own: the series header, the season's
 // header, then its episodes.
 templ SeasonPage(d Detail, season SeasonRow, episodes []EpisodeRow) {
 	@Shell(Chrome{Title: fmt.Sprintf("%s · %s", d.Item.Title, season.Label()), Crumbs: childCrumbs(d.Item, season.Label()), Tab: d.Item.Tab}) {
 		@selectionBar(SelectionBar{Action: libraryActionURL(d.Item, "rows/bulk"), Verbs: RowVerbs()})
-		@hero(d)
-		<div class="mt-6 overflow-hidden panel rounded-xl border border-border bg-card">
-			@SeasonHeader(season)
+		@seasonHead(d, season)
+		<div class="overflow-hidden panel">
+			@item.Group(item.GroupProps{Attributes: templ.Attributes{"data-grouped": true}}) {
+				@SeasonHeader(season)
+			}
 			<div class="episodes border-t border-border">
 				@EpisodeRows(episodes)
 			</div>
