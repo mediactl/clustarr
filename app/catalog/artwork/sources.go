@@ -132,6 +132,23 @@ func (s Source) TitleMark() string {
 	return TitleVersion + " " + hex.EncodeToString(h.Sum(nil))[:32]
 }
 
+// CompactTitleVersion is the version of a titled poster's compact twin: how
+// the logo is drawn on it (the fetcher's CompactTitle box). Raising it has
+// every titled poster fetched and both renditions drawn again; the regular
+// one comes out as it was, so its digest does not move.
+const CompactTitleVersion = "1"
+
+// CompactMark is what a compact poster records of what it was drawn for
+// (events.ArtworkMetaKeyCompact): CompactTitleVersion and the source's
+// TitleMark, and "" for a source with no logo, which has no compact twin.
+func (s Source) CompactMark() string {
+	mark := s.TitleMark()
+	if mark == "" {
+		return ""
+	}
+	return CompactTitleVersion + ":" + mark
+}
+
 // Titled is the posters and logo of a titled poster (owner, 2026-11-17: "For
 // anime posters, we should prefer posters with no text - where we will
 // overlay the english logo at the bottom center", and the same day for

@@ -272,6 +272,20 @@ func (f *Fetcher) Drop(ctx context.Context, ref catalogartwork.ObjectRef, t cata
 	if err := f.Store.Delete(ctx, key); err != nil && !errors.Is(err, events.ErrObjectNotFound) {
 		return fmt.Errorf("%w: delete %s: %w", ErrStore, key, err)
 	}
+	return f.dropCompact(ctx, ref, t)
+}
+
+// dropCompact deletes ref's compact poster, the twin of a titled original
+// (events.ArtworkVariantCompact): the poster is no longer titled, or is
+// gone. Only a poster has one; an absent object is success.
+func (f *Fetcher) dropCompact(ctx context.Context, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType) error {
+	if t != catalogv1alpha1.ImageTypePoster {
+		return nil
+	}
+	key := events.ArtworkKey(ref.Kind, ref.UID, string(t), events.ArtworkVariantCompact)
+	if err := f.Store.Delete(ctx, key); err != nil && !errors.Is(err, events.ErrObjectNotFound) {
+		return fmt.Errorf("%w: delete %s: %w", ErrStore, key, err)
+	}
 	return nil
 }
 
@@ -337,15 +351,20 @@ func (f *Fetcher) fetchPlain(ctx context.Context, key string, ref catalogartwork
 			body, facts.ContentType, facts.Width, facts.Height = out.body, out.contentType, out.width, out.height
 		}
 	}
-	return f.put(ctx, key, ref, t, body, facts)
+	if err := f.put(ctx, key, ref, t, events.ArtworkVariantOriginal, body, facts); err != nil {
+		return err
+	}
+	// A poster stored as its source has it carries no logo of ours, so it
+	// has no compact twin: one left from when it was titled goes.
+	return f.dropCompact(ctx, ref, t)
 }
 
-// put stores body at key with its complete set (artwork design §B.2 as
-// amended): a Put that omits a key releases it.
+// put stores body at key, ref's variant of type t, with its complete set
+// (artwork design §B.2 as amended): a Put that omits a key releases it.
 func (f *Fetcher) put(ctx context.Context, key string, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType,
-	body []byte, facts catalogartwork.Facts,
+	variant string, body []byte, facts catalogartwork.Facts,
 ) error {
-	_, err := f.Store.Put(ctx, key, bytes.NewReader(body), catalogartwork.ObjectMeta(ref, t, events.ArtworkVariantOriginal, facts))
+	_, err := f.Store.Put(ctx, key, bytes.NewReader(body), catalogartwork.ObjectMeta(ref, t, variant, facts))
 	if err != nil {
 		return fmt.Errorf("%w: put %s: %w", ErrStore, key, err)
 	}
@@ -400,15 +419,31 @@ func (f *Fetcher) fetchTitled(ctx context.Context, key string, ref catalogartwor
 		if text {
 			continue
 		}
+		// The compact twin first, on a copy of the art: the regular
+		// poster is then drawn on the canvas it has always been drawn on
+		// and comes out byte for byte as before, and an original that is
+		// stored has its twin stored already.
+		twin := image.NewRGBA(canvas.Bounds())
+		copy(twin.Pix, canvas.Pix)
+		small, err := f.titled(twin, mark, CompactTitle)
+		if err != nil {
+			return fmt.Errorf("the title logo: %w", err)
+		}
 		out, err := f.titled(canvas, mark, RegularTitle)
 		if err != nil {
 			return fmt.Errorf("the title logo: %w", err)
 		}
-		return f.put(ctx, key, ref, t, out.body, catalogartwork.Facts{
-			ContentType: out.contentType, Source: string(catalogv1alpha1.ArtworkSourceProvider), SourceURL: candidate,
-			Width: out.width, Height: out.height, UpdatedAt: f.now(),
-			Fit: catalogartwork.FitVersion, Title: src.TitleMark(), Titled: true,
-		})
+		facts := catalogartwork.Facts{
+			ContentType: small.contentType, Source: string(catalogv1alpha1.ArtworkSourceProvider), SourceURL: candidate,
+			Width: small.width, Height: small.height, UpdatedAt: f.now(),
+			Fit: catalogartwork.FitVersion, Title: src.TitleMark(), Titled: true, Compact: src.CompactMark(),
+		}
+		compactKey := events.ArtworkKey(ref.Kind, ref.UID, string(t), events.ArtworkVariantCompact)
+		if err := f.put(ctx, compactKey, ref, t, events.ArtworkVariantCompact, small.body, facts); err != nil {
+			return err
+		}
+		facts.ContentType, facts.Width, facts.Height, facts.Compact = out.contentType, out.width, out.height, ""
+		return f.put(ctx, key, ref, t, events.ArtworkVariantOriginal, out.body, facts)
 	}
 	if src.Plain != nil {
 		return f.fetchPlain(ctx, key, ref, t, *src.Plain, src.TitleMark())

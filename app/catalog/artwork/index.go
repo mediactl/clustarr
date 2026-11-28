@@ -118,6 +118,11 @@ type Object struct {
 	// Title is the Source.TitleMark the original was stored under, "" for
 	// none: the plan fetches a poster whose mark is not its source's.
 	Title string
+	// Titled reports a poster stored with its logo drawn, and Compact the
+	// Source.CompactMark of its compact twin, "" when there is none: the
+	// plan fetches a titled poster whose twin is not its source's.
+	Titled  bool
+	Compact string
 }
 
 // ObjectsFromIndex is what the index knows of each type's original of the
@@ -132,6 +137,12 @@ func ObjectsFromIndex(idx *objindex.Index, kind commonv1.MediaKind, uid types.UI
 		o := Object{Present: true, Digest: e.Digest, Unfit: Unfit(t, e.Metadata), Title: e.Metadata[events.ArtworkMetaKeyTitle]}
 		if entry, ok := EntryOf(t, e); ok {
 			o.Current, o.Source, o.SourceURL, o.UpdatedAt = true, entry.Source, entry.SourceURL, entry.UpdatedAt
+		}
+		if t == catalogv1alpha1.ImageTypePoster {
+			o.Titled = e.Metadata[events.ArtworkMetaKeyTitled] == "true"
+			if c, ok := idx.Lookup(events.ArtworkKey(kind, uid, string(t), events.ArtworkVariantCompact)); ok {
+				o.Compact = c.Metadata[events.ArtworkMetaKeyCompact]
+			}
 		}
 		out[t] = o
 	}

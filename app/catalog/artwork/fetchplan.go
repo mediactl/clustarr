@@ -99,6 +99,9 @@ func (p FetchPlan) Hash() string {
 		if f.Logo != "" {
 			// Only when set, so a plan with no titled poster keeps its hash.
 			_, _ = fmt.Fprintf(h, "logo\x00%s\x00%s\x00", TitleVersion, f.Logo)
+			// The fetch of a titled poster draws its compact twin too:
+			// the plan that asks for a missing twin is a new task.
+			_, _ = fmt.Fprintf(h, "compact\x00%s\x00", CompactTitleVersion)
 			for _, c := range f.Candidates {
 				_, _ = fmt.Fprintf(h, "candidate\x00%s\x00", c)
 			}
@@ -129,6 +132,9 @@ func (p FetchPlan) Hash() string {
 //     source's (Source.TitleMark: other posters, another logo, another
 //     TitleVersion), and a poster that carries a mark its source no longer
 //     has is fetched as any other;
+//   - a poster stored with its logo drawn whose compact twin is missing, or
+//     was drawn for another source or CompactTitleVersion
+//     (Source.CompactMark), is fetched: the fetch draws both;
 //   - an original whose type has no source any more is dropped when its
 //     metadata says it was a custom override (the override was removed); a
 //     provider's is kept, since a provider that did not list a type this
@@ -154,7 +160,11 @@ func PlanFetch(sources map[catalogv1alpha1.ImageType]Source, objects map[catalog
 			moved = false
 		}
 		need := !obj.Present || !obj.Current || moved ||
-			now.Sub(obj.UpdatedAt.Time) > RefetchAge || obj.Unfit || obj.Title != mark
+			now.Sub(obj.UpdatedAt.Time) > RefetchAge || obj.Unfit || obj.Title != mark ||
+			// A titled poster's compact twin is drawn in its fetch: one
+			// with no twin, or a twin of another source or version, is
+			// fetched. A poster stored plain has none and wants none.
+			(t == catalogv1alpha1.ImageTypePoster && obj.Titled && obj.Compact != src.CompactMark())
 		if !need {
 			continue
 		}

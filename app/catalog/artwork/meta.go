@@ -89,7 +89,11 @@ type Facts struct {
 	// the key out.
 	Title string
 	// Titled reports that the logo was drawn (events.ArtworkMetaKeyTitled).
-	Titled  bool
+	Titled bool
+	// Compact is the Source.CompactMark a compact poster was drawn for
+	// (events.ArtworkMetaKeyCompact); "" leaves the key out, as on every
+	// object that is not a compact poster.
+	Compact string
 	Overlay *OverlayFacts
 }
 
@@ -144,6 +148,9 @@ func ObjectMeta(ref ObjectRef, t catalogv1alpha1.ImageType, variant string, f Fa
 	}
 	if f.Titled {
 		meta[events.ArtworkMetaKeyTitled] = "true"
+	}
+	if f.Compact != "" {
+		meta[events.ArtworkMetaKeyCompact] = f.Compact
 	}
 	if o := f.Overlay; o != nil {
 		headers[HeaderRenderedFrom] = o.RenderedFrom
