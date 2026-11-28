@@ -88,3 +88,58 @@ func TestArtEventOnlyForServedDigestChanges(t *testing.T) {
 		"the event names the original's digest")
 	none("one change, one event")
 }
+
+// A compact twin (the compact-posters design, 2026-11-27) is not what a
+// page of the ui shows: its being stored, redrawn or deleted raises no art
+// event and leaves what the page was last told alone, so the next change of
+// the regular poster is still reported once.
+func TestACompactObjectRaisesNoArtEvent(t *testing.T) {
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(t.Context(), events.Default()))
+	store := bus.ObjectStore(events.BucketArtwork)
+	key := func(variant string) string {
+		return events.ArtworkKey(commonv1.MediaKindMovie, "u1", string(catalogv1.ImageTypePoster), variant)
+	}
+	put := func(name, body string) events.ObjectInfo {
+		t.Helper()
+		info, err := store.Put(t.Context(), name, strings.NewReader(body),
+			events.ObjectMeta{Headers: map[string]string{events.HeaderContentType: "image/jpeg"}})
+		require.NoError(t, err)
+		return info
+	}
+	put(key(events.ArtworkVariantOriginal), "original-1")
+	put(key(events.ArtworkVariantOverlay), "overlay-1")
+	put(key(events.ArtworkVariantCompact), "compact-1")
+
+	s := NewServer(t.Context(), Options{Artwork: store})
+	require.Eventually(t, s.artIndex.Synced, 10*time.Second, 10*time.Millisecond, "the artwork index never synced")
+	ch, cancel := s.artEvents.subscribe()
+	defer cancel()
+	none := func(why string) {
+		t.Helper()
+		select {
+		case e := <-ch:
+			t.Fatalf("%s, but got %+v", why, e)
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+
+	put(key(events.ArtworkVariantCompact), "compact-2")
+	none("a compact original redrawn")
+	put(key(events.ArtworkVariantOverlayCompact), "overlay-compact-1")
+	none("a compact overlay stored")
+	put(key(events.ArtworkVariantOverlayCompact), "overlay-compact-2")
+	none("a compact overlay redrawn")
+	require.NoError(t, store.Delete(t.Context(), key(events.ArtworkVariantOverlayCompact)))
+	require.NoError(t, store.Delete(t.Context(), key(events.ArtworkVariantCompact)))
+	none("the compact twins deleted")
+
+	newOverlay := put(key(events.ArtworkVariantOverlay), "overlay-2")
+	select {
+	case e := <-ch:
+		require.Equal(t, artEvent{Key: "movie/u1/poster", V: newOverlay.Digest}, e)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no art event for the regular overlay")
+	}
+	none("one change, one event")
+}

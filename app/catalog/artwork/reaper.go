@@ -303,7 +303,7 @@ func countObjects(objects []events.ObjectInfo) {
 	counts := map[[2]string]int{}
 	for _, o := range objects {
 		variant := o.Name[strings.LastIndex(o.Name, "/")+1:]
-		if variant != events.ArtworkVariantOriginal && variant != events.ArtworkVariantOverlay {
+		if !events.KnownArtworkVariant(variant) {
 			continue
 		}
 		v := o.Metadata[events.ArtworkMetaKeyVersion]

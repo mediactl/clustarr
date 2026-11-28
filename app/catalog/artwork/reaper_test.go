@@ -20,6 +20,7 @@ package artwork_test
 import (
 	"context"
 	"errors"
+	dto "github.com/prometheus/client_model/go"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/lastrun"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
 const grace = 30 * time.Minute
@@ -113,6 +115,36 @@ func TestReaperDeletesOnlyOrphansPastTheGracePeriod(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, deleted, "level-driven: the young orphan goes on a later sweep, once past the grace period")
 	assert.ElementsMatch(t, []string{liveOriginal, liveOverlay}, fx.names(t))
+}
+
+// The compact twins (the compact-posters design, 2026-11-27) are an item's
+// objects like the regular two: an item that is gone loses all four, and a
+// sweep counts all four by variant.
+func TestReaperSweepsAndCountsTheCompactVariants(t *testing.T) {
+	fx := newReapFixture(t)
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(liveMovie("live")).Build()
+	variants := []string{
+		events.ArtworkVariantOriginal, events.ArtworkVariantOverlay,
+		events.ArtworkVariantCompact, events.ArtworkVariantOverlayCompact,
+	}
+	var live []string
+	for _, v := range variants {
+		fx.put(t, commonv1.MediaKindMovie, "gone", "poster", v)
+		live = append(live, fx.put(t, commonv1.MediaKindMovie, "live", "poster", v))
+	}
+	fx.clock.Advance(grace + time.Minute)
+
+	deleted, err := fx.reaper(c).Sweep(fx.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 4, deleted)
+	assert.ElementsMatch(t, live, fx.names(t))
+
+	// The count is of the listing the sweep read: both items' objects.
+	for _, v := range variants {
+		var m dto.Metric
+		require.NoError(t, metrics.ArtworkObjects.WithLabelValues(v, "none").Write(&m))
+		assert.EqualValues(t, 2, m.GetGauge().GetValue(), "variant %s", v)
+	}
 }
 
 func TestReaperMatchesByKindAndUID(t *testing.T) {

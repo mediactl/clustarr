@@ -195,6 +195,15 @@ const (
 	// entry per provider account (UsenetAccountKey) listing every engine
 	// pod's grants, each with its own expiry (spec 2026-10-16 §3).
 	BucketUsenetConnections = "clustarr-usenet-connections"
+	// BucketUsenetUsage holds what has been read from each metered usenet
+	// provider account in its quota period (UsenetUsageKey), added to by
+	// every engine pod under compare-and-swap. Durable: a block account's
+	// count must outlive a bus restart.
+	BucketUsenetUsage = "clustarr-usenet-usage"
+	// BucketEngineBudgets holds each usenet engine's bandwidth budget
+	// (EngineBudgetKey), written by the DownloadClient controller and
+	// watched by the engine (spec 2026-11-27 §5.2).
+	BucketEngineBudgets = "clustarr-engine-budgets"
 	// BucketMaintenance holds when each of the manager's periodic sweeps
 	// last finished (pkg/lastrun), one key a sweep. The manager's leader
 	// writes it and reads it at its start.
@@ -293,10 +302,28 @@ const (
 // ArtworkVariant is "original" or "overlay", the last token of an
 // ArtworkKey and the Clustarr-Rendered-From-bearing half of the split
 // between the metadata gateway and the renderer (spec §B.2, §B.3).
+//
+// Each has a compact twin (the compact-posters design, 2026-11-27): the
+// same poster with its title image and its badges drawn larger, for a
+// client that shows it small. "compact" is the metadata gateway's, beside
+// its original, and exists only for a titled poster; "overlay-compact" is
+// the renderer's, beside its overlay, drawn on the compact when there is
+// one and on the original when there is not.
 const (
-	ArtworkVariantOriginal = "original"
-	ArtworkVariantOverlay  = "overlay"
+	ArtworkVariantOriginal       = "original"
+	ArtworkVariantOverlay        = "overlay"
+	ArtworkVariantCompact        = "compact"
+	ArtworkVariantOverlayCompact = "overlay-compact"
 )
+
+// KnownArtworkVariant reports whether v is a variant an ArtworkKey ends in.
+func KnownArtworkVariant(v string) bool {
+	switch v {
+	case ArtworkVariantOriginal, ArtworkVariantOverlay, ArtworkVariantCompact, ArtworkVariantOverlayCompact:
+		return true
+	}
+	return false
+}
 
 // ArtworkMetaVersion is the version of the metadata set every artwork object
 // carries (artwork design §B.2 as amended 2026-10-07), recorded under
@@ -346,8 +373,12 @@ const (
 	// for (app/catalog/artwork.Source.TitleMark): the version and a hash of
 	// its posters and logo. Absent on a poster no title was planned for.
 	// ArtworkMetaKeyTitled says "true" on one stored with the logo drawn.
-	ArtworkMetaKeyTitle    = "clustarr.io/title"
-	ArtworkMetaKeyTitled   = "clustarr.io/titled"
+	ArtworkMetaKeyTitle  = "clustarr.io/title"
+	ArtworkMetaKeyTitled = "clustarr.io/titled"
+	// ArtworkMetaKeyCompact is, on a compact object, the titled source and
+	// compact title version it was drawn for
+	// (app/catalog/artwork.Source.CompactMark).
+	ArtworkMetaKeyCompact  = "clustarr.io/compact"
 	BucketMetaKeyKeyScheme = "clustarr.io/key-scheme"
 )
 
@@ -666,7 +697,7 @@ func MsgIDForImageSetAt(itemUID string, seq int64, at time.Time) string {
 // "/" as its own segment separator, so a caller-supplied "/" would forge a
 // segment boundary the same way an unescaped "." would inside a subject
 // token (see MediaKey's doc comment). Every part -- the media kind, the
-// object's UID, the CRD's ImageType enum and ArtworkVariantOriginal/Overlay
+// object's UID, the CRD's ImageType enum and an ArtworkVariant
 // -- is a value the caller controls, not user input, so a panic here is a
 // caller bug, not a runtime condition to recover from.
 func ArtworkKey(kind commonv1.MediaKind, uid types.UID, imageType, variant string) string {
@@ -799,6 +830,16 @@ func TranscodeLeaseKey(mediaFileUID string) string { return "lease." + KVKeyToke
 // clustarr-usenet-connections; account is "host:port:username"
 // (usenet.Provider.Account), escaped injectively.
 func UsenetAccountKey(account string) string { return "account." + KVKeyToken(account) }
+
+// UsenetUsageKey is a provider account's quota count in
+// clustarr-usenet-usage.
+func UsenetUsageKey(account string) string { return "usage." + KVKeyToken(account) }
+
+// EngineBudgetKey is an engine's bandwidth budget in
+// clustarr-engine-budgets, by its DownloadClient's name and its ordinal.
+func EngineBudgetKey(client string, ordinal int32) string {
+	return "budget." + KVKeyToken(client) + "." + strconv.Itoa(int(ordinal))
+}
 
 // MsgIDForTranscodeTask is a transcode dispatch's Msg-Id,
 // "transcode/<mfUID>/<seq>" (loop spec §5.3): a republish of one seq inside
